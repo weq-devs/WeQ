@@ -122,6 +122,15 @@ function IntentPill({
 const INTENT_LOADING_ICONS = Object.values(INTENT_META).map(({ icon }) => icon);
 const EMOTION_LOADING_ICONS = Object.values(EMOTION_META).map(({ icon }) => icon);
 
+function IntentPillPlaceholder({ emotion = false }: { emotion?: boolean }) {
+  const Icon = emotion ? Minus : HelpCircle;
+  return (
+    <span className="weq-intent-pill is-placeholder" aria-hidden>
+      <Icon size={14} strokeWidth={1.8} />
+    </span>
+  );
+}
+
 /** 单轮结束后再换图标；离场末帧保持隐藏，避免循环归零时闪回。 */
 function IntentPillLoading({ emotion = false }: { emotion?: boolean }) {
   const icons = emotion ? EMOTION_LOADING_ICONS : INTENT_LOADING_ICONS;
@@ -218,6 +227,17 @@ export function MessageIntentSense({
   const unavailable = isUnavailable?.(msgId) ?? false;
   const pending = ctx?.isPending?.(msgId) ?? false;
   const failure = ctx?.getFailure?.(msgId);
+  const displayState = result
+    ? 'ready'
+    : unavailable
+      ? 'unavailable'
+      : failure
+        ? 'error'
+        : pending
+          ? 'pending'
+          : ctx?.cacheState === 'loading'
+            ? 'preparing'
+            : 'idle';
   void version;
 
   useEffect(() => {
@@ -400,7 +420,7 @@ export function MessageIntentSense({
   };
   const chips = result ? (
     <IntentChips result={result} />
-  ) : pending ? (
+  ) : displayState === 'pending' ? (
     <>
       <IntentPillLoading />
       <IntentPillLoading emotion />
@@ -411,22 +431,26 @@ export function MessageIntentSense({
       <span>分析失败</span>
     </>
   ) : (
-    <span className="weq-intent-details-hint">
-      <Info size={12} />
-      分析详情
-    </span>
+    <>
+      <IntentPillPlaceholder />
+      <IntentPillPlaceholder emotion />
+    </>
   );
 
   return (
     <>
       {/* 文本消息保留同高槽位，无结果/失败都不收缩气泡。 */}
       {persistentDisplay && (analyzable !== false || result) ? (
-        <span className="weq-intent-chips" aria-busy={pending}>
+        <span
+          className="weq-intent-chips"
+          data-intent-state={displayState}
+          aria-busy={displayState === 'pending'}
+        >
           {!unavailable && (hoverActive || failure) ? (
             <span
               role="group"
               tabIndex={hoverActive ? 0 : undefined}
-              className={`weq-intent-details${!result && !pending && !failure ? ' is-empty' : ''}`}
+              className="weq-intent-details"
               aria-label="消息意图与情绪"
               aria-describedby={showPopover ? tooltipId : undefined}
               onFocus={openDetails}
@@ -434,9 +458,9 @@ export function MessageIntentSense({
             >
               {chips}
             </span>
-          ) : !unavailable && (result || pending) ? (
+          ) : (
             chips
-          ) : null}
+          )}
         </span>
       ) : null}
       {!persistentDisplay && hoverActive && analyzable !== false && !unavailable ? (

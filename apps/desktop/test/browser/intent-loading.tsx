@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { IntentSenseProvider } from '../../src/renderer/src/components/intentSense/context';
 import {
@@ -8,24 +8,52 @@ import {
 import { IntentSuggestionBar } from '../../src/renderer/src/components/intentSense/IntentSuggestionBar';
 import { AffinityPill } from '../../src/renderer/src/components/intentSense/AffinityPill';
 import { IntentProfileDialog } from '../../src/renderer/src/components/intentSense/IntentProfileDialog';
-import { setMode, setHistory, result, publishResult, publishProgress } from './intent-loading.stub';
+import {
+  setMode,
+  setHistory,
+  result,
+  publishResult,
+  publishProgress,
+  releaseCache,
+} from './intent-loading.stub';
 import '../../src/renderer/src/styles/index.css';
 
-const qa = { setMode, setHistory, publishResult, publishProgress, located: null as unknown };
+const qa = {
+  setMode,
+  setHistory,
+  publishResult,
+  publishProgress,
+  releaseCache,
+  located: null as unknown,
+  setMessages: (_ids: string[]) => {},
+  frames: [] as Array<{ id: string; pills: number; height: number; visible: boolean }>,
+};
 Object.assign(window, { intentQa: qa });
-function Bubble() {
+function Bubble({ msgId }: { msgId: string }) {
   const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const bubble = ref.current!;
+    const chips = bubble.querySelector<HTMLElement>('.weq-intent-chips')!;
+    qa.frames.push({
+      id: msgId,
+      pills: chips.querySelectorAll('.weq-intent-pill').length,
+      height: bubble.getBoundingClientRect().height,
+      visible: getComputedStyle(chips.firstElementChild!).opacity === '1',
+    });
+  });
   return (
     <div className="message-line">
-      <div className="message-bubble" ref={ref}>
+      <div className="message-bubble" data-message-id={msgId} ref={ref}>
         <span className="message-text">复古（）</span>
-        <MessageIntentSense msgId="message" bubbleRef={ref} analyzable />
+        <MessageIntentSense msgId={msgId} bubbleRef={ref} analyzable />
       </div>
     </div>
   );
 }
 function Fixture() {
   const [draft, setDraft] = useState('');
+  const [ids, setIds] = useState(['message']);
+  qa.setMessages = setIds;
   return (
     <>
       <style>{`
@@ -50,9 +78,16 @@ function Fixture() {
             <span>合成会话</span>
             <AffinityPill peerUid="fixture" />
           </header>
-          <IntentSenseProvider kind="c2c" conv="fixture" latestPeerMsgId="message">
+          <IntentSenseProvider
+            kind="c2c"
+            conv="fixture"
+            latestPeerMsgId={ids.at(-1)!}
+            roamingMessageKey={ids.filter((id) => id.startsWith('roaming:')).join('|')}
+          >
             <div className="message-scroll">
-              <Bubble />
+              {ids.map((msgId) => (
+                <Bubble key={msgId} msgId={msgId} />
+              ))}
             </div>
           </IntentSenseProvider>
           <IntentSuggestionBar

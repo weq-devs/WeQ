@@ -14,6 +14,10 @@ const progressListeners = new Set<(event: IntentAnalysisProgress) => void>();
 const resultListeners = new Set<(event: IntentAnalyzedEvent) => void>();
 const readySuggestions = [{ text: '有空一起聊聊', tone: '自然' }];
 const noSuggestions: typeof readySuggestions = [];
+let finishCache: ((results: IntentSenseResult[]) => void) | undefined;
+export function releaseCache() {
+  finishCache?.([]);
+}
 let finish:
   | ((stats: { analyzed: number; failed: number; latestMsgId: string }) => void)
   | undefined;
@@ -29,9 +33,9 @@ export const result: IntentSenseResult = {
   engine: 'api',
   analyzedAt: 1000,
 };
-export function publishResult() {
+export function publishResult(msgId = 'message') {
   for (const listener of resultListeners)
-    listener({ kind: 'c2c', conv: 'fixture', results: [result] });
+    listener({ kind: 'c2c', conv: 'fixture', results: [{ ...result, msgId }] });
 }
 export function publishProgress(
   progress: Pick<IntentAnalysisProgress, 'total' | 'completed' | 'failed' | 'pendingIds'>,
@@ -185,7 +189,14 @@ export const client = {
   account: {
     intentSense: {
       listMessageAnalyses: {
-        query: async () => (mode === 'ready' || mode === 'error' ? [result] : []),
+        query: async () =>
+          mode === 'ready' || mode === 'error'
+            ? [result]
+            : new URLSearchParams(location.search).has('first-frame')
+              ? new Promise<IntentSenseResult[]>((resolve) => {
+                  finishCache = resolve;
+                })
+              : [],
       },
       ensureAnalysis: {
         mutate: () =>

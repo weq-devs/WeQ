@@ -129,7 +129,7 @@ html[data-theme='dark'] {
 }
 
 /* 批次状态统一播报；内部图标逐枚描画并左移，胶囊保持原位。 */
-.weq-intent-pill.is-loading {
+.weq-intent-pill:is(.is-loading, .is-placeholder) {
   display: inline-flex;
   padding: 0;
   color: color-mix(in srgb, var(--weq-fg-secondary) 82%, var(--weq-accent-effective));
@@ -138,7 +138,7 @@ html[data-theme='dark'] {
   overflow: hidden;
 }
 
-html[data-theme='dark'] .weq-intent-pill.is-loading {
+html[data-theme='dark'] .weq-intent-pill:is(.is-loading, .is-placeholder) {
   background: color-mix(in srgb, var(--weq-fg-muted) 10%, var(--weq-bg-surface));
   border-color: color-mix(in srgb, var(--weq-fg-muted) 24%, var(--weq-bg-surface));
 }
@@ -210,17 +210,6 @@ html[data-theme='dark'] .weq-intent-pill.is-loading {
 }
 .weq-intent-details {
   min-width: 108px;
-}
-.weq-intent-details-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.weq-intent-details.is-empty {
-  opacity: 0;
-}
-.weq-intent-details.is-empty:focus-visible {
-  opacity: 1;
 }
 .weq-intent-focus-trigger {
   position: absolute;

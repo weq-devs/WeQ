@@ -44,6 +44,8 @@ export interface IntentSenseContextValue {
   active: boolean;
   persistentDisplay?: boolean;
   hoverDisplay?: boolean;
+  /** 当前会话缓存的读取状态；不把读取缓存误报为消息分析在途。 */
+  cacheState?: 'loading' | 'ready' | 'error';
   /** 数据版本（每次合并 bump；消费者以此触发重渲染）。 */
   version: number;
   /** 读单条结果（未分析过返回 undefined）。 */
@@ -115,6 +117,10 @@ export function IntentSenseProvider({
   const [version, setVersion] = useState(0);
   const [settled, setSettled] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [cacheRead, setCacheRead] = useState<{
+    scope: string;
+    state: 'ready' | 'error';
+  } | null>(null);
   const [batch, setBatch] = useState<{
     scope: string;
     running: boolean;
@@ -159,6 +165,8 @@ export function IntentSenseProvider({
   );
 
   const engineKey = `${statusData?.engine ?? ''}::${modelSelectionKey(statusData?.providerRef)}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}::${statusData?.analyzeAfterSelf !== false}`;
+  const scope = `${kind}:${conv}:${engineKey}`;
+  const cacheState = cacheRead?.scope === scope ? cacheRead.state : 'loading';
   // 会话切换或引擎切换时同步清空内存态（放在拉取缓存之前，避免清理掉刚拉回的同轮结果）。
   const prevConvKeyRef = useRef(`${kind}:${conv}:${engineKey}`);
   if (prevConvKeyRef.current !== `${kind}:${conv}:${engineKey}`) {
@@ -211,19 +219,24 @@ export function IntentSenseProvider({
   useEffect(() => {
     if (!effective || !conv) return;
     let disposed = false;
+    const expected = scope;
     setSettled(false);
     void client.account.intentSense.listMessageAnalyses
       .query({ kind, conv })
       .then((results) => {
-        if (!disposed) merge(results as IntentAnalysis[]);
+        if (!disposed && prevConvKeyRef.current === expected) {
+          merge(results as IntentAnalysis[]);
+          setCacheRead({ scope: expected, state: 'ready' });
+        }
       })
       .catch(() => {
-        /* 无账号会话等场景静默 */
+        if (!disposed && prevConvKeyRef.current === expected)
+          setCacheRead({ scope: expected, state: 'error' });
       });
     return () => {
       disposed = true;
     };
-  }, [kind, conv, effective, engineKey, merge]);
+  }, [kind, conv, effective, scope, merge]);
 
   // 先订阅真实批次范围，再启动任务；服务端会补发当前在途快照。
   useEffect(() => {
@@ -413,6 +426,7 @@ export function IntentSenseProvider({
       active: effective,
       persistentDisplay: statusData?.persistentDisplay !== false,
       hoverDisplay: statusData?.hoverDisplay !== false,
+      cacheState,
       version,
       getAnalysis,
       isUnavailable,
@@ -430,6 +444,7 @@ export function IntentSenseProvider({
       effective,
       statusData?.persistentDisplay,
       statusData?.hoverDisplay,
+      cacheState,
       version,
       getAnalysis,
       isUnavailable,

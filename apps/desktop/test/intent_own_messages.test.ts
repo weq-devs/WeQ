@@ -39,6 +39,7 @@ const fixture = vi.hoisted(() => ({
     isUnavailable: vi.fn(),
     requestAnalysis: vi.fn(),
     isPending: vi.fn(),
+    getFailure: vi.fn(),
   },
   query: vi.fn(),
 }));
@@ -55,7 +56,15 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: { account: { intentSense: { getSuggestions: { useQuery: fixture.query } } } },
+  trpc: {
+    account: {
+      intentSense: {
+        getSuggestions: { useQuery: fixture.query },
+        getSuggestionRound: { useQuery: fixture.query },
+        getSuggestionHistory: { useQuery: () => ({ data: [], isLoading: false }) },
+      },
+    },
+  },
 }));
 const cleanups: Array<() => void> = [];
 beforeEach(() => {
@@ -68,6 +77,7 @@ beforeEach(() => {
   fixture.context.settled = true;
   fixture.context.isPending.mockReset().mockReturnValue(false);
   fixture.context.isUnavailable.mockReset().mockReturnValue(false);
+  fixture.context.getFailure.mockReset().mockReturnValue(undefined);
   fixture.context.requestAnalysis.mockClear();
   fixture.query.mockReset().mockReturnValue({ data: [{ text: '旧候选' }], isFetching: false });
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
@@ -173,6 +183,48 @@ it('单条历史消息分析在途时，即使批次已结束也显示加载窄�
   expect(host.querySelector('[data-loading-kind="emotion"] svg')).not.toBeNull();
   expect(host.querySelectorAll('.weq-intent-loading-reel')).toHaveLength(2);
   expect(host.querySelectorAll('.weq-intent-pill.is-loading[aria-hidden="true"]')).toHaveLength(2);
+});
+
+it.each(['history', 'fetched', 'roaming:protocol:2:77'])(
+  '%s 首次挂载就显示两个静态占位，不等待批次进度，也不触发分析',
+  async (msgId) => {
+    fixture.context.getAnalysis.mockReturnValue(undefined);
+    const host = await render(h(OwnBubble, { msgId }));
+    expect(host.querySelectorAll('.weq-intent-pill.is-placeholder')).toHaveLength(2);
+    expect(host.querySelector('.weq-intent-details.is-empty')).toBeNull();
+    expect(host.querySelector('.is-loading')).toBeNull();
+    expect(host.querySelector('.weq-intent-chips')?.getAttribute('aria-busy')).toBe('false');
+    expect(fixture.context.requestAnalysis).not.toHaveBeenCalled();
+    fixture.context.isPending.mockReturnValue(true);
+    await host.rerender();
+    expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(2);
+    fixture.context.getAnalysis.mockReturnValue(fixture.result);
+    await host.rerender();
+    expect(host.querySelectorAll('.weq-intent-pill')).toHaveLength(2);
+    expect(host.querySelector('.is-placeholder')).toBeNull();
+    expect(host.querySelector('.weq-intent-chips')?.getAttribute('aria-busy')).toBe('false');
+  },
+);
+
+it('关闭悬停后仍显示静态占位；纯媒体不因批次在途出现加载胶囊', async () => {
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  fixture.context.hoverDisplay = false;
+  const host = await render(h(OwnBubble));
+  expect(host.querySelectorAll('.weq-intent-pill.is-placeholder')).toHaveLength(2);
+  fixture.context.isPending.mockReturnValue(true);
+  const media = await render(h(OwnBubble, { analyzable: false }));
+  expect(media.querySelector('.weq-intent-chips')).toBeNull();
+});
+
+it('失败状态原位显示，不因残留批次进度继续播放加载动画', async () => {
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  fixture.context.getFailure.mockReturnValue('合成错误');
+  fixture.context.isPending.mockReturnValue(true);
+  const host = await render();
+  expect(host.querySelector('.weq-intent-chips')?.getAttribute('data-intent-state')).toBe('error');
+  expect(host.querySelector('.weq-intent-chips')?.getAttribute('aria-busy')).toBe('false');
+  expect(host.textContent).toContain('分析失败');
+  expect(host.querySelector('.is-loading')).toBeNull();
 });
 
 it('待分析胶囊每轮离场后切换图标，忽略内部笔画周期并分别随机覆盖两套图标', async () => {
