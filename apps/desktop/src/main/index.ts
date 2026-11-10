@@ -749,6 +749,10 @@ void app.whenReady().then(async () => {
     arch: process.arch,
   });
   if (!hasSingleInstanceLock) return;
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    const icon = resolveWindowIcon();
+    if (icon) app.dock?.setIcon(icon);
+  }
   const autostart =
     app.isPackaged &&
     isAutostartLaunch(
