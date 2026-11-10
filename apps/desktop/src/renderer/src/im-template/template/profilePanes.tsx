@@ -205,9 +205,14 @@ function ProfileSurface({
     <div className="weq-contact-profile">
       <header className="weq-contact-profile-toolbar">
         <strong>{title}</strong>
-        <button type="button" onClick={overlayProps.onClose}>
-          <Waypoints size={15} />
-          群交集
+        <button
+          className="weq-settings-close"
+          type="button"
+          title="关闭资料"
+          aria-label="关闭资料"
+          onClick={overlayProps.onClose}
+        >
+          <X size={18} />
         </button>
       </header>
       {children}

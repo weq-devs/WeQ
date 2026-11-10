@@ -111,6 +111,38 @@ try {
           };
         });
         const label = `${sparse ? 'sparse' : 'full'}/${componentStyle}/${theme}/${width}`;
+        const close = page.getByRole('button', { name: '关闭资料', exact: true });
+        await close.focus();
+        const closeStyle = await close.evaluate((button) => {
+          const style = getComputedStyle(button);
+          return {
+            width: button.getBoundingClientRect().width,
+            height: button.getBoundingClientRect().height,
+            text: button.textContent.trim(),
+            iconSize: button.querySelector('svg')?.getAttribute('width'),
+            outlineStyle: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+          };
+        });
+        assert.deepEqual(
+          closeStyle,
+          {
+            width: 32,
+            height: 32,
+            text: '',
+            iconSize: '18',
+            outlineStyle: 'solid',
+            outlineWidth: '2px',
+          },
+          `${label}: 关闭按钮样式或键盘焦点异常`,
+        );
+        const closeCount = await page.evaluate(() => window.groupLayoutQa.closeCount);
+        await close.press('Enter');
+        assert.equal(
+          await page.evaluate(() => window.groupLayoutQa.closeCount),
+          closeCount + 1,
+          `${label}: 未触发资料关闭回调`,
+        );
         if (output && !sparse && [1180, 390].includes(width)) {
           await page.screenshot({
             path: resolve(output, `${label.replaceAll('/', '-')}.png`),

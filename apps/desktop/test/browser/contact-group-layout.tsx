@@ -7,7 +7,8 @@ import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 
 ensureThemeInitialized();
-Object.assign(window, { groupLayoutQa: { store: useThemeStore } });
+const qa = { store: useThemeStore, closeCount: 0 };
+Object.assign(window, { groupLayoutQa: qa });
 const noop = () => {};
 const group: GroupConversation = {
   id: '20001',
@@ -53,7 +54,7 @@ createRoot(document.getElementById('root')!).render(
       <GroupProfileDialog
         conversation={group}
         embedded
-        onClose={noop}
+        onClose={() => qa.closeCount++}
         details={
           <GroupInfoPanel
             layout="profile"
