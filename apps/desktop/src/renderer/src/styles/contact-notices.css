@@ -117,6 +117,35 @@
   overflow-wrap: anywhere;
 }
 
+.weq-notice-dialog .notice-card-request .notice-copy button.notice-group-name {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: inherit;
+  color: var(--weq-fg-secondary);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.weq-notice-dialog .notice-card-request .notice-copy button.notice-group-name:hover {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.weq-notice-dialog button.notice-group-name:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
 .weq-notice-dialog .notice-action-text,
 .weq-notice-dialog .notice-operator,
 .weq-notice-dialog .notice-sysremark {
@@ -125,6 +154,11 @@
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog.weq-notice-panel .notice-card-request .notice-operator {
+  overflow: visible;
+  white-space: normal;
 }
 
 .weq-notice-dialog .notice-fields {
@@ -163,6 +197,12 @@
   font-size: 11px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog.weq-notice-panel .notice-card-request .notice-meta time {
+  max-width: 76px;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
 }
 
 .weq-notice-dialog .notice-state {

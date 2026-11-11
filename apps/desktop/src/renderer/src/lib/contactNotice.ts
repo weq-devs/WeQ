@@ -1,5 +1,21 @@
 import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
 
+const noticeTime = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
+export function formatNoticeTimestamp(value: string): string {
+  const time = Date.parse(value);
+  return Number.isFinite(time) && time > 0 ? noticeTime.format(time) : '';
+}
+
 export function groupNoticeId(notify: { groupUin: string; operatedUid: string; msgTime: number }) {
   return `group-notify:${notify.groupUin}:${notify.operatedUid}:${notify.msgTime}`;
 }

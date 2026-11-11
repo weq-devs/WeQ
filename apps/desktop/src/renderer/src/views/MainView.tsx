@@ -3357,6 +3357,7 @@ function MainWorkspace(): ReactElement {
     accountUin: string | null;
     conversation: Extract<Conversation, { type: 'group' }>;
     anchor: HTMLElement;
+    detailsKnown?: boolean;
   } | null>(null);
 
   const [editorState, setEditorState] = useState<{
@@ -11509,6 +11510,25 @@ function MainWorkspace(): ReactElement {
                       onOpenProfile={(member, anchor, group) =>
                         setMemberCard({ member, anchor, groupContext: group ?? null })
                       }
+                      onOpenGroupProfile={(group, anchor) => {
+                        const known = contactDirectoryConversations.find(
+                          (item) => item.type === 'group' && item.id === group.code,
+                        );
+                        setMemberCard(null);
+                        setNumberGroupCard({
+                          accountUin: openedUin,
+                          conversation:
+                            known?.type === 'group'
+                              ? known
+                              : sharedGroupConversation({
+                                  code: group.code,
+                                  name: group.name || group.code,
+                                  avatar: avatarFromGroupCode(group.code) ?? '',
+                                }),
+                          detailsKnown: known?.type === 'group',
+                          anchor,
+                        });
+                      }}
                     />
                   ) : shell.view === 'annual' ? (
                     <Suspense fallback={workspaceLoading}>
@@ -12156,7 +12176,7 @@ function MainWorkspace(): ReactElement {
             <GroupProfileDialog
               conversation={numberGroupCard.conversation}
               anchor={numberGroupCard.anchor}
-              detailsKnown={false}
+              detailsKnown={numberGroupCard.detailsKnown ?? false}
               onClose={() => setNumberGroupCard(null)}
             />
           ) : null}

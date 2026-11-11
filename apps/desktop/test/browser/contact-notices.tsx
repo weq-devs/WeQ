@@ -1,5 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
+import { useState } from 'react';
+import { GroupProfileDialog } from '../../src/renderer/src/im-template/template/profilePanes';
+import { sharedGroupConversation } from '../../src/renderer/src/components/ark/groupShareCard';
 import {
   ContactNoticeDialog,
   GroupNoticeDialog,
@@ -28,7 +31,7 @@ const requests: ContactRequest[] = Array.from({ length: 12 }, (_, index) => ({
   },
   status: 'pending',
   direction: 'incoming',
-  createdAt: '2026-11-07T00:00:00+08:00',
+  createdAt: '2026-11-07T00:00:37+08:00',
   respondedAt: null,
   message: index % 2 ? '合成长留言'.repeat(20) : '合成申请留言',
 }));
@@ -48,12 +51,41 @@ const groupRequests: GroupJoinRequest[] = requests.map((request, index) => ({
   },
   action: '申请加入',
   handleState: 'pending',
-  respondedAt: null,
+  respondedAt: index % 3 === 0 ? '2026-11-07T01:02:49+08:00' : null,
   systemRemark: null,
-  operator: null,
+  operator: index % 3 === 0 ? request.user : null,
   message: `问题：合成问题\n答案：${request.message}`,
   isDoubt: index % 2 === 1,
 }));
+function NoticePanels({ group }: { group: boolean }) {
+  const [card, setCard] = useState<{
+    code: string;
+    name: string;
+    anchor: HTMLButtonElement;
+  } | null>(null);
+  return (
+    <>
+      {group ? (
+        <GroupNoticeDialog
+          open
+          requests={groupRequests}
+          onClose={() => {}}
+          onOpenGroupProfile={(group, anchor) => setCard({ ...group, anchor })}
+        />
+      ) : (
+        <ContactNoticeDialog open requests={requests} onClose={() => {}} />
+      )}
+      {card && (
+        <GroupProfileDialog
+          conversation={sharedGroupConversation({ code: card.code, name: card.name, avatar: '' })}
+          anchor={card.anchor}
+          detailsKnown={false}
+          onClose={() => setCard(null)}
+        />
+      )}
+    </>
+  );
+}
 function render(group: boolean, cards: Element[] = []) {
   root.render(
     <WorkspacePages navigationKey="contacts">
@@ -69,11 +101,7 @@ function render(group: boolean, cards: Element[] = []) {
       <div className="app-shell notice-qa-shell">
         <aside className="notice-qa-sidebar">联系人</aside>
         <WorkspaceContent>
-          {group ? (
-            <GroupNoticeDialog open requests={groupRequests} onClose={() => {}} />
-          ) : (
-            <ContactNoticeDialog open requests={requests} onClose={() => {}} />
-          )}
+          <NoticePanels group={group} />
         </WorkspaceContent>
         {cards.map((card, index) =>
           createPortal(
