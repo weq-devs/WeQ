@@ -330,6 +330,7 @@ import type { AppSearchEntry, ToolSearchRequest } from '../components/search/app
 import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
+import { WorkspaceStartupLoading } from '../components/WorkspaceStartupLoading';
 import { displayGroupMemberName } from '../im-template/template/user';
 import {
   ChatNavigationContext,
@@ -2370,7 +2371,7 @@ export function MainView(): ReactElement {
     config.data?.uin === uin && config.data.configId
       ? JSON.stringify([uin, config.data.configId])
       : null;
-  if (config.isLoading) return workspaceLoading;
+  if (config.isLoading) return <WorkspaceStartupLoading />;
   const workspace = (
     <PageSnapshots scope={scope} resetOnMount={startupPage !== null}>
       <MainWorkspace key={scope ?? `pending:${uin ?? ''}`} />
@@ -2380,7 +2381,7 @@ export function MainView(): ReactElement {
     <WebBusinessCache
       key={scope}
       scope={JSON.stringify([location.origin, scope])}
-      fallback={workspaceLoading}
+      fallback={<WorkspaceStartupLoading />}
     >
       {workspace}
     </WebBusinessCache>

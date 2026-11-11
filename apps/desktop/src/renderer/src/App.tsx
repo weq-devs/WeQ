@@ -47,6 +47,7 @@ import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
 import { ChatQqShowEnabledContext, resetChatQqShowCache } from './lib/chatQqShow';
 import { WarmupSplash } from './components/WarmupSplash';
+import { WorkspaceStartupLoading } from './components/WorkspaceStartupLoading';
 import { trpc } from './trpc/client';
 import { dressUrl } from './lib/resourceUrl';
 import { setWindowLayout } from './lib/windowLayout';
@@ -233,16 +234,7 @@ export default function App(): ReactElement {
               <BootstrapView />
             ) : (
               <ContentSelectionProvider key={openedUin ?? ''}>
-                <Suspense
-                  fallback={
-                    <div
-                      data-weq-startup-pending
-                      className="weq-home-shell h-screen overflow-hidden font-sans text-foreground"
-                    >
-                      <WarmupSplash hint="正在加载会话界面" />
-                    </div>
-                  }
-                >
+                <Suspense fallback={<WorkspaceStartupLoading />}>
                   <MainView />
                 </Suspense>
               </ContentSelectionProvider>
