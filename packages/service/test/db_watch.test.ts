@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AccountSession } from '@weq/account';
 
 const fs = vi.hoisted(() => ({
   files: new Map<string, { size: number; mtimeMs: number }>(),
   listener: undefined as ((event: string, filename: string | null) => void) | undefined,
   close: vi.fn(),
   failWatch: false,
+  error: undefined as (() => void) | undefined,
 }));
 vi.mock('node:fs', () => ({
   readdirSync: () => [...fs.files.keys()],
@@ -15,10 +17,16 @@ vi.mock('node:fs', () => ({
   watch: (_path: string, _options: unknown, listener: typeof fs.listener) => {
     if (fs.failWatch) throw new Error('watch unavailable');
     fs.listener = listener;
-    return { close: fs.close, on: vi.fn() };
+    return {
+      close: fs.close,
+      on: (event: string, listener: () => void) => {
+        if (event === 'error') fs.error = listener;
+      },
+    };
   },
 }));
 import { DbWatchService } from '../src/account/db_watch';
+import { createNtMsgDbHook } from '../src/account/nt_msg_hook';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -26,9 +34,109 @@ afterEach(() => {
   fs.listener = undefined;
   fs.close.mockClear();
   fs.failWatch = false;
+  fs.error = undefined;
 });
 
 describe('数据库文件变化监听', () => {
+  it('卸载真实消息 hook 时取消独立补齐重试，不继续持有旧账号读取', async () => {
+    vi.useFakeTimers();
+    fs.files.set('nt_msg.db', { size: 10, mtimeMs: 1 });
+    let watermark = 0n;
+    const listSeqWatermarks = vi.fn(async () => [
+      { targetUid: '123456', chatType: 2, msgSeq: watermark, sendTime: 1n },
+    ]);
+    const listAfter = vi.fn(async () => []);
+    const hook = createNtMsgDbHook(
+      {
+        msgDbPath: '/fixture/nt_msg.db',
+        recentContacts: { listSeqWatermarks },
+        groupMsgs: { listAfter },
+      } as unknown as AccountSession,
+      { onDbChanged: () => {}, onNewMessages: vi.fn() },
+    );
+    const dispose = vi.spyOn(hook, 'dispose');
+    const service = new DbWatchService();
+    const handle = service.mount(hook);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      watermark = 1n;
+      fs.files.set('nt_msg.db', { size: 10, mtimeMs: 2 });
+      service.pollNow();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(listAfter).toHaveBeenCalledOnce();
+      const reads = listSeqWatermarks.mock.calls.length;
+      handle.unmount();
+      handle.unmount();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(listSeqWatermarks).toHaveBeenCalledTimes(reads);
+      expect(listAfter).toHaveBeenCalledOnce();
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      service.dispose();
+      hook.dispose?.();
+    }
+  });
+
+  it('文件监听报错只关闭 watcher，轮询回退仍运行原任务，最终卸载才释放', async () => {
+    vi.useFakeTimers();
+    fs.files.set('nt_msg.db', { size: 10, mtimeMs: 1 });
+    const service = new DbWatchService();
+    const dispose = vi.fn();
+    const hook = vi.fn();
+    const handle = service.mount({
+      dbPath: '/fixture/nt_msg.db',
+      onDbFileChangeHook: hook,
+      dispose,
+    });
+    try {
+      fs.error?.();
+      expect(fs.close).toHaveBeenCalledOnce();
+      expect(dispose).not.toHaveBeenCalled();
+      fs.files.set('nt_msg.db', { size: 10, mtimeMs: 2 });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(hook).toHaveBeenCalledOnce();
+      handle.unmount();
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(fs.close).toHaveBeenCalledOnce();
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('任务独立卸载，整体销毁与旧句柄重复卸载均只释放一次', async () => {
+    vi.useFakeTimers();
+    fs.files.set('nt_msg.db', { size: 10, mtimeMs: 1 });
+    const service = new DbWatchService();
+    const firstDispose = vi.fn(),
+      secondDispose = vi.fn(),
+      secondRead = vi.fn();
+    const first = service.mount({
+      dbPath: '/fixture/nt_msg.db',
+      onDbFileChangeHook: vi.fn(),
+      dispose: firstDispose,
+    });
+    const second = service.mount({
+      dbPath: '/fixture/nt_msg.db',
+      onDbFileChangeHook: secondRead,
+      dispose: secondDispose,
+    });
+    first.unmount();
+    expect(firstDispose).toHaveBeenCalledOnce();
+    expect(secondDispose).not.toHaveBeenCalled();
+    fs.files.set('nt_msg.db', { size: 10, mtimeMs: 2 });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(secondRead).toHaveBeenCalledOnce();
+    service.dispose();
+    service.dispose();
+    first.unmount();
+    second.unmount();
+    expect(firstDispose).toHaveBeenCalledOnce();
+    expect(secondDispose).toHaveBeenCalledOnce();
+    expect(fs.close).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('慢查询期间不并发，完成后快速补查，不再等下一秒轮询', async () => {
     vi.useFakeTimers();
     fs.files.set('nt_msg.db', { size: 10, mtimeMs: 1 });

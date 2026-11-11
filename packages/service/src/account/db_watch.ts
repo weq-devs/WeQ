@@ -84,7 +84,7 @@ export interface DbWatchTask {
 
 /** Returned by `mount`. Call `unmount()` to stop watching. */
 export interface DbWatchHandle {
-  /** Idempotent: drops this task; stops the loop if it was the last. */
+  /** 幂等卸载并调用任务的 dispose；最后一个任务离开时停止共享轮询。 */
   unmount(): void;
 }
 
@@ -140,8 +140,8 @@ export class DbWatchService {
         this.requestPoll();
       });
       entry.watcher.on('error', () => {
+        // watcher 失效不代表任务卸载；共享轮询继续驱动原 hook。
         entry.watcher?.close();
-        entry.task.dispose?.();
         entry.watcher = undefined;
       });
     } catch {
@@ -149,15 +149,8 @@ export class DbWatchService {
     }
     this.ensureLoop();
 
-    let unmounted = false;
     return {
-      unmount: (): void => {
-        if (unmounted) return;
-        unmounted = true;
-        entry.watcher?.close();
-        this.entries.delete(entry);
-        if (this.entries.size === 0) this.stopLoop();
-      },
+      unmount: () => this.unmountEntry(entry),
     };
   }
 
@@ -169,14 +162,22 @@ export class DbWatchService {
   /** Stop the loop and forget every watch. Idempotent. */
   dispose(): void {
     this.stopLoop();
-    for (const entry of this.entries) {
-      entry.watcher?.close();
-      entry.task.dispose?.();
-    }
-    this.entries.clear();
+    for (const entry of this.entries) this.unmountEntry(entry);
   }
 
   // ---- internals ----
+
+  private unmountEntry(entry: WatchEntry): void {
+    if (!this.entries.delete(entry)) return;
+    entry.watcher?.close();
+    entry.watcher = undefined;
+    try {
+      // hook 的补齐／重试独立于文件轮询，卸载时必须一并停止。
+      entry.task.dispose?.();
+    } finally {
+      if (this.entries.size === 0) this.stopLoop();
+    }
+  }
 
   private requestPoll(): void {
     if (this.eventTimer !== null) return;
