@@ -94,6 +94,8 @@ import {
   optimisticMessageSender,
   mergeMessageMembers,
   localProfileUser,
+  createMemberUinLookup,
+  type MemberUinLookup,
   type SenderProfile,
 } from '../lib/messageSender';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
@@ -1643,8 +1645,17 @@ function messageToTemplate(
   botUids?: Set<string>,
   replySources?: MessageWire[] | ReplyPreviewIndex,
   profiles?: ReadonlyMap<string, SenderProfile>,
+  lookupByUin?: MemberUinLookup,
 ): Message {
-  const sender = messageSender(message, conversation, user, memberMap, botUids, profiles);
+  const sender = messageSender(
+    message,
+    conversation,
+    user,
+    memberMap,
+    botUids,
+    profiles,
+    lookupByUin,
+  );
   // For any `reply` element in the message, resolve the ORIGINAL message
   // sender's display name (memberMap → self → otherUser → uin/uid fallbacks)
   // and stash it on the reply's data as `origSenderDisplayName` so
@@ -1661,17 +1672,7 @@ function messageToTemplate(
   // Recall reviser's display name: only needed when an admin recalled someone
   // else's message (sameSender === false). Group → memberMap by uid; c2c → the
   // peer (the only other party). Falls back to a generic label in the bubble.
-  let recallRevokerName: string | undefined;
-  if (message.recall && !message.recall.sameSender) {
-    const uid = message.recall.revokeUid;
-    if (uid) {
-      recallRevokerName =
-        memberMap?.get(uid)?.displayName ??
-        (conversation.type === 'direct' && conversation.otherUser.id === uid
-          ? conversation.otherUser.displayName
-          : undefined);
-    }
-  }
+  const recallRevokerName = resolveRecallRevokerName(message, conversation, memberMap);
   return {
     id: timelineRowKey(message),
     sourceFormat: message.sourceFormat,
@@ -1723,6 +1724,22 @@ function messageToTemplate(
       fontId2Raw?: number;
     };
   };
+}
+
+function resolveRecallRevokerName(
+  message: MessageWire,
+  conversation: Conversation,
+  memberMap?: ReadonlyMap<string, GroupMember>,
+): string | undefined {
+  if (!message.recall || message.recall.sameSender) return undefined;
+  const uid = message.recall.revokeUid;
+  if (!uid) return undefined;
+  return (
+    memberMap?.get(uid)?.displayName ??
+    (conversation.type === 'direct' && conversation.otherUser.id === uid
+      ? conversation.otherUser.displayName
+      : undefined)
+  );
 }
 
 /**
@@ -6398,10 +6415,12 @@ function MainWorkspace(): ReactElement {
     if (selectedConversation?.type !== 'group') return [];
 
     const allMemberWires = [...selectedGroupMemberWires];
+    const knownUids = new Set(allMemberWires.map((member) => member.uid));
     // Merge in only THIS group's on-demand-resolved senders.
     const groupMissing = missingMembers[selectedUid] ?? {};
     Object.values(groupMissing).forEach((m) => {
-      if (!allMemberWires.find((em) => em.uid === m.uid)) {
+      if (!knownUids.has(m.uid)) {
+        knownUids.add(m.uid);
         allMemberWires.push(m);
       }
     });
@@ -6627,6 +6646,7 @@ function MainWorkspace(): ReactElement {
           request.conversation.type === 'group'
             ? new Map(request.conversation.members.map((member) => [member.id, member]))
             : undefined;
+        const lookupByUin = members ? createMemberUinLookup(members) : undefined;
         const rows = page.filter((row) => BigInt(row.msgSeq) >= start && BigInt(row.msgSeq) <= end);
         onPage(
           rows.map((row) =>
@@ -6638,6 +6658,7 @@ function MainWorkspace(): ReactElement {
               botUids,
               undefined,
               profileByUid,
+              lookupByUin,
             ),
           ),
         );
@@ -6730,8 +6751,13 @@ function MainWorkspace(): ReactElement {
 
   const templateContext = messageTemplateContext(selectedConversation);
   const messageTemplateCache = useMemo(
-    () => new WeakMap<MessageWire, Message>(),
-    [templateContext, user, messageGroupMembers, botUids, profileByUid],
+    () => new WeakMap<MessageWire, { message: Message; identityRevision: symbol }>(),
+    [templateContext, user],
+  );
+  // 资料批次更新只校准身份字段，不丢弃未变化正文的转换结果，也不持有旧资料 Map。
+  const messageIdentityRevision = useMemo(
+    () => Symbol(),
+    [messageGroupMembers, botUids, profileByUid],
   );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
@@ -6739,7 +6765,13 @@ function MainWorkspace(): ReactElement {
 
     // Create a fast lookup map for member info
     const memberMap = messageGroupMembers;
-    const optimisticSender = optimisticMessageSender(selectedConversation, user, memberMap);
+    const lookupByUin = createMemberUinLookup(memberMap);
+    const optimisticSender = optimisticMessageSender(
+      selectedConversation,
+      user,
+      memberMap,
+      lookupByUin,
+    );
     const replyIndex = createReplyPreviewIndex(loadedMessageWires);
 
     const real = loadedMessageWires
@@ -6750,21 +6782,48 @@ function MainWorkspace(): ReactElement {
           (element) => (element as { type?: string } | null)?.type === 'reply',
         );
         if (cached) {
-          if (!hasReply) return cached;
-          // 原文补页／编辑仍重新校准引用，但无关窗口变化不重画整条回复。
-          const elements = replaceEqualDeep(
-            cached.qqElements,
-            enrichReplyElements(
-              message.elements,
+          let updated = cached.message;
+          if (cached.identityRevision !== messageIdentityRevision) {
+            const sender = replaceEqualDeep(
+              updated.sender,
+              messageSender(
+                message,
+                selectedConversation,
+                user,
+                memberMap,
+                botUids,
+                profileByUid,
+                lookupByUin,
+              ),
+            );
+            const recallRevokerName = resolveRecallRevokerName(
+              message,
               selectedConversation,
-              user,
               memberMap,
-              replyIndex,
-            ),
-          );
-          if (elements === cached.qqElements) return cached;
-          const updated: Message = { ...cached, qqElements: elements as Message['qqElements'] };
-          messageTemplateCache.set(message, updated);
+            );
+            if (sender !== updated.sender || recallRevokerName !== updated.recallRevokerName)
+              updated = { ...updated, sender, senderId: sender.id, recallRevokerName };
+          }
+          if (hasReply) {
+            // 原文补页／编辑仍重新校准引用，但无关窗口变化不重画整条回复。
+            const elements = replaceEqualDeep(
+              updated.qqElements,
+              enrichReplyElements(
+                message.elements,
+                selectedConversation,
+                user,
+                memberMap,
+                replyIndex,
+              ),
+            );
+            if (elements !== updated.qqElements)
+              updated = { ...updated, qqElements: elements as Message['qqElements'] };
+          }
+          if (updated !== cached.message || cached.identityRevision !== messageIdentityRevision)
+            messageTemplateCache.set(message, {
+              message: updated,
+              identityRevision: messageIdentityRevision,
+            });
           return updated;
         }
         const mapped = messageToTemplate(
@@ -6775,8 +6834,12 @@ function MainWorkspace(): ReactElement {
           botUids,
           replyIndex,
           profileByUid,
+          lookupByUin,
         );
-        messageTemplateCache.set(message, mapped);
+        messageTemplateCache.set(message, {
+          message: mapped,
+          identityRevision: messageIdentityRevision,
+        });
         return mapped;
       });
     // 乐观渲染的合并转发（见 {@link mergeOptimisticInto}）。
@@ -6806,6 +6869,7 @@ function MainWorkspace(): ReactElement {
     optimisticMessages,
     forwardMatches,
     messageTemplateCache,
+    messageIdentityRevision,
     profileByUid,
   ]);
 
@@ -7204,10 +7268,20 @@ function MainWorkspace(): ReactElement {
       deletedConv.type === 'group'
         ? memberMapForGroup(deletedConv.group.identityValue || deletedConv.id)
         : new Map<string, GroupMember>();
+    const lookupByUin = createMemberUinLookup(memberMap);
     return deletedWires
       .filter((message) => isRenderableMessage(message))
       .map((message) =>
-        messageToTemplate(message, deletedConv, user, memberMap, botUids, undefined, profileByUid),
+        messageToTemplate(
+          message,
+          deletedConv,
+          user,
+          memberMap,
+          botUids,
+          undefined,
+          profileByUid,
+          lookupByUin,
+        ),
       );
   }, [deletedWires, deletedConv, user, botUids, memberMapForGroup, profileByUid]);
 
@@ -7219,10 +7293,20 @@ function MainWorkspace(): ReactElement {
       recalledConv.type === 'group'
         ? memberMapForGroup(recalledConv.group.identityValue || recalledConv.id)
         : new Map<string, GroupMember>();
+    const lookupByUin = createMemberUinLookup(memberMap);
     return recalledWires
       .filter((message) => isRenderableMessage(message))
       .map((message) =>
-        messageToTemplate(message, recalledConv, user, memberMap, botUids, undefined, profileByUid),
+        messageToTemplate(
+          message,
+          recalledConv,
+          user,
+          memberMap,
+          botUids,
+          undefined,
+          profileByUid,
+          lookupByUin,
+        ),
       );
   }, [recalledWires, recalledConv, user, botUids, memberMapForGroup, profileByUid]);
 
@@ -10884,6 +10968,10 @@ function MainWorkspace(): ReactElement {
     () => new Map(resolvedPreviewConversation?.members.map((member) => [member.id, member]) ?? []),
     [resolvedPreviewConversation?.members],
   );
+  const previewMemberByUin = useMemo(
+    () => createMemberUinLookup(previewMemberMap),
+    [previewMemberMap],
+  );
   const conversationPreviewContent =
     privatePreview &&
     resolvedPreviewConversation &&
@@ -10903,6 +10991,7 @@ function MainWorkspace(): ReactElement {
             botUids,
             privatePreview.rows,
             profileByUid,
+            previewMemberByUin,
           ),
         )}
         renderers={messageRenderers}

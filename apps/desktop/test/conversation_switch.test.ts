@@ -17,6 +17,7 @@ import { useViewState } from '../src/renderer/src/state/view';
 import type { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
 import type { ChatSidebarContent } from '../src/renderer/src/im-template/template/chatSidebarContent';
 import type { MessagePageStage } from '../src/shared/message_read';
+import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 
 type TestMessage = {
   msgId: string;
@@ -26,6 +27,7 @@ type TestMessage = {
   senderUid: string;
   senderUin: string;
   elements: { type: string; text?: string; data?: Record<string, unknown> }[];
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 };
 type UnreadInput = { targets: Array<{ chatType: number; uid: string }>; watermarksOnly?: boolean };
 
@@ -39,6 +41,11 @@ const f = vi.hoisted(() => ({
   dbChanged: undefined as (() => void) | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
+  profiles: [] as Array<{ uid: string; uin: string; nick: string; remark: string }>,
+  bots: [] as string[],
+  memberDetails: undefined as
+    | { uid: string; uin: string; card: string; nick: string; adminFlag: number; joinTime: string }
+    | undefined,
   messages: [] as ComponentProps<typeof ChatMainContent>['messages'],
   commit: undefined as (() => void) | undefined,
   reads: [] as { conv: string; show: (stage: MessagePageStage<TestMessage>) => void }[],
@@ -72,36 +79,40 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               f.headEnabled = options?.enabled === true;
             return path.join('.') === 'account.getAccountConfig'
               ? config
-              : path.join('.') === 'account.listRecentContacts'
-                ? f.refreshing
-                  ? refreshing
-                  : {
-                      ...head,
-                      refetch: async () => {
-                        f.headRefreshes++;
-                        if (f.freshPreview)
-                          setHead({
-                            ...recent,
-                            data: {
-                              items: f.recent.map((row) => ({
-                                ...row,
-                                msgSeq: '2',
-                                sendTime: '1794200060',
-                                preview: { kind: 'text', textContent: '最新消息' },
-                              })),
-                            },
-                          });
-                        return { isError: false };
-                      },
-                    }
-                : [
-                      'listAllGroups',
-                      'listHiddenSessions',
-                      'listDeletedSessions',
-                      'listTopContacts',
-                    ].includes(path.at(-1) ?? '')
-                  ? directory
-                  : empty;
+              : path.join('.') === 'account.listProfiles'
+                ? { ...empty, isSuccess: true, data: f.profiles }
+                : path.join('.') === 'account.botUids'
+                  ? { ...empty, isSuccess: true, data: f.bots }
+                  : path.join('.') === 'account.listRecentContacts'
+                    ? f.refreshing
+                      ? refreshing
+                      : {
+                          ...head,
+                          refetch: async () => {
+                            f.headRefreshes++;
+                            if (f.freshPreview)
+                              setHead({
+                                ...recent,
+                                data: {
+                                  items: f.recent.map((row) => ({
+                                    ...row,
+                                    msgSeq: '2',
+                                    sendTime: '1794200060',
+                                    preview: { kind: 'text', textContent: '最新消息' },
+                                  })),
+                                },
+                              });
+                            return { isError: false };
+                          },
+                        }
+                    : [
+                          'listAllGroups',
+                          'listHiddenSessions',
+                          'listDeletedSessions',
+                          'listTopContacts',
+                        ].includes(path.at(-1) ?? '')
+                      ? directory
+                      : empty;
           };
         if (key === 'useInfiniteQuery') return () => (f.refreshing ? refreshingPages : pages);
         if (key === 'useMutation')
@@ -109,6 +120,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput) => {
+            if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (['listLatest', 'listFrom'].includes(path.at(-1) ?? '')) return f.refreshRows;
             if (path.at(-1) === 'getUnreadInfos' && f.unreadMode && input) {
               f.unreadReads.push(input);
@@ -230,9 +242,138 @@ afterEach(() => {
   f.dbChanged = undefined;
   f.unreadChanged = undefined;
   f.refreshRows = undefined;
+  f.profiles = [];
+  f.bots = [];
+  f.memberDetails = undefined;
   f.messages = [];
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it('群资料批次更新只替换实际变化的消息发送者，不重建其他正文与消息对象', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.profiles = [
+    { uid: 'u_alice', uin: '20001', nick: '甲昵称', remark: '甲备注' },
+    { uid: 'u_bob', uin: '20002', nick: '乙昵称', remark: '乙备注' },
+  ];
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const render = () =>
+    act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+  const row = (msgId: string) => f.messages.find((item) => item.msgId === msgId)!;
+  try {
+    await render();
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () =>
+      f.reads.at(-1)!.show({
+        complete: true,
+        rows: [
+          ...f.profiles.map((profile, index) => ({
+            msgId: profile.uid,
+            msgSeq: String(index + 1),
+            senderUid: profile.uid,
+            senderUin: profile.uin,
+            sendTime: '1794200000',
+            elements: [{ type: 'text', data: { textContent: `正文 ${profile.uid}` } }],
+            ...(index === 1
+              ? { recall: { revokeUid: 'u_alice', sameSender: false, recallTs: 1794200010 } }
+              : {}),
+          })),
+          {
+            msgId: 'reply',
+            msgSeq: '3',
+            senderUid: 'u_bob',
+            senderUin: '20002',
+            sendTime: '1794200000',
+            elements: [
+              {
+                type: 'reply',
+                data: {
+                  origSenderUid: 'u_alice',
+                  origSenderUin: '20001',
+                  origElements: [{ type: 'text', data: { textContent: '内嵌引用' } }],
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const alice = row('u_alice'),
+      bob = row('u_bob');
+    expect(alice.sender?.displayName).toBe('甲备注');
+    f.profiles = [
+      ...f.profiles,
+      { uid: 'u_unrelated', uin: '20003', nick: '无关昵称', remark: '' },
+    ];
+    await render();
+    expect(row('u_alice')).toBe(alice);
+    expect(row('u_bob')).toBe(bob);
+    f.profiles = f.profiles.map((profile) =>
+      profile.uid === 'u_alice' ? { ...profile, remark: '新备注' } : profile,
+    );
+    await render();
+    expect(row('u_alice')).not.toBe(alice);
+    expect(row('u_alice').sender?.displayName).toBe('新备注');
+    expect(row('u_alice').qqElements).toBe(alice.qqElements);
+    expect(row('u_alice').body).toBe(alice.body);
+    expect(row('u_bob')).toBe(bob);
+    const renamed = row('u_alice');
+    f.bots = ['u_bob'];
+    await render();
+    expect(row('u_alice')).toBe(renamed);
+    expect(row('u_bob')).not.toBe(bob);
+    expect(row('u_bob').sender?.kind).toBe('bot');
+    f.bots = [];
+    f.profiles = f.profiles.filter((profile) => profile.uid !== 'u_alice');
+    await render();
+    expect(row('u_alice').sender?.displayName).toBe('20001');
+    expect(row('u_bob').sender?.kind).toBe('human');
+    const updateMember = (card: string) =>
+      act(async () => {
+        f.memberDetails = {
+          uid: 'u_alice',
+          uin: '20001',
+          card,
+          nick: '',
+          adminFlag: 0,
+          joinTime: '1',
+        };
+        await publishQQPeerUpdate({
+          binding: { expectedAccountUin: '90001', expectedAccountConfigId: 'switch-test' },
+          target: { kind: 'member', groupCode: '10001', uid: 'u_alice' },
+        });
+      });
+    const quotedName = () =>
+      (row('reply').qqElements?.[0] as { data: { origSenderDisplayName?: string } } | undefined)
+        ?.data.origSenderDisplayName;
+    await updateMember('群名片');
+    expect(row('u_alice').sender?.displayName).toBe('群名片');
+    expect(row('u_bob').recallRevokerName).toBe('群名片');
+    expect(quotedName()).toBe('群名片');
+    await updateMember('');
+    expect(row('u_alice').sender?.displayName).toBe('20001');
+    expect(row('u_bob').recallRevokerName).toBe('20001');
+    expect(quotedName()).toBe('20001');
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
 });
 
 it.each([

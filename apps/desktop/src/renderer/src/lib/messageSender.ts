@@ -8,6 +8,30 @@ export interface SenderProfile {
   remark?: string | null;
   nick?: string | null;
 }
+export type MemberUinLookup = (uin: string) => GroupMember | undefined;
+
+/** 仅供同一批只读成员快照使用；首次需要 QQ 号回退时才建索引，重复号码沿用首项。 */
+export function createMemberUinLookup(members: ReadonlyMap<string, GroupMember>): MemberUinLookup {
+  let index: Map<string, GroupMember> | undefined;
+  return (uin) => {
+    if (!index) {
+      index = new Map();
+      for (const member of members.values()) {
+        const key = member.uin;
+        if (key && key !== '0' && !index.has(key)) index.set(key, member);
+      }
+    }
+    return index.get(uin);
+  };
+}
+
+function memberByUin(
+  members: ReadonlyMap<string, GroupMember> | undefined,
+  uin: string,
+): GroupMember | undefined {
+  for (const member of members?.values() ?? []) if (member.uin === uin) return member;
+  return undefined;
+}
 
 /** 名片携带的云端名称不能覆盖会话中的本地名称。 */
 export function localProfileUser(user: User, profile?: SenderProfile): User & SenderProfile {
@@ -28,6 +52,7 @@ export function messageSender(
   memberMap?: ReadonlyMap<string, GroupMember>,
   botUids?: ReadonlySet<string>,
   profiles?: ReadonlyMap<string, SenderProfile>,
+  lookupByUin?: MemberUinLookup,
 ): User {
   const isMine = isMineMessage(message, conversation, user);
   if (isMine && conversation.type === 'direct') return user;
@@ -36,7 +61,9 @@ export function messageSender(
       memberMap?.get(message.senderUid) ??
       (isMine ? memberMap?.get(user.uid ?? '') : undefined) ??
       (message.senderUin && message.senderUin !== '0'
-        ? Array.from(memberMap?.values() ?? []).find((m) => m.uin === message.senderUin)
+        ? lookupByUin
+          ? lookupByUin(message.senderUin)
+          : memberByUin(memberMap, message.senderUin)
         : undefined);
     const profile = profiles?.get(message.senderUid || member?.id || '');
     const remark = member?.remark?.trim() || profile?.remark?.trim();
@@ -90,12 +117,16 @@ export function optimisticMessageSender(
   conversation: Conversation,
   user: User,
   members: ReadonlyMap<string, GroupMember>,
+  lookupByUin?: MemberUinLookup,
 ): User {
   return messageSender(
     { senderUid: user.uid ?? user.id, senderUin: user.identityValue, elements: [] },
     conversation,
     user,
     members,
+    undefined,
+    undefined,
+    lookupByUin,
   );
 }
 
