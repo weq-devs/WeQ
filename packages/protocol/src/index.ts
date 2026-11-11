@@ -245,6 +245,8 @@ export type {
 export * from './call';
 export * from './oidb/profile/extras';
 export { getEducationHistory } from './oidb/profile/education';
+export * from './oidb/profile/display-settings';
+export { LegacyOidbRejectedError } from './oidb/legacy';
 export {
   getSelfAvatarHistory,
   historicalAvatarUrl,

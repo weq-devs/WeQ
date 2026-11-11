@@ -14,6 +14,7 @@ import {
 import type { PersonalityLabel, PersonalityPhoto } from '@weq/protocol';
 import { Modal } from './Dialog';
 import { SegmentedControl } from './SegmentedControl';
+import { ProfileDisplayEntry } from './ProfileDisplaySettings';
 import { QzoneMediaPreview } from './QzoneMediaPreview';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useTabActive } from './RetainedTabs';
@@ -137,21 +138,27 @@ function ExtrasBody({
             ) : null}
           </div>
           <div className="weq-extras-links">
-            <button type="button" title="查看完整教育经历" onClick={() => setView('education')}>
-              <GraduationCap size={15} />
-              教育经历
-              <ChevronRight size={14} />
-            </button>
-            <button type="button" onClick={() => setView('labels')}>
-              <Images size={15} />
-              标签相册
-              <ChevronRight size={14} />
-            </button>
-            <button type="button" onClick={() => setView('questions')}>
-              <MessageCircleQuestion size={15} />
-              匿问我答
-              <ChevronRight size={14} />
-            </button>
+            <ProfileDisplayEntry field="education">
+              <button type="button" title="查看完整教育经历" onClick={() => setView('education')}>
+                <GraduationCap size={15} />
+                教育经历
+                <ChevronRight size={14} />
+              </button>
+            </ProfileDisplayEntry>
+            <ProfileDisplayEntry field="personalityLabels">
+              <button type="button" onClick={() => setView('labels')}>
+                <Images size={15} />
+                标签相册
+                <ChevronRight size={14} />
+              </button>
+            </ProfileDisplayEntry>
+            <ProfileDisplayEntry field="anonymousQuestions">
+              <button type="button" onClick={() => setView('questions')}>
+                <MessageCircleQuestion size={15} />
+                匿问我答
+                <ChevronRight size={14} />
+              </button>
+            </ProfileDisplayEntry>
           </div>
         </section>
       )}

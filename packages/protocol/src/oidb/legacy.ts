@@ -14,6 +14,13 @@ export interface LegacyOidbOptions {
   strict?: boolean;
 }
 
+export class LegacyOidbRejectedError extends Error {
+  constructor(readonly result: number) {
+    super(`旧 OIDB 请求未成功：${result}`);
+    this.name = 'LegacyOidbRejectedError';
+  }
+}
+
 export async function invokeLegacyOidb(
   nt: TrpcNative,
   pid: number,
@@ -41,6 +48,8 @@ export async function invokeLegacyOidb(
     (response.serviceType !== undefined && response.serviceType !== serviceType)
   )
     throw new Error('旧 OIDB 响应命令不匹配');
+  if (typeof response.result === 'number' && response.result !== 0)
+    throw new LegacyOidbRejectedError(response.result);
   if (response.result !== 0)
     throw new Error(`旧 OIDB 请求未成功：${String(response.result ?? '未知')}`);
   if (!(response.body instanceof Uint8Array)) throw new Error('旧 OIDB 响应缺少业务体');

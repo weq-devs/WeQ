@@ -3,6 +3,7 @@ import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { groupMemberToWire, userProfileToWire } from '../serde';
 import { QQ_REGIONS, QQ_PROFESSIONS } from '@weq/protocol';
+import { PROFILE_DISPLAY_KEYS } from '@weq/protocol';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -43,6 +44,8 @@ export interface QQWriteServices {
     | 'selfAvatar'
     | 'groupAvatar'
     | 'selfIdentity'
+    | 'selfProfileDisplaySettings'
+    | 'setSelfProfileDisplaySetting'
   >;
   groupModeration: Pick<
     AccountServices['groupModeration'],
@@ -92,6 +95,32 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    selfProfileDisplaySettings: procedure.input(binding.strict()).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.selfProfileDisplaySettings();
+      if (resolve(input) !== services || result.targetUin !== input.expectedAccountUin)
+        throw new Error('资料展示读取目标已变化');
+      return result;
+    }),
+    setSelfProfileDisplaySetting: procedure
+      .input(
+        binding
+          .extend({
+            field: z.enum([PROFILE_DISPLAY_KEYS[0]!, ...PROFILE_DISPLAY_KEYS.slice(1)]),
+            value: z.number().int().min(0).max(2),
+          })
+          .strict(),
+      )
+      .mutation(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.accountWrite.setSelfProfileDisplaySetting(
+          input.field,
+          input.value,
+        );
+        if (resolve(input) !== services || result.targetUin !== input.expectedAccountUin)
+          throw new Error('资料展示保存目标已变化');
+        return result;
+      }),
     friendNotesState: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
       const services = resolve(input);
       const result = await services.accountWrite.getFriendNotes(input.uid);

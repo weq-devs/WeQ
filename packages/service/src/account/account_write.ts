@@ -1,6 +1,7 @@
 import type { Buddy, Category } from '@weq/db';
 import { createHash } from 'node:crypto';
 import type { ContactMetricsService } from './contact_metrics';
+import { SelfProfileDisplayService } from './profile_display';
 import {
   ClearFriendRemark,
   SetFriendRemark,
@@ -60,6 +61,7 @@ export interface AccountWriteOutcome {
 export class AccountWriteService {
   contactMetrics?: ContactMetricsService;
   private readonly noteWrites = new Set<string>();
+  private displaySettingsService?: SelfProfileDisplayService;
   constructor(
     private readonly nt: PacketNative,
     private readonly identity: AccountWriteIdentity,
@@ -68,6 +70,23 @@ export class AccountWriteService {
 
   selfIdentity(): { uin: string; uid: string } {
     return { uin: this.identity.uin, uid: this.identity.selfUid };
+  }
+
+  private get profileDisplay() {
+    this.displaySettingsService ??= new SelfProfileDisplayService(
+      this.nt,
+      this.identity.uin,
+      this.resolvePid,
+    );
+    return this.displaySettingsService;
+  }
+
+  selfProfileDisplaySettings() {
+    return this.profileDisplay.read();
+  }
+
+  setSelfProfileDisplaySetting(field: import('@weq/protocol').ProfileDisplayField, value: number) {
+    return this.profileDisplay.set(field, value);
   }
 
   async exactProfile(kind: 'user' | 'group', target: string) {

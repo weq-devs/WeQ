@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./profile-display": "./src/profile-display.ts",
     "./profile-values": "./src/profile-values.ts",
     ".": "./src/index.ts"
   },
