@@ -50,6 +50,7 @@ it('群待办附属页打开后隐藏而不卸载宿主，详情持续可见并�
   document.body.append(host);
   const root = createRoot(host);
   const moreMembers = vi.fn();
+  const jump = vi.fn();
   try {
     await act(async () =>
       root.render(
@@ -67,7 +68,12 @@ it('群待办附属页打开后隐藏而不卸载宿主，详情持续可见并�
               draft: '',
               onBack: vi.fn(),
               onLoadMoreGroupMembers: moreMembers,
-              groupTodos: h(GroupTodos, { groupId: 123, groupName: '合成群', embedded: true }),
+              groupTodos: h(GroupTodos, {
+                groupId: 123,
+                groupName: '合成群',
+                embedded: true,
+                onJumpToMessage: jump,
+              }),
             }),
           ),
         ),
@@ -90,6 +96,14 @@ it('群待办附属页打开后隐藏而不卸载宿主，详情持续可见并�
       host.querySelector<HTMLButtonElement>('[aria-label="关闭群待办"]')!.click(),
     );
     expect(sidebar.hidden).toBe(false);
+    expect(host.querySelector('[aria-label="群待办列表"]')).toBeNull();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="查看群待办"]')!.click(),
+    );
+    const locate = host.querySelector<HTMLButtonElement>('[aria-label="定位原消息"]')!;
+    expect(locate.disabled).toBe(false);
+    await act(async () => locate.click());
+    expect(jump).toHaveBeenCalledWith('123');
     expect(host.querySelector('[aria-label="群待办列表"]')).toBeNull();
   } finally {
     act(() => root.unmount());

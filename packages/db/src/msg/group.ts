@@ -580,6 +580,37 @@ export class GroupMsgDb {
     return rows.map(rowToGroupMsg);
   }
 
+  /** 按文件 ID 查原消息；先筛原始正文，再校验元素，避免同名文件和文本误命中。 */
+  async findFileMessages(
+    targetGroupCode: string,
+    fileId: string,
+    before?: { msgSeq: bigint; sendTime: bigint; msgId: bigint },
+  ) {
+    if (!fileId) return { messages: [], nextBefore: null };
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40003" > 0 AND instr("40800", ?) > 0
+        ${before ? 'AND ("40003", "40050", "40001") < (?, ?, ?)' : ''}
+        ${ORDER_NEWEST_FIRST} LIMIT 51`,
+      [
+        targetGroupCode,
+        Buffer.from(fileId, 'utf8'),
+        ...(before ? [before.msgSeq, before.sendTime, before.msgId] : []),
+      ],
+    );
+    const candidates = rows.slice(0, 50).map(rowToGroupMsg);
+    const last = candidates.at(-1);
+    return {
+      messages: candidates.filter((row) =>
+        row.elements.some((element) => element.kind === 'file' && element.fileToken === fileId),
+      ),
+      nextBefore:
+        rows.length > 50 && last
+          ? { msgSeq: last.msgSeq, sendTime: last.sendTime, msgId: last.msgId }
+          : null,
+    };
+  }
+
   /**
    * All rows in one group carrying the `(1,1)` deleted signature (40011=1 &
    * 40012=1), newest-first. Covers BOTH WeQ's own deletes and QQ's native

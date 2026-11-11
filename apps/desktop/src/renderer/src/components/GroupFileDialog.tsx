@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Loader2, RotateCw, Square, X } from 'lucide-react';
+import { ArrowLeft, Loader2, LocateFixed, RotateCw, Square, X } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
@@ -7,6 +7,7 @@ import { useMediaSave, MediaSaveControls } from './MediaSaveControls';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { OverlayLayer } from './OverlayLayer';
 import { GroupFileManager } from './GroupFileManager';
+import { GroupFileMessageResults } from './GroupFileMessageResults';
 import { useQQAction, withQQAccountScope } from './qq-actions/shared';
 import { useToast } from './Toast';
 import { collectGroupFileSubtree, resolveGroupFileSelection } from '../lib/groupFileSelection';
@@ -20,6 +21,7 @@ interface Props {
   initialFolderId?: string;
   initialFileId?: string;
   onClose: () => void;
+  onJumpToMessage?: (sequence: string, messageId: string) => void;
 }
 interface Crumb {
   id: string;
@@ -33,12 +35,14 @@ function GroupFileDialogBody({
   initialFolderId,
   initialFileId,
   onClose,
+  onJumpToMessage,
 }: Props) {
   const a = useQQAction(`group-file-window:${groupCode}`);
   const mediaSave = useMediaSave(),
     save = useExportSavePolicy();
   const toast = useToast((s) => s.push);
   const report = useExportReportDialog();
+  const [locatingFile, setLocatingFile] = useState<GroupFileWire | null>(null);
   const [crumbs, setCrumbs] = useState<Crumb[]>(
     initialFolderId && initialFolderId !== '/'
       ? [ROOT, { id: initialFolderId, name: '定位目录', known: false }]
@@ -229,6 +233,22 @@ function GroupFileDialogBody({
               <span>正在读取群文件…</span>
             </div>
           )}
+          {locatingFile && a.binding && onJumpToMessage && (
+            <GroupFileMessageResults
+              key={locatingFile.fileId}
+              groupCode={groupCode}
+              fileId={locatingFile.fileId}
+              fileName={locatingFile.fileName}
+              binding={a.binding}
+              onClose={() => setLocatingFile(null)}
+              onJump={(sequence, messageId) =>
+                void leave(() => {
+                  onClose();
+                  onJumpToMessage(sequence, messageId);
+                })
+              }
+            />
+          )}
           <GroupFileManager
             groupId={Number(groupCode)}
             directory={current.id}
@@ -246,19 +266,33 @@ function GroupFileDialogBody({
             }
             onSaveSelected={saveSelected}
             renderFileAction={(file) => (
-              <MediaSaveControls
-                save={mediaSave}
-                source={{
-                  kind: 'group-file',
-                  groupCode,
-                  fileId: file.fileId,
-                  fileName: file.fileName,
-                  busId: file.busId,
-                }}
-                className="icon-button"
-                label={`保存 ${file.fileName}`}
-                iconOnly
-              />
+              <>
+                {onJumpToMessage && (
+                  <button
+                    type="button"
+                    className="weq-set-iconbtn weq-file-locate"
+                    title="定位原消息"
+                    aria-label={`定位原消息 ${file.fileName}`}
+                    disabled={!a.binding}
+                    onClick={() => setLocatingFile(file)}
+                  >
+                    <LocateFixed size={16} />
+                  </button>
+                )}
+                <MediaSaveControls
+                  save={mediaSave}
+                  source={{
+                    kind: 'group-file',
+                    groupCode,
+                    fileId: file.fileId,
+                    fileName: file.fileName,
+                    busId: file.busId,
+                  }}
+                  className="icon-button"
+                  label={`保存 ${file.fileName}`}
+                  iconOnly
+                />
+              </>
             )}
           />
         </div>

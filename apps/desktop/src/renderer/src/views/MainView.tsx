@@ -11773,6 +11773,9 @@ function MainWorkspace(): ReactElement {
                                 key={`${noticeAccountKey}:${selectedConversation.id}`}
                                 groupId={Number(selectedConversation.group.identityValue)}
                                 groupName={selectedConversation.group.name}
+                                onJumpToMessage={(sequence) =>
+                                  jumpToConvSeq('group', selectedConversation.id, sequence)
+                                }
                                 embedded
                               />
                             ) : undefined
@@ -12058,6 +12061,16 @@ function MainWorkspace(): ReactElement {
               groupName={groupFileDialog.groupName}
               initialFolderId={groupFileDialog.initialFolderId}
               initialFileId={groupFileDialog.initialFileId}
+              onJumpToMessage={(sequence, messageId) =>
+                jumpToConvSeq(
+                  'group',
+                  groupFileDialog.groupCode,
+                  sequence,
+                  false,
+                  undefined,
+                  messageId,
+                )
+              }
               onClose={() => setGroupFileDialog(null)}
             />
           ) : null}

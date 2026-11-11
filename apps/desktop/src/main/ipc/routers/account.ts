@@ -7057,6 +7057,64 @@ export const accountRouter = router({
 
   // ---- 群文件 ----
 
+  /** 仅在用户点击定位时查询本地原消息，不要求 QQ 在线。 */
+  findGroupFileMessages: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+        groupCode: z.string().regex(/^[1-9]\d*$/),
+        fileId: z.string().min(1).max(2048),
+        before: z
+          .object({
+            msgSeq: z.string().regex(/^[1-9]\d*$/),
+            sendTime: z.string().regex(/^\d+$/),
+            msgId: z.string().regex(/^-?\d+$/),
+          })
+          .optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const account = getAppContext().account;
+      if (!account) throw new Error('账号已关闭，无法查询原消息');
+      const page = await account.groupMsgs.findFileMessages(
+        input.groupCode,
+        input.fileId,
+        input.before
+          ? {
+              msgSeq: BigInt(input.before.msgSeq),
+              sendTime: BigInt(input.before.sendTime),
+              msgId: BigInt(input.before.msgId),
+            }
+          : undefined,
+      );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services ||
+        getAppContext().account !== account
+      )
+        throw new Error('账号数据源已切换，已丢弃旧定位结果');
+      return {
+        messages: page.messages.map((message) => ({
+          msgId: String(message.msgId),
+          msgSeq: String(message.msgSeq),
+          sendTime: String(message.sendTime),
+          senderUid: message.senderUid,
+        })),
+        nextBefore: page.nextBefore
+          ? {
+              msgId: String(page.nextBefore.msgId),
+              msgSeq: String(page.nextBefore.msgSeq),
+              sendTime: String(page.nextBefore.sendTime),
+            }
+          : null,
+      };
+    }),
+
   /** 列出群文件某个目录下的文件+子文件夹 (OIDB 0x6D8_1)。需要在线的 QQ 进程。 */
   listGroupFiles: procedure.input(groupFileInput).query(async ({ input }) => {
     const services = requireExpectedAccount(

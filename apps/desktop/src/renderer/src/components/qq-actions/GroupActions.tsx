@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Check, ChevronRight, LogOut, MoreHorizontal, Plus, Trash2, X } from 'lucide-react';
+import {
+  Check,
+  ChevronRight,
+  LocateFixed,
+  LogOut,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { OverlayLayer } from '../OverlayLayer';
 import {
@@ -208,10 +217,12 @@ function GroupTodosBody({
   groupId,
   groupName,
   embedded = false,
+  onJumpToMessage,
 }: {
   groupId: number;
   groupName?: string;
   embedded?: boolean;
+  onJumpToMessage?: (sequence: string) => void;
 }) {
   const a = useQQAction(`todos:${groupId}`);
   const [opened, setOpened] = useState(false);
@@ -349,6 +360,19 @@ function GroupTodosBody({
             <div className="group-bulletin-header">
               <span className="group-bulletin-date">{t.completed ? '已完成' : '待完成'}</span>
               <div className="weq-todo-row-actions">
+                {onJumpToMessage && (
+                  <ActionIcon
+                    label="定位原消息"
+                    disabled={!/^[1-9]\d*$/.test(t.sequence)}
+                    onClick={() => {
+                      setOpened(false);
+                      setMenu(null);
+                      onJumpToMessage(t.sequence);
+                    }}
+                  >
+                    <LocateFixed size={15} />
+                  </ActionIcon>
+                )}
                 <ActionIcon
                   label="完成待办"
                   disabled={a.disabled || Boolean(t.completed) || !/^[1-9]\d*$/.test(t.sequence)}
