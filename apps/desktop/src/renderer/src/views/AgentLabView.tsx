@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { usePageState } from '../components/PageSnapshots';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 import { pageValue } from '../lib/pageSnapshots';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
@@ -1092,7 +1093,9 @@ export function AgentLabView({
           />
         ) : (
           <div className="weq-agentlab-chat">
-            <div className="weq-agentlab-empty">加载中…</div>
+            <div className="weq-agentlab-empty" role="status">
+              <LoadingIndicator />
+            </div>
           </div>
         )}
       </section>

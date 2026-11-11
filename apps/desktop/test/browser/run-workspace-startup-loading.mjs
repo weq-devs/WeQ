@@ -88,8 +88,57 @@ try {
       );
     }
   }
+  for (const width of [390, 1180]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const theme of ['light', 'dark']) {
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/workspace-startup-loading.html?surface=panel`,
+      );
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.evaluate((theme) => {
+        window.startupQa.theme.getState().setPreference(theme);
+        window.startupQa.theme.getState().setAccent(theme === 'light' ? '#198754' : '#f0ce84');
+      }, theme);
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      const pending = page.locator('[data-weq-startup-pending]');
+      const spinner = pending.locator('.weq-loading-indicator-spinner');
+      await spinner.waitFor({ state: 'visible' });
+      const layout = await pending.evaluate((panel) => {
+        const box = panel.getBoundingClientRect();
+        const indicator = panel.firstElementChild.getBoundingClientRect();
+        return {
+          centeredX: Math.abs(indicator.x + indicator.width / 2 - box.x - box.width / 2) <= 1,
+          centeredY: Math.abs(indicator.y + indicator.height / 2 - box.y - box.height / 2) <= 1,
+          overflow: document.documentElement.scrollWidth > innerWidth,
+        };
+      });
+      assert.equal(layout.centeredX, true, '工具页加载占位水平居中');
+      assert.equal(layout.centeredY, true, '工具页加载占位垂直居中');
+      assert.equal(layout.overflow, false);
+      const before = await spinner.evaluate((node) => getComputedStyle(node).transform);
+      await page.waitForTimeout(120);
+      assert.notEqual(
+        await spinner.evaluate((node) => getComputedStyle(node).transform),
+        before,
+        '工具页加载图标真实转动',
+      );
+      assert.equal(await page.locator('footer .weq-loading-indicator-spinner').isVisible(), true);
+      if (process.env.WEQ_STARTUP_ARTIFACTS) {
+        await page.screenshot({
+          path: resolve(process.env.WEQ_STARTUP_ARTIFACTS, `panel-loading-${width}-${theme}.png`),
+        });
+      }
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      assert.equal(await spinner.evaluate((node) => node.getAnimations().length), 0);
+      await page.evaluate(() => window.finishPanel());
+      await page.getByText('页面已就绪', { exact: true }).waitFor();
+      assert.equal(await pending.count(), 0, '模块完成即移除加载占位');
+    }
+  }
   assert.deepEqual(errors, []);
-  console.log('通过工作区整页加载的桌面/手机宽度、深浅主题、主题色、实际转圈及减少动态效果检查。');
+  console.log(
+    '通过整页及工具页面加载的桌面/手机宽度、深浅主题、主题色、实际转圈、减少动态效果与完成后移除占位检查。',
+  );
 } finally {
   await browser?.close();
   await server.close();

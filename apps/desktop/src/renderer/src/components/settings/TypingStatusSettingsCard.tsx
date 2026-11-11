@@ -14,6 +14,7 @@ import { classifyChatType } from '@weq/codec';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
 import { useTabActive } from '../RetainedTabs';
 import { ToolSurface } from '../ToolSurface';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { PageShell } from '../PageShell';
 import { useAppLock } from '../../state/lock';
 import { trpc } from '../../trpc/client';
@@ -212,7 +213,7 @@ export function TypingStatusSettingsCard() {
         ) : null}
         {query.isLoading ? (
           <div className="weq-set-empty" role="status">
-            加载中…
+            <LoadingIndicator />
           </div>
         ) : null}
       </Card>

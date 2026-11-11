@@ -33,6 +33,7 @@ import {
   Check,
 } from 'lucide-react';
 import { Modal } from './Dialog';
+import { LoadingIndicator } from './LoadingIndicator';
 import { client } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
 import { Avatar } from '../im-template/template/primitives';
@@ -663,7 +664,9 @@ export function GuildDirectDialog({
           ) : null}
           <div className="weq-guild-direct-list" {...sessionMulti.rootProps}>
             {listLoading && !sessions ? (
-              <div className="weq-guild-direct-empty">加载中…</div>
+              <div className="weq-guild-direct-empty" role="status">
+                <LoadingIndicator />
+              </div>
             ) : listError ? (
               <div className="weq-guild-direct-empty">
                 <Inbox size={26} />

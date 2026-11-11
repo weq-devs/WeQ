@@ -18,6 +18,7 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { CornerUpRight, RotateCcw, Search, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { ConvContext, ForwardKindContext } from '../QqMessageContent';
@@ -287,7 +288,9 @@ export function RecalledMessagesModal({
                 ) : null}
               </div>
             ) : loading ? (
-              <div className="weq-deleted-empty">加载中…</div>
+              <div className="weq-deleted-empty" role="status">
+                <LoadingIndicator />
+              </div>
             ) : rows.length === 0 ? (
               <div className="weq-deleted-empty">
                 <RotateCcw size={26} />

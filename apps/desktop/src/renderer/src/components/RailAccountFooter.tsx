@@ -41,6 +41,7 @@ import {
 } from '../lib/appLockStatus';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
+import { LoadingIndicator } from './LoadingIndicator';
 import { QqAvatar } from './QqAvatar';
 import { DesktopOnly, shellBridge } from '../lib/target';
 import '../styles/rail-account.css';
@@ -373,7 +374,9 @@ export function RailAccountFooter({
               </div>
             ) : null}
             {configs.isLoading ? (
-              <div className="weq-rail-account-empty">加载中…</div>
+              <div className="weq-rail-account-empty" role="status">
+                <LoadingIndicator />
+              </div>
             ) : others.length === 0 ? (
               configs.error ? null : (
                 <div className="weq-rail-account-empty">暂无其它账号</div>

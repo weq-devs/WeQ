@@ -33,6 +33,7 @@ import { client, trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
@@ -485,7 +486,7 @@ export function GlobalSettingsSection({
         <Card title="现有配置" icon={<User size={15} strokeWidth={1.8} />}>
           {accountList.length === 0 ? (
             <div className="weq-set-empty">
-              {accounts.isLoading ? '加载中…' : '暂无保存的账号配置'}
+              {accounts.isLoading ? <LoadingIndicator /> : '暂无保存的账号配置'}
             </div>
           ) : (
             <div className="weq-set-accounts">

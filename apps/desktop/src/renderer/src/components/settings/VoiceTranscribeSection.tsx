@@ -42,6 +42,7 @@ import {
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
 import { useToast } from '../Toast';
+import { LoadingIndicator } from '../LoadingIndicator';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -172,7 +173,9 @@ export function VoiceTranscribeSection(): ReactElement {
       <Card title="本地语音识别" icon={<AudioLines size={15} strokeWidth={1.8} />}>
         <p className="weq-set-note">使用本机已下载的模型将语音转为文字，可离线使用。</p>
         {modelList.length === 0 ? (
-          <div className="weq-set-empty">{models.isLoading ? '加载中…' : '暂无可用模型'}</div>
+          <div className="weq-set-empty">
+            {models.isLoading ? <LoadingIndicator /> : '暂无可用模型'}
+          </div>
         ) : (
           <div className="weq-models">
             {modelList.map((m) => {

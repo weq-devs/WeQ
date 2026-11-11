@@ -12,13 +12,14 @@
  * 重新打开设置总是拿到最新状态。
  */
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { AlertTriangle, Cloud, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, SectionHeader } from './controls';
 import { RecognitionConcurrencySetting } from './RecognitionConcurrencySetting';
+import { LoadingIndicator } from '../LoadingIndicator';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -66,7 +67,7 @@ interface ModelKindSectionProps {
   /** 这组模型的用途。 */
   desc: string;
   /** 注册表里这一类为空时显示什么。 */
-  emptyHint: string;
+  emptyHint: ReactNode;
   models: ModelRow[];
   progress: LiveProgress | null;
   busy: boolean;
@@ -283,7 +284,7 @@ export function OcrModelsSection(): ReactElement {
         <ModelKindSection
           title="识别模型"
           desc="检测图片中的文字位置并识别内容。"
-          emptyHint={models.isLoading ? '加载中…' : '暂无可用模型'}
+          emptyHint={models.isLoading ? <LoadingIndicator /> : '暂无可用模型'}
           models={ocrModels}
           progress={progress}
           busy={busy}
@@ -295,7 +296,7 @@ export function OcrModelsSection(): ReactElement {
         <ModelKindSection
           title="筛图模型"
           desc="识别前先判断图片是否包含文字，跳过无文字图片以减少处理量。"
-          emptyHint={models.isLoading ? '加载中…' : '暂无可用模型'}
+          emptyHint={models.isLoading ? <LoadingIndicator /> : '暂无可用模型'}
           models={filterModels}
           progress={progress}
           busy={busy}

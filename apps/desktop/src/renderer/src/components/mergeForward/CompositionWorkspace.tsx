@@ -1,4 +1,5 @@
 import { CompositionButton } from './CompositionButton';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -573,7 +574,9 @@ export function CompositionWorkspace({
                   </p>
                 ) : entries.isLoading ||
                   (kind === 'history' && (saved.isLoading || history.isLoading)) ? (
-                  <p role="status">加载中…</p>
+                  <p role="status">
+                    <LoadingIndicator />
+                  </p>
                 ) : !library.length ? (
                   <p className="weq-composition-empty">
                     {kind === 'material'

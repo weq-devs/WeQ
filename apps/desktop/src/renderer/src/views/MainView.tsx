@@ -331,6 +331,7 @@ import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { WorkspaceStartupLoading } from '../components/WorkspaceStartupLoading';
+import { PanelLoading } from '../components/LoadingIndicator';
 import { displayGroupMemberName } from '../im-template/template/user';
 import {
   ChatNavigationContext,
@@ -436,11 +437,7 @@ const RelationGraphView = lazy(() =>
     default: module.RelationGraphView,
   })),
 );
-const workspaceLoading = (
-  <div role="status" data-weq-startup-pending className="p-6 text-sm text-muted-foreground">
-    正在加载…
-  </div>
-);
+const workspaceLoading = <PanelLoading />;
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],

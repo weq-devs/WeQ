@@ -33,6 +33,7 @@ import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
+import { LoadingIndicator } from './LoadingIndicator';
 import {
   QqMessageContent,
   ConvContext,
@@ -535,7 +536,7 @@ function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
   if (win.loading) {
     return (
       <div className="weq-forward-body weq-forward-status">
-        <span>加载中…</span>
+        <LoadingIndicator />
       </div>
     );
   }

@@ -8,6 +8,7 @@
 import { useMemo, type ReactElement } from 'react';
 import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { QqMessageContent, ConvContext, ForwardKindContext } from '../QqMessageContent';
 import type { RenderEl } from './composeModel';
 
@@ -41,7 +42,9 @@ export function MessagePicker({
       <ConvContext.Provider value={kind === 'group' ? conv : ''}>
         <div className="weq-msg-picker">
           {query.isLoading ? (
-            <div className="weq-face-empty">加载中…</div>
+            <div className="weq-face-empty" role="status">
+              <LoadingIndicator />
+            </div>
           ) : messages.length === 0 ? (
             <div className="weq-face-empty">暂无消息</div>
           ) : (

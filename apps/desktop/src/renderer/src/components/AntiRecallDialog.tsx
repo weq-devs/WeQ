@@ -29,6 +29,7 @@ import {
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
+import { LoadingIndicator } from './LoadingIndicator';
 import { Card, Row, QueryError, SettingsScopeBadge, Toggle } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
 import { convAvatarUrl, fmtCount, type PickItem } from '../views/export/types';
@@ -427,7 +428,9 @@ export function AntiRecallDialog({
           onRetry={() => void summaries.refetch()}
         />
       ) : summaries.isLoading ? (
-        <div className="weq-ar-empty">加载中…</div>
+        <div className="weq-ar-empty" role="status">
+          <LoadingIndicator />
+        </div>
       ) : recordRows.length === 0 ? (
         <div className="weq-ar-empty">
           <RotateCcw size={26} />

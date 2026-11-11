@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { LoadingIndicator } from './LoadingIndicator';
 import {
   CALENDAR_SOURCE_LABELS,
   calendarTargetKey,
@@ -83,7 +84,11 @@ export function CalendarConversationList({
           );
         })}
       </div>
-      {rows.length < total ? <p role="status">正在加载更多会话…</p> : null}
+      {rows.length < total ? (
+        <p role="status">
+          <LoadingIndicator>正在加载更多会话…</LoadingIndicator>
+        </p>
+      ) : null}
       {showEmpty && complete && !rows.length ? <p>当天没有消息</p> : null}
     </div>
   );

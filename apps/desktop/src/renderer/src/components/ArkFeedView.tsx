@@ -4,6 +4,7 @@ import { trpc } from '../trpc/client';
 import { QqArk } from './ark/QqArk';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useTabActive } from './RetainedTabs';
+import { LoadingIndicator } from './LoadingIndicator';
 
 interface ArkFeedViewProps {
   conversationId: string;
@@ -135,7 +136,9 @@ export function ArkFeedView({
       </div>
       <div className="weq-ark-feed-body">
         {loading && arkMessages.length === 0 ? (
-          <div className="weq-ark-feed-loading">加载中...</div>
+          <div className="weq-ark-feed-loading" role="status">
+            <LoadingIndicator />
+          </div>
         ) : arkMessages.length === 0 ? (
           <div className="weq-ark-feed-empty">暂无消息</div>
         ) : (
