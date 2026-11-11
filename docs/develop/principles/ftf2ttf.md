@@ -272,6 +272,6 @@ pub fn convert_font(input_path: String, output_path: String) -> napi::Result<Str
 ## 相关链接
 
 - 源码入口：`nt_helper/src/font_convert.rs`
-- 对外接口：`nt_helper.convertFont` — 见 [nt_helper.node 接口文档](../develop/nt-helper-interface.md)
+- 对外接口：`nt_helper.convertFont` — 见 [nt_helper.node 接口文档](../nt-helper-interface.md)
 
 [← 返回原理总览](./index.md)

@@ -44,10 +44,12 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
 | `getInitStatus()` | — | `number` | 全局初始化状态：`0`=可用，`-1`=过期，`-200`=损坏，`-201`=被篡改，`99`=未知。 |
-| `getBuildInfo()` | — | `BuildInfo` | 构建时间 / 有效期窗口：`{ buildTime: number \| null; expireTime: number \| null; validitySecs: number; isDev: boolean }`（Unix 秒）。`expireTime = buildTime + validitySecs`。有效期长度只在 native 侧定义一处。**不经过初始化校验**，过期后仍可查询（用于驱动更新提示）。 |
-| `setLogPath(path)` | `path: string` | `Promise<void>` | 配置日志输出路径；内部 `logger::set_log_path`。 |
-| `resolveAppidFromMajor(majorPath)` | `majorPath: string` | `Promise<AppidInfo>` | 从 QQ NT 的 `resources/app/major.node` 直接扫描出 `appid` / `qua` / `version` / `build`，所见即所得，无静态版本表。 |
-| `convertFont(inputPath, outputPath, options?)` | 俩字符串路径 + 可选 `ConvertFontOptions` | `Promise<string>` | FTF → 标准 TTF 转换；本来就是 TTF 则直接拷贝。默认还会把 `brsh`/`cglf` 编译成彩色字体（`COLR` v1 + `CPAL` v0）、把 `eimg` 炫彩帧导到 `<输出名>_assets/`（`frame_<槽位>.png`）、并用本机 `ots-sanitize` 预检产物。返回说明消息，如 `converted FTF to TTF; exported 109 eimg frame(s) (350x141) to …; OTS ok`。 |
+| `getBuildInfo()` | — | `BuildInfo` | 构建时间 / 有效期窗口：`{ buildTime: number \| null; expireTime: number \| null; validitySecs: number; isDev: boolean; authorizationInterface: number }`（Unix 秒）。`expireTime = buildTime + validitySecs`。有效期长度只在 native 侧定义一处。**不经过初始化校验**，过期后仍可查询（用于驱动更新提示）。`authorizationInterface` 是[权限助手接口版本](./long-term-authorization.md)，用来判断系统里已装的长期授权助手是否还兼容。 |
+| `setLogPath(path)` | `path: string` | `void` | 配置日志输出路径；内部 `logger::set_log_path`。**同步**，不返回 Promise。 |
+| `setDebugLog(enabled)` / `isDebugLogEnabled()` | `boolean` | `void` / `boolean` | 运行时可切底层调试日志（`trace` 级），不用重启、不用改环境变量。报文与认证数据只记状态和长度，不写原始字节。默认关闭。 |
+| `resolveAppidFromMajor(majorPath)` | `majorPath: string` | `AppidInfo` | 从 QQ NT 的 `resources/app/major.node` 直接扫描出 `appid` / `qua` / `version` / `build`，所见即所得，无静态版本表。**同步**。 |
+| `resolveQqRuntimeModules(pid)` | `pid: number` | `QqRuntimeModules \| null` | 从运行中的 QQ 进程解析出 `wrapper.node` / `major.node` 等运行时模块路径。`null` = 模块没找到或不适用。给了 `pid` 就不用猜安装路径。 |
+| `convertFont(inputPath, outputPath, options?)` | 俩字符串路径 + 可选 `ConvertFontOptions` | `string` | FTF → 标准 TTF 转换（**同步**版）；本来就是 TTF 则直接拷贝。耗时场景用 `convertFontAsync`（语义、返回值相同，丢到阻塞线程池）。默认还会把 `brsh`/`cglf` 编译成彩色字体（`COLR` v1 + `CPAL` v0）、把 `eimg` 炫彩帧导到 `<输出名>_assets/`（`frame_<槽位>.png`）、并用本机 `ots-sanitize` 预检产物。返回说明消息，如 `converted FTF to TTF; exported 109 eimg frame(s) (350x141) to …; OTS ok`。 |
 | `getFontPipelineVersion()` | — | `number` | native 侧字体转换链的版本号（`font::FONT_PIPELINE_VERSION`）：改 `src/font/**` 的产物字节就 +1。宿主把产出 `fonts/<id>.ttf` 时的这个号写进 sidecar，读缓存时对不上就地重解 —— 这样「native 修了字体的表处理」不必再等宿主手改版本号（`hdmx`/`LTSH` 那次就是漏在这里）。 |
 | `getMarketFaceKey(packetId)` | `packetId: string` | `Promise<MarketFaceKey \| null>` | 恢复商城表情包 QQTEA 密钥（自包含：抓 android.json 提示 → xydata 快路径 → 采样爆破）。返回 `null` 表示拿不到。 |
 | `queryDressResourceUrl(dtype, itemId, name)` | 三个字符串 | `DressResourceUrl \| null` | 纯本地查装扮资源下载 URL（font/bubble/widget × 部件名），不联网、不依赖协议。`null` = 本地包缺失或未命中（此时交给协议兜底）。 |
@@ -55,7 +57,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 **携带数据的封箱类型**
 
 - `AppidInfo = { appid: string; qua?: string; version?: string; build?: string }`
-- `BuildInfo = { buildTime: number | null; expireTime: number | null; validitySecs: number; isDev: boolean }`
+- `BuildInfo = { buildTime: number | null; expireTime: number | null; validitySecs: number; isDev: boolean; authorizationInterface: number }`
 - `MarketFaceKey = { timestamp: number; key: string; source: 'xydata' | 'brute-force' }`
 - `DressResourceUrl = { url: string; size: number }`
 - `ConvertFontOptions = { color?: boolean; colorChars?: string; assetsDir?: string; checkOts?: boolean }`（缺省即全开；`assetsDir: ''` 关图包，`color: false` 关彩色，`checkOts: false` 关校验）。早于该开关的 nt_helper 会忽略第三个参数（只做转换），调用方不必探测版本。
@@ -72,7 +74,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | `probeQqLoginInfo(pid)` | `pid: number` | `Promise<QqPortLoginInfo \| null>` | 通过本地端口探测登录态 / UIN / 昵称。`null` = 没拿到信息。 |
 | `probePtLoginPort(pid)` | `pid: number` | `PtLoginPortProbeResult` | 探测 pt_login 端口（奇数 HTTPS / 偶数 HTTP，优先 HTTPS）。 |
 | `probeDbLock(dbPath)` | `dbPath: string` | `DbLockProbeResult` | 反查哪些进程占用了数据库文件（`success`+`locked`+`holders`）。Windows 用 Restart Manager，Unix 用 fcntl 写锁探测。只读。 |
-| `isQqLoggedIn(uin, baseDir?, uid?)` | `uin`, `baseDir?`, `uid?` | `boolean` | 某账号是否登录中。**平台差异**：Windows 用 `uin` 查命名互斥体；Linux/macOS 用 `baseDir` + `uid` 探测 `nt_msg.db` 的 fcntl 锁（缺任一 `false`）。 |
+| `isQqLoggedIn(dbPath)` | 该账号 `nt_msg.db` 的绝对路径 | `boolean` | 某账号是否登录中。**三端同一套机制**：只看这个库有没有被 QQ 独占持有（Windows 打开句柄 / Unix POSIX advisory 写锁），命名互斥体、端口探测那套已删。数据目录由调用方解析，native 不猜。 |
 
 **返回类型**
 
@@ -170,13 +172,12 @@ OIDB `0x102a_1` 复用的是同机 QQ 已在维持的会话，更稳定、更普
 | `scanKeyFromDatabase(dbPath, pid)` | `dbPath: string`, `pid: number` | `Promise<KeyScanResult>` | **零注入**内存扫描拿 raw master key，用 `dbPath` 过滤候选。扫描逻辑移植自 x_key_scanner（含强力模式：锚点/簇扫描失败时回退扫整个内存），候选并行校验。 |
 | `scanKeyFromDatabaseWithProgress(dbPath, pid, onProgress?)` | 同上 + 进度回调 | `Promise<KeyScanResult>` | 同上，额外通过 `onProgress(err, progress)` 持续回报两阶段进度。**可选能力**（老产物没有，调用方需回退到 `scanKeyFromDatabase`）。 |
 | `testDatabaseKey(dbPath, key)` | `dbPath`, `key` | `Promise<KeyTestResult>` | 试 `key` 是否能解开库，**穷举 page-HMAC × KDF-HMAC 全部 12 种组合**，返回能解开的那组算法。用于不知道 `algo` 时先探测一次。 |
-| `decryptLoginDb(loginDbPath, algo)` | 路径 + `CipherAlgo` | `Promise<LoginAccount[]>` | 走 offset VFS 解密 `login.db` 拿缓存登录账号，不落临时明文文件。`algo` 可先用 `testDatabaseKey` 探测。 |
-| `getGuildDbKey(dbPath, uin)` | 路径 + `uin` | `Promise<string>` | 计算 QQ 频道（gpro）库的密钥：扫描库内 salt + 特定 md5 公式。 |
+| `decryptLoginDb(loginDbPath, algo)` | 路径 + `CipherAlgo` | `LoginAccount[]`（同步） | 走 offset VFS 解密 `login.db` 拿缓存登录账号，不落临时明文文件。`algo` 可先用 `testDatabaseKey` 探测。 |
+| `getGuildDbKey(dbPath, uin)` | 路径 + `uin` | `string`（同步） | 计算 QQ 频道（gpro）库的密钥：读库内 16 字节 salt + 特定 md5 公式。算法结论见 [gpro 频道库密钥](./principles/gpro-database.md)。 |
 
-本地原生修复版本 2.2.3 的两种 `scanKeyFromDatabase*` 接口仅读取数据库前
-5120 字节（QQ 包装头 + 首个加密页）用于候选校验，短文件或读取错误返回失败，
-不再整库分配。正式 pin 尚未更新，使用前须核验实际加载的产物；复现、检查脚本及
-交付边界见大库密钥扫描修复。
+两种 `scanKeyFromDatabase*` 接口只读数据库前 **5120 字节**（QQ 包装头 + 首个加密页）
+用于候选校验，**不整库分配内存**；短文件或读取错误直接返回失败。所以它可以安全地
+在 10 GiB 级的库上用，也不会因为大库把 Electron 进程打死。
 
 **返回类型**
 
@@ -198,14 +199,17 @@ SQLite 的保留页按**文件**设置：QQ 库因 1024 字节头保留 `262144`
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `executeSql(dbPath, sql, params?)` | 路径 + SQL + 可选参数 | `Promise<SqlValue[][]>` | 只读查询（offset VFS，无密钥）。注意：这只适用于无需 SQLCipher 密钥的库；带密钥的库首次需要用 `executeSqlWithKey` 领证，之后才能用 `executeSql` 复用。 |
-| `executeSqlWithKey(dbPath, sql, key, algo, params?)` | + `key` + `CipherAlgo` | `Promise<SqlValue[][]>` | 带密钥查询。**密钥只消费一次**：首个调用驱动 PRAGMA cipher 舞步并缓存连接，之后可省略密钥用 `executeSql`。 |
+| `executeSql(dbPath, sql, params?, layout?)` | 路径 + SQL + 可选参数 + 可选布局 | `Promise<SqlValue[][]>` | 只读查询（offset VFS，无密钥）。注意：这只适用于无需 SQLCipher 密钥的库；带密钥的库首次需要用 `executeSqlWithKey` 领证，之后才能用 `executeSql` 复用。`layout`（`'qq'` / `'standard'`）缺省时按文件头自动识别。 |
+| `executeSqlBudgeted(dbPath, sql, params, budgetMs, key?, algo?)` | 路径 + SQL + 参数 + 毫秒预算 + 可选密钥 / 算法 | `Promise<SqlValue[][]>` | 带**时间预算**的查询：长查询到点就中止并报错，用来保护启动期 / UI 线程不被慢查询拖死。 |
+| `executeSqlWithKey(dbPath, sql, key, algo, params?, layout?)` | + `key` + `CipherAlgo` + 可选布局 | `Promise<SqlValue[][]>` | 带密钥查询。**密钥只消费一次**：首个调用驱动 PRAGMA cipher 舞步并缓存连接，之后可省略密钥用 `executeSql`。 |
 | `executeSqlWrite(dbPath, sql, params?)` | 同上（写） | `Promise<number>` | 写操作，返回受影响行数。带空闲检测 + BEGIN IMMEDIATE 重试。**谨慎使用**：写前注意备份。 |
 | `executeSqlWriteWithKey(...)` | + `key` + `algo` | `Promise<number>` | 带密钥的写操作。 |
 | `closeDb(dbPath)` | 路径 | `number` | 关闭该路径所有缓存连接，返回关闭数。登出 / 释放文件句柄时调用。 |
 | `closeAllDb()` | — | `number` | 关闭全部缓存连接。 |
 | `fastDecryptDatabase(dbPath, outPath, key, algo)` | 路径们 + key + algo | `void` | 快速解密为**标准布局**的明文 SQLite（直接落盘），可直接被任何 SQLite 工具打开。 |
 | `safeDecryptDatabase(dbPath, outPath, key, algo)` | 同上 | `void` | 安全解密：所有读走 SQLite（offset VFS + `sqlcipher_export`），长导出期间不怕 QQ checkpoint 撕页；无中间文件。产物同样是**标准布局**明文。 |
+| `fastDecryptDatabaseAsync` / `safeDecryptDatabaseAsync` | 同上 | `Promise<void>` | 上面两个的**异步版**：丢进阻塞线程池，不占调用方线程。UI 触发的导出优先用它。 |
+| `checkpointWal(dbPath, key, algo)` | 路径 + key + algo | `Promise<WalCheckpointResult>` | 把 `-wal` 里的帧并回主库。报告里的 `merged` 是**结论**：为 `false` 时那批改动还没进主文件，不能声称「修复包含了全部消息」。 |
 | `checkDatabaseHealth(dbPath, key, algo)` | 路径 + key + algo | `Promise<DatabaseHealthResult>` | `PRAGMA integrity_check` 体检；整体失败时逐表出结果。 |
 | `recoverDatabase(options, onProgress?)` | `RecoverOptions` + 可选进度回调 | `Promise<RecoverReport>` | 重建损坏库：坏页扫描 → 解密 → SQLite recover → 重新加密 → 补 QQ 头 → 自检。源库只读。`sourceLayout` / `targetLayout` 可选（默认都 `qq`）；把旧版误修复的 standard 布局迁回 QQ 时传 `sourceLayout: 'standard', targetLayout: 'qq'`，产物报告会回显实际布局。旧产物会静默忽略这两个参数、也不回显布局，调用方必须在替换前核对。 |
 | `databaseRepairStorageVersion()`（可选） | 无 | `number` | 返回 1 表示重建后提前释放明文源库、通过 offset VFS 直接加密带头产物；方法缺失按旧模块预算预检。能力标记与实际加载模块绑定，不以应用版本推断。 |
@@ -261,6 +265,8 @@ executeSqlWithKey 返回行示例：
 ### 5.3 返回类型
 
 `KeyTestResult` / `DatabaseHealthResult = { healthy: boolean; corruptedTables: string[] }`。
+
+`WalCheckpointResult = { busy: number; log: number; checkpointed: number; walBytes: number; merged: boolean }`：`busy == 1` 表示被其他连接挡住，`merged` 是「帧是否已全部回主库」的结论。
 
 ### 5.4 损坏宽容（salvage）等级与契约
 
@@ -321,13 +327,25 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 
 拿在线数据（图片 rkey、cookie、skey 等）的链路只有两步，都在 native 里：**① 只读 QQ 进程内存取出该会话的 a2 / d2 / d2key；② native 自己组帧、签名、直连 QQ 服务器收发**。发包**不再经过**「注入 hook + unix socket / named pipe 管道转发」那套（hook 传输层已删），也就没有「等 hook 就绪」这一环。
 
-> ⚠️ **登录取密钥不再走这条链路**（NineBird 已删）：装号 / 取密钥走**纯协议** `quickLogin` / `qrLogin`（`wtlogin` 快登或扫码），从 `login.db` 取缓存的 a1 + 设备 guid 直连登录服务器换 a2/d2/d2key，再顺带发 OIDB `0xcde_2` 取 dbKey；不读内存、不注入、不提权。这条 attach 链路仍服务于**在线实例**功能（图片 rkey / 装扮 / 红包 / 抓包等）：`prepareInstanceAttach`（读内存拿 a2/d2/d2key + 登记原生 SSO 会话）→ `fetchKeyFromInstance`（发包 OIDB 0xcde_2 取 dbKey）。**登记是必备的一步** —— `sendOidbPacket` / `sendPacket` 只认已登记的 pid，`setSsoSession` 之前第一包必然报「还没有登记 SSO 会话」。登记用的 uid 从 `login.db` 解析、guid 从 QQ 数据根离线算（都无需额外权限）。
+::: warning 登录取密钥不走这条链路
+
+（NineBird 已删）：装号 / 取密钥走**纯协议** `quickLogin` / `qrLogin`（`wtlogin` 快登或扫码），从 `login.db` 取缓存的 a1 + 设备 guid 直连登录服务器换 a2/d2/d2key，再顺带发 OIDB `0xcde_2` 取 dbKey；不读内存、不注入、不提权。这条 attach 链路仍服务于**在线实例**功能（图片 rkey / 装扮 / 红包 / 抓包等）：`prepareInstanceAttach`（读内存拿 a2/d2/d2key + 登记原生 SSO 会话）→ `fetchKeyFromInstance`（发包 OIDB 0xcde_2 取 dbKey）。**登记是必备的一步** —— `sendOidbPacket` / `sendPacket` 只认已登记的 pid，`setSsoSession` 之前第一包必然报「还没有登记 SSO 会话」。登记用的 uid 从 `login.db` 解析、guid 从 QQ 数据根离线算（都无需额外权限）。
+
+:::
 
 读内存这一步仍有权限门槛：Linux 要 root（或 `CAP_SYS_PTRACE`）且 `/proc/sys/kernel/yama/ptrace_scope` 放行；macOS 要 root **且**目标未开强化运行时保护（QQ 开了，所以得先关 SIP）；Windows 要管理员。macOS 上 SIP 开着时读内存无解（`task_for_pid` 连 root 都拒），因此在线实例功能在此之前不可用 —— 但登录本身已与内存解耦，纯协议即可完成。
 
-> ℹ️ Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/attach_flow.ts`（有单测）。
+::: info Linux 先试免密
+
+Linux 宿主**总是先试免密直连**：`yama ptrace_scope=0`（或 `CAP_SYS_PTRACE`）时同用户 attach 直接成功，不弹窗、不要密码；只有内核真的拒了（EPERM/EACCES）才回到提权。引导弹窗里的「不再提醒」**只静音该弹窗**，不影响这个顺序——被拒后仍会尝试提权。顺序钉在 `packages/service/src/bootstrap/attach_flow.ts`（有单测）。
+
+:::
 >
-> ⚠️ 例外：**root 读不到安装目录**的宿主（AppImage —— payload 在没开 `allow_other` 的 FUSE 挂载上；以及单用户 FUSE 家目录）跑不了 elevated worker，连 `exec` 我们自己的二进制都是 EACCES（`env: "…": 权限不够`）。这类宿主改为「root 只临时放开 yama ptrace 保护 → 非特权进程自己读 → 写回原值」，见 `apps/desktop/src/main/attach_elevation.ts` 的 `escalateViaPtraceScope`。
+::: warning 例外
+
+**root 读不到安装目录**的宿主（AppImage —— payload 在没开 `allow_other` 的 FUSE 挂载上；以及单用户 FUSE 家目录）跑不了 elevated worker，连 `exec` 我们自己的二进制都是 EACCES（`env: "…": 权限不够`）。这类宿主改为「root 只临时放开 yama ptrace 保护 → 非特权进程自己读 → 写回原值」，见 `apps/desktop/src/main/attach_elevation.ts` 的 `escalateViaPtraceScope`。
+
+:::
 
 ### 6.1 取物料
 
@@ -354,7 +372,11 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
   WeQ 侧见 `packages/service/src/account/sso_session.ts` 的 `resolveSubAppId`
   （不传就动态解析，兜底常量只是应急）。
 
-> ℹ️ **刻意不做上线注册与心跳**（对照 `../LagrangeV2`）：那是个纯协议框架，机器上只有它一个客户端，所以它必须自己发 `SsoInfoSync` 上线、自己心跳。我们不是 —— a2/d2/d2key 就是从同机 QQ 进程内存里读的，那条会话的在线状态与心跳由 QQ 本体维持；再注册一次只会让服务端看到「同设备 guid + 同一份 d2 的第二个客户端」。这里只借凭据发包，其余交给 QQ。
+::: info 刻意不做上线注册与心跳
+
+（对照 `../LagrangeV2`）：那是个纯协议框架，机器上只有它一个客户端，所以它必须自己发 `SsoInfoSync` 上线、自己心跳。我们不是 —— a2/d2/d2key 就是从同机 QQ 进程内存里读的，那条会话的在线状态与心跳由 QQ 本体维持；再注册一次只会让服务端看到「同设备 guid + 同一份 d2 的第二个客户端」。这里只借凭据发包，其余交给 QQ。
+
+:::
 
 ### 6.2 发包（`pid` 需先经 `setSsoSession` 登记）
 
@@ -364,22 +386,36 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 | `sendPacket(pid, cmd, body, needSign?, mode?)` | 完整 SSO 命令串 + protobuf body | `Promise<Buffer>` | 通用原始发包，给**不是 OIDB 的 trpc 服务**用（命令串如 `QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList`）。`needSign` / `mode` 同上。 |
 | `resetPacketSequence()` / `currentPacketSequence()` | — | `number` | 全局发包序号。重连 / 换会话时先 `resetPacketSequence()` 回收起点；`currentPacketSequence()` 仅供诊断。 |
 | `locateSignFunction(wrapperPath)` / `signPacket(wrapperPath, cmd, src, seq)` | `wrapper.node` 路径 + 命令 + 明文 + 序号 | RVA / `SignOutput` | `wrapper.node` 签名函数的定位与调用：`needSign` 的命令靠它算 `SecSign`（以及本进程里恒为空的 `SecToken / SecExtra`）。离线逐字节核对抓包用 `buildSsoPacket(req)`。 |
+| `warmupSigner(wrapperPath, signCoreRva?, vmRva?)` / `checkSigner(wrapperPath, repeat?)` | `wrapper.node` 路径 + 可选 RVA / 重复次数 | `Promise<boolean>` / `SignCheckReport` | 预热签名器与自检：首次调用要建 VM 解释器，几百毫秒；自检报告用来看签名是否稳定（新旧 wrapper 兼容性排障）。 |
+| `signerRvas(wrapperPath)` | `wrapper.node` 路径 | `SignerRvas \| null` | 只探测、不预热：返回签名核心与 VM 的 RVA，供诊断页展示。 |
+| `signPacketWithToken(wrapperPath, cmd, src, tokenHex, extraHex, mode?)` | + 外部传入的 token / extra | `SignOutput` | 已有 `SecToken` / `SecExtra` 时直接签名（不需要自己算）。 |
+| `signRedBagRequest(signInput)` | 待签字节 | `Buffer` | 红包请求的专用签名，与主签名链分开。 |
 
-> `sendOidbPacket` / `sendPacket` 的 `needSign` 只收**当前平台**的布尔值。QQ 的签名集合
-> 按平台不同（Linux / Windows / macOS），`@weq/protocol` 的 `sign-policy.ts` 按 wire 命令
-> 查表再解析成本平台的值传进来；不要在这里按白名单或并集推导，业务代码也不要绕过
-> `transport.ts` 直接调这两个接口。
+::: warning `needSign` 只收当前平台的值
 
-> **业务命令不在 native**：clientKey / 下载 rkey / decryptKey / skey / p_skey / bkn 的请求构造
-> 与解析已经在 `@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过
-> 上面的两个通用接口发包。新增「走后门业务」继续走 `sendOidbPacket` / `sendPacket` + TS schema，
-> **不要为此改 native 引入新接口**。
->
-> ⚠️ 唯一的例外是**登录流程自己**：`quickLogin` / `qrLogin` 在换到 a2/d2/d2key 的那条连接上
-> 顺带发 `0xcde_2`（dbkey）与 `0x102a_0`（`pskeyDomains` → `p_skey`，一域一轮，默认
-> `vip.qq.com` + `qzone.qq.com`）。
-> 这两步必须在登录连接里完成（会话物料刚拿到、连接还热），所以留在 native；除此之外的业务命令
-> 一律走上面的通用接口，不要在 login 里继续加。
+QQ 的签名集合**按平台不同**（Linux / Windows / macOS），`@weq/protocol` 的 `sign-policy.ts`
+按 wire 命令查表再解析成本平台的值传进来；不要在这里按白名单或并集推导，业务代码也不要
+绕过 `transport.ts` 直接调这两个接口。
+
+:::
+
+::: info 业务命令不在 native
+
+clientKey / 下载 rkey / decryptKey / skey / p_skey / bkn 的请求构造与解析已经在
+`@weq/protocol` + `@weq/service`（`account/online_ticket.ts`）里实现，只通过上面的两个通用
+接口发包。新增「走后门业务」继续走 `sendOidbPacket` / `sendPacket` + TS schema，
+**不要为此改 native 引入新接口**。
+
+:::
+
+::: warning 唯一的例外是登录流程自己
+
+`quickLogin` / `qrLogin` 在换到 a2/d2/d2key 的那条连接上顺带发 `0xcde_2`（dbkey）与
+`0x102a_0`（`pskeyDomains` → `p_skey`，一域一轮，默认 `vip.qq.com` + `qzone.qq.com`）。
+这两步必须在登录连接里完成（会话物料刚拿到、连接还热），所以留在 native；除此之外的业务
+命令一律走上面的通用接口，不要在 login 里继续加。
+
+:::
 
 ---
 
@@ -514,7 +550,29 @@ listProcessesWithModule(moduleHint: string): ProcessScanEntry[]
 
 ---
 
-## 8. 平台相关 / 其它
+## 8. 通话与媒体编解码
+
+QQ 的语音 / 视频**不是标准编码**：语音是腾讯改过码表的 Opus，私聊视频用 `t265`（改过的 x265），
+群通话用 H.264。所以必须加载 QQ 安装目录里那一版插件，不能拿系统 libopus / libx265 代替 ——
+两边码表不一致时，对端听到的是噪声、看到的是一屏花屏。
+
+`modulesDir` 传 QQ 的 `resources/app`（Linux 下的 `avsdk/libAVSDKPlugin.so` 也在这个目录树里）。
+每个编解码器**进程内只打开一次**，重复调用幂等；挂断时对应 `close*`。
+
+| JS 函数 | 参数 | 返回 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `openCallCodec(modulesDir)` / `closeCallCodec()` / `isCallCodecOpen()` | QQ `resources/app` | `Promise<void>` / `void` / `boolean` | 语音编解码器。 |
+| `encodeCallFrame(pcm)` | **640 字节** 16 kHz 单声道 16-bit PCM（小端） | `Buffer`（Opus） | 一帧固定 20 ms（320 采样），**不接受其它长度** —— 服务端按 20 ms 排帧。 |
+| `decodeCallFrame(opus)` | 一帧 Opus | `Buffer`（640 字节 PCM） | 反过来解一帧。 |
+| `openVideoEncoder(modulesDir, width?, height?, fps?, bitrateKbps?, keyint?, allIntra?)` | 可选参数缺省用与客户端一致的 640×360 / 15 fps / 400 kbps | `Promise<void>` | 私聊视频（H.265 / `t265`）。 |
+| `encodeVideoFrame(y, u, v)` | I420 三个平面（Y 全尺寸，U/V 各 1/4） | `VideoFrameResult \| null` | Annex B 裸流。编码器还在 lookahead 里攒帧时返回 `null`，下一帧再取。 |
+| `openH264Encoder(...)` / `encodeH264Frame(y, u, v)` / `closeH264Encoder()` / `isH264EncoderOpen()` | 同上 | 同上 | 群通话用的 H.264（`libopenh264.so`）。**目前只有 Linux 支持**：macOS / Windows 的 openh264 没有独立动态库。 |
+
+`VideoFrameResult = { data: Buffer; keyframe: boolean }`（含 `00 00 00 01` 起始码）。
+
+---
+
+## 9. 平台相关 / 其它
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
@@ -523,10 +581,10 @@ listProcessesWithModule(moduleHint: string): ProcessScanEntry[]
 
 ---
 
-## 9. 常见坑 & 约定
+## 10. 常见坑 & 约定
 
 1. **先 `getInitStatus()` 再干活**：环境校验失败时，`check_init!` 类函数会抛 `EnvIrreversiblyError` / `"Environment validation failed"`；`check_init_or_default!` 类则返回“失败默认值”（如 probe 返回 `success:false`）而非抛错。调用方两种都要处理。
-2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。默认只记 info 及以上事件；高频路径（`probeDbLock`、`closeDb`、`testDatabaseKey`、逐包接收、端口探测）都在 debug 级，排查时用环境变量 `WEQ_LOG_LEVEL=debug|trace` 抬升（`error` / `warn` / `off` 也可）。loader 侧的逐文件资产校验同理，用 `WEQ_NATIVE_DEBUG=1` 打开。
+2. **`setLogPath` 尽早调用**：每个接口内部都会 `logger::init_logger()`，日志目标取决于当时配置。默认只记 info 及以上事件；高频路径（`probeDbLock`、`closeDb`、`testDatabaseKey`、逐包接收、端口探测）都在 debug 级。排查时用 `setDebugLog(true)` 运行时抬到 `trace`（**首选**，不用重启、不用改环境变量），或启动前设 `WEQ_LOG_LEVEL=debug|trace`（`error` / `warn` / `off` 也可）。loader 侧的逐文件资产校验同理，用 `WEQ_NATIVE_DEBUG=1` 打开。
 3. **连接缓存**：`executeSql*` 对同一 `dbPath` 缓存连接。登出 / 换号记得 `closeDb` / `closeAllDb` 释放句柄与密钥。
 4. **SQL 只读优先**：`executeSql` 注释明确“SELECT only recommended”；写接口存在且可用，但改动 QQ 运行时数据库前务必先备份。
 5. **`algo` 别假设**：QQ NT 各库、各客户端版本的 page/KDF HMAC 不固定。未知库一律先 `testDatabaseKey`，得到 `CipherAlgo` 再喂给其它函数；不要硬编码 `SHA1/SHA1`。
@@ -537,7 +595,7 @@ listProcessesWithModule(moduleHint: string): ProcessScanEntry[]
 
 ---
 
-## 10. 相关链接
+## 11. 相关链接
 
 - 源码：`../nt_helper/src/`（Rust / napi-rs），入口 `lib.rs`
 - 使用示例：`apps/desktop/src/main/attach_worker.ts`（加载 + 初始化 + 调用）

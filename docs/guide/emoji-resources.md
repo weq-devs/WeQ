@@ -27,7 +27,7 @@
 
 导出个人表情从统一工具选择[导出表情包](export.md#11-导出表情包)，区分“我的表情”和“收到的表情”、原图与缩略图。QQ 缓存占用与清理由 **设置 → 数据库与资源 → QQ 资源管理** 管理；WeQ 自身缓存位于「常规 → WeQ 存储管理」。
 
-需要研究缓存格式时，参见[表情数据库](../database/emoji.md)和[商城表情解密](../principles/mface-decrypt.md)，不要把磁盘布局当使用步骤。
+需要研究缓存格式时，参见[表情数据库](../database/emoji.md)和[商城表情解密](../develop/principles/mface-decrypt.md)，不要把磁盘布局当使用步骤。
 
 ## 个性装扮
 

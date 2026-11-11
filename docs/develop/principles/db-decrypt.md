@@ -28,7 +28,7 @@ QQ 库会直接报 `file is not a database`，原因就在这一段。
 
 > 包装头长度不是硬编码的全局常量。`login.db` 等库的布局不同，nt_helper 会从
 > 文件头自动识别，同一进程可以同时打开 QQ 布局与标准布局两类库，不需要子进程。
-> 细节见[QQ 数据库布局：按文件设置保留页](https://github.com/weq-devs/WeQ/blob/dev/docs/develop/db-layout-split-20261018.md)。
+> 保留页按文件设置：QQ 布局保留 `262144`，标准布局保留 `262145`。
 
 ## 二、密钥从哪来
 
@@ -55,7 +55,7 @@ SQLCipher v4 有两个独立的 HMAC 用途，容易混：
 
 两者在 QQ 的不同库上**可以不一致**。实测 `gpro` 频道库是
 `KDF=PBKDF2_HMAC_SHA512` + `page=HMAC_SHA1`，而另一批库是
-`page=HMAC_SHA512`（对比见 [gpro 频道库密钥](./gpro-database.md)。
+`page=HMAC_SHA512`（对比见 [gpro 频道库密钥](./gpro-database.md)）。
 
 所以 `CipherAlgo` 是一个二元组：
 

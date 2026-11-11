@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitepress';
-import { nav, guideSidebar, databaseSidebar, principlesSidebar, developSidebar } from './nav.mts';
+import { nav, guideSidebar, databaseSidebar, toolsSidebar, developSidebar } from './nav.mts';
 
 // 文档站与仓库共用同一个版本号（`pnpm version:set` 会一起改）。
 // 页脚和「编辑此页」的版本提示都从这里取，避免出现两个版本号。
@@ -50,7 +50,7 @@ export default defineConfig({
     sidebar: {
       '/guide/': guideSidebar,
       '/database/': databaseSidebar,
-      '/principles/': principlesSidebar,
+      '/tools/': toolsSidebar,
       '/develop/': developSidebar,
     },
 

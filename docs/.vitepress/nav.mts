@@ -1,85 +1,118 @@
 // 站点导航与侧栏的唯一来源。
-// 只列「进站」的页面：常青文档（guide / database / principles / develop 的常青部分）。
-// 带日期的过程记录不收进侧栏，见 docs/notes/ 的分工说明。
+// 只列「进站」的页面：常青文档（guide / tools / database / develop 的常青部分）。
+// 带日期的过程记录收进 docs/notes/ 或随功能页一起维护，不进侧栏。
 
 /** 顶部导航 */
 export const nav = [
   { text: '使用手册', link: '/guide/', activeMatch: '/guide/' },
   { text: '数据库', link: '/database/', activeMatch: '/database/' },
-  { text: '原理', link: '/principles/', activeMatch: '/principles/' },
+  { text: '工具箱', link: '/tools/', activeMatch: '/tools/' },
   { text: '开发', link: '/develop/', activeMatch: '/develop/' },
   {
     text: '下载',
     link: 'https://github.com/weq-devs/WeQ/releases',
   },
+  {
+    text: '关于',
+    items: [
+      { text: '贡献指南', link: 'https://github.com/weq-devs/WeQ/blob/dev/CONTRIBUTING.md' },
+      { text: '更新记录', link: 'https://github.com/weq-devs/WeQ/blob/dev/CHANGELOG.md' },
+      { text: '问题反馈', link: 'https://github.com/weq-devs/WeQ/issues' },
+    ],
+  },
 ];
 
-/** 使用手册侧栏：按「从进软件到用遍功能」的顺序。 */
+/**
+ * 使用手册侧栏：按「进入软件 → 装好环境 → 逐个内容源 → 分析 → 工具」排列，
+ * 与软件自己的左栏（消息 / 联系人 / 空间 / 频道 / 邮箱 / 收藏 / 装扮）对齐。
+ *
+ * 归类原则：
+ *  - 安装、权限、平台差异 → 「安装与平台」，不放在开始使用里；
+ *  - 按界面入口分组，「功能」不往入门里塞；
+ *  - 会真实改写 QQ 侧数据的入口单独标注（QQ 在线操作）。
+ */
 export const guideSidebar = [
   {
-    text: '入门',
+    text: '开始使用',
     collapsed: false,
     items: [
       { text: '快速上手', link: '/guide/getting-started' },
       { text: '支持的 QQ 版本', link: '/guide/supported-versions' },
-      { text: 'macOS 安装与首次打开', link: '/guide/macos-install' },
-      { text: 'Arch Linux 安装（AUR）', link: '/guide/arch-install' },
-      { text: 'QQ 调试副本', link: '/guide/macos-debug-copy' },
       { text: '主界面与账号', link: '/guide/homepage' },
-      { text: '群交集图谱', link: '/guide/relation-graph' },
     ],
   },
   {
-    text: '聊天',
+    text: '安装与平台',
+    collapsed: false,
+    items: [
+      { text: 'macOS 安装与首次打开', link: '/guide/macos-install' },
+      { text: 'macOS 数据读取授权', link: '/guide/macos-data-access' },
+      { text: 'Arch Linux 安装（AUR）', link: '/guide/arch-install' },
+      { text: 'QQ 调试副本（macOS）', link: '/guide/macos-debug-copy' },
+    ],
+  },
+  {
+    text: '消息',
     collapsed: false,
     items: [
       { text: '消息页', link: '/guide/chat-view' },
-      { text: '联系人排序与分组', link: '/guide/contact-directory' },
-      { text: '资料历史', link: '/guide/contact-history' },
-      { text: 'QQ 在线操作', link: '/guide/qq-actions' },
-      { text: '个人资料扩展', link: '/guide/profile-extras' },
       { text: '消息编辑与删除', link: '/guide/message-edit' },
       { text: '防撤回', link: '/guide/anti-recall' },
       { text: '意图感知', link: '/guide/intent-sense' },
     ],
   },
   {
-    text: '数据与资源',
+    text: '联系人',
     collapsed: false,
     items: [
-      { text: '统一导出', link: '/guide/export' },
-      { text: '表情与装扮资源', link: '/guide/emoji-resources' },
-      { text: '我的收藏', link: '/guide/collection' },
-      { text: '空间、相册与频道', link: '/guide/album-qzone' },
-      { text: 'QQ 邮箱', link: '/guide/qqmail' },
-      { text: '本地资源页', link: '/guide/database-view' },
+      { text: '联系人排序与分组', link: '/guide/contact-directory' },
+      { text: '资料历史', link: '/guide/contact-history' },
+      { text: '个人资料扩展', link: '/guide/profile-extras' },
+      { text: '群交集图谱', link: '/guide/relation-graph' },
+      { text: '我的名片与资料页', link: '/guide/self-profile' },
+      { text: 'QQ 在线操作（资料 / 群管理）', link: '/guide/qq-actions' },
     ],
   },
   {
-    text: '分析与报告',
-    collapsed: false,
-    items: [{ text: '聊天分析与年度报告', link: '/guide/analytics' }],
-  },
-  {
-    text: '智能功能',
+    text: '导出与资源',
     collapsed: false,
     items: [
+      { text: '统一导出', link: '/guide/export' },
+      { text: '我的收藏', link: '/guide/collection' },
+      { text: '表情与装扮资源', link: '/guide/emoji-resources' },
+    ],
+  },
+  {
+    text: '空间与邮箱',
+    collapsed: false,
+    items: [
+      { text: '空间、相册与频道', link: '/guide/album-qzone' },
+      { text: 'QQ 邮箱', link: '/guide/qqmail' },
+    ],
+  },
+  {
+    text: '分析与智能',
+    collapsed: false,
+    items: [
+      { text: '聊天分析与年度报告', link: '/guide/analytics' },
       { text: 'AgentLab（克隆 / 群聊）', link: '/guide/agentlab' },
       { text: 'WeQ 助手', link: '/guide/assistant' },
       { text: 'MCP 服务器', link: '/guide/mcp-server' },
       { text: 'OneBot / cc-connect', link: '/guide/onebot-cc-connect' },
       { text: '语音转文字', link: '/guide/voice-transcribe' },
+      { text: '模型设置', link: '/guide/model-resources' },
     ],
   },
   {
-    text: '进阶与设置',
+    text: '工具与设置',
     collapsed: false,
     items: [
       { text: '维护与诊断工具', link: '/guide/wonderful-tools' },
-      { text: 'Web 服务与手机连接', link: '/guide/remote-web' },
-      { text: '设置总览', link: '/guide/settings' },
+      { text: '本地资源页', link: '/guide/database-view' },
       { text: '性能监视', link: '/guide/performance-monitor' },
-      { text: 'macOS 数据读取授权', link: '/guide/macos-data-access' },
+      { text: 'Web 服务与手机连接', link: '/guide/remote-web' },
+      { text: 'QQ NT 外观预设', link: '/guide/qqnt-appearance' },
+      { text: '设置总览', link: '/guide/settings' },
     ],
   },
 ];
@@ -125,22 +158,26 @@ export const databaseSidebar = [
   },
 ];
 
-/** 原理侧栏。 */
-export const principlesSidebar = [
+/** 工具箱侧栏。 */
+export const toolsSidebar = [
   {
-    text: 'Native 原理',
+    text: '工具箱',
+    collapsed: false,
     items: [
-      { text: '原理总览', link: '/principles/' },
-      { text: '数据库解密流程', link: '/principles/db-decrypt' },
-      { text: '商城表情解密', link: '/principles/mface-decrypt' },
-      { text: '头像 Hash 定位公式', link: '/principles/avatar-hash' },
-      { text: 'FTF 字体分析与转换', link: '/principles/ftf2ttf' },
-      { text: 'gpro 频道库密钥', link: '/principles/gpro-database' },
+      { text: '总览', link: '/tools/' },
+      { text: '头像缓存路径预测', link: '/tools/avatar' },
+      { text: '数据库密钥计算', link: '/tools/db-key' },
+      { text: '商城表情：密钥与解密', link: '/tools/marketface' },
+      { text: 'login.db 在线检查', link: '/tools/login-db' },
+      { text: '数据目录与设备 guid', link: '/tools/paths' },
     ],
   },
 ];
 
-/** 开发者侧栏：只列常青文档，过程记录在「设计与笔记」里按需查阅。 */
+/**
+ * 开发者侧栏。原理已经并入这里 —— 导航上只有一个「开发」入口，
+ * 「原理」是其中一组页面，不再单独占一个顶级栏目。
+ */
 export const developSidebar = [
   {
     text: '上手',
@@ -149,11 +186,24 @@ export const developSidebar = [
       { text: '测试约定', link: '/develop/testing' },
       { text: '开发控制台日志', link: '/develop/development-console-logging' },
       { text: '原生二进制与资源分发', link: '/develop/native-artifacts' },
+      { text: '长期授权集成', link: '/develop/long-term-authorization' },
     ],
   },
   {
     text: 'Native 能力',
     items: [{ text: 'nt_helper.node 接口', link: '/develop/nt-helper-interface' }],
+  },
+  {
+    text: '原理',
+    collapsed: false,
+    items: [
+      { text: '总览', link: '/develop/principles/' },
+      { text: '数据库解密流程', link: '/develop/principles/db-decrypt' },
+      { text: '商城表情解密', link: '/develop/principles/mface-decrypt' },
+      { text: '头像 Hash 定位公式', link: '/develop/principles/avatar-hash' },
+      { text: 'gpro 频道库密钥', link: '/develop/principles/gpro-database' },
+      { text: 'FTF 字体分析与转换', link: '/develop/principles/ftf2ttf' },
+    ],
   },
   {
     text: '协议与消息',
@@ -179,10 +229,6 @@ export const developSidebar = [
       { text: '统一导出格式', link: '/develop/export-format/README' },
       { text: 'WeQ 存储管理', link: '/develop/storage-management' },
     ],
-  },
-  {
-    text: '界面架构',
-    items: [],
   },
   {
     text: '远端与平台',

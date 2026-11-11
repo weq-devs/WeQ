@@ -11,10 +11,10 @@
 | 文件 | 职责 |
 | ---- | ---- |
 | `packages/service/src/account/emoji.ts` | 本地 XOR 解密、QQTEA 解密、CDN 下载链路（`getMarketFace` / `getMarketPackImage`）、密钥派生 |
-| `packages/native`（Rust `nt_helper`） | `getMarketFaceKey`：读种子 / `updateTime` 附近爆破（接口见 [nt-helper-interface](../develop/nt-helper-interface.md)） |
+| `packages/native`（Rust `nt_helper`） | `getMarketFaceKey`：读种子 / `updateTime` 附近爆破（接口见 [nt-helper-interface](../nt-helper-interface.md)） |
 | `packages/service/src/account/market_emoji_resource.ts` | 本地商城表情库浏览（枚举 + 类型探测） |
 
-消息里 mface element 的字段本身见 [mface 消息段](../database/nt_msg/elements/mface.md)。
+消息里 mface element 的字段本身见 [mface 消息段](/database/nt_msg/elements/mface)。
 
 ---
 

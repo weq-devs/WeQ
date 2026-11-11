@@ -17,8 +17,13 @@ NTQQ 把数据分散在若干个 SQLCipher 加密数据库里。本栏目记录 
 | `misc.db` | 杂项（好友在线状态缓存） | [misc.db](./misc.md) |
 | `buddy_msg_fts.db` / `group_msg_fts.db` | 消息全文搜索索引 | [fts](./fts.md) |
 
-> 📌 数据库**解密**（取密钥、去文件头、SQLCipher 参数）属于原理部分，见
-> [原理总览](../principles/index.md)。
+::: tip 解密本身不在这里
+
+数据库**解密**（取密钥、去文件头、SQLCipher 参数）属于原理部分，见
+[原理总览](../develop/principles/index.md)；只想算个口令的话用
+[数据库密钥计算](/tools/db-key)。
+
+:::
 
 ## 字段表约定
 

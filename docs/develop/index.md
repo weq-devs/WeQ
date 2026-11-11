@@ -17,6 +17,13 @@ pnpm dev
 
 ## 章节
 
+### 先看这几个
+
+- [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
+- [原理总览](./principles/index.md) — 数据库 / 表情 / 字体加解密与派生的结论（不含逆向过程）
+- [长期授权集成](./long-term-authorization.md) — 权限助手的状态机、接口版本与发布通道
+- [工具箱](/tools/) — 文档站里可直接算的派生公式
+
 ### 内容与工具
 
 - [统一导出格式与内容范围](./export-format/README.md)：待实现设计；basic/full 作为同格式的导出选项，包含未知残余及无独立正文基线的增量契约。
@@ -31,7 +38,6 @@ pnpm dev
 
 - [开发控制台日志](./development-console-logging.md)：终端开关、模块过滤、关联 ID、媒体汇总与慢等待诊断。
 
-- [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
 - [WeQ 存储管理](./storage-management.md)：统计范围、嵌套目录去重、只读数据与缓存清理白名单。
