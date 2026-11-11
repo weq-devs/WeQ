@@ -57,7 +57,12 @@ export interface QQWriteServices {
   >;
   groupInfo: Pick<
     AccountServices['groupInfo'],
-    'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo' | 'getMessagePolicy'
+    | 'getGroupDetail'
+    | 'listGroupDirectory'
+    | 'getMemberInfo'
+    | 'getMessagePolicy'
+    | 'getMemberNotify'
+    | 'setMemberNotify'
   >;
   recentContacts: Pick<AccountServices['recentContacts'], 'getTopContacts' | 'getByTargetUids'>;
   onlineStatus: Pick<AccountServices['onlineStatus'], 'getOnlineStatus' | 'editableStatuses'>;
@@ -95,6 +100,34 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    groupMemberNotifyState: procedure
+      .input(binding.extend({ groupId, uid }).strict())
+      .query(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.groupInfo.getMemberNotify(input.groupId, input.uid);
+        if (resolve(input) !== services) throw new Error('账号已切换，请重新读取群内消息提醒');
+        if (result.groupId !== input.groupId || result.uid !== input.uid)
+          throw new Error('群成员提醒返回目标不一致');
+        return result;
+      }),
+    groupMemberNotify: procedure
+      .input(
+        binding
+          .extend({ groupId, uid, mode: z.enum(['default', 'concerned', 'shielded']) })
+          .strict(),
+      )
+      .mutation(async ({ input }) => {
+        const services = resolve(input);
+        if (services.accountWrite.selfIdentity().uid === input.uid)
+          throw new Error('不能设置自己的群内消息提醒');
+        const result = await services.groupInfo.setMemberNotify(
+          input.groupId,
+          input.uid,
+          input.mode,
+        );
+        if (resolve(input) !== services) throw new Error('账号已切换，请重新读取群内消息提醒');
+        return result;
+      }),
     selfProfileDisplaySettings: procedure.input(binding.strict()).query(async ({ input }) => {
       const services = resolve(input);
       const result = await services.accountWrite.selfProfileDisplaySettings();

@@ -264,3 +264,5 @@ export type { ProfileEducationRecord, ProfileEducationHistory } from './oidb/pro
  * 用法：`import { groupCall } from '@weq/protocol'` → `groupCall.GroupRelayCmd`。
  */
 export * as groupCall from './group-call';
+export { getGroupMemberNotify, setGroupMemberNotify } from './group-member-notify';
+export type { GroupMemberNotifyMode, GroupMemberNotifyState } from './group-member-notify';

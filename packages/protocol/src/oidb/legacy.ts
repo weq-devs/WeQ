@@ -12,6 +12,8 @@ export const legacyOidbEnvelope = message([
 export interface LegacyOidbOptions {
   clientVersion?: string;
   strict?: boolean;
+  /** 仅有外层结果码的保存 ACK 可以不携带业务体。默认仍要求业务体。 */
+  allowEmptyBody?: boolean;
 }
 
 export class LegacyOidbRejectedError extends Error {
@@ -52,6 +54,7 @@ export async function invokeLegacyOidb(
     throw new LegacyOidbRejectedError(response.result);
   if (response.result !== 0)
     throw new Error(`旧 OIDB 请求未成功：${String(response.result ?? '未知')}`);
+  if (response.body === undefined && options.allowEmptyBody) return new Uint8Array();
   if (!(response.body instanceof Uint8Array)) throw new Error('旧 OIDB 响应缺少业务体');
   return response.body;
 }

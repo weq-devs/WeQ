@@ -1,0 +1,23 @@
+.weq-member-notify-menu {
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+}
+
+.avatar-context-submenu.weq-member-notify-choices button {
+  grid-template-columns: 14px minmax(0, 1fr);
+}
+
+.weq-member-notify-choices {
+  max-height: min(280px, 45vh);
+  overflow-y: auto;
+}
+
+.weq-member-notify-status {
+  display: block;
+  max-width: 240px;
+  padding: 6px 12px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
