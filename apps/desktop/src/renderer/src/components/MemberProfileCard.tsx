@@ -29,6 +29,7 @@ import {
   Crown,
   Fingerprint,
   Hash,
+  History,
   Heart,
   Loader2,
   MessageSquare,
@@ -314,6 +315,26 @@ export function MemberProfileCard({
     }
   }
 
+  function openContact(tab = 'profile') {
+    onClose();
+    openWorkspace?.({
+      kind: 'person',
+      tab,
+      contact: {
+        ...member,
+        ...profile,
+        id: uid || member.id || `uin:${uin}`,
+        uid: uid || undefined,
+        identityLabel: uin ? 'QQ' : member.identityLabel,
+        identityValue: uin || member.identityValue,
+        username: uid || member.username,
+        displayName: name,
+        avatarUrl,
+        createdAt: 'createdAt' in member ? member.createdAt : new Date(0).toISOString(),
+      },
+    });
+  }
+
   return (
     <OverlayLayer
       presentation="popover"
@@ -340,24 +361,7 @@ export function MemberProfileCard({
             type="button"
             title="联系人详情"
             aria-label="联系人详情"
-            onClick={() => {
-              onClose();
-              openWorkspace({
-                kind: 'person',
-                contact: {
-                  ...member,
-                  ...profile,
-                  id: uid || member.id || `uin:${uin}`,
-                  uid: uid || undefined,
-                  identityLabel: uin ? 'QQ' : member.identityLabel,
-                  identityValue: uin || member.identityValue,
-                  username: uid || member.username,
-                  displayName: name,
-                  avatarUrl,
-                  createdAt: 'createdAt' in member ? member.createdAt : new Date(0).toISOString(),
-                },
-              });
-            }}
+            onClick={() => openContact()}
           >
             <Expand size={16} />
           </button>
@@ -605,6 +609,16 @@ export function MemberProfileCard({
             {/* 聊天分析看的是「这个人在这个群里」的发言，只认 uid + groupCode。 */}
             {uin || canAnalyze || onOpenChat || onPreviewChat ? (
               <div className="weq-profile-actions">
+                {!localClone && openWorkspace ? (
+                  <button
+                    className="weq-profile-perhome"
+                    type="button"
+                    onClick={() => openContact('history')}
+                  >
+                    <History size={13} />
+                    资料历史
+                  </button>
+                ) : null}
                 {onOpenChat ? (
                   <button
                     className="weq-profile-perhome"

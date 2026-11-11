@@ -1,6 +1,8 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { writeFileAtomic } from '../common/atomic_write';
+import type { ContactHistoryService } from './contact_history';
+import { validGroupRosterMember as isRosterMember } from './contact_cache_validation';
 
 export interface GroupRosterMember {
   uid: string;
@@ -12,6 +14,7 @@ export interface GroupRosterMember {
 
 /** 完整在线名单按账号、按群原子保存；空数组也是有效快照，不与缺少缓存混淆。 */
 export class GroupMemberRosterCache {
+  history?: ContactHistoryService;
   constructor(private readonly root: string) {}
 
   private path(code: string) {
@@ -20,17 +23,47 @@ export class GroupMemberRosterCache {
   }
 
   async codes(): Promise<string[]> {
+    const saved = this.history ? await this.history.memberGroups().catch(() => []) : [];
     try {
-      return (await readdir(this.root))
-        .filter((name) => /^\d+\.json$/.test(name))
-        .map((name) => name.slice(0, -5));
+      return [
+        ...new Set([
+          ...saved,
+          ...(await readdir(this.root))
+            .filter((name) => /^\d+\.json$/.test(name))
+            .map((name) => name.slice(0, -5)),
+        ]),
+      ];
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return saved;
       throw error;
     }
   }
 
   async read(code: string): Promise<GroupRosterMember[] | undefined> {
+    if (this.history) {
+      const saved = (
+        await Promise.all(
+          (['local', 'online', 'legacy'] as const).map((source) =>
+            this.history!.latest({
+              entity: `group:${code}`,
+              category: 'members',
+              source,
+              completeness: 'complete',
+            }).catch(() => null),
+          ),
+        )
+      )
+        .filter((row) => row !== null)
+        .sort((a, b) => b.last_at - a.last_at)[0];
+      if (saved && Array.isArray(saved.value))
+        return saved.value.map((value: Record<string, unknown>) => ({
+          uid: String(value.uid ?? ''),
+          uin: String(value.uin ?? ''),
+          nick: String(value.nick ?? value.nickname ?? ''),
+          card: String(value.card ?? ''),
+          memberLevel: Number(value.memberLevel ?? value.level ?? 0),
+        }));
+    }
     try {
       const data: unknown = JSON.parse(await readFile(this.path(code), 'utf8'));
       if (
@@ -53,6 +86,16 @@ export class GroupMemberRosterCache {
 
   async save(code: string, members: GroupRosterMember[]) {
     if (!members.every(isRosterMember)) throw new Error('群成员身份未完整返回，保留旧名单');
+    if (this.history) {
+      await this.history.observe({
+        entity: `group:${code}`,
+        category: 'members',
+        source: 'local',
+        completeness: 'complete',
+        value: members,
+      });
+      return;
+    }
     await writeFileAtomic(
       this.path(code),
       JSON.stringify({
@@ -62,24 +105,4 @@ export class GroupMemberRosterCache {
       }),
     );
   }
-}
-
-function isRosterMember(value: unknown): value is GroupRosterMember {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      'uid' in value &&
-      typeof value.uid === 'string' &&
-      value.uid &&
-      'uin' in value &&
-      typeof value.uin === 'string' &&
-      /^\d+$/.test(value.uin) &&
-      'nick' in value &&
-      typeof value.nick === 'string' &&
-      'card' in value &&
-      typeof value.card === 'string' &&
-      'memberLevel' in value &&
-      typeof value.memberLevel === 'number' &&
-      Number.isFinite(value.memberLevel),
-  );
 }

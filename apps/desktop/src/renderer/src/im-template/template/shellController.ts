@@ -125,7 +125,7 @@ export function useChatShellController({
   const [contactWorkspaceTab, setContactWorkspaceTab] = usePageState<ContactWorkspaceTab>(
     'shell:contact-detail',
     'profile',
-    z.enum(['profile', 'personality', 'marks', 'portrait']),
+    z.enum(['profile', 'personality', 'marks', 'portrait', 'history']),
   );
   const [selectedGroupConversationId, setSelectedGroupConversationId] = usePageState<string | null>(
     'shell:group',

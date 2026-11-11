@@ -11,6 +11,40 @@ export function createContactMetricsRouter(
   resolve: (input: z.infer<typeof binding>) => ContactDirectoryRuntime,
 ) {
   return router({
+    history: router({
+      categories: procedure
+        .input(binding.extend({ entity: z.string().regex(/^(friend|group|account):[\w-]+$/) }))
+        .query(({ input }) => resolve(input).history.categories(input.entity)),
+      status: procedure.input(binding).query(({ input }) => resolve(input).history.status()),
+      list: procedure
+        .input(
+          binding.extend({
+            entity: z.string().regex(/^(friend|group|account):[\w-]+$/),
+            category: z.string().max(128).default(''),
+            before: z.number().int().positive().safe().optional(),
+            limit: z.number().int().min(1).max(100).default(30),
+          }),
+        )
+        .query(({ input }) =>
+          resolve(input).history.list(input.entity, input.category, input.before, input.limit),
+        ),
+      version: procedure
+        .input(
+          binding.extend({
+            entity: z.string().regex(/^(friend|group|account):[\w-]+$/),
+            id: z.number().int().positive().safe(),
+          }),
+        )
+        .query(({ input }) => resolve(input).history.version(input.entity, input.id)),
+      diff: procedure
+        .input(
+          binding.extend({
+            entity: z.string().regex(/^(friend|group|account):[\w-]+$/),
+            id: z.number().int().positive().safe(),
+          }),
+        )
+        .query(({ input }) => resolve(input).history.diff(input.entity, input.id)),
+    }),
     status: procedure.input(binding).query(({ input }) => resolve(input).status()),
     snapshot: procedure.input(binding).query(({ input }) => resolve(input).snapshot()),
     localTimes: procedure

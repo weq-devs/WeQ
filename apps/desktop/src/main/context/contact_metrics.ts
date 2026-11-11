@@ -1,6 +1,8 @@
 import { join } from 'node:path';
 import {
   ContactMetricsService,
+  ContactHistoryService,
+  installContactHistoryCapture,
   ContactMetricsOfflineError,
   DirectoryTimeReader,
   type ContactMetric,
@@ -78,6 +80,8 @@ function formatMetrics(row: ContactMetricRows[string]) {
 /** 桌面与 Web 共用的账号级编排，任务记录不拥有缓存文件。 */
 export class ContactDirectoryRuntime {
   readonly cache: ContactMetricsService;
+  readonly history: ContactHistoryService;
+  private readonly stopHistoryCapture: () => void;
   taskId?: string;
   private target: 'metrics' | 'groupMembers' = 'metrics';
   private relationGraphRevision = 0;
@@ -140,10 +144,20 @@ export class ContactDirectoryRuntime {
     };
     services.groupInfo.setMemberRosterCache(join(cacheDir, 'group-members'));
     services.groupInfo.setGroupProfileCache(join(cacheDir, 'group-profiles'));
-
+    this.history = new ContactHistoryService(cacheDir);
+    services.groupInfo.setContactHistory?.(this.history);
+    this.stopHistoryCapture = installContactHistoryCapture(
+      services,
+      this.history,
+      session.context.uin,
+      () => this.isCurrent(),
+      () => this.online(),
+    );
     this.cache = new ContactMetricsService(
       join(cacheDir, 'metrics.json'),
       () => this.online() && this.current(),
+      { interval: 500, concurrency: 2 },
+      this.history,
     );
     services.accountWrite.contactMetrics = this.cache;
     services.peerStats.contactMetrics = this.cache;
@@ -1107,6 +1121,7 @@ export class ContactDirectoryRuntime {
   }
 
   async dispose() {
+    this.stopHistoryCapture();
     this.stopProfileWatch?.();
     this.services.groupInfo.disposeGroupProfiles();
     this.disposed = true;
@@ -1135,5 +1150,6 @@ export class ContactDirectoryRuntime {
     } catch (error) {
       console.warn('[contacts] 关闭时缓存保存失败', error);
     }
+    await this.history.dispose();
   }
 }

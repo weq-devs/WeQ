@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { GetGroupJoinInfo, type GroupProfileExtras, type OidbNative } from '@weq/protocol';
 import { writeFileAtomic } from '../common/atomic_write';
 import type { ContactMetricsService } from './contact_metrics';
+import type { ContactHistoryService } from './contact_history';
+import { validGroupProfile as validProfile } from './contact_cache_validation';
 
 interface Snapshot {
   groupId: number;
@@ -17,36 +19,10 @@ export interface GroupProfileResult {
   error: string | null;
 }
 const TTL_MS = 5 * 60_000;
-const numberOrNull = (v: unknown) =>
-  v === null || (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffffff);
-function validProfile(value: unknown): value is GroupProfileExtras {
-  if (!value || typeof value !== 'object') return false;
-  const row = value as Record<string, unknown>;
-  if (
-    !['grade', 'activeMemberCount', 'freezeState', 'freezeReason', 'portraitSequence'].every((k) =>
-      numberOrNull(row[k]),
-    )
-  )
-    return false;
-  if (row.portrait === null) return true;
-  if (!row.portrait || typeof row.portrait !== 'object') return false;
-  const portrait = row.portrait as Record<string, unknown>;
-  return (
-    numberOrNull(portrait.count) &&
-    numberOrNull(portrait.defaultId) &&
-    Array.isArray(portrait.pictures) &&
-    portrait.pictures.length <= 1000 &&
-    portrait.pictures.every(
-      (p: unknown) =>
-        p &&
-        typeof p === 'object' &&
-        ['id', 'left', 'top', 'right', 'bottom'].every((k) => numberOrNull(Reflect.get(p, k))),
-    )
-  );
-}
 
 /** 群资料按需读取；独立账号缓存，不回写 QQ 原库或会话名称。 */
 export class GroupProfileReader {
+  history?: ContactHistoryService;
   private root?: string;
   private active = true;
   private readonly cache = new Map<number, Snapshot | null>();
@@ -77,7 +53,26 @@ export class GroupProfileReader {
     if (!task) {
       task = (async () => {
         let snapshot: Snapshot | null = null;
-        if (this.root)
+        if (this.history) {
+          const saved =
+            (await this.history
+              .latest({
+                entity: `group:${groupId}`,
+                category: 'extendedProfile',
+                source: 'online',
+              })
+              .catch(() => null)) ??
+            (await this.history
+              .latest({
+                entity: `group:${groupId}`,
+                category: 'extendedProfile',
+                source: 'legacy',
+              })
+              .catch(() => null));
+          if (saved && validProfile(saved.value))
+            snapshot = { groupId, updatedAt: saved.last_at, profile: saved.value };
+        }
+        if (!snapshot && this.root)
           try {
             const value: unknown = JSON.parse(
               await readFile(join(this.root, `${groupId}.json`), 'utf8'),
@@ -150,6 +145,20 @@ export class GroupProfileReader {
           includeExtensions: true,
         });
         current();
+        if (result.groupId === groupId && this.history)
+          await this.history
+            .capture([
+              {
+                entity: `group:${groupId}`,
+                category: 'joinProfile',
+                source: 'online',
+                value: result,
+                at: Date.now(),
+              },
+            ])
+            .catch((error: unknown) => {
+              this.history!.lastError = String(error);
+            });
         if (result.groupId !== groupId || !result.extensions || !validProfile(result.extensions))
           throw new Error('群扩展资料回包无效');
         profile = result.extensions;
@@ -168,7 +177,20 @@ export class GroupProfileReader {
       const snapshot = { groupId, updatedAt: Date.now(), profile: structuredClone(profile) };
       this.remember(groupId, snapshot);
       let error: string | null = null;
-      if (this.root)
+      if (this.history) {
+        try {
+          await this.history.observe({
+            entity: `group:${groupId}`,
+            category: 'extendedProfile',
+            source: 'online',
+            completeness: 'complete',
+            value: profile,
+            at: snapshot.updatedAt,
+          });
+        } catch {
+          error = '资料已读取，历史保存失败';
+        }
+      } else if (this.root)
         try {
           await writeFileAtomic(
             join(this.root, `${groupId}.json`),

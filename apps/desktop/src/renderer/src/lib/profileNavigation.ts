@@ -31,7 +31,7 @@ export const ProfileNavigationContext = createContext<
   ((user: User, anchor: { x: number; y: number }, group?: ProfileGroup) => void) | null
 >(null);
 
-export type ContactWorkspaceTab = 'profile' | 'personality' | 'marks' | 'portrait';
+export type ContactWorkspaceTab = 'profile' | 'personality' | 'marks' | 'portrait' | 'history';
 export type ContactWorkspaceTarget =
   | { kind: 'person'; contact: Contact; tab?: ContactWorkspaceTab }
   | { kind: 'group'; conversation: GroupConversation };

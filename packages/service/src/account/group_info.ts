@@ -286,6 +286,7 @@ const MEMBER_SCAN_LIMIT = 5000;
 const MIN_SHARED_GROUPS = 2;
 
 export class GroupInfoService {
+  private contactHistory?: ContactHistoryService;
   private readonly groupProfiles: GroupProfileReader;
   contactMetrics?: ContactMetricsService;
   contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
@@ -335,6 +336,12 @@ export class GroupInfoService {
 
   setGroupProfileCache(root: string): void {
     this.groupProfiles.setCache(root);
+  }
+
+  setContactHistory(history: ContactHistoryService): void {
+    this.contactHistory = history;
+    this.groupProfiles.history = history;
+    if (this.memberRosterCache) this.memberRosterCache.history = history;
   }
 
   async getExtendedProfile(groupId: number, refresh = false, force = false) {
@@ -400,6 +407,20 @@ export class GroupInfoService {
     }
     const rows = await pending.task;
     if (resolvePid() !== pid) throw new Error('QQ 运行时已切换，请重新读取消息策略');
+    if (this.contactHistory)
+      await this.contactHistory
+        .capture(
+          rows.map((value) => ({
+            entity: `group:${value.groupId}`,
+            category: 'messagePolicy',
+            source: 'online',
+            value,
+            at: Date.now(),
+          })),
+        )
+        .catch((error: unknown) => {
+          this.contactHistory!.lastError = String(error);
+        });
     const target = rows.find((row) => row.groupId === groupId);
     if (!target) throw new Error('服务端未返回该群的消息策略');
     return target;

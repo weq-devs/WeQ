@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Award, BrainCircuit, UserRound, Wand2 } from 'lucide-react';
+import { Award, BrainCircuit, History, UserRound, Wand2 } from 'lucide-react';
 import type { Contact } from '../im-template/template/types';
 import type { ContactWorkspaceTab } from '../lib/profileNavigation';
 import { SegmentedControl } from './SegmentedControl';
@@ -8,6 +8,7 @@ import { MutualMarkDialog } from './MutualMarkDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context';
 import { usePersonRelationship } from '../lib/contactRelationship';
+import { ContactHistory } from './ContactHistory';
 
 export function ContactWorkspace({
   contact,
@@ -83,6 +84,17 @@ export function ContactWorkspace({
       disabled: !hasUid,
       title: hasUid ? undefined : '需要有效用户 UID',
     },
+    {
+      value: 'history' as const,
+      label: (
+        <>
+          <History size={14} />
+          历史
+        </>
+      ),
+      disabled: !hasUid && !hasQQ,
+      title: hasUid || hasQQ ? undefined : '需要有效用户身份',
+    },
   ];
   const requested = tab ?? localTab;
   const selected = options.some((option) => option.value === requested && !option.disabled)
@@ -121,7 +133,11 @@ export function ContactWorkspace({
         />
       </nav>
       <div className="weq-contact-tab-panel">
-        {selected === 'profile' ? (
+        {selected === 'history' ? (
+          <ContactHistory
+            entity={`friend:${contact.uid || (hasQQ ? contact.identityValue : contact.id)}`}
+          />
+        ) : selected === 'profile' ? (
           children
         ) : selected === 'personality' ? (
           <PersonalityHomeDialog

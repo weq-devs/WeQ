@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import type { ContactHistoryService } from './contact_history';
 
 export type ContactMetric =
   | 'level'
@@ -85,12 +86,22 @@ export class ContactMetricsService extends EventEmitter {
     private readonly path: string,
     private readonly isOnline: () => boolean,
     private readonly options = { interval: 500, concurrency: 2 },
+    private readonly history?: ContactHistoryService,
   ) {
     super();
     this.loaded = this.load();
   }
 
   private async load() {
+    let stored: ContactMetricRows = {};
+    if (this.history) {
+      try {
+        stored = await this.history.projections(false);
+        this.rows = stored;
+      } catch (error) {
+        console.warn('[contacts] 历史指标读取失败，尝试保留的旧缓存', error);
+      }
+    }
     try {
       const data: unknown = JSON.parse(await readFile(this.path, 'utf8'));
       if (
@@ -105,7 +116,7 @@ export class ContactMetricsService extends EventEmitter {
       )
         return;
       const parsed: ContactMetricRows = {};
-      for (const [key, row] of Object.entries(data.rows).slice(-20000)) {
+      for (const [key, row] of Object.entries(data.rows)) {
         if (!/^(friend|group):[\w-]+$/.test(key) || !row || typeof row !== 'object') continue;
         const cells: Partial<Record<ContactMetric, MetricCell>> = {};
         for (const metric of CONTACT_METRICS) {
@@ -142,10 +153,17 @@ export class ContactMetricsService extends EventEmitter {
         }
         parsed[key] = cells;
       }
-      this.rows = parsed;
+      this.rows = { ...parsed, ...stored };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
         console.warn('[contacts] 缓存读取失败', error);
+      if (this.history) {
+        try {
+          this.rows = await this.history.projections(false);
+        } catch {
+          this.rows = stored;
+        }
+      }
     }
   }
 
@@ -163,10 +181,6 @@ export class ContactMetricsService extends EventEmitter {
   }
 
   private changed() {
-    if (this.revision % 100 === 0) {
-      const keys = Object.keys(this.rows);
-      for (const key of keys.slice(0, Math.max(0, keys.length - 20000))) delete this.rows[key];
-    }
     this.revision++;
     this.dirty = true;
     if (!this.eventTimer)
@@ -185,6 +199,19 @@ export class ContactMetricsService extends EventEmitter {
     await this.loaded;
     if (!this.dirty) return this.writes;
     this.dirty = false;
+    if (this.history) {
+      const rows = structuredClone(this.rows);
+      this.writes = this.writes
+        .catch(() => {})
+        .then(async () => {
+          await this.history!.saveProjections(rows);
+        })
+        .catch((error: unknown) => {
+          this.dirty = true;
+          throw error;
+        });
+      return this.writes;
+    }
     const text = JSON.stringify({ version: 1, rows: this.rows });
     this.writes = this.writes
       .catch(() => {})
@@ -212,8 +239,20 @@ export class ContactMetricsService extends EventEmitter {
       const sequenceKey = `${key}:${metric}`;
       this.sequences.set(sequenceKey, (this.sequences.get(sequenceKey) ?? 0) + 1);
       row[metric] = { value, state: 'ready', attemptedAt: Date.now(), updatedAt: Date.now() };
+      await this.remember(key, metric, value);
     }
     this.changed();
+  }
+
+  private async remember(entity: string, metric: ContactMetric, value: unknown, at?: number) {
+    if (!this.history) return;
+    try {
+      await this.history.capture([
+        { entity, category: `metric.${metric}`, source: 'local', value, at: at ?? Date.now() },
+      ]);
+    } catch (error) {
+      console.error('[contacts] 指标历史保存失败', error);
+    }
   }
 
   async failed(key: string, metric: ContactMetric, error: unknown) {
@@ -280,6 +319,7 @@ export class ContactMetricsService extends EventEmitter {
         attemptedAt: updatedAt,
         updatedAt,
       };
+      await this.remember(key, metric, value, updatedAt);
     }
     this.changed();
   }
@@ -379,6 +419,8 @@ export class ContactMetricsService extends EventEmitter {
               value != null && validMetricValue(metric, value)
                 ? { value, state: 'ready', attemptedAt: now, updatedAt: now }
                 : { ...row[metric], state: 'failed', attemptedAt: now, error: '未返回有效数据' };
+            if (value != null && validMetricValue(metric, value))
+              await this.remember(key, metric, value, now);
           }
           this.changed();
           return result;

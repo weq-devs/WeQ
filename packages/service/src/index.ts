@@ -1315,3 +1315,17 @@ export type {
   ContactMetricJob,
 } from './account/contact_metrics';
 export { RecentReactions } from './account/recent_reactions';
+export {
+  ContactHistoryService,
+  encodeContactValue,
+  decodeContactValue,
+} from './account/contact_history';
+export type {
+  ContactObservation,
+  ContactHistoryRow,
+  ContactHistoryVersion,
+} from './account/contact_history';
+export {
+  installContactHistoryCapture,
+  CONTACT_HISTORY_CAPTURE,
+} from './account/contact_history_capture';

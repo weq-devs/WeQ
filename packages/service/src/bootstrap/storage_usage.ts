@@ -386,6 +386,7 @@ export async function listStorageUsage(
         });
       }
       const safeCache =
+        name !== 'contacts' &&
         root.cache &&
         Object.hasOwn(CACHE_LABELS, name) &&
         nested.length === 0 &&
@@ -393,6 +394,7 @@ export async function listStorageUsage(
         (!entry || entry.isDirectory()) &&
         !size.incomplete;
       const persistent =
+        name !== 'contacts' &&
         !root.protected &&
         name !== 'storage-maintenance' &&
         !['.ds_store', 'thumbs.db', 'desktop.ini'].includes(name.toLowerCase()) &&
@@ -404,6 +406,7 @@ export async function listStorageUsage(
         !size.incomplete;
       const clearable = safeCache || persistent;
       const label =
+        (name === 'contacts' ? '联系人与群资料历史' : undefined) ??
         (root.cache && Object.hasOwn(CACHE_LABELS, name) ? CACHE_LABELS[name] : undefined) ??
         (Object.hasOwn(DATA_LABELS, name) ? DATA_LABELS[name] : undefined) ??
         name;

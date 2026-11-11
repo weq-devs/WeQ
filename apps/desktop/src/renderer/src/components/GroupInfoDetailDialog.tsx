@@ -10,7 +10,9 @@
  * 数据由应用层给：`conversation` 是 MainView 已经组装好的群会话（含 `group` 各字段）。
  */
 
-import { X } from 'lucide-react';
+import { History, X } from 'lucide-react';
+import { useState } from 'react';
+import { ContactHistory } from './ContactHistory';
 import { cn } from '../im-template/template/classNames';
 import { formatShortDate } from '../im-template/template/format';
 import type { GroupConversationView } from '../im-template/template/conversationDetailsTypes';
@@ -30,6 +32,7 @@ export function GroupInfoDetailDialog({
   onClose: () => void;
 }) {
   const group = conversation.group;
+  const [historyOpen, setHistoryOpen] = useState(false);
   const profileRows = (
     [
       ['群名称', group.name],
@@ -59,16 +62,30 @@ export function GroupInfoDetailDialog({
       >
         <header>
           <div>
-            <strong>{groupInfoDetailTitle(detail)}</strong>
+            <strong>{historyOpen ? '群资料历史' : groupInfoDetailTitle(detail)}</strong>
             <span data-privacy-sensitive>{group.name}</span>
           </div>
+          {!conversation.generated ? (
+            <button
+              className="icon-button"
+              type="button"
+              title={historyOpen ? '返回群资料' : '查看资料历史'}
+              aria-label={historyOpen ? '返回群资料' : '查看资料历史'}
+              aria-pressed={historyOpen}
+              onClick={() => setHistoryOpen((value) => !value)}
+            >
+              <History size={18} />
+            </button>
+          ) : null}
           <button className={cn('icon-button')} type="button" title="关闭" onClick={onClose}>
             <X size={18} />
           </button>
         </header>
 
         <div className={cn('group-info-detail-body')}>
-          {detail === 'profile' ? (
+          {historyOpen ? (
+            <ContactHistory entity={`group:${conversation.id}`} />
+          ) : detail === 'profile' ? (
             <div className={cn('group-info-detail-rows')}>
               {profileRows.map(([label, value]) => (
                 <div className={cn('group-info-detail-row')} key={label}>
