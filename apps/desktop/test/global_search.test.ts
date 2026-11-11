@@ -408,6 +408,81 @@ describe('全局搜索请求生命周期', () => {
 });
 
 describe('搜索范围与失败界面', () => {
+  it('下拉框无关回调更新不重扫隐藏分类，换结果与关键词仍更新排序', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    let reads = 0;
+    const hidden = Array.from({ length: 24 }, (_, index) => ({
+      get category(): 'groupAlbum' {
+        reads++;
+        return 'groupAlbum';
+      },
+      id: `album-${index}`,
+      title: '合成相册',
+      content: '',
+      sourceName: '合成群',
+      time: 1,
+      observedAt: 1,
+      target: { kind: 'groupAlbum' as const, groupCode: '1', albumId: String(index) },
+    }));
+    const initial: SlowSearchResult = {
+      ...slowResult,
+      contentHits: hidden,
+      files: [
+        {
+          category: 'file',
+          source: 'group',
+          partition: '1',
+          targetUid: '1',
+          targetUin: '0',
+          fileName: '报告',
+          msgId: '1',
+          msgSeq: '1',
+          sendTime: '1',
+          convName: '群',
+        },
+      ],
+    };
+    const quick = { ...quickResult, contacts: [contactSearchHit({ nick: '报告的作者' })] };
+    const categories: SearchCategory[] = ['contact', 'file', 'qzone'];
+    const render = (keyword = '报告', slow = initial) =>
+      act(() =>
+        root.render(
+          createElement(SearchDropdown, {
+            keyword,
+            quick,
+            slow,
+            categories,
+            quickLoading: false,
+            slowLoading: false,
+            onCategoriesChange: vi.fn(),
+            onSelect: vi.fn(),
+            onMore: vi.fn(),
+          }),
+        ),
+      );
+    const order = () =>
+      [...host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent);
+    try {
+      render();
+      expect(order()).toEqual(['文件', '联系人', '空间']);
+      expect(host.querySelectorAll('[data-search-category="file"]')).toHaveLength(1);
+      expect(reads).toBe(hidden.length);
+      reads = 0;
+      render();
+      render();
+      expect(reads).toBe(0);
+      render('报告的作者');
+      expect(order()).toEqual(['联系人', '文件', '空间']);
+      render('报告的作者', { ...initial, files: [] });
+      expect(host.querySelectorAll('[data-search-category="file"]')).toHaveLength(0);
+      expect(host.textContent).not.toContain('合成相册');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('可见分类默认全选，频道与克隆合并且移除公共商城范围', () => {
     expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('marketEmoji');
     expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('cloneMessage');

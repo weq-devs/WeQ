@@ -49,6 +49,7 @@ import {
   type QuickSearchResult,
   type SlowSearchResult,
   type SearchCategoryStates,
+  type ContentSearchHit,
 } from './types';
 
 const scopeIcons: Record<SearchCategory, LucideIcon> = {
@@ -80,6 +81,7 @@ const scopeOptions = SEARCH_CATEGORY_ORDER.map((category) => ({
   label: CATEGORY_META[category].label,
   categories: [category],
 }));
+const scopeIds = scopeOptions.map((option) => option.id);
 
 export function SearchDropdown({
   keyword,
@@ -157,75 +159,82 @@ export function SearchDropdown({
       position.current = undefined;
     }
   }, []);
-  // Map category → hits (or null while loading).
-  const sections = new Map<SearchCategory, { hits: SearchHit[] | null; loading: boolean }>();
-  sections.set('contact', {
-    hits: quick ? (quick.contacts ?? []) : null,
-    loading: quickLoading && !quick,
-  });
-  sections.set('group', {
-    hits: quick ? (quick.groups ?? []) : null,
-    loading: quickLoading && !quick,
-  });
-  sections.set('conversation', {
-    hits: quick ? quick.conversations : null,
-    loading: quickLoading && !quick,
-  });
-  sections.set('friend', { hits: quick ? quick.friends : null, loading: quickLoading && !quick });
-  sections.set('groupMember', {
-    hits: quick ? quick.groupMembers : null,
-    loading: quickLoading && !quick,
-  });
-  sections.set('chatRecord', {
-    hits: slow ? (slow.messageHits ?? slow.chatRecords) : null,
-    loading: slowLoading && !slow,
-  });
-  sections.set('file', {
-    hits: slow
-      ? rankFileSearchHits(keyword, [
-          ...slow.files,
-          ...(slow.contentHits ?? []).filter((hit) => hit.category === 'groupFile'),
-        ]).slice(0, 3)
-      : null,
-    loading: slowLoading && !slow,
-  });
-  sections.set('collection', {
-    hits: slow ? slow.collections : null,
-    loading: slowLoading && !slow,
-  });
-  sections.set('cloneMessage', {
-    hits: slow ? slow.cloneMessages : null,
-    loading: slowLoading && !slow,
-  });
-  sections.set('assistantMessage', {
-    hits: slow ? slow.assistantMessages : null,
-    loading: slowLoading && !slow,
-  });
-  for (const category of CONTENT_CATEGORY_ORDER)
-    sections.set(category, {
-      hits: slow ? (slow.contentHits ?? []).filter((hit) => hit.category === category) : null,
+  const sections = useMemo(() => {
+    const contentByCategory = new Map<SearchCategory, ContentSearchHit[]>();
+    const qzoneHits: ContentSearchHit[] = [];
+    for (const hit of slow?.contentHits ?? []) {
+      const category = hit.category;
+      const bucket = contentByCategory.get(category);
+      if (bucket) bucket.push(hit);
+      else contentByCategory.set(category, [hit]);
+      if (isQzoneSearchCategory(category)) qzoneHits.push(hit);
+    }
+    // Map category → hits (or null while loading).
+    const sections = new Map<SearchCategory, { hits: SearchHit[] | null; loading: boolean }>();
+    sections.set('contact', {
+      hits: quick ? (quick.contacts ?? []) : null,
+      loading: quickLoading && !quick,
+    });
+    sections.set('group', {
+      hits: quick ? (quick.groups ?? []) : null,
+      loading: quickLoading && !quick,
+    });
+    sections.set('conversation', {
+      hits: quick ? quick.conversations : null,
+      loading: quickLoading && !quick,
+    });
+    sections.set('friend', { hits: quick ? quick.friends : null, loading: quickLoading && !quick });
+    sections.set('groupMember', {
+      hits: quick ? quick.groupMembers : null,
+      loading: quickLoading && !quick,
+    });
+    sections.set('chatRecord', {
+      hits: slow ? (slow.messageHits ?? slow.chatRecords) : null,
       loading: slowLoading && !slow,
     });
-  sections.set('qzone', {
-    hits: slow
-      ? rankContentSearchHits(
-          keyword,
-          (slow.contentHits ?? []).filter((hit) => isQzoneSearchCategory(hit.category)),
-        ).slice(0, 3)
-      : null,
-    loading: slowLoading && !slow,
-  });
-  for (const [category, section] of sections) {
-    const status = categoryStates?.[category];
-    if (status) section.loading = status.loading;
-  }
+    sections.set('file', {
+      hits: slow
+        ? rankFileSearchHits(keyword, [
+            ...slow.files,
+            ...(contentByCategory.get('groupFile') ?? []),
+          ]).slice(0, 3)
+        : null,
+      loading: slowLoading && !slow,
+    });
+    sections.set('collection', {
+      hits: slow ? slow.collections : null,
+      loading: slowLoading && !slow,
+    });
+    sections.set('cloneMessage', {
+      hits: slow ? slow.cloneMessages : null,
+      loading: slowLoading && !slow,
+    });
+    sections.set('assistantMessage', {
+      hits: slow ? slow.assistantMessages : null,
+      loading: slowLoading && !slow,
+    });
+    for (const category of CONTENT_CATEGORY_ORDER)
+      sections.set(category, {
+        hits: slow ? (contentByCategory.get(category) ?? []) : null,
+        loading: slowLoading && !slow,
+      });
+    sections.set('qzone', {
+      hits: slow ? rankContentSearchHits(keyword, qzoneHits).slice(0, 3) : null,
+      loading: slowLoading && !slow,
+    });
+    for (const [category, section] of sections) {
+      const status = categoryStates?.[category];
+      if (status) section.loading = status.loading;
+    }
+    return sections;
+  }, [keyword, quick, slow, quickLoading, slowLoading, categoryStates]);
 
   const indexBuilding =
     categories.some((c) => c === 'chatRecord' || c === 'file') &&
     !slowLoading &&
     slow?.indexStatus === 'building';
   const scopeSelection = useMultiSelection({
-    ids: scopeOptions.map((option) => option.id),
+    ids: scopeIds,
     selected: new Set(
       scopeOptions
         .filter((option) => option.categories.every((category) => categories.includes(category)))
@@ -249,30 +258,34 @@ export function SearchDropdown({
         (category === 'file' && Boolean(slow?.failedCategories?.includes('groupFile'))) ||
         (category === 'qzone' && Boolean(slow?.failedCategories?.some(isQzoneSearchCategory)))
       : (categoryStates?.[category]?.error ?? quickError);
-  const bestRank = (category: SearchCategory | 'app') =>
-    category === 'app'
-      ? Math.max(0, ...appEntries.map((entry) => appSearchEntryRank(keyword, entry)))
-      : Math.max(
-          0,
-          ...(sections.get(category)?.hits ?? []).map((hit) => searchHitNameRank(hit, keyword)),
-        );
-  const hasResults = (category: SearchCategory | 'app') =>
-    category === 'app' ? appEntries.length > 0 : Boolean(sections.get(category)?.hits?.length);
-  const categoryOrder: Array<SearchCategory | 'app'> = [
-    ...(appSearchEnabled && onSelectAppEntry ? ['app' as const] : []),
-    ...SEARCH_CATEGORY_ORDER.filter((category) => categories.includes(category)),
-  ];
-  const orderedCategories = categoryOrder
-    .map((category, index) => ({
-      category,
-      index,
-      hasResults: hasResults(category),
-      rank: bestRank(category),
-    }))
-    .sort(
-      (a, b) => Number(b.hasResults) - Number(a.hasResults) || b.rank - a.rank || a.index - b.index,
-    )
-    .map((item) => item.category);
+  const appSectionEnabled = appSearchEnabled && Boolean(onSelectAppEntry);
+  const orderedCategories = useMemo(() => {
+    const bestRank = (category: SearchCategory | 'app') =>
+      category === 'app'
+        ? Math.max(0, ...appEntries.map((entry) => appSearchEntryRank(keyword, entry)))
+        : Math.max(
+            0,
+            ...(sections.get(category)?.hits ?? []).map((hit) => searchHitNameRank(hit, keyword)),
+          );
+    const hasResults = (category: SearchCategory | 'app') =>
+      category === 'app' ? appEntries.length > 0 : Boolean(sections.get(category)?.hits?.length);
+    const categoryOrder: Array<SearchCategory | 'app'> = [
+      ...(appSectionEnabled ? ['app' as const] : []),
+      ...SEARCH_CATEGORY_ORDER.filter((category) => categories.includes(category)),
+    ];
+    return categoryOrder
+      .map((category, index) => ({
+        category,
+        index,
+        hasResults: hasResults(category),
+        rank: bestRank(category),
+      }))
+      .sort(
+        (a, b) =>
+          Number(b.hasResults) - Number(a.hasResults) || b.rank - a.rank || a.index - b.index,
+      )
+      .map((item) => item.category);
+  }, [appSectionEnabled, appEntries, sections, categories, keyword]);
 
   return (
     <div className="weq-search-dropdown" ref={attachRoot}>
