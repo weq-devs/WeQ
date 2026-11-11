@@ -205,8 +205,14 @@ export class DbWatchService {
 
   private tick(): void {
     const at = Date.now();
+    const snapshots = new Map<string, ReturnType<typeof aggregate>>();
     for (const entry of this.entries) {
-      const { total, files, signature } = aggregate(entry.dbPath);
+      let snapshot = snapshots.get(entry.dbPath);
+      if (!snapshot) {
+        snapshot = aggregate(entry.dbPath);
+        snapshots.set(entry.dbPath, snapshot);
+      }
+      const { total, files, signature } = snapshot;
       // A change is EITHER a size change OR an in-place content write (mtime
       // bump with constant size — the common case for steady-state WAL).
       if (signature !== entry.lastSignature) {
@@ -227,7 +233,8 @@ export class DbWatchService {
         prevTotal,
         total,
         delta: total - prevTotal,
-        files,
+        // 仅本轮共享文件读取；各 hook 的可变 payload 仍互相独立。
+        files: files.map((file) => ({ ...file })),
         at,
       };
       // Fire-and-forget, but serialized per task via `running`. Hooks must

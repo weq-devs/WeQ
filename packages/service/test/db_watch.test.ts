@@ -7,9 +7,13 @@ const fs = vi.hoisted(() => ({
   close: vi.fn(),
   failWatch: false,
   error: undefined as (() => void) | undefined,
+  scan: vi.fn(),
 }));
 vi.mock('node:fs', () => ({
-  readdirSync: () => [...fs.files.keys()],
+  readdirSync: (path: string) => {
+    fs.scan(path);
+    return [...fs.files.keys()];
+  },
   statSync: (path: string) => ({
     ...fs.files.get(path.split('/').at(-1)!),
     isFile: () => true,
@@ -25,7 +29,7 @@ vi.mock('node:fs', () => ({
     };
   },
 }));
-import { DbWatchService } from '../src/account/db_watch';
+import { DbWatchService, type DbChange } from '../src/account/db_watch';
 import { createNtMsgDbHook } from '../src/account/nt_msg_hook';
 
 afterEach(() => {
@@ -35,9 +39,52 @@ afterEach(() => {
   fs.close.mockClear();
   fs.failWatch = false;
   fs.error = undefined;
+  fs.scan.mockClear();
 });
 
 describe('数据库文件变化监听', () => {
+  it('同轮同路径只扫描一次，任务基线与回调文件信息各自独立，下一轮重新读取', async () => {
+    vi.useFakeTimers();
+    fs.files.set('nt_msg.db', { size: 10, mtimeMs: 1 });
+    fs.files.set('other.db', { size: 5, mtimeMs: 1 });
+    const service = new DbWatchService();
+    const first = vi.fn((change: DbChange) => {
+      change.files[0]!.name = 'changed-by-first-hook';
+      change.files.length = 0;
+    });
+    const second = vi.fn(),
+      other = vi.fn();
+    service.mount({ dbPath: '/fixture/nt_msg.db', onDbFileChangeHook: first });
+    fs.files.set('nt_msg.db', { size: 20, mtimeMs: 2 });
+    service.mount({ dbPath: '/fixture/nt_msg.db', onDbFileChangeHook: second });
+    service.mount({ dbPath: '/fixture/other.db', onDbFileChangeHook: other });
+    fs.scan.mockClear();
+    try {
+      service.pollNow();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fs.scan).toHaveBeenCalledTimes(2);
+      expect(first).toHaveBeenCalledOnce();
+      expect(second).not.toHaveBeenCalled();
+      expect(other).not.toHaveBeenCalled();
+      fs.files.set('nt_msg.db', { size: 30, mtimeMs: 3 });
+      fs.files.set('other.db', { size: 15, mtimeMs: 2 });
+      fs.scan.mockClear();
+      service.pollNow();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fs.scan).toHaveBeenCalledTimes(2);
+      expect(first).toHaveBeenCalledTimes(2);
+      expect(second).toHaveBeenCalledOnce();
+      expect(second.mock.calls[0]?.[0]).toMatchObject({
+        prevTotal: 20,
+        total: 30,
+        files: [{ name: 'nt_msg.db', size: 30, mtimeMs: 3 }],
+      });
+      expect(other.mock.calls[0]?.[0]).toMatchObject({ prevTotal: 5, total: 15 });
+    } finally {
+      service.dispose();
+    }
+  });
+
   it('卸载真实消息 hook 时取消独立补齐重试，不继续持有旧账号读取', async () => {
     vi.useFakeTimers();
     fs.files.set('nt_msg.db', { size: 10, mtimeMs: 1 });
