@@ -142,6 +142,12 @@ export function ReactionLikersPanel({
       aria-label={`${emojiLabel} 的回应人`}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
+      // Portal 的 React 事件仍会冒泡到原消息，不能再次打开消息菜单。
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <div className={cn('reaction-likers-head')}>

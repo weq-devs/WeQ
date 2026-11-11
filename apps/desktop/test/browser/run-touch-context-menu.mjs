@@ -1,22 +1,39 @@
 import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwind from '@tailwindcss/vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const { webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const engines = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const engine = process.env.WEQ_TOUCH_BROWSER ?? 'webkit';
 const server = await createServer({
   configFile: false,
   root,
-  plugins: [react()],
+  plugins: [react(), tailwind()],
+  define: { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') },
+  resolve: {
+    alias: [
+      {
+        find: /^.*\/trpc\/client$/,
+        replacement: resolve(root, 'test/browser/touch-context-menu.stub.ts'),
+      },
+      { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
+      { find: '@resources', replacement: resolve(root, '../../resources') },
+      { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
+    ],
+  },
   optimizeDeps: { entries: ['test/browser/touch-context-menu.html'] },
   server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
 });
 let browser;
 try {
+  if (process.env.WEQ_STYLE_ARTIFACTS)
+    await mkdir(process.env.WEQ_STYLE_ARTIFACTS, { recursive: true });
   await server.listen();
-  browser = await webkit.launch({
+  browser = await engines[engine].launch({
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
@@ -25,6 +42,9 @@ try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  await page.route('**/*', (route) =>
+    new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+  );
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/touch-context-menu.html`,
   );
@@ -57,9 +77,65 @@ try {
   assert.equal(await page.locator('textarea').inputValue(), '保留系统编辑');
   await page.locator('[data-surface="会话"]').tap();
   assert.equal(await page.locator('output').getAttribute('data-clicks'), '1');
+  for (const [width, theme] of [
+    [390, 'light'],
+    [1180, 'dark'],
+  ]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    const clicksBefore = Number(await page.locator('output').getAttribute('data-clicks'));
+    const chip = page.locator('.msg-reaction');
+    await chip.scrollIntoViewIfNeeded();
+    const rect = await chip.boundingBox();
+    const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    const init = {
+      ...point,
+      clientX: point.x,
+      clientY: point.y,
+      pointerType: 'touch',
+      pointerId: 1,
+      isPrimary: true,
+      button: 0,
+    };
+    const session = engine === 'chromium' ? await page.context().newCDPSession(page) : null;
+    if (session) {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+    } else {
+      await chip.dispatchEvent('pointerover', init);
+      await chip.dispatchEvent('pointerdown', init);
+    }
+    await page.waitForTimeout(600);
+    assert.equal(await page.locator('.reaction-likers:visible').count(), 1);
+    assert.equal(await page.locator('output').textContent(), '弹窗内容');
+    if (session) {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await session.detach();
+    } else {
+      await chip.dispatchEvent('pointerup', init);
+      await chip.dispatchEvent('click');
+    }
+    assert.equal(Number(await page.locator('output').getAttribute('data-clicks')), clicksBefore);
+    // 浮层中的长按经 React portal 冒泡，仍不得打开底层消息菜单。
+    const panel = page.locator('.reaction-likers');
+    await chip.dispatchEvent('pointerover', { pointerType: 'mouse' });
+    await panel.waitFor({ state: 'visible' });
+    await panel.dispatchEvent('contextmenu', { button: 2 });
+    assert.equal(await page.locator('output').textContent(), '弹窗内容');
+    if (process.env.WEQ_STYLE_ARTIFACTS)
+      await page.screenshot({
+        path: resolve(process.env.WEQ_STYLE_ARTIFACTS, `reaction-${width}-${theme}.png`),
+      });
+    await chip.tap();
+    assert.equal(
+      Number(await page.locator('output').getAttribute('data-clicks')),
+      clicksBefore + 1,
+    );
+  }
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: WebKit 合成触摸长按、React 右键冒泡、portal、宽窄视口、原生事件去重、松手防误点和后续轻触',
+    `PASS: ${engine} 触摸长按、React 右键冒泡、portal、宽窄视口、原生事件去重、松手防误点、贴表情单浮层和后续轻触`,
   );
 } finally {
   await browser?.close();
