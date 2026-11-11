@@ -108,7 +108,40 @@ try {
           !geometry.overflow,
         `${theme}/${width}/${height}/${corner}: 菜单溢出 ${JSON.stringify(geometry)}`,
       );
-      check(geometry.count === 3, '按钮区不是三行');
+      check(geometry.count === 4, '媒体与扩展按钮区行数错误');
+      const layout = await menu.evaluate((el) => {
+        const center = (node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.left + rect.width / 2;
+        };
+        const main = [...el.querySelectorAll('.message-menu-main button')];
+        const row = el.querySelector('[aria-label="消息互动"]');
+        const cells = [...row.querySelectorAll('button')];
+        const icons = cells.map((button) => center(button.firstElementChild));
+        return {
+          topRows: main.map((button) => button.getBoundingClientRect().top),
+          aligned: main.every(
+            (button, index) =>
+              Math.abs(center(button.firstElementChild) - icons[(index % 2) * 2]) < 1,
+          ),
+          centered: cells.every(
+            (button) => Math.abs(center(button) - center(button.firstElementChild)) < 1,
+          ),
+          equal: cells.every(
+            (button) =>
+              Math.abs(
+                button.getBoundingClientRect().width - cells[0].getBoundingClientRect().width,
+              ) < 1,
+          ),
+        };
+      });
+      check(
+        layout.topRows[0] === layout.topRows[1] &&
+          layout.topRows[2] === layout.topRows[3] &&
+          layout.topRows[2] > layout.topRows[0],
+        '常用按钮未排成 2×2',
+      );
+      check(layout.aligned && layout.centered && layout.equal, '四列等宽居中或上下图标对齐失败');
       if (output && corner === 'top-left')
         await page.screenshot({ path: resolve(output, `${theme}-${width}-${height}.png`) });
       // disabled 按钮仍应立即提供原因，不能依赖 250ms 全局延迟。
@@ -169,7 +202,7 @@ try {
   await touch.close();
   check(errors.length === 0, errors.join('\n'));
   console.log(
-    '消息菜单浏览器验证通过：5 组主题/尺寸、四角避让、媒体资源绘制、三行图标、禁用提示、回应取消、+1、焦点归还及真实触屏长按。',
+    '消息菜单浏览器验证通过：5 组主题/尺寸、四角避让、媒体资源绘制、2×2 常用按钮、四列居中与图标对齐、禁用提示、回应取消、+1、焦点归还及真实触屏长按。',
   );
 } finally {
   await browser?.close();

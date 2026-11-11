@@ -36,6 +36,21 @@
 }
 .message-menu-main {
   display: grid;
+  gap: 4px;
+}
+.message-menu-main > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.message-menu-v2 .message-menu-main button {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-items: center;
+  gap: 4px;
+  padding: 0;
+}
+.message-menu-main button > span {
+  justify-self: start;
 }
 .message-menu-main > div:empty {
   display: none;
@@ -73,7 +88,7 @@
 }
 .message-action-row {
   display: grid;
-  grid-template-columns: repeat(4, 36px);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   padding-top: 4px;
   border-top: 1px solid var(--weq-border-subtle);
@@ -86,7 +101,7 @@
 }
 .message-menu-v2 .message-action-row button {
   display: grid;
-  width: 36px;
+  width: 100%;
   height: 36px;
   grid-template-columns: 1fr;
   justify-items: center;
@@ -113,11 +128,7 @@
 .message-menu-touch.message-menu-v2 button {
   min-height: 44px;
 }
-.message-menu-touch .message-action-row {
-  grid-template-columns: repeat(4, 44px);
-}
 .message-menu-touch .message-action-row button {
-  width: 44px;
   height: 44px;
 }
 .message-menu-touch .message-reaction-strip button {

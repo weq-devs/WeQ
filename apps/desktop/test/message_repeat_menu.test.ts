@@ -46,7 +46,9 @@ describe('消息菜单 +1', () => {
           }),
         );
       });
-      return [...host.querySelectorAll('button')].find((button) => button.textContent === '+1');
+      return [...host.querySelectorAll('button')].find(
+        (button) => button.getAttribute('aria-label') === '+1',
+      );
     }
     try {
       const button = await render();
@@ -117,7 +119,7 @@ describe('消息菜单 +1', () => {
       };
       const menuButton = () =>
         [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
-          (button) => button.textContent === '+1',
+          (button) => button.getAttribute('aria-label') === '+1',
         );
       const openMenu = async () => {
         await act(async () => {

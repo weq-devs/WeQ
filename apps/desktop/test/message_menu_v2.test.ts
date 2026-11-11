@@ -69,15 +69,16 @@ it('文字主菜单顺序固定，扩展动作位于指定三行', () => {
     onDelete: vi.fn(),
     onSaveMedia: vi.fn(),
   });
-  expect(labels('.message-menu-main')).toEqual(['复制', '转发', '多选', '引用', '另存为']);
+  expect(labels('.message-menu-main')).toEqual(['复制', '转发', '多选', '引用']);
   const rows = [...host.querySelectorAll('.message-action-row')];
   const names = (row: Element) =>
     [...row.querySelectorAll('button')].map(
       (button) => button.getAttribute('aria-label') || button.textContent,
     );
-  expect(names(rows[0]!)).toEqual(['+1', '撤回', '设为精华', '设为群待办']);
-  expect(names(rows[1]!)).toEqual(['添加到素材库', '导出', '意图感知', '查看装扮']);
-  expect(names(rows[2]!)).toEqual(['显示原文', '在文件夹中显示', '修改本地记录', '本地删除']);
+  expect(names(rows[0]!)).toEqual(['另存为']);
+  expect(names(rows[1]!)).toEqual(['+1', '撤回', '设为精华', '设为群待办']);
+  expect(names(rows[2]!)).toEqual(['添加到素材库', '导出', '意图感知', '查看装扮']);
+  expect(names(rows[3]!)).toEqual(['显示原文', '在文件夹中显示', '修改本地记录', '本地删除']);
   expect(document.activeElement?.textContent).toBe('复制');
 });
 
@@ -117,10 +118,12 @@ it('方向键在三行按钮间移动，Esc 关闭并归还焦点', () => {
     act(() =>
       document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key })),
     );
-  press('ArrowDown');
+  press('ArrowRight');
   expect(document.activeElement?.textContent).toBe('转发');
   press('ArrowDown');
-  press('ArrowDown');
+  expect(document.activeElement?.textContent).toBe('引用');
+  press('ArrowLeft');
+  expect(document.activeElement?.textContent).toBe('多选');
   press('ArrowDown');
   expect(document.activeElement?.getAttribute('aria-label')).toBe('+1');
   press('ArrowRight');

@@ -283,40 +283,35 @@ export function MessageContextMenu({
         <div className="message-menu-main">
           <div data-menu-row>
             {action('复制', <QqIcon name="copy" size={17} />, () => void onCopy(message))}
+            {onForward || unavailableReason
+              ? action(
+                  '转发',
+                  <QqIcon name="share" size={17} />,
+                  onForward && (() => onForward(message)),
+                  !onForward ? unavailableReason : null,
+                )
+              : null}
           </div>
-          {onForward || unavailableReason ? (
-            <div data-menu-row>
-              {action(
-                '转发',
-                <QqIcon name="share" size={17} />,
-                onForward && (() => onForward(message)),
-                !onForward ? unavailableReason : null,
-              )}
-            </div>
-          ) : null}
-          {onMultiSelect ? (
-            <div data-menu-row>
-              {action('多选', <QqIcon name="multiSelect" size={17} />, () =>
-                onMultiSelect(message),
-              )}
-            </div>
-          ) : null}
-          {onReply || unavailableReason ? (
-            <div data-menu-row>
-              {action(
-                '引用',
-                <QqIcon name="reply" size={17} />,
-                onReply && (() => onReply(message)),
-                !onReply ? unavailableReason : replyBlockedReason,
-              )}
-            </div>
-          ) : null}
           <div data-menu-row>
-            <VoiceTranscribeMenuAction message={message} onClose={onClose} />
+            {onMultiSelect
+              ? action('多选', <QqIcon name="multiSelect" size={17} />, () =>
+                  onMultiSelect(message),
+                )
+              : null}
+            {onReply || unavailableReason
+              ? action(
+                  '引用',
+                  <QqIcon name="reply" size={17} />,
+                  onReply && (() => onReply(message)),
+                  !onReply ? unavailableReason : replyBlockedReason,
+                )
+              : null}
           </div>
-          {save ? (
-            <div data-menu-row>
-              {action(
+        </div>
+        <div className="message-action-row" data-menu-row role="group" aria-label="媒体操作">
+          {slot(<VoiceTranscribeMenuAction message={message} onClose={onClose} />)}
+          {save
+            ? action(
                 IS_WEB ? '保存到服务器' : '另存为',
                 <QqIcon name="download" size={17} />,
                 save,
@@ -325,9 +320,8 @@ export function MessageContextMenu({
                 state.mediaTarget
                   ? `${IS_WEB ? '保存到服务器' : '另存为'}：${state.mediaTarget.label}`
                   : undefined,
-              )}
-            </div>
-          ) : null}
+              )
+            : null}
         </div>
         <div className="message-action-row" data-menu-row role="group" aria-label="消息互动">
           {(onRepeat || unavailableReason) && canRepeatMessage(message)
