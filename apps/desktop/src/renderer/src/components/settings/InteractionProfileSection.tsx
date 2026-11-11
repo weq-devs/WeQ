@@ -35,7 +35,6 @@ export function InteractionProfileSection() {
     <AiFeatureSettingsLayout
       settings={settings}
       title="互动画像"
-      advancedId="profile-advanced"
       error={status.error}
       retrying={status.isFetching}
       onRetry={() => void status.refetch()}
@@ -79,17 +78,29 @@ export function InteractionProfileSection() {
             settingId="profile-engine"
             label="运行方式"
             control={
-              <SegmentedControl
-                label="互动画像运行方式"
-                disabled={disabled}
-                value={status.data?.profileEngine ?? null}
-                onChange={(profileEngine) => void patch({ profileEngine })}
-                options={[
-                  { value: 'api', label: 'API 模型' },
-                  { value: 'local', label: '本地模型' },
-                  { value: 'heuristic', label: '本地统计' },
-                ]}
-              />
+              <span
+                data-setting-fallback={
+                  status.data
+                    ? status.data.profileEngine === 'api'
+                      ? 'profile-local-model'
+                      : status.data.profileEngine === 'local'
+                        ? 'profile-api-model'
+                        : 'profile-api-model profile-local-model'
+                    : undefined
+                }
+              >
+                <SegmentedControl
+                  label="互动画像运行方式"
+                  disabled={disabled}
+                  value={status.data?.profileEngine ?? null}
+                  onChange={(profileEngine) => void patch({ profileEngine })}
+                  options={[
+                    { value: 'api', label: 'API 模型' },
+                    { value: 'local', label: '本地模型' },
+                    { value: 'heuristic', label: '本地统计' },
+                  ]}
+                />
+              </span>
             }
           />
           {status.data?.profileEngine === 'api' ? (
@@ -100,17 +111,7 @@ export function InteractionProfileSection() {
               disabled={disabled}
               onChange={(profileProviderRef) => void patch({ profileProviderRef })}
             />
-          ) : (
-            <p className="weq-set-note" data-setting-id="profile-api-model">
-              API 模型：
-              {!status.data
-                ? '运行方式待确认'
-                : status.data.profileEngine === 'local'
-                  ? '当前使用本地模型'
-                  : '当前使用本地统计'}
-              。
-            </p>
-          )}
+          ) : null}
           {status.data?.profileEngine === 'local' ? (
             <Row
               settingId="profile-local-model"
@@ -152,17 +153,7 @@ export function InteractionProfileSection() {
                 </select>
               }
             />
-          ) : (
-            <p className="weq-set-note" data-setting-id="profile-local-model">
-              本地模型资源：
-              {!status.data
-                ? '运行方式待确认'
-                : status.data.profileEngine === 'api'
-                  ? '当前使用 API 模型'
-                  : '当前使用本地统计'}
-              。
-            </p>
-          )}
+          ) : null}
           {status.data?.profileEngine === 'local' &&
           local.data?.models.find((model) => model.id === status.data?.profileLocalModelId)
             ?.downloadable &&

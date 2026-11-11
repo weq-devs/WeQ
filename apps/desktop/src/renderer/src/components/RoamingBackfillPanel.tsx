@@ -20,7 +20,6 @@ import {
   Radio,
   RefreshCw,
   RotateCcw,
-  Settings2,
   Search,
   Square,
   Trash2,
@@ -589,30 +588,23 @@ export function RoamingBackfillPanel({
                     />
                     <span>尝试找回更早的聊天记录</span>
                   </label>
-                  <details className="weq-roaming-advanced">
-                    <summary>
-                      <Settings2 size={14} />
-                      高级设置
-                      <ChevronRight size={13} className="weq-roaming-disclosure" />
-                    </summary>
-                    <label className="weq-roaming-field">
-                      <span>
-                        <Clock3 size={13} />
-                        请求间隔
-                      </span>
-                      <span className="weq-roaming-field-input">
-                        <input
-                          type="number"
-                          min={500}
-                          max={60000}
-                          step={100}
-                          value={intervalMs}
-                          onChange={(e) => setIntervalMs(Number(e.target.value))}
-                        />
-                        <small>毫秒</small>
-                      </span>
-                    </label>
-                  </details>
+                  <label className="weq-roaming-field">
+                    <span>
+                      <Clock3 size={13} />
+                      请求间隔
+                    </span>
+                    <span className="weq-roaming-field-input">
+                      <input
+                        type="number"
+                        min={500}
+                        max={60000}
+                        step={100}
+                        value={intervalMs}
+                        onChange={(e) => setIntervalMs(Number(e.target.value))}
+                      />
+                      <small>毫秒</small>
+                    </span>
+                  </label>
                 </div>
                 <div className="weq-roaming-scope-calendar">
                   <MessageCalendar

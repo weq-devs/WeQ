@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { BrainCircuit, Download, Play } from 'lucide-react';
+import { Download, Play } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
-import { Card, Row, SectionHeader } from './controls';
+import { QueryError, Row } from './controls';
 
 /** 全局资源管理与按账号的意图功能开关分开，未打开账号也可以下载。 */
-export function IntentModelsSection({ embedded = false }: { embedded?: boolean }): ReactElement {
+export function IntentModelsSection(): ReactElement {
   const active = useTabActive();
   const activity = useRef(active);
   activity.current = active;
@@ -39,6 +39,11 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
     },
   });
   const busy =
+    !active ||
+    resources.isLoading ||
+    engine.isLoading ||
+    !!resources.error ||
+    !!engine.error ||
     select.isLoading ||
     download.isLoading ||
     engine.isFetching ||
@@ -78,39 +83,35 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
   }
 
   return (
-    <div className={embedded ? undefined : 'weq-set'}>
-      {!embedded ? <SectionHeader icon={<BrainCircuit size={18} />} title="意图模型" /> : null}
-      <Card
-        title="意图模型资源（全局）"
-        icon={<BrainCircuit size={15} strokeWidth={1.8} />}
+    <>
+      <Row
         settingId="intent-model-resources"
-      >
-        <Row
-          label="当前模型"
-          control={
-            <select
-              className="weq-set-input"
-              aria-label="意图模型资源"
-              value={selected}
-              disabled={
-                busy || !engine.data?.available || !engine.data.models.length || !resources.data
-              }
-              onChange={(event) => void choose(event.target.value)}
-            >
-              {!engine.data?.models.some((model) => model.id === selected) ? (
-                <option value={selected}>
-                  {selected === 'auto' ? '自动选择' : selected} · 当前不可用
-                </option>
-              ) : null}
-              {(engine.data?.models ?? []).map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                  {model.downloaded ? ' · 已就绪' : ''}
-                </option>
-              ))}
-            </select>
-          }
-        />
+        label="意图模型资源（全局）"
+        control={
+          <select
+            className="weq-set-input"
+            aria-label="意图模型资源"
+            value={selected}
+            disabled={
+              busy || !engine.data?.available || !engine.data.models.length || !resources.data
+            }
+            onChange={(event) => void choose(event.target.value)}
+          >
+            {!engine.data?.models.some((model) => model.id === selected) ? (
+              <option value={selected}>
+                {selected === 'auto' ? '自动选择' : selected} · 当前不可用
+              </option>
+            ) : null}
+            {(engine.data?.models ?? []).map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+                {model.downloaded ? ' · 已就绪' : ''}
+              </option>
+            ))}
+          </select>
+        }
+      />
+      {engine.data ? (
         <Row
           label="状态"
           desc={
@@ -122,43 +123,54 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
           }
           control={null}
         />
-        {engine.data?.available && !engine.data.modelDownloaded && downloadable ? (
-          <>
-            <Row
-              label="hf-mirror.com 镜像"
-              control={
-                <input
-                  type="checkbox"
-                  aria-label="使用下载镜像"
-                  checked={mirror}
-                  disabled={busy}
-                  onChange={(event) => setMirror(event.target.checked)}
-                />
-              }
-            />
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              disabled={busy}
-              onClick={() => void run('download')}
-            >
-              <Download size={14} />
-              {busy ? (progress ?? '下载中…') : '下载模型'}
-            </button>
-          </>
-        ) : null}
-        {engine.data?.modelDownloaded ? (
+      ) : null}
+      {engine.data?.available && !engine.data.modelDownloaded && downloadable ? (
+        <>
+          <Row
+            label="hf-mirror.com 镜像"
+            control={
+              <input
+                type="checkbox"
+                aria-label="使用下载镜像"
+                checked={mirror}
+                disabled={busy}
+                onChange={(event) => setMirror(event.target.checked)}
+              />
+            }
+          />
           <button
             type="button"
             className="weq-set-btn weq-set-btn-soft"
-            disabled={busy || start.isLoading || engine.data.engineReady}
-            onClick={() => void run('start')}
+            disabled={busy}
+            onClick={() => void run('download')}
           >
-            <Play size={14} />
-            {engine.data.engineReady ? '引擎已就绪' : '启动引擎'}
+            <Download size={14} />
+            {busy ? (progress ?? '下载中…') : '下载模型'}
           </button>
-        ) : null}
-      </Card>
-    </div>
+        </>
+      ) : null}
+      {engine.data?.modelDownloaded ? (
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-soft"
+          disabled={busy || start.isLoading || engine.data.engineReady}
+          onClick={() => void run('start')}
+        >
+          <Play size={14} />
+          {engine.data.engineReady ? '引擎已就绪' : '启动引擎'}
+        </button>
+      ) : null}
+      {resources.error || engine.error ? (
+        <QueryError
+          message={(resources.error ?? engine.error)!.message}
+          retryLabel="重新读取意图模型资源"
+          retrying={resources.isFetching || engine.isFetching}
+          onRetry={() => {
+            void resources.refetch();
+            void engine.refetch();
+          }}
+        />
+      ) : null}
+    </>
   );
 }

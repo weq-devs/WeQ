@@ -24,6 +24,25 @@ import {
 import { makeBackupPersona } from './fixtures/backup_persona';
 
 const roots: string[] = [];
+it('意图显示、回退列表和历史上限的备份校验与服务配置一致', () => {
+  expect(() =>
+    validateWeqAccountPreference('intent.json', {
+      loadingAnimation: false,
+      suggestionFallbackEnabled: false,
+      suggestionFallbackTexts: [],
+      suggestionHistoryLimit: 0,
+    }),
+  ).not.toThrow();
+  for (const invalid of [
+    { loadingAnimation: 1 },
+    { suggestionFallbackEnabled: 'yes' },
+    { suggestionFallbackTexts: ['A', ' A '] },
+    { suggestionFallbackTexts: [' '] },
+    { suggestionHistoryLimit: -1 },
+    { suggestionHistoryLimit: 10001 },
+  ])
+    expect(() => validateWeqAccountPreference('intent.json', invalid)).toThrow();
+});
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -257,6 +276,10 @@ it('意图与克隆体的显式默认引用可备份恢复，不将关闭状态�
     enabled: false,
     profileEnabled: false,
     suggestionsEnabled: false,
+    loadingAnimation: false,
+    suggestionFallbackEnabled: false,
+    suggestionFallbackTexts: ['备份回退内容'],
+    suggestionHistoryLimit: 0,
     providerRef: { useDefault: true },
     profileProviderRef: { useDefault: true },
     suggestionProviderRef: { useDefault: true },
@@ -289,6 +312,10 @@ it('意图与克隆体的显式默认引用可备份恢复，不将关闭状态�
     enabled: false,
     profileEnabled: false,
     suggestionsEnabled: false,
+    loadingAnimation: false,
+    suggestionFallbackEnabled: false,
+    suggestionFallbackTexts: ['备份回退内容'],
+    suggestionHistoryLimit: 0,
     providerRef: { useDefault: true },
     profileProviderRef: { useDefault: true },
     suggestionProviderRef: { useDefault: true },

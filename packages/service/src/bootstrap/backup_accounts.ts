@@ -3,7 +3,11 @@ import { isDefaultModelSelection } from '@weq/agentlab';
 import { existsSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { sniffImageExt } from '../account/export/emoji_export';
-import { INTENT_TUNING_KEYS, isIntentTuningValue } from '../common/intent_context';
+import {
+  INTENT_TUNING_KEYS,
+  isIntentTuningValue,
+  validateSuggestionFallbackTexts,
+} from '../common/intent_context';
 import {
   WEQ_ACCOUNT_SETTING_FILES,
   WEQ_BACKGROUND_EXTENSIONS,
@@ -78,10 +82,21 @@ export function validateWeqAccountPreference(name: WeqAccountSettingFile, value:
         'suggestionsEnabled',
         'analyzeAfterSelf',
         'suggestAfterSelf',
+        'persistentDisplay',
+        'hoverDisplay',
+        'loadingAnimation',
+        'suggestionFallbackEnabled',
         'hfMirror',
       ],
       name,
     );
+    if (input.suggestionFallbackTexts !== undefined) {
+      try {
+        validateSuggestionFallbackTexts(input.suggestionFallbackTexts);
+      } catch {
+        fail(`${name}.suggestionFallbackTexts`);
+      }
+    }
     if (input.engine !== undefined && input.engine !== 'api' && input.engine !== 'local')
       fail(name);
     if (

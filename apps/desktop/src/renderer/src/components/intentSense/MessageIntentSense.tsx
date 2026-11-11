@@ -453,9 +453,12 @@ export function MessageIntentSense({
 
   return (
     <>
-      {/* 文本消息保留同高槽位，无结果/失败都不收缩气泡。 */}
+      {/* 关闭等待动画时仅在有结果后挂载，消息正文不等待分析。 */}
       {persistentDisplay &&
-      (result || (analyzable !== false && (ctx?.automatic !== false || pending || failure))) ? (
+      (result ||
+        (ctx?.loadingAnimation !== false &&
+          analyzable !== false &&
+          (ctx?.automatic !== false || pending || failure))) ? (
         <span
           className="weq-intent-chips"
           data-intent-state={displayState}

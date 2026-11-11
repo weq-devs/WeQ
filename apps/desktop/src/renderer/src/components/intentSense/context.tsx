@@ -44,6 +44,7 @@ export interface IntentSenseContextValue {
   active: boolean;
   persistentDisplay?: boolean;
   hoverDisplay?: boolean;
+  loadingAnimation?: boolean;
   automatic?: boolean;
   /** 当前会话缓存的读取状态；不把读取缓存误报为消息分析在途。 */
   cacheState?: 'loading' | 'ready' | 'error';
@@ -439,6 +440,7 @@ export function IntentSenseProvider({
       automatic: statusData?.analysisMode !== 'manual',
       persistentDisplay: statusData?.persistentDisplay !== false,
       hoverDisplay: statusData?.hoverDisplay !== false,
+      loadingAnimation: statusData?.loadingAnimation !== false,
       cacheState,
       version,
       getAnalysis,
@@ -458,6 +460,7 @@ export function IntentSenseProvider({
       statusData?.analysisMode,
       statusData?.persistentDisplay,
       statusData?.hoverDisplay,
+      statusData?.loadingAnimation,
       cacheState,
       version,
       getAnalysis,

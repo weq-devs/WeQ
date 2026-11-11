@@ -1,12 +1,16 @@
-import { DEFAULT_INTENT_TUNING } from '@weq/service/intent-context';
+import {
+  DEFAULT_INTENT_TUNING,
+  DEFAULT_SUGGESTION_FALLBACK_TEXTS,
+} from '@weq/service/intent-context';
 
 const data: Record<string, unknown> = {
   'account.intentSense.getStatus': {
     ...DEFAULT_INTENT_TUNING,
+    suggestionFallbackTexts: [...DEFAULT_SUGGESTION_FALLBACK_TEXTS],
     enabled: false,
     profileEnabled: false,
     suggestionsEnabled: false,
-    engine: 'api',
+    engine: new URLSearchParams(location.search).has('local-model') ? 'local' : 'api',
     profileEngine: 'api',
     providerRef: null,
     profileProviderRef: null,

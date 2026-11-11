@@ -38,9 +38,9 @@ function Bubble({ msgId }: { msgId: string }) {
     const chips = bubble.querySelector<HTMLElement>('.weq-intent-chips')!;
     qa.frames.push({
       id: msgId,
-      pills: chips.querySelectorAll('.weq-intent-pill').length,
+      pills: chips?.querySelectorAll('.weq-intent-pill').length ?? 0,
       height: bubble.getBoundingClientRect().height,
-      visible: getComputedStyle(chips.firstElementChild!).opacity === '1',
+      visible: chips ? getComputedStyle(chips.firstElementChild!).opacity === '1' : false,
     });
   });
   return (

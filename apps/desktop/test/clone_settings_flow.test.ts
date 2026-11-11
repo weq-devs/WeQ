@@ -122,6 +122,9 @@ it('分类分清画像、回复和管理；跨页草稿只在统一保存时一�
     expect(t.button('删除克隆体')).toBeUndefined();
     t.change(t.pane().querySelector('textarea')!, '新提示');
     act(() => t.button('回复设置').click());
+    expect(t.pane().querySelector('.weq-clone-generation details')).toBeNull();
+    expect(t.pane().querySelector('.weq-clone-generation')?.textContent).toContain('上下文与参考');
+    expect(t.pane().querySelector('.weq-clone-generation')?.textContent).toContain('生成参数');
     const key = CLONE_GENERATION_KEYS[0]!;
     const input = t
       .pane()

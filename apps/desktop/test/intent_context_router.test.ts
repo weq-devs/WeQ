@@ -17,6 +17,30 @@ vi.mock('../src/main/context/app_context', () => ({
 }));
 import { intentSenseRouter } from '../src/main/ipc/routers/intent_sense';
 
+it('等待动画、回退列表与历史轮数通过现有配置接口校验并传递', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  await caller.setConfig({
+    loadingAnimation: false,
+    suggestionFallbackEnabled: false,
+    suggestionFallbackTexts: [' A ', 'B'],
+    suggestionHistoryLimit: 0,
+  });
+  expect(service.setConfig).toHaveBeenLastCalledWith({
+    loadingAnimation: false,
+    suggestionFallbackEnabled: false,
+    suggestionFallbackTexts: ['A', 'B'],
+    suggestionHistoryLimit: 0,
+  });
+  for (const patch of [
+    { suggestionFallbackTexts: ['A', ' A '] },
+    { suggestionFallbackTexts: [' '] },
+    { suggestionFallbackTexts: ['x'.repeat(501)] },
+    { suggestionHistoryLimit: -1 },
+    { suggestionHistoryLimit: 10001 },
+  ])
+    await expect(caller.setConfig(patch)).rejects.toThrow();
+});
+
 it('模式配置、只读画像缓存与明确菜单分析完整传递', async () => {
   const caller = intentSenseRouter.createCaller({});
   await caller.setConfig({ analysisMode: 'manual', profileMode: 'auto', suggestionMode: 'manual' });

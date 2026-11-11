@@ -34,7 +34,13 @@ export const AI_SETTING_ITEMS: readonly AiSetting[] = [
   },
   { id: 'intent-after-self', section: 'intent-sense', label: '自己发送后分析' },
   { id: 'intent-cache', section: 'intent-sense', label: '分析缓存', aliases: ['清空并重算'] },
-  { id: 'intent-advanced', section: 'intent-sense', label: '意图感知高级设置' },
+  {
+    id: 'intent-advanced',
+    section: 'intent-sense',
+    label: '意图感知显示方式',
+    aliases: ['意图感知高级设置'],
+  },
+  { id: 'intent-loading-animation', section: 'intent-sense', label: '显示分析等待动画' },
   { id: 'suggestions-enabled', section: 'reply-suggestions', label: '启用推荐回复' },
   {
     id: 'suggestions-mode',
@@ -44,7 +50,14 @@ export const AI_SETTING_ITEMS: readonly AiSetting[] = [
   },
   { id: 'suggestions-model', section: 'reply-suggestions', label: '推荐回复 API 模型' },
   { id: 'suggestions-after-self', section: 'reply-suggestions', label: '自己发送后推荐回复' },
-  { id: 'suggestions-advanced', section: 'reply-suggestions', label: '推荐回复高级设置' },
+  { id: 'suggestions-fallback-enabled', section: 'reply-suggestions', label: '启用回退内容' },
+  { id: 'suggestions-fallback-texts', section: 'reply-suggestions', label: '回退内容列表' },
+  {
+    id: 'suggestions-advanced',
+    section: 'reply-suggestions',
+    label: '推荐回复触发方式',
+    aliases: ['推荐回复高级设置'],
+  },
   { id: 'profile-enabled', section: 'interaction-profile', label: '启用互动画像' },
   {
     id: 'profile-mode',
@@ -65,7 +78,12 @@ export const AI_SETTING_ITEMS: readonly AiSetting[] = [
     aliases: ['API 模型'],
   },
   { id: 'profile-local-model', section: 'interaction-profile', label: '互动画像本地模型资源' },
-  { id: 'profile-advanced', section: 'interaction-profile', label: '互动画像高级设置' },
+  {
+    id: 'profile-advanced',
+    section: 'interaction-profile',
+    label: '互动画像统计范围',
+    aliases: ['互动画像高级设置'],
+  },
   ...INTENT_TUNING_KEYS.map((key): AiSetting => {
     const rule = INTENT_TUNING[key];
     return {

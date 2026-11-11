@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Save } from 'lucide-react';
 import type { AgentLabModelSelection, AgentLabPersona } from '@weq/agentlab';
 import {
@@ -13,7 +13,6 @@ import { Row, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
 import { useCloneSettingsSection } from '../../views/agentlab/cloneSettingsDraft';
 import { useDialog } from '../Dialog';
-import '../../styles/model-settings.css';
 
 export function CloneGenerationPanel({
   persona,
@@ -93,12 +92,12 @@ export function CloneGenerationPanel({
           />
         }
       />
-      <details className="weq-model-advanced">
-        <summary>高级设置</summary>
-        <div className="weq-clone-generation-fields">
-          {CLONE_GENERATION_KEYS.map((key) => (
+      <div className="weq-clone-generation-fields">
+        <h4 className="weq-set-card-title">上下文与参考</h4>
+        {CLONE_GENERATION_KEYS.map((key) => (
+          <Fragment key={key}>
+            {key === 'maxOutputTokens' ? <h4 className="weq-set-card-title">生成参数</h4> : null}
             <Row
-              key={key}
               label={CLONE_GENERATION[key].label}
               desc={`${CLONE_GENERATION_HELP[key]} 默认 ${CLONE_GENERATION[key].default}；范围 ${CLONE_GENERATION[key].min}–${CLONE_GENERATION[key].max}。`}
               control={
@@ -118,39 +117,39 @@ export function CloneGenerationPanel({
                 />
               }
             />
-          ))}
+          </Fragment>
+        ))}
+        <Row
+          label="温度随发言意愿调整"
+          control={
+            <Toggle
+              label="自动调整克隆温度"
+              checked={adaptive}
+              disabled={update.isLoading}
+              onChange={setAdaptive}
+            />
+          }
+        />
+        {!adaptive ? (
           <Row
-            label="温度随发言意愿调整"
+            label="生成温度"
             control={
-              <Toggle
-                label="自动调整克隆温度"
-                checked={adaptive}
+              <input
+                className="weq-set-input"
+                type="number"
+                aria-label="克隆生成温度"
+                min={0}
+                max={2}
+                step={0.1}
+                value={temperature}
                 disabled={update.isLoading}
-                onChange={setAdaptive}
+                onChange={(event) => setTemperature(event.target.value)}
+                style={{ width: 110 }}
               />
             }
           />
-          {!adaptive ? (
-            <Row
-              label="生成温度"
-              control={
-                <input
-                  className="weq-set-input"
-                  type="number"
-                  aria-label="克隆生成温度"
-                  min={0}
-                  max={2}
-                  step={0.1}
-                  value={temperature}
-                  disabled={update.isLoading}
-                  onChange={(event) => setTemperature(event.target.value)}
-                  style={{ width: 110 }}
-                />
-              }
-            />
-          ) : null}
-        </div>
-      </details>
+        ) : null}
+      </div>
       {!guard.managed ? (
         <Row
           label={null}

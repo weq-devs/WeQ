@@ -9,11 +9,7 @@ import { ExternalRkeySection } from '../src/renderer/src/components/settings/Ext
 import { useToast } from '../src/renderer/src/components/Toast';
 import { useDialog } from '../src/renderer/src/components/Dialog';
 import { IntentTuningPanel } from '../src/renderer/src/components/settings/IntentTuningPanel';
-import {
-  DEFAULT_INTENT_TUNING,
-  INTENT_TUNING,
-  INTENT_TUNING_KEYS,
-} from '@weq/service/intent-context';
+import { DEFAULT_INTENT_TUNING } from '@weq/service/intent-context';
 
 const state = vi.hoisted(() => ({
   data: {} as Record<string, unknown>,
@@ -247,10 +243,14 @@ describe('显式保存设置不以未变化禁用', () => {
       view: () => createElement(IntentTuningPanel, { group: 'analysis' }),
       route: 'account.intentSense.setConfig',
       input: Object.fromEntries(
-        INTENT_TUNING_KEYS.filter((key) => INTENT_TUNING[key].group === 'analysis').map((key) => [
-          key,
-          DEFAULT_INTENT_TUNING[key],
-        ]),
+        (
+          [
+            'analysisContextMessages',
+            'backfillMessages',
+            'contextGapMinutes',
+            'contextSpanMinutes',
+          ] as const
+        ).map((key) => [key, DEFAULT_INTENT_TUNING[key]]),
       ),
     },
   ])('$label 原值可保存，点击才提交，保存后仍可再提交', async ({ view, route, input }) => {

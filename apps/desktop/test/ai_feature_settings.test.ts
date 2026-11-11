@@ -1,7 +1,10 @@
 import { act, createElement, type ComponentType } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_INTENT_TUNING } from '@weq/service/intent-context';
+import {
+  DEFAULT_INTENT_TUNING,
+  DEFAULT_SUGGESTION_FALLBACK_TEXTS,
+} from '@weq/service/intent-context';
 import { IntentSenseSection } from '../src/renderer/src/components/settings/IntentSenseSection';
 import { InteractionProfileSection } from '../src/renderer/src/components/settings/InteractionProfileSection';
 import { ReplySuggestionsSection } from '../src/renderer/src/components/settings/ReplySuggestionsSection';
@@ -80,6 +83,7 @@ beforeEach(() => {
   state.data = {
     'account.intentSense.getStatus': {
       ...DEFAULT_INTENT_TUNING,
+      suggestionFallbackTexts: [...DEFAULT_SUGGESTION_FALLBACK_TEXTS],
       enabled: false,
       suggestionsEnabled: false,
       profileEnabled: false,
@@ -125,12 +129,6 @@ function mount(component: ComponentType, active = true) {
       host.querySelector<HTMLButtonElement>(`[aria-label="启用${title}"]`)!,
     model: (title: string) =>
       host.querySelector<HTMLSelectElement>(`[aria-label="${title} API 模型"]`)!,
-    open: () =>
-      act(() => {
-        const details = host.querySelector('details')!;
-        details.open = true;
-        details.dispatchEvent(new Event('toggle'));
-      }),
   };
 }
 
@@ -138,13 +136,12 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
   it('共用项目顺序与文案一致，关闭功能仍可配置模型，不出现其他功能开关', async () => {
     const f = mount(component);
     expect(
-      [...f.host.querySelectorAll('.weq-set > section .weq-set-card-title')].map(
-        (node) => node.textContent,
-      ),
-    ).toEqual(['基础', '模型']);
-    expect(f.host.querySelector('summary')?.textContent).toBe('高级设置');
-    expect(f.host.querySelector('details')?.open).toBe(false);
-    expect(f.host.querySelector('details')?.hasAttribute('data-snapshot-skip-details')).toBe(true);
+      [...f.host.querySelectorAll('.weq-set > section .weq-set-card-title')]
+        .map((node) => node.textContent)
+        .slice(0, 1),
+    ).toEqual(['功能与模型']);
+    expect(f.host.querySelector('details')).toBeNull();
+    expect(f.host.textContent).not.toContain('当前使用');
     const row = f.model(title).closest('.weq-set-row')!;
     expect(row.querySelector('.weq-set-row-label')?.textContent).toBe('服务商与模型');
     expect(row.querySelector('.weq-set-row-desc')?.textContent).toBe(
@@ -177,8 +174,7 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
       const f = mount(component, kind !== 'inactive');
       expect(f.toggle(title).disabled).toBe(true);
       if (f.model(title)) expect(f.model(title).disabled).toBe(true);
-      else expect(f.host.textContent).toContain('待确认');
-      f.open();
+      else expect(f.host.textContent).not.toContain('待确认');
       for (const input of f.host.querySelectorAll<HTMLInputElement>('input[type="number"]'))
         expect(input.disabled).toBe(true);
       for (const form of f.host.querySelectorAll('form'))
@@ -205,7 +201,7 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
     expect(state.refetch).toHaveBeenCalledOnce();
   });
 
-  it('同一在途操作不重复提交，收起的高级控件不可修改', async () => {
+  it('同一在途操作不重复提交，所有分区均受保存互斥保护', async () => {
     let finish!: (value: unknown) => void;
     state.save.mockImplementationOnce(
       () =>
@@ -219,25 +215,66 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
       f.toggle(title).click();
     });
     expect(state.save).toHaveBeenCalledTimes(1);
-    f.open();
     await act(async () => {
       f.host
         .querySelector('form')!
         .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
     expect(state.save).toHaveBeenCalledTimes(1);
-    act(() => {
-      const details = f.host.querySelector('details')!;
-      details.open = false;
-      details.dispatchEvent(new Event('toggle'));
-    });
-    for (const input of f.host.querySelectorAll<HTMLInputElement>('input[type="number"]'))
-      expect(input.disabled).toBe(true);
-    for (const button of f.host.querySelectorAll<HTMLButtonElement>(
-      'details button[role="switch"]',
-    ))
-      expect(button.disabled).toBe(true);
     await act(async () => finish(state.data['account.intentSense.getStatus']));
     expect(state.setData).toHaveBeenCalledOnce();
   });
+});
+
+it('等待动画独立保存；本地统计隐藏推断参数及所有模型占位文案', async () => {
+  const intent = mount(IntentSenseSection);
+  await act(async () =>
+    intent.host.querySelector<HTMLButtonElement>('[aria-label="显示分析等待动画"]')!.click(),
+  );
+  expect(state.save).toHaveBeenLastCalledWith({ loadingAnimation: false });
+  Object.assign(state.data['account.intentSense.getStatus'] as object, {
+    profileEngine: 'heuristic',
+  });
+  const profile = mount(InteractionProfileSection);
+  expect(profile.host.querySelector('[aria-label="画像推断温度"]')).toBeNull();
+  expect(profile.host.querySelector('[aria-label="模型推断采样上限（条）"]')).toBeNull();
+  expect(profile.host.querySelector('[aria-label="画像 API 请求超时（秒）"]')).toBeNull();
+  expect(profile.host.querySelector('[aria-label="趋势展示天数"]')).not.toBeNull();
+  expect(profile.host.textContent).not.toContain('当前使用');
+});
+
+it('回退列表直接编辑、增删、去空白与重复校验，开关不清空内容', async () => {
+  Object.assign(state.data['account.intentSense.getStatus'] as object, {
+    suggestionFallbackTexts: ['A', 'B'],
+  });
+  const f = mount(ReplySuggestionsSection);
+  const form = f.host.querySelector<HTMLFormElement>(
+    '[data-setting-id="suggestions-fallback-texts"]',
+  )!;
+  const save = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
+  const edit = (value: string) =>
+    act(() => {
+      const node = form.querySelector('input')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value);
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  edit(' B ');
+  expect(save.disabled).toBe(true);
+  expect(form.textContent).toContain('不能重复');
+  edit(' ');
+  expect(save.disabled).toBe(true);
+  edit(' C ');
+  await act(async () => save.click());
+  expect(state.save).toHaveBeenLastCalledWith({ suggestionFallbackTexts: ['C', 'B'] });
+  await act(async () =>
+    f.host.querySelector<HTMLButtonElement>('[aria-label="启用回退内容"]')!.click(),
+  );
+  expect(state.save).toHaveBeenLastCalledWith({ suggestionFallbackEnabled: false });
+  act(() => form.querySelector<HTMLButtonElement>('[aria-label="删除回退内容 2"]')!.click());
+  expect(form.querySelectorAll('input')).toHaveLength(1);
+  act(() => form.querySelector<HTMLButtonElement>('[aria-label="添加回退内容"]')!.click());
+  expect(form.querySelectorAll('input')).toHaveLength(2);
+  expect(save.disabled).toBe(true);
+  act(() => form.querySelector<HTMLButtonElement>('[aria-label="恢复默认回退内容列表"]')!.click());
+  expect(form.querySelectorAll('input')).toHaveLength(DEFAULT_SUGGESTION_FALLBACK_TEXTS.length);
 });

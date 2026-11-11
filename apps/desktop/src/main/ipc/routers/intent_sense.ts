@@ -28,6 +28,9 @@ import {
   MAX_INTENT_CONTEXT_MESSAGES,
   INTENT_TUNING,
   type IntentTuningKey,
+  MAX_SUGGESTION_FALLBACK_TEXTS,
+  MAX_SUGGESTION_FALLBACK_LENGTH,
+  validateSuggestionFallbackTexts,
 } from '@weq/service/intent-context';
 
 function requireServices(): AccountServices {
@@ -101,6 +104,21 @@ const configPatch = z.object({
   analyzeAfterSelf: z.boolean().optional(),
   persistentDisplay: z.boolean().optional(),
   hoverDisplay: z.boolean().optional(),
+  loadingAnimation: z.boolean().optional(),
+  suggestionFallbackEnabled: z.boolean().optional(),
+  suggestionFallbackTexts: z
+    .array(z.string().trim().min(1).max(MAX_SUGGESTION_FALLBACK_LENGTH))
+    .max(MAX_SUGGESTION_FALLBACK_TEXTS)
+    .refine((value) => {
+      try {
+        validateSuggestionFallbackTexts(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }, '回退内容不能重复')
+    .optional(),
+  suggestionHistoryLimit: tuning('suggestionHistoryLimit'),
   suggestAfterSelf: z.boolean().optional(),
   analysisContextMessages: z.number().int().min(0).max(MAX_INTENT_CONTEXT_MESSAGES).optional(),
   suggestionContextMessages: z.number().int().min(0).max(MAX_INTENT_CONTEXT_MESSAGES).optional(),

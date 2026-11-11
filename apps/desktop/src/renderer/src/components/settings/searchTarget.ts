@@ -17,6 +17,10 @@ export function findSettingElement(
     for (const node of root.querySelectorAll<HTMLElement>('[data-setting-id]')) {
       if (node.dataset.settingId === settingId) return node;
     }
+    for (const node of root.querySelectorAll<HTMLElement>('[data-setting-fallback]')) {
+      if (node.dataset.settingFallback?.split(' ').includes(settingId))
+        return node.closest<HTMLElement>('.weq-set-row') ?? node;
+    }
   }
   if (!item) return null;
   const nodes = root.querySelectorAll<HTMLElement>(

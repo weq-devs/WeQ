@@ -79,6 +79,17 @@ function makeLocalPort(analyze: IntentLocalEnginePort['analyze']): IntentLocalEn
 }
 
 describe('IntentSenseService', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'weq-intent-sense-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+  });
+
   it('三项模式缺省为自动，独立保存且重启保留；手动分析只接受明确菜单请求', async () => {
     const analyze = vi.fn(
       async () =>
@@ -153,15 +164,54 @@ describe('IntentSenseService', () => {
     expect(await svc.getProfile('u_peer', { cachedOnly: true })).toEqual(profile);
   });
 
-  let dir: string;
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'weq-intent-sense-'));
+  it('统一回退列表按数量随机无重复抽取，开关和空列表禁用回退，配置重启保留', async () => {
+    const svc = new IntentSenseService(makeSession([textMsg(1n, 'u_peer', '你好', 100)]), dir);
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionFallbackTexts: ['  A  ', 'B', 'C', 'D'],
+      suggestionCount: 3,
+      loadingAnimation: false,
+    });
+    const round = await svc.getSuggestionRound('c2c', 'u_peer');
+    expect(round?.suggestions).toHaveLength(3);
+    expect(new Set(round?.suggestions.map((s) => s.text)).size).toBe(3);
+    expect(round?.suggestions.every((s) => ['A', 'B', 'C', 'D'].includes(s.text))).toBe(true);
+    expect(await svc.getSuggestionRound('c2c', 'u_peer')).toEqual(round);
+    const reopened = new IntentSenseService(makeSession([]), dir);
+    expect(reopened.getStatus()).toMatchObject({
+      loadingAnimation: false,
+      suggestionFallbackTexts: ['A', 'B', 'C', 'D'],
+    });
+    await svc.setConfig({ suggestionFallbackEnabled: false });
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    await svc.setConfig({ suggestionFallbackEnabled: true, suggestionFallbackTexts: [] });
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    await expect(svc.setConfig({ suggestionFallbackTexts: ['A', ' A '] })).rejects.toThrow();
+    await expect(svc.setConfig({ suggestionFallbackTexts: [' '] })).rejects.toThrow();
+    await expect(svc.setConfig({ suggestionHistoryLimit: -1 })).rejects.toThrow();
   });
 
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-    vi.unstubAllGlobals();
+  it('历史上限只在新增时裁剪，零不写历史但保留当前轮次与缓存，重启不裁剪旧历史', async () => {
+    const session = makeSession([textMsg(1n, 'u_peer', '你好', 100)]);
+    const svc = new IntentSenseService(session, dir);
+    await svc.setConfig({ suggestionsEnabled: true, suggestionHistoryLimit: 3 });
+    for (let i = 0; i < 3; i++) await svc.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+    await svc.setConfig({ suggestionHistoryLimit: 1 });
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(3);
+    expect(new IntentSenseService(session, dir).getSuggestionHistory('c2c', 'u_peer')).toHaveLength(
+      3,
+    );
+    await svc.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(1);
+    await svc.setConfig({ suggestionHistoryLimit: 0 });
+    const current = await svc.getSuggestionRound('c2c', 'u_peer', { refresh: true });
+    expect(current?.suggestions.length).toBeGreaterThan(0);
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(1);
+    expect(svc.getSuggestionDetails('c2c', 'u_peer', current!.id)?.entry).toEqual(current);
+    expect(await svc.getSuggestionRound('c2c', 'u_peer')).toEqual(current);
+    expect(new IntentSenseService(session, dir).getSuggestionHistory('c2c', 'u_peer')).toHaveLength(
+      1,
+    );
   });
 
   it('同一次请求生成概括与推荐，轮次保存实际模型、耗时、用量和完整 prompt，重启可查且不再请求', async () => {
@@ -345,6 +395,96 @@ describe('IntentSenseService', () => {
       expect(fetchMock).toHaveBeenCalledOnce();
     },
   );
+
+  it.each([true, false])('API 失败、冷却和空候选均遵守回退开关 %s', async (enabled) => {
+    const fetchMock = vi.fn(async () => new Response('fixture-down', { status: 500 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new IntentSenseService(makeSession([textMsg(1n, 'u_peer', '你好', 1000)]), dir, {
+      resolveEndpoint: () => ({ baseUrl: 'http://fixture', apiKey: 'fixture', model: 'fixture' }),
+    });
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'p', model: 'fixture' },
+      suggestionFallbackEnabled: enabled,
+      suggestionFallbackTexts: ['回退一', '回退二'],
+    });
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toHaveLength(enabled ? 2 : 0);
+    expect(await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toHaveLength(
+      enabled ? 2 : 0,
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    await svc.setConfig({ suggestionFallbackTexts: ['新回退'] });
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"replies":[]}' } }] })),
+    );
+    expect(await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toHaveLength(
+      enabled ? 1 : 0,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const round = svc.getSuggestionHistory('c2c', 'u_peer')[0];
+    if (enabled)
+      expect(svc.getSuggestionDetails('c2c', 'u_peer', round!.id)?.trace?.error).toContain(
+        '未返回有效候选',
+      );
+  });
+
+  it('回退配置修改隔离在途结果，历史为零仍提供本轮 API 详情且不落盘', async () => {
+    let finish!: (response: Response) => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        started();
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      }),
+    );
+    const svc = new IntentSenseService(makeSession([textMsg(1n, 'u_peer', '你好', 1000)]), dir, {
+      resolveEndpoint: () => ({ baseUrl: 'http://fixture', apiKey: 'fixture', model: 'fixture' }),
+    });
+    await svc.setConfig({ suggestionsEnabled: true, suggestionHistoryLimit: 0 });
+    const stale = svc.getSuggestionRound('c2c', 'u_peer');
+    await entered;
+    await svc.setConfig({ suggestionFallbackTexts: ['新的内容'] });
+    finish(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '{"replies":[{"text":"旧配置结果"}]}' } }],
+        }),
+      ),
+    );
+    expect(await stale).toBeNull();
+    const next = svc.getSuggestionRound('c2c', 'u_peer');
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    // 请求准备包含异步资料读取，等到第二次 fetch 后再释放。
+    await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2));
+    finish(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '{"replies":[{"text":"当前结果"}]}' } }],
+        }),
+      ),
+    );
+    const current = await next;
+    expect(current?.suggestions[0]?.text).toBe('当前结果');
+    expect(svc.getSuggestionDetails('c2c', 'u_peer', current!.id)?.trace?.response).toContain(
+      '当前结果',
+    );
+    expect(svc.getSuggestionHistory('c2c', 'u_peer')).toEqual([]);
+    expect(existsSync(join(dir, 'suggestion-details'))).toBe(false);
+    expect(
+      new IntentSenseService(makeSession([]), dir).getSuggestionDetails(
+        'c2c',
+        'u_peer',
+        current!.id,
+      ),
+    ).toBeNull();
+  });
 
   it('批次进度只统计实际缺口，含失败完成数，晚订阅可恢复在途范围', async () => {
     let finish!: (value: null) => void;

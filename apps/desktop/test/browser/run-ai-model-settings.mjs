@@ -50,7 +50,7 @@ try {
       await page.goto(
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/ai-model-settings.html`,
       );
-      await page.getByText('高级设置', { exact: true }).waitFor();
+      await page.getByText('功能与模型', { exact: true }).waitFor();
       await page.evaluate((theme) => {
         const store = window.aiSettingsTheme.getState();
         store.setPreference(theme);
@@ -59,9 +59,8 @@ try {
       }, theme);
       for (const title of ['意图感知', '互动画像', '推荐回复']) {
         await page.locator('nav').getByRole('button', { name: title, exact: true }).click();
-        const details = page.locator('details.weq-model-advanced');
-        assert.equal(await details.getAttribute('open'), null);
-        assert.equal(await details.locator('.weq-ai-settings-advanced').isVisible(), false);
+        assert.equal(await page.locator('details').count(), 0);
+        assert.ok((await page.locator('.weq-set-card').count()) > 1);
         const mode = page.getByRole('radiogroup', { name: `${title}模式`, exact: true });
         assert.deepEqual(await mode.getByRole('radio').allTextContents(), ['自动', '手动']);
         assert.equal(
@@ -84,8 +83,6 @@ try {
             path: resolve(output, `${title}-${theme}-${width}.png`),
             fullPage: true,
           });
-        await details.locator('summary').click();
-        assert.equal(await details.locator('.weq-ai-settings-advanced').isVisible(), true);
         await page
           .locator('nav')
           .getByRole('button', {
@@ -94,9 +91,34 @@ try {
           })
           .click();
         await page.locator('nav').getByRole('button', { name: title, exact: true }).click();
-        assert.equal(await details.getAttribute('open'), null);
+        assert.equal(await page.locator('details').count(), 0);
         cases++;
       }
+    }
+  }
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/ai-model-settings.html?local-model=1`,
+      );
+      await page.getByLabel('意图模型资源', { exact: true }).waitFor();
+      await page.evaluate((theme) => window.aiSettingsTheme.getState().setPreference(theme), theme);
+      assert.equal(await page.locator('.weq-set-card .weq-set-card').count(), 0);
+      const owner = page
+        .locator('[data-setting-id="intent-model-resources"]')
+        .locator('xpath=ancestor::section[1]');
+      assert.equal(await owner.locator('.weq-set-card-title').textContent(), '功能与模型');
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      if (output)
+        await page.screenshot({
+          path: resolve(output, `意图资源-${theme}-${width}.png`),
+          fullPage: true,
+        });
+      cases++;
     }
   }
   assert.deepEqual(errors, []);

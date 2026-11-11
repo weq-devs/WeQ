@@ -41,7 +41,6 @@ export function IntentSenseSection() {
     <AiFeatureSettingsLayout
       settings={settings}
       title="意图感知"
-      advancedId="intent-advanced"
       error={status.error}
       retrying={status.isFetching}
       onRetry={() => void status.refetch()}
@@ -85,16 +84,26 @@ export function IntentSenseSection() {
             settingId="intent-engine"
             label="运行方式"
             control={
-              <SegmentedControl
-                label="意图感知运行方式"
-                value={s?.engine ?? null}
-                disabled={disabled}
-                onChange={(engine) => void patch({ engine })}
-                options={[
-                  { value: 'api', label: 'API 模型' },
-                  { value: 'local', label: '本地模型', disabled: !local.data?.available },
-                ]}
-              />
+              <span
+                data-setting-fallback={
+                  s?.engine === 'local'
+                    ? 'intent-api-model'
+                    : s?.engine === 'api'
+                      ? 'intent-model-resources'
+                      : undefined
+                }
+              >
+                <SegmentedControl
+                  label="意图感知运行方式"
+                  value={s?.engine ?? null}
+                  disabled={disabled}
+                  onChange={(engine) => void patch({ engine })}
+                  options={[
+                    { value: 'api', label: 'API 模型' },
+                    { value: 'local', label: '本地模型', disabled: !local.data?.available },
+                  ]}
+                />
+              </span>
             }
           />
           {s?.engine === 'api' ? (
@@ -106,26 +115,31 @@ export function IntentSenseSection() {
               lastError={s.lastApiError}
               onChange={(providerRef) => void patch({ providerRef })}
             />
-          ) : (
-            <p className="weq-set-note" data-setting-id="intent-api-model">
-              API 模型：{s ? '当前使用本地模型。' : '运行方式待确认。'}
-            </p>
-          )}
+          ) : null}
+          {s?.engine === 'local' ? <IntentModelsSection /> : null}
         </>
-      }
-      resources={
-        s?.engine === 'local' ? (
-          <IntentModelsSection embedded />
-        ) : !s ? (
-          <p className="weq-set-note" data-setting-id="intent-model-resources">
-            尚未取得运行方式，本地模型资源状态待确认。
-          </p>
-        ) : null
       }
     >
       {(inactive) => (
         <>
-          <Card title="显示方式" icon={<Eye size={15} strokeWidth={1.8} />}>
+          <Card
+            title="显示方式"
+            settingId="intent-advanced"
+            icon={<Eye size={15} strokeWidth={1.8} />}
+          >
+            <Row
+              settingId="intent-loading-animation"
+              label="显示分析等待动画"
+              control={
+                <Toggle
+                  label="显示分析等待动画"
+                  checked={s?.loadingAnimation !== false}
+                  indeterminate={!s}
+                  disabled={disabled || inactive}
+                  onChange={(loadingAnimation) => void patch({ loadingAnimation })}
+                />
+              }
+            />
             <Row
               settingId="intent-persistent-display"
               label="常驻显示"
@@ -188,7 +202,6 @@ export function IntentSenseSection() {
               }
             />
           </Card>
-          {s?.engine === 'api' ? <IntentModelsSection embedded /> : null}
         </>
       )}
     </AiFeatureSettingsLayout>

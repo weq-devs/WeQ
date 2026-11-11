@@ -147,6 +147,7 @@ export const trpc = {
             profileEnabled: true,
             suggestionsEnabled: true,
             persistentDisplay: true,
+            loadingAnimation: !new URLSearchParams(location.search).has('animation-off'),
             analysisRevision: 0,
           },
         }),

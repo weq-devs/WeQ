@@ -5,6 +5,7 @@ import { ApiModelRow } from './ApiModelSelect';
 import { AiFeatureSettingsLayout } from './AiFeatureSettingsLayout';
 import { IntentTuningPanel } from './IntentTuningPanel';
 import { useAiFeatureSettings } from './useAiFeatureSettings';
+import { SuggestionFallbackPanel } from './SuggestionFallbackPanel';
 
 export function ReplySuggestionsSection() {
   const settings = useAiFeatureSettings('推荐回复');
@@ -14,7 +15,6 @@ export function ReplySuggestionsSection() {
     <AiFeatureSettingsLayout
       settings={settings}
       title="推荐回复"
-      advancedId="suggestions-advanced"
       error={status.error}
       retrying={status.isFetching}
       onRetry={() => void status.refetch()}
@@ -49,7 +49,6 @@ export function ReplySuggestionsSection() {
               />
             }
           />
-          <p className="weq-set-note">API 模型未配置或调用不可用时，仅提供规则候选。</p>
         </>
       }
       model={
@@ -65,7 +64,11 @@ export function ReplySuggestionsSection() {
     >
       {(inactive) => (
         <>
-          <Card title="触发方式" icon={<MousePointerClick size={15} strokeWidth={1.8} />}>
+          <Card
+            title="触发方式"
+            settingId="suggestions-advanced"
+            icon={<MousePointerClick size={15} strokeWidth={1.8} />}
+          >
             <Row
               settingId="suggestions-after-self"
               label="自己发送后推荐回复"
@@ -79,7 +82,10 @@ export function ReplySuggestionsSection() {
               }
             />
           </Card>
-          <IntentTuningPanel group="suggestions" />
+          <IntentTuningPanel
+            group="suggestions"
+            beforeCache={<SuggestionFallbackPanel settings={settings} />}
+          />
         </>
       )}
     </AiFeatureSettingsLayout>

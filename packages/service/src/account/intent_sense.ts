@@ -59,6 +59,10 @@ import {
   INTENT_TUNING_KEYS,
   isIntentTuningValue,
   normalizeIntentTuning,
+  DEFAULT_SUGGESTION_FALLBACK_TEXTS,
+  DEFAULT_SUGGESTION_HISTORY_LIMIT,
+  validateSuggestionFallbackTexts,
+  sampleSuggestionFallback,
   type IntentTuning,
 } from '../common/intent_context';
 
@@ -153,6 +157,9 @@ export interface IntentSenseConfig extends IntentTuning {
   persistentDisplay: boolean;
   /** 悬停消息时展示详情并允许单条补分析。 */
   hoverDisplay: boolean;
+  loadingAnimation: boolean;
+  suggestionFallbackEnabled: boolean;
+  suggestionFallbackTexts: string[];
   /** 最新消息为自己发送时是否继续生成候选，始终不自动发送。 */
   suggestAfterSelf: boolean;
   /** 分析目标之前的上文条数，不含目标本身，仍受对话时效窗口限制。 */
@@ -200,6 +207,9 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   analyzeAfterSelf: true,
   persistentDisplay: true,
   hoverDisplay: true,
+  loadingAnimation: true,
+  suggestionFallbackEnabled: true,
+  suggestionFallbackTexts: [...DEFAULT_SUGGESTION_FALLBACK_TEXTS],
   suggestAfterSelf: true,
   analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
@@ -374,7 +384,7 @@ function normalizeSuggestionGeneration(raw: unknown): ReplySuggestionHistoryEntr
   };
 }
 
-export const MAX_SUGGESTION_HISTORY = 500;
+export const MAX_SUGGESTION_HISTORY = DEFAULT_SUGGESTION_HISTORY_LIMIT;
 
 // ── 常量 ────────────────────────────────────────────────────────────────────
 
@@ -554,7 +564,12 @@ export class IntentSenseService {
   /** 回复建议缓存 `${kind}:${conv}` → 输入末条与实际轮次。 */
   private readonly suggestionCache = new Map<
     string,
-    { lastMsgId: string; at: number; round: ReplySuggestionHistoryEntry }
+    {
+      lastMsgId: string;
+      at: number;
+      round: ReplySuggestionHistoryEntry;
+      trace?: ReplySuggestionTrace;
+    }
   >();
   private readonly suggestionHistoryStores = new Map<
     string,
@@ -641,6 +656,17 @@ export class IntentSenseService {
           analyzeAfterSelf: p.analyzeAfterSelf !== false,
           persistentDisplay: p.persistentDisplay !== false,
           hoverDisplay: p.hoverDisplay !== false,
+          loadingAnimation: p.loadingAnimation !== false,
+          suggestionFallbackEnabled: p.suggestionFallbackEnabled !== false,
+          suggestionFallbackTexts: (() => {
+            try {
+              return validateSuggestionFallbackTexts(
+                p.suggestionFallbackTexts ?? DEFAULT_SUGGESTION_FALLBACK_TEXTS,
+              );
+            } catch {
+              return [...DEFAULT_SUGGESTION_FALLBACK_TEXTS];
+            }
+          })(),
           suggestAfterSelf: p.suggestAfterSelf !== false,
           analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
             ? p.analysisContextMessages
@@ -804,6 +830,11 @@ export class IntentSenseService {
     if (typeof patch.persistentDisplay === 'boolean')
       next.persistentDisplay = patch.persistentDisplay;
     if (typeof patch.hoverDisplay === 'boolean') next.hoverDisplay = patch.hoverDisplay;
+    if (typeof patch.loadingAnimation === 'boolean') next.loadingAnimation = patch.loadingAnimation;
+    if (typeof patch.suggestionFallbackEnabled === 'boolean')
+      next.suggestionFallbackEnabled = patch.suggestionFallbackEnabled;
+    if (patch.suggestionFallbackTexts !== undefined)
+      next.suggestionFallbackTexts = validateSuggestionFallbackTexts(patch.suggestionFallbackTexts);
     if (typeof patch.suggestAfterSelf === 'boolean') next.suggestAfterSelf = patch.suggestAfterSelf;
     const analysisChanged =
       next.analysisTemperature !== this.config.analysisTemperature ||
@@ -831,7 +862,10 @@ export class IntentSenseService {
       next.suggestionTemperature !== this.config.suggestionTemperature ||
       next.suggestionCount !== this.config.suggestionCount ||
       next.suggestionTargetChars !== this.config.suggestionTargetChars ||
-      next.suggestionCacheSeconds !== this.config.suggestionCacheSeconds
+      next.suggestionCacheSeconds !== this.config.suggestionCacheSeconds ||
+      next.suggestionFallbackEnabled !== this.config.suggestionFallbackEnabled ||
+      JSON.stringify(next.suggestionFallbackTexts) !==
+        JSON.stringify(this.config.suggestionFallbackTexts)
     ) {
       this.suggestionRevision++;
       this.suggestionCache.clear();
@@ -1542,8 +1576,7 @@ export class IntentSenseService {
                 summary:
                   typeof entry.summary === 'string' ? entry.summary.trim() || undefined : undefined,
                 generation: normalizeSuggestionGeneration(entry.generation),
-              }))
-              .slice(-MAX_SUGGESTION_HISTORY);
+              }));
           },
         },
       );
@@ -1570,6 +1603,8 @@ export class IntentSenseService {
     conv: string,
     id: string,
   ): ReplySuggestionDetails | null {
+    const current = this.suggestionCache.get(conversationKey(kind, conv));
+    if (current?.round.id === id) return { entry: current.round, trace: current.trace ?? null };
     const entry = this.suggestionHistoryFor(kind, conv).data.find((entry) => entry.id === id);
     if (!entry) return null;
     const raw = readJsonFile(this.suggestionTracePath(kind, conv, id));
@@ -1610,7 +1645,6 @@ export class IntentSenseService {
     trace?: ReplySuggestionTrace,
   ): ReplySuggestionHistoryEntry | null {
     if (!suggestions.length) return null;
-    const store = this.suggestionHistoryFor(kind, conv);
     const entry: ReplySuggestionHistoryEntry = {
       id: randomUUID(),
       createdAt: Date.now(),
@@ -1623,11 +1657,11 @@ export class IntentSenseService {
       suggestions,
       ...metadata,
     };
-    const removed = store.data.slice(
-      0,
-      Math.max(0, store.data.length + 1 - MAX_SUGGESTION_HISTORY),
-    );
-    store.data = [...store.data, entry].slice(-MAX_SUGGESTION_HISTORY);
+    const limit = this.config.suggestionHistoryLimit;
+    if (limit === 0) return entry;
+    const store = this.suggestionHistoryFor(kind, conv);
+    const removed = store.data.slice(0, Math.max(0, store.data.length + 1 - limit));
+    store.data = [...store.data, entry].slice(-limit);
     if (trace) writeJsonFileAtomic(this.suggestionTracePath(kind, conv, entry.id), trace);
     store.save();
     for (const old of removed) {
@@ -1727,22 +1761,23 @@ export class IntentSenseService {
         );
         if (round) {
           result.round = round;
-          this.suggestionCache.set(key, { lastMsgId: last.msgId, at: round.createdAt, round });
+          this.suggestionCache.set(key, {
+            lastMsgId: last.msgId,
+            at: round.createdAt,
+            round,
+            trace,
+          });
         }
         return suggestions;
       };
 
       const fallbackLocal = (): ReplySuggestion[] => {
         if (!current()) return [];
-        const cache = this.cacheFor(kind, conv);
-        const analyzedLast = cache.data.results.find((r) => r.msgId === last.msgId);
-        const context = extractContextBefore(rows, rows.length - 1, contextMessages, this.config);
-        const suggestions = buildLocalSuggestions(
-          last.text,
-          analyzedLast,
-          context,
-          last.sendTime,
-        ).slice(0, this.config.suggestionCount);
+        if (!this.config.suggestionFallbackEnabled) return [];
+        const suggestions = sampleSuggestionFallback(
+          this.config.suggestionFallbackTexts,
+          this.config.suggestionCount,
+        ).map((text) => ({ text }));
         return complete(suggestions, trace ? 'fallback' : 'local');
       };
 
@@ -2110,119 +2145,3 @@ interface SenseTimelineRow extends TimelineRow {
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────────
-
-/**
- * 基于最新对方消息的意图与情绪（本地模型分析结果或语料库预分析）生成 3 条差异化回复候选。
- * 供本地引擎模式或 API 故障熔断时作为即时回复建议。
- */
-function buildLocalSuggestions(
-  text: string,
-  analyzed: IntentSenseResult | undefined,
-  context: IntentContextTurn[],
-  sendTime: number,
-): ReplySuggestion[] {
-  const prag = analyzePragmatics(text, context, sendTime);
-  const intent: IntentKind =
-    analyzed?.intent ??
-    prag.override?.intent ??
-    (/[？?]|吗$|呢$|怎么|为什么|为啥|多少|哪/.test(text) ? 'question' : 'chat');
-  const emotion: EmotionKind = analyzed?.emotion ?? prag.override?.emotion ?? 'neutral';
-
-  switch (intent) {
-    case 'question':
-      return [
-        { text: '稍等我确认一下跟你说~', tone: '稳妥' },
-        { text: '这个我还真知道，展开跟你讲讲', tone: '热心' },
-        { text: '哈哈怎么突然问起这个？', tone: '反问' },
-      ];
-    case 'request':
-      return [
-        { text: '没问题，包在我身上！', tone: '爽快' },
-        { text: '好嘞，我这就去弄，弄好叫你', tone: '靠谱' },
-        { text: '手头稍微有点事，晚几分钟帮你看可以吗？', tone: '委婉' },
-      ];
-    case 'plan':
-      return [
-        { text: '包的！直接冲，几点集合？', tone: '积极' },
-        { text: '可以呀，算我一个~', tone: '随和' },
-        { text: '我先看下时间安排，待会给你准信', tone: '稳妥' },
-      ];
-    case 'greeting':
-      return [
-        { text: '在的在的，刚忙完~', tone: '热情' },
-        { text: '哈哈早呀，今天心情不错嘛', tone: '轻松' },
-        { text: '咋啦，有什么好玩的事？', tone: '好奇' },
-      ];
-    case 'praise':
-    case 'flattery':
-      return [
-        { text: '哈哈低调低调，还得靠大家捧场~', tone: '谦虚' },
-        { text: '被你夸得我都要飘了哈哈哈', tone: '幽默' },
-        { text: '还得是你懂行！下次带你一起整', tone: '互动' },
-      ];
-    case 'boast':
-      return [
-        { text: '卧槽太强了吧！给大佬跪了', tone: '捧场' },
-        { text: '羡慕哭了，分我一点欧气！', tone: '玩梗' },
-        { text: '牛哇，这波必须请客庆祝一下', tone: '调侃' },
-      ];
-    case 'vent':
-      if (emotion === 'aggrieved' || emotion === 'sadness') {
-        return [
-          { text: '抱抱你，别太往心里去，真的辛苦了', tone: '安慰' },
-          { text: '这也太欺负人了吧，换我也得气死！', tone: '共情' },
-          { text: '不气不气，待会吃点好的转换下心情', tone: '暖心' },
-        ];
-      }
-      if (emotion === 'fatigue') {
-        return [
-          { text: '辛苦啦！赶紧歇一歇回回血', tone: '关心' },
-          { text: '打工人太难了，今晚必须早点睡', tone: '共情' },
-          { text: '走，搞杯奶茶续命！', tone: '轻松' },
-        ];
-      }
-      return [
-        { text: '懂你，这事换谁遇到都得血压飙升', tone: '共情' },
-        { text: '太离谱了吧，后来怎么解决的？', tone: '追问' },
-        { text: '摸摸头，消消气，别拿别人的错误惩罚自己', tone: '安慰' },
-      ];
-    case 'joke':
-    case 'banter':
-      return [
-        { text: '哈哈哈哈笑死我了，你真是个人才', tone: '接梗' },
-        { text: '你小子夺笋啊，等着瞧！', tone: '互怼' },
-        { text: '蚌埠住了，今天功德又被你笑没了', tone: '玩梗' },
-      ];
-    case 'gossip':
-      return [
-        { text: '搬好小板凳了，快展开讲讲！', tone: '吃瓜' },
-        { text: '尊嘟假嘟？还有这种操作？', tone: '好奇' },
-        { text: '这瓜保熟吗哈哈，细说后续', tone: '调侃' },
-      ];
-    case 'coquetry':
-      return [
-        { text: '好啦好啦，都依你行了吧~', tone: '宠溺' },
-        { text: '摸摸头，拿你没办法，走起！', tone: '温柔' },
-        { text: '哈哈少来这套，说吧想要啥？', tone: '打趣' },
-      ];
-    case 'perfunctory':
-      return [
-        { text: '哈哈看破不说破，先不打扰你忙啦', tone: '体贴' },
-        { text: '好家伙，这敷衍得也太明显了吧😂', tone: '调侃' },
-        { text: '行嘞，有空再聊~', tone: '简短' },
-      ];
-    case 'share':
-    case 'info':
-      return [
-        { text: '收到！太及时了，多谢分享~', tone: '感谢' },
-        { text: '哇看着很不错诶，回头我也试试', tone: '感兴趣' },
-        { text: '了解，我记一下！', tone: '简短' },
-      ];
-    default:
-      return [
-        { text: '哈哈确实，我也这么觉得', tone: '赞同' },
-        { text: '展开说说？后来呢', tone: '好奇' },
-        { text: '好的呀，没问题~', tone: '简短' },
-      ];
-  }
-}

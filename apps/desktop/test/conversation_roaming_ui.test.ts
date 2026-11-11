@@ -393,9 +393,8 @@ describe('漫游目标范围', () => {
     );
     try {
       expect(f.host.querySelector('[aria-label="补全任务"]')).toBeNull();
-      expect(f.host.querySelector('details.weq-roaming-advanced')?.hasAttribute('open')).toBe(
-        false,
-      );
+      expect(f.host.querySelector('details.weq-roaming-advanced')).toBeNull();
+      expect(f.host.querySelector('.weq-roaming-field input[type="number"]')).not.toBeNull();
       expect(f.host.textContent).not.toContain('SSO');
       expect(f.host.textContent).not.toContain('每窗 30 seq');
       expect(f.host.textContent).toContain('尝试找回更早的聊天记录');
