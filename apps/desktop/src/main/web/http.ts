@@ -141,6 +141,13 @@ export async function handleRequest(
     const protoReq = toProtocolRequest(req, route.scheme, route.prefix);
     if (!protoReq) return send(res, 400, 'bad request');
     const out = await route.handle(protoReq);
+    // 浏览器复用五分钟，避免切页逐个验证头像和静态资源；桌面协议仍即时检查文件更新。
+    if (
+      (path === '/_media/avatar' || route.prefix === '/_asset') &&
+      (out.status === 200 || out.status === 304) &&
+      out.headers.get('Cache-Control') === 'no-cache'
+    )
+      out.headers.set('Cache-Control', 'private, max-age=300');
     return writeResponse(res, out);
   }
 

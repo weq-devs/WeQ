@@ -37,6 +37,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { avatarResponse } from './avatar_response';
 import { viewerMedia } from './export_viewer';
 import { fileResponse as streamFile } from './file_response';
 import { withCors } from './protocol_response';
@@ -253,12 +254,7 @@ async function avatarFallbackResponse(
   }
   const respond = (blob: { data: Buffer; contentType: string }): Response | null =>
     // Defensive: a broken (empty) cache entry must never become a 200 empty body.
-    blob.data.length === 0
-      ? null
-      : new Response(new Uint8Array(blob.data), {
-          status: 200,
-          headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },
-        });
+    blob.data.length === 0 ? null : avatarResponse(blob, currentRequest.getStore());
   try {
     const res = respond(await cache.get(src, 'avatar', force ? 0 : undefined));
     if (res) return res;
@@ -891,7 +887,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           const refresh = q.get('_weq_avatar_remote') === '1';
           if (fb && refresh) {
             const fresh = await avatarFallbackResponse(fb, true);
-            if (fresh.ok) return fresh;
+            if (fresh.ok || fresh.status === 304) return fresh;
           }
           let local: AvatarLocalFile | null = null;
           if (hash) {
@@ -921,7 +917,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
               fb,
               local ? { notOlderThanMs: local.mtimeMs } : false,
             );
-            if (fresh.ok) return fresh;
+            if (fresh.ok || fresh.status === 304) return fresh;
           }
           // CDN 拿不到（离线 / 无网）→ 至少显示当前头像的缩略图，别退回旧大图。
           if (local) return revalidatingFileResponse(local.path);

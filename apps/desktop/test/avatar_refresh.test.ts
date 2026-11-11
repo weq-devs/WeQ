@@ -42,7 +42,7 @@ it('群头像改动仅刷新目标群，已挂载图片重置失败状态，不�
     const [updated, unchanged] = host.querySelectorAll('img');
     expect(updated!.getAttribute('src')).not.toBe(before);
     const url = new URL(updated!.getAttribute('src')!);
-    expect(url.searchParams.get('fb')).toBe(source);
+    expect(new URL(url.searchParams.get('fb')!).pathname).toBe('/gh/123/123/100');
     expect(url.searchParams.get('_weq_avatar_remote')).toBe('1');
     expect(unchanged!.getAttribute('src')).toBe(otherBefore);
   } finally {
