@@ -38,7 +38,7 @@
 | ![image-20260911060130806](./docs/images/image-20260911060130806.png) | ![image-20260911060406735](./docs/images/image-20260911060406735.png) |
 
 
-> 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](./docs/README.md)
+> 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](./docs/index.md)
 
 ## 使用方法
 

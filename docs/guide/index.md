@@ -7,9 +7,11 @@ WeQ 是一个**完全自主**的 NTQQ 本地数据库解密、解析与导出工
 本手册按「从进入软件到用遍每一项功能」的顺序组织。每一节都是独立页面，可以直接从下面
 的目录跳转。
 
-> [!tip]
->
-> 不确定从哪看起？先读[快速上手](./getting-started.md) 把账号打开，再回到本页按需查阅。
+::: tip
+
+不确定从哪看起？先读[快速上手](./getting-started.md) 把账号打开，再回到本页按需查阅。
+
+:::
 
 ---
 
@@ -77,19 +79,21 @@ WeQ 是一个**完全自主**的 NTQQ 本地数据库解密、解析与导出工
 
 ## 导航与版本
 
-当前分支的导航与容器说明集中在[主界面](homepage.md)，不在各目录重复维护。文档描述源码能力，不表示已发布或安装；已发布变更查看[更新记录](../../CHANGELOG.md)。
+当前分支的导航与容器说明集中在[主界面](homepage.md)，不在各目录重复维护。文档描述源码能力，不表示已发布或安装；已发布变更查看[更新记录](https://github.com/weq-devs/WeQ/blob/dev/CHANGELOG.md)。
 
-> [!note]
->
-> 同一账号可以同时存在「在线账号」和「静态（离线）账号」两条配置记录，WeQ 按配置 ID
-> 而不是 QQ 号来区分它们。
+::: info
+
+同一账号可以同时存在「在线账号」和「静态（离线）账号」两条配置记录，WeQ 按配置 ID
+而不是 QQ 号来区分它们。
+
+:::
 
 ---
 
 ## 相关文档
 
 - [本地资源页](./database-view.md)：维护工具里的本地缓存与数据库管理。
-- [常见问题](../../resources/help/faq.md)
+- [常见问题](https://github.com/weq-devs/WeQ/blob/dev/resources/help/faq.md)
 - [数据库分析](../database/index.md)
 - [Native 原理](../principles/index.md)
 - [开发者指南](../develop/index.md)

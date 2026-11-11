@@ -176,7 +176,7 @@ OIDB `0x102a_1` 复用的是同机 QQ 已在维持的会话，更稳定、更普
 本地原生修复版本 2.2.3 的两种 `scanKeyFromDatabase*` 接口仅读取数据库前
 5120 字节（QQ 包装头 + 首个加密页）用于候选校验，短文件或读取错误返回失败，
 不再整库分配。正式 pin 尚未更新，使用前须核验实际加载的产物；复现、检查脚本及
-交付边界见[大库密钥扫描修复](./key-scan-bounded-read-20261025.md)。
+交付边界见大库密钥扫描修复。
 
 **返回类型**
 
@@ -194,7 +194,7 @@ OIDB `0x102a_1` 复用的是同机 QQ 已在维持的会话，更稳定、更普
 
 对 QQ NT 加密库（SQLCipher v4 + 1024 字节 wrapper 头）的读写与导出。全部走自定义 **offset VFS** 透明跳过文件头，**连接默认缓存** —— 同一 `dbPath` 首次打开解密一次，后续调用复用句柄，极大省开销。`better-sqlite3` 在 running code 里零引用，读库统一走这里。
 
-SQLite 的保留页按**文件**设置：QQ 库因 1024 字节头保留 `262144`，标准 SQLite 保留 `262145`。nt_helper 从文件头自动识别布局，同一进程可以同时打开两类库与解密产物，不再需要子进程。详见 [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md)。
+SQLite 的保留页按**文件**设置：QQ 库因 1024 字节头保留 `262144`，标准 SQLite 保留 `262145`。nt_helper 从文件头自动识别布局，同一进程可以同时打开两类库与解密产物，不再需要子进程。详见 QQ 数据库布局：按文件设置保留页。
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
@@ -240,8 +240,7 @@ SQLite 的保留页按**文件**设置：QQ 库因 1024 字节头保留 `262144`
 只读连接额外注册 QQ 搜索查询适配：`weq_qq_pinyin0_query_version()`、
 `weq_trigram_contains(body, keyword)` 与 `weq_trigram_equivalents(scalar)`。
 它们与 `pinyin_letter 0` 查询分词器共用内置 SQLite，不用于写回或重建 QQ 文档索引。
-旧 native 不提供这些函数时，宿主能力探测失败并退回已有读取路径；详见
-[复用 QQ 搜索索引](./qq-source-search-20261104.md)。
+旧 native 不提供这些函数时，宿主能力探测失败并退回已有读取路径。
 
 `params` 支持 `null | bigint | number | string | Buffer | Uint8Array`；返回行内每个单元格为：
 
@@ -491,8 +490,7 @@ UDP 复用上面的 start / take / stop，只多一个选项：
 UDP 模式下 `cmd` / `body` / `plain` 恒为空，`raw` 是完整 IP 包。**不解析任何业务
 协议** —— 载荷原样交给调用方。
 
-**两个内核行为必须知道**（2026-10-30 真机验证，详见
-[udp-capture-20261030.md](./udp-capture-20261030.md)）：
+**两个内核行为必须知道**（2026-10-30 真机验证）：
 
 1. **socket 必须在目标 cgroup 内创建**。`cgroup/sendmsg` 只对属于被 attach 的
    cgroup 的 socket 生效，而 socket 归属创建它时进程所在的 cgroup —— 事后移动进程

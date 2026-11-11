@@ -1,0 +1,16 @@
+{
+  "name": "@weq/docs",
+  "version": "2.6.1",
+  "private": true,
+  "type": "module",
+  "description": "WeQ 文档站（VitePress），内容就是仓库 docs/ 目录",
+  "scripts": {
+    "dev": "vitepress dev . --port 5174",
+    "check": "node ../scripts/check-docs.mjs",
+    "build": "node ../scripts/check-docs.mjs && vitepress build .",
+    "preview": "vitepress preview . --port 5174"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

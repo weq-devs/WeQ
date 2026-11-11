@@ -89,7 +89,7 @@ item   f1 = voiceId   （字符串，要原样发给 0x929b_0 的 voiceId）
 https://res.qpt.qq.com/qpilot/tts_sample/group/<样音文件名>.wav
 ```
 
-例如 <https://res.qpt.qq.com/qpilot/tts_sample/group/lucy-voice-suxinjiejie.wav>。
+例如 `https://res.qpt.qq.com/qpilot/tts_sample/group/lucy-voice-suxinjiejie.wav`。
 
 > ⚠️ **不要拿 `voiceId` 直接拼样音 URL。** 两者**通常**相同，但不保证：
 > `lucy-voice-lizeyan`（霸道总裁）的样音文件是 `lucy-voice-lizeyan-2.wav`。
