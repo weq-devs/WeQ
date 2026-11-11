@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
 import { chatHeaderTitle } from '../src/renderer/src/im-template/template/conversationDisplay';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ConversationDirectoryContext,
   virtualConversationRow,

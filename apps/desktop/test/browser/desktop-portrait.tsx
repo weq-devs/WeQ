@@ -4,7 +4,7 @@ import { ChatShell } from '../../src/renderer/src/im-template/template/chatShell
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { ConversationList } from '../../src/renderer/src/im-template/template/conversationLists';
 import { useChatShellController } from '../../src/renderer/src/im-template/template/shellController';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';

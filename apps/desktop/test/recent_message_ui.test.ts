@@ -11,7 +11,7 @@ import {
   ContactList,
 } from '../src/renderer/src/im-template/template/conversationLists';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,

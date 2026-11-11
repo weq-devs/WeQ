@@ -31,7 +31,7 @@ import {
 } from '../src/renderer/src/lib/mentionClipboard';
 import { resolveMentionLabels, resolveSendMentions } from '../src/renderer/src/lib/mentionIdentity';
 import { filterMentionMembers } from '../src/renderer/src/im-template/template/mentions';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { atAllMentionState } from '../src/renderer/src/lib/atAllMention';
 import { prepareReeditDraft } from '../src/renderer/src/im-template/template/composerReedit';
 import { buildSendElems, type SendElement } from '@weq/protocol';

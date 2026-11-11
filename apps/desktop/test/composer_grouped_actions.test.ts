@@ -4,7 +4,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { ConversationActionsMenu } from '../src/renderer/src/components/ConversationActionsMenu';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   attachmentToElement,
   createAttachment,

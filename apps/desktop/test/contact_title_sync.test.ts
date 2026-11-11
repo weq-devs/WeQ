@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { ChatType } from '@weq/codec';
 import { contactSenderName, contactTitle } from '../src/renderer/src/lib/contactTitle';
 import { chatHeaderTitle } from '../src/renderer/src/im-template/template/conversationDisplay';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 const contact = {
   chatType: ChatType.KCHATTYPEC2C,

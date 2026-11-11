@@ -2,7 +2,7 @@
 
 ## 实现范围
 
-- `GroupFileManager` 取代独立操作表单和重复的文件列表；旧 `GroupFileActions` 导出保留为组件入口。
+- `GroupFileManager` 取代独立操作表单和重复的文件列表；测试与产品均直接使用 `GroupFileManager`；旧 `GroupFileActions` 转导出于 2026-11-11 退役。
 - 复用 `useMultiSelection`、`ConversationActionsMenu`、`useQQAction` 和 `useQQAutoRefresh`，
   工具栏、表格选择、F2 编辑、行菜单与内部拖拽共用稳定文件／目录身份。
 - `groupFileManager` 提供名称、排序、权限与拖拽载荷校验。来源包括账号、配置、群与原目录；

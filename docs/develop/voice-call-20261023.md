@@ -35,7 +35,7 @@ UDP 套接字。**不需要网卡旁路抓包**（这一点与在线语音转写
 | FEC 与质量反馈 | `packages/protocol/src/call/fec.ts` |
 | 状态机与收发编排 | `packages/service/src/account/call_session.ts` |
 | 主进程接线（UDP / 编解码） | `apps/desktop/src/main/call.ts` |
-| 音频重采样与响度 | `apps/desktop/src/main/call_audio.ts` |
+| 音频采集与播放、响度 | `apps/desktop/src/renderer/src/hooks/useCallAudio.ts`、`lib/callWave.ts`（2026-11-11 清理旧主进程辅助文件） |
 | 通话窗口 | `apps/desktop/src/renderer/src/components/CallWindow.tsx` |
 
 ## 3. 信令

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { ConversationFirstPage } from '../../src/renderer/src/lib/conversationFirstPage';
 import { ConversationWindowCache } from '../../src/renderer/src/lib/conversationWindowCache';

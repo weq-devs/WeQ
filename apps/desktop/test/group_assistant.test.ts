@@ -9,7 +9,7 @@ import {
   ContentSelectionProvider,
   useCurrentContentSelection,
 } from '../src/renderer/src/state/contentSelection';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
 import {
   loadGroupAssistantPins,

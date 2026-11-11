@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationActionsMenu } from '@renderer/components/ConversationActionsMenu';
 import { AvatarContextMenu } from '@renderer/im-template/template/avatarContextMenu';
 import { MessageContextMenu } from '@renderer/im-template/template/messageContextMenu';
-import { createTemplateDemoData } from '@renderer/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { AccountSelector } from '@renderer/views/bootstrap/AccountSelector';
 import { OverlayLayer } from '@renderer/components/OverlayLayer';
 

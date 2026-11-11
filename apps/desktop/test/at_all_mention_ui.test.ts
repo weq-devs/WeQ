@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane, MentionMenu } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { filterMentionMembers } from '../src/renderer/src/im-template/template/mentions';
 import {
   focusComposerEnd,

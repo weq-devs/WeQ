@@ -247,7 +247,7 @@ import {
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
 import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import { GroupInfoPanel } from '../im-template/template/groupInfoPanel';
-import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
+import type { GroupInfoDetail } from '../im-template/template/groupInfoPanel';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';

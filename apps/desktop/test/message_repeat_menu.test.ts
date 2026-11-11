@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useOutgoingConversationPreviews } from '../src/renderer/src/hooks/useOutgoingConversationPreviews';
 import {

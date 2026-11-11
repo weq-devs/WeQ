@@ -10,7 +10,7 @@ import { ReplyJumpContext } from '../src/renderer/src/components/QqMessageConten
 import { GrayTipLine } from '../src/renderer/src/im-template/template/messageRow';
 import { grayTipProfileTarget } from '../src/renderer/src/lib/grayTipProfile';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { GroupMember } from '../src/renderer/src/im-template/template/types';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';

@@ -14,7 +14,7 @@ import { X } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
 import { formatShortDate } from '../im-template/template/format';
 import type { GroupConversationView } from '../im-template/template/conversationDetailsTypes';
-import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
+import type { GroupInfoDetail } from '../im-template/template/groupInfoPanel';
 import { OverlayLayer } from './OverlayLayer';
 import { GroupProfileMetrics } from './GroupProfileMetrics';
 import { GroupLabelSources } from './GroupLabelSources';

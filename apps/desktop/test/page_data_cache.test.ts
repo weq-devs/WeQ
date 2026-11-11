@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { PageDataCache } from '../src/renderer/src/lib/pageDataCache';
 import { PageSnapshots, usePageDataCache } from '../src/renderer/src/components/PageSnapshots';
 import { messageTemplateContext } from '../src/renderer/src/lib/messageTemplateContext';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 afterEach(() => {
   vi.useRealTimers();

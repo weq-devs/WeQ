@@ -425,7 +425,6 @@ function captureLayout(host: HTMLElement, name: string) {
     'workspace-surfaces.css',
     'unified-export.css',
     'search-scope.css',
-    'export-save-control.css',
     'export-save-actions.css',
     'group-media.css',
     'resource-export.css',

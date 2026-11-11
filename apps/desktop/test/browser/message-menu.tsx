@@ -7,7 +7,7 @@ import {
 } from '../../src/renderer/src/im-template/template/messageContextMenu';
 import { HoverTooltip } from '../../src/renderer/src/components/HoverTooltip';
 import { ReactionPicker } from '../../src/renderer/src/im-template/template/reactionPicker';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import { installTouchContextMenu } from '../../src/renderer/src/lib/touchContextMenu';
 import {
   useThemeStore,

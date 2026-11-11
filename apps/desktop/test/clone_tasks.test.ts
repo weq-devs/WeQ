@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useViewState } from '../src/renderer/src/state/view';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
-import { CloneTasksPane } from '../src/renderer/src/views/agentlab/CloneTasksPane';
+import { CurrentTaskList } from '../src/renderer/src/components/tasks/CurrentTaskList';
 import {
   dismissCloneTask,
   getCloneTasks,
@@ -17,6 +17,15 @@ const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } },
+      flashListDownloadTasks: { useQuery: () => ({ data: [] }) },
+      flashCancelDownloadTask: { useMutation: () => ({}) },
+      flashRevealDownloadDir: { useMutation: () => ({}) },
+    },
+  },
   client: {
     account: {
       buildAgentLabFromC2c: { mutate: mocks.build },
@@ -28,6 +37,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
   },
+}));
+vi.mock('../src/renderer/src/hooks/useBackgroundTasks', () => ({
+  useBackgroundTasks: () => ({ tasks: [], query: {} }),
+}));
+vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
+  useQQReadActivity: () => ({ enabled: true }),
 }));
 let dispose = () => {};
 beforeEach(() => {
@@ -157,17 +172,29 @@ it('统一任务列表按账号展示克隆任务，完成后可打开克隆体�
     act(() => root.unmount());
     host.remove();
   };
-  act(() => root.render(h(CloneTasksPane, { onOpenPersona: open })));
+  act(() =>
+    root.render(
+      h(CurrentTaskList, {
+        exports: [],
+        renderExport: () => null,
+        onSaveAll: () => {},
+        onOpenClone: open,
+      }),
+    ),
+  );
   expect(host.textContent).toContain('克隆甲');
   expect(host.textContent).not.toContain('克隆乙');
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="查看克隆甲的克隆进度"]')!.click());
   act(() =>
     [...document.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent?.includes('查看克隆体'))!
       .click(),
   );
   expect(open).toHaveBeenCalledWith('克隆甲');
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="移除克隆甲的克隆任务"]')!.click());
-  expect(host.textContent).toContain('暂无克隆任务');
+  act(() =>
+    [...host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes('移除任务'))!
+      .click(),
+  );
+  expect(host.textContent).toContain('暂无任务');
   expect(getCloneTasks().map((task) => task.personaId)).toEqual(['克隆乙']);
 });

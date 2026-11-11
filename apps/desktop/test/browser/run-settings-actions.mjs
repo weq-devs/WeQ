@@ -45,7 +45,9 @@ try {
     page.evaluate(() => {
       const buttons = [...document.querySelectorAll('.weq-set-btn')];
       const standalone = [
-        ...document.querySelectorAll('[data-download], [data-reset], [data-save]'),
+        ...document.querySelectorAll(
+          '[data-download], [data-backup] .weq-backup-actions button, [data-save]',
+        ),
       ];
       return {
         contentWidth: standalone.every(
@@ -67,7 +69,7 @@ try {
         icons: buttons.every(
           (node) => node.querySelector('svg').getBoundingClientRect().width === 14,
         ),
-        neutral: ['[data-download]', '[data-reset]'].every((selector) => {
+        neutral: ['[data-download]'].every((selector) => {
           const node = document.querySelector(selector);
           const color = getComputedStyle(node).backgroundColor;
           return (

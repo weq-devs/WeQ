@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
 import { serializeComposer } from '../src/renderer/src/im-template/template/composer';
 

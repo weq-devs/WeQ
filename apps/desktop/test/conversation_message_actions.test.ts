@@ -2,7 +2,7 @@ import { act, createElement as h, type ReactNode, type ComponentProps } from 're
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationMessageActions } from '../src/renderer/src/components/ConversationMessageActions';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import {

@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { ConversationList } from '../../src/renderer/src/im-template/template/conversationLists';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { ConversationDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
 import '../../src/renderer/src/styles/index.css';

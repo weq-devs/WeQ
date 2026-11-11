@@ -6,7 +6,7 @@ import {
   GroupEssenceDialog,
   type GroupEssenceWire,
 } from '../src/renderer/src/components/GroupEssenceDialog';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { useViewState } from '../src/renderer/src/state/view';
 import { useQQEssence } from '../src/renderer/src/state/qqEssence';
 import type { QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';

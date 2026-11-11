@@ -8,7 +8,7 @@ import {
   ConversationList,
 } from '../src/renderer/src/im-template/template/conversationLists';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ContactDirectoryContext,
   ConversationDirectoryContext,

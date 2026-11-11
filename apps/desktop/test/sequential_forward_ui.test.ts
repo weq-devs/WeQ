@@ -6,7 +6,7 @@ import { startSequentialForward } from '../src/renderer/src/components/Sequentia
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForward';
 import { MergeForwardTargets } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
 vi.mock('../src/renderer/src/trpc/client', () => {

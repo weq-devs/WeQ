@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createConversationProjection } from '../src/renderer/src/lib/conversationProjection';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
 
 const demo = createTemplateDemoData();

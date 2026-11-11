@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { makeSolidPng } from '@weq/protocol';
-import { GroupFileActions } from '../src/renderer/src/components/qq-actions/GroupFileActions';
+import { GroupFileManager } from '../src/renderer/src/components/GroupFileManager';
 import { GroupNoticeActions } from '../src/renderer/src/components/qq-actions/GroupNoticeActions';
 import {
   GroupAlbumMediaActions,
@@ -29,7 +29,7 @@ import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/Pro
 import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weq/protocol';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { GroupSignDialog } from '../src/renderer/src/components/GroupSignDialog';
 import {
   MessageTodoAction,
@@ -807,7 +807,7 @@ describe('QQ 主动操作的实际界面', () => {
   };
   it('群文件默认最新在前，重复点击排序项反转实际列表与方向提示', () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [
@@ -849,7 +849,7 @@ describe('QQ 主动操作的实际界面', () => {
     expect(todos.button('取消群待办')).toBeNull();
     expect(todos.button('完成待办')).not.toBeNull();
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [file, { ...file, fileId: 'other', fileName: '文件 B', uploaderUin: 10002 }],
@@ -876,7 +876,7 @@ describe('QQ 主动操作的实际界面', () => {
     state.data['listing:folder-a'] = { files: [file], folders: [] };
     const changed = vi.fn();
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [file],
@@ -908,7 +908,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('文件上传使用当前目录，而非固定根目录', async () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [],
@@ -930,7 +930,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('同号切换数据源销毁未保存的文件管理草稿', () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [],
@@ -947,7 +947,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('新建文件夹编辑期间失去管理权限，保留草稿但禁止提交', async () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [],
@@ -964,7 +964,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('目录空白处菜单就近提供上传和新建，不对空选择执行保存', async () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [],
@@ -986,7 +986,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('空或损坏的拖入对象不崩溃，不改已有文件或发请求', () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [file],
@@ -1015,7 +1015,7 @@ describe('QQ 主动操作的实际界面', () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
     state.data['listing:folder-a'] = { files, folders: [] };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files,
@@ -1038,7 +1038,7 @@ describe('QQ 主动操作的实际界面', () => {
       { ...file, fileId: 'file-c', fileName: '文件 C' },
     ];
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files,
@@ -1062,7 +1062,7 @@ describe('QQ 主动操作的实际界面', () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
     state.data['listing:folder-a'] = { files, folders: [] };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files,
@@ -1083,7 +1083,7 @@ describe('QQ 主动操作的实际界面', () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '已有名称' }];
     state.data['listing:folder-a'] = { files, folders: [] };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files,
@@ -1116,7 +1116,7 @@ describe('QQ 主动操作的实际界面', () => {
     };
     state.data['listing:folder-a'] = { files: [file], folders: [folder] };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [file],
@@ -1170,7 +1170,7 @@ describe('QQ 主动操作的实际界面', () => {
       modifiedTime: 0,
     };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [],
@@ -1210,7 +1210,7 @@ describe('QQ 主动操作的实际界面', () => {
       modifiedTime: 0,
     };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [],
@@ -1240,7 +1240,7 @@ describe('QQ 主动操作的实际界面', () => {
   it('上传未知回执停止后续项，手动继续只处理尚未执行的文件', async () => {
     Reflect.set(window, 'weq', { pathForFile: (file: File) => `/local/${file.name}` });
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [],

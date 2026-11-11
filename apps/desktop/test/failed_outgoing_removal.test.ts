@@ -2,7 +2,7 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useFailedOutgoingRemoval } from '../src/renderer/src/hooks/useFailedOutgoingRemoval';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { LocalOutgoingRecord } from '../src/renderer/src/lib/localOutgoing';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 

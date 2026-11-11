@@ -4,7 +4,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { RepeatElement } from '../src/renderer/src/lib/messageRepeat';
 
 const copied = vi.hoisted(() => vi.fn(async (_value: { text: string; html: string }) => true));

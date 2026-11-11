@@ -70,13 +70,9 @@ body {
 .chat-header,
 .composer-tools,
 .emoji-panel,
-.conversation-details,
 .group-info-panel,
 .message-context-menu,
 .profile-popover,
-.modal-nav,
-.modal-titlebar,
-.profile-editor-titlebar,
 .empty-state,
 .chat-empty,
 .status-chip {
@@ -123,7 +119,6 @@ textarea,
 .copyable-text,
 .contact-profile-head .copyable-text,
 .contact-profile-row strong,
-.conversation-details-profile .copyable-text,
 .profile-editor-readonly strong,
 .profile-popover-row strong {
   user-select: text;

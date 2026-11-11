@@ -1,7 +1,7 @@
 import { createElement, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent';
 import {
   ContentSelectionProvider,

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   focusComposerEnd,
   serializeComposer,

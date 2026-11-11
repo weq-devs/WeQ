@@ -17,7 +17,6 @@ import {
 } from '../src/renderer/src/im-template/template/profilePanes';
 import { PersonRelationshipStatus } from '../src/renderer/src/components/RelationshipStatus';
 import { ContactList, GroupList } from '../src/renderer/src/im-template/template/conversationLists';
-import { GroupSettingsPanel } from '../src/renderer/src/im-template/template/groupSettingsPanel';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/components/ContactWorkspace', () => ({
@@ -33,6 +32,9 @@ vi.mock('../src/renderer/src/components/qq-actions/ProfileLikesRow', () => ({
   ProfileLikesRow: () => null,
 }));
 vi.mock('../src/renderer/src/components/ProfileExtras', () => ({ ProfileExtras: () => null }));
+vi.mock('../src/renderer/src/components/GroupExtendedProfile', () => ({
+  GroupExtendedProfile: () => null,
+}));
 
 const directory: RelationshipDirectory = {
   selfUid: 'u_self',
@@ -221,23 +223,14 @@ it.each(['20001', '20002', '20003'])('群列表 %s 不显示入群提示，仍�
   expect(host.textContent).not.toContain('已退出');
 });
 
-it.each(['20001', '20002', '20003'])(
-  '群设置 %s 不因旧管理角色向群外或未知对象开放管理操作',
-  (code) => {
-    const conversation = {
-      ...group,
-      id: code,
-      group: { ...group.group, id: code, identityValue: code },
-    };
-    const { host } = mount(
-      h(GroupSettingsPanel, {
-        conversation,
-        panelRef: { current: null },
-        onUpdateGroup: vi.fn(),
-        detailActionGroups: [],
-        detailActionContext: {},
-      }),
-    );
-    expect(Boolean(host.querySelector('[title="编辑群资料"]'))).toBe(code === '20001');
-  },
-);
+it.each(['20001', '20002', '20003'])('现行群名片 %s 不暴露模板资料和头像编辑表单', (code) => {
+  const conversation = {
+    ...group,
+    id: code,
+    group: { ...group.group, id: code, identityValue: code },
+  };
+  const { host } = mount(h(GroupProfileDialog, { conversation, embedded: true, onClose: vi.fn() }));
+  expect(host.querySelector('[title="编辑群资料"]')).toBeNull();
+  expect(host.querySelector('[placeholder="输入 GitHub 用户名"]')).toBeNull();
+  expect(host.textContent).toContain(conversation.group.name);
+});

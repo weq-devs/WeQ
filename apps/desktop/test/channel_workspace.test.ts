@@ -7,8 +7,7 @@ import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChannelView } from '../src/renderer/src/views/ChannelView';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
-import { RailUtilityDock } from '../src/renderer/src/components/RailUtilityDock';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import {
   ContentSelectionProvider,
@@ -415,7 +414,7 @@ describe('QQ 频道内的私聊工作区', () => {
         onOpenSettings: settings,
         activeRailItem: 'settings',
         footerContent: (settingsButton: ReactNode) =>
-          createElement('div', null, createElement(RailUtilityDock, null), settingsButton),
+          createElement('div', { 'aria-label': '应用控制' }, settingsButton),
         onOpenCollection: collection,
         onOpenDressUp: dress,
         onOpenProfile: noop,
@@ -446,9 +445,7 @@ describe('QQ 频道内的私聊工作区', () => {
       const settingsButton = f.host.querySelector<HTMLButtonElement>(
         '.rail-footer [aria-label="设置"]',
       )!;
-      expect(settingsButton.previousElementSibling?.classList.contains('weq-rail-utilities')).toBe(
-        true,
-      );
+      expect(settingsButton.parentElement?.getAttribute('aria-label')).toBe('应用控制');
       expect(settingsButton.classList.contains('weq-rail-control')).toBe(true);
       expect(settingsButton.getAttribute('aria-current')).toBe('page');
       expect(settingsButton.closest('[inert]')).toBeNull();

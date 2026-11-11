@@ -1,7 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { messageFavoriteEmojiUrl } from '../src/renderer/src/lib/messageFavoriteEmoji';
 import { MessageFavoriteEmojiAction } from '../src/renderer/src/components/qq-actions/MessageFavoriteEmojiAction';
 import type { Message } from '../src/renderer/src/im-template/template/types';

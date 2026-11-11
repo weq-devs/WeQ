@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { Download, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Card, Row } from '../../src/renderer/src/components/settings/controls';
-import { DEFAULTS_DESCRIPTION } from '../../src/renderer/src/components/settings/DefaultsOptions';
+import { BackupSection, backupApi } from '../../src/renderer/src/components/settings/BackupSection';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
@@ -35,13 +35,22 @@ createRoot(document.getElementById('root')!).render(
             下载画像模型
           </button>
         </Card>
-        <Card title="恢复默认设置">
-          <p>{DEFAULTS_DESCRIPTION}</p>
-          <button type="button" className="weq-set-btn weq-set-btn-soft" data-reset>
-            <RotateCcw size={14} />
-            恢复默认设置
-          </button>
-        </Card>
+        <div data-backup>
+          <BackupSection
+            api={{
+              ...backupApi,
+              inventory: async () => ({
+                accounts: [],
+                cloneScopes: [],
+                restore: { pending: null, result: null },
+                canPickFile: true,
+                canRestart: false,
+                maxArchiveBytes: 260 * 1024 * 1024,
+                chunkBytes: 65536,
+              }),
+            }}
+          />
+        </div>
         <Card title="高级设置">
           <form className="weq-intent-tuning-form" onSubmit={(event) => event.preventDefault()}>
             <input className="weq-set-input" aria-label="配置名称" defaultValue="当前配置" />

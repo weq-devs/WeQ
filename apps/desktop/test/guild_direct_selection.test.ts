@@ -9,7 +9,7 @@ import {
   ContentSelectionProvider,
   useContentExportRequest,
 } from '../src/renderer/src/state/contentSelection';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   fixedScopeSummary,
   initialExportMode,

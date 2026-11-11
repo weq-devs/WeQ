@@ -111,7 +111,7 @@ SELECT "43001","43002" FROM hidden_session_storage_table_v1;
 ## 六、前端渲染
 
 - 主会话列表里**排除**本表命中的会话（`MainView.tsx` 过滤时同时查两表）；
-- 列表最上方渲染一枚固定的「隐藏会话」入口行（`HiddenSessionRow.tsx`），仅当至少有一个隐藏会话时出现；
+- 会话列表通过 `conversationLists.tsx` 中的聚合入口打开隐藏会话，保留数量提示；旧独立 `HiddenSessionRow` 已退役；
 - 点开后是 `MergedSessionPanel`（`kind = 'hidden'`），只渲染 `resolvable: true` 的行；
   面板里的 `resolvable` 已经蕴含「两表都有」的判定，前端不再判一次；
 - **注意**这里的 `chatType` 是枚举名字符串（如 `"KCHATTYPEGROUP"`），不是数字 ——

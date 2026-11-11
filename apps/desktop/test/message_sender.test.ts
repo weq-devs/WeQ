@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { GroupMember } from '../src/renderer/src/im-template/template/types';
 import {
   mergeMessageMembers,

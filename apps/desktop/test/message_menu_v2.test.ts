@@ -2,7 +2,7 @@ import { act, createElement, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { QQWriteResult } from '../src/renderer/src/components/QQWriteControls';
 import {
   messageMediaKey,

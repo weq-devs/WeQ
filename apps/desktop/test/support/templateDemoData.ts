@@ -1,5 +1,10 @@
 ﻿// @ts-nocheck
-import type { Contact, Conversation, Message, User } from './types';
+import type {
+  Contact,
+  Conversation,
+  Message,
+  User,
+} from '../../src/renderer/src/im-template/template/types';
 
 export type TemplateDemoData = {
   user: User;

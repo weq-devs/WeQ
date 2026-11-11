@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { installTouchContextMenu } from '../../src/renderer/src/lib/touchContextMenu';
 import { MessageRow } from '../../src/renderer/src/im-template/template/messageRow';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/touch-context-menu.css';
 

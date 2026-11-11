@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
 import type { MemberProfileCard } from '../src/renderer/src/components/MemberProfileCard';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { resolveMessageSender } from '../src/renderer/src/im-template/template/conversationDisplay';
 import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
 

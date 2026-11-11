@@ -99,200 +99,12 @@
   overflow: hidden;
 }
 
-.weq-floating-tools {
-  pointer-events: none;
-  position: fixed;
-  z-index: 1190;
-  width: 44px;
-  height: 44px;
-  user-select: none;
-  -webkit-app-region: no-drag;
-}
-
-.weq-floating-tools[hidden] {
-  display: none !important;
-}
-
-.weq-tools-trigger {
-  pointer-events: auto;
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 50%;
-  background: var(--weq-bg-surface);
-  color: var(--weq-accent-effective);
-  box-shadow: var(--weq-shadow-soft);
-  cursor: grab;
-  touch-action: none;
-}
-
-.weq-tools-trigger:active {
-  cursor: grabbing;
-}
-
-.weq-tools-glyph {
-  display: grid;
-  place-items: center;
-}
-.weq-tools-glyph svg {
-  transition: transform 160ms ease;
-}
-.weq-floating-tools.is-expanded .weq-tools-glyph svg {
-  transform: rotate(-22deg);
-}
-.weq-tools-glyph.has-click {
-  animation: weq-tools-click 180ms ease;
-}
-@keyframes weq-tools-click {
-  0%,
-  100% {
-    scale: 1;
-  }
-  45% {
-    scale: 0.78;
-  }
-}
-@keyframes weq-tools-open {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.weq-floating-tools-bar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 44px;
-  height: 44px;
-  pointer-events: none;
-  overflow: visible;
-  transform-origin: 22px 22px;
-  animation: weq-tools-fan-open 160ms ease-out;
-}
-.weq-floating-tools-fan .weq-tools-sector {
-  pointer-events: auto;
-  position: absolute;
-  display: block;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--weq-fg-primary);
-  cursor: pointer;
-}
-.weq-tools-sector > svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.weq-tools-sector > svg > path {
-  fill: var(--weq-bg-surface);
-  stroke: var(--weq-border-strong);
-  stroke-width: 1px;
-  transition:
-    fill 120ms ease,
-    stroke 120ms ease;
-}
-.weq-tools-sector-glyph {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-}
-.weq-tools-sector-glyph > svg {
-  width: 100%;
-  height: 100%;
-}
-.weq-tools-sector:hover > svg > path,
-.weq-tools-sector:focus-visible > svg > path {
-  fill: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
-  stroke: var(--weq-accent-effective);
-}
-.weq-floating-tools-fan .weq-tools-sector:focus-visible {
-  outline: none;
-}
-.weq-tools-sector:focus-visible > svg > path {
-  stroke-width: 2px;
-}
-@keyframes weq-tools-fan-open {
-  from {
-    opacity: 0;
-    transform: scale(0.86);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
 /* 扇形项的禁用态：当前界面没有可用的默认目标（如设置页）。子项仍可点。 */
-.weq-floating-tools-fan .weq-tools-sector.is-disabled > svg > path {
-  stroke-dasharray: 4 3;
-  opacity: 0.55;
-}
-.weq-floating-tools-fan .weq-tools-sector.is-disabled .weq-tools-sector-glyph {
-  opacity: 0.5;
-}
-.weq-floating-tools-fan .weq-tools-sector.is-disabled {
-  cursor: not-allowed;
-}
-.weq-floating-tools-fan .weq-tools-sector.is-hovered > svg > path {
-  fill: color-mix(in srgb, var(--weq-accent-effective) 22%, var(--weq-bg-surface));
-  stroke: var(--weq-accent-effective);
-}
 
-.weq-tools-child-menu.is-left {
-  animation-name: weq-tools-child-open-left;
-}
-@keyframes weq-tools-child-open {
-  from {
-    opacity: 0;
-    transform: translateX(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-@keyframes weq-tools-child-open-left {
-  from {
-    opacity: 0;
-    transform: translateX(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.weq-tools-trigger:focus-visible,
 .weq-tools-header button:focus-visible,
-.weq-floating-tools-bar button:focus-visible,
 .weq-titlebar-search > button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
-}
-
-.weq-tools-running {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
-  font-size: 11px;
-  text-align: center;
 }
 
 .weq-tools-modal {
@@ -385,58 +197,6 @@
   background: transparent;
 }
 
-.weq-export-save-control {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 16px;
-  min-width: 0;
-  margin: 0;
-  padding: 10px 14px;
-  border: 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-
-.weq-export-save-control legend {
-  float: left;
-  margin-right: 12px;
-  font-weight: 600;
-}
-
-.weq-export-save-control label,
-.weq-export-save-location {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.weq-export-save-location {
-  flex: 1;
-}
-
-.weq-export-save-location > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 12px;
-}
-
-.weq-export-save-control button {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  gap: 6px;
-  min-height: 30px;
-  padding: 4px 8px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--weq-fg-primary);
-  cursor: pointer;
-}
-
-.weq-export-save-platform,
 .weq-export-save-status {
   color: var(--weq-fg-secondary);
   font-size: 12px;
@@ -778,8 +538,7 @@
   background: transparent;
 }
 
-html[data-theme='dark'] .weq-tools-modal,
-html[data-theme='dark'] .weq-tools-trigger {
+html[data-theme='dark'] .weq-tools-modal {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
   color: var(--weq-fg-primary);
@@ -801,16 +560,6 @@ html[data-theme='dark'] .weq-tools-trigger {
 @media (prefers-reduced-motion: reduce) {
   .weq-titlebar-search,
   .weq-titlebar-search input {
-    transition: none;
-  }
-  .weq-tools-glyph.has-click,
-  .weq-floating-tools-bar {
-    animation: none;
-  }
-  .weq-tools-glyph svg {
-    transition: none;
-  }
-  .weq-tools-sector > svg > path {
     transition: none;
   }
 }

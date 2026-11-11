@@ -99,6 +99,45 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('统一竖向工作菜单', () => {
+  it('现行工具菜单支持 Escape 和外部点击关闭，关闭后焦点回到原入口', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(
+            'div',
+            null,
+            h(WorkspaceMenuButton),
+            h(WorkspaceTools, {
+              accountScope: 'retirement-menu',
+              footerControls: null,
+              onOpenAnalysis: vi.fn(),
+            }),
+          ),
+        ),
+      );
+      const trigger = host.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger')!;
+      act(() => {
+        trigger.focus();
+        trigger.click();
+      });
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
+      act(() =>
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+      );
+      expect(useWorkspaceMenu.getState().anchor).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+      act(() => trigger.click());
+      act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+      expect(useWorkspaceMenu.getState().anchor).toBeNull();
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
   it('账号来源尚未确定时不建立任务已读快照', () => {
     const root = createRoot(document.createElement('div'));
     try {

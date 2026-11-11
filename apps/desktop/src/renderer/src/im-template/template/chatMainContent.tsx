@@ -7,7 +7,6 @@ import {
 import { ChatPane, type ChatPaneProps } from './chatPane';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
-import type { ConversationDetailActionRegistry } from './conversationDetailActions';
 import type { ProfileActionRegistry } from './profileActions';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
@@ -38,7 +37,6 @@ export function ChatMainContent({
   activeConversation,
   messages,
   composerActions,
-  conversationDetailActions: _conversationDetailActions,
   messageRenderers,
   profileActions: _profileActions,
   toolRegistry,
@@ -203,7 +201,6 @@ export function ChatMainContent({
   selectedGroupConversation?: GroupConversation;
   contactGroupDetails?: React.ReactNode;
   activeConversation?: Conversation;
-  conversationDetailActions?: Partial<ConversationDetailActionRegistry>;
   profileActions?: Partial<ProfileActionRegistry>;
   toolRegistry?: ToolPaneGroup[];
   selectedToolId?: string | null;

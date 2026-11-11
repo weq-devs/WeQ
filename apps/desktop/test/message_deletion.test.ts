@@ -7,7 +7,7 @@ import {
   shareDeletionIds,
 } from '../src/renderer/src/lib/messageDeletion';
 import { messageGapCount, isSeqBetween } from '../src/renderer/src/im-template/template/messageGap';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 it('等值删除快照保留集合引用，忽略返回顺序与重复项且不修改输入', () => {
   const previous = new Set(['9007199254740993002', 'roaming:protocol:2:77']);

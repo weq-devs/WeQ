@@ -4,7 +4,7 @@ import {
   messageBatchBlockReason,
   partitionMessageBatch,
 } from '../src/renderer/src/lib/messageBatchAction';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 const demo = createTemplateDemoData();
 const own = { ...demo.messages[0]!, id: '10001', senderId: demo.user.id };

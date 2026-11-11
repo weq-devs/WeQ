@@ -8,7 +8,7 @@ import {
   ShowMessageTimeContext,
   ShowMessageSeqContext,
 } from '../src/renderer/src/components/MessageProvenance';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>

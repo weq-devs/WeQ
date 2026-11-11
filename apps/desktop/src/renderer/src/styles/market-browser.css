@@ -399,10 +399,6 @@ html[data-theme='dark'] .weq-market-browser {
   .weq-market-description {
     padding: 8px 12px 0;
   }
-  .weq-market-browser .weq-export-save-control {
-    gap: 8px;
-    padding: 8px 12px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

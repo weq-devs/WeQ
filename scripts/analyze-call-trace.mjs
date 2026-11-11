@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 通话留痕分析器（配合 `apps/desktop/src/main/call_trace.ts` 产出的文件）。
+ * 历史文本通话留痕分析器（用于已保存的 call-trace v1 日志；现行抓包使用 pcapng）。
  *
  *   node scripts/analyze-call-trace.mjs <call-trace-*.log> [--dump-media]
  *

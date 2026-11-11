@@ -143,6 +143,9 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
       expect.objectContaining({ id: 'job', target, anchor, expectedAccountConfigId: 'live' }),
     );
     expect(navigate).toHaveBeenCalledWith(target, anchor, undefined);
+    await act(async () => logs.click());
+    expect(fixture.query.mock.lastCall?.[0].includeLogs).toBe(false);
+    expect(host.querySelector('.weq-exp-log')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();

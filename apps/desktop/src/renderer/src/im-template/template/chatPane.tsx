@@ -255,7 +255,7 @@ import {
   type ComposerActionRegistry,
   type ComposerButtonAction,
 } from './composerActions';
-import { GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
+import { GroupInfoPanel, type GroupInfoDetail } from './groupInfoPanel';
 import { EmojiPanel } from './emojiPanel';
 import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';

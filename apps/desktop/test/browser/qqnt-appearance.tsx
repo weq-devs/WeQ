@@ -4,7 +4,7 @@ import { Moon, Sun } from 'lucide-react';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { AppRail } from '../../src/renderer/src/im-template/template/rail';
 import { ConversationList } from '../../src/renderer/src/im-template/template/conversationLists';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { MergedSessionPanel } from '../../src/renderer/src/components/sidebar/MergedSessionPanel';

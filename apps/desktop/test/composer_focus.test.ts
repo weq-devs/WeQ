@@ -4,7 +4,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { insertComposerNode } from '../src/renderer/src/im-template/template/composer';
 
 const target = vi.hoisted(() => ({ web: false }));
