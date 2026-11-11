@@ -159,7 +159,6 @@ html[data-theme='dark'] .chat-empty h1,
 html[data-theme='dark'] .auth-card h1,
 html[data-theme='dark'] .invite-card h1,
 html[data-theme='dark'] .splash,
-html[data-theme='dark'] .about-link,
 html[data-theme='dark'] .theme-option,
 html[data-theme='dark'] .theme-option-label,
 html[data-theme='dark'] .bot-detail-head strong {
@@ -176,7 +175,6 @@ html[data-theme='dark'] .contact-tools > button:hover,
 html[data-theme='dark'] .contact-tools > button.active,
 html[data-theme='dark'] .conversation-row:hover,
 html[data-theme='dark'] .contact-row:hover,
-html[data-theme='dark'] .profile-editor-close:hover,
 html[data-theme='dark'] .message-context-menu button:hover,
 html[data-theme='dark'] .reaction-picker-cell:hover,
 html[data-theme='dark'] .rail-menu-popover button:hover,
@@ -232,7 +230,6 @@ html[data-theme='dark'] .search-box input,
 html[data-theme='dark'] .auth-form input,
 html[data-theme='dark'] .bot-group-join-row select,
 html[data-theme='dark'] .bot-token-panel input,
-html[data-theme='dark'] .group-avatar-settings input,
 html[data-theme='dark'] .composer-editor {
   color: #eef0f3;
 }
@@ -260,8 +257,6 @@ html[data-theme='dark'] .details-toggle-row,
 html[data-theme='dark'] .group-member-row span,
 html[data-theme='dark'] .modal-actions > span,
 html[data-theme='dark'] .auth-form label span,
-html[data-theme='dark'] .profile-editor-readonly strong,
-html[data-theme='dark'] .text-button,
 html[data-theme='dark'] .invite-output span,
 html[data-theme='dark'] .empty-state,
 html[data-theme='dark'] .chat-empty,
@@ -533,8 +528,7 @@ html[data-theme='dark'] .composer-tools button.active {
   color: #26a8ff;
 }
 
-html[data-theme='dark'] .group-info-panel,
-html[data-theme='dark'] .profile-editor-modal {
+html[data-theme='dark'] .group-info-panel {
   background: #101112;
 }
 
@@ -586,16 +580,9 @@ html[data-theme='dark'] .invite-card {
 html[data-theme='dark'] .details-toggle-row,
 html[data-theme='dark'] .contact-profile-fields,
 html[data-theme='dark'] .contact-profile-row,
-html[data-theme='dark'] .add-contact-modal .invite-panel,
 html[data-theme='dark'] .emoji-tabs,
 html[data-theme='dark'] .notice-split-button button + button {
   border-color: #343537;
-}
-
-html[data-theme='dark'] .app-modal {
-  border-color: #3a3b3d;
-  background: #272829;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
 }
 
 html[data-theme='dark'] .theme-preview {
@@ -737,16 +724,6 @@ html[data-theme='dark'] .details-toggle-row {
 
 html[data-theme='dark'] .group-info-heading {
   color: #f1f3f5;
-}
-
-html[data-theme='dark'] .group-avatar-settings input {
-  border-color: #45474b;
-  background: #1f2022;
-}
-
-html[data-theme='dark'] .group-avatar-settings input:focus {
-  border-color: #149dff;
-  box-shadow: 0 0 0 3px rgba(20, 157, 255, 0.16);
 }
 
 html[data-theme='dark'] .group-role-badge,

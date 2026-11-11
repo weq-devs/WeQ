@@ -74,8 +74,7 @@ body {
 .message-context-menu,
 .profile-popover,
 .empty-state,
-.chat-empty,
-.status-chip {
+.chat-empty {
   user-select: none;
 }
 
@@ -119,7 +118,6 @@ textarea,
 .copyable-text,
 .contact-profile-head .copyable-text,
 .contact-profile-row strong,
-.profile-editor-readonly strong,
 .profile-popover-row strong {
   user-select: text;
 }

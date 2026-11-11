@@ -2314,42 +2314,6 @@ html[data-theme='dark'] .member-role-badge.admin {
   overflow-wrap: anywhere;
 }
 
-.group-edit-card,
-.group-avatar-settings {
-  gap: 12px;
-  padding: 14px;
-}
-
-.group-settings-panel .group-edit-card {
-  overflow: visible;
-}
-
-.group-avatar-settings > span {
-  color: #777777;
-  font-size: 13px;
-}
-
-.group-avatar-settings input {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid #e4e4e4;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #111111;
-  font-size: 14px;
-  outline: none;
-}
-
-.group-avatar-settings input:focus {
-  border-color: #0099f7;
-  box-shadow: 0 0 0 3px rgba(0, 153, 247, 0.12);
-}
-
-.group-avatar-settings input {
-  height: 36px;
-  padding: 0 10px;
-}
-
 .switch-control {
   position: relative;
   width: 38px;
