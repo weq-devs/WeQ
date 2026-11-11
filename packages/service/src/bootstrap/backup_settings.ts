@@ -158,8 +158,17 @@ function shape(value: unknown, template: unknown, path: string): void {
 export function validateWeqAppSettings(value: unknown): asserts value is WeqAppBackupPatch {
   const input = record(value, 'settings');
   // 默认空数组无法描述元素结构，输入状态单独校验，避免被当作普通对象。
-  const { typingStatus, home, qqShowCacheDays, updateCheckIntervalMinutes, ...scalarSettings } =
-    input;
+  const {
+    typingStatus,
+    home,
+    qqShowCacheDays,
+    updateCheckIntervalMinutes,
+    quitConfirmSuppressed,
+    ...scalarSettings
+  } = input;
+  // 旧备份允许携带已退役字段，但不再将它写回正式设置。
+  if (Object.hasOwn(input, 'quitConfirmSuppressed') && typeof quitConfirmSuppressed !== 'boolean')
+    fail('settings.quitConfirmSuppressed');
   if (
     Object.hasOwn(input, 'updateCheckIntervalMinutes') &&
     !isUpdateCheckInterval(updateCheckIntervalMinutes)

@@ -118,21 +118,8 @@ export class OneBotServer {
   private readonly paths = new WeakMap<WebSocket, string>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
 
-  constructor(
-    private readonly backend: OneBotBackend,
-    private readonly legacyToken = '',
-  ) {
+  constructor(private readonly backend: OneBotBackend) {
     this.registry = backend.registry ?? new MessageRegistry();
-  }
-
-  /** 兼容旧调用：启动一个使用构造器令牌的正向 WS 服务器。 */
-  async start(port: number): Promise<number> {
-    const [status] = await this.startConfigured({
-      webSocketServers: [{ id: 'legacy-ws', port, token: this.legacyToken }],
-      httpServers: [],
-    });
-    if (!status?.running) throw new Error(status?.error ?? 'OneBot WebSocket 启动失败');
-    return status.port;
   }
 
   /** 启动全部启用的监听器；单项端口冲突会顺延，不阻断其他服务器。 */

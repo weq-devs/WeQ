@@ -1116,7 +1116,6 @@ export type {
   GroupExportOptions,
   IterateOptions,
   SalvageSourceOptions,
-  JsonExportOptions,
   ExportTask,
   TaskStatus,
   TaskProgress,

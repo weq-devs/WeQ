@@ -86,7 +86,7 @@ interface Pending {
   summary: WeqBackupSummary;
 }
 interface Operation {
-  kind: 'config' | 'client' | 'account' | 'clones' | 'account-setting';
+  kind: 'config' | 'client' | 'shared' | 'account' | 'clones' | 'account-setting';
   scope?: string;
   setting?: WeqAccountSettingFile | 'background';
   file?: string;
@@ -313,7 +313,9 @@ function readJournal(root: string): Journal | null {
   for (const item of value.operations) {
     if (
       !record(item) ||
-      !['config', 'client', 'account', 'clones', 'account-setting'].includes(String(item.kind)) ||
+      !['config', 'client', 'shared', 'account', 'clones', 'account-setting'].includes(
+        String(item.kind),
+      ) ||
       typeof item.hadOriginal !== 'boolean' ||
       typeof item.owned !== 'boolean' ||
       typeof item.hash !== 'string' ||
@@ -352,6 +354,7 @@ function readJournal(root: string): Journal | null {
 function target(root: string, cacheRoot: string, op: Operation): string {
   if (op.kind === 'config') return join(root, 'config.json');
   if (op.kind === 'client') return clientPath(root);
+  if (op.kind === 'shared') return join(root, 'client-state', 'global.json');
   if (op.kind === 'account') return join(root, 'config', 'accounts', `${op.scope}.json`);
   if (op.kind === 'account-setting')
     return op.setting === 'background'
@@ -612,6 +615,7 @@ function configPlan(
       skipped.push('api:oneBot');
     }
   }
+  delete settings.quitConfirmSuppressed;
   return {
     ...current,
     settings,
@@ -673,6 +677,16 @@ function prepare(
   const hasClones = bundle.files.some((file) => file.path.startsWith('clones/'));
   const existingConfig = config ?? currentConfig;
   const client = bundle.files.find((file) => file.path === 'settings/client.json');
+  const shared = bundle.files.find((file) => file.path === 'settings/shared.json');
+  if (shared)
+    add('shared', [
+      {
+        path: '',
+        data: Buffer.from(
+          JSON.stringify({ ...(parseWeqBackupJson(shared.data) as object), epoch: randomUUID() }),
+        ),
+      },
+    ]);
   if (client) {
     add('client', [
       {
@@ -726,6 +740,12 @@ function prepare(
         const path = weqAccountSettingPath(root, cacheRoot, scope, setting);
         if (!present(path)) continue;
         let value: unknown = setting === 'intent.json' ? DEFAULT_INTENT_SENSE_CONFIG : {};
+        if (setting === 'client-state.json') {
+          const saved = parseWeqBackupJson(readWeqBackupFile(path));
+          if (!record(saved)) throw new Error('跨端状态无效，未恢复默认');
+          const records = record(saved.records) ? saved.records : {};
+          value = { ...saved, values: {}, records: { ...records, order: {} } };
+        }
         if (setting === 'dress.json') {
           const saved = parseWeqBackupJson(readWeqBackupFile(path));
           if (!record(saved)) throw new Error('装扮配置无效，未恢复默认');
@@ -765,7 +785,13 @@ function prepare(
     } else {
       const setting =
         parts[2] === 'background' ? 'background' : (parts[2] as WeqAccountSettingFile);
-      add('account-setting', [{ path: '', data: file.data }], scope, {
+      const data =
+        setting === 'client-state.json'
+          ? Buffer.from(
+              JSON.stringify({ ...(parseWeqBackupJson(file.data) as object), epoch: randomUUID() }),
+            )
+          : file.data;
+      add('account-setting', [{ path: '', data }], scope, {
         setting,
         ...(setting === 'background' ? { file: parts[3]! } : {}),
       });

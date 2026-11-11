@@ -416,6 +416,23 @@ it.each(['skip', 'overwrite'] as const)(
   },
 );
 
+it.each([false, true])('旧退出提醒字段在真实备份恢复事务中被丢弃：%s', (quitConfirmSuppressed) => {
+  const f = fixture();
+  write(join(f.root, 'config.json'), {
+    ...f.initial,
+    settings: { ...f.initial.settings, quitConfirmSuppressed: true },
+  });
+  stageWeqBackupRestore(
+    f.root,
+    buildWeqBackup([file('settings/app.json', { quitConfirmSuppressed, showMessageTime: false })]),
+    { parts: ['settings'], conflict: 'overwrite' },
+  );
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const saved = read(join(f.root, 'config.json'));
+  expect(saved.settings).not.toHaveProperty('quitConfirmSuppressed');
+  expect(saved.settings).toHaveProperty('showMessageTime', false);
+});
+
 it.each(['skip', 'overwrite'] as const)(
   'API 按稳定 ID %s 合并，同名不同 ID 不覆盖，TTS 位于真实设置字段',
   (conflict) => {

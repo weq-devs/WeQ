@@ -759,14 +759,6 @@ export interface AppSettings {
   /** macOS / Linux 使用右上角仿 Windows 窗口按钮，账号选择页不受影响。 */
   windowsStyleControls: boolean;
   /**
-   * 已废弃（2026-11-09 起退出不再确认）。
-   *
-   * 仅为兼容旧配置保留：读写链路还在（旧文件里的值不会校验失败、保存时也不丢），
-   * 但已没有任何代码读取它。退出（Dock / Cmd+Q / 托盘）现在直接结束进程；
-   * 「退出会停止哪些服务」改由关窗确认框与「后台服务」页展示。
-   */
-  quitConfirmSuppressed: boolean;
-  /**
    * 是否把纯文本消息里的 Markdown 也渲染出来。这是 WeQ 自己的 feature——QQ 的语义里
    * 只有 markdownElement 才是 Markdown，纯文本就该是纯文本（关掉后别人发的 ``` 或 **
    * 会原样显示）。默认开启。markdownElement 不受此开关影响，始终按 Markdown 渲染。
@@ -1159,8 +1151,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   agentLab: { providers: [], defaultModel: null },
   windowCloseBehavior: 'tray',
   windowsStyleControls: false,
-  /** 已废弃，仅为旧配置兼容保留；不再控制任何行为（见类型注释）。 */
-  quitConfirmSuppressed: false,
   renderTextMarkdown: true,
   showAvatarPendant: true,
   showChatQqShow: true,
@@ -1832,7 +1822,6 @@ export class UserConfigService {
       windowCloseBehavior:
         normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
       windowsStyleControls: s?.windowsStyleControls === true,
-      quitConfirmSuppressed: s?.quitConfirmSuppressed === true,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       showChatQqShow: s?.showChatQqShow ?? d.showChatQqShow,
@@ -1981,7 +1970,6 @@ export class UserConfigService {
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
       windowsStyleControls: patch.windowsStyleControls ?? current.windowsStyleControls,
-      quitConfirmSuppressed: patch.quitConfirmSuppressed ?? current.quitConfirmSuppressed,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       showChatQqShow: patch.showChatQqShow ?? current.showChatQqShow,

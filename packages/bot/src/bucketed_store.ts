@@ -22,7 +22,6 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
-  rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -199,9 +198,4 @@ export function openBucketed<V>(
   const migrated = BucketedJsonDir.migrateLegacy(legacyPath, dir, validWhole, validValue, opts);
   if (migrated) return migrated;
   return new BucketedJsonDir<V>(dir, validValue, opts);
-}
-
-/** 迁移后清理入口（保留原件语义下手动确认后再删）。 */
-export function removeMigratedLegacy(legacyPath: string): void {
-  rmSync(`${legacyPath}.migrated`, { force: true });
 }
