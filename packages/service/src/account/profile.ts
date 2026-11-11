@@ -162,17 +162,11 @@ export class ProfileService {
   // ───────────────────────── 在线写操作 ─────────────────────────
 
   /** 改昵称 / 个性签名 / 性别（OIDB 0x112A_2）。 */
-  async setProfile(params: {
-    nickname?: string;
-    personalNote?: string;
-    sex?: number;
-  }): Promise<void> {
+  async setProfile(params: Omit<SetProfile.Params, 'selfUin'>): Promise<void> {
     const { nt, resolvePid } = this.requireOnline();
     await SetProfile.invoke(nt, resolvePid(), {
+      ...params,
       selfUin: this.session.context.uin,
-      ...(params.nickname !== undefined ? { nickname: params.nickname } : {}),
-      ...(params.personalNote !== undefined ? { personalNote: params.personalNote } : {}),
-      ...(params.sex !== undefined ? { sex: params.sex } : {}),
     });
   }
 
