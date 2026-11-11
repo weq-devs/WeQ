@@ -2,6 +2,13 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { EmojiPanel } from '../src/renderer/src/im-template/template/emojiPanel';
+vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
+  withQQAccountScope: (component: unknown) => component,
+  useQQAction: () => ({ binding: null, available: false, disabled: true }),
+}));
+vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
+  useMediaSave: () => ({ disabled: false, prompt: null }),
+}));
 vi.mock('../src/renderer/src/components/qq-actions/FavoriteBundleControls', () => ({
   FavoriteBundleControls: () =>
     h(
@@ -14,7 +21,9 @@ vi.mock('../src/renderer/src/components/qq-actions/FavoriteBundleControls', () =
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     account: {
+      qqActions: { favorites: { useQuery: () => ({ data: undefined }) } },
       emojiPanel: {
         overview: {
           useQuery: () => ({

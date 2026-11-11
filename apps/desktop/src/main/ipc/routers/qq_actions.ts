@@ -702,18 +702,27 @@ export function createQQActionsRouter(
           position: z.literal(1).optional(),
         }),
       )
-      .mutation(({ input: i }) =>
-        write(i, async (s, current) => {
+      .mutation(async ({ input: i }) => {
+        let addedEmojiId: string | undefined;
+        const result = await write(i, async (s, current) => {
           if (i.action === 'add') {
             if (!i.path) throw new Error('请选择图片');
-            return s.emoji.addFavorite(await image(s, i.path, current), undefined, current);
+            addedEmojiId = await s.emoji.addFavorite(
+              await image(s, i.path, current),
+              undefined,
+              current,
+            );
+            current();
+            if (!addedEmojiId) throw new Error('未取得表情标识，请刷新收藏列表核对结果');
+            return;
           }
           if (!i.emojiId) throw new Error('缺少收藏表情标识');
           if (i.action === 'delete') return s.emoji.deleteFavorite(i.emojiId);
           if (i.action === 'rename') return s.emoji.modifyFavoriteDesc(i.emojiId, i.desc ?? '');
           return s.emoji.moveFavorite(i.emojiId, i.position ?? 1, current);
-        }),
-      ),
+        });
+        return { ...result, ...(addedEmojiId ? { emojiId: addedEmojiId } : {}) };
+      }),
     requests: procedure
       .input(binding.extend({ kind: z.enum(['friend', 'doubtFriend', 'group', 'filteredGroup']) }))
       .query(({ input: i }) =>

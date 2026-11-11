@@ -37,6 +37,7 @@ import { useMessageSelectionFlow } from '../../hooks/useMessageSelectionFlow';
 import { selectionGapId, parseSelectionGap, type SelectionGap } from '../../lib/messageSelection';
 import { createSelectionGapIndex } from '../../lib/selectionGapIndex';
 import { hasActiveModal } from '../../lib/overlayStack';
+import { topSurface } from '../../lib/surfaceEscape';
 import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
 import { useAtAllMention } from '../../hooks/useAtAllMention';
 import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention';
@@ -1761,7 +1762,8 @@ export function ChatPane({
     }
 
     function closeEmojiFromOutside(event: globalThis.PointerEvent) {
-      if (hasActiveModal()) return;
+      if (hasActiveModal() || topSurface(document)?.matches('.weq-conversation-actions-layer'))
+        return;
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1778,7 +1780,12 @@ export function ChatPane({
     }
 
     function closeEmojiOnEscape(event: globalThis.KeyboardEvent) {
-      if (event.defaultPrevented || hasActiveModal()) return;
+      if (
+        event.defaultPrevented ||
+        hasActiveModal() ||
+        topSurface(document)?.matches('.weq-conversation-actions-layer')
+      )
+        return;
       if (event.key === 'Escape') {
         setEmojiOpen(false);
       }

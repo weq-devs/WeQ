@@ -94,7 +94,7 @@ function fixture() {
       listFavoriteEmojis: vi.fn(async () => []),
       fetchOnlineFavoriteDetails: vi.fn(async (): Promise<CustomFaceDetail[]> => []),
       listFavEmojiRows: vi.fn(async () => []),
-      addFavorite: empty(),
+      addFavorite: vi.fn(async (..._args: unknown[]): Promise<string> => ''),
       deleteFavorite: empty(),
       modifyFavoriteDesc: empty(),
       moveFavorite: empty(),
@@ -889,6 +889,25 @@ describe('主动操作的账号与参数边界', () => {
         '运行时',
       );
       expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+  it('图片导入返回实际收藏标识，缺失标识时明确提示核对而不冒称成功', async () => {
+    const f = fixture();
+    const dir = await mkdtemp(join(tmpdir(), 'weq-favorite-picker-'));
+    const path = join(dir, 'image.png');
+    try {
+      await writeFile(path, makeSolidPng(8, 8));
+      f.s.fileResource.resolveLocalFile.mockResolvedValue(path);
+      vi.spyOn(f.s.emoji, 'addFavorite').mockImplementationOnce(async () => 'imported-id');
+      expect(await f.caller.favorite({ ...binding, action: 'add', path })).toEqual({
+        state: 'accepted',
+        emojiId: 'imported-id',
+      });
+      await expect(f.caller.favorite({ ...binding, action: 'add', path })).rejects.toThrow(
+        '未取得表情标识',
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
