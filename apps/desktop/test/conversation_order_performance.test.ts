@@ -81,6 +81,69 @@ it('大目录排序每条会话只读取一次时间键，不在每次比较中�
   }
 });
 
+it('切换会话和打开行菜单不重扫未变目录的选择 ID，目录更新仍接收新行', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const demo = createTemplateDemoData();
+  const base = demo.conversations.find((row) => row.type === 'group')!;
+  const count = 2000;
+  let offscreenReads = 0;
+  const rows = Array.from({ length: count }, (_, index) => ({
+    ...base,
+    get id() {
+      if (index >= 100) offscreenReads++;
+      return `synthetic-${String(index).padStart(4, '0')}`;
+    },
+    updatedAt: '2030-01-01T00:00:00Z',
+    lastMessage: null,
+    preference: { pinned: false, muted: false, blocked: false },
+  }));
+  const props = { conversations: rows, preferences: {}, drafts: {}, onSelect: vi.fn() };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (activeConversationId: string, conversations = rows) =>
+    act(() =>
+      root.render(
+        createElement(
+          ContentSelectionProvider,
+          null,
+          createElement(ConversationList, { ...props, conversations, activeConversationId }),
+        ),
+      ),
+    );
+  try {
+    render('synthetic-0000');
+    expect(host.querySelectorAll('[data-conversation-id]').length).toBeLessThan(100);
+    offscreenReads = 0;
+    render('synthetic-0001');
+    expect(offscreenReads).toBe(0);
+    act(() =>
+      host
+        .querySelector('[data-conversation-id]')!
+        .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+    );
+    expect(offscreenReads).toBe(0);
+    render('synthetic-new', [
+      {
+        ...base,
+        id: 'synthetic-new',
+        updatedAt: '2030-01-02T00:00:00Z',
+        lastMessage: null,
+        preference: { pinned: false, muted: false, blocked: false },
+      },
+      ...rows,
+    ]);
+    const added = host.querySelector<HTMLButtonElement>('[data-conversation-id="synthetic-new"]')!;
+    expect(added).not.toBeNull();
+    act(() => added.click());
+    expect(props.onSelect.mock.calls.at(-1)?.[0]).toBe('synthetic-new');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it('保留置顶权威状态、草稿活动、最后消息与无效时间的排序口径', () => {
   const rows = [
     { id: 'a', updatedAt: 'invalid' },

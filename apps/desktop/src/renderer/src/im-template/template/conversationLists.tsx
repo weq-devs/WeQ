@@ -256,7 +256,8 @@ export function ConversationList({
     const visible = directory?.groupAssistantIds
       ? sidebarConversationsWithoutAssistant(rows, directory.groupAssistantIds)
       : rows;
-    return sortConversationRows(visible, preferences);
+    const ordered = sortConversationRows(visible, preferences);
+    return { rows: ordered, ids: ordered.map((row) => row.id) };
   }, [
     conversations,
     preferences,
@@ -268,13 +269,13 @@ export function ConversationList({
     scope,
   ]);
   const selectConversation = (id: string, event: React.MouseEvent) => {
-    if (!filtered.some((row) => row.id === id)) return;
+    if (!filtered.ids.includes(id)) return;
     const virtual = directory?.virtual.find((item) => item.id === id);
     if (virtual) directory.onVirtual(virtual);
     else onSelect(id, event);
   };
   const clickTargetProps = useConversationClickTarget({
-    rows: filtered,
+    rows: filtered.rows,
     enabled: !selectionMode,
     resetKey: `${scope}:${keyword}`,
     onSelect: selectConversation,
@@ -291,10 +292,7 @@ export function ConversationList({
       new Set([...ids].flatMap((id) => (id === 'merged:group-assistant' ? assistantIds : [id]))),
     [assistantIds],
   );
-  const filteredIds = useMemo(
-    () => [...expandIds(filtered.map((item) => item.id))],
-    [expandIds, filtered],
-  );
+  const filteredIds = useMemo(() => [...expandIds(filtered.ids)], [expandIds, filtered]);
   const assistantSelected =
     assistantIds.length > 0 && assistantIds.every((id) => selectedIds.has(id));
   const rowSelectedIds = new Set(selectedIds);
@@ -344,11 +342,11 @@ export function ConversationList({
   ]);
   const multi = useMultiSelection({
     anchorRef,
-    ids: filtered.map((item) => item.id),
+    ids: filtered.ids,
     selected: rowSelectedIds,
     onChange: (ids) => {
       invertFrom.current = null;
-      if ((hasMore || loading) && filtered.every((row) => ids.has(row.id))) {
+      if ((hasMore || loading) && filtered.ids.every((id) => ids.has(id))) {
         setSelectingAll(true);
         onLoadMore?.();
         return;
@@ -372,7 +370,7 @@ export function ConversationList({
     revision: number | undefined;
   } | null>(null);
   const locateAvailable =
-    scope === 'all' && !keyword && filtered.some((row) => row.id === locateId);
+    Boolean(locateId) && scope === 'all' && !keyword && filtered.ids.includes(locateId);
   useEffect(() => {
     if (!locateId || !locateAvailable) {
       setLocateHighlight(null);
@@ -619,7 +617,7 @@ export function ConversationList({
       {lookupOpen && (
         <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
       )}
-      {loading && !filtered.length ? <ListSkeleton rows={9} /> : null}
+      {loading && !filtered.rows.length ? <ListSkeleton rows={9} /> : null}
       {directory?.loadingError ? (
         <div role="alert">
           会话读取失败：{directory.loadingError}
@@ -628,13 +626,13 @@ export function ConversationList({
           </button>
         </div>
       ) : null}
-      {!loading && !filtered.length ? (
+      {!loading && !filtered.rows.length ? (
         <EmptyState title="暂无会话" body="" icon={<MessageSquare />} />
       ) : null}
       <div className="weq-conversation-viewport" ref={viewportRef} {...clickTargetProps}>
         <WindowedList
           bufferScreens={1}
-          items={filtered}
+          items={filtered.rows}
           onVisibleItems={selectionMode ? undefined : directory?.onVisibleConversations}
           rowHeight={rowHeight}
           height={listHeight}
