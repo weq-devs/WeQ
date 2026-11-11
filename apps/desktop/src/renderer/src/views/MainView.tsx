@@ -100,7 +100,7 @@ import {
 } from '../lib/messageSender';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
 import { messageBatchBlockReason } from '../lib/messageBatchAction';
-import { deletionIdentity } from '../lib/messageDeletion';
+import { deletionIdentity, shareDeletionIds } from '../lib/messageDeletion';
 import type { LoadSelectionMessages } from '../lib/messageSelection';
 import {
   mergeOptimisticInto,
@@ -5558,8 +5558,10 @@ function MainWorkspace(): ReactElement {
     ])
       .then(([ids, hidden]) => {
         if (alive && revision === deletionRevision.current) {
-          setDeletedIds(new Set(ids));
-          setHiddenDeletedIds(new Set(hidden));
+          const nextDeleted = new Set(ids);
+          setDeletedIds((current) => shareDeletionIds(current, nextDeleted));
+          const nextHidden = new Set(hidden);
+          setHiddenDeletedIds((current) => shareDeletionIds(current, nextHidden));
         }
       })
       .catch(() => {});

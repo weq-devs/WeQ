@@ -1,6 +1,13 @@
 import type { Message } from '../im-template/template/types';
 import { timelineSeq } from '../../../shared/roaming_timeline';
 
+/** 原始标记集合未变时保留引用，避免刷新快照触发可见消息与布局重算。 */
+export function shareDeletionIds(previous: Set<string>, next: Set<string>): Set<string> {
+  if (previous.size !== next.size) return next;
+  for (const id of next) if (!previous.has(id)) return next;
+  return previous;
+}
+
 export function deletionIdentity(id: string): string {
   return id.replace(/^roaming:(?:native:|protocol:)/, 'roaming:');
 }

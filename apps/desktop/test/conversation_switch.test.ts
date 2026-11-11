@@ -22,6 +22,7 @@ import type { GapMessagesModal } from '../src/renderer/src/components/compose/Ga
 import * as replyPreview from '../src/renderer/src/lib/replyPreview';
 import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
+import { timelineViewport } from '../src/renderer/src/lib/timelineViewport';
 
 type TestMessage = {
   msgId: string;
@@ -39,6 +40,11 @@ const f = vi.hoisted(() => ({
   refreshing: false,
   unreadMode: false,
   unreadCounts: {} as Record<string, number>,
+  deletedResponse: [] as string[],
+  hiddenDeletionResponse: [] as string[],
+  deletedReply: undefined as (() => Promise<string[]>) | undefined,
+  hiddenDeletionReply: undefined as (() => Promise<string[]>) | undefined,
+  deletionSets: {} as { deleted?: Set<string>; hidden?: Set<string> },
   headRefreshes: 0,
   freshPreview: false,
   previewTarget: null as string | null,
@@ -143,6 +149,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return async (input?: UnreadInput) => {
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (path.at(-1) === 'listBefore') return f.beforeRows;
+            if (path.at(-1) === 'deletedMsgIds')
+              return f.deletedReply?.() ?? [...f.deletedResponse];
+            if (path.at(-1) === 'hiddenDeletedMsgIds')
+              return f.hiddenDeletionReply?.() ?? [...f.hiddenDeletionResponse];
             if (['listLatest', 'listFrom'].includes(path.at(-1) ?? '')) return f.refreshRows;
             if (path.at(-1) === 'getUnreadInfos' && f.unreadMode && input) {
               f.unreadReads.push(input);
@@ -230,6 +240,7 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
   return {
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
       f.messages = props.messages;
+      f.deletionSets = { deleted: props.deletedIds, hidden: props.hiddenDeletedIds };
       useLayoutEffect(() => {
         f.commit?.();
         f.commit = undefined;
@@ -284,6 +295,11 @@ afterEach(() => {
   f.commit = undefined;
   f.unreadMode = false;
   f.unreadCounts = {};
+  f.deletedResponse = [];
+  f.hiddenDeletionResponse = [];
+  f.deletedReply = undefined;
+  f.hiddenDeletionReply = undefined;
+  f.deletionSets = {};
   f.headRefreshes = 0;
   f.freshPreview = false;
   f.previewTarget = null;
@@ -303,6 +319,95 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('等值删除标记迟到不重复贴底，真实标记增删和正文更新仍即时出现', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const message = (body: string): TestMessage => ({
+    msgId: '71',
+    msgSeq: '1',
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: body } }],
+  });
+  const update = async (body: string) => {
+    f.refreshRows = [message(body)];
+    await act(async () => {
+      f.dbChanged!();
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+  };
+  let finishDeleted: ((ids: string[]) => void) | undefined;
+  let finishHidden: ((ids: string[]) => void) | undefined;
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    );
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [message('初始正文')] }));
+    expect(host.querySelector('[data-message-id="71"]')).not.toBeNull();
+    const before = f.deletionSets;
+    f.deletedReply = () =>
+      new Promise((resolve) => {
+        finishDeleted = resolve;
+      });
+    f.hiddenDeletionReply = () =>
+      new Promise((resolve) => {
+        finishHidden = resolve;
+      });
+    await update('已更新正文');
+    await act(async () => vi.advanceTimersByTimeAsync(32));
+    expect(f.messages[0]?.body).toBe('已更新正文');
+    expect(host.querySelector('[data-message-id="71"]')?.textContent).toContain('已更新正文');
+    const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+    const bottom = vi.spyOn(timelineViewport(scroll)!, 'bottom');
+    await act(async () => {
+      finishDeleted!([]);
+      finishHidden!([]);
+    });
+    expect(bottom).not.toHaveBeenCalled();
+    expect(f.deletionSets.deleted).toBe(before.deleted);
+    expect(f.deletionSets.hidden).toBe(before.hidden);
+    f.deletedReply = undefined;
+    f.hiddenDeletionReply = undefined;
+    f.deletedResponse = ['71', '71'];
+    f.hiddenDeletionResponse = ['71'];
+    await update('隐藏前的正文');
+    expect([...f.deletionSets.deleted!]).toEqual(['71']);
+    expect([...f.deletionSets.hidden!]).toEqual(['71']);
+    expect(host.querySelector('[data-message-id="71"]')).toBeNull();
+    const marked = f.deletionSets;
+    await update('标记未变的正文');
+    expect(f.deletionSets.deleted).toBe(marked.deleted);
+    expect(f.deletionSets.hidden).toBe(marked.hidden);
+    f.deletedResponse = [];
+    f.hiddenDeletionResponse = [];
+    await update('清除标记后的正文');
+    expect(f.deletionSets.deleted?.size).toBe(0);
+    expect(f.deletionSets.hidden?.size).toBe(0);
+    expect(host.querySelector('[data-message-id="71"]')?.textContent).toContain('清除标记后的正文');
+  } finally {
+    act(() => root.unmount());
+    finishDeleted?.([]);
+    finishHidden?.([]);
+    client.clear();
+    host.remove();
+  }
 });
 
 it('MainView 单条未读更新在深比较前只重建受影响会话，清零仍即时更新', async () => {
