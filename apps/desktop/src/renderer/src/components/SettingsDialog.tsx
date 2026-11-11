@@ -134,6 +134,7 @@ import {
 } from './settings/navigation';
 export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
+import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
 import { useUpdateStore } from '../state/update';
 import { SettingsResetButton } from './settings/SettingsReset';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
@@ -879,8 +880,7 @@ function AppearanceSection({
   const setAccent = useThemeStore((state) => state.setAccent);
   const setBackground = useThemeStore((state) => state.setBackground);
 
-  // 「纯文本消息自动渲染为 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
-  // （config.json）：渲染层要通过 App.tsx 的 TextMarkdownContext 广播给每条气泡。
+  // 业务开关复用电脑 AppSettings，主题等界面偏好走共享 clientState；本机仅保留启动快照。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: active,
     refetchOnWindowFocus: false,
@@ -888,13 +888,7 @@ function AppearanceSection({
     refetchOnMount: 'always',
   });
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
-  const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
-  const setShowMessageBubble = trpc.bootstrap.setShowMessageBubble.useMutation();
-  const setShowMessageFont = trpc.bootstrap.setShowMessageFont.useMutation();
-  const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
-  const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
-  const setShowMessageDate = trpc.bootstrap.setShowMessageDate.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
   const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
@@ -907,7 +901,6 @@ function AppearanceSection({
   const utils = trpc.useUtils();
   const [badgeError, setBadgeError] = useState<string | null>(null);
   const [readingError, setReadingError] = useState<string | null>(null);
-  const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [linkCard, setLinkCard] = useState(true);
   const [linkShot, setLinkShot] = useState(false);
@@ -1174,45 +1167,22 @@ function AppearanceSection({
                   settingId="message-seq"
                   label="显示消息序号（seq）"
                   control={
-                    <Toggle
-                      checked={settings.data?.showMessageSeq ?? false}
-                      disabled={!settings.data || setShowMessageSeq.isLoading}
-                      onChange={(enabled) => {
-                        setSeqError(null);
-                        setShowMessageSeq.mutate(
-                          { enabled },
-                          {
-                            onSuccess: () => {
-                              void settings.refetch();
-                            },
-                            onError: (error) => setSeqError(error.message),
-                          },
-                        );
-                      }}
+                    <SharedDisplayToggle
+                      name="showMessageSeq"
+                      fallback={settings.data?.showMessageSeq ?? false}
+                      disabled={!settings.data}
                       label="显示消息序号（seq）"
                     />
                   }
                 />
-                {seqError ? <p role="alert">{seqError}</p> : null}
                 <Row
                   settingId="message-date"
                   label="显示发送日期"
                   control={
-                    <Toggle
-                      checked={settings.data?.showMessageDate ?? false}
-                      disabled={!settings.data || setShowMessageDate.isLoading}
-                      onChange={(enabled) => {
-                        setSeqError(null);
-                        setShowMessageDate.mutate(
-                          { enabled },
-                          {
-                            onSuccess: () => {
-                              void settings.refetch();
-                            },
-                            onError: (error) => setSeqError(error.message),
-                          },
-                        );
-                      }}
+                    <SharedDisplayToggle
+                      name="showMessageDate"
+                      fallback={settings.data?.showMessageDate ?? false}
+                      disabled={!settings.data}
                       label="显示发送日期"
                     />
                   }
@@ -1221,21 +1191,10 @@ function AppearanceSection({
                   settingId="message-time"
                   label="显示发送时间"
                   control={
-                    <Toggle
-                      checked={settings.data?.showMessageTime ?? false}
-                      disabled={!settings.data || setShowMessageTime.isLoading}
-                      onChange={(enabled) => {
-                        setSeqError(null);
-                        setShowMessageTime.mutate(
-                          { enabled },
-                          {
-                            onSuccess: () => {
-                              void settings.refetch();
-                            },
-                            onError: (error) => setSeqError(error.message),
-                          },
-                        );
-                      }}
+                    <SharedDisplayToggle
+                      name="showMessageTime"
+                      fallback={settings.data?.showMessageTime ?? false}
+                      disabled={!settings.data}
                       label="显示发送时间"
                     />
                   }
@@ -1247,44 +1206,32 @@ function AppearanceSection({
                     key: 'showAvatarPendant' as const,
                     settingId: 'avatar-pendant',
                     label: '聊天头像挂件',
-                    mutation: setShowAvatarPendant,
                   },
                   {
                     key: 'showMessageBubble' as const,
                     settingId: 'message-bubble',
                     label: '消息气泡',
-                    mutation: setShowMessageBubble,
                   },
                   {
                     key: 'showMessageFont' as const,
                     settingId: 'message-font',
                     label: '消息字体',
-                    mutation: setShowMessageFont,
                   },
-                ].map(({ key, settingId, label, mutation }) => (
+                ].map(({ key, settingId, label }) => (
                   <Row
                     key={key}
                     settingId={settingId}
                     label={label}
                     control={
-                      <Toggle
-                        checked={
+                      <SharedDisplayToggle
+                        name={key}
+                        fallback={
                           settings.data?.[key] ??
                           (key === 'showAvatarPendant'
                             ? true
                             : (settings.data?.showMsgDecoration ?? true))
                         }
-                        disabled={!settings.data || mutation.isLoading}
-                        onChange={(enabled) => {
-                          setSeqError(null);
-                          mutation.mutate(
-                            { enabled },
-                            {
-                              onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                              onError: (error) => setSeqError(error.message),
-                            },
-                          );
-                        }}
+                        disabled={!settings.data}
                         label={label}
                       />
                     }

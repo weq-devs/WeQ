@@ -10,6 +10,7 @@
  */
 
 import { create } from 'zustand';
+import { changePreference, preferenceValue, PREFERENCES_CHANGED } from '../lib/clientPreferences';
 import { WEQ_MENU_CAPTURE_PRIVACY_KEY as CAPTURE_PRIVACY_STORAGE_KEY } from '@weq/service/backup-client';
 export { CAPTURE_PRIVACY_STORAGE_KEY };
 
@@ -61,6 +62,7 @@ export const usePrivacyStore = create<PrivacyState>((set, get) => {
     setCapturePrivacy: (capturePrivacy) => {
       persist(CAPTURE_PRIVACY_STORAGE_KEY, capturePrivacy);
       set({ capturePrivacy });
+      void changePreference('capturePrivacy', capturePrivacy);
     },
     beginTemporary: () => {
       const owner = Symbol('capture-privacy');
@@ -73,13 +75,18 @@ export const usePrivacyStore = create<PrivacyState>((set, get) => {
     set: (enabled) => {
       persist(PRIVACY_STORAGE_KEY, enabled);
       sync(enabled);
+      void changePreference('privacyMode', enabled);
     },
     toggle: () => {
       get().set(!get().enabled);
     },
     hydrate: () => {
-      sync(read(PRIVACY_STORAGE_KEY));
-      set({ capturePrivacy: read(CAPTURE_PRIVACY_STORAGE_KEY) });
+      sync(preferenceValue('privacyMode', read(PRIVACY_STORAGE_KEY)));
+      set({ capturePrivacy: preferenceValue('capturePrivacy', read(CAPTURE_PRIVACY_STORAGE_KEY)) });
     },
   };
 });
+if (typeof window !== 'undefined') {
+  usePrivacyStore.getState().hydrate();
+  window.addEventListener(PREFERENCES_CHANGED, () => usePrivacyStore.getState().hydrate());
+}

@@ -70,7 +70,12 @@ it('冷启动打开设置和切换数据源后重新打开，均只保留一个�
   document.body.append(host);
   const root = createRoot(host);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const consoleError = vi.spyOn(console, 'error');
+  const originalError = console.error;
+  const consoleError = vi.spyOn(console, 'error').mockImplementation((...args) => {
+    if (String(args[0]).includes('Maximum update depth'))
+      throw new Error(args.map(String).join(' '));
+    originalError(...args);
+  });
   const render = () =>
     act(async () =>
       root.render(

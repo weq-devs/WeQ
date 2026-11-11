@@ -57,6 +57,7 @@ import {
   PROJECT_GROUP_SHARE_URL,
 } from '../../../shared/project_groups';
 import { observable } from '@trpc/server/observable';
+import { boundClientState, trustSharedDraftMedia } from './client_state';
 import { mkdir, stat, lstat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -214,6 +215,13 @@ function requireServices(): AccountServices {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
   return ctx.services;
+}
+function currentDraftState() {
+  const context = getAppContext();
+  const uin = context.account?.context.uin;
+  const configId = context.services?.accountConfig.getRecord()?.configId;
+  if (!uin || !configId) throw new Error('账号尚未就绪');
+  return boundClientState({ expectedAccountUin: uin, expectedAccountConfigId: configId });
 }
 
 function requireExpectedAccount(expected?: string, expectedConfigId?: string): AccountServices {
@@ -2662,7 +2670,9 @@ export const accountRouter = router({
 
   /** 新建一个空会话，返回会话元数据（标题首轮对话后自动总结）。 */
   createAssistantSession: procedure.mutation(() => {
-    return requireServices().assistant.createSession();
+    const result = requireServices().assistant.createSession();
+    currentDraftState().announceDrafts();
+    return result;
   }),
 
   /** 删除一个会话（含其对话内容）。 */
@@ -2670,6 +2680,15 @@ export const accountRouter = router({
     .input(z.object({ sessionId: z.string().min(1) }))
     .mutation(({ input }) => {
       requireServices().assistant.deleteSession(input.sessionId);
+      try {
+        currentDraftState().records('assistant', { [input.sessionId]: null });
+      } catch (error) {
+        currentDraftState().announceDrafts();
+        throw new Error(
+          `会话已删除，但已读状态清理失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      currentDraftState().announceDrafts();
       return true;
     }),
 
@@ -2678,6 +2697,7 @@ export const accountRouter = router({
     .input(z.object({ sessionId: z.string().min(1), title: z.string() }))
     .mutation(({ input }) => {
       requireServices().assistant.renameSession(input.sessionId, input.title);
+      currentDraftState().announceDrafts();
       return true;
     }),
 
@@ -2691,6 +2711,7 @@ export const accountRouter = router({
     .input(z.object({ sessionId: z.string().min(1) }))
     .mutation(({ input }) => {
       requireServices().assistant.clearConversation(input.sessionId);
+      currentDraftState().announceDrafts();
       return true;
     }),
 
@@ -2703,6 +2724,7 @@ export const accountRouter = router({
     .input(z.object({ sessionId: z.string().min(1), text: z.string().min(1) }))
     .mutation(({ input }) => {
       const assistant = requireServices().assistant;
+      const state = currentDraftState();
       const runId = randomUUID();
       // 每轮任务挂一个 AbortController，供 abortAssistantRun 按 runId 掐断（用户点「停止」）。
       const ac = new AbortController();
@@ -2715,7 +2737,10 @@ export const accountRouter = router({
           ac.signal,
         )
         .catch(() => {})
-        .finally(() => activeAssistantRuns.delete(runId));
+        .finally(() => {
+          activeAssistantRuns.delete(runId);
+          state.announceDrafts();
+        });
       return { runId };
     }),
 
@@ -2943,14 +2968,24 @@ export const accountRouter = router({
    * `elements` 是按 40800 全量解析的正文（文本 / @ / 表情 / 图片 / 视频 / 文件 /
    * markdown / ark / 引用…… 都在里面），交给前端按模板的 message 结构渲染。
    */
-  listDrafts: procedure.query(async () => {
-    const drafts = await requireServices().drafts.listDrafts();
+  listDrafts: procedure.input(exportAccountBindingInput.optional()).query(async ({ input }) => {
+    const services = requireExpectedAccount(
+      input?.expectedAccountUin,
+      input?.expectedAccountConfigId,
+    );
+    const drafts = await services.drafts.listDrafts();
+    requireExpectedAccount(input?.expectedAccountUin, input?.expectedAccountConfigId);
+    for (const draft of drafts) trustSharedDraftMedia(elementsToEditable(draft.elements));
     return drafts.map((d) => ({
       storageKey: d.storageKey,
       chatType: d.chatType,
       targetUid: d.targetUid,
       sendTime: d.sendTime.toString(),
       elements: elementsToEditable(d.elements),
+      version: currentDraftState().observeDraft(
+        `chat:${d.chatType === 2 ? 'group' : 'c2c'}:${d.targetUid}`,
+        elementsToEditable(d.elements),
+      ).version,
     }));
   }),
 
@@ -2993,15 +3028,45 @@ export const accountRouter = router({
         kind: z.enum(['c2c', 'group']),
         targetUid: z.string().min(1),
         elements: z.array(z.any()),
+        expectedVersion: z.string().nullable().optional(),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      await requireServices().drafts.saveDraft({
-        kind: input.kind,
-        targetUid: input.targetUid,
-        elements: elementsFromEditable(input.elements),
-      });
-      return true;
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      let expectedBody: Uint8Array | null = null;
+      const write = () => {
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+        return services.drafts.compareAndSave(
+          {
+            kind: input.kind,
+            targetUid: input.targetUid,
+            elements: elementsFromEditable(input.elements),
+          },
+          expectedBody,
+        );
+      };
+      const state = currentDraftState();
+      const key = `chat:${input.kind}:${input.targetUid}`;
+      const read = async () => {
+        const snapshot = await services.drafts.snapshot(input.kind, input.targetUid);
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+        expectedBody = snapshot.body;
+        const row = snapshot.draft;
+        if (snapshot.exists && !row) throw new Error('QQ 草稿原行无法解析，已保留原件');
+        return row ? elementsToEditable(row.elements) : null;
+      };
+      return state.saveExternalDraft(
+        key,
+        input.elements.length ? input.elements : null,
+        input.expectedVersion ?? null,
+        read,
+        write,
+      );
     }),
 
   /**

@@ -233,6 +233,11 @@ function GroupTodosBody({
   const [history, setHistory] = useState(() => ({ key, rows: readGroupTodoHistory(key) }));
   const [historyError, setHistoryError] = useState('');
   useEffect(() => {
+    const refresh = () => setHistory({ key, rows: readGroupTodoHistory(key) });
+    window.addEventListener('weq-shared-account-state', refresh);
+    return () => window.removeEventListener('weq-shared-account-state', refresh);
+  }, [key]);
+  useEffect(() => {
     setHistory({ key, rows: readGroupTodoHistory(key) });
     setHistoryError('');
   }, [key]);

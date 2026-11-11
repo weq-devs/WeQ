@@ -323,6 +323,7 @@ export interface MfNode {
 
 /** 一份「合成聊天记录」草稿。 */
 export interface MfDraft {
+  version?: string | null;
   id: string;
   title: string;
   createdAt: number;
@@ -1952,6 +1953,7 @@ function coerceSegments(
  * 损坏时抛错，由列表读取边界逐项反馈；不能把坏记录静默变成空记录。
  */
 export function coerceDraft(raw: {
+  version?: string | null;
   id: string;
   title: string;
   createdAt: number;
@@ -1981,6 +1983,7 @@ export function coerceDraft(raw: {
   const path = new Set<object>();
   return {
     id: raw.id,
+    ...(raw.version !== undefined ? { version: raw.version } : {}),
     title: raw.title,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,

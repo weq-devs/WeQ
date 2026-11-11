@@ -1,10 +1,18 @@
 export const WEQ_MENU_CAPTURE_PRIVACY_KEY = 'weq.privacy-menu-capture';
+import {
+  legacyPreferenceKeys,
+  validatePreferencePatch,
+  type PreferencePatch,
+} from './client_preferences';
 
 export const WEQ_CLIENT_BACKUP_KEYS = [
   'weq.theme-preference',
   'weq.theme-accent',
   'weq.theme-background',
   'weq.theme-component-style',
+  'weq.theme-density',
+  'weq.sync.restored-shared',
+  'weq:web-notifications',
   'weq.privacy-mode',
   WEQ_MENU_CAPTURE_PRIVACY_KEY,
   'weq.groups.grouping',
@@ -25,6 +33,7 @@ export function isWeqClientBackupKey(key: string): boolean {
 
 /** 恢复默认只处理设置键；会话整理、草稿、数据快照与普通备份导入互不混用。 */
 export function isWeqClientDefaultsKey(key: string): boolean {
+  if (/^weq\.sync\.v1:[a-f0-9]{24}:shared$/.test(key)) return true;
   if (
     key === 'chat-template:conversation-preferences' ||
     key.startsWith('weq:group-assistant-pins:')
@@ -105,7 +114,14 @@ export function validateWeqClientSettings(value: unknown): asserts value is Reco
       !['plain', 'paper', 'grid', 'dots', 'wash', 'telegram'].includes(entry)
     )
       fail(key);
-    if (key === 'weq.theme-component-style' && entry !== 'classic') fail(key);
+    if (
+      key === 'weq.theme-component-style' &&
+      !['qqnt', 'classic', 'minimal', 'retro'].includes(entry)
+    )
+      fail(key);
+    if (key === 'weq.theme-density' && !['comfortable', 'compact'].includes(entry)) fail(key);
+    if (key === 'weq.sync.restored-shared') validatePreferencePatch(json(entry, key));
+    if (key === 'weq:web-notifications' && entry !== 'true' && entry !== 'false') fail(key);
     if (key === 'weq.groups.grouping' && !['notify', 'identity', 'size'].includes(entry)) fail(key);
     if (
       [
@@ -168,6 +184,11 @@ export function snapshotWeqClientSettings(
   storage: Pick<Storage, 'length' | 'key' | 'getItem'>,
 ): Record<string, string> {
   const out = readClientSettings(storage);
+  delete out['weq.sync.restored-shared'];
+  const server: unknown = JSON.parse(storage.getItem('weq.sync.v1:server') ?? 'null');
+  if (typeof server === 'string' && /^[a-f0-9]{24}$/.test(server)) {
+    for (const key of Object.values(legacyPreferenceKeys)) delete out[key];
+  }
   validateWeqClientSettings(out);
   return out;
 }
@@ -181,6 +202,26 @@ export function applyWeqClientSettings(
   defaults = false,
 ): void {
   validateWeqClientSettings(values);
+  const legacy: PreferencePatch = {};
+  for (const [name, storageKey] of Object.entries(legacyPreferenceKeys)) {
+    const raw = values[storageKey];
+    if (raw === undefined) continue;
+    const value =
+      name === 'accent' && /^#[\da-f]{3}$/i.test(raw)
+        ? `#${[...raw.slice(1)].map((part) => part + part).join('')}`
+        : ['privacyMode', 'capturePrivacy'].includes(name)
+          ? raw === '1'
+          : name === 'webNotifications'
+            ? raw === 'true'
+            : ['search', 'calendar'].includes(name)
+              ? JSON.parse(raw)
+              : raw;
+    Object.assign(legacy, { [name]: value });
+  }
+  if (receiptId !== undefined && Object.keys(legacy).length) {
+    validatePreferencePatch(legacy);
+    values = { ...values, 'weq.sync.restored-shared': JSON.stringify(legacy) };
+  }
   const before = defaults ? ({} as Record<string, string>) : readClientSettings(storage);
   if (defaults)
     for (let index = 0; index < storage.length; index++) {

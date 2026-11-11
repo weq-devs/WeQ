@@ -1,5 +1,12 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ACCOUNT_STATE_CHANGED,
+  isAccountStateReady,
+  saveAccountRecords,
+  sharedAccountRecords,
+} from '../lib/clientPreferences';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
+import { accountOrderDefaults } from '@weq/service/client-preferences';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useQQReadActivity } from './useQQAutoRefresh';
@@ -58,12 +65,18 @@ export function useContactDirectoryOrder(
   });
   const groupingOptions = kind === 'friends' ? FRIEND_GROUPS : GROUP_GROUPS;
   const sortOptions = kind === 'friends' ? FRIEND_SORTS : GROUP_SORTS;
-  const defaults = useMemo<DirectoryPreferences>(
-    () => ({ grouping: kind === 'friends' ? 'qq' : 'notify', sort: 'remark', descending: false }),
-    [kind],
-  );
+  const defaults = useMemo<DirectoryPreferences>(() => ({ ...accountOrderDefaults[kind] }), [kind]);
   const storageKey = `weq.contacts.order.${configId ?? ''}.${uin ?? ''}.${kind}`;
   const [saved, setSaved] = useState<{ key: string; value: DirectoryPreferences }>();
+  const [sharedTick, setSharedTick] = useState(0);
+  useEffect(() => {
+    const update = () => {
+      setSaved(undefined);
+      setSharedTick((value) => value + 1);
+    };
+    window.addEventListener(ACCOUNT_STATE_CHANGED, update);
+    return () => window.removeEventListener(ACCOUNT_STATE_CHANGED, update);
+  }, []);
   const [refreshRequest, setRefreshRequest] = useState<{
     fields: ContactMetric[];
     scope: string;
@@ -71,7 +84,9 @@ export function useContactDirectoryOrder(
   const storedPreferences = useMemo(() => {
     if (!enabled) return defaults;
     try {
-      const parsed = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
+      const parsed = isAccountStateReady()
+        ? sharedAccountRecords('order')[kind]
+        : JSON.parse(localStorage.getItem(storageKey) ?? 'null');
       if (
         parsed &&
         Object.hasOwn(groupingOptions, parsed.grouping) &&
@@ -83,7 +98,7 @@ export function useContactDirectoryOrder(
       /* 缺少偏好时使用默认值。 */
     }
     return defaults;
-  }, [storageKey, enabled, defaults, groupingOptions, sortOptions]);
+  }, [storageKey, enabled, defaults, groupingOptions, sortOptions, sharedTick, kind]);
   const preferences = saved?.key === storageKey ? saved.value : storedPreferences;
   const activity = useQQReadActivity(enabled && !freeze, { onlineOnly: false });
   const needsTimes = ['lastMessageAt', 'lastSpokeAt'].includes(preferences.sort);
@@ -202,6 +217,7 @@ export function useContactDirectoryOrder(
       ...(patch.sort ? { descending: defaultDescending(patch.sort) } : {}),
     };
     setSaved({ key: storageKey, value });
+    if (enabled) saveAccountRecords('order', { [kind]: value });
     if (enabled)
       try {
         localStorage.setItem(storageKey, JSON.stringify(value));

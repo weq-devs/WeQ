@@ -41,6 +41,7 @@ import {
 } from '../common/chat_image_cache';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { emitSettingsChanged } from '../common/settings_changes';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   listStorageUsage,
@@ -1736,6 +1737,7 @@ export class UserConfigService {
   reload(): void {
     this.cached = undefined;
     this.readFailure = undefined;
+    emitSettingsChanged();
   }
 
   write(patch: Partial<UserConfig>): UserConfig {
@@ -1758,6 +1760,7 @@ export class UserConfigService {
       throw error;
     }
     this.cached = next;
+    if (patch.settings) emitSettingsChanged();
     this.logger.info('wrote user config', {
       event: 'config-write',
       configPath: this.configPath,

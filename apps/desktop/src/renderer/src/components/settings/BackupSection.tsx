@@ -264,8 +264,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           progress: '正在恢复…',
         },
         claim: {
-          title: '在此设备恢复界面偏好？',
-          message: '将覆盖当前设备的界面偏好并重新加载，原发起设备不会再应用这份界面偏好。',
+          title: '认领界面恢复回执？',
+          message: '将恢复所选共享设置及当前设备布局并重新加载，原发起设备不再重复应用。',
           action: '在此设备恢复',
           progress: '正在恢复…',
         },

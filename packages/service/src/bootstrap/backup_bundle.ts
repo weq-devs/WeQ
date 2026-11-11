@@ -45,6 +45,7 @@ export interface WeqBackupSummary {
 const SETTINGS_FILES = new Set([
   'settings/app.json',
   'settings/client.json',
+  'settings/shared.json',
   'settings/export-presets.json',
 ]);
 const CONFIG_ID = /^\d{1,20}(?:_[0-9a-f]{8})?$/;

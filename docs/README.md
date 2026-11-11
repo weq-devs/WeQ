@@ -12,6 +12,7 @@
 面向使用者，介绍每一项功能怎么用。
 
 - [功能总览与快速上手](./guide/index.md)
+- [跨端设置与草稿](./guide/cross-device-settings.md)
 - [macOS QQ 数据读取授权](./guide/macos-data-access.md)
 - [性能监视与历史保存](./guide/performance-monitor.md)
 

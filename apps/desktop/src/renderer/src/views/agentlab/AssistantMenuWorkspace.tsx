@@ -55,6 +55,23 @@ export function AssistantMenuWorkspace({
     };
   }
   const readResults = readResultsRef.current.results;
+  useEffect(() => {
+    const refresh = () => {
+      const results = readWorkspaceResults(accountScope, 'assistant');
+      readResultsRef.current = { scope: accountScope, results };
+      setActivities((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).map(([key, value]) => {
+            const id =
+              key === currentSelection.current.key ? currentSelection.current.sessionId : undefined;
+            return [key, id && value.result === results[id] ? { ...value, unread: false } : value];
+          }),
+        ),
+      );
+    };
+    window.addEventListener('weq-shared-account-state', refresh);
+    return () => window.removeEventListener('weq-shared-account-state', refresh);
+  }, [accountScope]);
   const setAssistant = useWorkspaceMenu((state) => state.setAssistant);
   const activity = activities[selection.key]?.activity ?? 'idle';
   const unread = activities[selection.key]?.unread ?? false;

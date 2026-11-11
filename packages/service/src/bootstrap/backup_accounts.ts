@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ClientStateStore, validateClientState } from './client_state';
 import { isDefaultModelSelection } from '@weq/agentlab';
 import { existsSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
@@ -38,7 +39,8 @@ export function weqAccountSettingPath(
   scope: string,
   name: WeqAccountSettingFile,
 ): string {
-  if (name === 'dress.json') return join(root, 'config', 'accounts', scope, name);
+  if (name === 'dress.json' || name === 'client-state.json')
+    return join(root, 'config', 'accounts', scope, name);
   const category =
     name === 'anti-recall.json'
       ? 'anti_recall'
@@ -49,6 +51,10 @@ export function weqAccountSettingPath(
 }
 
 export function validateWeqAccountPreference(name: WeqAccountSettingFile, value: unknown): void {
+  if (name === 'client-state.json') {
+    validateClientState(value);
+    return;
+  }
   const input = record(value, name);
   if (name === 'anti-recall.json') {
     bools(input, ['enabled', 'notifyEnabled'], name);
@@ -177,7 +183,13 @@ export function snapshotWeqAccountPreferences(
     warnings: string[] = [];
   for (const name of WEQ_ACCOUNT_SETTING_FILES) {
     const path = weqAccountSettingPath(root, cache, scope, name);
-    const value = existsSync(path) ? parseWeqBackupJson(readWeqBackupFile(path)) : {};
+    const value = existsSync(path)
+      ? name === 'client-state.json'
+        ? new ClientStateStore(path).exportState()
+        : parseWeqBackupJson(readWeqBackupFile(path))
+      : name === 'client-state.json'
+        ? { revision: 0, values: {}, records: {}, drafts: {} }
+        : {};
     const input = record(value, name);
     if (name === 'dress.json' && input.backgroundFile) {
       if (

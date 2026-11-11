@@ -62,6 +62,14 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
                       hydrateWebStartupCache(queryCache, response.snapshot);
                     return response.backup;
                   },
+                  applyShared: async (receiptId, values) => {
+                    const snapshot = await client.clientState.restoreLegacyPreferences.mutate(
+                      { receiptId, values },
+                      { signal },
+                    );
+                    const { acceptPreferences } = await import('../lib/clientPreferences');
+                    acceptPreferences(snapshot);
+                  },
                   acknowledge: (id, clientId) =>
                     client.bootstrap.backupAcknowledgeClient.mutate({ id, clientId }, { signal }),
                 },

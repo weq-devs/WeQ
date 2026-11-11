@@ -35,6 +35,7 @@ import {
 } from './lazyWorkspaces';
 import { AssistantMenuWorkspace } from '../views/agentlab/AssistantMenuWorkspace';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { openDraftCopies, useDraftConflict } from '../lib/draftConflicts';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
 import { WorkspaceStatusDot } from './WorkspaceStatusDot';
 import { trpc } from '../trpc/client';
@@ -122,6 +123,7 @@ export function WorkspaceTools({
   const finished = useWorkspaceMenu((state) => state.finished);
   const assistantActivity = useWorkspaceMenu((state) => state.assistant);
   const assistantUnread = useWorkspaceMenu((state) => state.assistantUnread);
+  const draftCopies = useDraftConflict((state) => state.copiesCount);
   const [expanded, setExpanded] = useState(false);
   const lastAnchor = useRef<HTMLElement | null>(null);
   if (anchor) lastAnchor.current = anchor;
@@ -488,6 +490,16 @@ export function WorkspaceTools({
           )}
           {panel === 'tasks' && running ? <small>{running} 项进行中</small> : null}
           <div className="weq-workspace-menu-head-actions">
+            {draftCopies > 0 && (
+              <button
+                type="button"
+                title={`草稿副本（${draftCopies}）`}
+                aria-label="草稿副本"
+                onClick={openDraftCopies}
+              >
+                <FileStack size={17} />
+              </button>
+            )}
             {panel === 'assistant' && expanded ? (
               <button
                 type="button"

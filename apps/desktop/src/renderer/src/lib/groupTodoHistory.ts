@@ -1,3 +1,9 @@
+import {
+  accountBinding,
+  isAccountStateReady,
+  saveAccountRecords,
+  sharedAccountRecords,
+} from './clientPreferences';
 export interface GroupTodoRecord {
   sequence: string;
   sourceId?: string;
@@ -66,6 +72,19 @@ export function readGroupTodoHistory(
   storage: Pick<Storage, 'getItem'> = localStorage,
 ): GroupTodoRecord[] {
   if (!key) return [];
+  if (isAccountStateReady()) {
+    const [uin, configId, groupId] = JSON.parse(key.slice('weq:completed-group-todos:v1:'.length));
+    const binding = accountBinding();
+    if (
+      binding &&
+      uin === binding.expectedAccountUin &&
+      configId === binding.expectedAccountConfigId
+    )
+      return Object.entries(sharedAccountRecords('todos'))
+        .filter(([id]) => id.startsWith(`${groupId}:`))
+        .map(([, row]) => row)
+        .filter(completedRecord);
+  }
   try {
     const rows: unknown = JSON.parse(storage.getItem(key) ?? '[]');
     return Array.isArray(rows) ? rows.filter(completedRecord) : [];
@@ -80,4 +99,17 @@ export function saveGroupTodoHistory(
   storage: Pick<Storage, 'setItem'> = localStorage,
 ): void {
   if (key) storage.setItem(key, JSON.stringify(rows.filter((row) => row.completed)));
+  if (key && accountBinding()) {
+    const [uin, configId, groupId] = JSON.parse(key.slice('weq:completed-group-todos:v1:'.length));
+    const binding = accountBinding()!;
+    if (uin === binding.expectedAccountUin && configId === binding.expectedAccountConfigId)
+      saveAccountRecords(
+        'todos',
+        Object.fromEntries(
+          rows
+            .filter((row) => row.completed)
+            .map((row) => [`${groupId}:${groupTodoKey(row)}`, row]),
+        ),
+      );
+  }
 }

@@ -1,9 +1,21 @@
 type ResultKind = 'tasks' | 'assistant';
+import {
+  currentAccountScope,
+  isAccountStateReady,
+  saveAccountRecords,
+  sharedAccountRecords,
+} from './clientPreferences';
 
 const storageKey = (scope: string, kind: ResultKind) =>
   `weq:workspace-read:v1:${encodeURIComponent(scope)}:${kind}`;
 
 export function readWorkspaceResults(scope: string, kind: ResultKind): Record<string, string> {
+  if (isAccountStateReady() && scope === currentAccountScope())
+    return Object.fromEntries(
+      Object.entries(sharedAccountRecords(kind)).filter(
+        (row): row is [string, string] => typeof row[1] === 'string',
+      ),
+    );
   try {
     const value: unknown = JSON.parse(window.localStorage.getItem(storageKey(scope, kind)) ?? '{}');
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -22,6 +34,7 @@ export function rememberWorkspaceResults(
   kind: ResultKind,
   results: Record<string, string>,
 ): void {
+  if (scope === currentAccountScope()) saveAccountRecords(kind, results);
   try {
     const key = storageKey(scope, kind);
     if (Object.keys(results).length === 0) {

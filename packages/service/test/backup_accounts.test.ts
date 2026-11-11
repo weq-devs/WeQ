@@ -22,6 +22,7 @@ import {
   weqAccountSettingPath,
 } from '../src/bootstrap/backup_accounts';
 import { makeBackupPersona } from './fixtures/backup_persona';
+import { WEQ_ACCOUNT_SETTING_FILES } from '../src/common/backup_account_paths';
 
 const roots: string[] = [];
 it('意图显示、回退列表和历史上限的备份校验与服务配置一致', () => {
@@ -140,7 +141,7 @@ it('账号偏好按真实文件收集，自定义背景改为便携名，原配�
   const original = readFileSync(weqAccountSettingPath(f.root, f.cache, f.source, 'dress.json'));
   const snapshot = f.service.snapshot({ parts: ['accounts'], accountConfigIds: [f.source] }, {});
   const bundle = readWeqBackup(snapshot.archive);
-  expect(bundle.files).toHaveLength(6);
+  expect(bundle.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length + 2);
   expect(snapshot.summary.accountConfigIds).toEqual([f.source]);
   expect(readFileSync(weqAccountSettingPath(f.root, f.cache, f.source, 'dress.json'))).toEqual(
     original,
@@ -227,8 +228,13 @@ it('实际应用的账号模型引用与 QQ 装扮资源缺失会提示，跳过
 it('缺失偏好也作为默认值备份，覆盖时可恢复真正的默认账号设置', () => {
   const f = fixture();
   const snapshot = snapshotWeqAccountPreferences(f.root, f.cache, f.source);
-  expect(snapshot.files).toHaveLength(4);
-  for (const file of snapshot.files) expect(JSON.parse(file.data.toString())).toEqual({});
+  expect(snapshot.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length);
+  for (const file of snapshot.files)
+    expect(JSON.parse(file.data.toString())).toEqual(
+      file.path.endsWith('/client-state.json')
+        ? { revision: 0, values: {}, records: {}, drafts: {} }
+        : {},
+    );
 });
 
 it('默认引用的恢复预览使用实际默认配置，失效能力会警告，已配置时不误报', async () => {

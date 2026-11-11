@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { changePreference, preferenceValue, useClientPreferences } from '../lib/clientPreferences';
+import { useState } from 'react';
 import {
   DEFAULT_SEARCH_CATEGORIES,
   SEARCH_CATEGORY_ORDER,
@@ -39,24 +40,20 @@ export function readSearchPreferences(): {
 }
 
 export function useSearchPreferences() {
+  useClientPreferences((state) => state.tick);
   const [initial] = useState(readSearchPreferences);
-  const [categories, setCategories] = useState(initial.categories);
-  const [appEnabled, setAppEnabled] = useState(initial.appEnabled);
-  const [numberLookupEnabled, setNumberLookupEnabled] = useState(initial.numberLookupEnabled);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        SEARCH_PREFERENCES_KEY,
-        JSON.stringify({ categories, appEnabled, numberLookupEnabled }),
-      );
-    } catch {}
-  }, [categories, appEnabled, numberLookupEnabled]);
+  const { categories, appEnabled, numberLookupEnabled } = preferenceValue('search', initial);
+  const update = (patch: Partial<ReturnType<typeof readSearchPreferences>>) =>
+    void changePreference('search', {
+      ...preferenceValue('search', initial),
+      ...patch,
+    });
   return {
     categories,
-    setCategories,
+    setCategories: (value: SearchCategory[]) => update({ categories: value }),
     appEnabled,
-    setAppEnabled,
+    setAppEnabled: (value: boolean) => update({ appEnabled: value }),
     numberLookupEnabled,
-    setNumberLookupEnabled,
+    setNumberLookupEnabled: (value: boolean) => update({ numberLookupEnabled: value }),
   };
 }

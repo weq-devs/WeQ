@@ -45,6 +45,22 @@ export class DraftService {
   async listDrafts(): Promise<Draft[]> {
     return this.session.drafts.listDrafts();
   }
+  snapshot(kind: DraftPeerKind, targetUid: string) {
+    return this.session.drafts.getSnapshot(chatTypeOf(kind), targetUid);
+  }
+  async compareAndSave(input: SaveDraftInput, expectedBody: Uint8Array | null): Promise<boolean> {
+    const sendTime = BigInt(Math.floor(Date.now() / 1000));
+    const saved = await this.session.drafts.compareAndSave(
+      { ...input, chatType: chatTypeOf(input.kind), sendTime },
+      expectedBody,
+    );
+    if (saved)
+      await this.session.recentContacts.setDraftTime(
+        input.targetUid,
+        input.elements.length ? sendTime : null,
+      );
+    return saved;
+  }
 
   /**
    * 写入一份草稿并同步会话列表镜像。

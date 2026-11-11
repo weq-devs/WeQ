@@ -11,7 +11,7 @@ export const SETTINGS_RESET_CARDS = [
   ['global', 'toast', '应用内横幅提醒'],
   ['privacy', 'privacy-mode', '隐私模式'],
   ['privacy', 'app-lock', '应用锁'],
-  ['privacy', 'web-notifications', '此设备通知'],
+  ['privacy', 'web-notifications', '网页通知'],
   ['chat-messages', 'unread', '未读提醒'],
   ['chat-messages', 'reading', '阅读与定位'],
   ['message-display', 'message-time', '时间与序号'],

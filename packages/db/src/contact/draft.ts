@@ -83,13 +83,25 @@ export class DraftDb {
 
   /** 读单个会话的草稿；没有（或解不出来）返回 null。 */
   async getDraft(chatType: number, targetUid: string): Promise<Draft | null> {
+    return (await this.getSnapshot(chatType, targetUid)).draft;
+  }
+
+  /** 正文与物理行来自同一次读取，用于写入时的单语句比较。 */
+  async getSnapshot(
+    chatType: number,
+    targetUid: string,
+  ): Promise<{ draft: Draft | null; body: Uint8Array | null; exists: boolean }> {
     const key = draftStorageKey(chatType, targetUid);
     const rows = await this.qq.query(
       `SELECT "43001","43002" FROM draft_storage_table_v1 WHERE "43001" = ?`,
       [key],
     );
     const row = rows[0];
-    return row ? rowToDraft(row) : null;
+    return {
+      draft: row ? rowToDraft(row) : null,
+      body: row?.[1] instanceof Uint8Array ? row[1] : null,
+      exists: Boolean(row),
+    };
   }
 
   /**
@@ -98,21 +110,44 @@ export class DraftDb {
    */
   async saveDraft(input: DraftWriteInput): Promise<void> {
     const storageKey = draftStorageKey(input.chatType, input.targetUid);
-    const sendTime = input.sendTime ?? BigInt(Math.floor(Date.now() / 1000));
-    const body = bodyCodec.encode({
-      entry: {
-        msgId: 0n,
-        chatType: input.chatType,
-        targetUid: input.targetUid,
-        reserved40022: '',
-        sendTime,
-        elements: input.elements.map((el) => encodeElement(el)),
-        reserved49079: 0,
-      },
-    });
     await this.qq.write(
       `INSERT OR REPLACE INTO draft_storage_table_v1 ("43001","43002") VALUES (?,?)`,
-      [storageKey, body],
+      [storageKey, encodeDraft(input)],
+    );
+  }
+
+  /** 在 SQLite 同一条写语句内比较原 BLOB，QQ 在检查后改行也不能被旧稿覆盖。 */
+  async compareAndSave(input: DraftWriteInput, expectedBody: Uint8Array | null): Promise<boolean> {
+    const key = draftStorageKey(input.chatType, input.targetUid);
+    if (!input.elements.length) {
+      if (expectedBody === null)
+        return (
+          (
+            await this.qq.query(`SELECT "43001" FROM draft_storage_table_v1 WHERE "43001" = ?`, [
+              key,
+            ])
+          ).length === 0
+        );
+      return (
+        (await this.qq.write(
+          `DELETE FROM draft_storage_table_v1 WHERE "43001" = ? AND "43002" = ?`,
+          [key, expectedBody],
+        )) === 1
+      );
+    }
+    const body = encodeDraft(input);
+    if (expectedBody === null)
+      return (
+        (await this.qq.write(
+          `INSERT INTO draft_storage_table_v1 ("43001","43002") SELECT ?,? WHERE NOT EXISTS (SELECT 1 FROM draft_storage_table_v1 WHERE "43001" = ?)`,
+          [key, body, key],
+        )) === 1
+      );
+    return (
+      (await this.qq.write(
+        `UPDATE draft_storage_table_v1 SET "43002" = ? WHERE "43001" = ? AND "43002" = ?`,
+        [body, key, expectedBody],
+      )) === 1
     );
   }
 
@@ -126,6 +161,21 @@ export class DraftDb {
   close(): void {
     this.qq.close();
   }
+}
+
+function encodeDraft(input: DraftWriteInput): Uint8Array {
+  const sendTime = input.sendTime ?? BigInt(Math.floor(Date.now() / 1000));
+  return bodyCodec.encode({
+    entry: {
+      msgId: 0n,
+      chatType: input.chatType,
+      targetUid: input.targetUid,
+      reserved40022: '',
+      sendTime,
+      elements: input.elements.map((el) => encodeElement(el)),
+      reserved49079: 0,
+    },
+  });
 }
 
 function rowToDraft(row: SqlRow): Draft | null {

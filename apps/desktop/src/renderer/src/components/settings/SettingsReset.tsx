@@ -3,9 +3,6 @@ import { RotateCcw, Loader2 } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { client, trpc } from '../../trpc/client';
 import { DEFAULT_THEME_SETTINGS as themeDefaults, useThemeStore } from '../../state/theme';
-import { DEFAULT_PRIVACY_SETTINGS, usePrivacyStore } from '../../state/privacy';
-import { IS_WEB } from '../../lib/target';
-import { useWebNotices } from '../../state/webNotices';
 import {
   SETTINGS_RESET_CARDS,
   resetCards,
@@ -17,14 +14,15 @@ import {
 import { SettingsResetContext, type ResetSave } from './resetContext';
 import { SETTINGS_PAGE_LABELS } from './navigation';
 import '../../styles/settings-reset.css';
+import { changePreference, preferenceValue } from '../../lib/clientPreferences';
+import { preferenceDefaults, type PreferenceKey } from '@weq/service/client-preferences';
 
 interface LocalEntry extends SettingsResetItem {
-  apply: () => void;
+  apply: () => void | Promise<void>;
 }
 function localEntries(target: SettingsResetTarget): LocalEntry[] {
   const cards = new Set(resetCards(target).map(([, card]) => card));
   const theme = useThemeStore.getState();
-  const privacy = usePrivacyStore.getState();
   const all: Array<LocalEntry & { card: SettingsResetCardId }> = [];
   const add = (
     card: SettingsResetCardId,
@@ -32,14 +30,17 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
     label: string,
     current: unknown,
     defaultValue: unknown,
-    apply: () => void,
-  ) =>
-    all.push({ card, id: `${card}:${id}`, label, current, defaultValue, apply, scope: '此设备' });
+    apply: () => void | Promise<void>,
+  ) => all.push({ card, id: `${card}:${id}`, label, current, defaultValue, apply, scope: '全局' });
+  const resetPreference = async (name: PreferenceKey) => {
+    if (!(await changePreference(name, preferenceDefaults[name])))
+      throw new Error('设置未保存，请重试');
+  };
   add('theme-mode', 'preference', '基础模式', theme.preference, themeDefaults.preference, () =>
-    theme.setPreference(themeDefaults.preference),
+    resetPreference('preference'),
   );
   add('theme-accent', 'accent', '主题色', theme.accent, themeDefaults.accent, () =>
-    theme.setAccent(themeDefaults.accent),
+    resetPreference('accent'),
   );
   add(
     'theme-background',
@@ -47,7 +48,7 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
     '界面背景',
     theme.background,
     themeDefaults.background,
-    () => theme.setBackground(themeDefaults.background),
+    () => resetPreference('background'),
   );
   add(
     'theme-components',
@@ -55,31 +56,30 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
     '组件风格',
     theme.componentStyle,
     themeDefaults.componentStyle,
-    () => theme.setComponentStyle(themeDefaults.componentStyle),
+    () => resetPreference('componentStyle'),
   );
   add('theme-components', 'density', '界面密度', theme.density, themeDefaults.density, () =>
-    theme.setDensity(themeDefaults.density),
+    resetPreference('density'),
   );
   add(
     'privacy-mode',
     'enabled',
     '隐私模式',
-    privacy.enabled,
-    DEFAULT_PRIVACY_SETTINGS.enabled,
-    () => privacy.set(DEFAULT_PRIVACY_SETTINGS.enabled),
+    preferenceValue('privacyMode'),
+    preferenceDefaults.privacyMode,
+    () => resetPreference('privacyMode'),
   );
   add(
     'privacy-mode',
     'capture',
     '截图临时隐私模式',
-    privacy.capturePrivacy,
-    DEFAULT_PRIVACY_SETTINGS.capturePrivacy,
-    () => privacy.setCapturePrivacy(DEFAULT_PRIVACY_SETTINGS.capturePrivacy),
+    preferenceValue('capturePrivacy'),
+    preferenceDefaults.capturePrivacy,
+    () => resetPreference('capturePrivacy'),
   );
-  if (IS_WEB && typeof Notification !== 'undefined')
-    add('web-notifications', 'enabled', '此设备通知', useWebNotices.getState().enabled, false, () =>
-      useWebNotices.getState().set(false),
-    );
+  add('web-notifications', 'enabled', '网页通知', preferenceValue('webNotifications'), false, () =>
+    resetPreference('webNotifications'),
+  );
   return all.filter((entry) => cards.has(entry.card));
 }
 const differs = (item: SettingsResetItem) =>
@@ -198,7 +198,9 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         target,
         source: preview.source,
         items: [
-          ...preview.items,
+          ...preview.items.filter(
+            (item) => !localEntries(target).some((local) => local.id === item.id),
+          ),
           ...localEntries(target).map(({ apply: _apply, ...item }) => item),
         ],
       });
@@ -229,7 +231,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
       for (const item of localEntries(active.target)) {
         if (!differs(item) || (retry && !retry.includes(item.id))) continue;
         try {
-          item.apply();
+          await item.apply();
           completed.push({ id: item.id, ok: true });
         } catch (reason) {
           completed.push({ id: item.id, ok: false, error: String(reason) });

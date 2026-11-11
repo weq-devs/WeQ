@@ -64,6 +64,7 @@ import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 import { useGeneratedSelection } from './useGeneratedSelection';
 import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
+import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import { assistantResultVersion } from '../../lib/workspaceReadState';
 import { PageSnapshotScope } from '../../components/PageSnapshots';
@@ -580,6 +581,12 @@ export function AssistantPanel({
   const [stopping, setStopping] = useState(false);
   // 当前真实会话 id（草稿升级后跟随更新；resume 查询依赖它，不能用挂载时的快照）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
+  const sharedDraft = useSharedAssistantDraft(
+    `assistant:${currentSessionId ?? 'new'}`,
+    input,
+    setInput,
+    Boolean(draftAccount),
+  );
   useEffect(() => {
     if (draftAccount) rememberAssistantDraft(draftAccount, currentSessionId, input);
   }, [draftAccount, currentSessionId, input]);
@@ -812,6 +819,7 @@ export function AssistantPanel({
       return;
     }
     const text = raw.trim();
+    const clearSubmittedDraft = sharedDraft.prepareSubmitted(raw);
     setRequestFailed(false);
     if (!preset) {
       setInput('');
@@ -841,6 +849,7 @@ export function AssistantPanel({
       void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
       const { runId } = await send.mutateAsync({ sessionId: id, text });
       runIdRef.current = runId;
+      if (!preset) void clearSubmittedDraft().catch(() => {});
     } catch (e) {
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
       setRequestFailed(true);

@@ -10,7 +10,8 @@ import { useNumericSettingDraft } from './useNumericSettingDraft';
 import { AutoSave } from './AutoSave';
 import { trpc } from '../../trpc/client';
 import { DEFAULT_CHAT_QQ_SHOW_MINUTES } from '../../lib/chatQqShow';
-import { Row, Toggle } from './controls';
+import { Row } from './controls';
+import { SharedDisplayToggle } from './SharedDisplayToggle';
 
 const MAX_MINUTES = 365 * 1440;
 
@@ -20,7 +21,6 @@ export function QqShowSettings() {
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const setShow = trpc.bootstrap.setShowChatQqShow.useMutation();
   const setMinutes = trpc.bootstrap.setQqShowCacheMinutes.useMutation();
   const utils = trpc.useUtils();
   const current = settings.data?.qqShowCacheMinutes ?? DEFAULT_CHAT_QQ_SHOW_MINUTES;
@@ -52,19 +52,10 @@ export function QqShowSettings() {
         label="聊天 QQ 秀替换头像"
         desc="用成员的 QQ 秀全身像替换头像与挂件。"
         control={
-          <Toggle
-            checked={settings.data?.showChatQqShow ?? true}
-            disabled={!settings.data || setShow.isLoading}
-            onChange={(enabled) => {
-              setError(null);
-              setShow.mutate(
-                { enabled },
-                {
-                  onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                  onError: (reason) => setError(reason.message),
-                },
-              );
-            }}
+          <SharedDisplayToggle
+            name="showChatQqShow"
+            fallback={settings.data?.showChatQqShow ?? true}
+            disabled={!settings.data}
             label="聊天 QQ 秀替换头像"
           />
         }

@@ -60,6 +60,12 @@ import {
   timelineRowKey,
 } from '../../../shared/roaming_timeline';
 import { useViewState } from '../state/view';
+import { resolveDraftSave } from '../lib/draftConflicts';
+import {
+  rememberClientRetry,
+  forgetClientRetry,
+  useClientPreferences,
+} from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
@@ -197,7 +203,7 @@ import {
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { composerDraftRecovery } from '../lib/composerDraftRecovery';
-import { composerAssetIds } from '../lib/composerDraftMedia';
+import { composerAssetIds, shareComposerImages } from '../lib/composerDraftMedia';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useCloneTaskRefresh } from '../hooks/useCloneTaskRefresh';
 import {
@@ -280,6 +286,7 @@ import {
   cleanNtPath,
   codecElementsToSegs,
   createEmptyDraft,
+  coerceDraft,
   createNode,
   draftCardPreview,
   draftTitle,
@@ -3127,16 +3134,22 @@ function MainWorkspace(): ReactElement {
   const [groupAssistantPins, setGroupAssistantPins] = useState(() =>
     loadGroupAssistantPins(openedUin ?? ''),
   );
+  useEffect(() => {
+    const refresh = () => setGroupAssistantPins(loadGroupAssistantPins(openedUin ?? ''));
+    window.addEventListener('weq-shared-account-state', refresh);
+    return () => window.removeEventListener('weq-shared-account-state', refresh);
+  }, [openedUin]);
   // 输入先同步保存本机恢复快照；离开时继续写 QQ 草稿，成功后再确认对应快照。
   const [drafts, setDrafts] = useState<ConversationDrafts>(() => {
     try {
-      return composerDraftRecovery.load(openedUin ?? '');
+      return composerDraftRecovery.load(messageScope);
     } catch {
       return {};
     }
   });
   /** 本次会话里被改过、还没落库的会话 id。 */
   const dirtyDraftsRef = useRef<Set<string>>(new Set(Object.keys(drafts)));
+  const draftVersionsRef = useRef(new Map<string, string | null>());
   /**
    * 还没落库的草稿正文（输入框实时值）。**刻意用 ref 而不是 state** —— 每敲一个
    * 字都 setState 会让整棵 MainView 重渲，这是之前输入卡顿的主因。它只在「切会话 /
@@ -3146,7 +3159,13 @@ function MainWorkspace(): ReactElement {
   const draftRecoveryFailed = useRef(false);
   useEffect(() => {
     try {
-      composerDraftRecovery.load(openedUin ?? '');
+      if (!messageScope) return;
+      composerDraftRecovery.migrate(openedUin ?? '', messageScope);
+      const recovered = composerDraftRecovery.load(messageScope);
+      pendingDraftsRef.current = { ...recovered };
+      dirtyDraftsRef.current = new Set(Object.keys(recovered));
+      draftVersionsRef.current.clear();
+      setDrafts(recovered);
     } catch {
       pushToast({
         key: 'composer-draft-storage',
@@ -3156,12 +3175,12 @@ function MainWorkspace(): ReactElement {
       });
       draftRecoveryFailed.current = true;
     }
-  }, [openedUin, pushToast]);
+  }, [openedUin, messageScope, pushToast]);
   /**
    * flushDraft 定义在下面（依赖 conversations），但 handleSelectConversation 在它
    * 之前就要用 —— 用 ref 转发拿最新实现，避免把两个 useCallback 的依赖搅在一起。
    */
-  const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
+  const flushDraftRef = useRef<(conversationId: string) => Promise<void>>(async () => {});
   const settingsNavigation = useSettingsNavigation();
   const [settingsOpen, setSettingsOpen] = usePageState(
     'workspace:settings',
@@ -5354,12 +5373,31 @@ function MainWorkspace(): ReactElement {
 
   const persistMergeForwardDraft = useCallback(
     async (draft: MfDraft) => {
-      await client.mergeForward.save.mutate({
-        id: draft.id,
-        title: draft.title,
-        createdAt: draft.createdAt,
-        nodes: draft.nodes,
-      });
+      const key = `legacy-composition:${draft.id}`;
+      const result = await resolveDraftSave(
+        key,
+        draft,
+        draftVersionsRef.current.get(key) ?? draft.version ?? null,
+        (expectedVersion) =>
+          client.mergeForward.save.mutate({
+            id: draft.id,
+            title: draft.title,
+            createdAt: draft.createdAt,
+            nodes: draft.nodes,
+            expectedVersion,
+          }),
+      );
+      draftVersionsRef.current.set(key, result.current.version);
+      if (!result.local) {
+        const remote = result.current.value;
+        const restored = remote
+          ? coerceDraft(remote as Parameters<typeof coerceDraft>[0])
+          : createEmptyDraft();
+        setMergeForwardDraft(
+          (current) =>
+            current && { ...current, draft: { ...restored, version: result.current.version } },
+        );
+      }
       void utils.mergeForward.list.invalidate();
     },
     [utils],
@@ -9008,7 +9046,7 @@ function MainWorkspace(): ReactElement {
   const updateDraft = useCallback(
     (conversationId: string, value: string): void => {
       try {
-        composerDraftRecovery.write(openedUin ?? '', conversationId, value);
+        composerDraftRecovery.write(messageScope, conversationId, value);
         draftRecoveryFailed.current = false;
       } catch {
         if (!draftRecoveryFailed.current)
@@ -9026,12 +9064,13 @@ function MainWorkspace(): ReactElement {
       pendingDraftsRef.current = setLocalDraft(pendingDraftsRef.current, conversationId, value);
       dirtyDraftsRef.current.add(conversationId);
     },
-    [openedUin, pushToast],
+    [messageScope, pushToast],
   );
 
   // 进入消息页时把 QQ 库里已有的草稿读进来（整表只有几行）。这是唯一一次读 ——
   // 本机恢复快照优先于 QQ 旧草稿；输入时不逐字写 QQ 库。
-  const draftQuery = trpc.account.listDrafts.useQuery(undefined, {
+  const draftQuery = trpc.account.listDrafts.useQuery(pinSession.binding ?? undefined, {
+    enabled: Boolean(pinSession.binding),
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
@@ -9041,6 +9080,8 @@ function MainWorkspace(): ReactElement {
     if (!rows) return;
     const next: ConversationDrafts = {};
     for (const row of rows) {
+      if (!dirtyDraftsRef.current.has(row.targetUid))
+        draftVersionsRef.current.set(row.targetUid, row.version);
       // 行键里的 targetUid 就是会话 id（c2c 是 uid、群是群号）。
       const text = elementsToComposerText(row.elements ?? []);
       if (text.trim()) next[row.targetUid] = text;
@@ -9061,6 +9102,8 @@ function MainWorkspace(): ReactElement {
    */
   const flushDraft = useCallback(
     async (conversationId: string): Promise<void> => {
+      const draftBinding = messageBindingRef.current;
+      if (!draftBinding || messageScopeRef.current !== messageScope) return;
       if (!dirtyDraftsRef.current.has(conversationId)) return;
       // 主列表之外，隐藏会话 / 最近删除的会话也可能是当前打字的那个，都要能落库。
       const conv =
@@ -9075,19 +9118,64 @@ function MainWorkspace(): ReactElement {
             ? ({ kind: 'c2c', targetUid: conv.otherUser.id } as const)
             : null;
       if (!peer) return;
-      dirtyDraftsRef.current.delete(conversationId);
       // 脏会话在 pendingDraftsRef 里一定有值（含空串 = 用户已清空）。只读它，
       // 绝不回退到已落库的旧正文 —— 那正是「删了内容草稿还在」的根因。
       const text = localDraftToWrite(pendingDraftsRef.current, conversationId);
+      let savedText = text;
       try {
-        await client.account.saveDraft.mutate({
-          kind: peer.kind,
-          targetUid: peer.targetUid,
-          elements: toIpcElements(composerTextToElements(text)),
-        });
+        const sharedBody = await shareComposerImages(
+          openedUin ?? '',
+          conversationId,
+          text,
+          async (file) => {
+            const staged = await stageAccountFile(file, draftBinding);
+            try {
+              return (
+                await client.clientState.keepDraftMedia.mutate({
+                  ...draftBinding,
+                  uploadId: staged.uploadId,
+                })
+              ).path;
+            } finally {
+              void client.account.pickedFileDiscard
+                .mutate({ ...draftBinding, uploadId: staged.uploadId })
+                .catch(() => {});
+            }
+          },
+        );
+        savedText = sharedBody;
+        const elements = toIpcElements(composerTextToElements(sharedBody));
+        const result = await resolveDraftSave(
+          `chat:${peer.kind}:${peer.targetUid}`,
+          elements,
+          draftVersionsRef.current.get(conversationId) ?? null,
+          (expectedVersion) =>
+            client.account.saveDraft.mutate({
+              ...draftBinding,
+              kind: peer.kind,
+              targetUid: peer.targetUid,
+              elements,
+              expectedVersion,
+            }),
+        );
+        draftVersionsRef.current.set(conversationId, result.current.version);
+        if (!result.local)
+          savedText = elementsToComposerText(
+            Array.isArray(result.current.value) ? result.current.value : [],
+          );
       } catch (e) {
         // QQ 写入失败不能删除恢复快照，下次离开时仍可重试。
         dirtyDraftsRef.current.add(conversationId);
+        rememberClientRetry(`chat:${messageScope}:${conversationId}`, async () => {
+          if (messageScopeRef.current !== messageScope) {
+            useClientPreferences.setState({ error: '请返回原账号后重试聊天草稿保存' });
+            return;
+          }
+          await flushDraftRef.current(conversationId);
+        });
+        useClientPreferences.setState({
+          error: `聊天草稿未保存：${e instanceof Error ? e.message : String(e)}`,
+        });
         console.error('[MainView] Failed to save draft:', e);
         return;
       }
@@ -9096,21 +9184,25 @@ function MainWorkspace(): ReactElement {
       // 写库是异步的：期间用户可能又切回这个会话接着改（pending 已变、dirty 已重置）。
       // 那种情况下这次落库的结果已经不是最新的，state 不能拿它盖掉新正文。
       if (localDraftToWrite(pendingDraftsRef.current, conversationId) !== text) return;
+      dirtyDraftsRef.current.delete(conversationId);
+      forgetClientRetry(`chat:${messageScope}:${conversationId}`);
+      pendingDraftsRef.current[conversationId] = savedText;
+      if (savedText !== text) composerDraftRecovery.write(messageScope, conversationId, savedText);
       try {
         // QQ wire 草稿不保留本机素材标识；带图片的恢复快照需保留到用户清空/发送。
-        if (!composerAssetIds(text).size)
-          composerDraftRecovery.confirm(openedUin ?? '', conversationId, text);
+        if (!composerAssetIds(savedText).size)
+          composerDraftRecovery.confirm(messageScope, conversationId, savedText);
       } catch {
         /* 保留快照，不能因清理失败丢稿。 */
       }
       setDrafts((current) => {
         const next = { ...current };
-        if (text.trim()) next[conversationId] = text;
+        if (savedText.trim()) next[conversationId] = savedText;
         else delete next[conversationId];
         return next;
       });
     },
-    [conversations, hiddenConversationsById, deletedConversationsById, openedUin],
+    [conversations, hiddenConversationsById, deletedConversationsById, openedUin, messageScope],
   );
 
   /**
@@ -9121,12 +9213,14 @@ function MainWorkspace(): ReactElement {
     for (const id of [...dirtyDraftsRef.current]) void flushDraft(id);
   }, [flushDraft]);
   flushDraftRef.current = (conversationId: string) => {
-    void flushDraft(conversationId);
+    return flushDraft(conversationId);
   };
 
   // 退出时尽力同步 QQ；崩溃保护由输入时的同步恢复快照承担，不依赖此回调。
   useEffect(() => {
     const onUnload = (): void => {
+      const draftBinding = messageBindingRef.current;
+      if (!draftBinding || messageScopeRef.current !== messageScope) return;
       for (const id of [...dirtyDraftsRef.current]) {
         const conv =
           conversations.find((c) => c.id === id) ??
@@ -9140,9 +9234,12 @@ function MainWorkspace(): ReactElement {
               ? { kind: 'c2c' as const, targetUid: conv.otherUser.id }
               : null;
         if (!peer) continue;
+        if (composerAssetIds(localDraftToWrite(pendingDraftsRef.current, id)).size) continue;
         // 同步路径上 fire-and-forget：unload 阶段拿不到 await 的机会。
         void client.account.saveDraft
           .mutate({
+            ...draftBinding,
+            expectedVersion: draftVersionsRef.current.get(id) ?? null,
             kind: peer.kind,
             targetUid: peer.targetUid,
             // 空串 = 清掉草稿（见 `@weq/service/draft-edit`）。
@@ -9155,7 +9252,7 @@ function MainWorkspace(): ReactElement {
     };
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
-  }, [conversations, hiddenConversationsById, deletedConversationsById]);
+  }, [conversations, hiddenConversationsById, deletedConversationsById, messageScope]);
 
   /**
    * 从表情面板目录里抽出「能按超级表情发」的 faceId → packId/stickerId。
@@ -12262,6 +12359,7 @@ function MainWorkspace(): ReactElement {
           ) : null}
           {mergeForwardDraft ? (
             <MergeForwardDialog
+              key={`${mergeForwardDraft.draft.id}:${mergeForwardDraft.draft.version ?? ''}`}
               initialDraft={mergeForwardDraft.draft}
               self={mergeForwardSelf}
               senderMode={mergeForwardDraft.senderMode}

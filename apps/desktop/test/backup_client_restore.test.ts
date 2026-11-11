@@ -47,6 +47,7 @@ function fixture() {
         client: id === clientId ? state.client : null,
       })),
       acknowledge: vi.fn(async () => true),
+      applyShared: vi.fn(async () => {}),
     },
   };
 }
@@ -85,6 +86,17 @@ it('确认失败可重试，已提交的界面偏好不覆盖用户后来的修�
     result: { clientPending: false },
   });
   expect(localStorage.getItem('weq.theme-preference')).toBe('light');
+});
+it('旧界面备份必须成功写入共享设置才确认，失败保留恢复意图供显式重试', async () => {
+  const f = fixture();
+  f.api.applyShared.mockRejectedValueOnce(new Error('offline'));
+  await expect(restoreBackupClient(f.api, localStorage)).rejects.toThrow('offline');
+  expect(f.api.acknowledge).not.toHaveBeenCalled();
+  expect(localStorage.getItem('weq.sync.restored-shared')).not.toBeNull();
+  await restoreBackupClient(f.api, localStorage);
+  expect(f.api.applyShared).toHaveBeenLastCalledWith(f.state.client!.id, { preference: 'dark' });
+  expect(f.api.acknowledge).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem('weq.sync.restored-shared')).toBeNull();
 });
 it('另一设备的恢复不会写入当前界面，也不确认别人的回执', async () => {
   const f = fixture();

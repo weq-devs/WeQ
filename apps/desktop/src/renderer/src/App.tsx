@@ -15,6 +15,14 @@ import {
   type ReactNode,
 } from 'react';
 import { useViewState } from './state/view';
+import { ClientStateSync } from './components/ClientStateSync';
+import { DraftConflictHost } from './components/DraftConflictHost';
+import {
+  effectiveDisplaySettings,
+  preferenceValue,
+  useClientPreferences,
+} from './lib/clientPreferences';
+import './styles/client-sync.css';
 import { BootstrapView } from './views/BootstrapView';
 import { DialogHost } from './components/Dialog';
 import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
@@ -84,10 +92,12 @@ function TextMarkdownProvider({
   children: ReactNode;
   cacheScope: string;
 }): ReactElement {
-  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+  useClientPreferences((state) => state.tick);
+  const query = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+  const settings = { ...query, data: query.data && effectiveDisplaySettings(query.data) };
   const bubble = settings.data?.showMessageBubble ?? settings.data?.showMsgDecoration ?? true;
   const font = settings.data?.showMessageFont ?? settings.data?.showMsgDecoration ?? true;
   const widget = settings.data?.showAvatarPendant ?? true;
@@ -136,6 +146,7 @@ function SelfPendantProvider({
   accountOpen: boolean;
   children: ReactNode;
 }): ReactElement {
+  useClientPreferences((state) => state.tick);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
@@ -145,7 +156,7 @@ function SelfPendantProvider({
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
-  const enabled = settings.data?.showAvatarPendant ?? true;
+  const enabled = preferenceValue('showAvatarPendant', settings.data?.showAvatarPendant ?? true);
   const url = enabled ? dressUrl(dress.data?.widgetUrl ?? '') : '';
   return (
     <SelfBubbleContext.Provider value={dress.data?.bubbleId ?? 0}>
@@ -209,7 +220,7 @@ export default function App(): ReactElement {
 
   useEffect(() => {
     ensureThemeInitialized();
-    // 隐私模式：从 localStorage 回填根属性，早于首帧避免闪明文。
+    // 隐私模式先用最近共享快照回填，随后异步校准，不等待查询才显示正文。
     usePrivacyStore.getState().hydrate();
   }, []);
 
@@ -222,6 +233,8 @@ export default function App(): ReactElement {
   // 全打在已关闭的账号上）。
   return (
     <CdnProvider accountOpen={view === 'main' && !switching}>
+      <ClientStateSync />
+      <DraftConflictHost />
       <TextMarkdownProvider cacheScope={view === 'main' && !switching ? (openedUin ?? '') : ''}>
         <SelfPendantProvider accountOpen={view === 'main' && !switching}>
           {/* 生效挂件与自己的静态挂件同层级广播,也必须盖住转发窗口。 */}

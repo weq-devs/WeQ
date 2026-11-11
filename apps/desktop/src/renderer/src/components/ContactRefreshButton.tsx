@@ -8,6 +8,13 @@ import { SegmentedControl } from './SegmentedControl';
 import { useContactRefreshTask } from '../hooks/useContactRefreshTask';
 import '../styles/contact-directory-order.css';
 import type { ContactMetric } from '@weq/service';
+import {
+  ACCOUNT_STATE_CHANGED,
+  accountBinding,
+  isAccountStateReady,
+  saveAccountRecords,
+  sharedAccountRecords,
+} from '../lib/clientPreferences';
 
 export function ContactRefreshButton({
   onRefresh,
@@ -56,14 +63,26 @@ export function ContactCacheRefreshDialog({
   const [range, setRange] = useState<'older24h' | 'all' | 'none'>('older24h');
   const storageKey = `weq.contacts.refreshRange.${config.data?.configId ?? ''}.${uin ?? ''}`;
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved === 'older24h' || saved === 'all' || saved === 'none') setRange(saved);
-      else setRange('older24h');
-    } catch {
-      /* 使用默认更新范围。 */
-    }
-  }, [storageKey]);
+    const update = () => {
+      try {
+        const source = accountBinding();
+        const saved =
+          isAccountStateReady() &&
+          source &&
+          source.expectedAccountUin === uin &&
+          source.expectedAccountConfigId === config.data?.configId
+            ? sharedAccountRecords('order').refreshRange
+            : localStorage.getItem(storageKey);
+        if (saved === 'older24h' || saved === 'all' || saved === 'none') setRange(saved);
+        else setRange('older24h');
+      } catch {
+        /* 使用默认更新范围。 */
+      }
+    };
+    update();
+    window.addEventListener(ACCOUNT_STATE_CHANGED, update);
+    return () => window.removeEventListener(ACCOUNT_STATE_CHANGED, update);
+  }, [storageKey, uin, config.data?.configId]);
   const rebuild = trpc.account.contactMetrics.rebuild.useMutation();
   const showError = useDialog((state) => state.showError);
   const start = async () => {
@@ -131,6 +150,13 @@ export function ContactCacheRefreshDialog({
             ]}
             onChange={(value) => {
               setRange(value);
+              const source = accountBinding();
+              if (
+                source &&
+                source.expectedAccountUin === uin &&
+                source.expectedAccountConfigId === config.data?.configId
+              )
+                saveAccountRecords('order', { refreshRange: value });
               if (config.data?.uin === uin)
                 try {
                   localStorage.setItem(storageKey, value);

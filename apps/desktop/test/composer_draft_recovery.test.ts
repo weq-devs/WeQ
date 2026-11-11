@@ -41,3 +41,13 @@ it('保存失败明确抛错且保留旧快照；损坏原件不被读取路径�
   expect(() => store.load('a')).toThrow();
   expect(localStorage.getItem(key)).toBe('{broken');
 });
+it('旧按 QQ 号保存的恢复稿只迁给首个配置，不覆盖新稿，也不串入同号备份', () => {
+  const store = createComposerDraftRecovery(localStorage);
+  store.write('10001', 'peer', '旧稿原件');
+  store.write('["10001","source-a"]', 'peer', '当前配置新稿');
+  store.migrate('10001', '["10001","source-a"]');
+  expect(store.load('["10001","source-a"]')).toEqual({ peer: '当前配置新稿' });
+  store.migrate('10001', '["10001","source-b"]');
+  expect(store.load('["10001","source-b"]')).toEqual({});
+  expect(store.load('10001')).toEqual({ peer: '旧稿原件' });
+});

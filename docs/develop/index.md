@@ -51,6 +51,7 @@ pnpm dev
 - [窗口与浮层](./nonmodal-surfaces-20261018.md)：页面、侧栏、浮窗、锚定窗格与模态层的职责。
 - [设置重构执行方案](./settings-restructure-plan-20261025.md)：分阶段设计与验证记录；当前七组目录以[设置总览](../guide/settings.md)和 `settings/navigation.ts` 为准。
 - [页面现场保留](./tab-state-retention-20261015.md)：活动性、隐藏页监听与内存状态边界。
+- [跨端偏好与功能状态](./client-state-sync.md)：共享与设备归属、迁移、变更通知、备份及草稿冲突。
 - [原生 QQ 邮箱](./qqmail-native-20261017.md)：账号级认证、邮件协议、附件、正文隔离与提醒生命周期。
 - [手机连接与重连](./remote-two-paths-20261022.md)：局域网、已有/内嵌 TS、持久设备凭据和 iOS WebView 会话身份。
 - [Remote 手机壳独立仓库](./remote-repository-split-20261023.md)：手机源码、构建和协议测试的维护边界与电脑夹具入口。

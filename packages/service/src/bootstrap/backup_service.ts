@@ -18,6 +18,8 @@ import { snapshotWeqClones } from './backup_clones';
 import { snapshotWeqAccountPreferences } from './backup_accounts';
 import { validateWeqBackupData } from './backup_data';
 import { validateWeqClientSettings } from '../common/backup_client';
+import { ClientStateStore } from './client_state';
+import { preferenceDefaults } from '../common/client_preferences';
 import { weqDefaultsPaths, type WeqDefaultsChoice } from './backup_defaults';
 import {
   previewWeqBackupRestore,
@@ -98,6 +100,10 @@ export class WeqBackupService {
     const warnings: string[] = [];
     if (selection.parts.includes('settings')) {
       add('settings/app.json', snapshotWeqSettings(settings));
+      add(
+        'settings/shared.json',
+        new ClientStateStore(join(this.root, 'client-state', 'global.json')).exportState(),
+      );
       if (selection.includeClient !== false) {
         validateWeqClientSettings(client);
         add('settings/client.json', client);
@@ -281,6 +287,21 @@ export class WeqBackupService {
           data: Buffer.from(JSON.stringify(snapshotWeqSettings(DEFAULT_APP_SETTINGS))),
         },
         { path: 'settings/client.json', data: Buffer.from('{}') },
+        {
+          path: 'settings/shared.json',
+          data: Buffer.from(
+            JSON.stringify({
+              revision: 0,
+              values: Object.fromEntries(
+                Object.entries(preferenceDefaults).filter(
+                  ([key]) => !Object.hasOwn(DEFAULT_APP_SETTINGS, key),
+                ),
+              ),
+              records: {},
+              drafts: {},
+            }),
+          ),
+        },
         { path: 'settings/export-presets.json', data: Buffer.from('{}') },
       ]),
       {

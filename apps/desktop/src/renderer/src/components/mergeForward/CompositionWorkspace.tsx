@@ -20,6 +20,7 @@ import {
   Copy as RestoreWindow,
 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
+import { resolveDraftSave } from '../../lib/draftConflicts';
 import { IS_ELECTRON } from '../../lib/target';
 import { RenderDocumentContext } from '../../lib/renderDocument';
 import { useAppLock } from '../../state/lock';
@@ -147,6 +148,9 @@ export function CompositionWorkspace({
   const [progress, setProgress] = useState<MfDraft | null>(null);
   const progressRef = useRef<MfDraft | null>(null);
   const working = progress ?? draft;
+  const latestWorking = useRef(working);
+  latestWorking.current = working;
+  const sharedVersions = useRef(new Map<string, string | null>());
   const [recoveries, setRecoveries] = useState<MfDraft[]>([]);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
@@ -176,6 +180,18 @@ export function CompositionWorkspace({
   const serial = useRef(Promise.resolve());
   const version = useRef(0);
   const dirtyRef = useRef(false);
+  useEffect(() => {
+    const working = latestWorking.current;
+    for (const [id, revision] of Object.entries(saved.data?.versions ?? {}))
+      if (id !== working.id || !dirtyRef.current) sharedVersions.current.set(id, revision);
+    if (!dirtyRef.current) {
+      const remote = saved.data?.current.find((entry) => entry.id === working.id);
+      if (remote && JSON.stringify(remote) !== JSON.stringify(working)) {
+        setDraft(coerceDraft(remote));
+        setEditorVersion((value) => value + 1);
+      }
+    }
+  }, [saved.data]);
   const disposing = useRef(false);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -259,7 +275,25 @@ export function CompositionWorkspace({
     const job = serial.current
       .catch(() => {})
       .then(async () => {
-        await client.mergeForward.workspaceSave.mutate({ ...identity, draft: snapshot });
+        const result = await resolveDraftSave(
+          `composition:${snapshot.id}`,
+          snapshot,
+          sharedVersions.current.get(snapshot.id) ?? null,
+          (expectedVersion) =>
+            client.mergeForward.workspaceSave.mutate({
+              ...identity,
+              draft: snapshot,
+              expectedVersion,
+            }),
+        );
+        sharedVersions.current.set(snapshot.id, result.current.version);
+        if (!result.local && revision === version.current) {
+          const remote = result.current.value;
+          const parsed = readCompositionEntries(remote === null ? [] : [remote]);
+          if (parsed.rejected.length) throw new Error(parsed.rejected[0]!.error);
+          setDraft(parsed.drafts[0] ?? createEmptyDraft());
+          setEditorVersion((value) => value + 1);
+        }
       });
     serial.current = job;
     await job;
@@ -728,10 +762,22 @@ export function CompositionWorkspace({
                                   if (dirtyRef.current)
                                     throw new Error('内容仍在更新，请稍后再删除');
                                   await serial.current.catch(() => {});
-                                  await client.mergeForward.workspaceRemove.mutate({
-                                    ...binding,
-                                    id: entry.id,
-                                  });
+                                  const removed = await resolveDraftSave(
+                                    `composition:${entry.id}`,
+                                    null,
+                                    sharedVersions.current.get(entry.id) ?? null,
+                                    (expectedVersion) =>
+                                      client.mergeForward.workspaceRemove.mutate({
+                                        ...binding,
+                                        id: entry.id,
+                                        expectedVersion,
+                                      }),
+                                  );
+                                  sharedVersions.current.set(entry.id, removed.current.version);
+                                  if (!removed.local) {
+                                    await saved.refetch();
+                                    return;
+                                  }
                                   acknowledgeCompositionBackup(binding, entry);
                                   setRecoveries(readCompositionBackups(binding).drafts);
                                   if (entry.id === draft.id) {

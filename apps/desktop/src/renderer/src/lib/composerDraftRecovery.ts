@@ -25,6 +25,29 @@ export function createComposerDraftRecovery(
   const key = (account: string, conversation: string) =>
     `${accountPrefix(account)}${encodeURIComponent(conversation)}`;
   return {
+    migrate(oldAccount: string, scope: string): void {
+      if (!oldAccount || !scope) return;
+      const store = storage();
+      const ownerKey = `${PREFIX}legacy-owner:${encodeURIComponent(oldAccount)}`;
+      const owner = store.getItem(ownerKey);
+      if (owner && owner !== scope) return;
+      const oldPrefix = accountPrefix(oldAccount);
+      const entries: [string, string][] = [];
+      for (let index = 0; index < store.length; index++) {
+        const name = store.key(index);
+        if (!name?.startsWith(oldPrefix)) continue;
+        const raw = store.getItem(name);
+        if (raw !== null) {
+          readBody(raw);
+          entries.push([name.slice(oldPrefix.length), raw]);
+        }
+      }
+      for (const [conversation, raw] of entries) {
+        const name = `${accountPrefix(scope)}${conversation}`;
+        if (store.getItem(name) === null) store.setItem(name, raw);
+      }
+      store.setItem(ownerKey, scope);
+    },
     load(account: string): Record<string, string> {
       if (!account) return {};
       const store = storage();
