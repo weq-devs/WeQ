@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./performance": "./src/performance/index.ts",
+    "./performance-node": "./src/performance/node.ts",
     "./service-ports": "./src/common/service_ports.ts",
     "./conversation-calendar-sources": "./src/account/conversation_calendar_sources.ts",
     "./conversation-calendar": "./src/account/conversation_calendar.ts",

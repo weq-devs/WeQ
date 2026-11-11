@@ -28,8 +28,10 @@ import { udpCaptureRouter } from './routers/udp_capture';
 import { backgroundTasksRouter } from './routers/background_tasks';
 import { startupRouter } from './routers/startup';
 import { settingsResetRouter } from './routers/settings_reset';
+import { performanceMonitorRouter } from './routers/performance_monitor';
 
 export const appRouter = router({
+  performanceMonitor: performanceMonitorRouter,
   settingsReset: settingsResetRouter,
   startup: startupRouter,
   backgroundTasks: backgroundTasksRouter,

@@ -1,5 +1,6 @@
 import { getLogger, logErrorContext } from './logger';
 import { withLogOperation, currentOperationId } from './operation_log';
+import { beginRequestMetric } from '../performance/requests';
 
 const expected = new Set([
   'BAD_REQUEST',
@@ -36,6 +37,7 @@ export async function logRequest<T>(
   resultError: (result: T) => unknown = () => undefined,
 ): Promise<T> {
   return withLogOperation(async () => {
+    const finishMetric = beginRequestMetric(path);
     const began = performance.now();
     const logger = getLogger().child({ scope });
     const record = (error?: unknown, failed = error !== undefined) => {
@@ -70,9 +72,12 @@ export async function logRequest<T>(
     };
     try {
       const result = await run();
-      record(resultError(result));
+      const error = resultError(result);
+      finishMetric(error !== undefined);
+      record(error);
       return result;
     } catch (error) {
+      finishMetric(true);
       record(error, true);
       throw error;
     }

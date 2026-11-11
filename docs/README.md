@@ -13,6 +13,7 @@
 
 - [功能总览与快速上手](./guide/index.md)
 - [macOS QQ 数据读取授权](./guide/macos-data-access.md)
+- [性能监视与历史保存](./guide/performance-monitor.md)
 
 ## Native 原理
 
@@ -31,6 +32,7 @@ NTQQ 各数据库的表结构与字段解析，全部依据 WeQ 自己的解析�
 面向贡献者，介绍项目架构、构建发版与贡献流程。
 
 - [开发者入口](./develop/index.md)
+- [性能监视采集、存储与验证](./develop/performance-monitor.md)
 - [统一导出格式与内容范围（待实现）](./develop/export-format/README.md)
 - [Web 服务与手机连接](./guide/remote-web.md)
 - [本机浏览器与 Remote 入口解耦](./develop/web-remote-entry-decoupling-20261109.md)

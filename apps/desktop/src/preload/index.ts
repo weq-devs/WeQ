@@ -14,6 +14,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
+import { installPerformanceSampling } from './performance_monitor';
 import type { EditMenuState } from '../shared/edit_menu';
 import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoFrame } from '../shared/call_video_ipc';
 import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
@@ -29,6 +30,7 @@ const { exposeElectronTRPC } = requireFromHere(
 
 exposeElectronTRPC();
 
+installPerformanceSampling();
 
 let undoHandler: (() => boolean) | undefined;
 ipcRenderer.on('edit:undo', () => {

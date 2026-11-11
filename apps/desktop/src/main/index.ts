@@ -95,6 +95,9 @@ import {
 } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
+import { installPerformanceMonitor, type PerformanceMonitor } from '@weq/service/performance';
+import { createDesktopCollector } from './performance_monitor';
+import { performanceDatabaseDetails } from './performance_database';
 import { databaseCheckups } from './db_checkup';
 import { macApplicationMenu } from './application_menu';
 import { createSystemTray } from './system_tray';
@@ -167,6 +170,9 @@ let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / Cmd+Q / before-quit). */
 let isQuitting = false;
+let performanceMonitor: PerformanceMonitor | undefined;
+let performanceQuitReady = false;
+let performanceQuitPending = false;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
 const windowLayouts = new WeakMap<BrowserWindow, WindowLayout>();
@@ -871,6 +877,20 @@ void app.whenReady().then(async () => {
         .catch(() => logger.warn('Web 服务自动启动失败，可在设置中重试。'));
     }
   }
+  const logDirectory = getLogDir();
+  if (logDirectory) {
+    performanceMonitor = installPerformanceMonitor(
+      join(logDirectory, '..'),
+      createDesktopCollector(
+        () => {
+          const window = getMainWindow();
+          return window && !window.isDestroyed() ? window.webContents.id : undefined;
+        },
+        performanceDatabaseDetails,
+        (kind, reason) => performanceMonitor?.recordEvent(kind, reason),
+      ),
+    );
+  }
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
   getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
@@ -1016,6 +1036,17 @@ if (hasSingleInstanceLock) {
 // 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
 app.on('will-quit', (event) => {
   if (event.defaultPrevented) return;
+  if (performanceMonitor && !performanceQuitReady) {
+    event.preventDefault();
+    if (!performanceQuitPending) {
+      performanceQuitPending = true;
+      void performanceMonitor.dispose().finally(() => {
+        performanceQuitReady = true;
+        app.quit();
+      });
+    }
+    return;
+  }
   void databaseCheckups.cancelAll();
   if (hasSingleInstanceLock) {
     try {

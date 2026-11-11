@@ -10,6 +10,8 @@ import {
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
@@ -120,6 +122,7 @@ import { Modal } from './Dialog';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
 import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
+const PerformanceMonitor = lazy(() => import('./settings/PerformanceMonitor'));
 import { useAppLock } from '../state/lock';
 import {
   SETTINGS_GROUPS,
@@ -256,6 +259,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '资源加载',
     icon: <Globe size={16} />,
     render: () => <GlobalSettingsSection section="network" />,
+  },
+  {
+    id: 'performance-monitor',
+    label: '性能监视',
+    icon: <Activity size={16} />,
+    render: () => (
+      <Suspense fallback={<p>正在加载性能监视…</p>}>
+        <PerformanceMonitor />
+      </Suspense>
+    ),
   },
   {
     id: 'diagnostics',
