@@ -21,6 +21,7 @@ export const guideSidebar = [
     collapsed: false,
     items: [
       { text: '快速上手', link: '/guide/getting-started' },
+      { text: '支持的 QQ 版本', link: '/guide/supported-versions' },
       { text: 'macOS 安装与首次打开', link: '/guide/macos-install' },
       { text: 'Arch Linux 安装（AUR）', link: '/guide/arch-install' },
       { text: 'QQ 调试副本', link: '/guide/macos-debug-copy' },
@@ -152,9 +153,7 @@ export const developSidebar = [
   },
   {
     text: 'Native 能力',
-    items: [
-      { text: 'nt_helper.node 接口', link: '/develop/nt-helper-interface' },
-    ],
+    items: [{ text: 'nt_helper.node 接口', link: '/develop/nt-helper-interface' }],
   },
   {
     text: '协议与消息',
@@ -183,14 +182,11 @@ export const developSidebar = [
   },
   {
     text: '界面架构',
-    items: [
-    ],
+    items: [],
   },
   {
     text: '远端与平台',
-    items: [
-      { text: 'Web 服务与手机连接', link: '/guide/remote-web' },
-    ],
+    items: [{ text: 'Web 服务与手机连接', link: '/guide/remote-web' }],
   },
   {
     text: '贡献',
