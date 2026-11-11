@@ -110,6 +110,15 @@ export function BootstrapView(): ReactElement {
     refetchOnWindowFocus: false,
     retry: false,
   });
+  // Remote 的新页面是手机端的一次启动，不受电脑进程的启动快照约束。
+  const webSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: IS_WEB && nativeOk && homeStage === 'booting',
+    staleTime: initialSnapshot ? 30_000 : 0,
+    refetchOnMount: initialSnapshot ? false : 'always',
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const requestedStartupPage = IS_WEB ? webSettings.data?.startupPage : startupPage.data;
 
   // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
   // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。
@@ -156,8 +165,17 @@ export function BootstrapView(): ReactElement {
         return;
       }
       if (!currentAccount.isSuccess) return;
+      if (IS_WEB) {
+        if (!webSettings.isFetched) return;
+        if (webSettings.isError) {
+          booted.current = true;
+          setHomeStage('home');
+          showError('读取启动设置失败', errMsg(webSettings.error));
+          return;
+        }
+      }
       if (currentAccount.data) {
-        // 重载只接回主进程中的账号；不能重开数据库、切到自动进入目标或重置窗口。
+        // 只接回实际账号，不重开数据库或切号；桌面重载保留现场，Web 新页面应用启动设置。
         booted.current = true;
         const uin = currentAccount.data.uin;
         void (async () => {
@@ -167,6 +185,13 @@ export function BootstrapView(): ReactElement {
           if (!IS_WEB) {
             await runAccountWarmup(utils, setWarmup);
           }
+          if (IS_WEB)
+            useViewState.setState({
+              startupPage:
+                requestedStartupPage === 'home' || requestedStartupPage === 'messages'
+                  ? requestedStartupPage
+                  : null,
+            });
           setOpenedUin(uin);
           goTo('main');
           setHomeStage('home');
@@ -184,8 +209,8 @@ export function BootstrapView(): ReactElement {
     booted.current = true;
     useViewState.setState({
       startupPage:
-        !IS_WEB && (startupPage.data === 'home' || startupPage.data === 'messages')
-          ? startupPage.data
+        requestedStartupPage === 'home' || requestedStartupPage === 'messages'
+          ? requestedStartupPage
           : null,
     });
 
@@ -272,7 +297,10 @@ export function BootstrapView(): ReactElement {
     autoTarget.isFetched,
     autoTarget.data,
     startupPage.isFetched,
-    startupPage.data,
+    requestedStartupPage,
+    webSettings.isFetched,
+    webSettings.isError,
+    webSettings.error,
     configs.isFetched,
     configs.data,
     dataAccess.isFetched,
