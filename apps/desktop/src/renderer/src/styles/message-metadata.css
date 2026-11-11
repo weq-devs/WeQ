@@ -9,6 +9,11 @@
   display: none;
 }
 
+.message-line.mine .weq-message-heading {
+  justify-content: flex-end;
+  text-align: right;
+}
+
 .weq-message-heading > .weq-message-provenance {
   display: inline-flex;
   margin: 0;
