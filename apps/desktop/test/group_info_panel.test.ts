@@ -17,6 +17,18 @@ import { GroupInfoPanel } from '@renderer/im-template/template/groupInfoPanel';
 import { TabActivity } from '@renderer/components/RetainedTabs';
 
 const rankQuery = vi.hoisted(() => vi.fn());
+const avatarRender = vi.hoisted(() => vi.fn());
+vi.mock('../src/renderer/src/im-template/template/primitives', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../src/renderer/src/im-template/template/primitives')>();
+  return {
+    ...actual,
+    Avatar: (props: ComponentProps<typeof actual.Avatar>) => {
+      avatarRender(props);
+      return createElement(actual.Avatar, props);
+    },
+  };
+});
 vi.mock('../src/renderer/src/trpc/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/trpc/client')>()),
   client: { account: { listGroupMembersByLevel: { query: rankQuery } } },
@@ -95,6 +107,7 @@ describe('群资料面板', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     rankQuery.mockReset().mockResolvedValue([]);
+    avatarRender.mockClear();
   });
 
   afterEach(() => {
@@ -118,6 +131,75 @@ describe('群资料面板', () => {
   it('渲染群成员列表', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
+  });
+  it('成员行不随未读和回调变化重画，真实资料只更新目标行且事件调用最新实现', () => {
+    const members = Array.from({ length: 200 }, (_, index) => ({
+      ...CONVERSATION.members[0],
+      id: `uid-${index}`,
+      uin: String(10000 + index),
+      identityValue: String(10000 + index),
+      displayName: `合成成员 ${index}`,
+    }));
+    const open = vi.fn(),
+      nextOpen = vi.fn(),
+      menu = vi.fn();
+    mountPanel(undefined, undefined, {
+      conversation: { ...CONVERSATION, members },
+      onOpenMember: open,
+      onMemberContextMenu: menu,
+    });
+    const root = roots.at(-1)!,
+      host = hosts.at(-1)!;
+    const rows = () => [...host.querySelectorAll<HTMLElement>('.group-info-member-row')];
+    expect(rows()).toHaveLength(members.length);
+    expect(avatarRender).toHaveBeenCalledTimes(members.length);
+    expect(avatarRender.mock.calls.every(([props]) => props.resolution === 'small')).toBe(true);
+    avatarRender.mockClear();
+    const render = (overrides: Partial<ComponentProps<typeof GroupInfoPanel>> = {}) =>
+      act(() =>
+        root.render(
+          createElement(GroupInfoPanel, {
+            conversation: { ...CONVERSATION, members, unreadCount: 9 },
+            onOpenMember: (member, anchor) => nextOpen(member, anchor),
+            onMemberContextMenu: (event, member) => menu(event, member),
+            ...overrides,
+          }),
+        ),
+      );
+    render();
+    render();
+    expect(avatarRender).not.toHaveBeenCalled();
+    act(() =>
+      rows()[0]!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 20 }),
+      ),
+    );
+    expect(open).not.toHaveBeenCalled();
+    expect(nextOpen).toHaveBeenLastCalledWith(members[0], { x: 10, y: 20 });
+    act(() => rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    expect(menu.mock.calls.at(-1)?.[1]).toBe(members[0]);
+    const updated = members.map((member, index) =>
+      index === 1 ? { ...member, displayName: '已更新成员', role: 'admin' } : member,
+    );
+    render({ conversation: { ...CONVERSATION, members: updated } });
+    expect(avatarRender).toHaveBeenCalledOnce();
+    expect(rows()[1]!.textContent).toContain('已更新成员');
+    expect(rows()[1]!.classList.contains('is-admin')).toBe(true);
+    act(() =>
+      rows()[1]!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' })),
+    );
+    expect(nextOpen.mock.calls.at(-1)?.[0]).toBe(updated[1]);
+    render({ onOpenMember: undefined, onMemberContextMenu: undefined });
+    expect(rows()[0]!.hasAttribute('role')).toBe(false);
+    expect(rows()[0]!.hasAttribute('tabindex')).toBe(false);
+    nextOpen.mockClear();
+    menu.mockClear();
+    act(() => {
+      rows()[0]!.click();
+      rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+    });
+    expect(nextOpen).not.toHaveBeenCalled();
+    expect(menu).not.toHaveBeenCalled();
   });
   it('群资料展示排序依据中的活跃度和群内好友数，缺少缓存不误报零', () => {
     mountPanel();

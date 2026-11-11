@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -23,6 +24,7 @@ import {
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { GroupConversationView } from './conversationDetailsTypes';
+import { useEventContextValue } from '../../hooks/useEventContextValue';
 import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
@@ -35,6 +37,96 @@ import '../../styles/conversation-actions.css';
 import '../../styles/group-sidebar-sections.css';
 
 export type GroupInfoDetail = 'profile' | 'albums';
+
+type GroupMember = GroupConversationView['members'][number];
+type GroupMemberEvents = {
+  open?: (member: GroupMember, anchor: { x: number; y: number }) => void;
+  menu?: (event: ReactMouseEvent, member: GroupMember) => void;
+};
+
+const GroupMemberRow = memo(function GroupMemberRow({
+  member,
+  events,
+}: {
+  member: GroupMember;
+  events: GroupMemberEvents;
+}) {
+  return (
+    <div
+      className={cn(
+        'group-info-member-row',
+        events.open && 'is-clickable',
+        member.role === 'owner' && 'is-owner',
+        member.role === 'admin' && 'is-admin',
+      )}
+      role={events.open ? 'button' : undefined}
+      tabIndex={events.open ? 0 : undefined}
+      title={events.open ? '查看资料' : undefined}
+      onContextMenu={events.menu ? (event) => events.menu?.(event, member) : undefined}
+      onClick={
+        events.open
+          ? (event) => events.open?.(member, { x: event.clientX, y: event.clientY })
+          : undefined
+      }
+      onKeyDown={
+        events.open
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                events.open?.(member, { x: rect.left + rect.width / 2, y: rect.bottom });
+              }
+            }
+          : undefined
+      }
+    >
+      <div className={cn('member-avatar-wrap', member.clone && 'weq-clone-member-avatar')}>
+        <Avatar
+          name={displayUserName(member)}
+          avatarUrl={member.avatarUrl}
+          seed={member.identityValue}
+          resolution="small"
+        />
+        {member.clone ? <VirtualConversationBadge /> : null}
+      </div>
+      <span className="member-name-text">
+        <span className="member-name-with-badge">
+          <span className="member-display-name">{displayUserName(member)}</span>
+          <GroupMessageBadge
+            member={{
+              role: member.role,
+              customTitle: member.customTitle,
+              levelName: member.levelName,
+            }}
+          />
+        </span>
+      </span>
+      {member.kind === 'bot' ? (
+        <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+          <Bot size={12} strokeWidth={2.4} />
+        </small>
+      ) : null}
+    </div>
+  );
+});
+
+function GroupMemberRows({
+  members,
+  onOpenMember,
+  onMemberContextMenu,
+}: {
+  members: GroupMember[];
+  onOpenMember?: GroupMemberEvents['open'];
+  onMemberContextMenu?: GroupMemberEvents['menu'];
+}) {
+  const events = useEventContextValue<GroupMemberEvents>({
+    open: onOpenMember,
+    menu: onMemberContextMenu,
+  });
+  return members.map((member) => (
+    <GroupMemberRow key={member.id} member={member} events={events} />
+  ));
+}
 
 export function GroupInfoPanel({
   layout = 'sidebar',
@@ -351,68 +443,11 @@ export function GroupInfoPanel({
         {searching && rows.length === 0 && !fetching ? (
           <div className={cn('group-info-member-empty')}>没有匹配的成员</div>
         ) : null}
-        {rows.map((member) => (
-          <div
-            className={cn(
-              'group-info-member-row',
-              onOpenMember && 'is-clickable',
-              member.role === 'owner' && 'is-owner',
-              member.role === 'admin' && 'is-admin',
-            )}
-            key={member.id}
-            role={onOpenMember ? 'button' : undefined}
-            tabIndex={onOpenMember ? 0 : undefined}
-            title={onOpenMember ? '查看资料' : undefined}
-            onContextMenu={
-              onMemberContextMenu ? (event) => onMemberContextMenu(event, member) : undefined
-            }
-            onClick={
-              onOpenMember
-                ? (event) => onOpenMember(member, { x: event.clientX, y: event.clientY })
-                : undefined
-            }
-            onKeyDown={
-              onOpenMember
-                ? (event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      onOpenMember(member, {
-                        x: rect.left + rect.width / 2,
-                        y: rect.bottom,
-                      });
-                    }
-                  }
-                : undefined
-            }
-          >
-            <div className={cn('member-avatar-wrap', member.clone && 'weq-clone-member-avatar')}>
-              <Avatar
-                name={displayUserName(member)}
-                avatarUrl={member.avatarUrl}
-                seed={member.identityValue}
-              />
-              {member.clone ? <VirtualConversationBadge /> : null}
-            </div>
-            <span className="member-name-text">
-              <span className="member-name-with-badge">
-                <span className="member-display-name">{displayUserName(member)}</span>
-                <GroupMessageBadge
-                  member={{
-                    role: member.role,
-                    customTitle: member.customTitle,
-                    levelName: member.levelName,
-                  }}
-                />
-              </span>
-            </span>
-            {member.kind === 'bot' ? (
-              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                <Bot size={12} strokeWidth={2.4} />
-              </small>
-            ) : null}
-          </div>
-        ))}
+        <GroupMemberRows
+          members={rows}
+          onOpenMember={onOpenMember}
+          onMemberContextMenu={onMemberContextMenu}
+        />
         {searching && rows.length > 0 && memberSearch?.hasMore ? (
           <div className={cn('group-info-member-hint')}>
             已显示 {rows.length} / {memberSearch?.total ?? 0} 位匹配成员，继续滚动加载更多
