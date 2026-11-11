@@ -229,7 +229,7 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
 it('等待动画独立保存；本地统计隐藏推断参数及所有模型占位文案', async () => {
   const intent = mount(IntentSenseSection);
   await act(async () =>
-    intent.host.querySelector<HTMLButtonElement>('[aria-label="显示分析等待动画"]')!.click(),
+    intent.host.querySelector<HTMLButtonElement>('[aria-label="批量分析时显示胶囊动画"]')!.click(),
   );
   expect(state.save).toHaveBeenLastCalledWith({ loadingAnimation: false });
   Object.assign(state.data['account.intentSense.getStatus'] as object, {

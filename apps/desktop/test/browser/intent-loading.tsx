@@ -99,6 +99,9 @@ function Fixture() {
             latestPeerMsgId={ids.at(-1)!}
             roamingMessageKey={ids.filter((id) => id.startsWith('roaming:')).join('|')}
             manualPendingMessageIds={manualPendingMessageIds}
+            manualSingleMessageId={
+              manualPendingMessageIds.size === 1 ? [...manualPendingMessageIds][0] : undefined
+            }
           >
             <div className="message-scroll">
               {ids.map((msgId) => (

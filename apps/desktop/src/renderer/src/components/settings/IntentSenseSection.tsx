@@ -129,10 +129,10 @@ export function IntentSenseSection() {
           >
             <Row
               settingId="intent-loading-animation"
-              label="显示分析等待动画"
+              label="批量分析时显示胶囊动画"
               control={
                 <Toggle
-                  label="显示分析等待动画"
+                  label="批量分析时显示胶囊动画"
                   checked={s?.loadingAnimation !== false}
                   indeterminate={!s}
                   disabled={disabled || inactive}

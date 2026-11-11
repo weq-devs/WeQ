@@ -56,6 +56,8 @@ export interface IntentSenseContextValue {
   isUnavailable: (msgId: string) => boolean;
   /** 单条悬停分析是否在途，供消息下的加载窄条使用。 */
   isPending?: (msgId: string) => boolean;
+  isManualPending?: (msgId: string) => boolean;
+  manualSingleMessageId?: string;
   getFailure?: (msgId: string) => string | undefined;
   /** 悬停未命中时单条触发（带去重：同一消息本会话只发一次）。 */
   requestAnalysis: (msgId: string) => void;
@@ -97,6 +99,7 @@ export function IntentSenseProvider({
   latestSelfMessageIds,
   roamingMessageKey = '',
   manualPendingMessageIds,
+  manualSingleMessageId,
   children,
 }: {
   kind: 'c2c' | 'group';
@@ -108,6 +111,8 @@ export function IntentSenseProvider({
   roamingMessageKey?: string;
   /** 菜单手动分析的待处理消息，与自动批次、悬停请求共同驱动等待动画。 */
   manualPendingMessageIds?: ReadonlySet<string>;
+  /** 单条手动分析始终显示等待胶囊，不受批量动画或常驻显示偏好影响。 */
+  manualSingleMessageId?: string;
   children: ReactNode;
 }) {
   const analysisMessageId = latestMessageId === undefined ? latestPeerMsgId : latestMessageId;
@@ -439,6 +444,10 @@ export function IntentSenseProvider({
     [manualPendingMessageIds],
   );
   const getFailure = useCallback((msgId: string) => failedRef.current.get(msgId), []);
+  const isManualPending = useCallback(
+    (msgId: string) => manualPendingMessageIds?.has(msgId) === true,
+    [manualPendingMessageIds],
+  );
 
   const value = useMemo<IntentSenseContextValue>(
     () => ({
@@ -452,6 +461,8 @@ export function IntentSenseProvider({
       getAnalysis,
       isUnavailable,
       isPending,
+      isManualPending,
+      manualSingleMessageId,
       getFailure,
       requestAnalysis,
       latestPeerMsgId,
@@ -472,6 +483,8 @@ export function IntentSenseProvider({
       getAnalysis,
       isUnavailable,
       isPending,
+      isManualPending,
+      manualSingleMessageId,
       getFailure,
       requestAnalysis,
       latestPeerMsgId,

@@ -1168,6 +1168,7 @@ export function ChatPane({
     scope: string;
     run: object;
     ids: ReadonlySet<string>;
+    singleMessageId?: string;
   } | null>(null);
   useEffect(() => {
     intentRun.current = null;
@@ -1378,18 +1379,49 @@ export function ChatPane({
     const run = {};
     intentRun.current = run;
     setContextMenu(null);
+    let progressId: number | undefined;
     try {
       const picked = messages ?? (await selectionFlow.prepare('意图感知'));
       if (intentRun.current !== run || !picked?.length) return;
-      const targets = picked.filter(
+      let targets = picked.filter(
         (message) =>
           !grayTipOf(message) && !isLocalOutgoingMessage(message) && messageHasIntentText(message),
       );
       setIntentBusy(true);
+      const batch = picked.length > 1;
+      if (batch && targets.length) {
+        const cached = await client.account.intentSense.listMessageAnalyses.query({
+          kind: intentKind,
+          conv: intentConv,
+        });
+        if (intentRun.current !== run) return;
+        const analyzed = new Set(cached.map((result) => result.msgId));
+        if (picked.every((message) => analyzed.has(message.id))) {
+          const confirmed = await useDialog
+            .getState()
+            .confirm(
+              '重新分析消息意图？',
+              `所选 ${picked.length} 条消息均已有结果，是否重新分析？`,
+              {
+                okLabel: '重新分析',
+              },
+            );
+          if (!confirmed || intentRun.current !== run) return;
+        } else targets = targets.filter((message) => !analyzed.has(message.id));
+      }
+      if (batch)
+        progressId = pushToast({
+          tone: 'info',
+          loading: true,
+          dismissible: false,
+          title: `正在分析消息意图 0/${targets.length}`,
+          detail: `跳过 ${picked.length - targets.length} 条已有结果或不可分析的消息`,
+        });
       setManualIntentPending({
         scope: `${intentKind}:${intentConv}`,
         run,
         ids: new Set(targets.map((message) => message.id)),
+        singleMessageId: batch ? undefined : targets[0]?.id,
       });
       let failed = 0;
       let succeeded = 0;
@@ -1413,6 +1445,11 @@ export function ChatPane({
           if (failureReasons.size < 3)
             failureReasons.add(error instanceof Error ? error.message : String(error));
         } finally {
+          if (progressId !== undefined)
+            useToast.getState().update(progressId, {
+              title: `正在分析消息意图 ${succeeded + failed}/${targets.length}`,
+              detail: `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${picked.length - targets.length} 条`,
+            });
           setManualIntentPending((current) => {
             if (current?.run !== run) return current;
             const ids = new Set(current.ids);
@@ -1421,9 +1458,11 @@ export function ChatPane({
           });
         }
       }
-      if ((failed || picked.length > 1) && intentRun.current === run)
-        pushToast({
+      if ((failed || batch) && intentRun.current === run) {
+        const completion = {
           tone: failed ? (succeeded ? 'warning' : 'error') : succeeded ? 'success' : 'info',
+          loading: false,
+          dismissible: true,
           title: failed
             ? succeeded
               ? '意图感知部分完成'
@@ -1435,8 +1474,28 @@ export function ChatPane({
             `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${picked.length - targets.length} 条`,
             ...failureReasons,
           ].join('\n'),
-        });
+        } as const;
+        if (progressId !== undefined) useToast.getState().update(progressId, completion);
+        else pushToast(completion);
+      }
+    } catch (error) {
+      const failure = {
+        tone: 'error',
+        loading: false,
+        dismissible: true,
+        title: '意图感知失败',
+        detail: String(error),
+      } as const;
+      if (progressId !== undefined) useToast.getState().update(progressId, failure);
+      else pushToast(failure);
     } finally {
+      if (progressId !== undefined && intentRun.current !== run)
+        useToast.getState().update(progressId, {
+          tone: 'warning',
+          loading: false,
+          dismissible: true,
+          title: '意图感知已中止',
+        });
       if (intentRun.current === run) {
         intentRun.current = null;
         setIntentBusy(false);
@@ -5606,6 +5665,12 @@ export function ChatPane({
           manualIntentPending?.scope === `${intentKind}:${intentConv}` &&
           manualIntentPending.run === intentRun.current
             ? manualIntentPending.ids
+            : undefined
+        }
+        manualSingleMessageId={
+          manualIntentPending?.scope === `${intentKind}:${intentConv}` &&
+          manualIntentPending.run === intentRun.current
+            ? manualIntentPending.singleMessageId
             : undefined
         }
       >

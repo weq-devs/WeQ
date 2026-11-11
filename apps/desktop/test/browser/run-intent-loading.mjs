@@ -475,6 +475,34 @@ try {
       cases++;
     }
   }
+  await page.goto(`${url}?manual=1&animation-off=1`);
+  await page.evaluate(() => {
+    window.intentQa.setMode('ready');
+    window.intentQa.publishResult('message');
+    window.intentQa.setManualPendingMessages(['message']);
+  });
+  await page.waitForSelector('.weq-intent-chips[data-intent-state="pending"]');
+  assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
+      assert.equal(
+        await page.locator('.weq-intent-chips').evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth;
+        }),
+        true,
+      );
+      if (output)
+        await page.screenshot({ path: resolve(output, `manual-single-${width}-${theme}.png`) });
+    }
+  }
+  await page.evaluate(() => window.intentQa.setManualPendingMessages([]));
+  await page.waitForSelector('.weq-intent-chips[data-intent-state="ready"]');
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, minimumContrast, errors, geometry: ready, output }, null, 2));
 } finally {

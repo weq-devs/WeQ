@@ -235,10 +235,12 @@ export function MessageIntentSense({
   const getAnalysis = ctx?.getAnalysis;
   const isUnavailable = ctx?.isUnavailable;
   const requestAnalysis = ctx?.requestAnalysis;
-  const result = getAnalysis?.(msgId);
-  const unavailable = isUnavailable?.(msgId) ?? false;
+  const manualPending = ctx?.isManualPending?.(msgId) === true;
+  const manualSingle = manualPending && ctx?.manualSingleMessageId === msgId;
+  const result = manualPending ? undefined : getAnalysis?.(msgId);
+  const unavailable = !manualPending && (isUnavailable?.(msgId) ?? false);
   const pending = ctx?.isPending?.(msgId) ?? false;
-  const failure = ctx?.getFailure?.(msgId);
+  const failure = manualPending ? undefined : ctx?.getFailure?.(msgId);
   const displayState = result
     ? 'ready'
     : unavailable
@@ -453,12 +455,13 @@ export function MessageIntentSense({
 
   return (
     <>
-      {/* 关闭等待动画时仅在有结果后挂载，消息正文不等待分析。 */}
-      {persistentDisplay &&
-      (result ||
-        (ctx?.loadingAnimation !== false &&
-          analyzable !== false &&
-          (ctx?.automatic !== false || pending || failure))) ? (
+      {/* 单条手动等待始终可见，普通分析仍遵循显示偏好；正文不等待分析。 */}
+      {manualSingle ||
+      (persistentDisplay &&
+        (result ||
+          (ctx?.loadingAnimation !== false &&
+            analyzable !== false &&
+            (ctx?.automatic !== false || pending || failure)))) ? (
         <span
           className="weq-intent-chips"
           data-intent-state={displayState}

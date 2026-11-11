@@ -163,7 +163,13 @@ function renderFixture() {
       conv = 'u_peer',
       ids = [latestMessageId ?? 'old'],
       manualPendingMessageIds,
-    }: { conv?: string; ids?: string[]; manualPendingMessageIds?: ReadonlySet<string> } = {},
+      manualSingleMessageId,
+    }: {
+      conv?: string;
+      ids?: string[];
+      manualPendingMessageIds?: ReadonlySet<string>;
+      manualSingleMessageId?: string;
+    } = {},
   ) =>
     act(async () =>
       root.render(
@@ -176,6 +182,7 @@ function renderFixture() {
             latestMessageId,
             roamingMessageKey,
             manualPendingMessageIds,
+            manualSingleMessageId,
           } as Parameters<typeof IntentSenseProvider>[0],
           h(Consumer, { ids }),
         ),
@@ -215,6 +222,23 @@ it('手动分析只标记本轮指定消息，首次提交即有动画，完成�
   expect(f.host.querySelector('.is-loading')).toBeNull();
   expect(fixture.ensure).not.toHaveBeenCalled();
   expect(fixture.analyze).not.toHaveBeenCalled();
+});
+
+it('单条手动重算忽略动画与常驻开关，已有结果暂换动画，完成后恢复显示偏好', async () => {
+  fixture.status.analysisMode = 'manual';
+  fixture.status.loadingAnimation = false;
+  fixture.status.persistentDisplay = false;
+  const f = renderFixture();
+  await f.render('old');
+  const commit = f.commits.length;
+  await f.render('old', '', {
+    manualPendingMessageIds: new Set(['old']),
+    manualSingleMessageId: 'old',
+  });
+  expect(f.commits[commit]?.animated).toBe(2);
+  expect(f.host.querySelector('[data-intent-state="pending"]')).not.toBeNull();
+  await f.render('old');
+  expect(f.host.querySelector('.weq-intent-chips')).toBeNull();
 });
 
 it('手动意图模式读取缓存但不自动补齐或悬停分析，新消息和漫游补入也不启动', async () => {

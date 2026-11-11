@@ -1101,7 +1101,7 @@ export class IntentSenseService {
           r.engine === 'api' ||
           Date.now() < this.apiCooldownUntil),
     );
-    if (hit) return hit;
+    if (hit && !options?.manual) return hit;
 
     // 优先从最近窗口定位该消息，以便一并拿到前序对话上下文；若不在近期窗口则回退按 ID 单查。
     const recent = await this.loadMessages(kind, conv, Math.max(60, contextMessages + 1));

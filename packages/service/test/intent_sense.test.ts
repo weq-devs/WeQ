@@ -2345,6 +2345,10 @@ describe('IntentSenseService', () => {
     const r2 = await svc.analyzeMessage('c2c', 'u_peer', '7');
     expect(r2?.msgId).toBe('7');
     expect(analyze).toHaveBeenCalledTimes(1);
+    await svc.analyzeMessage('c2c', 'u_peer', '7', { manual: true });
+    expect(analyze).toHaveBeenCalledTimes(2);
+    await svc.analyzeMessage('c2c', 'u_peer', '7');
+    expect(analyze).toHaveBeenCalledTimes(2);
   });
 
   it('语境与语料库校准：上文展示牛逼成果时，下文「吓哭了/给跪了/卧槽」判为夸赞(praise)+赞叹(admiration)', async () => {
