@@ -147,31 +147,33 @@ export function ChatHome({
       <CardBackdrop imageUrl={cardUrl} videoUrl={cardVideoUrl} />
       {screenUrl && <ScreenRain src={screenUrl} />}
 
-      <div className="weq-chathome-inner">
-        <div className="weq-chathome-hero">
-          <div className="weq-chathome-stage">
-            <AvatarOrb
-              avatarUrl={selfAvatarUrl}
-              nickname={name}
-              widgetUrl={widgetUrl}
-              refreshOnFocus
-            />
-            <TagRing tags={tags} radiusPad={32} contained />
+      <div className="weq-chathome-content">
+        <div className="weq-chathome-inner">
+          <div className="weq-chathome-hero">
+            <div className="weq-chathome-stage">
+              <AvatarOrb
+                avatarUrl={selfAvatarUrl}
+                nickname={name}
+                widgetUrl={widgetUrl}
+                refreshOnFocus
+              />
+              <TagRing tags={tags} radiusPad={32} contained />
+            </div>
+            {home.showGreeting && (
+              <h1 className="weq-chathome-greet">
+                <span className="weq-chathome-greet-hi">{greetWord()},</span>
+                <span className="weq-chathome-greet-name">{name}</span>
+              </h1>
+            )}
           </div>
-          {home.showGreeting && (
-            <h1 className="weq-chathome-greet">
-              <span className="weq-chathome-greet-hi">{greetWord()},</span>
-              <span className="weq-chathome-greet-name">{name}</span>
-            </h1>
+
+          {wantHitokoto && visibleVerses[0] && (
+            <HitokotoTicker
+              key={`${visibleVerses[0].text}\n${visibleVerses[0].from}`}
+              verse={visibleVerses[0]}
+            />
           )}
         </div>
-
-        {wantHitokoto && visibleVerses[0] && (
-          <HitokotoTicker
-            key={`${visibleVerses[0].text}\n${visibleVerses[0].from}`}
-            verse={visibleVerses[0]}
-          />
-        )}
       </div>
     </section>
   );
