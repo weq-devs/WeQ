@@ -6,12 +6,14 @@ import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { Modal, useDialog } from './Dialog';
 import { QQWriteResult, QQWriteTextRow } from './QQWriteControls';
 import { withQQAccountScope } from './qq-actions/shared';
+import { FriendNotesEditor } from './FriendNotesEditor';
 import '../styles/qq-remark.css';
 
 function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClose: () => void }) {
   const session = useQQWriteSession(`remark:${target.kind}:${target.conv}`);
   const confirm = useDialog((state) => state.confirm);
   const [dirty, setDirty] = useState(false);
+  const [notesDirty, setNotesDirty] = useState(false);
   const state = trpc.account.qqWrite.peerState.useQuery(
     {
       ...session.binding!,
@@ -36,7 +38,11 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
   const label = target.kind === 'group' ? '群备注' : '好友备注';
   async function close() {
     if (session.busy) return;
-    if (dirty && !(await confirm('放弃备注修改？', '尚未保存的备注将不会提交到 QQ。'))) return;
+    if (
+      (dirty || notesDirty) &&
+      !(await confirm('放弃备注修改？', '尚未保存的备注将不会提交到 QQ。'))
+    )
+      return;
     onClose();
   }
   return (
@@ -106,6 +112,9 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
               )
             }
           />
+        )}
+        {target.kind === 'c2c' && state.data?.friend && (
+          <FriendNotesEditor uid={target.conv} session={session} onDirtyChange={setNotesDirty} />
         )}
         <QQWriteResult result={session.result} />
       </div>

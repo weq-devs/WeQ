@@ -42,6 +42,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
       qqWrite: {
+        friendNotesState: { useQuery: () => ({ data: undefined }) },
+        friendNotes: { useMutation: () => ({ mutateAsync: state.write }) },
         friendRemarkState: {
           useQuery: () => ({
             data: { uid: 'u_peer', remark: state.remark },

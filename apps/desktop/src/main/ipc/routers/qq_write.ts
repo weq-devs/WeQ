@@ -21,6 +21,8 @@ export interface QQWriteServices {
     AccountServices['accountWrite'],
     | 'friendRemark'
     | 'getFriendRemark'
+    | 'getFriendNotes'
+    | 'friendNotes'
     | 'groupRemark'
     | 'pin'
     | 'friendDisturb'
@@ -90,6 +92,30 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    friendNotesState: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.getFriendNotes(input.uid);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取我的备注资料');
+      if (result.uid !== input.uid) throw new Error('返回备注资料与读取目标不一致');
+      return result;
+    }),
+    friendNotes: procedure
+      .input(
+        binding.extend({
+          uid,
+          revision: z.string().regex(/^[a-f0-9]{64}$/),
+          notes: z
+            .object({
+              company: z.string().max(1024),
+              phones: z.array(z.string().min(1).max(4096)).max(100),
+              descriptions: z.array(z.string().min(1).max(4096)).max(100),
+            })
+            .strict(),
+        }),
+      )
+      .mutation(({ input }) =>
+        resolve(input).accountWrite.friendNotes(input.uid, input.revision, input.notes),
+      ),
     friendClue: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
       const services = resolve(input);
       const result = await services.accountWrite.friendClue(input.uid);
