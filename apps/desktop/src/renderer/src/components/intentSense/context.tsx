@@ -96,6 +96,7 @@ export function IntentSenseProvider({
   latestMessageId,
   latestSelfMessageIds,
   roamingMessageKey = '',
+  manualPendingMessageIds,
   children,
 }: {
   kind: 'c2c' | 'group';
@@ -105,6 +106,8 @@ export function IntentSenseProvider({
   latestSelfMessageIds?: readonly string[];
   /** 已加载漫游消息的身份快照；补入旧消息也要触发增量分析。 */
   roamingMessageKey?: string;
+  /** 菜单手动分析的待处理消息，与自动批次、悬停请求共同驱动等待动画。 */
+  manualPendingMessageIds?: ReadonlySet<string>;
   children: ReactNode;
 }) {
   const analysisMessageId = latestMessageId === undefined ? latestPeerMsgId : latestMessageId;
@@ -429,8 +432,11 @@ export function IntentSenseProvider({
   const getAnalysis = useCallback((msgId: string) => analysesRef.current.get(msgId), []);
   const isUnavailable = useCallback((msgId: string) => unavailableRef.current.has(msgId), []);
   const isPending = useCallback(
-    (msgId: string) => requestedRef.current.has(msgId) || batchPendingRef.current.has(msgId),
-    [],
+    (msgId: string) =>
+      requestedRef.current.has(msgId) ||
+      batchPendingRef.current.has(msgId) ||
+      manualPendingMessageIds?.has(msgId) === true,
+    [manualPendingMessageIds],
   );
   const getFailure = useCallback((msgId: string) => failedRef.current.get(msgId), []);
 

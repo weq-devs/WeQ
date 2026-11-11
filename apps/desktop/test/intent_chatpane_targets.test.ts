@@ -11,6 +11,7 @@ const fixture = vi.hoisted(() => ({
     latestPeerMsgId?: string | null;
     latestSelfMessageIds?: readonly string[];
     roamingMessageKey?: string;
+    manualPendingMessageIds?: ReadonlySet<string>;
   },
   bar: {} as { replyTargetId?: string | null },
   enabled: false,
@@ -26,6 +27,7 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
     latestPeerMsgId?: string | null;
     latestSelfMessageIds?: readonly string[];
     roamingMessageKey?: string;
+    manualPendingMessageIds?: ReadonlySet<string>;
   }) => {
     fixture.provider = props;
     return children;
@@ -59,7 +61,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 beforeEach(() => {
   fixture.enabled = false;
-  fixture.analyze.mockClear();
+  fixture.analyze.mockReset().mockResolvedValue(null);
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -105,13 +107,23 @@ it.each(['group', 'direct'] as const)(
         ...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
       ].find((button) => button.textContent === '意图感知')!;
       expect(menuButton).toBeDefined();
+      let finish!: (value: null) => void;
+      fixture.analyze.mockImplementationOnce(
+        () =>
+          new Promise<null>((resolve) => {
+            finish = resolve;
+          }),
+      );
       await act(async () => menuButton.click());
+      expect([...(fixture.provider.manualPendingMessageIds ?? [])]).toEqual(['1']);
       expect(fixture.analyze).toHaveBeenLastCalledWith({
         kind: type === 'group' ? 'group' : 'c2c',
         conv: conversation.id,
         msgId: '1',
         manual: true,
       });
+      await act(async () => finish(null));
+      expect(fixture.provider.manualPendingMessageIds?.size ?? 0).toBe(0);
       await act(async () =>
         bubble.dispatchEvent(
           new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
@@ -121,9 +133,19 @@ it.each(['group', 'direct'] as const)(
         ...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
       ].find((button) => button.textContent === '多选')!;
       await act(async () => multi.click());
+      let fail!: (error: Error) => void;
+      fixture.analyze.mockImplementationOnce(
+        () =>
+          new Promise<null>((_resolve, reject) => {
+            fail = reject;
+          }),
+      );
       await act(async () =>
         host.querySelector<HTMLButtonElement>('.selection-bar [aria-label="意图感知"]')!.click(),
       );
+      expect([...(fixture.provider.manualPendingMessageIds ?? [])]).toEqual(['1']);
+      await act(async () => fail(new Error('合成分析失败')));
+      expect(fixture.provider.manualPendingMessageIds?.size ?? 0).toBe(0);
       expect(fixture.analyze).toHaveBeenCalledTimes(2);
       expect(
         fixture.analyze.mock.calls.every(([input]) => (input as { msgId: string }).msgId === '1'),

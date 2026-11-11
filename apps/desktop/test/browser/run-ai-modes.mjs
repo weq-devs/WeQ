@@ -70,6 +70,33 @@ try {
       await page.evaluate(() => window.intentQa.setMessages(['message', 'new-message']));
       assert.equal(await start.count(), 1);
       assert.equal(await page.locator('.weq-int-suggest-bar').getAttribute('aria-busy'), 'false');
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      assert.equal(await page.locator('.message-scroll .weq-intent-loading-reel').count(), 0);
+      await page.evaluate(() => window.intentQa.setManualPendingMessages(['message']));
+      const reels = page.locator('.message-scroll .weq-intent-loading-reel');
+      await reels.first().waitFor();
+      assert.equal(await reels.count(), 2);
+      assert.equal(
+        await page.locator('[data-message-id="new-message"] .weq-intent-loading-reel').count(),
+        0,
+      );
+      assert.equal(
+        await reels
+          .first()
+          .evaluate((node) =>
+            node.getAnimations().some((animation) => animation.playState === 'running'),
+          ),
+        true,
+      );
+      assert.equal(
+        await page
+          .locator('[data-message-id="message"] .weq-intent-chips')
+          .getAttribute('aria-busy'),
+        'true',
+      );
+      await page.evaluate(() => window.intentQa.setManualPendingMessages([]));
+      await reels.first().waitFor({ state: 'detached' });
+      assert.equal(await reels.count(), 0);
       assert.equal(
         await page.locator('.weq-int-suggest').evaluate((node) => {
           const rect = node.getBoundingClientRect();

@@ -28,6 +28,7 @@ const qa = {
   located: null as unknown,
   portraitOpened: false,
   setMessages: (_ids: string[]) => {},
+  setManualPendingMessages: (_ids: string[]) => {},
   frames: [] as Array<{ id: string; pills: number; height: number; visible: boolean }>,
 };
 Object.assign(window, { intentQa: qa });
@@ -55,7 +56,11 @@ function Bubble({ msgId }: { msgId: string }) {
 function Fixture() {
   const [draft, setDraft] = useState('');
   const [ids, setIds] = useState(['message']);
+  const [manualPendingMessageIds, setManualPendingMessageIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   qa.setMessages = setIds;
+  qa.setManualPendingMessages = (ids) => setManualPendingMessageIds(new Set(ids));
   return (
     <>
       <style>{`
@@ -91,6 +96,7 @@ function Fixture() {
             conv="fixture"
             latestPeerMsgId={ids.at(-1)!}
             roamingMessageKey={ids.filter((id) => id.startsWith('roaming:')).join('|')}
+            manualPendingMessageIds={manualPendingMessageIds}
           >
             <div className="message-scroll">
               {ids.map((msgId) => (

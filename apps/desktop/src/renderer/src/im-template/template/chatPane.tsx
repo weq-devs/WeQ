@@ -1149,9 +1149,15 @@ export function ChatPane({
     intentStatus.data.conversationOverrides?.[`${intentKind}:${intentConv}`] !== false;
   const intentRun = useRef<object | null>(null);
   const [intentBusy, setIntentBusy] = useState(false);
+  const [manualIntentPending, setManualIntentPending] = useState<{
+    scope: string;
+    run: object;
+    ids: ReadonlySet<string>;
+  } | null>(null);
   useEffect(() => {
     intentRun.current = null;
     setIntentBusy(false);
+    setManualIntentPending(null);
     return () => {
       intentRun.current = null;
     };
@@ -1360,11 +1366,18 @@ export function ChatPane({
     try {
       const picked = messages ?? (await selectionFlow.prepare('意图感知'));
       if (intentRun.current !== run || !picked?.length) return;
+      const targets = picked.filter(
+        (message) => !grayTipOf(message) && !isLocalOutgoingMessage(message),
+      );
       setIntentBusy(true);
+      setManualIntentPending({
+        scope: `${intentKind}:${intentConv}`,
+        run,
+        ids: new Set(targets.map((message) => message.id)),
+      });
       let failed = 0;
-      for (const message of picked) {
+      for (const message of targets) {
         if (intentRun.current !== run) return;
-        if (grayTipOf(message) || isLocalOutgoingMessage(message)) continue;
         try {
           await client.account.intentSense.analyzeMessage.mutate({
             kind: intentKind,
@@ -1374,6 +1387,13 @@ export function ChatPane({
           });
         } catch {
           failed++;
+        } finally {
+          setManualIntentPending((current) => {
+            if (current?.run !== run) return current;
+            const ids = new Set(current.ids);
+            ids.delete(message.id);
+            return { ...current, ids };
+          });
         }
       }
       if (failed && intentRun.current === run)
@@ -1386,6 +1406,7 @@ export function ChatPane({
       if (intentRun.current === run) {
         intentRun.current = null;
         setIntentBusy(false);
+        setManualIntentPending(null);
       }
     }
   }
@@ -5522,6 +5543,12 @@ export function ChatPane({
         latestMessageId={latestMessageId}
         latestSelfMessageIds={latestSelfMessageIds}
         roamingMessageKey={roamingMessageKey}
+        manualPendingMessageIds={
+          manualIntentPending?.scope === `${intentKind}:${intentConv}` &&
+          manualIntentPending.run === intentRun.current
+            ? manualIntentPending.ids
+            : undefined
+        }
       >
         <div
           className={cn(
