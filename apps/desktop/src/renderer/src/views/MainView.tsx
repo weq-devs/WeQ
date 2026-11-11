@@ -4726,37 +4726,17 @@ function MainWorkspace(): ReactElement {
               ? assistantDraftTime
               : 0,
           );
-          if (
-            unread === undefined &&
-            !highlights &&
-            topTime === undefined &&
-            !activityTime &&
-            !pinStateKnown
-          )
-            return conversation;
-          return {
-            ...conversation,
-            activityTime,
-            ...(pinStateKnown
-              ? {
-                  pinStateKnown: true,
-                  pinnedAt: topTime,
-                  preference: {
-                    ...fallbackPreference,
-                    ...conversation.preference,
-                    pinned: topTime !== undefined,
-                  },
-                }
-              : {}),
-            ...(unread === undefined ? {} : { unreadCount: unread }),
-            ...(topTime === undefined
-              ? {}
-              : {
-                  preference: { ...fallbackPreference, ...conversation.preference, pinned: true },
-                  pinnedAt: topTime,
-                }),
-            highlights,
-          };
+          return recentConversationCache.projection.directory(
+            conversation,
+            {
+              unreadCount: unread,
+              highlights,
+              pinnedAt: topTime,
+              pinStateKnown,
+              activityTime,
+            },
+            fallbackPreference,
+          );
         }),
         undefined,
         (row) =>
@@ -4765,6 +4745,7 @@ function MainWorkspace(): ReactElement {
     );
   }, [
     baseConversations,
+    recentConversationCache,
     temporaryConversations,
     unreadByConv,
     highlightsByConv,
