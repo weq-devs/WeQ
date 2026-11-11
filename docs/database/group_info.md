@@ -40,7 +40,7 @@
 | 60241 | `customLabels` | BLOB | protobuf，群标签记录（标签 id / 内容 / 设置人/时间），不是成员专属头衔 | 官方静态映射／观测一致 |
 | 60242 | `address` | BLOB | protobuf，群地址（经纬度 / 地点名 / 设置人/时间） | 观测一致 |
 
-分类目录 `0x967C` 的 id／name／type 与群资料标签／记录是不同结构；创建分类目录项不表示已经应用到当前群。字段边界及尚未完成的生效验证见[群分类目录读取修复](../develop/group-category-directory-20261022.md)。
+分类目录 `0x967C` 的 id／name／type 与群资料标签／记录是不同结构；创建分类目录项不表示已经应用到当前群。
 
 ## 二、`group_member3` — 群成员
 

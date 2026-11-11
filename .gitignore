@@ -116,3 +116,7 @@ models/
 tmp_reverse/
 .zcode/
 /tools/remote-network/build/
+
+# VitePress 构建产物与缓存（内容目录就是 docs/ 本身）
+/docs/.vitepress/dist
+/docs/.vitepress/cache

@@ -1,0 +1,105 @@
+name: Docs
+
+# 文档站构建与部署。和 ci.yml 完全独立：
+#   - ci.yml 被 release.yml 通过 workflow_call 复用，是发版门禁，不该被文档牵连；
+#   - 用 paths 过滤而不是在 ci.yml 里加 paths-ignore，避免 required check 永远 pending。
+#
+# 部署只从 main 走。dev 上的文档只验证构建，坏的文档不会上线。
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一 ref 上新的 push 作废在途的构建（部署有自己的 group，见 deploy job）。
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 没改文档的 PR 直接跳过构建：否则 required check 会一直 pending 卡住合并。
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            docs:
+              - 'docs/**'
+              - '.github/workflows/docs.yml'
+              - 'scripts/check-docs.mjs'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+
+  build:
+    name: build
+    needs: changes
+    if: needs.changes.outputs.docs == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # VitePress 的 lastUpdated 读 git 历史；浅克隆会让所有页面显示成当天。
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # build 内部先跑 check-docs.mjs（链接完整性），失败就不进 VitePress。
+      - name: Build docs
+        env:
+          # PR 构建用根路径，产物丢给人下载预览；正式站是项目站点子路径。
+          DOCS_BASE: ${{ github.event_name == 'pull_request' && '/' || '/WeQ/' }}
+        run: pnpm --filter @weq/docs build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: docs/.vitepress/dist
+          retention-days: 7
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  # 部署到 GitHub Pages。只从 main 的 push 触发。
+  deploy:
+    name: deploy
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    # 部署的 group 必须和构建分开，且不能 cancel-in-progress ——
+    # 中途掐断会留下半成品站点。
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

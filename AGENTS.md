@@ -1,7 +1,7 @@
 # AGENTS.md
 
 给在本仓库里干活的 AI 编码代理（Codex / Claude Code / 其他）看的作业说明。
-人写的权威文档是 [CONTRIBUTING.md](./CONTRIBUTING.md) 和 [docs/](./docs/README.md)；
+人写的权威文档是 [CONTRIBUTING.md](./CONTRIBUTING.md) 和 [docs/](./docs/index.md)；
 本文与它们冲突时，以那两份为准。
 
 ## 0. 先认路
@@ -137,8 +137,36 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 
 ## 8. 文档
 
-- 用户向的用法 / 功能说明写 [docs/guide/](./docs/guide/)。
-- 开发向的设计、协议、踩坑记录写 [docs/develop/](./docs/develop/)；大改动按现有惯例加一份带日期的笔记（如 `qzone-media-grid-20261015.md`）。
+文档站用 VitePress，**内容目录就是 `docs/` 本身**（配置在 `docs/.vitepress/`）。
+本地预览：`pnpm --filter @weq/docs dev`（http://localhost:5174），构建 `build`。
+
+### 放哪个目录
+
+| 目录 | 放什么 | 进站点 |
+| --- | --- | --- |
+| `docs/guide/` | 用户向的用法 / 功能说明 | ✅ |
+| `docs/develop/` | 开发向的**常青**内容：协议、架构、踩坑记录 | ✅ |
+| `docs/database/` | 表结构与字段 | ✅ |
+| `docs/principles/` | 解密、密钥派生等原理 | ✅ |
+| `docs/notes/` | 过程记录：阶段计划、验收回执、TODO 清单 | ❌ |
+
+**判断标准**：半年后有人改这块代码，读它有用吗？有用 → `develop/`，只记录「当时做到哪一步」→ `notes/`。
+`notes/` 里写什么都不会被检查覆盖，也不会出现在站点和搜索里，**不要把 TODO 倒进 `develop/`**。
+
+### 写文档时的硬约束
+
+- 跨目录引用 `docs/` 之外的文件（源码、`CONTRIBUTING.md`、`CHANGELOG.md`）一律写 **GitHub 绝对 URL**
+  （`https://github.com/weq-devs/WeQ/blob/dev/<path>`）。写相对路径会让 VitePress 把它当站内路由解析并构建失败。
+- 提示块用 VitePress 语法：`::: tip` / `::: info` / `::: warning` / `::: danger`，不要用 `> [!tip]`。
+- 代码块外不要出现裸尖括号占位符（`<字段名>`、`<uin>`）。VitePress 把 md 编译成 Vue SFC，会被当标签解析 ——
+  写成 `` `<字段名>` `` 或全角 `〔字段名〕`。
+- 新增进站页面要**同时加进 `docs/.vitepress/nav.mts` 的侧栏**，否则它是孤儿页面。
+- `docs/notes/README.md` 里写了隔离区的完整约定。
+
+### 检查
+
+- `node scripts/check-docs.mjs`（`pnpm --filter @weq/docs check`）：链接完整性，`build` 前自动跑。
+- 提交前跑一次 `pnpm --filter @weq/docs build`，构建通过再提。
 - 改了对外行为 / 配置项 / 接口，顺手把对应文档一起改，别留旧描述。
 
 ## 9. 红线

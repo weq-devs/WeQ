@@ -8,7 +8,7 @@
 > 样本量很小（累计观测 4 行），未观测到的部分一律留白。
 
 解析时可用同构邻表 [hidden_session_storage_table_v1](./hidden-session.md) 的
-[`43002.ts`](../../../packages/codec/src/proto/msg/43002.ts) 当解码外壳的参照
+[`43002.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/codec/src/proto/msg/43002.ts) 当解码外壳的参照
 （两表外壳都是「外层 tag = 列号，内层一个子消息」）。
 
 ---
