@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { open, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { z } from 'zod';
@@ -16,6 +16,7 @@ import { exportSavePolicyInput } from './export_save';
 import { AlbumVideoStaging } from './album_video_staging';
 import { backgroundTasks, taskError } from '../../background_tasks';
 import { updateFavoriteImportTask } from '../../favorite_import_task';
+import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -531,6 +532,9 @@ export function createQQActionsRouter(
           });
         }),
       ),
+    favoriteIds: procedure
+      .input(binding)
+      .query(({ input: i }) => read(i, (s) => s.emoji.fetchOnlineFavoriteIds())),
     favorites: procedure.input(binding).query(({ input: i }) =>
       read(i, async (s) => {
         const [ids, local] = await Promise.all([
@@ -671,6 +675,23 @@ export function createQQActionsRouter(
           });
         }),
       ),
+    favoriteFromMedia: procedure
+      .input(binding.extend({ url: z.string().min(1).max(16_384) }))
+      .mutation(async ({ input: i }) => {
+        let emojiId = '';
+        await write(i, async (s, current) => {
+          const bytes = await readFavoriteEmojiMedia(i.url, current);
+          current();
+          const md5 = createHash('md5').update(bytes).digest('hex').toUpperCase();
+          const ids = await s.emoji.fetchOnlineFavoriteIds();
+          current();
+          emojiId = ids.find((id) => parseCustomFaceId(id).md5 === md5) ?? '';
+          if (!emojiId) emojiId = await s.emoji.addFavorite(bytes, undefined, current);
+          current();
+          if (!emojiId) throw new Error('未取得表情标识，请刷新表情列表核对结果');
+        });
+        return { ...accepted, emojiId };
+      }),
     favorite: procedure
       .input(
         binding.extend({

@@ -329,6 +329,7 @@ export function QqImage({
       onKeyDown={openable ? mediaKeyDown : undefined}
       aria-label={openable ? `查看图片${name ? `：${name}` : ''}` : undefined}
       className={cn('qq-media-wrap qq-media-action', isAnimatedEmoji && 'qq-media-wrap-emoji')}
+      data-favorite-emoji-source={originalProxySrc}
       onClick={
         openable
           ? (event) => {
@@ -1039,6 +1040,7 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
       aria-label={interactive ? '查看整组商城表情' : undefined}
       onKeyDown={interactive ? mediaKeyDown : undefined}
       className="qq-mface-wrap qq-media-action"
+      data-favorite-emoji-source={mediaUrl('mface', { pack, hash })}
       style={style}
       title={interactive ? '商城表情 · 点击查看整组' : '商城表情'}
       onClick={interactive ? () => openMarketFaceLightbox(String(pack), hash) : undefined}

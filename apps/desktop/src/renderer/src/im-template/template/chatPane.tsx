@@ -29,6 +29,8 @@ import { CloneMemberProfileCard } from '../../views/agentlab/CloneMemberProfileC
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
 import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
+import { MessageFavoriteEmojiAction } from '../../components/qq-actions/MessageFavoriteEmojiAction';
+import { messageFavoriteEmojiUrl } from '../../lib/messageFavoriteEmoji';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useMessageSelectionFlow } from '../../hooks/useMessageSelectionFlow';
@@ -4338,6 +4340,7 @@ export function ChatPane({
         },
         message,
         clipboard,
+        messageFavoriteEmojiUrl(message, event.target),
       );
       return;
     }
@@ -4355,6 +4358,7 @@ export function ChatPane({
     setContextMenu({
       message,
       imageUrl,
+      favoriteEmojiUrl: messageFavoriteEmojiUrl(message, event.target),
       clipboard,
       downloadUrl:
         (event.target instanceof HTMLImageElement
@@ -4373,12 +4377,14 @@ export function ChatPane({
     point: { x: number; y: number },
     message: Message,
     clipboard?: { text: string; html: string },
+    favoriteEmojiUrl = messageFavoriteEmojiUrl(message),
   ) {
     const menuHalfWidth = 112;
     const maxTop = Math.max(92, window.innerHeight - 166);
     setContextMenu({
       message,
       imageUrl: pureImageUrl(message),
+      favoriteEmojiUrl,
       clipboard,
       downloadUrl: getMessageDownloadUrl(message),
       x: Math.min(Math.max(point.x, menuHalfWidth), window.innerWidth - menuHalfWidth),
@@ -6736,6 +6742,15 @@ export function ChatPane({
           onClose={() => setContextMenu(null)}
           extraActions={
             <>
+              {!generated &&
+              !isLocalOutgoingMessage(contextMenu.message) &&
+              contextMenu.favoriteEmojiUrl ? (
+                <MessageFavoriteEmojiAction
+                  key={contextMenu.favoriteEmojiUrl}
+                  url={contextMenu.favoriteEmojiUrl}
+                  onClose={() => setContextMenu(null)}
+                />
+              ) : null}
               {intentActionAvailable &&
               !grayTipOf(contextMenu.message) &&
               !isLocalOutgoingMessage(contextMenu.message) ? (

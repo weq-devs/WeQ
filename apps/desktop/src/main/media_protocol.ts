@@ -52,6 +52,7 @@ import {
   GROUP_PTT_RKEY_TYPE,
   downloadUrlToFile,
   resolveChatpicFile,
+  chatpicRelPaths,
   type AvatarLocalFile,
   type MediaElement,
 } from '@weq/service';
@@ -135,12 +136,13 @@ export async function findMediaElement(
  * 按 picElement 的 md5 在 chatraw/chatimg/chatthumb 里寻址。找不到返回 null，
  * 调用方继续走 rkey / CDN 下载。
  */
-function resolveChatpicFallback(md5: string): string | null {
+function resolveChatpicFallback(md5: string, originalOnly = false): string | null {
   if (!md5) return null;
   const boot = getAppContext().bootstrap;
   const cfg = boot?.userConfig.getSettings().externalChatpic;
   if (!cfg?.enabled || !cfg.dir) return null;
-  return resolveChatpicFile(cfg.dir, md5);
+  const path = resolveChatpicFile(cfg.dir, md5);
+  return originalOnly && path !== join(cfg.dir, chatpicRelPaths(md5).chatraw) ? null : path;
 }
 
 export const MEDIA_SCHEME = 'weq-media';
@@ -710,14 +712,18 @@ async function routeMediaRequest(request: Request): Promise<Response> {
             q.get('md5') ?? undefined,
           );
           mediaBinding.getStore()?.();
-          const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
+          const path = wantThumb
+            ? (thumb ?? source)
+            : q.get('v') === 'original' && picType !== 'emoji'
+              ? source
+              : (source ?? thumb);
           const respond = (path: string) =>
             wantThumb && picType !== 'emoji'
               ? chatImageResponse(path, currentRequest.getStore(), mediaBinding.getStore())
               : fileResponse(path);
           if (path) return respond(path);
           // 本地 miss → 外部安卓 chatpic 备份兜底（按 md5 寻址），再不行才走 CDN。
-          const chatpicFile = resolveChatpicFallback(q.get('md5') ?? '');
+          const chatpicFile = resolveChatpicFallback(q.get('md5') ?? '', q.get('v') === 'original');
           if (chatpicFile) return respond(chatpicFile);
           // Missing on disk → CDN: digit token → originalUrl (no rkey); else rkey.
           const dl = await services.mediaDownload.download(token, {
