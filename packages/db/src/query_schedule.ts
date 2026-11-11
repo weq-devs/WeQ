@@ -65,6 +65,22 @@ export function withDatabasePriority<T>(
   );
 }
 
+/** 为后台生命周期补充取消信号，不覆盖调用方已有的优先级或取消条件。 */
+export function withDatabaseSignal<T>(signal: AbortSignal, run: () => T): T {
+  const inherited = priority.getStore();
+  const parentSignal = inherited?.signal;
+  return priority.run(
+    {
+      get priority() {
+        return inherited?.priority ?? 'interactive';
+      },
+      signal:
+        parentSignal && parentSignal !== signal ? AbortSignal.any([parentSignal, signal]) : signal,
+    },
+    run,
+  );
+}
+
 interface Series {
   count: number;
   totalMs: number;

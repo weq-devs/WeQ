@@ -26,6 +26,7 @@ export {
   observeSlowDatabaseOperations,
   promoteDatabaseSignal,
   withDatabasePriority,
+  withDatabaseSignal,
   withDatabaseReadBudget,
   databaseRequestSignal,
   databasePerformance,
