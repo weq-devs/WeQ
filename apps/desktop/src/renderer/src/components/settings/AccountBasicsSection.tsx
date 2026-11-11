@@ -395,7 +395,7 @@ export function AccountBasicsSection({
         <SectionHeader
           icon={<User size={16} strokeWidth={1.8} />}
           title={
-            { account: '监听与读取', credentials: '凭据管理', media: '资源目录', read: '已读同步' }[
+            { account: '监听与读取', credentials: '凭据管理', media: '媒体来源', read: '已读同步' }[
               page
             ]
           }

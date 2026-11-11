@@ -616,19 +616,19 @@ export function TtsProvidersCard(): ReactElement {
             <div className="weq-provider-modal-body">
               {catalog.error ? (
                 <QueryError
-                  message={`厂商模板读取失败：${catalog.error.message}`}
-                  retryLabel="重新读取厂商模板"
+                  message={`服务商模板读取失败：${catalog.error.message}`}
+                  retryLabel="重新读取服务商模板"
                   retrying={catalog.isFetching}
                   onRetry={() => void catalog.refetch()}
                 />
               ) : null}
               <Row
-                label="厂商模板"
+                label="服务商模板"
                 desc={vendorEntry?.note}
                 control={
                   <select
                     className="weq-set-input"
-                    aria-label="TTS 厂商模板"
+                    aria-label="TTS 服务商模板"
                     value={form.vendor}
                     disabled={catalog.isLoading}
                     onChange={(e) => applyVendor(e.target.value)}
@@ -722,7 +722,7 @@ export function TtsProvidersCard(): ReactElement {
                       className="weq-set-input"
                       value={form.model}
                       onChange={(e) => update('model', e.target.value)}
-                      placeholder={vendorEntry?.defaultModel ?? '厂商模型 id（可空用默认）'}
+                      placeholder={vendorEntry?.defaultModel ?? '服务商模型 id（可空用默认）'}
                     />
                   }
                 />

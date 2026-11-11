@@ -184,20 +184,21 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'accounts',
     label: 'WeQ 账号管理',
     icon: <User size={16} />,
-    render: () => (
-      <>
-        <GlobalSettingsSection section="accounts" />
-        <AccountBasicsSection page="media" heading={false} />
-      </>
-    ),
+    render: () => <GlobalSettingsSection section="accounts" />,
+  },
+  {
+    id: 'media',
+    label: '媒体来源',
+    icon: <HardDrive size={16} />,
+    render: () => <AccountBasicsSection page="media" />,
   },
   {
     id: 'qq-accounts',
-    label: 'QQ 账号管理',
+    label: 'QQ 登录记录管理',
     icon: <Users size={16} />,
     render: () => (
       <div className="weq-set" data-setting-id="qq-accounts">
-        <SectionHeader title="QQ 账号管理" icon={<Users size={16} strokeWidth={1.8} />} />
+        <SectionHeader title="QQ 登录记录管理" icon={<Users size={16} strokeWidth={1.8} />} />
         <LoginAccountPanel />
       </div>
     ),
@@ -234,13 +235,13 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'database-tolerance',
-    label: '数据库宽容',
+    label: '数据库容错',
     icon: <DatabaseZap size={16} />,
     render: (onOpen) => <DatabaseSettingsSection page="tolerance" onOpen={onOpen} />,
   },
   {
     id: 'qq-storage',
-    label: '资源目录管理',
+    label: 'QQ 资源管理',
     icon: <HardDrive size={16} />,
     render: () => <ResourceManagementSection />,
   },
@@ -258,11 +259,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'diagnostics',
-    label: '诊断工具',
+    label: 'QQ 协议工具',
     icon: <ScanSearch size={16} />,
     render: (onOpen) => (
       <div className="weq-set">
-        <SectionHeader title="诊断工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
+        <SectionHeader title="QQ 协议工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
         <div className="weq-maintenance-list">
           <button
             type="button"

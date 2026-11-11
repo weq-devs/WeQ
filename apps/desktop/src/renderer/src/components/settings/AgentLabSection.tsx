@@ -431,9 +431,9 @@ export function AgentLabSection(): ReactElement {
       await utils.bootstrap.listAgentLabProviders.invalidate();
       await utils.bootstrap.getAgentLabDefaultModel.invalidate();
       await utils.account.intentSense.getStatus.invalidate();
-      dialog.success('已保存', `provider「${form.name.trim() || id}」配置已更新`);
+      dialog.success('已保存', `服务商「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
-      dialog.error('保存 provider 失败', error instanceof Error ? error.message : String(error));
+      dialog.error('保存服务商失败', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -473,7 +473,7 @@ export function AgentLabSection(): ReactElement {
 
   async function onDelete(): Promise<void> {
     if (!selectedId) return;
-    const ok = await dialog.confirm('删除 provider', `确认删除「${selectedId}」？`, {
+    const ok = await dialog.confirm('删除服务商', `确认删除「${selectedId}」？`, {
       okLabel: '删除',
       cancelLabel: '返回',
       tone: 'warning',
@@ -490,9 +490,9 @@ export function AgentLabSection(): ReactElement {
       await utils.bootstrap.listAgentLabProviders.invalidate();
       await utils.bootstrap.getAgentLabDefaultModel.invalidate();
       await utils.account.intentSense.getStatus.invalidate();
-      dialog.success('已删除', `provider「${removed}」已移除`);
+      dialog.success('已删除', `服务商「${removed}」已移除`);
     } catch (error) {
-      dialog.error('删除 provider 失败', error instanceof Error ? error.message : String(error));
+      dialog.error('删除服务商失败', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -517,7 +517,7 @@ export function AgentLabSection(): ReactElement {
         }
       >
         <DefaultApiModelRow />
-        <div className="weq-set-card-title">已保存的 provider</div>
+        <div className="weq-set-card-title">已保存的服务商</div>
         {providers.error ? (
           <QueryError
             message={`API 配置读取失败：${providers.error.message}`}
@@ -533,7 +533,7 @@ export function AgentLabSection(): ReactElement {
         ) : (providers.data ?? []).length === 0 ? (
           providers.error ? null : (
             <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
-              还没有 provider，点右上角「新建」添加一个厂商。
+              还没有服务商，点右上角「新建」添加一个服务商。
             </div>
           )
         ) : (
@@ -576,7 +576,7 @@ export function AgentLabSection(): ReactElement {
               <span className="weq-provider-modal-icon">
                 <Server size={16} strokeWidth={1.8} aria-hidden />
               </span>
-              <strong>{selectedId ? '编辑 provider' : '新建 provider'}</strong>
+              <strong>{selectedId ? '编辑服务商' : '新建服务商'}</strong>
               <button
                 type="button"
                 className="weq-set-iconbtn weq-provider-modal-close"
@@ -593,19 +593,19 @@ export function AgentLabSection(): ReactElement {
             >
               {catalog.error ? (
                 <QueryError
-                  message={`厂商模板读取失败：${catalog.error.message}`}
-                  retryLabel="重新读取厂商模板"
+                  message={`服务商模板读取失败：${catalog.error.message}`}
+                  retryLabel="重新读取服务商模板"
                   retrying={catalog.isFetching}
                   onRetry={() => void catalog.refetch()}
                 />
               ) : null}
               <Row
-                label="厂商模板"
+                label="服务商模板"
                 desc="选模板自动带入 base_url 与推荐模型。"
                 control={
                   <select
                     className="weq-set-input"
-                    aria-label="API 厂商模板"
+                    aria-label="API 服务商模板"
                     value={form.vendor}
                     disabled={catalog.isLoading}
                     onChange={(e) => applyVendor(e.target.value)}
@@ -682,7 +682,7 @@ export function AgentLabSection(): ReactElement {
                     className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
                     onClick={() => void onFetchModels()}
                     disabled={fetchingModels}
-                    title="按上面的 Base URL 请求 /models，拉取该厂商可用模型"
+                    title="按上面的 Base URL 请求 /models，拉取该服务商可用模型"
                   >
                     {fetchingModels ? (
                       <Loader2 size={12} className="weq-spin" />
@@ -861,7 +861,7 @@ export function AgentLabSection(): ReactElement {
                 disabled={saveProvider.isLoading || detectingModel !== null}
               >
                 <Save size={14} />
-                保存 provider
+                保存服务商
               </button>
               <button
                 type="button"

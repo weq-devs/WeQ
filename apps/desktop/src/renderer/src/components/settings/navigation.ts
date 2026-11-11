@@ -21,12 +21,14 @@ export const SETTINGS_PAGE_LABELS = {
   account: '监听与读取',
   credentials: '凭据管理',
   accounts: 'WeQ 账号管理',
-  'qq-accounts': 'QQ 账号管理',
-  diagnostics: '诊断工具',
+  'qq-accounts': 'QQ 登录记录管理',
+  diagnostics: 'QQ 协议工具',
+  'performance-monitor': '性能监视',
   'database-repair': '损坏与修复',
-  'database-tolerance': '数据库宽容',
+  'database-tolerance': '数据库容错',
   'database-management': '数据库管理',
-  'qq-storage': '资源目录管理',
+  'qq-storage': 'QQ 资源管理',
+  media: '媒体来源',
   'resource-loading': '资源加载',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
@@ -49,7 +51,6 @@ export type SectionId =
   | 'applock'
   | 'saving'
   | 'storage'
-  | 'media'
   | 'rkey'
   | 'database'
   | 'database-status'
@@ -105,6 +106,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
       'database-tolerance',
       'database-management',
       'qq-storage',
+      'media',
       'resource-loading',
     ],
   },
@@ -113,7 +115,11 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     label: 'WeQ 服务',
     sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
   },
-  { id: 'help', label: '关于 WeQ', sections: ['version', 'backup', 'faq', 'logs', 'feedback'] },
+  {
+    id: 'help',
+    label: '关于 WeQ',
+    sections: ['version', 'backup', 'faq', 'logs', 'performance-monitor', 'feedback'],
+  },
 ];
 
 export interface SettingsScope {
@@ -192,7 +198,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       aliasesFrom: [item.section],
     }),
   ),
-  { id: 'llm-providers', section: 'agentlab', label: '已保存的 provider', from: ['agentlab'] },
+  {
+    id: 'llm-providers',
+    section: 'agentlab',
+    label: '已保存的服务商',
+    aliases: ['已保存的 provider'],
+    from: ['agentlab'],
+  },
   { id: 'llm-default-model', section: 'agentlab', label: '默认模型', from: ['agentlab'] },
   { id: 'tts-providers', section: 'agentlab', label: 'TTS 语音合成', from: ['agentlab', 'tts'] },
   {
@@ -446,7 +458,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'prefer-cdn',
     section: 'resource-loading',
-    label: '优先使用 CDN',
+    label: '优先直连 QQ 加载图片',
+    aliases: ['优先使用 CDN'],
     from: ['storage', 'remote', 'resource-loading'],
   },
   {
@@ -477,14 +490,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'linked-resources',
-    section: 'accounts',
+    section: 'media',
     label: '关联资源目录',
     aliases: ['关联本机媒体目录'],
     from: ['media', 'accounts'],
   },
   {
     id: 'external-chatpic',
-    section: 'accounts',
+    section: 'media',
     label: '外部安卓图片缓存',
     aliases: ['允许使用外部安卓图片缓存'],
     from: ['media', 'accounts'],
@@ -604,7 +617,7 @@ const SECTION_REDIRECTS: Partial<
   saving: { section: 'global' },
   storage: { section: 'weq-storage' },
   'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
-  media: { section: 'accounts', settingId: 'linked-resources' },
+  media: { section: 'media', settingId: 'linked-resources' },
   rkey: { section: 'credentials', settingId: 'external-rkey' },
   database: { section: 'database-tolerance' },
   'database-status': { section: 'database-tolerance', settingId: 'tolerance-records' },

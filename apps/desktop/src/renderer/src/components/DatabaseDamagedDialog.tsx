@@ -118,7 +118,7 @@ export function DatabaseDamagedDialog({
         tone: 'info',
         title: '已不再提醒数据库损坏弹窗',
         detail:
-          '之后数据库异常时不会再自动弹出该提醒（设置 → 数据库宽容 → 损坏提醒 里可以再打开）。',
+          '之后数据库异常时不会再自动弹出该提醒（设置 → 数据库容错 → 损坏提醒 里可以再打开）。',
       });
     } catch (e) {
       pushToast({

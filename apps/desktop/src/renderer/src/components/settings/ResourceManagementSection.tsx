@@ -33,7 +33,7 @@ export function ResourceManagementSection() {
       : null;
   return (
     <div className="weq-set weq-resources-settings">
-      <SectionHeader title="资源目录管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
+      <SectionHeader title="QQ 资源管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
       {account.error ? (
         <QueryError
           message={account.error.message}

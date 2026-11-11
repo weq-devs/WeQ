@@ -245,7 +245,7 @@ export function DatabaseToleranceSection({
   return (
     <div className="weq-set">
       <SectionHeader
-        title={page === 'policy' ? '数据库宽容' : page === 'damage' ? '损坏与修复' : '容错记录'}
+        title={page === 'policy' ? '数据库容错' : page === 'damage' ? '损坏与修复' : '容错记录'}
         icon={<DatabaseZap size={16} strokeWidth={1.9} />}
         desc={
           page === 'damage' ? undefined : (
@@ -254,7 +254,7 @@ export function DatabaseToleranceSection({
                 <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
                 {SALVAGE_EXPERIMENTAL_TAG}
               </span>
-              QQ 数据库损坏时默认直接报错；也可以按需开启宽容级别，接受「少读一点也能用」的代价。
+              QQ 数据库损坏时默认直接报错；也可以按需开启容错级别，接受「少读一点也能用」的代价。
             </>
           )
         }
@@ -266,11 +266,11 @@ export function DatabaseToleranceSection({
           <details className="weq-set-details">
             <summary>
               <ChevronDown size={13} aria-hidden />
-              宽容是什么、覆盖哪些功能
+              容错是什么、覆盖哪些功能
             </summary>
             <div className="weq-set-details-body">
               <p>
-                严格（级别 0）之外还有三级宽容：级别 1 只换访问路径（<strong>不丢数据</strong>），
+                严格（级别 0）之外还有三级容错：级别 1 只换访问路径（<strong>不丢数据</strong>），
                 级别 2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
                 再允许放弃读不动的整张表。
               </p>
@@ -283,7 +283,7 @@ export function DatabaseToleranceSection({
           </details>
 
           <Card
-            title="宽容级别"
+            title="容错级别"
             icon={<ShieldCheck size={15} strokeWidth={1.8} />}
             action={
               <span className="weq-set-badge weq-set-badge-ok" title={current.scope}>
@@ -291,7 +291,7 @@ export function DatabaseToleranceSection({
               </span>
             }
           >
-            <div className="weq-set-levels" role="radiogroup" aria-label="数据库宽容级别">
+            <div className="weq-set-levels" role="radiogroup" aria-label="数据库容错级别">
               {salvageLevelsAscending().map((copy) => {
                 const active = copy.level === level;
                 const confirming = pendingLossy === copy.level;

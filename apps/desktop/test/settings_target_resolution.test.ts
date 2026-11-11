@@ -82,14 +82,20 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
     { section: 'message-display', item: '显示消息序号（seq）', target: 'message-display' },
     { section: 'anti-recall', target: 'chat-interaction', settingId: 'anti-recall' },
-    { section: 'media', target: 'accounts', settingId: 'linked-resources' },
+    { section: 'media', target: 'media', settingId: 'linked-resources' },
     {
       section: 'media',
       item: '允许使用外部安卓图片缓存',
-      target: 'accounts',
+      target: 'media',
       settingId: 'external-chatpic',
     },
     { section: 'rkey', target: 'credentials', settingId: 'external-rkey' },
+    {
+      section: 'accounts',
+      item: '关联资源目录',
+      target: 'media',
+      settingId: 'linked-resources',
+    },
     { section: 'database', target: 'database-tolerance' },
     {
       section: 'database',
@@ -153,6 +159,9 @@ describe('设置重构的规范目标与旧入口分流', () => {
   });
 
   it('稳定 ID 优先于旧标签，同名条目不跨页面误分流', () => {
+    expect(
+      resolveSettingsTarget({ section: 'accounts', settingId: 'external-chatpic' }),
+    ).toMatchObject({ section: 'media', settingId: 'external-chatpic' });
     expect(
       resolveSettingsTarget({
         section: 'storage',

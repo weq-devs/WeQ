@@ -587,7 +587,7 @@ export function GlobalSettingsSection({
             label={
               <span className="weq-set-row-icon">
                 <Cloud size={15} strokeWidth={1.8} aria-hidden />
-                优先使用 CDN
+                优先直连 QQ 加载图片
               </span>
             }
             desc={`桌面端与 Web 共用。${
@@ -600,7 +600,7 @@ export function GlobalSettingsSection({
                 checked={preferCdn}
                 disabled={settings.isLoading || setPreferCdnMut.isLoading}
                 onChange={(next) => void onSetPreferCdn(next)}
-                label="优先使用 CDN"
+                label="优先直连 QQ 加载图片"
               />
             }
           />

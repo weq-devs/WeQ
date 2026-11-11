@@ -103,6 +103,30 @@ function mount(initialSection?: SectionId) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('媒体来源独立显示，账号页不再混入媒体设置，协议工具不重复放性能入口', () => {
+    const f = mount('accounts');
+    try {
+      expect(f.body().querySelector('[data-setting-id="linked-resources"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="external-chatpic"]')).toBeNull();
+      f.render('media');
+      expect(f.body().getAttribute('data-settings-page')).toBe('media');
+      expect(f.body().querySelector('h3')?.textContent).toBe('媒体来源');
+      expect(f.body().querySelector('[data-setting-id="linked-resources"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="external-chatpic"]')).not.toBeNull();
+      f.render('diagnostics');
+      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 协议工具');
+      expect(f.body().querySelector('[data-setting-id="performance-monitor"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="qqnt-capture"]')).not.toBeNull();
+      f.render('resource-loading');
+      expect(f.body().querySelector('[aria-label="优先直连 QQ 加载图片"]')).not.toBeNull();
+      expect(f.body().textContent).toContain('缺失时代取并缓存');
+      f.render('agentlab');
+      expect(f.body().textContent).toContain('已保存的服务商');
+      expect(f.body().textContent).not.toContain('已保存的 provider');
+    } finally {
+      f.close();
+    }
+  });
   it('含可恢复偏好的二级页和可见卡片均有统一入口，信息与工具页不显示', () => {
     const f = mount('appearance');
     try {
@@ -214,7 +238,7 @@ describe('设置归位后的实际页面', () => {
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '反馈']);
+      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '性能监视', '反馈']);
       expect(f.onOpenMaintenance).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -379,17 +403,17 @@ describe('设置归位后的实际页面', () => {
     ['global', '默认发送正在输入状态', 'typing-status', '互动与防撤回'],
     ['account', '手动标记时上报已读位置', 'read-sync', '阅读与未读'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
-    ['media', '关联本机媒体目录', 'linked-resources', 'WeQ 账号管理'],
-    ['media', '允许使用外部安卓图片缓存', 'external-chatpic', 'WeQ 账号管理'],
+    ['media', '关联本机媒体目录', 'linked-resources', '媒体来源'],
+    ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '媒体来源'],
     ['rkey', '外部 RKEY', 'external-rkey', '凭据管理'],
     ['applock', '隐私模式', 'privacy-mode', '隐私'],
     ['applock', '启用应用锁', 'app-lock', '隐私'],
     ['applock', '解锁方式', 'unlock-method', '隐私'],
     ['applock', '无操作自动上锁', 'auto-lock', '隐私'],
     ['anti-recall', '防撤回', 'anti-recall', '互动与防撤回'],
-    ['maintenance', '本地缓存', 'resource-viewer', '资源目录管理'],
-    ['maintenance', '存储占用', 'qq-storage-analysis', '资源目录管理'],
-    ['maintenance', '清理缓存', 'qq-storage-cleanup', '资源目录管理'],
+    ['maintenance', '本地缓存', 'resource-viewer', 'QQ 资源管理'],
+    ['maintenance', '存储占用', 'qq-storage-analysis', 'QQ 资源管理'],
+    ['maintenance', '清理缓存', 'qq-storage-cleanup', 'QQ 资源管理'],
     ['maintenance', '数据库修复', 'database-repair', '损坏与修复'],
     ['maintenance', '导出明文数据库', 'database-export', '数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
@@ -513,12 +537,12 @@ describe('设置归位后的实际页面', () => {
       host.remove();
     }
   });
-  it('关于按五页展示，版本更新及日志能力各自合并，旧入口仍可达', () => {
+  it('关于包含性能监视，版本更新及日志能力各自合并，旧入口仍可达', () => {
     const f = mount('version');
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '反馈']);
+      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '性能监视', '反馈']);
       expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.body().textContent).not.toContain('监控新版本发布');
@@ -785,7 +809,7 @@ describe('设置归位后的实际页面', () => {
   it('损坏提醒拆出后，容错记录通过入口弹窗查看，旧深链只定位不自动打开', () => {
     const f = mount('database');
     try {
-      expect(f.body().textContent).toContain('宽容级别');
+      expect(f.body().textContent).toContain('容错级别');
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')?.textContent).toBe(
         '当前账号',
       );
@@ -814,7 +838,7 @@ describe('设置归位后的实际页面', () => {
           .querySelector('[data-setting-id="damage-reminder"]')
           ?.getAttribute('data-search-highlight'),
       ).toBe('true');
-      expect(f.body().textContent).not.toContain('宽容级别');
+      expect(f.body().textContent).not.toContain('容错级别');
     } finally {
       f.close();
     }

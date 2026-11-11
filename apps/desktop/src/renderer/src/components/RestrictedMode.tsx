@@ -481,7 +481,7 @@ export function RestrictedModeHost() {
             tone: 'warning',
             title: '签名器已降级：改用完整签名函数',
             detail: signer.data
-              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → 诊断工具 → 签名器」里手动重扫。`
+              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → QQ 协议工具 → 签名器」里手动重扫。`
               : undefined,
           });
         }

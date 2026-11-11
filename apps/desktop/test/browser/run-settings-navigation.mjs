@@ -128,6 +128,57 @@ try {
       assert.equal(await page.getByRole('button', { name: '后台服务', exact: true }).count(), 0);
       if (output)
         await page.screenshot({ path: resolve(output, `services-${width}-${theme}.png`) });
+      const openCategory = async (label) => {
+        if (width <= 760)
+          await page.getByRole('button', { name: '返回设置分类', exact: true }).click();
+        await page
+          .locator('.weq-settings-nav')
+          .getByRole('button', { name: label, exact: true })
+          .click();
+      };
+      await openCategory('关于 WeQ');
+      assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
+        '版本与更新',
+        '配置备份与恢复',
+        '常见问题',
+        '日志',
+        '性能监视',
+        '反馈',
+      ]);
+      await openCategory('凭据与账号');
+      assert.equal(
+        await page
+          .locator('.weq-settings-subnav-item')
+          .getByText('性能监视', { exact: true })
+          .count(),
+        0,
+      );
+      await page.getByRole('button', { name: 'QQ 协议工具', exact: true }).click();
+      await page
+        .locator('.weq-settings-body')
+        .getByText('Protobuf / JCE 逆向', { exact: true })
+        .waitFor();
+      assert.equal(
+        await page.locator('.weq-settings-body [data-setting-id="performance-monitor"]').count(),
+        0,
+      );
+      await openCategory('数据库与资源');
+      await page.getByRole('button', { name: '媒体来源', exact: true }).click();
+      await page.locator('.weq-settings-body [data-setting-id="external-chatpic"]').waitFor();
+      const heading = page.locator('.weq-settings-body h3').first();
+      assert.equal(await heading.textContent(), '媒体来源');
+      if (output)
+        await page.screenshot({ path: resolve(output, `media-source-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: '资源加载', exact: true }).click();
+      const directLabel = page.locator('.weq-settings-body .weq-set-row-label').first();
+      const directToggle = page.getByRole('switch', { name: '优先直连 QQ 加载图片', exact: true });
+      const labelBounds = await directLabel.boundingBox();
+      const toggleBounds = await directToggle.boundingBox();
+      assert(labelBounds && toggleBounds && labelBounds.x + labelBounds.width <= toggleBounds.x);
+      if (output)
+        await page.screenshot({ path: resolve(output, `resource-loading-${width}-${theme}.png`) });
+      await openCategory('WeQ 服务');
+      await page.getByRole('button', { name: 'OneBot / cc-connect', exact: true }).click();
       await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
       const name = page.locator('.weq-onebot-server-editor input').first();
       await name.fill('未保存的连接');
