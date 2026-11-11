@@ -233,6 +233,7 @@ export type {
 } from './oidb/set-self-profile';
 
 export * from './call';
+export * from './oidb/profile/extras';
 /**
  * 群通话协议层。
  *

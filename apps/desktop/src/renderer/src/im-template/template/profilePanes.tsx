@@ -37,6 +37,7 @@ import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
 import { ContactWorkspace } from '../../components/ContactWorkspace';
 import { ProfileLikesRow } from '../../components/qq-actions/ProfileLikesRow';
+import { ProfileExtras } from '../../components/ProfileExtras';
 import { CommonRelationships } from '../../components/qq-actions/CommonRelationships';
 import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { FriendClue } from '../../components/qq-actions/FriendClue';
@@ -496,7 +497,17 @@ export function ContactProfileDialog({
           <div>
             <p className="weq-profile-sign">{profile.signature}</p>
             <SignatureUpdated {...profile} />
+            {!profile.clone && profile.kind !== 'bot' && !profile.extInfo?.isEnterprise ? (
+              <ProfileExtras uin={profile.identityValue} section="signature" />
+            ) : null}
           </div>
+        ) : null}
+        {!embedded &&
+        !profile.signature &&
+        !profile.clone &&
+        profile.kind !== 'bot' &&
+        !extInfo?.isEnterprise ? (
+          <ProfileExtras uin={profile.identityValue} section="signature" />
         ) : null}
         {embedded && statusText ? (
           <span
@@ -564,6 +575,12 @@ export function ContactProfileDialog({
 
   const personalRows = (
     <>
+      {!profile.clone &&
+      profile.kind !== 'bot' &&
+      !extInfo?.isEnterprise &&
+      profile.identityLabel === 'QQ' ? (
+        <ProfileExtras uin={profile.identityValue} />
+      ) : null}
       <ProfileRow
         sensitive
         icon={<User size={13} />}
@@ -741,12 +758,16 @@ export function ContactProfileDialog({
               >
                 <div className={cn('weq-contact-columns', !hasSecondary && 'is-single')}>
                   <div className="weq-contact-primary">
-                    {profile.signature ? (
+                    {profile.signature ||
+                    (!profile.clone && profile.kind !== 'bot' && !extInfo?.isEnterprise) ? (
                       <ProfileSection title="个性签名">
                         <p className="weq-contact-text" data-privacy-sensitive>
                           {profile.signature}
                         </p>
                         <SignatureUpdated {...profile} />
+                        {!profile.clone && profile.kind !== 'bot' && !extInfo?.isEnterprise ? (
+                          <ProfileExtras uin={profile.identityValue} section="signature" />
+                        ) : null}
                       </ProfileSection>
                     ) : null}
                     <ProfileSection title="个人资料">

@@ -24,6 +24,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({ invalidate: async () => undefined }),
     account: {
       // `withQQAccountScope` 用它校验「当前会话 = 当前数据源」，没有绑定就不渲染操作。
+      profileExtras: { energy: { useQuery: () => ({ data: undefined }) } },
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
       getGroupAlbumAccessState: {
         useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
@@ -113,6 +114,8 @@ it.each(['human', 'bot', 'enterprise'])(
       );
       expect(host.querySelectorAll('[aria-label="赞资料卡"]')).toHaveLength(excluded ? 0 : 3);
       expect(host.querySelectorAll('.weq-profile-likes-row')).toHaveLength(excluded ? 0 : 3);
+      expect(host.querySelectorAll('.weq-extras-summary')).toHaveLength(excluded ? 0 : 3);
+      expect(host.querySelectorAll('.weq-extras-history')).toHaveLength(excluded ? 0 : 3);
       for (const button of host.querySelectorAll('[aria-label="赞资料卡"]')) {
         const row = button.closest('.weq-profile-row');
         expect(row?.textContent).toContain('获赞');

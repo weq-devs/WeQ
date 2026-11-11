@@ -151,6 +151,7 @@ import {
   MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
+  ProfileExtrasService,
   ChatQqShowService,
   ShowEmojiCatalog,
   CustomEmojiRecentService,
@@ -962,6 +963,7 @@ export interface AccountServices {
   roamingBackfill: RoamingBackfillManager;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
+  profileExtras: ProfileExtrasService;
   /** 聊天 QQ 秀形象 URL 的本地映射（个性主页共用，按设置天数过期）。 */
   qqShow: ChatQqShowService;
   /** QQ 秀 / 互动表情目录（`resources/qqshow/show_emoji.json` 的离线快照）。 */
@@ -2095,6 +2097,14 @@ export function initAppContext(fileRoot?: string): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
+        profileExtras: new ProfileExtrasService(
+          platform.native.ntHelper,
+          session.context.uin,
+          () => {
+            if (this.account !== session) throw new Error('账号已切换，请重新读取资料');
+            return resolveOnlinePid();
+          },
+        ),
         qqShow: new ChatQqShowService({
           storePath: join(
             platform.appDataRoot(),
@@ -2905,6 +2915,14 @@ export function initAppContext(fileRoot?: string): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
+        profileExtras: new ProfileExtrasService(
+          platform.native.ntHelper,
+          session.context.uin,
+          () => {
+            if (this.account !== session) throw new Error('账号已切换，请重新读取资料');
+            return livePid();
+          },
+        ),
         qqShow: new ChatQqShowService({
           storePath: join(
             platform.appDataRoot(),

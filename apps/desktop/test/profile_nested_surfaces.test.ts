@@ -27,6 +27,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       account: { intentSense: { getProfile: { setData: vi.fn() } } },
     }),
     account: {
+      profileExtras: { energy: { useQuery: () => ({ data: undefined }) } },
       intentSense: {
         getStatus: { useQuery: () => ({ data: { profileEnabled: true } }) },
         getProfile: {

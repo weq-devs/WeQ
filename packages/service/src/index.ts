@@ -883,6 +883,7 @@ export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './acco
 export { prepareFavoriteEmojiElements } from './account/favorite_emoji_send';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export { ProfileExtrasService } from './account/profile_extras';
 export {
   ChatQqShowService,
   DEFAULT_QQ_SHOW_CACHE_MINUTES,

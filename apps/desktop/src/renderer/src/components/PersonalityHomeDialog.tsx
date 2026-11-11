@@ -32,6 +32,7 @@ import {
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { trpc } from '../trpc/client';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
+import { ProfileExtras } from './ProfileExtras';
 import { useTabActive } from './RetainedTabs';
 import botCardUrl from '@resources/img/bot.png';
 
@@ -211,6 +212,7 @@ export function PersonalityHomeDialog({
 
         <h2 className="weq-perhome-name">{profile.name}</h2>
         {profile.signature ? <p className="weq-perhome-sign">{profile.signature}</p> : null}
+        {!isBot && !profile.isEnterprise ? <ProfileExtras uin={uin} section="signature" /> : null}
         {openSpace && /^[1-9]\d{4,19}$/.test(uin) ? (
           <div className="weq-profile-actions">
             <button
@@ -252,6 +254,7 @@ export function PersonalityHomeDialog({
             <ProfileLikesRow uid={uid} uin={uin} name={profile.name} />
           </div>
         ) : null}
+        {!isBot && !profile.isEnterprise ? <ProfileExtras uin={uin} /> : null}
 
         {profile.privileges.length || profile.region ? (
           <div className="weq-perhome-chips">

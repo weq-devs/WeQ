@@ -31,6 +31,7 @@ import '../../styles/self-profile-editor.css';
 import { ExtendedStatusAction } from '../qq-actions/ExtendedStatusAction';
 import { QQWriteActionRow, QQWriteSelectRow, QQWriteTextRow } from '../QQWriteControls';
 import { EditableSelfProfile } from './EditableSelfProfile';
+import { ProfileExtras } from '../ProfileExtras';
 
 export function SelfQQControls() {
   const session = useQQWriteSession('self-profile');
@@ -292,7 +293,11 @@ export function SelfQQControls() {
               }
             />
           </div>
+          {session.binding ? (
+            <ProfileExtras uin={session.binding.expectedAccountUin} section="signature" />
+          ) : null}
           <EditableSelfProfile />
+          {session.binding ? <ProfileExtras uin={session.binding.expectedAccountUin} /> : null}
         </Card>
         <Card title="QQ 状态" icon={<Activity size={15} strokeWidth={1.9} />}>
           {profile.data?.statusError && (

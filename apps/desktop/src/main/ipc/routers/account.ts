@@ -95,6 +95,7 @@ import {
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { createQQWriteRouter } from './qq_write';
+import { createProfileExtrasRouter } from './profile_extras';
 import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
@@ -1939,6 +1940,14 @@ export const accountRouter = router({
     },
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
   ),
+  profileExtras: createProfileExtrasRouter((input) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    requireQqOnlineForAlbum(services);
+    return services;
+  }),
   // ---- database explorer (SQLiteStudio-style browse / query / edit) ----
   dbExplorer: dbExplorerRouter,
   // ---- 年度报告（manifest-first, account-scoped）----

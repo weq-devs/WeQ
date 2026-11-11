@@ -52,6 +52,7 @@ import { ProfileCacheFields, SignatureUpdated } from './ProfileCacheFields';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
+import { ProfileExtras } from './ProfileExtras';
 import { CommonRelationships } from './qq-actions/CommonRelationships';
 import { FriendClue } from './qq-actions/FriendClue';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
@@ -443,6 +444,14 @@ export function MemberProfileCard({
                   {!botProfile?.description && profile ? <SignatureUpdated {...profile} /> : null}
                 </div>
               ) : null}
+              {!localClone &&
+              member.kind !== 'bot' &&
+              !profile?.isBot &&
+              !profile?.extInfo?.isEnterprise &&
+              !member.extInfo?.isEnterprise &&
+              uin ? (
+                <ProfileExtras uin={uin} section="signature" />
+              ) : null}
             </div>
 
             <div className="weq-profile-list">
@@ -509,6 +518,11 @@ export function MemberProfileCard({
                     <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
                   ) : null}
                   <CommonRelationships uin={uin} onNavigate={onClose} />
+                  {!profile?.isBot &&
+                  !profile?.extInfo?.isEnterprise &&
+                  !member.extInfo?.isEnterprise ? (
+                    <ProfileExtras uin={uin} />
+                  ) : null}
                   {relationship === 'friend' ? <FriendClue uid={uid} /> : null}
                 </>
               ) : null}

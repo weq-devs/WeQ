@@ -35,7 +35,11 @@ vi.mock('@renderer/trpc/client', () => ({
   // 卡片底部的「互动画像」入口会读意图感知状态；这里给一个「未开启」的桩，
   // 入口不渲染，也就不会把画像 Dialog 的依赖链拖进来。
   trpc: {
+    useUtils: () => ({}),
     account: {
+      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source' } }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      profileExtras: { energy: { useQuery: () => ({ data: undefined }) } },
       dressup: { peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) } },
       intentSense: {
         getProfile: {

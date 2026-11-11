@@ -123,6 +123,7 @@ export class ContactDirectoryRuntime {
     );
     services.accountWrite.contactMetrics = this.cache;
     services.peerStats.contactMetrics = this.cache;
+    if (services.profileExtras) services.profileExtras.contactMetrics = this.cache;
     services.groupInfo.contactMetrics = this.cache;
     this.memberObserver = (groupId, members) =>
       withDatabaseSignal(this.lifetime.signal, async () => {
@@ -956,6 +957,8 @@ export class ContactDirectoryRuntime {
       this.services.accountWrite.contactMetrics = undefined;
     if (this.services.peerStats.contactMetrics === this.cache)
       this.services.peerStats.contactMetrics = undefined;
+    if (this.services.profileExtras?.contactMetrics === this.cache)
+      this.services.profileExtras.contactMetrics = undefined;
     if (this.taskId)
       backgroundTasks.finish(this.taskId, 'cancelled', { note: '账号已关闭，已保存完成的缓存' });
     if (this.taskId) backgroundTasks.setActions(this.taskId, []);

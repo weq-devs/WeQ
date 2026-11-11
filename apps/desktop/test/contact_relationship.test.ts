@@ -32,6 +32,7 @@ vi.mock('../src/renderer/src/components/qq-actions/FriendClue', () => ({
 vi.mock('../src/renderer/src/components/qq-actions/ProfileLikesRow', () => ({
   ProfileLikesRow: () => null,
 }));
+vi.mock('../src/renderer/src/components/ProfileExtras', () => ({ ProfileExtras: () => null }));
 
 const directory: RelationshipDirectory = {
   selfUid: 'u_self',
