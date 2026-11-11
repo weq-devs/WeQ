@@ -553,7 +553,8 @@
     overflow: visible;
   }
 
-  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-nav-item {
+  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-nav-item,
+  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-nav-item.is-active {
     display: grid;
     grid-template-columns: 24px minmax(0, 1fr) 18px;
     width: 100%;
@@ -565,6 +566,7 @@
     background: transparent;
     color: var(--weq-fg-primary);
     font-size: 16px;
+    font-weight: 400;
   }
 
   .weq-web-shell .weq-mobile-settings .weq-mobile-settings-chevron {

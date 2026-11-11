@@ -79,6 +79,37 @@ try {
         const toggle = await row.getByRole('switch').boundingBox();
         assert(label && toggle && label.x + label.width <= toggle.x);
       }
+      if (width <= 760) {
+        await page.getByRole('button', { name: '返回设置分类', exact: true }).click();
+        await page.mouse.move(0, 0);
+        const nav = page.locator('.weq-settings-nav');
+        const styles = await nav.locator('button').evaluateAll((buttons) =>
+          buttons.map((button) => {
+            const style = getComputedStyle(button);
+            return {
+              background: style.backgroundColor,
+              color: style.color,
+              weight: style.fontWeight,
+              border: style.borderBottomColor,
+            };
+          }),
+        );
+        assert(styles.length > 1);
+        for (const style of styles) assert.deepEqual(style, styles[0]);
+        if (output)
+          await page.screenshot({ path: resolve(output, `categories-${width}-${theme}.png`) });
+        await nav.getByRole('button', { name: '基础功能', exact: true }).click();
+      } else {
+        const active = page.locator('.weq-settings-nav-item.is-active');
+        assert.equal(await active.count(), 1);
+        assert.notEqual(
+          await active.evaluate((button) => getComputedStyle(button).backgroundColor),
+          await page
+            .locator('.weq-settings-nav-item:not(.is-active)')
+            .first()
+            .evaluate((button) => getComputedStyle(button).backgroundColor),
+        );
+      }
       if (output)
         await page.screenshot({ path: resolve(output, `message-display-${width}-${theme}.png`) });
       await page.goto(
