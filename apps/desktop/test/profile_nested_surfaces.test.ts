@@ -1,6 +1,7 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useViewState } from '../src/renderer/src/state/view';
 import {
   ContactProfileDialog,
   GroupProfileDialog,
@@ -17,6 +18,7 @@ import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMa
 import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+beforeEach(() => useViewState.setState({ openedUin: '10001' }));
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -50,6 +52,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       // `withQQAccountScope` 要拿到当前数据源才渲染资料卡上的 QQ 操作入口。
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
+      contactMetrics: {
+        snapshot: { useQuery: () => ({ data: { rows: {} } }) },
+        changed: { useSubscription: () => undefined },
+      },
       getGroupAlbumAccessState: {
         useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
       },
@@ -71,6 +77,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       mutualMark: {
         get: {
           useQuery: () => ({
+            isSuccess: true,
             isLoading: false,
             data: {
               categories: [

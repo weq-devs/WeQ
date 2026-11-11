@@ -52,20 +52,24 @@ const proxy = (path: string[] = []): unknown =>
       if (key === 'useUtils') return () => proxy();
       if (key === 'useSubscription') return () => undefined;
       if (key === 'useQuery')
-        return () => ({
-          data:
-            path.join('.') === 'account.getAccountConfig'
-              ? config
-              : ['account.contactMetrics.snapshot', 'account.contactMetrics.status'].includes(
-                    path.join('.'),
-                  )
-                ? snapshot
-                : path.join('.') === 'account.qqWrite.profileRegions'
-                  ? { regions }
-                  : undefined,
-          isLoading: false,
-          refetch: async () => ({ data: undefined }),
-        });
+        return () =>
+          path.join('.') === 'account.mutualMark.get' &&
+          (window as unknown as { profileCacheQa?: { marks: unknown } }).profileCacheQa
+            ? (window as unknown as { profileCacheQa: { marks: unknown } }).profileCacheQa.marks
+            : {
+                data:
+                  path.join('.') === 'account.getAccountConfig'
+                    ? config
+                    : ['account.contactMetrics.snapshot', 'account.contactMetrics.status'].includes(
+                          path.join('.'),
+                        )
+                      ? snapshot
+                      : path.join('.') === 'account.qqWrite.profileRegions'
+                        ? { regions }
+                        : undefined,
+                isLoading: false,
+                refetch: async () => ({ data: undefined }),
+              };
       if (key === 'useMutation')
         return () => ({
           mutate: () => {},

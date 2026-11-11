@@ -17,6 +17,7 @@ import type { GroupConversationView } from '../im-template/template/conversation
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { OverlayLayer } from './OverlayLayer';
 import { GroupProfileMetrics } from './GroupProfileMetrics';
+import { GroupLabelSources } from './GroupLabelSources';
 
 export function GroupInfoDetailDialog({
   conversation,
@@ -37,7 +38,6 @@ export function GroupInfoDetailDialog({
       group.createTime ? ['创建时间', formatShortDate(group.createTime)] : null,
       group.maxMemberCount ? ['群容量', `${group.memberCount}/${group.maxMemberCount}`] : null,
       group.labels ? ['标签', group.labels] : null,
-      group.customLabels?.length ? ['自定义标签', group.customLabels.join('、')] : null,
       group.addressName ? ['群地点', group.addressName] : null,
       group.entranceQ ? ['入群问题', group.entranceQ] : null,
     ] satisfies ([string, string] | null)[]
@@ -81,6 +81,14 @@ export function GroupInfoDetailDialog({
                   </strong>
                 </div>
               ))}
+              {group.customLabelRecords?.length || group.customLabels?.length ? (
+                <div className="group-info-detail-row">
+                  <span>自定义标签</span>
+                  <div data-privacy-sensitive>
+                    <GroupLabelSources group={group} members={conversation.members} />
+                  </div>
+                </div>
+              ) : null}
               {!conversation.generated ? (
                 <GroupProfileMetrics groupCode={conversation.id}>
                   {(rows) =>

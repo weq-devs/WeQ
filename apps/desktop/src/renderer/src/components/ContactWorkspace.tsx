@@ -140,6 +140,7 @@ export function ContactWorkspace({
             embedded
             uin={contact.identityValue}
             name={contact.displayName}
+            cachedMarks={contact.extInfo?.interactMarks}
             onClose={onNavigateAway}
           />
         ) : status.data?.profileEnabled ? (
