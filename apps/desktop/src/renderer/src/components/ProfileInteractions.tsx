@@ -329,17 +329,23 @@ export function QuestionInteractions({
   online: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const counts = [
+    item.likes === null ? null : `赞 ${item.likes}`,
+    item.comments === null ? null : `评论 ${item.comments}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <div className="weq-profile-interactions">
       <button
         type="button"
         className="weq-profile-question-open"
+        aria-label="查看问答互动"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
       >
         <MessageCircle size={15} />
-        {item.likes !== null ? `赞 ${item.likes}` : ''}
-        {item.comments !== null ? ` · 评论 ${item.comments}` : ''}
+        {counts || '查看互动'}
       </button>
       {expanded ? <QuestionDetail input={input} item={item} online={online} /> : null}
     </div>
@@ -416,6 +422,24 @@ export function PersonalityPhotoUploader({
 }) {
   const op = useOperation(online);
   const [files, setFiles] = useState<UploadItem[]>([]);
+  useEffect(() => {
+    const observed = new Set(label.photos.map((photo) => photo.id));
+    setFiles((rows) => {
+      let changed = false;
+      const next = rows.map((row) => {
+        if (
+          row.state !== 'done' ||
+          !row.photoId ||
+          !observed.has(row.photoId) ||
+          row.message === '已上传'
+        )
+          return row;
+        changed = true;
+        return { ...row, message: '已上传' };
+      });
+      return changed ? next : rows;
+    });
+  }, [label.photos]);
   function update(key: string, patch: Partial<UploadItem>) {
     if (op.mounted.current)
       setFiles((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));

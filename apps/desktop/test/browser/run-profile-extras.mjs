@@ -240,6 +240,12 @@ try {
   await page.evaluate(() => window.profileExtrasQa.failNext('personalityPhotoUpload'));
   await page.getByRole('button', { name: '上传', exact: true }).click();
   await page.getByRole('button', { name: '上传待完成照片', exact: true }).waitFor();
+  await page.waitForFunction(
+    () =>
+      [...document.querySelectorAll('.weq-profile-upload-list small')].filter(
+        (el) => el.textContent === '已上传',
+      ).length === 1,
+  );
   assert.equal(
     await page
       .locator('.weq-profile-upload-list small')

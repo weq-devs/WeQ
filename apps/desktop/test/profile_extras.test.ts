@@ -151,6 +151,33 @@ it('自己的问答可切筛选，他人固定已回答', async () => {
   await click('已回答');
   expect(state.filter).toBe('answered');
 });
+it('未返回互动数量的问答保留可辨认的展开入口', async () => {
+  state.questions.mockReturnValue(
+    result({
+      pages: [
+        {
+          ...page,
+          items: [
+            {
+              id: 'q1',
+              question: '问题',
+              answer: null,
+              askedAt: 123,
+              answeredAt: null,
+              likes: null,
+              comments: null,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  await render();
+  await click('匿问我答');
+  const button = document.querySelector<HTMLButtonElement>('.weq-profile-question-open');
+  expect(button?.textContent).toContain('查看互动');
+  expect(button?.getAttribute('aria-label')).toBe('查看问答互动');
+});
 it('能量值失败不阻塞标签入口', async () => {
   state.energy.mockReturnValue({ ...result(), error: new Error('暂不可用') });
   await render();

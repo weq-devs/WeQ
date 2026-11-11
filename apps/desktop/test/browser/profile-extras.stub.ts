@@ -9,12 +9,13 @@ async function mutate(kind: string, value: Record<string, unknown> = {}) {
   }
   operations.push(kind);
   if (kind === 'signatureLike') liked = value.liked === true;
+  if (kind === 'personalityPhotoUpload') photoUploaded = true;
   changed();
   return {
     state: 'accepted' as const,
     commentId: '23',
     photoId: 'uploaded-photo',
-    observed: true,
+    observed: kind !== 'personalityPhotoUpload',
     url: 'https://p.qpic.cn/uploaded-fixture',
   };
 }
@@ -51,6 +52,7 @@ let revision = 0;
 let signaturePage = 1;
 let liked = false;
 let commentPage = 1;
+let photoUploaded = false;
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -180,13 +182,37 @@ function useQuery(kind: string, input: { uin: string }) {
                 targetUin: input.uin,
                 items: empty ? [] : [education, { ...education, index: 2, degree: 7, hidden: 1 }],
               }
-            : { targetUin: input.uin, labels: empty ? [] : [label], totalPhotos: 2, closed: false };
+            : {
+                targetUin: input.uin,
+                labels: empty
+                  ? []
+                  : [
+                      photoUploaded
+                        ? { ...label, photos: [{ ...photo(0), id: 'uploaded-photo' }] }
+                        : label,
+                    ],
+                totalPhotos: 2,
+                closed: false,
+              };
   return {
     data: pending || error ? undefined : value,
     isFetching: pending,
     error,
     refetch: async () => {
       qa.mode('ready');
+      return {
+        data:
+          kind === 'labels'
+            ? {
+                ...value,
+                labels: [
+                  photoUploaded
+                    ? { ...label, photos: [{ ...photo(0), id: 'uploaded-photo' }] }
+                    : label,
+                ],
+              }
+            : value,
+      };
     },
   };
 }
