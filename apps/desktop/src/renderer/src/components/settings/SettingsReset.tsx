@@ -304,12 +304,6 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         open: (target) => void open(target),
       }}
     >
-      <div
-        className="weq-settings-page-reset"
-        data-setting-id={page === 'startup' ? 'weq-config-management' : `settings-reset-${page}`}
-      >
-        <SettingsResetButton />
-      </div>
       {children}
       {dialog ? (
         <Modal

@@ -68,13 +68,16 @@ export function SectionHeader({
   desc,
   icon,
   titleClassName,
+  pageReset = true,
 }: {
   title: string;
   desc?: ReactNode;
   icon?: ReactNode;
   titleClassName?: string;
+  pageReset?: boolean;
 }): ReactElement {
   const scope = useContext(SettingsScopeContext);
+  const reset = useContext(SettingsResetContext);
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
@@ -86,6 +89,16 @@ export function SectionHeader({
         <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
         <SettingsScopeBadge />
       </div>
+      {reset && pageReset ? (
+        <div
+          className="weq-settings-page-reset"
+          data-setting-id={
+            reset.page === 'startup' ? 'weq-config-management' : `settings-reset-${reset.page}`
+          }
+        >
+          <SettingsResetButton />
+        </div>
+      ) : null}
       {desc ? <p className="weq-set-desc">{desc}</p> : null}
       {scope?.detail ? <p className="weq-set-desc">{scope.detail}</p> : null}
     </header>

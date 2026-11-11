@@ -101,6 +101,23 @@ try {
   const output = resolve(root, 'node_modules/.cache/settings-autosave-qa');
   await mkdir(output, { recursive: true });
   let cases = 0;
+  const checkAlignment = () =>
+    page.evaluate(() => {
+      const head = document.querySelector('.weq-set-head');
+      const title = head.querySelector('.weq-set-head-title').getBoundingClientRect();
+      const button = document
+        .querySelector('.weq-settings-page-reset button')
+        .getBoundingClientRect();
+      const box = head.getBoundingClientRect();
+      return {
+        centered: Math.abs((title.top + title.bottom - button.top - button.bottom) / 2) < 1,
+        rightAligned: Math.abs(box.right - button.right) < 1,
+        separated: title.right <= button.left,
+        descriptionsBelow: [...head.querySelectorAll('.weq-set-desc')].every(
+          (node) => node.getBoundingClientRect().top >= Math.max(title.bottom, button.bottom),
+        ),
+      };
+    });
   for (const width of [1280, 390, 320])
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 900 });
@@ -108,6 +125,35 @@ try {
         window.themeQa.getState().setPreference(theme);
         window.themeQa.getState().setAccent(theme === 'light' ? '#086b40' : '#f6d54a');
       }, theme);
+      const alignment = await checkAlignment();
+      assert.deepEqual(
+        alignment,
+        {
+          centered: true,
+          rightAligned: true,
+          separated: true,
+          descriptionsBelow: true,
+        },
+        `${width}/${theme}: 二级设置页标题与重置按钮对齐`,
+      );
+      await page.screenshot({
+        path: resolve(output, `alignment-${theme}-${width}.png`),
+        fullPage: true,
+      });
+      assert.equal(await page.getByRole('button', { name: '恢复本页默认设置' }).count(), 1);
+      await page
+        .locator('.weq-set-head h3')
+        .first()
+        .evaluate((node) => {
+          node.textContent = 'QQ 空间浏览与在线翻页设置';
+        });
+      assert.deepEqual(await checkAlignment(), alignment, `${width}/${theme}: 长标题对齐`);
+      await page
+        .locator('.weq-set-head h3')
+        .first()
+        .evaluate((node) => {
+          node.textContent = 'QQ 空间';
+        });
       await input.fill('20');
       await input.press('Enter');
       await page.getByRole('button', { name: '恢复本页默认设置' }).click();
@@ -136,6 +182,8 @@ try {
   await page.getByRole('combobox', { name: '通话录音目录' }).selectOption('reset');
   assert.equal(await page.getByRole('button', { name: '确认恢复默认' }).isEnabled(), true);
   await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: 'appearance', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '恢复本页默认设置' }).count(), 1);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors, output }, null, 2));
 } finally {

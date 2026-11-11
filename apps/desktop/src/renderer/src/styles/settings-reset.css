@@ -1,14 +1,20 @@
-.weq-settings-page {
-  position: relative;
+.weq-set-head:has(> .weq-settings-page-reset) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+.weq-set-head:has(> .weq-settings-page-reset) > .weq-set-head-title {
+  grid-column: 1;
+  grid-row: 1;
+}
+.weq-set-head:has(> .weq-settings-page-reset) > .weq-set-desc {
+  grid-column: 1 / -1;
 }
 .weq-settings-page-reset {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  z-index: 1;
-}
-.weq-settings-page:has(.weq-settings-page-reset) .weq-set-head {
-  padding-right: 40px;
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
 }
 .weq-set-card-head {
   gap: 12px;
@@ -54,9 +60,4 @@
 .weq-settings-reset-modal [role='alert'] {
   color: var(--destructive);
   overflow-wrap: anywhere;
-}
-@media (max-width: 760px) {
-  .weq-settings-page-reset {
-    right: 12px;
-  }
 }
