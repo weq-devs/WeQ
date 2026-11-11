@@ -34,7 +34,11 @@ export function AffinityPill({
   const statusData = status.data;
   const active = !!statusData?.profileEnabled;
   const profile = trpc.account.intentSense.getProfile.useQuery(
-    { peerUid, revision: statusData?.profileRevision },
+    {
+      peerUid,
+      revision: statusData?.profileRevision,
+      ...(statusData?.profileMode === 'manual' ? { cachedOnly: true } : {}),
+    },
     {
       enabled: active,
       refetchOnWindowFocus: false,
@@ -60,36 +64,18 @@ export function AffinityPill({
 
   if (!active) return null;
 
-  if (profile.isLoading) {
-    // 加载中：低调的灰胶囊占位，避免 header 宽度跳动。
-    return (
-      <button
-        type="button"
-        className="weq-affinity-pill tier-unrated weq-int-pill-loading"
-        title="互动画像"
-        aria-label="互动画像加载中"
-        aria-busy="true"
-        disabled
-      >
-        <Heart size={13} />
-        <span>互动画像</span>
-      </button>
-    );
-  }
-
-  if (!profile.data) return null;
-
   return (
     <button
       type="button"
       key={tier}
-      className={`weq-affinity-pill tier-${tier ?? 'unrated'}${bumped ? ' is-bumped' : ''}`}
+      className={`weq-affinity-pill tier-${tier ?? 'unrated'}${profile.isLoading ? ' weq-int-pill-loading' : ''}${bumped ? ' is-bumped' : ''}`}
       title={
         tier === null
-          ? '互动画像（情绪未分析）'
-          : `好感度 ${profile.data.affinity} · ${meta.label}（仅供娱乐参考）`
+          ? '互动画像'
+          : `好感度 ${profile.data?.affinity} · ${meta.label}（仅供娱乐参考）`
       }
-      aria-label={tier === null ? '对方互动画像' : `对方互动画像：好感度 ${profile.data.affinity}`}
+      aria-label={tier === null ? '对方互动画像' : `对方互动画像：好感度 ${profile.data?.affinity}`}
+      aria-busy={profile.isLoading}
       disabled={!openWorkspace}
       onClick={() =>
         openWorkspace?.({
@@ -108,7 +94,7 @@ export function AffinityPill({
       }
     >
       <Icon size={13} strokeWidth={2.2} />
-      <span>{tier === null ? '互动画像' : `${meta.label} ${profile.data.affinity}`}</span>
+      <span>{tier === null ? '互动画像' : `${meta.label} ${profile.data?.affinity}`}</span>
     </button>
   );
 }

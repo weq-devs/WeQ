@@ -8,6 +8,7 @@ import {
 import { IntentSuggestionBar } from '../../src/renderer/src/components/intentSense/IntentSuggestionBar';
 import { AffinityPill } from '../../src/renderer/src/components/intentSense/AffinityPill';
 import { IntentProfileDialog } from '../../src/renderer/src/components/intentSense/IntentProfileDialog';
+import { ContactWorkspaceNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
 import {
   setMode,
   setHistory,
@@ -25,6 +26,7 @@ const qa = {
   publishProgress,
   releaseCache,
   located: null as unknown,
+  portraitOpened: false,
   setMessages: (_ids: string[]) => {},
   frames: [] as Array<{ id: string; pills: number; height: number; visible: boolean }>,
 };
@@ -76,7 +78,13 @@ function Fixture() {
         <section className="chat-pane">
           <header className="chat-header">
             <span>合成会话</span>
-            <AffinityPill peerUid="fixture" />
+            <ContactWorkspaceNavigationContext.Provider
+              value={() => {
+                qa.portraitOpened = true;
+              }}
+            >
+              <AffinityPill peerUid="fixture" />
+            </ContactWorkspaceNavigationContext.Provider>
           </header>
           <IntentSenseProvider
             kind="c2c"

@@ -30,6 +30,7 @@ export class InteractionProfileService {
   private profileRevision = 0;
   private profileApiCooldownUntil = 0;
   private readonly inFlight = new Map<string, Promise<IntentProfile | null>>();
+  private readonly cached = new Map<string, IntentProfile | null>();
   constructor(
     private readonly readConfig: () => ProfileConfig,
     private readonly loadMessages: (
@@ -47,6 +48,7 @@ export class InteractionProfileService {
     this.profileRevision++;
     this.profileApiCooldownUntil = 0;
     this.inFlight.clear();
+    this.cached.clear();
   }
   /** 引擎侧画像提示（api：一次结构化推断；local：inferMbti）。 */
   private async inferHints(peerTexts: string[]): Promise<ProfileHints | null> {
@@ -182,12 +184,24 @@ export class InteractionProfileService {
    * 本地统计为主、引擎提示增强；无引擎结果时全部走启发式（heuristic 标记）。
    * 当前统计范围内没有可分析的对方文本时返回 null，不用默认分数生成画像。
    */
-  getProfile(peerUid: string): Promise<IntentProfile | null> {
+  getProfile(peerUid: string, options?: { cachedOnly?: boolean }): Promise<IntentProfile | null> {
+    if (!this.config.profileEnabled) return Promise.resolve(null);
+    if (options?.cachedOnly) return Promise.resolve(this.cached.get(peerUid) ?? null);
     const existing = this.inFlight.get(peerUid);
     if (existing) return existing;
-    const task = this.computeProfile(peerUid).finally(() => {
-      if (this.inFlight.get(peerUid) === task) this.inFlight.delete(peerUid);
-    });
+    const revision = this.profileRevision;
+    const task = this.computeProfile(peerUid)
+      .then((result) => {
+        if (revision === this.profileRevision) {
+          this.cached.delete(peerUid);
+          this.cached.set(peerUid, result);
+          if (this.cached.size > 100) this.cached.delete(this.cached.keys().next().value!);
+        }
+        return result;
+      })
+      .finally(() => {
+        if (this.inFlight.get(peerUid) === task) this.inFlight.delete(peerUid);
+      });
     this.inFlight.set(peerUid, task);
     return task;
   }

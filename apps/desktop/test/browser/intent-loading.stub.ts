@@ -127,7 +127,9 @@ export function setMode(next: Mode) {
 }
 const invalidate = async () => {};
 const utils = {
-  account: { intentSense: { getProfile: { invalidate }, getStatus: { invalidate } } },
+  account: {
+    intentSense: { getProfile: { invalidate, setData: () => {} }, getStatus: { invalidate } },
+  },
 };
 export const trpc = {
   useUtils: () => utils,
@@ -137,6 +139,9 @@ export const trpc = {
         useQuery: () => ({
           data: {
             enabled: true,
+            analysisMode: new URLSearchParams(location.search).has('manual') ? 'manual' : 'auto',
+            profileMode: new URLSearchParams(location.search).has('manual') ? 'manual' : 'auto',
+            suggestionMode: new URLSearchParams(location.search).has('manual') ? 'manual' : 'auto',
             engine: 'local',
             localReady: true,
             profileEnabled: true,

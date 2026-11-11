@@ -46,20 +46,38 @@ export function IntentSenseSection() {
       retrying={status.isFetching}
       onRetry={() => void status.refetch()}
       basic={
-        <Row
-          settingId="intent-enabled"
-          label="启用意图感知"
-          desc="分析聊天消息的意图与情绪。"
-          control={
-            <Toggle
-              label="启用意图感知"
-              checked={s?.enabled ?? false}
-              indeterminate={!s}
-              disabled={disabled}
-              onChange={(enabled) => void patch({ enabled })}
-            />
-          }
-        />
+        <>
+          <Row
+            settingId="intent-enabled"
+            label="启用意图感知"
+            desc="分析聊天消息的意图与情绪。"
+            control={
+              <Toggle
+                label="启用意图感知"
+                checked={s?.enabled ?? false}
+                indeterminate={!s}
+                disabled={disabled}
+                onChange={(enabled) => void patch({ enabled })}
+              />
+            }
+          />
+          <Row
+            settingId="intent-mode"
+            label="模式"
+            control={
+              <SegmentedControl
+                label="意图感知模式"
+                value={s ? (s.analysisMode ?? 'auto') : null}
+                disabled={disabled}
+                onChange={(analysisMode) => void patch({ analysisMode })}
+                options={[
+                  { value: 'auto', label: '自动' },
+                  { value: 'manual', label: '手动' },
+                ]}
+              />
+            }
+          />
+        </>
       }
       model={
         <>
@@ -144,7 +162,7 @@ export function IntentSenseSection() {
                   label="自己发送后分析"
                   checked={s?.analyzeAfterSelf !== false}
                   indeterminate={!s}
-                  disabled={disabled || inactive}
+                  disabled={disabled || inactive || s?.analysisMode === 'manual'}
                   onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
                 />
               }

@@ -40,20 +40,38 @@ export function InteractionProfileSection() {
       retrying={status.isFetching}
       onRetry={() => void status.refetch()}
       basic={
-        <Row
-          settingId="profile-enabled"
-          label="启用互动画像"
-          desc="统计互动情况，分析好感度、MBTI 倾向与互动风格。"
-          control={
-            <Toggle
-              label="启用互动画像"
-              checked={status.data?.profileEnabled ?? false}
-              indeterminate={!status.data}
-              disabled={disabled}
-              onChange={(profileEnabled) => void patch({ profileEnabled })}
-            />
-          }
-        />
+        <>
+          <Row
+            settingId="profile-enabled"
+            label="启用互动画像"
+            desc="统计互动情况，分析好感度、MBTI 倾向与互动风格。"
+            control={
+              <Toggle
+                label="启用互动画像"
+                checked={status.data?.profileEnabled ?? false}
+                indeterminate={!status.data}
+                disabled={disabled}
+                onChange={(profileEnabled) => void patch({ profileEnabled })}
+              />
+            }
+          />
+          <Row
+            settingId="profile-mode"
+            label="模式"
+            control={
+              <SegmentedControl
+                label="互动画像模式"
+                value={status.data ? (status.data.profileMode ?? 'auto') : null}
+                disabled={disabled}
+                onChange={(profileMode) => void patch({ profileMode })}
+                options={[
+                  { value: 'auto', label: '自动' },
+                  { value: 'manual', label: '手动' },
+                ]}
+              />
+            }
+          />
+        </>
       }
       model={
         <>

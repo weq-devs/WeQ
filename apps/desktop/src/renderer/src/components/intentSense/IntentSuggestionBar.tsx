@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
-import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square, Info } from 'lucide-react';
+import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square, Info, Play } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useToast } from '../Toast';
 import { useIntentSenseStatus } from './context';
@@ -44,6 +44,7 @@ export function IntentSuggestionBar({
     null,
   );
   const status = useIntentSenseStatus();
+  const manual = status.data?.suggestionMode === 'manual';
   const replyAllowed =
     replyTargetId !== null || (status.data?.suggestAfterSelf === true && !!latestMessageId);
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
@@ -72,6 +73,7 @@ export function IntentSuggestionBar({
     {
       enabled:
         active &&
+        !manual &&
         replyAllowed &&
         !history.isLoading &&
         !upToDate &&
@@ -128,8 +130,10 @@ export function IntentSuggestionBar({
       : ((replyAllowed ? suggestions.data : undefined) ?? recent);
   const list = currentRound?.suggestions ?? [];
   const loading =
-    stopped !== messageContext && ((!upToDate && replyAllowed && suggestions.isFetching) || busy);
+    stopped !== messageContext &&
+    ((!manual && !upToDate && replyAllowed && suggestions.isFetching) || busy);
   const showStop = loading && actionHovered;
+  const showStart = !loading && (manual || stopped === messageContext);
   const currentTarget = currentRound?.target;
   const error =
     refreshError?.context === requestContext.current
@@ -246,8 +250,16 @@ export function IntentSuggestionBar({
           <button
             type="button"
             className={`weq-int-suggest-refresh weq-int-suggest-action${loading && !showStop ? ' is-busy' : ''}`}
-            title={showStop ? '停止推荐回复' : error ? '重试推荐回复' : '换一批'}
-            aria-label={showStop ? '停止推荐回复' : '换一批建议'}
+            title={
+              showStop
+                ? '停止推荐回复'
+                : error
+                  ? '重试推荐回复'
+                  : showStart
+                    ? '开始推荐回复'
+                    : '换一批'
+            }
+            aria-label={showStop ? '停止推荐回复' : showStart ? '开始推荐回复' : '换一批建议'}
             aria-busy={loading}
             disabled={stopping}
             onMouseEnter={() => setActionHovered(true)}
@@ -319,7 +331,13 @@ export function IntentSuggestionBar({
               }
             }}
           >
-            {showStop ? <Square size={12} /> : <RefreshCw size={12} />}
+            {showStop ? (
+              <Square size={12} />
+            ) : showStart ? (
+              <Play size={12} />
+            ) : (
+              <RefreshCw size={12} />
+            )}
           </button>
           <button
             type="button"

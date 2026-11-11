@@ -25,6 +25,7 @@ const fixture = vi.hoisted(() => ({
     analysisContextMessages: 0,
     analysisRevision: 0,
     suggestionRevision: 0,
+    analysisMode: 'auto',
   },
   list: vi.fn(),
   ensure: vi.fn(),
@@ -112,6 +113,7 @@ beforeEach(() => {
     analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
     analysisRevision: 0,
     suggestionRevision: 0,
+    analysisMode: 'auto',
   };
   fixture.list.mockReset().mockResolvedValue([sample]);
   fixture.ensure.mockReset().mockResolvedValue({ analyzed: 0 });
@@ -178,6 +180,22 @@ function renderFixture() {
   });
   return { render, get: () => context!, commits, host };
 }
+
+it('手动意图模式读取缓存但不自动补齐或悬停分析，新消息和漫游补入也不启动', async () => {
+  fixture.status.analysisMode = 'manual';
+  const f = renderFixture();
+  await f.render('old', '', { ids: ['old', 'unknown'] });
+  expect(f.get().getAnalysis('old')).toEqual(sample);
+  expect(f.get().automatic).toBe(false);
+  expect(f.host.querySelector('.is-loading')).toBeNull();
+  await f.render('new', 'roaming:protocol:2:77');
+  await act(async () => f.get().requestAnalysis('new'));
+  expect(fixture.ensure).not.toHaveBeenCalled();
+  expect(fixture.analyze).not.toHaveBeenCalled();
+  fixture.status.analysisMode = 'auto';
+  await f.render('new', 'roaming:protocol:2:77');
+  expect(fixture.ensure).toHaveBeenCalled();
+});
 
 it('缓存及真实批次延迟返回时，首个提交已有随机动画，结果原位替换', async () => {
   let finish!: (value: IntentAnalysis[]) => void;

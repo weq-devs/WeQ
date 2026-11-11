@@ -62,6 +62,12 @@ try {
         const details = page.locator('details.weq-model-advanced');
         assert.equal(await details.getAttribute('open'), null);
         assert.equal(await details.locator('.weq-ai-settings-advanced').isVisible(), false);
+        const mode = page.getByRole('radiogroup', { name: `${title}模式`, exact: true });
+        assert.deepEqual(await mode.getByRole('radio').allTextContents(), ['自动', '手动']);
+        assert.equal(
+          await mode.getByRole('radio', { name: '自动', exact: true }).getAttribute('aria-checked'),
+          'true',
+        );
         const model = page.getByLabel(`${title} API 模型`, { exact: true });
         assert.equal(await model.inputValue(), 'default');
         assert.equal(await model.locator('option[value=""]').count(), 0);

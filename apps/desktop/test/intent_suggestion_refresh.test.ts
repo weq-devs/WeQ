@@ -7,7 +7,12 @@ import type { ReplySuggestionHistoryEntry } from '@weq/service';
 const fixture = vi.hoisted(() => ({
   data: [{ text: '旧候选' }] as { text: string }[] | undefined,
   fetching: false,
-  status: { suggestionsEnabled: true, suggestionRevision: 0, suggestAfterSelf: false },
+  status: {
+    suggestionsEnabled: true,
+    suggestionRevision: 0,
+    suggestAfterSelf: false,
+    suggestionMode: 'auto',
+  },
   query: vi.fn(),
   refresh: vi.fn(),
   stop: vi.fn(async () => true),
@@ -79,7 +84,12 @@ beforeEach(() => {
   fixture.data = [{ text: '旧候选' }];
   fixture.fetching = false;
   fixture.error = null;
-  fixture.status = { suggestionsEnabled: true, suggestionRevision: 0, suggestAfterSelf: false };
+  fixture.status = {
+    suggestionsEnabled: true,
+    suggestionRevision: 0,
+    suggestAfterSelf: false,
+    suggestionMode: 'auto',
+  };
   fixture.query.mockReset().mockImplementation(() => ({
     data: fixture.data,
     isFetching: fixture.fetching,
@@ -106,6 +116,49 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it.each(['c2c', 'group'] as const)(
+  '手动推荐 %s 只由开始按钮生成，收到新消息也不自动请求',
+  async (kind) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.status.suggestionMode = 'manual';
+    fixture.data = undefined;
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const render = (id: string, replyTargetId: string | null = id) =>
+      act(() =>
+        root.render(
+          createElement(IntentSuggestionBar, {
+            kind,
+            conv: 'fixture',
+            latestMessageId: id,
+            replyTargetId,
+            onInsert: vi.fn(),
+          }),
+        ),
+      );
+    try {
+      render('first');
+      expect(fixture.query.mock.calls.at(-1)?.[1].enabled).toBe(false);
+      const button = host.querySelector<HTMLButtonElement>('[aria-label="开始推荐回复"]')!;
+      expect(button.querySelector('.lucide-play')).not.toBeNull();
+      expect(fixture.refresh).not.toHaveBeenCalled();
+      fixture.refresh.mockResolvedValue([{ text: '手动候选' }]);
+      render('self', null);
+      await act(async () => button.click());
+      expect(fixture.refresh).toHaveBeenCalledWith(
+        expect.objectContaining({ refresh: true, targetId: 'self' }),
+      );
+      expect(host.textContent).toContain('手动候选');
+      render('next');
+      expect(fixture.query.mock.calls.at(-1)?.[1].enabled).toBe(false);
+      expect(host.textContent).toContain('手动候选');
+      expect(fixture.refresh).toHaveBeenCalledOnce();
+    } finally {
+      act(() => root.unmount());
+    }
+  },
+);
 
 it('相同候选仍按轮次 ID 区分，正式详情和历史日期打开对应轮次，展开日志不重新生成', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

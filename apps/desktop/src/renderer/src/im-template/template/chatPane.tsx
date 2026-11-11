@@ -41,6 +41,7 @@ import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention
 import '../../styles/at-all-mention.css';
 import {
   BarChart3,
+  BrainCircuit,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -253,7 +254,7 @@ import { EmojiPanel } from './emojiPanel';
 import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageRow, grayTipOf, messageElements } from './messageRow';
-import { IntentSenseProvider } from '../../components/intentSense/context';
+import { IntentSenseProvider, useIntentSenseStatus } from '../../components/intentSense/context';
 import { intentTimelineTargets } from '../../lib/intentTimeline';
 import { AffinityPill } from '../../components/intentSense/AffinityPill';
 import { IntentSuggestionBar } from '../../components/intentSense/IntentSuggestionBar';
@@ -1139,6 +1140,20 @@ export function ChatPane({
   );
   const intentKind = conversation?.type === 'group' ? 'group' : 'c2c';
   const intentConv = intentSupported ? (conversation?.id ?? '') : '';
+  const intentStatus = useIntentSenseStatus();
+  const intentActionAvailable =
+    intentSupported &&
+    !!intentStatus.data?.enabled &&
+    intentStatus.data.conversationOverrides?.[`${intentKind}:${intentConv}`] !== false;
+  const intentRun = useRef<object | null>(null);
+  const [intentBusy, setIntentBusy] = useState(false);
+  useEffect(() => {
+    intentRun.current = null;
+    setIntentBusy(false);
+    return () => {
+      intentRun.current = null;
+    };
+  }, [intentKind, intentConv, tabActive]);
   const { latestMessageId, latestPeerMsgId, latestSuggestionId, latestSelfMessageIds } = useMemo(
     () =>
       intentSupported
@@ -1268,9 +1283,11 @@ export function ChatPane({
   );
   const selectionBlockedReason = selectionFlow.busy
     ? '正在加载所选范围'
-    : recallBusy
-      ? '正在撤回所选消息'
-      : null;
+    : intentBusy
+      ? '正在分析消息意图'
+      : recallBusy
+        ? '正在撤回所选消息'
+        : null;
   const [batchAction, setBatchAction] = useState<{
     action: MessageBatchAction;
     batch: ReturnType<typeof partitionMessageBatch>;
@@ -1332,6 +1349,43 @@ export function ChatPane({
     }
     setDeletionBusy(false);
     if (actionScopeRef.current === actionScope) selection.removeSelectedIds(restored);
+  }
+  async function analyzeMessageIntents(messages?: Message[]) {
+    if (!intentActionAvailable || intentRun.current || !tabActive || selectionBlockedReason) return;
+    const run = {};
+    intentRun.current = run;
+    setContextMenu(null);
+    try {
+      const picked = messages ?? (await selectionFlow.prepare('意图感知'));
+      if (intentRun.current !== run || !picked?.length) return;
+      setIntentBusy(true);
+      let failed = 0;
+      for (const message of picked) {
+        if (intentRun.current !== run) return;
+        if (grayTipOf(message) || isLocalOutgoingMessage(message)) continue;
+        try {
+          await client.account.intentSense.analyzeMessage.mutate({
+            kind: intentKind,
+            conv: intentConv,
+            msgId: message.id,
+            manual: true,
+          });
+        } catch {
+          failed++;
+        }
+      }
+      if (failed && intentRun.current === run)
+        pushToast({
+          tone: 'error',
+          title: '意图感知未完成',
+          detail: `${failed} 条消息分析失败，请重试`,
+        });
+    } finally {
+      if (intentRun.current === run) {
+        intentRun.current = null;
+        setIntentBusy(false);
+      }
+    }
   }
   async function requestBatchAction(action: MessageBatchAction) {
     if (selectionBlockedReason || !selectedIds.size) return;
@@ -5944,6 +5998,18 @@ export function ChatPane({
               selectionFlow.gaps.length ? <span>{selectionFlow.gaps.length} 处缺口</span> : null
             }
           >
+            {intentActionAvailable ? (
+              <button
+                type="button"
+                className="selection-action"
+                aria-label="意图感知"
+                title={selectionBlockedReason || '意图感知'}
+                disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
+                onClick={() => void analyzeMessageIntents()}
+              >
+                <BrainCircuit size={17} />
+              </button>
+            ) : null}
             {(requestAnalysis && conversationAnalysisTarget(conversation)) || generated ? (
               <button
                 type="button"
@@ -6669,21 +6735,42 @@ export function ChatPane({
           unavailableReason={qqUnavailable}
           onClose={() => setContextMenu(null)}
           extraActions={
-            !generated && conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
-              <>
-                <QQMessageEssenceAction
-                  key={contextMenu.message.id}
-                  conversation={conversation}
-                  message={contextMenu.message}
-                  onClose={() => setContextMenu(null)}
-                />
-                <MessageTodoAction
-                  conversation={conversation}
-                  message={contextMenu.message}
-                  onClose={() => setContextMenu(null)}
-                />
-              </>
-            ) : undefined
+            <>
+              {intentActionAvailable &&
+              !grayTipOf(contextMenu.message) &&
+              !isLocalOutgoingMessage(contextMenu.message) ? (
+                <button
+                  type="button"
+                  title={selectionBlockedReason || '意图感知'}
+                  disabled={Boolean(selectionBlockedReason)}
+                  onClick={() =>
+                    void analyzeMessageIntents(
+                      selectionMode && selectedIds.has(contextMenu.message.id)
+                        ? undefined
+                        : [contextMenu.message],
+                    )
+                  }
+                >
+                  <BrainCircuit size={17} />
+                  <span>意图感知</span>
+                </button>
+              ) : null}
+              {!generated && conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
+                <>
+                  <QQMessageEssenceAction
+                    key={contextMenu.message.id}
+                    conversation={conversation}
+                    message={contextMenu.message}
+                    onClose={() => setContextMenu(null)}
+                  />
+                  <MessageTodoAction
+                    conversation={conversation}
+                    message={contextMenu.message}
+                    onClose={() => setContextMenu(null)}
+                  />
+                </>
+              ) : null}
+            </>
           }
           onAddToComposition={
             onAddToComposition

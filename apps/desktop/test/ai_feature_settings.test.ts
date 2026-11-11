@@ -58,6 +58,20 @@ const pages: { title: string; component: ComponentType; enabled: string; model: 
   },
 ];
 const cleanups: (() => void)[] = [];
+
+it.each([
+  ['意图感知', IntentSenseSection, 'analysisMode'],
+  ['互动画像', InteractionProfileSection, 'profileMode'],
+  ['推荐回复', ReplySuggestionsSection, 'suggestionMode'],
+] as const)('%s 模式复用分段选择并独立即时保存', async (title, component, field) => {
+  const f = mount(component);
+  const control = f.host.querySelector(`[aria-label="${title}模式"]`)!;
+  const options = [...control.querySelectorAll<HTMLButtonElement>('button')];
+  expect(options.map((button) => button.textContent)).toEqual(['自动', '手动']);
+  expect(options[0]!.getAttribute('aria-checked')).toBe('true');
+  await act(async () => options[1]!.click());
+  expect(state.save).toHaveBeenLastCalledWith({ [field]: 'manual' });
+});
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.loading = false;

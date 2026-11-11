@@ -79,6 +79,80 @@ function makeLocalPort(analyze: IntentLocalEnginePort['analyze']): IntentLocalEn
 }
 
 describe('IntentSenseService', () => {
+  it('三项模式缺省为自动，独立保存且重启保留；手动分析只接受明确菜单请求', async () => {
+    const analyze = vi.fn(
+      async () =>
+        ({
+          intent: 'chat',
+          emotion: 'neutral',
+          intensity: 20,
+          sentiment: 0,
+          confidence: 0.8,
+        }) as const,
+    );
+    const session = makeSession([
+      textMsg(1n, 'u_peer', '你好', 100),
+      textMsg(2n, 'u_self', '你好呀', 101),
+    ]);
+    const svc = new IntentSenseService(session, dir, { localEngine: makeLocalPort(analyze) });
+    expect(svc.getStatus()).toMatchObject({
+      analysisMode: 'auto',
+      profileMode: 'auto',
+      suggestionMode: 'auto',
+    });
+    await svc.setConfig({
+      enabled: true,
+      engine: 'local',
+      analysisMode: 'manual',
+      profileMode: 'manual',
+      suggestionMode: 'manual',
+      suggestionsEnabled: true,
+      analyzeAfterSelf: false,
+    });
+    expect(await svc.ensureAnalysis('c2c', 'u_peer')).toMatchObject({ skipped: 'disabled' });
+    expect(await svc.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    expect(analyze).not.toHaveBeenCalled();
+    expect(await svc.analyzeMessage('c2c', 'u_peer', '2', { manual: true })).toMatchObject({
+      msgId: '2',
+      mine: true,
+    });
+    expect(analyze).toHaveBeenCalledOnce();
+    expect((await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).length).toBeGreaterThan(
+      0,
+    );
+    expect(new IntentSenseService(session, dir).getStatus()).toMatchObject({
+      analysisMode: 'manual',
+      profileMode: 'manual',
+      suggestionMode: 'manual',
+    });
+    await svc.setConfig({ analysisMode: 'auto' });
+    expect(svc.getStatus()).toMatchObject({
+      analysisMode: 'auto',
+      profileMode: 'manual',
+      suggestionMode: 'manual',
+    });
+  });
+
+  it('画像缓存读取不会加载消息或计算，进入页面后能读取已完成的画像', async () => {
+    const session = makeSession([textMsg(1n, 'u_peer', '你好', 100)]);
+    const svc = new IntentSenseService(session, dir);
+    await svc.setConfig({
+      profileEnabled: true,
+      profileEngine: 'heuristic',
+      profileMode: 'manual',
+    });
+    expect(await svc.getProfile('u_peer', { cachedOnly: true })).toBeNull();
+    expect(session.c2cMsgs.listLatest).not.toHaveBeenCalled();
+    const profile = await svc.getProfile('u_peer');
+    expect(profile).not.toBeNull();
+    vi.mocked(session.c2cMsgs.listLatest).mockClear();
+    expect(await svc.getProfile('u_peer', { cachedOnly: true })).toEqual(profile);
+    expect(session.c2cMsgs.listLatest).not.toHaveBeenCalled();
+    await svc.setConfig({ profileMode: 'auto' });
+    expect(await svc.getProfile('u_peer', { cachedOnly: true })).toEqual(profile);
+  });
+
   let dir: string;
 
   beforeEach(() => {

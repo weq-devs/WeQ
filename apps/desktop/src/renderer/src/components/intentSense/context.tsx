@@ -44,6 +44,7 @@ export interface IntentSenseContextValue {
   active: boolean;
   persistentDisplay?: boolean;
   hoverDisplay?: boolean;
+  automatic?: boolean;
   /** 当前会话缓存的读取状态；不把读取缓存误报为消息分析在途。 */
   cacheState?: 'loading' | 'ready' | 'error';
   /** 数据版本（每次合并 bump；消费者以此触发重渲染）。 */
@@ -140,14 +141,24 @@ export function IntentSenseProvider({
     statusData?.engine === 'local' ? !!statusData.localReady : !!statusData?.apiConfigured;
   const effective = !!statusData?.enabled && overridden !== false && engineOk;
   useEffect(() => {
-    if (kind !== 'c2c' || !statusData?.profileEnabled) return;
+    if (kind !== 'c2c' || !statusData?.profileEnabled || statusData.profileMode === 'manual')
+      return;
     const timer = setTimeout(() => {
       void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
     }, 1000);
     return () => clearTimeout(timer);
-  }, [kind, conv, analysisMessageId, roamingMessageKey, statusData?.profileEnabled, utils]);
+  }, [
+    kind,
+    conv,
+    analysisMessageId,
+    roamingMessageKey,
+    statusData?.profileEnabled,
+    statusData?.profileMode,
+    utils,
+  ]);
   const autoAnalysisAllowed =
-    latestPeerMsgId !== null || !analysisMessageId || statusData?.analyzeAfterSelf !== false;
+    statusData?.analysisMode !== 'manual' &&
+    (latestPeerMsgId !== null || !analysisMessageId || statusData?.analyzeAfterSelf !== false);
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -180,6 +191,7 @@ export function IntentSenseProvider({
 
   const requestAnalysis = useCallback(
     (msgId: string) => {
+      if (statusData?.analysisMode === 'manual') return;
       const expected = `${kind}:${conv}:${engineKey}`;
       if (prevConvKeyRef.current !== expected) return;
       if (
@@ -212,7 +224,7 @@ export function IntentSenseProvider({
           return false;
         });
     },
-    [kind, conv, engineKey, merge, bump],
+    [kind, conv, engineKey, merge, bump, statusData?.analysisMode],
   );
 
   // 会话或配置变化时拉齐缓存；增量分析由下方独立目标驱动。
@@ -424,6 +436,7 @@ export function IntentSenseProvider({
   const value = useMemo<IntentSenseContextValue>(
     () => ({
       active: effective,
+      automatic: statusData?.analysisMode !== 'manual',
       persistentDisplay: statusData?.persistentDisplay !== false,
       hoverDisplay: statusData?.hoverDisplay !== false,
       cacheState,
@@ -442,6 +455,7 @@ export function IntentSenseProvider({
     }),
     [
       effective,
+      statusData?.analysisMode,
       statusData?.persistentDisplay,
       statusData?.hoverDisplay,
       cacheState,

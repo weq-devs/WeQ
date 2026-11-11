@@ -13,9 +13,15 @@ const fixture = vi.hoisted(() => ({
     error: null as Error | null,
     refetch: vi.fn(async () => {}),
   },
+  profileMode: 'auto',
+  useQuery: vi.fn(),
+  setData: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: { account: { intentSense: { getProfile: { useQuery: () => fixture.query } } } },
+  trpc: {
+    useUtils: () => ({ account: { intentSense: { getProfile: { setData: fixture.setData } } } }),
+    account: { intentSense: { getProfile: { useQuery: fixture.useQuery } } },
+  },
 }));
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   useIntentSenseStatus: () => ({
@@ -25,6 +31,7 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
       profileEnabled: true,
       profileAvailable: true,
       profileCacheSeconds: 60,
+      profileMode: fixture.profileMode,
     },
   }),
 }));
@@ -36,6 +43,9 @@ beforeEach(() => {
   fixture.query.isLoading = false;
   fixture.query.error = null;
   fixture.query.refetch.mockClear();
+  fixture.profileMode = 'auto';
+  fixture.useQuery.mockReset().mockImplementation(() => fixture.query);
+  fixture.setData.mockClear();
   const host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -102,14 +112,25 @@ describe('无证据的互动画像', () => {
     expect(fixture.query.refetch).toHaveBeenCalledOnce();
   });
 
-  it('首次加载使用画像专属骨架，头部占位禁用且不冒充好感度', async () => {
+  it('首次加载使用画像专属骨架，头部占位仍可跳转且不冒充好感度', async () => {
     fixture.query.isLoading = true;
     await dialog();
     expect(document.querySelector('[aria-label="正在生成互动画像"]')).not.toBeNull();
     expect(document.querySelector('.ga-skeleton')).toBeNull();
-    await act(async () => root.render(createElement(AffinityPill, { peerUid: 'u_synthetic' })));
+    const open = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(
+          ContactWorkspaceNavigationContext.Provider,
+          { value: open },
+          createElement(AffinityPill, { peerUid: 'u_synthetic' }),
+        ),
+      ),
+    );
     const pill = document.querySelector<HTMLButtonElement>('.weq-affinity-pill')!;
-    expect(pill.disabled).toBe(true);
+    expect(pill.disabled).toBe(false);
+    act(() => pill.click());
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ tab: 'portrait' }));
     expect(pill.classList.contains('tier-0')).toBe(false);
     expect(pill.getAttribute('aria-busy')).toBe('true');
   });
@@ -134,10 +155,25 @@ describe('无证据的互动画像', () => {
     expect(document.body.textContent).toContain('ENFP');
   });
 
-  it('没有画像时不显示虚构好感度胶囊', async () => {
+  it('没有画像时保留无评分的互动画像入口', async () => {
     await act(async () => root.render(createElement(AffinityPill, { peerUid: 'u_synthetic' })));
-    expect(document.querySelector('.weq-affinity-pill')).toBeNull();
+    expect(document.querySelector('.weq-affinity-pill')?.textContent).toBe('互动画像');
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('手动模式工具栏只读缓存，进入画像页计算并同步工具栏缓存', async () => {
+    fixture.profileMode = 'manual';
+    await act(async () => root.render(createElement(AffinityPill, { peerUid: 'u_synthetic' })));
+    expect(fixture.useQuery).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cachedOnly: true }),
+      expect.objectContaining({ enabled: true }),
+    );
+    await dialog();
+    expect(fixture.useQuery.mock.calls.at(-1)?.[0].cachedOnly).toBeUndefined();
+    expect(fixture.setData).toHaveBeenCalledWith(
+      expect.objectContaining({ cachedOnly: true }),
+      null,
+    );
   });
 
   it('有效画像正常显示；刷新变为空结果后清除旧分数与人格', async () => {

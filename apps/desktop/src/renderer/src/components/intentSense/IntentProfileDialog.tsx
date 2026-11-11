@@ -7,7 +7,7 @@
  * 引擎增强），画像为启发式推断 —— 底部固定一行「仅供娱乐参考」。
  */
 
-import { useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { BrainCircuit, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
@@ -128,6 +128,7 @@ export function IntentProfileDialog({
   const active = useTabActive();
   const [refreshing, setRefreshing] = useState(false);
   const status = useIntentSenseStatus();
+  const utils = trpc.useUtils();
   const profile = trpc.account.intentSense.getProfile.useQuery(
     { peerUid, revision: status.data?.profileRevision },
     {
@@ -139,6 +140,13 @@ export function IntentProfileDialog({
   );
 
   const data = profile.data;
+  useEffect(() => {
+    if (data === undefined) return;
+    utils.account.intentSense.getProfile.setData(
+      { peerUid, revision: status.data?.profileRevision, cachedOnly: true },
+      data,
+    );
+  }, [data, peerUid, status.data?.profileRevision, utils]);
   const mbtiDims = useMemo(
     () =>
       (data?.mbti.dims ?? [])

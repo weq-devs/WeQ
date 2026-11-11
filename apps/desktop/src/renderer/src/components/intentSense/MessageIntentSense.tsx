@@ -266,6 +266,7 @@ export function MessageIntentSense({
 
     const hasAnalyzableText = (): boolean => {
       if (getAnalysis(msgId)) return true;
+      if (ctx?.automatic === false) return false;
       if (isUnavailable?.(msgId)) return false;
       if (analyzable !== undefined) return analyzable;
       const textEl = bubble.querySelector('.message-text, .qq-text-run');
@@ -345,6 +346,7 @@ export function MessageIntentSense({
     msgId,
     ownerDocument,
     analyzable,
+    ctx?.automatic,
   ]);
 
   useEffect(() => {
@@ -452,7 +454,8 @@ export function MessageIntentSense({
   return (
     <>
       {/* 文本消息保留同高槽位，无结果/失败都不收缩气泡。 */}
-      {persistentDisplay && (analyzable !== false || result) ? (
+      {persistentDisplay &&
+      (result || (analyzable !== false && (ctx?.automatic !== false || pending || failure))) ? (
         <span
           className="weq-intent-chips"
           data-intent-state={displayState}
@@ -475,7 +478,11 @@ export function MessageIntentSense({
           )}
         </span>
       ) : null}
-      {!persistentDisplay && hoverActive && analyzable !== false && !unavailable ? (
+      {!persistentDisplay &&
+      hoverActive &&
+      analyzable !== false &&
+      !unavailable &&
+      (ctx?.automatic !== false || result) ? (
         <span
           role="group"
           tabIndex={0}

@@ -8,12 +8,29 @@ const service = vi.hoisted(() => ({
   getSuggestionRound: vi.fn(async () => null),
   getSuggestionDetails: vi.fn(() => null),
   stopSuggestions: vi.fn(() => true),
+  getProfile: vi.fn(async () => null),
+  analyzeMessage: vi.fn(async () => null),
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({ services: { intentSense: service } }),
   getActiveIntentSenseLocalEngine: () => null,
 }));
 import { intentSenseRouter } from '../src/main/ipc/routers/intent_sense';
+
+it('模式配置、只读画像缓存与明确菜单分析完整传递', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  await caller.setConfig({ analysisMode: 'manual', profileMode: 'auto', suggestionMode: 'manual' });
+  expect(service.setConfig).toHaveBeenLastCalledWith({
+    analysisMode: 'manual',
+    profileMode: 'auto',
+    suggestionMode: 'manual',
+  });
+  await expect(caller.setConfig({ analysisMode: 'invalid' } as never)).rejects.toThrow();
+  await caller.getProfile({ peerUid: 'u_peer', cachedOnly: true });
+  expect(service.getProfile).toHaveBeenLastCalledWith('u_peer', { cachedOnly: true });
+  await caller.analyzeMessage({ kind: 'group', conv: '123', msgId: '42', manual: true });
+  expect(service.analyzeMessage).toHaveBeenLastCalledWith('group', '123', '42', { manual: true });
+});
 
 it('轮次请求保留禁用及手动刷新语义，详情只按会话和 ID 读取', async () => {
   const caller = intentSenseRouter.createCaller({});

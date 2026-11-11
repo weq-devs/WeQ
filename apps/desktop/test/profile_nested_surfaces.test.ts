@@ -22,7 +22,10 @@ beforeEach(() => useViewState.setState({ openedUin: '10001' }));
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({ invalidate: async () => undefined }),
+    useUtils: () => ({
+      invalidate: async () => undefined,
+      account: { intentSense: { getProfile: { setData: vi.fn() } } },
+    }),
     account: {
       intentSense: {
         getStatus: { useQuery: () => ({ data: { profileEnabled: true } }) },

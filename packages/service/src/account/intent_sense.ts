@@ -130,6 +130,9 @@ export interface IntentSenseResult {
 
 export interface IntentSenseConfig extends IntentTuning {
   featureSettingsVersion: 2;
+  analysisMode: 'auto' | 'manual';
+  profileMode: 'auto' | 'manual';
+  suggestionMode: 'auto' | 'manual';
   profileEnabled: boolean;
   /** 意图感知开关，与推荐回复、互动画像分别保存。 */
   enabled: boolean;
@@ -182,6 +185,9 @@ export interface IntentSenseStatus extends IntentSenseConfig {
 const DEFAULT_CONFIG: IntentSenseConfig = {
   ...DEFAULT_INTENT_TUNING,
   featureSettingsVersion: 2,
+  analysisMode: 'auto',
+  profileMode: 'auto',
+  suggestionMode: 'auto',
   profileEnabled: false,
   enabled: false,
   engine: 'api',
@@ -599,6 +605,9 @@ export class IntentSenseService {
             profileApiCooldownSeconds: p.profileApiCooldownSeconds ?? p.apiCooldownSeconds,
           }),
           featureSettingsVersion: 2,
+          analysisMode: p.analysisMode === 'manual' ? 'manual' : 'auto',
+          profileMode: p.profileMode === 'manual' ? 'manual' : 'auto',
+          suggestionMode: p.suggestionMode === 'manual' ? 'manual' : 'auto',
           profileEnabled: migrateFeatures ? p.enabled === true : p.profileEnabled === true,
           enabled: p.enabled === true,
           engine: p.engine === 'local' ? 'local' : 'api',
@@ -744,6 +753,9 @@ export class IntentSenseService {
   ): Promise<IntentSenseStatus> {
     const previous = this.config;
     const next: IntentSenseConfig = { ...this.config };
+    for (const key of ['analysisMode', 'profileMode', 'suggestionMode'] as const) {
+      if (patch[key] === 'auto' || patch[key] === 'manual') next[key] = patch[key];
+    }
     for (const key of INTENT_TUNING_KEYS) {
       const value = patch[key];
       if (value === undefined) continue;
@@ -853,6 +865,7 @@ export class IntentSenseService {
     }
     const profileChanged = Object.keys(next).some(
       (key) =>
+        key !== 'profileMode' &&
         key.startsWith('profile') &&
         JSON.stringify(next[key as keyof IntentSenseConfig]) !==
           JSON.stringify(previous[key as keyof IntentSenseConfig]),
@@ -989,7 +1002,7 @@ export class IntentSenseService {
     conv: string,
     limit = this.config.backfillMessages,
   ): Promise<EnsureStats> {
-    if (!this.effectiveFor(kind, conv)) {
+    if (!this.effectiveFor(kind, conv) || this.config.analysisMode === 'manual') {
       return Promise.resolve({ cached: 0, analyzed: 0, failed: 0, skipped: 'disabled' });
     }
     const revision = this.analysisRevision;
@@ -1020,8 +1033,10 @@ export class IntentSenseService {
     kind: IntentConversationKind,
     conv: string,
     msgId: string,
+    options?: { manual?: boolean },
   ): Promise<IntentSenseResult | null> {
     if (!this.effectiveFor(kind, conv)) return null;
+    if (this.config.analysisMode === 'manual' && !options?.manual) return null;
     const revision = this.analysisRevision;
     const contextMessages = this.config.analysisContextMessages;
     const cache = this.cacheFor(kind, conv);
@@ -1063,7 +1078,7 @@ export class IntentSenseService {
       }
     }
     if (!row?.text) return null;
-    if (row.mine && !this.config.analyzeAfterSelf) return null;
+    if (row.mine && !this.config.analyzeAfterSelf && !options?.manual) return null;
     this.syncDefaultModels();
     if (revision !== this.analysisRevision) return null;
 
@@ -1477,10 +1492,10 @@ export class IntentSenseService {
   }
 
   /** 兼容旧 IPC 入口；运行状态与计算由独立画像服务持有。 */
-  getProfile(peerUid: string): Promise<IntentProfile | null> {
+  getProfile(peerUid: string, options?: { cachedOnly?: boolean }): Promise<IntentProfile | null> {
     this.syncDefaultModels();
     const revision = this.profileRevision;
-    return this.profileService.getProfile(peerUid).then((result) => {
+    return this.profileService.getProfile(peerUid, options).then((result) => {
       this.syncDefaultModels();
       if (revision !== this.profileRevision) throw new Error('默认画像模型已更改，请重新读取');
       return result;
@@ -1631,7 +1646,8 @@ export class IntentSenseService {
     this.syncDefaultModels();
     if (
       this.config.conversationOverrides[conversationKey(kind, conv)] === false ||
-      !this.config.suggestionsEnabled
+      !this.config.suggestionsEnabled ||
+      (this.config.suggestionMode === 'manual' && options.refresh !== true)
     )
       return Promise.resolve([]);
     const revision = this.suggestionRevision;

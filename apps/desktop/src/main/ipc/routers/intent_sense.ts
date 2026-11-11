@@ -62,6 +62,9 @@ const tuning = (key: IntentTuningKey) => {
 };
 
 const configPatch = z.object({
+  analysisMode: z.enum(['auto', 'manual']).optional(),
+  profileMode: z.enum(['auto', 'manual']).optional(),
+  suggestionMode: z.enum(['auto', 'manual']).optional(),
   analysisTemperature: tuning('analysisTemperature'),
   suggestionTemperature: tuning('suggestionTemperature'),
   suggestionCount: tuning('suggestionCount'),
@@ -179,17 +182,32 @@ const intentSenseFeatureProcedures = {
 
   /** 悬停未命中缓存时的单条分析。 */
   analyzeMessage: procedure
-    .input(z.object({ kind: kindSchema, conv: z.string().min(1), msgId: z.string().min(1) }))
+    .input(
+      z.object({
+        kind: kindSchema,
+        conv: z.string().min(1),
+        msgId: z.string().min(1),
+        manual: z.boolean().optional(),
+      }),
+    )
     .mutation(({ input }) =>
-      requireServices().intentSense.analyzeMessage(input.kind, input.conv, input.msgId),
+      requireServices().intentSense.analyzeMessage(input.kind, input.conv, input.msgId, {
+        manual: input.manual,
+      }),
     ),
 
   /** 对方互动画像；无可分析对方消息时为 null。仅私聊有语义。 */
   getProfile: procedure
     .input(
-      z.object({ peerUid: z.string().min(1), revision: z.number().int().nonnegative().optional() }),
+      z.object({
+        peerUid: z.string().min(1),
+        revision: z.number().int().nonnegative().optional(),
+        cachedOnly: z.boolean().optional(),
+      }),
     )
-    .query(({ input }) => requireServices().intentSense.getProfile(input.peerUid)),
+    .query(({ input }) =>
+      requireServices().intentSense.getProfile(input.peerUid, { cachedOnly: input.cachedOnly }),
+    ),
 
   /** 读取本会话逐轮回复历史及实际输入末条的定位信息。 */
   getSuggestionHistory: procedure
