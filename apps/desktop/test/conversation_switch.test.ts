@@ -20,6 +20,7 @@ import type { MessagePageStage } from '../src/shared/message_read';
 import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import type { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
 import * as replyPreview from '../src/renderer/src/lib/replyPreview';
+import * as conversationOrder from '@weq/service/conversation-order';
 
 type TestMessage = {
   msgId: string;
@@ -297,6 +298,52 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('MainView 单行预览更新时每条会话只计算一次排序时间', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const originalLength = f.recent.length;
+  for (let index = 0; index < 197; index++) {
+    f.recent.push({
+      ...f.recent[0]!,
+      targetUid: String(30000 + index),
+      sendTime: String(1794200000 + ((index * 137) % 197)),
+    });
+  }
+  const time = vi.spyOn(conversationOrder, 'conversationActivityTime');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    time.mockClear();
+    f.freshPreview = true;
+    f.previewTarget = '10001';
+    await act(async () => {
+      f.dbChanged!();
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    const rows = JSON.parse(host.querySelector('[data-previews]')!.textContent!) as Array<{
+      id: string;
+      lastMessage?: { body: string };
+    }>;
+    expect(rows.find((row) => row.id === '10001')?.lastMessage?.body).toBe('最新消息');
+    expect(time).toHaveBeenCalledTimes(f.recent.length);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+    f.recent.splice(originalLength);
+  }
 });
 
 it('单个会话预览更新不重复转换未变群资料，真实群资料变化仍即时更新', async () => {

@@ -155,8 +155,6 @@ import {
   conversationSortTime,
   conversationActivityTime,
   draftSortTimes,
-  conversationPinned,
-  pinOrderDelta,
 } from '@weq/service/conversation-order';
 import { mergeRecentContactPages, recentContactPreviewIsBehind } from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
@@ -175,7 +173,7 @@ import {
 } from '../lib/conversationFirstPage';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
-import { reconcileConversationRows } from '../lib/conversationListOrder';
+import { reconcileConversationRows, sortConversationRows } from '../lib/conversationListOrder';
 import { createConversationProjection } from '../lib/conversationProjection';
 import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
@@ -4709,8 +4707,9 @@ function MainWorkspace(): ReactElement {
     );
     return reconcileConversationRows(
       conversationRowsRef.current,
-      baseConversations
-        .map((conversation) => {
+      // 与 QQ 的 41136 一致：置顶分组，两组内部都按消息／草稿活动时间排。
+      sortConversationRows(
+        baseConversations.map((conversation) => {
           const unread =
             conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
               ? assistantUnread
@@ -4758,19 +4757,11 @@ function MainWorkspace(): ReactElement {
                 }),
             highlights,
           };
-        })
-        // 与 QQ 的 41136 一致：置顶分组，两组内部都按消息／草稿活动时间排。
-        .sort((a, b) => {
-          const pinDelta = pinOrderDelta(conversationPinned(a), conversationPinned(b));
-          if (pinDelta) return pinDelta;
-          return (
-            Math.max(conversationActivityTime(b), temporaryConversations[b.id]?.appearedAt ?? 0) -
-              Math.max(
-                conversationActivityTime(a),
-                temporaryConversations[a.id]?.appearedAt ?? 0,
-              ) || a.id.localeCompare(b.id)
-          );
         }),
+        undefined,
+        (row) =>
+          Math.max(conversationActivityTime(row), temporaryConversations[row.id]?.appearedAt ?? 0),
+      ),
     );
   }, [
     baseConversations,

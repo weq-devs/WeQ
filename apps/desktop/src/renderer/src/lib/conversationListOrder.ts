@@ -21,12 +21,13 @@ type OrderableConversation = Parameters<typeof conversationActivityTime>[0] &
 export function sortConversationRows<T extends OrderableConversation>(
   rows: readonly T[],
   preferences: Parameters<typeof conversationPinned>[1] = {},
+  activityTime: (row: T) => number = conversationActivityTime,
 ): T[] {
   return rows
     .map((row) => ({
       row,
       pinned: conversationPinned(row, preferences),
-      time: conversationActivityTime(row),
+      time: activityTime(row),
     }))
     .sort(
       (first, second) =>

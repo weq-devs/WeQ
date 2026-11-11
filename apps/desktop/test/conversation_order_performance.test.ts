@@ -22,6 +22,11 @@ import { createTemplateDemoData } from '../src/renderer/src/im-template/template
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { sortConversationRows } from '../src/renderer/src/lib/conversationListOrder';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
+import {
+  conversationActivityTime,
+  conversationPinned,
+  pinOrderDelta,
+} from '@weq/service/conversation-order';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -177,6 +182,45 @@ it('再次调用读取最新对象值与偏好，不使用跨轮次的过期缓�
   expect(sortConversationRows(rows)[0]).toBe(rows[0]);
   expect(sortConversationRows(rows, { b: { pinned: true } })[0]).toBe(rows[1]);
 });
+
+it.each([Date.parse('2030-01-05'), Number.NaN, Number.POSITIVE_INFINITY, -100])(
+  '主视图附加活动时间 %s 保留旧比较口径，单轮每行仅计算一次',
+  (extra) => {
+    const rows = [
+      { id: 'a', updatedAt: 'invalid' },
+      { id: 'b', updatedAt: '2030-01-01', activityTime: Date.parse('2030-01-02') },
+      { id: 'c', updatedAt: '2030-01-01', lastMessage: { createdAt: '2030-01-04' } },
+      { id: 'pinned', updatedAt: 'invalid', preference: { pinned: true } },
+    ];
+    const appearedAt: Record<string, number> = { b: extra };
+    const expected = [...rows].sort((a, b) => {
+      const pin = pinOrderDelta(conversationPinned(a), conversationPinned(b));
+      return (
+        pin ||
+        Math.max(conversationActivityTime(b), appearedAt[b.id] ?? 0) -
+          Math.max(conversationActivityTime(a), appearedAt[a.id] ?? 0) ||
+        a.id.localeCompare(b.id)
+      );
+    });
+    const time = vi.fn((row: (typeof rows)[number]) =>
+      Math.max(conversationActivityTime(row), appearedAt[row.id] ?? 0),
+    );
+    const actual = sortConversationRows(rows, undefined, time);
+    expect(actual).toEqual(expected);
+    expect(time).toHaveBeenCalledTimes(rows.length);
+    for (const [index, row] of actual.entries()) expect(row).toBe(expected[index]);
+    expect(rows.map((row) => row.id)).toEqual(['a', 'b', 'c', 'pinned']);
+    time.mockClear();
+    appearedAt.b = Date.parse('2030-01-06');
+    expect(sortConversationRows(rows, undefined, time).map((row) => row.id)).toEqual([
+      'pinned',
+      'b',
+      'c',
+      'a',
+    ]);
+    expect(time).toHaveBeenCalledTimes(rows.length);
+  },
+);
 
 it.each([false, true])(
   '联系人切换活动项不重新扫描稳定分组和选择索引，传入空分组：%s',
