@@ -2,6 +2,7 @@
   /* 桌面保留标题栏；窄屏正文不能沿用 Web 的全视口定位。 */
   .app-shell-root:not(.weq-web-shell) > .app-shell {
     position: relative;
+    display: block;
     flex: 1;
     min-height: 0;
     height: auto;
@@ -11,8 +12,23 @@
     height: calc(100% - var(--mobile-tabbar-height) - env(safe-area-inset-bottom, 0px));
   }
 
+  .app-shell-root:not(.weq-web-shell) > .app-shell > .sidebar > .sidebar-body {
+    padding-bottom: 0;
+  }
+
   .app-shell-root:not(.weq-web-shell) > .app-shell > .chat-main {
     position: absolute;
+    width: 100%;
     height: 100%;
+  }
+
+  .app-shell-root:not(.weq-web-shell)[data-mobile-workspace] > .app-shell > .chat-main {
+    height: calc(100% - var(--mobile-tabbar-height) - env(safe-area-inset-bottom, 0px));
+    transform: none;
+  }
+
+  .app-shell-root:not(.weq-web-shell) > .app-shell > .app-rail {
+    grid-template-rows: 1fr;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
   }
 }

@@ -108,6 +108,13 @@ node apps/desktop/test/browser/run-style-consistency.mjs
 `WEQ_BROWSER_EXECUTABLE` 可指定已有 Chromium 浏览器，`WEQ_STYLE_ARTIFACTS` 可指定截图目录。
 脚本结束后会关闭自己创建的浏览器和测试服务，不使用真实 QQ 数据。
 
+桌面竖屏回归使用 `node apps/desktop/test/browser/run-desktop-portrait.mjs`，挂载真实
+`ChatShell`、标题栏和会话控制器，覆盖 360/440/600/760/800/1180px、最小窗口高度、
+四套组件风格及深浅主题，检查单栏切换、正文宽度、返回列表、主页及底部导航。
+桌面模式夹具只从 `styles/index.css` 加载模板样式，不再单独重复引入 `im-template/styles.css`，
+避免后加载的模板规则掩盖真实入口中的桌面覆盖规则。沿用上述 Playwright 与浏览器路径变量，
+`WEQ_PORTRAIT_ARTIFACTS` 可指定截图目录。
+
 消息装扮加载回归使用 `node apps/desktop/test/browser/run-decoration-readiness.mjs`，复用真实消息装扮 Hook 与聊天样式。覆盖 390/1200px、深浅主题及双方消息：延迟字体与未缓存底图时消息始终可见；让图片预解码永不完成，检查 48 行首次提交就应用本地气泡，截图像素中确实出现底图，并报告与未缓存场景的首次提交耗时。沿用上述 Playwright 与浏览器路径变量，可用 `WEQ_DECORATION_ARTIFACTS` 指定截图目录。脚本只在这个故意挂起字体的夹具中跳过 Playwright 截图前的字体等待。资源来自合成 PNG 和仓库已有字体，不连接 QQ。
 
 组件风格与独立密度使用 `node apps/desktop/test/browser/run-component-appearance.mjs`，
