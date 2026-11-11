@@ -111,6 +111,13 @@ it('零能量正常显示，未展开不请求列表', async () => {
   expect(state.questions).not.toHaveBeenCalled();
   expect(state.education).not.toHaveBeenCalled();
 });
+it('接口返回能量等级时仍只显示能量值', async () => {
+  state.energy.mockReturnValue(result({ targetUin: '10002', score: 321, level: 987 }));
+  await render();
+  expect(host.textContent).toContain('QQ 能量值321');
+  expect(host.textContent).not.toContain('能量等级');
+  expect(host.textContent).not.toContain('987');
+});
 it('签名入口按需打开详情，保留时间地点并支持翻页', async () => {
   await render('signature');
   await click('历史签名');

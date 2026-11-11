@@ -130,9 +130,6 @@ function ExtrasBody({
                       ? '暂不可读取'
                       : '未知'}
             </strong>
-            {usable?.level !== null && usable?.level !== undefined ? (
-              <span>能量等级 {usable.level}</span>
-            ) : null}
             {energy.error && online ? (
               <button
                 type="button"
