@@ -105,18 +105,38 @@ try {
             const composer = node.closest('.composer');
             const parent = composer.getBoundingClientRect();
             const style = getComputedStyle(node);
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const context = canvas.getContext('2d');
+            const brightness = (color) => {
+              context.fillStyle = color;
+              context.fillRect(0, 0, 1, 1);
+              const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
+              return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+            };
             return {
               left: box.left - parent.left,
               right: parent.right - box.right,
               paddingLeft: style.paddingLeft,
               paddingRight: style.paddingRight,
               radius: style.borderRadius,
+              brightnessDifference:
+                brightness(style.backgroundColor) -
+                brightness(getComputedStyle(composer).backgroundColor),
+              shadow: style.boxShadow,
             };
           });
           assert.equal(await send.isVisible(), false, '竖屏不显示独立发送键');
           assert.equal(field.left, field.right, JSON.stringify(field));
           assert.equal(field.paddingLeft, field.paddingRight, '正文仍为发送键预留空白');
           assert.equal(field.radius, '8px');
+          assert(
+            theme === 'light'
+              ? field.brightnessDifference <= -12
+              : field.brightnessDifference >= 12,
+            `输入框与工具栏底色未拉开: ${JSON.stringify(field)}`,
+          );
+          assert.equal(field.shadow, 'none', '输入框应通过底色而不是描边区分');
           const beforePadding = await page
             .locator('.composer')
             .evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingBottom));

@@ -375,11 +375,19 @@
   }
 
   .weq-web-shell .composer-editor {
-    background: var(--background);
+    background: color-mix(in srgb, var(--weq-fg-primary) 7%, var(--weq-bg-surface));
     color: var(--weq-fg-primary);
     font-size: 16px;
-    box-shadow: inset 0 0 0 1px var(--weq-border-subtle);
+    box-shadow: none;
     border-radius: 8px;
+  }
+
+  html[data-theme='dark'] .weq-web-shell .composer {
+    background: var(--background);
+  }
+
+  html[data-theme='dark'] .weq-web-shell .composer-editor {
+    background: var(--muted);
   }
 
   :is(.weq-web-shell .app-shell, .weq-conversation-list) :is(.conversation-row, .contact-row),
