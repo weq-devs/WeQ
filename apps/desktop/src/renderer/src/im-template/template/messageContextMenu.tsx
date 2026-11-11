@@ -244,7 +244,7 @@ export function MessageContextMenu({
             role="group"
             aria-label="快捷贴表情"
           >
-            {reactions.map((reaction) => {
+            {reactions.slice(0, 4).map((reaction) => {
               const selected = Boolean(
                 message.setEmojiList?.some(
                   (item) => item.emojiId === reaction.code && item.isSelfSet,

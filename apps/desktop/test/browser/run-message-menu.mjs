@@ -98,6 +98,11 @@ try {
           bottom: rect.bottom,
           overflow: el.scrollWidth > el.clientWidth,
           count: el.querySelectorAll('.message-action-row').length,
+          width: rect.width,
+          reactions: el.querySelectorAll('.message-reaction-strip button[aria-pressed]').length,
+          moreVisible:
+            el.querySelector('.message-reaction-strip button:last-child').getBoundingClientRect()
+              .width > 0,
         };
       });
       check(
@@ -109,6 +114,8 @@ try {
         `${theme}/${width}/${height}/${corner}: 菜单溢出 ${JSON.stringify(geometry)}`,
       );
       check(geometry.count === 4, '媒体与扩展按钮区行数错误');
+      check(geometry.width <= 236, '菜单未缩窄');
+      check(geometry.reactions === 4 && geometry.moreVisible, '应显示四个贴表情候选和更多入口');
       const layout = await menu.evaluate((el) => {
         const center = (node) => {
           const rect = node.getBoundingClientRect();

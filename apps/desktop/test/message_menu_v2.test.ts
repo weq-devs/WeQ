@@ -149,6 +149,8 @@ it('快捷回应显示选中态，再次点击发出取消，更多仍可进入'
     onSetReaction: set,
   });
   const selected = host.querySelector<HTMLButtonElement>('[aria-pressed="true"]')!;
+  expect(host.querySelectorAll('.message-reaction-strip button[aria-pressed]')).toHaveLength(4);
+  expect(host.querySelectorAll('.message-reaction-strip button')).toHaveLength(5);
   act(() => selected.click());
   expect(set.mock.calls[0]?.slice(1)).toEqual(['76', false]);
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多表情"]')!.click());
