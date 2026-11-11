@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -40,6 +41,7 @@ type UnreadInput = { targets: Array<{ chatType: number; uid: string }>; watermar
 
 const f = vi.hoisted(() => ({
   refreshing: false,
+  readFromFirstUnread: false,
   unreadMode: false,
   unreadCounts: {} as Record<string, number>,
   deletedResponse: [] as string[],
@@ -104,6 +106,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             const [head, setHead] = useState(recent);
             if (path.join('.') === 'account.listRecentContacts')
               f.headEnabled = options?.enabled === true;
+            if (path.join('.') === 'bootstrap.getSettings')
+              return { ...empty, data: { readFromFirstUnread: f.readFromFirstUnread } };
             return path.join('.') === 'account.getAccountConfig'
               ? config
               : path.join('.') === 'account.listProfiles'
@@ -312,6 +316,7 @@ afterEach(() => {
   useViewState.getState().setOpenedUin(null);
   f.reads.length = 0;
   f.refreshing = false;
+  f.readFromFirstUnread = false;
   f.commit = undefined;
   f.unreadMode = false;
   f.unreadCounts = {};
@@ -341,6 +346,61 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+it.each(['10001', 'u_peer'])(
+  '会话 %s 首屏完成与阅读设置更新交错时，采用完整缓存并结束底部加载',
+  async (id) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const render = () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      );
+    const message = (seq: string): TestMessage => ({
+      msgId: seq,
+      msgSeq: seq,
+      sendTime: '1794200000',
+      senderUid: 'u_peer',
+      senderUin: '20001',
+      elements: [{ type: 'text', text: `消息 ${seq}` }],
+    });
+    try {
+      await act(async () => render());
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === id)!
+          .click(),
+      );
+      const read = f.reads.at(-1)!;
+      await act(async () => read.show({ complete: false, rows: [message('1')] }));
+      expect(host.querySelector('[aria-label="正在加载后续消息"]')).not.toBeNull();
+      await act(async () => {
+        // 完整页先同步写入缓存；尚未续跑的旧入口随设置更新失效。
+        read.show({ complete: true, rows: [message('2'), message('1')] });
+        f.readFromFirstUnread = true;
+        flushSync(render);
+      });
+      expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+      expect(JSON.parse(host.querySelector('output')!.textContent!)).toEqual({
+        id,
+        loading: false,
+        rows: ['1', '2'],
+      });
+      expect(f.reads).toHaveLength(1);
+    } finally {
+      act(() => root.unmount());
+      client.clear();
+      host.remove();
+    }
+  },
+);
 
 it('等值删除标记迟到不重复贴底，真实标记增删和正文更新仍即时出现', async () => {
   vi.useFakeTimers();

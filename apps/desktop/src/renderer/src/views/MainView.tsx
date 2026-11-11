@@ -8518,10 +8518,28 @@ function MainWorkspace(): ReactElement {
       cached &&
         (cached.dirty || cached.revision !== revision || Date.now() - cached.verifiedAt > 30_000),
     );
-    if (cached && !dirty && Date.now() - cached.verifiedAt < 3000)
+    if (cached && !dirty && Date.now() - cached.verifiedAt < 3000) {
+      // 完整首屏可能刚写入缓存，旧 effect 却在交付前被设置更新取消。
+      // 新入口接过完整窗口及收尾，不能只跳过查询，留下旧入口的加载状态。
+      if (entryLoadingRef.current) {
+        loadedRef.current = cached.rows;
+        verifiedWindowRowsRef.current = cached.rows;
+        loadedRevisionRef.current = cached.revision;
+        windowVerifiedAtRef.current = cached.verifiedAt;
+        windowRef.current = { minSeq: cached.rows[0]?.msgSeq ?? null, anchored: cached.anchored };
+        setLoaded(cached.rows);
+        setHasOlder(cached.hasOlder);
+        setHasNewer(cached.hasNewer);
+        setAnchoredToLatest(cached.anchored);
+        entryScrollIntentRef.current = null;
+        entryLoadingRef.current = false;
+        setMessagesLoading(false);
+        setLoadingNewerMessages(false);
+      }
       return () => {
         cancelled = true;
       };
+    }
     if (!cached) setMessagesLoading(true);
     entryLoadingRef.current = true;
     setLoadingNewerMessages(Boolean(cached));
