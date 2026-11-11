@@ -113,6 +113,24 @@ it('缺失年龄按北京时间的完整生日推算周岁，与原始年龄使�
     '????-11-10 （?? 岁）',
   );
 });
+it('星座补全摘要不显示排序边界，唯一推断年标注来源并提供候选详情', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-11T12:00:00+08:00'));
+  const contact = {
+    ...friend,
+    age: 16,
+    birthYear: undefined,
+    birthMonth: undefined,
+    birthDay: undefined,
+    extInfo: { ...friend.extInfo!, constellation: 1 },
+  };
+  for (const sort of ['age', 'birthday'] as const) {
+    const detail = friendSortDetail(contact, sort, {});
+    expect(detail?.text).toBe('2010 年（推断） · 水瓶座 · 月日未记录 （16 岁）');
+    expect(detail?.text).not.toContain('01-20');
+    expect(detail?.title).toBe('候选生日：2010 年 1 月 20 日至2 月 18 日');
+  }
+});
 it.each([
   ['uin', 'QQ 号：12345'],
   ['intimacy', '亲密度：86'],

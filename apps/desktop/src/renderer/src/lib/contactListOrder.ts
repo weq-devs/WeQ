@@ -1,7 +1,8 @@
 import type { Contact, Conversation } from '../im-template/template/types';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import { intimateRelationOf } from './profileRelations';
-import { contactBirth } from './contactBirth';
+import { birthReference, contactBirth } from './contactBirth';
+import { constellationFromBirthday } from './contactConstellation';
 
 export const FRIEND_SORTS = {
   remark: '备注',
@@ -90,39 +91,8 @@ function compareValue(a: number | string | null, b: number | string | null, desc
       : collator.compare(String(a), String(b))) * (descending ? -1 : 1)
   );
 }
-function birthday(month?: number, day?: number) {
-  if (
-    !month ||
-    !day ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day) ||
-    month < 1 ||
-    month > 12 ||
-    day < 1
-  )
-    return null;
-  const date = new Date(Date.UTC(2000, month - 1, day));
-  return date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? month * 100 + day : null;
-}
 export function zodiac(month?: number, day?: number) {
-  if (birthday(month, day) === null) return null;
-  const names = [
-    '水瓶座',
-    '双鱼座',
-    '白羊座',
-    '金牛座',
-    '双子座',
-    '巨蟹座',
-    '狮子座',
-    '处女座',
-    '天秤座',
-    '天蝎座',
-    '射手座',
-    '摩羯座',
-  ];
-  const cutoffs = [20, 19, 21, 20, 21, 22, 23, 23, 23, 24, 23, 22];
-  const index = month! - 1;
-  return names[day! < cutoffs[index]! ? (index + 11) % 12 : index]!;
+  return constellationFromBirthday(month, day)?.name ?? null;
 }
 export function sortFriends(
   items: readonly Contact[],
@@ -130,7 +100,7 @@ export function sortFriends(
   descending: boolean,
   rows: ContactMetricRows,
 ) {
-  const now = new Date();
+  const now = birthReference();
   const births = new Map(
     sort === 'age' || sort === 'birthday'
       ? items.map((contact) => [contact, contactBirth(contact, now)] as const)
@@ -142,7 +112,7 @@ export function sortFriends(
     if (sort === 'uin') return friendDirectoryNumber(contact);
     if (sort === 'age') return births.get(contact)!.ageOrder;
     if (sort === 'intimacy') return positive(contact.intimacy);
-    if (sort === 'birthday') return birthday(contact.birthMonth, contact.birthDay);
+    if (sort === 'birthday') return births.get(contact)!.birthdayOrder;
     const result = friendMetric(rows, contact, sort);
     return Array.isArray(result) ? result.length : typeof result === 'number' ? result : null;
   };
@@ -151,12 +121,14 @@ export function sortFriends(
       contact,
       value: value(contact),
       age: sort === 'birthday' ? births.get(contact)!.ageOrder : null,
+      inferred: births.get(contact)?.ranges.length ? 0 : 1,
       name: contact.remark || contact.nick || contact.displayName,
       id: contact.id,
     }))
     .sort(
       (a, b) =>
         compareValue(a.value, b.value, descending) ||
+        a.inferred - b.inferred ||
         compareValue(a.age, b.age, descending) ||
         collator.compare(a.name, b.name) ||
         a.id.localeCompare(b.id),
@@ -231,19 +203,19 @@ export function groupFriends(
   regions: RegionNode[] = [],
 ) {
   const map = new Map<string, Contact[]>();
+  const now = birthReference();
   for (const contact of items) {
     let name: string;
     switch (basis) {
       case 'birthYear':
-        name =
-          Number.isInteger(contact.birthYear) &&
-          contact.birthYear! >= 1900 &&
-          contact.birthYear! <= new Date().getFullYear()
-            ? `${contact.birthYear} 年`
-            : '出生年份未知';
+        {
+          const birth = contactBirth(contact, now);
+          const year = birth.year ?? birth.inferredYear;
+          name = year !== null && year <= now.year ? `${year} 年` : '出生年份未知';
+        }
         break;
       case 'constellation':
-        name = zodiac(contact.birthMonth, contact.birthDay) ?? '星座未知';
+        name = contactBirth(contact, now).constellation?.name ?? '星座未知';
         break;
       case 'gender':
         name = contact.gender === 1 ? '男' : contact.gender === 2 ? '女' : '性别未知';

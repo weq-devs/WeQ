@@ -42,6 +42,8 @@ export type ProfileExtInfo = {
   country?: string;
   province?: string;
   city?: string;
+  /** 本地缓存星座，1..12；与表示生肖的 zodiac 不同。 */
+  constellation?: number;
   interests: string[];
   album: Array<{
     photoId?: string;

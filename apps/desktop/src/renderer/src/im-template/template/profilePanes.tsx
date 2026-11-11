@@ -2,7 +2,6 @@
 import {
   Activity,
   Bookmark,
-  Cake,
   CalendarDays,
   Check,
   Copy,
@@ -29,7 +28,8 @@ import {
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { datalineName, isDatalineUid } from '@weq/codec';
 import { deviceAvatarDataUri } from '../../lib/deviceAvatar';
-import { contactAgeText } from '../../lib/contactBirth';
+import { contactAgeText, contactBirth } from '../../lib/contactBirth';
+import { ContactBirthdayRow } from '../../components/ContactBirthdayRow';
 import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLayer';
 import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
@@ -366,14 +366,14 @@ export function ContactProfileDialog({
         .map((id) => ({ id, ...relationMeta(id) }))
     : [];
 
-  const zodiac = constellationOf(profile.birthMonth, profile.birthDay);
+  const birth = contactBirth(profile);
+  const zodiac = birth.constellation?.name;
   const gender = genderLabel(profile.gender);
   const genderAge = [gender, contactAgeText(profile)].filter(Boolean).join(' · ');
   // 自定义状态优先，没有时退回在线状态文案。
   // 注：天气子结构在 misc.db 侧没有被建模（48902 只解出 customStatus），
   // 所以这里不再尝试拼接「城市 · 天气」。
   const statusText = [profile.customStatus || profile.onlineStatus].filter(Boolean).join(' · ');
-  const birthday = birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay);
   const intimacy = profile.intimacy ? Number(profile.intimacy).toLocaleString('en-US') : null;
   const name = profile.clone
     ? displayUserName(profile)
@@ -575,9 +575,7 @@ export function ContactProfileDialog({
           value={education}
         />
       ) : null}
-      {birthday ? (
-        <ProfileRow sensitive icon={<Cake size={13} />} label="生日" value={birthday} />
-      ) : null}
+      <ContactBirthdayRow birth={birth} />
     </>
   );
   const commonRows =

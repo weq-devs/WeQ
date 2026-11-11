@@ -72,6 +72,14 @@ const proxy = (path: string[] = []): unknown =>
           mutateAsync: async () => 'synthetic-task',
           isLoading: false,
         });
+      if (key === 'query' && path.join('.') === 'account.getProfile')
+        return async ({ uid }: { uid: string }) =>
+          (window as unknown as { contactBirthQa?: { profiles: Record<string, unknown> } })
+            .contactBirthQa?.profiles[uid];
+      if (key === 'query' && path.join('.') === 'account.getCardDisplayNames')
+        return async () => {
+          throw new Error('离线合成资料不查询云端名称');
+        };
       if (key === 'invalidate' || key === 'query' || key === 'fetch') return async () => undefined;
       return proxy([...path, String(key)]);
     },

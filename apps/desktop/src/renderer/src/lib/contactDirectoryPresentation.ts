@@ -1,7 +1,7 @@
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import type { Contact, GroupConversation } from '../im-template/template/types';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
-import { contactBirth } from './contactBirth';
+import { birthRangeText, contactBirthdayText, contactBirth } from './contactBirth';
 import {
   directoryNumber,
   friendDirectoryNumber,
@@ -89,7 +89,13 @@ export function groupDirectoryTitle(
 }
 
 function birthDetail(contact: Contact): SortDetail {
-  const { year, month, day, age } = contactBirth(contact);
+  const birth = contactBirth(contact);
+  const { year, month, day, age } = birth;
+  if (birth.inference !== 'none')
+    return {
+      text: `${contactBirthdayText(birth)} （${age ?? '??'} 岁）`,
+      title: birthRangeText(birth) ?? undefined,
+    };
   const date = `${year ?? '????'}-${month === null ? '??' : String(month).padStart(2, '0')}-${day === null ? '??' : String(day).padStart(2, '0')}`;
   return { text: `${date} （${age ?? '??'} 岁）` };
 }

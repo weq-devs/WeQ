@@ -22,7 +22,6 @@ import {
   Award,
   BarChart3,
   Bot,
-  Cake,
   CalendarDays,
   Check,
   Clock,
@@ -47,7 +46,8 @@ import {
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { User } from '../im-template/template/types';
 import { resolveAvatar } from '../lib/avatarResolver';
-import { contactAgeText } from '../lib/contactBirth';
+import { contactAgeText, contactBirth } from '../lib/contactBirth';
+import { ContactBirthdayRow } from './ContactBirthdayRow';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
@@ -67,12 +67,7 @@ import { VirtualConversationBadge } from './VirtualConversationAvatar';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { displayUserName } from '../im-template/template/user';
-import {
-  ProfileRow,
-  birthdayText,
-  constellationOf,
-  genderLabel,
-} from '../im-template/template/profilePanes';
+import { ProfileRow, genderLabel } from '../im-template/template/profilePanes';
 
 /** ISO 字符串 → zh-CN 年月日；无效 / 空 / epoch 返回 null。 */
 function shortDate(value) {
@@ -273,10 +268,8 @@ export function MemberProfileCard({
   }, [uin, localClone]);
   const gender = genderLabel(profile?.gender);
   const genderAge = [gender, profile ? contactAgeText(profile) : null].filter(Boolean).join(' · ');
-  const zodiac = profile ? constellationOf(profile.birthMonth, profile.birthDay) : null;
-  const birthday = profile
-    ? birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay)
-    : null;
+  const birth = profile ? contactBirth(profile) : null;
+  const zodiac = birth?.constellation?.name;
   const intimacy =
     profile?.intimacy && Number(profile.intimacy) > 0
       ? Number(profile.intimacy).toLocaleString('en-US')
@@ -493,9 +486,7 @@ export function MemberProfileCard({
               {levelText ? (
                 <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />
               ) : null}
-              {birthday ? (
-                <ProfileRow sensitive icon={<Cake size={13} />} label="生日" value={birthday} />
-              ) : null}
+              {birth ? <ContactBirthdayRow birth={birth} /> : null}
               {intimacy ? (
                 <ProfileRow
                   icon={<Heart size={13} />}
