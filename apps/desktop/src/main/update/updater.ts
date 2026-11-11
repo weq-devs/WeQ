@@ -43,6 +43,17 @@ const { autoUpdater } = electronUpdater;
 
 let lastCheckedAt = 0;
 const CHECK_TTL_MS = 5 * 60_000;
+let preferences = { get: () => false, set: (_enabled: boolean): void => {} };
+let preferenceRevision = 0;
+
+export function setCheckPrerelease(enabled: boolean): void {
+  if (downloading || installing) throw new Error('请等待当前更新完成后再切换测试版检查');
+  preferences.set(enabled);
+  preferenceRevision++;
+  setUpdateState(null);
+  downloaded = false;
+  macPlan = null;
+}
 
 function isDev(): boolean {
   return !app.isPackaged;
@@ -57,8 +68,8 @@ function packageManaged(): boolean {
 }
 
 function isNewer(latest: string, current: string): boolean {
-  const a = semver.coerce(latest);
-  const b = semver.coerce(current);
+  const a = semver.valid(latest);
+  const b = semver.valid(current);
   return a && b ? semver.gt(a, b) : false;
 }
 
@@ -69,16 +80,26 @@ function isNewer(latest: string, current: string): boolean {
 export async function checkForUpdate(force = false): Promise<UpdateState> {
   const current = app.getVersion();
   const cached = getUpdateState();
-  if (!force && cached && Date.now() - lastCheckedAt < CHECK_TTL_MS) {
+  const includePrerelease = preferences.get();
+  const revision = preferenceRevision;
+  if (
+    !force &&
+    cached &&
+    cached.includePrerelease === includePrerelease &&
+    Date.now() - lastCheckedAt < CHECK_TTL_MS
+  ) {
     return cached;
   }
 
   // Let the UI show "testing N mirrors…" instead of a blank 4–6s wait: this is
   // the slow phase (every dead mirror burns its full screen timeout).
   updateBus.emit('event', { kind: 'checking', mirrors: FILE_MIRRORS.length } satisfies UpdateEvent);
-  const best = await resolveBestMirror();
+  const best = await resolveBestMirror(undefined, includePrerelease);
+  if (revision !== preferenceRevision) throw new Error('更新检查选项已改变，请重新检查');
   const hasUpdate = isNewer(best.version, current);
   const state: UpdateState = {
+    includePrerelease,
+    channel: best.channel,
     current,
     latest: best.version,
     hasUpdate,
@@ -176,6 +197,9 @@ function attemptDownload(base: string): Promise<void> {
 
     autoUpdater.on('error', onError);
     autoUpdater.setFeedURL({ provider: 'generic', url: base });
+    autoUpdater.allowPrerelease = getUpdateState()?.includePrerelease === true;
+    autoUpdater.channel = getUpdateState()?.channel ?? 'latest';
+    autoUpdater.allowDowngrade = false;
     autoUpdater
       .checkForUpdates()
       .then((result) => {
@@ -252,7 +276,7 @@ async function downloadUpdate(): Promise<void> {
     // 下载事件只说明 ZIP 已落地；官方哈希与固定发布身份通过后才允许安装。
     const update = macDownload as { file: string; version: string } | null;
     if (!update?.file) throw new Error('未取得 macOS 更新包路径');
-    macPlan = await prepareMacUpdate(update.file, update.version);
+    macPlan = await prepareMacUpdate(update.file, update.version, state.includePrerelease === true);
     downloaded = true;
     updateBus.emit('event', { kind: 'downloaded', latest: update.version } satisfies UpdateEvent);
   }
@@ -282,7 +306,8 @@ export function quitAndInstall(): void {
 }
 
 /** Wire this Electron implementation into the shell-agnostic update router. */
-export function installUpdateActions(): void {
+export function installUpdateActions(options?: typeof preferences): void {
+  if (options) preferences = options;
   if (process.platform === 'darwin' && app.isPackaged) {
     // 等新版本真正完成首个页面加载，不能在原生初始化前就删除回退副本。
     app.once('browser-window-created', (_event, window) => {
@@ -292,6 +317,8 @@ export function installUpdateActions(): void {
     });
   }
   setUpdateActions({
+    getPrerelease: () => preferences.get(),
+    setPrerelease: setCheckPrerelease,
     supported: true,
     check: checkForUpdate,
     startDownload,

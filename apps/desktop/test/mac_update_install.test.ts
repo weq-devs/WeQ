@@ -92,6 +92,12 @@ describe('macOS 更新可信来源', () => {
     assets: [{ name, state: 'uploaded', digest: `sha256:${sha256}`, size: 3 }],
   });
   it('只接受官方同版本、同架构、已上传资产的 SHA-256', () => {
+    expect(() => officialMacArchive({ ...release(), prerelease: true }, version, name)).toThrow(
+      '测试版',
+    );
+    expect(
+      officialMacArchive({ ...release(), prerelease: true }, version, name, true),
+    ).toMatchObject({ sha256 });
     expect(officialMacArchive(release(), version, name)).toEqual({
       arch: 'arm64',
       sha256,

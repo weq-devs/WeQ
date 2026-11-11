@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => ({
   event: null as ((event: UpdateEvent) => void) | null,
   install: vi.fn(async () => true),
   check: vi.fn(),
+  setPrerelease: vi.fn(async ({ enabled }: { enabled: boolean }) => enabled),
   download: vi.fn(),
   showError: vi.fn(),
   state: {
@@ -21,8 +22,15 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useContext: () => ({
+      update: { getPrerelease: { setData: vi.fn() }, getState: { setData: vi.fn() } },
+    }),
     bootstrap: { getVersionInfo: { useQuery: () => ({ data: { app: '1.0.0', isDev: false } }) } },
     update: {
+      getPrerelease: { useQuery: () => ({ data: false }) },
+      setPrerelease: {
+        useMutation: () => ({ mutateAsync: fixture.setPrerelease, isLoading: false }),
+      },
       getState: { useQuery: () => ({ data: fixture.state }) },
       install: { useMutation: () => ({ mutateAsync: fixture.install }) },
       check: { useMutation: () => ({ mutateAsync: fixture.check }) },
@@ -86,6 +94,17 @@ async function downloaded(kind: 'settings' | 'expired') {
 }
 
 describe('重启并安装反馈', () => {
+  it('测试版开关独立保存，切换后清除旧检查结果', async () => {
+    await act(async () => root.render(createElement(UpdateCard)));
+    const toggle = document.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="检查测试版"]',
+    )!;
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    await act(async () => toggle.click());
+    expect(fixture.setPrerelease).toHaveBeenCalledWith({ enabled: true });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(document.body.textContent).toContain('检查更新');
+  });
   it.each(['settings', 'expired'] as const)('%s 点击安装进入在途状态，不重复提交', async (kind) => {
     await downloaded(kind);
     const button = installButton();

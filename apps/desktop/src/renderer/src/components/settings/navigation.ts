@@ -573,6 +573,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   { id: 'builtin-components', section: 'version', label: '内置组件', from: ['daemon', 'version'] },
   {
+    id: 'update-prerelease',
+    section: 'version',
+    label: '检查测试版',
+    aliases: ['测试版更新', 'Beta 更新'],
+    from: ['version'],
+    desktopOnly: true,
+  },
+  {
     id: 'assistant-service',
     section: 'assistant',
     label: '启用 QQ 公众号推送',

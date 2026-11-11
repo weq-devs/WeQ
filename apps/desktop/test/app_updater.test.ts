@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({
-  app: { isPackaged: true, getVersion: () => '1.0.0' },
+  app: { isPackaged: true, getVersion: () => '1.0.0', once: vi.fn() },
   quitAndInstall: vi.fn(),
   setFeedURL: vi.fn(),
   checkForUpdates: vi.fn(),
@@ -70,6 +70,58 @@ async function ready() {
 }
 
 describe('更新安装动作', () => {
+  it('测试版选择传入真实检查与下载，切换后旧结果失效且不允许降级', async () => {
+    const { updater, autoUpdater } = await ready();
+    const state = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    let enabled = false;
+    updater.installUpdateActions({
+      get: () => enabled,
+      set: (value) => {
+        enabled = value;
+      },
+    });
+    updater.setCheckPrerelease(true);
+    expect(enabled).toBe(true);
+    expect(state.getUpdateState()).toBeNull();
+    vi.mocked(mirrors.resolveBestMirror).mockResolvedValue({
+      version: '1.1.0-beta.2',
+      base: 'https://synthetic.invalid',
+      ranked: ['https://synthetic.invalid'],
+      channel: 'beta',
+    });
+    expect(await updater.checkForUpdate(true)).toMatchObject({
+      includePrerelease: true,
+      hasUpdate: true,
+    });
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledWith(undefined, true);
+    await updater.startDownload();
+    expect(autoUpdater.allowPrerelease).toBe(true);
+    expect(autoUpdater.channel).toBe('beta');
+    expect(autoUpdater.allowDowngrade).toBe(false);
+    updater.setCheckPrerelease(false);
+    expect(() => updater.quitAndInstall()).toThrow('下载');
+  });
+
+  it('切换开关后拒绝旧的在途检查结果', async () => {
+    const { updater } = await ready();
+    const state = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    let complete:
+      | ((value: { version: string; base: string; ranked: string[] }) => void)
+      | undefined;
+    vi.mocked(mirrors.resolveBestMirror).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const checking = updater.checkForUpdate(true);
+    updater.setCheckPrerelease(true);
+    complete?.({ version: '1.1.0', base: 'https://synthetic.invalid', ranked: [] });
+    await expect(checking).rejects.toThrow('选项已改变');
+    expect(state.getUpdateState()).toBeNull();
+  });
   it('Mac 统一使用官方校验安装链，校验完成后才允许安装', async () => {
     fixture.macVerifiedArchive = true;
     const { updater, events } = await ready();
@@ -85,6 +137,7 @@ describe('更新安装动作', () => {
       expect(fixture.prepareMacUpdate).toHaveBeenCalledWith(
         '/synthetic/weQ-1.1.0-mac-arm64.zip',
         '1.1.0',
+        false,
       ),
     );
     expect(events).not.toContainEqual({ kind: 'downloaded', latest: '1.1.0' });

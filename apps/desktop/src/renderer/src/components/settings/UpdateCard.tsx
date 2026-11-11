@@ -10,7 +10,7 @@
 import { CheckCircle2, Download, Gauge, Loader2, RefreshCw, RotateCw } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
-import { Card } from './controls';
+import { Card, Row, Toggle } from './controls';
 
 function fmtBytes(bytes: number): string {
   if (!bytes) return '0 MB';
@@ -28,6 +28,9 @@ function fmtSpeed(bps: number): string {
 
 export function UpdateCard(): ReactElement {
   const {
+    includePrerelease,
+    changingPrerelease,
+    setPrerelease,
     phase,
     latest,
     current,
@@ -56,6 +59,20 @@ export function UpdateCard(): ReactElement {
 
   return (
     <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
+      <Row
+        settingId="update-prerelease"
+        label="检查测试版"
+        control={
+          <Toggle
+            label="检查测试版"
+            checked={includePrerelease}
+            disabled={
+              changingPrerelease || ['checking', 'downloading', 'installing'].includes(phase)
+            }
+            onChange={(enabled) => void setPrerelease(enabled)}
+          />
+        }
+      />
       <div className="weq-set-row">
         <div className="weq-set-row-main">
           <span

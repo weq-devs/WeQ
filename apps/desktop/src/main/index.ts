@@ -790,9 +790,15 @@ void app.whenReady().then(async () => {
     });
   });
   if (isQuitting) return;
-  installUpdateActions();
   initAppContext();
   const userConfig = getAppContext().bootstrap?.userConfig;
+  installUpdateActions({
+    get: () => userConfig?.getSettings().updateCheckPrerelease === true,
+    set: (enabled) => {
+      if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');
+      userConfig.setSettings({ updateCheckPrerelease: enabled });
+    },
+  });
   // 固定本轮启动页，运行中修改偏好留到下次进程启动生效。
   userConfig?.getStartupPage();
   // 旧版安卓备份的 uin 是从资料库猜的，可能猜错；纠正它会连带改 configId，

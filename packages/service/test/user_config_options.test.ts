@@ -9,6 +9,19 @@ import { DEFAULT_HOME_SETTINGS, normalizeHomeSettings } from '../src/common/home
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture } from './support/user_config';
 
+describe('测试版更新偏好', () => {
+  it('默认关闭，独立保存且重开后保留', () => {
+    const f = configFixture();
+    expect(f.service.getSettings().updateCheckPrerelease).toBe(false);
+    f.service.setSettings({ updateCheckPrerelease: true });
+    f.service.setSettings({ preferCdn: false });
+    expect(f.open().getSettings().updateCheckPrerelease).toBe(true);
+    expect(snapshotWeqSettings(f.open().getSettings()).updateCheckPrerelease).toBe(true);
+    f.service.setSettings({ updateCheckPrerelease: false });
+    expect(f.open().getSettings().updateCheckPrerelease).toBe(false);
+  });
+});
+
 describe('导出识别并发设置', () => {
   it('旧配置使用默认并发，独立修改、备份和重开后保留', () => {
     const f = configFixture();

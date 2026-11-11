@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { trpc, client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
 import { useTabActive } from '../components/RetainedTabs';
+import { useUpdateStore } from '../state/update';
 
 export type UpdatePhase =
   | 'idle'
@@ -32,6 +33,9 @@ export interface UpdateProgress {
 }
 
 export interface AppUpdate {
+  includePrerelease: boolean;
+  changingPrerelease: boolean;
+  setPrerelease(enabled: boolean): Promise<void>;
   phase: UpdatePhase;
   /** 最新版本号（发现更新后可用），否则 null。 */
   latest: string | null;
@@ -59,7 +63,8 @@ export function mirrorLabel(base: string | null): string {
   const stripped = base.replace('https://github.com/weq-devs/WeQ/releases/latest/download', '');
   if (!stripped) return 'github.com（直连）';
   try {
-    return new URL(stripped).host;
+    const host = new URL(stripped).host;
+    return host === 'github.com' ? 'github.com（直连）' : host;
   } catch {
     return stripped.replace(/^https?:\/\//, '').replace(/\/$/, '');
   }
@@ -70,6 +75,7 @@ function errMsg(e: unknown): string {
 }
 
 export function useAppUpdate(): AppUpdate {
+  const utils = trpc.useContext();
   const active = useTabActive();
   const showError = useDialog((s) => s.showError);
 
@@ -86,10 +92,20 @@ export function useAppUpdate(): AppUpdate {
   });
 
   const checkMut = trpc.update.check.useMutation();
+  const preferences = trpc.update.getPrerelease.useQuery(undefined, {
+    enabled: active,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+  const preferenceMut = trpc.update.setPrerelease.useMutation();
   const downloadMut = trpc.update.download.useMutation();
   const installMut = trpc.update.install.useMutation();
 
   const [phase, setPhase] = useState<UpdatePhase>('idle');
+  const [includePrerelease, setIncludePrerelease] = useState(false);
+  useEffect(() => {
+    setIncludePrerelease(preferences.data === true);
+  }, [preferences.data]);
   const [latest, setLatest] = useState<string | null>(null);
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [mirror, setMirror] = useState<string | null>(null);
@@ -181,6 +197,24 @@ export function useAppUpdate(): AppUpdate {
     }
   }, [checkMut, showError]);
 
+  const setPrerelease = useCallback(
+    async (enabled: boolean): Promise<void> => {
+      try {
+        const saved = await preferenceMut.mutateAsync({ enabled });
+        utils.update.getPrerelease.setData(undefined, saved);
+        utils.update.getState.setData(undefined, null);
+        setIncludePrerelease(saved);
+        setPhase('idle');
+        setLatest(null);
+        setMirror(null);
+        useUpdateStore.getState().clear();
+      } catch (error) {
+        showError('保存更新设置失败', errMsg(error));
+      }
+    },
+    [preferenceMut, showError, utils],
+  );
+
   const download = useCallback(async (): Promise<void> => {
     setMirrorCount(null);
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
@@ -210,6 +244,9 @@ export function useAppUpdate(): AppUpdate {
 
   return useMemo(
     () => ({
+      includePrerelease,
+      changingPrerelease: preferenceMut.isLoading || preferences.isLoading,
+      setPrerelease,
       phase,
       latest,
       current,
@@ -224,6 +261,10 @@ export function useAppUpdate(): AppUpdate {
     }),
     [
       phase,
+      includePrerelease,
+      preferenceMut.isLoading,
+      preferences.isLoading,
+      setPrerelease,
       latest,
       current,
       progress,

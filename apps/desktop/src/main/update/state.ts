@@ -10,6 +10,8 @@
 import { EventEmitter } from 'node:events';
 
 export interface UpdateState {
+  includePrerelease?: boolean;
+  channel?: string;
   /** Running app version (app.getVersion()). */
   current: string;
   /** Latest version from the manifest, or null if never checked. */
@@ -68,6 +70,8 @@ export function setUpdateState(state: UpdateState | null): void {
  * default no-op actions in place.
  */
 export interface UpdateActions {
+  getPrerelease(): boolean;
+  setPrerelease(enabled: boolean): void;
   check(force: boolean): Promise<UpdateState>;
   startDownload(): Promise<void>;
   quitAndInstall(): void;
@@ -76,6 +80,8 @@ export interface UpdateActions {
 }
 
 const unsupported: UpdateActions = {
+  getPrerelease: () => false,
+  setPrerelease: () => {},
   supported: false,
   async check() {
     return lastState ?? { current: '', latest: null, hasUpdate: false, base: null, ranked: [] };

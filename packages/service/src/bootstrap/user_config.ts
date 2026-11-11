@@ -703,6 +703,8 @@ export interface LinkPreviewConfig {
 }
 
 export interface AppSettings {
+  /** 软件更新是否包含测试发布，默认关闭。 */
+  updateCheckPrerelease: boolean;
   /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
   toastDurations: ToastDurations;
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
@@ -1110,6 +1112,7 @@ function normalizeQqShowCacheMinutes(value: unknown, legacyDays?: unknown): numb
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  updateCheckPrerelease: false,
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   exportSaveMode: 'before',
   realtimeEnabled: true,
@@ -1795,6 +1798,7 @@ export class UserConfigService {
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      updateCheckPrerelease: s?.updateCheckPrerelease === true,
       toastDurations: normalizeToastDurations(s?.toastDurations),
       exportSaveMode:
         s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
@@ -1944,6 +1948,7 @@ export class UserConfigService {
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
+      updateCheckPrerelease: patch.updateCheckPrerelease ?? current.updateCheckPrerelease,
       toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
