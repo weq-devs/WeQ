@@ -258,7 +258,7 @@ import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageRow, grayTipOf, messageElements } from './messageRow';
 import { IntentSenseProvider, useIntentSenseStatus } from '../../components/intentSense/context';
-import { intentTimelineTargets } from '../../lib/intentTimeline';
+import { intentTimelineTargets, messageHasIntentText } from '../../lib/intentTimeline';
 import { AffinityPill } from '../../components/intentSense/AffinityPill';
 import { IntentSuggestionBar } from '../../components/intentSense/IntentSuggestionBar';
 import { useDialog } from '../../components/Dialog';
@@ -1368,7 +1368,8 @@ export function ChatPane({
       const picked = messages ?? (await selectionFlow.prepare('意图感知'));
       if (intentRun.current !== run || !picked?.length) return;
       const targets = picked.filter(
-        (message) => !grayTipOf(message) && !isLocalOutgoingMessage(message),
+        (message) =>
+          !grayTipOf(message) && !isLocalOutgoingMessage(message) && messageHasIntentText(message),
       );
       setIntentBusy(true);
       setManualIntentPending({
@@ -1377,17 +1378,26 @@ export function ChatPane({
         ids: new Set(targets.map((message) => message.id)),
       });
       let failed = 0;
+      let succeeded = 0;
+      const failureReasons = new Set<string>();
       for (const message of targets) {
         if (intentRun.current !== run) return;
         try {
-          await client.account.intentSense.analyzeMessage.mutate({
+          const result = await client.account.intentSense.analyzeMessage.mutate({
             kind: intentKind,
             conv: intentConv,
             msgId: message.id,
             manual: true,
           });
-        } catch {
+          if (result) succeeded++;
+          else {
+            failed++;
+            failureReasons.add('未返回有效分析结果，请检查模型状态后重试');
+          }
+        } catch (error) {
           failed++;
+          if (failureReasons.size < 3)
+            failureReasons.add(error instanceof Error ? error.message : String(error));
         } finally {
           setManualIntentPending((current) => {
             if (current?.run !== run) return current;
@@ -1397,11 +1407,20 @@ export function ChatPane({
           });
         }
       }
-      if (failed && intentRun.current === run)
+      if ((failed || picked.length > 1) && intentRun.current === run)
         pushToast({
-          tone: 'error',
-          title: '意图感知未完成',
-          detail: `${failed} 条消息分析失败，请重试`,
+          tone: failed ? (succeeded ? 'warning' : 'error') : succeeded ? 'success' : 'info',
+          title: failed
+            ? succeeded
+              ? '意图感知部分完成'
+              : '意图感知失败'
+            : succeeded
+              ? '意图感知完成'
+              : '没有可分析的消息',
+          detail: [
+            `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${picked.length - targets.length} 条`,
+            ...failureReasons,
+          ].join('\n'),
         });
     } finally {
       if (intentRun.current === run) {

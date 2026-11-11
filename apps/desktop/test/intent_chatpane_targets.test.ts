@@ -1,9 +1,10 @@
-import { act, createElement as h, type ReactNode } from 'react';
+import { act, createElement as h, Fragment, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 
 const fixture = vi.hoisted(() => ({
   provider: {} as {
@@ -15,7 +16,7 @@ const fixture = vi.hoisted(() => ({
   },
   bar: {} as { replyTargetId?: string | null },
   enabled: false,
-  analyze: vi.fn(async () => null),
+  analyze: vi.fn<(input: unknown) => Promise<unknown>>(async () => null),
 }));
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
   IntentSenseProvider: ({
@@ -62,8 +63,99 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 beforeEach(() => {
   fixture.enabled = false;
   fixture.analyze.mockReset().mockResolvedValue(null);
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it.each([
+  { results: ['success'], tone: null, counts: '' },
+  { results: ['empty'], tone: 'error', counts: '成功 0 条，失败 1 条' },
+  { results: ['error'], tone: 'error', counts: '成功 0 条，失败 1 条' },
+  { results: ['success', 'success'], tone: 'success', counts: '成功 2 条，失败 0 条' },
+  { results: ['empty', 'error'], tone: 'error', counts: '成功 0 条，失败 2 条' },
+  { results: ['success', 'error'], tone: 'warning', counts: '成功 1 条，失败 1 条' },
+  { results: ['success', 'media'], tone: 'success', counts: '成功 1 条，失败 0 条，跳过 1 条' },
+  { results: ['media', 'media'], tone: 'info', counts: '成功 0 条，失败 0 条，跳过 2 条' },
+])('手动意图横幅按真实结果汇总：$results', async ({ results, tone, counts }) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  fixture.enabled = true;
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations.find((row) => row.type === 'direct')!;
+  const messages = results.map((result, index) => ({
+    ...demo.messages[0]!,
+    id: String(index + 1),
+    msgSeq: String(index + 1),
+    conversationId: conversation.id,
+    body: result === 'media' ? '[图片]' : '合成文本',
+    qqElements:
+      result === 'media'
+        ? [{ type: 'pic', data: {} }]
+        : [{ type: 'text', data: { textContent: '合成文本' } }],
+  }));
+  fixture.analyze.mockImplementation(async (input) => {
+    const result = results[Number((input as { msgId: string }).msgId) - 1];
+    if (result === 'error') throw new Error('合成模型请求失败');
+    return result === 'success' ? { msgId: (input as { msgId: string }).msgId } : null;
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        h(
+          Fragment,
+          null,
+          h(ChatPane, {
+            user: demo.user,
+            conversation,
+            messages,
+            draft: '',
+            onSend: vi.fn(),
+            onBack: vi.fn(),
+          }),
+          h(ToastHost),
+        ),
+      ),
+    );
+    await act(async () =>
+      host
+        .querySelector<HTMLElement>('.message-bubble')!
+        .dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+        ),
+    );
+    const menuButton = (label: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
+        (button) => button.textContent === label,
+      )!;
+    if (results.length === 1) await act(async () => menuButton('意图感知').click());
+    else {
+      await act(async () => menuButton('多选').click());
+      await act(async () =>
+        host.querySelector<HTMLElement>('.message-line[data-message-id="2"]')!.click(),
+      );
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('.selection-bar [aria-label="意图感知"]')!.click(),
+      );
+    }
+    expect(fixture.analyze).toHaveBeenCalledTimes(
+      results.filter((result) => result !== 'media').length,
+    );
+    const toasts = useToast.getState().toasts;
+    expect(toasts).toHaveLength(tone ? 1 : 0);
+    if (tone) {
+      expect(toasts[0]!.tone).toBe(tone);
+      expect(toasts[0]!.detail).toContain(counts);
+      expect(host.querySelector(`.weq-toast-${tone}`)).not.toBeNull();
+      if (results.includes('error')) expect(toasts[0]!.detail).toContain('合成模型请求失败');
+    }
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it.each(['group', 'direct'] as const)(
   '%s 手动意图分析由真实右键与多选入口触发，只分析选中消息',
