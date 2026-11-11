@@ -4,6 +4,7 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService } from '../src/account/user_config';
 import { createCachedAttachHook, type AttachHook } from '../src/bootstrap/attach';
 import { AccountMonitorService } from '../src/account/monitor';
+import { CredentialRepairRequiredError } from '../src/common/credential_repair';
 import { registerSsoSession } from '../src/account/sso_session';
 
 const tickets = vi.hoisted(() => ({ rkeys: vi.fn(), clientKey: vi.fn(), dress: vi.fn() }));
@@ -192,6 +193,36 @@ describe('account monitor authorization and SSO readiness', () => {
     await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
     await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
     expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('长期授权需要修复时不再显示进入中，并把可操作原因交给界面', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValue(
+      new CredentialRepairRequiredError('长期授权需要修复：权限助手接口已更新，请修复后重试。'),
+    );
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(f.monitor.credentialIssue).toEqual({
+      title: '长期授权需要修复',
+      message: '长期授权需要修复：权限助手接口已更新，请修复后重试。',
+    });
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+    expect(f.monitor.credentialIssue).toBeNull();
+  });
+
+  it('长期授权修复后再次成功会清掉原因并恢复进入中判定', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValueOnce(
+      new CredentialRepairRequiredError('长期授权需要修复：权限助手接口已更新，请修复后重试。'),
+    );
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('长期授权需要修复');
+    expect(f.monitor.credentialIssue).not.toBeNull();
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.monitor.credentialIssue).toBeNull();
+    expect(f.monitor.credentialsPending).toBe(false);
     f.monitor.stop();
   });
 

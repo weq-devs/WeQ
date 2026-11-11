@@ -24,6 +24,7 @@ vi.mock('../src/main/context/app_context', async () => {
       account: { context: { uin: '10001' } },
       platform: { native: { ntHelper: { hasSsoSession: fixture.hasSsoSession } } },
       onlineCredentialsPending: () => false,
+      onlineCredentialsIssue: () => null,
       ensureOnlineCredentials: fixture.ensureOnlineCredentials,
     }),
     accountEventBus: new EventEmitter(),

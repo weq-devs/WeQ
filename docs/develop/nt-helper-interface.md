@@ -345,6 +345,7 @@ native 不自己猜**；级别 0 时读取与今天逐字节相同。
 - 扫描 resolve 不代表物料完整：attach 缓存只保留三项均为有效 hex 且 d2key 为 16 字节的结果，部分结果原样返回、不跨扫描合并。账号 monitor 即使已有未过期的 rkey/clientKey，也会补齐当前 PID 的物料；失败按 30 秒起、最长 5 分钟退避重试。uid/guid 暂缺只检查账号配置及补读离线设备身份，不读内存、不弹密码框；仅用户明确取消授权会暂停本 PID 的自动重试。原生登记完成后仍通过 `onlineCredentialsReady` 通知界面重查实际能力，不把提交密码当作成功。
 - 桌面端能力查询同时返回账号身份是否齐全、是否需要重新读内存，以及 `hasSsoSession` 确认的 `ssoReady`。受限模式仅在当前 PID 的有效物料、账号/设备身份和原生登记都就绪后解除；查询不触发内存读取或网络请求，异步查询期间切号会拒绝旧结果。
 - `credentialsPending` 包括正在读取、等待授权、原生登记和未取消的自动重试，不包括登记完成后的网络取票。界面保留「正在启用完整功能」及常驻进度；提交授权后须等新的状态查询完成，不用提交前缓存的就绪状态提前结束。
+- 长期授权助手存在但需要修复（协议/接口/有效期/通道不匹配）时，`attach` 不再静默回退：监视器把 `credentialsPending` 置为 false，并通过 `credentialsIssue` 把原因交给受限模式；后台仍按退避重试，修复后自动恢复。
 - 前端授权请求优先于 `credentialsPending`：存在尚未提交的密码或 ptrace 引导请求时显示「待提权」，标题栏、详情和横幅均暂停进入中进度；最后一项请求处理后才恢复进入中。横幅原地更新，避免退场动画残留相反的阶段提示。
 - `SsoSessionConfig = { uin; a2: Buffer; d2: Buffer; d2Key: Buffer; guid; uid; subAppId; secToken?; qua?; clientConnSeq?; traceParent? }`（`traceParent` 只给离线比对用）。
   `secToken` / `qua` 是签名三件套里**本进程算不出来**的两项：签名函数跑在 WeQ 里、没有 QQ 的登录会话，产出的 `SecToken` / `SecExtra` 恒为空。前者由 `scanSessionMaterial` 从 QQ 内存扫出，后者由 `major.node` 解析的 QUA 本地拼成；两者都缺时退回签名函数的空产出（旧行为），不会报错。

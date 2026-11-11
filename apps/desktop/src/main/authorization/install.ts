@@ -75,6 +75,16 @@ export class AuthorizationInstaller {
     configureLongTermAuthorization({
       endpoint: async () => (await this.identity()).endpoint,
       development: async () => (await this.identity()).development,
+      // attach 握手失败时用它区分“旧助手需要修复”和“本机没装助手”。
+      repairRequired: async () => {
+        try {
+          const identity = await this.identity();
+          await stat(join(identity.root, 'manifest.json'));
+          return true;
+        } catch {
+          return false;
+        }
+      },
     });
   }
   private async inspect(file: string): Promise<HelperIdentity> {

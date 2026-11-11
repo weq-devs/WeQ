@@ -70,7 +70,10 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
-  const entering = useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0);
+  const authorizationIssue = reasons.some((reason) => reason.code === 'authorization');
+  const entering =
+    useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0) &&
+    !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
   const title = awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式';
   const visible = Boolean(reasons.length || requests.length || entering);
@@ -202,7 +205,8 @@ export function RestrictedModeHost() {
   const enteringSince = useRestrictedMode((s) => s.enteringSince);
   const enteringManually = useRestrictedMode((s) => s.enteringManually);
   const awaitingAuthorization = requests.length > 0;
-  const entering = enteringSince !== null && !awaitingAuthorization;
+  const authorizationIssue = reasons.some((reason) => reason.code === 'authorization');
+  const entering = enteringSince !== null && !awaitingAuthorization && !authorizationIssue;
   const previousUin = useRef(uin);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
@@ -640,6 +644,11 @@ export function RestrictedModeHost() {
       />
     ) : (
       <>
+        {authorizationIssue && (
+          <LongTermAuthorizationLink
+            beforeNavigate={() => useRestrictedMode.getState().setOpen(false)}
+          />
+        )}
         {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
           <button
             type="button"

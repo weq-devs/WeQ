@@ -32,6 +32,7 @@ async function fixture({
   development = false,
   omitDevelopment = false,
   expectedDevelopment = undefined as boolean | undefined,
+  repairRequired = undefined as boolean | undefined,
 } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'weq-authorization-client-'));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
@@ -99,6 +100,7 @@ async function fixture({
     ...(expectedDevelopment === undefined
       ? {}
       : { development: async () => Boolean(expectedDevelopment) }),
+    ...(repairRequired === undefined ? {} : { repairRequired: async () => repairRequired }),
   });
   return { directory, requests };
 }
@@ -158,6 +160,25 @@ describe('原生权限助手客户端', () => {
       expect(data.requests.some((request) => request.op === 'attach')).toBe(false);
     },
   );
+  it.each([
+    { protocol: AUTHORIZATION_PROTOCOL + 1 },
+    { interfaceVersion: AUTHORIZATION_INTERFACE + 1 },
+    { validity: 'expired' as const },
+  ])('助手需要修复时严格 attach 直接抛错而不是静默回退：%j', async (options) => {
+    await fixture(options);
+    await expect(tryLongTermAttach(123, undefined, { throwOnRepair: true })).rejects.toMatchObject({
+      name: 'CredentialRepairRequiredError',
+      message: expect.stringContaining('长期授权需要修复'),
+    });
+  });
+  it('未授权仍按“没有可用长期授权”回退，不误报需要修复', async () => {
+    await fixture({ authorized: false });
+    expect(await tryLongTermAttach(123, undefined, { throwOnRepair: true })).toBeNull();
+  });
+  it('本机没有安装记录时，旧助手握手失败也不误报需要修复', async () => {
+    await fixture({ interfaceVersion: AUTHORIZATION_INTERFACE + 1, repairRequired: false });
+    expect(await tryLongTermAttach(123, undefined, { throwOnRepair: true })).toBeNull();
+  });
   it('未授权由真实服务拒绝，临时授权回退可区分该原因', async () => {
     await fixture({ authorized: false });
     await expect(openLongTermAuthorization()).rejects.toMatchObject<Partial<AuthorizationError>>({

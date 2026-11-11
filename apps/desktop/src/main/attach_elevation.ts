@@ -50,9 +50,7 @@
  * reads in-process and needs no elevation.
  */
 
-import { createCachedAttachHook } from '@weq/service';
-
-import { runOwnedChild } from '@weq/service';
+import { CredentialRepairRequiredError, createCachedAttachHook, runOwnedChild } from '@weq/service';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { resolveNtHelperPath, type NtHelperBinding, type SessionMaterial } from '@weq/native';
@@ -290,13 +288,20 @@ export function createLinuxAttachHook(
         }
         if (isPermissionError(outcome.error)) {
           try {
-            const material = await tryLongTermAttach(pid, signal);
+            const material = await tryLongTermAttach(pid, signal, { throwOnRepair: true });
             if (material) {
               box.material = material;
               return null;
             }
-          } catch {
+          } catch (error) {
             signal.throwIfAborted();
+            // 助手需要修复是终态：不能继续静默走 sudo，否则界面只会一直转圈。
+            if (error instanceof CredentialRepairRequiredError) throw error;
+            logger.warn('long-term authorization failed; falling back to temporary elevation', {
+              event: 'attach-long-term-fallback',
+              pid,
+              errorMessage: error instanceof Error ? error.message : String(error),
+            });
           }
         }
         return {
@@ -406,11 +411,17 @@ export function createLinuxAttachHook(
   ): Promise<SessionMaterial> {
     signal?.throwIfAborted();
     try {
-      const material = await tryLongTermAttach(pid, signal);
+      const material = await tryLongTermAttach(pid, signal, { throwOnRepair: true });
       if (material) return material;
-    } catch {
+    } catch (error) {
       signal?.throwIfAborted();
-      // 助手失效不堵住原有临时授权；也不在日志中记录会话物料。
+      if (error instanceof CredentialRepairRequiredError) throw error;
+      // 助手暂时不可用不堵住原有临时授权；也不在日志中记录会话物料。
+      logger.warn('long-term authorization failed; falling back to temporary elevation', {
+        event: 'attach-long-term-fallback',
+        pid,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
     }
     let password: string | null = provided ?? null;
     if (!password && !installInvisibleToRoot()) {
@@ -465,11 +476,17 @@ export function createLinuxAttachHook(
       if ('material' in direct) return direct.material;
       if (!isPermissionError(direct.error)) throw direct.error;
       try {
-        const material = await tryLongTermAttach(pid, signal);
+        const material = await tryLongTermAttach(pid, signal, { throwOnRepair: true });
         signal.throwIfAborted();
         if (material) return material;
-      } catch {
+      } catch (error) {
         signal.throwIfAborted();
+        if (error instanceof CredentialRepairRequiredError) throw error;
+        logger.warn('long-term authorization failed; falling back to SIP guidance', {
+          event: 'attach-long-term-fallback',
+          pid,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
       }
       throw new Error(SIP_ENABLED_MESSAGE);
     }
