@@ -25,6 +25,8 @@ import * as conversationRows from '../src/renderer/src/lib/conversationListOrder
 import { timelineViewport } from '../src/renderer/src/lib/timelineViewport';
 
 type TestMessage = {
+  source?: 'roaming';
+  ntSeqVerified?: boolean;
   msgId: string;
   msgSeq: string;
   clientSeq?: string;
@@ -62,6 +64,7 @@ const f = vi.hoisted(() => ({
   dbChanged: undefined as (() => void) | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
+  gapRows: [] as TestMessage[],
   beforeRows: [] as TestMessage[],
   previewMessages: [] as ComponentProps<typeof GapMessagesModal>['messages'],
   previewMore: undefined as (() => void) | undefined,
@@ -149,6 +152,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return async (input?: UnreadInput) => {
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (path.at(-1) === 'listBefore') return f.beforeRows;
+            if (path.at(-1) === 'fetchGapMessages')
+              return { ok: true, messages: f.gapRows, nextStartSeq: null };
             if (path.at(-1) === 'deletedMsgIds')
               return f.deletedReply?.() ?? [...f.deletedResponse];
             if (path.at(-1) === 'hiddenDeletedMsgIds')
@@ -261,6 +266,21 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
         h(
           'button',
           {
+            'data-gap': true,
+            onClick: () =>
+              props.activeConversation &&
+              props.onOpenGapMessages?.({
+                conversation: props.activeConversation,
+                previousSeq: '1',
+                currentSeq: '3',
+                count: 1,
+              }),
+          },
+          '拉取缺口',
+        ),
+        h(
+          'button',
+          {
             'data-preview': true,
             onClick: () =>
               props.activeConversation && props.onPreviewLatest?.(props.activeConversation),
@@ -309,6 +329,7 @@ afterEach(() => {
   f.dbChanged = undefined;
   f.unreadChanged = undefined;
   f.refreshRows = undefined;
+  f.gapRows = [];
   f.beforeRows = [];
   f.previewMessages = [];
   f.previewMore = undefined;
@@ -953,9 +974,14 @@ it.each(['10001', 'u_peer'])(
   },
 );
 
-it.each(['10001', 'u_peer'])(
-  '会话 %s 的最近会话表持续落后时，正文直接更新预览，刷新和切换会话不回退',
-  async (id) => {
+it.each([
+  ['10001', undefined],
+  ['u_peer', undefined],
+  ['10001', 'roaming'],
+  ['u_peer', 'roaming'],
+] as const)(
+  '会话 %s 的最近会话表持续落后时，%s 正文直接更新预览，刷新和切换会话不回退',
+  async (id, source) => {
     vi.useFakeTimers();
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
@@ -991,6 +1017,8 @@ it.each(['10001', 'u_peer'])(
               msgSeq: '2',
               sendTime: '1794200060',
               senderUid: 'u_latest',
+              source,
+              ntSeqVerified: source === 'roaming',
               senderUin: '20002',
               elements: [{ type: 'text', data: { textContent: '正文里的最新消息' } }],
             },
@@ -1001,7 +1029,7 @@ it.each(['10001', 'u_peer'])(
       expect(preview().lastMessage.senderId).toBe('u_latest');
       expect(Date.parse(preview().updatedAt)).toBe(1794200060000);
       await act(async () => vi.advanceTimersByTimeAsync(200));
-      expect(f.headRefreshes).toBe(1);
+      expect(f.headRefreshes).toBe(source === 'roaming' ? 0 : 1);
       expect(preview().lastMessage.body).toBe('正文里的最新消息');
       await select('10002');
       await act(async () => f.dbChanged?.());
@@ -1014,6 +1042,61 @@ it.each(['10001', 'u_peer'])(
     }
   },
 );
+
+it('未确认 NT 序号的私聊漫游仅更新预览，不混入正文时间线', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const native: TestMessage = {
+    msgId: 'native',
+    msgSeq: '1',
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: '本地正文' } }],
+  };
+  f.gapRows = [
+    {
+      ...native,
+      msgId: 'remote',
+      msgSeq: '99999',
+      sendTime: '1794200060',
+      ntSeqVerified: false,
+      elements: [{ type: 'text', data: { textContent: '漫游最新正文' } }],
+    },
+  ];
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === 'u_peer')!
+        .click(),
+    );
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [native] }));
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-gap]')!.click());
+    const preview = JSON.parse(host.querySelector('[data-previews]')!.textContent!).find(
+      (row: { id: string }) => row.id === 'u_peer',
+    );
+    expect(preview.lastMessage.body).toBe('漫游最新正文');
+    expect(Date.parse(preview.updatedAt)).toBe(1794200060000);
+    expect(f.messages.map((row) => row.msgId)).toEqual(['native']);
+    expect(f.headRefreshes).toBe(0);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
 
 it('全目录先查水位，持续库通知不重算稳定会话，零红点同水位修正仍定期校准', async () => {
   vi.useFakeTimers();

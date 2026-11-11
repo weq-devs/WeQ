@@ -1,9 +1,20 @@
 import { messageElementsPreview } from './conversationPreview';
+import { classifyChatType } from '@weq/codec';
 
 interface RecentContactSnapshot {
   targetUid: string;
   msgSeq?: string;
   sendTime: string;
+  chatType?: string | number;
+  source?: 'roaming';
+  ntSeqVerified?: boolean;
+}
+
+export interface ContactPreviewMessage {
+  msgSeq: string;
+  sendTime: string;
+  source?: 'roaming';
+  ntSeqVerified?: boolean;
 }
 
 export interface ObservedContactPreview extends RecentContactSnapshot {
@@ -19,12 +30,9 @@ export interface ObservedContactPreview extends RecentContactSnapshot {
 export function observeContactPreview(
   previous: ReadonlyMap<string, ObservedContactPreview>,
   contact: RecentContactSnapshot,
-  message: {
-    msgSeq: string;
-    sendTime: string;
+  message: ContactPreviewMessage & {
     senderUid: string;
     elements: readonly unknown[];
-    source?: 'roaming';
   },
 ): ReadonlyMap<string, ObservedContactPreview> {
   if (!recentContactPreviewIsBehind(contact, message)) return previous;
@@ -34,8 +42,11 @@ export function observeContactPreview(
   next.delete(contact.targetUid);
   next.set(contact.targetUid, {
     targetUid: contact.targetUid,
+    chatType: contact.chatType,
     msgSeq: message.msgSeq,
     sendTime: message.sendTime,
+    source: message.source,
+    ntSeqVerified: message.ntSeqVerified,
     senderUid: message.senderUid,
     // 旧摘要的发送者可能是另一个人，交回现有本地资料解析，不继承其名字。
     senderDisplayName: '',
@@ -52,20 +63,38 @@ export function applyObservedContactPreview<T extends RecentContactSnapshot>(
   previews: ReadonlyMap<string, ObservedContactPreview>,
 ): T {
   const preview = previews.get(contact.targetUid);
-  return preview && recentContactPreviewIsBehind(contact, preview)
-    ? { ...contact, ...preview }
-    : contact;
+  if (!preview || !recentContactPreviewIsBehind(contact, preview)) return contact;
+  const { source, ntSeqVerified: _verified, chatType: _chatType, msgSeq, ...summary } = preview;
+  // 漫游只提供展示摘要，不能把服务端序号写进本地阅读／未读水位。
+  return { ...contact, ...summary, msgSeq: source === 'roaming' ? contact.msgSeq : msgSeq };
 }
 
-/** 正文已落到本地但列表通知缺失时，用真实消息水位发现落后的摘要。 */
+/** 漫游也参与摘要；未确认映射的私聊序号不能与 NT 序号比较。 */
 export function recentContactPreviewIsBehind(
   contact: RecentContactSnapshot,
-  message: { msgSeq: string; sendTime: string; source?: 'roaming' },
+  message: ContactPreviewMessage,
 ): boolean {
-  if (message.source === 'roaming') return false;
   const time = number(message.sendTime);
   const previous = number(contact.sendTime);
-  return time > previous || (time === previous && number(message.msgSeq) > number(contact.msgSeq));
+  if (time !== previous) return time > previous;
+  const group = classifyChatType(contact.chatType ?? '') === 'group';
+  const comparable = (row: Pick<RecentContactSnapshot, 'source' | 'ntSeqVerified'>) =>
+    group || row.source !== 'roaming' || row.ntSeqVerified === true;
+  return (
+    comparable(contact) && comparable(message) && number(message.msgSeq) > number(contact.msgSeq)
+  );
+}
+
+/** 混合窗口不按跨来源序号取末项，旧漫游历史也不能盖住已读到的新正文。 */
+export function latestContactPreviewMessage<T extends ContactPreviewMessage>(
+  contact: RecentContactSnapshot,
+  messages: readonly T[],
+): T | undefined {
+  let latest: T | undefined;
+  for (const message of messages)
+    if (!latest || recentContactPreviewIsBehind({ ...contact, ...latest }, message))
+      latest = message;
+  return latest;
 }
 
 const number = (value: string | undefined) => (value && /^\d+$/.test(value) ? BigInt(value) : 0n);

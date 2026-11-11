@@ -160,6 +160,7 @@ import {
   applyObservedContactPreview,
   mergeRecentContactPages,
   observeContactPreview,
+  latestContactPreviewMessage,
   recentContactPreviewIsBehind,
   type ObservedContactPreview,
 } from '../lib/recentContacts';
@@ -7893,17 +7894,20 @@ function MainWorkspace(): ReactElement {
 
   const previewReconciliationRef = useRef('');
   useEffect(() => {
-    if (
-      !messageScope ||
-      trackedMessageScope !== messageScope ||
-      !trackedConversationId ||
-      !anchoredToLatest
-    )
-      return;
+    if (!messageScope || trackedMessageScope !== messageScope || !trackedConversationId) return;
+    const unplaced =
+      unplacedRoaming?.conversation.id === trackedConversationId ? unplacedRoaming.messages : [];
+    if (!anchoredToLatest && !unplaced.length) return;
     const contact = rawRecentContactsData.find((row) => row.targetUid === trackedConversationId);
-    const latest = loaded.findLast((row) => row.source !== 'roaming');
-    if (!contact || !latest || !recentContactPreviewIsBehind(contact, latest)) return;
+    if (!contact) return;
+    const latest = latestContactPreviewMessage(
+      contact,
+      unplaced.length ? [...loaded, ...unplaced] : loaded,
+    );
+    if (!latest || !recentContactPreviewIsBehind(contact, latest)) return;
     setObservedContactPreviews((previous) => observeContactPreview(previous, contact, latest));
+    // 漫游摘要独立于 QQ 最近会话表，重读旧表不能补齐它。
+    if (latest.source === 'roaming') return;
     const key = JSON.stringify([
       messageScope,
       trackedConversationId,
@@ -7917,6 +7921,7 @@ function MainWorkspace(): ReactElement {
     refreshRecentHead();
   }, [
     loaded,
+    unplacedRoaming,
     anchoredToLatest,
     trackedConversationId,
     trackedMessageScope,
