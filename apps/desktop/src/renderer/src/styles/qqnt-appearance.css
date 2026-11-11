@@ -311,7 +311,7 @@ html[data-component-style='qqnt'][data-theme] body .chat-pane {
 }
 
 html[data-component-style='qqnt'][data-theme] body .chat-title strong {
-  font-size: 16px;
+  font-size: var(--weq-mobile-header-title-size, 16px);
   line-height: 22px;
 }
 
@@ -422,7 +422,10 @@ html[data-component-style='qqnt'][data-theme]
     background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
   }
   html[data-component-style='qqnt'][data-theme] body .chat-pane {
-    --chat-header-height: calc(52px + env(safe-area-inset-top, 0px));
+    --chat-header-height: var(
+      --weq-mobile-header-height,
+      calc(52px + env(safe-area-inset-top, 0px))
+    );
   }
   html[data-component-style='qqnt'][data-theme] {
     --weq-qqnt-row-avatar: 50px;
