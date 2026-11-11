@@ -18,6 +18,7 @@ export function MessageMediaRevealAction({
     enabled: Boolean(binding),
     staleTime: 0,
     retry: false,
+    refetchInterval: (available) => (available ? false : 2000),
   });
   const push = useToast((state) => state.push);
   const reason = !binding

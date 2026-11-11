@@ -6,6 +6,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaElement, type MsgService } from '@weq/service';
 import { makeSolidPng } from '@weq/protocol';
 import { mediaSaveRouter } from '../src/main/ipc/routers/media_save';
+import { localMessageMedia } from '../src/main/message_media_local';
+import type { AccountServices } from '../src/main/context/app_context';
 const state = vi.hoisted(() => ({
   configId: 'source-a',
   services: {} as object,
@@ -201,6 +203,44 @@ it('本地文件只复制既有缓存，保留无后缀文件和原件，不要�
   expect(readFileSync(sourcePath, 'utf8')).toBe('personal-cache');
   expect(state.fileUrl).not.toHaveBeenCalled();
   expect(state.fetch).not.toHaveBeenCalled();
+});
+it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，不误认同名文件', async () => {
+  state.find.mockResolvedValue({
+    element: { kind: 'file', fileToken: 'token-a', fileName: 'report.txt' },
+    conv: 'group',
+  });
+  state.response = () => new Response('downloaded-file');
+  const task = await completed(
+    await api().save({
+      ...binding,
+      source: { kind: 'chat-file', msgId: '42', token: 'token-a', name: 'report.txt', conv: '123' },
+      savePolicy: { mode: 'before', directory: root },
+    }),
+  );
+  const services = {
+    ...state.services,
+    exportManager: new ExportTaskManager({} as MsgService, join(root, 'tasks')),
+    fileSearch: { findFile: vi.fn(async () => ({ source: null, thumb: null })) },
+    mediaDownload: { cachedFile: vi.fn(() => null) },
+  } as AccountServices;
+  const target = {
+    kind: 'file' as const,
+    t: 1,
+    name: 'report.txt',
+    token: 'token-a',
+    msgId: '42',
+    conv: '123',
+    md5: '',
+    pack: '',
+    hash: '',
+    label: 'report.txt',
+  };
+  expect(await localMessageMedia(services, target)).toBe(task.save?.path ?? task.filePath);
+  expect(await localMessageMedia(services, { ...target, token: 'another-token' })).toBeNull();
+  expect(await localMessageMedia(services, { ...target, msgId: '43' })).toBeNull();
+  rmSync(task.save?.path ?? task.filePath!);
+  rmSync(task.filePath!, { force: true });
+  expect(await localMessageMedia(services, target)).toBeNull();
 });
 it('转发文件沿用携带消息／子消息与未知场景换链，不误用外层消息', async () => {
   const element = { kind: 'file', fileToken: 'token-a', fileName: 'report.txt' };

@@ -32,6 +32,7 @@ const target = (kind: MessageMediaTarget['kind']): MessageMediaTarget => ({
 });
 function services(source: string | null = null) {
   return {
+    exportManager: { listTasks: () => [] },
     accountConfig: { getRecord: () => ({ uin: '10000' }) },
     fileSearch: { findFile: vi.fn(async () => ({ source, thumb: null })) },
     fileAssistant: { getFileInfoByMsgId: vi.fn(async () => null) },

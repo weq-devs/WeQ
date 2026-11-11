@@ -80,6 +80,59 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it.each(['group', 'direct'] as const)(
+  '%s 媒体消息的意图感知置灰，私聊不显示贴表情',
+  async (type) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    fixture.enabled = true;
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((row) => row.type === type)!;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          h(ChatPane, {
+            user: demo.user,
+            conversation,
+            messages: [
+              {
+                ...demo.messages[0]!,
+                conversationId: conversation.id,
+                body: '[图片]',
+                qqElements: [{ type: 'pic', data: {} }],
+              },
+            ],
+            draft: '',
+            onSend: vi.fn(),
+            onBack: vi.fn(),
+          }),
+        ),
+      );
+      await act(async () =>
+        host
+          .querySelector('.message-bubble')!
+          .dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+          ),
+      );
+      const button = [
+        ...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+      ].find((button) => button.textContent === '意图感知')!;
+      expect(button.disabled).toBe(true);
+      expect(button.title).toContain('可分析的文字');
+      act(() => button.click());
+      expect(fixture.analyze).not.toHaveBeenCalled();
+      expect(Boolean(host.querySelector('.message-reaction-strip'))).toBe(type === 'group');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  },
+);
+
 it.each([
   { results: ['success'], tone: null, counts: '' },
   { results: ['empty'], tone: 'error', counts: '成功 0 条，失败 1 条' },

@@ -6909,8 +6909,15 @@ export function ChatPane({
             !isLocalOutgoingMessage(contextMenu.message) ? (
               <button
                 type="button"
-                title={selectionBlockedReason || '意图感知'}
-                disabled={Boolean(selectionBlockedReason)}
+                title={
+                  selectionBlockedReason ||
+                  (!messageHasIntentText(contextMenu.message)
+                    ? '当前消息没有可分析的文字'
+                    : '意图感知')
+                }
+                disabled={
+                  Boolean(selectionBlockedReason) || !messageHasIntentText(contextMenu.message)
+                }
                 onClick={() =>
                   void analyzeMessageIntents(
                     selectionMode && selectedIds.has(contextMenu.message.id)
@@ -7047,6 +7054,7 @@ export function ChatPane({
               ? undefined
               : openReactionPicker
           }
+          showReactions={conversation.type === 'group'}
           // 贴表情仅群聊且需在线已注入的 QQ —— 不满足就置灰并说明原因。
           reactBlockedReason={messageReactionBlockedReason(contextMenu.message)}
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。

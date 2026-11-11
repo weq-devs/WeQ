@@ -34,7 +34,7 @@ declare global {
       theme: ThemePreference,
       accent: string,
       background: ThemeBackground,
-      mode?: 'full' | 'sparse' | 'voice' | 'mixed',
+      mode?: 'full' | 'sparse' | 'voice' | 'mixed' | 'downloaded' | 'private',
     ) => void;
     menuActions: string[];
   }
@@ -75,7 +75,9 @@ function Fixture() {
                 { type: 'ptt', data: { fileName: 'fixture.amr', fileToken: 'fixture' } },
               ],
             }
-          : message,
+          : mode === 'sparse'
+            ? { ...message, qqElements: [{ type: 'file', data: { fileName: 'fixture.zip' } }] }
+            : message,
       x,
       y,
       variant: mobile ? 'mobile' : 'desktop',
@@ -108,11 +110,12 @@ function Fixture() {
             setState(null);
           }}
           onSetReaction={(_message, code, isSet) => window.menuActions.push(`${code}:${isSet}`)}
+          showReactions={mode !== 'private'}
           essenceAction={slot('移除精华', <Star size={17} />)}
-          todoAction={slot('设为群待办', <ListTodo size={17} />)}
+          todoAction={slot('设为群待办', <ListTodo size={17} />, true)}
           intentAction={slot('意图感知', <BrainCircuit size={17} />)}
           favoriteEmojiAction={slot('添加到表情', <SmilePlus size={17} />)}
-          revealAction={slot('在文件夹中显示', <FolderSearch size={17} />, true)}
+          revealAction={slot('在文件夹中显示', <FolderSearch size={17} />, mode !== 'downloaded')}
           {...(mode === 'sparse'
             ? {
                 onForward: undefined,

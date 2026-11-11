@@ -392,6 +392,8 @@ export interface ExportTask {
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;
+    /** 原始资源身份，用于从消息定位已保存的文件，不能仅按同名文件匹配。 */
+    sourceKey?: string;
   };
   save?: ExportSaveState;
   directOutput?: DirectOutput;
@@ -1555,6 +1557,7 @@ export class ExportTaskManager extends EventEmitter {
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
+    sourceKey?: string;
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
     onPublished?(directory: string): void;
   }): Promise<string> {
@@ -1581,7 +1584,11 @@ export class ExportTaskManager extends EventEmitter {
       conv: opts.kind,
       name: opts.name,
       format: opts.archive?.formats?.[0] ?? 'json',
-      resource: { kind: opts.kind, ...(output ? { output } : {}) },
+      resource: {
+        kind: opts.kind,
+        ...(output ? { output } : {}),
+        ...(opts.sourceKey ? { sourceKey: opts.sourceKey } : {}),
+      },
       includeIntegrityReport: opts.includeIntegrityReport,
       status: 'pending',
       progress: 0,

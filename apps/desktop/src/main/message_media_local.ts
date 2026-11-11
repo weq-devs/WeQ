@@ -4,6 +4,19 @@ import { createHash } from 'node:crypto';
 import type { AccountServices } from './context/app_context';
 import { getAppContext } from './context/app_context';
 import type { MessageMediaTarget } from '../shared/message_media';
+import type { MediaSaveSource } from '../shared/media_save';
+
+export function savedChatFileKey(source: Extract<MediaSaveSource, { kind: 'chat-file' }>): string {
+  return JSON.stringify([
+    'chat-file',
+    source.msgId,
+    source.fwdMsgId ?? '',
+    source.fwdKind ?? '',
+    source.conv ?? '',
+    source.token ?? '',
+    source.name ?? '',
+  ]);
+}
 
 async function firstFile(paths: (string | null | undefined)[]): Promise<string | null> {
   for (const path of paths) if (path && (await stat(path).catch(() => null))?.isFile()) return path;
@@ -39,6 +52,20 @@ export async function localMessageMedia(
     ]);
   }
   if (target.kind === 'file' && /^\d+$/.test(target.msgId)) {
+    const key = savedChatFileKey({ ...target, kind: 'chat-file' });
+    for (const task of services.exportManager.listTasks()) {
+      if (
+        task.status !== 'completed' ||
+        task.resource?.kind !== 'media' ||
+        task.resource.sourceKey !== key
+      )
+        continue;
+      const path = await firstFile([
+        task.save?.status === 'saved' ? task.save.path : null,
+        task.filePath,
+      ]);
+      if (path) return path;
+    }
     const info = await services.fileAssistant
       .getFileInfoByMsgId(BigInt(target.msgId))
       .catch(() => null);

@@ -157,31 +157,18 @@ try {
       check(layout.aligned && layout.centered && layout.equal, '四列等宽居中或上下图标对齐失败');
       if (output && corner === 'top-left')
         await page.screenshot({ path: resolve(output, `${theme}-${width}-${height}.png`) });
-      const before = await menu.boundingBox();
-      await page.getByRole('menuitem', { name: '文件操作', exact: true }).click();
-      const back = await page
-        .getByRole('button', { name: '返回消息操作', exact: true })
-        .boundingBox();
-      check(
-        back.y >= before.y && back.y + back.height <= before.y + before.height,
-        '低高度窗口的返回按钮被滚动裁切',
-      );
       // disabled 按钮仍应立即提供原因，不能依赖 250ms 全局延迟。
-      const reveal = page.getByRole('button', { name: '在文件夹中显示', exact: true });
-      await reveal.scrollIntoViewIfNeeded();
-      await reveal.hover();
+      const todo = page.getByRole('button', { name: '设为群待办', exact: true });
+      await todo.scrollIntoViewIfNeeded();
+      await todo.hover();
       await page.waitForFunction(() =>
         document.querySelector('[role="tooltip"]')?.textContent?.includes('暂不可用'),
       );
-      await page.keyboard.press('Escape');
+      check((await page.locator('[data-submenu-panel]').count()) === 0, '不应保留子菜单');
       check(
-        await page
-          .getByRole('menuitem', { name: '文件操作', exact: true })
-          .evaluate((el) => document.activeElement === el),
-        '子菜单返回未恢复焦点',
+        await page.getByRole('button', { name: '显示原文', exact: true }).isVisible(),
+        '文字切换应直接显示',
       );
-      const after = await menu.boundingBox();
-      check(JSON.stringify(before) === JSON.stringify(after), '子菜单改变了主菜单位置或尺寸');
       await page.keyboard.press('Escape');
       await menu.waitFor({ state: 'detached' });
     }
@@ -189,7 +176,7 @@ try {
   // 动作最多、最少、语音及混合内容均保持同一组十二格，不重叠、不因缺项前移。
   await page.setViewportSize({ width: 320, height: 640 });
   let slots;
-  for (const mode of ['full', 'sparse', 'voice', 'mixed']) {
+  for (const mode of ['full', 'sparse', 'voice', 'mixed', 'downloaded', 'private']) {
     await page.evaluate(
       (mode) => window.menuFixture(0, 0, true, 'dark', '#b7dfdd', 'dots', mode),
       mode,
@@ -218,33 +205,35 @@ try {
       `${mode}: 非 3×4 ${JSON.stringify(layout)}`,
     );
     const positions = layout.map((row) => row.map(({ disabled, ...rect }) => rect));
-    if (slots) check(JSON.stringify(positions) === JSON.stringify(slots), `${mode}: 格位移动`);
-    else slots = positions;
+    if (mode !== 'private') {
+      if (slots) check(JSON.stringify(positions) === JSON.stringify(slots), `${mode}: 格位移动`);
+      else slots = positions;
+    }
     if (output) await page.screenshot({ path: resolve(output, `${mode}-main-320.png`) });
     for (const row of positions)
       for (let index = 1; index < row.length; index++)
         check(row[index].x >= row[index - 1].x + row[index - 1].width, `${mode}: 按钮重叠`);
     if (mode === 'sparse')
       check(layout.flat().filter((cell) => cell.disabled).length >= 11, '不可用动作未置灰');
-    if (mode !== 'sparse') {
-      await page.getByRole('menuitem', { name: '内容处理', exact: true }).click();
-      await page.getByRole('button', { name: '添加到表情', exact: true }).waitFor();
-      const voice = page
-        .locator('[data-submenu-panel="content"] button:visible')
-        .filter({ hasText: /^转换为文字$/ });
-      check((await voice.isDisabled()) === (mode === 'full'), `${mode}: 语音转换状态错误`);
-      if (mode === 'mixed') {
-        check(
-          await page.getByRole('menuitem', { name: '显示 Markdown', exact: true }).isDisabled(),
-          '混合内容应保留置灰的 Markdown 格位',
-        );
-      }
-      if (output) await page.screenshot({ path: resolve(output, `${mode}-content-320.png`) });
-      if (mode === 'mixed') {
-        await voice.click();
-        check(await page.evaluate(() => window.menuActions.includes('转文字')), '语音转换未执行');
-        await page.getByRole('menu').waitFor({ state: 'detached' });
-      } else await page.getByRole('button', { name: '返回消息操作', exact: true }).click();
+    if (mode === 'downloaded') {
+      await page.getByRole('button', { name: '在文件夹中显示', exact: true }).click();
+      check(
+        await page.evaluate(() => window.menuActions.includes('在文件夹中显示')),
+        '定位没有直接执行',
+      );
+      check(
+        !(await page.getByRole('menuitem', { name: '保存到服务器', exact: true }).isVisible()),
+        '下载后仍显示保存',
+      );
+    }
+    if (mode === 'private')
+      check((await page.locator('.message-reaction-strip').count()) === 0, '私聊不应显示贴表情');
+    if (mode === 'voice' || mode === 'mixed') {
+      const voice = page.getByRole('button', { name: '转换为文字', exact: true });
+      check(await voice.isEnabled(), `${mode}: 语音转换状态错误`);
+      await voice.click();
+      check(await page.evaluate(() => window.menuActions.includes('转文字')), '语音转换未直接执行');
+      await page.getByRole('menu').waitFor({ state: 'detached' });
     }
     await page.keyboard.press('Escape');
   }
@@ -295,7 +284,7 @@ try {
   await touch.close();
   check(errors.length === 0, errors.join('\n'));
   console.log(
-    '消息菜单浏览器验证通过：5 组主题/尺寸、四角避让、固定 2×2 与 3×4、最多/最少/语音/混合内容格位一致且不重叠、子菜单原位返回、禁用提示、回应取消、+1、焦点归还及真实触屏长按。',
+    '消息菜单浏览器验证通过：5 组主题/尺寸、四角避让、固定 2×2 与 3×4、文字/语音/混合内容直达、下载后定位、私聊隐藏回应、禁用提示、回应取消、+1、焦点归还及真实触屏长按。',
   );
 } finally {
   await browser?.close();

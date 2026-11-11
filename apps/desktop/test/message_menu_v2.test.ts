@@ -52,6 +52,14 @@ const labels = (selector: string) =>
         !button.classList.contains('message-action-fallback') ||
         !button.closest('.message-action-slot')?.querySelector('.message-action-content button'),
     )
+    .filter((button) => {
+      const file = button.closest('.message-file-action');
+      if (!file) return true;
+      const reveal = file.querySelector<HTMLButtonElement>('.message-reveal-action button');
+      return reveal && (!reveal.disabled || !file.hasAttribute('data-has-save'))
+        ? button === reveal
+        : !button.closest('.message-reveal-action');
+    })
     .map((button) => button.getAttribute('aria-label') || button.textContent);
 
 it('文字主菜单顺序固定，扩展动作位于指定三行', async () => {
@@ -85,15 +93,15 @@ it('文字主菜单顺序固定，扩展动作位于指定三行', async () => {
     '导出',
     '意图感知',
     '查看装扮',
-    '内容处理',
-    '文件操作',
+    '显示原文',
+    '在文件夹中显示',
     '修改本地记录',
     '本地删除',
   ]);
   expect(document.activeElement?.textContent).toBe('复制');
 });
 
-it('内容处理同时保留添加表情与显示切换；禁用与批量文案保留', async () => {
+it('文字直接显示切换，不打开内容子菜单；禁用与批量文案保留', async () => {
   const recall = vi.fn();
   await render({
     favoriteEmojiAction: slot('添加到表情'),
@@ -103,13 +111,9 @@ it('内容处理同时保留添加表情与显示切换；禁用与批量文案�
     onExport: vi.fn(),
     exportLabel: '导出所选消息',
   });
-  expect(labels('.message-action-row')).toContain('内容处理');
-  expect(labels('[data-submenu-panel="content"]')).toEqual([
-    '返回消息操作',
-    '添加到表情',
-    '显示原文',
-    '转换为文字',
-  ]);
+  expect(labels('.message-action-row')).toContain('显示原文');
+  expect(host.querySelector('[data-submenu-panel]')).toBeNull();
+  expect(labels('.message-action-row')).not.toContain('添加到表情');
   const button = host.querySelector<HTMLButtonElement>('[aria-label="撤回所选 3 条消息"]')!;
   expect(button.disabled).toBe(true);
   expect(button.title).toBe('正在处理');
@@ -131,7 +135,7 @@ it('缺失动作与异步返回空内容均保留固定格位并禁用，不挤�
     '导出',
     '意图感知',
     '查看装扮',
-    '文件操作',
+    '另存为',
     '修改本地记录',
     '本地删除',
   ]) {
@@ -139,37 +143,61 @@ it('缺失动作与异步返回空内容均保留固定格位并禁用，不挤�
   }
 });
 
-it('文件子菜单保留保存和定位，返回或 Esc 只收起子菜单并恢复入口焦点', async () => {
+it('文件保存为直达动作，Esc 直接关闭菜单', async () => {
   const save = vi.fn();
   const close = vi.fn();
-  await render({ onSaveMedia: save, revealAction: slot('在文件夹中显示'), onClose: close });
-  const trigger = host.querySelector<HTMLButtonElement>('[data-submenu-trigger="media"]')!;
-  act(() => trigger.click());
-  expect(host.querySelector('[data-submenu-panel="media"]')?.hasAttribute('hidden')).toBe(false);
-  expect(host.querySelector('.message-menu-primary')?.getAttribute('inert')).not.toBeNull();
+  await render({ onSaveMedia: save, onClose: close });
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="另存为"]')!.click());
   expect(save).toHaveBeenCalledOnce();
   act(() =>
     host
-      .querySelector('[data-submenu-panel="media"]')!
+      .querySelector('.message-menu-primary')!
       .dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })),
   );
-  expect(close).not.toHaveBeenCalled();
-  expect(document.activeElement).toBe(trigger);
-  expect(host.querySelector('[data-submenu-panel="media"]')?.hasAttribute('hidden')).toBe(true);
+  expect(close).toHaveBeenCalledOnce();
 });
 
-it('异步动作从不可用变为可用时更新分类入口，不增减主菜单格位', async () => {
-  await render({ revealAction: createElement('button', { disabled: true }, '在文件夹中显示') });
-  const media = () => host.querySelector<HTMLButtonElement>('[data-submenu-trigger="media"]')!;
-  expect(media().disabled).toBe(true);
-  const before = labels('.message-action-row');
-  await render({ revealAction: createElement('button', null, '在文件夹中显示') });
-  expect(media().disabled).toBe(false);
-  expect(labels('.message-action-row')).toEqual(before);
-  await render({ revealAction: null });
-  expect(media().disabled).toBe(true);
-  expect(labels('.message-action-row')).toEqual(before);
+it('文件下载后同一格从另存为切换为定位，文件消失后恢复保存', async () => {
+  const save = vi.fn();
+  await render({
+    onSaveMedia: save,
+    revealAction: createElement('button', { disabled: true }, '在文件夹中显示'),
+  });
+  expect(labels('.message-action-row')).toContain('另存为');
+  expect(labels('.message-action-row')).not.toContain('在文件夹中显示');
+  await render({
+    onSaveMedia: save,
+    revealAction: createElement('button', null, '在文件夹中显示'),
+  });
+  expect(labels('.message-action-row')).toContain('在文件夹中显示');
+  expect(labels('.message-action-row')).not.toContain('另存为');
+  await render({ onSaveMedia: save, revealAction: null });
+  expect(labels('.message-action-row')).toContain('另存为');
+  expect(labels('.message-action-row')).toHaveLength(12);
+});
+
+it('混合消息按右键命中的媒体选择内容操作，不强制将整条消息当成纯文本', async () => {
+  const mixed = {
+    ...message,
+    qqElements: [
+      ...message.qqElements,
+      { type: 'pic', data: { fileName: 'one.png' } },
+      { type: 'ptt', data: { fileName: 'voice.amr', pttTranscript: '已转写' } },
+    ],
+  };
+  const target = messageMediaTarget(mixed)!;
+  await render({
+    state: { message: mixed, x: 10, y: 10, mediaTarget: target },
+    favoriteEmojiAction: slot('添加到表情'),
+  });
+  expect(labels('.message-action-row')).toContain('添加到表情');
+  const element = document.createElement('span');
+  element.dataset.messageMediaKey = messageMediaKey(mixed.qqElements[2]!);
+  await render({
+    state: { message: mixed, x: 10, y: 10, mediaTarget: messageMediaTarget(mixed, element) },
+  });
+  expect(labels('.message-action-row')).toContain('转换为文字');
+  expect(labels('.message-action-row')).not.toContain('添加到表情');
 });
 
 it('方向键在三行按钮间移动，Esc 关闭并归还焦点', async () => {

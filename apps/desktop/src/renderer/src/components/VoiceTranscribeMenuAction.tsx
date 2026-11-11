@@ -1,5 +1,6 @@
-import { FileText, Loader2 } from 'lucide-react';
+import { Captions, Loader2 } from 'lucide-react';
 import type { Message } from '../im-template/template/types';
+import type { MessageMediaTarget } from '../../../shared/message_media';
 import {
   useVoiceTranscription,
   type VoiceTranscriptionInput,
@@ -18,7 +19,7 @@ function VoiceAction({ input, onClose }: { input: VoiceTranscriptionInput; onClo
         onClose?.();
       }}
     >
-      {voice.busy ? <Loader2 size={17} className="weq-spin" /> : <FileText size={17} />}
+      {voice.busy ? <Loader2 size={17} className="weq-spin" /> : <Captions size={17} />}
       <span>{voice.busy ? '转写中' : '转换为文字'}</span>
     </button>
   );
@@ -27,11 +28,19 @@ function VoiceAction({ input, onClose }: { input: VoiceTranscriptionInput; onClo
 export function VoiceTranscribeMenuAction({
   message,
   onClose,
+  target,
 }: {
   message: Message;
   onClose?: () => void;
+  target?: Pick<MessageMediaTarget, 'name' | 'token'>;
 }) {
-  const data = message.qqElements?.find((element) => element.type === 'ptt')?.data;
+  const data = message.qqElements?.find(
+    (element) =>
+      element.type === 'ptt' &&
+      (!target ||
+        (String(element.data?.fileName ?? '') === target.name &&
+          String(element.data?.fileToken ?? '') === target.token)),
+  )?.data;
   if (
     !data ||
     data.pttTranscript ||
