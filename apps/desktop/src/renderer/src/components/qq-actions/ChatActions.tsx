@@ -32,6 +32,14 @@ export function MessageTodoAction({
     <>
       <button
         type="button"
+        aria-label="设为群待办"
+        title={
+          !a.available
+            ? 'QQ 在线并启用完整功能后可设为群待办'
+            : a.pending
+              ? '正在设置群待办'
+              : '设为群待办'
+        }
         disabled={a.disabled}
         onClick={() =>
           void a.perform(

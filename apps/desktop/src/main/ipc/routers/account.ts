@@ -12,6 +12,12 @@
  */
 
 import { z } from 'zod';
+import { setReactionWithRecent } from '../../recent_reactions';
+import {
+  resourceSourceInput,
+  requireResourceSource,
+  assertResourceSource,
+} from './resource_source';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import { withDatabaseRequest } from '@weq/db';
 import { clearFinishedTasks } from './clear_finished_tasks';
@@ -5020,7 +5026,7 @@ export const accountRouter = router({
    */
   setMessageReaction: procedure
     .input(
-      z.object({
+      resourceSourceInput.extend({
         groupId: z.union([z.string().min(1), z.number().int().positive()]),
         sequence: z.number().int().nonnegative(),
         code: z.string().min(1),
@@ -5029,12 +5035,8 @@ export const accountRouter = router({
     )
     .mutation(async ({ input }) => {
       requireQqOnlineForAlbum();
-      await requireServices().interaction.setMessageReaction({
-        groupId: input.groupId,
-        sequence: input.sequence,
-        code: input.code,
-        isSet: input.isSet,
-      });
+      const services = requireResourceSource(input);
+      await setReactionWithRecent(services, input, () => assertResourceSource(services, input));
       return { ok: true };
     }),
 

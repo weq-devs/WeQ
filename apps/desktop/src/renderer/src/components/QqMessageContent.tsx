@@ -28,6 +28,7 @@ import type { UrlVerifyInfo } from '@weq/service';
 import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
+import { messageMediaKey } from '../lib/messageMediaTarget';
 import { QqMarkdown } from './QqMarkdown';
 import {
   autoTextMarkdownBody,
@@ -247,7 +248,15 @@ function FaceNode({
 }
 
 /** Render a media element to its dedicated component, or null if unsupported. */
-function MediaNode({
+function MediaNode(props: Parameters<typeof MediaBody>[0]): ReactNode {
+  return (
+    <span style={{ display: 'contents' }} data-message-media-key={messageMediaKey(props.element)}>
+      <MediaBody {...props} />
+    </span>
+  );
+}
+
+function MediaBody({
   element,
   sendTimeMs,
   msgId,

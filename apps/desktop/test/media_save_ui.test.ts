@@ -431,7 +431,7 @@ it('独立 Web 窗口的同源绝对媒体地址还原成已有挂载路径', as
     source: { kind: 'url', url: '/_media/pic?name=photo.jpg' },
   });
 });
-it('图片右键只保留一个下载动作并保留消息身份', async () => {
+it('图片右键只保留一个另存为动作并保留消息身份', async () => {
   const message = createTemplateDemoData().messages[0]!,
     download = vi.fn();
   const view = await mount(
@@ -445,7 +445,7 @@ it('图片右键只保留一个下载动作并保留消息身份', async () => {
     [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === name,
     )!;
-  act(() => action('下载').click());
+  act(() => action('另存为').click());
   expect(action('另存到…')).toBeUndefined();
   expect(action('先生成，稍后保存')).toBeUndefined();
   expect(download.mock.calls).toEqual([['weq-media://pic?name=photo.jpg', message]]);

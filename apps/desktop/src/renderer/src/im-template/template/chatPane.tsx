@@ -30,6 +30,9 @@ import { ConversationMessageActions } from '../../components/ConversationMessage
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
 import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
 import { MessageFavoriteEmojiAction } from '../../components/qq-actions/MessageFavoriteEmojiAction';
+import { MessageMediaRevealAction } from '../../components/MessageMediaRevealAction';
+import { messageMediaTarget, messageMediaSaveSource } from '../../lib/messageMediaTarget';
+import { quickReactions, reactionItems } from '../../lib/reactionItems';
 import { messageFavoriteEmojiUrl } from '../../lib/messageFavoriteEmoji';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -966,7 +969,7 @@ export function ChatPane({
     anchorRef: selectionAnchor,
   } = selection;
   const recallAccount = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: selectionMode && !generated,
+    enabled: (selectionMode || Boolean(contextMenu)) && !generated,
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -978,6 +981,17 @@ export function ChatPane({
         }
       : null;
   const selectionCancelRef = useRef<(() => void) | null>(null);
+  const recentReactions = trpc.account.emojiPanel.recentReactions.useQuery(
+    { ...recallBinding },
+    {
+      enabled: Boolean(contextMenu && recallBinding),
+      staleTime: 0,
+    },
+  );
+  const reactionOverview = trpc.account.emojiPanel.overview.useQuery(undefined, {
+    enabled: Boolean(contextMenu) && conversation?.type === 'group',
+    staleTime: 30_000,
+  });
   const requestExport = useRequestContentExport();
   const requestAnalysis = useRequestContentAnalysis();
   const [selectionMenu, setSelectionMenu] = useState<{
@@ -2478,7 +2492,12 @@ export function ChatPane({
   function chooseReaction(code: string) {
     const picker = reactionPicker;
     setReactionPicker(null);
-    if (picker) changeMessageReaction(picker.message, code, true);
+    if (picker)
+      changeMessageReaction(
+        picker.message,
+        code,
+        !picker.message.setEmojiList?.some((item) => item.emojiId === code && item.isSelfSet),
+      );
   }
 
   function messageReactionBlockedReason(message: Message): string | null {
@@ -2505,18 +2524,25 @@ export function ChatPane({
     if (!isSet && !current.setEmojiList?.some((item) => item.emojiId === code && item.isSelfSet))
       return;
     reactionRequestPending.current = true;
+    const scope = actionScope;
     const feedback = reactionFeedback.begin(message.id, code, isSet, current.setEmojiList);
     setMessageReaction.mutate(
       {
+        ...recallBinding,
         groupId: conversation.group.identityValue,
         sequence: Number(current.msgSeq),
         code,
         isSet,
       },
       {
-        onSuccess: () => feedback.acknowledge(),
+        onSuccess: () => {
+          if (actionScopeRef.current !== scope) return;
+          feedback.acknowledge();
+          if (isSet) void emojiUtils.account.emojiPanel.recentReactions.invalidate();
+        },
         onError: (error) => {
           feedback.cancel();
+          if (actionScopeRef.current !== scope) return;
           pushToast({
             tone: 'error',
             title: isSet ? '贴表情失败' : '撤回贴表情失败',
@@ -4388,6 +4414,7 @@ export function ChatPane({
         message,
         clipboard,
         messageFavoriteEmojiUrl(message, event.target),
+        event.target,
       );
       return;
     }
@@ -4404,8 +4431,11 @@ export function ChatPane({
         : pureImageUrl(message);
     setContextMenu({
       message,
+      mediaTarget: messageMediaTarget(message, event.target),
       imageUrl,
-      favoriteEmojiUrl: messageFavoriteEmojiUrl(message, event.target),
+      favoriteEmojiUrl:
+        messageFavoriteEmojiUrl(message, event.target) ||
+        messageMediaTarget(message, event.target)?.favoriteUrl,
       clipboard,
       downloadUrl:
         (event.target instanceof HTMLImageElement
@@ -4425,13 +4455,15 @@ export function ChatPane({
     message: Message,
     clipboard?: { text: string; html: string },
     favoriteEmojiUrl = messageFavoriteEmojiUrl(message),
+    target?: EventTarget | null,
   ) {
     const menuHalfWidth = 112;
     const maxTop = Math.max(92, window.innerHeight - 166);
     setContextMenu({
       message,
       imageUrl: pureImageUrl(message),
-      favoriteEmojiUrl,
+      mediaTarget: messageMediaTarget(message, target),
+      favoriteEmojiUrl: favoriteEmojiUrl || messageMediaTarget(message, target)?.favoriteUrl,
       clipboard,
       downloadUrl: getMessageDownloadUrl(message),
       x: Math.min(Math.max(point.x, menuHalfWidth), window.innerWidth - menuHalfWidth),
@@ -6793,53 +6825,77 @@ export function ChatPane({
         <MessageContextMenu
           unavailableReason={qqUnavailable}
           onClose={() => setContextMenu(null)}
-          extraActions={
-            <>
-              {!generated &&
-              !isLocalOutgoingMessage(contextMenu.message) &&
-              contextMenu.favoriteEmojiUrl ? (
-                <MessageFavoriteEmojiAction
-                  key={contextMenu.favoriteEmojiUrl}
-                  url={contextMenu.favoriteEmojiUrl}
-                  onClose={() => setContextMenu(null)}
-                />
-              ) : null}
-              {intentActionAvailable &&
-              !grayTipOf(contextMenu.message) &&
-              !isLocalOutgoingMessage(contextMenu.message) ? (
-                <button
-                  type="button"
-                  title={selectionBlockedReason || '意图感知'}
-                  disabled={Boolean(selectionBlockedReason)}
-                  onClick={() =>
-                    void analyzeMessageIntents(
-                      selectionMode && selectedIds.has(contextMenu.message.id)
-                        ? undefined
-                        : [contextMenu.message],
-                    )
-                  }
-                >
-                  <BrainCircuit size={17} />
-                  <span>意图感知</span>
-                </button>
-              ) : null}
-              {!generated && conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
-                <>
-                  <QQMessageEssenceAction
-                    key={contextMenu.message.id}
-                    conversation={conversation}
-                    message={contextMenu.message}
-                    onClose={() => setContextMenu(null)}
-                  />
-                  <MessageTodoAction
-                    conversation={conversation}
-                    message={contextMenu.message}
-                    onClose={() => setContextMenu(null)}
-                  />
-                </>
-              ) : null}
-            </>
+          favoriteEmojiAction={
+            !generated &&
+            !isLocalOutgoingMessage(contextMenu.message) &&
+            contextMenu.favoriteEmojiUrl ? (
+              <MessageFavoriteEmojiAction
+                key={contextMenu.favoriteEmojiUrl}
+                url={contextMenu.favoriteEmojiUrl}
+                mediaLabel={contextMenu.mediaTarget?.label}
+                onClose={() => setContextMenu(null)}
+              />
+            ) : null
           }
+          intentAction={
+            intentActionAvailable &&
+            !grayTipOf(contextMenu.message) &&
+            !isLocalOutgoingMessage(contextMenu.message) ? (
+              <button
+                type="button"
+                title={selectionBlockedReason || '意图感知'}
+                disabled={Boolean(selectionBlockedReason)}
+                onClick={() =>
+                  void analyzeMessageIntents(
+                    selectionMode && selectedIds.has(contextMenu.message.id)
+                      ? undefined
+                      : [contextMenu.message],
+                  )
+                }
+              >
+                <BrainCircuit size={17} />
+                <span>意图感知</span>
+              </button>
+            ) : null
+          }
+          essenceAction={
+            !generated && conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
+              <QQMessageEssenceAction
+                key={contextMenu.message.id}
+                removeLabel="移除精华"
+                conversation={conversation}
+                message={contextMenu.message}
+                onClose={() => setContextMenu(null)}
+              />
+            ) : null
+          }
+          todoAction={
+            !generated && conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
+              <MessageTodoAction
+                conversation={conversation}
+                message={contextMenu.message}
+                onClose={() => setContextMenu(null)}
+              />
+            ) : null
+          }
+          revealAction={
+            !IS_WEB && contextMenu.mediaTarget ? (
+              <MessageMediaRevealAction
+                key={JSON.stringify([recallBinding, contextMenu.mediaTarget])}
+                target={contextMenu.mediaTarget}
+                binding={recallBinding}
+                onClose={() => setContextMenu(null)}
+              />
+            ) : null
+          }
+          reactions={quickReactions(
+            recentReactions.data ?? [],
+            reactionItems(reactionOverview.data?.faces ?? []),
+          )}
+          onSetReaction={(message, code, isSet) => {
+            setContextMenu(null);
+            changeMessageReaction(message, code, isSet);
+          }}
           onAddToComposition={
             onAddToComposition
               ? (message) => {
@@ -6887,13 +6943,22 @@ export function ChatPane({
               : undefined
           }
           onDownloadImage={downloadMessageImage}
+          onSaveMedia={
+            contextMenu.mediaTarget && messageMediaSaveSource(contextMenu.mediaTarget)
+              ? () => {
+                  const source = messageMediaSaveSource(contextMenu.mediaTarget!);
+                  setContextMenu(null);
+                  if (source) void mediaSave.run(source);
+                }
+              : undefined
+          }
           downloadDisabled={mediaSave.disabled}
           onDelete={
             onDeleteMessage && !messageBatchBlockReason(contextMenu.message, 'delete')
               ? deleteMessage
               : undefined
           }
-          deleteLabel={canDiscardFailedMessage(contextMenu.message) ? '移除失败消息' : '删除'}
+          deleteLabel={canDiscardFailedMessage(contextMenu.message) ? '移除失败消息' : '本地删除'}
           onEditRaw={
             onEditRaw &&
             contextMenu.message.source !== 'roaming' &&
@@ -6908,18 +6973,16 @@ export function ChatPane({
             outgoingActionBlockReason(contextMenu.message) ?? quoteBlockReason(contextMenu.message)
           }
           onMultiSelect={contextMenu.message.generatedPending ? undefined : enterSelection}
-          onReact={generated ? undefined : openReactionPicker}
+          onReact={
+            generated ||
+            conversation.type !== 'group' ||
+            grayTipOf(contextMenu.message) ||
+            isLocalOutgoingMessage(contextMenu.message)
+              ? undefined
+              : openReactionPicker
+          }
           // 贴表情仅群聊且需在线已注入的 QQ —— 不满足就置灰并说明原因。
           reactBlockedReason={messageReactionBlockedReason(contextMenu.message)}
-          onRemoveReaction={
-            generated || grayTipOf(contextMenu.message)
-              ? undefined
-              : (message, code) => {
-                  setContextMenu(null);
-                  changeMessageReaction(message, code, false);
-                }
-          }
-          removeReactionBlockedReason={messageReactionBlockedReason(contextMenu.message)}
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
           onRecall={
             !generated && contextRecallInfo?.show
@@ -7032,6 +7095,9 @@ export function ChatPane({
       ) : null}
       {reactionPicker ? (
         <ReactionPicker
+          selectedCodes={reactionPicker.message.setEmojiList
+            ?.filter((item) => item.isSelfSet)
+            .map((item) => item.emojiId)}
           anchor={{ x: reactionPicker.x, y: reactionPicker.y }}
           onSelect={chooseReaction}
           onClose={() => setReactionPicker(null)}

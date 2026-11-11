@@ -123,7 +123,7 @@ export function ActionFeedback({ action }: { action: ReturnType<typeof useQQActi
   return (
     <>
       <QQWriteResult result={action.result} />
-      {action.error && <p role="alert">{action.error}</p>}
+      {action.error && <QQWriteResult result={{ text: action.error, error: true }} />}
     </>
   );
 }

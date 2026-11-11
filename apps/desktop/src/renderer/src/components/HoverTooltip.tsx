@@ -36,6 +36,9 @@ export function HoverTooltip() {
     let visible = false;
     let keyboardNavigation = false;
     let suppliedLabel: string | null = null;
+    let touchTimer: ReturnType<typeof setTimeout> | undefined;
+    let touchStart: { x: number; y: number } | null = null;
+    let consumedTouch = false;
     let observer: MutationObserver;
     const hint = (element: Element, original?: string) => {
       const title = original ?? element.getAttribute('title') ?? '';
@@ -73,6 +76,8 @@ export function HoverTooltip() {
       else element.removeAttribute('aria-describedby');
     };
     const clear = (): void => {
+      clearTimeout(touchTimer);
+      touchStart = null;
       if (timer !== undefined) clearTimeout(timer);
       timer = undefined;
       observer.disconnect();
@@ -156,7 +161,7 @@ export function HoverTooltip() {
       supplyAccessibleName();
       owner.setAttribute('title', '');
       observe();
-      timer = setTimeout(() => {
+      const show = () => {
         timer = undefined;
         if (!owner?.isConnected) {
           clear();
@@ -169,7 +174,9 @@ export function HoverTooltip() {
         owner.setAttribute('aria-describedby', [...ids].join(' '));
         visible = true;
         setTooltip({ text, ...point });
-      }, HOVER_DELAY_MS);
+      };
+      if (next.closest('[data-hover-delay="0"]')) show();
+      else timer = setTimeout(show, HOVER_DELAY_MS);
     };
     const over = (event: PointerEvent): void => {
       if (event.pointerType === 'touch' || event.buttons) return;
@@ -199,9 +206,42 @@ export function HoverTooltip() {
         keyboardNavigation = true;
       if (shouldDismissHoverHint(event)) clear();
     };
-    const pointerDown = (): void => {
+    const pointerDown = (event: PointerEvent): void => {
       keyboardNavigation = false;
+      clearTimeout(touchTimer);
+      consumedTouch = false;
       clear();
+      const element = event.target instanceof window.Element ? event.target : null;
+      if (event.pointerType !== 'touch' || !element?.closest('[data-hover-delay="0"] button'))
+        return;
+      touchStart = { x: event.clientX, y: event.clientY };
+      touchTimer = setTimeout(() => {
+        consumedTouch = true;
+        enter(findOwner(element), event.clientX + 12, event.clientY + 18);
+      }, 460);
+    };
+    const touchEnd = (): void => {
+      clearTimeout(touchTimer);
+      touchStart = null;
+    };
+    const touchMove = (event: PointerEvent): void => {
+      if (touchStart && Math.hypot(event.clientX - touchStart.x, event.clientY - touchStart.y) > 10)
+        touchEnd();
+    };
+    const touchClick = (event: MouseEvent): void => {
+      if (!consumedTouch) return;
+      consumedTouch = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const menuContext = (event: MouseEvent): void => {
+      if (
+        event.target instanceof window.Element &&
+        event.target.closest('[data-hover-delay="0"]')
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
     };
     const unsubscribePrivacy = usePrivacyStore.subscribe((state, previous) => {
       if (state.effective === previous.effective || !owner) return;
@@ -215,6 +255,11 @@ export function HoverTooltip() {
     document.addEventListener('focusin', focus, true);
     document.addEventListener('focusout', focusOut, true);
     document.addEventListener('pointerdown', pointerDown, true);
+    document.addEventListener('pointerup', touchEnd, true);
+    document.addEventListener('pointercancel', touchEnd, true);
+    document.addEventListener('pointermove', touchMove, true);
+    document.addEventListener('click', touchClick, true);
+    document.addEventListener('contextmenu', menuContext, true);
     document.addEventListener('keydown', keydown, true);
     document.addEventListener('scroll', clear, true);
     window.addEventListener('blur', clear);
@@ -222,12 +267,18 @@ export function HoverTooltip() {
     return () => {
       unsubscribePrivacy();
       clear();
+      touchEnd();
       document.removeEventListener('pointerover', over, true);
       document.removeEventListener('pointerout', out, true);
       document.removeEventListener('pointerleave', leave);
       document.removeEventListener('focusin', focus, true);
       document.removeEventListener('focusout', focusOut, true);
       document.removeEventListener('pointerdown', pointerDown, true);
+      document.removeEventListener('pointerup', touchEnd, true);
+      document.removeEventListener('pointercancel', touchEnd, true);
+      document.removeEventListener('pointermove', touchMove, true);
+      document.removeEventListener('click', touchClick, true);
+      document.removeEventListener('contextmenu', menuContext, true);
       document.removeEventListener('keydown', keydown, true);
       document.removeEventListener('scroll', clear, true);
       window.removeEventListener('blur', clear);

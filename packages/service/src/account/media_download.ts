@@ -102,6 +102,12 @@ export class MediaDownloadService {
     private readonly allowOnline: () => boolean = () => true,
   ) {}
 
+  cachedFile(fileToken: string, ext = ''): string | null {
+    if (!fileToken) return null;
+    const path = join(this.cacheDir, `${hashToken(fileToken)}${ext}`);
+    return existsSync(path) ? path : null;
+  }
+
   /**
    * Download `fileToken` to the cache and return its local path, or null if no
    * usable rkey is available or every attempt failed. Cached on success.

@@ -22,7 +22,8 @@ export function installTouchContextMenu(document: Document): () => void {
       !event.isPrimary ||
       event.button !== 0 ||
       !(event.target instanceof Element) ||
-      editable(event.target)
+      editable(event.target) ||
+      event.target.closest('[data-hover-delay="0"] button')
     )
       return;
     const current = {

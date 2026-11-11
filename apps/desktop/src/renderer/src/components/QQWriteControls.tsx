@@ -1,14 +1,18 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { MessageMenuFeedbackContext } from '../lib/messageMenuFeedback';
 import { Eraser, Save } from 'lucide-react';
 import { Row, Toggle } from './settings/controls';
 import '../styles/qq-write.css';
 
 export function QQWriteResult({ result }: { result: { text: string; error: boolean } | null }) {
-  return result ? (
+  const target = useContext(MessageMenuFeedbackContext);
+  const content = result ? (
     <p className="weq-qq-write-result" role={result.error ? 'alert' : 'status'}>
       {result.text}
     </p>
   ) : null;
+  return target && content ? createPortal(content, target) : content;
 }
 
 /** 行标签：图标 + 文字，与设置页其它面板的 `.weq-set-row-icon` 同一套。 */

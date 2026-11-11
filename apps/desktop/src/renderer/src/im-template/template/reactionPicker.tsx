@@ -24,11 +24,13 @@ export function ReactionPicker({
   anchor,
   onSelect,
   onClose,
+  selectedCodes = [],
 }: {
   anchor: { x: number; y: number };
   /** 选中一枚表情，参数是可直接交给 0x9082 的 code。 */
   onSelect: (code: string) => void;
   onClose: () => void;
+  selectedCodes?: readonly string[];
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const overview = trpc.account.emojiPanel.overview.useQuery(undefined, { staleTime: 30_000 });
@@ -101,6 +103,7 @@ export function ReactionPicker({
       style={{ left: anchor.x, top: anchor.y }}
       role="dialog"
       aria-label="贴表情"
+      data-hover-delay="0"
       onMouseDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -117,6 +120,8 @@ export function ReactionPicker({
                 key={cell.key}
                 type="button"
                 title={cell.title}
+                aria-label={cell.title}
+                aria-pressed={selectedCodes.includes(cell.code)}
                 className={cn('reaction-picker-cell')}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onSelect(cell.code)}

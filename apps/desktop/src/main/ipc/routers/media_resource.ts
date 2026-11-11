@@ -13,6 +13,8 @@ import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
+import { getHost } from '@weq/service';
+import { localMessageMedia } from '../../message_media_local';
 import {
   resourceSourceInput,
   requireResourceSource,
@@ -36,7 +38,38 @@ const pageInput = z.object({
   cursor: z.string().nullish(),
 });
 
+const messageMediaInput = resourceSourceInput.extend({
+  target: z.object({
+    kind: z.enum(['pic', 'emoji', 'video', 'ptt', 'file', 'mface']),
+    t: z.number().nonnegative(),
+    name: z.string(),
+    token: z.string(),
+    md5: z.string(),
+    msgId: z.string(),
+    conv: z.string(),
+    pack: z.string(),
+    hash: z.string(),
+    label: z.string(),
+  }),
+});
+
 export const mediaResourceRouter = router({
+  messageLocalAvailable: procedure.input(messageMediaInput).query(async ({ input }) => {
+    const services = requireResourceSource(input);
+    const path = await localMessageMedia(services, input.target);
+    assertResourceSource(services, input);
+    return Boolean(path);
+  }),
+  revealMessageMedia: procedure.input(messageMediaInput).mutation(async ({ input }) => {
+    const host = getHost();
+    if (!host.canReveal) throw new Error('当前环境不支持在文件夹中显示');
+    const services = requireResourceSource(input);
+    const path = await localMessageMedia(services, input.target);
+    assertResourceSource(services, input);
+    if (!path) throw new Error('尚无本地文件');
+    await host.revealInFolder(path);
+    return true;
+  }),
   /** One page of a flat hash cache (图片墙 / QQ空间缓存). */
   listFlat: procedure.input(pageInput.extend({ kind: flatKind })).query(({ input }) => {
     return requireServices().mediaResource.listFlat(input.kind, {

@@ -1308,3 +1308,4 @@ export type {
   ContactMetricsProgress,
   ContactMetricJob,
 } from './account/contact_metrics';
+export { RecentReactions } from './account/recent_reactions';

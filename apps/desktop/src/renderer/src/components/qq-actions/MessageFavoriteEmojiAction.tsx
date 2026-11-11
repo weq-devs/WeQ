@@ -2,7 +2,15 @@ import { SmilePlus } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAction } from './shared';
 
-export function MessageFavoriteEmojiAction({ url, onClose }: { url: string; onClose: () => void }) {
+export function MessageFavoriteEmojiAction({
+  url,
+  onClose,
+  mediaLabel,
+}: {
+  url: string;
+  onClose: () => void;
+  mediaLabel?: string;
+}) {
   const action = useQQAction(`favorite-message:${url}`);
   const utils = trpc.useUtils();
   async function add() {
@@ -33,12 +41,15 @@ export function MessageFavoriteEmojiAction({ url, onClose }: { url: string; onCl
   return (
     <button
       type="button"
+      aria-label="添加到表情"
       title={
         !action.available
           ? 'QQ 在线并启用完整功能后可添加到表情'
           : action.pending
             ? '正在添加到表情'
-            : '添加到表情'
+            : mediaLabel
+              ? `添加到表情：${mediaLabel}`
+              : '添加到表情'
       }
       aria-busy={action.pending}
       disabled={action.disabled}
