@@ -102,3 +102,6 @@ WEQ_BROWSER_EXECUTABLE=/absolute/path/to/pw_run.sh \
 
 可用 `WEQ_MOBILE_ARTIFACTS` 指定截图目录，`WEQ_MOBILE_SURFACES=profile,lookup` 缩小检查范围。
 测试自动关闭服务和浏览器，不连接真实 QQ；空间、邮箱、频道的业务内容与真机键盘仍需实机验证。
+
+另以实际移动导航与动画运行时检查邮箱、频道私聊：在 320/390/760px、浅深色及正常动态效果下，
+连续刷新父级数据并逐绘制帧测量页面横坐标与活动动画，防止仅检查静止布局漏掉导航重复登记引发的左右抽动。

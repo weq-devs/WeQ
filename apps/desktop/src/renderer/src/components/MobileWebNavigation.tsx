@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
   Bookmark,
   ChevronRight,
@@ -71,16 +71,19 @@ export function MobileWebNavigation({
 }) {
   const mobilePage = useWorkspaceMobilePage();
   const mobile = useMobileWebLayout();
+  const viewChange = useRef(onViewChange);
+  viewChange.current = onViewChange;
   useEffect(() => {
     if (!mobile || mobileRootTab(view)) return;
+    // 父级数据刷新会更换回调，不能因此重登记并重复触发进出动画。
     return registerMobileBack({
       id: 'mobile-more-page',
       priority: 5,
       retained: true,
-      back: () => onViewChange('more'),
+      back: () => viewChange.current('more'),
       target: () => document.querySelector<HTMLElement>('.weq-web-shell .app-shell > .chat-main'),
     });
-  }, [mobile, view, onViewChange]);
+  }, [mobile, view]);
   useEffect(() => {
     if (mobile) return preloadMobilePages(mobilePageLoaders);
     return undefined;

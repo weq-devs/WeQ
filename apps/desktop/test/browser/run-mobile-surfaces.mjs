@@ -242,6 +242,54 @@ try {
       }
     }
   }
+  // 不只检查动画结束后的布局：父级后台刷新不得让次级页面反复播放进出动画。
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/mobile-surfaces.html?navigation`,
+  );
+  await page.waitForSelector('.weq-self-profile-body');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  for (const surface of ['mail', 'channel-direct']) {
+    await page.evaluate((surface) => window.mobileSurfacesQa.show(surface), surface);
+    await page.waitForSelector(`[data-surface="${surface}"]`);
+    for (const width of [320, 390, 760]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(
+          (theme) => window.mobileSurfacesQa.theme.getState().setPreference(theme),
+          theme,
+        );
+        await page.waitForTimeout(300);
+        const result = await page.evaluate(async () => {
+          const target = document.querySelector('.chat-main');
+          const initial = target.getBoundingClientRect();
+          let minLeft = initial.left,
+            maxLeft = initial.left,
+            animations = 0;
+          for (let refresh = 0; refresh < 12; refresh++) {
+            window.mobileSurfacesQa.refresh();
+            for (let frame = 0; frame < 3; frame++) {
+              await new Promise(requestAnimationFrame);
+              const rect = target.getBoundingClientRect();
+              minLeft = Math.min(minLeft, rect.left);
+              maxLeft = Math.max(maxLeft, rect.left);
+              animations += target.getAnimations().length;
+            }
+          }
+          return { minLeft, maxLeft, animations };
+        });
+        if (result.maxLeft - result.minLeft > 1 || result.animations)
+          failures.push({ surface, width, theme, refreshJitter: result });
+        cases++;
+        if (output && width === 390)
+          await page.screenshot({ path: resolve(output, `${surface}-refresh-${theme}.png`) });
+      }
+    }
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/mobile-surfaces.html`,
+  );
+  await page.waitForSelector('.weq-self-profile-body');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => {
     const viewport = Object.assign(new EventTarget(), { height: 320, offsetTop: 96, scale: 1 });
