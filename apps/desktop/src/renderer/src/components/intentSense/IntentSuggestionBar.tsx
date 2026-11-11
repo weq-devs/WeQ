@@ -36,7 +36,7 @@ export function IntentSuggestionBar({
   const [historyScope, setHistoryScope] = useState<string | null>(null);
   const [detail, setDetail] = useState<{
     scope: string;
-    id: string;
+    id?: string;
     anchor: HTMLButtonElement;
   } | null>(null);
   const historyId = useId();
@@ -167,10 +167,11 @@ export function IntentSuggestionBar({
     >
       {detail?.scope === scope ? (
         <ReplySuggestionDetailsPanel
-          key={detail.id}
+          key={detail.id ?? 'in-progress'}
           kind={kind}
           conv={conv}
           id={detail.id}
+          generating={loading}
           anchor={detail.anchor}
           onClose={() => setDetail(null)}
         />
@@ -240,9 +241,13 @@ export function IntentSuggestionBar({
             className="weq-int-suggest-refresh"
             title="查看当前推荐详情"
             aria-label="查看当前推荐详情"
-            disabled={!currentRound}
+            disabled={!currentRound && !loading}
             onClick={(event) =>
-              currentRound && setDetail({ scope, id: currentRound.id, anchor: event.currentTarget })
+              setDetail({
+                scope,
+                id: loading ? undefined : currentRound?.id,
+                anchor: event.currentTarget,
+              })
             }
           >
             <Info size={12} />

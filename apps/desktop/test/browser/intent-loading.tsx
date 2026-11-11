@@ -12,6 +12,7 @@ import { ContactWorkspaceNavigationContext } from '../../src/renderer/src/lib/pr
 import {
   setMode,
   setHistory,
+  getHistory,
   result,
   publishResult,
   publishProgress,
@@ -22,6 +23,7 @@ import '../../src/renderer/src/styles/index.css';
 const qa = {
   setMode,
   setHistory,
+  getHistory,
   publishResult,
   publishProgress,
   releaseCache,

@@ -237,6 +237,84 @@ it('相同候选仍按轮次 ID 区分，正式详情和历史日期打开对应
   }
 });
 
+it.each([false, true])(
+  '生成中有旧候选=%s 仍可打开当前轮实时详情，完成后不跳到其他轮次',
+  (hasPrevious) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.fetching = true;
+    fixture.data = hasPrevious ? [{ text: '旧候选' }] : undefined;
+    let done = false;
+    const entry: ReplySuggestionHistoryEntry = {
+      id: 'running-round',
+      createdAt: 1000,
+      target: { msgId: 'message', senderUin: '10000', sendTime: 1 },
+      suggestions: [],
+    };
+    fixture.detailQuery.mockImplementation(() => ({
+      data: {
+        entry: done
+          ? { ...entry, summary: '新一轮概括', suggestions: [{ text: '新候选' }] }
+          : entry,
+        progress: {
+          id: entry.id,
+          status: done ? 'completed' : 'running',
+          stage: done ? '生成完成' : '等待模型返回',
+          startedAt: 900,
+          updatedAt: 1000,
+        },
+        trace: {
+          logs: [
+            { seq: 1, ts: 900, stage: '读取输入', level: 'info', text: '正在读取输入' },
+            ...(done
+              ? [{ seq: 2, ts: 1000, stage: '生成完成', level: 'info', text: '本轮生成完成' }]
+              : []),
+          ],
+        },
+      },
+      isLoading: false,
+      error: null,
+    }));
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = () =>
+      act(() =>
+        root.render(
+          createElement(IntentSuggestionBar, {
+            kind: 'c2c',
+            conv: 'fixture',
+            latestMessageId: 'message',
+            onInsert: vi.fn(),
+          }),
+        ),
+      );
+    try {
+      render();
+      const button = host.querySelector<HTMLButtonElement>('[aria-label="查看当前推荐详情"]')!;
+      expect(button.disabled).toBe(false);
+      act(() => button.click());
+      expect(fixture.detailQuery.mock.calls[0]?.[0].id).toBeUndefined();
+      expect(fixture.detailQuery.mock.calls.at(-1)?.[0].id).toBe(entry.id);
+      let panel = document.querySelector('.weq-int-round-details')!;
+      expect(panel.textContent).toContain('等待模型返回');
+      expect(panel.querySelector('[role="log"]')?.textContent).toContain('正在读取输入');
+      const interval = fixture.detailQuery.mock.calls.at(-1)?.[1].refetchInterval;
+      expect(interval(fixture.detailQuery.mock.results.at(-1)?.value.data)).toBe(500);
+      done = true;
+      fixture.fetching = false;
+      render();
+      panel = document.querySelector('.weq-int-round-details')!;
+      expect(panel.textContent).toContain('新一轮概括');
+      expect(panel.querySelector('[role="log"]')?.textContent).toContain('本轮生成完成');
+      expect(interval(fixture.detailQuery.mock.results.at(-1)?.value.data)).toBe(false);
+      expect(fixture.refresh).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  },
+);
+
 it.each([true, false])(
   '历史已覆盖最新消息=%s：过期推荐仅在输入仍为最新时复用，手动换一批始终可用',
   async (matchesLatest) => {

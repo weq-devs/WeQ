@@ -56,7 +56,7 @@ it('模式配置、只读画像缓存与明确菜单分析完整传递', async (
   expect(service.analyzeMessage).toHaveBeenLastCalledWith('group', '123', '42', { manual: true });
 });
 
-it('轮次请求保留禁用及手动刷新语义，详情只按会话和 ID 读取', async () => {
+it('轮次请求保留禁用及手动刷新语义，详情可按会话读取在途轮次或按 ID 固定读取', async () => {
   const caller = intentSenseRouter.createCaller({});
   await caller.getSuggestionRound({ kind: 'c2c', conv: 'u_peer', refresh: true });
   expect(service.getSuggestionRound).toHaveBeenLastCalledWith('c2c', 'u_peer', { refresh: true });
@@ -69,6 +69,11 @@ it('轮次请求保留禁用及手动刷新语义，详情只按会话和 ID 读
     caller.getSuggestionDetails({ kind: 'group', conv: '123', id: 'round-1' }),
   ).resolves.toBeNull();
   expect(service.getSuggestionDetails).toHaveBeenLastCalledWith('group', '123', 'round-1');
+  await expect(caller.getSuggestionDetails({ kind: 'c2c', conv: 'u_peer' })).resolves.toBeNull();
+  expect(service.getSuggestionDetails).toHaveBeenLastCalledWith('c2c', 'u_peer', undefined);
+  await expect(
+    caller.getSuggestionDetails({ kind: 'c2c', conv: 'u_peer', id: '' }),
+  ).rejects.toThrow();
   expect(service.getSuggestionRound).toHaveBeenCalledTimes(calls);
 });
 

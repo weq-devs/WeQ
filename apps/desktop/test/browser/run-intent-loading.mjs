@@ -104,6 +104,49 @@ try {
   assert.equal(await page.locator('.weq-int-suggest-track').textContent(), '正在生成推荐回复');
   assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
   if (output) await page.screenshot({ path: resolve(output, 'loading.png'), fullPage: true });
+  const initialHistory = await page.evaluate(() => window.intentQa.getHistory());
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          theme === 'dark' ? '#fff3a1' : '#075c30',
+        );
+        document.documentElement.dataset.background = 'paper';
+      }, theme);
+      await page.getByLabel('查看当前推荐详情', { exact: true }).click();
+      const panel = page.locator('.weq-int-round-details');
+      await panel.getByText('等待模型返回', { exact: true }).waitFor();
+      assert.ok((await panel.getByRole('log').textContent()).includes('已发送推荐请求'));
+      assert.equal(
+        await detailsBeside('查看当前推荐详情'),
+        true,
+        `${width}/${theme}: 生成中详情不越界`,
+      );
+      if (output && width !== 320)
+        await page.screenshot({
+          path: resolve(output, `recommendation-live-${width}-${theme}.png`),
+        });
+      await page.evaluate(() => window.intentQa.setMode('ready'));
+      await panel.getByText('生成完成', { exact: true }).waitFor();
+      assert.ok((await panel.getByRole('log').textContent()).includes('本轮生成完成'));
+      assert.ok(
+        (await panel.locator('.weq-int-round-summary').textContent()).includes('双方正在聊日常'),
+      );
+      await page.getByLabel('关闭推荐详情', { exact: true }).click();
+      await page.evaluate((entries) => {
+        window.intentQa.setHistory(entries);
+        window.intentQa.setMode('loading');
+      }, initialHistory);
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.background = 'plain';
+  });
   await page.evaluate(() => {
     window.intentQa.publishResult();
     window.intentQa.publishProgress({

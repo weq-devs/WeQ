@@ -338,11 +338,25 @@ export interface ReplySuggestionTrace {
   prompt?: { system: string; user: string };
   response?: string;
   error?: string;
+  logs?: Array<{
+    seq: number;
+    ts: number;
+    stage: string;
+    level: 'info' | 'warn' | 'error';
+    text: string;
+  }>;
 }
 
 export interface ReplySuggestionDetails {
-  entry: ReplySuggestionHistoryEntry;
+  entry: ReplySuggestionHistoryEntry | null;
   trace: ReplySuggestionTrace | null;
+  progress?: {
+    id: string;
+    status: 'running' | 'completed' | 'stopped' | 'failed';
+    stage: string;
+    startedAt: number;
+    updatedAt: number;
+  };
 }
 
 function normalizeSuggestionGeneration(raw: unknown): ReplySuggestionHistoryEntry['generation'] {
@@ -583,6 +597,11 @@ export class IntentSenseService {
     { round?: ReplySuggestionHistoryEntry }
   >();
   private readonly suggestionControllers = new Map<string, AbortController>();
+  /** 每会话仅保留最新运行快照；未完成的轮次不写入候选历史。 */
+  private readonly suggestionDetails = new Map<
+    string,
+    { revision: number; details: ReplySuggestionDetails }
+  >();
   /** API 熔断截止时间戳（ms）：网络/服务报错后短时间内不再重复撞墙。 */
   private apiCooldownUntil = 0;
   /** 最近一次 API 请求失败信息（供设置面板提示用户排查网络/Provider）。 */
@@ -929,6 +948,7 @@ export class IntentSenseService {
     this.analysisStores.clear();
     this.suggestionCache.clear();
     this.suggestionInFlight.clear();
+    this.suggestionDetails.clear();
     this.apiCooldownUntil = 0;
     this.lastApiError = null;
     this.suggestionApiCooldownUntil = 0;
@@ -1601,10 +1621,30 @@ export class IntentSenseService {
   getSuggestionDetails(
     kind: IntentConversationKind,
     conv: string,
-    id: string,
+    id?: string,
   ): ReplySuggestionDetails | null {
-    const current = this.suggestionCache.get(conversationKey(kind, conv));
-    if (current?.round.id === id) return { entry: current.round, trace: current.trace ?? null };
+    this.syncDefaultModels();
+    const key = conversationKey(kind, conv);
+    const runtime = this.suggestionDetails.get(key);
+    if (runtime && (!id || runtime.details.progress?.id === id)) {
+      if (
+        runtime.revision !== this.suggestionRevision &&
+        runtime.details.progress?.status === 'running'
+      )
+        this.updateSuggestionProgress(
+          runtime.details,
+          'stopped',
+          '本轮已失效',
+          '推荐配置已更改，本轮不再生成。',
+        );
+      return runtime.details.progress?.status === 'running'
+        ? { ...runtime.details, progress: { ...runtime.details.progress, updatedAt: Date.now() } }
+        : runtime.details;
+    }
+    if (!id) return null;
+    const current = this.suggestionCache.get(key);
+    if (current && current.round.id === id)
+      return { entry: current.round, trace: current.trace ?? null };
     const entry = this.suggestionHistoryFor(kind, conv).data.find((entry) => entry.id === id);
     if (!entry) return null;
     const raw = readJsonFile(this.suggestionTracePath(kind, conv, id));
@@ -1623,8 +1663,38 @@ export class IntentSenseService {
         trace.prompt = { system: raw.prompt.system, user: raw.prompt.user };
       if ('response' in raw && typeof raw.response === 'string') trace.response = raw.response;
       if ('error' in raw && typeof raw.error === 'string') trace.error = raw.error;
+      if ('logs' in raw && Array.isArray(raw.logs)) {
+        trace.logs = raw.logs.filter(
+          (line): line is NonNullable<ReplySuggestionTrace['logs']>[number] =>
+            !!line &&
+            typeof line === 'object' &&
+            Number.isInteger(line.seq) &&
+            line.seq > 0 &&
+            typeof line.ts === 'number' &&
+            Number.isFinite(new Date(line.ts).getTime()) &&
+            typeof line.stage === 'string' &&
+            typeof line.text === 'string' &&
+            (line.level === 'info' || line.level === 'warn' || line.level === 'error'),
+        );
+      }
     }
     return { entry, trace };
+  }
+
+  private updateSuggestionProgress(
+    details: ReplySuggestionDetails,
+    status: NonNullable<ReplySuggestionDetails['progress']>['status'],
+    stage: string,
+    text = stage,
+    level: 'info' | 'warn' | 'error' = 'info',
+  ): void {
+    if (!details.progress || !details.trace) return;
+    details.progress = { ...details.progress, status, stage, updatedAt: Date.now() };
+    details.trace.logs ??= [];
+    const logs = details.trace.logs;
+    logs.push({ seq: logs.length + 1, ts: details.progress.updatedAt, stage, level, text });
+    if (details.entry?.generation)
+      details.entry.generation.durationMs = details.progress.updatedAt - details.progress.startedAt;
   }
 
   getSuggestionRound(
@@ -1643,10 +1713,11 @@ export class IntentSenseService {
     suggestions: ReplySuggestion[],
     metadata: Pick<ReplySuggestionHistoryEntry, 'summary' | 'generation'>,
     trace?: ReplySuggestionTrace,
+    id = randomUUID(),
   ): ReplySuggestionHistoryEntry | null {
     if (!suggestions.length) return null;
     const entry: ReplySuggestionHistoryEntry = {
-      id: randomUUID(),
+      id,
       createdAt: Date.now(),
       target: {
         msgId: last.msgId,
@@ -1693,9 +1764,24 @@ export class IntentSenseService {
     const controller = new AbortController();
     this.suggestionControllers.set(inFlightKey, controller);
     const result: { round?: ReplySuggestionHistoryEntry } = {};
+    const id = randomUUID();
+    const startedAt = Date.now();
+    const details: ReplySuggestionDetails = {
+      entry: null,
+      trace: { logs: [] },
+      progress: { id, status: 'running', stage: '读取输入', startedAt, updatedAt: startedAt },
+    };
+    this.suggestionDetails.set(key, { revision, details });
+    const currentRevision = () =>
+      revision === this.suggestionRevision && !controller.signal.aborted;
+    const log = (stage: string, text = stage, level: 'info' | 'warn' | 'error' = 'info') =>
+      this.updateSuggestionProgress(details, 'running', stage, text, level);
+    const stop = () =>
+      this.updateSuggestionProgress(details, 'stopped', '已停止', '本轮推荐已停止。');
+    controller.signal.addEventListener('abort', stop, { once: true });
+    log('读取输入', '正在读取本轮对话输入。');
 
     const task = (async (): Promise<ReplySuggestion[]> => {
-      const startedAt = Date.now();
       const started = performance.now();
       const contextMessages = this.config.suggestionContextMessages;
       const current = () => {
@@ -1723,10 +1809,31 @@ export class IntentSenseService {
         Date.now() - cachedHit.at < this.config.suggestionCacheSeconds * 1000
       ) {
         result.round = cachedHit.round;
+        details.entry = cachedHit.round;
+        details.trace = cachedHit.trace ?? null;
+        // 缓存命中没有新轮次，仍打开实际结果的详情。
+        details.progress = {
+          ...details.progress!,
+          status: 'completed',
+          stage: '已复用缓存',
+          updatedAt: Date.now(),
+        };
         return cachedHit.round.suggestions;
       }
 
-      let trace: ReplySuggestionTrace | undefined;
+      const trace = details.trace!;
+      details.entry = {
+        id,
+        createdAt: startedAt,
+        target: {
+          msgId: last.msgId,
+          msgSeq: last.msgSeq,
+          senderUin: last.senderUin,
+          sendTime: last.sendTime,
+        },
+        suggestions: [],
+      };
+      log('准备请求', `已读取 ${rows.length} 条输入消息，正在准备推荐请求。`);
       let model: string | undefined;
       let providerId: string | undefined;
       let providerName: string | undefined;
@@ -1738,6 +1845,12 @@ export class IntentSenseService {
         summary?: string,
       ): ReplySuggestion[] => {
         if (!current()) return [];
+        this.updateSuggestionProgress(
+          details,
+          'completed',
+          '生成完成',
+          `本轮生成完成，共 ${suggestions.length} 条候选。`,
+        );
         const round = this.recordSuggestions(
           kind,
           conv,
@@ -1758,8 +1871,10 @@ export class IntentSenseService {
             },
           },
           trace,
+          id,
         );
         if (round) {
+          details.entry = round;
           result.round = round;
           this.suggestionCache.set(key, {
             lastMsgId: last.msgId,
@@ -1773,12 +1888,27 @@ export class IntentSenseService {
 
       const fallbackLocal = (): ReplySuggestion[] => {
         if (!current()) return [];
-        if (!this.config.suggestionFallbackEnabled) return [];
+        if (trace.error) log('请求错误 / 回退原因', trace.error, 'error');
+        if (!this.config.suggestionFallbackEnabled) {
+          this.updateSuggestionProgress(
+            details,
+            'failed',
+            '未生成候选',
+            trace.error ?? '未启用回退内容。',
+            'warn',
+          );
+          return [];
+        }
         const suggestions = sampleSuggestionFallback(
           this.config.suggestionFallbackTexts,
           this.config.suggestionCount,
         ).map((text) => ({ text }));
-        return complete(suggestions, trace ? 'fallback' : 'local');
+        if (!suggestions.length) {
+          this.updateSuggestionProgress(details, 'failed', '未生成候选', '回退内容为空。', 'warn');
+          return [];
+        }
+        log('本地候选', '正在选择本地回退内容。');
+        return complete(suggestions, trace.prompt || trace.error ? 'fallback' : 'local');
       };
 
       const endpoint = this.endpoint(this.config.suggestionProviderRef);
@@ -1789,12 +1919,22 @@ export class IntentSenseService {
           ? this.config.suggestionProviderRef.providerId
           : undefined);
       providerName = endpoint?.providerName;
+      details.entry.generation = {
+        source: endpoint ? 'api' : 'local',
+        model,
+        providerId,
+        providerName,
+        startedAt,
+        durationMs: 0,
+        inputMessages: rows.length,
+      };
       if (!endpoint || Date.now() < this.suggestionApiCooldownUntil) {
-        if (endpoint) trace = { error: '模型服务处于失败冷却期，本轮使用本地候选。' };
+        if (endpoint) trace.error = '模型服务处于失败冷却期，本轮使用本地候选。';
         return fallbackLocal();
       }
       const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
 
+      log('准备上下文', '正在补全发送者与提及对象资料。');
       const people = await this.suggestionPeople(kind, conv, rows);
       if (!current()) return [];
       const prompt = buildSuggestionPrompt({
@@ -1806,7 +1946,10 @@ export class IntentSenseService {
         count: this.config.suggestionCount,
         targetChars: this.config.suggestionTargetChars,
       });
-      trace = { prompt };
+      trace.prompt = prompt;
+      log('System Prompt', `System Prompt\n${prompt.system}`);
+      log('User Prompt', `User Prompt\n${prompt.user}`);
+      log('等待模型返回', `已发送推荐请求，等待模型 ${model} 返回。`);
       const requestStarted = performance.now();
       try {
         const body = await requestApiJson<{
@@ -1833,7 +1976,10 @@ export class IntentSenseService {
         });
         if (!current()) return [];
         requestDurationMs = Math.round(performance.now() - requestStarted);
+        if (details.entry?.generation)
+          details.entry.generation.requestDurationMs = requestDurationMs;
         trace.response = JSON.stringify(body);
+        log('原始返回', `原始返回\n${trace.response}`);
         if (typeof body.model === 'string' && body.model.trim()) model = body.model;
         usage = parseApiUsage(body);
         this.lastSuggestionApiError = null;
@@ -1862,6 +2008,8 @@ export class IntentSenseService {
       } catch (error) {
         if (!current()) return [];
         requestDurationMs = Math.round(performance.now() - requestStarted);
+        if (details.entry?.generation)
+          details.entry.generation.requestDurationMs = requestDurationMs;
         trace.error = error instanceof Error ? error.message : String(error);
         this.suggestionApiCooldownUntil = Date.now() + this.config.apiCooldownSeconds * 1000;
         this.lastSuggestionApiError = error instanceof Error ? error.message : String(error);
@@ -1871,13 +2019,35 @@ export class IntentSenseService {
         });
         return fallbackLocal();
       }
-    })().finally(() => {
-      if (this.suggestionInFlight.get(inFlightKey) === task) {
-        this.suggestionInFlight.delete(inFlightKey);
-      }
-      if (this.suggestionControllers.get(inFlightKey) === controller)
-        this.suggestionControllers.delete(inFlightKey);
-    });
+    })()
+      .catch((error: unknown) => {
+        if (currentRevision() && details.progress?.status !== 'stopped') {
+          if (details.trace)
+            details.trace.error = error instanceof Error ? error.message : String(error);
+          this.updateSuggestionProgress(
+            details,
+            'failed',
+            '生成失败',
+            details.trace?.error,
+            'error',
+          );
+        }
+        throw error;
+      })
+      .finally(() => {
+        controller.signal.removeEventListener('abort', stop);
+        if (details.progress?.status === 'running')
+          this.updateSuggestionProgress(
+            details,
+            currentRevision() ? 'completed' : 'stopped',
+            currentRevision() ? '未生成候选' : '本轮已失效',
+          );
+        if (this.suggestionInFlight.get(inFlightKey) === task) {
+          this.suggestionInFlight.delete(inFlightKey);
+        }
+        if (this.suggestionControllers.get(inFlightKey) === controller)
+          this.suggestionControllers.delete(inFlightKey);
+      });
 
     this.suggestionInFlight.set(inFlightKey, task);
     this.suggestionRounds.set(task, result);

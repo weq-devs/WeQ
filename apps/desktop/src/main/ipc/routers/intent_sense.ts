@@ -239,7 +239,13 @@ const intentSenseFeatureProcedures = {
     .mutation(({ input }) => requireServices().intentSense.stopSuggestions(input.kind, input.conv)),
 
   getSuggestionDetails: procedure
-    .input(z.object({ kind: kindSchema, conv: z.string().min(1), id: z.string().min(1).max(128) }))
+    .input(
+      z.object({
+        kind: kindSchema,
+        conv: z.string().min(1),
+        id: z.string().min(1).max(128).optional(),
+      }),
+    )
     .query(({ input }) =>
       requireServices().intentSense.getSuggestionDetails(input.kind, input.conv, input.id),
     ),
