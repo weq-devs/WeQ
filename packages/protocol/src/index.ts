@@ -234,6 +234,8 @@ export type {
 
 export * from './call';
 export * from './oidb/profile/extras';
+export { getEducationHistory } from './oidb/profile/education';
+export type { ProfileEducationRecord, ProfileEducationHistory } from './oidb/profile/education';
 /**
  * 群通话协议层。
  *

@@ -24,6 +24,7 @@ function fixture() {
     getPersonalityLabels,
     getPersonalityPhotos,
     getAnonymousQuestions,
+    getEducationHistory: vi.fn(async (_nt, _pid, targetUin) => ({ targetUin, items: [] })),
   });
   let active = { profileExtras: service };
   const routes = createProfileExtrasRouter((input) => {
@@ -64,4 +65,11 @@ it('异步期间切换数据源拒绝迟到结果', async () => {
     return { targetUin: '10002', score: 0, level: null, display: null, trend: null };
   });
   await expect(caller.energy(binding)).rejects.toThrow('变化');
+});
+it('教育经历只读路由可查询当前目标，账号不匹配时拒绝', async () => {
+  const { caller } = fixture();
+  expect(await caller.educationHistory(binding)).toEqual({ targetUin: '10002', items: [] });
+  await expect(
+    caller.educationHistory({ ...binding, expectedAccountConfigId: 'other' }),
+  ).rejects.toThrow('账号');
 });

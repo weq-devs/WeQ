@@ -3,6 +3,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ChevronRight,
+  GraduationCap,
   History,
   Images,
   MessageCircleQuestion,
@@ -19,10 +20,11 @@ import { useTabActive } from './RetainedTabs';
 import { trpc } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { extrasPageWarning, mergeExtrasPages, nextExtrasCursor } from '../lib/profileExtrasPages';
+import { educationDegree, educationRows, educationYears } from '../lib/profileEducation';
 import '../styles/profile-extras.css';
 
 type Target = QQWriteBinding & { uin: string };
-type View = 'signatures' | 'labels' | 'questions';
+type View = 'signatures' | 'labels' | 'questions' | 'education';
 const queryOptions = {
   staleTime: 5 * 60_000,
   cacheTime: 5 * 60_000,
@@ -83,7 +85,13 @@ function ExtrasBody({
   const usable = energy.data?.targetUin === input.uin ? energy.data : null;
   const titleId = useId();
   const title =
-    view === 'signatures' ? '历史个性签名' : view === 'labels' ? '标签相册' : '匿问我答';
+    view === 'signatures'
+      ? '历史个性签名'
+      : view === 'labels'
+        ? '标签相册'
+        : view === 'education'
+          ? '教育经历'
+          : '匿问我答';
   return (
     <>
       {section === 'signature' ? (
@@ -129,6 +137,11 @@ function ExtrasBody({
             ) : null}
           </div>
           <div className="weq-extras-links">
+            <button type="button" title="查看完整教育经历" onClick={() => setView('education')}>
+              <GraduationCap size={15} />
+              教育经历
+              <ChevronRight size={14} />
+            </button>
             <button type="button" onClick={() => setView('labels')}>
               <Images size={15} />
               标签相册
@@ -161,7 +174,9 @@ function ExtrasBody({
             </button>
           </header>
           <div className="weq-extras-content" data-privacy-sensitive>
-            {view === 'signatures' ? (
+            {view === 'education' ? (
+              <EducationHistory input={input} online={online} />
+            ) : view === 'signatures' ? (
               <Signatures input={input} online={online} />
             ) : view === 'labels' ? (
               <Labels input={input} online={online} />
@@ -171,6 +186,57 @@ function ExtrasBody({
           </div>
         </Modal>
       ) : null}
+    </>
+  );
+}
+function EducationHistory({ input, online }: { input: Target; online: boolean }) {
+  const active = useTabActive();
+  const query = trpc.account.profileExtras.educationHistory.useQuery(input, {
+    ...queryOptions,
+    enabled: online && active,
+  });
+  const usable = query.data?.targetUin === input.uin ? query.data : null;
+  const rows = educationRows(usable?.items ?? [], input.uin === input.expectedAccountUin);
+  const error = query.error || (query.data && !usable ? new Error('教育经历返回目标不匹配') : null);
+  return (
+    <>
+      <PageStatus
+        online={online}
+        pending={query.isFetching}
+        error={error}
+        empty={!rows.length}
+        emptyText="暂无可展示的教育经历"
+        retry={() => void query.refetch()}
+      />
+      {rows.length ? (
+        <div className="weq-education-refresh">
+          {error ? <span role="status">读取失败，已显示的教育经历保留。</span> : null}
+          <button
+            type="button"
+            className="weq-extras-back"
+            disabled={!online || query.isFetching}
+            onClick={() => void query.refetch()}
+            aria-label="重新读取教育经历"
+          >
+            <RotateCcw size={14} />
+            {query.isFetching ? '读取中…' : '刷新'}
+          </button>
+        </div>
+      ) : null}
+      <div className="weq-extras-list weq-education-list">
+        {rows.map(({ key, record }) => (
+          <article key={key}>
+            <h3>{record.schoolName?.trim() || '未填写学校'}</h3>
+            {record.departmentName ? <p>{record.departmentName}</p> : null}
+            {educationDegree(record.degree) ? <p>{educationDegree(record.degree)}</p> : null}
+            {educationYears(record) ? <p>{educationYears(record)}</p> : null}
+            <div className="weq-extras-counts">
+              {record.verifyStatus === 2 ? <span>已认证</span> : null}
+              {record.hidden === 1 ? <span>未公开</span> : null}
+            </div>
+          </article>
+        ))}
+      </div>
     </>
   );
 }

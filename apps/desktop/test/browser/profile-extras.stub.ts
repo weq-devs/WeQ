@@ -57,6 +57,25 @@ const signature = {
   location: '合成地点',
   createdAt: 1700000000,
 };
+const education = {
+  index: 1,
+  category: 3,
+  schoolId: 'fixture-school',
+  schoolName: '合成大学与较长学校名称用于窄屏换行验证',
+  departmentId: 'fixture-department',
+  departmentName: '合成院系与专业方向',
+  degree: 6,
+  enrollmentYear: 2019,
+  graduationYear: 2023,
+  allowRecommend: 0,
+  createSource: null,
+  createdAt: null,
+  updateSource: null,
+  updatedAt: null,
+  hidden: 0,
+  verifyStatus: 2,
+  verifyType: 1,
+};
 const page = (items: unknown[], nextCursor: string | number | null = null) => ({
   targetUin: '10001',
   items,
@@ -72,7 +91,12 @@ function useQuery(kind: string, input: { uin: string }) {
   const value =
     kind === 'energy'
       ? { targetUin: input.uin, score: 831, level: 1 }
-      : { targetUin: input.uin, labels: empty ? [] : [label], totalPhotos: 2, closed: false };
+      : kind === 'education'
+        ? {
+            targetUin: input.uin,
+            items: empty ? [] : [education, { ...education, index: 2, degree: 7, hidden: 1 }],
+          }
+        : { targetUin: input.uin, labels: empty ? [] : [label], totalPhotos: 2, closed: false };
   return {
     data: pending || error ? undefined : value,
     isFetching: pending,
@@ -133,6 +157,7 @@ export const trpc = {
   account: {
     profileExtras: {
       energy: { useQuery: (input: { uin: string }) => useQuery('energy', input) },
+      educationHistory: { useQuery: (input: { uin: string }) => useQuery('education', input) },
       personalityLabels: { useQuery: (input: { uin: string }) => useQuery('labels', input) },
       signatureHistory: { useInfiniteQuery: () => useInfiniteQuery('signatureHistory') },
       personalityPhotos: { useInfiniteQuery: () => useInfiniteQuery('personalityPhotos') },

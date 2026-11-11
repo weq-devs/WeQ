@@ -120,6 +120,27 @@ try {
             await page.screenshot({ path: resolve(output, `${width}-${theme}-${mode}.png`) });
           results.push({ width, theme, accent, mode, overflow: false });
           await page.getByRole('button', { name: '关闭资料详情' }).click();
+          await page.getByRole('button', { name: '教育经历', exact: true }).click();
+          if (mode === 'ready') {
+            assert.equal(await page.locator('.weq-education-list article').count(), 2);
+            assert.ok(
+              (await page.locator('.weq-extras-content').textContent()).includes(
+                '2019 年入学 · 2023 年毕业',
+              ),
+            );
+          }
+          const educationOverflow = await page.evaluate(() =>
+            [
+              ...document.querySelectorAll(
+                '.weq-extras-dialog, .weq-extras-content, .weq-education-list article, .weq-education-list h3, .weq-education-list p',
+              ),
+            ].some((element) => element.scrollWidth > element.clientWidth + 2),
+          );
+          assert.equal(educationOverflow, false, `${width}/${theme}/${mode}: education overflow`);
+          if (output && accent === '#167d67' && mode === 'ready')
+            await page.screenshot({ path: resolve(output, `${width}-${theme}-education.png`) });
+          results.push({ width, theme, accent, mode, view: 'education', overflow: false });
+          await page.getByRole('button', { name: '关闭资料详情' }).click();
         }
       }
   await page.evaluate(() => window.profileExtrasQa.mode('ready'));

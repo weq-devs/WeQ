@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   labels: vi.fn(),
   photos: vi.fn(),
   questions: vi.fn(),
+  education: vi.fn(),
   next: vi.fn(),
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
@@ -26,6 +27,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       profileExtras: {
         energy: { useQuery: state.energy },
+        educationHistory: { useQuery: state.education },
         signatureHistory: { useInfiniteQuery: state.signatures },
         personalityLabels: { useQuery: state.labels },
         personalityPhotos: { useInfiniteQuery: state.photos },
@@ -83,6 +85,7 @@ beforeEach(() => {
   state.target = '10002';
   vi.clearAllMocks();
   state.energy.mockReturnValue(result({ targetUin: '10002', score: 0, level: null }));
+  state.education.mockReturnValue(result({ targetUin: '10002', items: [] }));
   state.signatures.mockReturnValue({ ...result({ pages: [page] }), hasNextPage: true });
   state.labels.mockReturnValue(result({ targetUin: '10002', labels: [] }));
   state.photos.mockReturnValue(result());
@@ -105,6 +108,7 @@ it('零能量正常显示，未展开不请求列表', async () => {
   expect(state.signatures).not.toHaveBeenCalled();
   expect(state.labels).not.toHaveBeenCalled();
   expect(state.questions).not.toHaveBeenCalled();
+  expect(state.education).not.toHaveBeenCalled();
 });
 it('签名入口按需打开详情，保留时间地点并支持翻页', async () => {
   await render('signature');
@@ -203,4 +207,94 @@ it('重复游标可单独重读末页，不自动连续翻页', async () => {
   const select = refetch.mock.calls[0]?.[0].refetchPage;
   expect(select({}, 0, [{}, {}])).toBe(false);
   expect(select({}, 1, [{}, {}])).toBe(true);
+});
+const education = {
+  index: 1,
+  category: 3,
+  schoolId: 'school',
+  schoolName: '合成大学',
+  departmentId: 'department',
+  departmentName: '合成院系',
+  degree: 6,
+  enrollmentYear: 2019,
+  graduationYear: 2023,
+  allowRecommend: 0,
+  createSource: null,
+  createdAt: null,
+  updateSource: null,
+  updatedAt: null,
+  hidden: 0,
+  verifyStatus: 2,
+  verifyType: 1,
+};
+it('教育经历打开后才查询，展示全部同校记录和院系学历年份，不伪造分页', async () => {
+  state.education.mockReturnValue(
+    result({ targetUin: '10002', items: [education, { ...education, index: 2, degree: 7 }] }),
+  );
+  await render();
+  expect(state.education).not.toHaveBeenCalled();
+  await click('教育经历');
+  expect(state.education.mock.calls.at(-1)?.[0]).toMatchObject({
+    uin: '10002',
+    expectedAccountUin: '10001',
+  });
+  expect(document.querySelectorAll('.weq-education-list article')).toHaveLength(2);
+  expect(document.body.textContent).toContain('合成院系');
+  expect(document.body.textContent).toContain('本科');
+  expect(document.body.textContent).toContain('研究生');
+  expect(document.body.textContent).toContain('2019 年入学 · 2023 年毕业');
+  expect(document.body.textContent).toContain('已认证');
+  expect(document.body.textContent).not.toContain('加载更多');
+});
+it('他人隐藏经历不展示，自己的经历保留并标明未公开', async () => {
+  state.education.mockImplementation((input) =>
+    result({ targetUin: input.uin, items: [{ ...education, hidden: 1 }] }),
+  );
+  await render();
+  await click('教育经历');
+  expect(document.querySelectorAll('.weq-education-list article')).toHaveLength(0);
+  state.target = state.account;
+  await render();
+  await click('教育经历');
+  expect(document.body.textContent).toContain('合成大学');
+  expect(document.body.textContent).toContain('未公开');
+});
+it('教育刷新失败保留已读内容，可重试且不展示其他目标的缓存', async () => {
+  const refetch = vi.fn();
+  state.education.mockReturnValue({
+    ...result({ targetUin: '10002', items: [education] }),
+    error: new Error('暂不可读'),
+    refetch,
+  });
+  await render();
+  await click('教育经历');
+  expect(document.body.textContent).toContain('合成大学');
+  expect(document.body.textContent).toContain('已显示的教育经历保留');
+  await click('刷新');
+  expect(refetch).toHaveBeenCalledOnce();
+  state.education.mockReturnValue(result({ targetUin: '10003', items: [education] }));
+  await render();
+  expect(document.body.textContent).not.toContain('合成大学');
+  expect(document.body.textContent).toContain('读取失败');
+});
+it('教育经历离线不发查询，缺失与未知学历不冒充零年份', async () => {
+  state.online = false;
+  state.education.mockReturnValue(result());
+  await render();
+  await click('教育经历');
+  expect(state.education.mock.calls.at(-1)?.[1].enabled).toBe(false);
+  expect(document.body.textContent).toContain('暂不可在线读取');
+  state.online = true;
+  state.education.mockReturnValue(
+    result({
+      targetUin: '10002',
+      items: [
+        { ...education, schoolName: null, degree: 77, enrollmentYear: 0, graduationYear: null },
+      ],
+    }),
+  );
+  await render();
+  expect(document.body.textContent).toContain('未填写学校');
+  expect(document.body.textContent).toContain('学历编号 77');
+  expect(document.body.textContent).not.toContain('0 年入学');
 });

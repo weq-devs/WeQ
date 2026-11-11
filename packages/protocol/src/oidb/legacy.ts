@@ -11,6 +11,7 @@ export const legacyOidbEnvelope = message([
 ]);
 export interface LegacyOidbOptions {
   clientVersion?: string;
+  strict?: boolean;
 }
 
 export async function invokeLegacyOidb(
@@ -34,7 +35,7 @@ export async function invokeLegacyOidb(
     }),
   );
   if (!reply.length || reply.length > 1024 * 1024) throw new Error('旧 OIDB 响应为空或超限');
-  const response = decode(legacyOidbEnvelope, reply);
+  const response = decode(legacyOidbEnvelope, reply, { strict: options.strict });
   if (
     response.command !== command ||
     (response.serviceType !== undefined && response.serviceType !== serviceType)

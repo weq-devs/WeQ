@@ -4,6 +4,7 @@ import {
   getPersonalityLabels,
   getPersonalityPhotos,
   getAnonymousQuestions,
+  getEducationHistory,
   type TrpcNative,
 } from '@weq/protocol';
 import type { ContactMetricsService } from './contact_metrics';
@@ -14,6 +15,7 @@ const readers = {
   getPersonalityLabels,
   getPersonalityPhotos,
   getAnonymousQuestions,
+  getEducationHistory,
 };
 
 /** 资料扩展独立按页读取，不修改 QQ 原库或把列表塞进指标快照。 */
@@ -57,6 +59,11 @@ export class ProfileExtrasService {
 
   energy(uin: string) {
     return this.query(`energy:${uin}`, (pid) => this.read.getProfileEnergy(this.nt, pid, uin));
+  }
+  educationHistory(uin: string) {
+    return this.query(`education:${uin}`, (pid) =>
+      this.read.getEducationHistory(this.nt, pid, uin),
+    );
   }
   signatureHistory(uin: string, before?: number) {
     return this.query(`signatures:${uin}:${before ?? ''}`, (pid) =>

@@ -23,6 +23,9 @@ export function createProfileExtrasRouter(
     return result;
   }
   return router({
+    educationHistory: procedure
+      .input(target)
+      .query(({ input }) => read(input, (s) => s.educationHistory(input.uin))),
     energy: procedure.input(target).query(({ input }) => read(input, (s) => s.energy(input.uin))),
     signatureHistory: procedure
       .input(target.extend({ cursor: z.number().int().min(0).max(0x7fffffff).optional() }))

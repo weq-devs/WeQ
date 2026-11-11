@@ -5,6 +5,7 @@ import {
   getPersonalityLabels,
   getPersonalityPhotos,
   getAnonymousQuestions,
+  getEducationHistory,
 } from '@weq/protocol';
 import { ProfileExtrasService } from '../src/account/profile_extras';
 
@@ -14,6 +15,7 @@ const readers = {
   getPersonalityLabels,
   getPersonalityPhotos,
   getAnonymousQuestions,
+  getEducationHistory,
 };
 const nt = { sendPacket: vi.fn() };
 it('同一目标和游标共享在途查询，不对不同目标复用结果', async () => {
@@ -104,4 +106,39 @@ it('一项读取失败不影响另一项；失败可以重试', async () => {
   await expect(service.energy('10002')).rejects.toThrow('离线');
   expect(await service.personalityLabels('10002')).toMatchObject({ labels: [] });
   expect((await service.energy('10002')).score).toBe(2);
+});
+it('教育经历按目标合并在途读取，失败可重试，不丢弃返回的整份列表', async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const read = vi.fn(async (_nt, _pid, targetUin: string) => {
+    await pending;
+    return { targetUin, items: [] };
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getEducationHistory: read,
+  });
+  const a = service.educationHistory('10002');
+  const b = service.educationHistory('10002');
+  const c = service.educationHistory('10003');
+  expect(read).toHaveBeenCalledTimes(2);
+  release();
+  expect(await a).toEqual(await b);
+  expect((await c).targetUin).toBe('10003');
+  read.mockRejectedValueOnce(new Error('合成失败'));
+  await expect(service.educationHistory('10002')).rejects.toThrow('合成失败');
+  expect((await service.educationHistory('10002')).items).toEqual([]);
+});
+it('教育经历读取期间进程改变，拒绝旧结果', async () => {
+  let pid = 5;
+  const service = new ProfileExtrasService(nt, '10001', () => pid, {
+    ...readers,
+    getEducationHistory: async (_nt, _pid, targetUin) => {
+      pid = 6;
+      return { targetUin, items: [] };
+    },
+  });
+  await expect(service.educationHistory('10002')).rejects.toThrow('切换');
 });
