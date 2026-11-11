@@ -66,6 +66,7 @@ describe('设置的两级导航', () => {
       'chat-messages',
       'message-display',
       'chat-interaction',
+      'contact-card',
       'call-recording',
       'qzone',
       'mail',

@@ -1,0 +1,110 @@
+.weq-contact-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: text;
+}
+.weq-contact-value:hover:not(:disabled), .weq-contact-more button:hover {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.weq-contact-value:focus-visible, .weq-contact-more button:focus-visible,
+.weq-contact-directory button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+.weq-contact-value:disabled { cursor: default; opacity: 1; }
+.weq-contact-card { width: min(390px, calc(100vw - 20px)); max-height: calc(100dvh - 20px); overflow: auto; }
+.weq-contact-card .weq-profile-hero { padding-inline-end: 20px; }
+.weq-contact-identity { display: flex; flex-direction: row; align-items: center; gap: 16px; }
+.weq-contact-identity .weq-profile-avatar { position: relative; flex: 0 0 72px; width: 72px; height: 72px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.weq-contact-identity .weq-profile-heading { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.weq-contact-identity .weq-profile-name { font-size: 19px; line-height: 1.4; max-width: 100%; overflow-wrap: anywhere; }
+.weq-contact-identity-kind { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; color: var(--weq-fg-secondary); }
+.weq-contact-pendant { position: absolute; inset: -15%; width: 130%; height: 130%; object-fit: contain; pointer-events: none; }
+.weq-contact-content > div:empty { display: none; }
+.weq-contact-content .weq-profile-row { min-width: 0; }
+.weq-contact-content .weq-profile-row-value, .weq-contact-content .weq-contact-value { min-width: 0; overflow-wrap: anywhere; }
+.weq-contact-qqshow { display: block; width: 100%; height: 160px; border: 0; background: transparent; cursor: pointer; }
+.weq-contact-qqshow img { height: 100%; max-width: 100%; object-fit: contain; }
+.weq-contact-signature { padding-block: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.weq-contact-signature summary { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.weq-contact-signature[open] summary { -webkit-line-clamp: unset; }
+.weq-contact-signature p { display: none; }
+.weq-contact-more { display: flex; flex-wrap: wrap; gap: 8px 16px; padding-block: 12px; border-top: 1px solid var(--weq-border-subtle); }
+.weq-contact-more button { padding: 2px 0; border: 0; background: transparent; color: var(--weq-fg-secondary); font-size: 12px; cursor: pointer; }
+.weq-contact-actions { flex-wrap: wrap; gap: 10px 16px; padding-block: 12px; }
+.weq-contact-actions.weq-profile-actions > .weq-profile-perhome { flex: 0 0 auto; width: auto; min-width: 110px; }
+.weq-contact-actions button { font-size: 13px; }
+.weq-contact-card .weq-profile-list, .weq-contact-card-preview .weq-profile-list { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; }
+.weq-contact-profile-v2 .weq-contact-content .weq-profile-row { display: grid; grid-template-columns: minmax(100px, 150px) minmax(0, 1fr); align-items: baseline; gap: 12px; }
+.weq-contact-profile-v2 .weq-contact-content .weq-profile-row > :last-child { justify-self: start; text-align: start; }
+.weq-common-groups-list .weq-common-group-target { display: flex; align-items: center; gap: 10px; width: 100%; height: auto; min-height: 48px; text-align: start; }
+.weq-contact-content [data-profile-field="description"] .weq-contact-value,
+.weq-contact-card [data-profile-field="botDescription"] p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.weq-contact-group-context { padding-block: 12px; border-top: 1px solid var(--weq-border-subtle); }
+.weq-contact-group-context h3 { font-size: 14px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.weq-contact-profile-v2 { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden !important; }
+.weq-profile-dialog.weq-contact-profile-v2,
+html[data-theme="dark"] .weq-profile-dialog.weq-contact-profile-v2 {
+  width: 100%; max-width: none; max-height: none; height: 100%; margin: 0;
+  padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+.weq-contact-profile-v2 .weq-profile-hero.weq-contact-identity,
+.weq-contact-card .weq-profile-hero.weq-contact-identity {
+  display: flex; flex-direction: row; align-items: center; text-align: start;
+}
+.weq-contact-content { font-size: 13px; }
+.weq-contact-page-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 24px; border-bottom: 1px solid var(--weq-border-subtle); font-size: 13px; }
+.weq-contact-page-header { flex: 0 0 auto; padding: 16px 24px; border-bottom: 1px solid var(--weq-border-subtle); }
+.weq-contact-page-header .weq-profile-hero { margin: 0; padding: 0; }
+.weq-contact-page-header .weq-contact-actions { margin: 8px 0 0; padding: 0; }
+.weq-contact-workspace-v2 { display: grid; grid-template-columns: 152px minmax(0, 1fr); min-height: 0; flex: 1; overflow: hidden; }
+.weq-contact-directory { display: flex; flex-direction: column; gap: 3px; padding: 16px 10px; overflow-y: auto; border-right: 1px solid var(--weq-border-subtle); }
+.weq-contact-directory button { flex: 0 0 auto; text-align: start; padding: 9px 12px; border: 0; border-radius: 5px; color: var(--weq-fg-secondary); background: transparent; font-size: 13px; cursor: pointer; }
+.weq-contact-directory button[aria-current] { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent); font-weight: 600; }
+.weq-contact-directory button:hover { background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent); }
+.weq-contact-workspace-body { min-width: 0; min-height: 0; overflow: auto; padding: 20px 24px; scrollbar-gutter: stable; }
+.weq-contact-section-title { margin: 0 0 18px; font-size: 17px; line-height: 1.4; }
+.weq-contact-workspace-body .weq-extras-content { padding: 0; }
+.weq-contact-workspace-body [hidden] { display: none !important; }
+.weq-contact-directory-mobile { display: none; }
+.weq-contact-settings-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.weq-contact-settings-head h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; }
+.weq-contact-settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); gap: 24px; align-items: start; }
+.weq-contact-settings-section { margin: 0 0 24px; }
+.weq-contact-settings-section h3 { font-size: 14px; margin: 16px 0 8px; }
+.weq-contact-settings-section ul { padding: 0; margin: 0; list-style: none; }
+.weq-contact-settings-section li { display: flex; gap: 8px; align-items: center; min-height: 38px; border-bottom: 1px solid var(--weq-border-subtle); }
+.weq-contact-settings-section label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.weq-contact-settings-section input { accent-color: var(--weq-accent-effective); }
+.weq-contact-settings-preview { position: sticky; top: 16px; min-width: 0; }
+.weq-contact-card-preview { border: 1px solid var(--weq-border-subtle); border-radius: 8px; padding: 18px; max-height: min(640px, 80dvh); overflow: auto; background: var(--weq-bg-surface); }
+.weq-contact-card-preview .weq-profile-row { font-size: 12px; }
+.weq-contact-space-preview, .weq-contact-speech { min-width: 0; max-height: 55dvh; overflow: auto; padding: 12px; }
+.weq-contact-space-preview article, .weq-contact-speech article { padding-block: 12px; border-bottom: 1px solid var(--weq-border-subtle); white-space: pre-wrap; overflow-wrap: anywhere; }
+.weq-contact-space-preview time, .weq-contact-speech time { color: var(--weq-fg-muted); font-size: 12px; }
+html[data-theme="dark"] .weq-contact-directory button[aria-current] { background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent); }
+@media (max-width: 720px) {
+  .weq-contact-profile-v2 .weq-contact-page-header { padding: 12px 14px; }
+  .weq-contact-workspace-v2 { display: flex; flex-direction: column; }
+  .weq-contact-directory { display: none; }
+  .weq-contact-directory-mobile { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--weq-border-subtle); font-size: 13px; }
+  .weq-contact-directory-mobile select { min-width: 0; flex: 1; border: 1px solid var(--weq-border-subtle); border-radius: 4px; padding: 5px 8px; color: var(--weq-fg-primary); background: var(--weq-bg-surface); }
+  .weq-contact-workspace-body { padding: 16px 14px; }
+  .weq-contact-settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .weq-contact-settings-preview { position: static; grid-row: 1; }
+  .weq-contact-card-preview { max-height: 280px; }
+}

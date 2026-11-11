@@ -138,6 +138,7 @@ import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
 import { useUpdateStore } from '../state/update';
 import { SettingsResetButton } from './settings/SettingsReset';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
+import { ContactCardSettings } from './settings/ContactCardSettings';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
@@ -148,6 +149,12 @@ interface SettingsSection {
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
+  {
+    id: 'contact-card',
+    label: '联系人名片',
+    icon: <User size={16} />,
+    render: () => <ContactCardSettings />,
+  },
   {
     id: 'backup',
     label: '配置备份与恢复',

@@ -13,7 +13,9 @@
 
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+const preferences = vi.hoisted(() => ({ friendClue: false }));
 
 // 卡片会拉 tRPC 补全陌生人资料 —— 单测不建 ipc 链接，给个死数据桩。
 vi.mock('@renderer/trpc/client', () => ({
@@ -27,19 +29,34 @@ vi.mock('@renderer/trpc/client', () => ({
         }),
       },
       getBotProfile: { query: async () => null },
+      conversationBoundary: { query: async () => null },
       // 资料卡 hero 头像点开 QQ 秀展柜前，会先查一次「当前形象」用来标 #N。
       // 单测里给「没有 QQ 秀」；展柜本身不挂载，与本文件的断言无关。
-      dressup: { peerQqShow: { query: async () => ({ hasShow: false, url: '' }) } },
+      dressup: {
+        peerQqShow: { query: async () => ({ hasShow: false, url: '' }) },
+        peerHome: { query: async () => ({}) },
+      },
     },
   },
   // 卡片底部的「互动画像」入口会读意图感知状态；这里给一个「未开启」的桩，
   // 入口不渲染，也就不会把画像 Dialog 的依赖链拖进来。
   trpc: {
+    bootstrap: {
+      getSettings: {
+        useQuery: () => ({
+          data: { contactCard: { visible: { friendClue: preferences.friendClue } } },
+        }),
+      },
+    },
     useUtils: () => ({}),
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source' } }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
-      profileExtras: { energy: { useQuery: () => ({ data: undefined }) } },
+      profileExtras: {
+        energy: { useQuery: () => ({ data: undefined }) },
+        details: { useQuery: () => ({ data: undefined }) },
+        personalityLabels: { useQuery: () => ({ data: undefined }) },
+      },
       dressup: { peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) } },
       intentSense: {
         getProfile: {
@@ -51,6 +68,12 @@ vi.mock('@renderer/trpc/client', () => ({
       },
     },
   },
+}));
+vi.mock('@renderer/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    available: true,
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source' },
+  }),
 }));
 
 // 卡片底部的三个「从卡片里再打开」的灯箱与本次断言无关，换成空壳避免把
@@ -101,7 +124,7 @@ const hosts: HTMLDivElement[] = [];
 const expandContact = vi.fn();
 
 const MEMBER = {
-  id: 'uid-1',
+  id: 'u_fixture',
   identityLabel: 'QQ',
   identityValue: '10001',
   username: 'tester',
@@ -122,20 +145,27 @@ async function mountCard(
   await act(async () => {
     root.render(
       createElement(
-        RelationshipDirectoryContext.Provider,
-        { value: directory },
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
         createElement(
-          ContactWorkspaceNavigationContext.Provider,
-          { value: expandContact },
-          createElement(MemberProfileCard, {
-            member,
-            anchor,
-            onClose,
-            groupCode,
-          }),
+          RelationshipDirectoryContext.Provider,
+          { value: directory },
+          createElement(
+            ContactWorkspaceNavigationContext.Provider,
+            { value: expandContact },
+            createElement(MemberProfileCard, {
+              member,
+              anchor,
+              onClose,
+              groupCode,
+            }),
+          ),
         ),
       ),
     );
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
   });
   roots.push(root);
   hosts.push(host);
@@ -149,6 +179,35 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('数字设备身份不作为 QQ 号请求名片名称、QQ 秀和资料', async () => {
+    const show = vi.spyOn(client.account.dressup.peerQqShow, 'query');
+    const dress = vi.spyOn(client.account.dressup.peerHome, 'query');
+    const profile = vi.spyOn(client.account.getProfile, 'query');
+    const names = vi.spyOn(client.account.getCardDisplayNames, 'query');
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      id: 'phone:10002',
+      identityLabel: '设备',
+      identityValue: '10002',
+    });
+    expect(show).not.toHaveBeenCalled();
+    expect(dress).not.toHaveBeenCalled();
+    expect(profile).not.toHaveBeenCalled();
+    expect(names).not.toHaveBeenCalled();
+    expect(layer().querySelector('[aria-label="合成共同群跳转"]')).toBeNull();
+  });
+  it('群内未返回或无效时间不展示 epoch 与 Invalid Date 占位', async () => {
+    await mountCard(
+      () => {},
+      undefined,
+      { ...MEMBER, joinedAt: new Date(0).toISOString(), lastSpeakAt: 'invalid' } as User,
+      '20001',
+    );
+    expect(layer().textContent).not.toContain('1970');
+    expect(layer().textContent).not.toContain('Invalid Date');
+    expect(layer().textContent).not.toContain('入群时间');
+    expect(layer().textContent).not.toContain('最后群发言');
+  });
   it('各入口补全资料后以真实昵称为主标题，不使用备注或群昵称', async () => {
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: MEMBER.id,
@@ -163,7 +222,7 @@ describe('群成员资料卡浮层', () => {
     );
     expect(layer().querySelector('.weq-profile-name')?.textContent).toBe('真实昵称');
     expect(layer().textContent).toContain('好友备注');
-    act(() => layer().querySelector<HTMLButtonElement>('.weq-profile-expand')!.click());
+    act(() => layer().querySelector<HTMLButtonElement>('.weq-profile-name')!.click());
     expect(expandContact).toHaveBeenLastCalledWith(
       expect.objectContaining({ contact: expect.objectContaining({ nick: '真实昵称' }) }),
     );
@@ -190,6 +249,7 @@ describe('群成员资料卡浮层', () => {
     expect(layer().querySelector('[data-member-editor]')).not.toBeNull();
   });
   it('群外保留历史群昵称和头衔，但不挂载成员编辑器；好友关系在资料失败时仍保留', async () => {
+    preferences.friendClue = true;
     vi.spyOn(client.account.getProfile, 'query').mockRejectedValueOnce(new Error('合成错误'));
     await mountCard(
       () => {},
@@ -211,6 +271,7 @@ describe('群成员资料卡浮层', () => {
     );
   });
   it.each([true, false])('资料补全后显示明确好友关系 %s', async (isFriend) => {
+    preferences.friendClue = true;
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: MEMBER.id,
       isFriend,
@@ -252,7 +313,14 @@ describe('群成员资料卡浮层', () => {
         Awaited<ReturnType<typeof client.account.getProfile.query>>
       >),
     );
-    expect(byUid).toHaveBeenCalledWith({ uid: member.id });
+    expect(byUid).toHaveBeenCalledWith({
+      uid: member.id,
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source',
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
     expect(layer().querySelector('.weq-profile-avatar img')?.getAttribute('src')).toBe(
       cachedAvatarUrl(avatarFromUin('10009')),
     );
@@ -337,9 +405,14 @@ describe('群成员资料卡浮层', () => {
 
   it('自己的本地身份不是 QQ UID 时按 QQ 号补资料，不把 self 前缀发给 UID 查询', async () => {
     await mountCard(() => {}, { x: 120, y: 120 }, { ...MEMBER, id: 'self:10001' });
-    expect(client.account.getProfileByUin.query).toHaveBeenCalledWith({ uin: '10001' });
+    expect(client.account.getProfileByUin.query).toHaveBeenCalledWith({
+      uin: '10001',
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source',
+    });
   });
   beforeEach(() => {
+    preferences.friendClue = false;
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
   });
@@ -385,7 +458,10 @@ describe('群成员资料卡浮层', () => {
     await mountCard(() => {}, undefined, member);
     expect(layer().querySelector('.weq-profile-name')?.textContent).toBe(member.nick);
     expect(layer().textContent).toContain(member.remark);
-    await act(async () => finish({ name: '云端昵称', remark: '' }));
+    await act(async () => {
+      finish({ name: '云端昵称', remark: '' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
     expect(layer().querySelector('.weq-profile-name')?.textContent).toBe('云端昵称');
     expect(layer().textContent).not.toContain('本地备注');
     expect(member.displayName).toBe('本地备注');
@@ -405,7 +481,11 @@ describe('群成员资料卡浮层', () => {
     const member = { ...MEMBER, id: 'self:10001', uid: 'u_self' };
     await mountCard(() => {}, { x: 120, y: 120 }, member);
     expect(byUid).toHaveBeenCalledOnce();
-    expect(byUid).toHaveBeenCalledWith({ uid: 'u_self' });
+    expect(byUid).toHaveBeenCalledWith({
+      uid: 'u_self',
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source',
+    });
     expect(byUin).not.toHaveBeenCalled();
     expect(layer().textContent).not.toContain('加载资料');
   });

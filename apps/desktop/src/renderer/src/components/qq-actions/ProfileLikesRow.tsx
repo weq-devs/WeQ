@@ -1,15 +1,12 @@
 import { ThumbsUp } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { useContactStats } from '../../hooks/useContactCard';
 import { ProfileLikeAction } from './ProfileLikeAction';
 import '../../styles/profile-like.css';
 
 /** 与生日等资料共用行样式；累计获赞不代表当前账号今天还能发送的次数。 */
 export function ProfileLikesRow({ uid, uin, name }: { uid: string; uin: string; name: string }) {
   const valid = /^u_[A-Za-z0-9_-]+$/.test(uid) && /^[1-9]\d{4,19}$/.test(uin);
-  const stats = trpc.account.dressup.peerStats.useQuery(
-    { uin, uid },
-    { enabled: valid, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
-  );
+  const stats = useContactStats(uin, uid, 'likeCount', valid);
   if (!valid) return null;
   const count = stats.data?.likeCount;
   if (count === null) return null;

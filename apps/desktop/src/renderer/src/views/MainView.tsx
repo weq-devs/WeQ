@@ -12598,7 +12598,21 @@ function MainWorkspace(): ReactElement {
               (person.identityLabel === 'QQ' &&
                 person.identityValue === target.contact.identityValue),
           );
-          shell.openContactDetails(contact ?? target.contact, target.tab);
+          shell.openContactDetails(
+            {
+              ...target.contact,
+              ...contact,
+              profileContext: target.group
+                ? {
+                    groupCode: target.group.code,
+                    groupName: target.group.name,
+                    member: target.contact.profileContext?.member,
+                  }
+                : target.contact.profileContext,
+              profileLabelId: target.labelId,
+            },
+            target.tab,
+          );
         } else {
           const known = contactDirectoryConversations.find(
             (conversation) =>
@@ -12677,6 +12691,20 @@ function MainWorkspace(): ReactElement {
                     NonNullable<React.ContextType<typeof ConversationDirectoryContext>>
                   >({
                     real: conversations,
+                    profileConversationExists: (person) => {
+                      const id = person.uid || person.id;
+                      return (
+                        conversations.some(
+                          (item) =>
+                            item.id === id ||
+                            (item.type === 'direct' &&
+                              item.otherUser.identityValue === person.identityValue),
+                        ) ||
+                        hiddenConversationsById.has(id) ||
+                        deletedConversationsById.has(id) ||
+                        Boolean(temporaryConversations[id])
+                      );
+                    },
                     guild: guildConversationRows,
                     scope: conversationScope,
                     onScopeChange: setConversationScope,

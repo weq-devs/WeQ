@@ -3952,11 +3952,14 @@ export const accountRouter = router({
   /** 名片专用的云端名称投影；普通资料及会话读取仍只使用本地库。 */
   getCardDisplayNames: procedure
     .input(
-      z.object({ kind: z.enum(['user', 'group']), target: z.string().regex(/^[1-9]\d{0,9}$/) }),
+      z
+        .object({ kind: z.enum(['user', 'group']), target: z.string().regex(/^[1-9]\d{0,9}$/) })
+        .merge(exportAccountBindingInput),
     )
     .query(async ({ input }) => {
       const services = requireServices();
       requireQqOnlineForAlbum(services);
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       const readNick = async () =>
         (await services.accountWrite.exactProfile(input.kind, input.target)).name;
       const local =
@@ -3970,7 +3973,10 @@ export const accountRouter = router({
               : undefined,
           )
         : { nick: await readNick() };
-      if (requireServices() !== services) throw new Error('账号已切换，请重新读取资料');
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号已切换，请重新读取资料');
       return {
         name: names?.nick ?? '',
         remark: names && 'remark' in names ? names.remark : undefined,
@@ -3978,10 +3984,14 @@ export const accountRouter = router({
     }),
 
   /** Get detailed profile by NT uid. */
-  getProfile: procedure.input(z.object({ uid: z.string().min(1) })).query(async ({ input }) => {
-    const profile = await requireServices().profile.getProfile(input.uid);
-    return profile ? userProfileToWire(profile) : null;
-  }),
+  getProfile: procedure
+    .input(z.object({ uid: z.string().min(1) }).merge(exportAccountBindingInput))
+    .query(async ({ input }) => {
+      const { services, check } = groupAlbumReadScope(input);
+      const profile = await services.profile.getProfile(input.uid);
+      check();
+      return profile ? userProfileToWire(profile) : null;
+    }),
 
   /**
    * The uids of every bot with a cached profile. The renderer fetches this
@@ -3997,16 +4007,22 @@ export const accountRouter = router({
    * A bot's own profile (简介 / 指令列表 / 欢迎语). Null when QQ has never
    * cached that bot's card — callers fall back to the regular profile.
    */
-  getBotProfile: procedure.input(z.object({ uid: z.string().min(1) })).query(async ({ input }) => {
-    const profile = await requireServices().profile.getBotProfile(input.uid);
-    return profile ? botProfileToWire(profile) : null;
-  }),
+  getBotProfile: procedure
+    .input(z.object({ uid: z.string().min(1) }).merge(exportAccountBindingInput))
+    .query(async ({ input }) => {
+      const { services, check } = groupAlbumReadScope(input);
+      const profile = await services.profile.getBotProfile(input.uid);
+      check();
+      return profile ? botProfileToWire(profile) : null;
+    }),
 
   /** Get detailed profile by QQ uin. */
   getProfileByUin: procedure
-    .input(z.object({ uin: z.string().min(1) }))
+    .input(z.object({ uin: z.string().min(1) }).merge(exportAccountBindingInput))
     .query(async ({ input }) => {
-      const profile = await requireServices().profile.getProfileByUin(BigInt(input.uin));
+      const { services, check } = groupAlbumReadScope(input);
+      const profile = await services.profile.getProfileByUin(BigInt(input.uin));
+      check();
       return profile ? userProfileToWire(profile) : null;
     }),
 

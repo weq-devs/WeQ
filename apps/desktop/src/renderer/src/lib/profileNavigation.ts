@@ -31,9 +31,26 @@ export const ProfileNavigationContext = createContext<
   ((user: User, anchor: { x: number; y: number }, group?: ProfileGroup) => void) | null
 >(null);
 
-export type ContactWorkspaceTab = 'profile' | 'personality' | 'marks' | 'portrait' | 'history';
+export type ContactWorkspaceTab =
+  | 'profile'
+  | 'details'
+  | 'signatures'
+  | 'labels'
+  | 'questions'
+  | 'marks'
+  | 'group'
+  | 'personality'
+  | 'portrait'
+  | 'history'
+  | 'edit';
 export type ContactWorkspaceTarget =
-  | { kind: 'person'; contact: Contact; tab?: ContactWorkspaceTab }
+  | {
+      kind: 'person';
+      contact: Contact;
+      tab?: ContactWorkspaceTab;
+      group?: ProfileGroup;
+      labelId?: string;
+    }
   | { kind: 'group'; conversation: GroupConversation };
 
 /** 小名片展开到联系人详情，不向好友或群目录写入临时对象。 */

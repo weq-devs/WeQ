@@ -50,14 +50,14 @@ function Entry({ input, online }: { input: Target; online: boolean }) {
             </button>
           </header>
           <div className="weq-extras-content" data-privacy-sensitive>
-            <Details input={input} online={online} />
+            <ProfileDetailsContent input={input} online={online} />
           </div>
         </Modal>
       ) : null}
     </>
   );
 }
-function Details({ input, online }: { input: Target; online: boolean }) {
+export function ProfileDetailsContent({ input, online }: { input: Target; online: boolean }) {
   const active = useTabActive();
   const query = trpc.account.profileExtras.details.useQuery(input, {
     enabled: online && active,

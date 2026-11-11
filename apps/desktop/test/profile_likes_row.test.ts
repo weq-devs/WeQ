@@ -12,6 +12,12 @@ const state = vi.hoisted(() => ({
   perform: vi.fn(),
   write: vi.fn(async () => ({ state: 'accepted' })),
 }));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    available: true,
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+  }),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { qqActions: { profileLike: { mutate: state.write } } } },
   trpc: {

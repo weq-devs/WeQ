@@ -1,182 +1,220 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Award, BrainCircuit, History, UserRound, Wand2 } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
 import type { Contact } from '../im-template/template/types';
 import type { ContactWorkspaceTab } from '../lib/profileNavigation';
-import { SegmentedControl } from './SegmentedControl';
 import { PersonalityHomeDialog, type PersonalityHomeProfile } from './PersonalityHomeDialog';
 import { MutualMarkDialog } from './MutualMarkDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context';
 import { usePersonRelationship } from '../lib/contactRelationship';
 import { ContactHistory } from './ContactHistory';
+import { ContactContent, ContactGroupContent } from './contactProfile/ContactContent';
+import { ProfileExtrasContent } from './ProfileExtras';
+import { SelfQQControls } from './settings/SelfQQControls';
+import { ProfileWorkspace } from './ProfileWorkspace';
+import '../styles/contact-card.css';
 
+const sections: Array<[ContactWorkspaceTab, string]> = [
+  ['profile', '概览'],
+  ['details', '详细资料'],
+  ['signatures', '签名历史'],
+  ['labels', '标签相册'],
+  ['questions', '匿问我答'],
+  ['marks', '关系与互动'],
+  ['group', '群内资料'],
+  ['personality', '个性主页'],
+  ['portrait', '互动画像'],
+  ['history', '资料历史'],
+  ['edit', '编辑资料'],
+];
 export function ContactWorkspace({
   contact,
   personalityProfile,
   tab,
   onTabChange,
   onNavigateAway,
-  children,
 }: {
   contact: Contact;
   personalityProfile: PersonalityHomeProfile;
   tab?: ContactWorkspaceTab;
   onTabChange?: (tab: ContactWorkspaceTab) => void;
   onNavigateAway: () => void;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   const [localTab, setLocalTab] = useState<ContactWorkspaceTab>('profile');
-  const [tabsStuck, setTabsStuck] = useState(false);
-  const workspace = useRef<HTMLDivElement>(null);
-  const status = useIntentSenseStatus();
+  const [labelId, setLabelId] = useState(contact.profileLabelId);
+  useEffect(() => setLabelId(contact.profileLabelId), [contact.profileLabelId]);
   const relationship = usePersonRelationship(contact);
-  useEffect(() => setLocalTab('profile'), [contact.id]);
   const hasQQ =
-    ['QQ', 'UIN'].includes(contact.identityLabel) && /^[1-9]\d{4,19}$/.test(contact.identityValue);
-  const hasUid = /^u_[A-Za-z0-9_-]+$/.test(contact.uid || contact.id);
-  const options = [
-    {
-      value: 'profile' as const,
-      label: (
-        <>
-          <UserRound size={14} />
-          资料
-        </>
-      ),
-    },
-    {
-      value: 'personality' as const,
-      label: (
-        <>
-          <Wand2 size={14} />
-          个性主页
-        </>
-      ),
-      disabled: !hasQQ && contact.kind !== 'bot',
-      title: hasQQ || contact.kind === 'bot' ? undefined : '需要有效 QQ 号',
-    },
-    {
-      value: 'marks' as const,
-      label: (
-        <>
-          <Award size={14} />
-          互动标识
-        </>
-      ),
-      disabled: !hasQQ || contact.kind === 'bot' || relationship !== 'friend',
-      title:
-        contact.kind === 'bot'
-          ? '机器人不提供互动标识'
-          : relationship !== 'friend'
-            ? '仅好友提供互动标识'
-            : hasQQ
-              ? undefined
-              : '需要有效 QQ 号',
-    },
-    {
-      value: 'portrait' as const,
-      label: (
-        <>
-          <BrainCircuit size={14} />
-          互动画像
-        </>
-      ),
-      disabled: !hasUid,
-      title: hasUid ? undefined : '需要有效用户 UID',
-    },
-    {
-      value: 'history' as const,
-      label: (
-        <>
-          <History size={14} />
-          历史
-        </>
-      ),
-      disabled: !hasUid && !hasQQ,
-      title: hasUid || hasQQ ? undefined : '需要有效用户身份',
-    },
-  ];
+    ['QQ', 'UIN'].includes(contact.identityLabel) &&
+    /^[1-9]\d{4,19}$/.test(contact.identityValue) &&
+    !contact.clone;
+  const hasUid = /^u_/.test(contact.uid || contact.id) && !contact.clone;
+  const human = hasQQ && contact.kind !== 'bot' && !contact.extInfo?.isEnterprise;
+  const options = sections.filter(([key]) => {
+    if (key === 'edit') return relationship === 'self';
+    if (key === 'group') return Boolean(contact.profileContext) && !contact.clone;
+    if (['labels', 'questions', 'signatures'].includes(key)) return human;
+    if (key === 'personality') return hasQQ;
+    if (key === 'portrait') return hasUid;
+    if (key === 'history') return hasUid || hasQQ;
+    return true;
+  });
   const requested = tab ?? localTab;
-  const selected = options.some((option) => option.value === requested && !option.disabled)
-    ? requested
-    : 'profile';
-  const select = onTabChange ?? setLocalTab;
-  useEffect(() => {
-    const scroller = workspace.current?.closest('.weq-contact-profile-content');
-    if (scroller) scroller.scrollTop = 0;
-  }, [selected, contact.id]);
-  // 分区条只在真正吸住时才铺底色，避免和顶部标题栏叠成两层浮层。
-  useEffect(() => {
-    const root = workspace.current;
-    const scroller = root?.closest<HTMLElement>('.weq-contact-profile-content');
-    const tabs = root?.querySelector<HTMLElement>('.weq-contact-workspace-tabs');
-    if (!scroller || !tabs) return;
-    const update = () => {
-      const edge = scroller.getBoundingClientRect().top;
-      setTabsStuck(tabs.getBoundingClientRect().top <= edge + 1);
-    };
-    update();
-    scroller.addEventListener('scroll', update, { passive: true });
-    return () => scroller.removeEventListener('scroll', update);
-  }, []);
-  return (
-    <div className="weq-contact-workspace" ref={workspace}>
-      <nav
-        className={`weq-contact-workspace-tabs${tabsStuck ? ' is-stuck' : ''}`}
-        aria-label="联系人详情分区"
-      >
-        <SegmentedControl
-          label="联系人详情分区"
-          value={selected}
-          options={options}
-          onChange={select}
+  const selected = options.some(([key]) => key === requested) ? requested : 'profile';
+  function select(key: ContactWorkspaceTab, label?: string) {
+    setLabelId(label);
+    setLocalTab(key);
+    onTabChange?.(key);
+  }
+  function panel(key: ContactWorkspaceTab) {
+    if (key === 'history')
+      return (
+        <ContactHistory
+          entity={`friend:${contact.uid || (hasQQ ? contact.identityValue : contact.id)}`}
         />
-      </nav>
-      <div className="weq-contact-tab-panel">
-        {selected === 'history' ? (
-          <ContactHistory
-            entity={`friend:${contact.uid || (hasQQ ? contact.identityValue : contact.id)}`}
+      );
+    if (key === 'profile')
+      return (
+        <ContactContent
+          person={contact}
+          settings={DEFAULT_CONTACT_CARD}
+          full
+          fields={[
+            'signature',
+            'gender',
+            'age',
+            'birthday',
+            'region',
+            'school',
+            'labels',
+            'status',
+            'relations',
+            'level',
+            'qid',
+            'company',
+            'privileges',
+            'botDescription',
+          ]}
+          onSection={select}
+        />
+      );
+    if (key === 'details')
+      return (
+        <>
+          <ContactContent
+            person={contact}
+            settings={DEFAULT_CONTACT_CARD}
+            full
+            fields={[
+              'signatureUpdated',
+              'gender',
+              'age',
+              'birthday',
+              'constellation',
+              'zodiac',
+              'bloodType',
+              'region',
+              'occupation',
+              'school',
+              'energy',
+              'qid',
+              'uid',
+              'botDescription',
+              'botFeatures',
+            ]}
+            onSection={select}
           />
-        ) : selected === 'profile' ? (
-          children
-        ) : selected === 'personality' ? (
-          <PersonalityHomeDialog
-            key={contact.id}
-            embedded
-            uin={contact.identityValue}
-            uid={hasUid ? contact.uid || contact.id : undefined}
-            profile={personalityProfile}
-            isBot={contact.kind === 'bot'}
-            spaceNickname={contact.nick || contact.displayName}
-            onClose={onNavigateAway}
+          {human ? (
+            <>
+              <ProfileExtrasContent uin={contact.identityValue} view="details" />
+              <h3>教育经历</h3>
+              <ProfileExtrasContent uin={contact.identityValue} view="education" />
+            </>
+          ) : null}
+        </>
+      );
+    if (key === 'signatures' || key === 'labels' || key === 'questions')
+      return (
+        <ProfileExtrasContent
+          uin={contact.identityValue}
+          view={key}
+          labelId={key === 'labels' ? labelId : undefined}
+        />
+      );
+    if (key === 'group')
+      return <ContactGroupContent person={contact} settings={DEFAULT_CONTACT_CARD} full />;
+    if (key === 'edit') return <SelfQQControls />;
+    if (key === 'personality')
+      return (
+        <PersonalityHomeDialog
+          embedded
+          uin={contact.identityValue}
+          uid={hasUid ? contact.uid || contact.id : undefined}
+          profile={personalityProfile}
+          isBot={contact.kind === 'bot'}
+          spaceNickname={contact.nick || contact.displayName}
+          onClose={onNavigateAway}
+        />
+      );
+    if (key === 'marks')
+      return (
+        <>
+          <ContactContent
+            person={contact}
+            settings={DEFAULT_CONTACT_CARD}
+            full
+            fields={[
+              'common',
+              'category',
+              'intimacy',
+              'relations',
+              'privileges',
+              'likes',
+              'friendClue',
+              'notes',
+            ]}
+            onSection={select}
           />
-        ) : selected === 'marks' ? (
-          <MutualMarkDialog
-            key={contact.id}
-            embedded
-            uin={contact.identityValue}
-            name={contact.displayName}
-            cachedMarks={contact.extInfo?.interactMarks}
-            onClose={onNavigateAway}
-          />
-        ) : status.data?.profileEnabled ? (
-          <IntentProfileDialog
-            key={contact.id}
-            embedded
-            peerUid={contact.uid || contact.id}
-            peerName={contact.displayName}
-            onClose={onNavigateAway}
-          />
-        ) : (
-          <p className="weq-contact-feature-state" role="status">
-            {status.isLoading
-              ? '正在读取互动画像状态…'
-              : status.error
-                ? `互动画像状态读取失败：${status.error.message}`
-                : '互动画像未启用'}
-          </p>
-        )}
-      </div>
-    </div>
+          {human && relationship === 'friend' ? (
+            <MutualMarkDialog
+              embedded
+              uin={contact.identityValue}
+              name={contact.displayName}
+              cachedMarks={contact.extInfo?.interactMarks}
+              onClose={onNavigateAway}
+            />
+          ) : null}
+        </>
+      );
+    return <Portrait contact={contact} />;
+  }
+  return (
+    <ProfileWorkspace
+      label="联系人详情分区"
+      sections={options}
+      selected={selected}
+      onSelect={select}
+      render={panel}
+    />
+  );
+}
+function Portrait({ contact }: { contact: Contact }) {
+  const status = useIntentSenseStatus();
+  return status.data?.profileEnabled ? (
+    <IntentProfileDialog
+      embedded
+      peerUid={contact.uid || contact.id}
+      peerName={contact.displayName}
+      onClose={() => {}}
+    />
+  ) : (
+    <p role="status">
+      {status.isLoading
+        ? '正在读取互动画像状态…'
+        : status.error
+          ? `互动画像状态读取失败：${status.error.message}`
+          : '互动画像未启用'}
+    </p>
   );
 }

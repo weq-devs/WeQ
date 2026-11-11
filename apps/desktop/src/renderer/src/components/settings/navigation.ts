@@ -1,6 +1,8 @@
 // 这里只包含公开的目录与别名，不读取设置值、账号信息或凭据。
 import { AI_SETTING_ITEMS } from './aiSettingsCatalog';
+import { CONTACT_CARD_FIELDS, CONTACT_GROUP_FIELDS } from '@weq/service/contact-card';
 export const SETTINGS_PAGE_LABELS = {
+  'contact-card': '联系人名片',
   appearance: '主题与背景',
   global: '提醒与窗口',
   startup: '启动与主页',
@@ -75,6 +77,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
       'chat-messages',
       'message-display',
       'chat-interaction',
+      'contact-card',
       'call-recording',
       'qzone',
       'mail',
@@ -189,6 +192,14 @@ interface ItemRedirect {
 }
 
 export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
+  ...[...CONTACT_CARD_FIELDS, ...CONTACT_GROUP_FIELDS].map(
+    ([key, label]): ItemRedirect => ({
+      id: `contact-card-${key}`,
+      section: 'contact-card',
+      label,
+      from: ['contact-card'],
+    }),
+  ),
   {
     id: 'performance-monitor',
     section: 'performance-monitor',

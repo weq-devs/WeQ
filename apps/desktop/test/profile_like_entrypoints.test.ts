@@ -1,5 +1,5 @@
 import { act, createElement as h, Fragment, type ReactNode } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createQueryRoot as createRoot } from './support/query_root';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContactProfileDialog } from '../src/renderer/src/im-template/template/profilePanes';
 import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileCard';
@@ -20,11 +20,16 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
+    bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
     // `useQQWriteSession` 写完后会刷缓存；本用例只关心入口是否出现。
     useUtils: () => ({ invalidate: async () => undefined }),
     account: {
       // `withQQAccountScope` 用它校验「当前会话 = 当前数据源」，没有绑定就不渲染操作。
-      profileExtras: { energy: { useQuery: () => ({ data: undefined }) } },
+      profileExtras: {
+        energy: { useQuery: () => ({ data: undefined }) },
+        details: { useQuery: () => ({ data: undefined }) },
+        personalityLabels: { useQuery: () => ({ data: undefined }) },
+      },
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
       getGroupAlbumAccessState: {
         useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
@@ -113,10 +118,12 @@ it.each(['human', 'bot', 'enterprise'])(
         ),
       );
       expect(host.querySelectorAll('[aria-label="赞资料卡"]')).toHaveLength(excluded ? 0 : 3);
-      expect(host.querySelectorAll('.weq-profile-likes-row')).toHaveLength(excluded ? 0 : 3);
-      expect(host.querySelectorAll('.weq-extras-summary')).toHaveLength(excluded ? 0 : 3);
-      expect(host.querySelectorAll('.weq-extras-history')).toHaveLength(excluded ? 0 : 3);
-      for (const button of host.querySelectorAll('[aria-label="赞资料卡"]')) {
+      expect(host.querySelectorAll('.weq-profile-likes-row')).toHaveLength(excluded ? 0 : 1);
+      expect(host.querySelectorAll('.weq-extras-summary')).toHaveLength(excluded ? 0 : 1);
+      expect(host.querySelectorAll('.weq-extras-history')).toHaveLength(excluded ? 0 : 1);
+      for (const button of host.querySelectorAll(
+        '.weq-profile-likes-row [aria-label="赞资料卡"]',
+      )) {
         const row = button.closest('.weq-profile-row');
         expect(row?.textContent).toContain('获赞');
         expect(row?.querySelector('strong')?.textContent).toBe('100');

@@ -1,5 +1,5 @@
 import { act, createElement as h } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createQueryRoot as createRoot } from './support/query_root';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';

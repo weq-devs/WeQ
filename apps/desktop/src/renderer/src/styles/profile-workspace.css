@@ -1,0 +1,17 @@
+.weq-profile-workspace { display: grid; grid-template-columns: 152px minmax(0, 1fr); min-height: 0; flex: 1; overflow: hidden; }
+.weq-profile-workspace .weq-contact-directory { display: flex; flex-direction: column; gap: 3px; padding: 16px 10px; overflow-y: auto; border-right: 1px solid var(--weq-border-subtle); }
+.weq-profile-workspace .weq-contact-directory button { flex: 0 0 auto; text-align: start; padding: 9px 12px; border: 0; border-radius: 5px; color: var(--weq-fg-secondary); background: transparent; font-size: 13px; cursor: pointer; }
+.weq-profile-workspace .weq-contact-directory button[aria-current] { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent); font-weight: 600; }
+.weq-profile-workspace .weq-contact-directory button:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }
+.weq-profile-workspace .weq-contact-workspace-body { min-width: 0; min-height: 0; overflow: auto; padding: 20px 24px; scrollbar-gutter: stable; }
+.weq-profile-workspace .weq-contact-section-title { margin: 0 0 18px; font-size: 17px; line-height: 1.4; }
+.weq-profile-workspace [hidden] { display: none !important; }
+.weq-profile-workspace .weq-contact-directory-mobile { display: none; }
+html[data-theme="dark"] .weq-profile-workspace .weq-contact-directory button[aria-current] { background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent); }
+@media (max-width: 720px) {
+  .weq-profile-workspace { display: flex; flex-direction: column; }
+  .weq-profile-workspace .weq-contact-directory { display: none; }
+  .weq-profile-workspace .weq-contact-directory-mobile { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--weq-border-subtle); font-size: 13px; }
+  .weq-profile-workspace .weq-contact-directory-mobile select { min-width: 0; flex: 1; border: 1px solid var(--weq-border-subtle); border-radius: 4px; padding: 5px 8px; color: var(--weq-fg-primary); background: var(--weq-bg-surface); }
+  .weq-profile-workspace .weq-contact-workspace-body { padding: 16px 14px; }
+}

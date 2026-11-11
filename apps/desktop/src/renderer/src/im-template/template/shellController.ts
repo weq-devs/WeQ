@@ -280,11 +280,12 @@ export function useChatShellController({
     if (activeConversation) openedConversation.current = activeConversation;
   }, [activeConversation]);
   const selectedContact = useMemo(
-    () =>
-      contactTab === 'friends'
-        ? (contacts.find((contact) => contact.id === selectedContactId) ??
-          (expandedContact?.id === selectedContactId ? expandedContact : undefined))
-        : undefined,
+    () => {
+      if (contactTab !== 'friends') return undefined;
+      const local = contacts.find((contact) => contact.id === selectedContactId);
+      const expanded = expandedContact?.id === selectedContactId ? expandedContact : undefined;
+      return local && expanded ? { ...expanded, ...local, profileContext: expanded.profileContext, profileLabelId: expanded.profileLabelId } : local ?? expanded;
+    },
     [contacts, selectedContactId, expandedContact, contactTab],
   );
   const selectedGroupConversation = useMemo(

@@ -1,4 +1,4 @@
-import { BadgeCheck, Check, Pencil, RefreshCw, UserRound, X } from 'lucide-react';
+import { BadgeCheck, Check, RefreshCw, UserRound, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
@@ -7,6 +7,7 @@ import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { ProfileRow } from '../im-template/template/profilePanes';
 import '../styles/group-member-edit.css';
+import { useGroupRelationship } from '../lib/contactRelationship';
 
 export function QQGroupMemberControls({
   groupCode,
@@ -17,13 +18,45 @@ export function QQGroupMemberControls({
   uid: string;
   profile?: { card?: string; title?: string };
 }) {
+  const [editing, setEditing] = useState<'群昵称' | '专属头衔' | null>(null);
+  const session = useQQWriteSession(`member-entry:${groupCode}:${uid}`, true);
+  const relationship = useGroupRelationship({ id: groupCode });
   if (!/^u_[A-Za-z0-9_-]+$/.test(uid) || !/^[1-9]\d*$/.test(groupCode)) return null;
+  if (!editing && profile)
+    return (
+      <div className="weq-qq-member-profile">
+        {(
+          [
+            ['群昵称', profile.card],
+            ['专属头衔', profile.title],
+          ] as const
+        ).map(([label, value]) => (
+          <div key={label} className="weq-profile-row">
+            <span className="weq-profile-row-label">{label}</span>
+            {relationship === 'nonmember' ? (
+              <span>{value || '未设置'}</span>
+            ) : (
+              <button
+                type="button"
+                className="weq-contact-value"
+                aria-label={`查看${label}`}
+                disabled={!session.available}
+                onClick={() => setEditing(label)}
+              >
+                {value || `设置${label}`}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    );
   return (
     <QQGroupMemberEditor
       key={`${groupCode}:${uid}`}
       groupCode={groupCode}
       uid={uid}
       profile={profile}
+      initialField={editing}
     />
   );
 }
@@ -33,10 +66,12 @@ export function QQGroupMemberEditor({
   uid,
   field = 'all',
   profile,
+  initialField,
 }: {
   groupCode: string;
   uid: string;
   field?: 'all' | 'title';
+  initialField?: '群昵称' | '专属头衔' | null;
   profile?: { card?: string; title?: string };
 }) {
   const session = useQQWriteSession(`member:${groupCode}:${uid}`);
@@ -75,6 +110,7 @@ export function QQGroupMemberEditor({
       >
         <MemberProfileField
           label="群昵称"
+          initialEditing={initialField === '群昵称'}
           icon={<UserRound size={13} />}
           initial={matched ? (state.data?.card ?? '') : (profile.card ?? '')}
           editable={matched && permissions.card}
@@ -98,6 +134,7 @@ export function QQGroupMemberEditor({
         />
         <MemberProfileField
           label="专属头衔"
+          initialEditing={initialField === '专属头衔'}
           icon={<BadgeCheck size={13} />}
           initial={matched ? (state.data?.title ?? '') : (profile.title ?? '')}
           editable={matched && permissions.title}
@@ -240,6 +277,7 @@ function MemberProfileField({
   editable,
   disabled,
   onSave,
+  initialEditing = false,
 }: {
   label: string;
   icon: ReactNode;
@@ -247,8 +285,9 @@ function MemberProfileField({
   editable: boolean;
   disabled: boolean;
   onSave: (value: string) => Promise<boolean>;
+  initialEditing?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initialEditing);
   const [draft, setDraft] = useState(initial);
   return editing && editable ? (
     <form
@@ -295,28 +334,27 @@ function MemberProfileField({
         <X size={14} />
       </button>
     </form>
+  ) : editable ? (
+    <div className="weq-profile-row">
+      <span className="weq-profile-row-label">
+        {icon}
+        {label}
+      </span>
+      <button
+        type="button"
+        className="weq-contact-value"
+        aria-label={`编辑${label}`}
+        title={`编辑${label}`}
+        disabled={disabled}
+        onClick={() => {
+          setDraft(initial);
+          setEditing(true);
+        }}
+      >
+        {initial || `设置${label}`}
+      </button>
+    </div>
   ) : (
-    <ProfileRow
-      icon={icon}
-      label={label}
-      value={initial || '未设置'}
-      action={
-        editable ? (
-          <button
-            type="button"
-            className="weq-profile-row-copy"
-            aria-label={`编辑${label}`}
-            title={`编辑${label}`}
-            disabled={disabled}
-            onClick={() => {
-              setDraft(initial);
-              setEditing(true);
-            }}
-          >
-            <Pencil size={13} />
-          </button>
-        ) : undefined
-      }
-    />
+    <ProfileRow icon={icon} label={label} value={initial || '未设置'} />
   );
 }

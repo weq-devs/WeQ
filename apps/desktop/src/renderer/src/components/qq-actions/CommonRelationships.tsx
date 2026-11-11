@@ -1,5 +1,5 @@
 import { useContext, useId, useState } from 'react';
-import { ChevronRight, UsersRound, UserRound, X, RefreshCw } from 'lucide-react';
+import { UsersRound, UserRound, X, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Modal } from '../Dialog';
@@ -13,7 +13,7 @@ import { ChatNavigationContext } from '../../lib/chatNavigation';
 import '../../styles/common-relationships.css';
 
 function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?: () => void }) {
-  const session = useQQWriteSession(`common-relationships:${uin}`);
+  const session = useQQWriteSession(`common-relationships:${uin}`, true);
   const directory = useContext(ConversationDirectoryContext);
   const openChat = useContext(ChatNavigationContext);
   const titleId = useId();
@@ -68,24 +68,22 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           ) : undefined
         }
       />
-      <ProfileRow
-        icon={<UsersRound size={13} />}
-        label="共同群"
-        value={String(query.data?.groups?.length ?? (query.isFetching ? '…' : '未知'))}
-        mono
-        action={
-          <button
-            className="weq-profile-row-copy"
-            type="button"
-            disabled={!query.data?.groups}
-            onClick={() => setOpen(true)}
-            title="查看共同群列表"
-            aria-label="查看共同群列表"
-          >
-            <ChevronRight size={12} />
-          </button>
-        }
-      />
+      <div className="weq-profile-row">
+        <span className="weq-profile-row-label">
+          <UsersRound size={13} />
+          共同群
+        </span>
+        <button
+          type="button"
+          className="weq-contact-value"
+          disabled={!query.data?.groups}
+          onClick={() => setOpen(true)}
+          title="查看共同群列表"
+          aria-label="查看共同群列表"
+        >
+          {String(query.data?.groups?.length ?? (query.isFetching ? '…' : '未知'))}
+        </button>
+      </div>
       {open && (
         <Modal
           centered
@@ -121,21 +119,21 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
               <li key={group.groupCode}>
                 <button
                   type="button"
-                  className="weq-common-group-avatar"
+                  className="weq-common-group-avatar weq-common-group-target"
                   title={`查看 ${group.name || group.groupCode} 的群名片`}
                   aria-label={`查看 ${group.name || group.groupCode} 的群名片`}
                   onClick={() => setSelectedCode(group.groupCode)}
                 >
                   <GroupAvatar code={group.groupCode} size={40} />
+                  <span className="weq-common-group-info">
+                    <strong title={group.name || group.groupCode}>
+                      {group.name || group.groupCode}
+                    </strong>
+                    <small>
+                      群号 <span className="weq-number">{group.groupCode}</span>
+                    </small>
+                  </span>
                 </button>
-                <span className="weq-common-group-info">
-                  <strong title={group.name || group.groupCode}>
-                    {group.name || group.groupCode}
-                  </strong>
-                  <small>
-                    群号 <span className="weq-number">{group.groupCode}</span>
-                  </small>
-                </span>
               </li>
             ))}
           </ul>

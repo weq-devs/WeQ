@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import {
   ArrowDown,
   ArrowLeft,
@@ -14,7 +14,7 @@ import {
 import type { PersonalityLabel, PersonalityPhoto } from '@weq/protocol';
 import { Modal } from './Dialog';
 import { SegmentedControl } from './SegmentedControl';
-import { ProfileDetailsEntry } from './ProfileDetailsEntry';
+import { ProfileDetailsEntry, ProfileDetailsContent } from './ProfileDetailsEntry';
 import { ProfileDisplayEntry } from './ProfileDisplaySettings';
 import {
   SignatureInteractions,
@@ -33,6 +33,70 @@ import '../styles/profile-extras.css';
 
 type Target = QQWriteBinding & { uin: string };
 type View = 'signatures' | 'labels' | 'questions' | 'education';
+export type ProfileExtraView = View | 'details';
+export function ProfileExtrasContent({
+  uin,
+  view,
+  labelId,
+}: {
+  uin: string;
+  view: ProfileExtraView;
+  labelId?: string;
+}) {
+  const session = useQQWriteSession(`profile-extras:${uin}`);
+  const input = {
+    expectedAccountUin: session.binding?.expectedAccountUin ?? '',
+    expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
+    uin,
+  };
+  const key = `${input.expectedAccountUin}:${input.expectedAccountConfigId}:${uin}:${view}`;
+  return (
+    <div key={key} className="weq-extras-content" data-privacy-sensitive>
+      {view === 'details' ? (
+        <ProfileDetailsContent input={input} online={session.available} />
+      ) : view === 'education' ? (
+        <EducationHistory input={input} online={session.available} />
+      ) : view === 'signatures' ? (
+        <Signatures input={input} online={session.available} />
+      ) : view === 'labels' ? (
+        <Labels input={input} online={session.available} labelId={labelId} />
+      ) : (
+        <Questions input={input} online={session.available} />
+      )}
+    </div>
+  );
+}
+export function ProfileExtraDialog({
+  uin,
+  view,
+  labelId,
+  onClose,
+}: {
+  uin: string;
+  view: ProfileExtraView;
+  labelId?: string;
+  onClose: () => void;
+}) {
+  const id = useId();
+  const title = {
+    details: '详细资料',
+    education: '教育经历',
+    signatures: '历史个性签名',
+    labels: '标签相册',
+    questions: '匿问我答',
+  }[view];
+  return (
+    <Modal onClose={onClose} labelledBy={id} width={680} className="weq-extras-dialog">
+      <header className="weq-extras-header">
+        <h2 id={id}>{title}</h2>
+        <button type="button" title="关闭" aria-label="关闭资料详情" onClick={onClose}>
+          <X size={18} />
+        </button>
+      </header>
+      <ProfileExtrasContent uin={uin} view={view} labelId={labelId} />
+    </Modal>
+  );
+}
 const queryOptions = {
   staleTime: 5 * 60_000,
   cacheTime: 5 * 60_000,
@@ -458,7 +522,7 @@ function QuestionList({
     </>
   );
 }
-function Labels({ input, online }: { input: Target; online: boolean }) {
+function Labels({ input, online, labelId }: { input: Target; online: boolean; labelId?: string }) {
   const active = useTabActive();
   const [selected, setSelected] = useState<PersonalityLabel | null>(null);
   const [photoRevision, setPhotoRevision] = useState(0);
@@ -466,6 +530,14 @@ function Labels({ input, online }: { input: Target; online: boolean }) {
     ...queryOptions,
     enabled: online && active,
   });
+  useEffect(() => {
+    if (labelId)
+      setSelected((previous) =>
+        previous?.id === labelId
+          ? previous
+          : (query.data?.labels.find((label) => label.id === labelId) ?? null),
+      );
+  }, [labelId, query.data]);
   if (selected)
     return (
       <>

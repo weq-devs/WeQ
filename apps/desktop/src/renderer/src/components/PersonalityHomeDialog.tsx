@@ -30,7 +30,7 @@ import {
   resourceUrl,
 } from '../lib/resourceUrl';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
-import { trpc } from '../trpc/client';
+import { useContactDress, useContactQqShow, useContactStats } from '../hooks/useContactCard';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
 import { ProfileExtras } from './ProfileExtras';
 import { useTabActive } from './RetainedTabs';
@@ -103,25 +103,9 @@ export function PersonalityHomeDialog({
 }) {
   const active = useTabActive();
   const openSpace = useContext(QzoneNavigationContext);
-  const dress = trpc.account.dressup.peerHome.useQuery(
-    { uin },
-    // SSR 页面每次都要几秒，失败多半是票据/风控而不是抖动，重试只会让用户多等一轮。
-    { enabled: active && !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
-  );
-  const stats = trpc.account.dressup.peerStats.useQuery(
-    { uin, uid: uid ?? '' },
-    {
-      enabled: active && Boolean(uid) && !isBot,
-      retry: false,
-      refetchOnWindowFocus: false,
-      staleTime: 5 * 60_000,
-    },
-  );
-  const qqShow = trpc.account.dressup.peerQqShow.useQuery(
-    { uin },
-    // OIDB 毫秒级返回；失败多半是离线/风控，静默回退到头像+挂件即可，不打扰。
-    { enabled: active && !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
-  );
+  const dress = useContactDress(uin, active && !isBot);
+  const stats = useContactStats(uin, uid ?? '', 'level', active && !isBot);
+  const qqShow = useContactQqShow(uin, active && !isBot);
 
   // 有 QQ 秀时默认展示全身像；切换胶囊可随时切回「头像+挂件」。
   const [showQqShow, setShowQqShow] = useState(true);
@@ -231,7 +215,7 @@ export function PersonalityHomeDialog({
           </div>
         ) : null}
 
-        {stats.data ? (
+        {stats.data?.level != null ? (
           <div className="weq-perhome-stats">
             <span className="weq-perhome-stat" title={`QQ 等级 ${stats.data.level} 级`}>
               <span className="weq-perhome-level-icons">

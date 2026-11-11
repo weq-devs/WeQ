@@ -30,7 +30,7 @@ export function SourceGroup({
   source: string | null;
   directoryLink?: boolean;
 }) {
-  const session = useQQWriteSession(`friend-clue-group:${code}`);
+  const session = useQQWriteSession(`friend-clue-group:${code}`, true);
   const directory = useContext(ConversationDirectoryContext);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const groupId = Number(code);
@@ -98,13 +98,13 @@ export function SourceGroup({
 }
 
 function FriendClueBody({ uid }: { uid: string }) {
-  const session = useQQWriteSession(`friend-clue:${uid}`);
+  const session = useQQWriteSession(`friend-clue:${uid}`, true);
   const enabled = session.available && /^u_[A-Za-z0-9_-]+$/.test(uid);
   const query = trpc.account.qqWrite.friendClue.useQuery(
     { ...session.binding!, uid },
     { enabled, retry: 2, retryDelay: 1000, staleTime: 60000, refetchOnWindowFocus: false },
   );
-  const data = enabled && query.data?.uid === uid && !query.error ? query.data : null;
+  const data = query.data?.uid === uid ? query.data : null;
   const pending = query.isFetching;
   const empty = !session.available
     ? '暂不可读取'

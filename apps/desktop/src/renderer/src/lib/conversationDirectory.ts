@@ -24,6 +24,7 @@ export interface VirtualConversation {
 export const ConversationDirectoryContext = createContext<{
   virtual: VirtualConversation[];
   real?: Conversation[];
+  profileConversationExists?: (person: User) => boolean;
   guild?: Conversation[];
   scope?: ConversationScope;
   onScopeChange?: (scope: ConversationScope) => void;

@@ -119,12 +119,14 @@ export function FriendNotesEditor({
   uid,
   session,
   onDirtyChange,
+  initialExpanded = false,
 }: {
   uid: string;
   session: Session;
   onDirtyChange: (dirty: boolean) => void;
+  initialExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initialExpanded);
   const [dirty, setDirty] = useState(false);
   const [reload, setReload] = useState(0);
   const confirm = useDialog((state) => state.confirm);

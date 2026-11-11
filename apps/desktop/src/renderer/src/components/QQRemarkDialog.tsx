@@ -9,7 +9,15 @@ import { withQQAccountScope } from './qq-actions/shared';
 import { FriendNotesEditor } from './FriendNotesEditor';
 import '../styles/qq-remark.css';
 
-function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClose: () => void }) {
+function QQRemarkDialogBody({
+  target,
+  onClose,
+  showNotes = false,
+}: {
+  target: RoamingTarget;
+  onClose: () => void;
+  showNotes?: boolean;
+}) {
   const session = useQQWriteSession(`remark:${target.kind}:${target.conv}`);
   const confirm = useDialog((state) => state.confirm);
   const [dirty, setDirty] = useState(false);
@@ -114,7 +122,12 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
           />
         )}
         {target.kind === 'c2c' && state.data?.friend && (
-          <FriendNotesEditor uid={target.conv} session={session} onDirtyChange={setNotesDirty} />
+          <FriendNotesEditor
+            uid={target.conv}
+            session={session}
+            onDirtyChange={setNotesDirty}
+            initialExpanded={showNotes}
+          />
         )}
         <QQWriteResult result={session.result} />
       </div>

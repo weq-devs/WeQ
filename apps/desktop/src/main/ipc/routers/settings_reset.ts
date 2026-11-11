@@ -69,6 +69,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     add(card, key, label, current[key], defaults[key], () => write(defaults[key]));
   }
   app('home', 'home', '主页显示与屏蔽词', (value) => b.setHomeSettings(value));
+  app('contact-card', 'contactCard', '名片显示与顺序', (value) => b.setContactCard(value));
   app('startup-page', 'startupPage', '启动时进入', (page) => b.setStartupPage({ page }));
   app('startup-system', 'showWindowOnAutostart', '自启时显示窗口', (enabled) =>
     b.setShowWindowOnAutostart({ enabled }),
