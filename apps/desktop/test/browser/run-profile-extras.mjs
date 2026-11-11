@@ -90,6 +90,35 @@ try {
   await page.getByRole('button', { name: '历史签名', exact: true }).click();
   await page.getByRole('button', { name: '加载更多', exact: true }).click();
   await page.getByText('第二页签名', { exact: true }).waitFor();
+  const firstSignature = page.locator('.weq-extras-list > article').first();
+  await firstSignature.getByRole('button', { name: '点赞签名', exact: true }).click();
+  await firstSignature.getByRole('button', { name: '取消签名点赞', exact: true }).waitFor();
+  await firstSignature.getByRole('button', { name: '取消签名点赞', exact: true }).click();
+  await firstSignature.getByRole('button', { name: '评论', exact: true }).click();
+  await firstSignature.getByRole('button', { name: '回复评论', exact: true }).click();
+  await firstSignature.getByLabel('签名评论').fill('合成回复验收');
+  await page.evaluate(() => window.profileExtrasQa.failNext('signatureComment'));
+  await firstSignature.getByRole('button', { name: '发送评论', exact: true }).click();
+  await firstSignature.getByText('合成操作失败').waitFor();
+  assert.equal(await firstSignature.getByLabel('签名评论').inputValue(), '合成回复验收');
+  await firstSignature.getByRole('button', { name: '发送评论', exact: true }).click();
+  await firstSignature
+    .getByRole('button', { name: '删除评论：合成回复验收', exact: true })
+    .waitFor();
+  assert.equal(await firstSignature.getByLabel('签名评论').inputValue(), '');
+  await firstSignature.getByRole('button', { name: '删除评论：合成回复验收', exact: true }).click();
+  await page.getByRole('button', { name: '确定', exact: true }).click();
+  await firstSignature
+    .getByRole('button', { name: '删除评论：合成回复验收', exact: true })
+    .waitFor({ state: 'detached' });
+  assert.ok((await firstSignature.textContent()).includes('合成昵称等 28 人点赞'));
+  if (output) await page.screenshot({ path: resolve(output, 'signature-interactions.png') });
+  results.push({
+    signatureLikeToggle: true,
+    reply: true,
+    failedDraftRetained: true,
+    deletion: true,
+  });
   await page.getByRole('button', { name: '关闭资料详情' }).click();
   for (const width of [1180, 390, 320])
     for (const theme of ['light', 'dark'])
@@ -173,8 +202,72 @@ try {
         }
       }
   await page.evaluate(() => window.profileExtrasQa.mode('ready'));
+  await page.getByRole('button', { name: '匿问我答', exact: true }).click();
+  await page.locator('.weq-profile-question-open').click();
+  await page.getByRole('button', { name: '加载更多评论', exact: true }).click();
+  await page.getByText('末页评论', { exact: false }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '加载更多评论', exact: true }).count(), 0);
+  for (const width of [1180, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const overflow = await page.evaluate(() =>
+        [
+          ...document.querySelectorAll(
+            '.weq-profile-interactions, .weq-profile-comments li, .weq-profile-interaction-bar',
+          ),
+        ].some((el) => el.scrollWidth > el.clientWidth + 2),
+      );
+      assert.equal(overflow, false);
+      if (output)
+        await page.screenshot({
+          path: resolve(output, `${width}-${theme}-question-interactions.png`),
+        });
+    }
+  await page.getByRole('button', { name: '关闭资料详情' }).click();
+  results.push({ questionDetail: true, finalCommentsRetained: true });
   await page.getByRole('button', { name: '标签相册', exact: true }).click();
   await page.getByRole('button', { name: '合成标签相册' }).click();
+  const fileChooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '添加照片', exact: true }).click();
+  await (await fileChooser).setFiles([
+    { name: 'fixture-one.png', mimeType: 'image/png', buffer: Buffer.from('one') },
+    { name: 'fixture-two.png', mimeType: 'image/png', buffer: Buffer.from('two') },
+  ]);
+  await page.getByText('fixture-two.png', { exact: true }).waitFor();
+  await page.evaluate(() => window.profileExtrasQa.failNext('personalityPhotoUpload'));
+  await page.getByRole('button', { name: '上传', exact: true }).click();
+  await page.getByRole('button', { name: '上传待完成照片', exact: true }).waitFor();
+  assert.equal(
+    await page
+      .locator('.weq-profile-upload-list small')
+      .filter({ hasText: /^已上传$/ })
+      .count(),
+    1,
+  );
+  await page.getByRole('button', { name: '上传待完成照片', exact: true }).click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.weq-profile-upload-list small')].every(
+      (el) => el.textContent === '已上传',
+    ),
+  );
+  assert.equal(
+    await page.evaluate(
+      () =>
+        window.profileExtrasQa.operations.filter((op) => op === 'personalityPhotoUpload').length,
+    ),
+    2,
+  );
+  assert.equal(
+    await page.evaluate(
+      () => window.profileExtrasQa.operations.filter((op) => op === 'discard').length,
+    ),
+    3,
+  );
+  if (output) await page.screenshot({ path: resolve(output, 'photo-batch-upload.png') });
+  results.push({ multiplePhotos: 2, retryFailedOnly: true, stagedFilesDiscarded: 3 });
   if (blobs.length) {
     await page.waitForFunction(
       () =>

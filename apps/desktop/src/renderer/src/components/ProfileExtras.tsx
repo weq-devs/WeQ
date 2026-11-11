@@ -16,6 +16,12 @@ import { Modal } from './Dialog';
 import { SegmentedControl } from './SegmentedControl';
 import { ProfileDetailsEntry } from './ProfileDetailsEntry';
 import { ProfileDisplayEntry } from './ProfileDisplaySettings';
+import {
+  SignatureInteractions,
+  QuestionInteractions,
+  ProfileLikeSummary,
+  PersonalityPhotoUploader,
+} from './ProfileInteractions';
 import { QzoneMediaPreview } from './QzoneMediaPreview';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useTabActive } from './RetainedTabs';
@@ -342,6 +348,17 @@ function Signatures({ input, online }: { input: Target; online: boolean }) {
             <time>{time(item.createdAt)}</time>
             <p>{[item.action, item.data, item.text].filter(Boolean).join(' ') || '空签名'}</p>
             {item.location ? <small>{item.location}</small> : null}
+            <SignatureInteractions
+              input={input}
+              item={item}
+              online={online}
+              refresh={() =>
+                query.refetch({
+                  refetchPage: (_page, index) =>
+                    pages[index]?.items.some((row) => row.id === item.id) ?? false,
+                })
+              }
+            />
           </article>
         ))}
       </div>
@@ -423,10 +440,7 @@ function QuestionList({
             ) : (
               <small>尚未回答</small>
             )}
-            <div className="weq-extras-counts">
-              {item.likes !== null ? <span>赞 {item.likes}</span> : null}
-              {item.comments !== null ? <span>评论 {item.comments}</span> : null}
-            </div>
+            <QuestionInteractions input={input} item={item} online={online} />
           </article>
         ))}
       </div>
@@ -450,6 +464,7 @@ function QuestionList({
 function Labels({ input, online }: { input: Target; online: boolean }) {
   const active = useTabActive();
   const [selected, setSelected] = useState<PersonalityLabel | null>(null);
+  const [photoRevision, setPhotoRevision] = useState(0);
   const query = trpc.account.profileExtras.personalityLabels.useQuery(input, {
     ...queryOptions,
     enabled: online && active,
@@ -462,7 +477,26 @@ function Labels({ input, online }: { input: Target; online: boolean }) {
           全部标签
         </button>
         <h3 className="weq-extras-label-title">{selected.text}</h3>
-        <Photos key={selected.id} input={input} online={online} label={selected} />
+        <ProfileLikeSummary users={selected.likeUsers ?? []} total={selected.likes} />
+        {input.uin === input.expectedAccountUin ? (
+          <PersonalityPhotoUploader
+            input={input}
+            label={selected}
+            online={online}
+            refresh={async () => {
+              const result = await query.refetch();
+              const fresh = result.data?.labels.find((label) => label.id === selected.id);
+              if (fresh) setSelected(fresh);
+              setPhotoRevision((value) => value + 1);
+            }}
+          />
+        ) : null}
+        <Photos
+          key={`${selected.id}:${photoRevision}`}
+          input={input}
+          online={online}
+          label={selected}
+        />
       </>
     );
   return (
@@ -518,6 +552,7 @@ function Photos({
     {
       ...queryOptions,
       initialCursor: label.photoCursor ?? undefined,
+      refetchOnMount: 'always',
       enabled: online && active && !complete,
       getNextPageParam: nextExtrasCursor,
     },

@@ -7,6 +7,10 @@ import {
   getEducationHistory,
   getProfileDetails,
   getSelfAvatarHistory,
+  getSignatureLikes,
+  getAnonymousQuestionDetail,
+  getAnonymousComments,
+  type SignatureTarget,
   type TrpcNative,
 } from '@weq/protocol';
 import type { ContactMetricsService } from './contact_metrics';
@@ -31,6 +35,9 @@ export class ProfileExtrasService {
     private readonly read: typeof readers & {
       getSelfAvatarHistory?: typeof getSelfAvatarHistory;
       getProfileDetails?: typeof getProfileDetails;
+      getSignatureLikes?: typeof getSignatureLikes;
+      getAnonymousQuestionDetail?: typeof getAnonymousQuestionDetail;
+      getAnonymousComments?: typeof getAnonymousComments;
     } = readers,
   ) {}
 
@@ -84,6 +91,35 @@ export class ProfileExtrasService {
   signatureHistory(uin: string, before?: number) {
     return this.query(`signatures:${uin}:${before ?? ''}`, (pid) =>
       this.read.getSignatureHistory(this.nt, pid, uin, before),
+    );
+  }
+  signatureLikes(uin: string, signature: SignatureTarget, cursor?: string) {
+    return this.query(
+      `signature-likes:${uin}:${signature.id}:${signature.createdAt}:${cursor ?? ''}`,
+      (pid) =>
+        (this.read.getSignatureLikes ?? getSignatureLikes)(this.nt, pid, uin, signature, cursor),
+    );
+  }
+  anonymousDetail(uin: string, questionId: string, askedAt: number) {
+    return this.query(`question:${uin}:${questionId}:${askedAt}`, (pid) =>
+      (this.read.getAnonymousQuestionDetail ?? getAnonymousQuestionDetail)(
+        this.nt,
+        pid,
+        uin,
+        questionId,
+        askedAt,
+      ),
+    );
+  }
+  anonymousComments(uin: string, questionId: string, cursor?: string) {
+    return this.query(`question-comments:${uin}:${questionId}:${cursor ?? ''}`, (pid) =>
+      (this.read.getAnonymousComments ?? getAnonymousComments)(
+        this.nt,
+        pid,
+        uin,
+        questionId,
+        cursor,
+      ),
     );
   }
   personalityLabels(uin: string) {

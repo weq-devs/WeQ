@@ -147,6 +147,89 @@ export function createQQActionsRouter(
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
   return router({
+    signatureLike: procedure
+      .input(
+        binding.extend({
+          uin: z.string().regex(/^[1-9]\d{0,19}$/),
+          id: z.string().regex(/^(?:[\da-f]{2}){1,512}$/i),
+          createdAt: z.number().int().min(0).max(0xffffffff),
+          liked: z.boolean(),
+        }),
+      )
+      .mutation(({ input }) =>
+        write(input, async (s, current) => {
+          await s.accountWrite.signatureLike(input.uin, input, input.liked);
+          current();
+        }),
+      ),
+    signatureComment: procedure
+      .input(
+        binding.extend({
+          uin: z.string().regex(/^[1-9]\d{0,19}$/),
+          id: z.string().regex(/^(?:[\da-f]{2}){1,512}$/i),
+          text: z.string().trim().min(1).max(4096),
+          replyId: z
+            .string()
+            .regex(/^\d{1,20}$/)
+            .optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        let commentId: string | undefined;
+        await write(input, async (s, current) => {
+          commentId = (
+            await s.accountWrite.signatureComment(input.uin, input.id, input.text, input.replyId)
+          ).commentId;
+          current();
+        });
+        return { state: 'accepted' as const, commentId };
+      }),
+    deleteSignatureComment: procedure
+      .input(
+        binding.extend({
+          uin: z.string().regex(/^[1-9]\d{0,19}$/),
+          id: z.string().regex(/^(?:[\da-f]{2}){1,512}$/i),
+          createdAt: z.number().int().min(0).max(0xffffffff),
+          commentId: sequence,
+        }),
+      )
+      .mutation(({ input }) =>
+        write(input, async (s, current) => {
+          await s.accountWrite.deleteSignatureComment(input.uin, input, input.commentId);
+          current();
+        }),
+      ),
+    personalityPhotoUpload: procedure
+      .input(
+        binding
+          .extend({
+            uin: z.string().regex(/^[1-9]\d{0,19}$/),
+            labelId: sequence,
+            imagePath: z.string().min(1),
+            count: z.number().int().min(1).max(100).default(1),
+            index: z.number().int().min(0).max(99).default(0),
+            timestamp: z.number().int().min(0).max(0xffffffff),
+          })
+          .refine((value) => value.index < value.count),
+      )
+      .mutation(async ({ input }) => {
+        let uploaded:
+          | Awaited<ReturnType<QQActionServices['accountWrite']['uploadPersonalityPhoto']>>
+          | undefined;
+        await write(input, async (s, current) => {
+          const bytes = await image(s, input.imagePath, current);
+          current();
+          uploaded = await s.accountWrite.uploadPersonalityPhoto(
+            input.uin,
+            input.labelId,
+            bytes,
+            input,
+          );
+          current();
+        });
+        if (!uploaded) throw new Error('照片上传未返回结果');
+        return uploaded;
+      }),
     albumVideoStart: procedure
       .input(binding.extend({ size: z.number().int().safe().min(16) }))
       .mutation(({ input }) => videoStaging.start(resolve(input), input.size)),

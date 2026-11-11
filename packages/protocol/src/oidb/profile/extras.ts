@@ -2,6 +2,15 @@ import { decode, encode, message } from '../../protobuf';
 import { sendPacket, type TrpcNative } from '../../transport';
 import { invokeLegacyOidb } from '../legacy';
 import { requireUin, responseObject } from '../write-validation';
+import {
+  signatureCommentSchema,
+  signatureLikeSchema,
+  labelLikeSchema,
+  parseProfileLikes,
+  parseProfileComments,
+  type ProfileLikeUser,
+  type ProfileComment,
+} from './interactions';
 
 export interface ProfilePage<T, C = string> {
   targetUin: string;
@@ -17,6 +26,9 @@ export interface HistoricalSignature {
   data: string | null;
   location: string | null;
   createdAt: number;
+  likes?: string | null;
+  likeUsers?: ProfileLikeUser[];
+  commentItems?: ProfileComment[];
 }
 export interface ProfileEnergy {
   targetUin: string;
@@ -30,6 +42,9 @@ export interface PersonalityPhoto {
   url: string;
   uploadedAt: number | null;
   likes: string | null;
+  likeUsers?: ProfileLikeUser[];
+  likeCursor?: string | null;
+  liked?: boolean | null;
 }
 export interface PersonalityLabel {
   id: string;
@@ -38,6 +53,9 @@ export interface PersonalityLabel {
   photoCount: number | null;
   photos: PersonalityPhoto[];
   photoCursor: string | null;
+  likes?: string | null;
+  likeUsers?: ProfileLikeUser[];
+  liked?: boolean | null;
 }
 export interface AnonymousQuestion {
   id: string;
@@ -176,7 +194,20 @@ const signatureResponse = message([
     name: 'items',
     tag: 1,
     repeated: true,
-    type: message([bytesField('id', 1), bytesField('status', 2), numberField('createdAt', 4)]),
+    type: message([
+      bytesField('id', 1),
+      bytesField('status', 2),
+      numberField('createdAt', 4),
+      { name: 'comments', tag: 7, type: signatureCommentSchema, repeated: true },
+      {
+        name: 'light',
+        tag: 8,
+        type: message([
+          u64('total', 1),
+          { name: 'users', tag: 2, type: signatureLikeSchema, repeated: true },
+        ]),
+      },
+    ]),
   },
   numberField('over', 2),
 ]);
@@ -215,7 +246,15 @@ export async function getSignatureHistory(
       const createdAt = optionalNumber(row.createdAt);
       if (createdAt === null || (before !== undefined && createdAt > before))
         throw new Error('签名时间无效');
-      return { id: Buffer.from(row.id).toString('hex'), createdAt, ...parseRichStatus(row.status) };
+      const light = row.light === undefined ? null : responseObject(row.light, '签名点赞');
+      return {
+        id: Buffer.from(row.id).toString('hex'),
+        createdAt,
+        ...parseRichStatus(row.status),
+        likes: decimal(light?.total),
+        likeUsers: parseProfileLikes(light?.users),
+        commentItems: parseProfileComments(row.comments),
+      };
     }),
   );
   const earliest = items.length ? Math.min(...items.map((item) => item.createdAt)) : null;
@@ -271,14 +310,20 @@ const photo = message([
   { name: 'url', tag: 2, type: 'string' },
   numberField('uploadedAt', 3),
   u64('likes', 4),
+  { name: 'users', tag: 5, type: message([u64('uin', 1), numberField('time', 2)]), repeated: true },
+  bytesField('likeCookie', 6),
+  numberField('liked', 8),
 ]);
 const label = message([
   u64('id', 2),
   { name: 'text', tag: 4, type: 'string' },
   { name: 'cover', tag: 7, type: 'string' },
+  numberField('likes', 8),
   numberField('photoCount', 9),
   { name: 'photos', tag: 10, type: photo, repeated: true },
   bytesField('cookie', 11),
+  numberField('liked', 14),
+  { name: 'users', tag: 15, type: labelLikeSchema, repeated: true },
 ]);
 function photoItems(value: unknown): PersonalityPhoto[] {
   return unique(
@@ -287,6 +332,9 @@ function photoItems(value: unknown): PersonalityPhoto[] {
       url: optionalText(row.url) ?? '',
       uploadedAt: optionalNumber(row.uploadedAt),
       likes: decimal(row.likes),
+      likeUsers: parseProfileLikes(row.users),
+      likeCursor: cursor(row.likeCookie),
+      liked: row.liked === undefined ? null : row.liked !== 0,
     })),
   );
 }
@@ -298,6 +346,9 @@ function labelItem(row: Record<string, unknown>): PersonalityLabel {
     photoCount: optionalNumber(row.photoCount),
     photos: photoItems(row.photos),
     photoCursor: cursor(row.cookie),
+    likes: decimal(row.likes),
+    likeUsers: parseProfileLikes(row.users),
+    liked: row.liked === undefined ? null : row.liked !== 0,
   };
 }
 const labelsRequest = message([u64('uin', 1), numberField('digest', 2)]);

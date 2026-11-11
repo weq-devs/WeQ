@@ -6,17 +6,21 @@ import { BROWSER_FILE_CHUNK_BYTES } from '../../../shared/browser_file_upload';
 export type AccountFileKind = 'image' | 'record' | 'video' | 'file';
 type FileBinding = { expectedAccountUin: string; expectedAccountConfigId: string };
 export function chooseBrowserFile(accept = ''): Promise<File | null> {
+  return chooseBrowserFiles(accept, false).then((files) => files[0] ?? null);
+}
+export function chooseBrowserFiles(accept = '', multiple = true): Promise<File[]> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = accept;
+    input.multiple = multiple;
     input.hidden = true;
-    const finish = (file: File | null) => {
+    const finish = (files: File[]) => {
       input.remove();
-      resolve(file);
+      resolve(files);
     };
-    input.addEventListener('change', () => finish(input.files?.[0] ?? null), { once: true });
-    input.addEventListener('cancel', () => finish(null), { once: true });
+    input.addEventListener('change', () => finish(Array.from(input.files ?? [])), { once: true });
+    input.addEventListener('cancel', () => finish([]), { once: true });
     document.body.append(input);
     try {
       input.click();
@@ -83,7 +87,10 @@ export async function stageAccountFile(file: File, expected?: FileBinding) {
       if (next.offset !== offset + bytes.length) throw new Error('附件接收进度不匹配');
     }
     check();
-    return await client.account.pickedFileFinish.mutate({ ...binding, uploadId: id });
+    return {
+      ...(await client.account.pickedFileFinish.mutate({ ...binding, uploadId: id })),
+      uploadId: id,
+    };
   } catch (error) {
     await client.account.pickedFileDiscard.mutate({ ...binding, uploadId: id }).catch(() => {});
     throw error;

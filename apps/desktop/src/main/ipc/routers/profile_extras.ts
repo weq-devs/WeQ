@@ -41,6 +41,30 @@ export function createProfileExtrasRouter(
     signatureHistory: procedure
       .input(target.extend({ cursor: z.number().int().min(0).max(0x7fffffff).optional() }))
       .query(({ input }) => read(input, (s) => s.signatureHistory(input.uin, input.cursor))),
+    signatureLikes: procedure
+      .input(
+        target.extend({
+          id: z.string().regex(/^(?:[\da-f]{2}){1,512}$/i),
+          createdAt: z.number().int().min(0).max(0xffffffff),
+          cursor,
+        }),
+      )
+      .query(({ input }) => read(input, (s) => s.signatureLikes(input.uin, input, input.cursor))),
+    anonymousDetail: procedure
+      .input(
+        target.extend({
+          questionId: z.string().min(1).max(512),
+          askedAt: z.number().int().min(0).safe(),
+        }),
+      )
+      .query(({ input }) =>
+        read(input, (s) => s.anonymousDetail(input.uin, input.questionId, input.askedAt)),
+      ),
+    anonymousComments: procedure
+      .input(target.extend({ questionId: z.string().min(1).max(512), cursor }))
+      .query(({ input }) =>
+        read(input, (s) => s.anonymousComments(input.uin, input.questionId, input.cursor)),
+      ),
     personalityLabels: procedure
       .input(target)
       .query(({ input }) => read(input, (s) => s.personalityLabels(input.uin))),

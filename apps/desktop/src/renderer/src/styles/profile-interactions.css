@@ -1,0 +1,150 @@
+.weq-profile-interactions {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.weq-profile-interaction-bar,
+.weq-profile-comment-tools,
+.weq-profile-reply-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.weq-profile-interactions button,
+.weq-profile-photo-upload button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 8px;
+  color: var(--weq-fg-secondary);
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.weq-profile-interactions button:hover,
+.weq-profile-photo-upload button:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+.weq-profile-interactions button:disabled,
+.weq-profile-photo-upload button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-profile-interactions button[aria-pressed='true'] {
+  color: var(--weq-accent-effective);
+}
+.weq-profile-interactions button:focus-visible,
+.weq-profile-photo-upload button:focus-visible,
+.weq-profile-comment-form textarea:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-profile-like-summary {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+  margin: 8px 0;
+}
+.weq-profile-like-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-block: 8px;
+}
+.weq-profile-comments {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+.weq-profile-comments li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding-block: 6px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-profile-comments li > div:first-child {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.weq-profile-comments strong {
+  font-weight: 500;
+  color: var(--weq-fg-primary);
+}
+.weq-profile-comment-tools {
+  flex-shrink: 0;
+}
+.weq-profile-reply-target {
+  margin-top: 8px;
+  color: var(--weq-fg-secondary);
+}
+.weq-profile-comment-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.weq-profile-comment-form textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  padding: 8px;
+}
+.weq-profile-comment-form textarea::placeholder {
+  color: var(--weq-fg-muted);
+}
+.weq-profile-interactions .weq-profile-delete-comment {
+  font-size: 12px;
+  margin: 2px 6px 2px 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.weq-profile-photo-upload {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.weq-profile-upload-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+.weq-profile-upload-list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-block: 4px;
+}
+.weq-profile-upload-list li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-profile-upload-list small {
+  color: var(--weq-fg-secondary);
+}
+html[data-theme='dark'] .weq-profile-comment-form textarea {
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+@media (max-width: 480px) {
+  .weq-profile-interactions button,
+  .weq-profile-photo-upload button {
+    min-height: 36px;
+  }
+}

@@ -2,6 +2,7 @@ import type { Buddy, Category } from '@weq/db';
 import { createHash } from 'node:crypto';
 import type { ContactMetricsService } from './contact_metrics';
 import { SelfProfileDisplayService } from './profile_display';
+import { ProfileInteractionWrites } from './profile_interactions';
 import {
   ClearFriendRemark,
   SetFriendRemark,
@@ -62,6 +63,7 @@ export class AccountWriteService {
   contactMetrics?: ContactMetricsService;
   private readonly noteWrites = new Set<string>();
   private displaySettingsService?: SelfProfileDisplayService;
+  private interactionWrites?: ProfileInteractionWrites;
   constructor(
     private readonly nt: PacketNative,
     private readonly identity: AccountWriteIdentity,
@@ -70,6 +72,35 @@ export class AccountWriteService {
 
   selfIdentity(): { uin: string; uid: string } {
     return { uin: this.identity.uin, uid: this.identity.selfUid };
+  }
+  private get profileInteractions() {
+    this.interactionWrites ??= new ProfileInteractionWrites(
+      this.nt,
+      this.identity.uin,
+      this.resolvePid,
+    );
+    return this.interactionWrites;
+  }
+  signatureLike(uin: string, signature: import('@weq/protocol').SignatureTarget, liked: boolean) {
+    return this.profileInteractions.signatureLike(uin, signature, liked);
+  }
+  signatureComment(uin: string, feedId: string, text: string, replyId?: string) {
+    return this.profileInteractions.signatureComment(uin, feedId, text, replyId);
+  }
+  deleteSignatureComment(
+    uin: string,
+    signature: import('@weq/protocol').SignatureTarget,
+    commentId: string,
+  ) {
+    return this.profileInteractions.removeSignatureComment(uin, signature, commentId);
+  }
+  uploadPersonalityPhoto(
+    uin: string,
+    labelId: string,
+    source: Uint8Array,
+    batch?: { count: number; index: number; timestamp: number },
+  ) {
+    return this.profileInteractions.uploadPhoto(uin, labelId, source, batch);
   }
 
   private get profileDisplay() {

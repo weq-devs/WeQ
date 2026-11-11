@@ -29,6 +29,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         energy: { useQuery: state.energy },
         educationHistory: { useQuery: state.education },
         signatureHistory: { useInfiniteQuery: state.signatures },
+        signatureLikes: { useInfiniteQuery: () => result() },
         personalityLabels: { useQuery: state.labels },
         personalityPhotos: { useInfiniteQuery: state.photos },
         anonymousQuestions: { useInfiniteQuery: state.questions },

@@ -1,13 +1,47 @@
 import { useSyncExternalStore } from 'react';
 
-export const client = new Proxy(
-  {},
-  {
-    get() {
-      throw new Error('只读资料夹具不允许额外 RPC 调用');
+const operations: string[] = [];
+let failNext = '';
+async function mutate(kind: string, value: Record<string, unknown> = {}) {
+  if (failNext === kind) {
+    failNext = '';
+    throw new Error('合成操作失败');
+  }
+  operations.push(kind);
+  if (kind === 'signatureLike') liked = value.liked === true;
+  changed();
+  return {
+    state: 'accepted' as const,
+    commentId: '23',
+    photoId: 'uploaded-photo',
+    observed: true,
+    url: 'https://p.qpic.cn/uploaded-fixture',
+  };
+}
+export const client = {
+  account: {
+    qqActions: {
+      signatureLike: { mutate: (input: Record<string, unknown>) => mutate('signatureLike', input) },
+      signatureComment: { mutate: () => mutate('signatureComment') },
+      deleteSignatureComment: { mutate: () => mutate('deleteSignatureComment') },
+      personalityPhotoUpload: { mutate: () => mutate('personalityPhotoUpload') },
+    },
+    pickedFileStart: { mutate: async () => ({ id: 'fixture-upload' }) },
+    pickedFileChunk: {
+      mutate: async (input: { offset: number; base64: string }) => ({
+        offset: input.offset + atob(input.base64).length,
+      }),
+    },
+    pickedFileFinish: {
+      mutate: async () => ({ path: '/fixture/photo.png', fileName: 'photo.png', size: 12 }),
+    },
+    pickedFileDiscard: {
+      mutate: async () => {
+        operations.push('discard');
+      },
     },
   },
-);
+};
 
 type Mode = 'ready' | 'loading' | 'empty' | 'error';
 let mode: Mode =
@@ -15,6 +49,8 @@ let mode: Mode =
 let account = '10001';
 let revision = 0;
 let signaturePage = 1;
+let liked = false;
+let commentPage = 1;
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -27,9 +63,14 @@ const changed = () => {
   for (const listener of listeners) listener();
 };
 export const qa = {
+  operations,
+  failNext(value: string) {
+    failNext = value;
+  },
   mode(value: Mode) {
     mode = value;
     signaturePage = 1;
+    commentPage = 1;
     changed();
   },
   account(value: string) {
@@ -57,14 +98,29 @@ const label = {
   photoCount: 2,
   photos: [photo(0)],
   photoCursor: 'AAAABQ==',
+  likes: '28',
+  likeUsers: [{ id: '10002', uin: '10002', name: '合成昵称', time: null }],
+};
+const comment = {
+  id: '22',
+  text: '合成评论',
+  fromUin: '10001',
+  fromName: '合成昵称',
+  toUin: null,
+  toName: null,
+  replyId: null,
+  time: 1700000000,
 };
 const signature = {
-  id: 'signature-1',
+  id: '66656564',
   text: '保持原始签名文本。这里是一条较长的合成历史签名，用于核对手机上的换行与时间布局。',
   action: null,
   data: null,
   location: '合成地点',
   createdAt: 1700000000,
+  likes: '28',
+  likeUsers: [{ id: '10002', uin: '10002', name: '合成昵称', time: null }],
+  commentItems: [comment],
 };
 const education = {
   index: 1,
@@ -98,25 +154,33 @@ function useQuery(kind: string, input: { uin: string }) {
   const error = mode === 'error' ? new Error('合成错误') : null;
   const empty = mode === 'empty';
   const value =
-    kind === 'details'
+    kind === 'anonymousDetail'
       ? {
-          targetUin: input.uin,
-          company: empty ? '' : '合成公司与较长公司名称用于窄屏换行验证',
-          personalDescription: empty
-            ? null
-            : '第一行个人说明。\n第二行说明用于验证原始换行。' +
-              'LongDescriptionWithoutSpaces'.repeat(8),
-          email: empty ? '' : 'synthetic-long-address@example.invalid',
-          errors: {},
+          ...page([comment], 'comment-next'),
+          questionId: 'q1',
+          likeUsers: label.likeUsers,
+          likes: '28',
+          comments: '2',
         }
-      : kind === 'energy'
-        ? { targetUin: input.uin, score: 831, level: 1 }
-        : kind === 'education'
-          ? {
-              targetUin: input.uin,
-              items: empty ? [] : [education, { ...education, index: 2, degree: 7, hidden: 1 }],
-            }
-          : { targetUin: input.uin, labels: empty ? [] : [label], totalPhotos: 2, closed: false };
+      : kind === 'details'
+        ? {
+            targetUin: input.uin,
+            company: empty ? '' : '合成公司与较长公司名称用于窄屏换行验证',
+            personalDescription: empty
+              ? null
+              : '第一行个人说明。\n第二行说明用于验证原始换行。' +
+                'LongDescriptionWithoutSpaces'.repeat(8),
+            email: empty ? '' : 'synthetic-long-address@example.invalid',
+            errors: {},
+          }
+        : kind === 'energy'
+          ? { targetUin: input.uin, score: 831, level: 1 }
+          : kind === 'education'
+            ? {
+                targetUin: input.uin,
+                items: empty ? [] : [education, { ...education, index: 2, degree: 7, hidden: 1 }],
+              }
+            : { targetUin: input.uin, labels: empty ? [] : [label], totalPhotos: 2, closed: false };
   return {
     data: pending || error ? undefined : value,
     isFetching: pending,
@@ -132,43 +196,61 @@ function useInfiniteQuery(kind: string) {
   const error = mode === 'error' ? new Error('合成错误') : null;
   const empty = mode === 'empty';
   const values =
-    kind === 'signatureHistory'
+    kind === 'signatureLikes'
       ? [
-          page(empty ? [] : [signature], 1699999999),
-          ...(signaturePage > 1
-            ? [page([{ ...signature, id: 'signature-2', text: '第二页签名' }])]
-            : []),
+          page([
+            ...label.likeUsers,
+            ...(liked ? [{ id: '10001', uin: '10001', name: '我', time: null }] : []),
+          ]),
         ]
-      : kind === 'personalityPhotos'
-        ? [page(empty ? [] : [photo(1)])]
-        : [
+      : kind === 'anonymousComments'
+        ? [
             page(
-              empty
-                ? []
-                : [
-                    {
-                      id: 'q1',
-                      question: '这是完整的合成问题吗？',
-                      answer:
-                        '这是一条合成回答。长内容在 320px 视口中也应当正确换行，不覆盖时间和互动数量。',
-                      askedAt: 1700000000,
-                      answeredAt: 1700000010,
-                      likes: '3',
-                      comments: '1',
-                    },
-                  ],
+              commentPage > 1 ? [{ ...comment, id: '24', text: '末页评论' }] : [],
+              commentPage > 1 ? null : 'last',
             ),
-          ];
+          ]
+        : kind === 'signatureHistory'
+          ? [
+              page(empty ? [] : [signature], 1699999999),
+              ...(signaturePage > 1
+                ? [page([{ ...signature, id: 'signature-2', text: '第二页签名' }])]
+                : []),
+            ]
+          : kind === 'personalityPhotos'
+            ? [page(empty ? [] : [photo(1)])]
+            : [
+                page(
+                  empty
+                    ? []
+                    : [
+                        {
+                          id: 'q1',
+                          question: '这是完整的合成问题吗？',
+                          answer:
+                            '这是一条合成回答。长内容在 320px 视口中也应当正确换行，不覆盖时间和互动数量。',
+                          askedAt: 1700000000,
+                          answeredAt: 1700000010,
+                          likes: '3',
+                          comments: '1',
+                        },
+                      ],
+                ),
+              ];
   return {
     data: pending || error ? undefined : { pages: values },
     isFetching: pending,
     error,
-    hasNextPage: kind === 'signatureHistory' && signaturePage === 1 && !empty,
+    hasNextPage:
+      ((kind === 'signatureHistory' && signaturePage === 1) ||
+        (kind === 'anonymousComments' && commentPage === 1)) &&
+      !empty,
     refetch: async () => {
       qa.mode('ready');
     },
     fetchNextPage: async () => {
       signaturePage++;
+      commentPage++;
       changed();
     },
   };
@@ -183,6 +265,9 @@ export const trpc = {
       signatureHistory: { useInfiniteQuery: () => useInfiniteQuery('signatureHistory') },
       personalityPhotos: { useInfiniteQuery: () => useInfiniteQuery('personalityPhotos') },
       anonymousQuestions: { useInfiniteQuery: () => useInfiniteQuery('questions') },
+      signatureLikes: { useInfiniteQuery: () => useInfiniteQuery('signatureLikes') },
+      anonymousDetail: { useQuery: (input: { uin: string }) => useQuery('anonymousDetail', input) },
+      anonymousComments: { useInfiniteQuery: () => useInfiniteQuery('anonymousComments') },
     },
   },
 };

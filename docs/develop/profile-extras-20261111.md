@@ -1,6 +1,6 @@
 # 个人资料扩展读取
 
-本功能复用普通 SSO 会话传输，无新增 native 方法、数据库表或登录流程。入口为 protocol 的 profile/extras、账号级 ProfileExtrasService、account.profileExtras 只读路由和共享 ProfileExtras 组件。
+本功能复用现有 SSO 与 Highway 传输，无新增 native 方法、数据库表或登录流程。读取入口为 protocol 的 profile/extras 与 profile/interactions、ProfileExtrasService、account.profileExtras 和共享 ProfileExtras 组件；写入由 AccountWriteService 及 account.qqActions 编排。
 
 ## 接口
 
@@ -12,9 +12,12 @@
 | details | uin | 公司、个人说明、邮箱及字段级错误，见[详细资料读取](./profile-details.md) |
 | educationHistory | uin | 完整教育经历 items，每条保留 17 个已确认字段，缺字段为 null，不分页、不按学校去重 |
 | signatureHistory | uin、可选数字 cursor | 签名条目及下一时间上界 |
+| signatureLikes | uin、id、createdAt、可选 cursor | 点赞人及 UIN／时间组合页点 |
 | personalityLabels | uin | 标签、首批照片、每标签 cookie、照片数 |
 | personalityPhotos | uin、labelId、可选字符串 cursor | 照片页、完成标记 |
 | anonymousQuestions | uin、filter、可选字符串 cursor | 问答页、结束标记；他人的 filter 强制为 answered |
+| anonymousDetail | uin、questionId、askedAt | 问答详情、点赞人、首批评论与续页状态 |
+| anonymousComments | uin、questionId、可选 cursor | 评论页及结束标记 |
 
 分页结果统一为 items、nextCursor、hasMore、paginationError。二进制标签 cookie 转为规范 Base64，问答 cookie 是服务端 JSON 字符串，不能混用。相同目标、筛选和游标共享在途查询，在线工作复用联系人指标调度队列，但历史列表不写入指标快照。
 
@@ -23,7 +26,7 @@
 - 历史签名：OidbSvc.0xde8_1，普通旧 OIDB，serviceType=1。请求 tag 1 目标、2=2、4=0、5 时间上界、6=0、7=0、8=6、10=60。首次上界 0x7fffffff，续页为末条时间减 1。响应结束标记独立于条数；签名 bytes_nick 是 RichStatus TLV，包含正文、动作、数据、位置和非文本属性。
 - 能量值：qqvalue.GetQQValue 是独立 protobuf 命令。响应内层 tag 8 为目标 UIN，必须与请求一致；不能拿资料卡 QQValueInfoItem 的 tag 8 扩展列表 schema 解码。缺字段和零值分开，不替换本地昵称或备注。
 - 标签：OidbSvc.0x8f0 的请求为目标和 digest=1；OidbSvc.0x8f1 每次请求 20 张，携带目标、标签 ID 和该标签 cookie。照片字段原名 uint32_url，实际 wire=2 的字符串。complete=1 时可以没有照片或 cookie。
-- 匿问我答：MQUpdateSvc_com_qq_ti.web.OidbSvc.0xec4_1，WebSSO 的 type=0 和 JSON data，分层核对外层 ret、JSON ErrorCode 和业务 ret。每次 10 个问题、10 条附带评论；只展示返回的互动数量，不提供独立评论分页。answered_quest_num 随页变化，不作为全局总已回答数。
+- 匿问我答：MQUpdateSvc_com_qq_ti.web.OidbSvc.0xec4_1，WebSSO 的 type=0 和 JSON data，分层核对外层 ret、JSON ErrorCode 和业务 ret。每次 10 个问题、10 条附带评论；详情 `0xecf_1` 请求 30 条评论，使用 `strCommentCookie/int32_comment_fetch_over`；续页 `0xec5_1` 使用 `str_cookie/int32_is_fetch_over`，标记 1 为结束。answered_quest_num 随页变化，不作为全局总已回答数。
 - 教育经历：原生命令为 `OidbSvc.0xd2d`，外层 command=0xd2d、serviceType=1；请求 tag 1=目标 uint64 UIN、tag 2=category 0（显式编码）。响应 `EduHis@1 → SchoolInfo[]@1`；SchoolInfo 的 1=category，2/3=学校 ID/名称，4/5=院系 ID/名称，6=学历，7/8=入学/毕业年，9=校友推荐，10/11=创建来源/时间，12/13=更新来源/时间，14=隐藏标记，15/16=认证状态/类型，**100=记录 idx**。不与 H5 的 `0xd2d_2` 或旧学校文本字段 20021 混用。该响应没有目标 UIN 回显或分页标记，不编造目标校验字段或续页参数；目标由请求、账号会话及路由绑定。
 
 教育读取对 OIDB 外层及已建模的嵌套 protobuf 启用可选严格解码，拒绝截断、非法 tag、错误 wire 与非法 UTF-8；其他旧调用保持原默认行为。业务成功时允许省略整个 EduHis，按官方逻辑视为空列表；业务错误不降级为空。保留所有同校、缺编号及隐藏条目，不用固定条数截断。界面查看他人时不展示 hidden=1 的条目；自己可见并标明未公开。学历 5–9 按官方 H5 显示大专、本科、研究生、博士、博士后，未知值保留编号。
@@ -35,6 +38,20 @@
 本地资料不等待这些请求。能量值单独查询，教育经历、历史、标签和问答在详情打开后加载；隐藏页及离线状态不继续请求。五分钟查询缓存按账号、数据源、目标、筛选和游标隔离，不持久化新的历史库。教育详情显示多条学校、院系、学历、入学／毕业年份及已确认的认证状态，不覆盖原有学校／学历缓存；刷新失败保留已读内容。
 
 标签照片复用 albumMediaUrl、现有相册媒体代理和 QzoneMediaPreview，缩略网格和大图均使用实际返回的 URL，不推造未验证的 CDN 尺寸地址。保留键盘切图、缩放、失败重试与顶层 Escape 行为。
+
+## 资料互动与上传
+
+签名 `NickInfo` 的 tag 7 是评论、tag 8 是总赞数与点赞人。评论 ID、回复 ID、UIN 保持十进制字符串；内部 hex feed ID 在写入前恢复原始字节／文本。`0x796_0` 按 UIN／时间页点翻页，flag=0 结束，末页内容仍保留。
+
+account.qqActions 新增 signatureLike、signatureComment、deleteSignatureComment、personalityPhotoUpload，携带现有账号绑定与目标 uin。签名赞 `0x795_0` 的 type=255，action=1／0；新增／回复 `0xde5_1` 的 tag 3 为回复 ID、tag 4 为当前账号；删除 `0xde7_1` 的 tag 3 为当前账号、tag 4 为评论 ID。账号服务串行提交资料写入，删除他人签名下的评论先读取并核对作者。
+
+标签 LabelInfo tag 8 为赞数、14 为赞状态、15 为最近点赞人；照片自己的赞记录单独保留。界面以昵称摘要和真实总数展示，按需展开互动，不预取所有历史。
+
+照片上传使用 Highway commandId=39。28 字节大端扩展：labelId:uint64、批次图片数:uint32、索引:uint32、0:uint32、0:uint32、构造时间:uint32。响应头 tag 7 承载业务扩展；成功体为 result:uint8、保留字段:uint32、photoId:uint64、URL 长度:uint32 和 URL。Highway 可选 onResponse 回调逐块返回扩展及正文，既有调用保持 Promise<void>；业务解析错误不会触发分片重传。
+
+上传路由复用账号文件暂存及图片读取，每张最多 20 MB，单批最多 100 张；前端逐张提交，finally 清理暂存。上传服务返回照片 ID、URL 和 observed；目录读取失败只令 observed=false，上传仍完成，界面后续仅刷新相册。验收清理的 `0x90c` 字段为 tag 2 账号、3 标签 ID、4 repeated 照片 ID。
+
+2026-11-11 当前 Mac QQ 会话实测：签名点赞列表返回 3 人；点赞状态切换及恢复、评论发布／读回／删除、标签照片 Highway 39 上传／目录读回／删除均通过。测试对象均为当前账号本人资料，清理后读回复核通过。问答详情及评论读取、本人和另一自有账号目录读取通过；非空多页评论与多图失败重试另由离线协议／浏览器夹具覆盖。
 
 ## 验证状态
 
