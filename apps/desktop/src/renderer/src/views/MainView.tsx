@@ -79,6 +79,11 @@ import {
 import { buddyRequestDirection, buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { contactProfileIdentity, sendTargetOf } from '../lib/conversationIdentity';
+import {
+  expectedOutgoingKeys as expectedKeysOf,
+  isSeqRejected,
+  outgoingSequenceRejected,
+} from '../lib/outgoingAcknowledgment';
 import { avatarFromGroupCode, avatarFromUin, resolveAvatar } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import {
@@ -815,7 +820,7 @@ type OptimisticForward = {
   cid?: string;
   /** 发送回执给出的会话内真实 seq —— 与 Ark 同款，用于排序与缺口判定。 */
   seq?: string;
-  /** 回执 seq=0：服务端收下却没分配序号（静默丢弃）。见 {@link OptimisticArk.seqRejected}。 */
+  /** 普通会话零序号的未确认标记；成功设备回执除外。见 {@link OptimisticArk.seqRejected}。 */
   seqRejected?: boolean;
   error?: string;
   at: number;
@@ -867,14 +872,13 @@ type OptimisticArk = {
    *   - **缺口判定**的修正（见 chatPane 的 `messageGapCount`）；
    *   - 作为 `cid` 之后的次要对账判据。
    *
-   * `seq === 0` 的语义完全不同：服务端**收下了但没分配序号**（markdown / 签名错的 ark
-   * 这类静默丢弃）。那种条目不能当已发出处理 —— 见 {@link OptimisticArk.seqRejected}。
+   * 普通会话 `seq === 0` 可能是 markdown / 签名错的 ark 这类静默丢弃；成功设备
+   * 回执本来就没有普通会话序号，不套用这个判据。见 {@link OptimisticArk.seqRejected}。
    */
   seq?: string;
   /**
-   * 回执 seq 为 0：服务端收下却没给序号 —— 实测就是**静默丢弃**（`result=0`、`errMsg=''`
-   * 和成功一模一样，只有 seq 不同）。这种条目排序上仍置底（没有可信序号），并在发送后
-   * 立刻弹一次警告，别让用户以为对方收到了。
+   * 普通会话回执 seq 为 0 的未确认标记：静默丢弃时 `result=0`、`errMsg=''` 也可能与
+   * 成功一样。这种条目没有可信序号，排序置底并提示可能未送达；成功设备回执不打此标记。
    */
   seqRejected?: boolean;
   state: 'sending' | 'sent' | 'failed';
@@ -882,27 +886,6 @@ type OptimisticArk = {
   error?: string;
   at: number;
 };
-
-/**
- * 发送回执 → 对账键与排序 seq（`cid` = random，`seq` = 会话内真实序号）。
- *
- * `random` 一定会有（协议层在发送前就生成了）；seq 群聊取 `groupSequence`、私聊取
- * `privateSequence`，两者都是本地 40003 那一套（见 {@link OptimisticArk.seq}）。
- * seq 为 0 = 服务端没分配序号（静默丢弃），此时打上 `seqRejected` 让上层提示。
- */
-function expectedKeysOf(payload: {
-  peerType: 'c2c' | 'group';
-  groupSequence?: number;
-  privateSequence?: number;
-  random?: number;
-}): Pick<OptimisticArk, 'cid' | 'seq' | 'seqRejected'> {
-  const seq = payload.peerType === 'group' ? payload.groupSequence : payload.privateSequence;
-  return {
-    ...(payload.random && payload.random > 0 ? { cid: String(payload.random) } : {}),
-    ...(seq && seq > 0 ? { seq: String(seq) } : {}),
-    ...(seq === 0 ? { seqRejected: true } : {}),
-  };
-}
 
 type PendingScrollRestore = {
   conversationId: string;
@@ -1512,7 +1495,7 @@ function optimisticToTemplate(
     // 带上它，乐观条目就能按 seq 混排进真实消息之间，而不是一律置底；seq 缺失
     //（静默丢弃 / 位置卡片那条 trpc 回包解析不出）时留在 '' —— 渲染层会把它排到末尾。
     msgSeq: item.seq ?? '',
-    optimisticRejected: item.seqRejected,
+    optimisticRejected: item.seqRejected && outgoingSequenceRejected(item),
     optimistic: item.state,
     optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
@@ -1549,7 +1532,7 @@ function optimisticArkToTemplate(
     msgId: item.id,
     // 同 {@link optimisticToTemplate}：有真实 seq 就参与排序与缺口判定。
     msgSeq: item.seq ?? '',
-    optimisticRejected: item.seqRejected,
+    optimisticRejected: item.seqRejected && outgoingSequenceRejected(item),
     optimistic: item.state,
     optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
@@ -1600,7 +1583,7 @@ type OptimisticMessage = {
   cid?: string;
   /** 回执给出的会话内真实 seq（群聊 / 私聊同一套）—— 用于排序与缺口判定。 */
   seq?: string;
-  /** 回执 seq=0：服务端收下却没分配序号（静默丢弃）。 */
+  /** 普通会话零序号的未确认标记；成功设备回执除外。 */
   seqRejected?: boolean;
   at: number;
 };
@@ -1622,7 +1605,7 @@ function optimisticMessageToTemplate(
     msgId: item.id,
     // 有真实 seq 就参与排序与缺口判定（同 Ark / 合并转发）。
     msgSeq: item.seq ?? '',
-    optimisticRejected: item.seqRejected,
+    optimisticRejected: item.seqRejected && outgoingSequenceRejected(item),
     optimistic: item.state,
     optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
@@ -1636,17 +1619,6 @@ function optimisticMessageToTemplate(
     optimistic: OptimisticMessage['state'];
     optimisticError?: string;
   };
-}
-
-/**
- * 回执 seq 是否为 0（= 服务端收下但没分配序号）。
- *
- * 实测（markdown / 签名错的 ark）这种发送的回执与成功**完全一样**：`ok=true`、
- * `result=0`、`errMsg=''`；唯一的区别就是 seq 恒为 0。所以它是「本条服务端可能静默
- * 丢弃了」的唯一可靠信号（见 docs/develop/send-message.md 第六节）。
- */
-function isSeqRejected(outcome: { groupSequence?: number; privateSequence?: number }): boolean {
-  return (outcome.groupSequence ?? 0) <= 0 && (outcome.privateSequence ?? 0) <= 0;
 }
 
 function messageToTemplate(
@@ -7209,7 +7181,10 @@ function MainWorkspace(): ReactElement {
   // Server acknowledgement can precede the QQ database write, or its watcher
   // may be disabled. Re-read a small number of times without resending anything.
   const pendingSyncKey = [...optimisticMessages, ...optimisticArks, ...optimisticForwards]
-    .filter((item) => item.convId === selectedUid && item.state === 'sent' && !item.seqRejected)
+    .filter(
+      (item) =>
+        item.convId === selectedUid && item.state === 'sent' && !outgoingSequenceRejected(item),
+    )
     .map((item) => item.id)
     .sort()
     .join('|');
@@ -7228,6 +7203,7 @@ function MainWorkspace(): ReactElement {
             cancelled ||
             !selection ||
             selection.kind !== 'direct' ||
+            isDatalineUid(selection.id) ||
             selectionRef.current !== selection ||
             !windowRef.current.anchored
           )
@@ -9730,6 +9706,9 @@ function MainWorkspace(): ReactElement {
         fileSync: { fileId: fileOutcome.fileId, existingMsgIds: fileExistingMsgIds },
         ...expectedKeysOf({
           peerType: target.peerType,
+          targetId: target.targetId,
+          ok: fileOutcome.ok,
+          ...(fileOutcome.result !== undefined ? { result: fileOutcome.result } : {}),
           ...(fileOutcome.privateSequence !== undefined
             ? { privateSequence: fileOutcome.privateSequence }
             : {}),
@@ -9748,6 +9727,9 @@ function MainWorkspace(): ReactElement {
     patchOptimistic({
       ...expectedKeysOf({
         peerType: target.peerType,
+        targetId: target.targetId,
+        ok: outcome.ok,
+        ...(outcome.result !== undefined ? { result: outcome.result } : {}),
         ...(outcome.groupSequence !== undefined ? { groupSequence: outcome.groupSequence } : {}),
         ...(outcome.privateSequence !== undefined
           ? { privateSequence: outcome.privateSequence }
@@ -9756,7 +9738,7 @@ function MainWorkspace(): ReactElement {
       }),
       state: 'sent',
     });
-    if (isSeqRejected(outcome)) {
+    if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
       pushToast({
         tone: 'warning',
         message: '这条消息可能未被服务端接收',
@@ -9972,7 +9954,7 @@ function MainWorkspace(): ReactElement {
         }),
         state: 'sent',
       });
-      if (isSeqRejected(outcome)) {
+      if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
         pushToast({
           tone: 'warning',
           message: '这条闪照可能未被服务端接收',
@@ -10099,7 +10081,7 @@ function MainWorkspace(): ReactElement {
         }),
         state: 'sent',
       });
-      if (isSeqRejected(outcome)) {
+      if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
         pushToast({
           tone: 'warning',
           message: '这条泡泡消息可能未被服务端接收',
@@ -10361,7 +10343,7 @@ function MainWorkspace(): ReactElement {
           ...expectedKeysOf(outcome),
           state: 'sent',
         });
-        if (isSeqRejected(outcome)) {
+        if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
           pushToast({
             tone: 'warning',
             message: `${payload.kind === 'qq' ? '推荐好友卡片' : '推荐群卡片'}可能未被服务端接收`,
@@ -10476,7 +10458,7 @@ function MainWorkspace(): ReactElement {
         ...expectedKeysOf(outcome),
         state: 'sent',
       });
-      if (isSeqRejected(outcome)) {
+      if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
         pushToast({
           tone: 'warning',
           message: '卡片可能未被服务端接收',

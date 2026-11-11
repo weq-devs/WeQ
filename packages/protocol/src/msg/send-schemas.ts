@@ -50,9 +50,19 @@ export const ROUTING_GROUP_TEMP: ProtoMessage = message([
  * trans0x211 路由（RoutingHead field 15）—— **只给 c2c 文件/设备会话用**。
  * 常规私聊走了这条会被服务端拒收；文件发送用 ccCmd=4，设备文本用 ccCmd=7。
  */
+const DATALINE_TERMINAL = message([
+  f('appId', 1, 'uint32'),
+  f('instanceId', 2, 'uint32', { force: true }),
+  f('terminalType', 10, 'uint32'),
+]);
 export const ROUTING_TRANS_0X211: ProtoMessage = message([
   f('toUin', 1, 'uint64'),
   f('ccCmd', 2, 'uint32'),
+  f(
+    'devices',
+    3,
+    message([f('destination', 1, DATALINE_TERMINAL), f('source', 3, DATALINE_TERMINAL)]),
+  ),
   f('uid', 8, 'string'),
 ]);
 
@@ -130,7 +140,7 @@ export const SEND_MESSAGE_REQUEST: ProtoMessage = message([
 ]);
 
 /**
- * 群临时会话用的请求容器 —— 与 {@link SEND_MESSAGE_REQUEST} 逐字段相同，只把
+ * 群临时会话/设备文件用的请求容器 —— 与 {@link SEND_MESSAGE_REQUEST} 逐字段相同，只把
  * `contentHead` 换成「零值也上 wire」的 {@link SEND_CONTENT_HEAD_TEMP}。
  *
  * 用映射而不是手抄一遍字段表：主 schema 一改这里跟着走，不会漂移。

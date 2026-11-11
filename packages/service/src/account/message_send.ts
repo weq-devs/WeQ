@@ -45,6 +45,7 @@ import {
   PUSH_MSG_BODY,
   SEND_MESSAGE_REQUEST,
   sendPrivateFile,
+  sendDatalineFile,
   SendAiVoice,
   SendLocationArk,
   type ContactArkKind,
@@ -831,6 +832,42 @@ export class MessageSendService {
   async sendFile(params: SendFileParams): Promise<SendFileOutcome> {
     const filePath = params.path?.trim();
     if (!filePath) throw new Error('文件路径不能为空。');
+    const deviceUid = String(params.targetId).trim();
+    const device = params.peerType === 'c2c' ? datalineDevice(deviceUid) : null;
+    if (device) {
+      const result = await sendDatalineFile(this.nt, this.resolvePid(), {
+        target: {
+          selfUin: Number(this.selfUin()),
+          selfUid: this.session.selfUid ?? '',
+          deviceUid,
+          terminalType: device === 'pc' ? 1 : device === 'phone' ? 2 : 3,
+        },
+        filePath,
+        ...(params.fileName?.trim() ? { fileName: params.fileName.trim() } : {}),
+        beforeSend: params.beforeSend,
+        log: (message) => logger.info(message, { event: 'device-file-upload' }),
+      });
+      return {
+        ok: result.sent,
+        peerType: 'c2c',
+        targetId: deviceUid,
+        uid: deviceUid,
+        scene: 'c2c',
+        kind: 'file',
+        fileId: result.fileId,
+        fileName: result.fileName,
+        fileSize: result.fileSize,
+        md5Hex: result.md5Hex,
+        fastUpload: result.fastUpload,
+        sent: result.sent,
+        result: result.receipt.result,
+        errMsg: result.receipt.errMsg,
+        random: result.receipt.random,
+        privateSequence: result.receipt.privateSequence,
+        timestamp: result.receipt.timestamp,
+        ...(result.sent ? { hint: '文件已上传，设备消息已提交。' } : {}),
+      };
+    }
     const target = this.resolveTarget(params.targetId, params.peerType, params.peerType === 'c2c');
     const pid = this.resolvePid();
     const selfUin = this.selfUin();

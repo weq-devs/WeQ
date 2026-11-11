@@ -28,6 +28,9 @@ import {
   SEND_LONG_MSG_RESP,
   SEND_MESSAGE_REQUEST,
   SEND_MESSAGE_RESPONSE,
+  DATALINE_UPLOAD_CMD,
+  DATALINE_UPLOAD_REQUEST,
+  DATALINE_UPLOAD_RESPONSE,
 } from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
 import {
@@ -110,6 +113,62 @@ function fakeNative() {
     },
   };
 }
+
+describe('设备文件发送', () => {
+  it.each(['u_Wcc5rknRRqRO8y5gxMD6sA', 'u_rK7NMsbv2ZjEGPdCuOiCfw', 'u_l7jpPIZxQo0mzJwoEt-SKw'])(
+    '%s 保留设备身份，上传给本人而非查好友目录',
+    async (uid) => {
+      const filePath = path.join(dir, 'device.txt');
+      await fsp.writeFile(filePath, 'device fixture');
+      const native = fakeNative();
+      const ordinarySend = native.sendPacket;
+      native.sendPacket = async (pid, cmd, body) => {
+        if (cmd !== DATALINE_UPLOAD_CMD) return ordinarySend(pid, cmd, body);
+        native.calls.push({ pid, cmd, body: new Uint8Array(body) });
+        return Buffer.from(
+          encode(DATALINE_UPLOAD_RESPONSE, {
+            command: 1710,
+            upload: { retCode: 0, uuid: '/00000000-0000-0000-0000-000000000001', fileExists: true },
+          }),
+        );
+      };
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession({ uinOf: { [uid]: 20002n } }),
+        () => 1,
+      );
+      const result = await svc.sendFile({ peerType: 'c2c', targetId: uid, path: filePath });
+      expect(result).toMatchObject({
+        ok: true,
+        sent: true,
+        targetId: uid,
+        uid,
+        kind: 'file',
+        fastUpload: true,
+      });
+      const request = decode(DATALINE_UPLOAD_REQUEST, native.calls[0]!.body) as {
+        upload: { senderUin: bigint; receiverUin: bigint };
+      };
+      expect(request.upload).toMatchObject({ senderUin: 10001n, receiverUin: 10001n });
+      expect(native.calls.map((call) => call.cmd)).toEqual([
+        DATALINE_UPLOAD_CMD,
+        'MessageSvc.PbSendMsg',
+      ]);
+    },
+  );
+  it('缺少本人 UID 时不读文件或发包', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession({ selfUid: '' }), () => 1);
+    await expect(
+      svc.sendFile({
+        peerType: 'c2c',
+        targetId: 'u_Wcc5rknRRqRO8y5gxMD6sA',
+        path: '/not-read.bin',
+      }),
+    ).rejects.toThrow(/真实 UID/);
+    expect(native.calls).toHaveLength(0);
+  });
+});
 
 describe('buildTextElements', () => {
   it('纯文本只有一个 text 元素', () => {

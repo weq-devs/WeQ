@@ -22,7 +22,8 @@
 | 群聊 | `grp.groupCode` | `{ type: 1 }` | 不带 c2cCmd / subType，也不带时间戳 |
 | 私聊 | `c2c.{uin, uid}` | `{ type: 1, c2cCmd: 11 }` | 带 `ctrl.msgFlag`（Request field 12，Unix 秒） |
 | 群临时会话 | `grpTmp.{groupUin, toUid}` | `{ type: 1, subType: 0, c2cCmd: 0 }`（两个 0 **显式**上 wire） | 带 `syncCookie.msgFlag`（Request **field 6**，Unix 秒） |
-| 我的设备 | `trans0x211.{toUin: 本人QQ号, ccCmd: 7, uid: 本人真实UID}` | `{ type: 1, subType: 0 }` | 文本在 `messageBody.msgContent`，带 `ctrl.msgFlag`，不走好友 `c2c` 路由 |
+| 我的设备文本 | `trans0x211.{toUin: 本人QQ号, ccCmd: 7, uid: 本人真实UID}` | `{ type: 1, subType: 0 }` | 文本在 `messageBody.msgContent`，带 `ctrl.msgFlag`，不走好友 `c2c` 路由 |
+| 我的设备文件 | `trans0x211.{ccCmd: 7, devices, uid: 本人真实UID}` | `{ type: 1, subType: 0, c2cCmd: 0 }`（零值显式编码） | FTN 通知在 `msgContent`，不带 `ctrl`；`devices` 分别描述目的和本机终端 |
 
 群临时会话那两格是按真机抓包对齐的（2026-09-29，QQ NT 在群里发起临时会话）：同一份请求里
 `grpTmp` 的字段号是 **3 / 4**（不是网上常见的 1 / 2）、`contentHead` 把 `subType=0` 与
@@ -31,7 +32,7 @@
 私聊包，所以两边**故意不一致**。实现见 `send-schemas.ts` 的 `SEND_CONTENT_HEAD_TEMP` /
 `SEND_SYNC_COOKIE` / `SEND_MESSAGE_REQUEST_TEMP`，以及 `send.ts` 的 `RoutingPlan.timestampField`。
 
-消息体是 `messageBody.richText.elems[]` —— 一个 `Elem` 数组。
+除设备会话外，消息体是 `messageBody.richText.elems[]` —— 一个 `Elem` 数组。
 
 ### 我的设备文本
 
@@ -44,8 +45,8 @@
 设备文本使用 `trans0x211` 命令 7，`msgContent` 内为数据线 `subCmd=4`：header 带本人
 源／目的 QQ 号、源终端 PC（1）、目的终端 PC／手机／平板（1／2／3），移动端 appId 为
 1001，PC appId 为 1；generic 带毫秒 sessionId、单片信息和 UTF-8 文本列表。
-本路径目前仅支持文本，不上传图片、语音、视频或文件，不发送好友装扮，也不把设备消息
-写入普通私聊的漫游缓存；本地消息由 `dataline_msg_table` 的现有同步链路接管。
+文本元素路径不混发媒体或文件，也不发送好友装扮。设备文件走下述独立上传路径；设备消息
+不写入普通私聊的漫游缓存，本地消息由 `dataline_msg_table` 的现有同步链路接管。
 
 协议字段与发送形状核对自 SnowLuma 固定版本的
 [发送实现](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/core/src/bridge/apis/message.ts)、
@@ -55,6 +56,34 @@
 `trans0x211.uid`，设备伪 UID 返回 `result=15`，本人真实 UID 返回 `result=0`，
 并经本地数据线同步及手机实际接收确认。离线回归覆盖正文黄金字节、本人真实 UID 路由、
 三种目的终端、本人 UID 缺失和非文本拒绝；电脑／平板目的终端尚未做真实接收验收。
+
+### 我的设备文件
+
+`sendDatalineFile` 使用 `OfflineFilleHandleSvr.pb_ftn_CMD_REQ_APPLY_UPLOAD_V3-1700`，
+业务号 38、客户端类型 104、源和目的均为本人 UIN；它不是普通私聊的
+`0xE37_1700` / NTV2 / Highway 95，也不发送私聊 `FileExtra`。
+
+申请携带文件大小、名称、完整 SHA-1 和前 `FILE_MD5_HEAD_LIMIT`（`0x98A000`）字节
+MD5。设备通知的原件摘要也使用这一分段 MD5；不能只拿小文件测完整 MD5，否则发现不了差异。
+未命中时按响应的整包限额流式读取，POST `/ftn_handler?bmd5=<当前文件块MD5>`：
+
+```text
+16B 头：magic=0xABCD9876 / command=1007 / reserved=0 / bodyLength
+u16 ticketLength / ticket / u16 sha1Length / sha1
+u32 fileSizeLow / offsetLow / chunkLength / fileSizeHigh / offsetHigh
+文件块
+```
+
+回执必须有合法头及成功状态；停止标记或确认偏移决定下一块，偏移不前进、HTTP 失败、
+损坏或过大回执都中止且不发布通知，文件句柄由 `finally` 关闭。长上传期间继续核对当前
+账号及数据源，不把已经上传到旧账号的文件通知发到新账号。
+
+上传完成后发送 `subCmd=1` 的 FTN 文件通知，携带 `/UUID` 索引、文件名、大小和分段摘要。
+文件消息保留设备伪 UID 作为会话身份，SSO 路由仍使用本人真实 UID；目的 instance 为 0，
+本机 instance 为 1，单文件不复用原生 SDK 的历史传输组。
+
+这条实现是云端文件分支，先完整上传再提交消息。QQ 原生 SDK 的 NFC/RFC 直连、反向连接
+及上传未结束时就接收的会话过程尚未接入，不能把服务端接受通知等同于手机已经下载。
 
 ### 自动跟随当前聊天字体
 
@@ -698,6 +727,11 @@ markdown / 签名错的 ark 这类**服务端静默吞掉**的发送，回执是
 成功一模一样，**只有 seq 能区分**：真发出去的带 `groupSequence`（群）/ `privateSequence`（私聊），
 被吞掉的恒为 `0`。实测两次吻合（见上表）。所以「已受理」这类状态**不能**只看 `ok`，
 要么等 `random` 在库/漫游里命中，要么把 `seq === 0` 当成「本次极可能被静默丢弃」的强信号。
+
+以上判据只适用于普通私聊与群聊。设备 FTN 文件通知成功时，`groupSequence` 和
+`privateSequence` 也都为 0，不能据此标成「可能未送达」。前端按目标为设备伪 UID、
+`peerType=c2c` 且回执成功区分，不伪造消息序号；真实失败仍保留失败提示。成功回执表示
+提交成功，不等于收端已下载或打开文件。设备占位只做本地刷新，不走普通私聊漫游兜底。
 
 ### 前端据此做的三件事（`MainView.tsx` / `messageBubble.tsx`）
 

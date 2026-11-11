@@ -88,6 +88,47 @@ describe('本地发送会话摘要', () => {
     expect(applyOutgoingConversationPreview(direct, previews, demo.user).lastMessage?.body).toBe(
       body,
     );
+    expect(
+      applyOutgoingConversationPreview(direct, previews, demo.user).lastMessage?.directoryTime,
+    ).toBe(state === 'sent' && !seqRejected ? at / 1000 : undefined);
+  });
+
+  it('成功设备文件的零序号不显示未送达，旧摘要和上一条成功摘要也同步纠正', () => {
+    const device = { ...direct, id: 'u_Wcc5rknRRqRO8y5gxMD6sA' };
+    const accepted = {
+      ...record,
+      convId: device.id,
+      state: 'sent' as const,
+      seq: '0',
+      seqRejected: true,
+      elements: [],
+      body: '[文件] fixture.txt',
+    };
+    let previews = updateOutgoingConversationPreviews(new Map(), [accepted], []);
+    expect(applyOutgoingConversationPreview(device, previews, demo.user).lastMessage?.body).toBe(
+      '[文件] fixture.txt',
+    );
+    const confirmed = previews.get(device.id)!;
+    const stale = { ...confirmed, seqRejected: true };
+    for (const previous of [
+      new Map([[device.id, stale]]),
+      new Map([[device.id, { ...stale, state: 'failed' as const, lastSent: stale }]]),
+    ]) {
+      previews = updateOutgoingConversationPreviews(previous, [], []);
+      expect(previews.get(device.id)?.seqRejected).toBe(false);
+      expect(applyOutgoingConversationPreview(device, previews, demo.user).lastMessage?.body).toBe(
+        '[文件] fixture.txt',
+      );
+      expect(stale.seqRejected).toBe(true);
+    }
+    previews = updateOutgoingConversationPreviews(
+      new Map(),
+      [{ ...accepted, state: 'failed' }],
+      [],
+    );
+    expect(applyOutgoingConversationPreview(device, previews, demo.user).lastMessage?.body).toBe(
+      '[发送失败] [文件] fixture.txt',
+    );
   });
 
   it('多种消息共用摘要，同秒连续发送按提交先后选最新，旧回执不倒退', () => {

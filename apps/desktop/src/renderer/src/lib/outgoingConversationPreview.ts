@@ -6,6 +6,7 @@ import {
   type PreviewNode,
 } from './conversationPreview';
 import type { LocalOutgoingRecord } from './localOutgoing';
+import { outgoingSequenceRejected } from './outgoingAcknowledgment';
 
 export interface OutgoingPreviewRecord extends LocalOutgoingRecord {
   at: number;
@@ -47,7 +48,7 @@ function recordPreview(item: OutgoingPreviewRecord): OutgoingPreviewContent {
     at: item.at,
     seq: item.seq,
     afterSeq: item.afterSeq,
-    seqRejected: item.seqRejected,
+    seqRejected: item.seqRejected && outgoingSequenceRejected(item),
     body,
     nodes: nodes.length ? nodes : [{ t: 'text', text: body }],
   };
@@ -80,7 +81,11 @@ export function updateOutgoingConversationPreviews(
   const next = new Map<string, OutgoingConversationPreview>();
   const sent = new Map<string, OutgoingPreviewContent>();
   for (const [id, item] of previous) {
-    const confirmed = item.state === 'sent' && !item.seqRejected ? item : item.lastSent;
+    const source = item.state === 'sent' && !outgoingSequenceRejected(item) ? item : item.lastSent;
+    const confirmed =
+      source?.seqRejected && !outgoingSequenceRejected(source)
+        ? { ...source, seqRejected: false }
+        : source;
     if (confirmed && !summaryCaughtUp(confirmed, summaries.get(id))) {
       sent.set(id, confirmed);
       next.set(id, confirmed);
@@ -116,7 +121,7 @@ export function applyOutgoingConversationPreview(
         ? '[发送中] '
         : item.state === 'failed'
           ? '[发送失败] '
-          : item.seqRejected
+          : outgoingSequenceRejected(item)
             ? '[可能未送达] '
             : '';
   const createdAt = new Date(item.at).toISOString();
