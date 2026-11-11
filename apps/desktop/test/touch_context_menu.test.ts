@@ -125,3 +125,51 @@ it('浏览器原生长按右键不会与统一识别重复触发，卸载会清�
   expect(menu).toHaveBeenCalledOnce();
   expect(native()).toBe(true);
 });
+
+it.each(['pointercancel', 'lostpointercapture', 'scroll', 'move'])(
+  '%s 后迟到的原生菜单仍被消费，不影响下一次鼠标右键',
+  (reason) => {
+    const menu = vi.fn();
+    target.addEventListener('contextmenu', menu);
+    pointer('pointerdown');
+    if (reason === 'move') pointer('pointermove', { clientX: 41 });
+    else if (reason === 'scroll') target.dispatchEvent(new Event('scroll'));
+    else pointer(reason);
+    vi.advanceTimersByTime(100);
+    expect(
+      target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+    ).toBe(false);
+    expect(menu).not.toHaveBeenCalled();
+    pointer('pointerdown', { pointerType: 'mouse', button: 2 });
+    expect(
+      target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+    ).toBe(true);
+    expect(menu).toHaveBeenCalledOnce();
+  },
+);
+
+it('无活动手势的触摸原生菜单被消费，鼠标右键不受影响', () => {
+  expect(
+    target.dispatchEvent(
+      new PointerEvent('contextmenu', { bubbles: true, cancelable: true, pointerType: 'touch' }),
+    ),
+  ).toBe(false);
+  expect(
+    target.dispatchEvent(
+      new PointerEvent('contextmenu', { bubbles: true, cancelable: true, pointerType: 'mouse' }),
+    ),
+  ).toBe(true);
+});
+
+it('取消手势的菜单兜底到期后解除，期间不抑制下一次轻触', () => {
+  const click = vi.fn();
+  target.addEventListener('click', click);
+  pointer('pointerdown');
+  pointer('pointercancel');
+  target.click();
+  expect(click).toHaveBeenCalledOnce();
+  vi.advanceTimersByTime(801);
+  expect(
+    target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+  ).toBe(true);
+});

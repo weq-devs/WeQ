@@ -49,27 +49,91 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/touch-context-menu.html`,
   );
   await page.waitForSelector('[data-surface]');
+  await page.evaluate(() => {
+    for (const name of ['消息', '图片']) {
+      const content = document.querySelector(`[data-surface="${name}"] span`);
+      content.classList.add('message-content');
+      if (name === '图片') {
+        const image = document.createElement('img');
+        image.alt = '长按图片';
+        image.width = image.height = 32;
+        image.src =
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aO1cAAAAASUVORK5CYII=';
+        content.append(image);
+      }
+    }
+  });
   let count = 0;
   for (const width of [390, 1180]) {
     await page.setViewportSize({ width, height: 844 });
+    // 必须检查真实层叠结果；只派发 contextmenu 无法发现系统文字选择与图片 callout。
+    const styles = await page.evaluate(() => {
+      const message = document.createElement('div');
+      message.className = 'message-content';
+      message.innerHTML = '<span>消息正文</span><a href="#">链接<img alt="图片"></a>';
+      document.body.append(message);
+      const editor = document.createElement('div');
+      editor.contentEditable = 'true';
+      editor.innerHTML = '<span>输入文字</span>';
+      document.body.append(editor);
+      const values = (element) => {
+        const style = getComputedStyle(element);
+        return {
+          select: style.getPropertyValue('-webkit-user-select') || style.userSelect,
+          callout: style.getPropertyValue('-webkit-touch-callout'),
+        };
+      };
+      const result = {
+        touch: matchMedia('(any-pointer: coarse)').matches,
+        content: [message, ...message.querySelectorAll('*')].map(values),
+        editors: [document.querySelector('textarea'), editor, editor.firstElementChild].map(values),
+      };
+      message.remove();
+      editor.remove();
+      return result;
+    });
+    assert.equal(styles.touch, true);
+    for (const style of styles.content) {
+      assert.equal(style.select, 'none');
+      if (style.callout) assert.equal(style.callout, 'none');
+    }
+    for (const style of styles.editors) {
+      assert.equal(style.select, 'text');
+      if (style.callout) assert.equal(style.callout, 'default');
+    }
     for (const name of ['会话', '联系人', '消息', '图片', '空白区域', '弹窗内容']) {
-      const target = page.locator(`[data-surface="${name}"] span`);
+      const target = page.locator(`[data-surface="${name}"] ${name === '图片' ? 'img' : 'span'}`);
+      await target.scrollIntoViewIfNeeded();
+      const rect = await target.boundingBox();
+      const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       const init = {
         pointerType: 'touch',
         pointerId: 1,
         isPrimary: true,
         button: 0,
-        clientX: 30,
-        clientY: 40,
+        clientX: point.x,
+        clientY: point.y,
       };
-      await target.dispatchEvent('pointerdown', init);
-      await page.waitForTimeout(500);
-      await target.dispatchEvent('pointerup', init);
+      const session = engine === 'chromium' ? await page.context().newCDPSession(page) : null;
+      if (session) {
+        await session.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [point],
+        });
+        await page.waitForTimeout(650);
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await session.detach();
+      } else {
+        await target.dispatchEvent('pointerdown', init);
+        await page.waitForTimeout(500);
+        await target.dispatchEvent('pointerup', init);
+      }
       await target.dispatchEvent('contextmenu', { button: 2 });
       await target.dispatchEvent('click');
       assert.equal(await page.locator('output').textContent(), name);
       assert.equal(await page.locator('body').getAttribute('data-menus'), String(++count));
       assert.equal(await page.locator('output').getAttribute('data-clicks'), '0');
+      assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '');
     }
   }
   await page.locator('textarea').tap();
@@ -133,6 +197,23 @@ try {
       clicksBefore + 1,
     );
   }
+  const desktop = await browser.newPage({
+    viewport: { width: 1180, height: 844 },
+    hasTouch: false,
+  });
+  await desktop.goto(page.url());
+  await desktop.waitForSelector('.message-content');
+  assert.equal(
+    await desktop
+      .locator('.message-content')
+      .first()
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+        return style.getPropertyValue('-webkit-user-select') || style.userSelect;
+      }),
+    'text',
+  );
+  await desktop.close();
   assert.deepEqual(errors, []);
   console.log(
     `PASS: ${engine} 触摸长按、React 右键冒泡、portal、宽窄视口、原生事件去重、松手防误点、贴表情单浮层和后续轻触`,
