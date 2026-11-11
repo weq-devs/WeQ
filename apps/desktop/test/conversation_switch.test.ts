@@ -38,6 +38,16 @@ const f = vi.hoisted(() => ({
   unreadMode: false,
   headRefreshes: 0,
   freshPreview: false,
+  previewTarget: null as string | null,
+  groups: [] as Array<{
+    groupCode: string;
+    groupName: string;
+    remark: string;
+    memberCount: number;
+    maxMemberCount: number;
+    customLabels: Array<{ content: string }>;
+    directory: { memberCount: number; role: 'member'; notifyLevel: number };
+  }>,
   headEnabled: false,
   unreadReads: [] as UnreadInput[],
   dbChanged: undefined as (() => void) | undefined,
@@ -99,25 +109,28 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                               setHead({
                                 ...recent,
                                 data: {
-                                  items: f.recent.map((row) => ({
-                                    ...row,
-                                    msgSeq: '2',
-                                    sendTime: '1794200060',
-                                    preview: { kind: 'text', textContent: '最新消息' },
-                                  })),
+                                  items: f.recent.map((row) =>
+                                    f.previewTarget === null || f.previewTarget === row.targetUid
+                                      ? {
+                                          ...row,
+                                          msgSeq: '2',
+                                          sendTime: '1794200060',
+                                          preview: { kind: 'text', textContent: '最新消息' },
+                                        }
+                                      : row,
+                                  ),
                                 },
                               });
                             return { isError: false };
                           },
                         }
-                    : [
-                          'listAllGroups',
-                          'listHiddenSessions',
-                          'listDeletedSessions',
-                          'listTopContacts',
-                        ].includes(path.at(-1) ?? '')
-                      ? directory
-                      : empty;
+                    : path.join('.') === 'account.listAllGroups'
+                      ? { ...directory, data: f.groups }
+                      : ['listHiddenSessions', 'listDeletedSessions', 'listTopContacts'].includes(
+                            path.at(-1) ?? '',
+                          )
+                        ? directory
+                        : empty;
           };
         if (key === 'useInfiniteQuery') return () => (f.refreshing ? refreshingPages : pages);
         if (key === 'useMutation')
@@ -267,6 +280,8 @@ afterEach(() => {
   f.unreadMode = false;
   f.headRefreshes = 0;
   f.freshPreview = false;
+  f.previewTarget = null;
+  f.groups = [];
   f.headEnabled = false;
   f.unreadReads.length = 0;
   f.dbChanged = undefined;
@@ -282,6 +297,65 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('单个会话预览更新不重复转换未变群资料，真实群资料变化仍即时更新', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  let detailReads = 0;
+  f.groups = ['10001', '10002'].map((groupCode) => ({
+    groupCode,
+    groupName: `合成群 ${groupCode}`,
+    remark: '',
+    memberCount: 2,
+    maxMemberCount: 500,
+    get customLabels() {
+      if (groupCode === '10002') detailReads++;
+      return [];
+    },
+    directory: { memberCount: 2, role: 'member' as const, notifyLevel: 1 },
+  }));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const render = () =>
+    act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+  const sidebar = () =>
+    JSON.parse(host.querySelector('[data-previews]')!.textContent!) as Array<{
+      id: string;
+      group?: { name: string };
+      lastMessage?: { body: string };
+    }>;
+  try {
+    await render();
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    expect(detailReads).toBeGreaterThan(0);
+    detailReads = 0;
+    f.freshPreview = true;
+    f.previewTarget = '10001';
+    await act(async () => {
+      f.dbChanged!();
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(sidebar().find((row) => row.id === '10001')?.lastMessage?.body).toBe('最新消息');
+    expect(detailReads).toBe(0);
+    f.groups = f.groups.map((group) =>
+      group.groupCode === '10002' ? { ...group, groupName: '已更新的本地群名' } : group,
+    );
+    await render();
+    expect(sidebar().find((row) => row.id === '10002')?.group?.name).toBe('已更新的本地群名');
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
 });
 
 it.each([

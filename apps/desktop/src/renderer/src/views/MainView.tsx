@@ -176,6 +176,7 @@ import {
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import { reconcileConversationRows } from '../lib/conversationListOrder';
+import { createConversationProjection } from '../lib/conversationProjection';
 import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
 import {
@@ -4385,7 +4386,12 @@ function MainWorkspace(): ReactElement {
   const baseConversationRowsRef = useRef<Conversation[]>([]);
   const conversationRowsRef = useRef<Conversation[]>([]);
   const recentConversationCache = useMemo(
-    () => new WeakMap<RecentContactWire, Conversation | null>(),
+    () => ({
+      rows: new WeakMap<RecentContactWire, Conversation | null>(),
+      projection: createConversationProjection<GroupDetailWire>((detail, previous) =>
+        groupDetailToConversation(detail, previous, user),
+      ),
+    }),
     [user, groupNameByCode, botUids, previewDisplayNames, previewGroupNames, profileByUid],
   );
   const baseConversations = useMemo(() => {
@@ -4407,7 +4413,8 @@ function MainWorkspace(): ReactElement {
         return !hiddenUidSet.has(c.targetUid);
       })
       .map((contact) => {
-        if (recentConversationCache.has(contact)) return recentConversationCache.get(contact)!;
+        if (recentConversationCache.rows.has(contact))
+          return recentConversationCache.rows.get(contact)!;
         const mapped = contactToConversation(
           contact,
           user,
@@ -4417,20 +4424,16 @@ function MainWorkspace(): ReactElement {
           previewGroupNames,
           profileByUid,
         );
-        recentConversationCache.set(contact, mapped);
+        recentConversationCache.rows.set(contact, mapped);
         return mapped;
       })
       .filter((conversation): conversation is Conversation => conversation !== null)
       .map((conversation) =>
         conversation.type === 'group' && directoryKnown
-          ? {
-              ...conversation,
-              group: {
-                ...conversation.group,
-                listed: listedCodes.has(conversation.id),
-                membershipKnown: true,
-              },
-            }
+          ? recentConversationCache.projection.membership(
+              conversation,
+              listedCodes.has(conversation.id),
+            )
           : conversation,
       );
     const byId = new Map(
@@ -4442,7 +4445,7 @@ function MainWorkspace(): ReactElement {
       if (hiddenUidSet.has(detail.groupCode)) continue;
       byId.set(
         detail.groupCode,
-        groupDetailToConversation(detail, byId.get(detail.groupCode), user),
+        recentConversationCache.projection.group(detail, byId.get(detail.groupCode)),
       );
     }
     for (const [id, conversation] of byId)
@@ -4924,20 +4927,30 @@ function MainWorkspace(): ReactElement {
     ]);
     const details = (allGroups.data ?? []) as GroupDetailWire[];
     for (const detail of details)
-      map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
+      map.set(
+        detail.groupCode,
+        recentConversationCache.projection.group(detail, map.get(detail.groupCode)),
+      );
     if (details.some((detail) => Object.hasOwn(detail, 'directory'))) {
       const currentCodes = new Set(
         details.filter((detail) => detail.directory).map((detail) => detail.groupCode),
       );
       for (const [id, conversation] of map)
         if (conversation.type === 'group')
-          map.set(id, {
-            ...conversation,
-            group: { ...conversation.group, listed: currentCodes.has(id), membershipKnown: true },
-          });
+          map.set(
+            id,
+            recentConversationCache.projection.membership(conversation, currentCodes.has(id)),
+          );
     }
     return [...map.values()];
-  }, [conversations, hiddenConversationsById, deletedConversationsById, allGroups.data, user]);
+  }, [
+    conversations,
+    hiddenConversationsById,
+    deletedConversationsById,
+    allGroups.data,
+    user,
+    recentConversationCache,
+  ]);
 
   const profileContacts = useMemo(() => {
     const byId = new Map<string, Contact>(buddyContacts.map((contact) => [contact.id, contact]));
