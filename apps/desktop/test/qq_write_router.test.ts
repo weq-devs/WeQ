@@ -508,6 +508,12 @@ describe('QQ 写 IPC 边界', () => {
       nick: self.nick,
       signature: self.signature,
       gender: self.gender,
+      qid: self.qid,
+      birthYear: self.birthYear,
+      birthMonth: self.birthMonth,
+      birthDay: self.birthDay,
+      age: self.age,
+      extInfo: self.extInfo,
     });
     expect(own).not.toHaveProperty('dbKey');
     const peer = await f.caller.peerState({ ...binding, target: { kind: 'group', groupId: 123 } });

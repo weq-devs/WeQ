@@ -146,8 +146,8 @@ export function MobileWebNavigation({
         <button
           type="button"
           className="weq-mobile-account"
-          aria-label={onOpenProfile ? '编辑 QQ 资料' : '打开设置'}
-          title={onOpenProfile ? 'QQ 资料与状态' : '设置'}
+          aria-label={onOpenProfile ? '查看我的名片' : '打开设置'}
+          title={onOpenProfile ? '我的名片' : '设置'}
           onClick={onOpenProfile ?? onOpenSettings}
         >
           <Avatar

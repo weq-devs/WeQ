@@ -23,6 +23,17 @@ export function createProfileExtrasRouter(
     return result;
   }
   return router({
+    details: procedure.input(target).query(({ input }) => read(input, (s) => s.details(input.uin))),
+    avatarHistory: procedure
+      .input(
+        target
+          .omit({ uin: true })
+          .strict()
+          .extend({ cursor: z.number().int().min(1).max(0xffffffff).optional() }),
+      )
+      .query(({ input }) =>
+        read({ ...input, uin: input.expectedAccountUin }, (s) => s.avatarHistory(input.cursor)),
+      ),
     educationHistory: procedure
       .input(target)
       .query(({ input }) => read(input, (s) => s.educationHistory(input.uin))),

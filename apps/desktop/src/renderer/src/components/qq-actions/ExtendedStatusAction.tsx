@@ -8,9 +8,11 @@ import { ActionFeedback, useQQAction } from './shared';
 export function ExtendedStatusAction({
   onSaved,
   customEditor,
+  autoSave = true,
 }: {
   onSaved?: () => void;
   customEditor?: ReactNode;
+  autoSave?: boolean;
 } = {}) {
   const a = useQQAction('extended-status');
   const options = trpc.account.qqActions.extendedStatuses.useQuery(
@@ -25,7 +27,7 @@ export function ExtendedStatusAction({
     <>
       <QQWriteSelectRow
         label="扩展在线状态"
-        autoSave
+        autoSave={autoSave}
         icon={<Sparkles size={14} strokeWidth={1.8} />}
         initial={
           status.data?.status?.type === 10 && status.data.status.subType
@@ -57,6 +59,7 @@ export function ExtendedStatusAction({
             },
             undefined,
             {
+              requireReadback: true,
               readbackSuccessText: '扩展在线状态已更新',
               readback: async () => {
                 const result = await status.refetch();

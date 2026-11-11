@@ -38,6 +38,9 @@ import { openLightbox } from '../../components/ImageLightbox';
 import { ContactWorkspace } from '../../components/ContactWorkspace';
 import { ProfileLikesRow } from '../../components/qq-actions/ProfileLikesRow';
 import { ProfileExtras } from '../../components/ProfileExtras';
+import { SelfQQControls } from '../../components/settings/SelfQQControls';
+import { SelfProfileDisplayProvider } from '../../components/ProfileDisplaySettings';
+import { useViewState } from '../../state/view';
 import { CommonRelationships } from '../../components/qq-actions/CommonRelationships';
 import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { GroupExtendedProfile } from '../../components/GroupExtendedProfile';
@@ -335,7 +338,26 @@ function DeviceProfile({
 }
 
 /** 好友资料默认以浮层名片展示，联系人页使用内嵌模式。 */
-export function ContactProfileDialog({
+export function ContactProfileDialog(props: Parameters<typeof ContactProfileDialogBody>[0]) {
+  const openedUin = useViewState((state) => state.openedUin);
+  const relationship = usePersonRelationship(props.contact ?? {});
+  const own =
+    props.embedded &&
+    relationship === 'self' &&
+    !props.contact?.clone &&
+    props.contact?.identityLabel === 'QQ' &&
+    props.contact.identityValue === openedUin;
+  const content = <ContactProfileDialogBody {...props} />;
+  return own ? (
+    <SelfProfileDisplayProvider key={props.contact.id} uin={props.contact.identityValue}>
+      {content}
+    </SelfProfileDisplayProvider>
+  ) : (
+    content
+  );
+}
+
+function ContactProfileDialogBody({
   contact,
   onClose,
   embedded = false,
@@ -358,6 +380,13 @@ export function ContactProfileDialog({
   const [copied, setCopied] = useState(false);
 
   const relationship = usePersonRelationship(contact ?? {});
+  const openedUin = useViewState((state) => state.openedUin);
+  const selfProfile = Boolean(
+    contact &&
+      !contact.clone &&
+      contact.identityLabel === 'QQ' &&
+      contact.identityValue === openedUin,
+  );
   const cloudNames = useCardDisplayNames(
     'user',
     contact?.identityValue ?? '',
@@ -757,68 +786,76 @@ export function ContactProfileDialog({
                   extInfo,
                 )}
               >
-                <div className={cn('weq-contact-columns', !hasSecondary && 'is-single')}>
-                  <div className="weq-contact-primary">
-                    {profile.signature ||
-                    (!profile.clone && profile.kind !== 'bot' && !extInfo?.isEnterprise) ? (
-                      <ProfileSection title="个性签名">
-                        <p className="weq-contact-text" data-privacy-sensitive>
-                          {profile.signature}
-                        </p>
-                        <SignatureUpdated {...profile} />
-                        {!profile.clone && profile.kind !== 'bot' && !extInfo?.isEnterprise ? (
-                          <ProfileExtras uin={profile.identityValue} section="signature" />
-                        ) : null}
-                      </ProfileSection>
-                    ) : null}
-                    <ProfileSection title="个人资料">
-                      <div className="weq-profile-list">{personalRows}</div>
-                    </ProfileSection>
-                    {interestSection}
-                    {albumSection}
+                {selfProfile ? (
+                  <div className="weq-self-profile-page">
+                    <SelfQQControls />
                   </div>
-                  {hasSecondary ? (
-                    <aside className="weq-contact-secondary">
-                      {hasRelationDetails ? (
-                        <ProfileSection title="关系与互动">
-                          <div className="weq-profile-list">
-                            {commonRows}
-                            {relationRows}
-                          </div>
+                ) : (
+                  <div className={cn('weq-contact-columns', !hasSecondary && 'is-single')}>
+                    <div className="weq-contact-primary">
+                      {profile.signature ||
+                      (!profile.clone && profile.kind !== 'bot' && !extInfo?.isEnterprise) ? (
+                        <ProfileSection title="个性签名">
+                          <p className="weq-contact-text" data-privacy-sensitive>
+                            {profile.signature}
+                          </p>
+                          <SignatureUpdated {...profile} />
+                          {!profile.clone && profile.kind !== 'bot' && !extInfo?.isEnterprise ? (
+                            <ProfileExtras uin={profile.identityValue} section="signature" />
+                          ) : null}
                         </ProfileSection>
                       ) : null}
-                      {tags.length ? (
-                        <ProfileSection title="关系标识">
-                          <div className="weq-profile-tags">
-                            {tags.map((tag) => (
-                              <span key={tag.id} className="weq-profile-tag">
-                                <tag.Icon size={12} />
-                                {tag.label}
-                              </span>
-                            ))}
-                          </div>
-                        </ProfileSection>
-                      ) : null}
-                      {openedPrivileges.length ? (
-                        <ProfileSection title="已开通特权">
-                          <div className="weq-contact-privileges">
-                            {openedPrivileges.map((item) => (
-                              <span key={`${item.bizId ?? '?'}:${item.iconUrl}:${item.level ?? 0}`}>
-                                <img
-                                  src={collectionImageUrl(item.iconUrl as string)}
-                                  alt=""
-                                  loading="lazy"
-                                />
-                                {privilegeName(item.bizId)}
-                                {item.level ? ` · ${item.level} 级` : ''}
-                              </span>
-                            ))}
-                          </div>
-                        </ProfileSection>
-                      ) : null}
-                    </aside>
-                  ) : null}
-                </div>
+                      <ProfileSection title="个人资料">
+                        <div className="weq-profile-list">{personalRows}</div>
+                      </ProfileSection>
+                      {interestSection}
+                      {albumSection}
+                    </div>
+                    {hasSecondary ? (
+                      <aside className="weq-contact-secondary">
+                        {hasRelationDetails ? (
+                          <ProfileSection title="关系与互动">
+                            <div className="weq-profile-list">
+                              {commonRows}
+                              {relationRows}
+                            </div>
+                          </ProfileSection>
+                        ) : null}
+                        {tags.length ? (
+                          <ProfileSection title="关系标识">
+                            <div className="weq-profile-tags">
+                              {tags.map((tag) => (
+                                <span key={tag.id} className="weq-profile-tag">
+                                  <tag.Icon size={12} />
+                                  {tag.label}
+                                </span>
+                              ))}
+                            </div>
+                          </ProfileSection>
+                        ) : null}
+                        {openedPrivileges.length ? (
+                          <ProfileSection title="已开通特权">
+                            <div className="weq-contact-privileges">
+                              {openedPrivileges.map((item) => (
+                                <span
+                                  key={`${item.bizId ?? '?'}:${item.iconUrl}:${item.level ?? 0}`}
+                                >
+                                  <img
+                                    src={collectionImageUrl(item.iconUrl as string)}
+                                    alt=""
+                                    loading="lazy"
+                                  />
+                                  {privilegeName(item.bizId)}
+                                  {item.level ? ` · ${item.level} 级` : ''}
+                                </span>
+                              ))}
+                            </div>
+                          </ProfileSection>
+                        ) : null}
+                      </aside>
+                    ) : null}
+                  </div>
+                )}
               </ContactWorkspace>
             )}
           </>

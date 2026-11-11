@@ -123,7 +123,7 @@ it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
       }),
     ),
   );
-  await click('编辑 QQ 资料');
+  await click('查看我的名片');
   expect(onOpenProfile).toHaveBeenCalledOnce();
   expect(host.querySelector('.weq-mobile-actions-toggle')).toBeNull();
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());

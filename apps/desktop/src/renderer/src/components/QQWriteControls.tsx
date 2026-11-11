@@ -4,6 +4,7 @@ import { MessageMenuFeedbackContext } from '../lib/messageMenuFeedback';
 import { Eraser, Save } from 'lucide-react';
 import { Row, Toggle } from './settings/controls';
 import '../styles/qq-write.css';
+import { useSelfProfileSave } from './SelfProfileField';
 
 export function QQWriteResult({ result }: { result: { text: string; error: boolean } | null }) {
   const target = useContext(MessageMenuFeedbackContext);
@@ -52,6 +53,7 @@ export function QQWriteTextRow({
   onDirtyChange?: (dirty: boolean) => void;
   onSave: (value: string) => Promise<boolean>;
 }) {
+  const saveField = useSelfProfileSave();
   const [value, setValue] = useState(initial ?? '');
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -109,7 +111,7 @@ export function QQWriteTextRow({
               if (savingRef.current) return;
               savingRef.current = true;
               setSaving(true);
-              void onSave(value)
+              void saveField(() => onSave(value))
                 .then((ok) => {
                   if (ok) setSubmitted(value);
                 })
@@ -152,6 +154,7 @@ export function QQWriteSelectRow({
   renderEditor?: (value: number | null) => ReactNode;
   segmented?: boolean;
 }) {
+  const saveField = useSelfProfileSave();
   const [value, setValue] = useState(initial === null ? '' : String(initial));
   const previous = useRef(value);
   const [saving, setSaving] = useState(false);
@@ -173,7 +176,7 @@ export function QQWriteSelectRow({
       setSaving(true);
       const rollback = () =>
         setValue(latestInitial.current === null ? '' : String(latestInitial.current));
-      void onSave(Number(next))
+      void saveField(() => onSave(Number(next)))
         .then((ok) => {
           if (!ok) rollback();
         }, rollback)
@@ -238,7 +241,7 @@ export function QQWriteSelectRow({
                     if (savingRef.current) return;
                     savingRef.current = true;
                     setSaving(true);
-                    void onSave(Number(value)).finally(() => {
+                    void saveField(() => onSave(Number(value))).finally(() => {
                       savingRef.current = false;
                       setSaving(false);
                     });

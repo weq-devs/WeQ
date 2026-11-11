@@ -1,5 +1,5 @@
-import { Minus, Square, X } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
+import { ChevronRight, Minus, Square, X } from 'lucide-react';
+import { useContext, useId, useState, type ReactNode } from 'react';
 import { Modal } from '../../components/Dialog';
 import { SelfQQControls } from '../../components/settings/SelfQQControls';
 import { OnlineStatus } from '../../components/OnlineStatus';
@@ -15,6 +15,9 @@ import logoUrl from '@resources/brand/logo.png';
 import { cn } from './classNames';
 import { DesktopOnly } from '../../lib/target';
 import { useWindowControls } from '../../hooks/useWindowControls';
+import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
+import { trpc } from '../../trpc/client';
+import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 
 function ProfileAvatar({ user }: { user: User }) {
   const [open, setOpen] = useState(false);
@@ -23,8 +26,8 @@ function ProfileAvatar({ user }: { user: User }) {
       <button
         type="button"
         className="weq-title-profile-avatar"
-        aria-label="编辑 QQ 资料"
-        title="编辑 QQ 资料"
+        aria-label="查看我的名片"
+        title="我的名片"
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
@@ -38,6 +41,14 @@ function ProfileAvatar({ user }: { user: User }) {
 
 export function SelfProfileDialog({ onClose }: { onClose: () => void }) {
   const titleId = useId();
+  const navigate = useContext(ContactWorkspaceNavigationContext);
+  const session = useQQWriteSession('self-profile-navigation');
+  const local = trpc.account.getSelfProfile.useQuery(undefined, {
+    enabled: Boolean(session.binding),
+    staleTime: 30_000,
+  });
+  const uin = session.binding?.expectedAccountUin ?? '';
+  const profile = local.data?.uin.toString() === uin ? local.data : null;
   return (
     <Modal
       onClose={onClose}
@@ -47,11 +58,11 @@ export function SelfProfileDialog({ onClose }: { onClose: () => void }) {
       centered
     >
       <header className="weq-self-profile-header">
-        <h2 id={titleId}>QQ 资料与状态</h2>
+        <h2 id={titleId}>我的名片</h2>
         <button
           type="button"
           className="weq-set-iconbtn"
-          aria-label="关闭资料编辑"
+          aria-label="关闭我的名片"
           title="关闭"
           onClick={onClose}
         >
@@ -59,7 +70,35 @@ export function SelfProfileDialog({ onClose }: { onClose: () => void }) {
         </button>
       </header>
       <div className="weq-self-profile-body">
-        <SelfQQControls />
+        <button
+          className="weq-self-profile-details-link"
+          type="button"
+          disabled={!navigate || !uin}
+          onClick={() => {
+            if (!navigate || !uin) return;
+            navigate({
+              kind: 'person',
+              tab: 'profile',
+              contact: {
+                id: profile?.uid || uin,
+                uid: profile?.uid,
+                identityLabel: 'QQ',
+                identityValue: uin,
+                username: profile?.uid || uin,
+                displayName: profile?.nick || uin,
+                nick: profile?.nick,
+                avatarUrl: profile?.avatarUrl ?? null,
+                signature: profile?.signature,
+                createdAt: new Date(0).toISOString(),
+              },
+            });
+            onClose();
+          }}
+        >
+          查看资料
+          <ChevronRight size={15} />
+        </button>
+        <SelfQQControls editable={false} />
       </div>
     </Modal>
   );

@@ -245,6 +245,12 @@ export type {
 export * from './call';
 export * from './oidb/profile/extras';
 export { getEducationHistory } from './oidb/profile/education';
+export {
+  getSelfAvatarHistory,
+  historicalAvatarUrl,
+  SELF_AVATAR_HISTORY_COMMAND,
+  type HistoricalAvatar,
+} from './oidb/profile/avatar-history';
 export type { ProfileEducationRecord, ProfileEducationHistory } from './oidb/profile/education';
 /**
  * 群通话协议层。

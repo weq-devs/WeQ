@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Save,
   MapPin,
@@ -13,6 +13,8 @@ import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { QQWriteTextRow, QQWriteSelectRow } from '../QQWriteControls';
 import { Row } from './controls';
 import { withQQAccountScope } from '../qq-actions/shared';
+import { useSelfProfileSave } from '../SelfProfileField';
+import { DisplaySelfProfileField as SelfProfileField } from '../ProfileDisplaySettings';
 
 interface Region {
   code: string;
@@ -34,12 +36,19 @@ export function RegionEditor({
   disabled: boolean;
   onSave: (value: string[]) => Promise<boolean>;
 }) {
+  const saveField = useSelfProfileSave();
   const [path, setPath] = useState<Array<string | null>>(
     value ?? Array.from({ length: layers }, () => null),
   );
+  const previous = useRef(JSON.stringify(value ?? Array.from({ length: layers }, () => null)));
+  const incoming = JSON.stringify(value ?? Array.from({ length: layers }, () => null));
   useEffect(() => {
-    setPath(value ?? Array.from({ length: layers }, () => null));
-  }, [value, layers]);
+    const before = previous.current;
+    setPath((current) =>
+      JSON.stringify(current) === before ? (JSON.parse(incoming) as Array<string | null>) : current,
+    );
+    previous.current = incoming;
+  }, [incoming]);
   const menus: Region[][] = [];
   let siblings = regions;
   for (let i = 0; i < layers; i++) {
@@ -98,7 +107,7 @@ export function RegionEditor({
             aria-label={`保存${label}`}
             disabled={disabled || !valid}
             onClick={() => {
-              if (valid) void onSave(path as string[]);
+              if (valid) void saveField(() => onSave(path as string[]));
             }}
           >
             <Save size={16} />
@@ -119,11 +128,8 @@ function EditableSelfProfileBody() {
   const directory = trpc.account.qqWrite.profileRegions.useQuery(undefined, {
     staleTime: Infinity,
   });
+  const local = trpc.account.getSelfProfile.useQuery(undefined, { staleTime: 30_000 });
   const mutation = trpc.account.qqWrite.editSelfProfile.useMutation();
-  const [birthday, setBirthday] = useState('');
-  useEffect(() => {
-    setBirthday(profile.data?.birthday ?? '');
-  }, [profile.data?.birthday]);
   type Patch = Parameters<typeof mutation.mutateAsync>[0]['patch'];
   const save = (patch: Patch) =>
     a.run((binding) => mutation.mutateAsync({ ...binding, patch }), undefined, {
@@ -141,6 +147,21 @@ function EditableSelfProfileBody() {
     });
   const disabled = !a.available || a.busy || !profile.data || Boolean(profile.error);
   const errors = profile.data?.errors ?? {};
+  const cached = local.data?.uin.toString() === a.binding?.expectedAccountUin ? local.data : null;
+  const regionText = (path: string[] | null | undefined) => {
+    if (!path) return null;
+    let nodes = directory.data?.regions ?? [];
+    return (
+      path
+        .map((code) => {
+          const node = nodes.find((node) => node.code === code);
+          nodes = node?.children ?? [];
+          return node?.name ?? (code === '0' ? '' : code);
+        })
+        .filter(Boolean)
+        .join(' · ') || '未设置'
+    );
+  };
   return (
     <div className="weq-self-profile-additional">
       {Object.entries(errors).map(([field, message]) => (
@@ -172,77 +193,174 @@ function EditableSelfProfileBody() {
           </button>
         </p>
       )}
-      <Row
-        label={
-          <span className="weq-set-row-icon">
-            <Cake size={14} />
-            生日
-          </span>
+      <SelfProfileField
+        label="生日"
+        displayField="birthday"
+        value={
+          profile.data?.birthday ||
+          (cached?.birthMonth
+            ? `${cached.birthYear || ''}-${cached.birthMonth}-${cached.birthDay}`
+            : errors.birthday || profile.error
+              ? '读取失败'
+              : profile.data
+                ? '未设置'
+                : null)
         }
-        control={
-          <div className="weq-profile-region-editor">
-            <input
-              type="date"
-              aria-label="公历生日"
-              value={birthday}
-              disabled={disabled || Boolean(errors.birthday)}
-              onChange={(event) => setBirthday(event.target.value)}
-            />
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              title="保存生日"
-              aria-label="保存生日"
-              disabled={disabled || Boolean(errors.birthday) || !birthday}
-              onClick={() => void save({ birthday })}
-            >
-              <Save size={16} />
-            </button>
-          </div>
-        }
-      />
-      <RegionEditor
+        disabled={disabled || Boolean(errors.birthday)}
+      >
+        <BirthdayEditor
+          initial={profile.data?.birthday ?? ''}
+          disabled={disabled || Boolean(errors.birthday)}
+          onSave={(birthday) => save({ birthday })}
+        />
+      </SelfProfileField>
+      <SelfProfileField
         label="当前地区"
-        value={profile.data?.region ?? null}
-        layers={3}
-        regions={directory.data?.regions ?? []}
+        displayField="region"
+        value={
+          regionText(profile.data?.region) ??
+          (cached?.extInfo
+            ? [cached.extInfo.country, cached.extInfo.province, cached.extInfo.city]
+                .filter(Boolean)
+                .join(' · ') || null
+            : null) ??
+          (errors.region || profile.error ? '读取失败' : profile.data ? '未设置' : null)
+        }
         disabled={disabled || Boolean(errors.region)}
-        onSave={(region) => save({ region })}
-      />
-      <QQWriteTextRow
+      >
+        <RegionEditor
+          label="当前地区"
+          value={profile.data?.region ?? null}
+          layers={3}
+          regions={directory.data?.regions ?? []}
+          disabled={disabled || Boolean(errors.region)}
+          onSave={(region) => save({ region })}
+        />
+      </SelfProfileField>
+      <SelfProfileField
         label="邮箱"
-        icon={<Mail size={14} />}
-        initial={profile.data?.email ?? null}
+        displayField="email"
+        value={
+          errors.email || profile.error
+            ? '读取失败'
+            : profile.data
+              ? profile.data.email || '未设置'
+              : null
+        }
         disabled={disabled || Boolean(errors.email)}
-        maxLength={996}
-        onSave={(email) => save({ email })}
-      />
-      <QQWriteSelectRow
+      >
+        <QQWriteTextRow
+          label="邮箱"
+          icon={<Mail size={14} />}
+          initial={profile.data?.email ?? null}
+          disabled={disabled || Boolean(errors.email)}
+          maxLength={996}
+          onSave={(email) => save({ email })}
+        />
+      </SelfProfileField>
+      <SelfProfileField
         label="职业"
-        autoSave
-        icon={<BriefcaseBusiness size={14} />}
-        initial={profile.data?.profession ?? null}
+        displayField="profession"
+        value={
+          errors.profession || profile.error
+            ? '读取失败'
+            : profile.data
+              ? (directory.data?.professions.find((item) => item.value === profile.data.profession)
+                  ?.label ??
+                (profile.data.profession === null ? '未设置' : String(profile.data.profession)))
+              : null
+        }
         disabled={disabled || Boolean(errors.profession)}
-        options={directory.data?.professions ?? []}
-        onSave={(profession) => save({ profession })}
-      />
-      <RegionEditor
+      >
+        <QQWriteSelectRow
+          label="职业"
+          icon={<BriefcaseBusiness size={14} />}
+          initial={profile.data?.profession ?? null}
+          disabled={disabled || Boolean(errors.profession)}
+          options={directory.data?.professions ?? []}
+          onSave={(profession) => save({ profession })}
+        />
+      </SelfProfileField>
+      <SelfProfileField
         label="家乡"
-        value={profile.data?.hometown ?? null}
-        layers={4}
-        regions={directory.data?.regions ?? []}
+        displayField="hometown"
+        value={
+          regionText(profile.data?.hometown) ??
+          (errors.hometown || profile.error ? '读取失败' : profile.data ? '未设置' : null)
+        }
         disabled={disabled || Boolean(errors.hometown)}
-        onSave={(hometown) => save({ hometown })}
-      />
-      <QQWriteTextRow
+      >
+        <RegionEditor
+          label="家乡"
+          value={profile.data?.hometown ?? null}
+          layers={4}
+          regions={directory.data?.regions ?? []}
+          disabled={disabled || Boolean(errors.hometown)}
+          onSave={(hometown) => save({ hometown })}
+        />
+      </SelfProfileField>
+      <SelfProfileField
         label="学校"
-        icon={<GraduationCap size={14} />}
-        initial={profile.data?.school ?? null}
+        displayField="education"
+        value={
+          profile.data?.school ||
+          cached?.extInfo?.school ||
+          (errors.school || profile.error ? '读取失败' : profile.data ? '未设置' : null)
+        }
         disabled={disabled || Boolean(errors.school)}
-        maxLength={996}
-        onSave={(school) => save({ school })}
-      />
+      >
+        <QQWriteTextRow
+          label="学校"
+          icon={<GraduationCap size={14} />}
+          initial={profile.data?.school ?? null}
+          disabled={disabled || Boolean(errors.school)}
+          maxLength={996}
+          onSave={(school) => save({ school })}
+        />
+      </SelfProfileField>
     </div>
+  );
+}
+function BirthdayEditor({
+  initial,
+  disabled,
+  onSave,
+}: {
+  initial: string;
+  disabled: boolean;
+  onSave: (value: string) => Promise<boolean>;
+}) {
+  const [value, setValue] = useState(initial);
+  const saveField = useSelfProfileSave();
+  return (
+    <Row
+      label={
+        <span className="weq-set-row-icon">
+          <Cake size={14} />
+          生日
+        </span>
+      }
+      control={
+        <div className="weq-profile-region-editor">
+          <input
+            type="date"
+            aria-label="公历生日"
+            value={value}
+            disabled={disabled}
+            onChange={(event) => setValue(event.target.value)}
+          />
+          <button
+            type="button"
+            title="保存生日"
+            aria-label="保存生日"
+            disabled={disabled || !value}
+            onClick={() => void saveField(() => onSave(value))}
+          >
+            <Save size={16} />
+          </button>
+        </div>
+      }
+    />
   );
 }
 export const EditableSelfProfile = withQQAccountScope(EditableSelfProfileBody);

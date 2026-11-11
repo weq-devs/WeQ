@@ -5,6 +5,8 @@ import {
   getPersonalityPhotos,
   getAnonymousQuestions,
   getEducationHistory,
+  getProfileDetails,
+  getSelfAvatarHistory,
   type TrpcNative,
 } from '@weq/protocol';
 import type { ContactMetricsService } from './contact_metrics';
@@ -26,7 +28,10 @@ export class ProfileExtrasService {
     private readonly nt: TrpcNative,
     readonly selfUin: string,
     private readonly resolvePid: () => number,
-    private readonly read = readers,
+    private readonly read: typeof readers & {
+      getSelfAvatarHistory?: typeof getSelfAvatarHistory;
+      getProfileDetails?: typeof getProfileDetails;
+    } = readers,
   ) {}
 
   private async query<T>(key: string, fetch: (pid: number) => Promise<T>): Promise<T> {
@@ -59,6 +64,17 @@ export class ProfileExtrasService {
 
   energy(uin: string) {
     return this.query(`energy:${uin}`, (pid) => this.read.getProfileEnergy(this.nt, pid, uin));
+  }
+  details(uin: string) {
+    return this.query(`details:${uin}`, (pid) =>
+      (this.read.getProfileDetails ?? getProfileDetails)(this.nt, pid, uin),
+    );
+  }
+  avatarHistory(before?: number) {
+    return this.query(`self-avatars:${before ?? ''}`, async (pid) => ({
+      ...(await (this.read.getSelfAvatarHistory ?? getSelfAvatarHistory)(this.nt, pid, before)),
+      targetUin: this.selfUin,
+    }));
   }
   educationHistory(uin: string) {
     return this.query(`education:${uin}`, (pid) =>

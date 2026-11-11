@@ -105,6 +105,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           snapshot: { useQuery: () => ({ data: undefined }) },
           changed: { useSubscription: vi.fn() },
         },
+        getSelfProfile: { useQuery: () => ({ data: null }) },
         getProfileByUin: {
           useQuery: ({ uin }: { uin: string }) => ({
             data: state.profiles.find((row) => row.uin === uin),
@@ -396,26 +397,32 @@ describe('可接入功能交互回归', () => {
   it('资料按字段隔离读取失败，邮箱失败时生日仍可保存', () => {
     state.errors = { email: '邮箱读取失败' };
     const f = mount(() => h(EditableSelfProfile));
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑生日"]')!.click());
     expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存生日"]')!.disabled).toBe(
       false,
     );
-    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存邮箱"]')!.disabled).toBe(true);
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="编辑邮箱"]')!.disabled).toBe(true);
   });
-  it('职业选择即提交单字段，保留生日等文本编辑的保存按钮', async () => {
+  it('职业展开后确认保存单字段，浏览态没有输入框', async () => {
     const f = mount(() => h(EditableSelfProfile));
-    expect(f.host.querySelector('[aria-label="保存职业"]')).toBeNull();
+    expect(f.host.querySelector('input, select')).toBeNull();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑职业"]')!.click());
+    expect(f.host.querySelector('[aria-label="保存职业"]')).not.toBeNull();
     const select = f.host.querySelector<HTMLSelectElement>('[aria-label="职业"]')!;
     await act(async () => {
       select.value = '13';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存职业"]')!.click(),
+    );
     expect(state.writes).toHaveBeenCalledOnce();
     expect(state.writes).toHaveBeenCalledWith('profile', {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
       patch: { profession: 13 },
     });
-    expect(f.host.querySelector('[aria-label="保存生日"]')).not.toBeNull();
+    expect(f.host.querySelector('[aria-label="编辑生日"]')).not.toBeNull();
   });
   it.each([3, 4] as const)('地区 %i 层改选不限后清空下级并可保存', async (layers) => {
     const saved = vi.fn(async () => true);

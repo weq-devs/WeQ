@@ -860,7 +860,7 @@ it('联系人互动标识内可打开等级浮层，Escape 只关闭等级', () 
     id: 'fixture',
     isFriend: true,
     identityLabel: 'QQ',
-    identityValue: '10001',
+    identityValue: '10002',
     username: 'fixture',
     displayName: '合成好友',
     createdAt: new Date(0).toISOString(),

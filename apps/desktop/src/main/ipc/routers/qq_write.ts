@@ -321,6 +321,12 @@ export function createQQWriteRouter(
               nick: profile.nick,
               signature: profile.signature,
               gender: profile.gender,
+              qid: profile.qid,
+              birthYear: profile.birthYear,
+              birthMonth: profile.birthMonth,
+              birthDay: profile.birthDay,
+              age: profile.age,
+              extInfo: profile.extInfo,
             }
           : null,
         status,
