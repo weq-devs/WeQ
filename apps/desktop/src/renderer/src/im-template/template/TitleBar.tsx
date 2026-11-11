@@ -1,5 +1,5 @@
 import { ChevronRight, Minus, Square, X } from 'lucide-react';
-import { useContext, useId, useState, type ReactNode } from 'react';
+import { useContext, useId, type ReactNode } from 'react';
 import { Modal } from '../../components/Dialog';
 import { SelfQQControls } from '../../components/settings/SelfQQControls';
 import { OnlineStatus } from '../../components/OnlineStatus';
@@ -15,27 +15,34 @@ import logoUrl from '@resources/brand/logo.png';
 import { cn } from './classNames';
 import { DesktopOnly } from '../../lib/target';
 import { useWindowControls } from '../../hooks/useWindowControls';
-import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
+import {
+  ContactWorkspaceNavigationContext,
+  ProfileNavigationContext,
+} from '../../lib/profileNavigation';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 
 function ProfileAvatar({ user }: { user: User }) {
-  const [open, setOpen] = useState(false);
+  const open = useContext(ProfileNavigationContext);
   return (
-    <>
-      <button
-        type="button"
-        className="weq-title-profile-avatar"
-        aria-label="查看我的名片"
-        title="我的名片"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen(true)}
-      >
-        <Avatar name={displayUserName(user)} avatarUrl={user.avatarUrl} seed={user.identityValue} />
-      </button>
-      {open && <SelfProfileDialog onClose={() => setOpen(false)} />}
-    </>
+    <button
+      type="button"
+      className="weq-title-profile-avatar"
+      aria-label="查看我的名片"
+      title="我的名片"
+      aria-haspopup="dialog"
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        open?.(
+          user,
+          event.detail === 0
+            ? { x: rect.right, y: rect.bottom }
+            : { x: event.clientX, y: event.clientY },
+        );
+      }}
+    >
+      <Avatar name={displayUserName(user)} avatarUrl={user.avatarUrl} seed={user.identityValue} />
+    </button>
   );
 }
 

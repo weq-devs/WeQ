@@ -5,7 +5,7 @@ import { SelfQQControls } from '../src/renderer/src/components/settings/SelfQQCo
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 import { TitleBar } from '../src/renderer/src/im-template/template/TitleBar';
 import type { User } from '../src/renderer/src/im-template/template/types';
-import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 
 vi.mock('../src/renderer/src/components/settings/EditableSelfProfile', () => ({
   EditableSelfProfile: () => null,
@@ -137,7 +137,7 @@ function fixture(titleBar = false) {
       root.render(
         titleBar
           ? h(
-              ContactWorkspaceNavigationContext.Provider,
+              ProfileNavigationContext.Provider,
               { value: state.navigate },
               h(TitleBar, { user: { ...user } }),
             )
@@ -403,39 +403,38 @@ describe('个人资料编辑入口', () => {
       extStatus: 1018,
     });
   });
-  it('标题栏只打开只读名片，查看资料导航到本人的资料页', async () => {
+  it('标题栏头像直接打开通用名片，不挂载专用的我的名片弹窗', () => {
     const f = fixture(true);
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
-    const open = () =>
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="查看我的名片"]')!.click());
-    open();
-    expect(f.host.querySelector('input, textarea, select')).toBeNull();
-    expect(f.host.querySelector('[aria-label="编辑QQ 昵称"]')).toBeNull();
-    expect(f.host.querySelector('[aria-label="更换头像"]')).toBeNull();
-    expect(f.host.textContent).toContain('历史头像');
-    expect(state.mutate).not.toHaveBeenCalled();
-    act(() =>
-      [...f.host.querySelectorAll<HTMLButtonElement>('button')]
-        .find((button) => button.textContent?.includes('查看资料'))!
-        .click(),
-    );
+    const avatar = f.host.querySelector<HTMLButtonElement>('[aria-label="查看我的名片"]')!;
+    vi.spyOn(avatar, 'getBoundingClientRect').mockReturnValue({
+      right: 68,
+      bottom: 40,
+    } as DOMRect);
+    act(() => avatar.click());
     expect(state.navigate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'person',
-        tab: 'profile',
-        contact: expect.objectContaining({ identityValue: '10001' }),
-      }),
+      expect.objectContaining({ identityValue: '10001', displayName: '自己' }),
+      { x: 68, y: 40 },
     );
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
-    open();
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭我的名片"]')!.click());
-    expect(f.host.querySelector('[role="dialog"]')).toBeNull();
-    open();
-    expect(f.host.querySelector('[aria-label="QQ 昵称"]')).toBeNull();
-    expect(f.host.textContent).toContain('原昵称');
+    act(() =>
+      avatar.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, detail: 1, clientX: 48, clientY: 24 }),
+      ),
+    );
+    expect(state.navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identityValue: '10001' }),
+      { x: 48, y: 24 },
+    );
     f.user.identityValue = '10002';
     f.render();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="查看我的名片"]')!.click());
+    expect(state.navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identityValue: '10002' }),
+      expect.any(Object),
+    );
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
   });
   it('修改昵称只提交昵称，不带旧签名和性别', async () => {
     const f = fixture();
