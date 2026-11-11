@@ -66,10 +66,13 @@ async function setup(online = true) {
       getQqLevel: vi.fn(async (_uin: string, _priority?: number) => 1),
       getLikeCount: vi.fn(async (_uid: string, _priority?: number) => 0),
     },
+    profileExtras: { energy: vi.fn(async () => ({})), educationHistory: vi.fn(async () => ({})) },
+    intentSense: { cachedProfileSummaries: vi.fn(() => []) },
     groupInfo: {
       setMemberRosterCache: vi.fn(),
       setGroupProfileCache: vi.fn(),
       disposeGroupProfiles: vi.fn(),
+      getExtendedProfile: vi.fn(async () => ({ error: null })),
       listGroupDirectory: vi.fn(async () => [{ groupCode: '10001', memberCount: 2 }]),
       listExportMembers: vi.fn(async (_groupCode?: bigint) => [
         { uid: 'u_friend' },
@@ -96,8 +99,15 @@ async function setup(online = true) {
   };
   const session = {
     context: { uin: '99999' },
+    selfUid: 'u_self',
+    c2cMsgs: { directoryTimePage: vi.fn(async () => ({ items: [], done: true })) },
+    groupMsgs: { directoryTimePage: vi.fn(async () => ({ items: [], done: true })) },
     profileInfo: { dbPath: '/synthetic/profile.db' },
-    groupMembers: { dbPath: '/synthetic/groups.db' },
+    groupMembers: {
+      dbPath: '/synthetic/groups.db',
+      getMember: vi.fn(async () => ({ memberFlag: 0, joinTime: 123 })),
+      selfJoinTimes: vi.fn(async () => ({ '10001': 123 })),
+    },
   };
   const callbacks: Array<() => void> = [];
   const watcher = {
@@ -128,6 +138,7 @@ async function setup(online = true) {
     summaries,
     buddies,
     profiles,
+    session,
     switchAccount: () => {
       current = false;
     },
@@ -135,6 +146,49 @@ async function setup(online = true) {
 }
 
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+it('新增好友字段复用现有范围，来源单独刷新不会被添加时间缺省误判失败', async () => {
+  const { runtime, services } = await setup();
+  await runtime.rebuild(false, ['energy', 'schools', 'source']);
+  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(1));
+  expect(runtime.cache.progress.status).toBe('completed');
+  expect(services.profileExtras.energy).toHaveBeenCalledWith('12345');
+  expect(services.profileExtras.educationHistory).toHaveBeenCalledWith('12345');
+  expect(services.accountWrite.friendClue).toHaveBeenCalledWith('u_friend', 1);
+  expect(services.groupInfo.getExtendedProfile).not.toHaveBeenCalled();
+});
+it('群扩展失败仍准备本人入群时间，群资料范围不触发好友查询', async () => {
+  const { runtime, services } = await setup();
+  services.groupInfo.getExtendedProfile.mockResolvedValueOnce({ error: '读取失败' });
+  await runtime.rebuild(false, ['grade', 'freezeState', 'joinedAt']);
+  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(1));
+  expect(runtime.cache.progress.status).toBe('failed');
+  expect((await runtime.cache.row('group:10001')).joinedAt?.value).toBe(123);
+  expect(services.accountWrite.friendClue).not.toHaveBeenCalled();
+});
+it('本地时间、入群和画像摘要在账号切换后拒绝旧读取', async () => {
+  const { runtime, services, switchAccount } = await setup();
+  expect(await runtime.localTimes('friends')).toEqual({ rows: {}, done: true });
+  expect(await runtime.localJoins()).toEqual({ '10001': 123 });
+  expect(runtime.cachedProfiles()).toEqual([]);
+  expect(services.intentSense.cachedProfileSummaries).toHaveBeenCalledOnce();
+  switchAccount();
+  await expect(runtime.localTimes('groups')).rejects.toThrow('切换');
+  await expect(runtime.localJoins()).rejects.toThrow('切换');
+  expect(() => runtime.cachedProfiles()).toThrow('切换');
+});
+it('账号关闭后在途本地时间页不能返回给旧目录', async () => {
+  const { runtime, session } = await setup();
+  const wait = deferred<void>();
+  session.groupMsgs.directoryTimePage.mockImplementationOnce(async () => {
+    await wait.promise;
+    return { items: [], done: true };
+  });
+  const pending = runtime.localTimes('groups');
+  const rejected = expect(pending).rejects.toThrow();
+  await runtime.dispose();
+  wait.resolve();
+  await rejected;
+});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((yes) => {
@@ -326,7 +380,7 @@ it('缓存更新覆盖非好友和临时会话但不查线索，群聊只更新�
     { uid: 'u_friend', uin: 12345, nickname: '好友' },
   ]);
   await runtime.rebuild();
-  await vi.waitFor(() => expect(runtime.cache.progress.total).toBe(6));
+  await vi.waitFor(() => expect(runtime.cache.progress.total).toBe(7));
   await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.recentContacts.getRecentContact).toHaveBeenCalledWith(-1);
   expect(services.peerStats.getQqLevel.mock.calls.map(([uin]) => uin).sort()).toEqual([
@@ -388,7 +442,7 @@ it('单个字段失败仍尝试其余指标，部分成功不判整个对象失�
     groupError: '合成共同群失败',
   });
   const id = await runtime.rebuild();
-  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(2));
+  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(3));
   await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.peerStats.getLikeCount).toHaveBeenCalledWith('u_friend', 1);
   expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith('12345', 1);

@@ -191,6 +191,8 @@ type ConversationBase = {
   highlights?: ConversationHighlight[] | null;
   lastMessage: {
     id: string;
+    /** 已确认发送的有效消息秒值；目录不从草稿或未确认预览推断联系时间。 */
+    directoryTime?: number;
     senderId: string | null;
     senderDisplayName?: string | null;
     body: string | null;

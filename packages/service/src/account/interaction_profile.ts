@@ -31,6 +31,13 @@ export class InteractionProfileService {
   private profileApiCooldownUntil = 0;
   private readonly inFlight = new Map<string, Promise<IntentProfile | null>>();
   private readonly cached = new Map<string, IntentProfile | null>();
+  private readonly cacheListeners = new Set<() => void>();
+  onCacheChanged(listener: () => void) {
+    this.cacheListeners.add(listener);
+    return () => {
+      this.cacheListeners.delete(listener);
+    };
+  }
   constructor(
     private readonly readConfig: () => ProfileConfig,
     private readonly loadMessages: (
@@ -49,6 +56,15 @@ export class InteractionProfileService {
     this.profileApiCooldownUntil = 0;
     this.inFlight.clear();
     this.cached.clear();
+    for (const listener of this.cacheListeners) listener();
+  }
+  cachedSummaries() {
+    if (!this.config.profileEnabled) return [];
+    return [...this.cached].flatMap(([uid, profile]) =>
+      profile && profile.affinity !== null
+        ? [{ uid, affinity: profile.affinity, computedAt: profile.computedAt }]
+        : [],
+    );
   }
   /** 引擎侧画像提示（api：一次结构化推断；local：inferMbti）。 */
   private async inferHints(peerTexts: string[]): Promise<ProfileHints | null> {
@@ -196,6 +212,7 @@ export class InteractionProfileService {
           this.cached.delete(peerUid);
           this.cached.set(peerUid, result);
           if (this.cached.size > 100) this.cached.delete(this.cached.keys().next().value!);
+          for (const listener of this.cacheListeners) listener();
         }
         return result;
       })

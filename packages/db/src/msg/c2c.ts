@@ -25,6 +25,7 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { readMessageSourceRows } from './export_source';
 import { nativeHistoryCursor } from './history';
+import { directoryTimePage } from './directory_times';
 import type {
   C2cInitiationTally,
   C2cMsg,
@@ -136,6 +137,9 @@ export class C2cMsgDb {
   }
   get sourcePath(): string {
     return this.qq.dbPath;
+  }
+  directoryTimePage(before?: string) {
+    return directoryTimePage(this.qq, 'c2c_msg_table', before);
   }
   async calendarMessage(part: C2cPartition, id: bigint): Promise<C2cMsg[]> {
     const { clause, value } = partitionWhere(part);

@@ -204,9 +204,14 @@ export class AccountWriteService {
     const result = this.contactMetrics
       ? await this.contactMetrics.query(
           `friend:${buddy.uin}`,
-          ['addedAt', 'direction'],
+          ['addedAt', 'direction', 'source', 'sourceGroup'],
           () => getFriendClue(this.nt, pid, String(buddy.uin)),
-          (value) => ({ addedAt: value.addedAt, direction: value.direction }),
+          (value) => ({
+            addedAt: value.addedAt,
+            direction: value.direction,
+            source: value.source ?? '',
+            sourceGroup: value.sourceGroupCode ?? '',
+          }),
           priority,
         )
       : await getFriendClue(this.nt, pid, String(buddy.uin));

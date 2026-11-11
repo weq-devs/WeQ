@@ -69,8 +69,17 @@ export class ProfileExtrasService {
     return value;
   }
 
-  energy(uin: string) {
-    return this.query(`energy:${uin}`, (pid) => this.read.getProfileEnergy(this.nt, pid, uin));
+  async energy(uin: string) {
+    try {
+      const result = await this.query(`energy:${uin}`, (pid) =>
+        this.read.getProfileEnergy(this.nt, pid, uin),
+      );
+      await this.contactMetrics?.project(`friend:${uin}`, { energy: result.score });
+      return result;
+    } catch (error) {
+      await this.contactMetrics?.failed(`friend:${uin}`, 'energy', error);
+      throw error;
+    }
   }
   details(uin: string) {
     return this.query(`details:${uin}`, (pid) =>
@@ -83,10 +92,25 @@ export class ProfileExtrasService {
       targetUin: this.selfUin,
     }));
   }
-  educationHistory(uin: string) {
-    return this.query(`education:${uin}`, (pid) =>
-      this.read.getEducationHistory(this.nt, pid, uin),
-    );
+  async educationHistory(uin: string) {
+    try {
+      const result = await this.query(`education:${uin}`, (pid) =>
+        this.read.getEducationHistory(this.nt, pid, uin),
+      );
+      const schools = [
+        ...new Set(
+          result.items
+            .filter((item) => uin === this.selfUin || item.hidden !== 1)
+            .map((item) => item.schoolName?.trim())
+            .filter((name): name is string => Boolean(name)),
+        ),
+      ];
+      await this.contactMetrics?.project(`friend:${uin}`, { schools });
+      return result;
+    } catch (error) {
+      await this.contactMetrics?.failed(`friend:${uin}`, 'schools', error);
+      throw error;
+    }
   }
   signatureHistory(uin: string, before?: number) {
     return this.query(`signatures:${uin}:${before ?? ''}`, (pid) =>

@@ -13,6 +13,11 @@ export function createContactMetricsRouter(
   return router({
     status: procedure.input(binding).query(({ input }) => resolve(input).status()),
     snapshot: procedure.input(binding).query(({ input }) => resolve(input).snapshot()),
+    localTimes: procedure
+      .input(binding.extend({ kind: z.enum(['friends', 'groups']) }))
+      .query(({ input }) => resolve(input).localTimes(input.kind)),
+    cachedProfiles: procedure.input(binding).query(({ input }) => resolve(input).cachedProfiles()),
+    localJoins: procedure.input(binding).query(({ input }) => resolve(input).localJoins()),
     rebuild: procedure
       .input(
         binding.extend({
@@ -30,6 +35,13 @@ export function createContactMetricsRouter(
                 'commonGroups',
                 'friendCount',
                 'activityScore',
+                'energy',
+                'source',
+                'sourceGroup',
+                'schools',
+                'joinedAt',
+                'grade',
+                'freezeState',
               ]),
             )
             .optional(),
@@ -40,17 +52,20 @@ export function createContactMetricsRouter(
       ),
     changed: procedure.input(binding).subscription(({ input }) => {
       const runtime = resolve(input);
-      return observable<{ base: boolean; relationGraph?: boolean }>((emit) => {
+      return observable<{ base: boolean; relationGraph?: boolean; profiles?: boolean }>((emit) => {
         const change = () => emit.next({ base: false });
         const base = () => emit.next({ base: true });
         const graph = () => emit.next({ base: false, relationGraph: true });
+        const profiles = () => emit.next({ base: false, profiles: true });
         runtime.cache.on('changed', change);
         runtime.cache.on('baseChanged', base);
         runtime.cache.on('relationGraphChanged', graph);
+        runtime.cache.on('profilesChanged', profiles);
         return () => {
           runtime.cache.off('changed', change);
           runtime.cache.off('baseChanged', base);
           runtime.cache.off('relationGraphChanged', graph);
+          runtime.cache.off('profilesChanged', profiles);
         };
       });
     }),

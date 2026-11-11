@@ -10,8 +10,15 @@ export type ContactMetric =
   | 'commonFriends'
   | 'commonGroups'
   | 'friendCount'
-  | 'activityScore';
-export type MetricValue = number | string | Array<{ groupCode: string; name: string }>;
+  | 'activityScore'
+  | 'energy'
+  | 'source'
+  | 'sourceGroup'
+  | 'schools'
+  | 'joinedAt'
+  | 'grade'
+  | 'freezeState';
+export type MetricValue = number | string | string[] | Array<{ groupCode: string; name: string }>;
 export interface MetricCell {
   value?: MetricValue;
   updatedAt?: number;
@@ -113,7 +120,11 @@ export class ContactMetricsService extends EventEmitter {
           const value =
             'value' in cell && validMetricValue(metric, cell.value) ? cell.value : undefined;
           const failed = 'state' in cell && cell.state === 'failed';
-          if (value !== undefined || failed) {
+          if (
+            value !== undefined ||
+            failed ||
+            ('updatedAt' in cell && typeof cell.updatedAt === 'number')
+          ) {
             cells[metric] = {
               value,
               attemptedAt: cell.attemptedAt,
@@ -246,6 +257,31 @@ export class ContactMetricsService extends EventEmitter {
       )
         changed[metric] = values[metric];
     if (Object.keys(changed).length) await this.record(key, changed);
+  }
+
+  /** 成功的完整投影允许显式清空缺省字段；失败更新继续保留旧值。 */
+  async project(
+    key: string,
+    values: Partial<Record<ContactMetric, MetricValue | null>>,
+    updatedAt = Date.now(),
+  ) {
+    await this.loaded;
+    if (!this.active) return;
+    this.rows[key] ??= {};
+    for (const metric of CONTACT_METRICS) {
+      if (!Object.hasOwn(values, metric)) continue;
+      const value = values[metric];
+      if (value !== null && !validMetricValue(metric, value)) continue;
+      const token = `${key}:${metric}`;
+      this.sequences.set(token, (this.sequences.get(token) ?? 0) + 1);
+      this.rows[key][metric] = {
+        value: value ?? undefined,
+        state: 'ready',
+        attemptedAt: updatedAt,
+        updatedAt,
+      };
+    }
+    this.changed();
   }
 
   async stale(keys: string[], metrics: ContactMetric[]) {
@@ -513,8 +549,18 @@ const CONTACT_METRICS: ContactMetric[] = [
   'commonGroups',
   'friendCount',
   'activityScore',
+  'energy',
+  'source',
+  'sourceGroup',
+  'schools',
+  'joinedAt',
+  'grade',
+  'freezeState',
 ];
 function validMetricValue(metric: ContactMetric, value: unknown): value is MetricValue {
+  if (metric === 'schools')
+    return Array.isArray(value) && value.every((item) => typeof item === 'string');
+  if (metric === 'source' || metric === 'sourceGroup') return typeof value === 'string';
   if (metric === 'direction') return value === 'incoming' || value === 'outgoing';
   if (metric === 'commonGroups')
     return (

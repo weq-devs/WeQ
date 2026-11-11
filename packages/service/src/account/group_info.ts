@@ -337,8 +337,21 @@ export class GroupInfoService {
     this.groupProfiles.setCache(root);
   }
 
-  getExtendedProfile(groupId: number, refresh = false, force = false) {
-    return this.groupProfiles.read(groupId, refresh, force);
+  async getExtendedProfile(groupId: number, refresh = false, force = false) {
+    const result = await this.groupProfiles.read(groupId, refresh, force);
+    if (result.profile && result.updatedAt)
+      await this.contactMetrics?.project(
+        `group:${groupId}`,
+        {
+          grade: result.profile.grade,
+          freezeState: result.profile.freezeState,
+        },
+        result.updatedAt,
+      );
+    if (result.error)
+      for (const field of ['grade', 'freezeState'] as const)
+        await this.contactMetrics?.failed(`group:${groupId}`, field, result.error);
+    return result;
   }
 
   disposeGroupProfiles(): void {

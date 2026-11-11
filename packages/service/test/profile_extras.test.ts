@@ -8,6 +8,67 @@ import {
   getEducationHistory,
 } from '@weq/protocol';
 import { ProfileExtrasService } from '../src/account/profile_extras';
+import { ContactMetricsService } from '../src/account/contact_metrics';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+it('能量和可见学校投影到同一目录缓存，失败保留旧值，隐藏经历不外露', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-extras-directory-'));
+  const metrics = new ContactMetricsService(join(root, 'metrics.json'), () => true, {
+    interval: 0,
+    concurrency: 2,
+  });
+  const energy = vi.fn(async () => ({
+    targetUin: '10002',
+    score: 0,
+    level: null,
+    display: null,
+    trend: null,
+  }));
+  const record = (schoolName: string, hidden: number) => ({
+    index: null,
+    category: null,
+    schoolId: null,
+    schoolName,
+    departmentId: null,
+    departmentName: null,
+    degree: null,
+    enrollmentYear: null,
+    graduationYear: null,
+    allowRecommend: null,
+    createSource: null,
+    createdAt: null,
+    updateSource: null,
+    updatedAt: null,
+    hidden,
+    verifyStatus: null,
+    verifyType: null,
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getProfileEnergy: energy,
+    getEducationHistory: async (_nt, _pid, targetUin) => ({
+      targetUin,
+      items: [record(' 厦门大学 ', 0), record('厦门大学', 0), record('隐藏学校', 1)],
+    }),
+  });
+  service.contactMetrics = metrics;
+  try {
+    await service.energy('10002');
+    await service.educationHistory('10002');
+    expect((await metrics.row('friend:10002')).energy?.value).toBe(0);
+    expect((await metrics.row('friend:10002')).schools?.value).toEqual(['厦门大学']);
+    await service.educationHistory('10001');
+    expect((await metrics.row('friend:10001')).schools?.value).toEqual(['厦门大学', '隐藏学校']);
+    energy.mockRejectedValueOnce(new Error('offline'));
+    await expect(service.energy('10002')).rejects.toThrow('offline');
+    expect((await metrics.row('friend:10002')).energy).toMatchObject({ value: 0, state: 'failed' });
+  } finally {
+    await metrics.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 const readers = {
   getProfileEnergy,

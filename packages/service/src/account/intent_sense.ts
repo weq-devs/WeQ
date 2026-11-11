@@ -1548,6 +1548,14 @@ export class IntentSenseService {
   }
 
   /** 兼容旧 IPC 入口；运行状态与计算由独立画像服务持有。 */
+  cachedProfileSummaries() {
+    this.syncDefaultModels();
+    return this.profileService.cachedSummaries();
+  }
+  onCachedProfilesChanged(listener: () => void) {
+    return this.profileService.onCacheChanged(listener);
+  }
+
   getProfile(peerUid: string, options?: { cachedOnly?: boolean }): Promise<IntentProfile | null> {
     this.syncDefaultModels();
     const revision = this.profileRevision;

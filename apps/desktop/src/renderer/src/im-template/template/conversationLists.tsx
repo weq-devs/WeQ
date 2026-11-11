@@ -48,7 +48,14 @@ import type { ContactMetricRows } from '@weq/service';
 import { conversationPinned } from '@weq/service/conversation-order';
 import { sortConversationRows, reconcileConversationRows } from '../../lib/conversationListOrder';
 import { useEventContextValue } from '../../hooks/useEventContextValue';
-import { groupFriends, sortFriends, sortGroups, type FriendSort } from '../../lib/contactListOrder';
+import {
+  groupFriends,
+  groupExtendedGroups,
+  directoryTimeSeeds,
+  sortFriends,
+  sortGroups,
+  type FriendSort,
+} from '../../lib/contactListOrder';
 import {
   friendDirectoryTitle,
   friendSortDetail,
@@ -68,6 +75,7 @@ import {
 } from '../../lib/conversationDirectory';
 import { VirtualConversationAvatar } from '../../components/VirtualConversationAvatar';
 import { groupRelationship, RelationshipDirectoryContext } from '../../lib/contactRelationship';
+import { SourceGroup } from '../../components/qq-actions/FriendClue';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import {
   conversationAnalysisTarget,
@@ -1027,15 +1035,19 @@ export function GroupList({
   );
   const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
   const metricEntities = useMemo(
-    () =>
-      conversations
-        .filter(
-          (row) => row.type === 'group' && groupRelationship(row.group, relationships) === 'member',
-        )
-        .map((row) => [`group:${row.id}`]),
-    [conversations, relationships],
+    () => conversations.filter((row) => row.type === 'group').map((row) => [`group:${row.id}`]),
+    [conversations],
   );
-  const order = useContactDirectoryOrder('groups', groupSelection.selectionMode, metricEntities);
+  const timeSeeds = useCallback(
+    () => directoryTimeSeeds(conversations, relationships?.selfUid),
+    [conversations, relationships?.selfUid],
+  );
+  const order = useContactDirectoryOrder(
+    'groups',
+    groupSelection.selectionMode,
+    metricEntities,
+    timeSeeds,
+  );
   const basis = order.preferences.grouping;
   const computedCategories = useMemo(() => {
     if (basis === 'none')
@@ -1121,6 +1133,8 @@ export function GroupList({
           : []),
       ];
     }
+    if (basis === 'freezeState' || basis === 'grade')
+      return groupExtendedGroups(groups, basis, order.rows);
     return GROUP_NOTIFICATION_SECTIONS.map((section) => ({
       ...section,
       items: groups.filter(
@@ -1493,86 +1507,95 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
   });
   // 未重画行的捕获事件也按调用时获取最新范围、选择模式和锚点。
   const selectionId = JSON.stringify([categoryId, contact.id]);
+  const sourceGroup = identityMetrics?.sourceGroup?.value || uidMetrics?.sourceGroup?.value;
   return (
-    <button
-      className={cn(
-        listRowClass(active, 'contact-row'),
-        'contact-cat-row',
-        selected && 'is-multiselected',
-      )}
-      aria-pressed={selectionMode ? selected : undefined}
-      {...events.selection(selectionId)}
-      onPointerDownCapture={(event) => events.selection(selectionId).onPointerDownCapture(event)}
-      onClickCapture={(event) => events.selection(selectionId).onClickCapture(event)}
-      onContextMenuCapture={(event) => events.selection(selectionId).onContextMenuCapture(event)}
-      draggable={draggable}
-      onDragStart={(event) => events.dragStart(contact, event)}
-      onDragEnd={events.dragEnd}
-      onContextMenu={(event) => events.menu(contact, event)}
-      onKeyDown={(event) => events.keyDown(contact, event)}
-      onClick={() => events.select(contact)}
-    >
-      <span className="contact-relation-avatar">
-        <Avatar
-          resolution="small"
-          name={displayUserName(contact)}
-          avatarUrl={contact.avatarUrl}
-          seed={contact.identityValue}
-        />
-        {relation ? (
-          <span
-            className="contact-relation-mark"
-            role="img"
-            aria-label={`亲密关系：${relation.label}`}
-            title={relation.label}
-          >
-            <relation.Icon size={13} aria-hidden="true" />
-          </span>
-        ) : null}
-      </span>
-      <span className={cn('row-main', 'contact-card-main')}>
-        <span className={cn('contact-card-nickname')}>
-          <span className="row-title-text" title={title}>
-            {title}
-          </span>
-          {contact.kind === 'bot' ? (
-            <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-              <Bot size={12} strokeWidth={2.4} />
-            </small>
+    <>
+      <button
+        className={cn(
+          listRowClass(active, 'contact-row'),
+          'contact-cat-row',
+          selected && 'is-multiselected',
+        )}
+        aria-pressed={selectionMode ? selected : undefined}
+        {...events.selection(selectionId)}
+        onPointerDownCapture={(event) => events.selection(selectionId).onPointerDownCapture(event)}
+        onClickCapture={(event) => events.selection(selectionId).onClickCapture(event)}
+        onContextMenuCapture={(event) => events.selection(selectionId).onContextMenuCapture(event)}
+        draggable={draggable}
+        onDragStart={(event) => events.dragStart(contact, event)}
+        onDragEnd={events.dragEnd}
+        onContextMenu={(event) => events.menu(contact, event)}
+        onKeyDown={(event) => events.keyDown(contact, event)}
+        onClick={() => events.select(contact)}
+      >
+        <span className="contact-relation-avatar">
+          <Avatar
+            resolution="small"
+            name={displayUserName(contact)}
+            avatarUrl={contact.avatarUrl}
+            seed={contact.identityValue}
+          />
+          {relation ? (
+            <span
+              className="contact-relation-mark"
+              role="img"
+              aria-label={`亲密关系：${relation.label}`}
+              title={relation.label}
+            >
+              <relation.Icon size={13} aria-hidden="true" />
+            </span>
           ) : null}
         </span>
-        <span className={cn('contact-card-bottom')}>
-          {detail ? (
-            <span
-              className="contact-card-signature weq-directory-sort-detail"
-              title={detail.title ? `${detail.text}\n${detail.title}` : detail.text}
-            >
-              {detail.text}
+        <span className={cn('row-main', 'contact-card-main')}>
+          <span className={cn('contact-card-nickname')}>
+            <span className="row-title-text" title={title}>
+              {title}
             </span>
-          ) : (
-            <>
-              {contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
-                <span className={cn('contact-card-status')}>
-                  <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
-                  <span>[{contact.onlineStatusObj.displayStatus}]</span>
-                </span>
-              ) : null}
-              {contact.kind !== 'bot' &&
-              contact.identityLabel !== '设备' &&
-              categoryId !== 'special:devices' &&
-              categoryId !== 'special:bots' ? (
-                <span className={cn('contact-card-signature')}>
-                  {contact.signature || '这个人很懒，什么都没留下'}
-                </span>
-              ) : null}
-            </>
-          )}
+            {contact.kind === 'bot' ? (
+              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                <Bot size={12} strokeWidth={2.4} />
+              </small>
+            ) : null}
+          </span>
+          <span className={cn('contact-card-bottom')}>
+            {detail ? (
+              <span
+                className="contact-card-signature weq-directory-sort-detail"
+                title={detail.title ? `${detail.text}\n${detail.title}` : detail.text}
+              >
+                {detail.text}
+              </span>
+            ) : (
+              <>
+                {contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+                  <span className={cn('contact-card-status')}>
+                    <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
+                    <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                  </span>
+                ) : null}
+                {contact.kind !== 'bot' &&
+                contact.identityLabel !== '设备' &&
+                categoryId !== 'special:devices' &&
+                categoryId !== 'special:bots' ? (
+                  <span className={cn('contact-card-signature')}>
+                    {contact.signature || '这个人很懒，什么都没留下'}
+                  </span>
+                ) : null}
+              </>
+            )}
+          </span>
         </span>
-      </span>
-      {unreadCount > 0 ? (
-        <span className={unreadClass(muted)}>{formatBadgeCount(unreadCount)}</span>
+        {unreadCount > 0 ? (
+          <span className={unreadClass(muted)}>{formatBadgeCount(unreadCount)}</span>
+        ) : null}
+      </button>
+      {String(categoryId).startsWith('derived:source:') &&
+      typeof sourceGroup === 'string' &&
+      /^[1-9]\d*$/.test(sourceGroup) &&
+      !selectionMode ? (
+        <SourceGroup code={sourceGroup} source={null} directoryLink />
       ) : null}
-    </button>
+    </>
   );
 });
 
@@ -1623,6 +1646,7 @@ const ContactListContent = memo(function ContactListContent({
 }) {
   const directory = useContext(ContactDirectoryContext);
   const contactIds = useMemo(() => new Set(contacts.map((contact) => contact.id)), [contacts]);
+  const relationships = useContext(RelationshipDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const friendDirectory = useFriendDirectory();
   const requestExport = useRequestContentExport();
@@ -1674,11 +1698,32 @@ const ContactListContent = memo(function ContactListContent({
   );
   const batch = useConversationBatchActions(conversationRows);
   const selection = useContentMultiSelect({ kind: 'contacts', container: 'friends' });
-  const metricEntities = useMemo(
-    () => contacts.map((contact) => [`friend:${contact.identityValue}`, `friend:${contact.id}`]),
-    [contacts],
+  const allContacts = useMemo(
+    () => [
+      ...new Map(
+        [
+          ...contacts,
+          ...specialSections.flatMap((section) => section.items),
+          ...trailingSections.flatMap((section) => section.items),
+        ].map((contact) => [contact.id, contact]),
+      ).values(),
+    ],
+    [contacts, specialSections, trailingSections],
   );
-  const order = useContactDirectoryOrder('friends', selection.selectionMode, metricEntities);
+  const metricEntities = useMemo(
+    () => allContacts.map((contact) => [`friend:${contact.identityValue}`, `friend:${contact.id}`]),
+    [allContacts],
+  );
+  const timeSeeds = useCallback(
+    () => directoryTimeSeeds(conversationRows, relationships?.selfUid),
+    [conversationRows, relationships?.selfUid],
+  );
+  const order = useContactDirectoryOrder(
+    'friends',
+    selection.selectionMode,
+    metricEntities,
+    timeSeeds,
+  );
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
   const matches = useCallback(
     (contact: Contact) =>
@@ -1692,6 +1737,22 @@ const ContactListContent = memo(function ContactListContent({
 
   // 派生分组使用字符串 ID，不能触发 QQ 分组的编辑与拖拽。
   const computedCategories = useMemo(() => {
+    if (['type', 'source', 'school'].includes(order.preferences.grouping))
+      return groupFriends(
+        allContacts.filter(matches),
+        order.preferences.grouping,
+        order.rows,
+        order.regions,
+        relationships,
+      ).map((section) => ({
+        ...section,
+        items: sortFriends(
+          section.items,
+          order.preferences.sort,
+          order.preferences.descending,
+          order.rows,
+        ),
+      }));
     if (order.preferences.grouping === 'none') {
       const all = [
         ...new Map(
@@ -1758,6 +1819,8 @@ const ContactListContent = memo(function ContactListContent({
     }));
   }, [
     filtered,
+    allContacts,
+    relationships,
     categoryDefinitions,
     specialSections,
     trailingSections,

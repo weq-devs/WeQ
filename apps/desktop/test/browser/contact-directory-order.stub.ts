@@ -16,6 +16,10 @@ const snapshot = {
       commonFriends: ready(12),
       commonGroups: ready([]),
       addedAt: ready(Date.UTC(2022, 7, 31, 16, 30) / 1000),
+      energy: ready(0),
+      schools: ready(['厦门大学', '实验中学']),
+      source: ready('通过群聊'),
+      sourceGroup: ready('20001'),
     },
     'friend:10002': {
       level: { ...ready(20), state: 'stale' },
@@ -23,12 +27,29 @@ const snapshot = {
       commonFriends: ready(0),
       commonGroups: ready([{ groupCode: '20001', name: '学习交流' }]),
       addedAt: ready(1600000000),
+      energy: ready(100),
+      schools: ready(['厦门大学']),
+      source: ready('QQ 号搜索'),
     },
     'friend:10003': {
       level: { state: 'failed', attemptedAt: 1, updatedAt: Date.now(), error: '合成读取失败' },
+      source: ready('通过 QQ 群：另一个群'),
+      sourceGroup: ready('20002'),
     },
-    'group:20001': { activityScore: ready(78), friendCount: ready(2) },
-    'group:20002': { activityScore: ready(0), friendCount: ready(0) },
+    'group:20001': {
+      activityScore: ready(78),
+      friendCount: ready(2),
+      grade: ready(0),
+      freezeState: ready(0),
+      joinedAt: ready(1704038407),
+    },
+    'group:20002': {
+      activityScore: ready(0),
+      friendCount: ready(0),
+      grade: ready(5),
+      freezeState: ready(1),
+      joinedAt: ready(1704038408),
+    },
     'group:20003': {
       activityScore: { state: 'failed', attemptedAt: 1, updatedAt: Date.now() },
       friendCount: ready(3),
@@ -60,13 +81,31 @@ const proxy = (path: string[] = []): unknown =>
                 data:
                   path.join('.') === 'account.getAccountConfig'
                     ? config
-                    : ['account.contactMetrics.snapshot', 'account.contactMetrics.status'].includes(
-                          path.join('.'),
-                        )
-                      ? snapshot
-                      : path.join('.') === 'account.qqWrite.profileRegions'
-                        ? { regions }
-                        : undefined,
+                    : path.join('.') === 'account.contactMetrics.localTimes'
+                      ? {
+                          done: true,
+                          rows: {
+                            u_friend0: { time: 1704038407, mine: null },
+                            u_friend1: { time: 1704038408, mine: null },
+                            '20001': { time: 1704038407, mine: 1704038407 },
+                            '20002': { time: 1704038408, mine: null },
+                          },
+                        }
+                      : path.join('.') === 'account.contactMetrics.cachedProfiles'
+                        ? [
+                            { uid: 'u_friend0', affinity: 0, computedAt: Date.now() },
+                            { uid: 'u_friend1', affinity: 80, computedAt: Date.now() },
+                          ]
+                        : path.join('.') === 'account.contactMetrics.localJoins'
+                          ? { '20001': 1704038407, '20002': 1704038408 }
+                          : [
+                                'account.contactMetrics.snapshot',
+                                'account.contactMetrics.status',
+                              ].includes(path.join('.'))
+                            ? snapshot
+                            : path.join('.') === 'account.qqWrite.profileRegions'
+                              ? { regions }
+                              : undefined,
                 isLoading: false,
                 refetch: async () => ({ data: undefined }),
               };

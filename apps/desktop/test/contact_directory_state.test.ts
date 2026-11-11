@@ -10,6 +10,9 @@ const state = vi.hoisted(() => ({
   uin: '99999',
   config: { uin: '99999', configId: 'synthetic' } as { uin: string; configId: string } | undefined,
   progress: { status: 'running', done: 2, total: 6, failed: 0, phase: '' },
+  timeQuery: vi.fn(),
+  profileQuery: vi.fn(),
+  joinQuery: vi.fn(),
 }));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: (select: (value: { openedUin: string }) => unknown) =>
@@ -22,6 +25,24 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getAccountConfig: { useQuery: () => ({ data: state.config }) },
       contactMetrics: {
         snapshot: { useQuery: () => ({ data: { rows: {}, progress: state.progress } }) },
+        localTimes: {
+          useQuery: (...args: unknown[]) => {
+            state.timeQuery(...args);
+            return { data: undefined };
+          },
+        },
+        cachedProfiles: {
+          useQuery: (...args: unknown[]) => {
+            state.profileQuery(...args);
+            return { data: undefined };
+          },
+        },
+        localJoins: {
+          useQuery: (...args: unknown[]) => {
+            state.joinQuery(...args);
+            return { data: undefined };
+          },
+        },
         changed: { useSubscription: () => {} },
       },
       qqWrite: { profileRegions: { useQuery: () => ({}) } },
@@ -41,6 +62,9 @@ beforeEach(() => {
   state.uin = '99999';
   state.config = { uin: state.uin, configId: 'synthetic' };
   state.progress.status = 'running';
+  state.timeQuery.mockClear();
+  state.profileQuery.mockClear();
+  state.joinQuery.mockClear();
 });
 afterEach(() => {
   for (const close of cleanup.splice(0)) close();
@@ -54,14 +78,14 @@ function save(kind: 'friends' | 'groups', value: DirectoryPreferences, configId 
     JSON.stringify(value),
   );
 }
-function mount(kind: 'friends' | 'groups', entities: string[][] = []) {
+function mount(kind: 'friends' | 'groups', entities: string[][] = [], freeze = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const commits: DirectoryPreferences[] = [];
   let order!: ReturnType<typeof useContactDirectoryOrder>;
   function Harness({ kind }: { kind: 'friends' | 'groups' }) {
-    order = useContactDirectoryOrder(kind, false, entities);
+    order = useContactDirectoryOrder(kind, freeze, entities);
     useLayoutEffect(() => {
       commits.push(order.preferences);
     });
@@ -82,6 +106,21 @@ function mount(kind: 'friends' | 'groups', entities: string[][] = []) {
     order: () => order,
   };
 }
+
+it('新增读取只在所选依据启用，画像仅请求批量缓存摘要，多选不启动时间续读', () => {
+  const f = mount('friends');
+  expect(state.timeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+  expect(state.profileQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+  f.change({ sort: 'lastMessageAt' });
+  expect(state.timeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: true });
+  expect(state.profileQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+  f.change({ sort: 'affinity' });
+  expect(state.timeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+  expect(state.profileQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: true });
+  save('groups', { grouping: 'none', sort: 'lastSpokeAt', descending: true });
+  mount('groups', [], true);
+  expect(state.timeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+});
 
 it.each(['running', 'paused'])(
   '任务 %s 时切换缺失缓存的分组与排序只更新偏好，不请求弹窗',

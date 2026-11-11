@@ -130,6 +130,8 @@ export function applyOutgoingConversationPreview(
     updatedAt: new Date(Math.max(Date.parse(conversation.updatedAt) || 0, item.at)).toISOString(),
     lastMessage: {
       id: item.id,
+      directoryTime:
+        item.state === 'sent' && status === '' ? Math.floor(item.at / 1000) : undefined,
       senderId: user.id,
       senderDisplayName: user.displayName,
       body: `${status}${item.body}`,

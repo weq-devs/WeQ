@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import {
   ContactMetricsService,
   ContactMetricsOfflineError,
+  DirectoryTimeReader,
   type ContactMetric,
   type ContactMetricRows,
   type ContactMetricJob,
@@ -25,6 +26,13 @@ const METRIC_NAMES: Record<ContactMetric, string> = {
   commonGroups: '共同群聊',
   friendCount: '群内好友数',
   activityScore: '群活跃度',
+  energy: 'QQ 能量值',
+  source: '添加来源',
+  sourceGroup: '来源群',
+  schools: '学校',
+  joinedAt: '我的入群时间',
+  grade: 'grade',
+  freezeState: '冻结状态',
 };
 function needsMetricRefresh(
   cell: ContactMetricRows[string][ContactMetric],
@@ -103,10 +111,12 @@ export class ContactDirectoryRuntime {
   private groupMeta = new Map<string, Record<string, unknown>>();
   private scope: { uin: string; configId: string };
   private readonly selfUid: string;
+  private readonly timeReaders: Record<'friends' | 'groups', DirectoryTimeReader>;
+  private readonly stopProfileWatch?: () => void;
 
   constructor(
     private readonly services: AccountServices,
-    session: AccountSession,
+    private readonly session: AccountSession,
     cacheDir: string,
     watcher: DbWatchService,
     private readonly online: () => boolean,
@@ -116,8 +126,21 @@ export class ContactDirectoryRuntime {
   ) {
     this.scope = { uin: session.context.uin, configId };
     this.selfUid = session.selfUid;
+    this.timeReaders = {
+      friends: new DirectoryTimeReader(
+        (cursor) => session.c2cMsgs.directoryTimePage(cursor),
+        this.selfUid,
+        session.context.uin,
+      ),
+      groups: new DirectoryTimeReader(
+        (cursor) => session.groupMsgs.directoryTimePage(cursor),
+        this.selfUid,
+        session.context.uin,
+      ),
+    };
     services.groupInfo.setMemberRosterCache(join(cacheDir, 'group-members'));
     services.groupInfo.setGroupProfileCache(join(cacheDir, 'group-profiles'));
+
     this.cache = new ContactMetricsService(
       join(cacheDir, 'metrics.json'),
       () => this.online() && this.current(),
@@ -137,6 +160,13 @@ export class ContactDirectoryRuntime {
             members.map((member) => member.uid).filter((uid) => buddies.has(uid)),
           );
           await this.cache.record(`group:${groupId}`, { friendCount: ids.size });
+          const self = members.find(
+            (member) =>
+              (Boolean(this.selfUid) && member.uid === this.selfUid) ||
+              (!member.uid && String(member.uin) === this.scope.uin),
+          );
+          if (self?.joinTime && self.joinTime > 0)
+            await this.cache.record(`group:${groupId}`, { joinedAt: self.joinTime });
           this.assertCurrent();
           this.memberships.set(String(groupId), ids);
         } catch (error) {
@@ -146,6 +176,19 @@ export class ContactDirectoryRuntime {
     services.groupInfo.contactMembersObserved = this.memberObserver;
     this.cache.on('progress', (progress: ContactMetricsProgress) => this.updateTask(progress));
     this.cache.on('log', (message: string, stage?: string) => this.appendLog(message, stage));
+    this.stopProfileWatch = services.intentSense?.onCachedProfilesChanged?.(() => {
+      if (this.isCurrent()) this.cache.emit('profilesChanged');
+    });
+    if (session.c2cMsgs?.sourcePath)
+      this.watches.push(
+        watcher.mount({
+          dbPath: session.c2cMsgs.sourcePath,
+          onDbFileChangeHook: () => {
+            this.timeReaders.friends.invalidate();
+            this.timeReaders.groups.invalidate();
+          },
+        }),
+      );
     for (const dbPath of new Set([session.profileInfo.dbPath, session.groupMembers.dbPath])) {
       this.watches.push(
         watcher.mount({
@@ -180,6 +223,33 @@ export class ContactDirectoryRuntime {
       ...(await this.cache.snapshot()),
       ...this.status(),
     };
+  }
+
+  async localTimes(kind: 'friends' | 'groups') {
+    this.assertCurrent();
+    const result = await withDatabasePriority(
+      'background',
+      () => this.timeReaders[kind].read(),
+      this.lifetime.signal,
+    );
+    this.assertCurrent();
+    return result;
+  }
+  cachedProfiles() {
+    this.assertCurrent();
+    return this.services.intentSense.cachedProfileSummaries();
+  }
+  async localJoins() {
+    return withDatabasePriority(
+      'background',
+      async () => {
+        this.assertCurrent();
+        const times = await this.session.groupMembers.selfJoinTimes(this.selfUid, this.scope.uin);
+        this.assertCurrent();
+        return times;
+      },
+      this.lifetime.signal,
+    );
   }
 
   /** 进度校准不复制整份联系人指标缓存。 */
@@ -301,9 +371,18 @@ export class ContactDirectoryRuntime {
     if (
       fields &&
       !fields.some((field) =>
-        ['level', 'likeCount', 'addedAt', 'direction', 'commonFriends', 'commonGroups'].includes(
-          field,
-        ),
+        [
+          'level',
+          'likeCount',
+          'addedAt',
+          'direction',
+          'commonFriends',
+          'commonGroups',
+          'energy',
+          'schools',
+          'source',
+          'sourceGroup',
+        ].includes(field),
       )
     )
       return [];
@@ -350,15 +429,20 @@ export class ContactDirectoryRuntime {
       const uin = friend.uin > 0n ? String(friend.uin) : friend.uid,
         key = `friend:${uin}`;
       const row = snapshot?.rows[key];
-      const needs = (
-        metric: 'level' | 'addedAt' | 'direction' | 'commonFriends' | 'commonGroups',
-      ) =>
+      const needs = (metric: ContactMetric) =>
         (!fields || fields.includes(metric)) && needsMetricRefresh(row?.[metric], force, maxAgeMs);
       if (friend.uin > 0n && needs('level'))
         jobs.push({ key: `${key}:level`, run: () => this.services.peerStats.getQqLevel(uin, 1) });
-      const missingIdentity = (['level', 'commonFriends', 'commonGroups'] as const).filter(
-        (metric) => friend.uin <= 0n && needs(metric),
-      );
+      if (friend.uin > 0n && needs('energy'))
+        jobs.push({ key: `${key}:energy`, run: () => this.services.profileExtras.energy(uin) });
+      if (friend.uin > 0n && needs('schools'))
+        jobs.push({
+          key: `${key}:schools`,
+          run: () => this.services.profileExtras.educationHistory(uin),
+        });
+      const missingIdentity = (
+        ['level', 'commonFriends', 'commonGroups', 'energy', 'schools'] as const
+      ).filter((metric) => friend.uin <= 0n && needs(metric));
       if (missingIdentity.length)
         jobs.push({
           key: `${key}:identity`,
@@ -377,7 +461,10 @@ export class ContactDirectoryRuntime {
           key: `${key}:likes`,
           run: () => this.services.peerStats.getLikeCount(friend.uid, 1),
         });
-      if (buddyUids.has(friend.uid) && (needs('addedAt') || needs('direction')))
+      if (
+        buddyUids.has(friend.uid) &&
+        (needs('addedAt') || needs('direction') || needs('source') || needs('sourceGroup'))
+      )
         jobs.push({
           key: `${key}:clue`,
           run: async () => {
@@ -389,6 +476,7 @@ export class ContactDirectoryRuntime {
             if (missing.length)
               this.appendLog(`${key} 部分字段未取得：${missing.join('、')}`, 'friends');
             if (
+              (needs('addedAt') || needs('direction')) &&
               (!needs('addedAt') || result.addedAt === null) &&
               (!needs('direction') || result.direction === null)
             )
@@ -579,7 +667,9 @@ export class ContactDirectoryRuntime {
         const includeGroups =
           target === 'groupMembers' ||
           !fields ||
-          fields.some((field) => ['friendCount', 'activityScore'].includes(field));
+          fields.some((field) =>
+            ['friendCount', 'activityScore', 'joinedAt', 'grade', 'freezeState'].includes(field),
+          );
         const groups = includeGroups ? await this.services.groupInfo.listGroupDirectory() : [];
         this.assertCurrent();
         if (target === 'groupMembers') {
@@ -627,6 +717,81 @@ export class ContactDirectoryRuntime {
           if (groups.length)
             for (const group of groups) {
               if (this.stopPreparing || this.disposed) break;
+              if (
+                !fields ||
+                fields.some((field) => ['grade', 'freezeState', 'joinedAt'].includes(field))
+              ) {
+                const requested =
+                  fields?.filter((field) => ['grade', 'freezeState', 'joinedAt'].includes(field)) ??
+                  (['grade', 'freezeState', 'joinedAt'] as const);
+                if (
+                  requested.some((field) =>
+                    needsMetricRefresh(
+                      snapshot.rows[`group:${group.groupCode}`]?.[field],
+                      !missingOnly && range === 'all',
+                      maxAgeMs,
+                    ),
+                  )
+                )
+                  jobs.push({
+                    key: `group:${group.groupCode}:profile`,
+                    label: `群资料（${group.groupCode}）`,
+                    run: async () => {
+                      const errors: string[] = [];
+                      if (requested.some((field) => field === 'grade' || field === 'freezeState')) {
+                        try {
+                          const result = await this.services.groupInfo.getExtendedProfile(
+                            Number(group.groupCode),
+                            true,
+                            true,
+                          );
+                          if (result.error) throw new Error(result.error);
+                        } catch (error) {
+                          this.assertCurrent();
+                          errors.push(error instanceof Error ? error.message : String(error));
+                        }
+                      }
+                      if (requested.includes('joinedAt')) {
+                        try {
+                          const local = this.selfUid
+                            ? await this.session.groupMembers.getMember(
+                                BigInt(group.groupCode),
+                                this.selfUid,
+                              )
+                            : (
+                                await this.session.groupMembers.getMembersByUins(
+                                  BigInt(group.groupCode),
+                                  [BigInt(this.scope.uin)],
+                                )
+                              )[0];
+                          this.assertCurrent();
+                          let joinedAt = local?.memberFlag === 0 ? local.joinTime : null;
+                          if (!joinedAt) {
+                            const members = await this.services.groupInfo.fetchOnlineMembers(
+                              Number(group.groupCode),
+                              { priority: 1 },
+                            );
+                            this.assertCurrent();
+                            joinedAt =
+                              members.find(
+                                (member) =>
+                                  (Boolean(this.selfUid) && member.uid === this.selfUid) ||
+                                  (!member.uid && String(member.uin) === this.scope.uin),
+                              )?.joinTime ?? null;
+                          }
+                          await this.cache.project(`group:${group.groupCode}`, {
+                            joinedAt: joinedAt && joinedAt > 0 ? joinedAt : null,
+                          });
+                        } catch (error) {
+                          this.assertCurrent();
+                          await this.cache.failed(`group:${group.groupCode}`, 'joinedAt', error);
+                          errors.push(error instanceof Error ? error.message : String(error));
+                        }
+                      }
+                      if (errors.length) throw new Error(errors.join('；'));
+                    },
+                  });
+              }
               this.groupMeta.set(group.groupCode, {
                 ...this.groupMeta.get(group.groupCode),
                 人数: group.memberCount,
@@ -942,6 +1107,7 @@ export class ContactDirectoryRuntime {
   }
 
   async dispose() {
+    this.stopProfileWatch?.();
     this.services.groupInfo.disposeGroupProfiles();
     this.disposed = true;
     this.lifetime.abort();

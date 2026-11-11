@@ -19,7 +19,7 @@
 | anonymousDetail | uin、questionId、askedAt | 问答详情、点赞人、首批评论与续页状态 |
 | anonymousComments | uin、questionId、可选 cursor | 评论页及结束标记 |
 
-分页结果统一为 items、nextCursor、hasMore、paginationError。二进制标签 cookie 转为规范 Base64，问答 cookie 是服务端 JSON 字符串，不能混用。相同目标、筛选和游标共享在途查询，在线工作复用联系人指标调度队列，但历史列表不写入指标快照。
+分页结果统一为 items、nextCursor、hasMore、paginationError。二进制标签 cookie 转为规范 Base64，问答 cookie 是服务端 JSON 字符串，不能混用。相同目标、筛选和游标共享在途查询，在线工作复用联系人指标调度队列。能量值 score 和可见教育经历的学校名称投影到联系人指标缓存；历史签名、照片和问答列表不写入指标快照。
 
 ## 协议依据
 

@@ -7,6 +7,7 @@ import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { SegmentedControl } from './SegmentedControl';
 import { useContactRefreshTask } from '../hooks/useContactRefreshTask';
 import '../styles/contact-directory-order.css';
+import type { ContactMetric } from '@weq/service';
 
 export function ContactRefreshButton({
   onRefresh,
@@ -41,10 +42,12 @@ export function ContactCacheRefreshDialog({
   onClose,
   onRefresh,
   stale = false,
+  fields,
 }: {
   onClose: () => void;
   onRefresh?: () => void;
   stale?: boolean;
+  fields?: ContactMetric[];
 }) {
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
@@ -72,7 +75,12 @@ export function ContactCacheRefreshDialog({
     if (!uin || config.data?.uin !== uin) return;
     const binding = { expectedAccountUin: uin, expectedAccountConfigId: config.data.configId };
     try {
-      const taskId = await rebuild.mutateAsync({ ...binding, missingOnly: false, range });
+      const taskId = await rebuild.mutateAsync({
+        ...binding,
+        missingOnly: false,
+        range,
+        ...(fields?.length ? { fields } : {}),
+      });
       onClose();
       if (useViewState.getState().openedUin === uin) {
         onRefresh?.();

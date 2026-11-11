@@ -53,6 +53,7 @@ import {
 } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 import { nativeHistoryCursor } from './history';
+import { directoryTimePage } from './directory_times';
 import { readMessageSourceRows } from './export_source';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
@@ -135,6 +136,9 @@ export class GroupMsgDb {
   }
   get sourcePath(): string {
     return this.qq.dbPath;
+  }
+  directoryTimePage(before?: string) {
+    return directoryTimePage(this.qq, 'group_msg_table', before);
   }
   async exportSourceRows(conversation: string, ids: readonly string[], full = true) {
     const rows = await readMessageSourceRows(

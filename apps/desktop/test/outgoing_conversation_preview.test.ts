@@ -90,7 +90,7 @@ describe('本地发送会话摘要', () => {
     );
     expect(
       applyOutgoingConversationPreview(direct, previews, demo.user).lastMessage?.directoryTime,
-    ).toBe(state === 'sent' && !seqRejected ? at / 1000 : undefined);
+    ).toBe(state === 'sent' && !seqRejected ? Math.floor(at / 1000) : undefined);
   });
 
   it('成功设备文件的零序号不显示未送达，旧摘要和上一条成功摘要也同步纠正', () => {

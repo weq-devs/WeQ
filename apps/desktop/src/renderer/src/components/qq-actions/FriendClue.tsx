@@ -21,7 +21,15 @@ const dateFormat = new Intl.DateTimeFormat('zh-CN', {
   hourCycle: 'h23',
 });
 
-function SourceGroup({ code, source }: { code: string; source: string | null }) {
+export function SourceGroup({
+  code,
+  source,
+  directoryLink = false,
+}: {
+  code: string;
+  source: string | null;
+  directoryLink?: boolean;
+}) {
   const session = useQQWriteSession(`friend-clue-group:${code}`);
   const directory = useContext(ConversationDirectoryContext);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
@@ -44,6 +52,7 @@ function SourceGroup({ code, source }: { code: string; source: string | null }) 
   const info = !query.error && query.data?.groupId === groupId ? query.data : null;
   const known = directory?.real?.find((item) => item.type === 'group' && item.id === code);
   const name = info?.name || (known?.type === 'group' ? known.group.name : null);
+  const label = directoryLink ? name || code : source || '未知';
   const conversation =
     known?.type === 'group'
       ? { ...known, group: { ...known.group, name: name || code } }
@@ -72,7 +81,7 @@ function SourceGroup({ code, source }: { code: string; source: string | null }) 
           onClick={(event) => setAnchor(event.currentTarget)}
         >
           <GroupAvatar code={code} size={24} />
-          <span title={source || '未知'}>{source || '未知'}</span>
+          <span title={label}>{label}</span>
         </button>
       </div>
       {anchor && (

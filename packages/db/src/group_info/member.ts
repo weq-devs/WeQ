@@ -180,6 +180,30 @@ export class GroupMemberDb {
     );
     return rows.map(rowToMember);
   }
+  async selfJoinTimes(uid: string, uin: string) {
+    const rows = await this.qq.query(
+      `SELECT "60001","64007","1000" FROM group_member3
+       WHERE (("1000"=? AND "1000"!='') OR (("1000"='' OR "1000" IS NULL) AND "1002"=?))
+       AND ("64016"=0 OR "64016" IS NULL) LIMIT 20001`,
+      [uid, BigInt(uin)],
+    );
+    if (rows.length > 20000) throw new Error('本人群成员记录过多，请缩小资料来源后重试');
+    const times = new Map<string, { time: number; exact: boolean }>();
+    for (const row of rows) {
+      const code = String(row[0]),
+        time = Number(row[1]),
+        exact = Boolean(uid && row[2] === uid);
+      const previous = times.get(code);
+      if (
+        time > 0 &&
+        (!previous ||
+          (exact && !previous.exact) ||
+          (exact === previous.exact && time > previous.time))
+      )
+        times.set(code, { time, exact });
+    }
+    return Object.fromEntries([...times].map(([code, value]) => [code, value.time]));
+  }
 
   /**
    * Lightweight member scan for relation-graph aggregation: only uid / uin /

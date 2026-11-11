@@ -1307,6 +1307,7 @@ export {
 } from './bootstrap/storage_cleanup';
 export type { StorageCleanupPlan, StorageCleanupResult } from './bootstrap/storage_cleanup';
 export { ContactMetricsService, ContactMetricsOfflineError } from './account/contact_metrics';
+export { DirectoryTimeReader } from './account/directory_times';
 export type {
   ContactMetric,
   ContactMetricRows,

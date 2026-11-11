@@ -1157,6 +1157,24 @@ describe('IntentSenseService', () => {
     expect(forModel).toHaveBeenCalledWith('laya-multilingual');
     expect(analyze).toHaveBeenCalledOnce();
     expect(analysisPort.analyze).not.toHaveBeenCalled();
+    const calls = analyze.mock.calls.length;
+    const summaries = svc.cachedProfileSummaries();
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toMatchObject({
+      uid: 'u_peer',
+      affinity: expect.any(Number),
+      computedAt: expect.any(Number),
+    });
+    expect(analyze).toHaveBeenCalledTimes(calls);
+    const changed = vi.fn();
+    const stop = svc.onCachedProfilesChanged(changed);
+    await svc.setConfig({ profileMinSamples: 2 });
+    expect(svc.cachedProfileSummaries()).toEqual([]);
+    expect(analyze).toHaveBeenCalledTimes(calls);
+    expect(changed).toHaveBeenCalledOnce();
+    stop();
+    await svc.setConfig({ profileMinSamples: 3 });
+    expect(changed).toHaveBeenCalledOnce();
   });
 
   it('同一对方并发读取画像只运行一次推断', async () => {

@@ -35,6 +35,7 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
+      getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isLoading: false }) },
       qqActions: {
         groupJoinSettings: {
           useQuery: (...args: unknown[]) => {
