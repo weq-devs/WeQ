@@ -70,7 +70,7 @@ import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
-import { useNoticeUnread } from '../hooks/useNoticeUnread';
+import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
 import { groupNoticeId } from '../lib/contactNotice';
 import {
   ContactWorkspaceNavigationContext,
@@ -5068,14 +5068,14 @@ function MainWorkspace(): ReactElement {
     categoryById,
     botUids,
   ]);
-  const friendNoticeCount = useNoticeUnread(
+  const friendNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
     'friend',
     contactRequests.map((r) => r.id),
     shell.contactNotice === 'friend',
     buddyRequests.isSuccess,
   );
-  const groupNoticeCount = useNoticeUnread(
+  const groupNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
     'group',
     groupNoticeRecords.map(groupNoticeId),

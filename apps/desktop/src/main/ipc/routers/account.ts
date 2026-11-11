@@ -90,6 +90,8 @@ import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { createQQWriteRouter } from './qq_write';
 import { createContactMetricsRouter } from './contact_metrics';
+import { createNoticeReadRouter } from './notice_read';
+import { mergeNoticeSeen } from '../../../shared/notice_seen';
 import { createQQActionsRouter } from './qq_actions';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
@@ -1759,6 +1761,20 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
 });
 
 export const accountRouter = router({
+  noticeRead: createNoticeReadRouter((input) => {
+    const config = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    ).accountConfig;
+    return {
+      getNoticeSeen: (kind) => config.getRecord()?.noticeSeen?.[kind] ?? null,
+      mergeNoticeSeen: (kind, state) => {
+        const merged = mergeNoticeSeen(config.getRecord()?.noticeSeen?.[kind], state);
+        config.setNoticeSeen(kind, merged);
+        return merged;
+      },
+    };
+  }),
   contactMetrics: createContactMetricsRouter((input) => {
     const runtime = requireExpectedAccount(
       input.expectedAccountUin,

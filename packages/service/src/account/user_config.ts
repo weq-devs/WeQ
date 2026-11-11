@@ -75,6 +75,8 @@ export function clientKeyExpiryMs(c: ClientKey): number {
 }
 
 export interface AccountConfig {
+  /** WeQ 各端共用的通知阅读记录，与 QQ 申请处理状态独立。 */
+  noticeSeen?: Partial<Record<'friend' | 'group', { seen: string[]; readThrough: number }>>;
   /** 当前账号显式开启的邮箱提醒；不保存邮箱票据。 */
   mailNotifications?: boolean;
   /** 左侧导航显示邮箱未读数；旧配置默认显示。 */
@@ -378,6 +380,10 @@ export class AccountConfigService {
 
   setMailNotifications(enabled: boolean): void {
     this.patch({ mailNotifications: enabled });
+  }
+
+  setNoticeSeen(kind: 'friend' | 'group', state: { seen: string[]; readThrough: number }): void {
+    this.patch({ noticeSeen: { ...this.getRecord()?.noticeSeen, [kind]: state } });
   }
 
   setMailShowUnread(enabled: boolean): void {

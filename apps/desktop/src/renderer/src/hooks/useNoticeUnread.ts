@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  mergeNoticeSeen,
+  noticeTimestamp,
+  NOTICE_SEEN_LIMIT,
+  type NoticeSeenState,
+} from '../../../shared/notice_seen';
 
-export const NOTICE_SEEN_LIMIT = 4096;
+export { NOTICE_SEEN_LIMIT };
 const NOTICE_READ_EVENT = 'weq:notice-read';
 
-type SeenState = { seen: string[]; readThrough: number };
-
-/** 通知 ID 的末段来自原始记录时间，不受昵称、资料补齐或申请状态影响。 */
-function noticeTimestamp(id: string): number | null {
-  const match = /^(?:buddy-request:[^:]+|group-notify:[^:]+:[^:]*):(\d+)$/.exec(id);
-  if (!match) return null;
-  const time = Number(match[1]);
-  return Number.isSafeInteger(time) && time > 0 ? time : null;
-}
+type SeenState = NoticeSeenState;
 
 function latestTimestamp(ids: string[], initial = 0): number {
   return ids.reduce((latest, id) => Math.max(latest, noticeTimestamp(id) ?? 0), initial);
@@ -46,6 +44,7 @@ export function useNoticeUnread(
   ids: string[],
   open: boolean,
   ready: boolean,
+  sync?: { state: SeenState | null; publish: (state: SeenState) => void },
 ) {
   const key = `weq:notice-seen:${accountKey}:${kind}`;
   const [revision, setRevision] = useState(0);
@@ -55,16 +54,20 @@ export function useNoticeUnread(
   const snapshot = useMemo(() => {
     void revision;
     const cached = memory.current.get(key);
-    if (cached) return cached;
+    if (cached && !sync?.state) return cached;
     const stored = readSeen(key);
+    const local = cached
+      ? mergeNoticeSeen(stored, { seen: [...cached.seen], readThrough: cached.readThrough })
+      : stored;
+    const merged = sync?.state ? mergeNoticeSeen(local, sync.state) : local;
     const result = {
-      seen: new Set(stored?.seen ?? []),
-      readThrough: stored?.readThrough ?? 0,
-      initialized: stored !== null,
+      seen: new Set(merged?.seen ?? []),
+      readThrough: merged?.readThrough ?? 0,
+      initialized: merged !== null,
     };
     memory.current.set(key, result);
     return result;
-  }, [key, revision]);
+  }, [key, revision, sync?.state]);
   useEffect(() => {
     const refresh = () => {
       const stored = readSeen(key);
@@ -136,5 +139,20 @@ export function useNoticeUnread(
     }
     setRevision((value) => value + 1);
   }, [accountKey, ready, open, unread, key, ids, seen, readThrough, initialized, snapshot]);
+  useEffect(() => {
+    if (!sync || !ready || !accountKey || !snapshot.initialized) return;
+    const state = mergeNoticeSeen(readSeen(key), {
+      seen: [...snapshot.seen],
+      readThrough: snapshot.readThrough,
+    });
+    try {
+      window.localStorage.setItem(key, JSON.stringify(state));
+      window.dispatchEvent(new CustomEvent(NOTICE_READ_EVENT, { detail: key }));
+    } catch {
+      // 本地存储失败仍向账号端保存。
+    }
+    const remote = sync.state && mergeNoticeSeen(null, sync.state);
+    if (JSON.stringify(state) !== JSON.stringify(remote)) sync.publish(state);
+  }, [sync, ready, accountKey, key, revision, snapshot]);
   return open ? 0 : unread;
 }
