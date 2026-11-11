@@ -793,7 +793,7 @@ void app.whenReady().then(async () => {
   installUpdateActions();
   initAppContext();
   const userConfig = getAppContext().bootstrap?.userConfig;
-  // 尽早消费正常退出标记；本轮即使尚未加载界面就崩溃，下次也恢复原现场。
+  // 固定本轮启动页，运行中修改偏好留到下次进程启动生效。
   userConfig?.getStartupPage();
   // 旧版安卓备份的 uin 是从资料库猜的，可能猜错；纠正它会连带改 configId，
   // 所以必须在账号打开之前、且在任何按 id 建目录的服务之前跑完。
@@ -1024,7 +1024,6 @@ app.on('will-quit', (event) => {
     try {
       const ctx = getAppContext();
       ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
-      ctx.bootstrap?.userConfig.markCleanExit();
     } catch (error) {
       logger.warn('failed to save login exit state', {
         event: 'login-exit-state-failed',

@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   web: true,
   current: { uin: '10002' } as { uin: string } | null,
   currentError: false,
+  startupPage: 'home' as 'home' | 'messages' | 'last',
   mutate: vi.fn(async () => ({ success: true })),
   warmup: vi.fn(async () => {}),
   remoteWarmup: vi.fn(async () => {}),
@@ -63,7 +64,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                   ? [{ configId: 'other-account', uin: '10001', dbKey: 'synthetic' }]
                   : path.endsWith('describeInstall')
                     ? { hasQqExe: true, hasWrapper: true }
-                    : null,
+                    : path.endsWith('getStartupPage')
+                      ? api.startupPage
+                      : null,
             isSuccess: !(path.endsWith('currentAccount') && api.currentError),
             isError: path.endsWith('currentAccount') && api.currentError,
             isFetched: opts?.enabled !== false,
@@ -83,11 +86,17 @@ beforeEach(() => {
   api.web = true;
   api.current = { uin: '10002' };
   api.currentError = false;
+  api.startupPage = 'home';
   vi.clearAllMocks();
   api.remoteWarmup.mockReset().mockResolvedValue(undefined);
   api.utils.account.getAccountConfig.fetch.mockReset().mockResolvedValue({});
   api.utils.account.getAccountConfig.getData.mockReset().mockReturnValue(undefined);
-  useViewState.setState({ view: 'bootstrap', openedUin: null, homeStage: 'booting' });
+  useViewState.setState({
+    view: 'bootstrap',
+    openedUin: null,
+    homeStage: 'booting',
+    startupPage: null,
+  });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -127,8 +136,26 @@ it('Remote 必要账号配置尚未就绪时不能先挂载工作区', async () 
   expect(api.remoteWarmup).not.toHaveBeenCalled();
   expect(useViewState.getState()).toMatchObject({ view: 'bootstrap', openedUin: null });
   await act(async () => finish());
-  expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
+  expect(useViewState.getState()).toMatchObject({
+    view: 'main',
+    openedUin: '10002',
+    startupPage: null,
+  });
 });
+it.each(['home', 'messages', 'last'] as const)(
+  '桌面重新启动将 %s 偏好传入工作区，只有上次页面保留现场',
+  async (page) => {
+    api.web = false;
+    api.current = null;
+    api.startupPage = page;
+    await render();
+    expect(useViewState.getState()).toMatchObject({
+      view: 'main',
+      openedUin: '10001',
+      startupPage: page === 'last' ? null : page,
+    });
+  },
+);
 it('启动快照已提供配置时直接接回工作区，不追加一次配置读取', async () => {
   const cache = new QueryClient();
   cache.setQueryData(WEB_STARTUP_CACHE_KEY, true);
@@ -159,7 +186,11 @@ it('桌面重载接回后台实际账号，预热但不验密钥、不重开库�
   expect(api.mutate).not.toHaveBeenCalled();
   expect(api.warmup).toHaveBeenCalledOnce();
   expect(api.remoteWarmup).not.toHaveBeenCalled();
-  expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10002' });
+  expect(useViewState.getState()).toMatchObject({
+    view: 'main',
+    openedUin: '10002',
+    startupPage: null,
+  });
 });
 it.each([true, false])('没有后台账号时保留原自动进入流程：web=%s', async (web) => {
   api.web = web;

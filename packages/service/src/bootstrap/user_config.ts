@@ -1195,8 +1195,6 @@ export interface UserConfig {
   autoEnter?: AutoEnterTarget | null;
   /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
   skipAutoEnterOnce?: boolean;
-  /** 正常退出时写入，下次进程启动消费，异常终止不会留下该标记。 */
-  cleanExit?: boolean;
   tencentFilesRootOverride?: string | null;
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
@@ -1672,14 +1670,9 @@ export class UserConfigService {
 
   getStartupPage(): AppSettings['startupPage'] {
     if (this.startupPageThisStartup === undefined) {
-      this.startupPageThisStartup = this.read().cleanExit ? this.getSettings().startupPage : 'last';
-      this.write({ cleanExit: false });
+      this.startupPageThisStartup = this.getSettings().startupPage;
     }
     return this.startupPageThisStartup;
-  }
-
-  markCleanExit(): void {
-    this.write({ cleanExit: true });
   }
 
   getStartupAutoEnter(): AutoEnterTarget | null {

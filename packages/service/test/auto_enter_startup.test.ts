@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
@@ -11,9 +11,10 @@ afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
   roots.length = 0;
 });
-function setup() {
+function setup(cleanExit?: boolean) {
   const root = mkdtempSync(join(tmpdir(), 'weq-auto-enter-'));
   roots.push(root);
+  writeFileSync(join(root, 'config.json'), JSON.stringify({ cleanExit }));
   const platform = { kind: 'linux', appDataRoot: () => root } as unknown as Platform;
   return () => new UserConfigService(platform);
 }
@@ -40,29 +41,36 @@ it('账号内退出及旧配置仍按自动进入偏好启动', () => {
   expect(restart().getStartupAutoEnter()).toEqual(target);
 });
 
-it.each(['home', 'messages', 'last'] as const)(
-  '正常退出后使用 %s，异常启动固定恢复现场',
-  (page) => {
-    const restart = setup();
-    const config = restart();
+it.each([undefined, false, true])('退出标记为 %s 时，重新启动始终遵循启动页面偏好', (cleanExit) => {
+  const restart = setup(cleanExit);
+  const config = restart();
+  for (const page of ['home', 'messages', 'last'] as const) {
     config.setSettings({ startupPage: page });
-    expect(restart().getSettings().startupPage).toBe(page);
-    expect(restart().getStartupPage()).toBe('last');
-    config.markCleanExit();
     const next = restart();
+    expect(next.getSettings().startupPage).toBe(page);
     expect(next.getStartupPage()).toBe(page);
     expect(next.getStartupPage()).toBe(page);
-    // 本轮未正常退出，即使上次正常退出过，也不能再次使用启动偏好。
-    expect(restart().getStartupPage()).toBe('last');
-  },
-);
+    // 不写退出标记，模拟异常终止后的连续启动。
+    expect(restart().getStartupPage()).toBe(page);
+  }
+});
 
-it('未设置启动页面时默认进入主页，正常退出后仍使用主页', () => {
+it('未设置启动页面时首次启动及再次启动均默认进入主页', () => {
   const restart = setup();
   const config = restart();
   expect(config.getSettings().startupPage).toBe('home');
-  config.markCleanExit();
+  expect(config.getStartupPage()).toBe('home');
   expect(restart().getStartupPage()).toBe('home');
+});
+
+it('同次启动保持最初选择，修改偏好在下次启动生效', () => {
+  const restart = setup();
+  const config = restart();
+  config.setSettings({ startupPage: 'home' });
+  expect(config.getStartupPage()).toBe('home');
+  config.setSettings({ startupPage: 'messages' });
+  expect(config.getStartupPage()).toBe('home');
+  expect(restart().getStartupPage()).toBe('messages');
 });
 
 it('启动偏好可备份，拒绝无效值', () => {
