@@ -130,10 +130,9 @@ try {
           assert.equal(field.left, field.right, JSON.stringify(field));
           assert.equal(field.paddingLeft, field.paddingRight, '正文仍为发送键预留空白');
           assert.equal(field.radius, '8px');
+          // 应用宝 QQ 官方安卓截图为浅灰底栏上的白色输入框，输入框应比底栏亮。
           assert(
-            theme === 'light'
-              ? field.brightnessDifference <= -12
-              : field.brightnessDifference >= 12,
+            field.brightnessDifference >= 12,
             `输入框与工具栏底色未拉开: ${JSON.stringify(field)}`,
           );
           assert.equal(field.shadow, 'none', '输入框应通过底色而不是描边区分');
