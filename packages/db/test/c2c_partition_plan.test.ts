@@ -24,8 +24,12 @@ it('实际分页 SQL 的 sortNo 路径使用现有复合索引，UID 回退仍�
   const db = new C2cMsgDb(nt, { dbPath });
   const indexed = await db.listAfter({ sortNo: 42n }, 0n, 50);
   const fallback = await db.listAfter({ uid: 'u_peer' }, 0n, 50);
+  const indexedLatest = await db.listLatest({ sortNo: 42n }, 1);
+  const fallbackLatest = await db.listLatest({ uid: 'u_peer' }, 1);
   expect(indexed.map((row) => row.msgId)).toEqual([1n]);
   expect(fallback.map((row) => row.msgId)).toEqual([1n]);
+  expect(indexedLatest).toEqual(fallbackLatest);
+  expect(indexedLatest.map((row) => row.msgId)).toEqual([1n]);
   const plans = execute.mock.calls
     .filter(([, query]) => query.includes('SELECT "40001"'))
     .map(([, query, params]) => {
@@ -38,6 +42,8 @@ it('实际分页 SQL 的 sortNo 路径使用现有复合索引，UID 回退仍�
     });
   expect(plans[0]).toContain('SEARCH c2c_msg_table USING INDEX known_partition_seq');
   expect(plans[1]).toContain('SCAN c2c_msg_table');
+  expect(plans[2]).toContain('SEARCH c2c_msg_table USING INDEX known_partition_seq');
+  expect(plans[3]).toContain('SCAN c2c_msg_table');
   sql.exec(`INSERT INTO c2c_msg_table("40001","40003","40005","40021","40027","40050") VALUES
     (9007199254740993001,12,100,'u_peer',42,1002),
     (9007199254740993002,12,200,'u_peer',42,1002)`);

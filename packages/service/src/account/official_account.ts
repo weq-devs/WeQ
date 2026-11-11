@@ -9,7 +9,7 @@
 
 import type { AccountSession } from '@weq/account';
 import type { RenderC2cMsg } from './msg';
-import type { C2cMsg } from '@weq/db';
+import type { C2cMsg, C2cPartition } from '@weq/db';
 import { classifyChatType } from '@weq/codec';
 import { filterArkOnly } from './ark_feed';
 import { toRenderElements } from './msg_view';
@@ -42,7 +42,7 @@ export class OfficialAccountService {
       if (classifyChatType(c.chatType) !== 'official') continue;
 
       // Pull the real latest message (ignore 40051 preview blob).
-      const latest = await this.session.c2cMsgs.listLatest({ uid: c.targetUid }, 1);
+      const latest = await this.session.c2cMsgs.listLatest(await this.partition(c.targetUid), 1);
       const rendered = latest.map((msg: C2cMsg) => this.renderC2c(msg));
       const arkOnly = filterArkOnly(rendered);
       if (arkOnly.length === 0) continue; // No ARK message (shouldn't happen, defensive).
@@ -80,11 +80,24 @@ export class OfficialAccountService {
    * Fetch the full ARK feed for one 公众号 (latest `limit` messages, ARK-only).
    */
   async listArkFeed(peerUid: string, limit = 100, anchorId?: string): Promise<ArkFeedMessage[]> {
+    const partition = await this.partition(peerUid);
     const msgs = anchorId
-      ? await this.session.c2cMsgs.calendarMessage({ uid: peerUid }, BigInt(anchorId))
-      : await this.session.c2cMsgs.listLatest({ uid: peerUid }, limit);
+      ? await this.session.c2cMsgs.calendarMessage(partition, BigInt(anchorId))
+      : await this.session.c2cMsgs.listLatest(partition, limit);
     const rendered = msgs.map((msg: C2cMsg) => this.renderC2c(msg));
     return filterArkOnly(rendered);
+  }
+
+  private async partition(peerUid: string): Promise<C2cPartition> {
+    if (this.session.uidMap.sortNoByUid(peerUid) === undefined) {
+      try {
+        await this.session.uidMap.resolveSortNo?.(peerUid);
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') throw error;
+      }
+    }
+    const sortNo = this.session.uidMap.sortNoByUid(peerUid);
+    return sortNo !== undefined ? { sortNo } : { uid: peerUid };
   }
 
   private renderC2c(m: C2cMsg): RenderC2cMsg {
