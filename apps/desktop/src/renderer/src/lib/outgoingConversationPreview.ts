@@ -1,5 +1,10 @@
 import type { Conversation, User } from '../im-template/template/types';
-import { previewNodes, previewNodesToText, type PreviewNode } from './conversationPreview';
+import {
+  messageElementsPreview,
+  previewNodes,
+  previewNodesToText,
+  type PreviewNode,
+} from './conversationPreview';
 import type { LocalOutgoingRecord } from './localOutgoing';
 
 export interface OutgoingPreviewRecord extends LocalOutgoingRecord {
@@ -29,19 +34,7 @@ interface OutgoingConversationPreview extends OutgoingPreviewContent {
 export type OutgoingConversationPreviews = ReadonlyMap<string, OutgoingConversationPreview>;
 
 function recordPreview(item: OutgoingPreviewRecord): OutgoingPreviewContent {
-  const elements = (item.elements ?? []).flatMap((raw) => {
-    if (!raw || typeof raw !== 'object') return [];
-    const element = raw as { type?: string; data?: Record<string, unknown> };
-    return [
-      {
-        ...element.data,
-        kind: element.type === 'at' ? 'text' : element.type,
-        displayText: element.data?.faceText,
-        markdownContent49099: element.data?.markdownContent,
-      },
-    ];
-  });
-  const nodes = previewNodes({ previewElements: elements });
+  const nodes = previewNodes(messageElementsPreview(item.elements ?? []));
   const body =
     previewNodesToText(nodes) ||
     item.body ||

@@ -50,6 +50,24 @@ type DisplayNames = Pick<ReadonlyMap<string, string>, 'get'>;
 /** 没有「自己」身份上下文时的占位集合（如公会私信列表）。 */
 const NO_SELF: ReadonlySet<string> = new Set();
 
+/** 正文和本地发送占位共用元素归一化，沿用列表的表情、灰条与媒体解析。 */
+export function messageElementsPreview(elements: readonly unknown[]): Rec {
+  const previewElements = elements.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const element = raw as { type?: string; text?: string; data?: Rec };
+    return [
+      {
+        ...element.data,
+        kind: element.type === 'at' ? 'text' : element.type,
+        textContent: element.data?.textContent ?? element.text,
+        displayText: element.data?.faceText,
+        markdownContent49099: element.data?.markdownContent,
+      },
+    ];
+  });
+  return { ...previewElements[0], previewElements };
+}
+
 export function previewNodes(
   preview: unknown,
   selfIdentities: ReadonlySet<string> = NO_SELF,

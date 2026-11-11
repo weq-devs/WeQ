@@ -953,6 +953,68 @@ it.each(['10001', 'u_peer'])(
   },
 );
 
+it.each(['10001', 'u_peer'])(
+  '会话 %s 的最近会话表持续落后时，正文直接更新预览，刷新和切换会话不回退',
+  async (id) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const preview = () =>
+      JSON.parse(host.querySelector('[data-previews]')!.textContent!).find(
+        (row: { id: string }) => row.id === id,
+      );
+    const select = (target: string) =>
+      act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === target)!
+          .click(),
+      );
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await select(id);
+      await act(async () =>
+        f.reads.at(-1)!.show({
+          complete: true,
+          rows: [
+            {
+              msgId: '2',
+              msgSeq: '2',
+              sendTime: '1794200060',
+              senderUid: 'u_latest',
+              senderUin: '20002',
+              elements: [{ type: 'text', data: { textContent: '正文里的最新消息' } }],
+            },
+          ],
+        }),
+      );
+      expect(preview().lastMessage.body).toBe('正文里的最新消息');
+      expect(preview().lastMessage.senderId).toBe('u_latest');
+      expect(Date.parse(preview().updatedAt)).toBe(1794200060000);
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      expect(f.headRefreshes).toBe(1);
+      expect(preview().lastMessage.body).toBe('正文里的最新消息');
+      await select('10002');
+      await act(async () => f.dbChanged?.());
+      await act(async () => vi.advanceTimersByTimeAsync(1500));
+      expect(preview().lastMessage.body).toBe('正文里的最新消息');
+    } finally {
+      act(() => root.unmount());
+      client.clear();
+      host.remove();
+    }
+  },
+);
+
 it('全目录先查水位，持续库通知不重算稳定会话，零红点同水位修正仍定期校准', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

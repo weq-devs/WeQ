@@ -156,7 +156,13 @@ import {
   conversationActivityTime,
   draftSortTimes,
 } from '@weq/service/conversation-order';
-import { mergeRecentContactPages, recentContactPreviewIsBehind } from '../lib/recentContacts';
+import {
+  applyObservedContactPreview,
+  mergeRecentContactPages,
+  observeContactPreview,
+  recentContactPreviewIsBehind,
+  type ObservedContactPreview,
+} from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import {
@@ -2586,13 +2592,21 @@ function MainWorkspace(): ReactElement {
 
   // Flatten the paginated recent-contact pages into one list for the memos
   // below (the sidebar can scroll-load more pages past the first window).
-  const recentContactsData = useMemo<RecentContactWire[]>(
+  const rawRecentContactsData = useMemo<RecentContactWire[]>(
     () =>
       mergeRecentContactPages([
         recentHead.data?.items ?? [],
         ...(contacts.data?.pages ?? []).map((page) => page.items),
       ]),
     [contacts.data, recentHead.data],
+  );
+  const [observedContactPreviews, setObservedContactPreviews] = useState<
+    ReadonlyMap<string, ObservedContactPreview>
+  >(() => new Map());
+  const recentContactsData = useMemo(
+    () =>
+      rawRecentContactsData.map((row) => applyObservedContactPreview(row, observedContactPreviews)),
+    [rawRecentContactsData, observedContactPreviews],
   );
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, directoryOptions);
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
@@ -7886,9 +7900,10 @@ function MainWorkspace(): ReactElement {
       !anchoredToLatest
     )
       return;
-    const contact = recentContactsData.find((row) => row.targetUid === trackedConversationId);
+    const contact = rawRecentContactsData.find((row) => row.targetUid === trackedConversationId);
     const latest = loaded.findLast((row) => row.source !== 'roaming');
     if (!contact || !latest || !recentContactPreviewIsBehind(contact, latest)) return;
+    setObservedContactPreviews((previous) => observeContactPreview(previous, contact, latest));
     const key = JSON.stringify([
       messageScope,
       trackedConversationId,
@@ -7906,7 +7921,7 @@ function MainWorkspace(): ReactElement {
     trackedConversationId,
     trackedMessageScope,
     messageScope,
-    recentContactsData,
+    rawRecentContactsData,
     refreshRecentHead,
   ]);
 
