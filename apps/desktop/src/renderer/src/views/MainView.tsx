@@ -6411,6 +6411,10 @@ function MainWorkspace(): ReactElement {
       }),
     [loaded, replyMediaRows, replyMediaRevision, flashPhotoPatches],
   );
+  const messageReplyIndex = useMemo(
+    () => createReplyPreviewIndex(loadedMessageWires),
+    [loadedMessageWires],
+  );
   const currentGroupMembers = useMemo(() => {
     if (selectedConversation?.type !== 'group') return [];
 
@@ -6772,7 +6776,7 @@ function MainWorkspace(): ReactElement {
       memberMap,
       lookupByUin,
     );
-    const replyIndex = createReplyPreviewIndex(loadedMessageWires);
+    const replyIndex = messageReplyIndex;
 
     const real = loadedMessageWires
       .filter((message) => isRenderableMessage(message))
@@ -6870,6 +6874,7 @@ function MainWorkspace(): ReactElement {
     forwardMatches,
     messageTemplateCache,
     messageIdentityRevision,
+    messageReplyIndex,
     profileByUid,
   ]);
 
@@ -10968,10 +10973,34 @@ function MainWorkspace(): ReactElement {
     () => new Map(resolvedPreviewConversation?.members.map((member) => [member.id, member]) ?? []),
     [resolvedPreviewConversation?.members],
   );
-  const previewMemberByUin = useMemo(
-    () => createMemberUinLookup(previewMemberMap),
-    [previewMemberMap],
-  );
+  const previewRows = privatePreview?.rows;
+  const previewAccount = privatePreview?.account;
+  const previewTemplateMessages = useMemo(() => {
+    if (!previewRows || !resolvedPreviewConversation || previewAccount !== user.identityValue)
+      return [];
+    const replyIndex = createReplyPreviewIndex(previewRows);
+    const lookupByUin = createMemberUinLookup(previewMemberMap);
+    return previewRows.map((row) =>
+      messageToTemplate(
+        row,
+        resolvedPreviewConversation,
+        user,
+        previewMemberMap,
+        botUids,
+        replyIndex,
+        profileByUid,
+        lookupByUin,
+      ),
+    );
+  }, [
+    previewRows,
+    previewAccount,
+    resolvedPreviewConversation,
+    user,
+    previewMemberMap,
+    botUids,
+    profileByUid,
+  ]);
   const conversationPreviewContent =
     privatePreview &&
     resolvedPreviewConversation &&
@@ -10982,18 +11011,7 @@ function MainWorkspace(): ReactElement {
         title={privatePreview.source === 'latest' ? '预览新消息' : undefined}
         conversation={resolvedPreviewConversation}
         user={user}
-        messages={privatePreview.rows.map((row) =>
-          messageToTemplate(
-            row,
-            resolvedPreviewConversation,
-            user,
-            previewMemberMap,
-            botUids,
-            privatePreview.rows,
-            profileByUid,
-            previewMemberByUin,
-          ),
-        )}
+        messages={previewTemplateMessages}
         renderers={messageRenderers}
         loading={privatePreview.loading}
         loadingMore={privatePreview.loadingMore}

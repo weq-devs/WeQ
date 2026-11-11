@@ -18,6 +18,8 @@ import type { ChatMainContent } from '../src/renderer/src/im-template/template/c
 import type { ChatSidebarContent } from '../src/renderer/src/im-template/template/chatSidebarContent';
 import type { MessagePageStage } from '../src/shared/message_read';
 import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
+import type { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
+import * as replyPreview from '../src/renderer/src/lib/replyPreview';
 
 type TestMessage = {
   msgId: string;
@@ -41,6 +43,9 @@ const f = vi.hoisted(() => ({
   dbChanged: undefined as (() => void) | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
+  beforeRows: [] as TestMessage[],
+  previewMessages: [] as ComponentProps<typeof GapMessagesModal>['messages'],
+  previewMore: undefined as (() => void) | undefined,
   profiles: [] as Array<{ uid: string; uin: string; nick: string; remark: string }>,
   bots: [] as string[],
   memberDetails: undefined as
@@ -121,6 +126,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput) => {
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
+            if (path.at(-1) === 'listBefore') return f.beforeRows;
             if (['listLatest', 'listFrom'].includes(path.at(-1) ?? '')) return f.refreshRows;
             if (path.at(-1) === 'getUnreadInfos' && f.unreadMode && input) {
               f.unreadReads.push(input);
@@ -223,8 +229,32 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
           }),
         ),
         h('button', { 'data-back': true, onClick: props.onBackConversation }, '返回'),
+        h(
+          'button',
+          {
+            'data-preview': true,
+            onClick: () =>
+              props.activeConversation && props.onPreviewLatest?.(props.activeConversation),
+          },
+          '预览',
+        ),
         h(actual.ChatMainContent, props),
       );
+    },
+  };
+});
+vi.mock('../src/renderer/src/components/compose/GapMessagesModal', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('../src/renderer/src/components/compose/GapMessagesModal')
+    >();
+  return {
+    GapMessagesModal: (props: ComponentProps<typeof GapMessagesModal>) => {
+      if (props.preview) {
+        f.previewMessages = props.messages;
+        f.previewMore = props.onLoadMore;
+      }
+      return h(actual.GapMessagesModal, props);
     },
   };
 });
@@ -242,12 +272,102 @@ afterEach(() => {
   f.dbChanged = undefined;
   f.unreadChanged = undefined;
   f.refreshRows = undefined;
+  f.beforeRows = [];
+  f.previewMessages = [];
+  f.previewMore = undefined;
   f.profiles = [];
   f.bots = [];
   f.memberDetails = undefined;
   f.messages = [];
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it.each([
+  ['10001', 'group'],
+  ['u_peer', 'c2c'],
+] as const)('会话 %s 的预览复用整页转换与引用索引，翻页和本地名称仍即时更新', async (id, kind) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.profiles = [{ uid: 'u_peer', uin: '20001', nick: '本地昵称', remark: '本地备注' }];
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const render = () =>
+    act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+  const message = (seq: number): TestMessage => ({
+    msgId: String(seq),
+    msgSeq: String(seq),
+    clientSeq: String(seq + 100),
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: `预览正文 ${seq}` } }],
+  });
+  const initial = Array.from({ length: 50 }, (_, index) => message(index + 2));
+  initial.at(-1)!.elements.unshift({
+    type: 'reply',
+    data: {
+      ...(kind === 'group' ? { origMsgSeq: '1' } : { origClientSeq: '101' }),
+      origSenderUin: '20001',
+      origElements: [],
+    },
+  });
+  f.refreshRows = [...initial].reverse();
+  const quotes = vi.spyOn(replyPreview, 'findReplyPreview');
+  const quotedElements = () =>
+    (
+      f.previewMessages.find((row) => row.msgId === '51')?.qqElements?.[0] as
+        | {
+            data: { origElements: unknown[] };
+          }
+        | undefined
+    )?.data.origElements;
+  try {
+    await render();
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === id)!
+        .click(),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-preview]')!.click());
+    expect(f.previewMessages).toHaveLength(initial.length);
+    const first = f.previewMessages;
+    expect(quotedElements()).toEqual([]);
+    expect(quotes).toHaveBeenCalled();
+    expect(quotes.mock.calls.every((call) => !Array.isArray(call[2]))).toBe(true);
+    quotes.mockClear();
+    await render();
+    expect(f.previewMessages).toBe(first);
+    expect(quotes).not.toHaveBeenCalled();
+
+    const original = message(1);
+    f.beforeRows = [original];
+    await act(async () => f.previewMore!());
+    expect(f.previewMessages).toHaveLength(initial.length + 1);
+    expect(quotedElements()).toEqual(original.elements);
+    expect(f.previewMessages).not.toBe(first);
+    const expanded = f.previewMessages;
+    await render();
+    expect(f.previewMessages).toBe(expanded);
+    f.profiles = f.profiles.map((profile) => ({ ...profile, remark: '修改后的本地备注' }));
+    await render();
+    expect(f.previewMessages[0]?.sender?.displayName).toBe('修改后的本地备注');
+    expect(quotedElements()).toEqual(original.elements);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
 });
 
 it('群资料批次更新只替换实际变化的消息发送者，不重建其他正文与消息对象', async () => {
