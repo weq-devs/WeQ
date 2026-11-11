@@ -30,6 +30,7 @@ import { datalineName, isDatalineUid } from '@weq/codec';
 import { deviceAvatarDataUri } from '../../lib/deviceAvatar';
 import { contactAgeText, contactBirth } from '../../lib/contactBirth';
 import { ContactBirthdayRow } from '../../components/ContactBirthdayRow';
+import { ProfileCacheFields, SignatureUpdated } from '../../components/ProfileCacheFields';
 import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLayer';
 import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
@@ -465,7 +466,10 @@ export function ContactProfileDialog({
       ) : null}
 
       {!embedded && profile.signature ? (
-        <p className="weq-profile-sign">{profile.signature}</p>
+        <div>
+          <p className="weq-profile-sign">{profile.signature}</p>
+          <SignatureUpdated {...profile} />
+        </div>
       ) : null}
       {embedded && statusText ? (
         <span
@@ -576,6 +580,7 @@ export function ContactProfileDialog({
         />
       ) : null}
       <ContactBirthdayRow birth={birth} />
+      <ProfileCacheFields extInfo={extInfo} />
     </>
   );
   const commonRows =
@@ -708,6 +713,7 @@ export function ContactProfileDialog({
                         <p className="weq-contact-text" data-privacy-sensitive>
                           {profile.signature}
                         </p>
+                        <SignatureUpdated {...profile} />
                       </ProfileSection>
                     ) : null}
                     <ProfileSection title="个人资料">

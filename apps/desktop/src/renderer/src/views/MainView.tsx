@@ -755,7 +755,13 @@ type GroupDetailWire = {
   memberCount: number;
   labels: string;
   entranceQ: string;
-  customLabels: Array<{ content?: string }>;
+  customLabels: Array<{
+    groupCode?: string;
+    setterUid?: string;
+    labelId?: string;
+    setTimestamp?: string;
+    content?: string;
+  }>;
   address?: { locationName?: string };
 };
 
@@ -1024,6 +1030,7 @@ function buddyToContact(
     kind: botUids.has(buddy.uid) ? 'bot' : 'human',
     avatarUrl: senderAvatarSrc(buddy.uin) || profile?.avatarUrl || null,
     signature: profile?.signature || null,
+    sigUpdateTime: profile?.sigUpdateTime,
     createdAt: new Date(0).toISOString(),
     categoryId: buddy.categoryId,
     categoryName: category?.name || null,
@@ -1087,6 +1094,7 @@ function groupDetailToConversation(
       customLabels: detail.customLabels
         .map((label) => label.content)
         .filter((label): label is string => Boolean(label)),
+      customLabelRecords: detail.customLabels,
       addressName: detail.address?.locationName || null,
     },
     members:
@@ -7352,6 +7360,7 @@ function MainWorkspace(): ReactElement {
           detail?.customLabels
             ?.map((label) => label.content)
             .filter((label): label is string => Boolean(label)) ?? [],
+        customLabelRecords: detail?.customLabels ?? selectedConversation.group!.customLabelRecords,
         addressName: detail?.address?.locationName || null,
         bulletins: ((groupBulletins.data ?? []) as GroupBulletinWire[]).map((bulletin, index) => {
           // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配

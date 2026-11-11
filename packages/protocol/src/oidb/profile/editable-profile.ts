@@ -4,6 +4,8 @@ import { sendOidb, type PacketNative } from '../../transport';
 import { requireUin } from '../write-validation';
 import { getCloudProfile } from './cloud-profile';
 import { invokeLegacyOidb } from '../legacy';
+import { QQ_PROFESSIONS } from '../../profile-values';
+export { QQ_PROFESSIONS } from '../../profile-values';
 
 export interface QqRegion {
   code: string;
@@ -24,22 +26,6 @@ for (const row of regionRows) {
     siblings = node.children;
   }
 }
-export const QQ_PROFESSIONS = [
-  '计算机／互联网／通信',
-  '生产／工艺／制造',
-  '医疗／护理／制药',
-  '金融／银行／投资／保险',
-  '商业／服务业／个体经营',
-  '文化／广告／传媒',
-  '娱乐／艺术／表演',
-  '律师／法务',
-  '教育／培训',
-  '公务员／行政／事业单位',
-  '模特',
-  '空姐',
-  '学生',
-  '其他职业',
-].map((label, index) => ({ value: index + 1, label }));
 export type EditableProfilePatch = {
   birthday?: string;
   region?: string[];

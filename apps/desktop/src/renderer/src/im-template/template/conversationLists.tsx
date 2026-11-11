@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { occupationText } from '@weq/protocol/profile-values';
 import {
   BellOff,
   Bot,
@@ -1682,7 +1683,7 @@ const ContactListContent = memo(function ContactListContent({
   const matches = useCallback(
     (contact: Contact) =>
       !needle ||
-      `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue}`
+      `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue} ${occupationText(contact.extInfo?.occupation) ?? ''}`
         .toLocaleLowerCase()
         .includes(needle),
     [needle],

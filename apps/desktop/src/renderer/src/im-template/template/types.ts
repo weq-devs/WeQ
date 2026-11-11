@@ -44,6 +44,9 @@ export type ProfileExtInfo = {
   city?: string;
   /** 本地缓存星座，1..12；与表示生肖的 zodiac 不同。 */
   constellation?: number;
+  occupation?: number;
+  bloodType?: number;
+  zodiac?: number;
   interests: string[];
   album: Array<{
     photoId?: string;
@@ -68,6 +71,7 @@ export type OnlineStatusInfo = {
 };
 
 export type Contact = User & {
+  sigUpdateTime?: number;
   createdAt: string;
   categoryId?: number;
   categoryName?: string | null;
@@ -249,6 +253,13 @@ export type GroupConversation = ConversationBase & {
     labels?: string | null;
     entranceQ?: string | null;
     customLabels?: string[];
+    customLabelRecords?: Array<{
+      groupCode?: string;
+      setterUid?: string;
+      labelId?: string;
+      setTimestamp?: string;
+      content?: string;
+    }>;
     addressName?: string | null;
     /** 幸运字符（来自 group_ext_list.66721/66722）。null = 未设置。 */
     luckyChar?: { id: number; litCount: number } | null;

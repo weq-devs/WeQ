@@ -1,4 +1,5 @@
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
+import { profileTimeText } from '@weq/protocol/profile-values';
 import type { Contact, GroupConversation } from '../im-template/template/types';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
 import { birthRangeText, contactBirthdayText, contactBirth } from './contactBirth';
@@ -108,6 +109,13 @@ export function friendSortDetail(
   if (sort === 'likeCount' && (contact.kind === 'bot' || contact.extInfo?.isEnterprise))
     return null;
   if (sort === 'remark' || sort === 'nick') return null;
+  if (sort === 'sigUpdateTime') {
+    const time = profileTimeText(contact.sigUpdateTime);
+    return {
+      text: time ? `签名更新于 ${time}` : '签名更新时间未记录',
+      title: time ? '北京时间' : undefined,
+    };
+  }
   if (sort === 'uin') {
     const number = friendDirectoryNumber(contact);
     return { text: number ? `QQ 号：${number}` : 'QQ 号未读取' };

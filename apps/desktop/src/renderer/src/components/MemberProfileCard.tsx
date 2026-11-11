@@ -48,6 +48,7 @@ import type { User } from '../im-template/template/types';
 import { resolveAvatar } from '../lib/avatarResolver';
 import { contactAgeText, contactBirth } from '../lib/contactBirth';
 import { ContactBirthdayRow } from './ContactBirthdayRow';
+import { ProfileCacheFields, SignatureUpdated } from './ProfileCacheFields';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
@@ -437,7 +438,10 @@ export function MemberProfileCard({
               ) : null}
 
               {botProfile?.description || profile?.signature ? (
-                <p className="weq-profile-sign">{botProfile?.description || profile.signature}</p>
+                <div>
+                  <p className="weq-profile-sign">{botProfile?.description || profile.signature}</p>
+                  {!botProfile?.description && profile ? <SignatureUpdated {...profile} /> : null}
+                </div>
               ) : null}
             </div>
 
@@ -487,6 +491,7 @@ export function MemberProfileCard({
                 <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />
               ) : null}
               {birth ? <ContactBirthdayRow birth={birth} /> : null}
+              <ProfileCacheFields extInfo={profile?.extInfo ?? member.extInfo} />
               {intimacy ? (
                 <ProfileRow
                   icon={<Heart size={13} />}

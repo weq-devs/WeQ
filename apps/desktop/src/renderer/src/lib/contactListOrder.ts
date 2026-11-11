@@ -3,6 +3,7 @@ import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import { intimateRelationOf } from './profileRelations';
 import { birthReference, contactBirth } from './contactBirth';
 import { constellationFromBirthday } from './contactConstellation';
+import { occupationText, profileTimeSeconds } from '@weq/protocol/profile-values';
 
 export const FRIEND_SORTS = {
   remark: '备注',
@@ -16,6 +17,7 @@ export const FRIEND_SORTS = {
   addedAt: '添加时间',
   commonFriends: '共同好友数',
   commonGroups: '共同群聊数',
+  sigUpdateTime: '签名更新时间',
 };
 export const FRIEND_GROUPS = {
   none: '不分组',
@@ -26,6 +28,7 @@ export const FRIEND_GROUPS = {
   location: '所在地',
   relation: '亲密关系',
   direction: '添加方向',
+  occupation: '职业',
 };
 export const GROUP_SORTS = {
   remark: '备注',
@@ -112,6 +115,7 @@ export function sortFriends(
     if (sort === 'uin') return friendDirectoryNumber(contact);
     if (sort === 'age') return births.get(contact)!.ageOrder;
     if (sort === 'intimacy') return positive(contact.intimacy);
+    if (sort === 'sigUpdateTime') return profileTimeSeconds(contact.sigUpdateTime);
     if (sort === 'birthday') return births.get(contact)!.birthdayOrder;
     const result = friendMetric(rows, contact, sort);
     return Array.isArray(result) ? result.length : typeof result === 'number' ? result : null;
@@ -219,6 +223,9 @@ export function groupFriends(
         break;
       case 'gender':
         name = contact.gender === 1 ? '男' : contact.gender === 2 ? '女' : '性别未知';
+        break;
+      case 'occupation':
+        name = occupationText(contact.extInfo?.occupation) ?? '职业未知';
         break;
       case 'location':
         name = locationGroup(contact.extInfo, regions);
