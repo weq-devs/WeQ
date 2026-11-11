@@ -1,0 +1,507 @@
+import { useId, useState } from 'react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ChevronRight,
+  History,
+  Images,
+  MessageCircleQuestion,
+  RotateCcw,
+  X,
+  Zap,
+} from 'lucide-react';
+import type { PersonalityLabel, PersonalityPhoto } from '@weq/protocol';
+import { Modal } from './Dialog';
+import { SegmentedControl } from './SegmentedControl';
+import { QzoneMediaPreview } from './QzoneMediaPreview';
+import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
+import { useTabActive } from './RetainedTabs';
+import { trpc } from '../trpc/client';
+import { albumMediaUrl } from '../lib/resourceUrl';
+import { extrasPageWarning, mergeExtrasPages, nextExtrasCursor } from '../lib/profileExtrasPages';
+import '../styles/profile-extras.css';
+
+type Target = QQWriteBinding & { uin: string };
+type View = 'signatures' | 'labels' | 'questions';
+const queryOptions = {
+  staleTime: 5 * 60_000,
+  cacheTime: 5 * 60_000,
+  retry: false as const,
+  refetchOnWindowFocus: false,
+  refetchOnMount: true,
+};
+const date = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+function time(value: number | null) {
+  return value === null ? '' : date.format(value * 1000);
+}
+
+export function ProfileExtras({
+  uin,
+  section = 'details',
+}: {
+  uin: string;
+  section?: 'signature' | 'details';
+}) {
+  const session = useQQWriteSession(`profile-extras:${uin}`);
+  if (!/^[1-9]\d{0,19}$/.test(uin)) return null;
+  const input = {
+    expectedAccountUin: session.binding?.expectedAccountUin ?? '',
+    expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
+    uin,
+  };
+  return (
+    <ExtrasBody
+      key={`${input.expectedAccountUin}:${input.expectedAccountConfigId}:${uin}:${section}`}
+      input={input}
+      online={session.available}
+      section={section}
+    />
+  );
+}
+function ExtrasBody({
+  input,
+  online,
+  section,
+}: {
+  input: Target;
+  online: boolean;
+  section: 'signature' | 'details';
+}) {
+  const [view, setView] = useState<View | null>(null);
+  const energy = trpc.account.profileExtras.energy.useQuery(input, {
+    ...queryOptions,
+    enabled: online && section === 'details',
+  });
+  const usable = energy.data?.targetUin === input.uin ? energy.data : null;
+  const titleId = useId();
+  const title =
+    view === 'signatures' ? '历史个性签名' : view === 'labels' ? '标签相册' : '匿问我答';
+  return (
+    <>
+      {section === 'signature' ? (
+        <button
+          className="weq-extras-history"
+          type="button"
+          title="查看历史个性签名"
+          onClick={() => setView('signatures')}
+        >
+          <History size={13} />
+          历史签名
+        </button>
+      ) : (
+        <section className="weq-extras-summary" aria-label="个人资料扩展">
+          <div className="weq-extras-energy">
+            <span>
+              <Zap size={13} />
+              QQ 能量值
+            </span>
+            <strong aria-live="polite">
+              {usable
+                ? (usable.score ?? '未知')
+                : !online
+                  ? '暂不可读取'
+                  : energy.isFetching
+                    ? '读取中'
+                    : energy.error
+                      ? '暂不可读取'
+                      : '未知'}
+            </strong>
+            {usable?.level !== null && usable?.level !== undefined ? (
+              <span>能量等级 {usable.level}</span>
+            ) : null}
+            {energy.error && online ? (
+              <button
+                type="button"
+                title="重试读取能量值"
+                aria-label="重试读取能量值"
+                onClick={() => void energy.refetch()}
+              >
+                <RotateCcw size={13} />
+              </button>
+            ) : null}
+          </div>
+          <div className="weq-extras-links">
+            <button type="button" onClick={() => setView('labels')}>
+              <Images size={15} />
+              标签相册
+              <ChevronRight size={14} />
+            </button>
+            <button type="button" onClick={() => setView('questions')}>
+              <MessageCircleQuestion size={15} />
+              匿问我答
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </section>
+      )}
+      {view ? (
+        <Modal
+          onClose={() => setView(null)}
+          labelledBy={titleId}
+          width={680}
+          className="weq-extras-dialog"
+        >
+          <header className="weq-extras-header">
+            <h2 id={titleId}>{title}</h2>
+            <button
+              type="button"
+              aria-label="关闭资料详情"
+              title="关闭"
+              onClick={() => setView(null)}
+            >
+              <X size={18} />
+            </button>
+          </header>
+          <div className="weq-extras-content" data-privacy-sensitive>
+            {view === 'signatures' ? (
+              <Signatures input={input} online={online} />
+            ) : view === 'labels' ? (
+              <Labels input={input} online={online} />
+            ) : (
+              <Questions input={input} online={online} />
+            )}
+          </div>
+        </Modal>
+      ) : null}
+    </>
+  );
+}
+function PageStatus({
+  online,
+  pending,
+  error,
+  empty,
+  emptyText,
+  retry,
+}: {
+  online: boolean;
+  pending: boolean;
+  error: unknown;
+  empty: boolean;
+  emptyText: string;
+  retry: () => void;
+}) {
+  if (!empty) return null;
+  return (
+    <div className="weq-extras-status" role="status">
+      {pending ? (
+        '读取中…'
+      ) : error ? (
+        <>
+          <span>读取失败</span>
+          <button type="button" disabled={!online} onClick={retry}>
+            <RotateCcw size={14} />
+            重试
+          </button>
+        </>
+      ) : !online ? (
+        '暂不可在线读取'
+      ) : (
+        emptyText
+      )}
+    </div>
+  );
+}
+function More({
+  online,
+  loading,
+  error,
+  hasMore,
+  warning,
+  load,
+}: {
+  online: boolean;
+  loading: boolean;
+  error: unknown;
+  hasMore: boolean;
+  warning: string | null;
+  load: () => void;
+}) {
+  return (
+    <footer className="weq-extras-more">
+      {warning ? (
+        <p role="status">{warning}</p>
+      ) : error ? (
+        <p role="status">本页读取失败，已加载内容保留。</p>
+      ) : null}
+      {hasMore || error || warning || loading ? (
+        <button type="button" disabled={!online || loading} onClick={load}>
+          {error || warning ? <RotateCcw size={14} /> : <ArrowDown size={14} />}
+          {loading ? '读取中…' : error || warning ? '重试本页' : '加载更多'}
+        </button>
+      ) : null}
+    </footer>
+  );
+}
+function Signatures({ input, online }: { input: Target; online: boolean }) {
+  const active = useTabActive();
+  const query = trpc.account.profileExtras.signatureHistory.useInfiniteQuery(input, {
+    ...queryOptions,
+    enabled: online && active,
+    getNextPageParam: nextExtrasCursor,
+  });
+  const pages = query.data?.pages ?? [];
+  const items = mergeExtrasPages(pages);
+  const warning = extrasPageWarning(pages);
+  return (
+    <>
+      <PageStatus
+        online={online}
+        pending={query.isFetching}
+        error={query.error}
+        empty={!items.length}
+        emptyText="暂无历史签名"
+        retry={() => void query.refetch()}
+      />
+      <div className="weq-extras-list">
+        {items.map((item) => (
+          <article key={item.id}>
+            <time>{time(item.createdAt)}</time>
+            <p>{[item.action, item.data, item.text].filter(Boolean).join(' ') || '空签名'}</p>
+            {item.location ? <small>{item.location}</small> : null}
+          </article>
+        ))}
+      </div>
+      {pages.length ? (
+        <More
+          online={online}
+          loading={query.isFetching}
+          error={query.error}
+          hasMore={Boolean(query.hasNextPage)}
+          warning={warning}
+          load={() =>
+            void (warning
+              ? query.refetch({ refetchPage: (_page, index, pages) => index === pages.length - 1 })
+              : query.fetchNextPage())
+          }
+        />
+      ) : null}
+    </>
+  );
+}
+function Questions({ input, online }: { input: Target; online: boolean }) {
+  const [filter, setFilter] = useState<'all' | 'answered'>(
+    input.uin === input.expectedAccountUin ? 'all' : 'answered',
+  );
+  return (
+    <>
+      {input.uin === input.expectedAccountUin ? (
+        <SegmentedControl
+          label="问答显示范围"
+          value={filter}
+          options={[
+            { value: 'all', label: '全部' },
+            { value: 'answered', label: '已回答' },
+          ]}
+          onChange={setFilter}
+        />
+      ) : null}
+      <QuestionList key={filter} input={input} online={online} filter={filter} />
+    </>
+  );
+}
+function QuestionList({
+  input,
+  online,
+  filter,
+}: {
+  input: Target;
+  online: boolean;
+  filter: 'all' | 'answered';
+}) {
+  const active = useTabActive();
+  const query = trpc.account.profileExtras.anonymousQuestions.useInfiniteQuery(
+    { ...input, filter },
+    { ...queryOptions, enabled: online && active, getNextPageParam: nextExtrasCursor },
+  );
+  const pages = query.data?.pages ?? [];
+  const items = mergeExtrasPages(pages);
+  const warning = extrasPageWarning(pages);
+  return (
+    <>
+      <PageStatus
+        online={online}
+        pending={query.isFetching}
+        error={query.error}
+        empty={!items.length}
+        emptyText="暂无问答"
+        retry={() => void query.refetch()}
+      />
+      <div className="weq-extras-list">
+        {items.map((item) => (
+          <article key={item.id}>
+            <time>{time(item.askedAt)}</time>
+            <h3>{item.question || '未提供问题正文'}</h3>
+            {item.answer || (item.answeredAt ?? 0) > 0 ? (
+              <>
+                <p>{item.answer || '空回答'}</p>
+                {item.answeredAt !== null ? <small>回答于 {time(item.answeredAt)}</small> : null}
+              </>
+            ) : (
+              <small>尚未回答</small>
+            )}
+            <div className="weq-extras-counts">
+              {item.likes !== null ? <span>赞 {item.likes}</span> : null}
+              {item.comments !== null ? <span>评论 {item.comments}</span> : null}
+            </div>
+          </article>
+        ))}
+      </div>
+      {pages.length ? (
+        <More
+          online={online}
+          loading={query.isFetching}
+          error={query.error}
+          hasMore={Boolean(query.hasNextPage)}
+          warning={warning}
+          load={() =>
+            void (warning
+              ? query.refetch({ refetchPage: (_page, index, pages) => index === pages.length - 1 })
+              : query.fetchNextPage())
+          }
+        />
+      ) : null}
+    </>
+  );
+}
+function Labels({ input, online }: { input: Target; online: boolean }) {
+  const active = useTabActive();
+  const [selected, setSelected] = useState<PersonalityLabel | null>(null);
+  const query = trpc.account.profileExtras.personalityLabels.useQuery(input, {
+    ...queryOptions,
+    enabled: online && active,
+  });
+  if (selected)
+    return (
+      <>
+        <button type="button" className="weq-extras-back" onClick={() => setSelected(null)}>
+          <ArrowLeft size={14} />
+          全部标签
+        </button>
+        <h3 className="weq-extras-label-title">{selected.text}</h3>
+        <Photos key={selected.id} input={input} online={online} label={selected} />
+      </>
+    );
+  return (
+    <>
+      <PageStatus
+        online={online}
+        pending={query.isFetching}
+        error={query.error}
+        empty={!query.data?.labels.length}
+        emptyText={query.data?.closed ? '标签相册未公开' : '暂无标签相册'}
+        retry={() => void query.refetch()}
+      />
+      <div className="weq-extras-labels">
+        {query.data?.labels.map((label) => (
+          <button type="button" key={label.id} onClick={() => setSelected(label)}>
+            {label.cover ? (
+              <ProfilePhoto src={label.cover} alt="" />
+            ) : (
+              <span className="weq-extras-label-placeholder">
+                <Images size={24} />
+              </span>
+            )}
+            <span>{label.text || '未命名标签'}</span>
+            <small>{label.photoCount === null ? '' : `${label.photoCount} 张`}</small>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+function ProfilePhoto({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  return failed || !src ? (
+    <span className="weq-extras-photo-error">图片暂不可用</span>
+  ) : (
+    <img src={albumMediaUrl(src)} alt={alt} loading="lazy" onError={() => setFailed(true)} />
+  );
+}
+function Photos({
+  input,
+  online,
+  label,
+}: {
+  input: Target;
+  online: boolean;
+  label: PersonalityLabel;
+}) {
+  const active = useTabActive();
+  const [preview, setPreview] = useState<number | null>(null);
+  const complete = label.photoCount !== null && label.photos.length >= label.photoCount;
+  const query = trpc.account.profileExtras.personalityPhotos.useInfiniteQuery(
+    { ...input, labelId: label.id },
+    {
+      ...queryOptions,
+      initialCursor: label.photoCursor ?? undefined,
+      enabled: online && active && !complete,
+      getNextPageParam: nextExtrasCursor,
+    },
+  );
+  const pages = query.data?.pages ?? [];
+  const items: PersonalityPhoto[] = mergeExtrasPages([{ items: label.photos }, ...pages]);
+  const warning = extrasPageWarning(pages);
+  return (
+    <>
+      <PageStatus
+        online={online}
+        pending={query.isFetching}
+        error={query.error}
+        empty={!items.length}
+        emptyText="暂无照片"
+        retry={() => void query.refetch()}
+      />
+      <div className="weq-extras-photos">
+        {items.map((item, index) => (
+          <button
+            type="button"
+            key={item.id}
+            title={time(item.uploadedAt) || '查看照片'}
+            aria-label={`查看第 ${index + 1} 张照片`}
+            onClick={() => setPreview(index)}
+          >
+            <ProfilePhoto src={item.url} alt={`${label.text} ${index + 1}`} />
+          </button>
+        ))}
+      </div>
+      {!complete ? (
+        <More
+          online={online}
+          loading={query.isFetching}
+          error={query.error}
+          hasMore={Boolean(query.hasNextPage)}
+          warning={warning}
+          load={() =>
+            void (warning
+              ? query.refetch({ refetchPage: (_page, index, pages) => index === pages.length - 1 })
+              : query.data
+                ? query.fetchNextPage()
+                : query.refetch())
+          }
+        />
+      ) : null}
+      {preview !== null ? (
+        <QzoneMediaPreview
+          label="标签照片预览"
+          items={items.map((item) => ({
+            key: item.id,
+            kind: 'image',
+            src: albumMediaUrl(item.url),
+            title: label.text,
+          }))}
+          initialIndex={preview}
+          onClose={() => setPreview(null)}
+        />
+      ) : null}
+    </>
+  );
+}

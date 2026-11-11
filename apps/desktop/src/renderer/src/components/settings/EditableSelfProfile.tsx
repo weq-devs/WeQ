@@ -19,7 +19,7 @@ interface Region {
   name: string;
   children: Region[];
 }
-function RegionEditor({
+export function RegionEditor({
   label,
   value,
   layers,
@@ -65,7 +65,7 @@ function RegionEditor({
             <select
               key={['country', 'province', 'city', 'district'][index]}
               aria-label={`${label}${['国家', '省', '市', '区县'][index]}`}
-              disabled={disabled || !nodes.length}
+              disabled={disabled || !nodes.length || (nodes.length === 1 && nodes[0]?.code === '0')}
               value={path[index] ?? '__unset'}
               onChange={(event) => {
                 const next = path.slice(0, index);
@@ -74,8 +74,9 @@ function RegionEditor({
                   nodes.find((node) => node.code === event.target.value)?.children ?? [];
                 for (let depth = index + 1; depth < layers; depth++) {
                   const single = children.length === 1 ? children[0] : undefined;
-                  next.push(single?.code ?? null);
-                  children = single?.children ?? [];
+                  const selected = children.find((node) => node.code === '0') ?? single;
+                  next.push(selected?.code ?? null);
+                  children = selected?.children ?? [];
                 }
                 setPath(next);
               }}

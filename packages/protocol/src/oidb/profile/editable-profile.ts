@@ -16,8 +16,8 @@ export const QQ_REGIONS: QqRegion[] = [];
 for (const row of regionRows) {
   let siblings = QQ_REGIONS;
   for (let depth = 0; depth < 4; depth++) {
-    const code = row[depth * 2]!,
-      name = row[depth * 2 + 1]!;
+    const code = row[depth * 2] || '0',
+      name = code === '0' ? '不限' : row[depth * 2 + 1]!;
     let node = siblings.find((entry) => entry.code === code);
     if (!node) {
       node = { code, name, children: [] };
@@ -26,6 +26,16 @@ for (const row of regionRows) {
     siblings = node.children;
   }
 }
+function addUnrestrictedRegions(nodes: QqRegion[], depth: number): void {
+  if (!nodes.some((node) => node.code === '0')) {
+    nodes.unshift({ code: '0', name: '不限', children: [] });
+  }
+  if (depth < 3) {
+    for (const node of nodes) addUnrestrictedRegions(node.children, depth + 1);
+  }
+}
+// 官方目录中的空层级可能仍有城市，不能把它们当成终止节点。
+addUnrestrictedRegions(QQ_REGIONS, 0);
 export type EditableProfilePatch = {
   birthday?: string;
   region?: string[];
@@ -44,6 +54,7 @@ const keys = {
 
 export function packQqRegionCode(code: string) {
   if (!/^[A-Za-z0-9]{0,4}$/.test(code)) throw new Error('地区代码无效');
+  if (code === '0') return 0;
   let value = 0;
   for (const byte of Buffer.from(code, 'ascii')) value = value * 256 + byte;
   return value;
@@ -53,9 +64,9 @@ export function encodeQqRegion(path: string[], layers: 3 | 4) {
   let siblings = QQ_REGIONS;
   const bytes = Buffer.alloc(layers * 4);
   path.forEach((code, index) => {
-    const node = siblings.find((row) => row.code === code);
+    const node = siblings.find((row) => row.code === (code || '0'));
     if (!node) throw new Error('地区不在 QQ 官方目录中');
-    bytes.writeUInt32BE(layers === 4 && code === '0' ? 0 : packQqRegionCode(code), index * 4);
+    bytes.writeUInt32BE(packQqRegionCode(node.code), index * 4);
     siblings = node.children;
   });
   return bytes;
@@ -67,9 +78,7 @@ function decodeRegion(bytes: Uint8Array | undefined, district?: Uint8Array) {
   const path: string[] = [];
   for (let index = 0; index < buffer.length / 4; index++) {
     const code = buffer.readUInt32BE(index * 4);
-    const node = siblings.find(
-      (row) => (district && row.code === '0' ? 0 : packQqRegionCode(row.code)) === code,
-    );
+    const node = siblings.find((row) => packQqRegionCode(row.code) === code);
     if (!node) return null;
     path.push(node.code);
     siblings = node.children;

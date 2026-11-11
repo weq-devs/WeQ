@@ -2,6 +2,7 @@ import { act, createElement as h, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QQ_REGIONS } from '@weq/protocol';
 vi.mock(
   '../src/renderer/src/hooks/useContactDirectoryOrder',
   () => import('./support/contact-order.stub'),
@@ -10,7 +11,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { QzoneFriendPermissions } from '../src/renderer/src/components/qq-actions/QzoneFriendPermissions';
 import { QqAvatar } from '../src/renderer/src/components/QqAvatar';
-import { EditableSelfProfile } from '../src/renderer/src/components/settings/EditableSelfProfile';
+import {
+  EditableSelfProfile,
+  RegionEditor,
+} from '../src/renderer/src/components/settings/EditableSelfProfile';
 import { GroupAlbumManagement } from '../src/renderer/src/components/qq-actions/GroupAlbumManagement';
 import { QQExactLookup } from '../src/renderer/src/components/QQExactLookup';
 import { CommonRelationships } from '../src/renderer/src/components/qq-actions/CommonRelationships';
@@ -412,6 +416,76 @@ describe('可接入功能交互回归', () => {
       patch: { profession: 13 },
     });
     expect(f.host.querySelector('[aria-label="保存生日"]')).not.toBeNull();
+  });
+  it.each([3, 4] as const)('地区 %i 层改选不限后清空下级并可保存', async (layers) => {
+    const saved = vi.fn(async () => true);
+    const f = mount(() =>
+      h(RegionEditor, {
+        label: '地区',
+        value: ['1', '35', '2', '3'].slice(0, layers),
+        layers,
+        regions: QQ_REGIONS,
+        disabled: false,
+        onSave: saved,
+      }),
+    );
+    const selects = [...f.host.querySelectorAll('select')];
+    await act(async () => {
+      selects[1]!.value = '0';
+      selects[1]!.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(selects.map((select) => select.value)).toEqual(['1', ...Array(layers - 1).fill('0')]);
+    expect(selects[2]!.disabled).toBe(true);
+    expect(selects[1]!.selectedOptions[0]!.textContent).toBe('不限');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存地区"]')!.click(),
+    );
+    expect(saved).toHaveBeenCalledWith(['1', ...Array(layers - 1).fill('0')]);
+  });
+  it('未知地区不自动写为不限，选定国家后允许只保存国家', async () => {
+    const saved = vi.fn(async () => true);
+    const f = mount(() =>
+      h(RegionEditor, {
+        label: '地区',
+        value: null,
+        layers: 3,
+        regions: QQ_REGIONS,
+        disabled: false,
+        onSave: saved,
+      }),
+    );
+    const save = f.host.querySelector<HTMLButtonElement>('[aria-label="保存地区"]')!;
+    expect(save.disabled).toBe(true);
+    const country = f.host.querySelector('select')!;
+    await act(async () => {
+      country.value = '1';
+      country.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(save.disabled).toBe(false);
+    await act(async () => save.click());
+    expect(saved).toHaveBeenCalledWith(['1', '0', '0']);
+  });
+  it('官方缺省省级仍保留可选城市，切换国家不会沿用旧城市', async () => {
+    const f = mount(() =>
+      h(RegionEditor, {
+        label: '地区',
+        value: ['DEU', '0', 'SWH', '0'],
+        layers: 4,
+        regions: QQ_REGIONS,
+        disabled: false,
+        onSave: async () => true,
+      }),
+    );
+    const selects = [...f.host.querySelectorAll('select')];
+    expect(selects[1]!.disabled).toBe(true);
+    expect(selects[2]!.disabled).toBe(false);
+    expect(selects[2]!.value).toBe('SWH');
+    await act(async () => {
+      selects[0]!.value = '0';
+      selects[0]!.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(selects.map((select) => select.value)).toEqual(['0', '0', '0', '0']);
+    expect(selects.slice(1).every((select) => select.disabled)).toBe(true);
   });
   it('相册未确认时保留草稿与弹窗，不把已有同名相册误当成新增成功', async () => {
     const changed = vi.fn();

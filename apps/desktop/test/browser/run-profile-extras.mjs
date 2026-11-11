@@ -1,0 +1,184 @@
+import { createServer } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwind from '@tailwindcss/vite';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const output = process.env.WEQ_PROFILE_EXTRAS_QA;
+const live = process.env.WEQ_PROFILE_EXTRAS_IMAGES;
+const blobs = live
+  ? await Promise.all([0, 1].map((index) => readFile(resolve(live, `photo-${index}.image`))))
+  : [];
+const server = await createServer({
+  configFile: false,
+  root,
+  cacheDir: resolve(root, 'node_modules/.vite-profile-extras'),
+  plugins: [
+    react(),
+    tailwind(),
+    {
+      name: 'profile-extras-images',
+      configureServer(server) {
+        server.middlewares.use('/_media/album', (req, res) => {
+          const src = new URL(req.url, 'http://localhost').searchParams.get('src') ?? '';
+          const blob = blobs[src.endsWith('-1') ? 1 : 0];
+          if (!blob) {
+            res.statusCode = 404;
+            res.end();
+            return;
+          }
+          res.setHeader('Content-Type', blob[0] === 0xff ? 'image/jpeg' : 'image/png');
+          res.end(blob);
+        });
+      },
+    },
+  ],
+  define: { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') },
+  resolve: {
+    alias: [
+      {
+        find: /^.*\/trpc\/client$/,
+        replacement: resolve(root, 'test/browser/profile-extras.stub.ts'),
+      },
+      {
+        find: /^.*\/hooks\/useQQWriteSession$/,
+        replacement: resolve(root, 'test/browser/profile-extras.stub.ts'),
+      },
+      { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
+      { find: '@resources', replacement: resolve(root, '../../resources') },
+      { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
+    ],
+  },
+  server: {
+    host: '127.0.0.1',
+    port: 0,
+    hmr: false,
+    watch: null,
+    fs: { allow: [resolve(root, '../..')] },
+  },
+});
+let browser;
+const results = [];
+try {
+  await server.listen();
+  browser = await chromium.launch({
+    headless: true,
+    ...(process.env.WEQ_BROWSER_EXECUTABLE
+      ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
+      : {}),
+  });
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.route('**/*', (route) =>
+    new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+  );
+  const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-extras.html`;
+  if (output) await mkdir(output, { recursive: true });
+  await page.goto(`${url}?mode=loading`);
+  await page.locator('[data-local-signature]').waitFor();
+  assert.ok((await page.locator('main').textContent()).includes('读取中'));
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+  if (output) await page.screenshot({ path: resolve(output, 'first-paint-loading.png') });
+  results.push({ firstPaint: 'local-content-present-while-query-loading' });
+  await page.evaluate(() => window.profileExtrasQa.mode('ready'));
+  await page.getByText('831', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '历史签名', exact: true }).click();
+  await page.getByRole('button', { name: '加载更多', exact: true }).click();
+  await page.getByText('第二页签名', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '关闭资料详情' }).click();
+  for (const width of [1180, 390, 320])
+    for (const theme of ['light', 'dark'])
+      for (const accent of ['#167d67', '#a82555']) {
+        await page.setViewportSize({ width, height: 850 });
+        await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+        await page.evaluate(
+          ({ theme, accent }) => {
+            document.documentElement.dataset.theme = theme;
+            document.documentElement.style.setProperty('--weq-accent-effective', accent);
+          },
+          { theme, accent },
+        );
+        for (const mode of ['ready', 'loading', 'empty', 'error']) {
+          await page.evaluate((mode) => window.profileExtrasQa.mode(mode), mode);
+          await page.getByRole('button', { name: '匿问我答', exact: true }).click();
+          const overflow = await page.evaluate(() =>
+            [
+              ...document.querySelectorAll(
+                '.weq-extras-dialog, .weq-extras-header, .weq-extras-content, .weq-extras-list p, .weq-extras-list h3, .weq-extras-summary',
+              ),
+            ]
+              .filter((el) => el.scrollWidth > el.clientWidth + 2)
+              .map((el) => el.className),
+          );
+          assert.deepEqual(overflow, [], `${width}/${theme}/${mode}: overflow`);
+          if (output && accent === '#167d67')
+            await page.screenshot({ path: resolve(output, `${width}-${theme}-${mode}.png`) });
+          results.push({ width, theme, accent, mode, overflow: false });
+          await page.getByRole('button', { name: '关闭资料详情' }).click();
+        }
+      }
+  await page.evaluate(() => window.profileExtrasQa.mode('ready'));
+  await page.getByRole('button', { name: '标签相册', exact: true }).click();
+  await page.getByRole('button', { name: '合成标签相册' }).click();
+  if (blobs.length) {
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('.weq-extras-photos img')].length === 2 &&
+        [...document.querySelectorAll('.weq-extras-photos img')].every(
+          (img) => img.complete && img.naturalWidth > 1,
+        ),
+    );
+    await page.getByRole('button', { name: '查看第 1 张照片' }).click();
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.weq-qz-preview img');
+      return img?.complete && img.naturalWidth > 1;
+    });
+    const firstSource = await page.locator('.weq-qz-preview img').evaluate((img) => img.src);
+    const pixelColors = await page.evaluate(() => {
+      const img = document.querySelector('.weq-qz-preview img');
+      const canvas = document.createElement('canvas');
+      canvas.width = 16;
+      canvas.height = 16;
+      const context = canvas.getContext('2d');
+      context.drawImage(img, 0, 0, 16, 16);
+      const data = context.getImageData(0, 0, 16, 16).data;
+      return new Set(
+        Array.from(
+          { length: 256 },
+          (_, i) => `${data[i * 4]},${data[i * 4 + 1]},${data[i * 4 + 2]}`,
+        ),
+      ).size;
+    });
+    assert.ok(pixelColors > 4, 'live image must contain nonblank pixels');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction((src) => {
+      const img = document.querySelector('.weq-qz-preview img');
+      return img?.src !== src && img?.complete && img.naturalWidth > 1;
+    }, firstSource);
+    if (output) await page.screenshot({ path: resolve(output, 'live-photo-preview.png') });
+    await page.keyboard.press('Escape');
+    await page.locator('.weq-qz-preview').waitFor({ state: 'detached' });
+    assert.equal(await page.getByRole('button', { name: '关闭资料详情' }).count(), 1);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '关闭资料详情' }).waitFor({ state: 'detached' });
+    results.push({
+      liveImages: 2,
+      decoded: true,
+      pixelColors,
+      keyboardNext: true,
+      escapeOnlyTop: true,
+    });
+  }
+  assert.deepEqual(errors, []);
+  if (output)
+    await writeFile(resolve(output, 'result.json'), JSON.stringify({ results, errors }, null, 2));
+  console.log(JSON.stringify({ cases: results.length, errors, liveImages: blobs.length }));
+} finally {
+  await browser?.close();
+  await server.close();
+}
