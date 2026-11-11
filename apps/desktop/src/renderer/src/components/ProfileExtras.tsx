@@ -14,6 +14,7 @@ import {
 import type { PersonalityLabel, PersonalityPhoto } from '@weq/protocol';
 import { Modal } from './Dialog';
 import { SegmentedControl } from './SegmentedControl';
+import { ProfileDetailsEntry } from './ProfileDetailsEntry';
 import { ProfileDisplayEntry } from './ProfileDisplaySettings';
 import { QzoneMediaPreview } from './QzoneMediaPreview';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
@@ -138,6 +139,7 @@ function ExtrasBody({
             ) : null}
           </div>
           <div className="weq-extras-links">
+            <ProfileDetailsEntry input={input} online={online} />
             <ProfileDisplayEntry field="education">
               <button type="button" title="查看完整教育经历" onClick={() => setView('education')}>
                 <GraduationCap size={15} />

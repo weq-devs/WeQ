@@ -4,11 +4,12 @@
 
 ## 接口
 
-六个查询均携带 expectedAccountUin、expectedAccountConfigId、目标 uin；响应固定 targetUin。账号路由与服务分别在异步前后复核数据源和 QQ 进程，不要求目标仍为好友或群成员。
+以下查询均携带 expectedAccountUin、expectedAccountConfigId、目标 uin；响应固定 targetUin。账号路由与服务分别在异步前后复核数据源和 QQ 进程，不要求目标仍为好友或群成员。
 
 | 查询 | 参数 | 返回 |
 | --- | --- | --- |
 | energy | uin | score、level、trend、display，字段缺省为 null |
+| details | uin | 公司、个人说明、邮箱及字段级错误，见[详细资料读取](./profile-details.md) |
 | educationHistory | uin | 完整教育经历 items，每条保留 17 个已确认字段，缺字段为 null，不分页、不按学校去重 |
 | signatureHistory | uin、可选数字 cursor | 签名条目及下一时间上界 |
 | personalityLabels | uin | 标签、首批照片、每标签 cookie、照片数 |

@@ -1,5 +1,14 @@
 import { useSyncExternalStore } from 'react';
 
+export const client = new Proxy(
+  {},
+  {
+    get() {
+      throw new Error('只读资料夹具不允许额外 RPC 调用');
+    },
+  },
+);
+
 type Mode = 'ready' | 'loading' | 'empty' | 'error';
 let mode: Mode =
   new URLSearchParams(location.search).get('mode') === 'loading' ? 'loading' : 'ready';
@@ -89,14 +98,25 @@ function useQuery(kind: string, input: { uin: string }) {
   const error = mode === 'error' ? new Error('合成错误') : null;
   const empty = mode === 'empty';
   const value =
-    kind === 'energy'
-      ? { targetUin: input.uin, score: 831, level: 1 }
-      : kind === 'education'
-        ? {
-            targetUin: input.uin,
-            items: empty ? [] : [education, { ...education, index: 2, degree: 7, hidden: 1 }],
-          }
-        : { targetUin: input.uin, labels: empty ? [] : [label], totalPhotos: 2, closed: false };
+    kind === 'details'
+      ? {
+          targetUin: input.uin,
+          company: empty ? '' : '合成公司与较长公司名称用于窄屏换行验证',
+          personalDescription: empty
+            ? null
+            : '第一行个人说明。\n第二行说明用于验证原始换行。' +
+              'LongDescriptionWithoutSpaces'.repeat(8),
+          email: empty ? '' : 'synthetic-long-address@example.invalid',
+          errors: {},
+        }
+      : kind === 'energy'
+        ? { targetUin: input.uin, score: 831, level: 1 }
+        : kind === 'education'
+          ? {
+              targetUin: input.uin,
+              items: empty ? [] : [education, { ...education, index: 2, degree: 7, hidden: 1 }],
+            }
+          : { targetUin: input.uin, labels: empty ? [] : [label], totalPhotos: 2, closed: false };
   return {
     data: pending || error ? undefined : value,
     isFetching: pending,
@@ -156,6 +176,7 @@ function useInfiniteQuery(kind: string) {
 export const trpc = {
   account: {
     profileExtras: {
+      details: { useQuery: (input: { uin: string }) => useQuery('details', input) },
       energy: { useQuery: (input: { uin: string }) => useQuery('energy', input) },
       educationHistory: { useQuery: (input: { uin: string }) => useQuery('education', input) },
       personalityLabels: { useQuery: (input: { uin: string }) => useQuery('labels', input) },

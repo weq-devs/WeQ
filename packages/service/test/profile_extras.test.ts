@@ -142,3 +142,38 @@ it('教育经历读取期间进程改变，拒绝旧结果', async () => {
   });
   await expect(service.educationHistory('10002')).rejects.toThrow('切换');
 });
+it('详细资料按目标共享在途查询，失败重试不干扰其他资料', async () => {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const read = vi.fn(async (_nt, _pid, targetUin: string) => {
+    await wait;
+    return { targetUin, company: '', personalDescription: null, email: null, errors: {} };
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getProfileDetails: read,
+  });
+  const a = service.details('10002');
+  const b = service.details('10002');
+  const c = service.details('10003');
+  expect(read).toHaveBeenCalledTimes(2);
+  release();
+  expect(await a).toEqual(await b);
+  expect((await c).targetUin).toBe('10003');
+  read.mockRejectedValueOnce(new Error('合成失败'));
+  await expect(service.details('10002')).rejects.toThrow('合成失败');
+  expect((await service.details('10002')).company).toBe('');
+});
+it('详细资料返回前切换账号或 QQ 进程会丢弃结果', async () => {
+  let pid = 5;
+  const service = new ProfileExtrasService(nt, '10001', () => pid, {
+    ...readers,
+    getProfileDetails: async (_nt, _pid, targetUin) => {
+      pid = 6;
+      return { targetUin, company: '旧公司', personalDescription: null, email: null, errors: {} };
+    },
+  });
+  await expect(service.details('10002')).rejects.toThrow('切换');
+});

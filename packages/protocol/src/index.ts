@@ -244,6 +244,8 @@ export type {
 
 export * from './call';
 export * from './oidb/profile/extras';
+export { getProfileDetails, PROFILE_DETAIL_FIELDS } from './oidb/profile/details';
+export type { ProfileDetailInfo, ProfileDetailField } from './oidb/profile/details';
 export { getEducationHistory } from './oidb/profile/education';
 export * from './oidb/profile/display-settings';
 export { LegacyOidbRejectedError } from './oidb/legacy';

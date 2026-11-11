@@ -141,6 +141,35 @@ try {
             await page.screenshot({ path: resolve(output, `${width}-${theme}-education.png`) });
           results.push({ width, theme, accent, mode, view: 'education', overflow: false });
           await page.getByRole('button', { name: '关闭资料详情' }).click();
+          await page.getByRole('button', { name: '详细资料', exact: true }).click();
+          if (mode === 'ready') {
+            assert.equal(await page.locator('.weq-profile-details-list article').count(), 3);
+            assert.ok(
+              (await page.locator('.weq-profile-details-list').textContent()).includes(
+                '第二行说明',
+              ),
+            );
+          }
+          if (mode === 'empty') {
+            assert.ok(
+              (await page.locator('.weq-profile-details-list').textContent()).includes('未填写'),
+            );
+            assert.ok(
+              (await page.locator('.weq-profile-details-list').textContent()).includes('未返回'),
+            );
+          }
+          const detailsOverflow = await page.evaluate(() =>
+            [
+              ...document.querySelectorAll(
+                '.weq-extras-dialog, .weq-extras-content, .weq-profile-details-list article, .weq-profile-details-list p',
+              ),
+            ].some((element) => element.scrollWidth > element.clientWidth + 2),
+          );
+          assert.equal(detailsOverflow, false, `${width}/${theme}/${mode}: details overflow`);
+          if (output && accent === '#167d67' && mode === 'ready')
+            await page.screenshot({ path: resolve(output, `${width}-${theme}-details.png`) });
+          results.push({ width, theme, accent, mode, view: 'details', overflow: false });
+          await page.getByRole('button', { name: '关闭详细资料' }).click();
         }
       }
   await page.evaluate(() => window.profileExtrasQa.mode('ready'));

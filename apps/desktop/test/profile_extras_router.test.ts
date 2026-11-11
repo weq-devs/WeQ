@@ -11,6 +11,13 @@ import { createProfileExtrasRouter } from '../src/main/ipc/routers/profile_extra
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source', uin: '10002' };
 function fixture() {
+  const details = vi.fn(async (_nt, _pid, targetUin: string) => ({
+    targetUin,
+    company: '',
+    personalDescription: null,
+    email: null,
+    errors: {},
+  }));
   const energy = vi.fn(async () => ({
     targetUin: '10002',
     score: 0,
@@ -25,6 +32,7 @@ function fixture() {
     getPersonalityPhotos,
     getAnonymousQuestions,
     getEducationHistory: vi.fn(async (_nt, _pid, targetUin) => ({ targetUin, items: [] })),
+    getProfileDetails: details,
   });
   let active = { profileExtras: service };
   const routes = createProfileExtrasRouter((input) => {
@@ -38,6 +46,7 @@ function fixture() {
   return {
     caller: routes.createCaller({}),
     energy,
+    details,
     switchSource: () => {
       active = { profileExtras: service };
     },
@@ -72,4 +81,33 @@ it('教育经历只读路由可查询当前目标，账号不匹配时拒绝', a
   await expect(
     caller.educationHistory({ ...binding, expectedAccountConfigId: 'other' }),
   ).rejects.toThrow('账号');
+});
+it('详细资料绑定账号与目标，保留明确空字符串', async () => {
+  const { caller, details } = fixture();
+  expect(await caller.details(binding)).toEqual({
+    targetUin: '10002',
+    company: '',
+    personalDescription: null,
+    email: null,
+    errors: {},
+  });
+  await expect(caller.details({ ...binding, expectedAccountConfigId: 'other' })).rejects.toThrow(
+    '账号',
+  );
+  details.mockImplementationOnce(async () => ({
+    targetUin: '10003',
+    company: '',
+    personalDescription: null,
+    email: null,
+    errors: {},
+  }));
+  await expect(caller.details(binding)).rejects.toThrow('目标');
+});
+it('详细资料读取过程中更换数据源，迟到数据不进入新页面', async () => {
+  const { caller, details, switchSource } = fixture();
+  details.mockImplementationOnce(async () => {
+    switchSource();
+    return { targetUin: '10002', company: '', personalDescription: null, email: null, errors: {} };
+  });
+  await expect(caller.details(binding)).rejects.toThrow('变化');
 });
