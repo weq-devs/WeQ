@@ -335,3 +335,87 @@ it('名片读回定向更新群缓存，迟到补全不能覆盖新值，也不�
   expect(host.textContent).toBe('新名片');
   expect(resolver.missingMembers['456'].u_peer.card).toBe('另一群');
 });
+
+it('相同成员回填保留缓存和未变行，空批次不创建空群，清空名片仍发布', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let resolver!: GroupMemberResolver<Member>;
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    resolver = useGroupMemberResolver<Member>();
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  const empty = resolver.missingMembers;
+  act(() => resolver.updateMembers('123', []));
+  expect(resolver.missingMembers).toBe(empty);
+  act(() => {
+    resolver.updateMembers('123', [
+      { uid: 'u_a', card: '甲' },
+      { uid: 'u_b', card: '乙' },
+    ]);
+    resolver.updateMembers('456', [{ uid: 'u_a', card: '另一群' }]);
+  });
+  const first = resolver.missingMembers;
+  act(() =>
+    resolver.updateMembers('123', [
+      { uid: 'u_a', card: '甲' },
+      { uid: 'u_b', card: '乙' },
+    ]),
+  );
+  expect(resolver.missingMembers).toBe(first);
+  act(() =>
+    resolver.updateMembers('123', [
+      { uid: 'u_a', card: '' },
+      { uid: 'u_b', card: '乙' },
+    ]),
+  );
+  expect(resolver.missingMembers['123'].u_a.card).toBe('');
+  expect(resolver.missingMembers['123'].u_b).toBe(first['123'].u_b);
+  expect(resolver.missingMembers['456']).toBe(first['456']);
+});
+
+it('相同查询结果不替换成员缓存，但失效后仍实际查询', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  mock.query.mockReset().mockImplementation(async () => [{ uid: 'u_peer', card: '名片' }]);
+  let resolver!: GroupMemberResolver<Member>;
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    resolver = useGroupMemberResolver<Member>();
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  await act(async () => resolver.resolveMembers('123', ['u_peer'], new Set(), () => true));
+  const first = resolver.missingMembers;
+  act(() => resolver.invalidate());
+  await act(async () => resolver.resolveMembers('123', ['u_peer'], new Set(), () => true));
+  expect(mock.query).toHaveBeenCalledTimes(2);
+  expect(resolver.missingMembers).toBe(first);
+});
+
+it('等值权威回填也推进版本，迟到旧查询被拒绝且不触发无效状态更新', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let finish!: (members: Member[]) => void;
+  mock.query.mockReset().mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let resolver!: GroupMemberResolver<Member>;
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    resolver = useGroupMemberResolver<Member>();
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  act(() => resolver.updateMembers('123', [{ uid: 'u_peer', card: '当前名片' }]));
+  const first = resolver.missingMembers;
+  act(() => resolver.resolveMembers('123', ['u_peer'], new Set(), () => true));
+  act(() => resolver.updateMembers('123', [{ uid: 'u_peer', card: '当前名片' }]));
+  await act(async () => finish([{ uid: 'u_peer', card: '迟到旧名片' }]));
+  expect(resolver.missingMembers).toBe(first);
+  expect(resolver.missingMembers['123'].u_peer.card).toBe('当前名片');
+});

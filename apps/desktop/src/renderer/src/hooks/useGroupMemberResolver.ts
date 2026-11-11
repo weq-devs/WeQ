@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
+import { reconcileResolvedRows } from '../lib/resolvedRows';
 
 /** getGroupMembersByUids 的单次 uid 上限（与 IPC 层一致）。 */
 const CHUNK = 200;
@@ -84,13 +85,11 @@ export function useGroupMemberResolver<T extends { uid: string }>(
       const key = `${groupCode}:${member.uid}`;
       versions.current.set(key, (versions.current.get(key) ?? 0) + 1);
     }
-    setMissingMembers((previous) => ({
-      ...previous,
-      [groupCode]: {
-        ...previous[groupCode],
-        ...Object.fromEntries(members.map((member) => [member.uid, member])),
-      },
-    }));
+    setMissingMembers((previous) => {
+      const current = previous[groupCode] ?? {};
+      const next = reconcileResolvedRows(current, members);
+      return next === current ? previous : { ...previous, [groupCode]: next };
+    });
   }, []);
 
   const drain = useCallback(() => {
@@ -144,15 +143,15 @@ export function useGroupMemberResolver<T extends { uid: string }>(
         if (members.length > 0) {
           setMissingMembers((prev) => {
             if (job.generation !== generation.current) return prev;
-            const groupCache = { ...(prev[job.groupCode] ?? {}) };
-            for (const member of members as unknown as T[]) {
-              if (
+            const current = prev[job.groupCode] ?? {};
+            const groupCache = reconcileResolvedRows(
+              current,
+              members as unknown as T[],
+              (member) =>
                 job.captured.get(member.uid) ===
-                (versions.current.get(`${job.groupCode}:${member.uid}`) ?? 0)
-              )
-                groupCache[member.uid] = member;
-            }
-            return { ...prev, [job.groupCode]: groupCache };
+                (versions.current.get(`${job.groupCode}:${member.uid}`) ?? 0),
+            );
+            return groupCache === current ? prev : { ...prev, [job.groupCode]: groupCache };
           });
         }
       } catch (err) {
