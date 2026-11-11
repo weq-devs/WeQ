@@ -97,6 +97,50 @@ afterEach(() => {
 });
 
 describe('全局搜索请求生命周期', () => {
+  it('无关父级更新不重新合并已到搜索结果，新分类响应仍即时交付', async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    const file = deferred<SlowSearchResult>();
+    const message = deferred<SlowSearchResult>();
+    rpc.quick.mockResolvedValue(quickResult);
+    rpc.slow.mockImplementation(({ categories }) =>
+      categories[0] === 'file' ? file.promise : message.promise,
+    );
+    const categories: SearchCategory[] = ['contact', 'file', 'chatRecord'];
+    const f = mountSearch();
+    try {
+      f.render('合成', categories);
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      await act(async () =>
+        file.resolve({
+          ...slowResult,
+          get files() {
+            reads++;
+            return slowResult.files;
+          },
+        }),
+      );
+      const before = f.result;
+      reads = 0;
+      for (let i = 0; i < 3; i++) f.render('合成', categories);
+      expect(reads).toBe(0);
+      expect(f.result.quick).toBe(before.quick);
+      expect(f.result.slow).toBe(before.slow);
+      expect(f.result.categoryStates).toBe(before.categoryStates);
+      expect(f.result.categoryStates.chatRecord?.loading).toBe(true);
+      expect(rpc.quick).toHaveBeenCalledOnce();
+      expect(rpc.slow).toHaveBeenCalledTimes(2);
+
+      await act(async () => message.resolve({ ...slowResult, indexStatus: 'building' }));
+      expect(f.result.slow).not.toBe(before.slow);
+      expect(f.result.slow?.indexStatus).toBe('building');
+      expect(f.result.categoryStates.chatRecord?.loading).toBe(false);
+      expect(f.result.slowLoading).toBe(false);
+    } finally {
+      f.close();
+    }
+  });
+
   it('默认全选的每个分类均在同一轮防抖后独立派发', async () => {
     vi.useFakeTimers();
     rpc.quick.mockResolvedValue({ conversations: [], friends: [], groupMembers: [] });
