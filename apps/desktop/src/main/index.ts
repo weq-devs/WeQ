@@ -95,7 +95,6 @@ import {
 } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
-import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { databaseCheckups } from './db_checkup';
 import { macApplicationMenu } from './application_menu';
 import { createSystemTray } from './system_tray';
@@ -168,7 +167,6 @@ let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / Cmd+Q / before-quit). */
 let isQuitting = false;
-let stopRendererDiagnostics: (() => void) | null = null;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
 const windowLayouts = new WeakMap<BrowserWindow, WindowLayout>();
@@ -873,16 +871,6 @@ void app.whenReady().then(async () => {
         .catch(() => logger.warn('Web 服务自动启动失败，可在设置中重试。'));
     }
   }
-  const logDirectory = getLogDir();
-  if (logDirectory)
-    stopRendererDiagnostics = startRendererDiagnostics({
-      directory: logDirectory,
-      development: is.dev,
-      mainWebContentsId: () => {
-        const window = getMainWindow();
-        return window && !window.isDestroyed() ? window.webContents.id : undefined;
-      },
-    });
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
   getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
@@ -1040,8 +1028,6 @@ app.on('will-quit', (event) => {
       });
     }
   }
-  stopRendererDiagnostics?.();
-  stopRendererDiagnostics = null;
   try {
     getAppContext().services?.roamingBackfill.dispose();
   } catch (error) {
