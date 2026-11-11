@@ -17,14 +17,16 @@ const bundle = await build({
     import { createRoot } from 'react-dom/client';
     import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
     import { WebBusinessCache } from './src/renderer/src/components/WebBusinessCache';
-    import { restoreBusinessCache, watchBusinessCache } from './src/renderer/src/lib/webBusinessCache';
+    import { configureBusinessCache, restoreBusinessCache, watchBusinessCache } from './src/renderer/src/lib/webBusinessCache';
     const key = name => [['account', name], {type:'query'}];
+    const emojiKey = [['account','emojiPanel','overview'],{type:'query'}];
     let active;
     const refresh = [];
     function List() {
-      const profiles = useQuery({queryKey:key('listProfiles'), queryFn:()=>new Promise((resolve,reject)=>refresh.push({resolve,reject})), retry:false, staleTime:0});
-      const contacts = useQuery({queryKey:key('listRecentContacts'), queryFn:()=>new Promise((resolve,reject)=>refresh.push({resolve,reject})), retry:false, staleTime:0});
-      return <main><h1>{profiles.data?.[0]?.remark ?? 'pending'}</h1><p>{contacts.data?.items?.[0]?.preview ?? 'pending'}</p><output>{profiles.data?.length ?? 0}</output></main>;
+      const profiles = useQuery({queryKey:key('listProfiles'), queryFn:()=>new Promise((resolve,reject)=>refresh.push({resolve,reject})), retry:false, staleTime:0, refetchOnMount:true});
+      const contacts = useQuery({queryKey:key('listRecentContacts'), queryFn:()=>new Promise((resolve,reject)=>refresh.push({resolve,reject})), retry:false, staleTime:0, refetchOnMount:true});
+      const emoji = useQuery({queryKey:emojiKey, queryFn:()=>new Promise((resolve,reject)=>refresh.push({resolve,reject})), retry:false});
+      return <main><h1>{profiles.data?.[0]?.remark ?? 'pending'}</h1><p>{contacts.data?.items?.[0]?.preview ?? 'pending'}</p><output>{profiles.data?.length ?? 0}</output><aside>{emoji.data?.faces?.[0]?.label ?? 'pending'}</aside></main>;
     }
     window.fixture = {
       async seed(scope) {
@@ -32,15 +34,17 @@ const bundle = await build({
         const stop = watchBusinessCache(client, scope);
         client.setQueryData(key('listProfiles'), Array.from({length:8000},(_,i)=>({uid:'synthetic-'+i,remark:i?'name-'+i:'缓存备注'})), {updatedAt:1});
         client.setQueryData(key('listRecentContacts'), {items:[{preview:'缓存会话摘要'}]}, {updatedAt:1});
+        client.setQueryData(emojiKey, {faces:[{label:'缓存系统表情',items:[{id:'synthetic-face'}]}],recent:[],favorites:[],tags:[]}, {updatedAt:1});
         await stop(); client.clear();
       },
       mount(scope) {
-        active = new QueryClient();
+        active = new QueryClient({defaultOptions:{queries:{refetchOnMount:false}}});
+        configureBusinessCache(active);
         createRoot(document.getElementById('root')).render(<QueryClientProvider client={active}><WebBusinessCache scope={scope} fallback={<p>pending</p>}><List/></WebBusinessCache></QueryClientProvider>);
       },
       failRefresh() { for (const item of refresh.splice(0)) item.reject(new Error('synthetic offline')); },
       refreshCount() {return refresh.length},
-      update() { active.setQueryData(key('listProfiles'), [{uid:'synthetic-0',remark:'订阅更新后的备注'}]); window.dispatchEvent(new Event('pagehide')); },
+      update() { active.removeQueries({queryKey:emojiKey}); active.setQueryData(key('listProfiles'), [{uid:'synthetic-0',remark:'订阅更新后的备注'}]); window.dispatchEvent(new Event('pagehide')); },
       async read(scope) {const c=new QueryClient(); await restoreBusinessCache(c,scope); const result=c.getQueryData(key('listProfiles')); c.clear(); return result},
     };
   `,
@@ -94,9 +98,11 @@ try {
       await page.getByRole('heading', { name: '缓存备注', exact: true }).waitFor();
       assert.equal(await page.locator('output').textContent(), '8000');
       assert.equal(await page.locator('main p').textContent(), '缓存会话摘要');
-      await page.waitForFunction(() => window.fixture.refreshCount() === 2);
+      assert.equal(await page.locator('aside').textContent(), '缓存系统表情');
+      await page.waitForFunction(() => window.fixture.refreshCount() === 3);
       await page.evaluate(() => window.fixture.failRefresh());
       assert.equal(await page.getByRole('heading').textContent(), '缓存备注');
+      assert.equal(await page.locator('aside').textContent(), '缓存系统表情');
       for (const scope of [
         'computer-b/account-a/config-a',
         'computer-a/account-b/config-a',
@@ -113,6 +119,7 @@ try {
       await page.reload();
       await page.evaluate(() => window.fixture.mount('computer-a/account-a/config-a'));
       await page.getByRole('heading', { name: '订阅更新后的备注', exact: true }).waitFor();
+      assert.equal(await page.locator('aside').textContent(), '缓存系统表情');
       console.log(
         JSON.stringify({
           browser: name,
@@ -122,6 +129,8 @@ try {
           refreshFailureRetained: true,
           accountIsolation: true,
           subscriptionPersisted: true,
+          emojiRestartCache: true,
+          emojiRetainedAfterMemoryRemoval: true,
         }),
       );
     } finally {
