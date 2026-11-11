@@ -7,6 +7,7 @@ import type { ContactMetricsService } from './contact_metrics';
 import type { ContactHistoryService } from './contact_history';
 import { GroupMemberRosterCache } from './group_member_roster';
 import { GroupProfileReader } from './group_profile';
+import { GroupMemberPreviewReader, GROUP_PREVIEW_CANDIDATES } from './group_member_preview';
 import type { NtHelperBinding } from '@weq/native';
 import {
   FetchGroupMemberListPage,
@@ -286,6 +287,56 @@ const MEMBER_SCAN_LIMIT = 5000;
 const MIN_SHARED_GROUPS = 2;
 
 export class GroupInfoService {
+  private readonly memberPreviews = new GroupMemberPreviewReader();
+
+  async getMemberPreview(code: string, onlineAllowed = false) {
+    const groupId = Number(code);
+    const convert = (rows: GroupMemberListItem[]): GroupMember[] =>
+      rows.map((row) => ({
+        groupCode: BigInt(code),
+        uid: row.uid,
+        uin: BigInt(row.uin),
+        card: row.card,
+        nick: row.nickname,
+        joinTime: row.joinTime,
+        lastSpeakTime: row.lastSentTime,
+        muteUntil: row.shutUpTime,
+        adminFlag: row.permission === 1 || row.permission === 2 ? 1 : 0,
+        memberFlag: 0,
+        customTitle: row.specialTitle,
+        memberLevel: row.level,
+      }));
+    return this.memberPreviews.read(`${code}:${onlineAllowed}`, {
+      local: () =>
+        this.session.groupMembers.listMembersInGroup(BigInt(code), GROUP_PREVIEW_CANDIDATES, 0),
+      friends: async () =>
+        new Set(
+          (await this.session.buddies.listBuddies()).flatMap((row) => [row.uid, String(row.uin)]),
+        ),
+      cached: () => {
+        const value = this.onlineMembersCache.get(groupId);
+        return value &&
+          this.online &&
+          value.pid === this.online.resolvePid() &&
+          Date.now() - value.at < ONLINE_MEMBERS_TTL_MS
+          ? convert(value.members.slice(0, GROUP_PREVIEW_CANDIDATES))
+          : [];
+      },
+      online:
+        onlineAllowed && this.online
+          ? async () => {
+              const online = this.online!;
+              const pid = online.resolvePid();
+              const fetch = () => FetchGroupMemberListPage.invoke(online.nt, pid, { groupId });
+              const page = await (this.contactMetrics
+                ? this.contactMetrics.schedule(`member-preview:${code}`, fetch)
+                : fetch());
+              if (online.resolvePid() !== pid) throw new Error('QQ 运行时已切换');
+              return convert(page.members);
+            }
+          : undefined,
+    });
+  }
   private contactHistory?: ContactHistoryService;
   private readonly groupProfiles: GroupProfileReader;
   contactMetrics?: ContactMetricsService;
