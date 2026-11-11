@@ -205,11 +205,16 @@ describe('feature_search', () => {
         expect(result.path).toBe('设置 / 常规 / 隐私');
         expect(result.target).toMatchObject({ kind: 'setting', section: 'privacy' });
       }
-      for (const keyword of ['备份与恢复', '设置备份', '导入备份', '恢复默认设置']) {
+      for (const keyword of ['备份与恢复', '设置备份', '导入备份']) {
         const result = searchAppEntries(keyword)[0]!;
         expect(result.path).toBe('设置 / 关于 WeQ / 配置备份与恢复');
         expect(result.target).toMatchObject({ kind: 'setting', section: 'backup' });
       }
+      expect(searchAppEntries('恢复默认设置')[0]?.target).toMatchObject({
+        kind: 'setting',
+        section: 'startup',
+        settingId: 'weq-config-management',
+      });
     });
 
     it.each(['常驻显示', '悬停显示'])('%s 指向意图感知而不是没有该控件的推荐回复页', (item) => {

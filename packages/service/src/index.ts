@@ -419,7 +419,12 @@ export type {
   RecallNotifyEvent,
 } from './account/anti_recall';
 export { notifyKey } from './account/anti_recall';
-export { IntentSenseService, INTENT_LABELS, EMOTION_LABELS } from './account/intent_sense';
+export {
+  IntentSenseService,
+  INTENT_LABELS,
+  EMOTION_LABELS,
+  DEFAULT_INTENT_SENSE_CONFIG,
+} from './account/intent_sense';
 export type {
   IntentKind,
   EmotionKind,

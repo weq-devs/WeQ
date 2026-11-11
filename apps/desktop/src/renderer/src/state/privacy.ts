@@ -14,6 +14,7 @@ import { WEQ_MENU_CAPTURE_PRIVACY_KEY as CAPTURE_PRIVACY_STORAGE_KEY } from '@we
 export { CAPTURE_PRIVACY_STORAGE_KEY };
 
 export const PRIVACY_STORAGE_KEY = 'weq.privacy-mode';
+export const DEFAULT_PRIVACY_SETTINGS = { enabled: false, capturePrivacy: false } as const;
 
 type PrivacyState = {
   enabled: boolean;
@@ -55,9 +56,8 @@ export const usePrivacyStore = create<PrivacyState>((set, get) => {
     set({ enabled, effective });
   };
   return {
-    enabled: false,
+    ...DEFAULT_PRIVACY_SETTINGS,
     effective: false,
-    capturePrivacy: false,
     setCapturePrivacy: (capturePrivacy) => {
       persist(CAPTURE_PRIVACY_STORAGE_KEY, capturePrivacy);
       set({ capturePrivacy });

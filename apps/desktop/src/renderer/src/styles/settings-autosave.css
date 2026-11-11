@@ -1,0 +1,18 @@
+.weq-autosave {
+  min-width: 0;
+}
+.weq-autosave-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-autosave-status:empty {
+  visibility: hidden;
+}
+.weq-autosave-status[role='alert'] {
+  color: var(--destructive);
+}

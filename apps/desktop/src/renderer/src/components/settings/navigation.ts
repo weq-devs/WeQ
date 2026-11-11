@@ -228,9 +228,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'weq-config-management',
-    section: 'backup',
-    label: '恢复默认设置',
+    section: 'startup',
+    label: '恢复本页默认设置',
     aliases: [
+      '恢复默认设置',
       '重置与清除配置',
       '配置与运行数据管理',
       '账号与应用配置',
@@ -238,7 +239,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       '清除账号与应用配置',
       '重置全局配置',
     ],
-    from: ['storage', 'weq-storage', 'backup'],
+    from: ['startup', 'storage', 'weq-storage', 'backup'],
   },
   { id: 'qzone-pagination', section: 'qzone', label: '在线翻页限速', from: ['qzone'] },
   {
@@ -281,8 +282,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['sse-targets', 'sse', '已配置的推送目标', '推送地址', 'SSE access_token', '添加推送目标'],
       ['assistant-resource', 'assistant', '资源服务', '公众号资源地址'],
       ['assistant-port', 'assistant', 'QQ 公众号推送端口', '公众号端口'],
-      ['qq-profile', 'qq-accounts', 'QQ 资料', 'QQ 昵称', '性别', '个性签名', '更换头像'],
-      ['qq-status', 'qq-accounts', 'QQ 状态', '在线状态', '自定义状态', '状态表情'],
       ['chat-image-cache', 'message-display', '图片预览内存预算', '图片与表情', '内存缓存'],
     ] as const
   ).map(

@@ -15,6 +15,13 @@ export const componentStyles = [
 ] as const;
 export type ThemeComponentStyle = (typeof componentStyles)[number]['value'];
 export type ThemeDensity = 'comfortable' | 'compact';
+export const DEFAULT_THEME_SETTINGS = {
+  preference: 'system',
+  accent: '',
+  background: 'plain',
+  componentStyle: 'qqnt',
+  density: 'comfortable',
+} as const;
 
 const storageKeys = {
   preference: 'weq.theme-preference',
@@ -65,44 +72,44 @@ function readDensity(): ThemeDensity {
   try {
     return window.localStorage.getItem(storageKeys.density) === 'compact'
       ? 'compact'
-      : 'comfortable';
+      : DEFAULT_THEME_SETTINGS.density;
   } catch {
-    return 'comfortable';
+    return DEFAULT_THEME_SETTINGS.density;
   }
 }
 
 function readPreference(): ThemePreference {
   try {
     const value = window.localStorage.getItem(storageKeys.preference);
-    return isThemePreference(value) ? value : 'system';
+    return isThemePreference(value) ? value : DEFAULT_THEME_SETTINGS.preference;
   } catch {
-    return 'system';
+    return DEFAULT_THEME_SETTINGS.preference;
   }
 }
 
 function readAccent(): string {
   try {
-    return window.localStorage.getItem(storageKeys.accent) || '';
+    return window.localStorage.getItem(storageKeys.accent) || DEFAULT_THEME_SETTINGS.accent;
   } catch {
-    return '';
+    return DEFAULT_THEME_SETTINGS.accent;
   }
 }
 
 function readBackground(): ThemeBackground {
   try {
     const value = window.localStorage.getItem(storageKeys.background);
-    return isThemeBackground(value) ? value : 'plain';
+    return isThemeBackground(value) ? value : DEFAULT_THEME_SETTINGS.background;
   } catch {
-    return 'plain';
+    return DEFAULT_THEME_SETTINGS.background;
   }
 }
 
 function readComponentStyle(): ThemeComponentStyle {
   try {
     const value = window.localStorage.getItem(storageKeys.componentStyle);
-    return isThemeComponentStyle(value) ? value : 'qqnt';
+    return isThemeComponentStyle(value) ? value : DEFAULT_THEME_SETTINGS.componentStyle;
   } catch {
-    return 'qqnt';
+    return DEFAULT_THEME_SETTINGS.componentStyle;
   }
 }
 
@@ -231,12 +238,8 @@ function runThemeRipple(commit: () => void) {
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  preference: 'system',
+  ...DEFAULT_THEME_SETTINGS,
   resolved: 'light',
-  accent: '',
-  background: 'plain',
-  componentStyle: 'qqnt',
-  density: 'comfortable',
   initialized: false,
   setPreference: (preference) => {
     const { resolved } = get();

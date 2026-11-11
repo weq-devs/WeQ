@@ -1,0 +1,62 @@
+.weq-settings-page {
+  position: relative;
+}
+.weq-settings-page-reset {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  z-index: 1;
+}
+.weq-settings-page:has(.weq-settings-page-reset) .weq-set-head {
+  padding-right: 40px;
+}
+.weq-set-card-head {
+  gap: 12px;
+}
+.weq-set-card-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.weq-settings-reset-items {
+  max-height: 48vh;
+  overflow-y: auto;
+  margin: 12px 0;
+}
+.weq-settings-reset-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-settings-reset-item strong {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+}
+.weq-settings-reset-item small {
+  font-weight: 400;
+  color: var(--weq-fg-secondary);
+}
+.weq-settings-reset-item > span {
+  display: block;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.weq-settings-reset-modal .weq-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.weq-settings-reset-modal [role='alert'] {
+  color: var(--destructive);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .weq-settings-page-reset {
+    right: 12px;
+  }
+}

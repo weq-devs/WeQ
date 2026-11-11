@@ -1,7 +1,8 @@
 import { Fragment, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { z } from 'zod';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
-import { RotateCcw, Save, SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
+import { AutoSave } from './AutoSave';
 import {
   INTENT_TUNING,
   INTENT_TUNING_HELP,
@@ -130,20 +131,19 @@ function TuningFields({
   usePageDraftConfirmation(
     `tuning:${group}`,
     status.data
-      ? Object.fromEntries(keys.map((key) => [key, String(status.data![key])]))
+      ? Object.fromEntries(
+          keys.map((key) => [
+            key,
+            draft[key]?.trim() && Number(draft[key]) === status.data![key]
+              ? draft[key]
+              : String(status.data![key]),
+          ]),
+        )
       : undefined,
   );
   const ready = keys.every((key) => isIntentTuningValue(key, status.data?.[key]));
   const valid = (selected: readonly IntentTuningKey[]) =>
     selected.every((key) => draft[key]?.trim() && isIntentTuningValue(key, Number(draft[key])));
-
-  async function submit(selected: readonly IntentTuningKey[]) {
-    if (!active || disabled || !ready || !valid(selected)) return;
-    const input: Partial<Record<IntentTuningKey, number>> = {};
-    const changed = selected.filter((key) => Number(draft[key]) !== status.data?.[key]);
-    for (const key of changed.length ? changed : selected) input[key] = Number(draft[key]);
-    await patch(input);
-  }
 
   const apiOnly: readonly IntentTuningKey[] = [
     'apiBatchMessages',
@@ -177,76 +177,52 @@ function TuningFields({
             }
             icon={<SlidersHorizontal size={15} strokeWidth={1.8} />}
           >
-            <form
-              className="weq-intent-tuning-form"
-              // 小数步长只用于增减；输入精度与其它规则统一交给共享校验器。
-              noValidate
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit(section.keys);
-              }}
-            >
+            <div className="weq-intent-tuning-form">
               {section.keys.map((key) => {
                 const rule = INTENT_TUNING[key];
                 return (
-                  <Row
+                  <AutoSave
+                    resetKeys={[key]}
                     key={key}
-                    settingId={intentTuningSettingId(key)}
-                    label={rule.label}
-                    desc={`${INTENT_TUNING_HELP[key] ? `${INTENT_TUNING_HELP[key]} ` : ''}默认 ${rule.default}；范围 ${rule.min}–${rule.max}。`}
-                    control={
-                      <input
-                        className="weq-set-input"
-                        type="number"
-                        aria-label={'ariaLabel' in rule ? rule.ariaLabel : rule.label}
-                        min={rule.min}
-                        max={rule.max}
-                        step={'step' in rule ? rule.step : 1}
-                        required
-                        value={draft[key] ?? ''}
-                        disabled={disabled || !ready}
-                        onChange={(event) =>
-                          setDraft((current) => ({ ...current, [key]: event.target.value }))
-                        }
-                        style={{ width: 110 }}
-                      />
+                    value={draft[key]?.trim() ? Number(draft[key]) : ''}
+                    saved={status.data?.[key] ?? ''}
+                    ready={ready && !disabled}
+                    valid={valid([key])}
+                    reset={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        [key]: String(status.data?.[key] ?? ''),
+                      }))
                     }
-                  />
+                    save={(text) => patch({ [key]: Number(text) }, true)}
+                  >
+                    <Row
+                      settingId={intentTuningSettingId(key)}
+                      label={rule.label}
+                      desc={`${INTENT_TUNING_HELP[key] ? `${INTENT_TUNING_HELP[key]} ` : ''}默认 ${rule.default}；范围 ${rule.min}–${rule.max}。`}
+                      control={
+                        <input
+                          className="weq-set-input"
+                          type="number"
+                          aria-label={'ariaLabel' in rule ? rule.ariaLabel : rule.label}
+                          min={rule.min}
+                          max={rule.max}
+                          step={'step' in rule ? rule.step : 1}
+                          required
+                          value={draft[key] ?? ''}
+                          disabled={disabled || !ready}
+                          onChange={(event) =>
+                            setDraft((current) => ({ ...current, [key]: event.target.value }))
+                          }
+                          style={{ width: 110 }}
+                        />
+                      }
+                    />
+                  </AutoSave>
                 );
               })}
-              <Row
-                label={ready ? undefined : status.isLoading ? '读取中…' : '当前主进程尚未提供参数'}
-                control={
-                  <>
-                    <button
-                      type="button"
-                      className="weq-set-iconbtn"
-                      title="恢复默认值"
-                      aria-label={`恢复${section.title}默认值`}
-                      disabled={disabled || !ready}
-                      onClick={() =>
-                        setDraft((current) => ({
-                          ...current,
-                          ...Object.fromEntries(
-                            section.keys.map((key) => [key, String(INTENT_TUNING[key].default)]),
-                          ),
-                        }))
-                      }
-                    >
-                      <RotateCcw size={15} />
-                    </button>
-                    <button
-                      type="submit"
-                      className="weq-set-btn"
-                      disabled={disabled || !ready || !valid(section.keys)}
-                    >
-                      <Save size={14} />
-                      保存
-                    </button>
-                  </>
-                }
-              />
-            </form>
+              {!ready ? <p>{status.isLoading ? '读取中…' : '当前主进程尚未提供参数'}</p> : null}
+            </div>
           </Card>
         </Fragment>
       ))}

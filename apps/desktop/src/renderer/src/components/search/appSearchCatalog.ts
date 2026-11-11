@@ -132,7 +132,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
     '同名数据处理',
     '保留本机导出目录与图片库路径',
   ],
-  ['backup', '恢复默认设置', '重置设置', '恢复出厂'],
+  ['startup', '恢复本页默认设置', '恢复默认设置', '重置设置', '恢复出厂'],
   ['database', '数据库异常时弹窗提醒', '损坏提醒'],
   ['database', '数据库宽容级别', '容错级别', '严格模式'],
   ['database-status', '降级账本'],

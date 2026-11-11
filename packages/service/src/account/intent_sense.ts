@@ -795,6 +795,7 @@ export class IntentSenseService {
 
   async setConfig(
     patch: Partial<Omit<IntentSenseConfig, 'conversationOverrides'>>,
+    options: { preserveAnalysisResults?: boolean } = {},
   ): Promise<IntentSenseStatus> {
     const previous = this.config;
     const next: IntentSenseConfig = { ...this.config };
@@ -907,6 +908,7 @@ export class IntentSenseService {
     }
     this.configStore.data = next;
     for (const store of this.analysisStores.values()) {
+      if (options.preserveAnalysisResults) continue;
       if (store.data.results.length <= next.cacheEntries) continue;
       store.data = {
         ...store.data,

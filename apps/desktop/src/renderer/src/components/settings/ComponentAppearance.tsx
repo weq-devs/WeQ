@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from 'react';
 import { Check, Search } from 'lucide-react';
 import { componentStyles, useThemeStore, type ThemeComponentStyle } from '../../state/theme';
+import { SettingsResetButton } from './SettingsReset';
 
 function navigateOptions(event: KeyboardEvent<HTMLDivElement>) {
   const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
@@ -74,6 +75,7 @@ export function ComponentAppearance() {
       >
         <div className="weq-settings-appearance-head">
           <strong>组件风格</strong>
+          <SettingsResetButton card="theme-components" />
         </div>
         <div
           className="weq-style-options"

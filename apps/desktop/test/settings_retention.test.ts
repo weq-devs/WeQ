@@ -465,11 +465,12 @@ describe('设置二级页现场与活动生命周期', () => {
     }
   });
   it('只挂载当前页，重建恢复输入、展开与滚动，不让旧页继续查询', async () => {
-    const f = mount();
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
     try {
       const body = f.body(),
         input = body.querySelector<HTMLInputElement>('input')!;
-      inputValue(input, '73');
+      inputValue(input, '48773');
       act(() => {
         body.scrollTop = 137;
         body.dispatchEvent(new Event('scroll', { bubbles: true }));
@@ -481,10 +482,10 @@ describe('设置二级页现场与活动生命周期', () => {
       act(() => {
         details.open = true;
       });
-      f.render('global');
+      f.render('mcp');
       expect(f.body()).not.toBe(body);
       expect(f.body().querySelector('input')).not.toBe(input);
-      expect(f.body().querySelector('input')!.value).toBe('73');
+      expect(f.body().querySelector('input')!.value).toBe('48773');
       Object.defineProperty(f.body(), 'scrollHeight', { value: 1000 });
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 30));

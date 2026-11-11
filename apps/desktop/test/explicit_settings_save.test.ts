@@ -110,14 +110,13 @@ describe('显式保存设置不以未变化禁用', () => {
   });
   it('空间限速是两个填空的单行表单，重读不覆盖草稿且仍按原范围校验', async () => {
     const f = mount(createElement(QzonePaginationSettings));
-    const form = f.host.querySelector<HTMLFormElement>('form[aria-label="在线翻页限速"]')!;
+    const form = f.host.querySelector<HTMLElement>('[aria-label="在线翻页限速"]')!;
     expect([...form.children].map((node) => node.tagName)).toEqual([
       'SPAN',
       'INPUT',
       'SPAN',
       'INPUT',
       'SPAN',
-      'BUTTON',
     ]);
     const inputs = [...form.querySelectorAll('input')];
     const edit = (index: number, value: string) =>
@@ -134,10 +133,15 @@ describe('显式保存设置不以未变化禁用', () => {
     f.render();
     expect(inputs.map((node) => node.value)).toEqual(['12', '6']);
     edit(0, '0');
-    expect(f.save().disabled).toBe(true);
+    await act(async () =>
+      inputs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+    );
+    expect(state.mutate).not.toHaveBeenCalled();
     edit(0, '12');
-    expect(f.save().disabled).toBe(false);
-    await act(async () => f.save().click());
+    expect(f.save()).toBeUndefined();
+    await act(async () =>
+      inputs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+    );
     expect(state.mutate).toHaveBeenCalledWith('bootstrap.setQzonePagination', {
       windowSeconds: 12,
       maxPages: 6,
@@ -215,12 +219,6 @@ describe('显式保存设置不以未变化禁用', () => {
   );
   it.each([
     {
-      label: '翻页频率',
-      view: () => createElement(QzonePaginationSettings),
-      route: 'bootstrap.setQzonePagination',
-      input: { windowSeconds: 10, maxPages: 5 },
-    },
-    {
       label: 'MCP 端口',
       view: () => createElement(McpServerSection),
       route: 'bootstrap.setMcpPort',
@@ -231,27 +229,6 @@ describe('显式保存设置不以未变化禁用', () => {
       view: () => createElement(AssistantSection),
       route: 'bootstrap.setWeqAssistantPort',
       input: { port: 27182 },
-    },
-    {
-      label: 'SSE 调优',
-      view: () => createElement(SsePushSection),
-      route: 'bootstrap.setSsePushTuning',
-      input: { debounceMs: 2000, massThreshold: 50 },
-    },
-    {
-      label: '意图参数',
-      view: () => createElement(IntentTuningPanel, { group: 'analysis' }),
-      route: 'account.intentSense.setConfig',
-      input: Object.fromEntries(
-        (
-          [
-            'analysisContextMessages',
-            'backfillMessages',
-            'contextGapMinutes',
-            'contextSpanMinutes',
-          ] as const
-        ).map((key) => [key, DEFAULT_INTENT_TUNING[key]]),
-      ),
     },
   ])('$label 原值可保存，点击才提交，保存后仍可再提交', async ({ view, route, input }) => {
     const f = mount(view());
@@ -268,5 +245,34 @@ describe('显式保存设置不以未变化禁用', () => {
     expect(f.save().disabled).toBe(true);
     act(() => f.save().click());
     expect(state.mutate.mock.calls.filter(([path]) => path === route)).toHaveLength(2);
+  });
+  it.each([
+    {
+      view: () => createElement(SsePushSection),
+      label: '防抖毫秒',
+      value: '3000',
+      route: 'bootstrap.setSsePushTuning',
+      input: { debounceMs: 3000, massThreshold: 50 },
+    },
+    {
+      view: () => createElement(IntentTuningPanel, { group: 'analysis' }),
+      label: '分析上文条数',
+      value: '8',
+      route: 'account.intentSense.setConfig',
+      input: { analysisContextMessages: 8 },
+    },
+  ])('$label 移除保存按钮，修改后回车提交', async ({ view, label, value, route, input }) => {
+    const f = mount(view());
+    const node =
+      f.host.querySelector<HTMLInputElement>(`[aria-label="${label}"]`) ??
+      f.host.querySelector<HTMLInputElement>('input[type="number"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value);
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () =>
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+    );
+    expect(state.mutate).toHaveBeenCalledWith(route, input);
   });
 });

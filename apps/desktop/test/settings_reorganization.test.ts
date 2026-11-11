@@ -9,6 +9,7 @@ import type { SettingsSearchTarget } from '../src/renderer/src/components/settin
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useViewState } from '../src/renderer/src/state/view';
 import { SETTINGS_ITEM_TARGETS } from '../src/renderer/src/components/settings/navigation';
+import { SETTINGS_RESET_CARDS } from '../src/shared/settings_reset';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
@@ -33,7 +34,14 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     new Proxy(() => proxy(path), {
       get: (_target, key) =>
         key === 'useQuery'
-          ? () => ({ data: queryData(path.at(-1) ?? ''), isLoading: false, refetch: vi.fn() })
+          ? () => ({
+              data:
+                path.join('.') === 'account.intentSense.getStatus'
+                  ? { engine: 'api' }
+                  : queryData(path.at(-1) ?? ''),
+              isLoading: false,
+              refetch: vi.fn(),
+            })
           : key === 'useMutation'
             ? () => ({ mutate: vi.fn(), isLoading: false })
             : proxy([...path, String(key)]),
@@ -95,6 +103,40 @@ function mount(initialSection?: SectionId) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('含可恢复偏好的二级页和可见卡片均有统一入口，信息与工具页不显示', () => {
+    const f = mount('appearance');
+    try {
+      for (const page of new Set(SETTINGS_RESET_CARDS.map(([id]) => id))) {
+        f.render(page);
+        expect(f.body().getAttribute('data-settings-page'), page).toBe(page);
+        expect(f.body().querySelectorAll('[aria-label="恢复本页默认设置"]'), page).toHaveLength(1);
+        for (const card of f.body().querySelectorAll('.weq-set-card')) {
+          const title = card.querySelector('.weq-set-card-title')?.textContent;
+          const descriptor = SETTINGS_RESET_CARDS.find(
+            ([id, , label]) => id === page && label === title,
+          );
+          if (descriptor)
+            expect(
+              card.querySelector(`[aria-label="恢复${descriptor[2]}默认设置"]`),
+              `${page}:${title}`,
+            ).not.toBeNull();
+        }
+      }
+      for (const page of [
+        'backup',
+        'faq',
+        'feedback',
+        'diagnostics',
+        'database-management',
+        'weq-storage',
+      ] as const) {
+        f.render(page);
+        expect(f.body().querySelector('[aria-label="恢复本页默认设置"]'), page).toBeNull();
+      }
+    } finally {
+      f.close();
+    }
+  });
   it('WeQ 服务直接展示独立管理页，不再显示后台服务总览', () => {
     const f = mount('mcp');
     try {
@@ -359,7 +401,7 @@ describe('设置归位后的实际页面', () => {
     ['chat-messages', '使用 QQ 账号设置的个性字体发送消息', 'send-with-qq-font', '互动与防撤回'],
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
-    ['intent-models', '意图模型资源', 'intent-model-resources', '意图感知'],
+    ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],
     ['database', '数据库异常时弹窗提醒', 'damage-reminder', '损坏与修复'],
   ] as const)('旧 %s / %s 定位实际控件而不执行工具', (section, item, settingId, page) => {
     const f = mount('appearance');
@@ -625,6 +667,7 @@ describe('设置归位后的实际页面', () => {
         node.getAttribute('data-setting-id'),
       );
       expect(ids).toEqual([
+        'weq-config-management',
         'startup-enabled',
         'startup-page',
         'home-settings',

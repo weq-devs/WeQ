@@ -131,7 +131,7 @@ describe('主页显示与偏好', () => {
       view.close();
     }
   });
-  it('开关只提交单字段，屏蔽词编辑不自动保存，提交后刷新一言', async () => {
+  it('开关只提交单字段，屏蔽词停止输入后自动保存并刷新一言', async () => {
     const view = mount(HomeSettingsSection);
     try {
       await act(async () =>
@@ -147,11 +147,10 @@ describe('主页显示与偏好', () => {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
       expect(fixture.save).toHaveBeenCalledTimes(1);
-      await act(async () =>
-        view.host
-          .querySelector('form')!
-          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-      );
+      expect(view.host.querySelector('button[type="submit"]')).toBeNull();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 650));
+      });
       expect(fixture.save).toHaveBeenLastCalledWith({ blockedWords: ['剧透', 'SPOILER'] });
       expect(fixture.invalidate).toHaveBeenCalledTimes(1);
     } finally {
@@ -173,11 +172,7 @@ describe('主页显示与偏好', () => {
       view.render();
       expect(input.value).toBe('尚未保存');
       fixture.save.mockRejectedValueOnce(new Error('保存失败'));
-      await act(async () =>
-        view.host
-          .querySelector('form')!
-          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-      );
+      await act(async () => input.dispatchEvent(new Event('focusout', { bubbles: true })));
       expect(input.value).toBe('尚未保存');
       expect(fixture.home.blockedWords).toEqual(['后台更新']);
       expect(fixture.invalidate).not.toHaveBeenCalled();

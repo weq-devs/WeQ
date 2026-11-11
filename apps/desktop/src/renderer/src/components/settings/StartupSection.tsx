@@ -132,7 +132,7 @@ export function StartupSection() {
           <p className="weq-set-note weq-set-note-warn">旧后台迁移未完成：{data.migrationError}</p>
         )}
       </Card>
-      <Card>
+      <Card title="启动时进入" resetId="startup-page">
         <Row
           settingId="startup-page"
           label="启动时进入"

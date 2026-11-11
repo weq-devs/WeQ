@@ -14,6 +14,7 @@ import { trpc, client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
 import { useTabActive } from '../components/RetainedTabs';
 import { useUpdateStore } from '../state/update';
+import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 
 export type UpdatePhase =
   | 'idle'
@@ -35,6 +36,7 @@ export interface UpdateProgress {
 export interface AppUpdate {
   intervalMinutes: number;
   changingInterval: boolean;
+  intervalReady: boolean;
   setIntervalMinutes(minutes: number): Promise<number>;
   includePrerelease: boolean;
   changingPrerelease: boolean;
@@ -264,8 +266,9 @@ export function useAppUpdate(): AppUpdate {
 
   return useMemo(
     () => ({
-      intervalMinutes: interval.data ?? 60,
+      intervalMinutes: interval.data ?? DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
       changingInterval: interval.isLoading || interval.isError || intervalMut.isLoading,
+      intervalReady: !interval.isLoading && !interval.isError && interval.data !== undefined,
       setIntervalMinutes,
       includePrerelease,
       changingPrerelease: preferenceMut.isLoading || preferences.isLoading,

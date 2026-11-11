@@ -27,8 +27,10 @@ import { callRouter } from './routers/call';
 import { udpCaptureRouter } from './routers/udp_capture';
 import { backgroundTasksRouter } from './routers/background_tasks';
 import { startupRouter } from './routers/startup';
+import { settingsResetRouter } from './routers/settings_reset';
 
 export const appRouter = router({
+  settingsReset: settingsResetRouter,
   startup: startupRouter,
   backgroundTasks: backgroundTasksRouter,
   exportViewer: exportViewerRouter,

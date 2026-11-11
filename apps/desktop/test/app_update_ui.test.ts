@@ -116,7 +116,7 @@ describe('重启并安装反馈', () => {
   it('频率默认 60，无上限，-1 可保存且零值不能提交', async () => {
     await act(async () => root.render(createElement(UpdateCard)));
     const input = document.querySelector<HTMLInputElement>('input[type="number"]')!;
-    const save = document.querySelector<HTMLButtonElement>('[aria-label="保存自动检查更新频率"]')!;
+    expect(document.querySelector('[aria-label="保存自动检查更新频率"]')).toBeNull();
     expect(input.value).toBe('60');
     expect(input.hasAttribute('max')).toBe(false);
     for (const value of ['-1', '100000', '0']) {
@@ -127,12 +127,14 @@ describe('重启并安装反馈', () => {
         );
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
-      expect(save.disabled).toBe(value === '0');
+      await act(async () =>
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+      );
       if (value !== '0') {
-        await act(async () => save.click());
         expect(fixture.setInterval).toHaveBeenLastCalledWith({ minutes: Number(value) });
       }
     }
+    expect(fixture.setInterval).toHaveBeenCalledTimes(2);
   });
   it('测试版开关独立保存，切换后清除旧检查结果', async () => {
     await act(async () => root.render(createElement(UpdateCard)));

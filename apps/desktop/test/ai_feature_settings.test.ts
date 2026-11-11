@@ -172,11 +172,11 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
       state.pending = kind === 'pending';
       state.error = kind === 'error' ? new Error('合成读取失败') : null;
       const f = mount(component, kind !== 'inactive');
-      expect(f.toggle(title).disabled).toBe(true);
-      if (f.model(title)) expect(f.model(title).disabled).toBe(true);
+      expect(f.toggle(title).disabled).toBe(kind !== 'pending');
+      if (f.model(title)) expect(f.model(title).disabled).toBe(kind !== 'pending');
       else expect(f.host.textContent).not.toContain('待确认');
       for (const input of f.host.querySelectorAll<HTMLInputElement>('input[type="number"]'))
-        expect(input.disabled).toBe(true);
+        expect(input.disabled).toBe(kind !== 'pending');
       for (const form of f.host.querySelectorAll('form'))
         await act(async () => {
           form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -201,7 +201,7 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
     expect(state.refetch).toHaveBeenCalledOnce();
   });
 
-  it('同一在途操作不重复提交，所有分区均受保存互斥保护', async () => {
+  it('相同在途操作去重，数值输入在保存期间仍可编辑并按序提交', async () => {
     let finish!: (value: unknown) => void;
     state.save.mockImplementationOnce(
       () =>
@@ -215,14 +215,23 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
       f.toggle(title).click();
     });
     expect(state.save).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      f.host
-        .querySelector('form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    const input = f.host.querySelector<HTMLInputElement>('input[type="number"]')!;
+    expect(input.disabled).toBe(false);
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        String(Number(input.value) + 1),
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
     expect(state.save).toHaveBeenCalledTimes(1);
     await act(async () => finish(state.data['account.intentSense.getStatus']));
-    expect(state.setData).toHaveBeenCalledOnce();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 650));
+    });
+    expect(state.save).toHaveBeenCalledTimes(2);
+    expect(state.setData).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -251,7 +260,13 @@ it('回退列表直接编辑、增删、去空白与重复校验，开关不清�
   const form = f.host.querySelector<HTMLFormElement>(
     '[data-setting-id="suggestions-fallback-texts"]',
   )!;
-  const save = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
+  expect(form.querySelector('[type="submit"]')).toBeNull();
+  const flush = async () =>
+    act(async () => {
+      form
+        .querySelector('input')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
   const edit = (value: string) =>
     act(() => {
       const node = form.querySelector('input')!;
@@ -259,12 +274,14 @@ it('回退列表直接编辑、增删、去空白与重复校验，开关不清�
       node.dispatchEvent(new Event('input', { bubbles: true }));
     });
   edit(' B ');
-  expect(save.disabled).toBe(true);
+  await flush();
+  expect(state.save).not.toHaveBeenCalled();
   expect(form.textContent).toContain('不能重复');
   edit(' ');
-  expect(save.disabled).toBe(true);
+  await flush();
+  expect(state.save).not.toHaveBeenCalled();
   edit(' C ');
-  await act(async () => save.click());
+  await flush();
   expect(state.save).toHaveBeenLastCalledWith({ suggestionFallbackTexts: ['C', 'B'] });
   await act(async () =>
     f.host.querySelector<HTMLButtonElement>('[aria-label="启用回退内容"]')!.click(),
@@ -274,7 +291,6 @@ it('回退列表直接编辑、增删、去空白与重复校验，开关不清�
   expect(form.querySelectorAll('input')).toHaveLength(1);
   act(() => form.querySelector<HTMLButtonElement>('[aria-label="添加回退内容"]')!.click());
   expect(form.querySelectorAll('input')).toHaveLength(2);
-  expect(save.disabled).toBe(true);
-  act(() => form.querySelector<HTMLButtonElement>('[aria-label="恢复默认回退内容列表"]')!.click());
-  expect(form.querySelectorAll('input')).toHaveLength(DEFAULT_SUGGESTION_FALLBACK_TEXTS.length);
+  await flush();
+  expect(form.querySelector('[aria-label="恢复默认回退内容列表"]')).toBeNull();
 });

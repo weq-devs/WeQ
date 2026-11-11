@@ -642,7 +642,7 @@ export function AccountBasicsSection({
 
       {/* Realtime / db watch */}
       {page === 'account' && (
-        <Card>
+        <Card title="实时监听" resetId="realtime">
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -668,7 +668,7 @@ export function AccountBasicsSection({
         </Card>
       )}
       {page === 'read' && (
-        <Card settingId="read-sync">
+        <Card title="同步已读到 QQ" settingId="read-sync" resetId="read-sync">
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -712,7 +712,7 @@ export function AccountBasicsSection({
               <QqDebugCopy />
             </Card>
           )}
-          <Card>
+          <Card title="自动进入完整模式" resetId="attach">
             <Row
               settingId="auto-full-mode"
               label={

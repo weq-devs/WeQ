@@ -91,6 +91,43 @@ describe('IntentSenseService', () => {
     vi.unstubAllGlobals();
   });
 
+  it('局部恢复可降低缓存偏好而不立即删除分析结果，普通配置仍沿用原裁剪行为', async () => {
+    const count = INTENT_TUNING.cacheEntries.min + 1;
+    const session = makeSession(
+      Array.from({ length: count }, (_, index) =>
+        textMsg(BigInt(index + 1), 'u_peer', `合成消息 ${index}`, 1000 + index),
+      ),
+    );
+    const svc = new IntentSenseService(session, dir, {
+      localEngine: makeLocalPort(async () => ({
+        intent: 'chat',
+        emotion: 'neutral',
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.8,
+      })),
+    });
+    await svc.setConfig({
+      enabled: true,
+      engine: 'local',
+      analysisContextMessages: 0,
+      backfillMessages: count,
+    });
+    await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(svc.listMessageAnalyses('c2c', 'u_peer')).toHaveLength(count);
+    const path = join(dir, 'analysis/c2c_u_peer.json');
+    const before = readFileSync(path, 'utf8');
+    await svc.setConfig(
+      { cacheEntries: INTENT_TUNING.cacheEntries.min },
+      { preserveAnalysisResults: true },
+    );
+    expect(svc.getStatus().cacheEntries).toBe(INTENT_TUNING.cacheEntries.min);
+    expect(readFileSync(path, 'utf8')).toBe(before);
+    expect(svc.listMessageAnalyses('c2c', 'u_peer')).toHaveLength(count);
+    await svc.setConfig({ cacheEntries: INTENT_TUNING.cacheEntries.min });
+    expect(svc.listMessageAnalyses('c2c', 'u_peer')).toHaveLength(INTENT_TUNING.cacheEntries.min);
+  });
+
   it('最近推荐期限默认一分钟，支持自定和永不过期，重启保留且不清除生成缓存', async () => {
     const session = makeSession([textMsg(1n, 'u_peer', '你好', 100)]);
     const svc = new IntentSenseService(session, dir);

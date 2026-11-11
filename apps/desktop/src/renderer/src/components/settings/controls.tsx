@@ -17,6 +17,9 @@ import type { SettingsScope } from './navigation';
 import { RefreshCw } from 'lucide-react';
 import '../../styles/settings-query.css';
 import '../../styles/settings-controls.css';
+import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
+import { SettingsResetButton } from './SettingsReset';
+import { SETTINGS_RESET_CARDS, type SettingsResetCardId } from '../../../../shared/settings_reset';
 
 /** 查询失败不冒充空配置；有缓存时由调用方继续展示原数据。 */
 export function QueryError({
@@ -95,6 +98,7 @@ export function Card({
   title,
   icon,
   action,
+  resetId,
   children,
 }: {
   settingId?: string;
@@ -102,29 +106,41 @@ export function Card({
   /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
   icon?: ReactNode;
   action?: ReactNode;
+  resetId?: SettingsResetCardId;
   children: ReactNode;
 }): ReactElement {
+  const reset = useContext(SettingsResetContext);
+  const card =
+    resetId ??
+    SETTINGS_RESET_CARDS.find(([page, , label]) => page === reset?.page && title === label)?.[1];
   return (
-    <section className="weq-set-card" data-setting-id={settingId}>
-      {title || action ? (
-        <div className="weq-set-card-head">
-          {title ? (
-            <div className="weq-set-card-title">
-              {icon ? (
-                <span className="weq-set-card-icon" aria-hidden>
-                  {icon}
-                </span>
-              ) : null}
-              {title}
-            </div>
-          ) : (
-            <span />
-          )}
-          {action ? <div className="weq-set-card-action">{action}</div> : null}
-        </div>
-      ) : null}
-      {children}
-    </section>
+    <SettingsResetCardContext.Provider value={reset && card ? reset.saves(card) : null}>
+      <section className="weq-set-card" data-setting-id={settingId}>
+        {title || action || card ? (
+          <div className="weq-set-card-head">
+            {title ? (
+              <div className="weq-set-card-title">
+                {icon ? (
+                  <span className="weq-set-card-icon" aria-hidden>
+                    {icon}
+                  </span>
+                ) : null}
+                {title}
+              </div>
+            ) : (
+              <span />
+            )}
+            {action || card ? (
+              <div className="weq-set-card-action">
+                {action}
+                {card ? <SettingsResetButton card={card} /> : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {children}
+      </section>
+    </SettingsResetCardContext.Provider>
   );
 }
 

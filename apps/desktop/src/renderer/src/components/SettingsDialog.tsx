@@ -132,6 +132,8 @@ import {
 export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { useUpdateStore } from '../state/update';
+import { SettingsResetButton } from './settings/SettingsReset';
+import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
@@ -526,6 +528,13 @@ function SettingsContent({
   const activeSnapshots = usePageSnapshotReset('workspace:main:设置', `settings:${activeId}`);
   const [closing, setClosing] = useState(false);
   const guard = useDraftClose(() => setClosing(true), null);
+  const alive = useRef(open);
+  useEffect(() => {
+    alive.current = open;
+    return () => {
+      alive.current = false;
+    };
+  }, [open]);
   const [pendingNavigation, setPendingNavigation] = useState<{ navigate: () => void } | null>(null);
   const snapshotDraft = useCallback(
     () => ({ dirty: snapshots.hasDrafts(), busy: false }),
@@ -533,15 +542,20 @@ function SettingsContent({
   );
   const requestNavigation = useCallback<SettingsNavigation>(
     (navigate) => {
-      const drafts = [...guard.drafts]
-        .filter((read) => read !== snapshotDraft)
-        .map((read) => read());
-      if (drafts.some((draft) => draft.busy)) return;
-      if (!activeSnapshots.hasDrafts() && !drafts.some((draft) => draft.dirty)) {
-        navigate();
-        return;
-      }
-      setPendingNavigation((current) => current ?? { navigate });
+      const check = () => {
+        if (!alive.current) return;
+        const drafts = [...guard.drafts]
+          .filter((read) => read !== snapshotDraft)
+          .map((read) => read());
+        if (drafts.some((draft) => draft.busy)) return;
+        if (!activeSnapshots.hasDrafts() && !drafts.some((draft) => draft.dirty)) {
+          navigate();
+          return;
+        }
+        setPendingNavigation((current) => current ?? { navigate });
+      };
+      if (hasPendingSettingsSaves()) void flushSettingsSaves().then(check);
+      else check();
     },
     [activeSnapshots, guard.drafts, snapshotDraft],
   );
@@ -609,12 +623,19 @@ function SettingsContent({
   if (!open || closing) return null;
 
   const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
+  const requestClose = () => {
+    if (hasPendingSettingsSaves())
+      void flushSettingsSaves().then(() => {
+        if (alive.current) guard.requestClose();
+      });
+    else guard.requestClose();
+  };
 
   return (
     <DraftCloseContext.Provider value={guard.drafts}>
       <WorkspacePage
         title="设置"
-        onClose={guard.requestClose}
+        onClose={requestClose}
         onNavigate={onClose}
         onBack={() => requestNavigation(onClose)}
         standalone
@@ -647,7 +668,7 @@ function SettingsContent({
             type="button"
             title="关闭"
             aria-label="关闭"
-            onClick={guard.requestClose}
+            onClick={requestClose}
           >
             <X size={18} />
           </button>
@@ -957,6 +978,7 @@ function AppearanceSection({
                 <strong>基础模式</strong>
                 <span>控制浅色、深色与跟随系统</span>
               </div>
+              <SettingsResetButton card="theme-mode" />
             </div>
             <ThemeModeSwitcher value={preference} onChange={setPreference} />
           </div>
@@ -967,6 +989,7 @@ function AppearanceSection({
                 <strong>主题色</strong>
                 <span>拖动色相条或输入色值挑选主色，界面主色、描边与按钮都会跟随</span>
               </div>
+              <SettingsResetButton card="theme-accent" />
             </div>
             <ColorPicker value={accent} onChange={setAccent} />
           </div>
@@ -977,6 +1000,7 @@ function AppearanceSection({
                 <strong>界面背景</strong>
                 <span>给聊天、联系人与导出页切换不同画布质感</span>
               </div>
+              <SettingsResetButton card="theme-background" />
             </div>
             <ThemeBackgroundRow value={background} onChange={setBackground} />
           </div>

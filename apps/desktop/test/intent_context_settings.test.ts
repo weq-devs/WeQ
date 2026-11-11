@@ -183,8 +183,11 @@ function renderFixture() {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value);
       node.dispatchEvent(new Event('input', { bubbles: true }));
     });
-  const save = () => host.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
-  return { host, render, input, edit, save };
+  const commit = (label: string) =>
+    act(async () =>
+      input(label).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+    );
+  return { host, render, input, edit, commit };
 }
 
 it('服务端初始参数不误报未保存，用户改动仍保留草稿标记', () => {
@@ -218,44 +221,35 @@ it('分别编辑两个条数，只提交对应配置并刷新相关缓存，支�
   expect(f.input('意图感知上文条数').value).toBe(String(DEFAULT_ANALYSIS_CONTEXT_MESSAGES));
   expect(f.input('推荐回复上文条数')).toBeNull();
   expect(f.input('意图感知上文条数').max).toBe(String(MAX_INTENT_CONTEXT_MESSAGES));
-  expect(f.save().disabled).toBe(false);
+  expect(f.host.querySelector('form button[type="submit"]')).toBeNull();
   f.edit('意图感知上文条数', '0');
-  expect(f.save().disabled).toBe(false);
-  await act(async () => f.save().click());
+  await f.commit('意图感知上文条数');
   expect(fixture.save).toHaveBeenCalledWith({
     analysisContextMessages: 0,
   });
   expect(fixture.invalidate).toHaveBeenCalledTimes(3);
   f.render();
-  expect(f.save().disabled).toBe(false);
   f.render('suggestions');
   expect(f.input('意图感知上文条数')).toBeNull();
   expect(f.input('推荐回复上文条数').value).toBe(String(DEFAULT_SUGGESTION_CONTEXT_MESSAGES));
   f.edit('推荐回复上文条数', '2');
-  await act(async () => f.save().click());
+  await f.commit('推荐回复上文条数');
   expect(fixture.save).toHaveBeenLastCalledWith({ suggestionContextMessages: 2 });
   expect(fixture.invalidate).toHaveBeenCalledTimes(6);
   f.render('suggestions');
-  expect(f.save().disabled).toBe(false);
 });
 
-it('无效、空值、在途及主进程尚未支持时不能保存或误提示成功', () => {
+it('无效、空值及主进程尚未支持时不能保存，在途允许编辑', async () => {
   const f = renderFixture();
   for (const value of ['-1', '1.5', '', String(MAX_INTENT_CONTEXT_MESSAGES + 1)]) {
     f.edit('意图感知上文条数', value);
-    expect(f.save().disabled).toBe(true);
-    act(() =>
-      f.host
-        .querySelector('form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-    );
+    await f.commit('意图感知上文条数');
   }
   expect(fixture.save).not.toHaveBeenCalled();
   f.edit('意图感知上文条数', '2');
   fixture.pending = true;
   f.render();
-  expect(f.input('意图感知上文条数').disabled).toBe(true);
-  expect(f.save().disabled).toBe(true);
+  expect(f.input('意图感知上文条数').disabled).toBe(false);
   fixture.pending = false;
   Reflect.deleteProperty(fixture.status, 'analysisContextMessages');
   f.render();
@@ -272,21 +266,21 @@ it('最近推荐期限在缓存与历史内独立编辑保存，-1 表示永不�
   expect(input.value).toBe(String(DEFAULT_INTENT_TUNING.suggestionExpiryMinutes));
   expect(input.closest('.weq-set-card')?.textContent).toContain('缓存与历史');
   expect(input.closest('.weq-set-card')?.textContent).toContain('-1 表示永不过期');
-  const save = () => input.closest('form')!.querySelector<HTMLButtonElement>('[type="submit"]')!;
   for (const value of ['-2', '1.5', '']) {
     f.edit(label, value);
-    expect(save().disabled).toBe(true);
+    await f.commit(label);
+    expect(fixture.save).not.toHaveBeenCalled();
   }
   for (const value of [5, 0, -1]) {
     f.edit(label, String(value));
-    await act(async () => save().click());
+    await f.commit(label);
     expect(fixture.save).toHaveBeenLastCalledWith({ suggestionExpiryMinutes: value });
     f.render('suggestions');
     expect(f.input(label).value).toBe(String(value));
   }
 });
 
-it('常驻与悬停显示独立保存，只在意图感知页展示，在途禁用', async () => {
+it('常驻与悬停显示独立串行保存，只在意图感知页展示', async () => {
   const f = renderFixture();
   const toggle = (label: string) =>
     f.host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
@@ -301,8 +295,8 @@ it('常驻与悬停显示独立保存，只在意图感知页展示，在途禁�
   expect(fixture.save).toHaveBeenLastCalledWith({ hoverDisplay: false });
   fixture.pending = true;
   f.render();
-  expect(toggle('常驻显示').disabled).toBe(true);
-  expect(toggle('悬停显示').disabled).toBe(true);
+  expect(toggle('常驻显示').disabled).toBe(false);
+  expect(toggle('悬停显示').disabled).toBe(false);
   f.render('suggestions');
   expect(toggle('常驻显示')).toBeNull();
   expect(toggle('悬停显示')).toBeNull();
@@ -354,7 +348,7 @@ it('API 模式不读本地资源；搜索仅定位运行方式，不保存或启
   f.render('intent', false);
   expect(fixture.resourceActive).toBe(false);
   expect(fixture.resourceSubscriptionActive).toBe(false);
-  expect(f.save().disabled).toBe(true);
+  expect(input.disabled).toBe(true);
   f.render();
   expect(f.input('意图感知上文条数')).toBe(input);
   expect(input.value).toBe('7');

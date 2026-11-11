@@ -9,7 +9,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { FolderOpen, Info, PhoneCall, Radio, RotateCcw, Waypoints } from 'lucide-react';
+import { FolderOpen, Info, PhoneCall, Radio, Waypoints } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useToast } from '../Toast';
@@ -132,15 +132,6 @@ export function CallRecordingSection(): ReactElement {
               >
                 <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
                 选择目录
-              </button>
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={setSettings.isLoading || !config?.dir}
-                onClick={() => setSettings.mutate({ dir: null })}
-              >
-                <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
-                恢复默认
               </button>
             </div>
           }

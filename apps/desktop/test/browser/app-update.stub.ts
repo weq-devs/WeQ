@@ -8,6 +8,7 @@ export function useAppUpdate() {
   return {
     intervalMinutes,
     changingInterval: false,
+    intervalReady: true,
     setIntervalMinutes: async (minutes: number) => {
       setIntervalMinutes(minutes);
       return minutes;

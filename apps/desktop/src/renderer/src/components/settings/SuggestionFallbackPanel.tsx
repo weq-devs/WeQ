@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { z } from 'zod';
-import { List, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { List, Plus, Trash2 } from 'lucide-react';
+import { AutoSave } from './AutoSave';
 import {
-  DEFAULT_SUGGESTION_FALLBACK_TEXTS,
   MAX_SUGGESTION_FALLBACK_TEXTS,
   MAX_SUGGESTION_FALLBACK_LENGTH,
   validateSuggestionFallbackTexts,
@@ -37,16 +37,17 @@ export function SuggestionFallbackPanel({
     baseline.current = encoded;
   }, [texts, setDraft]);
   const values = draft?.map((row) => row.text) ?? [];
-  usePageDraftConfirmation(
-    'suggestion-fallback-texts',
-    texts && JSON.stringify(values) === JSON.stringify(texts) ? draft : undefined,
-  );
   let error: string | null = null;
+  let normalized = values;
   try {
-    validateSuggestionFallbackTexts(values);
+    normalized = validateSuggestionFallbackTexts(values);
   } catch (reason) {
     error = reason instanceof Error ? reason.message : String(reason);
   }
+  usePageDraftConfirmation(
+    'suggestion-fallback-texts',
+    !error && texts && JSON.stringify(normalized) === JSON.stringify(texts) ? draft : undefined,
+  );
   const busy = disabled || draft === null;
   return (
     <Card title="回退内容" icon={<List size={15} strokeWidth={1.8} />}>
@@ -63,80 +64,69 @@ export function SuggestionFallbackPanel({
           />
         }
       />
-      <form
-        className="weq-suggestion-fallback"
-        data-setting-id="suggestions-fallback-texts"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!busy && !error)
-            void patch({ suggestionFallbackTexts: validateSuggestionFallbackTexts(values) });
-        }}
+      <AutoSave
+        value={normalized}
+        saved={texts ?? []}
+        ready={!busy}
+        valid={!error}
+        reset={() => setDraft(rowsFor(texts ?? []))}
+        save={(next) =>
+          patch({ suggestionFallbackTexts: validateSuggestionFallbackTexts(next) }, true)
+        }
       >
-        <h4 className="weq-set-card-title">回退内容列表</h4>
-        {draft?.map((row, index) => (
-          <div className="weq-suggestion-fallback-row" key={row.id}>
-            <input
-              className="weq-set-input"
-              aria-label={`回退内容 ${index + 1}`}
-              value={row.text}
-              maxLength={MAX_SUGGESTION_FALLBACK_LENGTH}
-              disabled={busy}
-              onChange={(event) =>
-                setDraft(
-                  (current) =>
-                    current?.map((entry) =>
-                      entry.id === row.id ? { ...entry, text: event.target.value } : entry,
-                    ) ?? null,
-                )
-              }
-            />
+        <div className="weq-suggestion-fallback" data-setting-id="suggestions-fallback-texts">
+          <h4 className="weq-set-card-title">回退内容列表</h4>
+          {draft?.map((row, index) => (
+            <div className="weq-suggestion-fallback-row" key={row.id}>
+              <input
+                className="weq-set-input"
+                aria-label={`回退内容 ${index + 1}`}
+                value={row.text}
+                maxLength={MAX_SUGGESTION_FALLBACK_LENGTH}
+                disabled={busy}
+                onChange={(event) =>
+                  setDraft(
+                    (current) =>
+                      current?.map((entry) =>
+                        entry.id === row.id ? { ...entry, text: event.target.value } : entry,
+                      ) ?? null,
+                  )
+                }
+              />
+              <button
+                type="button"
+                className="weq-set-iconbtn"
+                title="删除回退内容"
+                aria-label={`删除回退内容 ${index + 1}`}
+                disabled={busy}
+                onClick={() =>
+                  setDraft((current) => current?.filter((entry) => entry.id !== row.id) ?? null)
+                }
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+          {draft?.length === 0 ? <p className="weq-set-note">暂无回退内容</p> : null}
+          {error ? (
+            <p role="alert" className="weq-set-note">
+              {error}
+            </p>
+          ) : null}
+          <div className="weq-suggestion-fallback-actions">
             <button
               type="button"
               className="weq-set-iconbtn"
-              title="删除回退内容"
-              aria-label={`删除回退内容 ${index + 1}`}
-              disabled={busy}
-              onClick={() =>
-                setDraft((current) => current?.filter((entry) => entry.id !== row.id) ?? null)
-              }
+              title="添加回退内容"
+              aria-label="添加回退内容"
+              disabled={busy || values.length >= MAX_SUGGESTION_FALLBACK_TEXTS}
+              onClick={() => setDraft((current) => [...(current ?? []), ...rowsFor([''])])}
             >
-              <Trash2 size={15} />
+              <Plus size={15} />
             </button>
           </div>
-        ))}
-        {draft?.length === 0 ? <p className="weq-set-note">暂无回退内容</p> : null}
-        {error ? (
-          <p role="alert" className="weq-set-note">
-            {error}
-          </p>
-        ) : null}
-        <div className="weq-suggestion-fallback-actions">
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            title="添加回退内容"
-            aria-label="添加回退内容"
-            disabled={busy || values.length >= MAX_SUGGESTION_FALLBACK_TEXTS}
-            onClick={() => setDraft((current) => [...(current ?? []), ...rowsFor([''])])}
-          >
-            <Plus size={15} />
-          </button>
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            title="恢复默认列表"
-            aria-label="恢复默认回退内容列表"
-            disabled={busy}
-            onClick={() => setDraft(rowsFor(DEFAULT_SUGGESTION_FALLBACK_TEXTS))}
-          >
-            <RotateCcw size={15} />
-          </button>
-          <button type="submit" className="weq-set-btn" disabled={busy || !!error}>
-            <Save size={14} />
-            保存
-          </button>
         </div>
-      </form>
+      </AutoSave>
     </Card>
   );
 }

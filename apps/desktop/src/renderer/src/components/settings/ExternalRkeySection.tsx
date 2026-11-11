@@ -258,6 +258,7 @@ export function ExternalRkeySection(): ReactElement {
 
       <Card
         title="已导入的服务器"
+        resetId="rkey"
         icon={<Server size={15} strokeWidth={1.8} />}
         action={
           <button

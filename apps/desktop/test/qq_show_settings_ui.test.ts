@@ -25,12 +25,9 @@ it('分钟设置默认显示 5，拒绝零分钟并保存新的分钟数', async
   act(() => root.render(h(QqShowSettings)));
   try {
     const input = host.querySelector<HTMLInputElement>('input[type="number"]')!;
-    const button = host.querySelector<HTMLButtonElement>(
-      'button[aria-label="保存 QQ 秀缓存有效期"]',
-    )!;
     expect(input.value).toBe('5');
     expect(input.getAttribute('aria-label')).toBe('QQ 秀缓存有效期（分钟）');
-    expect(button.disabled).toBe(true);
+    expect(host.querySelector('button[aria-label="保存 QQ 秀缓存有效期"]')).toBeNull();
     const setValue = (value: string) =>
       act(() => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
@@ -40,11 +37,13 @@ it('分钟设置默认显示 5，拒绝零分钟并保存新的分钟数', async
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
     setValue('0');
-    expect(button.disabled).toBe(true);
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+    );
+    expect(save).not.toHaveBeenCalled();
     setValue('3');
-    expect(button.disabled).toBe(false);
     await act(async () => {
-      input.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
     expect(save).toHaveBeenCalledWith({ minutes: 3 });
     expect(invalidate).toHaveBeenCalled();

@@ -41,7 +41,7 @@ export function MailSettingsSection() {
   return (
     <div className="weq-set">
       <SectionHeader icon={<Mail size={16} strokeWidth={1.8} />} title="QQ 邮箱" />
-      <Card>
+      <Card title="邮箱提醒" resetId="mail">
         <Row
           settingId="mail-unread-badge"
           label="在邮箱图标上显示红点"
