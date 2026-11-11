@@ -52,9 +52,13 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-display.html`,
   );
-  await page.getByRole('switch', { name: '资料展示设置' }).waitFor();
+  const modeButton = page.locator('[data-profile-display-mode]');
+  await modeButton.waitFor();
+  assert.equal(await modeButton.getAttribute('type'), 'button');
+  assert.equal(await page.getByRole('switch').count(), 0);
   assert.equal(await page.evaluate(() => window.profileDisplayQa.calls()), 0);
-  await page.getByRole('switch', { name: '资料展示设置' }).click();
+  await modeButton.click();
+  assert.equal(await modeButton.textContent(), '完成资料展示设置');
   assert.ok((await page.locator('main').textContent()).includes('合成名片昵称'));
   assert.equal(
     await page.locator('[data-display-field="gender"] [aria-checked="true"]').count(),
@@ -117,9 +121,9 @@ try {
           await page.screenshot({ path: resolve(output, `${width}-${theme}.png`), fullPage: true });
         results.push({ width, theme, background, overflow });
       }
-  await page.getByRole('switch', { name: '资料展示设置' }).click();
+  await modeButton.click();
   assert.equal(await page.locator('[data-display-field]').count(), 0);
-  await page.getByRole('switch', { name: '资料展示设置' }).click();
+  await modeButton.click();
   await gender.getByRole('radio', { name: '仅好友', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   await gender.getByText('已保存').waitFor();

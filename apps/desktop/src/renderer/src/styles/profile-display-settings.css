@@ -17,6 +17,12 @@
 .weq-profile-display-pass {
   display: contents;
 }
+.weq-profile-display-mode-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
 .weq-profile-display-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(190px, auto);

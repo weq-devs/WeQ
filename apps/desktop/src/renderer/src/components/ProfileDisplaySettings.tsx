@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from 'react';
-import { Check, Loader2, RotateCcw } from 'lucide-react';
+import { Check, Loader2, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import {
   PROFILE_DISPLAY_FIELDS,
   type ProfileDisplayField,
@@ -15,7 +15,6 @@ import {
 } from '@weq/protocol/profile-display';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
-import { Toggle } from './settings/controls';
 import { SegmentedControl } from './SegmentedControl';
 import { SelfProfileField } from './SelfProfileField';
 import '../styles/profile-display-settings.css';
@@ -173,8 +172,16 @@ export function ProfileDisplayToolbar() {
   if (!context) return null;
   return (
     <div className="weq-profile-display-toolbar">
-      <span>资料展示设置</span>
-      <Toggle label="资料展示设置" checked={context.enabled} onChange={context.enable} />
+      <button
+        type="button"
+        className="weq-set-btn weq-profile-display-mode-button"
+        data-profile-display-mode
+        aria-expanded={context.enabled}
+        onClick={() => context.enable(!context.enabled)}
+      >
+        {context.enabled ? <Check size={14} /> : <SlidersHorizontal size={14} />}
+        {context.enabled ? '完成资料展示设置' : '资料展示设置'}
+      </button>
       {context.enabled && (
         <>
           <span role="status">

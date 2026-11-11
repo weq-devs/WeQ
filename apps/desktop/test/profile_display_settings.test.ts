@@ -67,7 +67,8 @@ function fixture(provider = true) {
     act(() => root.unmount());
     host.remove();
   });
-  const toggle = () => act(() => host.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+  const toggle = () =>
+    act(() => host.querySelector<HTMLButtonElement>('[data-profile-display-mode]')!.click());
   const choose = (field: string, value: string) =>
     act(() => {
       const buttons = host.querySelectorAll<HTMLButtonElement>(
@@ -100,9 +101,12 @@ afterEach(() => {
 
 it('未启用不读状态；启用不隐藏正文；关闭不写入', () => {
   const f = fixture();
+  expect(f.host.querySelector('[data-profile-display-mode]')?.tagName).toBe('BUTTON');
+  expect(f.host.querySelector('[role="switch"]')).toBeNull();
   expect(state.enabled.every((enabled) => !enabled)).toBe(true);
   expect(f.host.querySelector('[role="radiogroup"]')).toBeNull();
   f.toggle();
+  expect(f.host.querySelector('[data-profile-display-mode]')?.textContent).toBe('完成资料展示设置');
   expect(state.enabled.at(-1)).toBe(true);
   expect(f.host.textContent).toContain('本地资料正文');
   f.toggle();
@@ -206,7 +210,9 @@ it('切换账号退出模式，旧保存回包不会污染新账号', async () =
       error: null,
     }),
   );
-  expect(f.host.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
+  expect(f.host.querySelector('[data-profile-display-mode]')?.getAttribute('aria-expanded')).toBe(
+    'false',
+  );
   f.toggle();
   expect(
     f.host.querySelector('[data-display-field="gender"] [aria-checked="true"]')?.textContent,
@@ -214,7 +220,7 @@ it('切换账号退出模式，旧保存回包不会污染新账号', async () =
 });
 it('没有自己的资料上下文时，其他联系人不会出现入口或查询', () => {
   const f = fixture(false);
-  expect(f.host.querySelector('[role="switch"]')).toBeNull();
+  expect(f.host.querySelector('[data-profile-display-mode]')).toBeNull();
   expect(state.enabled).toHaveLength(0);
 });
 
