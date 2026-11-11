@@ -728,6 +728,18 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.weq-int-suggest-expired {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.weq-int-suggest-expired-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-int-suggest-expired-age {
+  flex-shrink: 0;
+}
 .weq-int-history-slot {
   min-height: 0;
   overflow: hidden;

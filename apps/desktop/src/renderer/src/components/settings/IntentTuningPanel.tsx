@@ -41,7 +41,10 @@ const SECTIONS: Record<keyof typeof TITLES, { title: string; keys: readonly Inte
         keys: ['suggestionContextMessages', 'suggestionCount', 'suggestionTargetChars'],
       },
       { title: '生成参数', keys: ['suggestionTemperature'] },
-      { title: '缓存与历史', keys: ['suggestionCacheSeconds', 'suggestionHistoryLimit'] },
+      {
+        title: '缓存与历史',
+        keys: ['suggestionCacheSeconds', 'suggestionExpiryMinutes', 'suggestionHistoryLimit'],
+      },
     ],
     profile: [
       { title: '统计范围', keys: ['profileMessages', 'profileDecayDays', 'profileGapMinutes'] },

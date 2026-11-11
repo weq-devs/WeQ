@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
-import { MAX_INTENT_CONTEXT_MESSAGES } from '@weq/service/intent-context';
+import { INTENT_TUNING, MAX_INTENT_CONTEXT_MESSAGES } from '@weq/service/intent-context';
 const service = vi.hoisted(() => ({
   setConfig: vi.fn(async (input: unknown) => input),
   getSuggestions: vi.fn(async () => []),
@@ -16,6 +16,25 @@ vi.mock('../src/main/context/app_context', () => ({
   getActiveIntentSenseLocalEngine: () => null,
 }));
 import { intentSenseRouter } from '../src/main/ipc/routers/intent_sense';
+
+it('推荐过期时间接受 -1 永不过期、0 立即过期和自定分钟，拒绝无效值', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  for (const value of [-1, 0, 5, INTENT_TUNING.suggestionExpiryMinutes.max]) {
+    await caller.setConfig({ suggestionExpiryMinutes: value });
+    expect(service.setConfig).toHaveBeenLastCalledWith({ suggestionExpiryMinutes: value });
+  }
+  const calls = service.setConfig.mock.calls.length;
+  for (const value of [
+    -2,
+    0.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    INTENT_TUNING.suggestionExpiryMinutes.max + 1,
+  ]) {
+    await expect(caller.setConfig({ suggestionExpiryMinutes: value })).rejects.toThrow();
+  }
+  expect(service.setConfig).toHaveBeenCalledTimes(calls);
+});
 
 it('等待动画、回退列表与历史轮数通过现有配置接口校验并传递', async () => {
   const caller = intentSenseRouter.createCaller({});

@@ -149,6 +149,13 @@ export const INTENT_TUNING = {
     min: 0,
     max: 600,
   },
+  suggestionExpiryMinutes: {
+    group: 'suggestions',
+    label: '最近推荐过期时间（分钟）',
+    default: 1,
+    min: -1,
+    max: 5256000,
+  },
   suggestionHistoryLimit: {
     group: 'suggestions',
     label: '每会话保留的推荐轮数',
@@ -198,6 +205,8 @@ export const INTENT_TUNING_HELP: Partial<Record<IntentTuningKey, string>> = {
   apiCooldownSeconds: '失败后的等待时长；0 表示不额外冷却，不代表自动重发。',
   cacheEntries: '仅限制生成的分析缓存，不改动原始消息。',
   suggestionCacheSeconds: '同一消息复用候选的时长；0 表示不复用。',
+  suggestionExpiryMinutes:
+    '-1 表示永不过期，0 表示立即过期。仅在进入会话时限制未覆盖最新消息的推荐；已覆盖最新消息或正在显示的候选不因超时清空。',
   suggestionHistoryLimit: '每轮包含一次生成的全部候选；0 表示停止新增保存，已有历史保留。',
   suggestionCount: '生成式与回退候选的数量上限；可用内容不足时可能少于此数量。',
   suggestionTargetChars: '作为生成提示，不强制截断模型回复。',

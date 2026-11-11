@@ -425,6 +425,56 @@ try {
       }
     }
   }
+  await page.goto(`${url}?manual=1`);
+  await page.evaluate(() => {
+    window.intentQa.setHistory([
+      {
+        id: 'expired',
+        createdAt: Date.now() - ((365 + 12) * 86400 + 3 * 3600) * 1000,
+        target: { msgId: 'old', senderUin: '10000', sendTime: 1000 },
+        suggestions: [{ text: '已过期的推荐' }],
+      },
+    ]);
+    window.intentQa.setMode('empty');
+  });
+  await page.locator('.weq-int-suggest-empty').filter({ hasText: '1年12天前' }).waitFor();
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          theme === 'dark' ? '#fff3a1' : '#075c30',
+        );
+      }, theme);
+      assert.equal(await page.locator('.weq-int-suggest-pill').count(), 0);
+      const notice = page.locator('.weq-int-suggest-empty');
+      assert.equal(
+        await notice.getAttribute('title'),
+        '暂无推荐回复（距上次推荐 1年12天，已过期）',
+      );
+      assert.equal(
+        await notice.locator('.weq-int-suggest-expired-age').evaluate((node) => {
+          const track = node.closest('.weq-int-suggest-track').getBoundingClientRect();
+          const rect = node.getBoundingClientRect();
+          return (
+            node.scrollWidth <= node.clientWidth &&
+            rect.left >= track.left &&
+            rect.right <= track.right
+          );
+        }),
+        true,
+        `${width}/${theme}: 距上次推荐的时间应完整可见`,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      if (output) await page.screenshot({ path: resolve(output, `expired-${width}-${theme}.png`) });
+      cases++;
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, minimumContrast, errors, geometry: ready, output }, null, 2));
 } finally {

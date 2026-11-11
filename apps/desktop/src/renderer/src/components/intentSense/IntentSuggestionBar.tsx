@@ -14,6 +14,8 @@ import { useIntentSenseStatus } from './context';
 import { ReplySuggestionHistory } from './ReplySuggestionHistory';
 import { ReplySuggestionDetailsPanel } from './ReplySuggestionDetailsPanel';
 import type { ReplySuggestionHistoryEntry } from '@weq/service';
+import { INTENT_TUNING } from '@weq/service/intent-context';
+import { formatSuggestionAge } from '../../lib/suggestionExpiry';
 import '../../styles/intent-sense.css';
 
 export function IntentSuggestionBar({
@@ -62,6 +64,8 @@ export function IntentSuggestionBar({
   );
   const latestHistory = history.data?.[0];
   const upToDate = !!latestMessageId && latestHistory?.target.msgId === latestMessageId;
+  const expiryMinutes =
+    status.data?.suggestionExpiryMinutes ?? INTENT_TUNING.suggestionExpiryMinutes.default;
   const suggestions = trpc.account.intentSense.getSuggestionRound.useQuery(
     {
       kind,
@@ -96,7 +100,10 @@ export function IntentSuggestionBar({
     round: ReplySuggestionHistoryEntry;
   } | null>(null);
   const recent =
-    latestHistory && (upToDate || entry.current.at - latestHistory.createdAt <= 60_000)
+    latestHistory &&
+    (upToDate ||
+      expiryMinutes === -1 ||
+      (expiryMinutes > 0 && entry.current.at - latestHistory.createdAt <= expiryMinutes * 60_000))
       ? latestHistory
       : undefined;
   useEffect(() => {
@@ -141,6 +148,36 @@ export function IntentSuggestionBar({
       : replyAllowed
         ? suggestions.error?.message
         : undefined;
+  const expiredAt =
+    active && !loading && !error && !currentRound && !recent && latestHistory?.suggestions.length
+      ? latestHistory.createdAt
+      : undefined;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (expiredAt === undefined) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      const age = Math.max(0, Date.now() - expiredAt);
+      const unit = age < 60_000 ? 1000 : 60_000;
+      timer = setTimeout(
+        () => {
+          tick((value) => value + 1);
+          schedule();
+        },
+        unit - (age % unit),
+      );
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, [expiredAt]);
+  const expiredAge = expiredAt !== undefined ? formatSuggestionAge(Date.now() - expiredAt) : null;
+  const emptyText = error
+    ? '推荐回复失败，可重试'
+    : expiredAt !== undefined
+      ? `暂无推荐回复（距上次推荐 ${expiredAge}，已过期）`
+      : replyAllowed
+        ? '暂无推荐回复'
+        : '等待对方新消息';
   const visible = active;
   const trackRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -206,14 +243,19 @@ export function IntentSuggestionBar({
               ? `推荐回复失败：${error}`
               : list.length
                 ? '推荐回复已更新'
-                : '暂无推荐回复'}
+                : emptyText}
         </span>
         <div key={`${kind}:${conv}`} ref={trackRef} className="weq-int-suggest-track">
           {loading && list.length === 0 ? (
             <span className="weq-int-suggest-empty">正在生成推荐回复</span>
+          ) : expiredAge !== null ? (
+            <span className="weq-int-suggest-empty weq-int-suggest-expired" title={emptyText}>
+              <span className="weq-int-suggest-expired-label">上次推荐已过期</span>
+              <span className="weq-int-suggest-expired-age"> · {expiredAge}前</span>
+            </span>
           ) : list.length === 0 ? (
-            <span className="weq-int-suggest-empty" title={error}>
-              {error ? '推荐回复失败，可重试' : replyAllowed ? '暂无推荐回复' : '等待对方新消息'}
+            <span className="weq-int-suggest-empty" title={error ?? emptyText}>
+              {emptyText}
             </span>
           ) : (
             list.map((s) => (

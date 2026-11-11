@@ -26,6 +26,7 @@ import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   MAX_INTENT_CONTEXT_MESSAGES,
+  INTENT_TUNING,
 } from '../src/common/intent_context';
 
 interface StubMsg {
@@ -88,6 +89,32 @@ describe('IntentSenseService', () => {
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
     vi.unstubAllGlobals();
+  });
+
+  it('最近推荐期限默认一分钟，支持自定和永不过期，重启保留且不清除生成缓存', async () => {
+    const session = makeSession([textMsg(1n, 'u_peer', '你好', 100)]);
+    const svc = new IntentSenseService(session, dir);
+    expect(svc.getStatus().suggestionExpiryMinutes).toBe(
+      INTENT_TUNING.suggestionExpiryMinutes.default,
+    );
+    const revision = svc.getStatus().suggestionRevision;
+    for (const minutes of [5, 0, -1]) {
+      await svc.setConfig({ suggestionExpiryMinutes: minutes });
+      expect(svc.getStatus().suggestionRevision).toBe(revision);
+      expect(new IntentSenseService(session, dir).getStatus().suggestionExpiryMinutes).toBe(
+        minutes,
+      );
+    }
+    for (const value of [
+      -2,
+      0.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      INTENT_TUNING.suggestionExpiryMinutes.max + 1,
+    ]) {
+      await expect(svc.setConfig({ suggestionExpiryMinutes: value })).rejects.toThrow();
+    }
+    expect(svc.getStatus().suggestionExpiryMinutes).toBe(-1);
   });
 
   it('三项模式缺省为自动，独立保存且重启保留；手动分析只接受明确菜单请求', async () => {

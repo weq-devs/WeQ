@@ -12,6 +12,7 @@ const fixture = vi.hoisted(() => ({
     suggestionRevision: 0,
     suggestAfterSelf: false,
     suggestionMode: 'auto',
+    suggestionExpiryMinutes: 1,
   },
   query: vi.fn(),
   refresh: vi.fn(),
@@ -89,6 +90,7 @@ beforeEach(() => {
     suggestionRevision: 0,
     suggestAfterSelf: false,
     suggestionMode: 'auto',
+    suggestionExpiryMinutes: 1,
   };
   fixture.query.mockReset().mockImplementation(() => ({
     data: fixture.data,
@@ -522,6 +524,97 @@ it.each([0, 60_000, 60_001])(
     }
   },
 );
+
+it.each([
+  { minutes: 1, age: 120_000, text: '上次推荐已过期 · 2分钟前' },
+  { minutes: 5, age: 300_000, text: '最近推荐' },
+  { minutes: 5, age: 300_001, text: '上次推荐已过期 · 5分钟前' },
+  { minutes: -1, age: 40_000_000_000, text: '最近推荐' },
+  { minutes: 0, age: 59_999, text: '上次推荐已过期 · 59秒前' },
+  { minutes: 0, age: 0, text: '上次推荐已过期 · 0秒前' },
+])('手动模式按设置恢复最近推荐或说明过期原因：$minutes 分钟／$age ms', ({ minutes, age, text }) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(50_000_000_000);
+  fixture.status.suggestionMode = 'manual';
+  fixture.status.suggestionExpiryMinutes = minutes;
+  fixture.data = undefined;
+  fixture.historyQuery.mockReturnValue({
+    data: [
+      {
+        id: 'expired',
+        createdAt: Date.now() - age,
+        target: { msgId: 'old', senderUin: '10000', sendTime: 1000 },
+        suggestions: [{ text: '最近推荐' }],
+      },
+    ],
+    isLoading: false,
+    refetch: fixture.historyRefetch,
+  });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(IntentSuggestionBar, {
+          kind: 'c2c',
+          conv: 'fixture',
+          latestMessageId: 'new',
+          onInsert: vi.fn(),
+        }),
+      ),
+    );
+    expect(host.querySelector('.weq-int-suggest-track')?.textContent).toBe(text);
+    expect(fixture.query.mock.calls.at(-1)?.[1].enabled).toBe(false);
+  } finally {
+    act(() => root.unmount());
+    clock.mockRestore();
+  }
+});
+
+it('过期间隔随时钟更新，满一分钟改用分钟，卸载后不残留计时器', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  vi.setSystemTime(50_000_000_000);
+  fixture.status.suggestionMode = 'manual';
+  fixture.status.suggestionExpiryMinutes = 0;
+  fixture.data = undefined;
+  fixture.historyQuery.mockReturnValue({
+    data: [
+      {
+        id: 'expired',
+        createdAt: Date.now() - 59_000,
+        target: { msgId: 'old', senderUin: '10000', sendTime: 1000 },
+        suggestions: [{ text: '最近推荐' }],
+      },
+    ],
+    isLoading: false,
+    refetch: fixture.historyRefetch,
+  });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(IntentSuggestionBar, {
+          kind: 'group',
+          conv: 'fixture',
+          latestMessageId: 'new',
+          onInsert: vi.fn(),
+        }),
+      ),
+    );
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('59秒');
+    act(() => vi.advanceTimersByTime(1000));
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('1分钟');
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).not.toContain('秒');
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('2分钟');
+  } finally {
+    act(() => root.unmount());
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  }
+});
 
 it('在途推荐悬停变为停止，停止保留候选并抑制本条重试，新消息恢复自动推荐', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

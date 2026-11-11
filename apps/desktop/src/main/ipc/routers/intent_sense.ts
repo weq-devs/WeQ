@@ -86,6 +86,7 @@ const configPatch = z.object({
   apiTimeoutSeconds: tuning('apiTimeoutSeconds'),
   apiCooldownSeconds: tuning('apiCooldownSeconds'),
   suggestionCacheSeconds: tuning('suggestionCacheSeconds'),
+  suggestionExpiryMinutes: tuning('suggestionExpiryMinutes'),
   profileMessages: tuning('profileMessages'),
   profileSamples: tuning('profileSamples'),
   profileMinSamples: tuning('profileMinSamples'),

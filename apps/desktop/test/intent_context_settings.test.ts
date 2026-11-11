@@ -264,6 +264,28 @@ it('无效、空值、在途及主进程尚未支持时不能保存或误提示�
   expect(fixture.save).not.toHaveBeenCalled();
 });
 
+it('最近推荐期限在缓存与历史内独立编辑保存，-1 表示永不过期', async () => {
+  const f = renderFixture();
+  f.render('suggestions');
+  const label = '最近推荐过期时间（分钟）';
+  const input = f.input(label);
+  expect(input.value).toBe(String(DEFAULT_INTENT_TUNING.suggestionExpiryMinutes));
+  expect(input.closest('.weq-set-card')?.textContent).toContain('缓存与历史');
+  expect(input.closest('.weq-set-card')?.textContent).toContain('-1 表示永不过期');
+  const save = () => input.closest('form')!.querySelector<HTMLButtonElement>('[type="submit"]')!;
+  for (const value of ['-2', '1.5', '']) {
+    f.edit(label, value);
+    expect(save().disabled).toBe(true);
+  }
+  for (const value of [5, 0, -1]) {
+    f.edit(label, String(value));
+    await act(async () => save().click());
+    expect(fixture.save).toHaveBeenLastCalledWith({ suggestionExpiryMinutes: value });
+    f.render('suggestions');
+    expect(f.input(label).value).toBe(String(value));
+  }
+});
+
 it('常驻与悬停显示独立保存，只在意图感知页展示，在途禁用', async () => {
   const f = renderFixture();
   const toggle = (label: string) =>

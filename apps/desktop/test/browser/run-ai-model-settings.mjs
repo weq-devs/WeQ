@@ -74,6 +74,16 @@ try {
           await model.locator('option:checked').textContent(),
           '默认（当前：gpt-fixture-long-model-name）',
         );
+        if (title === '推荐回复') {
+          const expiry = page.getByLabel('最近推荐过期时间（分钟）', { exact: true });
+          assert.equal(await expiry.inputValue(), '1');
+          assert.equal(await expiry.getAttribute('min'), '-1');
+          assert.ok(
+            (await expiry.locator('xpath=ancestor::section[1]').textContent()).includes(
+              '-1 表示永不过期',
+            ),
+          );
+        }
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
           true,
