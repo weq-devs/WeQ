@@ -100,7 +100,6 @@ import { WorkspacePage } from './WorkspacePages';
 import { LoginAccountPanel } from './LoginAccountPanel';
 import { ReverseTool } from './ReverseTool';
 import { SignerStatusCard } from './settings/SignerStatusCard';
-import { IS_WEB } from '../lib/target';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
@@ -621,30 +620,28 @@ function SettingsContent({
         standalone
       >
         <section
-          className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
+          className="weq-settings-dialog weq-mobile-settings"
           data-mobile-category={mobileCategoryOpen || undefined}
           role="region"
           aria-labelledby="weq-settings-title"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {IS_WEB && (
-            <header className="weq-mobile-settings-header">
-              <button
-                type="button"
-                aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
-                title="返回"
-                onClick={() =>
-                  mobileBack() ||
-                  (mobileCategoryOpen
-                    ? requestNavigation(() => setMobileCategoryOpen(false))
-                    : requestNavigation(onClose))
-                }
-              >
-                <ArrowLeft size={22} />
-              </button>
-              <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
-            </header>
-          )}
+          <header className="weq-mobile-settings-header">
+            <button
+              type="button"
+              aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
+              title="返回"
+              onClick={() =>
+                mobileBack() ||
+                (mobileCategoryOpen
+                  ? requestNavigation(() => setMobileCategoryOpen(false))
+                  : requestNavigation(onClose))
+              }
+            >
+              <ArrowLeft size={22} />
+            </button>
+            <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
+          </header>
           <button
             className="weq-settings-close"
             type="button"
@@ -685,7 +682,7 @@ function SettingsContent({
                         <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
                       ) : null}
                     </span>
-                    {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
+                    <ChevronRight className="weq-mobile-settings-chevron" size={18} />
                   </button>
                 </li>
               ))}

@@ -99,7 +99,7 @@ function DesktopFixture() {
               atLatest
               tabActive
               onSend={async () => {}}
-              onDraftChange={setDraft}
+              onDraftChange={(_conversationId, value) => setDraft(value)}
               onDraftClear={() => setDraft('')}
               onBack={shell.backConversation}
             />

@@ -1,15 +1,16 @@
 import { useEffect, useSyncExternalStore, type RefObject } from 'react';
-import { IS_WEB } from '../lib/target';
 
 const mobileWebQuery = '(max-width: 760px)';
 const subscribeMobileWeb = (notify: () => void) => {
-  if (!IS_WEB) return () => {};
+  if (typeof window === 'undefined') return () => {};
   const media = window.matchMedia(mobileWebQuery);
   media.addEventListener('change', notify);
   return () => media.removeEventListener('change', notify);
 };
-const mobileWebSnapshot = () => IS_WEB && window.matchMedia(mobileWebQuery).matches;
+const mobileWebSnapshot = () =>
+  typeof window !== 'undefined' && window.matchMedia(mobileWebQuery).matches;
 
+/** Remote、Web 和桌面窄窗共用同一套单栏布局。 */
 export function useMobileWebLayout() {
   return useSyncExternalStore(subscribeMobileWeb, mobileWebSnapshot, () => false);
 }

@@ -19,7 +19,6 @@ import {
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 import '../../src/renderer/src/styles/mobile-web.css';
-import '../../src/renderer/src/styles/desktop-portrait.css';
 
 ensureThemeInitialized();
 useThemeStore.getState().setComponentStyle('qqnt');

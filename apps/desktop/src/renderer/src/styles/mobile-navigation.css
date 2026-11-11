@@ -1,7 +1,8 @@
 @media (max-width: 760px) {
   .weq-mobile-transition {
     position: absolute;
-    inset: var(--weq-mobile-header-height) 0 var(--weq-mobile-tabs-height);
+    inset: var(--weq-mobile-content-top, var(--weq-mobile-header-height)) 0
+      var(--weq-mobile-tabs-height);
     z-index: 39;
     overflow: hidden;
     pointer-events: none;

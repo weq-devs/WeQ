@@ -9,6 +9,10 @@
 
 @media (max-width: 760px) {
   .weq-web-shell {
+    --weq-mobile-content-top: calc(
+      var(--weq-mobile-window-chrome-height, 0px) +
+      var(--weq-mobile-header-height)
+    );
     --weq-mobile-header-height: calc(56px + env(safe-area-inset-top, 0px));
     --weq-mobile-header-title-size: 18px;
     --weq-mobile-tabs-height: calc(60px + env(safe-area-inset-bottom, 0px));
@@ -236,6 +240,7 @@
   .weq-web-shell .sidebar {
     height: calc(
       var(--weq-mobile-viewport-height, 100dvh) -
+      var(--weq-mobile-window-chrome-height, 0px) -
       var(--weq-mobile-header-height) -
       var(--weq-mobile-tabs-height)
     );
@@ -252,6 +257,7 @@
 
   .weq-web-shell .chat-main {
     position: absolute;
+    height: auto;
     visibility: hidden;
     pointer-events: none;
   }
@@ -261,7 +267,7 @@
   }
 
   .weq-web-shell[data-mobile-workspace] .chat-main {
-    top: var(--weq-mobile-header-height);
+    top: var(--weq-mobile-content-top);
     bottom: var(--weq-mobile-tabs-height);
     visibility: visible;
     transform: none;
@@ -269,7 +275,7 @@
   }
 
   .weq-web-shell[data-mobile-detail] .app-shell .chat-main {
-    inset: 0;
+    inset: var(--weq-mobile-window-chrome-height, 0px) 0 0;
     z-index: 45;
     visibility: visible;
     transform: none;
@@ -589,7 +595,7 @@
   .weq-mobile-more {
     position: absolute;
     z-index: 38;
-    inset: var(--weq-mobile-header-height) 0 var(--weq-mobile-tabs-height);
+    inset: var(--weq-mobile-content-top) 0 var(--weq-mobile-tabs-height);
     overflow: auto;
     background: var(--weq-bg-surface);
     color: var(--weq-fg-primary);

@@ -1,6 +1,6 @@
 ﻿// @ts-nocheck
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { useMobileWebViewport } from '../../hooks/useMobileWebViewport';
+import { useMobileWebLayout, useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
 import {
   useWorkspaceMainPageOpen,
@@ -17,7 +17,6 @@ import { MobileWebNavigation } from '../../components/MobileWebNavigation';
 import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntime';
 import { MobileRootPreviews } from '../../components/MobileRootPreviews';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
-import '../../styles/desktop-portrait.css';
 
 export function ChatShell({
   user,
@@ -107,7 +106,9 @@ export function ChatShell({
   const mobilePage = useWorkspaceMobilePage();
   const [selfProfileOpen, setSelfProfileOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  useMobileWebViewport(root, IS_WEB);
+  const singleColumn = useMobileWebLayout();
+  const sharedShell = IS_WEB || singleColumn;
+  useMobileWebViewport(root, sharedShell);
   const mainPageOpen = useWorkspaceMainPageOpen();
   const sidecarOpen = useWorkspaceSidecarOpen();
   const sidebarHidden = mainPageOpen || (view === 'messages' && sidecarOpen);
@@ -144,14 +145,34 @@ export function ChatShell({
   return (
     <div
       ref={root}
-      className={cn('app-shell-root', IS_MAC && 'is-mac', IS_WEB && 'weq-web-shell')}
+      className={cn(
+        'app-shell-root',
+        IS_MAC && 'is-mac',
+        !IS_WEB && 'is-desktop-shell',
+        sharedShell && 'weq-web-shell',
+      )}
       data-mobile-detail={mobileDetail || undefined}
       data-mobile-workspace={mobileWorkspace || undefined}
       data-mobile-root-view={view}
       data-weq-diagnostic-view={import.meta.env.DEV ? view : undefined}
     >
-      {IS_WEB && <MobileNavigationRuntime root={root} />}
-      {IS_WEB && (
+      <TitleBar
+        user={user}
+        windowOnly={!IS_WEB && singleColumn}
+        homeActive={view === 'home'}
+        onGoHome={onGoHome}
+        search={
+          <TitleBarSearch
+            persistent
+            query={query}
+            onQueryChange={onQueryChange}
+            onSearchFocus={onSearchFocus}
+            results={searchPanel}
+          />
+        }
+      />
+      {sharedShell && <MobileNavigationRuntime root={root} />}
+      {sharedShell && (
         <MobileWebNavigation
           user={user}
           view={view}
@@ -171,20 +192,6 @@ export function ChatShell({
           onOpenProfile={() => setSelfProfileOpen(true)}
         />
       )}
-      <TitleBar
-        user={user}
-        homeActive={view === 'home'}
-        onGoHome={onGoHome}
-        search={
-          <TitleBarSearch
-            persistent
-            query={query}
-            onQueryChange={onQueryChange}
-            onSearchFocus={onSearchFocus}
-            results={searchPanel}
-          />
-        }
-      />
       <div className={cn('app-shell', view === 'tools' && 'app-shell-tools')} style={shellStyle}>
         <AppRail
           user={user}
@@ -233,7 +240,7 @@ export function ChatShell({
           {mainContent}
         </main>
       </div>
-      {IS_WEB && (
+      {sharedShell && (
         <MobileRootPreviews user={user} renderHeader={(page) => renderSidebarHeader(page, true)} />
       )}
       {children}

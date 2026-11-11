@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { IS_WEB } from '../lib/target';
 import { MobileBackStack, type MobileBackEntry } from '../lib/mobileNavigation';
 
 const stack = new MobileBackStack();
@@ -12,7 +11,7 @@ let attached = false;
 const marker = `weq-mobile-${Date.now()}`;
 
 export function isMobileNavigation() {
-  return IS_WEB && typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
 }
 
 function signal(direction: 'forward' | 'back' | 'root') {

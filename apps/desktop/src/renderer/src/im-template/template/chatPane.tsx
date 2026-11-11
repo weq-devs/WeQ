@@ -351,7 +351,7 @@ function loadComposerCollapsed() {
 }
 
 function isMobileWebComposer() {
-  return IS_WEB && window.matchMedia('(max-width: 760px)').matches;
+  return isMobileComposerViewport();
 }
 
 function saveComposerCollapsed(value: boolean) {
@@ -1654,7 +1654,7 @@ export function ChatPane({
     setVoiceOpen(false);
     setMentionMenu(null);
     composerEditorRef.current?.blur();
-  }, [conversation?.id, tabActive]);
+  }, [conversation?.id, tabActive, compactHeader]);
 
   useEffect(() => {
     if (!tabActive || isMobileWebComposer()) return;

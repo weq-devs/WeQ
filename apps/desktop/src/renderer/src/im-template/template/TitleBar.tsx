@@ -70,11 +70,13 @@ export function TitleBar({
   homeActive = false,
   onGoHome,
   search,
+  windowOnly = false,
 }: {
   user: User;
   homeActive?: boolean;
   onGoHome?: () => void;
   search?: ReactNode;
+  windowOnly?: boolean;
 }) {
   const controls = useWindowControls();
   const handleMinimize = () => {
@@ -99,27 +101,29 @@ export function TitleBar({
       >
         <img src={logoUrl} className="app-title-bar-logo" alt="主页" />
       </button>
-      <div className="app-title-bar-user">
-        <ProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} />
-        <span className="app-title-bar-nick">{displayUserName(user)}</span>
-        {/* 会员徽标：独立兄弟节点，不嵌进昵称 —— 那个 span 自带 ellipsis 会把它裁掉。 */}
-        <VipBadge key={user.identityValue} />
-        {user.uid && (
-          <OnlineStatus
-            key={user.uid}
-            uid={user.uid}
-            className="weq-title-online-status"
-            refetchInterval={15_000}
-          />
-        )}
-        {user.signature && (
-          <span className="app-title-bar-signature" title={user.signature}>
-            {user.signature}
-          </span>
-        )}
-      </div>
+      {!windowOnly && (
+        <div className="app-title-bar-user">
+          <ProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} />
+          <span className="app-title-bar-nick">{displayUserName(user)}</span>
+          {/* 会员徽标：独立兄弟节点，不嵌进昵称 —— 那个 span 自带 ellipsis 会把它裁掉。 */}
+          <VipBadge key={user.identityValue} />
+          {user.uid && (
+            <OnlineStatus
+              key={user.uid}
+              uid={user.uid}
+              className="weq-title-online-status"
+              refetchInterval={15_000}
+            />
+          )}
+          {user.signature && (
+            <span className="app-title-bar-signature" title={user.signature}>
+              {user.signature}
+            </span>
+          )}
+        </div>
+      )}
       <div className="app-title-bar-drag" />
-      {search}
+      {!windowOnly && search}
       <div className="weq-titlebar-restriction">
         <div>
           <RestrictedModeIndicator persistent />
