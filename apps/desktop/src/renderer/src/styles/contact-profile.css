@@ -284,6 +284,22 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
   flex-shrink: 1;
 }
 
+.weq-profile-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-profile-hero .weq-profile-name {
+  flex-shrink: 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .weq-contact-profile-content .weq-contact-identity {
   display: flex;
   flex-wrap: wrap;
@@ -296,7 +312,7 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-identity .weq-profile-hero {
   display: grid;
-  flex: 0 1 480px;
+  flex: 1 1 300px;
   grid-template-columns: 72px minmax(0, 1fr);
   align-items: center;
   justify-items: start;
@@ -307,8 +323,12 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-identity .weq-profile-avatar {
   grid-column: 1;
-  grid-row: 1 / span 5;
+  grid-row: 1;
   align-self: start;
+}
+
+.weq-contact-identity .weq-profile-heading {
+  align-items: flex-start;
 }
 
 .weq-contact-identity .weq-profile-hero > :not(.weq-profile-avatar) {
@@ -348,6 +368,7 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-identity-actions,
 .weq-contact-identity > .weq-profile-actions {
+  max-width: 100%;
   justify-content: flex-end;
   margin-inline-start: auto;
 }
@@ -616,6 +637,7 @@ html[data-theme='dark'] .weq-contact-profile-content .weq-profile-list {
 
   .weq-contact-identity-actions {
     width: 100%;
+    justify-content: flex-start;
   }
 }
 
