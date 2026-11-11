@@ -9570,6 +9570,7 @@ function MainWorkspace(): ReactElement {
 
     let outcome: {
       ok: boolean;
+      result?: number;
       errMsg?: string;
       hint?: string;
       groupSequence?: number;

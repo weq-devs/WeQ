@@ -10,7 +10,17 @@ import { buildContactPlaceholderArk } from '../src/renderer/src/im-template/temp
 import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 
-vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isFetching: false }) },
+    },
+  },
+  client: {},
+}));
 
 const code = '123456789';
 const target = {

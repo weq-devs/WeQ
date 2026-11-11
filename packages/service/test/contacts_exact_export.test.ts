@@ -83,12 +83,15 @@ describe('联系人精确条目导出', () => {
       contacts: { scope: 'friends' },
     });
     await (manager as unknown as { queue: Promise<void> }).queue;
-    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    await manager.saveTaskOutput(id);
+    expect(manager.getTask(id)?.save?.status).toBe('saved');
     const path = join(cache, '用户名单.json');
     await manager.saveTaskOutput(id, undefined, path);
     const before = readArchive(JSON.parse(readFileSync(path, 'utf8')));
     expect(manager.resumeTask(id, true)).toBe(true);
-    await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+    await (manager as unknown as { queue: Promise<void> }).queue;
+    expect(manager.getTask(id)?.status).toBe('completed');
+    await manager.saveTaskOutput(id);
     expect(manager.getTask(id)?.error).toBeUndefined();
     expect(manager.getTask(id)?.filePath).toBe(realpathSync(path));
     const after = readArchive(JSON.parse(readFileSync(path, 'utf8')));
@@ -112,7 +115,9 @@ describe('联系人精确条目导出', () => {
       total: 0,
       contacts: { scope: 'friends', uids: ['b'] },
     });
-    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    await (manager as unknown as { queue: Promise<void> }).queue;
+    await manager.saveTaskOutput(id);
+    expect(manager.getTask(id)?.save?.status).toBe('saved');
     const target = join(cache, '用户选择.json');
     expect(await manager.saveTaskOutput(id, undefined, target)).toBe(realpathSync(target));
     expect(manager.getTask(id)?.save).toMatchObject({

@@ -165,6 +165,16 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
   const [error, setError] = useState('');
   const [directories, setDirectories] = useState<string[]>([]);
   const [results, setResults] = useState<SettingsResetResult[]>([]);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const button = cancelButton.current;
+    if (
+      !busy &&
+      button &&
+      button.ownerDocument.activeElement === button.closest('.weq-dialog-layer')
+    )
+      button.focus();
+  }, [busy]);
   const supported = SETTINGS_RESET_CARDS.some(([id]) => id === page);
   if (!supported) return <>{children}</>;
   const saves = (card: SettingsResetCardId) => {
@@ -400,6 +410,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
             </div>
             <div className="weq-modal-actions weq-dialog-foot">
               <button
+                ref={cancelButton}
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 disabled={busy}

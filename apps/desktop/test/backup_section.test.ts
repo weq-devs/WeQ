@@ -4,12 +4,42 @@ import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BackupSection, backupApi } from '../src/renderer/src/components/settings/BackupSection';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
+import {
+  SettingsResetButton,
+  SettingsResetProvider,
+} from '../src/renderer/src/components/settings/SettingsReset';
+import type { SettingsResetItem, SettingsResetResult } from '../src/shared/settings_reset';
 
-vi.mock('../src/renderer/src/trpc/client', () => ({ client: {} }));
+const reset = vi.hoisted(() => ({ preview: vi.fn(), restore: vi.fn() }));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    settingsReset: { preview: { query: reset.preview }, restore: { mutate: reset.restore } },
+  },
+  trpc: {
+    useUtils: () => ({
+      bootstrap: { getSettings: { invalidate: vi.fn() } },
+      remote: { status: { invalidate: vi.fn() }, webStatus: { invalidate: vi.fn() } },
+    }),
+  },
+}));
 const cleanups: (() => void)[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  reset.preview.mockReset().mockResolvedValue({
+    source: null,
+    items: [
+      {
+        id: 'web:enabled',
+        label: 'Web 服务',
+        scope: '全局',
+        current: true,
+        defaultValue: false,
+        stopsService: true,
+      },
+    ],
+  });
+  reset.restore.mockReset().mockResolvedValue([{ id: 'web:enabled', ok: true }]);
 });
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
@@ -88,6 +118,34 @@ async function mount(api: typeof backupApi) {
   };
   return { host, button, click };
 }
+async function mountReset(items?: SettingsResetItem[]) {
+  if (items) reset.preview.mockResolvedValue({ source: null, items });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () =>
+    root.render(
+      createElement(SettingsResetProvider, { page: 'remote' }, createElement(SettingsResetButton)),
+    ),
+  );
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  const button = (text: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (node) => node.textContent === text || node.getAttribute('aria-label') === text,
+    )!;
+  const click = async (text: string) => {
+    await act(async () => button(text).click());
+  };
+  const settled = async () => {
+    await act(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+  };
+  return { host, button, click, settled };
+}
 it('读取文件不直接写入，明确预览并确认后直接恢复；改选使旧确认失效', async () => {
   const f = fixture(),
     ui = await mount(f.api);
@@ -105,105 +163,84 @@ it('读取文件不直接写入，明确预览并确认后直接恢复；改选�
   expect(f.api.stage).toHaveBeenCalledWith('preview-1');
 });
 it('恢复默认需二次确认，未变化的命令仍可再次主动执行', async () => {
-  const f = fixture(),
-    ui = await mount(f.api);
-  expect(ui.button('恢复默认设置').disabled).toBe(false);
-  await ui.click('恢复默认设置');
-  expect(f.api.defaults).not.toHaveBeenCalled();
+  const ui = await mountReset();
+  expect(ui.button('恢复本页默认设置').disabled).toBe(false);
+  await ui.click('恢复本页默认设置');
+  expect(reset.restore).not.toHaveBeenCalled();
   await ui.click('确认恢复默认');
-  expect(f.api.defaults).toHaveBeenCalledTimes(1);
-  expect(ui.button('恢复默认设置').disabled).toBe(false);
-  await ui.click('恢复默认设置');
+  await ui.settled();
+  expect(reset.restore).toHaveBeenCalledTimes(1);
+  expect(ui.button('恢复本页默认设置').disabled).toBe(false);
+  await ui.click('恢复本页默认设置');
   await ui.click('确认恢复默认');
-  expect(f.api.defaults).toHaveBeenCalledTimes(2);
+  await ui.settled();
+  expect(reset.restore).toHaveBeenCalledTimes(2);
 });
-it('API 配置与 WeQ 服务使用同级开关，注明范围并统一选择服务重置', async () => {
-  const f = fixture();
-  const api: typeof backupApi = {
-    ...f.api,
-    defaultsInfo: vi.fn(async () => ({
-      hasApi: true,
-      paths: [{ id: 'cacheDirOverride', label: '缓存目录', value: '/synthetic/custom-cache' }],
-      connections: [
-        { id: 'systemAutostart', label: '系统登录自启', value: '已启用' },
-        { id: 'webEnabled', label: 'Web 服务', value: '运行中' },
-        { id: 'remoteMode', label: '远程连接模式', value: 'existing' },
-      ],
-    })),
-  };
-  const ui = await mount(api);
-  expect(ui.host.textContent).not.toContain('清除账号与应用配置');
-  expect(ui.host.textContent).not.toContain('重置全局配置');
-  await ui.click('恢复默认设置');
-  const modal = document.querySelector('[role="dialog"]')!;
-  const switches = [...modal.querySelectorAll<HTMLButtonElement>('[role="switch"]')];
-  expect(switches.map((node) => node.getAttribute('aria-label'))).toEqual([
-    '清除 API 配置',
-    '清除 WeQ 服务配置',
+it('按页重置注明服务停用范围，目录默认保留且显式选择后才重置', async () => {
+  const ui = await mountReset([
+    {
+      id: 'web:enabled',
+      label: 'Web 服务',
+      scope: '全局',
+      current: true,
+      defaultValue: false,
+      stopsService: true,
+    },
+    {
+      id: 'web:directory',
+      label: '缓存目录',
+      scope: '全局',
+      current: '/synthetic/custom-cache',
+      defaultValue: '/synthetic/cache',
+      directory: true,
+    },
   ]);
-  expect(switches.map((node) => node.getAttribute('aria-checked'))).toEqual(['false', 'false']);
-  expect(modal.textContent).toContain('模型、TTS、MCP、OneBot、外部 rkey、SSE');
-  expect(modal.textContent).toContain('系统登录自启、Web 服务、远程连接模式');
+  await ui.click('恢复本页默认设置');
+  const modal = document.querySelector('[role="dialog"]')!;
+  expect(modal.textContent).toContain('将停用：Web 服务');
   const select = modal.querySelectorAll<HTMLSelectElement>('select');
   expect([...select].map((node) => node.value)).toEqual(['keep']);
-  await act(async () => {
-    switches[0]!.click();
-  });
-  expect(switches[1]!.getAttribute('aria-checked')).toBe('false');
-  await act(async () => switches[1]!.click());
-  expect(modal.textContent).toContain('会断开对应的浏览器或手机连接');
-  await act(async () => switches[1]!.click());
-  expect(switches[0]!.getAttribute('aria-checked')).toBe('true');
-  expect(modal.textContent).not.toContain('会断开对应的浏览器或手机连接');
-  await act(async () => switches[1]!.click());
   await act(async () => {
     for (const node of select) {
       node.value = 'reset';
       node.dispatchEvent(new Event('change', { bubbles: true }));
     }
   });
-  expect(modal.textContent).toContain('另外恢复或清除');
-  expect(modal.textContent).toContain('不迁移文件');
+  expect(modal.textContent).toContain('不迁移或删除已有文件');
   await ui.click('确认恢复默认');
-  expect(f.api.defaults).toHaveBeenCalledWith(expect.any(String), {
-    clearApi: true,
-    resetPaths: ['cacheDirOverride'],
-    resetConnections: ['systemAutostart', 'webEnabled', 'remoteMode'],
-  });
+  await ui.settled();
+  expect(reset.restore).toHaveBeenCalledWith(
+    expect.objectContaining({ page: 'remote', directories: ['web:directory'] }),
+  );
 });
 
 it('读取恢复范围失败可重试，未读取成功时不能确认恢复', async () => {
-  const f = fixture();
-  f.api.defaultsInfo.mockRejectedValueOnce(new Error('合成读取失败'));
-  const ui = await mount(f.api);
-  await ui.click('恢复默认设置');
+  reset.preview.mockRejectedValueOnce(new Error('合成读取失败'));
+  const ui = await mountReset();
+  await ui.click('恢复本页默认设置');
   expect(ui.button('确认恢复默认').disabled).toBe(true);
   expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
     '合成读取失败',
   );
-  await ui.click('重新读取恢复范围');
+  await ui.click('重新读取');
   expect(ui.button('确认恢复默认').disabled).toBe(false);
   expect(document.querySelector('[role="dialog"] input[type="checkbox"]')).toBeNull();
-  expect(
-    [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [role="switch"]')].every(
-      (node) => node.disabled,
-    ),
-  ).toBe(true);
+  expect(reset.preview).toHaveBeenCalledTimes(2);
+  expect(reset.preview).toHaveBeenLastCalledWith({ page: 'remote', card: undefined });
   await ui.click('取消');
-  expect(f.api.defaults).not.toHaveBeenCalled();
+  expect(reset.restore).not.toHaveBeenCalled();
 });
 it('恢复默认使用居中模态确认，焦点落在取消，取消不提交恢复', async () => {
-  const f = fixture(),
-    ui = await mount(f.api);
-  await ui.click('恢复默认设置');
+  const ui = await mountReset();
+  await ui.click('恢复本页默认设置');
   const confirmation = document.querySelector('[role="dialog"][aria-modal="true"]');
   expect(confirmation).not.toBeNull();
   expect(ui.host.contains(confirmation)).toBe(false);
-  expect(confirmation?.textContent).toContain('恢复默认设置？');
+  expect(confirmation?.textContent).toContain('默认设置？');
   expect(document.activeElement).toBe(ui.button('取消'));
   await ui.click('取消');
   expect(document.querySelector('[role="dialog"]')).toBeNull();
-  expect(f.api.defaults).not.toHaveBeenCalled();
+  expect(reset.restore).not.toHaveBeenCalled();
 });
 it('旧暂存任务可确认后直接应用，Web 同样不要求重启服务', async () => {
   const f = fixture();
@@ -237,25 +274,24 @@ it('旧暂存任务可确认后直接应用，Web 同样不要求重启服务', 
     confirmation?.querySelectorAll<HTMLButtonElement>('button')[1]?.click();
   });
   expect(api.apply).toHaveBeenCalledTimes(1);
-  expect(ui.button('恢复默认设置')).toBeDefined();
+  expect(ui.button('选择备份文件')).toBeDefined();
 });
 
 it('Esc 可取消确认，提交中不能重复或关闭，失败留在弹窗且可重试', async () => {
-  const f = fixture();
   let reject: (error: Error) => void = () => {};
-  f.api.defaults.mockImplementationOnce(
+  reset.restore.mockImplementationOnce(
     () =>
-      new Promise((_, fail) => {
+      new Promise<SettingsResetResult[]>((_, fail) => {
         reject = fail;
       }),
   );
-  const ui = await mount(f.api);
-  await ui.click('恢复默认设置');
+  const ui = await mountReset();
+  await ui.click('恢复本页默认设置');
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   expect(document.querySelector('[role="dialog"]')).toBeNull();
-  await ui.click('恢复默认设置');
+  await ui.click('恢复本页默认设置');
   await ui.click('确认恢复默认');
-  expect(ui.button('正在恢复…').disabled).toBe(true);
+  expect(ui.button('确认恢复默认').disabled).toBe(true);
   expect(ui.button('取消').disabled).toBe(true);
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
@@ -264,7 +300,8 @@ it('Esc 可取消确认，提交中不能重复或关闭，失败留在弹窗且
     '合成暂存失败',
   );
   await ui.click('确认恢复默认');
-  expect(f.api.defaults).toHaveBeenCalledTimes(2);
+  await ui.settled();
+  expect(reset.restore).toHaveBeenCalledTimes(2);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
 it('组件关闭后迟到文件被释放，不把旧选择留作可确认输入', async () => {

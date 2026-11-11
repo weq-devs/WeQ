@@ -246,7 +246,7 @@ describe('多 API provider 配置', () => {
     expect(f.host.textContent).toContain('视觉：未确定');
     expect(f.host.textContent).toContain('HTTP 502');
     expect(state.save).not.toHaveBeenCalled();
-    await act(async () => f.button('保存 provider').click());
+    await act(async () => f.button('保存服务商').click());
     expect(state.save.mock.calls[0]![0].models[0].capabilities).toEqual(['chat', 'vision']);
     expect(state.save.mock.calls[0]![0].models[0]).not.toHaveProperty('probe');
   });
@@ -265,11 +265,11 @@ describe('多 API provider 配置', () => {
     );
     await act(async () => f.button('自动检测能力').click());
     expect(f.host.querySelector('fieldset')?.disabled).toBe(true);
-    expect(f.button('保存 provider').disabled).toBe(true);
+    expect(f.button('保存服务商').disabled).toBe(true);
     await act(async () => reject(new Error('合成网络错误')));
     expect(f.host.querySelector('fieldset')?.disabled).toBe(false);
     expect(state.error).toHaveBeenCalledWith('能力检测失败', '合成网络错误');
-    await act(async () => f.button('保存 provider').click());
+    await act(async () => f.button('保存服务商').click());
     expect(state.save.mock.calls[0]![0].models[0].capabilities).toEqual(['chat']);
   });
   it('配置已变化时丢弃迟到的能力结果', async () => {
@@ -288,7 +288,7 @@ describe('多 API provider 配置', () => {
       finish([{ capability: 'chat', status: 'unsupported', detail: '旧端点结果' }]),
     );
     expect(f.host.textContent).not.toContain('旧端点结果');
-    await act(async () => f.button('保存 provider').click());
+    await act(async () => f.button('保存服务商').click());
     expect(state.save.mock.calls[0]![0]).toMatchObject({
       apiKey: 'synthetic-new-key',
       models: [{ id: 'shared-model', capabilities: ['chat'] }],
@@ -298,11 +298,11 @@ describe('多 API provider 配置', () => {
     state.queryMode = 'loading';
     const f = mount(tts);
     expect(f.host.textContent).toContain('正在读取');
-    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有 provider');
+    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有服务商');
     state.queryMode = 'error';
     f.render();
     expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成配置读取失败');
-    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有 provider');
+    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有服务商');
     act(() => f.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
     expect(state.refetch).toHaveBeenCalledOnce();
     state.queryMode = 'stale';
@@ -312,7 +312,7 @@ describe('多 API provider 配置', () => {
     state.queryMode = 'empty';
     f.render();
     expect(f.host.querySelector('[role="alert"]')).toBeNull();
-    expect(f.host.textContent).toContain(tts ? '暂无语音合成' : '还没有 provider');
+    expect(f.host.textContent).toContain(tts ? '暂无语音合成' : '还没有服务商');
   });
   it.each([false, true])('%s 模板读取失败可重试，编辑保留原厂商与凭据', (tts) => {
     state.catalogError = true;
@@ -323,7 +323,7 @@ describe('多 API provider 配置', () => {
     expect(state.refetch).toHaveBeenCalledOnce();
     expect(
       f.host.querySelector<HTMLSelectElement>(
-        `[aria-label="${tts ? 'TTS 厂商模板' : 'API 厂商模板'}"]`,
+        `[aria-label="${tts ? 'TTS 服务商模板' : 'API 服务商模板'}"]`,
       )!.value,
     ).toBe(tts ? 'cosyvoice' : 'siliconflow');
     expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
@@ -485,12 +485,12 @@ describe('多 API provider 配置', () => {
     for (const key of ['synthetic-second-key', 'synthetic-third-key']) {
       act(() => f.button('新建').click());
       f.set('input[type="password"]', key);
-      await act(async () => f.button('保存 provider').click());
+      await act(async () => f.button('保存服务商').click());
       const saved = state.save.mock.calls.at(-1)![0] as AgentLabProviderConfig;
       created.push(saved.id);
       expect(saved.name).toBe(original.name);
       expect(state.providers.find((row) => row.id === original.id)).toEqual(original);
-      await act(async () => f.button('保存 provider').click());
+      await act(async () => f.button('保存服务商').click());
       expect((state.save.mock.calls.at(-1)![0] as AgentLabProviderConfig).id).toBe(saved.id);
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
       f.render();
@@ -508,7 +508,7 @@ describe('多 API provider 配置', () => {
     expect(state.error).not.toHaveBeenCalled();
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
     f.set('input[type="password"]', 'synthetic-updated-first-key');
-    await act(async () => f.button('保存 provider').click());
+    await act(async () => f.button('保存服务商').click());
     expect((state.save.mock.calls.at(-1)![0] as AgentLabProviderConfig).id).toBe(original.id);
     expect(
       state.providers.filter((row) => created.includes(row.id)).map((row) => row.apiKey),

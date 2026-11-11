@@ -94,10 +94,10 @@ it('克隆直接使用普通 ChatPane 的编辑器、时间线、菜单与多选
         ),
     );
     const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')];
-    for (const label of ['转发', '引用', '贴表情', '撤回', '删除']) {
-      const button = buttons.find((node) => node.textContent === label)!;
+    for (const label of ['转发', '引用', '更多表情', '撤回', '本地删除']) {
+      const button = buttons.find((node) => node.getAttribute('aria-label') === label)!;
       expect(button.disabled).toBe(true);
-      expect(button.title).toContain('克隆会话');
+      expect(button.title).toContain(label === '更多表情' ? '只有群消息支持贴表情' : '克隆会话');
     }
     act(() => buttons.find((node) => node.textContent === '多选')!.click());
     expect(f.host.querySelector('.composer.selection-mode .selection-bar')).not.toBeNull();

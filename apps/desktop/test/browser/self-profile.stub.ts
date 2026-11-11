@@ -154,15 +154,20 @@ export const trpc = {
   useUtils: () => ({ account: { getSelfProfile: invalidation, getOnlineStatus: invalidation } }),
   account: {
     getSelfProfile: { useQuery: () => useFixtureQuery(() => ({ ...profile, uin: account })) },
-    getAccountConfig: { useQuery: () => useFixtureQuery(() => ({ uin: account, configId: 'fixture' })) },
+    getAccountConfig: {
+      useQuery: () => useFixtureQuery(() => ({ uin: account, configId: 'fixture' })),
+    },
     getSelfVip: { useQuery: () => useFixtureQuery(() => null) },
     onVipChanged: { useSubscription: () => {} },
     dressup: { peerStats: { useQuery: () => useFixtureQuery(() => ({ level: 32 })) } },
     getSystemFaces: {
-      useQuery: () => useFixtureQuery(() => [{ id: 0, desc: '[微笑]', emojiType: 1, unicodeId: 0 }]),
+      useQuery: () =>
+        useFixtureQuery(() => [{ id: 0, desc: '[微笑]', emojiType: 1, unicodeId: 0 }]),
     },
     qqActions: {
-      extendedStatuses: { useQuery: () => useFixtureQuery(() => [{ value: 1018, label: '学习中' }]) },
+      extendedStatuses: {
+        useQuery: () => useFixtureQuery(() => [{ value: 1018, label: '学习中' }]),
+      },
     },
     qqWrite: {
       selfState: { useQuery: () => useFixtureQuery(state) },
@@ -174,7 +179,9 @@ export const trpc = {
       editSelfProfile: mutation,
     },
     profileExtras: {
-      energy: { useQuery: () => useFixtureQuery(() => ({ targetUin: account, score: 831, level: 1 })) },
+      energy: {
+        useQuery: () => useFixtureQuery(() => ({ targetUin: account, score: 831, level: 1 })),
+      },
       avatarHistory: { useInfiniteQuery: useHistory },
     },
   },

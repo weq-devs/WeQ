@@ -147,10 +147,12 @@ describe('私聊撤回入口', () => {
     }
   });
 
-  it('对方消息不显示撤回', () => {
+  it('对方消息的撤回入口禁用且不提交请求', () => {
     const f = mount({ senderId: 'u_peer' });
     try {
-      expect(f.button()).toBeUndefined();
+      expect(f.button()?.disabled).toBe(true);
+      act(() => f.button()!.click());
+      expect(recall).not.toHaveBeenCalled();
     } finally {
       f.close();
     }

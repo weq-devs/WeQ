@@ -106,6 +106,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           changed: { useSubscription: vi.fn() },
         },
         getSelfProfile: { useQuery: () => ({ data: null }) },
+        getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isFetching: false }) },
         getProfileByUin: {
           useQuery: ({ uin }: { uin: string }) => ({
             data: state.profiles.find((row) => row.uin === uin),

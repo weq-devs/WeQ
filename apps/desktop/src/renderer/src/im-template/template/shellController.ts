@@ -74,7 +74,7 @@ export function useChatShellController({
 }: UseChatShellControllerOptions) {
   const [view, setView] = usePageState<MainView>(
     'shell:view',
-    startupView ?? initialView,
+    initialView,
     z.enum([
       'home',
       'messages',

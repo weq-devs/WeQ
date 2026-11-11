@@ -64,9 +64,6 @@ describe('feature_search', () => {
       ['MCP 客户端配置', 'mcp'],
       ['推送地址', 'sse'],
       ['QQ 公众号推送端口', 'assistant'],
-      ['QQ 昵称', 'qq-accounts'],
-      ['个性签名', 'qq-accounts'],
-      ['在线状态', 'qq-accounts'],
       ['WeQ 验证器', 'privacy'],
     ])('%s 可检索且指向所属设置页面 %s', (keyword, section) => {
       expect(
@@ -74,6 +71,13 @@ describe('feature_search', () => {
           (entry) => entry.target.kind === 'setting' && entry.target.section === section,
         ),
       ).toBe(true);
+    });
+    it.each(['QQ 昵称', '个性签名', '在线状态'])('%s 不再指向已迁出的 QQ 账号设置页', (keyword) => {
+      expect(
+        searchAppEntries(keyword).some(
+          (entry) => entry.target.kind === 'setting' && entry.target.section === 'qq-accounts',
+        ),
+      ).toBe(false);
     });
     it.each([
       ['定时导出', 'scheduled'],

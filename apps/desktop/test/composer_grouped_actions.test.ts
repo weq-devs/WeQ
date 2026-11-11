@@ -52,6 +52,7 @@ async function mount(group = false, draft = '') {
         draft,
         loading: false,
         onDraftChange: vi.fn(),
+        onDraftClear: vi.fn(),
         onBack: vi.fn(),
         onSend: send,
         onStartCall: vi.fn(),

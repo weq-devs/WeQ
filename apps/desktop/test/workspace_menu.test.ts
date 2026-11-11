@@ -130,7 +130,10 @@ describe('统一竖向工作菜单', () => {
       expect(useWorkspaceMenu.getState().anchor).toBeNull();
       expect(document.activeElement).toBe(trigger);
       act(() => trigger.click());
-      act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+      act(() => {
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        document.body.click();
+      });
       expect(useWorkspaceMenu.getState().anchor).toBeNull();
       expect(trigger.getAttribute('aria-expanded')).toBe('false');
     } finally {
@@ -159,7 +162,9 @@ describe('统一竖向工作菜单', () => {
   });
 
   it('历史任务不弹出，新任务自动打开完整列表，状态刷新不重复打开', () => {
-    const root = createRoot(document.createElement('div'));
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
     const render = () =>
       act(() =>
         root.render(
@@ -177,14 +182,18 @@ describe('统一竖向工作菜单', () => {
       fixture.exports = [{ id: 'new', status: 'running' }];
       render();
       expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
-      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭完整面板"]')!.click());
+      const taskPanel = document
+        .querySelector('[data-task-layout="split"]')!
+        .closest('.weq-workspace-menu')!;
+      const request = useWorkspaceMenu.getState().taskOpenRequest;
+      act(() => taskPanel.querySelector<HTMLButtonElement>('[aria-label="关闭完整面板"]')!.click());
       fixture.exports = [{ id: 'new', status: 'completed' }];
       render();
-      expect(
-        document.querySelector('[data-task-layout="split"]')?.closest('[hidden]'),
-      ).not.toBeNull();
+      expect(document.querySelector('[data-task-layout="split"]')).toBeNull();
+      expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(request);
     } finally {
       act(() => root.unmount());
+      host.remove();
     }
   });
 

@@ -51,6 +51,10 @@ const summary: MailSummary = {
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: false })),
+  );
+  vi.stubGlobal(
     'ResizeObserver',
     class {
       observe() {}

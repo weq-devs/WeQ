@@ -152,7 +152,7 @@ describe('真实输入区与 +1 操作', () => {
             .querySelector('[data-message-id="quoted-message"] .message-bubble')!
             .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
         });
-        const reply = document.querySelector<HTMLButtonElement>('[title="引用这条消息"]');
+        const reply = document.querySelector<HTMLButtonElement>('[aria-label="引用"]');
         expect(reply).not.toBeNull();
         act(() => reply!.click());
         expect(f.host.querySelector('.composer-quote strong')?.textContent).toBe(
