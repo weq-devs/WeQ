@@ -4,7 +4,14 @@ import type { UpdatePhase } from '../../src/renderer/src/hooks/useAppUpdate';
 export function useAppUpdate() {
   const [includePrerelease, setPrerelease] = useState(false);
   const [phase, setPhase] = useState<UpdatePhase>('idle');
+  const [intervalMinutes, setIntervalMinutes] = useState(60);
   return {
+    intervalMinutes,
+    changingInterval: false,
+    setIntervalMinutes: async (minutes: number) => {
+      setIntervalMinutes(minutes);
+      return minutes;
+    },
     includePrerelease,
     changingPrerelease: false,
     setPrerelease: async (enabled: boolean) => {

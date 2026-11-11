@@ -16,6 +16,8 @@
  */
 
 import { app } from 'electron';
+import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
+import { UpdateCheckScheduler } from './scheduler';
 import { existsSync } from 'node:fs';
 import semver from 'semver';
 import electronUpdater from 'electron-updater';
@@ -45,6 +47,25 @@ let lastCheckedAt = 0;
 const CHECK_TTL_MS = 5 * 60_000;
 let preferences = { get: () => false, set: (_enabled: boolean): void => {} };
 let preferenceRevision = 0;
+const intervalPreferences = {
+  getInterval: () => DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+  setInterval: (_minutes: number): void => {},
+};
+const updateScheduler = new UpdateCheckScheduler(async () => {
+  if (downloading || downloaded || installing) return;
+  try {
+    await checkForUpdate(true);
+  } catch (error) {
+    updateBus.emit('event', { kind: 'check-failed' } satisfies UpdateEvent);
+    throw error;
+  }
+});
+
+export function startAutomaticUpdateChecks(): void {
+  if (!app.isPackaged) return;
+  updateScheduler.configure(intervalPreferences.getInterval(), true);
+  app.once('will-quit', () => updateScheduler.stop());
+}
 
 export function setCheckPrerelease(enabled: boolean): void {
   if (downloading || installing) throw new Error('请等待当前更新完成后再切换测试版检查');
@@ -306,8 +327,12 @@ export function quitAndInstall(): void {
 }
 
 /** Wire this Electron implementation into the shell-agnostic update router. */
-export function installUpdateActions(options?: typeof preferences): void {
+export function installUpdateActions(
+  options?: typeof preferences & Partial<typeof intervalPreferences>,
+): void {
   if (options) preferences = options;
+  if (options?.getInterval) intervalPreferences.getInterval = options.getInterval;
+  if (options?.setInterval) intervalPreferences.setInterval = options.setInterval;
   if (process.platform === 'darwin' && app.isPackaged) {
     // 等新版本真正完成首个页面加载，不能在原生初始化前就删除回退副本。
     app.once('browser-window-created', (_event, window) => {
@@ -317,6 +342,11 @@ export function installUpdateActions(options?: typeof preferences): void {
     });
   }
   setUpdateActions({
+    getInterval: () => intervalPreferences.getInterval(),
+    setInterval: (minutes) => {
+      intervalPreferences.setInterval(minutes);
+      if (app.isPackaged) updateScheduler.configure(minutes);
+    },
     getPrerelease: () => preferences.get(),
     setPrerelease: setCheckPrerelease,
     supported: true,

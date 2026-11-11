@@ -7,10 +7,13 @@
  * dev（未打包）下仅可检查；下载/安装会被后端拒绝，故按钮禁用并提示。
  */
 
-import { CheckCircle2, Download, Gauge, Loader2, RefreshCw, RotateCw } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { CheckCircle2, Download, Gauge, Loader2, RefreshCw, RotateCw, Save } from 'lucide-react';
+import { useState, type ReactElement } from 'react';
+import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
+import { useDialog } from '../Dialog';
 import { Card, Row, Toggle } from './controls';
+import '../../styles/update-settings.css';
 
 function fmtBytes(bytes: number): string {
   if (!bytes) return '0 MB';
@@ -28,6 +31,9 @@ function fmtSpeed(bps: number): string {
 
 export function UpdateCard(): ReactElement {
   const {
+    intervalMinutes,
+    changingInterval,
+    setIntervalMinutes,
     includePrerelease,
     changingPrerelease,
     setPrerelease,
@@ -43,6 +49,21 @@ export function UpdateCard(): ReactElement {
     download,
     install,
   } = useAppUpdate();
+  const [intervalDraft, setIntervalDraft] = useState<string | null>(null);
+  const showError = useDialog((s) => s.showError);
+  const intervalValue = intervalDraft ?? String(intervalMinutes);
+  const minutes = intervalValue.trim() === '' ? NaN : Number(intervalValue);
+  const canSaveInterval =
+    !changingInterval && isUpdateCheckInterval(minutes) && minutes !== intervalMinutes;
+  async function saveInterval(): Promise<void> {
+    if (!canSaveInterval) return;
+    try {
+      await setIntervalMinutes(minutes);
+      setIntervalDraft(null);
+    } catch (error) {
+      showError('保存更新设置失败', error instanceof Error ? error.message : String(error));
+    }
+  }
 
   const hasNew =
     phase === 'available' ||
@@ -59,6 +80,42 @@ export function UpdateCard(): ReactElement {
 
   return (
     <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
+      <Row
+        settingId="update-check-interval"
+        label="自动检查更新频率"
+        desc="单位：分钟；-1 表示永不"
+        control={
+          <div className="weq-update-interval-control">
+            <input
+              type="number"
+              className="weq-set-input"
+              aria-label="自动检查更新频率（分钟）"
+              min={-1}
+              step="any"
+              value={intervalValue}
+              disabled={changingInterval}
+              aria-invalid={!isUpdateCheckInterval(minutes)}
+              onChange={(event) => setIntervalDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void saveInterval();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="weq-set-iconbtn"
+              aria-label="保存自动检查更新频率"
+              title="保存自动检查更新频率"
+              disabled={!canSaveInterval}
+              onClick={() => void saveInterval()}
+            >
+              {changingInterval ? <Loader2 size={16} className="weq-spin" /> : <Save size={16} />}
+            </button>
+          </div>
+        }
+      />
       <Row
         settingId="update-prerelease"
         label="检查测试版"

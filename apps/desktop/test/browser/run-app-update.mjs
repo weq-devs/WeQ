@@ -13,6 +13,7 @@ const server = await createServer({
   plugins: [react(), tailwind()],
   optimizeDeps: { entries: ['test/browser/app-update.html'] },
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: [
       {
         find: /^.*\/hooks\/useAppUpdate$/,
@@ -53,9 +54,16 @@ try {
       }, theme);
       const toggle = page.getByRole('switch', { name: '检查测试版' });
       await toggle.waitFor();
+      const interval = page.getByRole('spinbutton', { name: '自动检查更新频率（分钟）' });
+      if ((await interval.inputValue()) !== '60') throw new Error('interval default failed');
+      for (const value of ['-1', '100000']) {
+        await interval.fill(value);
+        await page.getByRole('button', { name: '保存自动检查更新频率', exact: true }).click();
+        if ((await interval.inputValue()) !== value) throw new Error('interval save failed');
+      }
       await toggle.click();
       if ((await toggle.getAttribute('aria-checked')) !== 'true') throw new Error('toggle failed');
-      await page.getByRole('button', { name: '检查更新' }).click();
+      await page.getByRole('button', { name: '检查更新', exact: true }).click();
       await page.getByText('已是最新版本', { exact: true }).waitFor();
       const fits = await page.evaluate(
         () =>

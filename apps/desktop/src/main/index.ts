@@ -58,7 +58,7 @@ import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
-import { checkForUpdate, installUpdateActions } from './update/updater';
+import { startAutomaticUpdateChecks, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
 import { RemoteWebGateway } from './remote/web_gateway';
@@ -793,6 +793,11 @@ void app.whenReady().then(async () => {
   initAppContext();
   const userConfig = getAppContext().bootstrap?.userConfig;
   installUpdateActions({
+    getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,
+    setInterval: (minutes) => {
+      if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');
+      userConfig.setSettings({ updateCheckIntervalMinutes: minutes });
+    },
     get: () => userConfig?.getSettings().updateCheckPrerelease === true,
     set: (enabled) => {
       if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');
@@ -978,9 +983,7 @@ void app.whenReady().then(async () => {
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
   // dot. Deferred so it never competes with first paint; failures are ignored.
-  if (app.isPackaged) {
-    setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
-  }
+  startAutomaticUpdateChecks();
 
   app.on('activate', openMainWindow);
 });

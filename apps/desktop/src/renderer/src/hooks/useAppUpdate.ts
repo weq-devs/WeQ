@@ -33,6 +33,9 @@ export interface UpdateProgress {
 }
 
 export interface AppUpdate {
+  intervalMinutes: number;
+  changingInterval: boolean;
+  setIntervalMinutes(minutes: number): Promise<number>;
   includePrerelease: boolean;
   changingPrerelease: boolean;
   setPrerelease(enabled: boolean): Promise<void>;
@@ -92,6 +95,20 @@ export function useAppUpdate(): AppUpdate {
   });
 
   const checkMut = trpc.update.check.useMutation();
+  const interval = trpc.update.getInterval.useQuery(undefined, {
+    enabled: active,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+  const intervalMut = trpc.update.setInterval.useMutation();
+  const setIntervalMinutes = useCallback(
+    async (minutes: number): Promise<number> => {
+      const saved = await intervalMut.mutateAsync({ minutes });
+      utils.update.getInterval.setData(undefined, saved);
+      return saved;
+    },
+    [intervalMut, utils],
+  );
   const preferences = trpc.update.getPrerelease.useQuery(undefined, {
     enabled: active,
     staleTime: Infinity,
@@ -147,6 +164,9 @@ export function useAppUpdate(): AppUpdate {
         if (e.kind === 'checking') {
           setMirrorCount(e.mirrors);
           setPhase((p) => (p === 'idle' ? 'checking' : p));
+        } else if (e.kind === 'check-failed') {
+          setMirrorCount(null);
+          setPhase((p) => (p === 'checking' ? 'idle' : p));
         } else if (e.kind === 'chosen') {
           setMirror(e.base);
           setLatest(e.latest);
@@ -244,6 +264,9 @@ export function useAppUpdate(): AppUpdate {
 
   return useMemo(
     () => ({
+      intervalMinutes: interval.data ?? 60,
+      changingInterval: interval.isLoading || interval.isError || intervalMut.isLoading,
+      setIntervalMinutes,
       includePrerelease,
       changingPrerelease: preferenceMut.isLoading || preferences.isLoading,
       setPrerelease,
@@ -260,6 +283,11 @@ export function useAppUpdate(): AppUpdate {
       install,
     }),
     [
+      interval.data,
+      interval.isLoading,
+      interval.isError,
+      intervalMut.isLoading,
+      setIntervalMinutes,
       phase,
       includePrerelease,
       preferenceMut.isLoading,

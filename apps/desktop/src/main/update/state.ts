@@ -40,6 +40,7 @@ export interface UpdateProgress {
 export type UpdateEvent =
   /** Speed-test started — `mirrors` mirrors are being screened. */
   | { kind: 'checking'; mirrors: number }
+  | { kind: 'check-failed' }
   /**
    * Speed-test done — `base` won, `ranked` is the full fallback order. Also
    * carries the version verdict so the UI can leave its "checking" state even
@@ -70,6 +71,8 @@ export function setUpdateState(state: UpdateState | null): void {
  * default no-op actions in place.
  */
 export interface UpdateActions {
+  getInterval(): number;
+  setInterval(minutes: number): void;
   getPrerelease(): boolean;
   setPrerelease(enabled: boolean): void;
   check(force: boolean): Promise<UpdateState>;
@@ -80,6 +83,8 @@ export interface UpdateActions {
 }
 
 const unsupported: UpdateActions = {
+  getInterval: () => 60,
+  setInterval: () => {},
   getPrerelease: () => false,
   setPrerelease: () => {},
   supported: false,

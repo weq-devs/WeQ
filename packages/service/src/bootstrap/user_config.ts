@@ -20,6 +20,10 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, existsSyn
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
+import {
+  DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+  isUpdateCheckInterval,
+} from '../common/update_settings';
 import { DEFAULT_SERVICE_PORTS } from '../common/service_ports';
 import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
@@ -705,6 +709,8 @@ export interface LinkPreviewConfig {
 export interface AppSettings {
   /** 软件更新是否包含测试发布，默认关闭。 */
   updateCheckPrerelease: boolean;
+  /** 自动检查更新间隔（分钟），-1 表示永不。 */
+  updateCheckIntervalMinutes: number;
   /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
   toastDurations: ToastDurations;
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
@@ -1113,6 +1119,7 @@ function normalizeQqShowCacheMinutes(value: unknown, legacyDays?: unknown): numb
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   updateCheckPrerelease: false,
+  updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   exportSaveMode: 'before',
   realtimeEnabled: true,
@@ -1799,6 +1806,9 @@ export class UserConfigService {
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       updateCheckPrerelease: s?.updateCheckPrerelease === true,
+      updateCheckIntervalMinutes: isUpdateCheckInterval(s?.updateCheckIntervalMinutes)
+        ? s.updateCheckIntervalMinutes
+        : d.updateCheckIntervalMinutes,
       toastDurations: normalizeToastDurations(s?.toastDurations),
       exportSaveMode:
         s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
@@ -1949,6 +1959,9 @@ export class UserConfigService {
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
       updateCheckPrerelease: patch.updateCheckPrerelease ?? current.updateCheckPrerelease,
+      updateCheckIntervalMinutes: isUpdateCheckInterval(patch.updateCheckIntervalMinutes)
+        ? patch.updateCheckIntervalMinutes
+        : current.updateCheckIntervalMinutes,
       toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,

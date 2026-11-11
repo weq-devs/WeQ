@@ -8,6 +8,40 @@ import {
 import { DEFAULT_HOME_SETTINGS, normalizeHomeSettings } from '../src/common/home_settings';
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture } from './support/user_config';
+import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '../src/common/update_settings';
+
+describe('自动检查更新频率', () => {
+  it('旧配置默认 60 分钟，正数不设上限并随备份保留', () => {
+    const f = configFixture();
+    expect(f.service.getSettings().updateCheckIntervalMinutes).toBe(
+      DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+    );
+    for (const minutes of [-1, 0.5, 100_000, Number.MAX_VALUE]) {
+      f.service.setSettings({ updateCheckIntervalMinutes: minutes });
+      f.service.setSettings({ preferCdn: false });
+      const saved = f.open().getSettings();
+      expect(saved.updateCheckIntervalMinutes).toBe(minutes);
+      const backup = snapshotWeqSettings(saved);
+      expect(backup.updateCheckIntervalMinutes).toBe(minutes);
+      expect(() => validateWeqAppSettings(backup)).not.toThrow();
+    }
+  });
+  it.each([0, -2, -0.5, NaN, Infinity, '60', null])(
+    '无效值 %s 不覆盖配置且备份拒绝导入',
+    (value) => {
+      const f = configFixture({ settings: { updateCheckIntervalMinutes: value } });
+      expect(f.service.getSettings().updateCheckIntervalMinutes).toBe(
+        DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+      );
+      f.service.setSettings({ updateCheckIntervalMinutes: 120 });
+      f.service.setSettings(JSON.parse(JSON.stringify({ updateCheckIntervalMinutes: value })));
+      expect(f.open().getSettings().updateCheckIntervalMinutes).toBe(120);
+      expect(() => validateWeqAppSettings({ updateCheckIntervalMinutes: value })).toThrow(
+        'settings.updateCheckIntervalMinutes',
+      );
+    },
+  );
+});
 
 describe('测试版更新偏好', () => {
   it('默认关闭，独立保存且重开后保留', () => {

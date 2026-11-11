@@ -23,6 +23,7 @@
     "./qzone-pagination": "./src/common/qzone_pagination.ts",
     "./qzone-public-settings": "./src/common/qzone_public_settings.ts",
     "./toast-settings": "./src/common/toast_settings.ts",
+    "./update-settings": "./src/common/update_settings.ts",
     "./chat-image-cache": "./src/common/chat_image_cache.ts",
     "./home-settings": "./src/common/home_settings.ts",
     "./storage-cleanup": "./src/bootstrap/storage_cleanup.ts",

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({
   app: { isPackaged: true, getVersion: () => '1.0.0', once: vi.fn() },
@@ -42,6 +42,7 @@ beforeEach(() => {
   fixture.prepareMacUpdate.mockResolvedValue({ version: '1.1.0' });
   fixture.installMacUpdate.mockResolvedValue(undefined);
 });
+afterEach(() => vi.useRealTimers());
 async function ready() {
   const {
     default: { autoUpdater },
@@ -70,6 +71,60 @@ async function ready() {
 }
 
 describe('更新安装动作', () => {
+  it('持久配置控制启动和周期检查，保存 -1 后仍可手动检查', async () => {
+    vi.useFakeTimers();
+    const { updater } = await ready();
+    const { getUpdateActions } = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    vi.mocked(mirrors.resolveBestMirror).mockResolvedValue({
+      version: '1.0.0',
+      base: 'https://synthetic.invalid',
+      ranked: [],
+    });
+    let minutes = -1;
+    updater.installUpdateActions({
+      get: () => false,
+      set: () => {},
+      getInterval: () => minutes,
+      setInterval: (value) => {
+        minutes = value;
+      },
+    });
+    updater.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).not.toHaveBeenCalled();
+    getUpdateActions().setInterval(1);
+    expect(minutes).toBe(1);
+    expect(getUpdateActions().getInterval()).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledOnce();
+    getUpdateActions().setInterval(-1);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledOnce();
+    await getUpdateActions().check(true);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledTimes(2);
+  });
+  it('开发版不自动检查', async () => {
+    vi.useFakeTimers();
+    const { updater } = await ready();
+    fixture.app.isPackaged = false;
+    updater.startAutomaticUpdateChecks();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('自动检查失败发布结束事件且下一周期重试', async () => {
+    vi.useFakeTimers();
+    const { updater, events } = await ready();
+    const { getUpdateActions } = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    vi.mocked(mirrors.resolveBestMirror).mockRejectedValue(new Error('离线'));
+    updater.installUpdateActions();
+    getUpdateActions().setInterval(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(events).toContainEqual({ kind: 'check-failed' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledTimes(2);
+    getUpdateActions().setInterval(-1);
+  });
   it('测试版选择传入真实检查与下载，切换后旧结果失效且不允许降级', async () => {
     const { updater, autoUpdater } = await ready();
     const state = await import('../src/main/update/state');
