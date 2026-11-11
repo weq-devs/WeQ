@@ -61,7 +61,6 @@ import { useCardDisplayNames } from '../hooks/useCardDisplayNames';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { QQGroupMemberControls } from './QQGroupMemberControls';
-import { GroupMemberNotifyControl } from './GroupMemberNotifyControl';
 import { PersonRelationshipStatus } from './RelationshipStatus';
 import { useGroupRelationship, usePersonRelationship } from '../lib/contactRelationship';
 import { Avatar } from '../im-template/template/primitives';
@@ -481,13 +480,6 @@ export function MemberProfileCard({
                   groupCode={groupCode}
                   uid={uid}
                   profile={{ card: member.card, title: member.customTitle }}
-                />
-              ) : null}
-              {!localClone && groupCode && uid && member.kind !== 'bot' && !profile?.isBot ? (
-                <GroupMemberNotifyControl
-                  groupId={Number(groupCode)}
-                  uid={uid}
-                  memberUin={uin ?? undefined}
                 />
               ) : null}
               {!localClone && groupCode && groupRelationship === 'nonmember' ? (

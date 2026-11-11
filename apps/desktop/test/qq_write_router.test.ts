@@ -140,15 +140,6 @@ function fixture() {
       profilesByUids: vi.fn(async (uids: string[]) => (uids.includes(self.uid) ? [self] : [])),
     },
     groupInfo: {
-      getMemberNotify: vi.fn(async (groupId: number, uid: string) => ({
-        groupId,
-        uid,
-        memberUin: '10002',
-        mode: 'default' as const,
-        rawMode: 0,
-        complete: true,
-      })),
-      setMemberNotify: vi.fn(accepted),
       getGroupDetail: vi.fn(async () => null),
       listGroupDirectory: vi.fn(async () => []),
       getMemberInfo: vi.fn(async () => null),
@@ -191,58 +182,6 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
-  it('成员提醒不要求好友或管理角色，特关开启仍可独立写入，拒绝无效状态和自身', async () => {
-    const f = fixture();
-    expect(
-      await f.caller.groupMemberNotifyState({ ...binding, groupId: 123, uid: 'u_peer' }),
-    ).toMatchObject({ mode: 'default', complete: true });
-    await f.caller.groupMemberNotify({ ...binding, groupId: 123, uid: 'u_peer', mode: 'shielded' });
-    expect(f.services.groupInfo.setMemberNotify).toHaveBeenCalledWith(123, 'u_peer', 'shielded');
-    expect(f.services.profile.getBuddy).not.toHaveBeenCalled();
-    expect(f.services.groupInfo.listGroupDirectory).not.toHaveBeenCalled();
-    expect(f.services.accountWrite.friendSpecialCare).not.toHaveBeenCalled();
-    await expect(
-      f.caller.groupMemberNotify({ ...binding, groupId: 123, uid: 'u_self', mode: 'default' }),
-    ).rejects.toThrow('自己');
-    await expect(
-      f.caller.groupMemberNotify({
-        ...binding,
-        groupId: 123,
-        uid: 'u_peer',
-        mode: 'other' as 'default',
-      }),
-    ).rejects.toThrow();
-    expect(f.services.groupInfo.setMemberNotify).toHaveBeenCalledTimes(1);
-  });
-  it('成员提醒拒绝错目标及切源后的读写结果', async () => {
-    const f = fixture();
-    f.services.groupInfo.getMemberNotify = async (groupId, uid) => ({
-      groupId: groupId + 1,
-      uid,
-      memberUin: '10002',
-      mode: 'default',
-      rawMode: 0,
-      complete: true,
-    });
-    await expect(
-      f.caller.groupMemberNotifyState({ ...binding, groupId: 123, uid: 'u_peer' }),
-    ).rejects.toThrow('目标');
-    f.services.groupInfo.setMemberNotify = async () => {
-      f.switchAccount();
-      return { state: 'accepted' };
-    };
-    await expect(
-      f.caller.groupMemberNotify({ ...binding, groupId: 123, uid: 'u_peer', mode: 'concerned' }),
-    ).rejects.toThrow('切换');
-    const other = fixture();
-    other.services.groupInfo.getMemberNotify = async (groupId, uid) => {
-      other.switchAccount();
-      return { groupId, uid, memberUin: '10002', mode: 'default', rawMode: 0, complete: true };
-    };
-    await expect(
-      other.caller.groupMemberNotifyState({ ...binding, groupId: 123, uid: 'u_peer' }),
-    ).rejects.toThrow('切换');
-  });
   it('我的备注资料独立读写，不调用公开资料设置，拒绝额外字段及切号回包', async () => {
     const f = fixture();
     const result = await f.caller.friendNotesState({ ...binding, uid: 'u_peer' });
@@ -354,6 +293,11 @@ describe('QQ 写 IPC 边界', () => {
     expect(f.procedures).not.toContain('groupIdentityState');
     expect(f.procedures).not.toContain('groupIdentity');
     expect(f.procedures).toContain('groupSpecialTitle');
+  });
+  it('群内成员提醒暂时撤下，不再暴露读取或修改路由', () => {
+    const f = fixture();
+    expect(f.procedures).not.toContain('groupMemberNotifyState');
+    expect(f.procedures).not.toContain('groupMemberNotify');
   });
   it('好友云端免打扰独立使用在线绑定，不回落到本机缓存', async () => {
     const f = fixture();

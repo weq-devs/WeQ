@@ -15,7 +15,6 @@ import type { User } from './types';
 import { cn } from './classNames';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import { useTabActive } from '../../components/RetainedTabs';
-import { GroupMemberNotifyMenuItem } from '../../components/GroupMemberNotifyControl';
 
 export type AvatarContextMenuState = {
   sender: User;
@@ -59,7 +58,6 @@ export function AvatarContextMenu({
   showSetAdmin = false,
   showUnsetAdmin = false,
   moderationBlockedReason,
-  memberNotifyTarget,
 }: {
   state: AvatarContextMenuState;
   onClose?: () => void;
@@ -86,7 +84,6 @@ export function AvatarContextMenu({
   showUnsetAdmin?: boolean;
   /** 非空 = 群管理操作不可执行（与发送按钮同条件），按钮置灰并显示原因。 */
   moderationBlockedReason?: string | null;
-  memberNotifyTarget?: { groupId: number; uid: string };
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const active = useTabActive();
@@ -102,33 +99,23 @@ export function AvatarContextMenu({
     if (!el) {
       return;
     }
+    const rect = el.getBoundingClientRect();
     const margin = 8;
-    const position = () => {
-      const bounds = el.getBoundingClientRect();
-      el.style.left = `${Math.max(margin, Math.min(state.x, window.innerWidth - bounds.width - margin))}px`;
-      el.style.top = `${Math.max(margin, Math.min(state.y, window.innerHeight - bounds.height - margin))}px`;
-    };
-    position();
-    if (!el.contains(el.ownerDocument.activeElement))
-      el.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
-    const observer = new ResizeObserver(position);
-    observer.observe(el);
-    window.addEventListener('resize', position);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', position);
-    };
+    el.style.left = `${Math.min(
+      Math.max(state.x, margin),
+      Math.max(margin, window.innerWidth - rect.width - margin),
+    )}px`;
+    el.style.top = `${Math.min(
+      Math.max(state.y, margin),
+      Math.max(margin, window.innerHeight - rect.height - margin),
+    )}px`;
   }, [state.x, state.y, muteOpen]);
 
   return (
     <div
       ref={menuRef}
       role="menu"
-      className={cn(
-        'message-context-menu',
-        'avatar-context-menu',
-        memberNotifyTarget && 'weq-member-notify-menu',
-      )}
+      className={cn('message-context-menu', 'avatar-context-menu')}
       style={{ left: state.x, top: state.y }}
       onMouseDown={(event) => {
         event.preventDefault();
@@ -136,28 +123,6 @@ export function AvatarContextMenu({
       }}
       onPointerDown={(event) => event.stopPropagation()}
       onTouchStart={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          onClose?.();
-          return;
-        }
-        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-        const buttons = [
-          ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
-        ];
-        const index = buttons.indexOf(
-          event.currentTarget.ownerDocument.activeElement as HTMLButtonElement,
-        );
-        const next =
-          event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? buttons.length - 1
-              : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
-        event.preventDefault();
-        buttons[next]?.focus();
-      }}
     >
       {onMention ? (
         <button type="button" title="在输入框里 @ 这个人" onClick={() => onMention(state.sender)}>
@@ -180,13 +145,6 @@ export function AvatarContextMenu({
           <BarChart3 size={17} />
           <span>分析此成员</span>
         </button>
-      ) : null}
-      {memberNotifyTarget ? (
-        <GroupMemberNotifyMenuItem
-          key={`${memberNotifyTarget.groupId}:${memberNotifyTarget.uid}`}
-          {...memberNotifyTarget}
-          onClose={onClose}
-        />
       ) : null}
       {hasModeration ? <div className={cn('message-context-menu-separator')} /> : null}
 

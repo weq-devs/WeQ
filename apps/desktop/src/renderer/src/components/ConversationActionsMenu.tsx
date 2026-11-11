@@ -23,7 +23,6 @@ export function ConversationActionsMenu({
     reason?: string;
     separatorBefore?: boolean;
     keepOpen?: boolean;
-    checked?: boolean;
   }>;
   onClose: () => void;
   label?: string;
@@ -91,8 +90,7 @@ export function ConversationActionsMenu({
           <button
             key={item.label}
             type="button"
-            role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
-            aria-checked={item.checked}
+            role="menuitem"
             disabled={item.disabled}
             className={item.separatorBefore ? 'has-separator' : undefined}
             title={item.reason ?? item.label}

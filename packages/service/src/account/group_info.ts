@@ -7,8 +7,6 @@ import type { ContactMetricsService } from './contact_metrics';
 import type { ContactHistoryService } from './contact_history';
 import { GroupMemberRosterCache } from './group_member_roster';
 import { GroupProfileReader } from './group_profile';
-import { GroupMemberNotifyService } from './group_member_notify';
-import type { GroupMemberNotifyMode } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import {
   FetchGroupMemberListPage,
@@ -288,27 +286,6 @@ const MEMBER_SCAN_LIMIT = 5000;
 const MIN_SHARED_GROUPS = 2;
 
 export class GroupInfoService {
-  private memberNotifyService?: GroupMemberNotifyService;
-
-  private get memberNotify() {
-    const online = this.online;
-    const sendPacket = online?.nt.sendPacket;
-    if (!online || !sendPacket) throw new Error('当前无法读取 QQ 云端群成员提醒设置');
-    this.memberNotifyService ??= new GroupMemberNotifyService(
-      { sendPacket: sendPacket.bind(online.nt) },
-      online.resolvePid,
-      (groupCode, uid) => this.getMemberInfo(groupCode, uid),
-    );
-    return this.memberNotifyService;
-  }
-
-  getMemberNotify(groupId: number, uid: string) {
-    return this.memberNotify.read(groupId, uid);
-  }
-
-  setMemberNotify(groupId: number, uid: string, mode: GroupMemberNotifyMode) {
-    return this.memberNotify.set(groupId, uid, mode);
-  }
   private readonly groupProfiles: GroupProfileReader;
   contactMetrics?: ContactMetricsService;
   contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
@@ -339,7 +316,7 @@ export class GroupInfoService {
   constructor(
     private readonly session: AccountSession,
     private readonly online?: {
-      nt: Pick<NtHelperBinding, 'sendOidbPacket'> & Partial<Pick<NtHelperBinding, 'sendPacket'>>;
+      nt: Pick<NtHelperBinding, 'sendOidbPacket'>;
       resolvePid: () => number;
     },
   ) {

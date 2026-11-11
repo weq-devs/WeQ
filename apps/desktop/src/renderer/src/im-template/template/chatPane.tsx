@@ -7120,18 +7120,6 @@ export function ChatPane({
         <AvatarContextMenu
           onClose={() => setAvatarMenu(null)}
           state={avatarMenu}
-          memberNotifyTarget={
-            !generated &&
-            conversation?.type === 'group' &&
-            !isSelfAvatar(avatarMenu.sender) &&
-            avatarMenu.sender.kind !== 'bot' &&
-            groupTargetUid(avatarMenu.sender)
-              ? {
-                  groupId: Number(conversation.group.identityValue),
-                  uid: groupTargetUid(avatarMenu.sender)!,
-                }
-              : undefined
-          }
           onAnalyze={
             !generated && conversation?.type === 'group' && directory?.onAnalyzeMember
               ? (member) => {
