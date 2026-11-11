@@ -39,14 +39,27 @@ interface StartupWindow {
   setAlwaysOnTop(value: boolean): void;
   on(event: 'ready-to-show', listener: () => void): unknown;
   once(event: 'closed', listener: () => void): unknown;
-  webContents: { on(event: 'did-finish-load', listener: () => void): unknown };
+  removeListener(event: 'ready-to-show' | 'closed', listener: () => void): unknown;
+  webContents: {
+    on(event: 'did-finish-load', listener: () => void): unknown;
+    removeListener(event: 'did-finish-load', listener: () => void): unknown;
+  };
 }
 
-/** 隐藏自启不注册任何兜底显示回调，避免加载完成后又弹出窗口。 */
+/** 启动显示仅执行一次；后续重载不改变窗口的可见、最小化或焦点状态。 */
 export function installStartupWindowReveal(win: StartupWindow, showInitially: boolean): void {
   if (!showInitially) return;
+  let revealed = false;
+  const cleanup = () => {
+    clearTimeout(timer);
+    win.removeListener('ready-to-show', reveal);
+    win.webContents.removeListener('did-finish-load', reveal);
+    win.removeListener('closed', cleanup);
+  };
   const reveal = () => {
-    if (win.isDestroyed()) return;
+    if (revealed || win.isDestroyed()) return;
+    revealed = true;
+    cleanup();
     win.show();
     win.restore();
     win.focus();
@@ -60,5 +73,5 @@ export function installStartupWindowReveal(win: StartupWindow, showInitially: bo
   win.on('ready-to-show', reveal);
   win.webContents.on('did-finish-load', reveal);
   const timer = setTimeout(reveal, 1000);
-  win.once('closed', () => clearTimeout(timer));
+  win.once('closed', cleanup);
 }
