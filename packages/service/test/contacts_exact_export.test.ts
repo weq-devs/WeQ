@@ -82,6 +82,7 @@ describe('联系人精确条目导出', () => {
       total: 0,
       contacts: { scope: 'friends' },
     });
+    await (manager as unknown as { queue: Promise<void> }).queue;
     await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
     const path = join(cache, '用户名单.json');
     await manager.saveTaskOutput(id, undefined, path);
