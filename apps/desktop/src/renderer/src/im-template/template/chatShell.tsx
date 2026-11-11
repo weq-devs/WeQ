@@ -16,6 +16,7 @@ import { IS_MAC, IS_WEB } from '../../lib/target';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
 import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntime';
 import { MobileRootPreviews } from '../../components/MobileRootPreviews';
+import { RemoteShellMenuButton } from '../../components/RemoteShellMenus';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
 
 export function ChatShell({
@@ -162,13 +163,16 @@ export function ChatShell({
         homeActive={view === 'home'}
         onGoHome={onGoHome}
         search={
-          <TitleBarSearch
-            persistent
-            query={query}
-            onQueryChange={onQueryChange}
-            onSearchFocus={onSearchFocus}
-            results={searchPanel}
-          />
+          <>
+            <TitleBarSearch
+              persistent
+              query={query}
+              onQueryChange={onQueryChange}
+              onSearchFocus={onSearchFocus}
+              results={searchPanel}
+            />
+            {!singleColumn && <RemoteShellMenuButton />}
+          </>
         }
       />
       {sharedShell && <MobileNavigationRuntime root={root} />}

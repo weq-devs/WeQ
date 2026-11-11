@@ -7,12 +7,15 @@
   color: var(--weq-fg-primary);
   background: var(--weq-bg-surface);
 }
-@media (max-width: 760px) {
-  .weq-web-dialog-layer .weq-friend-directory-editor :is(input, select, textarea) {
+@media all {
+  :where(html[data-weq-layout='single'])
+    .weq-web-dialog-layer
+    .weq-friend-directory-editor
+    :is(input, select, textarea) {
     font-size: 16px;
     min-height: 44px;
   }
-  .weq-web-dialog-layer .weq-friend-directory-editor button {
+  :where(html[data-weq-layout='single']) .weq-web-dialog-layer .weq-friend-directory-editor button {
     min-width: 44px;
     min-height: 44px;
   }

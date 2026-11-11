@@ -40,7 +40,7 @@ import {
   exportSavePolicyInput,
 } from './export_save';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { applyOneBot, oneBotStatus } from '../../onebot/runtime';
@@ -144,6 +144,22 @@ const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
   kdfHmacAlgorithm: z.string(),
 });
+
+/** Remote 可重开已保存的数据源，但不能把账号切换入口当作电脑目录选择器。 */
+function requireRemoteSavedDirectory(path: string, uin?: string, staticOnly = false): void {
+  if (!getHost().remoteClient) return;
+  const known = requireBootstrap()
+    .userConfig.listAccountConfigs()
+    .some(
+      (config) =>
+        (!uin || config.uin === uin) &&
+        (!staticOnly || config.static) &&
+        [config.dataDir, config.backupAccountDir].some(
+          (directory) => directory && resolve(directory) === resolve(path),
+        ),
+    );
+  if (!known) throw new Error('WeQ Remote 只能打开已保存的账号，不能选择新的电脑数据目录。');
+}
 
 function backupScanContext() {
   const boot = requireBootstrap();
@@ -2725,6 +2741,7 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      if (input.dataDir) requireRemoteSavedDirectory(input.dataDir, input.uin);
       const ctx = getAppContext();
       const platform = requirePlatform();
 
@@ -2892,6 +2909,7 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      requireRemoteSavedDirectory(input.dirPath, undefined, true);
       const ctx = getAppContext();
       const dirPath = await resolveBackupDirectory(input.dirPath);
       if (!dirPath) throw new Error('未找到 nt_msg.db / profile_info.db');

@@ -51,20 +51,20 @@ html[data-theme='dark'] .weq-message-sending {
   padding: 0;
   justify-content: center;
 }
-@media (max-width: 760px) {
-  .selection-bar {
+@media all {
+  :where(html[data-weq-layout='single']) .selection-bar {
     gap: 8px;
   }
-  .selection-bar-label,
-  .selection-bar-actions .selection-action > span {
+  :where(html[data-weq-layout='single']) .selection-bar-label,
+  :where(html[data-weq-layout='single']) .selection-bar-actions .selection-action > span {
     display: none;
   }
-  .selection-bar-actions {
+  :where(html[data-weq-layout='single']) .selection-bar-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
   }
-  .selection-bar-actions .selection-action {
+  :where(html[data-weq-layout='single']) .selection-bar-actions .selection-action {
     width: 32px;
     padding: 0;
     justify-content: center;

@@ -8,7 +8,9 @@ import { handleRequest, type RequestOptions } from './http';
 import { createWebHost } from './host';
 import { attachWsHandler, createTrpcHandler } from './trpc_adapter';
 
-export type WebAuth = Pick<AuthGate, 'login' | 'logout' | 'isAuthed' | 'watchSession'>;
+export type WebAuth = Pick<AuthGate, 'login' | 'logout' | 'isAuthed' | 'watchSession'> & {
+  remoteClient?: boolean;
+};
 
 export interface WebCoreConfig {
   publicDir: string;
@@ -33,7 +35,8 @@ export class WebCore {
   entry(auth: WebAuth): WebApplication {
     if (!this.assetsInstalled)
       throw new Error('Web 页面尚未构建，请运行 pnpm --filter @weq/web exec vite build。');
-    return new WebApplication(this.config, this.host, auth);
+    const host = auth.remoteClient ? { ...this.host, remoteClient: true } : this.host;
+    return new WebApplication(this.config, host, auth);
   }
 }
 

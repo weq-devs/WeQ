@@ -1,3 +1,10 @@
+:root {
+  --weq-safe-left: env(safe-area-inset-left, 0px);
+  --weq-safe-right: env(safe-area-inset-right, 0px);
+  --weq-safe-top: env(safe-area-inset-top, 0px);
+  --weq-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 .weq-modal.weq-message-modal {
   display: flex;
   flex-direction: column;
@@ -76,7 +83,7 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hov
   border-color: var(--weq-accent-effective);
 }
 
-@media (max-width: 760px) {
+@media (min-width: 0px) {
   .weq-web-dialog-layer:not(.is-anchored-popover) {
     --weq-dialog-top-gap: max(12px, env(safe-area-inset-top, 0px));
     --weq-dialog-bottom-gap: max(12px, env(safe-area-inset-bottom, 0px));
@@ -95,5 +102,18 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hov
   .weq-web-dialog-layer:not(.is-anchored-popover) > .weq-modal {
     max-width: 100%;
     max-height: var(--weq-dialog-max-height);
+  }
+
+  .weq-web-dialog-layer.is-anchored-popover > .weq-modal {
+    max-width: calc(100vw - 16px);
+    max-height: calc(var(--weq-mobile-viewport-height, 100dvh) - 16px);
+    overflow: auto;
+  }
+
+  .weq-web-dialog-layer :is(input, select, textarea) {
+    font-size: 16px;
+  }
+  .weq-web-dialog-layer .weq-dialog-foot button {
+    min-height: 44px;
   }
 }

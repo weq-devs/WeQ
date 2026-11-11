@@ -26,6 +26,56 @@
   display: none;
 }
 
+.weq-call-inline {
+  display: flex;
+  min-height: 0;
+  height: min(680px, var(--weq-dialog-max-height, 90dvh));
+  overflow: auto;
+}
+
+.weq-call-inline .weq-call-backdrop,
+.weq-call-inline .weq-call-locked {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.weq-call-inline
+  :is(
+    .weq-call-avatar,
+    .weq-call-name,
+    .weq-call-status,
+    .weq-call-wave,
+    .weq-call-actions,
+    .weq-call-details
+  ) {
+  flex-shrink: 0;
+}
+
+@media (max-height: 480px) {
+  .weq-call-inline .weq-call-card {
+    padding: 8px 16px;
+    gap: 8px;
+  }
+  .weq-call-inline .weq-call-actions {
+    gap: 8px;
+  }
+  .weq-call-inline
+    .weq-call-stage[data-layout='audio']
+    :is(.weq-call-avatar img, .weq-call-avatar-fallback) {
+    width: 64px;
+    height: 64px;
+  }
+  .weq-call-inline .weq-call-name {
+    font-size: 17px;
+    line-height: 24px;
+  }
+  .weq-call-inline .weq-call-wave {
+    height: 20px;
+  }
+}
+
 .weq-call-locked {
   position: fixed;
   inset: 0;

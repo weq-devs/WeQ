@@ -34,6 +34,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc/client';
 import type { VideoProfile } from '../../../shared/call_video_profile';
 import { fitWithin } from '../../../shared/call_video_profile';
+import { startRemoteMedia, needsNativeRemoteMedia } from '../lib/remoteMedia';
 
 /** 单帧失败后最多连续报几次日志，避免刷屏。 */
 const MAX_ERROR_LOGS = 5;
@@ -44,7 +45,7 @@ export interface CaptureState {
   /** 错误信息（权限拒绝 / 没有设备 / 用户取消）。 */
   error: string | null;
   /** 采集到的视频元素（界面画本端画面用；未打开时为 null）。 */
-  video: HTMLVideoElement | null;
+  video: HTMLVideoElement | HTMLCanvasElement | null;
   /** 实际编码尺寸（按源宽高比推导，可能小于 profile 的目标值）。 */
   width: number;
   height: number;
@@ -67,6 +68,7 @@ export interface CaptureOptions {
    * 用于把界面状态同步回「已关闭」。
    */
   onEnded?: () => void;
+  nativeCamera?: boolean;
 }
 
 /**
@@ -76,7 +78,14 @@ export interface CaptureOptions {
  * （摄像头 ↔ 屏幕共享），编码器那边也已经按新尺寸重开。
  */
 export function useVideoCapture(options: CaptureOptions): CaptureState {
-  const { enabled, profile, openStream, unsupportedMessage, onEnded } = options;
+  const {
+    enabled,
+    profile,
+    openStream,
+    unsupportedMessage,
+    onEnded,
+    nativeCamera = false,
+  } = options;
   const [state, setState] = useState<CaptureState>({
     active: false,
     error: null,
@@ -106,10 +115,13 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
   const pushCount = useRef(0);
   /** 每次重启递增，用来判定「这次回调还属于当前这一轮」。 */
   const generation = useRef(0);
+  const nativeController = useRef<AbortController | null>(null);
 
   /** 停掉采集与定时器。 */
   const stop = useCallback(() => {
     generation.current++;
+    nativeController.current?.abort();
+    nativeController.current = null;
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -137,6 +149,58 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
 
     void (async () => {
       try {
+        if (nativeCamera && needsNativeRemoteMedia()) {
+          const controller = new AbortController();
+          nativeController.current = controller;
+          const preview = document.createElement('canvas');
+          preview.width = profile.width;
+          preview.height = profile.height;
+          const context = preview.getContext('2d');
+          if (!context) throw new Error('无法创建摄像头预览');
+          const source = document.createElement('canvas');
+          const sourceContext = source.getContext('2d');
+          if (!sourceContext) throw new Error('无法读取摄像头画面');
+          await startRemoteMedia(
+            {
+              video: {
+                width: profile.captureWidth,
+                height: profile.captureHeight,
+                fps: profile.fps,
+              },
+            },
+            {
+              video: (bytes, width, height) => {
+                if (cancelled()) return;
+                source.width = width;
+                source.height = height;
+                const pixels = sourceContext.createImageData(width, height);
+                pixels.data.set(bytes);
+                sourceContext.putImageData(pixels, 0, 0);
+                context.drawImage(source, 0, 0, preview.width, preview.height);
+                const frame = rgbaToI420(
+                  context.getImageData(0, 0, preview.width, preview.height).data,
+                  preview.width,
+                  preview.height,
+                );
+                pushRef.current.mutate(frame);
+              },
+              error: (error) => {
+                if (!cancelled())
+                  setState({ active: false, error, video: null, width: 0, height: 0 });
+              },
+            },
+            controller.signal,
+          );
+          if (!cancelled())
+            setState({
+              active: true,
+              error: null,
+              video: preview,
+              width: profile.width,
+              height: profile.height,
+            });
+          return;
+        }
         if (!navigator.mediaDevices?.getUserMedia) {
           setState({ active: false, error: unsupportedMessage, video: null, width: 0, height: 0 });
           return;
@@ -282,6 +346,8 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
     }
 
     return () => {
+      nativeController.current?.abort();
+      nativeController.current = null;
       generation.current++;
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current);
@@ -304,6 +370,7 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
     profile.captureHeight,
     stop,
     unsupportedMessage,
+    nativeCamera,
   ]);
 
   return state;

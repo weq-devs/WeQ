@@ -25,6 +25,14 @@ import '../../styles/cache.css';
 import '../../styles/data-maintenance.css';
 import { WonderfulToolsDialog } from '../WonderfulToolsDialog';
 import { ExportTool } from '../../views/ExportView';
+import { useRemoteClient } from '../../lib/remoteClient';
+
+export const remoteUnsupportedTools: readonly MaintenanceTool[] = [
+  'cleanup',
+  'db-repair',
+  'other-device-key',
+  'login-accounts',
+];
 
 export type MaintenanceTool =
   | 'cache'
@@ -115,6 +123,7 @@ export function DataMaintenanceSection({
   title?: string | null;
 }): ReactElement {
   const active = useTabActive();
+  const remote = useRemoteClient();
   const account = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: active,
     refetchOnMount: 'always',
@@ -142,25 +151,27 @@ export function DataMaintenanceSection({
         </div>
       ) : null}
       <div className="weq-maintenance-list">
-        {visibleTools.map(({ id, label, settingId, icon: Icon, needsResources }) => {
-          const unavailable = needsResources && account.data?.static;
-          return (
-            <button
-              type="button"
-              className="weq-maintenance-entry"
-              key={id}
-              data-setting-id={settingId}
-              onClick={() => onOpen(id)}
-              disabled={!account.data || account.isFetching || account.isError || unavailable}
-              title={unavailable ? '静态账号暂不支持本地资源维护' : label}
-            >
-              <Icon size={18} aria-hidden />
-              <span>{label}</span>
-              {unavailable ? <small>静态账号不可用</small> : null}
-              <ChevronRight size={16} aria-hidden />
-            </button>
-          );
-        })}
+        {visibleTools
+          .filter(({ id }) => !remote || !remoteUnsupportedTools.includes(id))
+          .map(({ id, label, settingId, icon: Icon, needsResources }) => {
+            const unavailable = needsResources && account.data?.static;
+            return (
+              <button
+                type="button"
+                className="weq-maintenance-entry"
+                key={id}
+                data-setting-id={settingId}
+                onClick={() => onOpen(id)}
+                disabled={!account.data || account.isFetching || account.isError || unavailable}
+                title={unavailable ? '静态账号暂不支持本地资源维护' : label}
+              >
+                <Icon size={18} aria-hidden />
+                <span>{label}</span>
+                {unavailable ? <small>静态账号不可用</small> : null}
+                <ChevronRight size={16} aria-hidden />
+              </button>
+            );
+          })}
       </div>
       {!account.data && !account.isError ? (
         <div role="status" className="weq-maintenance-status">
@@ -183,7 +194,9 @@ export function DataMaintenanceDialog({
   account: DbRepairAccountOption;
   onClose: () => void;
 }): ReactElement | null {
+  const remote = useRemoteClient();
   if (!tool) return null;
+  if (remote && remoteUnsupportedTools.includes(tool)) return null;
   if (tool === 'db-repair') return <DbRepairWindowRequest key={account.uin} account={account} />;
   if (tool === 'capture')
     return (

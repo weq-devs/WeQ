@@ -1,4 +1,11 @@
 /* 以报告实际内容区判定，不依赖窗口宽度；侧栏或短屏同样保留可读字号。 */
+.weq-report-root[data-immersive='true'] {
+  position: fixed;
+  inset: var(--weq-mobile-viewport-top, 0px) 0 auto;
+  z-index: 3500;
+  width: 100%;
+  height: var(--weq-mobile-viewport-height, 100dvh);
+}
 .weq-report-root:has(.weq-report-stage-host[data-layout='reading']) {
   --rp-accent: var(--weq-accent-effective);
   --rp-ghost-stroke: color-mix(in srgb, var(--rp-accent) 14%, transparent);

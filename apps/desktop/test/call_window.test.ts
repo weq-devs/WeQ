@@ -8,6 +8,7 @@ import { useAppLock } from '../src/renderer/src/state/lock';
 
 type CallInfo = Parameters<typeof CallWindow>[0]['initial'];
 const mocks = vi.hoisted(() => ({
+  web: false,
   hangup: vi.fn(),
   hangupError: null as null | (() => void),
   state: null as null | { onData: (call: CallInfo) => void },
@@ -19,6 +20,12 @@ const mocks = vi.hoisted(() => ({
     profile: { width: 1280, height: 720, fps: 15, bitrateKbps: 1200 },
   })),
   resizeVideo: vi.fn(),
+}));
+vi.mock('../src/renderer/src/lib/target', async (original) => ({
+  ...(await original<object>()),
+  get IS_WEB() {
+    return mocks.web;
+  },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -90,6 +97,7 @@ const initial: CallInfo = {
 };
 
 afterEach(() => {
+  mocks.web = false;
   useAppLock.getState().unlock();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -97,6 +105,24 @@ afterEach(() => {
   mocks.hangup.mockClear();
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.removeAttribute('style');
+});
+
+it('Remote 页内通话不会被当成弹窗失败而自行挂断', async () => {
+  mocks.web = true;
+  vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('WeQRemote/fixture');
+  const open = vi.spyOn(window, 'open');
+  const app = mount();
+  try {
+    expect(open).not.toHaveBeenCalled();
+    expect(document.querySelector('.weq-call-inline [aria-label="语音通话"]')).not.toBeNull();
+    expect(mocks.hangup).not.toHaveBeenCalled();
+    act(() =>
+      document.querySelector<HTMLButtonElement>('.weq-call-inline [title="挂断"]')!.click(),
+    );
+    expect(mocks.hangup).toHaveBeenCalledOnce();
+  } finally {
+    await app.dispose();
+  }
 });
 
 function mount(strict = false) {

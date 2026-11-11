@@ -39,6 +39,7 @@ import {
 import { Modal } from './Dialog';
 import { useToast } from './Toast';
 import { client } from '../trpc/client';
+import { isRemoteClient } from '../lib/remoteClient';
 
 /** 与主进程 `AccountForcedClosedEvent` 对齐的渲染层视图。 */
 export interface DatabaseDamagedEvent {
@@ -196,7 +197,7 @@ export function DatabaseDamagedDialog({
             ) : null}
           </section>
 
-          {!isCheckError && (
+          {!isCheckError && !isRemoteClient() && (
             <ExpandSection title="手工修复方案（备用，可展开）">
               <p>
                 一般用不上：上面的「尝试修复」已经是同一条链（解密 → 重建 → 重新加密 → 补回

@@ -58,6 +58,7 @@ import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { IS_WEB } from '../../lib/target';
+import { isRemoteClient } from '../../lib/remoteClient';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../../lib/autoRead';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -503,7 +504,7 @@ export function MailPage({
   async function saveAttachment(
     id: string,
     intent?: ExportSavePolicy,
-    browser = false,
+    browser = isRemoteClient(),
   ): Promise<void> {
     if (download.current || !save.binding) return;
     const attachment = detail?.attachments.find((item) => item.id === id);
@@ -1044,7 +1045,13 @@ export function MailPage({
                           </small>
                           <button
                             type="button"
-                            title={IS_WEB ? '保存附件到服务器' : '保存附件'}
+                            title={
+                              isRemoteClient()
+                                ? '下载附件到设备'
+                                : IS_WEB
+                                  ? '保存附件到服务器'
+                                  : '保存附件'
+                            }
                             aria-label={`保存附件 ${item.name}`}
                             disabled={
                               !item.available ||

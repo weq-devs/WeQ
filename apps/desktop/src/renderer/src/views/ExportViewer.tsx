@@ -19,6 +19,9 @@ import { useDialog } from '../components/Dialog';
 import { FolderScanStatus } from '../components/FolderScanStatus';
 import '../styles/export-viewer.css';
 import type { ViewerScanEvent } from '../../../main/ipc/routers/export_viewer';
+import { IS_WEB } from '../lib/target';
+import { useRemoteClient } from '../lib/remoteClient';
+import { chooseBrowserFile, stageAccountFile } from '../lib/accountFilePicker';
 
 type Source = Extract<ViewerScanEvent, { kind: 'source' }>['source'];
 const time = (seconds: number) =>
@@ -149,6 +152,8 @@ export function ExportViewer({
   onIncrement: (source: Source) => void;
 }) {
   const active = useTabActive();
+  const remote = useRemoteClient();
+  const upload = useRef<AbortController | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [selected, setSelected] = useState('');
   const [picking, setPicking] = useState(false);
@@ -173,6 +178,7 @@ export function ExportViewer({
     return () => {
       mounted.current = false;
       scanId.current++;
+      upload.current?.abort();
       scanSub.current?.unsubscribe();
       scanReject.current?.(new Error('扫描已取消'));
       if (owned.current.length)
@@ -264,13 +270,24 @@ export function ExportViewer({
   }
 
   const pick = async (directory: boolean) => {
+    if (remote && directory) return;
     const id = ++scanId.current;
+    const controller = new AbortController();
+    upload.current?.abort();
+    upload.current = controller;
     setPicking(true);
     setError('');
     setNotice('');
     try {
+      let uploadPath: string | undefined;
+      if (IS_WEB && !directory) {
+        const file = await chooseBrowserFile('.json,.jsonl,application/json', controller.signal);
+        if (!file) return;
+        uploadPath = (await stageAccountFile(file, undefined, controller.signal)).path;
+      }
       let result = await client.exportViewer.pick.mutate({
         directory,
+        ...(uploadPath ? { uploadPath } : {}),
         ...(directory ? { deferScan: true } : {}),
       });
       if (!mounted.current || !activeRef.current || id !== scanId.current) {
@@ -326,9 +343,10 @@ export function ExportViewer({
       else if (result.unreadable)
         setNotice(`有 ${result.unreadable} 个子目录无法读取，列表可能不完整。`);
     } catch (e) {
-      if (mounted.current && id === scanId.current)
+      if (mounted.current && id === scanId.current && !controller.signal.aborted)
         setError(e instanceof Error ? e.message : String(e));
     } finally {
+      if (upload.current === controller) upload.current = null;
       if (mounted.current && id === scanId.current) {
         setPicking(false);
         setScanning(false);
@@ -353,13 +371,15 @@ export function ExportViewer({
   return (
     <section className="weq-export-viewer">
       <div className="weq-ev-toolbar">
-        <button type="button" disabled={picking} onClick={() => void pick(true)}>
-          <FolderOpen size={16} />
-          打开文件夹
-        </button>
+        {!remote && (
+          <button type="button" disabled={picking} onClick={() => void pick(true)}>
+            <FolderOpen size={16} />
+            打开文件夹
+          </button>
+        )}
         <button type="button" disabled={picking} onClick={() => void pick(false)}>
           <FileJson size={16} />
-          打开 JSON / JSONL
+          {remote ? '上传 JSON / JSONL' : '打开 JSON / JSONL'}
         </button>
         {picking ? (
           scanning ? (
@@ -370,6 +390,16 @@ export function ExportViewer({
               正在读取…
             </span>
           )
+        ) : null}
+        {picking && upload.current && !scanning ? (
+          <button
+            type="button"
+            title="取消读取"
+            aria-label="取消读取"
+            onClick={() => upload.current?.abort()}
+          >
+            <X size={16} />
+          </button>
         ) : null}
         {sources.length ? (
           <button

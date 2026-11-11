@@ -411,7 +411,11 @@ export function GlobalSettingsSection({
         <>
           <ToastSettingsCard />
           <DesktopOnly>
-            <Card title="窗口" icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}>
+            <Card
+              title="窗口"
+              icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}
+              remoteUnsupported
+            >
               {platform && supportsWindowsStyleControls(platform) && (
                 <Row
                   label={
@@ -766,7 +770,7 @@ export function GlobalSettingsSection({
       )}
 
       {section === 'logs' && (
-        <Card title="日志" icon={<ScrollText size={15} strokeWidth={1.8} />}>
+        <Card title="日志" icon={<ScrollText size={15} strokeWidth={1.8} />} remoteUnsupported>
           <Row
             label="日志保留时长"
             desc={

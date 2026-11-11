@@ -2796,8 +2796,8 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       ).assistant.artifactInfo(input.id);
       const host = getHost();
-      const opened = kind === 'html' ? await host.openHtmlReport(path) : null;
-      if (kind !== 'html') await host.revealPath(path);
+      const opened = kind === 'html' || host.exportRoot ? await host.openHtmlReport(path) : null;
+      if (kind !== 'html' && !host.exportRoot) await host.revealPath(path);
       return { ok: true as const, openUrl: opened?.url ?? null };
     }),
 
@@ -5766,10 +5766,10 @@ export const accountRouter = router({
         groupUin: target.groupCode,
         authKey: target.authKey,
       });
-      await getHost().openExternal(deepLink);
+      if (!getHost().exportRoot) await getHost().openExternal(deepLink);
       return { action: 'deeplink', groupCode: target.groupCode, link: deepLink };
     }
-    await getHost().openExternal(PROJECT_GROUP_SHARE_URL);
+    if (!getHost().exportRoot) await getHost().openExternal(PROJECT_GROUP_SHARE_URL);
     return { action: 'browser', groupCode: PROJECT_GROUP_CODE, link: PROJECT_GROUP_SHARE_URL };
   }),
 
@@ -7987,6 +7987,10 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       const path = requireServices().exportManager.getReportPath(input.taskId);
       if (!path) throw new Error('完整性报告尚未生成。');
+      if (getHost().exportRoot) {
+        const opened = await getHost().openHtmlReport(path);
+        return { ok: true, openUrl: opened?.url ?? null };
+      }
       await getHost().revealPath(path);
       return true;
     }),
@@ -8319,6 +8323,11 @@ export const accountRouter = router({
       ).exportManager.getTask(input.taskId);
       const path = task?.bundleDir || task?.filePath;
       if (!path) throw new Error('导出结果不存在（可能已被清理）。');
+      const host = getHost();
+      if (host.registerDownload) {
+        const output = host.registerDownload(path, basename(path), task?.bundleDir ? 'directory' : 'file');
+        return { ok: true, downloadUrl: output.url };
+      }
       await getHost().revealPath(path);
       return true;
     }),

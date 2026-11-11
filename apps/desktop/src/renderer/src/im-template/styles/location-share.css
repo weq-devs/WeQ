@@ -533,8 +533,8 @@ html[data-theme='dark'] .lbs-speed-chip {
 
 /* ── 移动端：内联进输入区（与其余面板同一套规则） ──────────────────────── */
 
-@media (max-width: 760px) {
-  .lbs-panel {
+@media all {
+  :where(html[data-weq-layout='single']) .lbs-panel {
     position: static;
     width: 100%;
     max-height: none;
@@ -546,28 +546,28 @@ html[data-theme='dark'] .lbs-speed-chip {
     animation: none;
   }
 
-  .lbs-panel.is-active {
+  :where(html[data-weq-layout='single']) .lbs-panel.is-active {
     grid-template-rows: auto minmax(0, 1fr) auto auto;
   }
 
-  .lbs-map-wrap {
+  :where(html[data-weq-layout='single']) .lbs-map-wrap {
     padding: 6px 6px 0;
   }
 
-  .lbs-map {
+  :where(html[data-weq-layout='single']) .lbs-map {
     min-height: 180px;
   }
 
-  .lbs-controls {
+  :where(html[data-weq-layout='single']) .lbs-controls {
     padding: 8px 12px 10px;
   }
 
-  .lbs-joystick {
+  :where(html[data-weq-layout='single']) .lbs-joystick {
     width: 76px;
     height: 76px;
   }
 
-  html[data-theme='dark'] .lbs-panel {
+  html:where([data-weq-layout='single'])[data-theme='dark'] .lbs-panel {
     background: #1b1b1c;
     border-top-color: rgba(255, 255, 255, 0.08);
   }

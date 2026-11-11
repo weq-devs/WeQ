@@ -21,6 +21,7 @@ import { resolve } from 'node:path';
 const saveState = vi.hoisted(() => ({
   current: true,
   web: false,
+  remote: false,
   requestExport: vi.fn(),
   prepare: vi.fn(
     async (_intent?: ExportSavePolicy, _output?: unknown): Promise<ExportSavePolicy | null> => ({
@@ -36,6 +37,10 @@ vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
     return saveState.web;
   },
+}));
+vi.mock('../src/renderer/src/lib/remoteClient', () => ({
+  isRemoteClient: () => saveState.remote,
+  useRemoteClient: () => saveState.remote,
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
@@ -113,6 +118,7 @@ beforeEach(() => {
   );
   saveState.current = true;
   saveState.web = false;
+  saveState.remote = false;
   saveState.requestExport.mockReset();
   saveState.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
 });
@@ -671,6 +677,22 @@ describe('邮箱修饰键多选', () => {
 });
 
 describe('附件公共保存入口', () => {
+  it('Remote 附件直接交付设备下载，不使用电脑保存位置', async () => {
+    saveState.web = true;
+    saveState.remote = true;
+    const view = await attachmentView();
+    try {
+      expect(view.host.querySelector('[title="下载附件到设备"]')).not.toBeNull();
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('[aria-label="保存附件 README"]')!.click(),
+      );
+      expect(view.api.download).toHaveBeenCalledWith('attachment-token', expect.any(AbortSignal));
+      expect(view.api.save).not.toHaveBeenCalled();
+      expect(saveState.prepare).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
   it('按所选附件的真实文件名准备单文件，创建任务而非直接另存', async () => {
     const view = await attachmentView();
     try {

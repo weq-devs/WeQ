@@ -152,6 +152,19 @@ async function main(): Promise<void> {
       check(res.headers.get('cache-control') === 'no-store', '文件下载不留浏览器缓存');
     }
     {
+      const res = await get(`${fileUrl}?preview=1`, cookie);
+      check(res.status === 200 && (await res.text()) === '独立文件', '报告预览保留正文');
+      check(
+        res.headers.get('content-disposition')?.startsWith('inline') === true,
+        '预览不强制下载',
+      );
+      check(
+        res.headers.get('content-security-policy')?.includes('sandbox allow-scripts') === true,
+        '报告预览使用隔离呈现',
+      );
+      check((await get(`${fileUrl}?preview=1`)).status === 401, '预览与下载使用相同会话校验');
+    }
+    {
       const res = await get(bundleUrl, cookie);
       const bytes = Buffer.from(await res.arrayBuffer());
       const entries = readZipEntries(bytes);

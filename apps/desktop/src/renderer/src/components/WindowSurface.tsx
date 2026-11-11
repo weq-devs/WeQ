@@ -16,6 +16,9 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { useTabActive } from './RetainedTabs';
 import '../styles/window-surface.css';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
+import { visibleViewport } from '../lib/visibleViewport';
+import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
+import { IS_WEB } from '../lib/target';
 
 type Box = { x: number; y: number; width: number; height: number };
 const margin = 8;
@@ -52,15 +55,11 @@ export function WindowSurface({
   const view = document.defaultView;
   const active = useTabActive() && open;
   const card = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  useMobileWebViewport(layerRef, active && IS_WEB);
   const placement = useOverlayAnchor(card, active, false, anchor);
   const origin = placement.anchor;
-  const viewport = useCallback(
-    () => ({
-      width: Math.max(1, view?.innerWidth ?? 1024),
-      height: Math.max(1, view?.innerHeight ?? 768),
-    }),
-    [view],
-  );
+  const viewport = useCallback(() => visibleViewport(view), [view]);
   const fitViewport = useCallback(
     (value: Box): Box => {
       const size = viewport();
@@ -71,8 +70,8 @@ export function WindowSurface({
       return {
         width: w,
         height: h,
-        x: clamp(value.x, margin, size.width - w - margin),
-        y: clamp(value.y, margin, size.height - h - margin),
+        x: clamp(value.x, size.left + margin, size.left + size.width - w - margin),
+        y: clamp(value.y, size.top + margin, size.top + size.height - h - margin),
       };
     },
     [viewport],
@@ -85,12 +84,12 @@ export function WindowSurface({
       size.height * (mode === 'anchored' ? 0.7 : 0.8),
     );
     return fitViewport({
-      x: origin?.rect.left ?? (size.width - w) / 2,
+      x: origin?.rect.left ?? size.left + (size.width - w) / 2,
       y: origin
         ? origin.rect.bottom + h + margin <= size.height
           ? origin.rect.bottom + margin
           : origin.rect.top - h - margin
-        : (size.height - h) / 2,
+        : size.top + (size.height - h) / 2,
       width: w,
       height: h,
     });
@@ -155,6 +154,8 @@ export function WindowSurface({
     if (!active) return;
     place();
     view?.addEventListener('resize', place);
+    view?.visualViewport?.addEventListener('resize', place);
+    view?.visualViewport?.addEventListener('scroll', place);
     if (mode === 'anchored') document.addEventListener('scroll', place, true);
     const observer = mode === 'anchored' ? new MutationObserver(place) : null;
     for (
@@ -165,6 +166,8 @@ export function WindowSurface({
       observer?.observe(element, { attributes: true, attributeFilter: ['style', 'class'] });
     return () => {
       view?.removeEventListener('resize', place);
+      view?.visualViewport?.removeEventListener('resize', place);
+      view?.visualViewport?.removeEventListener('scroll', place);
       document.removeEventListener('scroll', place, true);
       observer?.disconnect();
     };
@@ -213,6 +216,7 @@ export function WindowSurface({
   };
   return createPortal(
     <div
+      ref={layerRef}
       className="weq-window-layer"
       hidden={!active}
       inert={!active}

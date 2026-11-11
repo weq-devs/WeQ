@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { USER_ACTIVITY_EVENT } from '../lib/renderDocument';
 import { IS_WEB } from '../lib/target';
+import { isRemoteClient } from '../lib/remoteClient';
+import { isSingleColumnLayout } from '../lib/responsiveLayout';
 export const COMPOSITION_DISPOSE_EVENT = 'weq:composition-dispose';
+
+export function prefersInlineToolWindow() {
+  return IS_WEB && (isRemoteClient() || isSingleColumnLayout());
+}
 
 function disposeCompositionWindow(
   popup: Window | null,
@@ -88,10 +94,7 @@ export function useToolWindow({
   const [popup, setPopup] = useState<Window | null>(null);
   const [fallback, setFallback] = useState(false);
   const open = useCallback(() => {
-    if (
-      IS_WEB &&
-      (/WeQRemote/.test(navigator.userAgent) || window.matchMedia?.('(max-width: 760px)').matches)
-    ) {
+    if (prefersInlineToolWindow()) {
       setFallback(true);
       return null;
     }

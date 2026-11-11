@@ -35,6 +35,8 @@ export interface AppAutostartStatus {
 }
 
 export interface HostBridge {
+  /** 来自已授权 Remote 入口，不以 User-Agent 或视口尺寸授予电脑管理能力。 */
+  readonly remoteClient?: boolean;
   /** 宿主额外拥有的目录，显式标记运行数据或受保护的安装资源。 */
   storageRoots?(): StorageRoot[];
   clearStorageAfterExit?(targets: StorageUsageItem[]): Promise<void>;

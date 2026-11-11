@@ -25,6 +25,7 @@ export class RemoteWebGateway {
       );
     };
     this.application = createApplication({
+      remoteClient: true,
       login: async () => false,
       logout: () => {},
       isAuthed: this.allowed,

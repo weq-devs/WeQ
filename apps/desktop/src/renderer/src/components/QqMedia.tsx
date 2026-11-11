@@ -41,6 +41,7 @@ import { MediaSaveControls, MediaSourceSave, useMediaSave } from './MediaSaveCon
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
 import { useTabActive } from './RetainedTabs';
+import { useRemoteClient } from '../lib/remoteClient';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
 import '../styles/media-preview.css';
 
@@ -639,13 +640,17 @@ export function QqFile({
   conv?: string;
   fwd?: ForwardRef;
 }) {
+  const remote = useRemoteClient();
   const name = str(data, 'fileName'),
     size = num(data, 'fileSize'),
     token = str(data, 'fileToken');
   const localPath = str(data, 'localPath');
   const openLocal = trpc.account.fileResource.download.open.useMutation();
   const mediaSave = useMediaSave();
-  const source: MediaSaveSource = { kind: 'chat-file', msgId, name, token, conv, ...fwd };
+  const source: MediaSaveSource =
+    remote && localPath && !msgId
+      ? { kind: 'url', url: localFileUrl(localPath), name }
+      : { kind: 'chat-file', msgId, name, token, conv, ...fwd };
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
   const saving = busy || mediaSave.busy;
@@ -655,7 +660,7 @@ export function QqFile({
   const onClick = (): void => {
     if (saving) return;
     setError(null);
-    if (localPath) {
+    if (localPath && !remote) {
       openLocal.mutate(
         { path: localPath },
         { onError: (e) => setError(e instanceof Error ? e.message : String(e)) },
@@ -667,7 +672,7 @@ export function QqFile({
       try {
         const localId = fwd ? fwd.fwdMsgId : msgId;
         if (IS_ELECTRON && localId && (await revealFile(localId))) return;
-        if (!msgId) {
+        if (!msgId && !localPath) {
           if (IS_ELECTRON) revealMedia(sendTimeMs, name, 'file');
           else setError('文件定位信息不足');
           return;
@@ -693,11 +698,13 @@ export function QqFile({
             error ??
             (saving
               ? '准备保存…'
-              : localPath
-                ? '打开文件（本机）'
-                : IS_ELECTRON
-                  ? '本地打开，无缓存时按偏好保存'
-                  : '保存文件到服务器')
+              : remote
+                ? '下载文件到设备'
+                : localPath
+                  ? '打开文件（本机）'
+                  : IS_ELECTRON
+                    ? '本地打开，无缓存时按偏好保存'
+                    : '保存文件到服务器')
           }
         >
           <img

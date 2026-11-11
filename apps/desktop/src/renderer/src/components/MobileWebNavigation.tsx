@@ -32,6 +32,7 @@ import { preloadMobilePages } from '../lib/mobilePageLoading';
 import { mobilePageLoaders } from './lazyWorkspaces';
 import { registerMobileBack } from '../hooks/useMobileNavigation';
 import { mobileRootTab } from '../lib/mobileRootTransition';
+import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
 import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
@@ -92,12 +93,10 @@ export function MobileWebNavigation({
   const moreOpen = view === 'more' && !mobilePage;
   useEffect(() => {
     if (!moreOpen) return;
-    const mobile = window.matchMedia('(max-width: 760px)');
-    const leaveMobile = (event: MediaQueryListEvent) => {
-      if (!event.matches) onViewChange('messages');
+    const leaveMobile = () => {
+      if (!isSingleColumnLayout()) onViewChange('messages');
     };
-    mobile.addEventListener('change', leaveMobile);
-    return () => mobile.removeEventListener('change', leaveMobile);
+    return subscribeResponsiveLayout(leaveMobile);
   }, [moreOpen, onViewChange]);
   const primary = view === 'messages' || view === 'contacts' || view === 'qzone';
   const active = moreOpen || !primary ? 'more' : view;

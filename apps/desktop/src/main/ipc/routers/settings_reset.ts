@@ -7,6 +7,10 @@ import { bootstrapRouter } from './bootstrap';
 import { remoteRouter } from './remote';
 import { updateRouter } from './update';
 import {
+  remoteResetCardAvailable,
+  remoteSettingAvailable,
+} from '../../../shared/remote_capabilities';
+import {
   SETTINGS_RESET_CARDS,
   resetCards,
   type SettingsResetCardId,
@@ -598,8 +602,20 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
 
 async function preview(ctx: RpcContext, input: SettingsResetTarget) {
   const source = identity();
-  const selected = new Set(resetCards(input).map(([, card]) => card));
-  const all = (await entries(ctx, selected)).filter((entry) => selected.has(entry.card));
+  const selected = new Set(
+    resetCards(input)
+      .filter(
+        ([page, card]) =>
+          !ctx.host?.remoteClient ||
+          (remoteSettingAvailable(page) && remoteResetCardAvailable(card)),
+      )
+      .map(([, card]) => card),
+  );
+  const all = (await entries(ctx, selected)).filter(
+    (entry) =>
+      selected.has(entry.card) &&
+      (!ctx.host?.remoteClient || entry.id !== 'call-content:systemAudio'),
+  );
   // 运行开关以实际状态为准，不凭配置猜测。
   if (!ctx.authorize)
     for (const entry of all) {

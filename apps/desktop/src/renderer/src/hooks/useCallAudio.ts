@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc/client';
 import { callLevel, smoothLevel } from '../lib/callWave';
+import { pcm16Samples, startRemoteMedia, needsNativeRemoteMedia } from '../lib/remoteMedia';
 
 const CALL_RATE = 16_000;
 const FRAME_SAMPLES = 320;
@@ -88,6 +89,11 @@ export function useCallAudio({
     const Context = window.AudioContext;
     if (!Context) return;
     const context = new Context();
+    const resumePlayback = () => {
+      if (context.state === 'suspended') void context.resume().catch(() => {});
+    };
+    resumePlayback();
+    document.addEventListener('pointerdown', resumePlayback);
     const schedule = () => {
       playTimer.current = window.setTimeout(() => {
         const frame = playBuffer.current.shift();
@@ -111,6 +117,7 @@ export function useCallAudio({
     schedule();
     return () => {
       if (playTimer.current !== null) window.clearTimeout(playTimer.current);
+      document.removeEventListener('pointerdown', resumePlayback);
       void context.close();
     };
   }, []);
@@ -122,9 +129,39 @@ export function useCallAudio({
     if (!wantMic) return;
     let cancelled = false;
     let interval: number | null = null;
+    const nativeController = new AbortController();
+    let stopNative: (() => void) | undefined;
 
     const start = async () => {
       try {
+        if (needsNativeRemoteMedia()) {
+          let pending = new Uint8Array(0);
+          stopNative = await startRemoteMedia(
+            { audio: true },
+            {
+              audio: (bytes) => {
+                if (cancelled) return;
+                setLevel((previous) =>
+                  smoothLevel(previous, mutedRef.current ? 0 : callLevel(pcm16Samples(bytes))),
+                );
+                const next = new Uint8Array(pending.length + bytes.length);
+                next.set(pending);
+                next.set(bytes, pending.length);
+                pending = next;
+                while (pending.length >= FRAME_SAMPLES * 2) {
+                  const pcm = pending.slice(0, FRAME_SAMPLES * 2);
+                  pending = pending.slice(FRAME_SAMPLES * 2);
+                  if (!mutedRef.current || keepMicRef.current)
+                    pushRef.current({ pcm, muted: mutedRef.current });
+                }
+              },
+              error: (message) => console.error('[call] 原生麦克风不可用', message),
+            },
+            nativeController.signal,
+          );
+          if (cancelled) stopNative();
+          return;
+        }
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
         });
@@ -185,13 +222,15 @@ export function useCallAudio({
           if (mutedRef.current) setLevel((prev) => smoothLevel(prev, 0));
         }, 100);
       } catch (error) {
-        console.error('[call] 麦克风不可用', error);
+        if (!cancelled) console.error('[call] 麦克风不可用', error);
       }
     };
     void start();
 
     return () => {
       cancelled = true;
+      nativeController.abort();
+      stopNative?.();
       if (interval !== null) window.clearInterval(interval);
       for (const track of micStream.current?.getTracks() ?? []) track.stop();
       micStream.current = null;

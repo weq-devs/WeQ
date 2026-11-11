@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTabActive } from '../../components/RetainedTabs';
-import { hasActiveModal } from '../../lib/overlayStack';
+import { topSurface } from '../../lib/surfaceEscape';
+import { reportCanTurn, reportGestureTarget, reportSwipeDirection } from '../../lib/reportSwipe';
 import '../../styles/annual-report-reading.css';
 
 const DESIGN_WIDTH = 960;
@@ -23,6 +24,11 @@ const STAGE_INSET = 0.92;
  */
 const WHEEL_THRESHOLD = 90;
 const WHEEL_IDLE_MS = 220;
+
+function reportHasOverlay(host: HTMLElement): boolean {
+  const top = topSurface(host.ownerDocument);
+  return Boolean(top && !top.contains(host));
+}
 
 /**
  * 宽屏演示把 960×640 画幅缩放到可用空间；窄/短内容区采用原字号滚动阅读。
@@ -105,10 +111,10 @@ export function AnnualReportStage({
    */
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !tabActive || reading) return undefined;
+    if (!host || !tabActive) return undefined;
     function onWheel(event: WheelEvent): void {
-      if (event.defaultPrevented || hasActiveModal()) return;
-      event.preventDefault();
+      if (event.defaultPrevented || reportHasOverlay(host!)) return;
+      if (!reportGestureTarget(event.target)) return;
       const now = performance.now();
       const wheel = wheelRef.current;
 
@@ -118,6 +124,16 @@ export function AnnualReportStage({
         wheel.fired = false;
       }
       wheel.lastAt = now;
+
+      if (
+        reading &&
+        event.target instanceof Element &&
+        !reportCanTurn(event.target, host!, event.deltaY > 0 ? 1 : -1)
+      ) {
+        wheel.fired = true;
+        return;
+      }
+      event.preventDefault();
 
       // 这一甩已经翻过了：惯性尾巴照单全吃，不再翻第二页。
       if (wheel.fired) return;
@@ -139,15 +155,106 @@ export function AnnualReportStage({
   }, [move, tabActive, reading]);
 
   useEffect(() => {
-    if (!tabActive || reading) return;
+    const host = hostRef.current;
+    if (!host || !tabActive) return;
+    let gesture: { id: number; x: number; y: number; up: boolean; down: boolean } | null = null;
+    const start = (event: TouchEvent) => {
+      gesture = null;
+      if (
+        event.touches.length !== 1 ||
+        reportHasOverlay(host) ||
+        !reportGestureTarget(event.target) ||
+        !window.getSelection()?.isCollapsed
+      )
+        return;
+      const touch = event.touches[0]!;
+      gesture = {
+        id: touch.identifier,
+        x: touch.clientX,
+        y: touch.clientY,
+        up: reportCanTurn(event.target, host, 1),
+        down: reportCanTurn(event.target, host, -1),
+      };
+    };
+    const drag = (event: TouchEvent) => {
+      if (!gesture) return;
+      if (event.touches.length !== 1) {
+        gesture = null;
+        return;
+      }
+      const touch = event.touches[0]!;
+      const dx = touch.clientX - gesture.x,
+        dy = touch.clientY - gesture.y;
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+        gesture = null;
+        return;
+      }
+      if (Math.abs(dy) > 8) {
+        if (!(dy < 0 ? gesture.up : gesture.down)) {
+          gesture = null;
+          return;
+        }
+        if (event.cancelable) event.preventDefault();
+      }
+    };
+    const end = (event: TouchEvent) => {
+      const current = gesture;
+      gesture = null;
+      if (
+        !current ||
+        event.touches.length ||
+        reportHasOverlay(host) ||
+        !window.getSelection()?.isCollapsed
+      )
+        return;
+      const touch = [...event.changedTouches].find((item) => item.identifier === current.id);
+      if (!touch) return;
+      const direction = reportSwipeDirection(touch.clientX - current.x, touch.clientY - current.y);
+      if (direction && (direction > 0 ? current.up : current.down)) move(direction);
+    };
+    const cancel = () => {
+      gesture = null;
+    };
+    host.addEventListener('touchstart', start, { passive: true });
+    host.addEventListener('touchmove', drag, { passive: false });
+    host.addEventListener('touchend', end);
+    host.addEventListener('touchcancel', cancel);
+    return () => {
+      host.removeEventListener('touchstart', start);
+      host.removeEventListener('touchmove', drag);
+      host.removeEventListener('touchend', end);
+      host.removeEventListener('touchcancel', cancel);
+    };
+  }, [move, tabActive]);
+
+  useEffect(() => {
+    if (!tabActive) return;
     function onKeyDown(event: KeyboardEvent): void {
       if (
         event.defaultPrevented ||
-        hasActiveModal() ||
+        (hostRef.current && reportHasOverlay(hostRef.current)) ||
         (event.target instanceof Element &&
           event.target.closest('input, textarea, select, button, a, [contenteditable="true"]'))
       )
         return;
+      const direction = ['ArrowDown', 'PageDown', ' '].includes(event.key)
+        ? 1
+        : ['ArrowUp', 'PageUp'].includes(event.key)
+          ? -1
+          : 0;
+      const page = hostRef.current?.querySelector<HTMLElement>('.weq-report-slide.is-active');
+      if (
+        reading &&
+        direction &&
+        page &&
+        hostRef.current &&
+        !reportCanTurn(page, hostRef.current, direction)
+      ) {
+        event.preventDefault();
+        page.scrollTop +=
+          direction * (event.key.startsWith('Arrow') ? 40 : page.clientHeight * 0.8);
+        return;
+      }
       if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
         event.preventDefault();
         move(1);
@@ -167,7 +274,7 @@ export function AnnualReportStage({
   }, [count, move, onIndexChange, tabActive, reading]);
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
-    if (reading) return;
+    if (reading || event.pointerType !== 'mouse' || !reportGestureTarget(event.target)) return;
     // 刻意不在 pointerdown 就 setPointerCapture：捕获会把后续 pointerup 重定向到
     // 舞台宿主，叠在它上面的 click 事件就到不了页面里的按钮 —— 年份刻度、CTA、
     // 重试全都「点了没反应、控制台无报错」。捕获推迟到手势真正成立的那一刻。

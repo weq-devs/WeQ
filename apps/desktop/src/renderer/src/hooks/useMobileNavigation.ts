@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { MobileBackStack, type MobileBackEntry } from '../lib/mobileNavigation';
+import { isMobileClient, isSingleColumnLayout } from '../lib/responsiveLayout';
 
 const stack = new MobileBackStack();
 let sequence = 0;
@@ -11,7 +12,7 @@ let attached = false;
 const marker = `weq-mobile-${Date.now()}`;
 
 export function isMobileNavigation() {
-  return typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
+  return typeof window !== 'undefined' && (isSingleColumnLayout() || isMobileClient());
 }
 
 function signal(direction: 'forward' | 'back' | 'root') {

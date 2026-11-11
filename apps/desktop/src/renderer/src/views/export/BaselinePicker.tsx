@@ -3,6 +3,7 @@ import { FolderOpen, RefreshCw, X } from 'lucide-react';
 import { OverlayLayer } from '../../components/OverlayLayer';
 import { client } from '../../trpc/client';
 import type { CalendarTarget } from '../../lib/messageCalendar';
+import { useRemoteClient } from '../../lib/remoteClient';
 
 type Entry = Awaited<ReturnType<typeof client.account.listExportBaselines.query>>['items'][number];
 export type BaselineSelection = { directory: string; byConversation: Record<string, string> };
@@ -28,6 +29,7 @@ export function BaselinePicker({
   onSelect: (selection: BaselineSelection | null) => void;
   onClose: () => void;
 }) {
+  const remote = useRemoteClient();
   const [directory, setDirectory] = useState(initialDirectory ?? '');
   const [items, setItems] = useState<Entry[]>([]);
   const [choices, setChoices] = useState<Record<string, string>>({});
@@ -38,33 +40,37 @@ export function BaselinePicker({
   const revision = useRef(0);
   const latestTargets = useRef(targets);
   latestTargets.current = targets;
-  const load = useCallback(async (root: string) => {
-    const current = ++revision.current;
-    setBusy(true);
-    setError('');
-    setLoaded(false);
-    setItems([]);
-    setChoices({});
-    try {
-      const result = await client.account.listExportBaselines.query({ directory: root });
-      if (revision.current !== current) return;
-      setDirectory(root);
-      setItems(result.items);
-      setTruncated(result.truncated);
-      setLoaded(true);
-      const groups = latestTargets.current.length ? latestTargets.current : result.items;
-      const defaults: Record<string, string> = {};
-      for (const target of groups) {
-        const matches = result.items.filter((item) => keyFor(item) === keyFor(target));
-        if (matches.length === 1) defaults[keyFor(target)] = matches[0]!.directory;
+  const load = useCallback(
+    async (root: string) => {
+      if (remote) return;
+      const current = ++revision.current;
+      setBusy(true);
+      setError('');
+      setLoaded(false);
+      setItems([]);
+      setChoices({});
+      try {
+        const result = await client.account.listExportBaselines.query({ directory: root });
+        if (revision.current !== current) return;
+        setDirectory(root);
+        setItems(result.items);
+        setTruncated(result.truncated);
+        setLoaded(true);
+        const groups = latestTargets.current.length ? latestTargets.current : result.items;
+        const defaults: Record<string, string> = {};
+        for (const target of groups) {
+          const matches = result.items.filter((item) => keyFor(item) === keyFor(target));
+          if (matches.length === 1) defaults[keyFor(target)] = matches[0]!.directory;
+        }
+        setChoices(defaults);
+      } catch (e) {
+        if (revision.current === current) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (revision.current === current) setBusy(false);
       }
-      setChoices(defaults);
-    } catch (e) {
-      if (revision.current === current) setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      if (revision.current === current) setBusy(false);
-    }
-  }, []);
+    },
+    [remote],
+  );
   useEffect(() => {
     if (initialDirectory) void load(initialDirectory);
     return () => {
@@ -123,48 +129,52 @@ export function BaselinePicker({
               <X size={16} />
             </button>
           </header>
-          <div className="weq-export-baseline-root">
-            <input
-              aria-label="基线所在文件夹"
-              disabled={busy}
-              value={directory}
-              onChange={(event) => {
-                setDirectory(event.target.value);
-                setLoaded(false);
-              }}
-              placeholder="导出文件夹或上级文件夹"
-            />
-            <button
-              type="button"
-              className="weq-exp-tool"
-              title="浏览基线所在文件夹"
-              aria-label="浏览基线所在文件夹"
-              disabled={busy}
-              onClick={() => {
-                const current = revision.current;
-                void client.account.pickExportBaselineDirectory
-                  .mutate()
-                  .then((path) => {
-                    if (path && revision.current === current) void load(path);
-                  })
-                  .catch((e) => {
-                    if (revision.current === current) setError(String(e));
-                  });
-              }}
-            >
-              <FolderOpen size={16} />
-            </button>
-            <button
-              type="button"
-              className="weq-exp-tool"
-              title="读取导出文件夹列表"
-              aria-label="读取导出文件夹列表"
-              disabled={busy || !directory}
-              onClick={() => void load(directory)}
-            >
-              <RefreshCw size={16} />
-            </button>
-          </div>
+          {remote ? (
+            <p role="status">WeQ Remote 不支持选择电脑已有的增量基线，请新建导出。</p>
+          ) : (
+            <div className="weq-export-baseline-root">
+              <input
+                aria-label="基线所在文件夹"
+                disabled={busy}
+                value={directory}
+                onChange={(event) => {
+                  setDirectory(event.target.value);
+                  setLoaded(false);
+                }}
+                placeholder="导出文件夹或上级文件夹"
+              />
+              <button
+                type="button"
+                className="weq-exp-tool"
+                title="浏览基线所在文件夹"
+                aria-label="浏览基线所在文件夹"
+                disabled={busy}
+                onClick={() => {
+                  const current = revision.current;
+                  void client.account.pickExportBaselineDirectory
+                    .mutate()
+                    .then((path) => {
+                      if (path && revision.current === current) void load(path);
+                    })
+                    .catch((e) => {
+                      if (revision.current === current) setError(String(e));
+                    });
+                }}
+              >
+                <FolderOpen size={16} />
+              </button>
+              <button
+                type="button"
+                className="weq-exp-tool"
+                title="读取导出文件夹列表"
+                aria-label="读取导出文件夹列表"
+                disabled={busy || !directory}
+                onClick={() => void load(directory)}
+              >
+                <RefreshCw size={16} />
+              </button>
+            </div>
+          )}
           {busy ? <p role="status">正在读取导出列表</p> : null}
           {error ? <p role="alert">{error}</p> : null}
           {truncated ? <p role="status">列表未列全，请选择更具体的文件夹。</p> : null}

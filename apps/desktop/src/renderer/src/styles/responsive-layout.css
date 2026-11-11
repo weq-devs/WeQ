@@ -1,0 +1,188 @@
+/* 可视视口跟布局模式独立：横屏多栏同样避让手机软键盘。 */
+.app-shell-root.weq-web-shell {
+  position: fixed;
+  inset: var(--weq-mobile-viewport-top, 0px) 0 auto;
+  height: var(--weq-mobile-viewport-height, 100dvh);
+}
+
+html[data-weq-mobile-client='true'] {
+  --weq-client-safe-left: env(safe-area-inset-left, 0px);
+  --weq-client-safe-right: env(safe-area-inset-right, 0px);
+}
+
+html[data-weq-mobile-client='true'] .app-shell-root.weq-web-shell {
+  padding-left: var(--weq-client-safe-left);
+  padding-right: var(--weq-client-safe-right);
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='single']
+  .weq-web-shell
+  :is(.weq-mobile-tabs, .weq-mobile-more),
+html[data-weq-mobile-client='true'][data-weq-layout='single']
+  .weq-web-shell[data-mobile-detail]
+  .app-shell
+  > .chat-main,
+html[data-weq-mobile-client='true'][data-weq-layout='single']
+  .weq-web-shell[data-mobile-workspace]
+  .app-shell
+  > .chat-main {
+  left: var(--weq-client-safe-left);
+  right: var(--weq-client-safe-right);
+}
+
+html[data-weq-input='touch'] .app-shell .app-rail :is(.rail-nav, .rail-footer) .weq-rail-button,
+html[data-weq-input='touch'] .app-shell :is(.chat-header, .sidebar-header) .icon-button,
+html[data-weq-input='touch'] .app-shell .sidebar-add,
+html[data-weq-input='touch'] .app-shell .composer-tools button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide']
+  .app-title-bar
+  :is(.weq-titlebar-search, .weq-titlebar-search button, .app-title-bar-logo-wrap) {
+  min-height: 44px;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide']
+  .app-title-bar
+  .weq-titlebar-search
+  button {
+  min-width: 44px;
+}
+
+html[data-weq-input='touch'] .app-shell .composer-tools button {
+  flex-shrink: 0;
+}
+
+/* 横屏继续使用导航栏、列表与正文多栏；不改写共享的栏宽和输入区偏好。 */
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell {
+  --im-rail-width: 56px;
+  grid-template-columns: 56px minmax(160px, min(30vw, var(--sidebar-width))) minmax(0, 1fr);
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell:has(> .sidebar[hidden]) {
+  grid-template-columns: 56px 0 minmax(0, 1fr);
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell > .sidebar-resize {
+  display: none;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-title-bar {
+  height: calc(44px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell .chat-pane {
+  --chat-header-height: 44px;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-header {
+  min-width: 0;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-actions {
+  gap: 0;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-title {
+  min-width: 0;
+  overflow: hidden;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-tools {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
+  font-size: 16px;
+}
+
+@media (max-width: 1100px) {
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-pane.with-group-info {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-pane > .group-info-panel {
+    display: none;
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide']
+    .chat-actions
+    .weq-mobile-group-info-trigger {
+    display: grid;
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide']
+    .chat-pane.is-mobile-group-info-open
+    > .group-info-panel {
+    position: absolute;
+    z-index: 20;
+    top: var(--chat-header-height);
+    right: 0;
+    bottom: 0;
+    display: flex;
+    width: min(100%, 300px);
+    min-width: 0;
+    overflow: auto;
+    box-shadow: var(--weq-shadow-card);
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .group-info-toggle {
+    display: none;
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide']
+    .chat-pane.with-group-info
+    :is(.unread-dock-button, .unread-jump-button) {
+    right: 12px;
+  }
+}
+
+@media (max-height: 600px) {
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-pane:not(.composer-collapsed) {
+    --composer-height: clamp(
+      96px,
+      calc(var(--weq-mobile-viewport-height, 100dvh) * 0.3),
+      140px
+    ) !important;
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer {
+    grid-template-rows: 44px minmax(0, 1fr);
+    padding: 0 8px calc(8px + var(--weq-mobile-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-tools {
+    padding-right: 0;
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
+    min-height: 0;
+    padding: 4px 84px 4px 4px;
+  }
+
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer > .composer-send {
+    right: 8px;
+    bottom: calc(8px + var(--weq-mobile-safe-bottom, env(safe-area-inset-bottom, 0px)));
+    min-width: 68px;
+    height: 44px;
+  }
+
+  html[data-weq-layout='single']
+    .chat-pane:has(.composer > :is(.emoji-panel, .composer-plus-panel)) {
+    --composer-height: min(
+      336px,
+      calc(var(--weq-mobile-viewport-height, 100dvh) - 112px)
+    ) !important;
+  }
+
+  html[data-weq-layout='single'] .mobile-composer-expanded :is(.emoji-panel, .bounce-panel) {
+    max-height: calc(var(--weq-mobile-viewport-height, 100dvh) - 160px);
+  }
+}

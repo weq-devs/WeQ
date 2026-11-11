@@ -197,8 +197,8 @@
 }
 
 /* 移动端 rail 按钮铺满格子、带文字标签，沿用通用气泡的居上定位。 */
-@media (max-width: 760px) {
-  .app-shell .rail-nav .rail-badge-mail {
+@media all {
+  :where(html[data-weq-layout='single']) .app-shell .rail-nav .rail-badge-mail {
     top: 0;
     right: calc(50% - 24px);
   }

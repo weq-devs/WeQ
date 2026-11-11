@@ -20,6 +20,11 @@ import '../../styles/settings-controls.css';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
 import { SettingsResetButton } from './SettingsReset';
 import { SETTINGS_RESET_CARDS, type SettingsResetCardId } from '../../../../shared/settings_reset';
+import {
+  remoteResetCardAvailable,
+  remoteSettingAvailable,
+} from '../../../../shared/remote_capabilities';
+import { useRemoteClient } from '../../lib/remoteClient';
 
 /** 查询失败不冒充空配置；有缓存时由调用方继续展示原数据。 */
 export function QueryError({
@@ -112,6 +117,7 @@ export function Card({
   icon,
   action,
   resetId,
+  remoteUnsupported = false,
   children,
 }: {
   settingId?: string;
@@ -120,12 +126,16 @@ export function Card({
   icon?: ReactNode;
   action?: ReactNode;
   resetId?: SettingsResetCardId;
-  children: ReactNode;
-}): ReactElement {
+  remoteUnsupported?: boolean;
+  children?: ReactNode;
+}): ReactElement | null {
   const reset = useContext(SettingsResetContext);
+  const remote = useRemoteClient();
+  if (remote && (remoteUnsupported || !remoteSettingAvailable('', settingId))) return null;
   const card =
     resetId ??
     SETTINGS_RESET_CARDS.find(([page, , label]) => page === reset?.page && title === label)?.[1];
+  const canReset = card && (!remote || remoteResetCardAvailable(card));
   return (
     <SettingsResetCardContext.Provider value={reset && card ? reset.saves(card) : null}>
       <section className="weq-set-card" data-setting-id={settingId}>
@@ -146,7 +156,7 @@ export function Card({
             {action || card ? (
               <div className="weq-set-card-action">
                 {action}
-                {card ? <SettingsResetButton card={card} /> : null}
+                {canReset ? <SettingsResetButton card={card} /> : null}
               </div>
             ) : null}
           </div>
@@ -167,13 +177,17 @@ export function Row({
   desc,
   control,
   indent,
+  remoteUnsupported = false,
 }: {
   settingId?: string;
   label: ReactNode;
   desc?: ReactNode;
   control: ReactNode;
   indent?: boolean;
-}): ReactElement {
+  remoteUnsupported?: boolean;
+}): ReactElement | null {
+  const remote = useRemoteClient();
+  if (remote && (remoteUnsupported || !remoteSettingAvailable('', settingId))) return null;
   return (
     <div className={`weq-set-row${indent ? ' is-indent' : ''}`} data-setting-id={settingId}>
       <div className="weq-set-row-main">

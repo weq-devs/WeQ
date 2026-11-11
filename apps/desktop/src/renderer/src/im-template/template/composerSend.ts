@@ -419,7 +419,7 @@ function createOfflineContext(
 }
 
 /** Float32 PCM（-1..1）→ 16-bit 单声道 WAV 字节。 */
-function encodePcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
+export function encodePcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
   const bytesPerSample = 2;
   const dataLength = samples.length * bytesPerSample;
   const buffer = new ArrayBuffer(44 + dataLength);

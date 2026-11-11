@@ -411,11 +411,11 @@ html[data-density='compact'] body table :is(th, td) {
     min-height: 44px;
   }
 }
-@media (max-width: 760px) {
-  html[data-density='compact'] .app-shell-root.weq-web-shell {
+@media all {
+  html:where([data-weq-layout='single'])[data-density='compact'] .app-shell-root.weq-web-shell {
     --weq-conversation-row-height: 64px;
   }
-  html[data-density='compact']
+  html:where([data-weq-layout='single'])[data-density='compact']
     body
     :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row) {
@@ -425,7 +425,7 @@ html[data-density='compact'] body table :is(th, td) {
     gap: 8px;
     grid-template-columns: 40px minmax(0, 1fr) 48px;
   }
-  html[data-density='compact']
+  html:where([data-weq-layout='single'])[data-density='compact']
     body
     :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row)

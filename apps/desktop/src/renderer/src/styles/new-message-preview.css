@@ -58,8 +58,10 @@
 .chat-pane.with-group-info:not(.group-info-collapsed) .new-message-pill {
   right: calc(var(--group-info-panel-width) + 16px);
 }
-@media (max-width: 760px) {
-  .chat-pane.with-group-info:not(.group-info-collapsed) .new-message-pill {
+@media all {
+  :where(html[data-weq-layout='single'])
+    .chat-pane.with-group-info:not(.group-info-collapsed)
+    .new-message-pill {
     right: 24px;
   }
 }

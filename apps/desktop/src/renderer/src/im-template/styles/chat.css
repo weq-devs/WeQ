@@ -2470,8 +2470,8 @@ html[data-theme='dark'] .member-role-badge.admin {
 
 /* 给编辑器右侧留出按钮的位置，正文不会滑到按钮底下。只在桌面端生效 ——
    小屏有独立的 composer 内边距（responsive.css），别把它盖掉。 */
-@media (min-width: 761px) {
-  .composer:has(> .composer-send) > .composer-editor {
+@media all {
+  :where(html:not([data-weq-layout='single'])) .composer:has(> .composer-send) > .composer-editor {
     padding-right: 96px;
   }
 
@@ -2479,7 +2479,7 @@ html[data-theme='dark'] .member-role-badge.admin {
 	 * 从布局里拿走（否则内容会溢出到消息区上）。消息区顺势长高，右下角「N 条新
 	 * 消息」气泡的 bottom 就是 --composer-height，于是自动落回底边。小屏有自己
 	 * 的输入框展开方式（.mobile-composer-expand-button），不参与这套。 */
-  .chat-pane.composer-collapsed .composer {
+  :where(html:not([data-weq-layout='single'])) .chat-pane.composer-collapsed .composer {
     display: none;
   }
 }

@@ -87,6 +87,7 @@ import { MessageScopePicker } from './export/MessageScopePicker';
 import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { SaveResultLocation } from './export/SaveResultLocation';
 import { IS_WEB } from '../lib/target';
+import { presentClientDocument } from '../components/ClientDocumentPreview';
 import type { ContentSelection } from '../../../shared/content_selection';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { DatabasePlainExport } from './export/DatabasePlainExport';
@@ -2634,6 +2635,7 @@ export function ExportTool({
                     onReport={(t) => {
                       void client.account.revealExportReport
                         .mutate({ taskId: t.id })
+                        .then((result) => presentClientDocument(result, '导出完整性报告'))
                         .catch((e) => dialog.error('打开报告失败', String(e)));
                     }}
                     onCancel={onCancel}

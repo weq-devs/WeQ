@@ -72,8 +72,8 @@
 
 /* 位置卡片面板在窄屏（手机端也能从位置菜单进入）跟红包面板同一套收边：
  * 面板宽度撑满输入区两侧，别为 540px 的桌面宽度留出横向溢出。 */
-@media (max-width: 760px) {
-  .ark-panel.location-card-panel {
+@media all {
+  :where(html[data-weq-layout='single']) .ark-panel.location-card-panel {
     left: 8px;
     width: calc(100% - 16px);
   }

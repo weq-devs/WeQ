@@ -3,6 +3,8 @@ import type { MainView } from '../../im-template/template/types';
 import type { ExportMode } from '../../views/export/types';
 import type { DressKind } from '../DressUpDialog';
 import { AI_SETTING_ITEMS } from '../settings/aiSettingsCatalog';
+import { isRemoteClient } from '../../lib/remoteClient';
+import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
 import {
   SETTINGS_PAGE_LABELS,
   SETTINGS_ITEM_TARGETS,
@@ -309,11 +311,25 @@ export function appSearchEntryRank(keyword: string, entry: AppSearchEntry): numb
 export function searchAppEntries(keyword: string): AppSearchEntry[] {
   const query = keyword.trim();
   if (!query) return [];
-  return APP_SEARCH_ENTRIES.map((entry, index) => ({
-    entry,
-    index,
-    rank: appSearchEntryRank(query, entry),
-  }))
+  return APP_SEARCH_ENTRIES.filter((entry) => {
+    if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
+    const target = resolveSettingsTarget(entry.target);
+    if (!remoteSettingAvailable(target.section, target.settingId)) return false;
+    return ![
+      '自启时显示窗口',
+      '使用仿 Windows 窗口按钮',
+      '同时录电脑声音',
+      '保存位置',
+      '记录 UDP 流量',
+      '日志保留时长',
+      '日志文件夹',
+    ].includes(target.item ?? '');
+  })
+    .map((entry, index) => ({
+      entry,
+      index,
+      rank: appSearchEntryRank(query, entry),
+    }))
     .filter(({ rank }) => rank > 0)
     .sort((a, b) => b.rank - a.rank || a.index - b.index)
     .map(({ entry }) => entry);

@@ -127,7 +127,6 @@ import { useAppLock } from '../state/lock';
 import {
   SETTINGS_GROUPS,
   resolveSettingsTarget,
-  settingsGroupFor,
   settingsScopeFor,
   type SectionId,
   type SettingsPageId,
@@ -139,6 +138,8 @@ import { useUpdateStore } from '../state/update';
 import { SettingsResetButton } from './settings/SettingsReset';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
+import { useRemoteClient } from '../lib/remoteClient';
+import { remoteSettingAvailable } from '../../../shared/remote_capabilities';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
@@ -514,6 +515,7 @@ function SettingsContent({
   isCurrentSource?: () => boolean;
   navigationGuard?: { current: SettingsNavigation | null };
 }): ReactElement | null {
+  const remote = useRemoteClient();
   const target = useMemo(
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
     [initialSection, searchTarget],
@@ -534,8 +536,12 @@ function SettingsContent({
     Boolean(initialSection || searchTarget),
   );
   const subnavRef = useRef<HTMLElement | null>(null);
-  const sections = SETTINGS_SECTIONS;
-  const group = settingsGroupFor(activeId);
+  const sections = SETTINGS_SECTIONS.filter((entry) => !remote || remoteSettingAvailable(entry.id));
+  const groups = SETTINGS_GROUPS.map((group) => ({
+    ...group,
+    sections: group.sections.filter((id) => sections.some((section) => section.id === id)),
+  })).filter((group) => group.sections.length > 0);
+  const group = groups.find((entry) => entry.sections.includes(activeId)) ?? groups[0]!;
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
   const snapshots = usePageSnapshotReset('workspace:main:设置');
   const activeKey = usePageSnapshotKey('settings:active');
@@ -583,9 +589,10 @@ function SettingsContent({
   );
   const switchSection = useCallback(
     (section: SettingsPageId) => {
+      if (remote && !remoteSettingAvailable(section)) section = 'startup';
       if (section !== activeId) requestNavigation(() => setActiveId(section));
     },
-    [activeId, requestNavigation, setActiveId],
+    [activeId, requestNavigation, setActiveId, remote],
   );
   const switchSectionRef = useRef(switchSection);
   switchSectionRef.current = switchSection;
@@ -699,7 +706,7 @@ function SettingsContent({
               设置
             </h2>
             <ul>
-              {SETTINGS_GROUPS.map((s) => (
+              {groups.map((s) => (
                 <li key={s.id}>
                   <button
                     type="button"

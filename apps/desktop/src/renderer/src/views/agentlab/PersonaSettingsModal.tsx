@@ -39,6 +39,8 @@ import {
 } from './cloneSettingsDraft';
 import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { openExternalLink } from '../../lib/openExternalLink';
+import { isRemoteClient } from '../../lib/remoteClient';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useExportReportDialog } from '../export/ExportReportControl';
@@ -381,6 +383,19 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
           '默认地址没响应。请确认 bot 已 npm start，或在下方填入实际访问地址后重试。',
         );
       } else if (r.opened) {
+        if (r.openUrl) {
+          const target = new URL(r.openUrl);
+          if (isRemoteClient() && ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)) {
+            setUrlInput(r.openUrl);
+            dialog.error(
+              '需要手机可访问的地址',
+              '控制台当前只提供电脑本机地址。请填写手机可访问的控制台地址后重试。',
+            );
+            return;
+          }
+          const opened = await openExternalLink(r.openUrl);
+          if (!opened.ok) throw new Error(opened.error ?? '无法打开控制台');
+        }
         setUrlInput(null);
       }
     } catch (e) {

@@ -25,6 +25,7 @@ import {
 import './styles/client-sync.css';
 import { BootstrapView } from './views/BootstrapView';
 import { DialogHost } from './components/Dialog';
+import { ClientDocumentPreview } from './components/ClientDocumentPreview';
 import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
 import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
@@ -258,6 +259,7 @@ export default function App(): ReactElement {
                 自身决定是否显示（见 JoinGroupDialog 的判据）。 */}
             {view === 'main' ? <JoinGroupDialog /> : null}
             <DialogHost />
+            <ClientDocumentPreview />
             <RemoteStartupReporter />
             <AccountSwitchRequestHost />
             <RemoteRequests />

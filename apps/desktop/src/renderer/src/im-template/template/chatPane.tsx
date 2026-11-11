@@ -18,6 +18,7 @@ import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
+import { isSingleColumnLayout, subscribeResponsiveLayout } from '../../lib/responsiveLayout';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { adjacentMessageId } from '../../lib/messageKeyboardNav';
 import { IS_WEB } from '../../lib/target';
@@ -417,7 +418,7 @@ function formatUnreadJumpCount(value: number) {
 }
 
 function isMobileComposerViewport() {
-  return window.matchMedia('(max-width: 760px)').matches;
+  return isSingleColumnLayout();
 }
 
 /**
@@ -777,12 +778,13 @@ export function ChatPane({
   const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
   useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive]);
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 760px)');
+    let single = isSingleColumnLayout();
     const update = () => {
-      if (!query.matches) setMobileGroupInfoOpen(false);
+      const next = isSingleColumnLayout();
+      if (next !== single) setMobileGroupInfoOpen(false);
+      single = next;
     };
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
+    return subscribeResponsiveLayout(update);
   }, []);
   const sidecarOpen = useWorkspaceSidecarOpen();
   // 桌面沿用收纳偏好；手机输入区常驻，但进入会话不自动聚焦。
@@ -4467,7 +4469,7 @@ export function ChatPane({
         ? selectedMessageClipboard(event.currentTarget.closest('.chat-pane'))
         : null;
     const clipboard = selected ?? (quote ? messageNodeClipboard(quote) : undefined);
-    if (window.matchMedia('(max-width: 760px)').matches) {
+    if (isSingleColumnLayout()) {
       const rect = event.currentTarget.getBoundingClientRect();
       openMobileMessageMenu(
         {

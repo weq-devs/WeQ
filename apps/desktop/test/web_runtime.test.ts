@@ -44,7 +44,9 @@ function fixture() {
       webHost: procedure.query(() => ({
         canReveal: getHost().canReveal,
         version: getHost().appVersion(),
+        remoteClient: getHost().remoteClient === true,
       })),
+      bootstrap: router({ pickCacheDir: procedure.mutation(() => 'computer-operation') }),
       reportCapture: procedure.mutation(async () =>
         (await getHost().renderHtmlToPdf('fixture')).toString(),
       ),
@@ -150,7 +152,14 @@ it('手机完整 Web 权限需单独批准，隔离宿主和本机管理，撤�
     expect(compressed.headers.get('vary')).toBe('Accept-Encoding');
     expect(await compressed.text()).toBe(code);
     const reply = await (await fetch(`${base}/trpc/webHost`, { headers })).json();
-    expect(reply.result.data.json).toEqual({ canReveal: false, version: 'test' });
+    expect(reply.result.data.json).toEqual({
+      canReveal: false,
+      version: 'test',
+      remoteClient: true,
+    });
+    expect(
+      (await fetch(`${base}/trpc/bootstrap.pickCacheDir`, { method: 'POST', headers })).status,
+    ).toBe(403);
     const captured = await (
       await fetch(`${base}/trpc/reportCapture`, { method: 'POST', headers })
     ).json();
@@ -174,6 +183,14 @@ it('手机完整 Web 权限需单独批准，隔离宿主和本机管理，撤�
       body: JSON.stringify({ token: runtime.accessToken() }),
     });
     const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
+    expect(
+      (
+        await fetch(`${localUrl}/trpc/bootstrap.pickCacheDir`, {
+          method: 'POST',
+          headers: { cookie, 'User-Agent': 'WeQRemote/fixture' },
+        })
+      ).status,
+    ).toBe(200);
     expect((await fetch(base, { headers: { cookie } })).status).toBe(403);
     runtime.stop();
     expect(socket.readyState).toBe(WebSocket.OPEN);

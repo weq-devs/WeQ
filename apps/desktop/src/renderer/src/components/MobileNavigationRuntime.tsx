@@ -1,5 +1,11 @@
 import { useEffect, type RefObject } from 'react';
-import { attachMobileHistory, mobileBack, mobileBackTarget } from '../hooks/useMobileNavigation';
+import {
+  attachMobileHistory,
+  isMobileNavigation,
+  mobileBack,
+  mobileBackTarget,
+} from '../hooks/useMobileNavigation';
+import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
 import { shouldCompleteMobileSwipe } from '../lib/mobileNavigation';
 import { topSurface } from '../lib/surfaceEscape';
 import { setMobileNavigationBusy } from '../lib/mobilePageLoading';
@@ -10,7 +16,6 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
   useEffect(() => {
     const element = root.current;
     if (!element) return;
-    const mobile = window.matchMedia('(max-width: 760px)');
     const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let detach: (() => void) | undefined;
     let frame = 0;
@@ -143,7 +148,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
     };
     const clickTab = (event: MouseEvent) => {
       if (
-        !mobile.matches ||
+        !isSingleColumnLayout() ||
         skipRootClick ||
         element.hasAttribute('data-mobile-detail') ||
         topSurface(document)
@@ -166,7 +171,12 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       void completeRootTransition(0, true);
     };
     const start = (event: TouchEvent) => {
-      if (!mobile.matches || event.touches.length !== 1 || completing || topSurface(document))
+      if (
+        !isSingleColumnLayout() ||
+        event.touches.length !== 1 ||
+        completing ||
+        topSurface(document)
+      )
         return;
       const touch = event.touches[0]!;
       const backTarget = mobileBackTarget();
@@ -308,8 +318,8 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       removeRootTransition();
       animation?.cancel();
       clearSwipe();
-      if (mobile.matches && !detach) detach = attachMobileHistory();
-      else if (!mobile.matches && detach) {
+      if (isMobileNavigation() && !detach) detach = attachMobileHistory();
+      else if (!isMobileNavigation() && detach) {
         detach();
         detach = undefined;
       }
@@ -319,7 +329,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
     };
     resize();
     document.addEventListener('visibilitychange', visibility);
-    mobile.addEventListener('change', resize);
+    const unsubscribeLayout = subscribeResponsiveLayout(resize);
     window.addEventListener('resize', resize);
     window.addEventListener('weq-mobile-navigate', navigate);
     element.addEventListener('click', clickTab, true);
@@ -333,7 +343,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       animation?.cancel();
       cancelAnimationFrame(frame);
       clearSwipe();
-      mobile.removeEventListener('change', resize);
+      unsubscribeLayout();
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('resize', resize);
       window.removeEventListener('weq-mobile-navigate', navigate);

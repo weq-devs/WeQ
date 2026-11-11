@@ -20,6 +20,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const state = vi.hoisted(() => ({
   web: false,
+  remote: false,
   configId: 'source-a',
   model: '',
   prepare: vi.fn(
@@ -75,6 +76,10 @@ vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_ELECTRON() {
     return !state.web;
   },
+}));
+vi.mock('../src/renderer/src/lib/remoteClient', () => ({
+  useRemoteClient: () => state.remote,
+  isRemoteClient: () => state.remote,
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => {
@@ -171,6 +176,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   useViewState.setState({ openedUin: '10001' });
   state.web = false;
+  state.remote = false;
   state.configId = 'source-a';
   state.model = '';
   state.cacheEntries = [];
@@ -281,6 +287,40 @@ it('主动作沿用公共偏好，排队只提示受理，不直接写盘或打�
     tone: 'info',
     title: '媒体保存任务已创建',
   });
+});
+it('Remote 原位保存默认下载到设备，不弹电脑目录或使用电脑预设', async () => {
+  state.web = true;
+  state.remote = true;
+  const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  const view = await mount();
+  await click(view.host, '保存图片');
+  expect(state.prepare).not.toHaveBeenCalled();
+  expect(state.download).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    taskId: 'media-task',
+  });
+  expect(anchor).toHaveBeenCalledOnce();
+});
+
+it('Remote 已有本地缓存文件卡仍交付设备下载，不调用电脑打开文件', async () => {
+  state.web = true;
+  state.remote = true;
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  const view = await mount(
+    h(QqFile, {
+      data: { fileName: 'report.txt', localPath: '/cached/report.txt' },
+      sendTimeMs: 1,
+      msgId: '',
+      conv: '123',
+    }),
+  );
+  await act(async () => view.host.querySelector<HTMLButtonElement>('.qq-media-file-open')!.click());
+  expect(state.open).not.toHaveBeenCalled();
+  expect(state.save.mock.calls[0]![0]).toMatchObject({
+    source: { kind: 'url', name: 'report.txt' },
+  });
+  expect(state.download).toHaveBeenCalledOnce();
 });
 it('单按钮保存取消，不修改偏好、不退出控件或清理原资源', async () => {
   const view = await mount();

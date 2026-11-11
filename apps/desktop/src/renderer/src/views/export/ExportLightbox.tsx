@@ -48,6 +48,7 @@ import { useDialog } from '../../components/Dialog';
 import { ocrReadiness, type OcrReadiness } from './preflight';
 import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
 import { BaselinePicker } from './BaselinePicker';
+import { useRemoteClient } from '../../lib/remoteClient';
 import { ExportReportControl } from './ExportReportControl';
 import {
   BusinessExportDetails,
@@ -262,6 +263,7 @@ export function ExportLightbox({
   onConfirm: (result: LightboxResult) => void;
   onAuthorizationChange?: (state: ExportAuthorizationIndicatorState | null) => void;
 }): ReactElement {
+  const remote = useRemoteClient();
   useEscapeToClose(() => {
     if (!embedded && !hidden) onClose();
   });
@@ -459,6 +461,7 @@ export function ExportLightbox({
   async function confirm(): Promise<void> {
     if (confirming || requestingFormat || submitting || disabled || selectionError) return;
     if (
+      !remote &&
       baselineDirectory &&
       baselineByConversation &&
       calendarTargets?.some(
@@ -520,14 +523,14 @@ export function ExportLightbox({
             void authorization.releaseCapture().catch(() => {});
           },
         },
-        baselineDirectory: selectedFormats.some((format) => format === 'json' || format === 'jsonl')
-          ? baselineDirectory
-          : undefined,
-        baselineByConversation: selectedFormats.some(
-          (format) => format === 'json' || format === 'jsonl',
-        )
-          ? baselineByConversation
-          : undefined,
+        baselineDirectory:
+          !remote && selectedFormats.some((format) => format === 'json' || format === 'jsonl')
+            ? baselineDirectory
+            : undefined,
+        baselineByConversation:
+          !remote && selectedFormats.some((format) => format === 'json' || format === 'jsonl')
+            ? baselineByConversation
+            : undefined,
         saveAsDefault,
         formats: selectedFormats,
         options: {
@@ -687,7 +690,8 @@ export function ExportLightbox({
         </header>
 
         <div className="weq-exp-dialog-body">
-          {variant === 'full' &&
+          {!remote &&
+          variant === 'full' &&
           !opts.chatlab &&
           formats.some((format) => format === 'json' || format === 'jsonl') ? (
             <div className="weq-export-baseline">

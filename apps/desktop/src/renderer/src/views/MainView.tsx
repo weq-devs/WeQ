@@ -21,6 +21,9 @@ import React, {
 import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
+import { isSingleColumnLayout } from '../lib/responsiveLayout';
+import { isRemoteClient } from '../lib/remoteClient';
+import { remoteUnsupportedTools } from '../components/settings/DataMaintenanceSection';
 import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
 import { WebBusinessCache } from '../components/WebBusinessCache';
 import { resolvedProfilesKey } from '../lib/webBusinessCache';
@@ -2343,7 +2346,7 @@ function OverlayScrollbar({
 }
 
 function isMobileShell(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
+  return isSingleColumnLayout();
 }
 
 export function MainView(): ReactElement {
@@ -3244,6 +3247,10 @@ function MainWorkspace(): ReactElement {
     useSettingsMaintenance(messageScope);
   useEffect(() => () => useCaptureWindow.getState().dismiss(messageScope), [messageScope]);
   function openMaintenance(tool: MaintenanceTool) {
+    if (isRemoteClient() && remoteUnsupportedTools.includes(tool)) {
+      pushToast({ tone: 'info', title: '此项仅在电脑端支持' });
+      return;
+    }
     if (messageScopeRef.current !== messageScope) return;
     if (tool === 'capture') {
       if (!messageScope) {

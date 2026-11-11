@@ -12,6 +12,9 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { Modal } from './Dialog';
 import { useThemeStore } from '../state/theme';
+import { IS_WEB } from '../lib/target';
+import { openExternalLink } from '../lib/openExternalLink';
+import { ExternalLink } from 'lucide-react';
 
 /** QQ 安卓 Web 版 UA —— 分享页按手机版渲染。 */
 const QQ_MOBILE_UA =
@@ -83,7 +86,20 @@ export function FlashShareDialog({
           </button>
         </div>
         <div className="weq-flash-share-body">
-          {error ? (
+          {IS_WEB ? (
+            <button
+              type="button"
+              className="weq-action-primary"
+              onClick={() => {
+                void openExternalLink(url).then((result) => {
+                  if (!result.ok) setError(result.error ?? '无法打开分享页');
+                });
+              }}
+            >
+              <ExternalLink size={18} aria-hidden />
+              打开闪传分享页{error ? `：${error}` : ''}
+            </button>
+          ) : error ? (
             <div className="weq-flash-share-error">
               <p>{error}</p>
             </div>

@@ -23,6 +23,7 @@ import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useToast } from '../../components/Toast';
 import { IS_WEB } from '../../lib/target';
+import { presentClientDocument } from '../../components/ClientDocumentPreview';
 import '../../styles/assistant-artifact-save.css';
 
 function kindIcon(kind: AssistantArtifact['kind']): ReactElement {
@@ -92,8 +93,10 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
     const expected = { ...binding },
       id = artifact.id;
     try {
-      if (isExport) await client.account.openAssistantExport.mutate({ ...expected, taskId: id });
-      else await client.account.openAssistantArtifact.mutate({ ...expected, id });
+      const result = isExport
+        ? await client.account.openAssistantExport.mutate({ ...expected, taskId: id })
+        : await client.account.openAssistantArtifact.mutate({ ...expected, id });
+      presentClientDocument(result, '助手报告');
     } catch (e) {
       if (current()) dialog.error('打开失败', e instanceof Error ? e.message : String(e));
     } finally {

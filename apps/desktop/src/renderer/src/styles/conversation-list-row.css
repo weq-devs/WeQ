@@ -44,11 +44,11 @@
   right: 13px;
   bottom: 10px;
 }
-@media (max-width: 760px) {
-  .weq-conversation-list {
+@media all {
+  :where(html[data-weq-layout='single']) .weq-conversation-list {
     --weq-conversation-row-height: 76px;
   }
-  html[data-density='compact'] .weq-conversation-list {
+  html:where([data-weq-layout='single'])[data-density='compact'] .weq-conversation-list {
     --weq-conversation-row-height: 64px;
   }
 }

@@ -22,7 +22,7 @@ function useRemoteShellAvailable() {
 
 export function RemoteShellMenuItem({ onClose }: { onClose: () => void }) {
   const available = useRemoteShellAvailable();
-  if (!available || !window.matchMedia('(max-width: 760px)').matches) return null;
+  if (!available) return null;
   return (
     <button
       type="button"

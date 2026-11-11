@@ -159,10 +159,21 @@ export async function handleRequest(
     const out = await fileResponse(entry.path);
     const headers = new Headers(out.headers);
     headers.set('Cache-Control', 'no-store');
+    const preview = new URL(url, 'http://localhost').searchParams.get('preview') === '1';
     headers.set(
       'Content-Disposition',
-      `attachment; filename*=UTF-8''${encodeURIComponent(entry.name)}`,
+      `${preview ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(entry.name)}`,
     );
+    if (preview) {
+      const contentType = headers.get('Content-Type');
+      if (contentType?.startsWith('text/') && !contentType.includes('charset='))
+        headers.set('Content-Type', `${contentType}; charset=utf-8`);
+      headers.set(
+        'Content-Security-Policy',
+        "sandbox allow-scripts; default-src 'self' https: data: blob: 'unsafe-inline'; frame-ancestors 'self'",
+      );
+      if (/\.(md|txt)$/i.test(entry.path)) headers.set('Content-Type', 'text/plain; charset=utf-8');
+    }
     return writeResponse(res, new Response(out.body, { status: out.status, headers }));
   }
 

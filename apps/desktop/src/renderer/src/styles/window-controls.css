@@ -3,12 +3,14 @@
   padding-left: 84px;
 }
 
-@media (max-width: 760px) {
-  .app-shell-root.is-desktop-shell.weq-web-shell {
+@media all {
+  :where(html[data-weq-layout='single']) .app-shell-root.is-desktop-shell.weq-web-shell {
     --weq-mobile-window-chrome-height: 40px;
   }
 
-  .app-shell-root.is-desktop-shell.weq-web-shell > .app-title-bar {
+  :where(html[data-weq-layout='single'])
+    .app-shell-root.is-desktop-shell.weq-web-shell
+    > .app-title-bar {
     display: flex;
   }
 }

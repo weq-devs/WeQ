@@ -5,9 +5,10 @@ import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { ConversationList } from '../../src/renderer/src/im-template/template/conversationLists';
 import { useChatShellController } from '../../src/renderer/src/im-template/template/shellController';
 import { createTemplateDemoData } from '../support/templateDemoData';
-import type { Message } from '../../src/renderer/src/im-template/template/types';
+import type { Conversation, Message } from '../../src/renderer/src/im-template/template/types';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
+import { isSingleColumnLayout } from '../../src/renderer/src/lib/responsiveLayout';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/workspace-tools.css';
 
@@ -17,20 +18,25 @@ const demo = createTemplateDemoData(1793872800000);
 const user = { ...demo.user, displayName: '我', avatarUrl: null };
 const peer = { ...demo.contacts[0], displayName: '林夏', avatarUrl: null };
 const seed = demo.conversations.find((row) => row.type === 'direct')!;
-const conversation = { ...seed, id: 'portrait-fixture', otherUser: peer, unreadCount: 0 };
-const conversations = [
-  '林夏',
-  '项目讨论',
-  '文件传输',
-  '周末出行',
-  '读书小组',
-  '设计讨论',
-  '消息归档',
-].map((name, index) => ({
-  ...conversation,
-  id: index === 0 ? conversation.id : `fixture-${index}`,
-  otherUser: { ...peer, displayName: name },
-}));
+const directConversation = { ...seed, id: 'portrait-fixture', otherUser: peer, unreadCount: 0 };
+const groupSeed = demo.conversations.find((row) => row.type === 'group')!;
+const groupConversation = { ...groupSeed, id: 'portrait-group-fixture', unreadCount: 0 };
+const groupMode = new URLSearchParams(location.search).has('group');
+const conversation = groupMode ? groupConversation : directConversation;
+const names = ['林夏', '项目讨论', '文件传输', '周末出行', '读书小组', '设计讨论', '消息归档'];
+const conversations: Conversation[] = names.map((name, index) =>
+  groupMode
+    ? {
+        ...groupConversation,
+        id: index === 0 ? conversation.id : `fixture-${index}`,
+        group: { ...groupConversation.group, name },
+      }
+    : {
+        ...directConversation,
+        id: index === 0 ? conversation.id : `fixture-${index}`,
+        otherUser: { ...peer, displayName: name },
+      },
+);
 const messages: Message[] = [
   '这版会话列表看起来清楚多了。',
   '我把控件间距也整理了一下，稍后一起看。',
@@ -56,7 +62,7 @@ function DesktopFixture() {
     initialActiveConversationId: conversation.id,
     sidebarWidthStorageKey: 'portrait-fixture-width',
     history: {
-      isMobileShell: () => matchMedia('(max-width: 760px)').matches,
+      isMobileShell: isSingleColumnLayout,
       shouldAutoSelectConversation: () => false,
       replaceShell: noop,
       pushShellDetail: noop,
@@ -102,6 +108,11 @@ function DesktopFixture() {
               onDraftChange={(_conversationId, value) => setDraft(value)}
               onDraftClear={() => setDraft('')}
               onBack={shell.backConversation}
+              onStartCall={async () => {}}
+              onSearchChatRecords={noop}
+              onOpenConversationSettings={noop}
+              onViewDeleted={noop}
+              onViewRecalled={noop}
             />
           )
         }

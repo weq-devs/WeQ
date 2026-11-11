@@ -30,6 +30,7 @@ import {
 } from './reportContext';
 import '../../styles/annual-report.css';
 import { useTabActive } from '../../components/RetainedTabs';
+import { useMobileBack } from '../../hooks/useMobileNavigation';
 import type { AnalysisScope } from '../analysis/model';
 
 type PageState = { status: 'idle' | 'loading' | 'ok' | 'error'; data?: unknown; error?: string };
@@ -290,6 +291,24 @@ function ReportDeckView({
   }, [index, tabActive]);
   /** 由 fullscreenchange 同步，不自己猜：Esc 退出时按钮文案也要跟着回正。 */
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [immersive, setImmersive] = useState(false);
+  useMobileBack(
+    immersive && tabActive,
+    () => setImmersive(false),
+    90,
+    () => rootRef.current,
+  );
+  useEffect(() => {
+    if (!immersive) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setImmersive(false);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [immersive]);
   /** 摘页时要知道 pageId 在当前 deck 里的位置；放在 ref 里避免让 loadPage 随页变化重建。 */
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
@@ -348,14 +367,21 @@ function ReportDeckView({
   const toggleFullscreen = useCallback(() => {
     const element = rootRef.current;
     if (!element) return;
+    if (immersive) {
+      setImmersive(false);
+      return;
+    }
     if (document.fullscreenElement === element) {
       void document.exitFullscreen();
       return;
     }
-    if (typeof element.requestFullscreen !== 'function') return;
+    if (typeof element.requestFullscreen !== 'function') {
+      setImmersive(true);
+      return;
+    }
     // 被浏览器拒绝（不是用户手势、权限策略等）时静默 —— 报告本身照常可用。
-    void element.requestFullscreen().catch(() => {});
-  }, []);
+    void element.requestFullscreen().catch(() => setImmersive(true));
+  }, [immersive]);
 
   useEffect(() => {
     const onFullscreenChange = (): void => {
@@ -565,18 +591,27 @@ function ReportDeckView({
   const onEntry = entry && index === 0;
 
   return (
-    <div className="weq-report-root is-deck" ref={rootRef} data-entry={onEntry ? 'yes' : 'no'}>
+    <div
+      className="weq-report-root is-deck"
+      ref={rootRef}
+      data-entry={onEntry ? 'yes' : 'no'}
+      data-immersive={immersive || undefined}
+    >
       <div className="weq-report-chrome">
         <button
           type="button"
           className="weq-report-fullscreen"
           onClick={toggleFullscreen}
-          aria-pressed={isFullscreen}
-          aria-label={isFullscreen ? '退出全屏播放' : '全屏播放'}
-          title={isFullscreen ? '退出全屏（Esc）' : '全屏播放'}
+          aria-pressed={isFullscreen || immersive}
+          aria-label={isFullscreen || immersive ? '退出全屏播放' : '全屏播放'}
+          title={isFullscreen || immersive ? '退出全屏（Esc）' : '全屏播放'}
         >
-          {isFullscreen ? <Minimize2 size={14} aria-hidden /> : <Maximize2 size={14} aria-hidden />}
-          <span>{isFullscreen ? '退出全屏' : '全屏播放'}</span>
+          {isFullscreen || immersive ? (
+            <Minimize2 size={14} aria-hidden />
+          ) : (
+            <Maximize2 size={14} aria-hidden />
+          )}
+          <span>{isFullscreen || immersive ? '退出全屏' : '全屏播放'}</span>
         </button>
         <div className="weq-report-brand">
           <span

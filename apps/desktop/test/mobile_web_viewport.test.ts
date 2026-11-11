@@ -49,12 +49,32 @@ it('键盘只改变可视视口时同步高度和偏移，放大和无效尺寸�
   expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('420px');
   media.matches = false;
   media.dispatchEvent(new Event('change'));
-  expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('');
+  expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('420px');
   stop();
   media.matches = true;
   viewport.height = 844;
   viewport.dispatchEvent(new Event('resize'));
   expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('');
+});
+
+it('横屏多栏仍跟随键盘可视视口，不依赖单栏宽度查询', () => {
+  const viewport = Object.assign(new EventTarget(), { height: 390, offsetTop: 0, scale: 1 });
+  vi.stubGlobal('visualViewport', viewport);
+  vi.stubGlobal('innerWidth', 844);
+  vi.stubGlobal('innerHeight', 390);
+  vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
+  const element = document.createElement('div');
+  const stop = observeMobileWebViewport(element);
+  try {
+    expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('390px');
+    viewport.height = 210;
+    viewport.offsetTop = 18;
+    viewport.dispatchEvent(new Event('resize'));
+    expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('210px');
+    expect(element.style.getPropertyValue('--weq-mobile-viewport-top')).toBe('18px');
+  } finally {
+    stop();
+  }
 });
 
 it('没有 VisualViewport 的浏览器回退窗口尺寸', () => {

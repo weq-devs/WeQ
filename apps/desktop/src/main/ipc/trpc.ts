@@ -5,11 +5,15 @@
  * electron-trpc 0.7 + tRPC v11 requires an explicit transformer on both sides.
  */
 
-import { initTRPC } from '@trpc/server';
+import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
 import { withHost, logRequest, type HostBridge } from '@weq/service';
 import { maintenanceProcedures, runtimeMaintenance } from '../runtime_maintenance';
 import { pickedBrowserFiles } from '../browser_files';
+import {
+  REMOTE_UNSUPPORTED_MESSAGE,
+  remoteProcedureUnavailable,
+} from '../../shared/remote_capabilities';
 
 export interface RpcContext {
   authorize?: () => void;
@@ -28,6 +32,8 @@ export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) =
     type,
     async () => {
       ctx.authorize?.();
+      if (ctx.host?.remoteClient && remoteProcedureUnavailable(path, rawInput))
+        throw new TRPCError({ code: 'FORBIDDEN', message: REMOTE_UNSUPPORTED_MESSAGE });
       const invoke = () => (ctx.host ? withHost(ctx.host, () => next()) : next());
       const run = () =>
         type === 'subscription' ? invoke() : pickedBrowserFiles.withPaths(rawInput, invoke);

@@ -7,8 +7,8 @@
   display: none;
 }
 
-@media (max-width: 760px) {
-  .weq-web-shell {
+@media all {
+  :where(html[data-weq-layout='single']) .weq-web-shell {
     --weq-mobile-content-top: calc(
       var(--weq-mobile-window-chrome-height, 0px) +
       var(--weq-mobile-header-height)
@@ -18,7 +18,7 @@
     --weq-mobile-tabs-height: calc(60px + env(safe-area-inset-bottom, 0px));
   }
 
-  .app-shell-root.weq-web-shell {
+  :where(html[data-weq-layout='single']) .app-shell-root.weq-web-shell {
     --weq-conversation-row-height: 76px;
     position: fixed;
     inset: var(--weq-mobile-viewport-top, 0px) 0 auto;
@@ -26,32 +26,35 @@
     isolation: isolate;
   }
 
-  .weq-web-shell > .app-title-bar,
-  .weq-web-shell .app-shell > .app-rail,
-  .weq-web-shell .mobile-sidebar-top,
-  .weq-web-shell .sidebar-resize {
+  :where(html[data-weq-layout='single']) .weq-web-shell > .app-title-bar,
+  :where(html[data-weq-layout='single']) .weq-web-shell .app-shell > .app-rail,
+  :where(html[data-weq-layout='single']) .weq-web-shell .mobile-sidebar-top,
+  :where(html[data-weq-layout='single']) .weq-web-shell .sidebar-resize {
     display: none;
   }
 
-  .weq-web-shell .app-shell {
+  :where(html[data-weq-layout='single']) .weq-web-shell .app-shell {
     display: block;
     height: auto;
     overflow: hidden;
     background: var(--weq-chat-bg, var(--background));
   }
 
-  .weq-web-shell .weq-mobile-navigation {
+  :where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-navigation {
     display: contents;
   }
 
   /* 详情页只隐藏导航，不移除布局，侧滑露出的列表保持原来的上下边界。 */
-  .weq-web-shell .weq-mobile-navigation[aria-hidden='true'] {
+  :where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-navigation[aria-hidden='true'] {
     visibility: hidden;
     pointer-events: none;
   }
 
-  .weq-web-shell :is(.weq-mobile-header, .chat-header),
-  .weq-web-shell .chat-pane.has-compact-header > .chat-header {
+  :where(html[data-weq-layout='single']) .weq-web-shell :is(.weq-mobile-header, .chat-header),
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .chat-pane.has-compact-header
+    > .chat-header {
     height: var(--weq-mobile-header-height);
     min-height: var(--weq-mobile-header-height);
     align-items: center;
@@ -62,14 +65,14 @@
     color: var(--weq-fg-primary);
   }
 
-  .weq-mobile-header {
+  :where(html[data-weq-layout='single']) .weq-mobile-header {
     position: relative;
     z-index: 40;
     display: flex;
     flex: 0 0 auto;
   }
 
-  .weq-mobile-identity {
+  :where(html[data-weq-layout='single']) .weq-mobile-identity {
     min-width: 0;
     flex: 1;
     display: flex;
@@ -77,7 +80,7 @@
     gap: 2px;
   }
 
-  .weq-mobile-identity > strong {
+  :where(html[data-weq-layout='single']) .weq-mobile-identity > strong {
     display: block;
     overflow: hidden;
     font-size: var(--weq-mobile-header-title-size);
@@ -87,24 +90,24 @@
     white-space: nowrap;
   }
 
-  .weq-mobile-online-status {
+  :where(html[data-weq-layout='single']) .weq-mobile-online-status {
     min-width: 0;
     max-width: 100%;
     white-space: nowrap;
     overflow: hidden;
   }
 
-  .weq-mobile-online-status > :not(:last-child) {
+  :where(html[data-weq-layout='single']) .weq-mobile-online-status > :not(:last-child) {
     flex-shrink: 0;
   }
 
-  .weq-mobile-online-status > span:last-child {
+  :where(html[data-weq-layout='single']) .weq-mobile-online-status > span:last-child {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .weq-mobile-account {
+  :where(html[data-weq-layout='single']) .weq-mobile-account {
     display: grid;
     width: 44px;
     height: 44px;
@@ -114,22 +117,28 @@
     background: transparent;
   }
 
-  .weq-mobile-account .avatar {
+  :where(html[data-weq-layout='single']) .weq-mobile-account .avatar {
     width: 36px;
     height: 36px;
   }
 
-  .weq-web-shell :is(.weq-qq-action-bar, .weq-qq-media-actions) .weq-set-iconbtn {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    :is(.weq-qq-action-bar, .weq-qq-media-actions)
+    .weq-set-iconbtn {
     width: 44px;
     height: 44px;
   }
 
-  .weq-web-shell .weq-qq-action-form :is(input, select, textarea) {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .weq-qq-action-form
+    :is(input, select, textarea) {
     font-size: 16px;
     min-height: 44px;
   }
 
-  .weq-mobile-header .weq-titlebar-search {
+  :where(html[data-weq-layout='single']) .weq-mobile-header .weq-titlebar-search {
     width: 44px;
     height: 44px;
     max-width: calc(100% - 56px);
@@ -137,7 +146,7 @@
     margin: 0;
   }
 
-  html[data-component-style][data-theme]
+  html:where([data-weq-layout='single'])[data-component-style][data-theme]
     .weq-web-shell
     .weq-mobile-header
     .weq-titlebar-search:not(.is-expanded) {
@@ -147,31 +156,33 @@
     box-shadow: none;
   }
 
-  .weq-mobile-header:has(.weq-titlebar-search.is-expanded) .weq-mobile-identity {
+  :where(html[data-weq-layout='single'])
+    .weq-mobile-header:has(.weq-titlebar-search.is-expanded)
+    .weq-mobile-identity {
     display: none;
   }
 
-  .weq-mobile-header .weq-titlebar-search.is-expanded {
+  :where(html[data-weq-layout='single']) .weq-mobile-header .weq-titlebar-search.is-expanded {
     min-width: 0;
     flex: 1;
   }
 
-  .weq-mobile-header .weq-titlebar-search button {
+  :where(html[data-weq-layout='single']) .weq-mobile-header .weq-titlebar-search button {
     width: 44px;
     height: 44px;
   }
 
-  .weq-mobile-header .weq-titlebar-search button svg {
+  :where(html[data-weq-layout='single']) .weq-mobile-header .weq-titlebar-search button svg {
     width: 22px;
     height: 22px;
   }
 
-  .weq-mobile-header .weq-titlebar-search input {
+  :where(html[data-weq-layout='single']) .weq-mobile-header .weq-titlebar-search input {
     min-width: 0;
     font-size: 16px;
   }
 
-  .weq-mobile-tabs {
+  :where(html[data-weq-layout='single']) .weq-mobile-tabs {
     position: absolute;
     z-index: 40;
     right: 0;
@@ -185,7 +196,7 @@
     background: var(--weq-bg-surface);
   }
 
-  .weq-mobile-tabs button {
+  :where(html[data-weq-layout='single']) .weq-mobile-tabs button {
     display: grid;
     min-width: 0;
     grid-template-rows: 28px 16px;
@@ -200,16 +211,19 @@
     touch-action: manipulation;
   }
 
-  .weq-mobile-tabs button[aria-current='page'] {
+  :where(html[data-weq-layout='single']) .weq-mobile-tabs button[aria-current='page'] {
     color: var(--weq-accent-ink, var(--weq-accent-effective));
   }
 
-  .weq-mobile-tabs button[aria-current='page'] .weq-mobile-tab-icon {
+  :where(html[data-weq-layout='single'])
+    .weq-mobile-tabs
+    button[aria-current='page']
+    .weq-mobile-tab-icon {
     border-radius: 6px;
     background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
   }
 
-  .weq-mobile-tab-icon {
+  :where(html[data-weq-layout='single']) .weq-mobile-tab-icon {
     position: relative;
     display: grid;
     width: 28px;
@@ -217,7 +231,7 @@
     place-items: center;
   }
 
-  .weq-mobile-badge {
+  :where(html[data-weq-layout='single']) .weq-mobile-badge {
     display: inline-grid;
     min-width: 18px;
     height: 18px;
@@ -231,13 +245,13 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .weq-mobile-tab-icon .weq-mobile-badge {
+  :where(html[data-weq-layout='single']) .weq-mobile-tab-icon .weq-mobile-badge {
     position: absolute;
     top: -3px;
     left: 19px;
   }
 
-  .weq-web-shell .sidebar {
+  :where(html[data-weq-layout='single']) .weq-web-shell .sidebar {
     height: calc(
       var(--weq-mobile-viewport-height, 100dvh) -
       var(--weq-mobile-window-chrome-height, 0px) -
@@ -249,24 +263,24 @@
     background: var(--weq-bg-surface);
   }
 
-  .weq-web-shell .sidebar-body {
+  :where(html[data-weq-layout='single']) .weq-web-shell .sidebar-body {
     min-height: 0;
     padding-bottom: 0;
     background: var(--weq-bg-surface);
   }
 
-  .weq-web-shell .chat-main {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-main {
     position: absolute;
     height: auto;
     visibility: hidden;
     pointer-events: none;
   }
 
-  .weq-web-shell[data-mobile-workspace] .sidebar {
+  :where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-workspace] .sidebar {
     display: none;
   }
 
-  .weq-web-shell[data-mobile-workspace] .chat-main {
+  :where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-workspace] .chat-main {
     top: var(--weq-mobile-content-top);
     bottom: var(--weq-mobile-tabs-height);
     visibility: visible;
@@ -274,7 +288,7 @@
     pointer-events: auto;
   }
 
-  .weq-web-shell[data-mobile-detail] .app-shell .chat-main {
+  :where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-detail] .app-shell .chat-main {
     inset: var(--weq-mobile-window-chrome-height, 0px) 0 0;
     z-index: 45;
     visibility: visible;
@@ -282,22 +296,22 @@
     pointer-events: auto;
   }
 
-  .weq-web-shell[data-mobile-detail] .sidebar {
+  :where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-detail] .sidebar {
     visibility: hidden;
   }
 
-  .weq-web-shell .chat-pane {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-pane {
     --chat-header-height: var(--weq-mobile-header-height);
     height: 100%;
     min-width: 0;
     background: var(--weq-chat-bg, var(--background));
   }
 
-  .weq-web-shell .chat-header {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-header {
     grid-template-columns: 44px minmax(0, 1fr) auto;
   }
 
-  .weq-web-shell .chat-title {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-title {
     flex-direction: column;
     align-items: flex-start;
     justify-content: center;
@@ -306,7 +320,7 @@
     text-align: left;
   }
 
-  .weq-web-shell .chat-title strong {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-title strong {
     max-width: 100%;
     flex-shrink: 0;
     font-size: var(--weq-mobile-header-title-size);
@@ -314,44 +328,55 @@
     line-height: 22px;
   }
 
-  .weq-web-shell .chat-status-desktop {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-status-desktop {
     display: none;
   }
 
-  .weq-web-shell .chat-status-mobile {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile {
     display: block;
     max-width: 100%;
     min-width: 0;
     line-height: 16px;
   }
 
-  .weq-web-shell .chat-status-mobile:empty {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile:empty {
     display: none;
   }
 
-  .weq-web-shell .chat-status-mobile > span {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile > span {
     max-width: 100%;
     vertical-align: top;
   }
 
-  .weq-web-shell .chat-status-mobile > span > :not(:last-child) {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .chat-status-mobile
+    > span
+    > :not(:last-child) {
     flex-shrink: 0;
   }
 
-  .weq-web-shell .chat-status-mobile > span > span:last-child {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .chat-status-mobile
+    > span
+    > span:last-child {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .weq-web-shell .chat-header .chat-actions {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-header .chat-actions {
     min-width: 0;
     gap: 12px;
     flex-shrink: 0;
   }
 
-  .weq-web-shell .chat-header :is(.back-button, .icon-button) {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .chat-header
+    :is(.back-button, .icon-button) {
     width: 44px;
     height: 44px;
     flex: 0 0 44px;
@@ -359,22 +384,22 @@
     color: var(--weq-fg-primary);
   }
 
-  .weq-web-shell .message-scroll {
+  :where(html[data-weq-layout='single']) .weq-web-shell .message-scroll {
     background: var(--weq-chat-bg, var(--background));
   }
 
-  .weq-web-shell .message-name {
+  :where(html[data-weq-layout='single']) .weq-web-shell .message-name {
     min-width: 0;
     flex-wrap: wrap;
     overflow-wrap: anywhere;
   }
 
-  .weq-web-shell .composer {
+  :where(html[data-weq-layout='single']) .weq-web-shell .composer {
     background: color-mix(in srgb, var(--weq-fg-primary) 6%, var(--weq-bg-surface));
     border-color: var(--weq-border-subtle);
   }
 
-  .weq-web-shell .composer-editor {
+  :where(html[data-weq-layout='single']) .weq-web-shell .composer-editor {
     background: var(--weq-bg-surface);
     color: var(--weq-fg-primary);
     font-size: 16px;
@@ -382,16 +407,19 @@
     border-radius: 8px;
   }
 
-  html[data-theme='dark'] .weq-web-shell .composer {
+  html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .composer {
     background: var(--weq-bg-surface);
   }
 
-  html[data-theme='dark'] .weq-web-shell .composer-editor {
+  html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .composer-editor {
     background: var(--muted);
   }
 
-  :is(.weq-web-shell .app-shell, .weq-conversation-list) :is(.conversation-row, .contact-row),
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.conversation-row, .contact-row),
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row).active {
     min-height: var(--weq-conversation-row-height);
     grid-template-columns: 50px minmax(0, 1fr) 48px;
@@ -401,36 +429,40 @@
     color: var(--weq-fg-primary);
   }
 
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row)
     .avatar {
     width: 50px;
     height: 50px;
   }
 
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row).active {
     background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
     box-shadow: inset 3px 0 var(--weq-accent-effective);
   }
 
-  .weq-mobile-navigation button:active {
+  :where(html[data-weq-layout='single']) .weq-mobile-navigation button:active {
     background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   }
 
-  html[data-theme='dark']
+  html:where([data-weq-layout='single'])[data-theme='dark']
     :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row).active {
     background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
   }
 
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row)
     .row-main {
     gap: 6px;
   }
 
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row)
     .row-main
     strong {
@@ -439,7 +471,8 @@
     font-weight: 500;
   }
 
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
     :is(.conversation-row, .contact-row)
     .row-main
     strong
@@ -447,46 +480,62 @@
     color: inherit;
   }
 
-  :is(.weq-web-shell .app-shell, .weq-conversation-list) :is(.row-preview-line, .row-meta) {
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    :is(.row-preview-line, .row-meta) {
     color: var(--weq-fg-muted);
     font-size: 12px;
   }
 
-  html :is(.weq-web-shell .app-shell, .weq-conversation-list) .conversation-row .row-unread {
+  html:where([data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    .conversation-row
+    .row-unread {
     inset: auto 16px 10px auto;
   }
 
-  :is(.weq-web-shell .app-shell, .weq-conversation-list) .conversation-row .row-meta {
+  :where(html[data-weq-layout='single'])
+    :is(.weq-web-shell .app-shell, .weq-conversation-list)
+    .conversation-row
+    .row-meta {
     align-self: start;
     padding-top: 2px;
   }
 
-  .weq-web-shell .contact-tab-switch button.active::after {
+  :where(html[data-weq-layout='single']) .weq-web-shell .contact-tab-switch button.active::after {
     background: var(--weq-accent-effective);
   }
 
-  .weq-web-shell :is(.weq-contact-join-entry, .contact-cat-header) {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    :is(.weq-contact-join-entry, .contact-cat-header) {
     min-height: 44px;
   }
 
-  .weq-web-shell .weq-workspace-sidecar {
+  :where(html[data-weq-layout='single']) .weq-web-shell .weq-workspace-sidecar {
     width: 100%;
     max-width: none;
   }
 
-  .weq-web-shell .weq-workspace-page .weq-workspace-menu {
+  :where(html[data-weq-layout='single']) .weq-web-shell .weq-workspace-page .weq-workspace-menu {
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
 
-  .weq-web-shell .weq-workspace-page :is(.weq-workspace-menu, .weq-tools-modal) {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .weq-workspace-page
+    :is(.weq-workspace-menu, .weq-tools-modal) {
     max-width: none;
     height: 100%;
     max-height: none;
   }
 
-  .weq-web-shell .weq-workspace-page .weq-composition-workspace.is-fallback {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .weq-workspace-page
+    .weq-composition-workspace.is-fallback {
     position: relative;
     inset: auto;
     z-index: auto;
@@ -498,11 +547,11 @@
     box-shadow: none;
   }
 
-  .weq-web-shell .chat-main {
+  :where(html[data-weq-layout='single']) .weq-web-shell .chat-main {
     transition: none;
   }
 
-  html .weq-web-shell .weq-mobile-settings {
+  html:where([data-weq-layout='single']) .weq-web-shell .weq-mobile-settings {
     display: flex;
     flex-direction: column;
     width: 100%;
@@ -511,7 +560,7 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  .weq-web-shell .weq-mobile-settings-header {
+  :where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-settings-header {
     display: flex;
     min-height: calc(52px + env(safe-area-inset-top, 0px));
     flex: 0 0 auto;
@@ -523,7 +572,7 @@
     color: var(--weq-fg-primary);
   }
 
-  .weq-mobile-settings-header button {
+  :where(html[data-weq-layout='single']) .weq-mobile-settings-header button {
     display: grid;
     width: 44px;
     height: 44px;
@@ -534,35 +583,57 @@
     color: inherit;
   }
 
-  .weq-mobile-settings-header strong {
+  :where(html[data-weq-layout='single']) .weq-mobile-settings-header strong {
     min-width: 0;
     overflow-wrap: anywhere;
     font-size: 17px;
   }
 
-  .weq-web-shell .weq-mobile-settings > .weq-settings-close,
-  .weq-web-shell .weq-mobile-settings .weq-settings-nav-title,
-  .weq-web-shell .weq-mobile-settings:not([data-mobile-category]) .weq-settings-content,
-  .weq-web-shell .weq-mobile-settings[data-mobile-category] .weq-settings-nav {
+  :where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-settings > .weq-settings-close,
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-nav-title,
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .weq-mobile-settings:not([data-mobile-category])
+    .weq-settings-content,
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .weq-mobile-settings[data-mobile-category]
+    .weq-settings-nav {
     display: none;
   }
 
-  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-nav {
+  html:where([data-weq-layout='single'])[data-theme]
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-nav {
     min-height: 0;
     overflow: auto;
     padding: 0;
     border: 0;
   }
 
-  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-nav ul {
+  html:where([data-weq-layout='single'])[data-theme]
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-nav
+    ul {
     display: grid;
     gap: 0;
     padding: 0;
     overflow: visible;
   }
 
-  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-nav-item,
-  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-nav-item.is-active {
+  html:where([data-weq-layout='single'])[data-theme]
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-nav-item,
+  html:where([data-weq-layout='single'])[data-theme]
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-nav-item.is-active {
     display: grid;
     grid-template-columns: 24px minmax(0, 1fr) 18px;
     width: 100%;
@@ -577,32 +648,44 @@
     font-weight: 400;
   }
 
-  .weq-web-shell .weq-mobile-settings .weq-mobile-settings-chevron {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-mobile-settings-chevron {
     display: block;
     margin-left: auto;
     color: var(--weq-fg-muted);
   }
 
-  .weq-web-shell .weq-mobile-settings .weq-settings-content {
+  :where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-settings .weq-settings-content {
     min-height: 0;
     flex: 1;
   }
 
-  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-subnav {
+  html:where([data-weq-layout='single'])[data-theme]
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-subnav {
     min-height: 48px;
     padding: 4px 8px;
   }
 
-  .weq-web-shell .weq-mobile-settings .weq-settings-subnav-item {
+  :where(html[data-weq-layout='single'])
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-subnav-item {
     min-height: 40px;
   }
 
-  html[data-theme] .weq-web-shell .weq-mobile-settings .weq-settings-body {
+  html:where([data-weq-layout='single'])[data-theme]
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-body {
     padding: 16px;
     overscroll-behavior: contain;
   }
 
-  .weq-mobile-more {
+  :where(html[data-weq-layout='single']) .weq-mobile-more {
     position: absolute;
     z-index: 38;
     inset: var(--weq-mobile-content-top) 0 var(--weq-mobile-tabs-height);
@@ -612,7 +695,7 @@
     overscroll-behavior: contain;
   }
 
-  .weq-mobile-more-account {
+  :where(html[data-weq-layout='single']) .weq-mobile-more-account {
     display: flex;
     align-items: center;
     gap: 14px;
@@ -620,25 +703,25 @@
     border-bottom: 8px solid var(--weq-bg-canvas, var(--background));
   }
 
-  .weq-mobile-more-account .avatar {
+  :where(html[data-weq-layout='single']) .weq-mobile-more-account .avatar {
     width: 56px;
     height: 56px;
     flex: 0 0 56px;
   }
 
-  .weq-mobile-more-account > div {
+  :where(html[data-weq-layout='single']) .weq-mobile-more-account > div {
     display: grid;
     min-width: 0;
     gap: 6px;
     overflow-wrap: anywhere;
   }
 
-  .weq-mobile-more-account span {
+  :where(html[data-weq-layout='single']) .weq-mobile-more-account span {
     color: var(--weq-fg-secondary);
     font-size: 13px;
   }
 
-  .weq-mobile-more > button {
+  :where(html[data-weq-layout='single']) .weq-mobile-more > button {
     display: flex;
     width: 100%;
     min-height: 56px;
@@ -653,15 +736,15 @@
     font-size: 16px;
   }
 
-  .weq-mobile-more > button > span:first-of-type {
+  :where(html[data-weq-layout='single']) .weq-mobile-more > button > span:first-of-type {
     flex: 1;
   }
 
-  .weq-mobile-more > button > svg:last-child {
+  :where(html[data-weq-layout='single']) .weq-mobile-more > button > svg:last-child {
     color: var(--weq-fg-muted);
   }
 
-  .weq-mobile-more-utilities {
+  :where(html[data-weq-layout='single']) .weq-mobile-more-utilities {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
@@ -669,7 +752,7 @@
     padding: 16px 20px;
   }
 
-  .weq-mobile-more-utilities button {
+  :where(html[data-weq-layout='single']) .weq-mobile-more-utilities button {
     display: grid;
     width: 44px;
     height: 44px;
@@ -680,12 +763,12 @@
     color: var(--weq-fg-primary);
   }
 
-  .weq-mobile-navigation button:focus-visible {
+  :where(html[data-weq-layout='single']) .weq-mobile-navigation button:focus-visible {
     outline: 2px solid var(--weq-accent-effective);
     outline-offset: -3px;
   }
 
-  html[data-theme='dark'] .weq-web-shell {
+  html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell {
     color-scheme: dark;
   }
 }

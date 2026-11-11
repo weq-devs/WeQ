@@ -9,7 +9,7 @@
  */
 
 import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { HostBridge, SaveTarget } from '@weq/service';
 
@@ -103,7 +103,7 @@ export function createWebHost({ exportDir, version, renderer }: WebHostOptions):
     },
 
     async openHtmlReport(path) {
-      const id = registerDownload(path, 'report.html', 'file');
+      const id = registerDownload(path, basename(path), 'file');
       return { url: `/_download/${id}` };
     },
 

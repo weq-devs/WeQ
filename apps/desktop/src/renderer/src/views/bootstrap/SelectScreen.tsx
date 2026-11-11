@@ -21,6 +21,7 @@ import { LoginPanel } from './LoginPanel';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
 import { IS_MAC } from '../../lib/target';
+import { useRemoteClient } from '../../lib/remoteClient';
 import { QqDebugCopy } from '../../components/QqDebugCopy';
 import { BootstrapWindowActions } from '../../components/BootstrapWindowActions';
 import type { UiAccount } from './types';
@@ -28,6 +29,7 @@ import logoUrl from '@resources/brand/logo.png';
 import '../../styles/bootstrap-select.css';
 
 export function SelectScreen({ install }: { install: GlobalInstallInfo }): ReactElement {
+  const remote = useRemoteClient();
   const mode = useViewState((s) => s.selectMode);
   const enterSelect = useViewState((s) => s.enterSelect);
   const goTo = useViewState((s) => s.goTo);
@@ -121,7 +123,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   }
 
   async function pickRoot(): Promise<void> {
-    if (busy) return;
+    if (busy || remote) return;
     setBusy(true);
     try {
       const res = await client.bootstrap.pickTencentFilesRoot.mutate();
@@ -169,7 +171,11 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           className={mode === 'backup' ? 'weq-account-import' : 'weq-account-grid'}
         >
           {mode === 'backup' ? (
-            <StaticBackupPanel onEntered={onEntered} onBusyChange={setBusy} />
+            remote ? (
+              <p role="status">WeQ Remote 不支持导入电脑目录。配置备份可在设置中从设备上传。</p>
+            ) : (
+              <StaticBackupPanel onEntered={onEntered} onBusyChange={setBusy} />
+            )
           ) : (
             <>
               <section className="weq-account-detail" aria-label="打开选中账号">
@@ -183,7 +189,9 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                     onEntered={onEntered}
                     onBusyChange={setBusy}
                     disabled={busy || dataBlocked}
-                    onDiagnostics={mode === 'new' ? () => setDiagnostics(true) : undefined}
+                    onDiagnostics={
+                      mode === 'new' && !remote ? () => setDiagnostics(true) : undefined
+                    }
                   />
                 ) : (
                   <div className="weq-account-detail-empty">
@@ -251,7 +259,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                         <button
                           type="button"
                           className="weq-action-soft"
-                          disabled={busy}
+                          disabled={busy || remote}
                           onClick={() => void pickRoot()}
                         >
                           <FolderOpen size={15} aria-hidden />
@@ -277,15 +285,17 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               <UserPlus size={16} aria-hidden />
               添加账号
             </button>
-            <button
-              type="button"
-              data-mode="backup"
-              disabled={busy}
-              onClick={() => enterSelect('backup')}
-            >
-              <FolderInput size={16} aria-hidden />
-              导入备份
-            </button>
+            {!remote && (
+              <button
+                type="button"
+                data-mode="backup"
+                disabled={busy}
+                onClick={() => enterSelect('backup')}
+              >
+                <FolderInput size={16} aria-hidden />
+                导入备份
+              </button>
+            )}
             {debugCopyAction}
           </nav>
         ) : (
@@ -331,7 +341,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
             </div>
           </Modal>
         )}
-        {mode === 'new' && diagnostics && (
+        {mode === 'new' && diagnostics && !remote && (
           <Modal
             open
             centered

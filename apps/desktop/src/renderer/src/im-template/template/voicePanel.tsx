@@ -35,6 +35,8 @@ import {
 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { cn } from './classNames';
+import { pcm16Samples, startRemoteMedia, needsNativeRemoteMedia } from '../../lib/remoteMedia';
+import { encodePcmWav } from './composerSend';
 import {
   createMediaId,
   formatClipDuration,
@@ -169,6 +171,10 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
   const freqRef = useRef<Uint8Array | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const nativeStopRef = useRef<(() => void) | null>(null);
+  const nativeControllerRef = useRef<AbortController | null>(null);
+  const nativeSamplesRef = useRef<Float32Array[]>([]);
+  const nativeSampleCountRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
   const maxTimerRef = useRef<number | null>(null);
@@ -189,6 +195,12 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
   }, []);
 
   const cleanupAudio = useCallback(() => {
+    nativeStopRef.current?.();
+    nativeStopRef.current = null;
+    nativeControllerRef.current?.abort();
+    nativeControllerRef.current = null;
+    nativeSamplesRef.current = [];
+    nativeSampleCountRef.current = 0;
     if (rafRef.current !== null) {
       window.cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -275,7 +287,9 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
       return;
     }
 
-    const blob = new Blob(chunks, { type: recorderRef.current?.mimeType || 'audio/webm' });
+    const blob = new Blob(chunks, {
+      type: recorderRef.current?.mimeType || chunks[0]?.type || 'audio/webm',
+    });
     const url = URL.createObjectURL(blob);
     const next: VoiceClip = {
       id: createMediaId('voice'),
@@ -297,6 +311,20 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
   const endRecord = useCallback(() => {
     holdingRef.current = false;
     stopRecognition();
+    if (nativeStopRef.current) {
+      nativeStopRef.current();
+      nativeStopRef.current = null;
+      const parts = nativeSamplesRef.current;
+      const samples = new Float32Array(parts.reduce((sum, part) => sum + part.length, 0));
+      let offset = 0;
+      for (const part of parts) {
+        samples.set(part, offset);
+        offset += part.length;
+      }
+      chunksRef.current = [new Blob([encodePcmWav(samples, 16000)], { type: 'audio/wav' })];
+      finalizeRecording();
+      return;
+    }
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       try {
@@ -307,7 +335,7 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
     if (phaseRef.current === 'requesting') {
       wantStopRef.current = true;
     }
-  }, [stopRecognition]);
+  }, [stopRecognition, finalizeRecording]);
 
   const tick = useCallback(() => {
     rafRef.current = window.requestAnimationFrame(tick);
@@ -348,6 +376,61 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
     setClip(null);
     setElapsedMs(0);
     setPhaseSafe('requesting');
+
+    if (needsNativeRemoteMedia()) {
+      recorderRef.current = null;
+      nativeSamplesRef.current = [];
+      nativeSampleCountRef.current = 0;
+      const controller = new AbortController();
+      nativeControllerRef.current = controller;
+      try {
+        const stop = await startRemoteMedia(
+          { audio: true },
+          {
+            audio: (bytes) => {
+              if (controller.signal.aborted || phaseRef.current !== 'recording') return;
+              const samples = pcm16Samples(bytes);
+              if (nativeSampleCountRef.current < 16000 * 60) {
+                nativeSamplesRef.current.push(samples);
+                nativeSampleCountRef.current += samples.length;
+              }
+              const peak = samples.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+              levels.fill(peak);
+              const now = performance.now();
+              if (now - lastPeakAtRef.current > 90 && peaksRef.current.length < 600) {
+                lastPeakAtRef.current = now;
+                peaksRef.current.push(peak);
+              }
+            },
+            error: (message) => {
+              cleanupAudio();
+              setError(message);
+              setPhaseSafe('idle');
+            },
+          },
+          controller.signal,
+        );
+        if (unmountedRef.current || !holdingRef.current || controller.signal.aborted) {
+          stop();
+          setPhaseSafe('idle');
+          return;
+        }
+        nativeStopRef.current = stop;
+        startedAtRef.current = performance.now();
+        setPhaseSafe('recording');
+        timerRef.current = window.setInterval(
+          () => setElapsedMs(performance.now() - startedAtRef.current),
+          100,
+        );
+        maxTimerRef.current = window.setTimeout(endRecord, MAX_RECORD_MS);
+      } catch (error) {
+        if (!unmountedRef.current) {
+          setError(error instanceof Error ? error.message : '开始录音失败');
+          setPhaseSafe('idle');
+        }
+      }
+      return;
+    }
 
     if (!navigator.mediaDevices?.getUserMedia) {
       holdingRef.current = false;
@@ -437,7 +520,7 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
     maxTimerRef.current = window.setTimeout(() => endRecord(), MAX_RECORD_MS);
     startRecognition();
     if (wantStopRef.current) endRecord();
-  }, [cleanupAudio, endRecord, finalizeRecording, setPhaseSafe, startRecognition, tick]);
+  }, [cleanupAudio, endRecord, finalizeRecording, setPhaseSafe, startRecognition, tick, levels]);
 
   const discard = useCallback(() => {
     holdingRef.current = false;

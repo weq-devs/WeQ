@@ -3,9 +3,11 @@ import type { ExportSavePolicy, ExportOutputPlan } from '@weq/service';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { IS_WEB } from '../lib/target';
+import { useRemoteClient } from '../lib/remoteClient';
 
 /** 所有保存入口只跟随全局设置；已准备的位置仅用于当前请求，不保留页面覆盖。 */
 export function useExportSavePolicy() {
+  const remote = useRemoteClient();
   const settings = trpc.bootstrap.getSettings.useQuery();
   const accountUin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
@@ -42,12 +44,14 @@ export function useExportSavePolicy() {
     setServerLocation(null);
   }, [identity]);
   const mode = settings.data?.exportSaveMode ?? 'before';
-  const policy: ExportSavePolicy = {
-    mode,
-    ...(mode === 'preset' && settings.data?.defaultExportDir
-      ? { directory: settings.data.defaultExportDir }
-      : {}),
-  };
+  const policy: ExportSavePolicy = remote
+    ? { mode: 'before', directory: '.' }
+    : {
+        mode,
+        ...(mode === 'preset' && settings.data?.defaultExportDir
+          ? { directory: settings.data.defaultExportDir }
+          : {}),
+      };
   const current = () =>
     mounted.current &&
     useViewState.getState().openedUin === accountUin &&
@@ -65,7 +69,7 @@ export function useExportSavePolicy() {
     try {
       let requested = { ...policy };
       const frozenOutput = output ? structuredClone(output) : undefined;
-      if (IS_WEB && requested.mode === 'before') {
+      if (IS_WEB && !remote && requested.mode === 'before') {
         const directory = await new Promise<string | null>((resolve) => {
           resolveServerLocation.current = resolve;
           setServerLocation({ name: frozenOutput?.name ?? '本次导出' });

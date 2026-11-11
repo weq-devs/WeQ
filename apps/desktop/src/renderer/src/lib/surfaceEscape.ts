@@ -56,7 +56,7 @@ export function useSurfaceEscape(
   modal: boolean,
 ) {
   useMobileBack(
-    active && modal && Boolean(onClose),
+    active && Boolean(onClose),
     () => onClose?.(),
     100,
     () => ref.current,

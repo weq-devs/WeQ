@@ -25,6 +25,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
@@ -51,6 +52,7 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import type { ResolvedWidget, MessageBubbleSkin } from '@weq/service';
 import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { ProfileAvatar } from './ProfileAvatar';
+import { visibleViewport } from '../lib/visibleViewport';
 
 // ---- types & store -------------------------------------------------------
 
@@ -354,6 +356,18 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   const setRecords = useForwardStore((s) => s.setRecords);
   const setError = useForwardStore((s) => s.setError);
   const surface = useRef<HTMLElement>(null);
+  const [viewport, setViewport] = useState(() => visibleViewport());
+  useEffect(() => {
+    const update = () => setViewport(visibleViewport());
+    window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('scroll', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('scroll', update);
+    };
+  }, []);
   useSurfaceEscape(surface, () => close(win.id), true, false);
 
   // Initial fetch — only when no payload was injected up-front.
@@ -412,12 +426,13 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
       if (!drag) return;
       const dx = event.clientX - drag.startX;
       const dy = event.clientY - drag.startY;
-      const maxX = Math.max(0, window.innerWidth - 80);
-      const maxY = Math.max(0, window.innerHeight - 32);
+      const bounds = visibleViewport();
+      const width = Math.min(WINDOW_WIDTH, bounds.width - 16);
+      const height = Math.min(WINDOW_HEIGHT, bounds.height - 16);
       move(
         win.id,
-        clamp(drag.originX + dx, -WINDOW_WIDTH + 80, maxX),
-        clamp(drag.originY + dy, 0, maxY),
+        clamp(drag.originX + dx, bounds.left + 8, bounds.left + bounds.width - width - 8),
+        clamp(drag.originY + dy, bounds.top + 8, bounds.top + bounds.height - height - 8),
       );
     },
     [move, win.id],
@@ -438,15 +453,25 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   // (0,0). left/top keeps the two concerns from colliding.
   const style: CSSProperties = useMemo(
     () => ({
-      left: win.x,
-      top: win.y,
+      left: clamp(
+        win.x,
+        viewport.left + 8,
+        viewport.left +
+          Math.max(8, viewport.width - Math.min(WINDOW_WIDTH, viewport.width - 16) - 8),
+      ),
+      top: clamp(
+        win.y,
+        viewport.top + 8,
+        viewport.top +
+          Math.max(8, viewport.height - Math.min(WINDOW_HEIGHT, viewport.height - 16) - 8),
+      ),
       zIndex: win.z,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT,
+      width: Math.min(WINDOW_WIDTH, viewport.width - 16),
+      height: Math.min(WINDOW_HEIGHT, viewport.height - 16),
       maxWidth: 'calc(100vw - 16px)',
       maxHeight: 'calc(100dvh - 16px)',
     }),
-    [win.x, win.y, win.z],
+    [win.x, win.y, win.z, viewport],
   );
 
   // 转发窗口挂在 App 根部、MainView 之外，拿不到聊天区那两个 provider——
