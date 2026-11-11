@@ -392,7 +392,7 @@ function pickNewest(
 ): [string, StoredTextVariant] | null {
   let best: [string, StoredTextVariant] | null = null;
   for (const entry of entries) {
-    if (!best || entry[1].at > best[1].at) best = entry;
+    if (!best || entry[1].at >= best[1].at) best = entry;
   }
   return best;
 }

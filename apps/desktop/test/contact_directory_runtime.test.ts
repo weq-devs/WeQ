@@ -149,8 +149,10 @@ const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 it('新增好友字段复用现有范围，来源单独刷新不会被添加时间缺省误判失败', async () => {
   const { runtime, services } = await setup();
   await runtime.rebuild(false, ['energy', 'schools', 'source']);
-  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(1));
-  expect(runtime.cache.progress.status).toBe('completed');
+  await vi.waitFor(() => {
+    expect(runtime.cache.progress.done).toBe(1);
+    expect(runtime.cache.progress.status).toBe('completed');
+  });
   expect(services.profileExtras.energy).toHaveBeenCalledWith('12345');
   expect(services.profileExtras.educationHistory).toHaveBeenCalledWith('12345');
   expect(services.accountWrite.friendClue).toHaveBeenCalledWith('u_friend', 1);
@@ -160,8 +162,10 @@ it('群扩展失败仍准备本人入群时间，群资料范围不触发好友�
   const { runtime, services } = await setup();
   services.groupInfo.getExtendedProfile.mockResolvedValueOnce({ error: '读取失败' });
   await runtime.rebuild(false, ['grade', 'freezeState', 'joinedAt']);
-  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(1));
-  expect(runtime.cache.progress.status).toBe('failed');
+  await vi.waitFor(() => {
+    expect(runtime.cache.progress.done).toBe(1);
+    expect(runtime.cache.progress.status).toBe('failed');
+  });
   expect((await runtime.cache.row('group:10001')).joinedAt?.value).toBe(123);
   expect(services.accountWrite.friendClue).not.toHaveBeenCalled();
 });

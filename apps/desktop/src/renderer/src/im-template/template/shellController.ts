@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SIDEBAR_WIDTH, loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import { defaultConversationPreference } from './preferences';
-import { usePageState } from '../../components/PageSnapshots';
-import { pageValue } from '../../lib/pageSnapshots';
+import { usePageSnapshotKey, usePageState } from '../../components/PageSnapshots';
+import { pageSnapshots, pageValue } from '../../lib/pageSnapshots';
 import {
   isMobileNavigation,
   mobileBack,
@@ -74,7 +74,7 @@ export function useChatShellController({
 }: UseChatShellControllerOptions) {
   const [view, setView] = usePageState<MainView>(
     'shell:view',
-    initialView,
+    startupView ?? initialView,
     z.enum([
       'home',
       'messages',
@@ -93,13 +93,24 @@ export function useChatShellController({
     ]),
   );
   const [query, setQuery] = usePageState('shell:query', '', pageValue.string);
+  const viewSnapshotKey = usePageSnapshotKey('shell:view');
   const startupApplied = useRef(false);
   useLayoutEffect(() => {
     if (startupApplied.current) return;
     startupApplied.current = true;
     // 正常启动的旧页面现场已在工作区挂载前重置，此处指定初始栏目。
-    if (startupView) setView(startupView);
-  }, [startupView, setView]);
+    if (!startupView) return;
+    setView(startupView);
+    // 初始值不会被 usePageState 当作一次“修改”写盘；这里补一次，
+    // 保证启动后立刻崩溃重建时也能从指定栏目恢复。
+    if (viewSnapshotKey) {
+      try {
+        pageSnapshots.write(viewSnapshotKey, startupView);
+      } catch {
+        // 现场写不进去不影响本次启动，后续切页仍会正常尝试保存。
+      }
+    }
+  }, [startupView, setView, viewSnapshotKey]);
   const [contactTab, setContactTab] = usePageState<ContactTab>(
     'shell:contact-tab',
     'friends',

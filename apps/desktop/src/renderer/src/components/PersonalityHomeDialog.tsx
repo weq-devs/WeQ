@@ -128,6 +128,8 @@ export function PersonalityHomeDialog({
   // 全身像加载失败（CDN 挂了 / 图被删）就回退到头像，避免裂图。
   const [qqShowFailed, setQqShowFailed] = useState(false);
   const qqShowUrlValue = qqShow.data?.hasShow ? qqShow.data.url : '';
+  // 等级查询失败时 peerStats 会给出 null（获赞仍可能成功），这种半份结果不画等级行。
+  const level = stats.data?.level;
 
   const widgetUrl = dressUrl(dress.data?.widgetUrl ?? '');
   const cardUrl = isBot ? botCardUrl : dressUrl(dress.data?.cardUrl ?? '');
@@ -231,11 +233,11 @@ export function PersonalityHomeDialog({
           </div>
         ) : null}
 
-        {stats.data ? (
+        {level != null ? (
           <div className="weq-perhome-stats">
-            <span className="weq-perhome-stat" title={`QQ 等级 ${stats.data.level} 级`}>
+            <span className="weq-perhome-stat" title={`QQ 等级 ${level} 级`}>
               <span className="weq-perhome-level-icons">
-                {qqLevelIconNames(stats.data.level).map((name, index) => (
+                {qqLevelIconNames(level).map((name, index) => (
                   <img
                     // biome-ignore lint/suspicious/noArrayIndexKey: 同名图标可重复,位置才是稳定键
                     key={`${name}:${index}`}
@@ -244,7 +246,7 @@ export function PersonalityHomeDialog({
                   />
                 ))}
               </span>
-              <strong>Lv.{stats.data.level}</strong>
+              <strong>Lv.{level}</strong>
             </span>
           </div>
         ) : null}
