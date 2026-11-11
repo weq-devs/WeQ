@@ -235,7 +235,7 @@ import {
   removeComposerImages,
   removeUnusedComposerImages,
 } from '../../lib/composerDraftMedia';
-import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
+import { localKeyOf, planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import { composerSubmission, type ComposerSubmitOptions } from './composerSubmission';
 import { prepareReeditDraft } from './composerReedit';
 import {
@@ -838,10 +838,10 @@ export function ChatPane({
       setFlashOpen(false);
     }
   }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, redPacketOpen]);
-  // 图片内联进输入框（见 insertInlineImage），所以待发送的「卡片」只有视频 / 文件
-  // 和超级表情，而且一次只挂一个 —— 它们只能单独发，发送键不带走输入框里的文字。
-  // 两者共用同一个槽位：挂上新的就把旧的卸掉。
-  const [mediaAttachment, setMediaAttachment] = useState<ComposerAttachment | null>(null);
+  // 图片内联进正文；文件和视频在托盘中排队，提交时各自交给现有发送队列。
+  const [mediaAttachments, setMediaAttachments] = useState<ComposerAttachment[]>([]);
+  const [preparingMedia, setPreparingMedia] = useState(false);
+  const mediaPreparationRef = useRef(Promise.resolve());
   const [pendingSuperEmoji, setPendingSuperEmoji] = useState<EmojiItem | null>(null);
   // 右键「引用」挂上的待发送引用：显示在输入框上方，与「只能单独发」的卡片互斥。
   const [pendingQuote, setPendingQuote] = useState<ComposerQuote | null>(null);
@@ -2106,8 +2106,16 @@ export function ChatPane({
   }, [tabActive, locationShareOpen, isLocationTrigger]);
 
   // 附件跟着会话走：切会话时清掉上一条会话的待发送素材（预览地址一并释放）。
-  const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
-  mediaAttachmentRef.current = mediaAttachment;
+  const mediaAttachmentRef = useRef<ComposerAttachment[]>([]);
+  mediaAttachmentRef.current = mediaAttachments;
+  const updateMediaAttachments = useCallback((next: ComposerAttachment[]) => {
+    mediaAttachmentRef.current = next;
+    setMediaAttachments(next);
+  }, []);
+  const clearMediaAttachments = useCallback(() => {
+    for (const attachment of mediaAttachmentRef.current) releaseAttachment(attachment);
+    updateMediaAttachments([]);
+  }, [updateMediaAttachments]);
   const inlineImagesRef = useRef<ComposerAttachment[]>([]);
   const inlineImageScope = useRef<{ account: string; conversation: string } | null>(null);
   const retainedSendUrlsRef = useRef(new Set<string>());
@@ -2155,10 +2163,7 @@ export function ChatPane({
     attachmentConversationRef.current = conversationId;
     reeditLocalsRef.current = [];
     releaseInlineImages();
-    setMediaAttachment((current) => {
-      if (current) releaseAttachment(current);
-      return null;
-    });
+    clearMediaAttachments();
     setPendingSuperEmoji(null);
     // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
     setPendingQuote(null);
@@ -2167,7 +2172,7 @@ export function ChatPane({
     setAiVoiceOpen(false);
     setAttachmentError(null);
     setDropActive(false);
-  }, [conversation?.id, releaseInlineImages]);
+  }, [conversation?.id, releaseInlineImages, clearMediaAttachments]);
 
   useEffect(() => {
     const sequence = ++draftMediaRestore.current;
@@ -2230,7 +2235,7 @@ export function ChatPane({
       releaseInlineImages();
       for (const url of retainedSendUrlsRef.current) releaseObjectUrl(url);
       retainedSendUrlsRef.current.clear();
-      if (mediaAttachmentRef.current) releaseAttachment(mediaAttachmentRef.current);
+      for (const attachment of mediaAttachmentRef.current) releaseAttachment(attachment);
     },
     [releaseInlineImages],
   );
@@ -3032,10 +3037,7 @@ export function ChatPane({
       });
     }
 
-    setMediaAttachment((current) => {
-      if (current) releaseAttachment(current);
-      return null;
-    });
+    clearMediaAttachments();
     // 「单独发」的卡片与引用互斥：挂上卡片就把引用条收起来。
     setPendingQuote(null);
     setPendingSuperEmoji(item);
@@ -3080,10 +3082,7 @@ export function ChatPane({
     }
 
     setContextMenu(null);
-    setMediaAttachment((current) => {
-      if (current) releaseAttachment(current);
-      return null;
-    });
+    clearMediaAttachments();
     setPendingSuperEmoji(null);
     setAttachmentError(null);
     setPendingQuote(quote);
@@ -3111,11 +3110,10 @@ export function ChatPane({
    * 语音 / 视频 / 文件 / 超级表情的 token 在这里续到正文后面（`voiceClipToken` /
    * `attachmentToken` / `createEmojiToken`）—— 素材走的都是草稿里既有的「元素 token」通路。
    *
-   * 挂着视频 / 文件 / 超级表情时正文一律不参与本次发送：它们只能单独发，输入框里的
-   * 文字原样留着。
+   * 正文与图片一起提交；托盘中的视频 / 文件各自提交，只有超级表情仍独占一次发送。
    */
   /**
-   * 收集本次要发的本地媒体句柄：内联图片 + 挂着的那张「单独发」卡片 + 调用方额外
+   * 收集本次要发的本地媒体句柄：内联图片 + 托盘附件 + 调用方额外
    * 交进来的（语音条）。key 与 composerSend 的 {@link localKeyOf} 的复算规则对齐。
    *
    * 优先给绝对路径（`webUtils.getPathForFile`）；剪贴板截图这类没有落盘来源的图
@@ -3123,10 +3121,9 @@ export function ChatPane({
    */
   async function collectLocalMedia(extra: LocalMediaRef[]): Promise<LocalMediaRef[]> {
     const out: LocalMediaRef[] = [...extra];
-    const attachments = [...inlineImagesRef.current];
-    if (mediaAttachment) attachments.push(mediaAttachment);
+    const attachments = [...inlineImagesRef.current, ...mediaAttachmentRef.current];
     for (const attachment of attachments) {
-      const key = attachment.url ?? `${attachment.name}:${attachment.size}`;
+      const key = attachment.kind === 'file' ? attachment.id : (attachment.url ?? attachment.id);
       if (out.some((local) => local.key === key || local.previewUrl === key)) continue;
       const path = window.weq?.pathForFile?.(attachment.file) ?? '';
       // 预览地址只给乐观渲染用（发完即丢）；拿不到就退回本地路径 / 不预览。
@@ -3166,11 +3163,8 @@ export function ChatPane({
   ) {
     const editor = currentComposerEditor();
     const draftBody = editor ? serializeComposer(editor) : body;
-    const singleToken = mediaAttachment
-      ? attachmentToken(mediaAttachment)
-      : pendingSuperEmoji
-        ? createEmojiToken(pendingSuperEmoji)
-        : null;
+    const stagedMedia = [...mediaAttachmentRef.current];
+    const singleToken = pendingSuperEmoji ? createEmojiToken(pendingSuperEmoji) : null;
     // 引用元素必须排在最前面（与 service 的 buildTextElements 一致）：
     // 它描述的是「本消息在回复哪一条」，不是正文的一部分。
     const quote = options.omitQuote ? null : pendingQuote;
@@ -3182,11 +3176,12 @@ export function ChatPane({
     });
     if (
       !conversation ||
-      empty ||
+      (empty && stagedMedia.length === 0) ||
       !sendAvailable ||
       readOnly ||
       currentPreference.blocked ||
       sending ||
+      preparingMedia ||
       restoringDraftMedia ||
       composerSendRef.current
     ) {
@@ -3224,9 +3219,10 @@ export function ChatPane({
     });
     try {
       // 先捕获媒体句柄；清空后它们归本次发送所有，不能释放仍在读取的预览。
-      const localMedia = planNeedsLocalMedia(payloadBody)
-        ? collectLocalMedia([...(options.locals ?? []), ...reeditLocalsRef.current])
-        : undefined;
+      const localMedia =
+        planNeedsLocalMedia(payloadBody) || stagedMedia.length > 0
+          ? collectLocalMedia([...(options.locals ?? []), ...reeditLocalsRef.current])
+          : undefined;
       if (clearsBody) {
         inlineImagesRef.current = [];
         reeditLocalsRef.current = [];
@@ -3247,27 +3243,52 @@ export function ChatPane({
       restoreSendFocus();
       window.requestAnimationFrame(restoreSendFocus);
       const locals = localMedia ? await localMedia : undefined;
+      // 读媒体期间切会话时不交给新会话的发送回调，也不清除它的新附件。
+      if (!isCurrentComposer()) return;
       // 内容交接后即允许下一条输入；不能让迟到回执清掉下一张附件或下一条草稿。
       if (singleToken) {
-        if (mediaAttachment?.url) retainedSendUrlsRef.current.add(mediaAttachment.url);
-        setMediaAttachment((current) => {
-          if (current !== mediaAttachment) return current;
-          return null;
-        });
         setPendingSuperEmoji((current) => (current === pendingSuperEmoji ? null : current));
       }
+      for (const attachment of stagedMedia) {
+        if (attachment.url) retainedSendUrlsRef.current.add(attachment.url);
+      }
+      updateMediaAttachments(
+        mediaAttachmentRef.current.filter((item) => !stagedMedia.includes(item)),
+      );
       setVoiceOpen(false);
       setAiVoiceOpen(false);
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
-      const sent = onSend(payloadBody, locals);
+      // 每项独立交接，某一项失败不会阻断后面的附件；底层仍使用已有有序发送队列。
+      const bodies = [...(!empty ? [payloadBody] : []), ...stagedMedia.map(attachmentToken)];
+      const sent = (async () => {
+        const failures: unknown[] = [];
+        // onSend 会先异步准备字体与气泡再入队，逐项等待交接才能保持批次内顺序。
+        for (const value of bodies) {
+          try {
+            const keys = new Set(
+              (composerTextToElements(value) as Record<string, unknown>[]).map(localKeyOf),
+            );
+            // 每条失败草稿只保留自己的素材，不把整批 File / 图片都挂到每条消息上。
+            const ownLocals = locals?.filter(
+              (local) => keys.has(local.key) || (local.previewUrl && keys.has(local.previewUrl)),
+            );
+            await onSend(value, ownLocals);
+          } catch (error) {
+            failures.push(error);
+          }
+        }
+        if (failures.length) throw failures[0];
+      })();
       if (clearsBody)
         void removeUnusedComposerImages(
           user.identityValue,
           request.conversationId,
           sentImages.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
         ).catch(() => {});
-      composerSendRef.current = null;
-      setSending(false);
+      if (bodies.length === 1) {
+        composerSendRef.current = null;
+        setSending(false);
+      }
       await sent;
       if (isCurrentComposer() && readAfterSend) requestReadAtBottom();
     } catch (error) {
@@ -3779,7 +3800,10 @@ export function ChatPane({
           const pictureCount = composerTextToElements(prepared.body).filter(
             (element) => (element as { kind?: string }).kind === 'pic',
           ).length;
-          if (inlineImagesRef.current.length + pictureCount > MAX_COMPOSER_ATTACHMENTS)
+          if (
+            inlineImagesRef.current.length + mediaAttachmentRef.current.length + pictureCount >
+            MAX_COMPOSER_ATTACHMENTS
+          )
             throw new Error(`最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片`);
           preserved = await preserveReeditImages(
             user.identityValue,
@@ -3794,7 +3818,7 @@ export function ChatPane({
           if (
             original.messages.length === 1 &&
             !pendingQuote &&
-            !mediaAttachmentRef.current &&
+            !mediaAttachmentRef.current.length &&
             !pendingSuperEmoji
           ) {
             const elements = composerTextToElements(pastedBody) as Record<string, unknown>[];
@@ -3886,7 +3910,10 @@ export function ChatPane({
         inlineImagesRef.current.find((item) => item.file === image.file),
       );
       const missing = snapshot.images.filter((_image, index) => !retained[index]);
-      if (inlineImagesRef.current.length + missing.length > MAX_COMPOSER_ATTACHMENTS) {
+      if (
+        inlineImagesRef.current.length + mediaAttachmentRef.current.length + missing.length >
+        MAX_COMPOSER_ATTACHMENTS
+      ) {
         setAttachmentError(`最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片`);
         return;
       }
@@ -4015,36 +4042,37 @@ export function ChatPane({
     syncComposerBody(editor);
   }
 
-  /**
-   * 视频 / 文件只能挂一个：新的顶掉旧的，旧预览地址释放。挂上它也会顶掉挂着的
-   * 超级表情 —— 「单独发」这个槽位一次只放一个。
-   */
-  function setMedia(attachment: ComposerAttachment) {
-    setMediaAttachment((current) => {
-      if (current && current.id !== attachment.id) releaseAttachment(current);
-      return attachment;
-    });
-    setPendingSuperEmoji(null);
-    // 同上：视频 / 文件顶掉引用；也顺手收掉 AI 声聊 / 弹射面板（同样占「单独发」槽位）。
-    setPendingQuote(null);
-    setAiVoiceOpen(false);
-  }
-
-  function removeMediaAttachment() {
-    setMediaAttachment((current) => {
-      if (current) releaseAttachment(current);
-      return null;
-    });
+  function removeMediaAttachment(id: string) {
+    const current = mediaAttachmentRef.current;
+    const removed = current.find((item) => item.id === id);
+    if (removed) releaseAttachment(removed);
+    updateMediaAttachments(current.filter((item) => item.id !== id));
     setAttachmentError(null);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
-  async function addFiles(files: File[], sendAs?: 'file') {
+  function addFiles(files: File[], sendAs?: 'file') {
     const sourceConversation = conversation?.id;
-    if (files.length === 0 || currentPreference.blocked || sending) {
-      return;
-    }
+    if (!files.length || currentPreference.blocked || sending || composerSendRef.current)
+      return Promise.resolve();
+    setPreparingMedia(true);
+    const task = mediaPreparationRef.current.then(async () => {
+      if (attachmentConversationRef.current !== sourceConversation) return;
+      await prepareFiles(files, sendAs, sourceConversation);
+    });
+    const completed = task
+      .catch((error) => {
+        if (attachmentConversationRef.current === sourceConversation)
+          setAttachmentError(error instanceof Error ? error.message : '附件读取失败，请重新选择');
+      })
+      .finally(() => {
+        if (mediaPreparationRef.current === completed) setPreparingMedia(false);
+      });
+    mediaPreparationRef.current = completed;
+    return completed;
+  }
 
+  async function prepareFiles(files: File[], sendAs?: 'file', sourceConversation?: string) {
     const oversized: string[] = [];
     const usable = files.filter((file) => {
       if (file.size > MAX_ATTACHMENT_BYTES) {
@@ -4061,14 +4089,6 @@ export function ChatPane({
     // SVG 之类的「看起来是图、服务端不收」的文件按普通文件发：用户是拖着它 / 选了它
     // 要发出去，转成文件附件至少能到对面手里；直接当图片发只会在上传时失败。
     const svgFiles = sendAs === 'file' ? [] : usable.filter(isUnsupportedImageFile);
-    const images =
-      sendAs === 'file'
-        ? []
-        : usable.filter((file) => !isUnsupportedImageFile(file) && isImageFile(file));
-    const media =
-      sendAs === 'file'
-        ? usable
-        : usable.filter((file) => !isImageFile(file) || isUnsupportedImageFile(file));
     if (svgFiles.length > 0) {
       pushToast({
         tone: 'warning',
@@ -4078,48 +4098,20 @@ export function ChatPane({
       });
     }
 
-    if (media.length === 0 && (mediaAttachment || pendingSuperEmoji)) {
-      setAttachmentError(
-        pendingSuperEmoji
-          ? '超级表情只能单独发，先移除卡片再插图片'
-          : '视频 / 文件只能单独发，先移除卡片再插图片',
-      );
-      return;
-    }
-
-    if (media.length > 0) {
-      // 视频 / 文件只能单独发：优先挂上它，同一批里的图片这次就不收了。
-      const first = media[0];
-      if (!first) return;
-      setMedia(await createAttachment(first, sendAs));
-      // 表情 / 语音 / 更多 / 链接面板跟卡片互斥，一并收起来。
-      setEmojiOpen(false);
-      setToolsOpen(false);
-      setVoiceOpen(false);
-      setLocationMenu(null);
-      setLocationCardOpen(false);
-      setArkOpen(false);
-      setAttachmentError(
-        media.length > 1
-          ? '视频 / 文件只能单独发送，只保留了第一个'
-          : images.length > 0
-            ? '视频 / 文件不能和图片一起发，图片已忽略'
-            : oversized.length > 0
-              ? `${oversized[0]} 超过 100MB，已跳过`
-              : null,
-      );
-      return;
-    }
-
-    const room = MAX_COMPOSER_ATTACHMENTS - inlineImagesRef.current.length;
+    const room =
+      MAX_COMPOSER_ATTACHMENTS - inlineImagesRef.current.length - mediaAttachmentRef.current.length;
     if (room <= 0) {
-      setAttachmentError(`最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片`);
+      setAttachmentError(`最多只能添加 ${MAX_COMPOSER_ATTACHMENTS} 项附件`);
       return;
     }
 
-    const created = await createAttachments(images.slice(0, room));
+    const created = await Promise.all(
+      usable.slice(0, room).map((file) => createAttachment(file, sendAs)),
+    );
+    const images = created.filter((item) => item.kind === 'image');
+    const media = created.filter((item) => item.kind !== 'image');
     try {
-      await preserveComposerImages(user.identityValue, sourceConversation ?? '', created);
+      await preserveComposerImages(user.identityValue, sourceConversation ?? '', images);
     } catch {
       for (const image of created) releaseAttachment(image);
       void removeComposerImages(
@@ -4146,19 +4138,31 @@ export function ChatPane({
       ).catch(() => {});
       return;
     }
-    inlineImagesRef.current = [...inlineImagesRef.current, ...created];
+    // 批量素材准备结束后再交接，避免切会话的迟到结果覆盖新草稿。
+    setPendingSuperEmoji(null);
+    if (media.length) setPendingQuote(null);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
+    setArkOpen(false);
+    setAiVoiceOpen(false);
+    if (media.length && mobileComposerExpanded) closeMobileComposerExpanded();
+    updateMediaAttachments([...mediaAttachmentRef.current, ...media]);
+    inlineImagesRef.current = [...inlineImagesRef.current, ...images];
     inlineImageScope.current = {
       account: user.identityValue,
       conversation: sourceConversation ?? '',
     };
-    for (const item of created) {
+    for (const item of images) {
       insertInlineImage(item);
     }
     setAttachmentError(
       oversized.length > 0
         ? `${oversized[0]} 超过 100MB，已跳过`
-        : images.length > room
-          ? `最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片，多余的已忽略`
+        : usable.length > room
+          ? `最多只能添加 ${MAX_COMPOSER_ATTACHMENTS} 项附件，多余的已忽略`
           : null,
     );
   }
@@ -4584,7 +4588,7 @@ export function ChatPane({
     const editor = currentComposerEditor();
     const previous = editor ? serializeComposer(editor) : bodyRef.current;
     const attachment = mediaAttachmentRef.current;
-    if (previous.trim() || attachment || pendingSuperEmoji || pendingQuote) {
+    if (previous.trim() || attachment.length || pendingSuperEmoji || pendingQuote) {
       const replace = await useDialog
         .getState()
         .confirm('替换当前草稿？', '输入框已有内容，重新编辑将替换当前草稿。', {
@@ -4648,10 +4652,7 @@ export function ChatPane({
     releaseInlineImages();
     inlineImagesRef.current = preserved?.images ?? [];
     inlineImageScope.current = { account: user.identityValue, conversation: sourceConversation };
-    setMediaAttachment((current) => {
-      if (current) releaseAttachment(current);
-      return null;
-    });
+    clearMediaAttachments();
     setPendingSuperEmoji(null);
     setPendingQuote(null);
     reeditLocalsRef.current = prepared.locals;
@@ -5118,16 +5119,16 @@ export function ChatPane({
     ...preference,
   };
   const composerActionRegistry = resolveComposerActionRegistry(composerActions);
-  // 「只能单独发」的卡片：视频 / 文件，或者一枚超级表情 —— 它们共用一个槽位，
-  // 挂上以后正文编辑区让给卡片、输入框里的文字不参与本次发送。
-  const hasSingleSend = mediaAttachment !== null || pendingSuperEmoji !== null;
-  const singleSendHint = pendingSuperEmoji ? '超级表情只能单独发送' : '视频 / 文件只能单独发送';
+  // 托盘附件和超级表情占用发送工具状态，只有超级表情会隐藏正文。
+  const hasSingleSend = mediaAttachments.length > 0 || pendingSuperEmoji !== null;
+  const singleSendHint = pendingSuperEmoji ? '超级表情只能单独发送' : '请先发送或移除待发送附件';
   // 引用是正文之外的第二种内容，而它**不占**「单独发」那个槽位（引用 + 正文一起发）。
   const hasQuote = pendingQuote !== null;
   // 内联图片的 token 就在正文里，所以只要正文非空（图算内容）就能发；卡片 / 引用
   // 挂着时发送键也算有内容。
   const sendDisabled =
     restoringDraftMedia ||
+    preparingMedia ||
     !sendAvailable ||
     currentPreference.blocked ||
     sending ||
@@ -5297,8 +5298,8 @@ export function ChatPane({
       label: '发送图片',
       icon: <ImageIcon size={16} />,
       action: () => openMediaPicker('image'),
-      disabled: hasSingleSend,
-      reason: hasSingleSend ? singleSendHint : undefined,
+      disabled: pendingSuperEmoji !== null,
+      reason: pendingSuperEmoji ? singleSendHint : undefined,
     },
     {
       label: '发送文件',
@@ -6071,7 +6072,8 @@ export function ChatPane({
       <div
         className={cn(
           'composer',
-          hasSingleSend && 'has-single-send',
+          pendingSuperEmoji && 'has-single-send',
+          mediaAttachments.length > 0 && 'has-media-attachments',
           hasQuote && 'has-quote',
           voicePanelActive && 'voice-open',
           flashPanelInline && 'flash-open',
@@ -6459,8 +6461,8 @@ export function ChatPane({
             onClose={() => setComposerMenu(null)}
           />
         ) : null}
-        {mediaAttachment ? (
-          <ComposerMediaStage attachment={mediaAttachment} onRemove={removeMediaAttachment} />
+        {mediaAttachments.length > 0 ? (
+          <ComposerMediaStage attachments={mediaAttachments} onRemove={removeMediaAttachment} />
         ) : pendingSuperEmoji ? (
           <ComposerSuperEmojiStage item={pendingSuperEmoji} onRemove={removePendingSuperEmoji} />
         ) : null}
@@ -6593,8 +6595,7 @@ export function ChatPane({
           accept="image/*"
           onChange={handleMediaPickerChange}
         />
-        {/* 视频 / 文件只能单独发，不带 multiple —— 选了也只会留第一个。 */}
-        <input ref={fileInputRef} type="file" hidden onChange={handleMediaPickerChange} />
+        <input ref={fileInputRef} type="file" multiple hidden onChange={handleMediaPickerChange} />
         {/* 闪照：一次一张，选完立刻发送（不进草稿、不 multiple）。 */}
         <input
           ref={flashPhotoInputRef}
@@ -6635,7 +6636,7 @@ export function ChatPane({
           ref={composerEditorRef}
           className={cn(
             'composer-editor',
-            (hasSingleSend || voicePanelActive || flashPanelInline) && 'composer-row-hidden',
+            (pendingSuperEmoji || voicePanelActive || flashPanelInline) && 'composer-row-hidden',
           )}
           role="textbox"
           aria-multiline="true"

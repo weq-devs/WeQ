@@ -245,7 +245,7 @@ export function attachmentToElement(attachment: ComposerAttachment): Record<stri
       localPreviewUrl: attachment.url,
     };
   }
-  return { ...base, kind: 'file' };
+  return { ...base, kind: 'file', localAttachmentId: attachment.id };
 }
 
 export function attachmentToken(attachment: ComposerAttachment): string {

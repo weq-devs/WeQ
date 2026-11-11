@@ -82,9 +82,16 @@ export function focusComposerEnd(editor: HTMLElement | null) {
 }
 
 export function serializeComposer(editor: HTMLElement) {
-  return serializeComposerNode(editor)
-    .replace(/\u200b/g, '')
-    .slice(0, 4000);
+  let remaining = 4000;
+  // 长度限制只裁正文，不截断媒体 token，否则多图会丢失后半张图片的素材信息。
+  return parseMessageParts(serializeComposerNode(editor).replace(/\u200b/g, ''))
+    .map((part) => {
+      if (part.type !== 'text') return part.raw;
+      const value = part.value.slice(0, remaining);
+      remaining -= value.length;
+      return value;
+    })
+    .join('');
 }
 
 export function getActiveComposerMentionTrigger(

@@ -106,9 +106,10 @@ export function composerNeedsStickerCatalog(body: string): boolean {
  * 从元素 token 复算它的本地媒体 key。与 `composerMedia` 生成 token 时的字段一致：
  *   - 图片 / 视频：`localPreviewUrl`（blob 地址，唯一）；
  *   - 语音：`fileName`（`voice-<clip.id>.silk`）；
- *   - 文件：`fileName:fileSize`（文件没有 blob 地址）。
+ *   - 文件：`localAttachmentId`；兼容旧草稿的 `fileName:fileSize`。
  */
 export function localKeyOf(element: Record<string, unknown>): string | null {
+  if (typeof element.localAttachmentId === 'string') return element.localAttachmentId;
   const kind = element.kind;
   if (kind === 'pic' || kind === 'video') {
     const url = typeof element.localPreviewUrl === 'string' ? element.localPreviewUrl : '';
