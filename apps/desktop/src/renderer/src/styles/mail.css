@@ -182,6 +182,10 @@ html[data-theme='dark'] .weq-mail-workspace {
   font-size: 11px;
   white-space: nowrap;
 }
+/* 宽屏用文件夹列底部那一条，顶栏里的紧凑副本只在窄屏出现。 */
+.weq-mail-sync-state-compact {
+  display: none;
+}
 .weq-mail-list {
   display: flex;
   flex-direction: column;
@@ -346,6 +350,17 @@ html[data-theme='dark'] .weq-mail-workspace {
 .weq-mail-row.is-unread .weq-mail-row-subject,
 .weq-mail-row.is-unread strong {
   font-weight: 650;
+}
+/* 未读除了字重，再给一个圆点标记，扫一眼就能分辨读过的邮件。 */
+.weq-mail-unread-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: var(--weq-accent-effective);
+  flex: none;
 }
 .weq-mail-row.is-unread .weq-mail-row-subject {
   color: var(--weq-fg-primary);
@@ -838,6 +853,14 @@ html[data-privacy] .weq-mail-text-editor {
   .weq-mail-sync-state {
     display: none;
   }
+  .weq-mail-sync-state-compact {
+    display: inline-flex;
+    margin-inline-start: auto;
+    padding: 0 6px;
+    color: var(--weq-fg-muted);
+    font-size: 11px;
+    white-space: nowrap;
+  }
   .weq-mail-brand span {
     max-width: 170px;
   }
@@ -908,4 +931,9 @@ html[data-privacy] .weq-mail-text-editor {
   .weq-mail-spin {
     animation: none;
   }
+}
+
+/* 邮件列表的键盘归属在行上：容器被程序化聚焦时不要画整块强调色外框。 */
+.weq-mail-workspace .weq-mail-rows[data-weq-multi-group]:focus-visible {
+  outline: none;
 }

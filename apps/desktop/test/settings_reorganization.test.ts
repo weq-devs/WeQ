@@ -102,6 +102,18 @@ function mount(initialSection?: SectionId) {
   };
 }
 
+const FOCUSABLE_IN_ROW =
+  'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="switch"]:not([disabled]), button:not([disabled]), a[href], summary, [tabindex="0"]';
+
+/** 命中提示后焦点应在行内控件上；行内没有可操作控件时才允许落在容器上。 */
+function expectInnermostControlFocused(highlighted: HTMLElement | null) {
+  expect(highlighted).not.toBeNull();
+  const control = highlighted!.matches(FOCUSABLE_IN_ROW)
+    ? highlighted!
+    : highlighted!.querySelector(FOCUSABLE_IN_ROW);
+  expect(document.activeElement).toBe(control ?? highlighted);
+}
+
 describe('设置归位后的实际页面', () => {
   it('媒体来源独立显示，账号页不再混入媒体设置，协议工具不重复放性能入口', () => {
     const f = mount('accounts');
@@ -134,16 +146,17 @@ describe('设置归位后的实际页面', () => {
         f.render(page);
         expect(f.body().getAttribute('data-settings-page'), page).toBe(page);
         expect(f.body().querySelectorAll('[aria-label="恢复本页默认设置"]'), page).toHaveLength(1);
+        // 恢复入口只保留页面级：卡片级按钮不再渲染，避免两个措辞不同的入口。
         for (const card of f.body().querySelectorAll('.weq-set-card')) {
           const title = card.querySelector('.weq-set-card-title')?.textContent;
           const descriptor = SETTINGS_RESET_CARDS.find(
             ([id, , label]) => id === page && label === title,
           );
-          if (descriptor)
-            expect(
-              card.querySelector(`[aria-label="恢复${descriptor[2]}默认设置"]`),
-              `${page}:${title}`,
-            ).not.toBeNull();
+          if (!descriptor) continue;
+          expect(
+            card.querySelector(`[aria-label="恢复${descriptor[2]}默认设置"]`),
+            `${page}:${title}`,
+          ).toBeNull();
         }
       }
       for (const page of [
@@ -293,7 +306,15 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['阅读与未读', '消息显示', '互动与防撤回', '通话录音', 'QQ 空间', 'QQ 邮箱']);
+      ).toEqual([
+        '阅读与未读',
+        '消息显示',
+        '互动与防撤回',
+        '联系人名片',
+        '通话录音',
+        'QQ 空间',
+        'QQ 邮箱',
+      ]);
       expect(f.body().querySelector('[role="tablist"]')).toBeNull();
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
         '阅读与未读',
@@ -372,7 +393,8 @@ describe('设置归位后的实际页面', () => {
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
       ).toBe('link-screenshot');
-      expect(document.activeElement).toBe(f.body().querySelector('[data-search-highlight]'));
+      // 命中后焦点必须落到行内第一个可操作控件，而不是只有容器拿到焦点。
+      expectInnermostControlFocused(f.body().querySelector('[data-search-highlight]'));
     } finally {
       f.close();
     }
@@ -489,7 +511,7 @@ describe('设置归位后的实际页面', () => {
         f.render(section, { section, item, revision: Date.now() });
         const highlighted = f.body().querySelector<HTMLElement>('[data-search-highlight="true"]');
         expect(highlighted, `${section}: ${item}`).not.toBeNull();
-        expect(document.activeElement).toBe(highlighted);
+        expectInnermostControlFocused(highlighted);
       }
       f.render('qzone');
       expect(f.host.querySelector('[data-search-highlight]')).toBeNull();
@@ -591,7 +613,15 @@ describe('设置归位后的实际页面', () => {
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['阅读与未读', '消息显示', '互动与防撤回', '通话录音', 'QQ 空间', 'QQ 邮箱']);
+      ).toEqual([
+        '阅读与未读',
+        '消息显示',
+        '互动与防撤回',
+        '联系人名片',
+        '通话录音',
+        'QQ 空间',
+        'QQ 邮箱',
+      ]);
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 空间');
       expect(f.host.textContent).not.toContain('QQ 空间设置');
       f.render('call-recording');

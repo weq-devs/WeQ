@@ -487,6 +487,7 @@ function mappedAccount(source: AccountConfig, local: AccountConfig): AccountConf
   for (const key of [
     'mailNotifications',
     'mailShowUnread',
+    'mailPollIntervalMinutes',
     'annualReport',
     'groupKeyword',
     'nativeMediaEnabled',
@@ -720,6 +721,7 @@ function prepare(
         for (const key of [
           'mailNotifications',
           'mailShowUnread',
+          'mailPollIntervalMinutes',
           'annualReport',
           'groupKeyword',
           'nativeMediaEnabled',

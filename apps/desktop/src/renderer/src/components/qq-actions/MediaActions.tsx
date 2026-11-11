@@ -3,6 +3,7 @@ import { Loader2, Send, ThumbsUp, Trash2 } from 'lucide-react';
 import type { QQWriteBinding, QQWriteOutcome } from '../../hooks/useQQWriteSession';
 import { client } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
+import { useDraftProtection } from '../../lib/draftClose';
 import {
   ActionFeedback,
   ActionIcon,
@@ -139,6 +140,7 @@ function GroupAlbumUploadBody({
 }) {
   const a = useQQAction(`album-upload:${groupId}:${albumId}`);
   const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
+  useDraftProtection(picture, a.busy);
   return (
     <div className="weq-qq-actions">
       <div className="weq-qq-action-bar">

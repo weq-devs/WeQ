@@ -20,6 +20,7 @@ import {
   withQQAccountScope,
 } from './shared';
 import '../../styles/group-content-management.css';
+import { ContactEmptyState } from '../contactProfile/ContactRow';
 
 const emptyDraft = {
   content: '',
@@ -159,7 +160,7 @@ function GroupNoticeActionsBody({
   return (
     <section className="weq-notice-management" aria-label="群公告内容">
       <div className="weq-content-toolbar">
-        <span>{entries.length} 条已读取公告</span>
+        {entries.length ? <span>{entries.length} 条历史公告</span> : null}
         {canManage && (
           <div>
             <button
@@ -295,7 +296,9 @@ function GroupNoticeActionsBody({
         }}
       />
       {!entries.length && !currentAnnouncement?.trim() && !notices.isFetching && (
-        <p className="weq-content-status">暂无可显示的群公告</p>
+        <ContactEmptyState>
+          还没有可显示的群公告。有权限的成员发布后会出现在这里。
+        </ContactEmptyState>
       )}
       {menu && canManage && (
         <ConversationActionsMenu

@@ -18,7 +18,12 @@ import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
-import { isSingleColumnLayout, subscribeResponsiveLayout } from '../../lib/responsiveLayout';
+import { useMobileBack } from '../../hooks/useMobileNavigation';
+import {
+  isSingleColumnLayout,
+  isTouchClient,
+  subscribeResponsiveLayout,
+} from '../../lib/responsiveLayout';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { adjacentMessageId } from '../../lib/messageKeyboardNav';
 import { IS_WEB } from '../../lib/target';
@@ -568,7 +573,7 @@ export type ChatPaneProps = {
   groupTodos?: React.ReactNode;
   onOpenGroupSign?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
-  /** 群资料面板「群资料」入口：卡片本体搬到了应用层（components/GroupInfoDetailDialog）。 */
+  /** 群资料面板「群资料」入口：卡片本体在应用层（components/groupProfile/GroupProfileSurface）。 */
   onOpenGroupInfoDetail?: (
     conversation: Extract<Conversation, { type: 'group' }>,
     detail: GroupInfoDetail,
@@ -776,6 +781,7 @@ export function ChatPane({
   );
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
+  const groupInfoTriggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive]);
   useEffect(() => {
     let single = isSingleColumnLayout();
@@ -786,6 +792,17 @@ export function ChatPane({
     };
     return subscribeResponsiveLayout(update);
   }, []);
+  /**
+   * 关闭浮层并把焦点还给打开它的按钮。布局切换导致的自动关闭不走这里 ——
+   * 那时用户并没有在操作这个浮层，抢焦点只会打断别的输入。
+   */
+  const closeMobileGroupInfo = useCallback(() => {
+    setMobileGroupInfoOpen(false);
+    window.requestAnimationFrame(() => groupInfoTriggerRef.current?.focus());
+  }, []);
+  // 空间不足时群资料是浮在聊天区上的最上层，系统返回必须先关掉它，
+  // 否则 Android 的返回会穿过聊天页直接结束应用。
+  useMobileBack(mobileGroupInfoOpen, closeMobileGroupInfo, 20, () => groupInfoTriggerRef.current);
   const sidecarOpen = useWorkspaceSidecarOpen();
   // 桌面沿用收纳偏好；手机输入区常驻，但进入会话不自动聚焦。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
@@ -4469,7 +4486,9 @@ export function ChatPane({
         ? selectedMessageClipboard(event.currentTarget.closest('.chat-pane'))
         : null;
     const clipboard = selected ?? (quote ? messageNodeClipboard(quote) : undefined);
-    if (isSingleColumnLayout()) {
+    // 交互形态 = 布局 ∧ 指针能力：只有「单栏 + 粗指针」才用移动款菜单。
+    // 宽布局一律桌面款；桌面窄窗口用鼠标右键仍然是桌面右键菜单。
+    if (isSingleColumnLayout() && isTouchClient()) {
       const rect = event.currentTarget.getBoundingClientRect();
       openMobileMessageMenu(
         {
@@ -5587,6 +5606,7 @@ export function ChatPane({
                   <button
                     className="icon-button group-header-info-action weq-mobile-group-info-trigger"
                     type="button"
+                    ref={groupInfoTriggerRef}
                     title="群资料"
                     aria-label="群资料"
                     aria-expanded={mobileGroupInfoOpen}
@@ -6059,6 +6079,19 @@ export function ChatPane({
               {groupInfoCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
             </button>
           ) : null}
+          {mobileGroupInfoOpen ? (
+            // 浮在上层时，聊天区那一侧既不能"看得见点不着"，也不能让点击
+            // 穿透到消息上（会误触语音、图片、引用）。这层透明遮罩负责吃掉
+            // 那一下：只关浮层，不动消息。
+            <div
+              className="weq-group-info-scrim"
+              aria-hidden="true"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                closeMobileGroupInfo();
+              }}
+            />
+          ) : null}
           {!groupInfoCollapsed || mobileGroupInfoOpen ? (
             <GroupInfoPanel
               hidden={sidecarOpen}
@@ -6074,7 +6107,7 @@ export function ChatPane({
               }
               onOpenAlbums={onOpenGroupAlbums ? () => onOpenGroupAlbums(conversation) : undefined}
               onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
-              onClose={mobileGroupInfoOpen ? () => setMobileGroupInfoOpen(false) : undefined}
+              onClose={mobileGroupInfoOpen ? closeMobileGroupInfo : undefined}
               onOpenMember={effectiveOpenGroupMember}
               onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}

@@ -5,9 +5,10 @@ import { MailSettingsSection } from '../src/renderer/src/components/settings/Mai
 import { useViewState } from '../src/renderer/src/state/view';
 
 const mocks = vi.hoisted(() => ({
-  preferences: { showUnread: false, notifications: true },
+  preferences: { showUnread: false, notifications: true, pollIntervalMinutes: 1 },
   showUnread: vi.fn(),
   notifications: vi.fn(),
+  pollInterval: vi.fn(),
   invalidate: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -21,6 +22,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       notifications: {
         useMutation: () => ({ mutateAsync: mocks.notifications, isLoading: false }),
       },
+      setPollInterval: {
+        useMutation: () => ({ mutateAsync: mocks.pollInterval, isLoading: false }),
+      },
     },
   },
 }));
@@ -31,6 +35,7 @@ beforeEach(() => {
   useViewState.setState({ openedUin: '12345678' });
   mocks.showUnread.mockResolvedValue(true);
   mocks.notifications.mockResolvedValue({ notifications: false });
+  mocks.pollInterval.mockResolvedValue(5);
 });
 afterEach(() => {
   useViewState.setState({ openedUin: null });
@@ -53,6 +58,33 @@ function mount() {
 }
 
 describe('QQ 邮箱设置', () => {
+  it('查询间隔回显并自动保存到当前账号，无效输入不提交', async () => {
+    vi.useFakeTimers();
+    const view = mount();
+    const input = view.host.querySelector<HTMLInputElement>('[type="number"]')!;
+    const change = async (value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          input,
+          value,
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+    };
+    try {
+      expect(input.value).toBe('1');
+      await change('5');
+      expect(mocks.pollInterval).toHaveBeenCalledWith({ selfUin: '12345678', minutes: 5 });
+      mocks.pollInterval.mockClear();
+      await change('0');
+      expect(mocks.pollInterval).not.toHaveBeenCalled();
+      expect(view.host.textContent).toContain('输入无效');
+    } finally {
+      view.close();
+      vi.useRealTimers();
+    }
+  });
   it('回显原有偏好，两个开关独立写入当前账号并刷新共享配置', async () => {
     const view = mount();
     try {

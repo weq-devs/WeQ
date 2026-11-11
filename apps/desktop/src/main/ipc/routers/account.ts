@@ -233,6 +233,21 @@ function requireExpectedAccount(expected?: string, expectedConfigId?: string): A
   return requireServices();
 }
 
+async function scopedGroupRead<T>(
+  input: { expectedAccountUin?: string; expectedAccountConfigId?: string },
+  read: (services: AccountServices) => Promise<T>,
+): Promise<T> {
+  const services = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+  const configId = services.accountConfig?.getRecord()?.configId;
+  const result = await read(services);
+  if (
+    requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services ||
+    services.accountConfig?.getRecord()?.configId !== configId
+  )
+    throw new Error('账号或数据源已切换，请重新读取群资料');
+  return result;
+}
+
 function groupAlbumReadScope(input: {
   expectedAccountUin?: string;
   expectedAccountConfigId?: string;
@@ -445,11 +460,11 @@ const pageInput = z.object({
   offset: z.number().int().min(0).default(0),
 });
 
-const groupPageInput = pageInput.extend({
+const groupPageInput = pageInput.merge(exportAccountBindingInput).extend({
   groupCode: z.string().min(1),
 });
 
-const essenceContentInput = z.object({
+const essenceContentInput = exportAccountBindingInput.extend({
   groupCode: z.string().min(1),
   pageStart: z.number().int().min(0).optional(),
   pageLimit: z.number().int().min(1).max(100).optional(),
@@ -4064,9 +4079,11 @@ export const accountRouter = router({
 
   /** Get group metadata and latest announcement. */
   getGroupDetail: directoryProcedure
-    .input(z.object({ groupCode: z.string().min(1) }))
+    .input(exportAccountBindingInput.extend({ groupCode: z.string().min(1) }))
     .query(async ({ input }) => {
-      const detail = await requireServices().groupInfo.getGroupDetail(BigInt(input.groupCode));
+      const detail = await scopedGroupRead(input, (services) =>
+        services.groupInfo.getGroupDetail(BigInt(input.groupCode)),
+      );
       return detail ? groupDetailToWire(detail) : null;
     }),
 
@@ -4162,10 +4179,8 @@ export const accountRouter = router({
 
   /** List group essence messages. */
   listGroupEssenceMessages: directoryProcedure.input(groupPageInput).query(async ({ input }) => {
-    const essence = await requireServices().groupInfo.getEssenceMessages(
-      BigInt(input.groupCode),
-      input.limit,
-      input.offset,
+    const essence = await scopedGroupRead(input, (services) =>
+      services.groupInfo.getEssenceMessages(BigInt(input.groupCode), input.limit, input.offset),
     );
     return essence.map(groupEssenceToWire);
   }),
@@ -4193,10 +4208,12 @@ export const accountRouter = router({
 
   /** 保留成功／失败与服务端完整分页证据，旧数组接口继续兼容。 */
   getGroupEssencePageWithContent: procedure.input(essenceContentInput).query(async ({ input }) => {
-    const page = await requireServices().groupInfo.getEssencePageWithContent(
-      input.groupCode,
-      input.pageStart ?? 0,
-      input.pageLimit ?? 50,
+    const page = await scopedGroupRead(input, (services) =>
+      services.groupInfo.getEssencePageWithContent(
+        input.groupCode,
+        input.pageStart ?? 0,
+        input.pageLimit ?? 50,
+      ),
     );
     return {
       complete: page.complete,
@@ -4212,20 +4229,50 @@ export const accountRouter = router({
       return info ? groupMemberLevelInfoToWire(info) : null;
     }),
 
+  groupMemberPreview: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+        groupCode: z
+          .string()
+          .regex(/^[1-9]\d{0,9}$/)
+          .refine((value) => BigInt(value) <= 0xffffffffn, '群号超出范围'),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const access = albumAccessState();
+      const result = await services.groupInfo.getMemberPreview(
+        input.groupCode,
+        Boolean(access.qqOnline && access.attachEnabled),
+      );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换，请重新读取群成员');
+      return { ...result, members: result.members.map(groupMemberToWire) };
+    }),
+
   /** List members of a group. */
   listGroupMembers: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         groupCode: z.string().min(1),
         limit: z.number().int().min(1).max(300).optional(),
         offset: z.number().int().min(0).optional(),
       }),
     )
     .query(async ({ input }) => {
-      const members = await requireServices().groupInfo.listMembersInGroup(
-        BigInt(input.groupCode),
-        input.limit ?? 100,
-        input.offset ?? 0,
+      const members = await scopedGroupRead(input, (services) =>
+        services.groupInfo.listMembersInGroup(
+          BigInt(input.groupCode),
+          input.limit ?? 100,
+          input.offset ?? 0,
+        ),
       );
       return members.map(groupMemberToWire);
     }),
@@ -4236,17 +4283,19 @@ export const accountRouter = router({
    */
   listGroupLeftMembers: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         groupCode: z.string().min(1),
         limit: z.number().int().min(1).max(300).optional(),
         offset: z.number().int().min(0).optional(),
       }),
     )
     .query(async ({ input }) => {
-      const members = await requireServices().groupInfo.listLeftMembersInGroup(
-        BigInt(input.groupCode),
-        input.limit ?? 100,
-        input.offset ?? 0,
+      const members = await scopedGroupRead(input, (services) =>
+        services.groupInfo.listLeftMembersInGroup(
+          BigInt(input.groupCode),
+          input.limit ?? 100,
+          input.offset ?? 0,
+        ),
       );
       return members.map(groupMemberToWire);
     }),
@@ -4318,7 +4367,7 @@ export const accountRouter = router({
    */
   searchGroupMembers: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         groupCode: z.string().min(1),
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(200).default(30),
@@ -4326,11 +4375,13 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      const { items, total } = await requireServices().groupInfo.searchMembersInGroup(
-        BigInt(input.groupCode),
-        input.keyword,
-        input.limit,
-        input.offset,
+      const { items, total } = await scopedGroupRead(input, (services) =>
+        services.groupInfo.searchMembersInGroup(
+          BigInt(input.groupCode),
+          input.keyword,
+          input.limit,
+          input.offset,
+        ),
       );
       return { members: items.map(groupMemberToWire), total };
     }),
@@ -8325,7 +8376,11 @@ export const accountRouter = router({
       if (!path) throw new Error('导出结果不存在（可能已被清理）。');
       const host = getHost();
       if (host.registerDownload) {
-        const output = host.registerDownload(path, basename(path), task?.bundleDir ? 'directory' : 'file');
+        const output = host.registerDownload(
+          path,
+          basename(path),
+          task?.bundleDir ? 'directory' : 'file',
+        );
         return { ok: true, downloadUrl: output.url };
       }
       await getHost().revealPath(path);

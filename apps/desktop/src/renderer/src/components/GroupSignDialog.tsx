@@ -1,20 +1,27 @@
 import { X } from 'lucide-react';
-import { OverlayLayer } from './OverlayLayer';
+import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupReadTools } from './qq-actions/GroupReadTools';
 import { withQQAccountScope } from './qq-actions/shared';
 import '../styles/group-sign.css';
 
 function GroupSignDialogBody({
+  embedded,
   groupCode,
   groupName,
   onClose,
 }: {
+  embedded?: boolean;
   groupCode: string;
   groupName: string;
   onClose: () => void;
 }) {
   return (
-    <OverlayLayer presentation="sidecar" title="群打卡" onClose={onClose}>
+    <ProfileDetailSurface
+      embedded={embedded}
+      presentation="sidecar"
+      title="群打卡"
+      onClose={onClose}
+    >
       <section className="weq-group-sign-page" aria-label="群打卡">
         <header>
           <div>
@@ -35,7 +42,7 @@ function GroupSignDialogBody({
           <GroupReadTools key={groupCode} groupId={Number(groupCode)} signing />
         </div>
       </section>
-    </OverlayLayer>
+    </ProfileDetailSurface>
   );
 }
 

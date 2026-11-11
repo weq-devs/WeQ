@@ -2,9 +2,15 @@ import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { GroupProfileExtras } from '@weq/protocol';
 import { trpc } from '../trpc/client';
-import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
+import type { QQWriteBinding } from '../hooks/useQQWriteSession';
+import { useGroupReadScope } from '../hooks/useGroupProfile';
 import { useTabActive } from './RetainedTabs';
 import { groupProfileRows } from '../lib/groupProfileRows';
+import {
+  ContactEmptyState,
+  ContactRow,
+  ContactTechnicalDetails,
+} from './contactProfile/ContactRow';
 import '../styles/group-extended-profile.css';
 
 const updated = new Intl.DateTimeFormat('zh-CN', {
@@ -15,7 +21,12 @@ const updated = new Intl.DateTimeFormat('zh-CN', {
 });
 
 export function GroupExtendedProfile({ groupCode }: { groupCode: string }) {
-  const session = useQQWriteSession(`group-profile:${groupCode}`);
+  const session = useGroupReadScope();
+  const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
+    enabled: session.active && Boolean(session.binding),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
   const groupId = Number(groupCode);
   if (
     !/^\d+$/.test(groupCode) ||
@@ -29,7 +40,7 @@ export function GroupExtendedProfile({ groupCode }: { groupCode: string }) {
       key={`${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${groupId}`}
       groupId={groupId}
       binding={session.binding}
-      online={session.available}
+      online={Boolean(access.data?.qqOnline && access.data.attachEnabled)}
     />
   );
 }
@@ -98,6 +109,8 @@ export function GroupExtendedProfileFields({
   error: 'read' | 'cache' | null;
   onRefresh: () => void;
 }) {
+  const rows = groupProfileRows(profile).filter((row) => !row[2]);
+  const technical = groupProfileRows(profile).filter((row) => row[2]);
   const status = loading
     ? '读取中…'
     : error === 'cache'
@@ -134,14 +147,19 @@ export function GroupExtendedProfileFields({
           <RefreshCw size={14} />
         </button>
       </div>
-      <dl className="weq-group-extras-rows" data-privacy-sensitive>
-        {groupProfileRows(profile).map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
+      <div className="weq-group-extras-rows" data-privacy-sensitive>
+        {rows.map(([label, value]) => (
+          <ContactRow key={label} label={label} value={value} />
         ))}
-      </dl>
+        {!rows.length ? <ContactEmptyState>暂无可读取的扩展资料</ContactEmptyState> : null}
+      </div>
+      {technical.length ? (
+        <ContactTechnicalDetails>
+          {technical.map(([label, value]) => (
+            <ContactRow key={label} label={label} value={value} mono />
+          ))}
+        </ContactTechnicalDetails>
+      ) : null}
     </section>
   );
 }

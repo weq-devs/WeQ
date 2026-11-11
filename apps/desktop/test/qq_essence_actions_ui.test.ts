@@ -146,9 +146,13 @@ function fixture(active = true, overrides: Partial<GroupEssenceWire> = {}, onlin
 describe('消息菜单与精华列表的同步', () => {
   it('联网失败明确显示本地回退，不把失败解释为已成功查空', () => {
     const f = fixture(false, {}, true);
+    // 新文案：状态行说明「联网读取失败，当前仅显示本地记录」，空态说明「本地未找到 + 联网暂时不可用」。
+    // 判定为新文案更符合契约（错误明确可行动、且不把失败说成查空），故对齐断言，保留原意：
+    // 失败既不能显示成「成功查空」，也不能混用成功空态的那句「本地与当前联网页都未找到记录」。
     expect(f.host.textContent).toContain('联网精华读取失败');
-    expect(f.host.textContent).toContain('联网结果暂不可用');
-    expect(f.host.textContent).not.toContain('本地与当前联网页暂无有效记录');
+    expect(f.host.textContent).toContain('当前仅显示本地记录');
+    expect(f.host.textContent).toContain('联网结果暂时不可用');
+    expect(f.host.textContent).not.toContain('本地与当前联网页都未找到记录');
   });
   it('真实本地投影无需 Web random 即可从列表取消，取消历史不再展示', async () => {
     const local = {
@@ -168,7 +172,8 @@ describe('消息菜单与精华列表的同步', () => {
     act(() => useQQEssence.setState({ receipts: {} }));
     const canceled = fixture(true, projectGroupEssence([{ ...local, setStatus: 2 }], [])[0]);
     expect(canceled.host.querySelector('.group-essence-item')).toBeNull();
-    expect(canceled.host.textContent).toContain('暂无群精华');
+    // 空态文案已统一为完整句「还没有群精华。…」，语义不变（取消后列表为空）。
+    expect(canceled.host.textContent).toContain('还没有群精华');
   });
   it.each(['menu', 'list'] as const)(
     '%s 取消受理后共同更新，不被旧读取结果重新插回',

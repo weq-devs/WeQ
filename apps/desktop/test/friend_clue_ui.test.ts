@@ -1,5 +1,6 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
 import { FriendClue } from '../src/renderer/src/components/qq-actions/FriendClue';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
@@ -34,8 +35,19 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     account: {
       getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isLoading: false }) },
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      // 群名片改由 useGroupProfile 读取，入口夹具需要这几个只读查询的桩。
+      groupMemberPreview: {
+        useQuery: () => ({ data: undefined, isFetching: false, error: null, refetch: vi.fn() }),
+      },
+      contactMetrics: {
+        snapshot: { useQuery: () => ({ data: undefined }) },
+        changed: { useSubscription: () => {} },
+      },
       qqActions: {
         groupJoinSettings: {
           useQuery: (...args: unknown[]) => {
@@ -48,14 +60,23 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         friendClue: {
           useQuery: (...args: unknown[]) => {
             state.query(...args);
+            const enabled = (args[1] as { enabled?: boolean } | undefined)?.enabled !== false;
             return {
-              data: state.data,
+              // 真实 react-query 在 enabled=false 且无缓存时不会给数据；
+              // 夹具按 enabled 返回，否则「离线不展示旧结果」的用例会被自身桩数据误导。
+              data: enabled && !state.error ? state.data : null,
               error: state.error ? new Error('失败') : null,
               isFetching: state.fetching,
             };
           },
         },
       },
+    },
+  },
+  client: {
+    account: {
+      getGroupDetail: { query: async () => null },
+      getCardDisplayNames: { query: async () => null },
     },
   },
 }));
@@ -65,6 +86,7 @@ function render(known = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const conversation = sharedGroupConversation({ code: '12345', name: '旧缓存群名', avatar: '' });
   conversation.group.memberCount = 23;
   conversation.group.announcement = '真实群公告';
@@ -72,16 +94,20 @@ function render(known = false) {
     act(() =>
       root.render(
         h(
-          ConversationDirectoryContext.Provider,
-          {
-            value: {
-              real: known ? [conversation] : [],
-              virtual: [],
-              onVirtual: vi.fn(),
-              onCreate: vi.fn(),
+          QueryClientProvider,
+          { client: queryClient },
+          h(
+            ConversationDirectoryContext.Provider,
+            {
+              value: {
+                real: known ? [conversation] : [],
+                virtual: [],
+                onVirtual: vi.fn(),
+                onCreate: vi.fn(),
+              },
             },
-          },
-          h(FriendClue, { uid }),
+            h(FriendClue, { uid }),
+          ),
         ),
       ),
     );
@@ -141,14 +167,12 @@ it.each([true, false])(
       expect(dialog.textContent).toContain('12345');
       expect(dialog.textContent).not.toContain('旧缓存群名');
       expect(source.textContent).toBe('线索接口返回的群名');
-      if (known) {
-        expect(dialog.textContent).toContain('真实群公告');
-        expect(dialog.textContent).toContain('23');
-      } else {
-        expect(dialog.querySelector('.weq-profile-members')?.textContent).toContain('23');
-        expect(dialog.querySelector('.weq-profile-list')).toBeNull();
-      }
-      act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+      // 群名与人数来自群资料（不是线索原文），名片不再另起一套成员列表。
+      expect(dialog.querySelector('.weq-group-count')?.textContent).toContain('23');
+      expect(dialog.querySelector('.weq-profile-list')).toBeNull();
+      // 清单 G04：公告正文不进入快速名片，只在完整资料页查看。
+      expect(dialog.textContent).not.toContain('真实群公告');
+      act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭群资料"]')!.click());
       expect(document.querySelector('[aria-label="群资料"]')).toBeNull();
       expect(f.host.textContent).toContain('你好\n问题1:名字');
       expect(f.host.querySelector('[aria-label="重新读取好友线索"]')).toBeNull();

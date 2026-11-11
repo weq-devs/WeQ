@@ -314,16 +314,8 @@ export function searchAppEntries(keyword: string): AppSearchEntry[] {
   return APP_SEARCH_ENTRIES.filter((entry) => {
     if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
     const target = resolveSettingsTarget(entry.target);
-    if (!remoteSettingAvailable(target.section, target.settingId)) return false;
-    return ![
-      '自启时显示窗口',
-      '使用仿 Windows 窗口按钮',
-      '同时录电脑声音',
-      '保存位置',
-      '记录 UDP 流量',
-      '日志保留时长',
-      '日志文件夹',
-    ].includes(target.item ?? '');
+    // 页面 / settingId / 行名三种禁项都在 shared/remote_capabilities 里，这里只消费。
+    return remoteSettingAvailable(target.section, target.settingId, target.item);
   })
     .map((entry, index) => ({
       entry,

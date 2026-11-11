@@ -109,11 +109,53 @@ const computerResetCards = new Set([
   'logs',
 ]);
 
+/**
+ * 项目名（设置行标题 / 搜索条目名）层面的禁项。有些行没有 settingId，或者
+ * 同一个 settingId 下只有某一项要藏，只能按名字认。放在这里而不是搜索里，
+ * 新增禁项时导航、搜索、重置三处自动一起生效。
+ */
+const computerSettingItems = new Set([
+  '自启时显示窗口',
+  '使用仿 Windows 窗口按钮',
+  '同时录电脑声音',
+  '保存位置',
+  '记录 UDP 流量',
+  '日志保留时长',
+  '日志文件夹',
+]);
+
+/** Remote 不提供的维护工具（MaintenanceTool id）；DataMaintenanceSection 只是转出这份清单。 */
+export type RemoteBlockedMaintenanceTool =
+  | 'cleanup'
+  | 'db-repair'
+  | 'other-device-key'
+  | 'login-accounts';
+export const REMOTE_BLOCKED_MAINTENANCE_TOOLS: readonly RemoteBlockedMaintenanceTool[] = [
+  'cleanup',
+  'db-repair',
+  'other-device-key',
+  'login-accounts',
+];
+
+export function remoteMaintenanceToolAvailable(tool: string): boolean {
+  return !(REMOTE_BLOCKED_MAINTENANCE_TOOLS as readonly string[]).includes(tool);
+}
+
+/** 供遍历式测试用：表本身是唯一真源，测试按表逐项验证消费方没有漏。 */
+export const REMOTE_BLOCKED_SETTING_PAGES: readonly string[] = [...computerSettingsPages];
+export const REMOTE_BLOCKED_SETTING_IDS: readonly string[] = [...computerSettingIds];
+export const REMOTE_BLOCKED_SETTING_ITEMS: readonly string[] = [...computerSettingItems];
+export const REMOTE_BLOCKED_RESET_CARDS: readonly string[] = [...computerResetCards];
+
 export function remoteResetCardAvailable(card: string): boolean {
   return !computerResetCards.has(card);
 }
 
 /** 导航、设置搜索和重置入口共用同一份可用项清单。 */
-export function remoteSettingAvailable(page: string, settingId?: string): boolean {
-  return !computerSettingsPages.has(page) && !(settingId && computerSettingIds.has(settingId));
+export function remoteSettingAvailable(page: string, settingId?: string, item?: string): boolean {
+  return (
+    !computerSettingsPages.has(page) &&
+    !(settingId && computerSettingIds.has(settingId)) &&
+    !(item && computerSettingItems.has(item))
+  );
 }

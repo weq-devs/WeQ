@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { setHost, type HostBridge } from '@weq/service';
 import { bootstrapRouter } from '../src/main/ipc/routers/bootstrap';
 
 const f = vi.hoisted(() => ({
@@ -19,6 +20,10 @@ const preview = { uin: '12345', uid: 'u_synthetic', displayName: '合成账号',
 beforeEach(() => {
   vi.resetAllMocks();
   f.probe.mockResolvedValue({ status: 'ready', preview, mobile: false });
+  // 2f6aa01a 给 openStaticAccount 加了「Remote 只能重开已保存目录」的守护，
+  // 它会问 getHost().remoteClient。主进程启动时 host 一定已安装，这里补一个
+  // 电脑端（remoteClient=false）的桩，让守护走"放行"分支，测的仍是预检逻辑。
+  setHost({ remoteClient: false } as unknown as HostBridge);
 });
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });

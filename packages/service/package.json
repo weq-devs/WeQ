@@ -5,6 +5,9 @@
   "type": "module",
   "exports": {
     "./contact-card": "./src/common/contact_card.ts",
+    "./client-preferences": "./src/common/client_preferences.ts",
+    "./client-state": "./src/bootstrap/client_state.ts",
+    "./settings-changes": "./src/common/settings_changes.ts",
     "./performance": "./src/performance/index.ts",
     "./performance-node": "./src/performance/node.ts",
     "./service-ports": "./src/common/service_ports.ts",
@@ -43,10 +46,7 @@
     "./report-assets": "./src/account/annual_report/report-assets.ts",
     "./report-mate": "./src/account/annual_report/report-mate.ts",
     "./search-index-retirement": "./src/common/search_index_retirement.ts",
-    "./signer-cache": "./src/bootstrap/signer_cache.ts",
-    "./client-preferences": "./src/common/client_preferences.ts",
-    "./client-state": "./src/bootstrap/client_state.ts",
-    "./settings-changes": "./src/common/settings_changes.ts"
+    "./signer-cache": "./src/bootstrap/signer_cache.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

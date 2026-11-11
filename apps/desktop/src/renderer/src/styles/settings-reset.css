@@ -61,3 +61,37 @@
   color: var(--destructive);
   overflow-wrap: anywhere;
 }
+
+/* 失败提示：给用户一句能行动的话，原始异常折叠进「技术详情」。 */
+.weq-settings-reset-error > p {
+  margin: 0 0 4px;
+  color: var(--destructive);
+}
+.weq-settings-reset-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-settings-reset-detail summary {
+  cursor: pointer;
+  color: var(--weq-fg-secondary);
+}
+.weq-settings-reset-detail pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 页头重置是带文字的软按钮，卡片级同类按钮也随之收窄，避免挤占标题。 */
+.weq-settings-page-reset .weq-set-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}

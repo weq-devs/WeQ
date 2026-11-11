@@ -5332,7 +5332,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 
 .weq-set-desc {
   margin: 0;
-  color: #6a7280;
+  color: var(--weq-fg-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -5360,7 +5360,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   gap: 7px;
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--weq-fg-primary);
 }
 
 .weq-set-card-icon {
@@ -5450,7 +5450,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-set-row-label {
   font-size: 14px;
   font-weight: 500;
-  color: #1f2933;
+  color: var(--weq-fg-primary);
 }
 
 .weq-set-row-icon {
@@ -5466,7 +5466,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 
 .weq-set-row-desc {
   font-size: 12px;
-  color: #8a93a0;
+  color: var(--weq-fg-secondary);
   line-height: 1.55;
 }
 
@@ -7834,7 +7834,8 @@ html[data-theme='dark'] .weq-profile-member .avatar {
   display: flex;
   flex-direction: column;
   width: 288px;
-  max-width: calc(100vw - 24px);
+  /* 名片宽度由 .weq-contact-card 决定（桌面 390）；这里只做视口兜底，不再把名片压窄。 */
+  max-width: min(390px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
   overflow-x: hidden;
   overflow-y: auto;

@@ -1,30 +1,46 @@
 import { useContext, useState } from 'react';
-import { ArrowDown, ArrowUp, GripVertical, UserRound } from 'lucide-react';
+import { Eye, LayoutList, ArrowUpDown, UserRound, Users } from 'lucide-react';
 import {
   CONTACT_CARD_FIELDS,
   CONTACT_GROUP_FIELDS,
   moveContactCardField,
   normalizeContactCard,
-  type ContactCardSettings as Preferences,
   type ContactCardContent,
+  type ContactCardField,
+  type ContactGroupField,
+  type ContactCardSettings as Preferences,
 } from '@weq/service/contact-card';
 import { useContactCardSettings } from '../../hooks/useContactCard';
+import { contactCardFieldGroup, type ContactCardGroup } from '../contactProfile/ContactContent';
 import { trpc } from '../../trpc/client';
-import { SettingsResetButton } from './SettingsReset';
 import { AutoSave } from './AutoSave';
+import { Card, Row, SectionHeader, Toggle } from './controls';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
-import { ContactCardPreview } from '../contactProfile/ContactCardPreview';
+import { ContactCardPreview } from './contactCard/ContactCardPreview';
+import { ContactFieldSort } from './contactCard/ContactFieldSort';
 import '../../styles/contact-card.css';
 
+const cardLabels = new Map<string, string>(CONTACT_CARD_FIELDS.map(([key, label]) => [key, label]));
+const groupLabels = new Map<string, string>(
+  CONTACT_GROUP_FIELDS.map(([key, label]) => [key, label]),
+);
+
+/**
+ * 设置 → 基础功能 → 联系人名片。
+ *
+ * 与其它设置页同一套语言：SectionHeader（含页面级「恢复本页默认」）+ Card + Row + Toggle；
+ * 排序单独成区（把手 + 上移/下移 + 方向键），预览渲染的是**本人的真实名片**。
+ */
 export function ContactCardSettings() {
   const source = useContactCardSettings();
   const saved = normalizeContactCard(source);
   const reset = useContext(SettingsResetContext);
   const [optimistic, setOptimistic] = useState<Preferences | null>(null);
-  const [dragged, setDragged] = useState<ContactCardContent | null>(null);
   const utils = trpc.useUtils();
   const mutation = trpc.bootstrap.setContactCard.useMutation();
   const value = optimistic ?? saved;
+  const disabled = !source.ready || mutation.isLoading;
+  const visibleCount = value.order.filter((key) => value.visible[key]).length;
   function save(next: Preferences) {
     setOptimistic(next);
   }
@@ -33,16 +49,17 @@ export function ContactCardSettings() {
     await utils.bootstrap.getSettings.invalidate();
     setOptimistic((current) => (JSON.stringify(current) === JSON.stringify(next) ? null : current));
   }
+  function setVisible(key: ContactCardContent, next: boolean) {
+    void save({ ...value, visible: { ...value.visible, [key]: next } });
+  }
   return (
     <SettingsResetCardContext.Provider value={reset?.saves('contact-card') ?? null}>
-      <section className="weq-set" data-setting-id="contact-card">
-        <header className="weq-contact-settings-head">
-          <h2>
-            <UserRound size={18} />
-            联系人名片
-          </h2>
-          <SettingsResetButton card="contact-card" />
-        </header>
+      <div className="weq-set" data-setting-id="contact-card">
+        <SectionHeader
+          title="联系人名片"
+          icon={<UserRound size={16} strokeWidth={1.8} />}
+          desc="名片与资料页展示哪些资料。改动自动保存。"
+        />
         <AutoSave
           value={value}
           saved={saved}
@@ -51,91 +68,148 @@ export function ContactCardSettings() {
           reset={() => setOptimistic(null)}
           resetKeys={['contactCard']}
         />
-        <div className="weq-contact-settings-grid">
-          <div>
-            {(['order', 'groupOrder'] as const).map((group) => {
-              const catalog = group === 'order' ? CONTACT_CARD_FIELDS : CONTACT_GROUP_FIELDS;
-              return (
-                <section key={group} className="weq-contact-settings-section">
-                  <h3>{group === 'order' ? '展示内容' : '群上下文'}</h3>
-                  <ul>
-                    {value[group].map((key, index) => (
-                      <li
-                        data-setting-id={`contact-card-${key}`}
-                        key={key}
-                        draggable={source.ready && !mutation.isLoading}
-                        onDragStart={() => setDragged(key)}
-                        onDragEnd={() => setDragged(null)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => {
-                          event.preventDefault();
-                          const keys: ContactCardContent[] = value[group];
-                          if (!dragged || !keys.includes(dragged)) return;
+        {(
+          [
+            ['basic', '基础资料'],
+            ['social', '互动与关系'],
+            ['bot', '其他与机器人'],
+          ] as Array<[ContactCardGroup, string]>
+        ).map(([group, title]) => {
+          const keys = value.order.filter((key) => {
+            const owner = contactCardFieldGroup(key);
+            // QID / NT UID 不进名片正文，但仍可在设置里开关（资料页技术详情用）。
+            return group === 'bot' ? owner === 'bot' || owner === 'tech' : owner === group;
+          });
+          if (!keys.length) return null;
+          return (
+            <Card
+              key={group}
+              title={title}
+              icon={<LayoutList size={15} strokeWidth={1.8} />}
+              settingId={`contact-card-fields-${group}`}
+            >
+              {keys.map((key) => (
+                <Row
+                  key={key}
+                  settingId={`contact-card-${key}`}
+                  label={cardLabels.get(key) ?? key}
+                  control={
+                    <Toggle
+                      checked={Boolean(value.visible[key])}
+                      disabled={disabled}
+                      label={cardLabels.get(key) ?? key}
+                      onChange={(next) => setVisible(key, next)}
+                    />
+                  }
+                />
+              ))}
+              {group === 'basic' ? (
+                <Row
+                  settingId="contact-card-all"
+                  label="全部字段"
+                  desc={`共 ${value.order.length} 个字段，已显示 ${visibleCount} 个。`}
+                  control={
+                    <span className="weq-contact-toggle-all">
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft"
+                        disabled={disabled || visibleCount === value.order.length}
+                        onClick={() =>
                           void save({
                             ...value,
-                            [group]: moveContactCardField(
-                              keys,
-                              dragged,
-                              index - keys.indexOf(dragged),
-                            ),
-                          });
-                          setDragged(null);
-                        }}
+                            visible: Object.fromEntries(
+                              Object.keys(value.visible).map((key) => [key, true]),
+                            ) as Preferences['visible'],
+                          })
+                        }
                       >
-                        <GripVertical size={14} aria-hidden />
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={value.visible[key]}
-                            disabled={!source.ready || mutation.isLoading}
-                            onChange={(event) =>
-                              void save({
-                                ...value,
-                                visible: { ...value.visible, [key]: event.target.checked },
-                              })
-                            }
-                          />
-                          {catalog.find(([id]) => id === key)?.[1]}
-                        </label>
-                        {([-1, 1] as const).map((offset) => (
-                          <button
-                            key={offset}
-                            type="button"
-                            className="weq-set-iconbtn"
-                            title={offset < 0 ? '上移' : '下移'}
-                            aria-label={`${offset < 0 ? '上移' : '下移'}${catalog.find(([id]) => id === key)?.[1]}`}
-                            disabled={
-                              !source.ready ||
-                              mutation.isLoading ||
-                              index + offset < 0 ||
-                              index + offset >= value[group].length
-                            }
-                            onClick={() =>
-                              void save({
-                                ...value,
-                                [group]: moveContactCardField<ContactCardContent>(
-                                  value[group],
-                                  key,
-                                  offset,
-                                ),
-                              })
-                            }
-                          >
-                            {offset < 0 ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
-                          </button>
-                        ))}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              );
-            })}
-          </div>
-          <aside className="weq-contact-settings-preview">
+                        全部显示
+                      </button>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft"
+                        disabled={disabled || visibleCount === 0}
+                        onClick={() =>
+                          void save({
+                            ...value,
+                            visible: Object.fromEntries(
+                              Object.keys(value.visible).map((key) => [key, false]),
+                            ) as Preferences['visible'],
+                          })
+                        }
+                      >
+                        全部隐藏
+                      </button>
+                    </span>
+                  }
+                />
+              ) : null}
+            </Card>
+          );
+        })}
+        <Card
+          title="字段顺序"
+          icon={<ArrowUpDown size={15} strokeWidth={1.8} />}
+          settingId="contact-card-order"
+        >
+          <ContactFieldSort
+            id="contact-card-sort"
+            title="名片正文"
+            description="拖动把手，或用上移/下移按钮；把手获得焦点后也可用方向键。"
+            keys={value.order}
+            labels={(key: ContactCardField) => cardLabels.get(key) ?? key}
+            disabled={disabled}
+            onMove={(key: ContactCardField, offset: number) =>
+              void save({ ...value, order: moveContactCardField(value.order, key, offset) })
+            }
+          />
+          <ContactFieldSort
+            id="contact-card-group-sort"
+            title="群内资料"
+            keys={value.groupOrder}
+            labels={(key: ContactGroupField) => groupLabels.get(key) ?? key}
+            disabled={disabled}
+            onMove={(key: ContactGroupField, offset: number) =>
+              void save({
+                ...value,
+                groupOrder: moveContactCardField(value.groupOrder, key, offset),
+              })
+            }
+          />
+        </Card>
+        <Card
+          title="群内资料字段"
+          icon={<Users size={15} strokeWidth={1.8} />}
+          settingId="contact-card-group-fields"
+          action={<span className="weq-set-row-desc">只在有群上下文时显示</span>}
+        >
+          {value.groupOrder.map((key) => (
+            <Row
+              key={key}
+              settingId={`contact-card-group-${key}`}
+              label={groupLabels.get(key) ?? key}
+              control={
+                <Toggle
+                  checked={Boolean(value.visible[key])}
+                  disabled={disabled}
+                  label={groupLabels.get(key) ?? key}
+                  onChange={(next) => setVisible(key, next)}
+                />
+              }
+            />
+          ))}
+        </Card>
+        <Card
+          title="预览"
+          icon={<Eye size={15} strokeWidth={1.8} />}
+          settingId="contact-card-preview"
+          action={<span className="weq-set-row-desc">使用我的资料实时渲染</span>}
+        >
+          <div className="weq-contact-preview-slot">
             <ContactCardPreview settings={value} />
-          </aside>
-        </div>
-      </section>
+          </div>
+        </Card>
+      </div>
     </SettingsResetCardContext.Provider>
   );
 }

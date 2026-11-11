@@ -208,16 +208,26 @@ export const mergeForwardRouter = router({
     .mutation(async ({ input }) => {
       const { root, store } = boundArchive(input);
       const drafts = workspaceDraftStore(root);
-      return boundClientState(input).saveExternalDraft(
-        `composition:${input.id}`,
+      const state = boundClientState(input);
+      const key = `composition:${input.id}`;
+      const current = state.draft(key);
+      // 明确删除时不要求调用方先拿版本：未传 expectedVersion 就按当前版本删除；
+      // 传了仍做并发校验，避免删掉别的端刚更新过的内容。
+      if (input.expectedVersion != null && input.expectedVersion !== current.version)
+        return { ok: false as const, current };
+      // 归档/旧入口的清理必须先做：重复清空走幂等快速路径时不会再触发 write 回调。
+      const cleanup = () => {
+        drafts.remove(input.id);
+        draftStore().remove(input.id);
+        if (/^[a-zA-Z0-9-]+$/.test(input.id)) store.remove('history', input.id);
+      };
+      cleanup();
+      return state.saveExternalDraft(
+        key,
         null,
-        input.expectedVersion ?? null,
+        current.version,
         async () => drafts.list().find((draft) => draft.id === input.id) ?? null,
-        async () => {
-          drafts.remove(input.id);
-          draftStore().remove(input.id);
-          if (/^[a-zA-Z0-9-]+$/.test(input.id)) store.remove('history', input.id);
-        },
+        async () => cleanup(),
       );
     }),
   archiveList: procedure.input(accountBinding.extend({ kind: archiveKind })).query(({ input }) => {
@@ -247,8 +257,10 @@ export const mergeForwardRouter = router({
   archiveRemove: procedure
     .input(accountBinding.extend({ kind: archiveKind, id: z.string().min(1) }))
     .mutation(({ input }) => {
-      boundArchive(input).store.remove(input.kind, input.id);
+      const removed = boundArchive(input).store.remove(input.kind, input.id);
       boundClientState(input).announceDrafts();
+      // 调用方与既有测试都按「是否真的删掉了」使用返回值。
+      return removed !== false;
     }),
 
   /** 当前账号的全部草稿，最近更新在前。 */

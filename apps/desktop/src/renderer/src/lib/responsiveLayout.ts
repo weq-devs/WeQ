@@ -55,12 +55,34 @@ function deviceLandscape(): boolean {
   return window.innerWidth > (layoutHeight || window.innerHeight);
 }
 
+/** 媒体查询只回答「是否窄」，交给规则函数时用这两个哨兵宽度表示口径。 */
+const NARROW_VIEWPORT = 0;
+const NOT_NARROW_VIEWPORT = SINGLE_COLUMN_MAX_WIDTH + 1;
+
+/**
+ * 布局视口是不是窄的。**媒体查询优先**：它才是 CSS 布局真正用的布局视口宽度；
+ * `window.innerWidth` 是视觉视口，页面缩放时会差 1px 内，用它会和样式对不上。
+ * 宿主没有 matchMedia 时才退回 innerWidth（见 responsive_layout.test.ts 首个用例）。
+ */
+function isNarrowLayoutViewport(): boolean {
+  const query = window.matchMedia?.(`(max-width: ${SINGLE_COLUMN_MAX_WIDTH}px)`);
+  if (query) return query.matches;
+  return window.innerWidth <= SINGLE_COLUMN_MAX_WIDTH;
+}
+
+/**
+ * 运行时唯一入口：规则只写在 {@link resolveResponsiveLayout} 里，这里只负责
+ * 取视口口径（媒体查询 / 设备方向 / 客户端身份）。
+ */
 export function isSingleColumnLayout(): boolean {
   if (typeof window === 'undefined') return false;
   return (
-    (window.matchMedia?.(`(max-width: ${SINGLE_COLUMN_MAX_WIDTH}px)`).matches ??
-      window.innerWidth <= SINGLE_COLUMN_MAX_WIDTH) &&
-    !(isMobileClient() && deviceLandscape())
+    resolveResponsiveLayout({
+      width: isNarrowLayoutViewport() ? NARROW_VIEWPORT : NOT_NARROW_VIEWPORT,
+      height: window.innerHeight,
+      mobileClient: isMobileClient(),
+      landscape: deviceLandscape(),
+    }) === 'single'
   );
 }
 

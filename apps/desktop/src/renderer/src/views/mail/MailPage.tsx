@@ -542,6 +542,15 @@ export function MailPage({
     }
   }
   const allChecked = page.items.length > 0 && page.items.every((item) => checked.includes(item.id));
+  // 上次查询时间在宽屏放文件夹列底部，窄屏放顶栏，用户始终能判断「刚才查过」。
+  const syncText = status.lastSync
+    ? `更新于 ${new Date(status.lastSync).toLocaleTimeString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`
+    : '尚未同步';
   const snippets = useMemo(
     () => new Map(page.items.map((item) => [item.id, plainMailText(item.snippet)])),
     [page.items],
@@ -566,6 +575,7 @@ export function MailPage({
             <span className="weq-mail-sensitive">{selfEmail}</span>
           </div>
         </div>
+        <span className="weq-mail-sync-state weq-mail-sync-state-compact">{syncText}</span>
         <div className="weq-mail-top-actions">
           <button
             type="button"
@@ -693,11 +703,7 @@ export function MailPage({
                 </button>
               );
             })}
-            <div className="weq-mail-sync-state">
-              {status.lastSync
-                ? `更新于 ${new Date(status.lastSync).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit' })}`
-                : '尚未同步'}
-            </div>
+            <div className="weq-mail-sync-state">{syncText}</div>
           </nav>
           <section className="weq-mail-list" aria-label="邮件列表">
             <form
@@ -823,6 +829,9 @@ export function MailPage({
                     >
                       <div>
                         <strong data-privacy-sensitive>
+                          {item.unread ? (
+                            <span className="weq-mail-unread-dot" aria-label="未读" role="img" />
+                          ) : null}
                           {item.sender.name || item.sender.email || '发件人'}
                         </strong>
                         <time>{formatMailTime(item.time, true)}</time>

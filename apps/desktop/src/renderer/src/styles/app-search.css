@@ -42,8 +42,9 @@
     var(--weq-accent-effective) 10%,
     var(--weq-bg-surface)
   );
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: -2px;
+  /* 命中提示只用左侧强调条 + 底色渐隐，避免整行描边被误读成聚焦框或错误框。 */
+  box-shadow: inset 3px 0 0 0 var(--weq-accent-effective);
+  border-radius: 6px;
   background: var(--weq-search-highlight-bg);
   scroll-margin-block: 16px;
   animation: weq-settings-search-highlight 2s ease-out forwards;
@@ -64,11 +65,11 @@ html[data-theme='dark'] .weq-app-search-expand:hover {
 @keyframes weq-settings-search-highlight {
   0%,
   70% {
-    outline-color: var(--weq-accent-effective);
+    box-shadow: inset 3px 0 0 0 var(--weq-accent-effective);
     background-color: var(--weq-search-highlight-bg);
   }
   100% {
-    outline-color: transparent;
+    box-shadow: inset 3px 0 0 0 transparent;
     background-color: transparent;
   }
 }

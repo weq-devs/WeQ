@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
-import { RefreshCw, Sparkles, X } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { OverlayLayer } from './OverlayLayer';
+import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useQQGroupPermissions } from './qq-actions/shared';
 import {
@@ -13,6 +13,7 @@ import {
 import { qqEssenceTargetParts } from '../lib/qqEssenceTarget';
 import { QQEssenceAction } from './QQMessageEssenceAction';
 import '../styles/group-essence-actions.css';
+import { ContactEmptyState } from './contactProfile/ContactRow';
 
 /** 显示用的群精华数据（已转换） */
 export interface GroupEssenceWire {
@@ -36,6 +37,7 @@ export interface GroupEssenceWire {
 }
 
 export function GroupEssenceDialog({
+  embedded,
   groupCode,
   groupName,
   essenceMessages,
@@ -44,6 +46,7 @@ export function GroupEssenceDialog({
   onClose,
   onJumpToMessage,
 }: {
+  embedded?: boolean;
   groupCode: string;
   groupName: string;
   essenceMessages?: GroupEssenceWire[];
@@ -80,7 +83,8 @@ export function GroupEssenceDialog({
       });
   }
   return (
-    <OverlayLayer
+    <ProfileDetailSurface
+      embedded={embedded}
       presentation="sidecar"
       title="群精华"
       className="modal-scrim group-essence-scrim"
@@ -88,7 +92,7 @@ export function GroupEssenceDialog({
     >
       <section
         className="group-essence-dialog"
-        role="dialog"
+        role={embedded ? 'region' : 'dialog'}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>
@@ -200,19 +204,15 @@ export function GroupEssenceDialog({
               })}
             </div>
           ) : (
-            <div className="group-essence-empty">
-              <Sparkles size={22} />
-              <span>暂无群精华</span>
-              <small>
-                {onlineError
-                  ? '本地未找到有效记录，联网结果暂不可用'
-                  : '本地与当前联网页暂无有效记录'}
-              </small>
-            </div>
+            <ContactEmptyState>
+              {onlineError
+                ? '本地未找到群精华，联网结果暂时不可用。'
+                : '还没有群精华。本地与当前联网页都未找到记录。'}
+            </ContactEmptyState>
           )}
         </div>
       </section>
-    </OverlayLayer>
+    </ProfileDetailSurface>
   );
 }
 

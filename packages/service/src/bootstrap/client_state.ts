@@ -263,6 +263,8 @@ export class ClientStateStore {
       .catch(() => {})
       .then(async () => {
         const current = this.observeDraft(key, await read(), true);
+        if (JSON.stringify(current.value) === JSON.stringify(value))
+          return { ok: true as const, current };
         if (current.version !== expectedVersion) return { ok: false as const, current };
         if ((await write()) === false)
           return { ok: false as const, current: this.observeDraft(key, await read(), true) };
@@ -288,6 +290,8 @@ export class ClientStateStore {
       throw new Error('草稿超过容量限制或标识无效');
     const state = this.read();
     const current = this.readDraft(state, key);
+    if (JSON.stringify(current.value) === JSON.stringify(value))
+      return { ok: true as const, current };
     if (current.version !== expectedVersion) return { ok: false as const, current };
     const next = { version: randomUUID(), value };
     this.externalize(state);

@@ -112,7 +112,11 @@ try {
       qa.configure({ ...qa.settings, visible: { ...qa.settings.visible, likes: true } });
     });
     await page.getByText('累计获赞', { exact: true }).waitFor();
+    // 点赞与空间预览收进操作行的「更多操作」，展开后仍然只有一个入口。
+    await page.locator('.weq-contact-overflow > summary').click();
+    await page.getByRole('button', { name: '赞资料卡', exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: '赞资料卡', exact: true }).count(), 1);
+    await page.locator('.weq-contact-overflow > summary').click();
     assert.ok(
       !cold.some((call) =>
         /energy|friendClue|friendNotesState|educationHistory|signatureHistory|personalityPhotos|qzone.posts|browseConversation/.test(
@@ -151,15 +155,24 @@ try {
         }, theme);
         await page.getByRole('button', { name: '资料页', exact: true }).click();
         if (width > 720) await page.getByRole('button', { name: '概览', exact: true }).click();
-        else await page.getByRole('combobox', { name: '联系人详情分区' }).selectOption('profile');
+        else await page.getByRole('tab', { name: '概览', exact: true }).click();
         const overflow = await page.evaluate(
           () => document.documentElement.scrollWidth > innerWidth,
         );
         assert.equal(overflow, false);
         if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-page.png`) });
         await page.getByRole('button', { name: '名片设置', exact: true }).click();
-        await page.getByRole('checkbox', { name: 'QQ 能量值', exact: true }).check();
-        await page.getByRole('checkbox', { name: 'QQ 能量值', exact: true }).uncheck();
+        await page.getByRole('switch', { name: 'QQ 能量值', exact: true }).waitFor();
+        // 预览必须用本人资料，不能出现任何虚构联系人
+        const previewText = await page.locator('.weq-contact-card-preview').innerText();
+        assert.equal(
+          /示例联系人|示例大学|示例公司|sample-person|sample@example/.test(previewText),
+          false,
+        );
+        // 预览内容来自本人（self）资料，不是任何合成好友
+        assert.match(previewText, /自己的公司/);
+        await page.getByRole('switch', { name: 'QQ 能量值', exact: true }).click();
+        await page.getByRole('switch', { name: 'QQ 能量值', exact: true }).click();
         assert.equal(await page.getByText('能量等级', { exact: false }).count(), 0);
         await page.evaluate(() => {
           document.scrollingElement.scrollTop = 0;
@@ -194,8 +207,11 @@ try {
         ),
       ),
     );
+    // 空间预览在「更多操作」菜单里
+    await page.locator('.weq-contact-overflow > summary').click();
     await page.getByRole('button', { name: '预览空间', exact: true }).click();
     await page.getByText('合成空间预览', { exact: true }).waitFor();
+    await page.locator('.weq-contact-overflow > summary').click();
     report.push({ kind: 'minimal', calls: minimal });
     await page.evaluate(() => {
       const qa = window.contactCardQa;
@@ -222,7 +238,9 @@ try {
       qa.muted = true;
       qa.notify();
     });
-    await page.getByText('禁言截止', { exact: true }).waitFor();
+    await page.waitForFunction(() =>
+      document.querySelector('.weq-member-pop')?.textContent?.includes('禁言截止'),
+    );
     assert.ok(!(await page.locator('.weq-member-pop').textContent()).includes('已退群'));
     const beforeClone = await page.evaluate(
       () =>
@@ -235,7 +253,9 @@ try {
       qa.mode = 'clone';
       qa.notify();
     });
-    await page.getByText('合成本地好友', { exact: true }).waitFor();
+    await page.waitForFunction(() =>
+      document.querySelector('.weq-member-pop')?.textContent?.includes('合成本地好友'),
+    );
     assert.equal(
       await page.evaluate(
         () =>
@@ -257,7 +277,7 @@ try {
       await page.evaluate(() =>
         Boolean(
           document.querySelector('option[value="edit"]') ||
-            [...document.querySelectorAll('.weq-contact-directory button')].find(
+            [...document.querySelectorAll('.weq-profile-directory button')].find(
               (button) => button.textContent === '编辑资料',
             ),
         ),

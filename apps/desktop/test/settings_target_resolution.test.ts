@@ -28,6 +28,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
       'chat-messages',
       'message-display',
       'chat-interaction',
+      'contact-card',
       'call-recording',
       'qzone',
       'mail',

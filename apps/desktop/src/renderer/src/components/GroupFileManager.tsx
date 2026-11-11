@@ -23,6 +23,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { ContactEmptyState } from './contactProfile/ContactRow';
 import { client, trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
 import { stageAccountFile } from '../lib/accountFilePicker';
@@ -42,6 +43,7 @@ import type { QQWriteBinding, QQWriteOutcome } from '../hooks/useQQWriteSession'
 import { fileIconUrl } from '../lib/resourceUrl';
 import { cn } from '../lib/utils';
 import { useRenderDocument } from '../lib/renderDocument';
+import { useDraftProtection } from '../lib/draftClose';
 import {
   fileExtIcon,
   formatFileTime,
@@ -145,6 +147,10 @@ function GroupFileManagerBody({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; keys: string[] } | null>(null);
   const [saving, setSaving] = useState(false);
+  useDraftProtection(
+    { editor, uploads: uploads.filter((item) => item.state !== 'accepted') },
+    a.pending || saving,
+  );
   const confirm = useDialog((s) => s.confirm);
   const mayLeave = useCallback(async () => {
     if (a.pending) {
@@ -739,10 +745,15 @@ function GroupFileManagerBody({
             ? `已选 ${chosen.length} 项`
             : `${folders.length} 个文件夹 · ${files.length} 个文件`}
         </span>
-        {summary.data && (
+        {summary.data && Number.isFinite(summary.data.fileCount) && (
           <span>
-            {summary.data.fileCount} / {summary.data.maxCount} 个文件 ·{' '}
-            {formatSize(summary.data.usedSpace)} / {formatSize(summary.data.totalSpace)}
+            {summary.data.fileCount}
+            {Number.isFinite(summary.data.maxCount) ? ` / ${summary.data.maxCount}` : ''} 个文件
+            {summary.data.usedSpace != null
+              ? ` · ${formatSize(summary.data.usedSpace)}${
+                  summary.data.totalSpace != null ? ` / ${formatSize(summary.data.totalSpace)}` : ''
+                }`
+              : ''}
           </span>
         )}
       </div>
@@ -1106,7 +1117,9 @@ function GroupFileManagerBody({
         </table>
       </div>
       {!loading && !rows.length && (
-        <p role="status">{query ? '没有匹配的文件' : '这个目录还没有文件'}</p>
+        <ContactEmptyState>
+          {query ? '没有匹配的文件。' : '这个目录还没有文件。上传后会出现在这里。'}
+        </ContactEmptyState>
       )}
       <ActionFeedback action={a} />
       {menu && active && (

@@ -755,14 +755,12 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
   display: none;
 }
 
-@media all {
-  :where(html:not([data-weq-layout='single'])) .mobile-add-friend-label {
-    display: none;
-  }
+:where(html:not([data-weq-layout='single'])) .mobile-add-friend-label {
+  display: none;
+}
 
-  :where(html:not([data-weq-layout='single'])) .desktop-add-friend-label {
-    display: inline;
-  }
+:where(html:not([data-weq-layout='single'])) .desktop-add-friend-label {
+  display: inline;
 }
 
 /* ---- 会话/联系人列表 skeleton 占位 ---- */

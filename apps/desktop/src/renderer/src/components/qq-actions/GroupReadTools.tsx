@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CalendarCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { ContactEmptyState } from '../contactProfile/ContactRow';
 import { ActionFeedback, ActionIcon, useQQAction } from './shared';
 
 export function GroupReadTools({
@@ -114,7 +115,11 @@ export function GroupReadTools({
               ))}
             </ul>
             {query.data.signed.length === 0 && (
-              <p>{offset === 0 ? '当日暂无打卡记录' : '本页暂无记录'}</p>
+              <ContactEmptyState>
+                {offset === 0
+                  ? '今天还没有人打卡。发起打卡后，记录会显示在这里。'
+                  : '这一页没有更多打卡记录了。'}
+              </ContactEmptyState>
             )}
             <div className="weq-qq-action-bar">
               <ActionIcon

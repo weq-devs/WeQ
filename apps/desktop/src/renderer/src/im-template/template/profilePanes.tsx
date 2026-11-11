@@ -1,46 +1,22 @@
 // @ts-nocheck
-import {
-  Activity,
-  Bookmark,
-  CalendarDays,
-  Check,
-  Copy,
-  Eye,
-  HelpCircle,
-  Info,
-  MessageSquare,
-  Megaphone,
-  Users,
-  Expand,
-  Waypoints,
-  X,
-} from 'lucide-react';
-import { useContext, useEffect, useState, type ReactNode } from 'react';
+import { Eye, MessageSquare, Waypoints, X } from 'lucide-react';
+import { useContext, type ReactNode } from 'react';
 import { datalineName, isDatalineUid } from '@weq/codec';
 import { deviceAvatarDataUri } from '../../lib/deviceAvatar';
 import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLayer';
-import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
+import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { ContactProfileSurface } from '../../components/contactProfile/ContactProfileSurface';
 import { SelfProfileDisplayProvider } from '../../components/ProfileDisplaySettings';
 import { useViewState } from '../../state/view';
-import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
-import { GroupExtendedProfile } from '../../components/GroupExtendedProfile';
-import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
 import { cn } from './classNames';
-import { copyTextToClipboard } from './clipboard';
-import { formatProfileDate } from './format';
 import { Avatar, EmptyState } from './primitives';
-import type { Contact, Conversation, ProfileExtInfo, User as ProfileUser } from './types';
-import { displayUserName } from './user';
+import type { Contact, ProfileExtInfo } from './types';
 import '../../styles/group-profile.css';
 import '../../styles/contact-profile.css';
-import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
-import { GroupRelationshipStatus } from '../../components/RelationshipStatus';
 import { usePersonRelationship } from '../../lib/contactRelationship';
 
 export { relationMeta } from '../../lib/profileRelations';
 import { zodiac } from '../../lib/contactListOrder';
-import { useCardDisplayNames } from '../../hooks/useCardDisplayNames';
 
 /** 由出生月日推算星座名（标准日期分界）。缺月或日时返回 null。 */
 export function constellationOf(month?: number, day?: number) {
@@ -86,6 +62,15 @@ function regionText(ext?: ProfileExtInfo | null) {
       parts.push(value);
     }
   }
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/** 学校 + 学历拼成一行（两者都可能单独缺失）。 */
+function _educationText(ext?: ProfileExtInfo | null) {
+  if (!ext) {
+    return null;
+  }
+  const parts = [ext.school?.trim(), ext.degree?.trim()].filter(Boolean);
   return parts.length ? parts.join(' · ') : null;
 }
 
@@ -189,7 +174,16 @@ function ProfileSurface({
   );
 }
 
-function ProfileIdentity({
+function _ProfileSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="weq-contact-section" aria-label={title}>
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function _ProfileIdentity({
   embedded,
   children,
   actions,
@@ -331,302 +325,7 @@ function ContactProfileDialogBody(
   return <ContactProfileSurface {...props} contact={contact} />;
 }
 
-/**
- * 群资料灯箱。结构与好友灯箱一致；「群成员 N 人」下方横向展示若干成员头像
- * （成员由上层从 group_member3 拉取后挂在 conversation.members 上）。
- */
-export function GroupProfileDialog({
-  conversation,
-  anchor,
-  onClose,
-  detailsKnown = true,
-  memberCountKnown = detailsKnown,
-  embedded = false,
-  details,
-  onOpenMember,
-  onOpenChat,
-}: {
-  conversation: Extract<Conversation, { type: 'group' }> | undefined;
-  anchor?: HTMLElement | null;
-  onClose: () => void;
-  detailsKnown?: boolean;
-  memberCountKnown?: boolean;
-  embedded?: boolean;
-  details?: ReactNode;
-  onOpenMember?: (member: ProfileUser, anchor: { x: number; y: number }) => void;
-  onOpenChat?: () => void;
-}) {
-  const openChat = useContext(ChatNavigationContext);
-  const openWorkspace = useContext(ContactWorkspaceNavigationContext);
-  const groupPreview = useContext(GroupMessagePreviewContext);
-  const cloudNames = useCardDisplayNames(
-    'group',
-    conversation?.group.identityValue ?? '',
-    Boolean(conversation && !conversation.generated),
-  );
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    setCopied(false);
-  }, [conversation?.id]);
-
-  if (!conversation) {
-    return null;
-  }
-  const group = cloudNames
-    ? { ...conversation.group, name: cloudNames.name || conversation.group.identityValue }
-    : conversation.group;
-  const members = (conversation.members ?? []).slice(0, 14);
-  const MemberIdentity = onOpenMember ? 'button' : 'span';
-  const identityValue = conversation.generated?.ownerId ?? group.identityValue;
-  const previewContent =
-    groupPreview?.conversationId === conversation.id ? groupPreview.content : null;
-  const close = () => {
-    if (previewContent) groupPreview?.close();
-    onClose();
-  };
-
-  async function copyCode() {
-    const ok = await copyTextToClipboard(identityValue);
-    if (ok) {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    }
-  }
-
-  return (
-    <ProfileSurface
-      embedded={embedded}
-      title="群资料"
-      anchor={anchor}
-      presentation="popover"
-      className="weq-profile-layer weq-group-profile-layer"
-      onClose={close}
-    >
-      <section
-        className={cn(
-          'weq-profile-dialog',
-          embedded ? 'weq-contact-profile-content' : 'weq-anim-pop',
-          previewContent && 'is-previewing-chat',
-        )}
-        role={embedded ? 'region' : 'dialog'}
-        aria-label="群资料"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        {!embedded ? (
-          <>
-            {openWorkspace && !conversation.generated ? (
-              <button
-                className="weq-profile-expand"
-                type="button"
-                title="展开群聊详情"
-                aria-label="展开群聊详情"
-                onClick={() => {
-                  close();
-                  openWorkspace({ kind: 'group', conversation });
-                }}
-              >
-                <Expand size={16} />
-              </button>
-            ) : null}
-            <button
-              className="weq-profile-close"
-              type="button"
-              title="关闭"
-              aria-label="关闭"
-              onClick={close}
-            >
-              <X size={16} />
-            </button>
-          </>
-        ) : null}
-
-        <ProfileIdentity
-          embedded={embedded}
-          actionsLabel="群操作"
-          actions={
-            onOpenChat || ((openChat || groupPreview) && !conversation.generated) ? (
-              <div className="weq-profile-actions">
-                {onOpenChat || (openChat && !conversation.generated) ? (
-                  <button
-                    className="weq-profile-perhome"
-                    type="button"
-                    onClick={() => {
-                      if (previewContent) groupPreview?.close();
-                      if (!embedded) onClose();
-                      if (onOpenChat) onOpenChat();
-                      else openChat?.({ kind: 'group', conversation });
-                    }}
-                  >
-                    <MessageSquare size={13} />
-                    查看消息
-                  </button>
-                ) : null}
-                {groupPreview && !conversation.generated ? (
-                  <button
-                    className="weq-profile-perhome"
-                    type="button"
-                    onClick={() => groupPreview.open(conversation)}
-                  >
-                    <Eye size={13} />
-                    预览消息
-                  </button>
-                ) : null}
-              </div>
-            ) : null
-          }
-        >
-          <div className="weq-profile-hero">
-            <span
-              className={cn(
-                'weq-profile-avatar',
-                conversation.generated && 'weq-clone-profile-avatar',
-              )}
-            >
-              <Avatar name={group.name} avatarUrl={group.avatarUrl} seed={group.identityValue} />
-              {conversation.generated ? <VirtualConversationBadge group /> : null}
-            </span>
-            <div className="weq-profile-heading">
-              <strong className="weq-profile-name">{group.name}</strong>
-              {!embedded && !conversation.generated ? (
-                <GroupRelationshipStatus group={group} />
-              ) : null}
-              <button className="weq-profile-id" type="button" onClick={copyCode} title="点击复制">
-                <span>{conversation.generated ? 'ID' : '群号'}</span>
-                <span className="weq-number">{identityValue}</span>
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
-              {embedded && memberCountKnown ? (
-                <span className="weq-contact-group-summary">{group.memberCount} 位成员</span>
-              ) : null}
-            </div>
-          </div>
-        </ProfileIdentity>
-        {previewContent ? (
-          <div className="weq-contact-chat-preview">{previewContent}</div>
-        ) : embedded && details ? (
-          details
-        ) : (
-          <>
-            {memberCountKnown ? (
-              <div className="weq-profile-members">
-                <div className="weq-profile-members-head">
-                  <Users size={13} />
-                  <span>群成员</span>
-                  <strong className="weq-number">{group.memberCount}</strong>
-                  <span>人</span>
-                </div>
-                {members.length ? (
-                  <div className="weq-profile-members-row">
-                    {members.map((member) => (
-                      <MemberIdentity
-                        type={onOpenMember ? 'button' : undefined}
-                        key={member.id}
-                        className={cn(
-                          'weq-profile-member',
-                          onOpenMember && 'weq-group-profile-member-button',
-                        )}
-                        title={`${displayUserName(member)}${member.clone ? ' · 克隆体' : ''}`}
-                        onClick={
-                          onOpenMember
-                            ? (event) => {
-                                const rect = event.currentTarget.getBoundingClientRect();
-                                onClose();
-                                onOpenMember?.(member, { x: rect.right, y: rect.bottom });
-                              }
-                            : undefined
-                        }
-                      >
-                        <Avatar
-                          name={displayUserName(member)}
-                          avatarUrl={member.avatarUrl}
-                          seed={member.identityValue}
-                        />
-                        {member.clone ? <VirtualConversationBadge /> : null}
-                      </MemberIdentity>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {detailsKnown ? (
-              <div className="weq-profile-list">
-                <ProfileRow
-                  icon={<Megaphone size={13} />}
-                  label="群公告"
-                  sensitive
-                  value={group.announcement?.trim() || '未设置'}
-                  multiline
-                />
-                {group.description ? (
-                  <ProfileRow
-                    icon={<Info size={13} />}
-                    label="群简介"
-                    sensitive
-                    value={group.description}
-                    multiline
-                  />
-                ) : null}
-                {group.remark ? (
-                  <ProfileRow
-                    icon={<Bookmark size={13} />}
-                    label="群备注"
-                    sensitive
-                    value={group.remark}
-                    multiline
-                  />
-                ) : null}
-                {group.createTime ? (
-                  <ProfileRow
-                    icon={<CalendarDays size={13} />}
-                    label="创建时间"
-                    value={formatProfileDate(group.createTime)}
-                  />
-                ) : null}
-                {group.maxMemberCount ? (
-                  <ProfileRow
-                    icon={<Users size={13} />}
-                    label="群容量"
-                    value={`${group.memberCount}/${group.maxMemberCount}`}
-                    mono
-                  />
-                ) : null}
-                {!conversation.generated ? (
-                  <GroupProfileMetrics groupCode={conversation.id}>
-                    {(rows) =>
-                      rows.map(([label, value], index) => (
-                        <ProfileRow
-                          key={label}
-                          icon={index === 0 ? <Activity size={13} /> : <Users size={13} />}
-                          label={label}
-                          value={value}
-                          mono
-                        />
-                      ))
-                    }
-                  </GroupProfileMetrics>
-                ) : null}
-                {!conversation.generated ? (
-                  <GroupExtendedProfile groupCode={conversation.id} />
-                ) : null}
-                {group.entranceQ ? (
-                  <ProfileRow
-                    icon={<HelpCircle size={13} />}
-                    label="入群问题"
-                    sensitive
-                    value={group.entranceQ}
-                    multiline
-                  />
-                ) : null}
-              </div>
-            ) : null}
-          </>
-        )}
-      </section>
-    </ProfileSurface>
-  );
-}
+export { GroupProfileSurface as GroupProfileDialog } from '../../components/groupProfile/GroupProfileSurface';
 
 export function ProfileRow({
   icon,

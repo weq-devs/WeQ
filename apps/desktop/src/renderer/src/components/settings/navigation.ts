@@ -344,6 +344,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     }),
   ),
   {
+    id: 'mail-poll-interval',
+    section: 'mail',
+    label: '邮件查询间隔',
+    aliases: ['邮件查询间隔（分钟）', '邮箱同步频率', '邮件轮询', '自动收信'],
+    from: ['mail'],
+  },
+  {
     id: 'mail-unread-badge',
     section: 'mail',
     label: '在邮箱图标上显示红点',

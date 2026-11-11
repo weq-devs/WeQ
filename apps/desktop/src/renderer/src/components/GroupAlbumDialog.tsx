@@ -18,7 +18,8 @@ import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
 import { MediaSourceSave } from './MediaSaveControls';
-import { OverlayLayer } from './OverlayLayer';
+import { ContactEmptyState } from './contactProfile/ContactRow';
+import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
 import { GroupAlbumManagement } from './qq-actions/GroupAlbumManagement';
 import { GroupAlbumVideoUpload } from './qq-actions/GroupAlbumVideoUpload';
@@ -38,6 +39,7 @@ type MediaState =
   | { status: 'ready'; album: GroupAlbumWire; items: AlbumMediaWire[]; error: string | null };
 
 interface GroupAlbumDialogProps {
+  embedded?: boolean;
   groupCode: string;
   groupName: string;
   initialAlbums?: GroupAlbumWire[];
@@ -50,6 +52,7 @@ export function GroupAlbumDialog(props: GroupAlbumDialogProps): ReactElement {
   return <ScopedGroupAlbumDialog key={props.groupCode} {...props} />;
 }
 function GroupAlbumDialogBody({
+  embedded,
   groupCode,
   groupName,
   initialAlbums,
@@ -210,7 +213,8 @@ function GroupAlbumDialogBody({
   }, [initialAlbumId, albums, loadingAlbums, albumError, activity.enabled, hasAlbumSnapshot]);
 
   return (
-    <OverlayLayer
+    <ProfileDetailSurface
+      embedded={embedded}
       presentation="sidecar"
       title="群相册"
       className="modal-scrim group-album-scrim"
@@ -286,7 +290,7 @@ function GroupAlbumDialogBody({
           )}
         </div>
       </section>
-    </OverlayLayer>
+    </ProfileDetailSurface>
   );
 }
 
@@ -381,15 +385,15 @@ function AlbumListView({
           正在查询群相册
         </div>
       ) : !filtered.length ? (
-        <div className="group-album-state">
+        <ContactEmptyState>
           {paused
-            ? '读取已暂停'
+            ? '读取已暂停，切回本章节会继续。'
             : search.trim()
-              ? '没有匹配的相册'
+              ? '没有匹配的相册。'
               : error
-                ? '相册暂时无法读取'
-                : '暂无群相册'}
-        </div>
+                ? '群相册暂时无法读取，可稍后重试。'
+                : '还没有群相册。'}
+        </ContactEmptyState>
       ) : (
         <div className="group-album-grid">
           {filtered.slice(0, visibleCount).map((album) => (

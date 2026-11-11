@@ -2,11 +2,21 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
-const rpc = vi.hoisted(() => ({ uin: '10001', configId: 'source-a', read: vi.fn() }));
+const rpc = vi.hoisted(() => ({
+  uin: '10001',
+  configId: 'source-a',
+  read: vi.fn(),
+  preview: vi.fn(),
+  detail: vi.fn(),
+}));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
     accountConfig: { getRecord: () => ({ configId: rpc.configId, uin: rpc.uin }) },
-    groupInfo: { getExtendedProfile: rpc.read },
+    groupInfo: {
+      getExtendedProfile: rpc.read,
+      getMemberPreview: rpc.preview,
+      getGroupDetail: rpc.detail,
+    },
   };
   return {
     accountEventBus: new EventEmitter(),
@@ -65,4 +75,59 @@ it('换数据源后迟到结果不返回；错群结果不返回', async () => {
   await expect(accountRouter.createCaller({}).getGroupExtendedProfile(input)).rejects.toThrow(
     '不一致',
   );
+});
+it('成员预览要求当前账号与数据源，离线交由局部缓存读取', async () => {
+  rpc.preview.mockResolvedValue({ members: [], source: 'local', partial: true, error: null });
+  const api = accountRouter.createCaller({});
+  const target = {
+    expectedAccountUin: input.expectedAccountUin,
+    expectedAccountConfigId: input.expectedAccountConfigId,
+    groupCode: '12345',
+  };
+  expect(await api.groupMemberPreview(target)).toEqual({
+    members: [],
+    source: 'local',
+    partial: true,
+    error: null,
+  });
+  expect(rpc.preview).toHaveBeenLastCalledWith('12345', false);
+  rpc.configId = 'source-b';
+  await expect(api.groupMemberPreview(target)).rejects.toThrow('数据源已切换');
+  expect(rpc.preview).toHaveBeenCalledTimes(1);
+});
+it('成员预览不接收读取过程中切换数据源后的响应', async () => {
+  rpc.preview.mockImplementation(async () => {
+    rpc.configId = 'source-b';
+    return { members: [], source: 'local', partial: true, error: null };
+  });
+  await expect(
+    accountRouter.createCaller({}).groupMemberPreview({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      groupCode: '12345',
+    }),
+  ).rejects.toThrow('数据源已切换');
+});
+it('基础群资料兼容旧调用，同时拒绝来源不匹配和迟到结果', async () => {
+  rpc.detail.mockResolvedValue(null);
+  const api = accountRouter.createCaller({});
+  expect(await api.getGroupDetail({ groupCode: '12345' })).toBeNull();
+  await expect(
+    api.getGroupDetail({
+      expectedAccountUin: '10002',
+      expectedAccountConfigId: 'source-a',
+      groupCode: '12345',
+    }),
+  ).rejects.toThrow('账号已切换');
+  rpc.detail.mockImplementationOnce(async () => {
+    rpc.configId = 'source-b';
+    return null;
+  });
+  await expect(
+    api.getGroupDetail({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      groupCode: '12345',
+    }),
+  ).rejects.toThrow('数据源已切换');
 });

@@ -1,5 +1,33 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
+
+// 共享偏好保存依赖电脑端服务；这里给一个可用的假实现，让 setAccent 的去抖提交能落定。
+const sharedState = vi.hoisted(() => ({ revision: 0, values: {} as Record<string, unknown> }));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    clientState: {
+      patch: {
+        mutate: async (patch: Record<string, unknown>) => {
+          sharedState.values = { ...sharedState.values, ...patch };
+          sharedState.revision += 1;
+          return {
+            revision: sharedState.revision,
+            values: { ...sharedState.values },
+            records: {},
+          };
+        },
+      },
+      snapshot: {
+        query: async () => ({
+          revision: sharedState.revision,
+          values: { ...sharedState.values },
+          records: {},
+        }),
+      },
+    },
+  },
+  trpc: { useUtils: () => ({}) },
+}));
 import { useThemeStore } from '../src/renderer/src/state/theme';
 import { buildPalette, mix as assistantMix } from '../src/main/weq_assistant/theme';
 import {
@@ -75,8 +103,10 @@ describe('主题可读色', () => {
       store.hydrate();
       beforeRestore();
       expect(document.documentElement.dataset.theme).toBe('dark');
+      // bc972cf1 起共享偏好是权威：在途/已保存的 accent（#fff3a1）优先于本机键，
+      // hydrate 不会被 localStorage 的 #000000 覆盖；旧快照也不会把主题提交回 light。
       expect(document.documentElement.style.getPropertyValue('--weq-accent-custom')).toBe(
-        '#000000',
+        '#fff3a1',
       );
     } finally {
       if (original) Object.defineProperty(document, 'startViewTransition', original);

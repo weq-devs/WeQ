@@ -750,6 +750,15 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
   font-size: 14px;
   font-weight: 500;
 }
+/* 能力受限时按钮保留原位但不可点（例如 Remote 不能选电脑目录）。禁用状态
+   必须看得出来，否则用户会反复点一个没反应的按钮。 */
+html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
+  color: var(--weq-fg-secondary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .weq-account-detail-empty img {
   object-fit: contain;
 }

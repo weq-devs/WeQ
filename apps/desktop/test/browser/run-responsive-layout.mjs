@@ -184,6 +184,23 @@ try {
           JSON.stringify({ remote, group, width, height, theme, preset, geometry }),
         );
         assert.equal(await editor.textContent(), '旋转与键盘切换保留草稿');
+        // 交互形态 = 布局 ∧ 指针能力：桌面窄窗口（细指针）右键仍是桌面菜单，
+        // 只有「单栏 + 粗指针」才落到移动款。
+        if (!remote && layout === 'single' && !group && theme === 'light') {
+          const bubble = page.locator('.message-scroll .message-bubble').first();
+          await bubble.click({ button: 'right' });
+          await page.locator('.message-context-menu').first().waitFor({ state: 'visible' });
+          const menuClass = await page
+            .locator('.message-context-menu')
+            .first()
+            .getAttribute('class');
+          assert(
+            !String(menuClass).includes('message-menu-touch'),
+            JSON.stringify({ width, height, menuClass }),
+          );
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(120);
+        }
         if (remote) {
           assert.equal(geometry.bridge, 'function', '横屏保留系统返回桥');
           if (layout === 'single') {
@@ -195,11 +212,90 @@ try {
           assert(await page.evaluate(() => window.qaMenuOpened > 0));
         }
         if (group && layout === 'wide' && width <= 1100) {
+          // 空间不足时群资料进浮层。只断言「visible」不够：曾经它只有 2px 宽
+          // （绝对定位的 grid 子项仍按基类 grid-area 落在隐式空列上），
+          // 于是浮层"显示"了但用户什么都看不到。这里必须断宽高下限。
           await page.locator('.chat-header [aria-label="群资料"]').click();
-          await page
-            .locator('.chat-pane.is-mobile-group-info-open > .group-info-panel')
-            .waitFor({ state: 'visible' });
+          const panel = page.locator('.chat-pane.is-mobile-group-info-open > .group-info-panel');
+          await panel.waitFor({ state: 'visible' });
+          const overlay = await panel.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            const pane = node.closest('.chat-pane').getBoundingClientRect();
+            const header = node.closest('.chat-pane').querySelector('.chat-header');
+            return {
+              width: rect.width,
+              height: rect.height,
+              right: rect.right,
+              top: rect.top,
+              paneWidth: pane.width,
+              paneRight: pane.right,
+              headerHeight: header.getBoundingClientRect().height,
+            };
+          });
+          assert(
+            overlay.width >= 240 && overlay.height >= 200,
+            JSON.stringify({ remote, group, width, height, preset, theme, overlay }),
+          );
+          assert.equal(
+            Math.round(overlay.right),
+            Math.round(overlay.paneRight),
+            JSON.stringify({ width, overlay }),
+          );
+          assert(overlay.top >= overlay.headerHeight, JSON.stringify({ width, overlay }));
+          if (output)
+            await page.screenshot({
+              path: resolve(output, `overlay-groupinfo-${width}x${height}-${preset}-${theme}.png`),
+            });
+          // 浮层是最上层：系统返回必须先关它，不能落到「退出会话」甚至结束应用。
+          const openClass = () =>
+            page.locator('.chat-pane').evaluate((node) => ({
+              open: node.classList.contains('is-mobile-group-info-open'),
+              title: node.querySelector('.chat-title strong')?.textContent ?? '',
+            }));
+          const beforeBack = await openClass();
+          const consumed = await page.evaluate(() => window.weqMobileNavigation.back());
+          assert.equal(consumed, true, '返回键应被群资料浮层消费');
+          await page.waitForFunction(
+            () => !document.querySelector('.chat-pane.is-mobile-group-info-open'),
+          );
+          const afterBack = await openClass();
+          assert.equal(afterBack.title, beforeBack.title, '返回键不应切换会话');
+          await page.waitForTimeout(120);
+          assert.equal(
+            await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+            '群资料',
+            '关闭浮层后焦点回到触发按钮',
+          );
+          // 浮层旁边那一侧只关浮层，不能穿透去点消息。
           await page.locator('.chat-header [aria-label="群资料"]').click();
+          await panel.waitFor({ state: 'visible' });
+          await page.evaluate(() => {
+            window.qaPointerTargets = [];
+            document.addEventListener(
+              'pointerdown',
+              (event) => window.qaPointerTargets.push(event.target?.className ?? ''),
+              { capture: true, once: true },
+            );
+          });
+          const paneBox = await page.locator('.chat-pane').evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            const header = node.querySelector('.chat-header').getBoundingClientRect();
+            return { left: rect.left, top: header.bottom + 40 };
+          });
+          await page.mouse.click(paneBox.left + 24, paneBox.top);
+          await page.waitForFunction(
+            () => !document.querySelector('.chat-pane.is-mobile-group-info-open'),
+          );
+          const targets = await page.evaluate(() => window.qaPointerTargets ?? []);
+          assert(
+            targets.some((name) => name.includes('weq-group-info-scrim')),
+            JSON.stringify({ remote, group, width, height, targets }),
+          );
+          assert.equal(
+            await page.locator('.message-context-menu').count(),
+            0,
+            '点浮层外面不应触发消息操作',
+          );
         }
         if (output)
           await page.screenshot({

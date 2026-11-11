@@ -5,7 +5,7 @@ import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { useMediaSave, MediaSaveControls } from './MediaSaveControls';
 import { ServerSavePrompt } from './ServerSavePrompt';
-import { OverlayLayer } from './OverlayLayer';
+import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupFileManager } from './GroupFileManager';
 import { GroupFileMessageResults } from './GroupFileMessageResults';
 import { useQQAction, withQQAccountScope } from './qq-actions/shared';
@@ -16,6 +16,7 @@ import '../styles/group-media.css';
 import { useExportReportDialog } from '../views/export/ExportReportControl';
 
 interface Props {
+  embedded?: boolean;
   groupCode: string;
   groupName: string;
   initialFolderId?: string;
@@ -30,6 +31,7 @@ interface Crumb {
 }
 const ROOT: Crumb = { id: '/', name: '全部文件' };
 function GroupFileDialogBody({
+  embedded,
   groupCode,
   groupName,
   initialFolderId,
@@ -140,7 +142,8 @@ function GroupFileDialogBody({
     if (isCurrent()) toast({ tone: 'info', title: '群文件保存任务已创建' });
   }
   return (
-    <OverlayLayer
+    <ProfileDetailSurface
+      embedded={embedded}
       presentation="sidecar"
       title="群文件"
       className="modal-scrim group-album-scrim"
@@ -158,8 +161,8 @@ function GroupFileDialogBody({
         {save.serverLocation && (
           <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
         )}
-        <header>
-          <div>
+        <header hidden={embedded && !mediaSave.downloading}>
+          <div hidden={embedded}>
             <strong>群文件</strong>
             <span>{groupName}</span>
           </div>
@@ -175,6 +178,7 @@ function GroupFileDialogBody({
             </button>
           )}
           <button
+            hidden={embedded}
             className="icon-button"
             type="button"
             title="关闭"
@@ -185,31 +189,33 @@ function GroupFileDialogBody({
           </button>
         </header>
         <div className="group-album-body">
-          <nav className="group-file-toolbar" aria-label="群文件目录">
-            <div className="group-file-crumbs">
-              <button
-                type="button"
-                className="icon-button"
-                title={current.known === false ? '返回全部文件' : '返回上级目录'}
-                aria-label={current.known === false ? '返回全部文件' : '返回上级目录'}
-                disabled={crumbs.length < 2}
-                onClick={() => void leave(() => setCrumbs((old) => old.slice(0, -1)))}
-              >
-                <ArrowLeft size={16} />
-              </button>
-              {crumbs.map((crumb, index) => (
+          {embedded && crumbs.length < 2 ? null : (
+            <nav className="group-file-toolbar" aria-label="群文件目录">
+              <div className="group-file-crumbs">
                 <button
-                  className="group-file-crumb"
                   type="button"
-                  key={crumb.id}
-                  aria-current={index === crumbs.length - 1 ? 'page' : undefined}
-                  onClick={() => void leave(() => setCrumbs((old) => old.slice(0, index + 1)))}
+                  className="icon-button"
+                  title={current.known === false ? '返回全部文件' : '返回上级目录'}
+                  aria-label={current.known === false ? '返回全部文件' : '返回上级目录'}
+                  disabled={crumbs.length < 2}
+                  onClick={() => void leave(() => setCrumbs((old) => old.slice(0, -1)))}
                 >
-                  {crumb.name}
+                  <ArrowLeft size={16} />
                 </button>
-              ))}
-            </div>
-          </nav>
+                {crumbs.map((crumb, index) => (
+                  <button
+                    className="group-file-crumb"
+                    type="button"
+                    key={crumb.id}
+                    aria-current={index === crumbs.length - 1 ? 'page' : undefined}
+                    onClick={() => void leave(() => setCrumbs((old) => old.slice(0, index + 1)))}
+                  >
+                    {crumb.name}
+                  </button>
+                ))}
+              </div>
+            </nav>
+          )}
           {!a.available && <p role="status">QQ 在线能力未就绪</p>}
           {searchMissing && <p role="status">搜索命中的文件已删除或当前目录不可见。</p>}
           {error && (
@@ -297,7 +303,7 @@ function GroupFileDialogBody({
           />
         </div>
       </section>
-    </OverlayLayer>
+    </ProfileDetailSurface>
   );
 }
 const Scoped = withQQAccountScope(GroupFileDialogBody);

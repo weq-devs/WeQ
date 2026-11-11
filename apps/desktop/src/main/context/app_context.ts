@@ -2220,6 +2220,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       mail.startBackground({
         notifications: accountConfig.getRecord()?.mailNotifications ?? false,
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+        pollIntervalMinutes: accountConfig.getRecord()?.mailPollIntervalMinutes,
       });
 
       // 后台登录/pid 监视器实时检查本来源有效运行态，包含自动策略和显式手动请求；
@@ -3025,6 +3026,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       mail.startBackground({
         notifications: accountConfig.getRecord()?.mailNotifications ?? false,
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+        pollIntervalMinutes: accountConfig.getRecord()?.mailPollIntervalMinutes,
       });
       logger.info('opened static account session', {
         event: 'open-static-account-success',

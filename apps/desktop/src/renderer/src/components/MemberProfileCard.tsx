@@ -1,4 +1,4 @@
-import { useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import type { User } from '../im-template/template/types';
 import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
@@ -15,6 +15,7 @@ import {
   ContactIdentity,
 } from './contactProfile/ContactContent';
 import { ContactActions } from './contactProfile/ContactActions';
+import '../styles/profile-workspace.css';
 
 /** 群成员、私聊头像和联系人浮层共用内容，只保留贴屏定位这一层差异。 */
 export function MemberProfileCard({
@@ -62,6 +63,13 @@ export function MemberProfileCard({
   const open = useContext(ContactWorkspaceNavigationContext);
   const card = useRef<HTMLElement>(null);
   const [position, setPosition] = useState({ left: 10, top: 10 });
+  // 关闭后把焦点还给打开名片的那个元素，键盘用户不会「丢了位置」。
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => {
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, []);
   useLayoutEffect(() => {
     const element = card.current;
     if (!element) return;
@@ -123,16 +131,14 @@ export function MemberProfileCard({
               }
             />
             {!localClone ? (
-              <>
-                <ContactContent
-                  key={`content:${identityKey}`}
-                  person={person}
-                  settings={settings}
-                  onNavigate={onClose}
-                  localOnly={!settings.ready}
-                />
-                <ContactGroupContent person={person} settings={settings} />
-              </>
+              <ContactContent
+                key={`content:${identityKey}`}
+                person={person}
+                settings={settings}
+                onNavigate={onClose}
+                localOnly={!settings.ready}
+                trailing={<ContactGroupContent person={person} settings={settings} />}
+              />
             ) : null}
             <ContactActions
               key={`actions:${identityKey}`}

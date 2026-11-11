@@ -1,110 +1,864 @@
-.weq-contact-value {
+/*
+ * 联系人名片与资料页外壳的私有样式。
+ *
+ * 行模型、分区、技术详情、目录与工作区都在 styles/profile-workspace.css（唯一定义）；
+ * 这里只保留「名片壳 / 身份区 / 操作区 / 签名 / 群上下文 / 设置预览」这些宿主专属的部分。
+ */
+
+/* ---------- 名片壳 ---------- */
+
+/*
+ * 通用非模态层规则（`.weq-nonmodal-layer[tabindex] > :first-child`）会强行把第一层子元素
+ * 拉成 480px，这里用同等优先级的专属选择器把名片尺寸收回归属名片自己：桌面 390 / 圆角 14
+ * / 内距 22-16-14。窄屏用 max-width 收边，不会满宽。
+ */
+.weq-nonmodal-layer[tabindex] > .weq-member-pop.weq-contact-card,
+.weq-contact-card {
+  box-sizing: border-box;
+  width: min(390px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(calc(100dvh - 24px), 720px);
+  padding: 22px 16px 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+}
+
+.weq-contact-card .weq-profile-hero {
+  padding-inline-end: 28px;
+}
+
+.weq-contact-card .weq-profile-close {
+  top: 6px;
+  right: 6px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 2px 0;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border: 0;
-  border-radius: 3px;
+  border-radius: 6px;
   background: transparent;
-  color: inherit;
-  font: inherit;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+/* 视觉 28px，热区 44px：触控设备不靠放大图标也点得到。 */
+.weq-contact-card .weq-profile-close::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 10px;
+}
+
+.weq-contact-card .weq-profile-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-contact-card .weq-profile-close:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+/* ---------- 身份区 ---------- */
+
+.weq-profile-hero.weq-contact-identity,
+.weq-contact-identity {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
   text-align: start;
-  white-space: pre-wrap;
+}
+
+.weq-profile-hero.weq-contact-identity .weq-profile-avatar,
+.weq-contact-identity .weq-profile-avatar {
+  position: relative;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-contact-identity .weq-profile-avatar:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-profile-hero.weq-contact-identity .weq-profile-heading,
+.weq-contact-identity .weq-profile-heading {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.weq-contact-name {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: start;
   overflow-wrap: anywhere;
   cursor: pointer;
-  user-select: text;
 }
-.weq-contact-value:hover:not(:disabled), .weq-contact-more button:hover {
+
+.weq-contact-name:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-name:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.weq-contact-name:disabled {
+  cursor: default;
+}
+
+.weq-contact-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.weq-contact-identity-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-contact-number {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.weq-contact-number .weq-number {
+  color: var(--weq-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-contact-number:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-number:hover:not(:disabled) .weq-number {
   color: var(--weq-accent-effective);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.weq-contact-value:focus-visible, .weq-contact-more button:focus-visible,
-.weq-contact-directory button:focus-visible {
+
+.weq-contact-number:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 3px;
+  outline-offset: 2px;
+  border-radius: 3px;
 }
-.weq-contact-value:disabled { cursor: default; opacity: 1; }
-.weq-contact-card { width: min(390px, calc(100vw - 20px)); max-height: calc(100dvh - 20px); overflow: auto; }
-.weq-contact-card .weq-profile-hero { padding-inline-end: 20px; }
-.weq-contact-identity { display: flex; flex-direction: row; align-items: center; gap: 16px; }
-.weq-contact-identity .weq-profile-avatar { position: relative; flex: 0 0 72px; width: 72px; height: 72px; border: 0; padding: 0; background: transparent; cursor: pointer; }
-.weq-contact-identity .weq-profile-heading { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.weq-contact-identity .weq-profile-name { font-size: 19px; line-height: 1.4; max-width: 100%; overflow-wrap: anywhere; }
-.weq-contact-identity-kind { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; color: var(--weq-fg-secondary); }
-.weq-contact-pendant { position: absolute; inset: -15%; width: 130%; height: 130%; object-fit: contain; pointer-events: none; }
-.weq-contact-content > div:empty { display: none; }
-.weq-contact-content .weq-profile-row { min-width: 0; }
-.weq-contact-content .weq-profile-row-value, .weq-contact-content .weq-contact-value { min-width: 0; overflow-wrap: anywhere; }
-.weq-contact-qqshow { display: block; width: 100%; height: 160px; border: 0; background: transparent; cursor: pointer; }
-.weq-contact-qqshow img { height: 100%; max-width: 100%; object-fit: contain; }
-.weq-contact-signature { padding-block: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.weq-contact-signature summary { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
-.weq-contact-signature[open] summary { -webkit-line-clamp: unset; }
-.weq-contact-signature p { display: none; }
-.weq-contact-more { display: flex; flex-wrap: wrap; gap: 8px 16px; padding-block: 12px; border-top: 1px solid var(--weq-border-subtle); }
-.weq-contact-more button { padding: 2px 0; border: 0; background: transparent; color: var(--weq-fg-secondary); font-size: 12px; cursor: pointer; }
-.weq-contact-actions { flex-wrap: wrap; gap: 10px 16px; padding-block: 12px; }
-.weq-contact-actions.weq-profile-actions > .weq-profile-perhome { flex: 0 0 auto; width: auto; min-width: 110px; }
-.weq-contact-actions button { font-size: 13px; }
-.weq-contact-card .weq-profile-list, .weq-contact-card-preview .weq-profile-list { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; }
-.weq-contact-profile-v2 .weq-contact-content .weq-profile-row { display: grid; grid-template-columns: minmax(100px, 150px) minmax(0, 1fr); align-items: baseline; gap: 12px; }
-.weq-contact-profile-v2 .weq-contact-content .weq-profile-row > :last-child { justify-self: start; text-align: start; }
-.weq-common-groups-list .weq-common-group-target { display: flex; align-items: center; gap: 10px; width: 100%; height: auto; min-height: 48px; text-align: start; }
-.weq-contact-content [data-profile-field="description"] .weq-contact-value,
-.weq-contact-card [data-profile-field="botDescription"] p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.weq-contact-group-context { padding-block: 12px; border-top: 1px solid var(--weq-border-subtle); }
-.weq-contact-group-context h3 { font-size: 14px; margin: 0 0 8px; overflow-wrap: anywhere; }
-.weq-contact-profile-v2 { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden !important; }
+
+.weq-contact-number:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.weq-contact-pendant {
+  position: absolute;
+  inset: -15%;
+  width: 130%;
+  height: 130%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* 名片里分区之间用一条 hairline 分隔；资料页正文不画行线，只靠间距。 */
+.weq-contact-card .weq-profile-section-block + .weq-profile-section-block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+/* ---------- 正文内容 ---------- */
+
+.weq-profile-row-slot {
+  display: contents;
+}
+
+.weq-contact-qqshow {
+  display: block;
+  width: 100%;
+  height: 132px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-contact-qqshow img {
+  max-width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.weq-contact-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.weq-contact-description {
+  margin: 6px 0 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.weq-contact-signature {
+  display: grid;
+  gap: 2px;
+}
+
+.weq-contact-signature > p {
+  /* 截断用高度而不是 line-clamp：避免「…」和「展开」同时出现。 */
+  max-height: calc(3 * 1.6em);
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.weq-contact-signature.is-open > p {
+  max-height: none;
+}
+
+.weq-contact-signature > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: start;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-contact-signature > button svg {
+  transition: transform 120ms ease;
+}
+
+.weq-contact-signature > button svg.is-open {
+  transform: rotate(180deg);
+}
+
+.weq-contact-signature-time {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-contact-command-list > summary {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-contact-command-list p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-contact-command-list code {
+  margin-inline-end: 6px;
+  font-size: 12px;
+}
+
+/* ---------- 更多资料 ---------- */
+
+.weq-contact-more {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-contact-more > details > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-contact-more > details > summary:hover {
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-more-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding-top: 6px;
+}
+
+.weq-contact-more-links > button,
+.weq-contact-more-links [data-action-icon] {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-contact-more-links > button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+/* ---------- 操作区 ---------- */
+
+.weq-contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+/*
+ * 名片/群名片的操作条吸底：正文很长时「查看消息」始终可达，内容很短时自然贴在正文末尾。
+ * 联系人名片与群名片共用同一个类名，group 侧直接加 class 即可。
+ */
+.weq-profile-card-actions {
+  position: sticky;
+  /* 卡片底部内距是 14px：吸底条要盖住这段，否则滚动内容会从操作条下面漏出来。 */
+  bottom: -14px;
+  z-index: 1;
+  /* 操作条上方留 6px 余量：滚到底时最后一行不会贴着分隔线。 */
+  margin-top: 18px;
+  margin-inline: -16px;
+  margin-bottom: -14px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  border-radius: 0 0 14px 14px;
+}
+
+.weq-contact-actions button {
+  font-size: 13px;
+}
+
+/* 主按钮按内容定宽，不被旧的 .weq-profile-perhome 全宽规则拉伸。 */
+.weq-profile-actions.weq-contact-actions > .weq-profile-perhome {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 108px;
+}
+
+.weq-contact-actions .weq-contact-primary {
+  flex: 0 0 auto;
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--weq-accent-effective);
+  color: #fff;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.weq-contact-actions .weq-contact-primary:hover {
+  filter: brightness(1.05);
+}
+
+.weq-contact-actions .weq-contact-secondary {
+  flex: 0 0 auto;
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-contact-actions .weq-contact-secondary:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-actions button:focus-visible,
+.weq-contact-overflow > summary:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+/* 「更多」菜单：只放空间预览、点赞这类低频操作。 */
+.weq-contact-overflow {
+  position: relative;
+}
+
+.weq-contact-overflow > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.weq-contact-overflow > summary::-webkit-details-marker {
+  display: none;
+}
+
+.weq-contact-overflow[open] > summary,
+.weq-contact-overflow > summary:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-overflow-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 148px;
+  padding: 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+}
+
+.weq-contact-overflow-menu > button,
+.weq-contact-overflow-menu [data-action-icon] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.weq-contact-overflow-menu > button:hover,
+.weq-contact-overflow-menu [data-action-icon]:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+/* ---------- 群上下文 ---------- */
+
+.weq-profile-section-note {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.weq-common-groups-list .weq-common-group-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  text-align: start;
+}
+
+/* ---------- 资料页外壳 ---------- */
+
+.weq-contact-profile-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .weq-profile-dialog.weq-contact-profile-v2,
-html[data-theme="dark"] .weq-profile-dialog.weq-contact-profile-v2 {
-  width: 100%; max-width: none; max-height: none; height: 100%; margin: 0;
-  padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
-.weq-contact-profile-v2 .weq-profile-hero.weq-contact-identity,
-.weq-contact-card .weq-profile-hero.weq-contact-identity {
-  display: flex; flex-direction: row; align-items: center; text-align: start;
+
+.weq-profile-page-toolbar,
+.weq-contact-page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 13px;
 }
-.weq-contact-content { font-size: 13px; }
-.weq-contact-page-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 24px; border-bottom: 1px solid var(--weq-border-subtle); font-size: 13px; }
-.weq-contact-page-header { flex: 0 0 auto; padding: 16px 24px; border-bottom: 1px solid var(--weq-border-subtle); }
-.weq-contact-page-header .weq-profile-hero { margin: 0; padding: 0; }
-.weq-contact-page-header .weq-contact-actions { margin: 8px 0 0; padding: 0; }
-.weq-contact-workspace-v2 { display: grid; grid-template-columns: 152px minmax(0, 1fr); min-height: 0; flex: 1; overflow: hidden; }
-.weq-contact-directory { display: flex; flex-direction: column; gap: 3px; padding: 16px 10px; overflow-y: auto; border-right: 1px solid var(--weq-border-subtle); }
-.weq-contact-directory button { flex: 0 0 auto; text-align: start; padding: 9px 12px; border: 0; border-radius: 5px; color: var(--weq-fg-secondary); background: transparent; font-size: 13px; cursor: pointer; }
-.weq-contact-directory button[aria-current] { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent); font-weight: 600; }
-.weq-contact-directory button:hover { background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent); }
-.weq-contact-workspace-body { min-width: 0; min-height: 0; overflow: auto; padding: 20px 24px; scrollbar-gutter: stable; }
-.weq-contact-section-title { margin: 0 0 18px; font-size: 17px; line-height: 1.4; }
-.weq-contact-workspace-body .weq-extras-content { padding: 0; }
-.weq-contact-workspace-body [hidden] { display: none !important; }
-.weq-contact-directory-mobile { display: none; }
-.weq-contact-settings-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.weq-contact-settings-head h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; }
-.weq-contact-settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); gap: 24px; align-items: start; }
-.weq-contact-settings-section { margin: 0 0 24px; }
-.weq-contact-settings-section h3 { font-size: 14px; margin: 16px 0 8px; }
-.weq-contact-settings-section ul { padding: 0; margin: 0; list-style: none; }
-.weq-contact-settings-section li { display: flex; gap: 8px; align-items: center; min-height: 38px; border-bottom: 1px solid var(--weq-border-subtle); }
-.weq-contact-settings-section label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.weq-contact-settings-section input { accent-color: var(--weq-accent-effective); }
-.weq-contact-settings-preview { position: sticky; top: 16px; min-width: 0; }
-.weq-contact-card-preview { border: 1px solid var(--weq-border-subtle); border-radius: 8px; padding: 18px; max-height: min(640px, 80dvh); overflow: auto; background: var(--weq-bg-surface); }
-.weq-contact-card-preview .weq-profile-row { font-size: 12px; }
-.weq-contact-space-preview, .weq-contact-speech { min-width: 0; max-height: 55dvh; overflow: auto; padding: 12px; }
-.weq-contact-space-preview article, .weq-contact-speech article { padding-block: 12px; border-bottom: 1px solid var(--weq-border-subtle); white-space: pre-wrap; overflow-wrap: anywhere; }
-.weq-contact-space-preview time, .weq-contact-speech time { color: var(--weq-fg-muted); font-size: 12px; }
-html[data-theme="dark"] .weq-contact-directory button[aria-current] { background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent); }
+
+.weq-profile-page-header,
+.weq-contact-page-header {
+  flex: 0 0 auto;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-profile-page-header .weq-profile-hero,
+.weq-contact-page-header .weq-profile-hero {
+  margin: 0;
+  padding: 0;
+}
+
+.weq-profile-page-header .weq-contact-actions,
+.weq-contact-page-header .weq-contact-actions {
+  margin: 10px 0 0;
+  padding: 0;
+  border-top: 0;
+}
+
+.weq-profile-page-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-profile-page-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-page-close:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-contact-card-preview {
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  padding: 16px;
+  max-height: min(560px, 70dvh);
+  overflow: auto;
+  background: var(--weq-bg-surface);
+}
+
+.weq-contact-space-preview,
+.weq-contact-speech {
+  min-width: 0;
+  max-height: 55dvh;
+  overflow: auto;
+  padding: 12px;
+}
+
+.weq-contact-space-preview article,
+.weq-contact-speech article {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-space-preview time,
+.weq-contact-speech time {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
 @media (max-width: 720px) {
-  .weq-contact-profile-v2 .weq-contact-page-header { padding: 12px 14px; }
-  .weq-contact-workspace-v2 { display: flex; flex-direction: column; }
-  .weq-contact-directory { display: none; }
-  .weq-contact-directory-mobile { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--weq-border-subtle); font-size: 13px; }
-  .weq-contact-directory-mobile select { min-width: 0; flex: 1; border: 1px solid var(--weq-border-subtle); border-radius: 4px; padding: 5px 8px; color: var(--weq-fg-primary); background: var(--weq-bg-surface); }
-  .weq-contact-workspace-body { padding: 16px 14px; }
-  .weq-contact-settings-grid { grid-template-columns: minmax(0, 1fr); }
-  .weq-contact-settings-preview { position: static; grid-row: 1; }
-  .weq-contact-card-preview { max-height: 280px; }
+  .weq-profile-page-toolbar,
+  .weq-contact-page-toolbar {
+    padding: 8px 14px;
+  }
+
+  .weq-profile-page-header,
+  .weq-contact-page-header {
+    padding: 12px 14px;
+  }
+
+  .weq-contact-card {
+    width: min(390px, calc(100vw - 20px));
+    max-width: calc(100vw - 20px);
+  }
+
+  .weq-contact-card-preview {
+    max-height: 320px;
+  }
+}
+
+@media (pointer: coarse) {
+  .weq-profile-page-close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .weq-contact-card .weq-profile-close,
+  .weq-contact-overflow > summary {
+    width: 36px;
+    height: 36px;
+  }
+
+  .weq-contact-actions .weq-contact-primary,
+  .weq-contact-actions .weq-contact-secondary {
+    min-height: 44px;
+  }
+}
+
+/* ---------- 名片设置 ---------- */
+
+/*
+ * 名片设置的开关行直接作为 Card 子项，跟随 `.weq-set-card` 的 10px 节奏；
+ * 行本身给 44px 最小高度，保证与「消息显示」等页面同样的行距与触控热区。
+ */
+[data-setting-id^='contact-card'] .weq-set-card > .weq-set-row {
+  min-height: 44px;
+  padding-block: 4px;
+}
+
+@media (pointer: coarse) {
+  [data-setting-id^='contact-card'] .weq-set-card > .weq-set-row {
+    min-height: 48px;
+  }
+}
+
+.weq-contact-toggle-all {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weq-contact-sort-group {
+  display: grid;
+  gap: 6px;
+  padding-block: 6px;
+}
+
+.weq-contact-sort-group + .weq-contact-sort-group {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-contact-sort-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.weq-contact-sort-head strong {
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-contact-sort-head span {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
+.weq-contact-sort {
+  max-width: 600px;
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-contact-sort-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.weq-contact-sort-item:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+.weq-contact-sort-item.is-dragging {
+  opacity: 0.5;
+}
+
+.weq-contact-sort-item.is-target {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-contact-sort-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: grab;
+}
+
+.weq-contact-sort-item:hover .weq-contact-sort-handle,
+.weq-contact-sort-handle:focus-visible {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-contact-sort-handle:focus-visible,
+.weq-contact-sort-actions button:focus-visible,
+.weq-contact-toggle-all button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-contact-sort-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-sort-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+
+.weq-contact-preview-slot {
+  display: grid;
+  gap: 8px;
+}
+
+.weq-contact-preview-live {
+  width: min(390px, 100%);
+  max-height: none;
+  padding: 18px 16px 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-contact-preview-skeleton {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 28px 16px;
+  border: 1px dashed var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.weq-contact-preview-skeleton-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-contact-preview-skeleton-lines {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: min(200px, 100%);
+}
+
+.weq-contact-preview-skeleton-lines i {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 7%, transparent);
+}
+
+.weq-contact-preview-skeleton-lines i:last-child {
+  width: 60%;
+}
+
+.weq-contact-preview-skeleton p {
+  margin: 0;
+}
+
+@media (pointer: coarse) {
+  .weq-contact-sort-item {
+    min-height: 44px;
+  }
+
+  .weq-contact-sort-handle {
+    width: 44px;
+    height: 44px;
+  }
 }

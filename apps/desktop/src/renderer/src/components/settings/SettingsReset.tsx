@@ -132,16 +132,19 @@ function display(value: unknown): string {
 export function SettingsResetButton({ card }: { card?: SettingsResetCardId }) {
   const context = useContext(SettingsResetContext);
   if (!context) return null;
-  const title = card ? SETTINGS_RESET_CARDS.find(([, id]) => id === card)?.[2] : '本页';
+  // 恢复入口只保留页面级一个：同一页的卡片级入口与页面级措辞不同、功能重叠。
+  if (card) return null;
+  const label = '恢复本页默认设置';
   return (
     <button
       type="button"
-      className="weq-set-iconbtn weq-settings-reset-button"
-      aria-label={`恢复${title}默认设置`}
-      title={`恢复${title}默认设置`}
-      onClick={() => context.open({ page: context.page, card })}
+      className="weq-set-btn weq-set-btn-soft weq-settings-reset-button"
+      aria-label={label}
+      title={label}
+      onClick={() => context.open({ page: context.page })}
     >
-      <RotateCcw size={15} aria-hidden />
+      <RotateCcw size={14} aria-hidden />
+      <span>恢复本页默认</span>
     </button>
   );
 }
@@ -403,12 +406,31 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                     .filter((item) => !item.ok)
                     .map((item) => (
                       <p role="alert" key={item.id}>
-                        {dialog.items.find((entry) => entry.id === item.id)?.label}：{item.error}
+                        {dialog.items.find((entry) => entry.id === item.id)?.label}
+                        ：未能恢复，可重试。
+                        {item.error ? (
+                          <details className="weq-settings-reset-detail">
+                            <summary>技术详情</summary>
+                            <pre>{item.error}</pre>
+                          </details>
+                        ) : null}
                       </p>
                     ))}
                 </div>
               ) : null}
-              {error ? <p role="alert">{error}</p> : null}
+              {error ? (
+                <div role="alert" className="weq-settings-reset-error">
+                  <p>
+                    {dialog.items.length
+                      ? '恢复默认设置没有完成，请重试。'
+                      : '没能读取要恢复的设置项，请重试。'}
+                  </p>
+                  <details className="weq-settings-reset-detail">
+                    <summary>技术详情</summary>
+                    <pre>{error}</pre>
+                  </details>
+                </div>
+              ) : null}
             </div>
             <div className="weq-modal-actions weq-dialog-foot">
               <button
@@ -420,6 +442,16 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
               >
                 取消
               </button>
+              {error && !dialog.items.length ? (
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={busy}
+                  onClick={() => void open(dialog.target)}
+                >
+                  重新读取
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="weq-set-btn"
@@ -432,16 +464,6 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
               >
                 {results.some((item) => !item.ok) ? '重试失败项' : '确认恢复默认'}
               </button>
-              {error && !dialog.items.length ? (
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  disabled={busy}
-                  onClick={() => void open(dialog.target)}
-                >
-                  重新读取
-                </button>
-              ) : null}
             </div>
           </div>
         </Modal>

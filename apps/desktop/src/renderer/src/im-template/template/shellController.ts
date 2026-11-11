@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SIDEBAR_WIDTH, loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import { defaultConversationPreference } from './preferences';
-import { usePageState } from '../../components/PageSnapshots';
-import { pageValue } from '../../lib/pageSnapshots';
+import { usePageSnapshotKey, usePageState } from '../../components/PageSnapshots';
+import { pageSnapshots, pageValue } from '../../lib/pageSnapshots';
 import {
   isMobileNavigation,
   mobileBack,
@@ -11,7 +11,7 @@ import {
   resetMobileRoot,
 } from '../../hooks/useMobileNavigation';
 import { z } from 'zod';
-import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
+import { contactWorkspaceTabSchema, type ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type {
   Contact,
   ContactNoticeView,
@@ -72,9 +72,14 @@ export function useChatShellController({
   onReadConversation,
   onOpenContactNotice,
 }: UseChatShellControllerOptions) {
+  /**
+   * 启动栏目直接作为 `shell:view` 的初始值：首帧就落在指定栏目，不先渲染一次
+   * `initialView` 再用 effect 纠正（那会闪一下消息页，也让首帧现场是错的）。
+   * 之后 `startupView` 变化不再应用 —— 用户已经切走的页面不能被启动页抢回来。
+   */
   const [view, setView] = usePageState<MainView>(
     'shell:view',
-    initialView,
+    startupView ?? initialView,
     z.enum([
       'home',
       'messages',
@@ -92,14 +97,20 @@ export function useChatShellController({
       'annual',
     ]),
   );
-  const [query, setQuery] = usePageState('shell:query', '', pageValue.string);
-  const startupApplied = useRef(false);
+  const viewSnapshotKey = usePageSnapshotKey('shell:view');
+  const startupRecorded = useRef(false);
   useLayoutEffect(() => {
-    if (startupApplied.current) return;
-    startupApplied.current = true;
-    // 正常启动的旧页面现场已在工作区挂载前重置，此处指定初始栏目。
-    if (startupView) setView(startupView);
-  }, [startupView, setView]);
+    if (!startupView || startupRecorded.current || !viewSnapshotKey) return;
+    startupRecorded.current = true;
+    // 首帧已经落在 startupView；再把它登记成"当前现场"，崩溃后冷启动才回得到这一栏。
+    // 只写存储、不动 React 状态 —— 不能靠 effect 事后切页，那会让首帧是错的。
+    try {
+      pageSnapshots.write(viewSnapshotKey, startupView);
+    } catch {
+      /* 现场写不进去不影响本次启动 */
+    }
+  }, [startupView, viewSnapshotKey]);
+  const [query, setQuery] = usePageState('shell:query', '', pageValue.string);
   const [contactTab, setContactTab] = usePageState<ContactTab>(
     'shell:contact-tab',
     'friends',
@@ -125,7 +136,7 @@ export function useChatShellController({
   const [contactWorkspaceTab, setContactWorkspaceTab] = usePageState<ContactWorkspaceTab>(
     'shell:contact-detail',
     'profile',
-    z.enum(['profile', 'personality', 'marks', 'portrait', 'history']),
+    contactWorkspaceTabSchema,
   );
   const [selectedGroupConversationId, setSelectedGroupConversationId] = usePageState<string | null>(
     'shell:group',
@@ -279,15 +290,19 @@ export function useChatShellController({
   useLayoutEffect(() => {
     if (activeConversation) openedConversation.current = activeConversation;
   }, [activeConversation]);
-  const selectedContact = useMemo(
-    () => {
-      if (contactTab !== 'friends') return undefined;
-      const local = contacts.find((contact) => contact.id === selectedContactId);
-      const expanded = expandedContact?.id === selectedContactId ? expandedContact : undefined;
-      return local && expanded ? { ...expanded, ...local, profileContext: expanded.profileContext, profileLabelId: expanded.profileLabelId } : local ?? expanded;
-    },
-    [contacts, selectedContactId, expandedContact, contactTab],
-  );
+  const selectedContact = useMemo(() => {
+    if (contactTab !== 'friends') return undefined;
+    const local = contacts.find((contact) => contact.id === selectedContactId);
+    const expanded = expandedContact?.id === selectedContactId ? expandedContact : undefined;
+    return local && expanded
+      ? {
+          ...expanded,
+          ...local,
+          profileContext: expanded.profileContext,
+          profileLabelId: expanded.profileLabelId,
+        }
+      : (local ?? expanded);
+  }, [contacts, selectedContactId, expandedContact, contactTab]);
   const selectedGroupConversation = useMemo(
     () =>
       contactTab === 'groups'

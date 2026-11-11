@@ -23,6 +23,8 @@ import {
 } from './types';
 import {
   MAIL_PAGE_SIZE,
+  DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
+  mailPollIntervalMinutes,
   composeMailForm,
   count,
   items,
@@ -76,6 +78,7 @@ export class QQMailService {
   private pendingCredentials = false;
   private verificationBlocked = false;
   private readonly allowOnline: () => boolean;
+  private pollIntervalMinutes = DEFAULT_MAIL_POLL_INTERVAL_MINUTES;
 
   constructor(
     nt: Pick<NtHelperBinding, 'ptFetchMailSession'>,
@@ -103,8 +106,13 @@ export class QQMailService {
   }
 
   /** 账号打开后恢复偏好；不依赖渲染进程是否进入邮箱页。 */
-  startBackground(preferences: { notifications: boolean; showUnread: boolean }): void {
+  startBackground(preferences: {
+    notifications: boolean;
+    showUnread: boolean;
+    pollIntervalMinutes?: number;
+  }): void {
     this.showUnread = preferences.showUnread;
+    this.pollIntervalMinutes = mailPollIntervalMinutes(preferences.pollIntervalMinutes);
     this.backgroundStopped = false;
     this.update({ notifications: preferences.notifications });
     this.credentialsAvailable();
@@ -146,6 +154,13 @@ export class QQMailService {
     this.backgroundStopped = false;
     if (this.backgroundEnabled) this.credentialsAvailable();
     else this.stopNotifications();
+  }
+
+  setPollIntervalMinutes(minutes: number): void {
+    this.pollIntervalMinutes = mailPollIntervalMinutes(minutes);
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+    this.pollTimer = null;
+    this.scheduleNoticeRecovery();
   }
 
   private async syncBackground(): Promise<void> {
@@ -476,12 +491,18 @@ export class QQMailService {
         folderId: count(entry.mailboxid ?? entry.mailbox_id) || 1,
       };
     });
+    let changed = count(body.unread) !== this.state.unread;
     // 未取得提醒列表时保留游标，恢复后再建立基线或继续去重。
     if (body.notificationUnavailable !== true) {
       if (prime || !this.noticeQueryPrimed) {
         this.cursor.prime(notices.map((entry) => entry.id));
         this.noticeQueryPrimed = true;
-      } else for (const notice of notices) if (this.cursor.accept(notice.id)) this.announce(notice);
+      } else
+        for (const notice of notices)
+          if (this.cursor.accept(notice.id)) {
+            changed = true;
+            this.announce(notice);
+          }
     }
     this.update({
       state: 'ready',
@@ -489,16 +510,14 @@ export class QQMailService {
       unread: count(body.unread),
       lastSync: Date.now(),
     });
+    // 列表失效与横幅提醒独立；相同结果不再触发文件夹补查，避免刷新循环。
+    if (!prime && changed) this.events.emit('change', { type: 'changed' });
     if (this.backgroundEnabled) {
       if (this.pollTimer) clearTimeout(this.pollTimer);
-      const seconds =
-        this.state.unread > 0
-          ? 60
-          : Math.min(3600, Math.max(60, count(body.next_sync_time_interval_sec) || 900));
       this.pollTimer = setTimeout(() => {
         this.pollTimer = null;
         void this.syncNotice(false).catch(() => this.scheduleNoticeRecovery());
-      }, seconds * 1000);
+      }, this.pollIntervalMinutes * 60_000);
       this.pollTimer.unref();
     }
   }
@@ -510,7 +529,7 @@ export class QQMailService {
       void this.connect()
         .then(() => this.syncBackground())
         .catch(() => this.scheduleNoticeRecovery());
-    }, 5 * 60_000);
+    }, this.pollIntervalMinutes * 60_000);
     this.pollTimer.unref();
   }
 

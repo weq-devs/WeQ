@@ -1,17 +1,497 @@
-.weq-profile-workspace { display: grid; grid-template-columns: 152px minmax(0, 1fr); min-height: 0; flex: 1; overflow: hidden; }
-.weq-profile-workspace .weq-contact-directory { display: flex; flex-direction: column; gap: 3px; padding: 16px 10px; overflow-y: auto; border-right: 1px solid var(--weq-border-subtle); }
-.weq-profile-workspace .weq-contact-directory button { flex: 0 0 auto; text-align: start; padding: 9px 12px; border: 0; border-radius: 5px; color: var(--weq-fg-secondary); background: transparent; font-size: 13px; cursor: pointer; }
-.weq-profile-workspace .weq-contact-directory button[aria-current] { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent); font-weight: 600; }
-.weq-profile-workspace .weq-contact-directory button:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }
-.weq-profile-workspace .weq-contact-workspace-body { min-width: 0; min-height: 0; overflow: auto; padding: 20px 24px; scrollbar-gutter: stable; }
-.weq-profile-workspace .weq-contact-section-title { margin: 0 0 18px; font-size: 17px; line-height: 1.4; }
-.weq-profile-workspace [hidden] { display: none !important; }
-.weq-profile-workspace .weq-contact-directory-mobile { display: none; }
-html[data-theme="dark"] .weq-profile-workspace .weq-contact-directory button[aria-current] { background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent); }
+/**
+ * 资料类详情（联系人 / 群）的唯一布局来源。
+ *
+ * 这里同时定义：目录、窄屏 tab 条、内容区、章节标题、以及名片与资料页共用的行模型
+ * （`ContactRow` → `.weq-profile-data-*`）。`contact-card.css` 不再重复这些规则。
+ *
+ * 旧组件仍在用 `.weq-profile-row`（好友添加信息、生日行、共同关系、互动标识……）。
+ * 它们在 `.weq-contact-card` / `.weq-profile-workspace` 容器内被下面的「归一化」规则
+ * 拉到同一套网格上，所以不必逐个改第三方文件也能保证对齐一致。
+ */
+
+/* ---------- 容器 ---------- */
+
+.weq-profile-workspace {
+  display: grid;
+  grid-template-columns: 152px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ---------- 宽屏竖目录 ---------- */
+
+.weq-profile-directory {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 10px;
+  overflow-y: auto;
+  border-inline-end: 1px solid var(--weq-border-subtle);
+}
+
+.weq-profile-directory button {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.weq-profile-directory button:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-directory button[aria-current] {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  font-weight: 600;
+}
+
+.weq-profile-directory button:focus-visible,
+.weq-profile-directory-tab:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+html[data-theme='dark'] .weq-profile-directory button[aria-current] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+/* ---------- 窄屏 tab 条（替代原生 select） ---------- */
+
+.weq-profile-directory-tabs {
+  display: none;
+  gap: 4px;
+  padding: 6px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  scrollbar-width: none;
+}
+
+.weq-profile-directory-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.weq-profile-directory-tab {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.weq-profile-directory-tab:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-directory-tab[aria-selected='true'] {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  font-weight: 600;
+}
+
+html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+
+/* ---------- 内容区 ---------- */
+
+.weq-profile-workspace-body {
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.weq-profile-workspace-body > [role='region'] > * {
+  max-width: 720px;
+}
+
+.weq-profile-workspace [hidden] {
+  display: none !important;
+}
+
+.weq-contact-section-title {
+  margin: 0 0 14px;
+  color: var(--weq-fg-primary);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/*
+ * 章节内的子标题（教育经历、互动标识、公司……）统一成 13px 加粗，不再和章节 H2 抢层级。
+ * 这些标题来自多个内嵌对话框组件，逐个改文件既越界也容易漏，所以在宿主侧归一。
+ */
+.weq-profile-workspace-body
+:is(h1, h2, h3, h4):not(.weq-contact-section-title):not(.weq-profile-subtitle) {
+  margin: 18px 0 6px;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.weq-profile-workspace-body :is(h1, h2, h3, h4):not(.weq-contact-section-title):first-child {
+  margin-top: 0;
+}
+
+/* 小节标题：名片分区与资料页子块共用，13px 加粗，不喧宾夺主。 */
+.weq-profile-subtitle {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.weq-profile-section-block {
+  display: grid;
+  gap: 2px;
+  margin-top: 18px;
+}
+
+.weq-profile-section-block:first-of-type {
+  margin-top: 0;
+}
+
+.weq-profile-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+  margin-bottom: 4px;
+}
+
+/* ---------- 唯一行模型 ---------- */
+
+.weq-profile-data-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  min-height: 32px;
+  padding-block: 5px;
+  border: 0;
+}
+
+.weq-profile-data-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.weq-profile-data-icon {
+  display: inline-flex;
+  flex: none;
+  align-self: center;
+  color: var(--weq-fg-muted);
+}
+
+.weq-profile-data-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.weq-profile-data-value {
+  min-width: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: start;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.weq-profile-data-value.is-mono {
+  font-family: var(--weq-font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-profile-data-action {
+  display: inline;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: text;
+}
+
+.weq-profile-data-action:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.weq-profile-data-action:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+
+/* ---------- 旧行归一化：容器内所有 `.weq-profile-row` 跟随同一网格 ---------- */
+
+.weq-contact-card .weq-profile-row,
+.weq-contact-card-preview .weq-profile-row,
+.weq-profile-workspace-body .weq-profile-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: baseline;
+  justify-content: start;
+  gap: 12px;
+  min-height: 32px;
+  padding-block: 5px;
+  border-top: 0;
+}
+
+.weq-contact-card .weq-profile-row-label,
+.weq-contact-card-preview .weq-profile-row-label,
+.weq-profile-workspace-body .weq-profile-row-label {
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* label 列固定 96px，图标会把文字推离基线；统一隐藏行内 label 图标（信息已在文字里）。 */
+.weq-contact-card .weq-profile-row-label svg,
+.weq-contact-card-preview .weq-profile-row-label svg,
+.weq-profile-workspace-body .weq-profile-row-label svg {
+  display: none;
+}
+
+.weq-contact-card .weq-profile-row strong,
+.weq-contact-card .weq-profile-row-value,
+.weq-contact-card .weq-profile-row-text,
+.weq-contact-card-preview .weq-profile-row strong,
+.weq-contact-card-preview .weq-profile-row-value,
+.weq-contact-card-preview .weq-profile-row-text,
+.weq-profile-workspace-body .weq-profile-row strong,
+.weq-profile-workspace-body .weq-profile-row-value,
+.weq-profile-workspace-body .weq-profile-row-text {
+  min-width: 0;
+  max-width: none;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+  text-align: start;
+  white-space: pre-wrap;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* 旧基座把值做成右对齐的 inline-flex；这里改成左对齐的可换行容器。 */
+.weq-contact-card .weq-profile-row-value,
+.weq-contact-card-preview .weq-profile-row-value,
+.weq-profile-workspace-body .weq-profile-row-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 6px;
+  max-width: none;
+}
+
+/* 旧的行内值按钮 / 标签容器各自带居中或右对齐，统一拉回左对齐。 */
+.weq-contact-card .weq-contact-value,
+.weq-contact-card-preview .weq-contact-value,
+.weq-profile-workspace-body .weq-contact-value,
+.weq-contact-card .weq-profile-tags,
+.weq-contact-card-preview .weq-profile-tags,
+.weq-profile-workspace-body .weq-profile-tags,
+.weq-contact-card .weq-profile-interests,
+.weq-contact-card-preview .weq-profile-interests,
+.weq-profile-workspace-body .weq-profile-interests {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: auto;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.weq-contact-card .weq-profile-tags,
+.weq-contact-card-preview .weq-profile-tags,
+.weq-profile-workspace-body .weq-profile-tags,
+.weq-contact-card .weq-profile-interests,
+.weq-contact-card-preview .weq-profile-interests,
+.weq-profile-workspace-body .weq-profile-interests {
+  cursor: default;
+}
+
+/* 块状行（正文说明一类）跨过 label 列。 */
+.weq-contact-card .weq-profile-row--block,
+.weq-profile-workspace-body .weq-profile-row--block {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ---------- 技术详情 / 局部失败 / 空态 ---------- */
+
+.weq-profile-tech {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-profile-tech > summary {
+  cursor: pointer;
+  list-style-position: inside;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.weq-profile-tech > summary:hover {
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-tech-body {
+  display: grid;
+  gap: 2px;
+  padding-top: 6px;
+}
+
+.weq-profile-tech-body .weq-profile-data-row {
+  grid-template-columns: 96px minmax(0, 1fr);
+  min-height: 26px;
+  padding-block: 3px;
+}
+
+.weq-profile-inline-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-profile-inline-error button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-profile-inline-error button:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+
+.weq-profile-empty {
+  margin: 6px 0 0;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* ---------- 内嵌承载（资料页把独立浮层塞进工作区时去壳） ---------- */
+
+.weq-profile-detail-embedded > section {
+  width: 100%;
+  max-width: none;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.weq-profile-detail-embedded > section > header {
+  display: none;
+}
+
+.weq-profile-detail-embedded > .group-file-dialog > header:not([hidden]) {
+  display: flex;
+  padding: 0 0 8px;
+  border: 0;
+  background: transparent;
+}
+
+.weq-profile-detail-embedded > section > [class$='-body'] {
+  padding: 0;
+  overflow: visible;
+}
+
+/* ---------- 窄屏 ---------- */
+
 @media (max-width: 720px) {
-  .weq-profile-workspace { display: flex; flex-direction: column; }
-  .weq-profile-workspace .weq-contact-directory { display: none; }
-  .weq-profile-workspace .weq-contact-directory-mobile { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--weq-border-subtle); font-size: 13px; }
-  .weq-profile-workspace .weq-contact-directory-mobile select { min-width: 0; flex: 1; border: 1px solid var(--weq-border-subtle); border-radius: 4px; padding: 5px 8px; color: var(--weq-fg-primary); background: var(--weq-bg-surface); }
-  .weq-profile-workspace .weq-contact-workspace-body { padding: 16px 14px; }
+  .weq-profile-workspace {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .weq-profile-directory {
+    display: none;
+  }
+
+  .weq-profile-directory-tabs {
+    display: flex;
+  }
+
+  .weq-profile-workspace-body {
+    padding: 16px 14px;
+  }
+
+  .weq-profile-workspace-body > [role='region'] > * {
+    max-width: none;
+  }
+
+  .weq-profile-data-row,
+  .weq-contact-card .weq-profile-row,
+  .weq-profile-workspace-body .weq-profile-row {
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 10px;
+  }
+}
+
+/* 触控设备：目录与关键控件给足 44px 热区。 */
+@media (pointer: coarse) {
+  .weq-profile-directory button,
+  .weq-profile-directory-tab {
+    min-height: 44px;
+  }
 }

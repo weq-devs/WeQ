@@ -14,14 +14,17 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 
-const state = vi.hoisted(() => ({
-  configId: 'source-a',
-  web: false,
-  albums: vi.fn(async (_input: unknown): Promise<GroupAlbumWire[]> => []),
-  media: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
-  access: vi.fn(async () => ({ qqOnline: true })),
-  save: vi.fn(async (_input: unknown) => 'media-task'),
-}));
+const state = vi.hoisted(() => {
+  vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
+  return {
+    configId: 'source-a',
+    web: false,
+    albums: vi.fn(async (_input: unknown): Promise<GroupAlbumWire[]> => []),
+    media: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
+    access: vi.fn(async () => ({ qqOnline: true })),
+    save: vi.fn(async (_input: unknown) => 'media-task'),
+  };
+});
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
     return state.web;

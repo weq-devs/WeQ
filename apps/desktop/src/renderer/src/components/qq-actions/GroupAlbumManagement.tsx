@@ -73,8 +73,12 @@ function GroupAlbumManagementBody({
   }
   return (
     <div className="weq-qq-action-bar">
-      <ActionIcon
-        label={album ? '编辑相册' : '新建相册'}
+      {/* 带文字的入口：资料页里一个孤零零的「+」看不出是新建相册。 */}
+      <button
+        type="button"
+        className="weq-set-btn"
+        aria-label={album ? '编辑相册' : '新建相册'}
+        title={album ? '编辑相册' : '新建相册'}
         disabled={a.disabled}
         onClick={() => {
           setTitle(album?.title ?? '');
@@ -82,8 +86,9 @@ function GroupAlbumManagementBody({
           setEditing(true);
         }}
       >
-        {album ? <Pencil size={16} /> : <Plus size={16} />}
-      </ActionIcon>
+        {album ? <Pencil size={15} /> : <Plus size={15} />}
+        {album ? '编辑相册' : '新建相册'}
+      </button>
       {album && (
         <ActionIcon
           label="删除相册"

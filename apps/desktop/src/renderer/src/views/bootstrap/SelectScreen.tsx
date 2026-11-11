@@ -245,7 +245,13 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                   !accountQuery.error && (
                     <div className="weq-account-empty">
                       <History size={28} aria-hidden />
-                      <h3>{mode === 'existing' ? '还没有保存的账号' : '未发现本机 QQ 账号'}</h3>
+                      <h3>
+                        {mode === 'existing'
+                          ? '还没有保存的账号'
+                          : remote
+                            ? '电脑端还没有可用账号'
+                            : '未发现本机 QQ 账号'}
+                      </h3>
                       {mode === 'existing' ? (
                         <button
                           type="button"
@@ -255,11 +261,28 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                           <UserPlus size={15} aria-hidden />
                           添加账号
                         </button>
+                      ) : remote ? (
+                        /* Remote 不能选电脑目录：按钮保留原位但不可点，并把原因和下一步写出来，
+                           而不是给一个没有说明的死按钮。 */
+                        <>
+                          <p>
+                            数据目录只能在电脑上选择。请先在电脑端选好目录并完成登录，再回到这里刷新。
+                          </p>
+                          <button
+                            type="button"
+                            className="weq-action-soft"
+                            disabled
+                            title="电脑数据目录只能在电脑端选择"
+                          >
+                            <FolderOpen size={15} aria-hidden />
+                            选择 QQ 数据目录
+                          </button>
+                        </>
                       ) : (
                         <button
                           type="button"
                           className="weq-action-soft"
-                          disabled={busy || remote}
+                          disabled={busy}
                           onClick={() => void pickRoot()}
                         >
                           <FolderOpen size={15} aria-hidden />

@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { useToast } from '../src/renderer/src/components/Toast';
+import { pageSnapshots, pageValue } from '../src/renderer/src/lib/pageSnapshots';
 import {
   useChatShellController,
   noopChatShellHistoryAdapter,
@@ -39,6 +41,7 @@ const group: GroupConversation = {
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  useToast.setState({ toasts: [] });
   vi.unstubAllGlobals();
 });
 
@@ -89,6 +92,34 @@ it('重建界面恢复栏目和联系人详情，另一数据源不继承旧导�
   const other = mount(storage, 'account:source-b');
   expect(other.state().view).toBe('messages');
   expect(other.state().selectedContactId).toBeNull();
+});
+
+it.each([
+  'profile',
+  'details',
+  'signatures',
+  'labels',
+  'questions',
+  'marks',
+  'group',
+  'personality',
+  'portrait',
+  'history',
+  'edit',
+] as const)('联系人 %s 分区可保存并从磁盘恢复，不误报存储失败', (tab) => {
+  const storage = new Storage();
+  const scope = 'contact-sections';
+  const first = mount(storage, scope);
+  act(() => first.state().openContactDetails(person, tab === 'profile' ? 'marks' : 'profile'));
+  act(() => first.state().setContactWorkspaceTab(tab));
+  expect(first.state().contactWorkspaceTab).toBe(tab);
+  expect(useToast.getState().toasts).toEqual([]);
+  // 直接读磁盘，不能让同一工作区的内存兜底掩盖保存失败。
+  expect(
+    pageSnapshots.read(JSON.stringify([scope, 'shell:contact-detail']), pageValue.string),
+  ).toBe(tab);
+  const restored = mount(storage, scope);
+  expect(restored.state().contactWorkspaceTab).toBe(tab);
 });
 
 it.each(['home', 'messages'] as const)('正常启动进入 %s，后续崩溃重建恢复新现场', (page) => {

@@ -238,11 +238,12 @@ try {
     );
   });
   await pages[1].setViewportSize({ width: 320, height: 900 });
-  await pages[1].getByRole('heading', { name: '发现另一份草稿' }).waitFor();
-  await pages[1].screenshot({ path: join(artifacts, 'conflict-320.png') });
-  await pages[1].getByRole('button', { name: '另存副本', exact: true }).click();
-  await pages[1].evaluate(() => window.syncDraftResult);
-  await pages[1].getByLabel('冲突副本', { exact: true }).waitFor();
+  const savedDraft = await pages[1].evaluate(() => window.syncDraftResult);
+  assert.equal(savedDraft.local, true);
+  assert.equal(savedDraft.current.value, '第二端草稿');
+  assert.equal(await pages[1].locator('.weq-modal').count(), 0, '自动保存不弹出对话框');
+  await pages[1].evaluate(() => window.syncQa.openDraftCopies());
+  await pages[1].getByRole('textbox', { name: '草稿副本', exact: true }).waitFor();
   assert.equal(
     await pages[1]
       .locator('.weq-modal')
@@ -260,7 +261,23 @@ try {
     ),
     1,
   );
-  await pages[0].evaluate(
+  const preservedCopies = await pages[0].evaluate(() =>
+    window.syncQa.client.clientState.draftCopies.query({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: '10001_fixture',
+    }),
+  );
+  const preserved = await pages[0].evaluate(
+    (key) =>
+      window.syncQa.client.clientState.draft.query({
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: '10001_fixture',
+        key,
+      }),
+    preservedCopies[0].key,
+  );
+  assert.equal(preserved.value.content, '第一端草稿');
+  const clearedDraft = await pages[0].evaluate(
     (expectedVersion) =>
       window.syncQa.client.clientState.saveDraft.mutate({
         expectedAccountUin: '10001',
@@ -269,8 +286,9 @@ try {
         value: '',
         expectedVersion,
       }),
-    originalDraft.current.version,
+    savedDraft.current.version,
   );
+  assert.equal(clearedDraft.ok, true);
   const staleDraft = await pages[1].evaluate(
     (expectedVersion) =>
       window.syncQa.client.clientState.saveDraft.mutate({

@@ -121,8 +121,13 @@ it.each(['home', 'messages'] as const)(
       draft: '未发送草稿',
     });
     expect(commits.length).toBeGreaterThan(0);
+    // 首帧就必须是目标栏目：不接受"先渲染 initialView、再 effect 纠正"，那会闪一下消息页。
+    expect(commits[0]).toBe(page);
     expect(commits.every((view) => view === page)).toBe(true);
+    // 启动落位不得顺带打开上次会话、也不得清掉未发送的草稿。
     expect(shell.activeConversationId).toBeNull();
+    // 启动落位不清草稿；别的账号的现场也不能被顺手清掉（下方断言）。
+    expect(pageSnapshots.read(key(scope, 'draft'), pageValue.string, true)).toBe('未发送草稿');
     expect(pageSnapshots.read(key(otherScope, 'shell:view'), pageValue.string)).toBe('qzone');
   },
 );

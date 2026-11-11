@@ -10,7 +10,7 @@ import { snapshotWeqClientSettings } from '@weq/service/backup-client';
 import { client } from '../../trpc/client';
 import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast';
-import { Card, SectionHeader } from './controls';
+import { Card, CheckPill, SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { Modal } from '../Dialog';
 import '../../styles/backup.css';
@@ -60,11 +60,11 @@ function Check({
   checked: boolean;
   onChange: (next: boolean) => void;
 }) {
+  // 与设置页其它多选项统一成 weq-set-chk 胶囊，不用原生复选框 + 双列网格。
   return (
-    <label className="weq-backup-check">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <span>{label}</span>
-    </label>
+    <CheckPill checked={checked} onChange={onChange}>
+      {label}
+    </CheckPill>
   );
 }
 function toggle<T>(list: T[], value: T): T[] {

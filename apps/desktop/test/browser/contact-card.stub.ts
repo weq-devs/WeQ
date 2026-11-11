@@ -67,8 +67,38 @@ function value(path: string, input: Record<string, unknown>) {
       source: { expectedAccountUin: qa.account, expectedAccountConfigId: qa.config },
     };
   if (path === 'account.getProfile' || path === 'account.getProfileByUin') return null;
+  // 名片设置预览要「本人真实资料」，这里给当前登录账号的一份自述资料（不含任何示例联系人）。
+  if (path === 'account.getSelfProfile')
+    return {
+      uid: 'u_self',
+      uin: qa.account,
+      nick: '本人的昵称',
+      avatarUrl: '',
+      signature: '这是我自己的签名，用来预览名片效果。',
+      gender: 1,
+      age: 31,
+      birthYear: 1994,
+      birthMonth: 3,
+      birthDay: 8,
+      qid: 'self-qid',
+      customStatus: { desc: '在线' },
+      extInfo: {
+        country: '中国',
+        province: '福建',
+        city: '厦门',
+        school: '自己的学校',
+        degree: '本科',
+        privileges: [],
+        interactMarks: [],
+        album: [],
+        interests: [],
+      },
+    };
   if (path === 'account.getCardDisplayNames')
-    return { name: qa.mode === 'self' ? '我' : '林同学', remark: qa.mode === 'self' ? '' : '小林' };
+    return {
+      name: qa.mode === 'self' || String(input.target) === qa.account ? '我' : '林同学',
+      remark: qa.mode === 'self' || String(input.target) === qa.account ? '' : '小林',
+    };
   if (path === 'account.getBotProfile') return null;
   if (path === 'account.conversationBoundary')
     return qa.noConversation ? null : { msgId: '1', msgSeq: '1', sendTime: 1794390000 };
@@ -79,9 +109,9 @@ function value(path: string, input: Record<string, unknown>) {
   if (path === 'account.profileExtras.details')
     return {
       targetUin: uin,
-      company: '示例工作室',
+      company: uin === qa.account ? '自己的公司' : '示例工作室',
       personalDescription: '合成说明\n保留换行。',
-      email: 'sample@example.invalid',
+      email: uin === qa.account ? 'self@example.com' : 'sample@example.invalid',
       errors: {},
     };
   if (path === 'account.profileExtras.personalityLabels')

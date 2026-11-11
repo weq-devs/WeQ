@@ -35,7 +35,7 @@ import {
 } from './lazyWorkspaces';
 import { AssistantMenuWorkspace } from '../views/agentlab/AssistantMenuWorkspace';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
-import { openDraftCopies, useDraftConflict } from '../lib/draftConflicts';
+import { openDraftCopies, useDraftCopies } from '../lib/draftPersistence';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
 import { WorkspaceStatusDot } from './WorkspaceStatusDot';
 import { trpc } from '../trpc/client';
@@ -123,7 +123,7 @@ export function WorkspaceTools({
   const finished = useWorkspaceMenu((state) => state.finished);
   const assistantActivity = useWorkspaceMenu((state) => state.assistant);
   const assistantUnread = useWorkspaceMenu((state) => state.assistantUnread);
-  const draftCopies = useDraftConflict((state) => state.copiesCount);
+  const draftCopies = useDraftCopies((state) => state.copiesCount);
   const [expanded, setExpanded] = useState(false);
   const lastAnchor = useRef<HTMLElement | null>(null);
   if (anchor) lastAnchor.current = anchor;

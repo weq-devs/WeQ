@@ -1,7 +1,9 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { RotateCw } from 'lucide-react';
 import { SettingsSaveQueue, settingsSaves } from '../../lib/settingsSaveQueue';
 import { useDraftProtection } from '../../lib/draftClose';
+import { SaveStatusSlotContext } from './controls';
 import { SettingsResetCardContext } from './resetContext';
 import { usePageSnapshotKey } from '../PageSnapshots';
 import '../../styles/settings-autosave.css';
@@ -31,6 +33,8 @@ function AutoSaveField<T>({
   children,
 }: AutoSaveProps<T>) {
   const [, render] = useState(0);
+  const slotApi = useContext(SaveStatusSlotContext);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   const mounted = useRef(true);
   const queue = useRef<SettingsSaveQueue<T> | null>(null);
   if (!queue.current)
@@ -69,6 +73,11 @@ function AutoSaveField<T>({
     previous.current = encoded;
     if (!composing.current) q.edit(value, valid, save);
   }, [encoded, encodedSaved, ready, value, valid, save, q]);
+  // 卡片 head 有状态槽位时占位一次；没有就继续渲染在行内。
+  useEffect(() => {
+    if (slot || !slotApi) return;
+    setSlot(slotApi.take());
+  }, [slot, slotApi]);
   useEffect(() => {
     mounted.current = true;
     q.release();
@@ -104,6 +113,30 @@ function AutoSaveField<T>({
       void q.suspend();
     };
   }, [q, card]);
+  const status = (
+    <span className="weq-autosave-status" role={q.status === 'error' ? 'alert' : 'status'}>
+      {q.status === 'saving'
+        ? '正在保存…'
+        : q.status === 'saved'
+          ? '已保存'
+          : q.status === 'error'
+            ? `保存失败：${q.error}`
+            : !valid && ready
+              ? '输入无效，尚未保存'
+              : ''}
+      {q.status === 'error' ? (
+        <button
+          type="button"
+          className="weq-set-iconbtn"
+          title="重试保存"
+          aria-label="重试保存"
+          onClick={() => void q.flush()}
+        >
+          <RotateCw size={14} />
+        </button>
+      ) : null}
+    </span>
+  );
   return (
     <div
       className="weq-autosave"
@@ -132,28 +165,7 @@ function AutoSaveField<T>({
       }}
     >
       {children}
-      <span className="weq-autosave-status" role={q.status === 'error' ? 'alert' : 'status'}>
-        {q.status === 'saving'
-          ? '正在保存…'
-          : q.status === 'saved'
-            ? '已保存'
-            : q.status === 'error'
-              ? `保存失败：${q.error}`
-              : !valid && ready
-                ? '输入无效，尚未保存'
-                : ''}
-        {q.status === 'error' ? (
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            title="重试保存"
-            aria-label="重试保存"
-            onClick={() => void q.flush()}
-          >
-            <RotateCw size={14} />
-          </button>
-        ) : null}
-      </span>
+      {slot ? createPortal(status, slot) : status}
     </div>
   );
 }

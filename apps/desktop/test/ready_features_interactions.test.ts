@@ -1,5 +1,6 @@
 import { act, createElement as h, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QQ_REGIONS } from '@weq/protocol';
@@ -107,6 +108,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
         getSelfProfile: { useQuery: () => ({ data: null }) },
         getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isFetching: false }) },
+        groupMemberPreview: {
+          useQuery: () => ({ data: undefined, isFetching: false, error: null, refetch: vi.fn() }),
+        },
         getProfileByUin: {
           useQuery: ({ uin }: { uin: string }) => ({
             data: state.profiles.find((row) => row.uin === uin),
@@ -207,11 +211,14 @@ afterEach(() => {
   useViewState.setState({ openedUin: null });
   vi.unstubAllGlobals();
 });
+// 共同群头像会打开共用的群名片，名片经 useGroupProfile 走 tanstack 查询。
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function mount(render: () => ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const update = () => act(() => root.render(render()));
+  const update = () =>
+    act(() => root.render(h(QueryClientProvider, { client: queryClient }, render())));
   update();
   cleanup.push(() => {
     act(() => root.unmount());
@@ -576,7 +583,10 @@ describe('可接入功能交互回归', () => {
       '共同好友',
       '共同群',
     ]);
-    expect(rows.map((row) => row.querySelector('strong')?.textContent)).toEqual(['3', '1']);
+    // 共同好友是纯文本行（strong），共同群是可点行（button，title「查看共同群列表」）。
+    expect(rows.map((row) => row.querySelector('strong, .weq-contact-value')?.textContent)).toEqual(
+      ['3', '1'],
+    );
     expect(f.host.textContent).not.toContain('合成共同群');
     await act(async () =>
       [...f.host.querySelectorAll('button')]
@@ -596,13 +606,15 @@ describe('可接入功能交互回归', () => {
     );
     expect(avatar).not.toBeNull();
     await act(async () => avatar!.click());
-    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).toContain('合成共同群');
-    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).toContain('123');
-    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).not.toContain('群成员');
+    // 群名片是 portal 浮层，要在 document 上找；关闭按钮文案已统一为「关闭群资料」。
+    const groupCard = document.querySelector('[aria-label="群资料"]');
+    expect(groupCard?.textContent).toContain('合成共同群');
+    expect(groupCard?.textContent).toContain('123');
+    expect(groupCard?.textContent).not.toContain('群成员');
     await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="群资料"] [aria-label="关闭"]')!.click(),
+      document.querySelector<HTMLButtonElement>('button[aria-label="关闭群资料"]')!.click(),
     );
-    expect(f.host.querySelector('[aria-label="群资料"]')).toBeNull();
+    expect(document.querySelector('[aria-label="群资料"]')).toBeNull();
     expect(f.host.querySelector('[aria-label="查看 合成共同群 的群名片"]')).not.toBeNull();
   });
   it('共同群优先复用已收录的群资料，不显示伪造的零成员信息', async () => {
@@ -629,10 +641,12 @@ describe('可接入功能交互回归', () => {
     await act(async () =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
     );
-    const profile = f.host.querySelector('[aria-label="群资料"]')!;
+    const profile = document.querySelector('[aria-label="群资料"]')!;
     expect(profile.textContent).toContain('已收录的群');
-    expect(profile.querySelector('.weq-profile-members-head strong')?.textContent).toBe('42');
-    expect(profile.textContent).toContain('已有的群公告');
+    // 成员数在身份区（共用名片解剖），旧的成员列表头已移除。
+    expect(profile.querySelector('.weq-group-count')?.textContent).toContain('42');
+    // 清单 G04：公告只在完整资料页显示，快速名片不再展示公告正文。
+    expect(profile.textContent).not.toContain('已有的群公告');
   });
   it('空共同群保留零数量和空态，切换数据源后关闭旧列表', async () => {
     state.commonGroups = [];

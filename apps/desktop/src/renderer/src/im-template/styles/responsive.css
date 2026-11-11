@@ -260,6 +260,8 @@
 @media all {
   :root:where([data-weq-layout='single']) {
     --mobile-tabbar-height: 62px;
+    /* 手机单栏专用的一档淡色皮肤（不是主题色）：深色主题由 screens.css 的
+       [data-theme='dark'] 规则显式覆盖，所以这里保留具体色值。 */
     --mobile-header-bg: #eef4ff;
     --mobile-tabbar-bg: #f6f6fa;
   }
@@ -613,12 +615,12 @@
   }
 
   :where(html[data-weq-layout='single']) .search-box input::placeholder {
-    color: #9a9da5;
+    color: var(--weq-fg-muted);
   }
 
   :where(html[data-weq-layout='single']) .sidebar-body {
     padding-bottom: calc(var(--mobile-tabbar-height) + env(safe-area-inset-bottom, 0px));
-    background: #ffffff;
+    background: var(--weq-bg-surface);
   }
 
   :where(html[data-weq-layout='single']) .conversation-row,
@@ -627,7 +629,7 @@
     grid-template-columns: 58px minmax(0, 1fr) auto;
     gap: 12px;
     padding: 9px 18px;
-    color: #15171c;
+    color: var(--weq-fg-primary);
   }
 
   :where(html[data-weq-layout='single']) .conversation-row:hover,
@@ -638,7 +640,7 @@
   :where(html[data-weq-layout='single']) .conversation-row.active,
   :where(html[data-weq-layout='single']) .contact-row.active {
     background: transparent;
-    color: #15171c;
+    color: var(--weq-fg-primary);
   }
 
   :where(html[data-weq-layout='single']) .conversation-row.active .row-preview-line,

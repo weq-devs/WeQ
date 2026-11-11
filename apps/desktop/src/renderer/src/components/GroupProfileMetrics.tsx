@@ -7,12 +7,14 @@ import { GROUP_SORTS, metricValue } from '../lib/contactListOrder';
 type MetricRows = Array<readonly [string, string]>;
 type Props = { groupCode: string; children: (rows: MetricRows) => ReactNode };
 const METRICS = ['activityScore', 'friendCount'] as const;
-const UNKNOWN_ROWS: MetricRows = METRICS.map((metric) => [GROUP_SORTS[metric], '未知']);
 
-/** 只读排序所用的账号缓存，不因打开资料触发在线更新。 */
+/**
+ * 只读排序所用的账号缓存，不因打开资料触发在线更新。
+ * 没有可信缓存时不出行——不用「未知」占位（设计契约 §3）。
+ */
 export function GroupProfileMetrics(props: Props) {
   const uin = useViewState((state) => state.openedUin);
-  return uin ? <AccountMetrics key={uin} {...props} uin={uin} /> : props.children(UNKNOWN_ROWS);
+  return uin ? <AccountMetrics key={uin} {...props} uin={uin} /> : props.children([]);
 }
 
 function AccountMetrics({ groupCode, children, uin }: Props & { uin: string }) {
@@ -31,14 +33,13 @@ function AccountMetrics({ groupCode, children, uin }: Props & { uin: string }) {
     enabled,
     onData: () => void utils.account.contactMetrics.snapshot.invalidate(binding),
   });
-  const rows = METRICS.map((metric) => {
+  const rows = METRICS.flatMap((metric) => {
     const value = configId
       ? metricValue(snapshot.data?.rows ?? {}, `group:${groupCode}`, metric)
       : null;
-    return [
-      GROUP_SORTS[metric],
-      typeof value === 'number' && Number.isFinite(value) && value >= 0 ? String(value) : '未知',
-    ] as const;
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? ([[GROUP_SORTS[metric], String(value)]] as MetricRows)
+      : [];
   });
   return children(rows);
 }

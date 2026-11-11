@@ -1,5 +1,6 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock(
@@ -46,6 +47,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+// 群名片与联系人名片都经 tanstack 查询（useGroupProfile / 名片设置），
+// 测试宿主需要 provider；只读查询仍由上面的 proxy 桩返回固定值。
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function mount() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -54,7 +58,8 @@ function mount() {
   const root = createRoot(host);
   return {
     host,
-    render: (node: Parameters<typeof root.render>[0]) => act(() => root.render(node)),
+    render: (node: Parameters<typeof root.render>[0]) =>
+      act(() => root.render(h(QueryClientProvider, { client: queryClient }, node))),
     close: () => {
       act(() => root.unmount());
       host.remove();
@@ -217,13 +222,14 @@ describe('新增消息交互', () => {
       expect(card.querySelector('.weq-profile-name')?.textContent).toBe(
         conversation.type === 'group' ? conversation.group.name : undefined,
       );
-      act(() => card.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
-      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+      // 关闭按钮文案已统一为「关闭群资料」；名片外壳是共用的 .weq-member-pop（不再有 .weq-profile-dialog）。
+      act(() => card.querySelector<HTMLButtonElement>('button[aria-label="关闭群资料"]')!.click());
+      expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).toBeNull();
       act(() => title.click());
       render(demo.conversations.find((item) => item.type === 'direct')!);
-      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+      expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).toBeNull();
       render();
-      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+      expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).toBeNull();
     } finally {
       fixture.close();
     }
@@ -644,32 +650,44 @@ describe('新增消息交互', () => {
     const conversation = demo.conversations.find((item) => item.type === 'direct')!;
     function Card() {
       const [open, setOpen] = useState(false);
-      return h(MemberProfileCard, {
-        member: { ...conversation.otherUser!, identityLabel: 'QQ', identityValue: '123456' },
-        anchor: { x: 100, y: 100 },
-        onClose: close,
-        onPreviewChat: () => {
-          preview();
-          setOpen(true);
-        },
-        previewContent: open
-          ? h(GapMessagesModal, {
-              embedded: true,
-              preview: true,
-              conversation,
-              user: demo.user,
-              messages: [],
-              loading: false,
-              loadingMore: false,
-              error: null,
-              hasMore: false,
-              moreFailed: false,
-              totalCount: 0,
-              onLoadMore: vi.fn(),
-              onClose: () => setOpen(false),
-            })
-          : null,
-      });
+      // 名片只在「会话已存在」时提供「预览消息」；本用例给一份会话目录满足该前提。
+      const directory = {
+        real: [conversation],
+        virtual: [],
+        profileConversationExists: () => true,
+        onVirtual: vi.fn(),
+        onCreate: vi.fn(),
+      };
+      return h(
+        ConversationDirectoryContext.Provider,
+        { value: directory },
+        h(MemberProfileCard, {
+          member: { ...conversation.otherUser!, identityLabel: 'QQ', identityValue: '123456' },
+          anchor: { x: 100, y: 100 },
+          onClose: close,
+          onPreviewChat: () => {
+            preview();
+            setOpen(true);
+          },
+          previewContent: open
+            ? h(GapMessagesModal, {
+                embedded: true,
+                preview: true,
+                conversation,
+                user: demo.user,
+                messages: [],
+                loading: false,
+                loadingMore: false,
+                error: null,
+                hasMore: false,
+                moreFailed: false,
+                totalCount: 0,
+                onLoadMore: vi.fn(),
+                onClose: () => setOpen(false),
+              })
+            : null,
+        }),
+      );
     }
     try {
       fixture.render(h(Card));

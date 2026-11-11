@@ -579,8 +579,15 @@
     flex: 0 0 44px;
     place-items: center;
     border: 0;
+    border-radius: 8px;
     background: transparent;
     color: inherit;
+  }
+
+  /* 键盘聚焦用主题强调色，避免出现浏览器默认的蓝色 auto 焦点框。 */
+  :where(html[data-weq-layout='single']) .weq-mobile-settings-header button:focus-visible {
+    outline: 2px solid var(--weq-accent-effective);
+    outline-offset: -2px;
   }
 
   :where(html[data-weq-layout='single']) .weq-mobile-settings-header strong {
@@ -662,12 +669,38 @@
     flex: 1;
   }
 
-  html:where([data-weq-layout='single'])[data-theme]
-    .weq-web-shell
+  /* 单列布局下二级导航单行横滑：不再折成 3 行占掉半屏，右侧渐隐提示还能滑。 */
+  html:where([data-weq-layout='single'])[data-theme] .weq-web-shell
     .weq-mobile-settings
     .weq-settings-subnav {
     min-height: 48px;
     padding: 4px 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 10px,
+      #000 calc(100% - 24px),
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 10px,
+      #000 calc(100% - 24px),
+      transparent 100%
+    );
+  }
+
+  html:where([data-weq-layout='single'])[data-theme]
+    .weq-web-shell
+    .weq-mobile-settings
+    .weq-settings-subnav::-webkit-scrollbar {
+    display: none;
   }
 
   :where(html[data-weq-layout='single'])
@@ -675,6 +708,8 @@
     .weq-mobile-settings
     .weq-settings-subnav-item {
     min-height: 40px;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   html:where([data-weq-layout='single'])[data-theme]

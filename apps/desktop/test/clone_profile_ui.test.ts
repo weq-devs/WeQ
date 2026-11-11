@@ -95,11 +95,13 @@ for (const kind of ['persona', 'group'] as const) {
       expect(card.querySelector('.weq-profile-expand')).toBeNull();
       expect(card.textContent).not.toContain('virtual:');
       if (kind === 'group') {
-        expect(card.querySelectorAll('.weq-profile-member')).toHaveLength(2);
+        // 群名片改用成员头像预览（八位、好友优先），旧的 .weq-profile-member 列表已移除。
+        expect(card.querySelectorAll('.weq-group-preview-avatars button')).toHaveLength(2);
         await act(async () =>
-          card.querySelectorAll<HTMLButtonElement>('.weq-profile-member')[1]!.click(),
+          card.querySelectorAll<HTMLButtonElement>('.weq-group-preview-avatars button')[1]!.click(),
         );
-        expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).toBeNull();
+        // 清单 G08：点成员头像打开成员名片，父群名片保留，关掉成员名片能回到原位置。
+        expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).not.toBeNull();
         expect(document.querySelector('[aria-label="用户资料"]')?.textContent).toContain(
           peer.displayName,
         );

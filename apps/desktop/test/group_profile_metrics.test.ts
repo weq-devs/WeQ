@@ -73,8 +73,9 @@ it('展示排序缓存中的指标，零值有效，切群不串数据', () => {
   };
   render();
   expect(host.textContent).toBe('活跃度:123群内好友数:0');
+  // 另一个群没有缓存：不出行（不再写「未知」），也不会串上一个群的值。
   render('20002');
-  expect(host.textContent).toBe('活跃度:未知群内好友数:未知');
+  expect(host.textContent).toBe('');
 });
 
 it('缺失或无效值显示未知，更新失败仍保留已有缓存', () => {
@@ -85,7 +86,8 @@ it('缺失或无效值显示未知，更新失败仍保留已有缓存', () => {
     },
   };
   render();
-  expect(host.textContent).toBe('活跃度:未知群内好友数:3');
+  // 无效（NaN）值不出行；同一次快照里的有效值照常显示。
+  expect(host.textContent).toBe('群内好友数:3');
 });
 
 it('绑定实际账号与数据源，缓存变化仅刷新本地快照', () => {
@@ -102,7 +104,7 @@ it('绑定实际账号与数据源，缓存变化仅刷新本地快照', () => {
   mock.config = { uin: '99999', configId: 'other-source' };
   render();
   expect(mock.query.mock.lastCall![1].enabled).toBe(false);
-  expect(host.textContent).toBe('活跃度:未知群内好友数:未知');
+  expect(host.textContent).toBe('');
 });
 
 it('后台页不查询或订阅，无打开账号时不挂载缓存读取', () => {
@@ -113,5 +115,5 @@ it('后台页不查询或订阅，无打开账号时不挂载缓存读取', () =
   vi.clearAllMocks();
   render();
   expect(mock.query).not.toHaveBeenCalled();
-  expect(host.textContent).toBe('活跃度:未知群内好友数:未知');
+  expect(host.textContent).toBe('');
 });

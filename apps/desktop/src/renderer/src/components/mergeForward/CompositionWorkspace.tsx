@@ -20,7 +20,7 @@ import {
   Copy as RestoreWindow,
 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { resolveDraftSave } from '../../lib/draftConflicts';
+import { resolveDraftSave } from '../../lib/draftPersistence';
 import { IS_ELECTRON } from '../../lib/target';
 import { RenderDocumentContext } from '../../lib/renderDocument';
 import { useAppLock } from '../../state/lock';

@@ -22,8 +22,6 @@ import { z } from 'zod';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
-import { isRemoteClient } from '../lib/remoteClient';
-import { remoteUnsupportedTools } from '../components/settings/DataMaintenanceSection';
 import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
 import { WebBusinessCache } from '../components/WebBusinessCache';
 import { resolvedProfilesKey } from '../lib/webBusinessCache';
@@ -63,7 +61,7 @@ import {
   timelineRowKey,
 } from '../../../shared/roaming_timeline';
 import { useViewState } from '../state/view';
-import { resolveDraftSave } from '../lib/draftConflicts';
+import { resolveDraftSave } from '../lib/draftPersistence';
 import {
   rememberClientRetry,
   forgetClientRetry,
@@ -84,6 +82,7 @@ import { groupNoticeId } from '../lib/contactNotice';
 import {
   ContactWorkspaceNavigationContext,
   ProfileNavigationContext,
+  ProfileNavigationGuardContext,
 } from '../lib/profileNavigation';
 import { buddyRequestDirection, buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
@@ -220,7 +219,11 @@ import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
-import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
+import {
+  remoteUnsupportedTools,
+  type MaintenanceTool,
+} from '../components/settings/DataMaintenanceSection';
+import { isRemoteClient } from '../lib/remoteClient';
 import {
   SettingsDialog,
   DataMaintenanceDialog,
@@ -254,8 +257,6 @@ import {
   useQQEssence,
 } from '../state/qqEssence';
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
-import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
-import { GroupInfoPanel } from '../im-template/template/groupInfoPanel';
 import type { GroupInfoDetail } from '../im-template/template/groupInfoPanel';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
@@ -3247,11 +3248,11 @@ function MainWorkspace(): ReactElement {
     useSettingsMaintenance(messageScope);
   useEffect(() => () => useCaptureWindow.getState().dismiss(messageScope), [messageScope]);
   function openMaintenance(tool: MaintenanceTool) {
+    if (messageScopeRef.current !== messageScope) return;
     if (isRemoteClient() && remoteUnsupportedTools.includes(tool)) {
       pushToast({ tone: 'info', title: '此项仅在电脑端支持' });
       return;
     }
-    if (messageScopeRef.current !== messageScope) return;
     if (tool === 'capture') {
       if (!messageScope) {
         pushToast({ tone: 'warning', title: '当前账号与数据源尚未就绪' });
@@ -3327,9 +3328,12 @@ function MainWorkspace(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
-  const [groupInfoDetail, setGroupInfoDetail] = useState<{
-    groupCode: string;
-    detail: GroupInfoDetail;
+  const [groupWorkspaceLocation, setGroupWorkspaceLocation] = useState<{
+    code: string;
+    section?: import('../lib/profileNavigation').GroupWorkspaceTab;
+    albumId?: string;
+    folderId?: string;
+    fileId?: string;
   } | null>(null);
   /** 群成员管理弹窗（改群昵称 / 踢人）：应用层持有，与群公告 / 群精华同层。 */
   const [groupMemberDialog, setGroupMemberDialog] = useState<
@@ -3637,15 +3641,6 @@ function MainWorkspace(): ReactElement {
         groupCode: conversation.id,
         groupName: conversation.group.name,
       });
-    },
-    [],
-  );
-
-  // 群资料面板里点「群资料」：卡片本体在 WeQ 侧（components/GroupInfoDetailDialog），
-  // 这里只记下是哪个群 + 看哪个分组，渲染时用当前的 selectedConversation 喂数据。
-  const handleOpenGroupInfoDetail = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>, detail: GroupInfoDetail) => {
-      setGroupInfoDetail({ groupCode: conversation.id, detail });
     },
     [],
   );
@@ -5102,6 +5097,16 @@ function MainWorkspace(): ReactElement {
   // shell.activeConversation 只在主 conversations 列表里查找；隐藏会话和删除会话
   // 故意不进那份列表（见上方 conversations useMemo），所以查不到时兜底查
   // hiddenConversationsById 和 deletedConversationsById —— 否则从选择器点进去，消息页面直接打不开。
+  const handleOpenGroupInfoDetail = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>, detail: GroupInfoDetail) => {
+      setGroupWorkspaceLocation({
+        code: conversation.id,
+        section: detail === 'albums' ? 'albums' : 'details',
+      });
+      shell.openGroupDetails(conversation);
+    },
+    [shell.openGroupDetails],
+  );
   const selectedConversation =
     shell.activeConversation ??
     (shell.activeConversationId
@@ -5600,50 +5605,9 @@ function MainWorkspace(): ReactElement {
     };
   }, [loaded, selectedUid, isDirect, isGroup, messageScope]);
 
-  // 联系人群详情使用独立目标，复用成员分页缓存，不借用聊天页当前群的成员或搜索。
-  const groupDetailCode =
-    shell.view === 'contacts' ? (shell.selectedGroupConversationId ?? '') : '';
   const groupMemberTargets = useRef(new Set<string>());
-  groupMemberTargets.current = new Set([isGroup ? selectedUid : '', groupDetailCode]);
-  const contactGroupProfile = trpc.account.getGroupDetail.useQuery(
-    { groupCode: groupDetailCode },
-    { enabled: Boolean(groupDetailCode) },
-  );
-  const mapContactGroupMember = useCallback(
-    (member: GroupMemberWire) =>
-      groupMemberWireToMember(member, {
-        ownerUid: contactGroupProfile.data?.ownerUid,
-        levelConfigs: [],
-        botUids,
-        profileByUid,
-      }),
-    [contactGroupProfile.data?.ownerUid, botUids, profileByUid],
-  );
-  const [contactMemberKeyword, setContactMemberKeyword] = useState('');
-  useEffect(() => setContactMemberKeyword(''), [groupDetailCode]);
-  const contactMemberSearch = useGroupMemberSearch<GroupMemberWire>(
-    groupDetailCode || undefined,
-    contactMemberKeyword,
-    mapContactGroupMember,
-    groupInfoRevision,
-  );
-  const selectedGroupConversationForDetail = useMemo(() => {
-    const conv = shell.selectedGroupConversation;
-    if (!conv) return conv;
-    const detail = contactGroupProfile.data;
-    const resolved = detail ? groupDetailToConversation(detail, conv, user) : conv;
-    if (resolved.type !== 'group') return conv;
-    return {
-      ...resolved,
-      members: activeGroupMembers((groupMemberPages[conv.id] ?? []).map(mapContactGroupMember)),
-    };
-  }, [
-    shell.selectedGroupConversation,
-    contactGroupProfile.data,
-    groupMemberPages,
-    mapContactGroupMember,
-    user,
-  ]);
+  groupMemberTargets.current = new Set([isGroup ? selectedUid : '']);
+  const selectedGroupConversationForDetail = shell.selectedGroupConversation;
 
   // Keep one unread reader alive: DB pings request a refresh, rather than
   // cancelling and restarting an all-conversation scan on every change.
@@ -6316,17 +6280,6 @@ function MainWorkspace(): ReactElement {
       sub.unsubscribe();
     };
   }, [messageScope, utils, invalidateCachedMembers, invalidatePreviewMembers]);
-
-  useEffect(() => {
-    if (groupDetailCode && !groupMemberPages[groupDetailCode] && !groupMemberError[groupDetailCode])
-      void loadGroupMembersPage(groupDetailCode, 0);
-  }, [
-    groupDetailCode,
-    groupMemberPages,
-    groupMemberError,
-    groupMemberLoading,
-    loadGroupMembersPage,
-  ]);
 
   const peerUpdateSource = useRef(noticeAccountKey);
   peerUpdateSource.current = noticeAccountKey;
@@ -11283,6 +11236,7 @@ function MainWorkspace(): ReactElement {
   const selectSidebarGroup = useStableCallback((id: string) =>
     settingsNavigation.navigate(() => {
       setSurfaceNavigation((value) => value + 1);
+      setGroupWorkspaceLocation({ code: id, section: 'profile' });
       shell.selectGroup(id);
     }),
   );
@@ -11693,72 +11647,7 @@ function MainWorkspace(): ReactElement {
                           contactWorkspaceTab={shell.contactWorkspaceTab}
                           onContactWorkspaceTabChange={shell.setContactWorkspaceTab}
                           selectedGroupConversation={selectedGroupConversationForDetail}
-                          contactGroupDetails={
-                            selectedGroupConversationForDetail ? (
-                              <GroupInfoPanel
-                                layout="profile"
-                                conversation={selectedGroupConversationForDetail}
-                                profileLoading={contactGroupProfile.isLoading}
-                                loadingMoreMembers={Boolean(groupMemberLoading[groupDetailCode])}
-                                loadingError={groupMemberError[groupDetailCode] || null}
-                                onRetryMembers={() => {
-                                  if (groupDetailCode)
-                                    void loadGroupMembersPage(
-                                      groupDetailCode,
-                                      groupMemberPages[groupDetailCode]?.length ?? 0,
-                                    );
-                                }}
-                                onLoadMoreMembers={() => {
-                                  if (
-                                    !groupDetailCode ||
-                                    groupMemberError[groupDetailCode] ||
-                                    groupMemberHasMore[groupDetailCode] === false
-                                  )
-                                    return;
-                                  void loadGroupMembersPage(
-                                    groupDetailCode,
-                                    groupMemberPages[groupDetailCode]?.length ?? 0,
-                                  );
-                                }}
-                                memberSearch={contactMemberSearch.view}
-                                onMemberSearchChange={setContactMemberKeyword}
-                                onLoadMoreSearch={contactMemberSearch.loadMore}
-                                onOpenDetail={(detail) =>
-                                  handleOpenGroupInfoDetail(
-                                    selectedGroupConversationForDetail,
-                                    detail,
-                                  )
-                                }
-                                onOpenAnnouncements={() =>
-                                  handleOpenGroupAnnouncements(selectedGroupConversationForDetail)
-                                }
-                                onOpenAlbums={() =>
-                                  handleOpenGroupAlbums(selectedGroupConversationForDetail)
-                                }
-                                onOpenFiles={() =>
-                                  handleOpenGroupFiles(selectedGroupConversationForDetail)
-                                }
-                                onOpenEssence={() =>
-                                  handleOpenGroupEssence(selectedGroupConversationForDetail)
-                                }
-                                onOpenMember={(member, anchor) =>
-                                  handleOpenGraphMember(
-                                    {
-                                      uid: member.id,
-                                      uin: member.uin ?? '',
-                                      nick: member.nick,
-                                      card: member.card,
-                                    },
-                                    anchor,
-                                    {
-                                      code: groupDetailCode,
-                                      name: selectedGroupConversationForDetail.group.name,
-                                    },
-                                  )
-                                }
-                              />
-                            ) : undefined
-                          }
+                          groupWorkspaceLocation={groupWorkspaceLocation ?? undefined}
                           activeConversation={activeConversation}
                           messages={templateMessages}
                           messageRenderers={messageRenderers}
@@ -12148,15 +12037,6 @@ function MainWorkspace(): ReactElement {
               groupName={albumDialog.groupName}
               initialAlbumId={albumDialog.initialAlbumId}
               onClose={() => setAlbumDialog(null)}
-            />
-          ) : null}
-          {groupInfoDetail &&
-          selectedConversation?.type === 'group' &&
-          selectedConversation.id === groupInfoDetail.groupCode ? (
-            <GroupInfoDetailDialog
-              conversation={selectedConversation}
-              detail={groupInfoDetail.detail}
-              onClose={() => setGroupInfoDetail(null)}
             />
           ) : null}
           {groupFileDialog ? (
@@ -12592,233 +12472,244 @@ function MainWorkspace(): ReactElement {
   >((member, anchor, group) => setMemberCard({ member, anchor, groupContext: group ?? null }), []);
   return (
     <ContactWorkspaceNavigationContext.Provider
-      value={(target) => {
-        if (shell.view === 'messages') flushAllDirtyDrafts();
-        setMemberCard(null);
-        setPrivatePreview(null);
-        setArkFeedState(null);
-        setSurfaceNavigation((value) => value + 1);
-        if (target.kind === 'person') {
-          const contact = profileContacts.find(
-            (person) =>
-              person.id === target.contact.id ||
-              (person.identityLabel === 'QQ' &&
-                person.identityValue === target.contact.identityValue),
-          );
-          shell.openContactDetails(
-            {
-              ...target.contact,
-              ...contact,
-              profileContext: target.group
-                ? {
-                    groupCode: target.group.code,
-                    groupName: target.group.name,
-                    member: target.contact.profileContext?.member,
-                  }
-                : target.contact.profileContext,
-              profileLabelId: target.labelId,
-            },
-            target.tab,
-          );
-        } else {
-          const known = contactDirectoryConversations.find(
-            (conversation) =>
-              conversation.type === 'group' && conversation.id === target.conversation.id,
-          );
-          shell.openGroupDetails(known?.type === 'group' ? known : target.conversation);
-        }
-      }}
-    >
-      <ProfileNavigationContext.Provider value={profileNavigation}>
-        <QzoneNavigationContext.Provider
-          value={(uin, nickname) => {
-            if (!/^[1-9]\d{4,19}$/.test(uin)) return;
-            if (shell.view === 'messages') flushAllDirtyDrafts();
-            setArkFeedState(null);
-            setQzoneSpaceRequest({
-              accountUin: user.identityValue,
-              uin,
-              nickname,
-              revision: crypto.randomUUID(),
+      value={(target) =>
+        settingsNavigation.navigate(() => {
+          if (shell.view === 'messages') flushAllDirtyDrafts();
+          setMemberCard(null);
+          setPrivatePreview(null);
+          setArkFeedState(null);
+          setSurfaceNavigation((value) => value + 1);
+          if (target.kind === 'person') {
+            const contact = profileContacts.find(
+              (person) =>
+                person.id === target.contact.id ||
+                (person.identityLabel === 'QQ' &&
+                  person.identityValue === target.contact.identityValue),
+            );
+            shell.openContactDetails(
+              {
+                ...target.contact,
+                ...contact,
+                profileContext: target.group
+                  ? {
+                      groupCode: target.group.code,
+                      groupName: target.group.name,
+                      member: target.contact.profileContext?.member,
+                    }
+                  : target.contact.profileContext,
+                profileLabelId: target.labelId,
+              },
+              target.tab,
+            );
+          } else {
+            setGroupWorkspaceLocation({
+              code: target.conversation.id,
+              section: target.section ?? 'profile',
+              albumId: target.albumId,
+              folderId: target.folderId,
+              fileId: target.fileId,
             });
-            shell.switchView('qzone');
-          }}
-        >
-          <QzoneProfileContext.Provider
-            value={(uin, nickname, anchor) => {
-              const contact = buddyContacts.find((person) => person.identityValue === uin);
-              const profile = [...profileByUid.values()].find((person) => person.uin === uin);
-              const conversation = [
-                ...conversations,
-                ...hiddenConversationsById.values(),
-                ...deletedConversationsById.values(),
-              ].find((conv) => conv.type === 'direct' && conv.otherUser.identityValue === uin);
-              const peer = conversation?.type === 'direct' ? conversation.otherUser : null;
-              setMemberCard({
-                member: contact ??
-                  peer ?? {
-                    id: profile?.uid || '',
-                    identityLabel: 'QQ',
-                    identityValue: uin,
-                    username: profile?.uid || uin,
-                    displayName: profile?.nick || nickname || uin,
-                    avatarUrl: senderAvatarSrc(uin) || null,
-                  },
-                anchor,
-                fromSpace: true,
+            const known = contactDirectoryConversations.find(
+              (conversation) =>
+                conversation.type === 'group' && conversation.id === target.conversation.id,
+            );
+            shell.openGroupDetails(known?.type === 'group' ? known : target.conversation);
+          }
+        })
+      }
+    >
+      <ProfileNavigationGuardContext.Provider value={settingsNavigation.register}>
+        <ProfileNavigationContext.Provider value={profileNavigation}>
+          <QzoneNavigationContext.Provider
+            value={(uin, nickname) => {
+              if (!/^[1-9]\d{4,19}$/.test(uin)) return;
+              if (shell.view === 'messages') flushAllDirtyDrafts();
+              setArkFeedState(null);
+              setQzoneSpaceRequest({
+                accountUin: user.identityValue,
+                uin,
+                nickname,
+                revision: crypto.randomUUID(),
               });
+              shell.switchView('qzone');
             }}
           >
-            <ChatNavigationContext.Provider
-              value={(target) => {
-                void openProfileChat(target).catch(() =>
-                  pushToast({
-                    tone: 'info',
-                    durationKind: 'failure',
-                    title: '暂时无法打开会话，请稍后重试',
-                  }),
-                );
+            <QzoneProfileContext.Provider
+              value={(uin, nickname, anchor) => {
+                const contact = buddyContacts.find((person) => person.identityValue === uin);
+                const profile = [...profileByUid.values()].find((person) => person.uin === uin);
+                const conversation = [
+                  ...conversations,
+                  ...hiddenConversationsById.values(),
+                  ...deletedConversationsById.values(),
+                ].find((conv) => conv.type === 'direct' && conv.otherUser.identityValue === uin);
+                const peer = conversation?.type === 'direct' ? conversation.otherUser : null;
+                setMemberCard({
+                  member: contact ??
+                    peer ?? {
+                      id: profile?.uid || '',
+                      identityLabel: 'QQ',
+                      identityValue: uin,
+                      username: profile?.uid || uin,
+                      displayName: profile?.nick || nickname || uin,
+                      avatarUrl: senderAvatarSrc(uin) || null,
+                    },
+                  anchor,
+                  fromSpace: true,
+                });
               }}
             >
-              <QzoneCardNavigationContext.Provider
+              <ChatNavigationContext.Provider
                 value={(target) => {
-                  flushAllDirtyDrafts();
-                  setArkFeedState(null);
-                  setQzoneSpaceRequest({
-                    accountUin: user.identityValue,
-                    uin: target.uin,
-                    target,
-                    revision: crypto.randomUUID(),
-                  });
-                  shell.switchView('qzone');
+                  void openProfileChat(target).catch(() =>
+                    pushToast({
+                      tone: 'info',
+                      durationKind: 'failure',
+                      title: '暂时无法打开会话，请稍后重试',
+                    }),
+                  );
                 }}
               >
-                <ConversationDirectoryContext.Provider
-                  value={useEventContextValue<
-                    NonNullable<React.ContextType<typeof ConversationDirectoryContext>>
-                  >({
-                    real: conversations,
-                    profileConversationExists: (person) => {
-                      const id = person.uid || person.id;
-                      return (
-                        conversations.some(
-                          (item) =>
-                            item.id === id ||
-                            (item.type === 'direct' &&
-                              item.otherUser.identityValue === person.identityValue),
-                        ) ||
-                        hiddenConversationsById.has(id) ||
-                        deletedConversationsById.has(id) ||
-                        Boolean(temporaryConversations[id])
-                      );
-                    },
-                    guild: guildConversationRows,
-                    scope: conversationScope,
-                    onScopeChange: setConversationScope,
-                    preferences: conversationPrefs,
-                    showContactUnreadCount: displaySettings.data?.showContactUnreadCount ?? false,
-                    groupAssistantIds,
-                    showGroupAssistantMessageCount:
-                      displaySettings.data?.showGroupAssistantMessageCount ?? false,
-                    loadingError: contacts.error?.message,
-                    virtual: virtualRows,
-                    locate: conversationLocate,
-                    onAnalyze: handleAnalyzeConversation,
-                    onPin: (conversation, pinned) =>
-                      updateConversationPreference(conversation.id, 'pinned', pinned),
-                    onEditRemark: (conversation) => {
-                      const target = conversationRoamingTarget(conversation);
-                      if (target) setRemarkTarget(target);
-                    },
-                    onAnalyzeMember: (conversation, member) => {
-                      setAnalysisRequest((previous) => ({
-                        target: {
-                          kind: 'member',
-                          groupCode: conversation.group.id,
-                          memberUid: member.id.startsWith('u_') ? member.id : '',
-                          memberUin: member.identityValue || undefined,
-                        },
-                        revision: (previous?.revision ?? 0) + 1,
-                      }));
-                    },
-                    onRoaming: handleRoamingTargets,
-                    onReadState: (rows, unread) => void changeConversationReadState(rows, unread),
-                    readStateBusy,
-                    onVisibleConversations: prefetchVisible,
-                    onConversationIntent: prefetchIntent,
-                    onCalendar: (query) => setOverviewCalendar({ query }),
-                    onVirtual: (item) => {
-                      flushAllDirtyDrafts();
-                      setCloneSearchTarget(null);
-                      setVirtualOpen({ kind: item.kind, id: item.ownerId, revision: Date.now() });
-                      shell.switchView('agentlab');
-                    },
-                    onCreate: handleCreateClone,
-                    onCreateGroup: () => {
-                      flushAllDirtyDrafts();
-                      setCloneGroupRequest((current) => current + 1);
-                      shell.switchView('agentlab');
-                    },
-                  })}
+                <QzoneCardNavigationContext.Provider
+                  value={(target) => {
+                    flushAllDirtyDrafts();
+                    setArkFeedState(null);
+                    setQzoneSpaceRequest({
+                      accountUin: user.identityValue,
+                      uin: target.uin,
+                      target,
+                      revision: crypto.randomUUID(),
+                    });
+                    shell.switchView('qzone');
+                  }}
                 >
-                  <FriendDirectoryControls>
-                    <ContactDirectoryContext.Provider value={contactDirectoryValue}>
-                      <WorkspacePages
-                        navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
-                        onNavigate={() => {
-                          setSettingsOpen(false);
-                          setConvSettings(null);
-                          setRemarkTarget(null);
-                        }}
-                      >
-                        <RendererRecoveryNotice
-                          ready={
-                            Boolean(messageScope) &&
-                            !loadingInitialMessages &&
-                            (!shell.activeConversationId ||
-                              (Boolean(selectedConversation) &&
-                                (loaded.length > 0 || windowVerifiedAtRef.current > 0)))
-                          }
-                        />
-                        <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
-                          <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
-                            <GroupMessagePreviewContext.Provider
-                              value={useEventContextValue<
-                                NonNullable<React.ContextType<typeof GroupMessagePreviewContext>>
-                              >({
-                                open: (conversation) =>
-                                  void previewConversation(conversation, 'group-profile'),
-                                close: () => {
-                                  previewRequest.current++;
-                                  setPrivatePreview(null);
-                                },
-                                conversationId:
-                                  privatePreview?.source === 'group-profile'
-                                    ? privatePreview.conversation.id
-                                    : null,
-                                content:
-                                  privatePreview?.source === 'group-profile'
-                                    ? conversationPreviewContent
-                                    : null,
-                              })}
-                            >
-                              {chatContent}
-                            </GroupMessagePreviewContext.Provider>
-                          </RelationshipDirectoryContext.Provider>
-                        </GroupAlbumCardNavigationProvider>
-                      </WorkspacePages>
-                    </ContactDirectoryContext.Provider>
-                  </FriendDirectoryControls>
-                </ConversationDirectoryContext.Provider>
-              </QzoneCardNavigationContext.Provider>
-            </ChatNavigationContext.Provider>
-          </QzoneProfileContext.Provider>
-        </QzoneNavigationContext.Provider>
-        {/* 通话窗口盖在最上层：它是一次性的模态浮层，与主界面的浮层栈无关。 */}
-        {activeCall ? (
-          <CallWindow initial={activeCall} onClose={() => setActiveCall(null)} />
-        ) : null}
-      </ProfileNavigationContext.Provider>
+                  <ConversationDirectoryContext.Provider
+                    value={useEventContextValue<
+                      NonNullable<React.ContextType<typeof ConversationDirectoryContext>>
+                    >({
+                      real: conversations,
+                      profileConversationExists: (person) => {
+                        const id = person.uid || person.id;
+                        return (
+                          conversations.some(
+                            (item) =>
+                              item.id === id ||
+                              (item.type === 'direct' &&
+                                item.otherUser.identityValue === person.identityValue),
+                          ) ||
+                          hiddenConversationsById.has(id) ||
+                          deletedConversationsById.has(id) ||
+                          Boolean(temporaryConversations[id])
+                        );
+                      },
+                      guild: guildConversationRows,
+                      scope: conversationScope,
+                      onScopeChange: setConversationScope,
+                      preferences: conversationPrefs,
+                      showContactUnreadCount: displaySettings.data?.showContactUnreadCount ?? false,
+                      groupAssistantIds,
+                      showGroupAssistantMessageCount:
+                        displaySettings.data?.showGroupAssistantMessageCount ?? false,
+                      loadingError: contacts.error?.message,
+                      virtual: virtualRows,
+                      locate: conversationLocate,
+                      onAnalyze: handleAnalyzeConversation,
+                      onPin: (conversation, pinned) =>
+                        updateConversationPreference(conversation.id, 'pinned', pinned),
+                      onEditRemark: (conversation) => {
+                        const target = conversationRoamingTarget(conversation);
+                        if (target) setRemarkTarget(target);
+                      },
+                      onAnalyzeMember: (conversation, member) => {
+                        setAnalysisRequest((previous) => ({
+                          target: {
+                            kind: 'member',
+                            groupCode: conversation.group.id,
+                            memberUid: member.id.startsWith('u_') ? member.id : '',
+                            memberUin: member.identityValue || undefined,
+                          },
+                          revision: (previous?.revision ?? 0) + 1,
+                        }));
+                      },
+                      onRoaming: handleRoamingTargets,
+                      onReadState: (rows, unread) => void changeConversationReadState(rows, unread),
+                      readStateBusy,
+                      onVisibleConversations: prefetchVisible,
+                      onConversationIntent: prefetchIntent,
+                      onCalendar: (query) => setOverviewCalendar({ query }),
+                      onVirtual: (item) => {
+                        flushAllDirtyDrafts();
+                        setCloneSearchTarget(null);
+                        setVirtualOpen({ kind: item.kind, id: item.ownerId, revision: Date.now() });
+                        shell.switchView('agentlab');
+                      },
+                      onCreate: handleCreateClone,
+                      onCreateGroup: () => {
+                        flushAllDirtyDrafts();
+                        setCloneGroupRequest((current) => current + 1);
+                        shell.switchView('agentlab');
+                      },
+                    })}
+                  >
+                    <FriendDirectoryControls>
+                      <ContactDirectoryContext.Provider value={contactDirectoryValue}>
+                        <WorkspacePages
+                          navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
+                          onNavigate={() => {
+                            setSettingsOpen(false);
+                            setConvSettings(null);
+                            setRemarkTarget(null);
+                          }}
+                        >
+                          <RendererRecoveryNotice
+                            ready={
+                              Boolean(messageScope) &&
+                              !loadingInitialMessages &&
+                              (!shell.activeConversationId ||
+                                (Boolean(selectedConversation) &&
+                                  (loaded.length > 0 || windowVerifiedAtRef.current > 0)))
+                            }
+                          />
+                          <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
+                            <RelationshipDirectoryContext.Provider value={relationshipDirectory}>
+                              <GroupMessagePreviewContext.Provider
+                                value={useEventContextValue<
+                                  NonNullable<React.ContextType<typeof GroupMessagePreviewContext>>
+                                >({
+                                  open: (conversation) =>
+                                    void previewConversation(conversation, 'group-profile'),
+                                  close: () => {
+                                    previewRequest.current++;
+                                    setPrivatePreview(null);
+                                  },
+                                  conversationId:
+                                    privatePreview?.source === 'group-profile'
+                                      ? privatePreview.conversation.id
+                                      : null,
+                                  content:
+                                    privatePreview?.source === 'group-profile'
+                                      ? conversationPreviewContent
+                                      : null,
+                                })}
+                              >
+                                {chatContent}
+                              </GroupMessagePreviewContext.Provider>
+                            </RelationshipDirectoryContext.Provider>
+                          </GroupAlbumCardNavigationProvider>
+                        </WorkspacePages>
+                      </ContactDirectoryContext.Provider>
+                    </FriendDirectoryControls>
+                  </ConversationDirectoryContext.Provider>
+                </QzoneCardNavigationContext.Provider>
+              </ChatNavigationContext.Provider>
+            </QzoneProfileContext.Provider>
+          </QzoneNavigationContext.Provider>
+          {/* 通话窗口盖在最上层：它是一次性的模态浮层，与主界面的浮层栈无关。 */}
+          {activeCall ? (
+            <CallWindow initial={activeCall} onClose={() => setActiveCall(null)} />
+          ) : null}
+        </ProfileNavigationContext.Provider>
+      </ProfileNavigationGuardContext.Provider>
     </ContactWorkspaceNavigationContext.Provider>
   );
 }

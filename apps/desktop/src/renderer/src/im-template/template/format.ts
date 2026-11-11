@@ -13,7 +13,7 @@ export function formatProfileDate(value: string) {
  * 与 {@link formatProfileDate} 的区别就是这个「空串兜底」：群资料的 `createTime`
  * 经常是空或 0，直接格式化会显示成 `1970/01/01`，比不显示更糟。
  *
- * 群资料面板（GroupInfoPanel）与群资料卡片（components/GroupInfoDetailDialog）
+ * 群资料面板（GroupInfoPanel）与群名片／资料页（components/groupProfile）
  * 都用它，所以放在这里共用，别在两边各抄一份。
  */
 export function formatShortDate(value: string | null | undefined) {

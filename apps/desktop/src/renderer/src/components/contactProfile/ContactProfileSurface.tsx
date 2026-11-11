@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { X } from 'lucide-react';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import type { Contact } from '../../im-template/template/types';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
@@ -8,6 +7,7 @@ import { MemberProfileCard } from '../MemberProfileCard';
 import { ContactWorkspace } from '../ContactWorkspace';
 import { ContactIdentity } from './ContactContent';
 import { ContactActions } from './ContactActions';
+import { ProfilePageHeader } from './ProfilePageHeader';
 import { toPersonalityProfile } from '../../im-template/template/profilePanes';
 
 export function ContactProfileSurface({
@@ -65,29 +65,21 @@ function ContactProfilePage({
         role="region"
         aria-label="联系人资料"
       >
-        <div className="weq-contact-page-toolbar">
-          <strong>联系人资料</strong>
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            aria-label="关闭资料"
-            title="关闭资料"
-            onClick={closing.requestClose}
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <header className="weq-contact-page-header">
-          <ContactIdentity person={person} pendant />
-          <ContactActions
-            key={JSON.stringify([...scope, person.id, person.identityValue])}
-            onNavigate={(action) => {
-              void closing.confirmLeave(action);
-            }}
-            person={person}
-            onPreviewChat={onPreviewChat ? () => onPreviewChat(person) : undefined}
-          />
-        </header>
+        <ProfilePageHeader
+          title="联系人资料"
+          onClose={closing.requestClose}
+          identity={<ContactIdentity person={person} pendant />}
+          actions={
+            <ContactActions
+              key={JSON.stringify([...scope, person.id, person.identityValue])}
+              onNavigate={(action) => {
+                void closing.confirmLeave(action);
+              }}
+              person={person}
+              onPreviewChat={onPreviewChat ? () => onPreviewChat(person) : undefined}
+            />
+          }
+        />
         {previewContent ? (
           <div className="weq-contact-chat-preview">{previewContent}</div>
         ) : (

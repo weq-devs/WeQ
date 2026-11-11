@@ -51,6 +51,79 @@ const native = {
 };
 
 describe('跨客户端邮箱未读同步', () => {
+  it('使用持久化查询间隔，修改后立即重新计时，断开后停止查询', async () => {
+    vi.useFakeTimers();
+    const auth = new MailAuth(native, '12345678', () => 42, new UnreadTransport());
+    const query = vi
+      .spyOn(auth, 'notificationQuery')
+      .mockResolvedValue({ unread: 0, next_sync_time_interval_sec: 1 });
+    const socket = Object.assign(new EventEmitter(), {
+      send: vi.fn(),
+      close: vi.fn(),
+      terminate: vi.fn(),
+    });
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+    });
+    try {
+      service.startBackground({ showUnread: true, notifications: false, pollIntervalMinutes: 3 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(query).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(179_999);
+      expect(query).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(query).toHaveBeenCalledTimes(2);
+      service.setPollIntervalMinutes(2);
+      await vi.advanceTimersByTimeAsync(119_999);
+      expect(query).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(query).toHaveBeenCalledTimes(3);
+      service.disconnect();
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(query).toHaveBeenCalledTimes(3);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
+  it('关闭横幅时，同未读数的新邮件仍触发列表刷新，相同结果不重复刷新', async () => {
+    vi.useFakeTimers();
+    const transport = new UnreadTransport();
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    const socket = Object.assign(new EventEmitter(), {
+      send: vi.fn(),
+      close: vi.fn(),
+      terminate: vi.fn(),
+    });
+    const onNotice = vi.fn();
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+      onNotice,
+    });
+    const events = vi.fn();
+    service.events.on('change', events);
+    try {
+      service.startBackground({ showUnread: true, notifications: false });
+      await vi.advanceTimersByTimeAsync(0);
+      events.mockClear();
+      transport.notices = [{ mailid: 'fixture-new' }];
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(events).toHaveBeenCalledWith({ type: 'changed' });
+      expect(onNotice).not.toHaveBeenCalled();
+      events.mockClear();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(events).not.toHaveBeenCalledWith({ type: 'changed' });
+      transport.unread = 0;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(events).toHaveBeenCalledWith({ type: 'changed' });
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
   it('累计独立收信文件夹，不把星标、标签、垃圾箱和功能入口重复计数', () => {
     expect(
       mailUnreadCount({

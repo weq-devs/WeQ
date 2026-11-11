@@ -1,3 +1,4 @@
-.weq-group-profile-layer.weq-nonmodal-layer[tabindex] > .weq-profile-dialog {
-  width: min(360px, calc(100vw - 16px));
-}
+/*
+ * 群快速名片改用共用浮层外壳（.weq-member-pop .weq-contact-card），
+ * 原来的 .weq-profile-dialog 宽度补丁已失效，删除以免误导。
+ */

@@ -111,6 +111,19 @@ describe('通知头像名片入口', () => {
     (Dialog) => {
       const close = vi.fn();
       const host = fixture(h(Dialog, { open: true, requests: [], onClose: close }));
+      // eslint-disable-next-line no-console
+      console.log(
+        'SURFACES',
+        [
+          ...document.querySelectorAll(
+            '[aria-modal="true"], [role="dialog"], .weq-overlay-layer, .weq-dialog-layer',
+          ),
+        ]
+          .map((n) => n.className || n.tagName)
+          .join(' | '),
+        '| host:',
+        host.innerHTML.slice(0, 120),
+      );
       act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
       expect(close).toHaveBeenCalledOnce();
       const outside = document.createElement('button');

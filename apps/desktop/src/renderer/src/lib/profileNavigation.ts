@@ -1,6 +1,12 @@
 import { createContext } from 'react';
+import { z } from 'zod';
 import type { Contact, GroupConversation, User } from '../im-template/template/types';
 import { avatarFromUin } from './avatarResolver';
+import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
+
+export const ProfileNavigationGuardContext = createContext<
+  ((guard: SettingsNavigation) => () => void) | null
+>(null);
 
 export type ProfileGroup = { code: string; name: string };
 export type ProfileTarget = {
@@ -31,18 +37,31 @@ export const ProfileNavigationContext = createContext<
   ((user: User, anchor: { x: number; y: number }, group?: ProfileGroup) => void) | null
 >(null);
 
-export type ContactWorkspaceTab =
+export const contactWorkspaceTabSchema = z.enum([
+  'profile',
+  'details',
+  'signatures',
+  'labels',
+  'questions',
+  'marks',
+  'group',
+  'personality',
+  'portrait',
+  'history',
+  'edit',
+]);
+export type ContactWorkspaceTab = z.infer<typeof contactWorkspaceTabSchema>;
+export type GroupWorkspaceTab =
   | 'profile'
   | 'details'
-  | 'signatures'
-  | 'labels'
-  | 'questions'
-  | 'marks'
-  | 'group'
-  | 'personality'
-  | 'portrait'
-  | 'history'
-  | 'edit';
+  | 'members'
+  | 'announcements'
+  | 'albums'
+  | 'files'
+  | 'essence'
+  | 'sign'
+  | 'management'
+  | 'history';
 export type ContactWorkspaceTarget =
   | {
       kind: 'person';
@@ -51,7 +70,14 @@ export type ContactWorkspaceTarget =
       group?: ProfileGroup;
       labelId?: string;
     }
-  | { kind: 'group'; conversation: GroupConversation };
+  | {
+      kind: 'group';
+      conversation: GroupConversation;
+      section?: GroupWorkspaceTab;
+      albumId?: string;
+      folderId?: string;
+      fileId?: string;
+    };
 
 /** 小名片展开到联系人详情，不向好友或群目录写入临时对象。 */
 export const ContactWorkspaceNavigationContext = createContext<

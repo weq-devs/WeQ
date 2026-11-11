@@ -33,6 +33,7 @@ import {
   DatabaseZap,
   Globe,
   HardDrive,
+  ImageIcon,
   HelpCircle,
   Lock,
   LockKeyhole,
@@ -680,12 +681,12 @@ function SettingsContent({
             <button
               type="button"
               aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
-              title="返回"
+              title={mobileCategoryOpen ? '返回设置分类' : '返回'}
               onClick={() =>
-                mobileBack() ||
-                (mobileCategoryOpen
+                // 标题写着「返回设置分类」时只回到一级分类，不经过返回栈退出设置。
+                mobileCategoryOpen
                   ? requestNavigation(() => setMobileCategoryOpen(false))
-                  : requestNavigation(onClose))
+                  : mobileBack() || requestNavigation(onClose)
               }
             >
               <ArrowLeft size={22} />
@@ -996,7 +997,12 @@ function AppearanceSection({
           <div className="weq-settings-appearance-card">
             <div className="weq-settings-appearance-head">
               <div>
-                <strong>基础模式</strong>
+                <span className="weq-settings-appearance-title">
+                  <span className="weq-set-card-icon" aria-hidden>
+                    <Sun size={15} strokeWidth={1.8} />
+                  </span>
+                  <strong>基础模式</strong>
+                </span>
                 <span>控制浅色、深色与跟随系统</span>
               </div>
               <SettingsResetButton card="theme-mode" />
@@ -1007,7 +1013,12 @@ function AppearanceSection({
           <div className="weq-settings-appearance-card">
             <div className="weq-settings-appearance-head">
               <div>
-                <strong>主题色</strong>
+                <span className="weq-settings-appearance-title">
+                  <span className="weq-set-card-icon" aria-hidden>
+                    <Palette size={15} strokeWidth={1.8} />
+                  </span>
+                  <strong>主题色</strong>
+                </span>
                 <span>拖动色相条或输入色值挑选主色，界面主色、描边与按钮都会跟随</span>
               </div>
               <SettingsResetButton card="theme-accent" />
@@ -1018,7 +1029,12 @@ function AppearanceSection({
           <div className="weq-settings-appearance-card">
             <div className="weq-settings-appearance-head">
               <div>
-                <strong>界面背景</strong>
+                <span className="weq-settings-appearance-title">
+                  <span className="weq-set-card-icon" aria-hidden>
+                    <ImageIcon size={15} strokeWidth={1.8} />
+                  </span>
+                  <strong>界面背景</strong>
+                </span>
                 <span>给聊天、联系人与导出页切换不同画布质感</span>
               </div>
               <SettingsResetButton card="theme-background" />

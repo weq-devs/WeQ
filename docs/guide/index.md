@@ -91,6 +91,7 @@ WeQ 是一个**完全自主**的 NTQQ 本地数据库解密、解析与导出工
 
 ## 相关文档
 
+- [群名片与群资料](./group-profiles.md)：快速名片、目录式完整资料和按需读取。
 - [本地资源页](./database-view.md)：维护工具里的本地缓存与数据库管理。
 - [常见问题](../../resources/help/faq.md)
 - [数据库分析](../database/index.md)

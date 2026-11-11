@@ -17,9 +17,17 @@ describe('basic_settings_navigation', () => {
       const group = settingsGroupFor('call-recording');
       expect(SETTINGS_GROUPS[1]?.label).toBe('基础功能');
       expect(group.label).toBe('基础功能');
-      expect(group.sections.indexOf('call-recording')).toBe(3);
+      // 联系人名片（7dded8b8 起）排在互动与防撤回之后，通话录音紧随其后。
+      expect(group.sections.slice(0, 3)).toEqual([
+        'chat-messages',
+        'message-display',
+        'chat-interaction',
+      ]);
+      expect(group.sections.indexOf('call-recording')).toBe(
+        group.sections.indexOf('contact-card') + 1,
+      );
       expect(settingsGroupFor('message-display').id).toBe(group.id);
-      expect(group.sections.slice(4)).toEqual(['qzone', 'mail']);
+      expect(group.sections.slice(-2)).toEqual(['qzone', 'mail']);
       expect(settingsSectionFor('call-recording')).toBe('call-recording');
       expect(settingsScopeFor('call-recording')).toBeNull();
     });

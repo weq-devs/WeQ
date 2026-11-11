@@ -10,6 +10,8 @@ import {
   X,
 } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
+import { Card, Row } from '../settings/controls';
+import { ContactEmptyState } from '../contactProfile/ContactRow';
 import { OverlayLayer } from '../OverlayLayer';
 import {
   groupTodoHistoryKey,
@@ -35,6 +37,8 @@ import {
 
 function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
+  const permissions = useQQGroupPermissions(groupId, a);
+  const canManage = permissions.data?.canManage === true;
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [tag, setTag] = useState('');
   const groupRefresh = useQQAutoRefresh(a.available);
@@ -56,51 +60,68 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
   const tagRows = [...tagCounts].map(([name, count]) => ({ name, count }));
   return (
     <section className="weq-qq-actions" aria-label="更多 QQ 群操作">
-      <div className="weq-group-management-heading">
-        <h4>群管理</h4>
-        <button
-          type="button"
-          className="weq-set-iconbtn"
-          title="群管理菜单"
-          aria-label="群管理菜单"
-          disabled={a.disabled}
-          onClick={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect();
-            setMenu({ x: rect.left, y: rect.bottom });
-          }}
-        >
-          <MoreHorizontal size={16} />
-        </button>
-      </div>
+      {/* 与设置页同一套 Card/Row 语言：章节标题由资料页给出，这里不再重复「群管理」。 */}
       <div className="weq-qq-action-form">
-        <GroupJoinSettings key={groupId} groupId={groupId} />
-        <section className="weq-group-tags" aria-label="群分类标签">
-          <h5>分类标签目录</h5>
-          <div className="weq-qq-action-form">
-            <select
-              key={category ?? 'unknown'}
-              aria-label="群分类"
-              defaultValue={category ?? ''}
-              disabled={a.disabled || category === null}
+        <Card
+          title="加群方式"
+          action={
+            <button
+              type="button"
+              className="weq-set-iconbtn"
+              title="群管理菜单"
+              aria-label="群管理菜单"
+              disabled={a.disabled}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setMenu({ x: rect.left, y: rect.bottom });
+              }}
             >
-              {category === null ? (
-                <option value="">{info.isFetching ? '读取分类中…' : '未取得群分类'}</option>
-              ) : (
-                <option value={category}>{info.data?.categoryName || `分类 ${category}`}</option>
-              )}
-            </select>
+              <MoreHorizontal size={16} />
+            </button>
+          }
+        >
+          <GroupJoinSettings key={groupId} groupId={groupId} />
+        </Card>
+        <Card title="分类标签">
+          <section className="weq-group-tags" aria-label="群分类标签">
+            <Row
+              label="群分类"
+              control={
+                <select
+                  key={category ?? 'unknown'}
+                  aria-label="群分类"
+                  defaultValue={category ?? ''}
+                  disabled={a.disabled || !canManage || category === null}
+                >
+                  {category === null ? (
+                    <option value="">{info.isFetching ? '读取分类中…' : '未取得群分类'}</option>
+                  ) : (
+                    <option value={category}>
+                      {info.data?.categoryName || `分类 ${category}`}
+                    </option>
+                  )}
+                </select>
+              }
+            />
             {info.error && <p role="alert">{info.error.message}</p>}
-            <input
-              aria-label="分类标签名称"
-              placeholder="标签名称"
-              value={tag}
-              maxLength={64}
-              onChange={(e) => setTag(e.target.value)}
+            <Row
+              label="新增标签"
+              desc="标签写入当前群分类，同名标签会累加"
+              control={
+                <input
+                  aria-label="分类标签名称"
+                  placeholder="标签名称"
+                  value={tag}
+                  maxLength={64}
+                  disabled={a.disabled || !canManage}
+                  onChange={(e) => setTag(e.target.value)}
+                />
+              }
             />
             <div className="weq-qq-action-bar">
               <ActionIcon
                 label="添加分类标签"
-                disabled={a.disabled || category === null || !tag.trim()}
+                disabled={a.disabled || !canManage || category === null || !tag.trim()}
                 onClick={() =>
                   void a.perform(
                     (b) =>
@@ -130,9 +151,9 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
               </ActionIcon>
             </div>
             {tags.error && <p role="alert">{tags.error.message}</p>}
-            <ul className="weq-qq-action-list">
-              {category !== null &&
-                tagRows.map((t) => (
+            {category !== null && tagRows.length ? (
+              <ul className="weq-qq-action-list">
+                {tagRows.map((t) => (
                   <li key={t.name}>
                     <span>
                       {t.name}
@@ -140,7 +161,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                     </span>
                     <ActionIcon
                       label="删除分类标签"
-                      disabled={a.disabled || category === null}
+                      disabled={a.disabled || !canManage || category === null}
                       onClick={() =>
                         void a.perform(
                           (b) =>
@@ -172,9 +193,13 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                     </ActionIcon>
                   </li>
                 ))}
-            </ul>
-          </div>
-        </section>
+              </ul>
+            ) : null}
+            {category !== null && !tagRows.length ? (
+              <ContactEmptyState>还没有分类标签。</ContactEmptyState>
+            ) : null}
+          </section>
+        </Card>
         <ActionFeedback action={a} />
       </div>
       {menu && (

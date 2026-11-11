@@ -129,6 +129,7 @@ function GroupMemberRows({
 }
 
 export function GroupInfoPanel({
+  membersOnly = false,
   layout = 'sidebar',
   hidden = false,
   conversation,
@@ -153,6 +154,7 @@ export function GroupInfoPanel({
   onOpenSign,
   onClose,
 }: {
+  membersOnly?: boolean;
   layout?: 'sidebar' | 'profile';
   hidden?: boolean;
   conversation: GroupConversationView;
@@ -201,8 +203,9 @@ export function GroupInfoPanel({
   const group = conversation.group;
   const announcement =
     group.announcement?.trim() || group.bulletins?.find((item) => item.text?.trim())?.text || '';
+  // 侧栏只留「日常扫一眼」能用的字段：长简介在资料页看，这里给明确的入口，
+  // 不再把简介压成一行带省略号的文本。
   const metaRows = [
-    group.description ? ['群简介', group.description] : null,
     group.remark ? ['群备注', group.remark] : null,
     group.createTime ? ['创建时间', formatShortDate(group.createTime)] : null,
     group.maxMemberCount ? ['群容量', `${group.memberCount}/${group.maxMemberCount}`] : null,
@@ -260,10 +263,27 @@ export function GroupInfoPanel({
         <button
           className={cn('group-info-title-button')}
           type="button"
-          title="查看群资料"
+          title="查看完整群资料"
+          style={{ gap: 2 }}
           onClick={() => onOpenDetail?.('profile')}
         >
           <strong>群资料</strong>
+          {onOpenDetail ? (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 2,
+                marginLeft: 6,
+                color: 'var(--weq-accent-effective)',
+                fontSize: 12,
+                fontWeight: 400,
+              }}
+            >
+              查看完整资料
+              <ChevronRight size={13} />
+            </span>
+          ) : null}
         </button>
         {onClose ? (
           <button
@@ -521,7 +541,9 @@ export function GroupInfoPanel({
           }
         />
       ) : null}
-      {layout === 'profile' ? (
+      {membersOnly ? (
+        memberList
+      ) : layout === 'profile' ? (
         <>
           <div className="weq-group-profile-primary">
             {announcementSection}

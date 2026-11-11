@@ -18,6 +18,7 @@ import { pickedBrowserFiles } from '../../browser_files';
 import { procedure, router } from '../trpc';
 import { rememberMail } from '../../search_content';
 import { exportSavePolicyInput } from './export_save';
+import { mailPollIntervalMinutes, MAX_MAIL_POLL_INTERVAL_MINUTES } from '@weq/service/mail-wire';
 
 const account = z.object({ selfUin: z.string().regex(/^[1-9]\d{4,19}$/) });
 const operation = account.extend({ requestId: z.string().uuid() });
@@ -215,13 +216,24 @@ export const mailRouter = router({
       });
     }),
   preferences: procedure.input(account).query(({ input }) => {
-    service(input.selfUin);
+    const mail = service(input.selfUin);
     const record = getAppContext().services?.accountConfig.getRecord();
     return {
       showUnread: record?.mailShowUnread ?? true,
       notifications: record?.mailNotifications ?? false,
+      pollIntervalMinutes: mailPollIntervalMinutes(record?.mailPollIntervalMinutes),
+      // 上次查询时间与间隔同组展示，用户才能判断「刚才查过没有」。
+      lastSync: mail.status().lastSync,
     };
   }),
+  setPollInterval: procedure
+    .input(account.extend({ minutes: z.number().int().min(1).max(MAX_MAIL_POLL_INTERVAL_MINUTES) }))
+    .mutation(({ input }) => {
+      const mail = service(input.selfUin);
+      getAppContext().services?.accountConfig.setMailPollIntervalMinutes(input.minutes);
+      mail.setPollIntervalMinutes(input.minutes);
+      return input.minutes;
+    }),
   setShowUnread: procedure.input(account.extend({ enabled: z.boolean() })).mutation(({ input }) => {
     const mail = service(input.selfUin);
     getAppContext().services?.accountConfig.setMailShowUnread(input.enabled);

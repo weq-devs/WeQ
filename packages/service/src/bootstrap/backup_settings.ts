@@ -4,6 +4,7 @@ import { isToastDuration } from '../common/toast_settings';
 import { isUpdateCheckInterval } from '../common/update_settings';
 import { normalizeQzonePagination } from '../common/qzone_pagination';
 import { DEFAULT_CONTACT_CARD } from '../common/contact_card';
+import { mailPollIntervalMinutes } from '../account/mail/wire';
 
 export type WeqAppBackupSettings = Omit<
   AppSettings,
@@ -547,6 +548,11 @@ export function validateWeqAccountSettings(
     'nativeMediaEnabled',
   ])
     if (row[key] !== undefined && typeof row[key] !== 'boolean') fail(`accounts.${key}`);
+  if (
+    row.mailPollIntervalMinutes !== undefined &&
+    mailPollIntervalMinutes(row.mailPollIntervalMinutes) !== row.mailPollIntervalMinutes
+  )
+    fail('accounts.mailPollIntervalMinutes');
   if (row.annualReport !== undefined) {
     const report = fields(row.annualReport, 'accounts.annualReport', [
       'mode',

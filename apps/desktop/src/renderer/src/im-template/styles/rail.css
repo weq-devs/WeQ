@@ -197,11 +197,10 @@
 }
 
 /* 移动端 rail 按钮铺满格子、带文字标签，沿用通用气泡的居上定位。 */
-@media all {
-  :where(html[data-weq-layout='single']) .app-shell .rail-nav .rail-badge-mail {
-    top: 0;
-    right: calc(50% - 24px);
-  }
+
+:where(html[data-weq-layout='single']) .app-shell .rail-nav .rail-badge-mail {
+  top: 0;
+  right: calc(50% - 24px);
 }
 
 /* 更新提示：只点一个小红点，不显示「新」字。 */

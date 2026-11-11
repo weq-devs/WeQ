@@ -8,11 +8,32 @@
 html[data-weq-mobile-client='true'] {
   --weq-client-safe-left: env(safe-area-inset-left, 0px);
   --weq-client-safe-right: env(safe-area-inset-right, 0px);
+  --weq-client-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 横屏多栏时导航栏变成左侧竖栏，底部「设置」会顶到手势条/三键栏上；
+   单栏的底部标签栏在自己那条规则里已经算过安全区，这里只补多栏。 */
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell .app-rail {
+  padding-bottom: var(--weq-client-safe-bottom);
 }
 
 html[data-weq-mobile-client='true'] .app-shell-root.weq-web-shell {
   padding-left: var(--weq-client-safe-left);
   padding-right: var(--weq-client-safe-right);
+}
+
+/* 只在「空间不足，群资料进浮层」时渲染（chatPane 里与浮层同条件）。
+   两种布局下群资料都是浮在聊天区上的一层：先给单栏的兜底位置与层级，
+   多栏的覆盖在下面的 1100px 段里。 */
+:where(html[data-weq-layout='single'])
+  .chat-pane.is-mobile-group-info-open
+  > .weq-group-info-scrim {
+  position: absolute;
+  z-index: 7;
+  top: var(--chat-header-height);
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 html[data-weq-mobile-client='true'][data-weq-layout='single']
@@ -122,6 +143,10 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
     .chat-pane.is-mobile-group-info-open
     > .group-info-panel {
     position: absolute;
+    /* 基类把它放在 grid 第 2 列（chat.css `.group-info-panel`），这里已经改成单列模板，
+       第 2 列只剩一个隐式空列；绝对定位元素的包含块就是那块 grid area，不重置
+       grid-area 会让 width:min(100%,300px) 解析成 ~2px —— 浮层"打开"了但看不见。 */
+    grid-area: auto;
     z-index: 20;
     top: var(--chat-header-height);
     right: 0;
@@ -130,7 +155,22 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
     width: min(100%, 300px);
     min-width: 0;
     overflow: auto;
+    /* 多栏时它是列，透明才能让聊天画布的渐变连续；浮层时必须落成实心面，
+       否则底下的消息和输入框工具会透上来（单栏浮层也是这么做的）。 */
+    border-left-color: var(--weq-border-subtle);
+    background: var(--weq-bg-surface);
     box-shadow: var(--weq-shadow-card);
+  }
+
+  /* 吃掉浮层旁边那一侧的指针事件：只关浮层，不穿透到消息。 */
+  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-pane.is-mobile-group-info-open
+    > .weq-group-info-scrim {
+    position: absolute;
+    z-index: 19;
+    top: var(--chat-header-height);
+    right: 0;
+    bottom: 0;
+    left: 0;
   }
 
   html[data-weq-mobile-client='true'][data-weq-layout='wide'] .group-info-toggle {

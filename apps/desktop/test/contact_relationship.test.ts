@@ -1,10 +1,113 @@
 import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
 vi.mock(
   '../src/renderer/src/hooks/useContactDirectoryOrder',
   () => import('./support/contact-order.stub'),
 );
+
+// 名片与资料页现在统一读 bootstrap.getSettings（内容开关）并带 tanstack 查询；
+// 这里只搭一个空壳 trpc 树，不改变本文件断言的关系语义。
+vi.mock('../src/renderer/src/trpc/client', () => {
+  const emptyQuery = () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    isSuccess: false,
+    error: null,
+    refetch: async () => ({ data: undefined }),
+  });
+  const tree: any = () =>
+    new Proxy(() => {}, {
+      get: (_target, key: string) => {
+        if (key === 'useQuery' || key === 'useInfiniteQuery') return emptyQuery;
+        if (key === 'useMutation')
+          return () => ({ isLoading: false, error: null, mutateAsync: async () => ({}) });
+        if (key === 'query') return async () => null;
+        if (key === 'useUtils') return () => tree();
+        if (key === 'getData') return () => undefined;
+        if (key === 'setData') return () => undefined;
+        if (key === 'invalidate' || key === 'cancel') return async () => undefined;
+        return tree();
+      },
+      apply: () => undefined,
+    });
+  const allVisible = {
+    contactCard: {
+      visible: Object.fromEntries(
+        [
+          'qqShow',
+          'pendant',
+          'signature',
+          'signatureUpdated',
+          'gender',
+          'age',
+          'birthday',
+          'constellation',
+          'zodiac',
+          'bloodType',
+          'region',
+          'occupation',
+          'school',
+          'labels',
+          'photos',
+          'status',
+          'common',
+          'category',
+          'intimacy',
+          'relations',
+          'marks',
+          'privileges',
+          'level',
+          'likes',
+          'energy',
+          'qid',
+          'uid',
+          'description',
+          'company',
+          'email',
+          'friendClue',
+          'notes',
+          'botDescription',
+          'botFeatures',
+          'groupLevel',
+          'joinedAt',
+          'lastSpeakAt',
+        ].map((key) => [key, true]),
+      ),
+    },
+  };
+  const settingsTree: any = () =>
+    new Proxy(() => {}, {
+      get: (_target, key: string) => {
+        if (key === 'useQuery') return () => ({ data: allVisible, isLoading: false, error: null });
+        if (key === 'query') return async () => allVisible;
+        if (key === 'useUtils') return () => tree();
+        return settingsTree();
+      },
+      apply: () => undefined,
+    });
+  return {
+    client: tree(),
+    trpc: new Proxy(() => {}, {
+      get: (_target, key: string) => {
+        if (key === 'bootstrap') return settingsTree();
+        if (key === 'useUtils') return () => tree();
+        return tree();
+      },
+      apply: () => undefined,
+    }),
+    useQQWriteSession: () => ({
+      binding: { expectedAccountUin: '10000', expectedAccountConfigId: 'stub' },
+      available: true,
+      busy: false,
+      result: null,
+      run: async () => true,
+    }),
+  };
+});
+
 import {
   groupRelationship,
   personRelationship,
@@ -83,13 +186,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
 function mount(node: ReactNode, value: RelationshipDirectory | null = directory) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const render = (next: RelationshipDirectory | null) =>
-    act(() => root.render(h(RelationshipDirectoryContext.Provider, { value: next }, node)));
+    act(() =>
+      root.render(
+        h(
+          QueryClientProvider,
+          { client: queryClient },
+          h(RelationshipDirectoryContext.Provider, { value: next }, node),
+        ),
+      ),
+    );
   render(value);
   cleanups.push(() => {
     act(() => root.unmount());
@@ -129,10 +242,15 @@ it.each([false, true])(
     const scope = embedded ? host : document.body;
     expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('我的好友');
     expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('同学');
-    expect(scope.querySelector('[aria-label="联系人资料"]')).not.toBeNull();
-    expect(scope.querySelector('[data-friend-clue]')?.getAttribute('data-friend-clue')).toBe(
-      person.id,
-    );
+    // 内嵌时由 ProfileWorkspace 提供「联系人资料」页头；浮层名片沿用统一名片外壳的 aria-label。
+    expect(
+      scope.querySelector(embedded ? '[aria-label="联系人资料"]' : '[aria-label="用户资料"]'),
+    ).not.toBeNull();
+    // 好友添加信息由名片内容开关控制（默认关闭）；这里只验证共用正文把它们渲染在同一套行模型里。
+    if (!embedded)
+      expect(scope.querySelector('[data-friend-clue]')?.getAttribute('data-friend-clue')).toBe(
+        person.id,
+      );
   },
 );
 

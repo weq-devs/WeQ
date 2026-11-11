@@ -81,6 +81,8 @@ export interface AccountConfig {
   mailNotifications?: boolean;
   /** 左侧导航显示邮箱未读数；旧配置默认显示。 */
   mailShowUnread?: boolean;
+  /** 后台邮箱查询间隔，单位分钟；旧配置默认一分钟。 */
+  mailPollIntervalMinutes?: number;
   /**
    * Stable record id derived from (uin, dataDir). Filename is
    * `<configId>.json`. Older configs written before this field existed fall
@@ -388,6 +390,10 @@ export class AccountConfigService {
 
   setMailShowUnread(enabled: boolean): void {
     this.patch({ mailShowUnread: enabled });
+  }
+
+  setMailPollIntervalMinutes(minutes: number): void {
+    this.patch({ mailPollIntervalMinutes: minutes });
   }
 
   /** Update the online flag + pid without disturbing the rest of the record. */

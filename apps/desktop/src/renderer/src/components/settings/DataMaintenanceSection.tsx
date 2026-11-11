@@ -26,13 +26,10 @@ import '../../styles/data-maintenance.css';
 import { WonderfulToolsDialog } from '../WonderfulToolsDialog';
 import { ExportTool } from '../../views/ExportView';
 import { useRemoteClient } from '../../lib/remoteClient';
+import { REMOTE_BLOCKED_MAINTENANCE_TOOLS } from '../../../../shared/remote_capabilities';
 
-export const remoteUnsupportedTools: readonly MaintenanceTool[] = [
-  'cleanup',
-  'db-repair',
-  'other-device-key',
-  'login-accounts',
-];
+/** 清单本身在 shared/remote_capabilities（导航、设置搜索、维护工具共用一份）。 */
+export const remoteUnsupportedTools: readonly MaintenanceTool[] = REMOTE_BLOCKED_MAINTENANCE_TOOLS;
 
 export type MaintenanceTool =
   | 'cache'

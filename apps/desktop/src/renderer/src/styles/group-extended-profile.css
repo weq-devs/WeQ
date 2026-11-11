@@ -27,24 +27,7 @@
   margin: 4px 0 0;
   font-size: 13px;
 }
-.weq-group-extras-rows > div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-  padding: 7px 0;
-}
-.weq-group-extras-rows dt {
-  color: var(--weq-fg-secondary);
-  overflow-wrap: anywhere;
-}
-.weq-group-extras-rows dd {
-  margin: 0;
-  text-align: right;
-  color: var(--weq-fg-primary);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-html[data-theme='dark'] .weq-group-extras-toolbar > span,
-html[data-theme='dark'] .weq-group-extras-rows dt {
+/* 行本身由共用 ContactRow（.weq-profile-data-*）渲染，这里不再定义 dt/dd 网格。 */
+html[data-theme='dark'] .weq-group-extras-toolbar > span {
   color: var(--weq-fg-secondary);
 }

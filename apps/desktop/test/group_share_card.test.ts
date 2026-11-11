@@ -1,5 +1,6 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QqArk } from '../src/renderer/src/components/ark/QqArk';
 import {
@@ -10,6 +11,8 @@ import { buildContactPlaceholderArk } from '../src/renderer/src/im-template/temp
 import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 
+// 群名片已改为经 useGroupProfile 读取（账号绑定 + 成员预览 + 指标缓存），
+// 所以入口夹具需要 QueryClient 和这几个读查询的桩；断言仍是「不虚构群人数、不预取重资料」。
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({}),
@@ -17,9 +20,21 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isFetching: false }) },
+      groupMemberPreview: {
+        useQuery: () => ({ data: undefined, isFetching: false, error: null, refetch: vi.fn() }),
+      },
+      contactMetrics: {
+        snapshot: { useQuery: () => ({ data: undefined }) },
+        changed: { useSubscription: () => {} },
+      },
     },
   },
-  client: {},
+  client: {
+    account: {
+      getGroupDetail: { query: async () => null },
+      getCardDisplayNames: { query: async () => null },
+    },
+  },
 }));
 
 const code = '123456789';
@@ -52,6 +67,7 @@ function fixture(known = false, data: unknown = ark) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const conversation = sharedGroupConversation(target);
   conversation.group.memberCount = 23;
   conversation.group.announcement = '合成公告';
@@ -59,19 +75,23 @@ function fixture(known = false, data: unknown = ark) {
   act(() =>
     root.render(
       h(
-        ChatNavigationContext.Provider,
-        { value: openChat },
+        QueryClientProvider,
+        { client: queryClient },
         h(
-          ConversationDirectoryContext.Provider,
-          {
-            value: {
-              real: known ? [conversation] : [],
-              virtual: [],
-              onVirtual: vi.fn(),
-              onCreate: vi.fn(),
+          ChatNavigationContext.Provider,
+          { value: openChat },
+          h(
+            ConversationDirectoryContext.Provider,
+            {
+              value: {
+                real: known ? [conversation] : [],
+                virtual: [],
+                onVirtual: vi.fn(),
+                onCreate: vi.fn(),
+              },
             },
-          },
-          h('div', { onClick: parentClick }, h(QqArk, { arkData: data })),
+            h('div', { onClick: parentClick }, h(QqArk, { arkData: data })),
+          ),
         ),
       ),
     ),
@@ -124,11 +144,13 @@ describe('群名片消息', () => {
     expect(dialog.hasAttribute('aria-modal')).toBe(false);
     expect(dialog.parentElement?.classList.contains('weq-nonmodal-layer')).toBe(true);
     expect(dialog.parentElement?.classList.contains('is-popover')).toBe(true);
-    expect(dialog.textContent).toContain(target.name);
-    expect(dialog.querySelector('.weq-profile-name')?.textContent).toBe(target.name);
+    // 清单 G02：有本地备注时备注作主标题，原群名作副标题，两者不重复。
+    expect(dialog.querySelector('.weq-profile-name')?.textContent).toBe('合成群备注');
+    expect(dialog.querySelector('.weq-group-original-name')?.textContent).toBe(target.name);
     expect(dialog.textContent).toContain(code);
     expect(dialog.textContent).toContain('23');
-    expect(dialog.textContent).toContain('合成公告');
+    // 清单 G04：公告只在完整资料页显示，快速名片不展示公告正文。
+    expect(dialog.textContent).not.toContain('合成公告');
     expect(f.openChat).not.toHaveBeenCalled();
     expect(f.parentClick).not.toHaveBeenCalled();
     const open = [...dialog.querySelectorAll('button')].find((button) =>
@@ -146,9 +168,10 @@ describe('群名片消息', () => {
     act(() => card.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
     const dialog = document.querySelector('[aria-label="群资料"]')!;
     expect(dialog.textContent).toContain(target.name);
-    expect(dialog.querySelector('.weq-profile-members')).toBeNull();
-    expect(dialog.querySelector('.weq-profile-list')).toBeNull();
-    act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    // 未收录群：不虚构成员预览，也不出数据行。
+    expect(dialog.querySelector('.weq-group-preview')).toBeNull();
+    expect(dialog.querySelector('.weq-group-facts .weq-profile-data-row')).toBeNull();
+    act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭群资料"]')!.click());
     expect(document.querySelector('[aria-label="群资料"]')).toBeNull();
     act(() => card.click());
     const open = [

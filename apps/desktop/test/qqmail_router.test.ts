@@ -48,6 +48,7 @@ function fixture() {
     upload: vi.fn(),
     disconnect: vi.fn(),
     setShowUnread: vi.fn(),
+    setPollIntervalMinutes: vi.fn(),
     events: new EventEmitter(),
     setNotifications: vi.fn(async (enabled: boolean) => ({
       state: 'ready',
@@ -62,6 +63,7 @@ let mail: ReturnType<typeof fixture>;
 let preferences: {
   setMailNotifications: ReturnType<typeof vi.fn>;
   setMailShowUnread: ReturnType<typeof vi.fn>;
+  setMailPollIntervalMinutes: ReturnType<typeof vi.fn>;
   getRecord: ReturnType<typeof vi.fn>;
 };
 beforeEach(() => {
@@ -69,6 +71,7 @@ beforeEach(() => {
   preferences = {
     setMailNotifications: vi.fn(),
     setMailShowUnread: vi.fn(),
+    setMailPollIntervalMinutes: vi.fn(),
     getRecord: vi.fn(() => ({})),
   };
   mocks.selectedFile = null;
@@ -83,12 +86,33 @@ describe('原生邮箱 IPC 边界', () => {
     expect(await api.preferences({ selfUin: input.selfUin })).toEqual({
       showUnread: true,
       notifications: false,
+      pollIntervalMinutes: 1,
+      // 上次查询时间与间隔同组展示。
+      lastSync: 0,
     });
-    preferences.getRecord.mockReturnValue({ mailShowUnread: false, mailNotifications: true });
+    preferences.getRecord.mockReturnValue({
+      mailShowUnread: false,
+      mailNotifications: true,
+      mailPollIntervalMinutes: 5,
+    });
     expect(await api.preferences({ selfUin: input.selfUin })).toEqual({
       showUnread: false,
       notifications: true,
+      pollIntervalMinutes: 5,
+      lastSync: 0,
     });
+  });
+  it('查询间隔立即写入当前账号；拒绝无效值与跨账号修改', async () => {
+    await expect(api.setPollInterval({ selfUin: input.selfUin, minutes: 3 })).resolves.toBe(3);
+    expect(preferences.setMailPollIntervalMinutes).toHaveBeenCalledWith(3);
+    expect(mail.setPollIntervalMinutes).toHaveBeenCalledWith(3);
+    for (const minutes of [0, -1, 1.5, 61, Number.NaN]) {
+      await expect(api.setPollInterval({ selfUin: input.selfUin, minutes })).rejects.toThrow();
+    }
+    await expect(api.setPollInterval({ selfUin: '87654321', minutes: 2 })).rejects.toThrow(
+      '账号已切换',
+    );
+    expect(preferences.setMailPollIntervalMinutes).toHaveBeenCalledOnce();
   });
   it('未读数显示开关独立保存，拒绝跨账号读取与写入', async () => {
     await expect(api.setShowUnread({ selfUin: input.selfUin, enabled: false })).resolves.toBe(

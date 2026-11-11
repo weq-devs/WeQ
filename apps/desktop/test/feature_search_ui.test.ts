@@ -151,7 +151,9 @@ describe('功能与设置搜索界面', () => {
       expect(findSettingElement(host, '显示消息序号')).toBeNull();
       const dispose = revealSetting(host, '显示消息序号（seq）');
       expect(row.dataset.searchHighlight).toBe('true');
-      expect(document.activeElement).toBe(row);
+      // 落点聚焦行内第一个可操作控件（开关），行容器只是高亮目标。
+      const toggle = row.querySelector<HTMLElement>('[role="switch"]')!;
+      expect(document.activeElement).toBe(toggle);
       expect(change).not.toHaveBeenCalled();
       dispose();
       expect(row.hasAttribute('tabindex')).toBe(false);

@@ -457,7 +457,13 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(scroll.mock.contexts.filter((context) => context === setting)).toHaveLength(1);
       f.render('global', { ...target, revision: 2 });
       expect(scroll.mock.contexts.filter((context) => context === restoredSetting)).toHaveLength(1);
-      expect(document.activeElement).toBe(restoredSetting);
+      // 焦点落在命中行内第一个可操作控件上，行内没有控件时才落在行本身。
+      const focusable =
+        'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="switch"]:not([disabled]), button:not([disabled]), a[href], summary, [tabindex="0"]';
+      const control = restoredSetting.matches(focusable)
+        ? restoredSetting
+        : restoredSetting.querySelector<HTMLElement>(focusable);
+      expect(document.activeElement).toBe(control ?? restoredSetting);
     } finally {
       f.dispose();
       if (previous) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', previous);

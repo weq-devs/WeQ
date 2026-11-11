@@ -118,9 +118,11 @@ describe('群资料面板', () => {
   });
 
   it('渲染群资料行，创建时间格式化成 年/月/日', () => {
-    mountPanel();
+    mountPanel(undefined, undefined, { onOpenDetail: () => undefined });
 
-    expect(metaRow('群简介')?.querySelector('strong')?.textContent).toBe('群简介');
+    // 侧栏不再把群简介压成一行省略号，改为标题行上的「查看完整资料 ›」入口；其余日常字段照旧。
+    expect(metaRow('群简介')).toBeUndefined();
+    expect(document.querySelector('.group-info-heading')?.textContent).toContain('查看完整资料');
     expect(metaRow('群容量')?.querySelector('strong')?.textContent).toBe('12/200');
 
     const created = metaRow('创建时间')?.querySelector('strong')?.textContent ?? '';
@@ -201,10 +203,12 @@ describe('群资料面板', () => {
     expect(nextOpen).not.toHaveBeenCalled();
     expect(menu).not.toHaveBeenCalled();
   });
-  it('群资料展示排序依据中的活跃度和群内好友数，缺少缓存不误报零', () => {
+  it('群资料展示排序依据中的活跃度和群内好友数，缺少缓存不误报零，也不写「未知」占位', () => {
     mountPanel();
-    expect(metaRow('活跃度')?.querySelector('strong')?.textContent).toBe('未知');
-    expect(metaRow('群内好友数')?.querySelector('strong')?.textContent).toBe('未知');
+    // 设计契约 §3：没有可信缓存时整行不渲染；既不能报 0，也不允许「未知」占位。
+    expect(metaRow('活跃度')).toBeUndefined();
+    expect(metaRow('群内好友数')).toBeUndefined();
+    expect(document.querySelector('.group-info-panel')?.textContent).not.toContain('未知');
   });
   it('已退群与等级排行是并列图标按钮，已退群保留原回调', () => {
     const open = vi.fn();

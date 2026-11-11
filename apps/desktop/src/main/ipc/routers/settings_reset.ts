@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { DEFAULT_APP_SETTINGS, DEFAULT_INTENT_SENSE_CONFIG } from '@weq/service';
+import {
+  DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
+  mailPollIntervalMinutes,
+} from '@weq/service/mail-wire';
 import { INTENT_TUNING, type IntentTuningKey } from '@weq/service/intent-context';
 import { procedure, router, type RpcContext } from '../trpc';
 import { getAppContext, closeSalvageConnections } from '../../context/app_context';
@@ -515,6 +519,18 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       async () => {
         services.accountConfig.setMailNotifications(false);
         await services.mail.setNotifications(false);
+      },
+      { scope: '当前账号' },
+    );
+    add(
+      'mail',
+      'poll-interval',
+      '邮箱查询间隔',
+      mailPollIntervalMinutes(record?.mailPollIntervalMinutes),
+      DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
+      async () => {
+        services.accountConfig.setMailPollIntervalMinutes(DEFAULT_MAIL_POLL_INTERVAL_MINUTES);
+        services.mail.setPollIntervalMinutes(DEFAULT_MAIL_POLL_INTERVAL_MINUTES);
       },
       { scope: '当前账号' },
     );

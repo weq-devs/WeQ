@@ -7,7 +7,7 @@ import {
   rememberClientRetry,
   forgetClientRetry,
 } from '../lib/clientPreferences';
-import { resolveDraftSave } from '../lib/draftConflicts';
+import { resolveDraftSave } from '../lib/draftPersistence';
 
 /** 本机逐字恢复仍由原组件维护；停顿后共享，收到远端变化不覆盖未提交输入。 */
 export function useSharedAssistantDraft(

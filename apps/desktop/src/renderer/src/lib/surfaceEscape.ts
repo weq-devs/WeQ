@@ -79,7 +79,16 @@ export function useSurfaceEscape(
       const focusable = element.querySelector<HTMLElement>(
         'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
       );
-      (focusable ?? element).focus({ preventScroll: true });
+      // 非模态页面：首个可聚焦项在标题栏/导航里时，焦点交给面板容器本身而不是那个按钮。
+      // 否则进入页面会给「返回」「关闭」画上焦点框；而完全不聚焦会让 ESC（要求焦点在面板内）失效。
+      const chrome =
+        !modal &&
+        focusable?.closest(
+          'header, nav, [role="navigation"], .weq-mobile-settings-header, .weq-app-title-bar',
+        );
+      const target = chrome ? element : (focusable ?? element);
+      if (chrome && !element.hasAttribute('tabindex')) element.setAttribute('tabindex', '-1');
+      target.focus({ preventScroll: true });
     }
     return () => {
       // 常驻宿主关闭 Portal 时，节点可能先移除，浏览器已将焦点放回 body。
@@ -90,7 +99,7 @@ export function useSurfaceEscape(
       )
         (previous as HTMLElement).focus({ preventScroll: true });
     };
-  }, [active, ref]);
+  }, [active, modal, ref]);
 
   useEffect(() => {
     const element = ref.current;

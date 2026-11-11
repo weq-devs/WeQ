@@ -8,7 +8,7 @@ import { ChatPane, type ChatPaneProps } from './chatPane';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
 import type { ProfileActionRegistry } from './profileActions';
-import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
+import type { ContactWorkspaceTab, GroupWorkspaceTab } from '../../lib/profileNavigation';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
 import type {
   Contact,
@@ -34,6 +34,7 @@ export function ChatMainContent({
   onContactWorkspaceTabChange,
   selectedGroupConversation,
   contactGroupDetails,
+  groupWorkspaceLocation,
   activeConversation,
   messages,
   composerActions,
@@ -197,6 +198,13 @@ export function ChatMainContent({
   onPreviewContactChat?: (contact: Contact) => void;
   contactPreviewContent?: React.ReactNode;
   contactWorkspaceTab?: ContactWorkspaceTab;
+  groupWorkspaceLocation?: {
+    code: string;
+    section?: GroupWorkspaceTab;
+    albumId?: string;
+    folderId?: string;
+    fileId?: string;
+  };
   onContactWorkspaceTabChange?: (tab: ContactWorkspaceTab) => void;
   selectedGroupConversation?: GroupConversation;
   contactGroupDetails?: React.ReactNode;
@@ -249,6 +257,9 @@ export function ChatMainContent({
         ) : selectedGroupConversation ? (
           <GroupProfileDialog
             embedded
+            {...(groupWorkspaceLocation?.code === selectedGroupConversation.id
+              ? groupWorkspaceLocation
+              : {})}
             details={contactGroupDetails}
             conversation={selectedGroupConversation}
             onClose={onBackGroup}

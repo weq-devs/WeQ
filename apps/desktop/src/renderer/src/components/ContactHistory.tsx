@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { useTabActive } from './RetainedTabs';
 import '../styles/contact-history.css';
 
 const time = new Intl.DateTimeFormat('zh-CN', {
@@ -136,9 +137,10 @@ const sourceLabel: Record<string, string> = { online: '云端', local: '本地',
 
 /** 历史页仅读取账号配置与本地历史，不使用会触发在线能力检查的写操作 session。 */
 export function ContactHistory({ entity }: { entity: string }) {
+  const active = useTabActive();
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: Boolean(uin),
+    enabled: active && Boolean(uin),
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -166,26 +168,29 @@ function HistoryQuery({
   entity: string;
   binding: { expectedAccountUin: string; expectedAccountConfigId: string };
 }) {
+  const active = useTabActive();
   const [category, setCategory] = useState('');
   const [cursors, setCursors] = useState<Array<number | undefined>>([undefined]);
   const [selected, setSelected] = useState<number | null>(null);
   const input = { ...binding, entity };
   const categoriesQuery = trpc.account.contactMetrics.history.categories.useQuery(input, {
+    enabled: active,
     retry: false,
     refetchOnWindowFocus: false,
   });
   const list = trpc.account.contactMetrics.history.list.useQuery(
     { ...input, category, before: cursors.at(-1), limit: 30 },
-    { retry: false, refetchOnWindowFocus: false },
+    { enabled: active, retry: false, refetchOnWindowFocus: false },
   );
   const status = trpc.account.contactMetrics.history.status.useQuery(binding, {
+    enabled: active,
     retry: false,
     refetchOnWindowFocus: false,
-    refetchInterval: (data) => (data?.migrating ? 1000 : false),
+    refetchInterval: (data) => (active && data?.migrating ? 1000 : false),
   });
   const difference = trpc.account.contactMetrics.history.diff.useQuery(
     { ...input, id: selected ?? 1 },
-    { enabled: selected !== null, retry: false, refetchOnWindowFocus: false },
+    { enabled: active && selected !== null, retry: false, refetchOnWindowFocus: false },
   );
   const categories = categoriesQuery.data ?? [];
   return (
@@ -292,36 +297,39 @@ function HistoryQuery({
           ))}
         </ol>
       )}
-      <footer className="contact-history-pagination">
-        <button
-          type="button"
-          className="icon-button"
-          title="上一页"
-          aria-label="上一页"
-          disabled={cursors.length < 2 || list.isFetching}
-          onClick={() => {
-            setCursors((value) => value.slice(0, -1));
-            setSelected(null);
-          }}
-        >
-          <ChevronLeft size={18} />
-        </button>
-        <span>{cursors.length}</span>
-        <button
-          type="button"
-          className="icon-button"
-          title="下一页"
-          aria-label="下一页"
-          disabled={!list.data?.nextBefore || list.isFetching}
-          onClick={() => {
-            const cursor = list.data?.nextBefore;
-            if (cursor) setCursors((value) => [...value, cursor]);
-            setSelected(null);
-          }}
-        >
-          <ChevronRight size={18} />
-        </button>
-      </footer>
+      {/* 空列表 / 只有一页时不画分页器：没有可翻的页，页码「1」只会误导。 */}
+      {list.data?.rows.length && (cursors.length > 1 || list.data.nextBefore) ? (
+        <footer className="contact-history-pagination">
+          <button
+            type="button"
+            className="icon-button"
+            title="上一页"
+            aria-label="上一页"
+            disabled={cursors.length < 2 || list.isFetching}
+            onClick={() => {
+              setCursors((value) => value.slice(0, -1));
+              setSelected(null);
+            }}
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <span>第 {cursors.length} 页</span>
+          <button
+            type="button"
+            className="icon-button"
+            title="下一页"
+            aria-label="下一页"
+            disabled={!list.data?.nextBefore || list.isFetching}
+            onClick={() => {
+              const cursor = list.data?.nextBefore;
+              if (cursor) setCursors((value) => [...value, cursor]);
+              setSelected(null);
+            }}
+          >
+            <ChevronRight size={18} />
+          </button>
+        </footer>
+      ) : null}
     </section>
   );
 }

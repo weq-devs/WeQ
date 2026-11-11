@@ -8,6 +8,9 @@
 import {
   createContext,
   useContext,
+  useMemo,
+  useRef,
+  useState,
   type ButtonHTMLAttributes,
   type ReactElement,
   type ReactNode,
@@ -56,6 +59,12 @@ export function QueryError({
 
 export const SettingsScopeContext = createContext<SettingsScope | null>(null);
 
+/**
+ * 卡片 head 右侧的保存状态位。`AutoSave` 有槽位时把「正在保存／已保存／失败」
+ * 放进卡片标题行，避免它挤在行描述的位置上被当成人话说明。
+ */
+export const SaveStatusSlotContext = createContext<{ take: () => HTMLElement | null } | null>(null);
+
 export function SettingsScopeBadge() {
   const scope = useContext(SettingsScopeContext);
   return scope ? <span className="weq-settings-scope">{scope.label}</span> : null;
@@ -73,12 +82,15 @@ export function SectionHeader({
   desc,
   icon,
   titleClassName,
+  badge,
   pageReset = true,
 }: {
   title: string;
   desc?: ReactNode;
   icon?: ReactNode;
   titleClassName?: string;
+  /** 标题旁的固定说明（例如「自动保存」），只描述保存方式，不放操作。 */
+  badge?: ReactNode;
   pageReset?: boolean;
 }): ReactElement {
   const scope = useContext(SettingsScopeContext);
@@ -93,6 +105,7 @@ export function SectionHeader({
         ) : null}
         <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
         <SettingsScopeBadge />
+        {badge ? <span className="weq-set-badge">{badge}</span> : null}
       </div>
       {reset && pageReset ? (
         <div
@@ -131,6 +144,19 @@ export function Card({
 }): ReactElement | null {
   const reset = useContext(SettingsResetContext);
   const remote = useRemoteClient();
+  const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
+  const statusSlotTaken = useRef(false);
+  const statusSlotApi = useMemo(
+    () => ({
+      // 一张卡只把一个状态文字放进 head，其余仍在行内显示，避免重复「已保存」。
+      take: () => {
+        if (!statusSlot || statusSlotTaken.current) return null;
+        statusSlotTaken.current = true;
+        return statusSlot;
+      },
+    }),
+    [statusSlot],
+  );
   if (remote && (remoteUnsupported || !remoteSettingAvailable('', settingId))) return null;
   const card =
     resetId ??
@@ -153,15 +179,16 @@ export function Card({
             ) : (
               <span />
             )}
-            {action || card ? (
-              <div className="weq-set-card-action">
-                {action}
-                {canReset ? <SettingsResetButton card={card} /> : null}
-              </div>
-            ) : null}
+            <div className="weq-set-card-action">
+              <span className="weq-set-card-status" ref={setStatusSlot} />
+              {action}
+              {canReset ? <SettingsResetButton card={card} /> : null}
+            </div>
           </div>
         ) : null}
-        {children}
+        <SaveStatusSlotContext.Provider value={statusSlotApi}>
+          {children}
+        </SaveStatusSlotContext.Provider>
       </section>
     </SettingsResetCardContext.Provider>
   );

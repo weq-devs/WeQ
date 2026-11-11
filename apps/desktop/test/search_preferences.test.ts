@@ -7,11 +7,51 @@ import {
   useSearchPreferences,
 } from '../src/renderer/src/hooks/useSearchPreferences';
 import { SEARCH_CATEGORY_ORDER } from '../src/renderer/src/components/search/types';
+import {
+  acceptPreferences,
+  preferenceValue,
+  useClientPreferences,
+} from '../src/renderer/src/lib/clientPreferences';
+
+/*
+ * bc972cf1 起「搜索分类与号码查询偏好」是跨端共享设置：读写都走
+ * clientPreferences（共享值优先，localStorage 的 SEARCH_PREFERENCES_KEY 只用于
+ * 旧安装迁移/首帧兜底），不再由本机键承担保存。
+ */
+const shared = vi.hoisted(() => ({
+  revision: 0,
+  values: {} as Record<string, unknown>,
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    clientState: {
+      patch: {
+        mutate: async (patch: Record<string, unknown>) => {
+          shared.values = { ...shared.values, ...patch };
+          shared.revision += 1;
+          return { revision: shared.revision, values: { ...shared.values }, records: {} };
+        },
+      },
+      snapshot: {
+        query: async () => ({
+          revision: shared.revision,
+          values: { ...shared.values },
+          records: {},
+        }),
+      },
+    },
+  },
+  trpc: { useUtils: () => ({}) },
+}));
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   window.localStorage.removeItem(SEARCH_PREFERENCES_KEY);
+  shared.values = {};
+  shared.revision = 0;
+  acceptPreferences({ epoch: `test-${Date.now()}`, revision: 0, values: {}, records: {} }, false);
+  useClientPreferences.setState({ error: '', tick: 0 });
 });
 afterEach(() => {
   window.localStorage.removeItem(SEARCH_PREFERENCES_KEY);
@@ -45,11 +85,14 @@ it('默认全选；保存分类及功能开关，重新挂载恢复，包括空�
   expect(state!.numberLookupEnabled).toBe(false);
   act(() => state.setCategories([]));
   act(() => root.unmount());
-  expect(readSearchPreferences()).toEqual({
+  // 共享值是权威：空选择会保存成空数组。
+  expect(preferenceValue('search')).toMatchObject({
     categories: [],
     appEnabled: false,
     numberLookupEnabled: false,
   });
+  // 本机键不再是写入通道，仍然是默认值（只作旧安装迁移/兜底）。
+  expect(readSearchPreferences().categories).toEqual(SEARCH_CATEGORY_ORDER);
 });
 
 it('忽略旧分类、非法数据；损坏的存储回退全选', () => {
