@@ -8,11 +8,23 @@ import {
   profileTimeText,
 } from '../src/profile-values';
 
-it('编辑目录与尚未核实的缓存编号分开，未知值保真', () => {
+it('职业缓存显示 QQ 职业目录名称，目录外编号保真', () => {
   expect(QQ_PROFESSIONS.find((item) => item.value === 13)?.label).toBe('学生');
-  expect(occupationText(13)).toBe('职业（编号 13）');
+  expect(occupationText(1)).toBe('计算机／互联网／通信');
+  expect(occupationText(13)).toBe('学生');
+  expect(occupationText(14)).toBe('其他职业');
+  for (const item of QQ_PROFESSIONS) expect(occupationText(item.value)).toBe(item.label);
+  expect(occupationText(15)).toBe('职业（编号 15）');
   expect(occupationText(900)).toBe('职业（编号 900）');
-  expect(bloodTypeText(5)).toBe('血型（编号 5）');
+});
+
+it('血型按 QQ 枚举显示，O 型与 AB 型不按字母顺序错位', () => {
+  expect([1, 2, 3, 4, 5].map(bloodTypeText)).toEqual(['A型', 'B型', 'O型', 'AB型', '其他']);
+  expect(bloodTypeText(6)).toBe('血型（编号 6）');
+  expect(bloodTypeText(900)).toBe('血型（编号 900）');
+});
+
+it('生肖及空值保持原有语义，不将数字字符串或非法编号当作资料', () => {
   expect(chineseZodiacText(1)).toBe('鼠');
   expect(chineseZodiacText(12)).toBe('猪');
   expect(chineseZodiacText(20)).toBe('生肖（编号 20）');

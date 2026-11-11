@@ -61,7 +61,7 @@ it('签名时间正反序均未知沉底，默认并列稳定，不走在线指�
     groupFriends([contact('a'), { ...contact('b'), extInfo: null }], 'occupation', {}).map(
       (group) => group.name,
     ),
-  ).toEqual(['职业（编号 13）', '职业未知']);
+  ).toEqual(['学生', '职业未知']);
 });
 
 it('好友和群友共用缓存资料行，签名时间不脱离签名显示', () => {
@@ -70,8 +70,14 @@ it('好友和群友共用缓存资料行，签名时间不脱离签名显示', (
     root = createRoot(host);
   try {
     act(() => root.render(h(ProfileCacheFields, { extInfo: ext })));
-    expect(host.textContent).toContain('职业（编号 13）');
-    expect(host.textContent).toContain('血型（编号 5）');
+    expect(host.textContent).toContain('学生');
+    expect(host.textContent).toContain('其他');
+    expect(host.textContent).not.toContain('编号');
+    act(() =>
+      root.render(h(ProfileCacheFields, { extInfo: { ...ext, occupation: 900, bloodType: 900 } })),
+    );
+    expect(host.textContent).toContain('职业（编号 900）');
+    expect(host.textContent).toContain('血型（编号 900）');
     expect(host.textContent).toContain('鼠');
     act(() => root.render(h(SignatureUpdated, { signature: '', sigUpdateTime: seconds })));
     expect(host.textContent).toBe('');

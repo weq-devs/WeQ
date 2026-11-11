@@ -71,20 +71,22 @@ it('一次快照用于各格式，好友 vCard 与表格追加资料，归档保
       if (format === 'xlsx') {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(path);
-        expect(JSON.stringify(workbook.worksheets[0]!.getSheetValues())).toContain(
-          '职业（编号 13）',
-        );
+        expect(JSON.stringify(workbook.worksheets[0]!.getSheetValues())).toContain('学生');
       } else {
         const text = await readFile(path, 'utf8');
         if (format === 'vcard') {
-          expect(text).toContain('TITLE:职业（编号 13）');
+          expect(text).toContain('TITLE:学生');
+          expect(text).toContain('血型: 其他');
           expect(text).toContain('2026-11-11 00:01:02');
         } else if (format === 'json' || format === 'jsonl') {
           expect(text).toContain('occupation');
+          expect(text).toMatch(/"occupation"\s*:\s*13/);
+          expect(text).toMatch(/"bloodType"\s*:\s*5/);
           expect(text).toContain('interactMarks');
           expect(text).toContain('sigUpdateTime');
         } else {
-          expect(text).toContain('血型（编号 5）');
+          expect(text).toContain('其他');
+          expect(text).toContain('学生');
           expect(text).toContain('猪');
           expect(text).toContain('2026-11-11 00:01:02');
         }

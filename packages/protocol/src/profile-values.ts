@@ -1,4 +1,4 @@
-/** QQ 资料编辑器的职业目录；不代表本地 20022 缓存字段的编号映射已核实。 */
+/** QQ 资料职业目录，供编辑选项与缓存资料展示共用。 */
 export const QQ_PROFESSIONS = [
   '计算机／互联网／通信',
   '生产／工艺／制造',
@@ -16,18 +16,22 @@ export const QQ_PROFESSIONS = [
   '其他职业',
 ].map((label, index) => ({ value: index + 1, label }));
 
+const professions = new Map(QQ_PROFESSIONS.map(({ value, label }) => [value, label]));
+// QQ 血型枚举：O 型在 AB 型之前，5 为其他，参见 https://www.kancloud.cn/qqrobot/d5dqqrobot/771588。
+const bloodTypes = ['A型', 'B型', 'O型', 'AB型', '其他'];
+
 export function profileCode(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 export function occupationText(value: unknown): string | null {
   const code = profileCode(value);
-  return code === null ? null : `职业（编号 ${code}）`;
+  return code === null ? null : (professions.get(code) ?? `职业（编号 ${code}）`);
 }
 
 export function bloodTypeText(value: unknown): string | null {
   const code = profileCode(value);
-  return code === null ? null : `血型（编号 ${code}）`;
+  return code === null ? null : (bloodTypes[code - 1] ?? `血型（编号 ${code}）`);
 }
 
 const animals = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪'];

@@ -61,9 +61,9 @@ try {
   await directory.getByLabel('分组依据').selectOption('occupation');
   assert.deepEqual(
     new Set(await directory.locator('.contact-cat-name').allTextContents()),
-    new Set(['职业（编号 13）', '职业未知']),
+    new Set(['学生', '职业未知']),
   );
-  await directory.getByLabel('搜索联系人', { exact: true }).fill('职业（编号 13）');
+  await directory.getByLabel('搜索联系人', { exact: true }).fill('学生');
   assert.equal((await names()).length, 2);
   await directory.getByLabel('搜索联系人', { exact: true }).fill('');
   const profile = page.locator('[data-kind="profile"]');
@@ -114,8 +114,8 @@ try {
   await page.goto(`${url}?member=1`);
   const member = page.locator('.weq-member-pop');
   await member.waitFor();
-  await member.getByText('职业（编号 13）', { exact: true }).waitFor();
-  assert.ok((await member.textContent()).includes('血型（编号 5）'));
+  await member.getByText('学生', { exact: true }).waitFor();
+  await member.getByText('其他', { exact: true }).waitFor();
   assert.ok((await member.textContent()).includes('2026-11-11 00:01:02'));
   assert.equal(
     await member.evaluate((element) => element.scrollWidth > element.clientWidth),
