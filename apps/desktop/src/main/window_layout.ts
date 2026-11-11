@@ -1,7 +1,7 @@
-/** 登录采用竖版窗口；主界面仍使用原有聊天尺寸与最小边界。 */
+/** 登录采用竖版窗口；主界面默认横版，也允许手动收窄为竖屏。 */
 export const WINDOW_LAYOUTS = {
   home: { width: 440, height: 680, minWidth: 360, minHeight: 480 },
-  chat: { width: 1180, height: 760, minWidth: 940, minHeight: 520 },
+  chat: { width: 1180, height: 760, minWidth: 360, minHeight: 520 },
 } as const;
 export type WindowLayout = keyof typeof WINDOW_LAYOUTS;
 type Bounds = { x: number; y: number; width: number; height: number };
@@ -25,7 +25,7 @@ export function applyWindowLayout(win: LayoutWindow, layout: WindowLayout, area:
   const [contentWidth = before.width, contentHeight = before.height] = win.getContentSize();
   const frameWidth = Math.max(0, before.width - contentWidth);
   const frameHeight = Math.max(0, before.height - contentHeight);
-  // 先解除聊天窗口的最小宽度，否则 Electron 会把竖版尺寸夹回 940px。
+  // 先更新最小尺寸，再应用目标尺寸，避免被上一布局的最小边界夹回。
   win.setMinimumSize(Math.min(size.minWidth, area.width), Math.min(size.minHeight, area.height));
   win.setContentSize(
     Math.max(1, Math.min(size.width, area.width - frameWidth)),

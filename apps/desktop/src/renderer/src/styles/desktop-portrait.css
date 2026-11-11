@@ -1,0 +1,18 @@
+@media (max-width: 760px) {
+  /* 桌面保留标题栏；窄屏正文不能沿用 Web 的全视口定位。 */
+  .app-shell-root:not(.weq-web-shell) > .app-shell {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
+  .app-shell-root:not(.weq-web-shell) > .app-shell > .sidebar {
+    height: calc(100% - var(--mobile-tabbar-height) - env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-shell-root:not(.weq-web-shell) > .app-shell > .chat-main {
+    position: absolute;
+    height: 100%;
+  }
+}

@@ -17,6 +17,7 @@ import { MobileWebNavigation } from '../../components/MobileWebNavigation';
 import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntime';
 import { MobileRootPreviews } from '../../components/MobileRootPreviews';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
+import '../../styles/desktop-portrait.css';
 
 export function ChatShell({
   user,
