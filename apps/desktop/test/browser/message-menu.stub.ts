@@ -1,5 +1,12 @@
 export { client } from './favorite-emoji.stub';
 
+export const useVoiceTranscription = () => ({
+  available: true,
+  busy: false,
+  result: undefined,
+  run: () => window.menuActions.push('转文字'),
+});
+
 const faces = [
   {
     items: [

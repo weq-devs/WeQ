@@ -34,6 +34,7 @@ declare global {
       theme: ThemePreference,
       accent: string,
       background: ThemeBackground,
+      mode?: 'full' | 'sparse' | 'voice' | 'mixed',
     ) => void;
     menuActions: string[];
   }
@@ -42,6 +43,7 @@ window.menuActions = [];
 function Fixture() {
   const [state, setState] = useState<MessageContextMenuState | null>(null);
   const [more, setMore] = useState(false);
+  const [mode, setMode] = useState('full');
   const run = (name: string) => () => {
     window.menuActions.push(name);
   };
@@ -57,15 +59,31 @@ function Fixture() {
       <span>{name}</span>
     </button>
   );
-  window.menuFixture = (x, y, mobile, theme, accent, background) => {
+  window.menuFixture = (x, y, mobile, theme, accent, background, mode = 'full') => {
     const store = useThemeStore.getState();
     store.setPreference(theme);
     store.setAccent(accent);
     store.setBackground(background);
-    setState({ message, x, y, variant: mobile ? 'mobile' : 'desktop' });
+    setMode(mode);
+    setState({
+      message:
+        mode === 'voice' || mode === 'mixed'
+          ? {
+              ...message,
+              qqElements: [
+                ...(mode === 'mixed' ? message.qqElements : []),
+                { type: 'ptt', data: { fileName: 'fixture.amr', fileToken: 'fixture' } },
+              ],
+            }
+          : message,
+      x,
+      y,
+      variant: mobile ? 'mobile' : 'desktop',
+    });
   };
   return (
     <>
+      <span hidden data-menu-fixture-mode={mode} />
       <button type="button" id="origin">
         消息
       </button>
@@ -95,6 +113,27 @@ function Fixture() {
           intentAction={slot('意图感知', <BrainCircuit size={17} />)}
           favoriteEmojiAction={slot('添加到表情', <SmilePlus size={17} />)}
           revealAction={slot('在文件夹中显示', <FolderSearch size={17} />, true)}
+          {...(mode === 'sparse'
+            ? {
+                onForward: undefined,
+                onMultiSelect: undefined,
+                onReply: undefined,
+                onRepeat: undefined,
+                onRecall: undefined,
+                onAddToComposition: undefined,
+                onExport: undefined,
+                onViewDecoration: undefined,
+                onEditRaw: undefined,
+                onDelete: undefined,
+                onSaveMedia: undefined,
+                onReact: undefined,
+                essenceAction: null,
+                todoAction: null,
+                intentAction: null,
+                favoriteEmojiAction: null,
+                revealAction: null,
+              }
+            : {})}
         />
       )}
       {more && (

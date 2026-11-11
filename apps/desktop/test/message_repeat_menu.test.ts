@@ -25,7 +25,7 @@ const base = createTemplateDemoData().messages[0]!;
 afterEach(() => vi.unstubAllGlobals());
 
 describe('消息菜单 +1', () => {
-  it('点击重发右键选中的原消息，离线或发送期间禁用，不可发送消息隐藏', async () => {
+  it('点击重发右键选中的原消息，离线、发送期间或不可发送消息保留格位并禁用', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     document.body.append(host);
@@ -64,9 +64,11 @@ describe('消息菜单 +1', () => {
       }
       expect(onRepeat).toHaveBeenCalledTimes(1);
       for (const type of ['grayTipPoke', 'wallet', 'call']) {
-        expect(await render({ ...normal, qqElements: [{ type, data: {} }] })).toBeUndefined();
+        expect((await render({ ...normal, qqElements: [{ type, data: {} }] }))?.disabled).toBe(
+          true,
+        );
       }
-      expect(await render(normal, null, false)).toBeUndefined();
+      expect((await render(normal, null, false))?.disabled).toBe(true);
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -157,7 +159,7 @@ describe('消息菜单 +1', () => {
           root.render(createElement(ChatPane, { ...props, deletedIds: new Set(['history']) })),
         );
         await openMenu();
-        expect(menuButton()).toBeUndefined();
+        expect(menuButton()?.disabled).toBe(true);
       } finally {
         await act(async () => {
           finish();

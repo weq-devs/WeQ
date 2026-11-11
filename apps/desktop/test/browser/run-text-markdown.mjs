@@ -42,6 +42,7 @@ try {
   await page.locator('#message').waitFor();
   if (await page.locator('#message .qq-md').count()) throw new Error('自动关闭时不应预先渲染');
   await page.locator('#message').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '内容处理', exact: true }).click();
   await page.getByRole('button', { name: '显示 Markdown', exact: true }).click();
   await page.locator('#message [data-streamdown="strong"]').waitFor();
   const output = process.env.WEQ_STYLE_ARTIFACTS;
@@ -59,6 +60,7 @@ try {
       [theme, accent, background],
     );
     await page.locator('#message').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: '内容处理', exact: true }).click();
     await page.getByRole('button', { name: '显示原文', exact: true }).waitFor();
     if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-markdown.png`) });
     await page.getByRole('button', { name: '显示原文', exact: true }).click();
@@ -67,6 +69,7 @@ try {
       throw new Error('原文缺失');
     if (await page.getByRole('menu').count()) throw new Error('切换后菜单未关闭');
     await page.locator('#message').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: '内容处理', exact: true }).click();
     const button = page.getByRole('button', { name: '显示 Markdown', exact: true });
     await button.waitFor();
     const issues = await page.getByRole('menu').evaluate((menu) => {

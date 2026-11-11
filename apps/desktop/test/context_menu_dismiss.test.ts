@@ -120,7 +120,7 @@ describe('右键菜单外部点击', () => {
         }),
       );
     });
-    press(document.querySelector('.message-context-menu button')!);
+    press(document.querySelector('.message-context-menu [aria-label="复制"]')!);
     expect(copy).toHaveBeenCalledOnce();
     expect(close).not.toHaveBeenCalled();
     press(host);

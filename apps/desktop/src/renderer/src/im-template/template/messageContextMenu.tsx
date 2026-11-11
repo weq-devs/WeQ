@@ -7,7 +7,15 @@ import {
   type ReactNode,
 } from 'react';
 import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
-import { SmilePlus } from 'lucide-react';
+import {
+  ArrowLeft,
+  BrainCircuit,
+  FileText,
+  FolderSearch,
+  ListTodo,
+  SmilePlus,
+  Star,
+} from 'lucide-react';
 import { QqIcon } from '../../lib/qqIcons';
 import type { Message } from './types';
 import { cn } from './classNames';
@@ -108,6 +116,10 @@ export function MessageContextMenu({
   unavailableReason,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const submenuTrigger = useRef<HTMLButtonElement | null>(null);
+  const submenuScrollTop = useRef(0);
+  const [submenu, setSubmenu] = useState<'content' | 'media' | null>(null);
+  const [groupAvailable, setGroupAvailable] = useState({ content: false, media: false });
   const [feedbackHost, setFeedbackHost] = useState<HTMLDivElement | null>(null);
   const active = useTabActive();
   useSurfaceOutside(menuRef, onClose, active);
@@ -115,6 +127,62 @@ export function MessageContextMenu({
   const decoration = message.decoration;
   const hasDecoration =
     decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    // 扩展动作可能在异步查询后返回 null，分类入口跟随实际按钮的可用状态。
+    const update = () => {
+      const available = (name: string) =>
+        Boolean(
+          menu.querySelector(
+            `[data-submenu-panel="${name}"] .message-menu-submenu-actions button:not(:disabled)`,
+          ),
+        );
+      const content = available('content');
+      const media = available('media');
+      setGroupAvailable((previous) =>
+        previous.content === content && previous.media === media ? previous : { content, media },
+      );
+    };
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(menu, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    setSubmenu(null);
+  }, [message.id]);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    if (submenu) {
+      submenuScrollTop.current = menu.scrollTop;
+      menu.scrollTop = 0;
+      menu
+        .querySelector<HTMLButtonElement>(`[data-submenu-panel="${submenu}"] button:not(:disabled)`)
+        ?.focus({ preventScroll: true });
+    } else {
+      if (submenuTrigger.current) menu.scrollTop = submenuScrollTop.current;
+      submenuTrigger.current?.focus({ preventScroll: true });
+      submenuTrigger.current = null;
+    }
+  }, [submenu]);
+
+  function closeSubmenu() {
+    const previous = submenu;
+    submenuTrigger.current =
+      menuRef.current?.querySelector<HTMLButtonElement>(`[data-submenu-trigger="${previous}"]`) ??
+      null;
+    setSubmenu(null);
+  }
 
   useEffect(() => {
     const menu = menuRef.current;
@@ -149,14 +217,30 @@ export function MessageContextMenu({
     if (event.key === 'Escape' || event.key === 'Tab') {
       event.preventDefault();
       event.stopPropagation();
+      if (submenu && event.key === 'Escape') {
+        closeSubmenu();
+        return;
+      }
       onClose?.();
       state.originElement?.focus({ preventScroll: true });
       return;
     }
-    const buttons = [...menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    if (submenu && event.key === 'ArrowLeft') {
+      event.preventDefault();
+      closeSubmenu();
+      return;
+    }
+    const scope = menu.querySelector(
+      submenu ? `[data-submenu-panel="${submenu}"]` : '.message-menu-primary',
+    );
+    if (!scope) return;
+    const visible = (button: HTMLButtonElement) => getComputedStyle(button).display !== 'none';
+    const buttons = [...scope.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')].filter(
+      visible,
+    );
     if (!buttons.length) return;
     const current = document.activeElement as HTMLButtonElement;
-    const rows = [...menu.querySelectorAll<HTMLElement>('[data-menu-row]')]
+    const rows = [...scope.querySelectorAll<HTMLElement>('[data-menu-row]')]
       .map((row) =>
         [...row.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')].filter(
           (button) => getComputedStyle(button).display !== 'none',
@@ -205,9 +289,20 @@ export function MessageContextMenu({
       </button>
     );
   }
-  const slot = (content: ReactNode, label?: string) => (
-    <div className="message-action-slot" title={label}>
-      {content}
+  const slot = (content: ReactNode, label: string, icon: ReactNode) => (
+    <div className="message-action-slot">
+      <div className="message-action-content">{content}</div>
+      <button
+        type="button"
+        role="menuitem"
+        className="message-action-fallback"
+        aria-label={label}
+        title={unavailableReason || '当前消息不支持此操作'}
+        disabled
+      >
+        {icon}
+        <span>{label}</span>
+      </button>
     </div>
   );
   const save =
@@ -237,7 +332,11 @@ export function MessageContextMenu({
         onPointerDown={(event) => event.stopPropagation()}
         onTouchStart={(event) => event.stopPropagation()}
       >
-        {onReact ? (
+        <div
+          className="message-menu-primary"
+          inert={Boolean(submenu)}
+          aria-hidden={submenu ? true : undefined}
+        >
           <div
             className="message-reaction-strip"
             data-menu-row
@@ -257,8 +356,8 @@ export function MessageContextMenu({
                   type="button"
                   aria-label={label}
                   aria-pressed={selected}
-                  title={reactBlockedReason || label}
-                  disabled={Boolean(reactBlockedReason) || !onSetReaction}
+                  title={reactBlockedReason || (!onReact ? '当前消息不支持贴表情' : label)}
+                  disabled={Boolean(reactBlockedReason) || !onReact || !onSetReaction}
                   onClick={() => onSetReaction?.(message, reaction.code, !selected)}
                 >
                   {reaction.item.glyph ? (
@@ -272,126 +371,201 @@ export function MessageContextMenu({
             <button
               type="button"
               aria-label="更多表情"
-              title={reactBlockedReason || '更多表情'}
-              disabled={Boolean(reactBlockedReason)}
-              onClick={() => onReact(message)}
+              title={reactBlockedReason || (!onReact ? '当前消息不支持贴表情' : '更多表情')}
+              disabled={Boolean(reactBlockedReason) || !onReact}
+              onClick={() => onReact?.(message)}
             >
               <SmilePlus size={22} />
             </button>
           </div>
-        ) : null}
-        <div className="message-menu-main">
-          <div data-menu-row>
-            {action('复制', <QqIcon name="copy" size={17} />, () => void onCopy(message))}
-            {onForward || unavailableReason
-              ? action(
-                  '转发',
-                  <QqIcon name="share" size={17} />,
-                  onForward && (() => onForward(message)),
-                  !onForward ? unavailableReason : null,
-                )
-              : null}
+          <div className="message-menu-main">
+            <div data-menu-row>
+              {action('复制', <QqIcon name="copy" size={17} />, () => void onCopy(message))}
+              {action(
+                '转发',
+                <QqIcon name="share" size={17} />,
+                onForward && (() => onForward(message)),
+                !onForward ? unavailableReason || '当前会话不支持转发' : null,
+              )}
+            </div>
+            <div data-menu-row>
+              {action(
+                '多选',
+                <QqIcon name="multiSelect" size={17} />,
+                onMultiSelect && (() => onMultiSelect(message)),
+              )}
+              {action(
+                '引用',
+                <QqIcon name="reply" size={17} />,
+                onReply && (() => onReply(message)),
+                !onReply ? unavailableReason || '当前消息不支持引用' : replyBlockedReason,
+              )}
+            </div>
           </div>
-          <div data-menu-row>
-            {onMultiSelect
-              ? action('多选', <QqIcon name="multiSelect" size={17} />, () =>
-                  onMultiSelect(message),
-                )
-              : null}
-            {onReply || unavailableReason
-              ? action(
-                  '引用',
-                  <QqIcon name="reply" size={17} />,
-                  onReply && (() => onReply(message)),
-                  !onReply ? unavailableReason : replyBlockedReason,
-                )
-              : null}
+          <div className="message-action-row" data-menu-row role="group" aria-label="消息互动">
+            {action(
+              '+1',
+              <span className="message-plus-one" aria-hidden>
+                +1
+              </span>,
+              onRepeat && canRepeatMessage(message) ? () => onRepeat(message) : undefined,
+              !canRepeatMessage(message)
+                ? '当前消息不支持重发'
+                : !onRepeat
+                  ? unavailableReason || '当前会话不支持重发'
+                  : repeatBlockedReason,
+            )}
+            {action(
+              recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回',
+              <QqIcon name="recall" size={17} />,
+              onRecall && (() => onRecall(message)),
+              !onRecall ? unavailableReason || '当前消息无法撤回' : recallBlockedReason,
+            )}
+            {slot(essenceAction, '设为精华', <Star size={17} />)}
+            {slot(todoAction, '设为群待办', <ListTodo size={17} />)}
+          </div>
+          <div className="message-action-row" data-menu-row role="group" aria-label="保存与分析">
+            {action(
+              '添加到素材库',
+              <QqIcon name="collection" size={17} />,
+              onAddToComposition && (() => onAddToComposition(message)),
+              !onAddToComposition ? unavailableReason : null,
+            )}
+            {action(
+              exportLabel,
+              <QqIcon name="exportFile" size={17} />,
+              onExport && (() => onExport(message)),
+              exportBlockedReason,
+            )}
+            {slot(intentAction, '意图感知', <BrainCircuit size={17} />)}
+            {action(
+              '查看装扮',
+              <QqIcon name="palette" size={17} />,
+              hasDecoration && onViewDecoration ? () => onViewDecoration(message) : undefined,
+            )}
+          </div>
+          <div
+            className="message-action-row"
+            data-menu-row
+            role="group"
+            aria-label="显示与本地记录"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              aria-label="内容处理"
+              title={
+                groupAvailable.content
+                  ? '内容处理：添加表情、显示切换、语音转文字'
+                  : '当前消息没有可用的内容处理操作'
+              }
+              data-submenu-trigger="content"
+              aria-haspopup="menu"
+              aria-expanded={submenu === 'content'}
+              disabled={!groupAvailable.content}
+              onClick={() => setSubmenu('content')}
+            >
+              <FileText size={17} />
+              <span>内容处理</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              aria-label="文件操作"
+              title={
+                groupAvailable.media
+                  ? '文件操作：另存为、在文件夹中显示'
+                  : '当前消息没有可用的文件操作'
+              }
+              data-submenu-trigger="media"
+              aria-haspopup="menu"
+              aria-expanded={submenu === 'media'}
+              disabled={!groupAvailable.media}
+              onClick={() => setSubmenu('media')}
+            >
+              <FolderSearch size={17} />
+              <span>文件操作</span>
+            </button>
+            {action(
+              '修改本地记录',
+              <QqIcon name="edit" size={17} />,
+              onEditRaw && (() => onEditRaw(message)),
+              !onEditRaw ? unavailableReason : null,
+            )}
+            {action(
+              deleteLabel,
+              <QqIcon name="trash" size={17} />,
+              onDelete && (() => onDelete(message)),
+              !onDelete ? unavailableReason : null,
+              true,
+            )}
           </div>
         </div>
-        <div className="message-action-row" data-menu-row role="group" aria-label="媒体操作">
-          {slot(<VoiceTranscribeMenuAction message={message} onClose={onClose} />)}
-          {save
-            ? action(
-                IS_WEB ? '保存到服务器' : '另存为',
-                <QqIcon name="download" size={17} />,
-                save,
-                downloadDisabled ? '正在准备媒体保存，请稍候' : null,
-                false,
-                state.mediaTarget
-                  ? `${IS_WEB ? '保存到服务器' : '另存为'}：${state.mediaTarget.label}`
-                  : undefined,
-              )
-            : null}
-        </div>
-        <div className="message-action-row" data-menu-row role="group" aria-label="消息互动">
-          {(onRepeat || unavailableReason) && canRepeatMessage(message)
-            ? action(
-                '+1',
-                <span className="message-plus-one" aria-hidden>
-                  +1
-                </span>,
-                onRepeat && (() => onRepeat(message)),
-                !onRepeat ? unavailableReason : repeatBlockedReason,
-              )
-            : null}
-          {onRecall || unavailableReason
-            ? action(
-                recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回',
-                <QqIcon name="recall" size={17} />,
-                onRecall && (() => onRecall(message)),
-                !onRecall ? unavailableReason : recallBlockedReason,
-              )
-            : null}
-          {slot(essenceAction)}
-          {slot(todoAction, '设为群待办')}
-        </div>
-        <div className="message-action-row" data-menu-row role="group" aria-label="保存与分析">
-          {onAddToComposition || unavailableReason
-            ? action(
-                '添加到素材库',
-                <QqIcon name="collection" size={17} />,
-                onAddToComposition && (() => onAddToComposition(message)),
-                !onAddToComposition ? unavailableReason : null,
-              )
-            : null}
-          {onExport
-            ? action(
-                exportLabel,
-                <QqIcon name="exportFile" size={17} />,
-                () => onExport(message),
-                exportBlockedReason,
-              )
-            : null}
-          {slot(intentAction)}
-          {hasDecoration && onViewDecoration
-            ? action('查看装扮', <QqIcon name="palette" size={17} />, () =>
-                onViewDecoration(message),
-              )
-            : null}
-        </div>
-        <div className="message-action-row" data-menu-row role="group" aria-label="显示与本地记录">
-          {slot(
-            favoriteEmojiAction || <TextMarkdownMenuAction message={message} onClose={onClose} />,
-          )}
-          {slot(revealAction)}
-          {onEditRaw || unavailableReason
-            ? action(
-                '修改本地记录',
-                <QqIcon name="edit" size={17} />,
-                onEditRaw && (() => onEditRaw(message)),
-                !onEditRaw ? unavailableReason : null,
-              )
-            : null}
-          {onDelete || unavailableReason
-            ? action(
-                deleteLabel,
-                <QqIcon name="trash" size={17} />,
-                onDelete && (() => onDelete(message)),
-                !onDelete ? unavailableReason : null,
-                true,
-              )
-            : null}
-        </div>
+        {(['content', 'media'] as const).map((name) => (
+          <div
+            key={name}
+            className="message-menu-submenu"
+            data-submenu-panel={name}
+            hidden={submenu !== name}
+            role="group"
+            aria-label={name === 'content' ? '内容处理' : '文件操作'}
+          >
+            <div className="message-menu-submenu-header" data-menu-row>
+              <button
+                type="button"
+                aria-label="返回消息操作"
+                title="返回消息操作"
+                onClick={closeSubmenu}
+              >
+                <ArrowLeft size={17} />
+              </button>
+              <span>{name === 'content' ? '内容处理' : '文件操作'}</span>
+            </div>
+            <div className="message-menu-submenu-actions">
+              {name === 'content' ? (
+                <>
+                  <div data-menu-row>
+                    {slot(favoriteEmojiAction, '添加到表情', <SmilePlus size={17} />)}
+                  </div>
+                  <div data-menu-row>
+                    {slot(
+                      <TextMarkdownMenuAction message={message} onClose={onClose} />,
+                      '显示 Markdown',
+                      <FileText size={17} />,
+                    )}
+                  </div>
+                  <div data-menu-row>
+                    {slot(
+                      <VoiceTranscribeMenuAction message={message} onClose={onClose} />,
+                      '转换为文字',
+                      <FileText size={17} />,
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div data-menu-row>
+                    {action(
+                      IS_WEB ? '保存到服务器' : '另存为',
+                      <QqIcon name="download" size={17} />,
+                      save,
+                      downloadDisabled
+                        ? '正在准备媒体保存，请稍候'
+                        : !save
+                          ? '当前消息没有可保存的媒体'
+                          : null,
+                      false,
+                      state.mediaTarget?.label,
+                    )}
+                  </div>
+                  <div data-menu-row>
+                    {slot(revealAction, '在文件夹中显示', <FolderSearch size={17} />)}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
         <div className="message-menu-feedback" ref={setFeedbackHost} />
       </div>
     </MessageMenuFeedbackContext.Provider>

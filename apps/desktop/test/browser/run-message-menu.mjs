@@ -16,6 +16,10 @@ const server = await createServer({
   resolve: {
     alias: [
       {
+        find: /^.*\/hooks\/useVoiceTranscription$/,
+        replacement: resolve(root, 'test/browser/message-menu.stub.ts'),
+      },
+      {
         find: /^.*\/trpc\/client$/,
         replacement: resolve(root, 'test/browser/message-menu.stub.ts'),
       },
@@ -113,7 +117,7 @@ try {
           !geometry.overflow,
         `${theme}/${width}/${height}/${corner}: 菜单溢出 ${JSON.stringify(geometry)}`,
       );
-      check(geometry.count === 4, '媒体与扩展按钮区行数错误');
+      check(geometry.count === 3, '扩展按钮区必须固定三行');
       check(geometry.width <= 236, '菜单未缩窄');
       check(geometry.reactions === 4 && geometry.moreVisible, '应显示四个贴表情候选和更多入口');
       const layout = await menu.evaluate((el) => {
@@ -123,7 +127,9 @@ try {
         };
         const main = [...el.querySelectorAll('.message-menu-main button')];
         const row = el.querySelector('[aria-label="消息互动"]');
-        const cells = [...row.querySelectorAll('button')];
+        const cells = [...row.querySelectorAll('button')].filter(
+          (button) => getComputedStyle(button).display !== 'none',
+        );
         const icons = cells.map((button) => center(button.firstElementChild));
         return {
           topRows: main.map((button) => button.getBoundingClientRect().top),
@@ -151,6 +157,15 @@ try {
       check(layout.aligned && layout.centered && layout.equal, '四列等宽居中或上下图标对齐失败');
       if (output && corner === 'top-left')
         await page.screenshot({ path: resolve(output, `${theme}-${width}-${height}.png`) });
+      const before = await menu.boundingBox();
+      await page.getByRole('menuitem', { name: '文件操作', exact: true }).click();
+      const back = await page
+        .getByRole('button', { name: '返回消息操作', exact: true })
+        .boundingBox();
+      check(
+        back.y >= before.y && back.y + back.height <= before.y + before.height,
+        '低高度窗口的返回按钮被滚动裁切',
+      );
       // disabled 按钮仍应立即提供原因，不能依赖 250ms 全局延迟。
       const reveal = page.getByRole('button', { name: '在文件夹中显示', exact: true });
       await reveal.scrollIntoViewIfNeeded();
@@ -159,8 +174,79 @@ try {
         document.querySelector('[role="tooltip"]')?.textContent?.includes('暂不可用'),
       );
       await page.keyboard.press('Escape');
+      check(
+        await page
+          .getByRole('menuitem', { name: '文件操作', exact: true })
+          .evaluate((el) => document.activeElement === el),
+        '子菜单返回未恢复焦点',
+      );
+      const after = await menu.boundingBox();
+      check(JSON.stringify(before) === JSON.stringify(after), '子菜单改变了主菜单位置或尺寸');
+      await page.keyboard.press('Escape');
       await menu.waitFor({ state: 'detached' });
     }
+  }
+  // 动作最多、最少、语音及混合内容均保持同一组十二格，不重叠、不因缺项前移。
+  await page.setViewportSize({ width: 320, height: 640 });
+  let slots;
+  for (const mode of ['full', 'sparse', 'voice', 'mixed']) {
+    await page.evaluate(
+      (mode) => window.menuFixture(0, 0, true, 'dark', '#b7dfdd', 'dots', mode),
+      mode,
+    );
+    await page.getByRole('menu').waitFor();
+    await page.waitForFunction(
+      (mode) =>
+        document
+          .querySelector('[data-menu-fixture-mode]')
+          ?.getAttribute('data-menu-fixture-mode') === mode,
+      mode,
+    );
+    const layout = await page.locator('.message-action-row').evaluateAll((rows) =>
+      rows.map((row) => {
+        const cells = [...row.querySelectorAll('button')].filter(
+          (button) => getComputedStyle(button).display !== 'none',
+        );
+        return cells.map((button) => {
+          const { x, y, width, height } = button.getBoundingClientRect();
+          return { x, y, width, height, disabled: button.disabled };
+        });
+      }),
+    );
+    check(
+      layout.length === 3 && layout.every((row) => row.length === 4),
+      `${mode}: 非 3×4 ${JSON.stringify(layout)}`,
+    );
+    const positions = layout.map((row) => row.map(({ disabled, ...rect }) => rect));
+    if (slots) check(JSON.stringify(positions) === JSON.stringify(slots), `${mode}: 格位移动`);
+    else slots = positions;
+    if (output) await page.screenshot({ path: resolve(output, `${mode}-main-320.png`) });
+    for (const row of positions)
+      for (let index = 1; index < row.length; index++)
+        check(row[index].x >= row[index - 1].x + row[index - 1].width, `${mode}: 按钮重叠`);
+    if (mode === 'sparse')
+      check(layout.flat().filter((cell) => cell.disabled).length >= 11, '不可用动作未置灰');
+    if (mode !== 'sparse') {
+      await page.getByRole('menuitem', { name: '内容处理', exact: true }).click();
+      await page.getByRole('button', { name: '添加到表情', exact: true }).waitFor();
+      const voice = page
+        .locator('[data-submenu-panel="content"] button:visible')
+        .filter({ hasText: /^转换为文字$/ });
+      check((await voice.isDisabled()) === (mode === 'full'), `${mode}: 语音转换状态错误`);
+      if (mode === 'mixed') {
+        check(
+          await page.getByRole('menuitem', { name: '显示 Markdown', exact: true }).isDisabled(),
+          '混合内容应保留置灰的 Markdown 格位',
+        );
+      }
+      if (output) await page.screenshot({ path: resolve(output, `${mode}-content-320.png`) });
+      if (mode === 'mixed') {
+        await voice.click();
+        check(await page.evaluate(() => window.menuActions.includes('转文字')), '语音转换未执行');
+        await page.getByRole('menu').waitFor({ state: 'detached' });
+      } else await page.getByRole('button', { name: '返回消息操作', exact: true }).click();
+    }
+    await page.keyboard.press('Escape');
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.evaluate(() => window.menuFixture(50, 50, false, 'light', '#19764c', 'plain'));
@@ -209,7 +295,7 @@ try {
   await touch.close();
   check(errors.length === 0, errors.join('\n'));
   console.log(
-    '消息菜单浏览器验证通过：5 组主题/尺寸、四角避让、媒体资源绘制、2×2 常用按钮、四列居中与图标对齐、禁用提示、回应取消、+1、焦点归还及真实触屏长按。',
+    '消息菜单浏览器验证通过：5 组主题/尺寸、四角避让、固定 2×2 与 3×4、最多/最少/语音/混合内容格位一致且不重叠、子菜单原位返回、禁用提示、回应取消、+1、焦点归还及真实触屏长按。',
   );
 } finally {
   await browser?.close();
