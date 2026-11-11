@@ -1038,16 +1038,16 @@
     height: var(--mobile-composer-editor-height, 42px);
     min-height: 42px;
     max-height: var(--mobile-composer-editor-height, 42px);
-    padding: 10px 66px 10px 14px;
+    padding: 10px 14px;
     overflow: auto;
-    border-radius: 14px;
-    background: #ffffff;
-    font-size: 18px;
+    border-radius: 8px;
+    background: var(--background);
+    font-size: 16px;
     line-height: 1.4;
   }
 
   .chat-pane.mobile-composer-long .composer-editor {
-    padding-right: 104px;
+    padding-right: 54px;
   }
 
   .mobile-composer-expand-button {
@@ -1056,16 +1056,16 @@
     grid-column: 1;
     justify-self: end;
     align-self: end;
-    margin: 0 50px 4px 0;
+    margin: 0 4px 0 0;
     z-index: 4;
     display: none;
-    width: 34px;
-    height: 34px;
+    width: 42px;
+    height: 42px;
     place-items: center;
     border: 0;
-    border-radius: 50%;
-    background: #eeeeef;
-    color: #17191f;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--weq-fg-secondary);
     transform: rotate(180deg);
   }
 
@@ -1339,8 +1339,18 @@
     display: grid;
   }
 
-  /* 发送键贴在正文右下角，不改变工具栏入口、顺序或触控宽度。 */
+  .mobile-composer-expand-button:focus-visible {
+    outline: 2px solid var(--weq-accent-effective);
+    outline-offset: -2px;
+  }
+
+  /* 竖屏正文占满输入行，由键盘发送；展开编辑页仍保留独立发送入口。 */
   .composer > .composer-send {
+    display: none;
+  }
+
+  /* 超级表情预览没有正文键盘，仍需卡片的确认发送入口。 */
+  .composer.has-single-send > .composer-send {
     position: relative;
     top: auto;
     right: auto;
@@ -1355,24 +1365,10 @@
     height: 42px;
     padding: 0;
     place-items: center;
-    border-radius: 8px;
-    background: var(--weq-accent-effective);
-    color: var(--primary-foreground);
   }
 
-  .composer > .composer-send:disabled {
-    background: var(--muted);
-    color: var(--weq-fg-muted);
-    opacity: 1;
-  }
-
-  .composer > .composer-send strong {
+  .composer.has-single-send > .composer-send strong {
     display: none;
-  }
-
-  .composer > .composer-send svg {
-    width: 22px;
-    height: 22px;
   }
 
   .emoji-panel {
@@ -2499,7 +2495,11 @@
     background: #68707a;
   }
 
-  html[data-theme='dark'] .mobile-composer-expand-button,
+  html[data-theme='dark'] .mobile-composer-expand-button {
+    background: transparent;
+    color: var(--weq-fg-secondary);
+  }
+
   html[data-theme='dark'] .mobile-composer-expanded-close {
     background: #24272a;
     color: #eef0f3;

@@ -81,8 +81,12 @@ try {
         .locator('.composer-tools button')
         .evaluateAll((buttons) => buttons.map((button) => button.title));
       assert.equal(await editor.getAttribute('enterkeyhint'), 'send');
-      assert(await send.isVisible());
+      assert.equal(await send.isVisible(), width > 760);
       assert(await send.isDisabled());
+      const sendCurrentMessage = async () => {
+        if (width <= 760) await editor.press('Enter');
+        else await send.tap();
+      };
       for (const theme of ['light', 'dark']) {
         await page.evaluate((theme) => {
           window.visualViewport.height = 874;
@@ -96,6 +100,23 @@ try {
         }, theme);
         await editor.fill('连续发送第一条');
         if (width <= 760) {
+          const field = await editor.evaluate((node) => {
+            const box = node.getBoundingClientRect();
+            const composer = node.closest('.composer');
+            const parent = composer.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return {
+              left: box.left - parent.left,
+              right: parent.right - box.right,
+              paddingLeft: style.paddingLeft,
+              paddingRight: style.paddingRight,
+              radius: style.borderRadius,
+            };
+          });
+          assert.equal(await send.isVisible(), false, '竖屏不显示独立发送键');
+          assert.equal(field.left, field.right, JSON.stringify(field));
+          assert.equal(field.paddingLeft, field.paddingRight, '正文仍为发送键预留空白');
+          assert.equal(field.radius, '8px');
           const beforePadding = await page
             .locator('.composer')
             .evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingBottom));
@@ -120,7 +141,7 @@ try {
           assert(Math.abs(geometry.bottom - 430) < 1, '输入区没有跟随键盘可视视口');
           assert(geometry.gap <= 6.1, '工具栏下方仍留有额外安全区空白');
         }
-        await send.tap();
+        await sendCurrentMessage();
         assert(
           await editor.evaluate((node) => document.activeElement === node),
           '发送导致输入框失焦',
@@ -176,23 +197,28 @@ try {
             window.visualViewport.height = 430;
             window.visualViewport.dispatchEvent(new Event('resize'));
           });
-          await send.tap();
+          await sendCurrentMessage();
           await editor.fill('中文选词');
           await editor.dispatchEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true });
           assert.equal(await editor.textContent(), '中文选词');
           await editor.fill('多行正文\n'.repeat(10));
           const expand = page.locator('.mobile-composer-expand-button');
           await expand.waitFor({ state: 'visible' });
-          const overlap = await page.evaluate(() => {
-            const send = document
-              .querySelector('.composer > .composer-send')
-              .getBoundingClientRect();
+          const expandFits = await page.evaluate(() => {
+            const editor = document.querySelector('.composer > .composer-editor');
+            const field = editor.getBoundingClientRect();
             const expand = document
               .querySelector('.mobile-composer-expand-button')
               .getBoundingClientRect();
-            return expand.right > send.left;
+            return (
+              expand.right <= field.right &&
+              expand.left >=
+                field.right - Number.parseFloat(getComputedStyle(editor).paddingRight) &&
+              expand.top >= field.top &&
+              expand.bottom <= field.bottom
+            );
           });
-          assert(!overlap, '长文展开按钮与发送按钮重叠');
+          assert(expandFits, '长文展开按钮超出输入框或遮挡正文');
           await expand.tap();
           const expanded = page.locator('.mobile-composer-expanded-editor');
           assert.equal(await expanded.getAttribute('enterkeyhint'), 'enter');
@@ -230,6 +256,15 @@ try {
             path: resolve(output, `${theme}-${width}-input.png`),
             clip: { x: 0, y: 0, width, height: width <= 760 ? 430 : 874 },
           });
+        if (width <= 760) {
+          // 超级表情预览隐藏正文、没有键盘，单独复核该布局的确认入口。
+          await page.locator('.composer').evaluate((node) => node.classList.add('has-single-send'));
+          assert(await send.isVisible(), '无正文键盘的超级表情预览缺少发送入口');
+          await page
+            .locator('.composer')
+            .evaluate((node) => node.classList.remove('has-single-send'));
+          assert.equal(await send.isVisible(), false);
+        }
         results.push({ width, theme });
       }
       assert.deepEqual(errors, []);

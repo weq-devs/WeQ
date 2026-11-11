@@ -137,17 +137,35 @@ try {
       assert(!geometry.overflow, JSON.stringify(geometry));
       assert(geometry.tray.bottom <= geometry.editor.y + 1, JSON.stringify(geometry));
       assert(geometry.editor.height >= 40, JSON.stringify(geometry));
-      assert(geometry.send.bottom <= 900 && geometry.send.right <= width, JSON.stringify(geometry));
-      if (width <= 760)
+      const send = page.locator('.composer > .composer-send');
+      assert.equal(await send.isVisible(), width > 760);
+      if (width <= 760) {
         assert(geometry.editor.bottom <= geometry.toolbar.y + 1, JSON.stringify(geometry));
+      } else {
+        assert(
+          geometry.send.bottom <= 900 && geometry.send.right <= width,
+          JSON.stringify(geometry),
+        );
+      }
       if (output)
         await page.screenshot({ path: resolve(output, `${theme}-${width}-attachments.png`) });
-      await page.locator('.composer > .composer-send').click();
+      if (width <= 760) await editor.press('Enter');
+      else await send.click();
       await page.waitForFunction(() => window.timelineTest.sentBodies().length === 4);
       const sent = await page.evaluate(() => window.timelineTest.sentBodies());
       assert(sent[0].startsWith('批量发送正文') && sent[0].includes('[[chat:elem:'));
       assert.equal(await page.locator('.composer-media-tray').count(), 0);
       assert.equal(await editor.textContent(), '');
+      if (width <= 760) {
+        await files.setInputFiles([
+          { name: 'only-file.txt', mimeType: 'text/plain', buffer: Buffer.from('no text') },
+        ]);
+        await page.locator('.composer-media-tray .composer-single-card').waitFor();
+        await editor.press('Enter');
+        await page.waitForFunction(() => window.timelineTest.sentBodies().length === 5);
+        assert.equal(await page.locator('.composer-media-tray').count(), 0);
+        assert.equal(await editor.textContent(), '');
+      }
       if (width === 1280 && theme === 'light') {
         const image = Buffer.from(
           'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
