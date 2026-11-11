@@ -3989,6 +3989,34 @@ export const accountRouter = router({
       return detail ? groupDetailToWire(detail) : null;
     }),
 
+  getGroupExtendedProfile: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+        groupId: z.number().int().positive().max(0xffffffff),
+        refresh: z.boolean().default(false),
+        force: z.boolean().default(false),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const result = await services.groupInfo.getExtendedProfile(
+        input.groupId,
+        input.refresh,
+        input.force,
+      );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换，请重新读取群资料');
+      if (result.groupId !== input.groupId) throw new Error('群资料目标不一致');
+      return result;
+    }),
+
   /** Get extended group metadata (活跃度 / 幸运字符 / 群主 uin 等). */
   getGroupExt: directoryProcedure
     .input(z.object({ groupCode: z.string().min(1) }))

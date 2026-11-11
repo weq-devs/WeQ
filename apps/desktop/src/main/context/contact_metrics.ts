@@ -117,6 +117,7 @@ export class ContactDirectoryRuntime {
     this.scope = { uin: session.context.uin, configId };
     this.selfUid = session.selfUid;
     services.groupInfo.setMemberRosterCache(join(cacheDir, 'group-members'));
+    services.groupInfo.setGroupProfileCache(join(cacheDir, 'group-profiles'));
     this.cache = new ContactMetricsService(
       join(cacheDir, 'metrics.json'),
       () => this.online() && this.current(),
@@ -941,6 +942,7 @@ export class ContactDirectoryRuntime {
   }
 
   async dispose() {
+    this.services.groupInfo.disposeGroupProfiles();
     this.disposed = true;
     this.lifetime.abort();
     this.stopPreparing = true;

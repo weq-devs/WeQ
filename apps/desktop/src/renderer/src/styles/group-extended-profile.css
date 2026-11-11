@@ -1,0 +1,50 @@
+.weq-group-extras {
+  min-width: 0;
+  padding: 14px 0 2px;
+}
+.weq-group-extras-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.weq-group-extras-toolbar > strong {
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+}
+.weq-group-extras-toolbar > span {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-group-extras-toolbar > button {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+}
+.weq-group-extras-rows {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.weq-group-extras-rows > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 7px 0;
+}
+.weq-group-extras-rows dt {
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-group-extras-rows dd {
+  margin: 0;
+  text-align: right;
+  color: var(--weq-fg-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+html[data-theme='dark'] .weq-group-extras-toolbar > span,
+html[data-theme='dark'] .weq-group-extras-rows dt {
+  color: var(--weq-fg-secondary);
+}

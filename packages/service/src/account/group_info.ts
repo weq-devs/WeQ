@@ -5,6 +5,7 @@
 import type { AccountSession } from '@weq/account';
 import type { ContactMetricsService } from './contact_metrics';
 import { GroupMemberRosterCache } from './group_member_roster';
+import { GroupProfileReader } from './group_profile';
 import type { NtHelperBinding } from '@weq/native';
 import {
   FetchGroupMemberListPage,
@@ -284,6 +285,7 @@ const MEMBER_SCAN_LIMIT = 5000;
 const MIN_SHARED_GROUPS = 2;
 
 export class GroupInfoService {
+  private readonly groupProfiles: GroupProfileReader;
   contactMetrics?: ContactMetricsService;
   contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
 
@@ -317,6 +319,7 @@ export class GroupInfoService {
       resolvePid: () => number;
     },
   ) {
+    this.groupProfiles = new GroupProfileReader(online, () => this.contactMetrics);
     this.groupNotifyService = new GroupNotifyService(session);
     this.analysis = new AnalyticsMessageSource(session);
   }
@@ -327,6 +330,18 @@ export class GroupInfoService {
 
   setMemberRosterCache(root: string): void {
     this.memberRosterCache = new GroupMemberRosterCache(root);
+  }
+
+  setGroupProfileCache(root: string): void {
+    this.groupProfiles.setCache(root);
+  }
+
+  getExtendedProfile(groupId: number, refresh = false, force = false) {
+    return this.groupProfiles.read(groupId, refresh, force);
+  }
+
+  disposeGroupProfiles(): void {
+    this.groupProfiles.dispose();
   }
 
   /** 复用完整在线分页，只更新名单，不触发联系人其他指标的观察回调。 */

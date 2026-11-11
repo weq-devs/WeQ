@@ -23,6 +23,8 @@ async function setup() {
     peerStats: { getQqLevel: vi.fn(), getLikeCount: vi.fn() },
     groupInfo: {
       setMemberRosterCache: vi.fn(),
+      setGroupProfileCache: vi.fn(),
+      disposeGroupProfiles: vi.fn(),
       listGroupDirectory: vi.fn(async () => [
         { groupCode: '10001', memberCount: 2 },
         { groupCode: '20002', memberCount: 2 },

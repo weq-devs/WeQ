@@ -18,6 +18,7 @@ import type { GroupInfoDetail } from '../im-template/template/conversationDetail
 import { OverlayLayer } from './OverlayLayer';
 import { GroupProfileMetrics } from './GroupProfileMetrics';
 import { GroupLabelSources } from './GroupLabelSources';
+import { GroupExtendedProfile } from './GroupExtendedProfile';
 
 export function GroupInfoDetailDialog({
   conversation,
@@ -88,6 +89,9 @@ export function GroupInfoDetailDialog({
                     <GroupLabelSources group={group} members={conversation.members} />
                   </div>
                 </div>
+              ) : null}
+              {!conversation.generated ? (
+                <GroupExtendedProfile groupCode={conversation.id} />
               ) : null}
               {!conversation.generated ? (
                 <GroupProfileMetrics groupCode={conversation.id}>

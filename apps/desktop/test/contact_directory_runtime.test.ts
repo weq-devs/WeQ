@@ -68,6 +68,8 @@ async function setup(online = true) {
     },
     groupInfo: {
       setMemberRosterCache: vi.fn(),
+      setGroupProfileCache: vi.fn(),
+      disposeGroupProfiles: vi.fn(),
       listGroupDirectory: vi.fn(async () => [{ groupCode: '10001', memberCount: 2 }]),
       listExportMembers: vi.fn(async (_groupCode?: bigint) => [
         { uid: 'u_friend' },

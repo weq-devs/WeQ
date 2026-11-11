@@ -40,6 +40,7 @@ import { ProfileLikesRow } from '../../components/qq-actions/ProfileLikesRow';
 import { ProfileExtras } from '../../components/ProfileExtras';
 import { CommonRelationships } from '../../components/qq-actions/CommonRelationships';
 import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
+import { GroupExtendedProfile } from '../../components/GroupExtendedProfile';
 import { FriendClue } from '../../components/qq-actions/FriendClue';
 import {
   ContactWorkspaceNavigationContext,
@@ -1138,6 +1139,9 @@ export function GroupProfileDialog({
                       ))
                     }
                   </GroupProfileMetrics>
+                ) : null}
+                {!conversation.generated ? (
+                  <GroupExtendedProfile groupCode={conversation.id} />
                 ) : null}
                 {group.entranceQ ? (
                   <ProfileRow
