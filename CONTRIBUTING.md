@@ -67,7 +67,9 @@ pnpm --filter @weq/web build
 ```
 
 Actions 将 desktop / service 全量测试分片并行，其余包及 Web 服务端断言独立运行，
-由 `test` 汇总全部结果。分片复现和报告说明见[测试约定](./docs/develop/testing.md#ci-分片)。
+由 `test` 汇总全部结果。类型检查分为桌面主进程、桌面渲染、Web 服务端和基础包四组，
+缓存增量编译信息但每次仍执行检查，由 `typecheck` 汇总结果。
+分片复现、成本报告和缓存说明见[测试约定](./docs/develop/testing.md#ci-分片)。
 
 > 桌面端打包（`electron-vite build` + `electron-builder`）不在 PR 门禁里，
 > 由 release 流水线兜底。改动打包链路时本地用

@@ -42,8 +42,14 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
-  typecheck:
+  typecheck-suites:
+    name: typecheck-${{ matrix.suite }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [desktop-node, desktop-web, web, packages]
     env:
       # tsc only needs the type defs, not the Electron binary — skip the ~100 MB
       # download to keep installs fast.
@@ -63,10 +69,46 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type-check all packages
-        run: pnpm -r typecheck
+      # 只复用编译图，所有分组仍执行 tsc；配置或依赖变化时不复用旧图。
+      - name: Cache TypeScript incremental state
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/desktop/out/types-node/*.tsbuildinfo
+            apps/desktop/out/types-web/*.tsbuildinfo
+            apps/web/*.tsbuildinfo
+            packages/*/*.tsbuildinfo
+          key: ${{ runner.os }}-${{ runner.arch }}-node22-typecheck-v1-${{ matrix.suite }}-${{ hashFiles('pnpm-lock.yaml', 'package.json', 'tsconfig.base.json', 'apps/*/tsconfig*.json', 'packages/*/tsconfig*.json', 'apps/*/package.json', 'packages/*/package.json') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node22-typecheck-v1-${{ matrix.suite }}-${{ hashFiles('pnpm-lock.yaml', 'package.json', 'tsconfig.base.json', 'apps/*/tsconfig*.json', 'packages/*/tsconfig*.json', 'apps/*/package.json', 'packages/*/package.json') }}-
 
-  # 大包按 Vitest 原生分片并行，保留逐文件隔离和完整测试范围。
+      - name: Type-check desktop main process
+        if: matrix.suite == 'desktop-node'
+        run: pnpm --filter @weq/desktop typecheck:node
+
+      - name: Type-check desktop renderer
+        if: matrix.suite == 'desktop-web'
+        run: pnpm --filter @weq/desktop typecheck:web
+
+      - name: Type-check Web server
+        if: matrix.suite == 'web'
+        run: pnpm --filter @weq/web typecheck
+
+      - name: Type-check library packages
+        if: matrix.suite == 'packages'
+        run: pnpm -r --filter './packages/*' --no-bail typecheck
+
+  typecheck:
+    if: always()
+    needs: [typecheck-suites]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every typecheck suite
+        env:
+          RESULT: ${{ needs.typecheck-suites.result }}
+        run: test "$RESULT" = success
+
+  # desktop 按完整文件成本均衡分片，service 使用 Vitest 原生分片。
   # 不在同一 runner 内叠加包并发；各片失败也继续收集其余片的结果。
   test-suites:
     name: test-${{ matrix.suite }}-${{ matrix.shard }}
@@ -104,10 +146,13 @@ jobs:
 
       - name: Run desktop or service shard
         if: matrix.suite != 'core'
+        env:
+          WEQ_TEST_TIMINGS: ${{ runner.temp }}/test-timings.json
         run: >-
           pnpm --filter @weq/${{ matrix.suite }} test
           --shard=${{ matrix.shard }} --maxWorkers=2 --minWorkers=1
           --reporter=default --reporter=json --outputFile=${{ runner.temp }}/test-results.json
+          --reporter=../../scripts/test-timing-reporter.mjs
 
       - name: Run remaining packages and Web assertions
         if: matrix.suite == 'core'
@@ -128,7 +173,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-${{ matrix.suite }}-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/test-results.json
+          path: |
+            ${{ runner.temp }}/test-results.json
+            ${{ runner.temp }}/test-timings.json
           retention-days: 7
           if-no-files-found: warn
 

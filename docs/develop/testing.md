@@ -38,8 +38,11 @@ pnpm --filter @weq/desktop test   # 桌面端主/渲染进程的纯逻辑单测
 
 ## CI 分片
 
-Actions 将 desktop 拆为 6 片、service 拆为 2 片，每片使用 Vitest 原生
-`--shard=i/n`，各自最多 2 个 worker；其余包（包括 Web 服务端断言）在独立任务中完整运行。
+Actions 将 desktop 拆为 6 片、service 拆为 2 片，使用 Vitest 的
+`--shard=i/n` 入口，各自最多 2 个 worker；其余包（包括 Web 服务端断言）在独立任务中完整运行。
+desktop 的自定义 sequencer 按文件成本从高到低，把文件放入当前总成本最低的一片，
+每片内也先执行高成本文件；service 保留 Vitest 原生分片。不指定 `--shard` 的本地运行
+仍使用 Vitest 默认排序。
 不减少测试范围、不关闭文件隔离、不重试掩盖失败。矩阵不因某片失败取消其余片，
 最终由稳定名称 `test` 汇总门禁检查全部任务；失败、取消或意外跳过均不能通过。
 本地 `pnpm test` / `test:fail-fast` 保持原有的低资源入口，不启动多片并发。
@@ -52,9 +55,41 @@ pnpm --filter @weq/service test --shard=1/2 --maxWorkers=2 --minWorkers=1
 node --test scripts/test-ci.test.mjs
 ```
 
-每片输出 JSON 报告，保存 7 天，Actions 步骤摘要列出失败文件及用例执行时间最长的文件。
+每片输出用例 JSON 报告和 `test-timings.json` 文件成本报告，保存 7 天，
+Actions 步骤摘要列出失败文件及用例执行时间最长的文件。
 报告中的文件起止时间不等于整个分片耗时；验收 2～3 分钟目标时，以实际 Actions
 完整运行的墙钟耗时为准，同时检查排队和依赖安装，不用本机分片时间直接宣称达标。
+
+desktop 的成本基线在 `apps/desktop/test/ci-timings.json`，单位为毫秒，
+包含 worker 准备、环境初始化、模块收集、setup 和用例执行，不能只用用例时间替代。
+所有 runner 读取同一份已提交基线，保证分配一致；新增文件使用已知成本的中位数，
+删除文件的旧记录不参与分配，不因缺少记录跳过测试。成本总和不是并行运行的墙钟时间。
+初始基线来自本机双 worker 实测，跨平台表现需以 Linux Actions 为准。
+其中两个仅 macOS 执行的原生测试不记录本机成本，仍完整参与分片，
+用中位数估计它们在 Linux 上的收集成本，避免原生签名等开销影响 Linux 的分配。
+
+更新基线时，在空闲环境运行完整 desktop 测试并输出成本报告，确认测试结果和覆盖范围后，
+用报告替换基线并重新运行 `node --test scripts/test-ci.test.mjs`；也可合并同一提交所有
+desktop 分片的 `test-timings.json` 中的 `files`，不能只取某一片当完整基线。
+
+```bash
+mkdir -p tmp
+WEQ_TEST_TIMINGS="$PWD/tmp/desktop-timings.json" pnpm --filter @weq/desktop test \
+  --maxWorkers=2 --minWorkers=1 --reporter=default \
+  --reporter=../../scripts/test-timing-reporter.mjs
+```
+
+## CI 类型检查
+
+类型检查使用四组独立 runner：桌面主进程、桌面渲染、Web 服务端、`packages/*`。
+各组失败不会取消其他组，稳定名称 `typecheck` 汇总全部结果；失败、取消或跳过均不能通过。
+根目录 `pnpm typecheck` 保留原来的本地入口，不在本机同时启动四组。
+
+CI 仅缓存 `.tsbuildinfo` 编译图，不缓存通过结论，每次仍执行所有分组的 `tsc --noEmit`。
+缓存按系统、架构、Node 主版本、分组、锁文件、workspace 清单和 TS 配置隔离，
+每个提交保存一份，通过同配置前缀复用上一轮状态。缓存缺失时执行正常冷检查，
+源码变化由 TypeScript 增量失效机制重新检查；编排测试还实际编译依赖变化、文件删除和
+编译选项收紧的反例，避免缓存掩盖错误。
 
 ## 样式浏览器回归
 
