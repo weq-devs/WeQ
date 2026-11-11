@@ -25,6 +25,7 @@ import {
   isUpdateCheckInterval,
 } from '../common/update_settings';
 import { DEFAULT_SERVICE_PORTS } from '../common/service_ports';
+import { DEFAULT_CONTACT_CARD, normalizeContactCard } from '../common/contact_card';
 import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
@@ -707,6 +708,7 @@ export interface LinkPreviewConfig {
 }
 
 export interface AppSettings {
+  contactCard: import('../common/contact_card').ContactCardSettings;
   /** 软件更新是否包含测试发布，默认关闭。 */
   updateCheckPrerelease: boolean;
   /** 自动检查更新间隔（分钟），-1 表示永不。 */
@@ -1110,6 +1112,7 @@ function normalizeQqShowCacheMinutes(value: unknown, legacyDays?: unknown): numb
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  contactCard: DEFAULT_CONTACT_CARD,
   updateCheckPrerelease: false,
   updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
@@ -1795,6 +1798,7 @@ export class UserConfigService {
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      contactCard: normalizeContactCard(s?.contactCard),
       updateCheckPrerelease: s?.updateCheckPrerelease === true,
       updateCheckIntervalMinutes: isUpdateCheckInterval(s?.updateCheckIntervalMinutes)
         ? s.updateCheckIntervalMinutes
@@ -1947,6 +1951,11 @@ export class UserConfigService {
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
+      contactCard: normalizeContactCard({
+        ...current.contactCard,
+        ...patch.contactCard,
+        visible: { ...current.contactCard.visible, ...patch.contactCard?.visible },
+      }),
       updateCheckPrerelease: patch.updateCheckPrerelease ?? current.updateCheckPrerelease,
       updateCheckIntervalMinutes: isUpdateCheckInterval(patch.updateCheckIntervalMinutes)
         ? patch.updateCheckIntervalMinutes

@@ -18,7 +18,7 @@ import type { QqShowInfo } from '@weq/protocol';
 
 export interface PeerStats {
   /** QQ 等级（0xFE1_2 number-property 105），0 表示未命中/新号。 */
-  level: number;
+  level: number | null;
   /** 资料卡累计获赞；机器人与企业用户不适用，返回 null。 */
   likeCount: number | null;
 }
@@ -88,8 +88,23 @@ export class PeerStatsService {
   }
 
   /** 一并取 QQ 等级 + 累计获赞（两个包并行发）。 */
-  async getPeerStats(uin: string, uid: string): Promise<PeerStats> {
-    const [level, likeCount] = await Promise.all([this.getQqLevel(uin), this.getLikeCount(uid)]);
-    return { level, likeCount };
+  async getPeerStats(
+    uin: string,
+    uid: string,
+    fields: readonly ('level' | 'likeCount')[] = ['level', 'likeCount'],
+  ): Promise<PeerStats> {
+    const [level, likeCount] = await Promise.allSettled([
+      fields.includes('level') ? this.getQqLevel(uin) : Promise.resolve(null),
+      fields.includes('likeCount') ? this.getLikeCount(uid) : Promise.resolve(null),
+    ]);
+    if (level.status === 'rejected' && likeCount.status === 'rejected') throw level.reason;
+    if (fields.length === 1 && fields[0] === 'level' && level.status === 'rejected')
+      throw level.reason;
+    if (fields.length === 1 && fields[0] === 'likeCount' && likeCount.status === 'rejected')
+      throw likeCount.reason;
+    return {
+      level: level.status === 'fulfilled' ? level.value : null,
+      likeCount: likeCount.status === 'fulfilled' ? likeCount.value : null,
+    };
   }
 }

@@ -3,6 +3,7 @@ import { DEFAULT_APP_SETTINGS, MAX_LOG_RETENTION_DAYS, type AppSettings } from '
 import { isToastDuration } from '../common/toast_settings';
 import { isUpdateCheckInterval } from '../common/update_settings';
 import { normalizeQzonePagination } from '../common/qzone_pagination';
+import { DEFAULT_CONTACT_CARD } from '../common/contact_card';
 
 export type WeqAppBackupSettings = Omit<
   AppSettings,
@@ -161,6 +162,7 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   const {
     typingStatus,
     home,
+    contactCard,
     qqShowCacheDays,
     updateCheckIntervalMinutes,
     quitConfirmSuppressed,
@@ -176,6 +178,26 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     fail('settings.updateCheckIntervalMinutes');
   if (qqShowCacheDays !== undefined) number(qqShowCacheDays, 'settings.qqShowCacheDays', 1, 365);
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
+  if (contactCard !== undefined) {
+    const card = fields(
+      contactCard,
+      'settings.contactCard',
+      [],
+      ['visible', 'order', 'groupOrder'],
+    );
+    if (card.visible !== undefined)
+      shape(card.visible, DEFAULT_CONTACT_CARD.visible, 'settings.contactCard.visible');
+    for (const key of ['order', 'groupOrder'] as const) {
+      const list = card[key];
+      const known: readonly string[] = DEFAULT_CONTACT_CARD[key];
+      if (
+        list !== undefined &&
+        (!Array.isArray(list) ||
+          list.some((item) => typeof item !== 'string' || !known.includes(item)))
+      )
+        fail(`settings.contactCard.${key}`);
+    }
+  }
   if (
     input.startupPage !== undefined &&
     !['home', 'messages', 'last'].includes(String(input.startupPage))

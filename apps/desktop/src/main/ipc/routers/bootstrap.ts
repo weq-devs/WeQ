@@ -17,6 +17,7 @@ import { observable } from '@trpc/server/observable';
 import { trackModelDownload } from '../../model_download_task';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
+import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
 import { isToastDuration } from '@weq/service/toast-settings';
@@ -637,6 +638,21 @@ export const bootstrapRouter = router({
   getSettings: procedure.query(() => {
     return requireBootstrap().userConfig.getSettings();
   }),
+
+  setContactCard: procedure
+    .input(
+      z.object({
+        visible: z.record(z.boolean()),
+        order: z.array(z.string()).max(100),
+        groupOrder: z.array(z.string()).max(100),
+      }),
+    )
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({
+          contactCard: normalizeContactCard(input),
+        }).contactCard,
+    ),
 
   setHomeSettings: procedure
     .input(

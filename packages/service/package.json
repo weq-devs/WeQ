@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./contact-card": "./src/common/contact_card.ts",
     "./performance": "./src/performance/index.ts",
     "./performance-node": "./src/performance/node.ts",
     "./service-ports": "./src/common/service_ports.ts",
