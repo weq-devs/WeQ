@@ -58,14 +58,12 @@ export function UpdateCard(): ReactElement {
     <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
       <div className="weq-set-row">
         <div className="weq-set-row-main">
-          <span className="weq-set-row-label">
+          <span
+            className="weq-set-row-label"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+          >
             {phase === 'uptodate' ? (
-              <CheckCircle2
-                size={14}
-                strokeWidth={2}
-                aria-hidden
-                style={{ verticalAlign: '-2px', marginRight: 4 }}
-              />
+              <CheckCircle2 size={14} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
             ) : null}
             {label}
           </span>
