@@ -308,6 +308,62 @@ try {
       }
     }
     if (remote) {
+      for (const [width, height] of [
+        [844, 390],
+        [1024, 768],
+        [1180, 820],
+        [1366, 1024],
+      ]) {
+        await page.setViewportSize({ width, height });
+        await page.evaluate(() => {
+          window.qaOrientation.type = 'landscape-primary';
+          window.qaOrientation.dispatchEvent(new Event('change'));
+          window.visualViewport.height = innerHeight;
+          window.visualViewport.dispatchEvent(new Event('resize'));
+        });
+        await page.getByRole('button', { name: '主页', exact: true }).click();
+        await page.locator('[data-portrait-home]').waitFor();
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate((theme) => {
+            window.desktopPortraitQa.store.getState().setPreference(theme);
+          }, theme);
+          const home = await page.evaluate(() => {
+            const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+            return {
+              railRight: box('.app-rail').right,
+              mainLeft: box('.chat-main').left,
+              mainRight: box('.chat-main').right,
+              sidebarTrack: getComputedStyle(
+                document.querySelector('.app-shell'),
+              ).gridTemplateColumns.split(' ')[1],
+              overflow: document.documentElement.scrollWidth > innerWidth,
+            };
+          });
+          assert.equal(home.sidebarTrack, '0px', JSON.stringify({ width, height, theme, home }));
+          assert.equal(home.mainLeft, home.railRight, '主页紧接导航栏，不保留空白侧栏');
+          assert.equal(home.mainRight, width);
+          assert.equal(home.overflow, false);
+          if (output)
+            await page.screenshot({
+              path: resolve(output, `remote-home-${width}-${height}-${theme}.png`),
+            });
+        }
+        await page.locator('.app-rail').getByRole('button', { name: '消息', exact: true }).click();
+        await editor.waitFor();
+        assert(
+          (await page.locator('.sidebar').boundingBox()).width >= 160,
+          '返回消息后恢复正常会话列表宽度',
+        );
+        assert.equal(await editor.textContent(), '旋转与键盘切换保留草稿');
+      }
+      await page.setViewportSize({ width: 430, height: 932 });
+      await page.evaluate(() => {
+        window.qaOrientation.type = 'portrait-primary';
+        window.qaOrientation.dispatchEvent(new Event('change'));
+      });
+      await page.waitForFunction(() => document.documentElement.dataset.weqLayout === 'single');
+      await page.locator('.sidebar .conversation-row').first().click();
+      await editor.focus();
       // 键盘可同步缩短 layout viewport；设备方向保持竖屏。
       await page.setViewportSize({ width: 430, height: 320 });
       await page.evaluate(() => {

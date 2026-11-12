@@ -79,7 +79,11 @@ html[data-weq-input='touch'] .app-shell .composer-tools button {
 /* 横屏继续使用导航栏、列表与正文多栏；不改写共享的栏宽和输入区偏好。 */
 html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell {
   --im-rail-width: 56px;
-  grid-template-columns: 56px minmax(160px, min(30vw, var(--sidebar-width))) minmax(0, 1fr);
+  /* 主页等通栏视图的侧栏宽度为 0，不用横屏列表的最小宽度撑出空栏。 */
+  grid-template-columns:
+    56px
+    minmax(min(160px, var(--sidebar-width)), min(30vw, var(--sidebar-width)))
+    minmax(0, 1fr);
 }
 
 html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-shell:has(> .sidebar[hidden]) {

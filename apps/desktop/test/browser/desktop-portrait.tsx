@@ -77,7 +77,7 @@ function DesktopFixture() {
         query={shell.query}
         contactTab={shell.contactTab}
         activeNotice={shell.contactNotice}
-        sidebarWidth={shell.sidebarWidth}
+        sidebarWidth={shell.view === 'home' ? 0 : shell.sidebarWidth}
         mainOpen={shell.mainOpen}
         messageBadgeCount={0}
         contactBadgeCount={0}
