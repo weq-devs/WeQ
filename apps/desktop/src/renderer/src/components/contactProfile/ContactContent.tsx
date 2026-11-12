@@ -77,7 +77,6 @@ export function ContactIdentity({
   pendant = false,
   settings,
   cardBody = false,
-  onSignatureHistory,
 }: {
   person: ProfilePerson;
   onOpen?: () => void;
@@ -85,7 +84,6 @@ export function ContactIdentity({
   settings?: ContactCardSettings;
   /** 仅浮层名片使用五行身份正文，资料页保持原样。 */
   cardBody?: boolean;
-  onSignatureHistory?: () => void;
 }) {
   const relationship = usePersonRelationship(person);
   const names = useCardDisplayNames(
@@ -233,9 +231,17 @@ export function ContactIdentity({
           ) : null}
           {!person.clone && (settings?.visible.signature !== false || signatureTime) ? (
             <SignatureRow
+              key={person.identityValue}
               text={settings?.visible.signature !== false ? person.signature || '' : ''}
               updated={signatureTime}
-              onHistory={onSignatureHistory}
+              historyUin={
+                person.kind !== 'bot' &&
+                !person.extInfo?.isEnterprise &&
+                ['QQ', 'UIN'].includes(person.identityLabel) &&
+                /^[1-9]\d{4,19}$/.test(person.identityValue)
+                  ? person.identityValue
+                  : undefined
+              }
             />
           ) : null}
         </div>
@@ -510,14 +516,15 @@ function BotFeaturesRow({ person }: { person: ProfilePerson }) {
 
 function SignatureRow({
   text,
-  onHistory,
+  historyUin,
   updated,
 }: {
   text: string;
-  onHistory?: () => void;
+  historyUin?: string;
   updated?: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [historyAnchor, setHistoryAnchor] = useState<HTMLButtonElement | null>(null);
   const [overflow, setOverflow] = useState(false);
   const content = useRef<HTMLParagraphElement | HTMLButtonElement>(null);
   useLayoutEffect(() => {
@@ -539,7 +546,7 @@ function SignatureRow({
   return (
     <ContactRow label="个性签名">
       <div className={`weq-contact-signature${open ? ' is-open' : ''}`}>
-        {!text ? null : onHistory ? (
+        {!text ? null : historyUin ? (
           <button
             ref={(element) => {
               content.current = element;
@@ -547,10 +554,14 @@ function SignatureRow({
             type="button"
             className="weq-contact-signature-text"
             title="查看历史个性签名"
+            aria-haspopup="dialog"
+            aria-expanded={Boolean(historyAnchor)}
             onClick={(event) => {
               const selection = event.currentTarget.ownerDocument.getSelection();
-              if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
-                onHistory();
+              if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode)) {
+                const anchor = event.currentTarget;
+                setHistoryAnchor((previous) => (previous ? null : anchor));
+              }
             }}
           >
             {text}
@@ -572,6 +583,14 @@ function SignatureRow({
           </button>
         ) : null}
       </div>
+      {historyAnchor && historyUin ? (
+        <ProfileExtraDialog
+          uin={historyUin}
+          view="signatures"
+          anchor={historyAnchor}
+          onClose={() => setHistoryAnchor(null)}
+        />
+      ) : null}
     </ContactRow>
   );
 }
@@ -703,22 +722,9 @@ export function ContactContent({
     qqShow: hasQQ && !person.clone && person.kind !== 'bot' ? <QqShowRow person={person} /> : null,
     signature: person.signature ? (
       <SignatureRow
+        key={person.identityValue}
         text={person.signature}
-        onHistory={
-          personal && !preview
-            ? () => {
-                if (onSection) onSection('signatures');
-                else if (navigate) {
-                  onNavigate?.();
-                  navigate({
-                    kind: 'person',
-                    contact: { createdAt: '', ...person } as Contact,
-                    tab: 'signatures',
-                  });
-                } else open('signatures');
-              }
-            : undefined
-        }
+        historyUin={personal && !preview ? person.identityValue : undefined}
       />
     ) : null,
     signatureUpdated: (

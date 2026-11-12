@@ -60,10 +60,12 @@ export function ProfileExtraDialog({
   uin,
   view,
   onClose,
+  anchor,
 }: {
   uin: string;
   view: ProfileExtraView;
   onClose: () => void;
+  anchor?: HTMLElement | null;
 }) {
   const id = useId();
   const title = {
@@ -73,7 +75,15 @@ export function ProfileExtraDialog({
     questions: '匿问我答',
   }[view];
   return (
-    <Modal onClose={onClose} labelledBy={id} width={680} className="weq-extras-dialog">
+    <Modal
+      onClose={onClose}
+      labelledBy={id}
+      width={view === 'signatures' ? 520 : 680}
+      className={`weq-extras-dialog${view === 'signatures' ? ' weq-signature-history-dialog' : ''}`}
+      presentation={view === 'signatures' ? 'popover' : 'modal'}
+      anchor={anchor}
+      anchorPlacement="side"
+    >
       <header className="weq-extras-header">
         <h2 id={id}>{title}</h2>
         <button type="button" title="关闭" aria-label="关闭资料详情" onClick={onClose}>
@@ -136,15 +146,12 @@ function ExtrasBody({
   online: boolean;
   section: 'signature' | 'details';
 }) {
-  const [view, setView] = useState<View | null>(null);
+  const [detail, setDetail] = useState<{ view: View; anchor?: HTMLElement } | null>(null);
   const energy = trpc.account.profileExtras.energy.useQuery(input, {
     ...queryOptions,
     enabled: online && section === 'details',
   });
   const usable = energy.data?.targetUin === input.uin ? energy.data : null;
-  const titleId = useId();
-  const title =
-    view === 'signatures' ? '历史个性签名' : view === 'education' ? '教育经历' : '匿问我答';
   return (
     <>
       {section === 'signature' ? (
@@ -152,7 +159,13 @@ function ExtrasBody({
           className="weq-extras-history"
           type="button"
           title="查看历史个性签名"
-          onClick={() => setView('signatures')}
+          aria-haspopup="dialog"
+          aria-expanded={detail?.view === 'signatures'}
+          onClick={({ currentTarget: anchor }) =>
+            setDetail((value) =>
+              value?.view === 'signatures' ? null : { view: 'signatures', anchor },
+            )
+          }
         >
           <History size={13} />
           历史签名
@@ -189,14 +202,18 @@ function ExtrasBody({
           <div className="weq-extras-links">
             <ProfileDetailsEntry input={input} online={online} />
             <ProfileDisplayEntry field="education">
-              <button type="button" title="查看完整教育经历" onClick={() => setView('education')}>
+              <button
+                type="button"
+                title="查看完整教育经历"
+                onClick={() => setDetail({ view: 'education' })}
+              >
                 <GraduationCap size={15} />
                 教育经历
                 <ChevronRight size={14} />
               </button>
             </ProfileDisplayEntry>
             <ProfileDisplayEntry field="anonymousQuestions">
-              <button type="button" onClick={() => setView('questions')}>
+              <button type="button" onClick={() => setDetail({ view: 'questions' })}>
                 <MessageCircleQuestion size={15} />
                 匿问我答
                 <ChevronRight size={14} />
@@ -205,34 +222,13 @@ function ExtrasBody({
           </div>
         </section>
       )}
-      {view ? (
-        <Modal
-          onClose={() => setView(null)}
-          labelledBy={titleId}
-          width={680}
-          className="weq-extras-dialog"
-        >
-          <header className="weq-extras-header">
-            <h2 id={titleId}>{title}</h2>
-            <button
-              type="button"
-              aria-label="关闭资料详情"
-              title="关闭"
-              onClick={() => setView(null)}
-            >
-              <X size={18} />
-            </button>
-          </header>
-          <div className="weq-extras-content" data-privacy-sensitive>
-            {view === 'education' ? (
-              <EducationHistory input={input} online={online} />
-            ) : view === 'signatures' ? (
-              <Signatures input={input} online={online} />
-            ) : (
-              <Questions input={input} online={online} />
-            )}
-          </div>
-        </Modal>
+      {detail ? (
+        <ProfileExtraDialog
+          uin={input.uin}
+          view={detail.view}
+          anchor={detail.anchor}
+          onClose={() => setDetail(null)}
+        />
       ) : null}
     </>
   );

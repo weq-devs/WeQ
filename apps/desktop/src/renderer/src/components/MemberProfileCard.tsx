@@ -140,23 +140,6 @@ export function MemberProfileCard({
               person={person}
               settings={settings}
               cardBody
-              onSignatureHistory={
-                !localClone &&
-                open &&
-                person.kind !== 'bot' &&
-                !person.extInfo?.isEnterprise &&
-                ['QQ', 'UIN'].includes(person.identityLabel) &&
-                /^[1-9]\d{4,19}$/.test(person.identityValue)
-                  ? () => {
-                      onClose();
-                      open({
-                        kind: 'person',
-                        contact: { createdAt: '', ...person },
-                        tab: 'signatures',
-                      });
-                    }
-                  : undefined
-              }
               pendant={settings.ready && settings.visible.pendant}
               onOpen={openProfile}
             />

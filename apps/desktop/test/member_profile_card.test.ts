@@ -69,6 +69,24 @@ vi.mock('@renderer/trpc/client', () => ({
       qqWrite: {},
       profileExtras: {
         energy: { useQuery: () => ({ data: undefined }) },
+        signatureHistory: {
+          useInfiniteQuery: vi.fn((input: { uin: string }) => ({
+            data: {
+              pages: [
+                {
+                  targetUin: input.uin,
+                  items: [],
+                  hasMore: false,
+                  nextCursor: null,
+                  paginationError: null,
+                },
+              ],
+            },
+            isFetching: false,
+            error: null,
+            hasNextPage: false,
+          })),
+        },
         details: {
           useQuery: () => ({
             data: preferences.extraDetails
@@ -135,7 +153,7 @@ import {
   ContactWorkspaceNavigationContext,
   profileTargetUser,
 } from '@renderer/lib/profileNavigation';
-import { client } from '@renderer/trpc/client';
+import { client, trpc } from '@renderer/trpc/client';
 import {
   contactCardFieldGroup,
   ContactContent,
@@ -237,7 +255,7 @@ describe('群成员资料卡浮层', () => {
     await mountCard(() => {}, undefined, { ...MEMBER, clone: true });
     expect(layer().querySelector('[aria-label="打开完整资料页"]')).toBeNull();
   });
-  it('点击签名正文进入同一联系人的签名历史章节，并关闭名片', async () => {
+  it('点击签名正文在原名片旁打开无遮罩历史，不跳转或关闭名片，选中文字不触发', async () => {
     const close = vi.fn();
     await mountCard(close, undefined, { ...MEMBER, signature: '可以点击的合成签名' });
     const signature = layer().querySelector<HTMLButtonElement>('.weq-contact-signature-text');
@@ -248,19 +266,25 @@ describe('群成员资料卡浮层', () => {
     selection.addRange(range);
     await act(async () => signature!.click());
     expect(expandContact).not.toHaveBeenCalled();
+    expect(document.querySelector('.weq-extras-dialog')).toBeNull();
     selection.removeAllRanges();
     await act(async () => signature!.click());
-    expect(expandContact).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        kind: 'person',
-        contact: expect.objectContaining({ identityValue: MEMBER.identityValue }),
-        tab: 'signatures',
-      }),
+    expect(expandContact).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(layer().querySelector('.weq-member-pop')).not.toBeNull();
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    const history = document.querySelector('.weq-extras-dialog')!;
+    expect(history.parentElement?.classList.contains('is-anchored-popover')).toBe(true);
+    expect(signature?.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(signature?.getAttribute('aria-expanded')).toBe('true');
+    expect(trpc.account.profileExtras.signatureHistory.useInfiniteQuery).toHaveBeenLastCalledWith(
+      expect.objectContaining({ uin: MEMBER.identityValue }),
+      expect.objectContaining({ enabled: true }),
     );
-    expect(close).toHaveBeenCalledOnce();
-    expect(close.mock.invocationCallOrder[0]).toBeLessThan(
-      expandContact.mock.invocationCallOrder[0],
-    );
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(document.querySelector('.weq-extras-dialog')).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    expect(signature?.getAttribute('aria-expanded')).toBe('false');
   });
   it('没有备注时添加备注仍位于备注行，不再查询或展示扩展备注资料', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, isFriend: true });
@@ -395,6 +419,7 @@ describe('群成员资料卡浮层', () => {
       gender: 1 as const,
       intimacy: 12,
     };
+    const section = vi.fn();
     await act(async () =>
       root.render(
         createElement(
@@ -408,6 +433,7 @@ describe('群成员资料卡浮层', () => {
             settings: DEFAULT_CONTACT_CARD,
             full: true,
             fields: ['signature', 'gender', 'intimacy', 'uid'],
+            onSection: section,
           }),
         ),
       ),
@@ -424,6 +450,13 @@ describe('群成员资料卡浮层', () => {
       '互动与关系',
     ]);
     expect(host.querySelector('.weq-profile-tech')?.textContent).toContain(MEMBER.id);
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('.weq-contact-signature-text')!.click(),
+    );
+    expect(document.querySelector('.weq-extras-dialog')?.parentElement?.classList).toContain(
+      'is-anchored-popover',
+    );
+    expect(section).not.toHaveBeenCalled();
   });
   it.each(['u_fixture', 'phone:10002'])(
     '名片状态回退仍并列展示传统与自定义状态：%s',

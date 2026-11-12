@@ -71,6 +71,9 @@
   display: flex;
   flex-direction: column;
 }
+.weq-dialog-layer.is-anchored-popover[tabindex] > .weq-signature-history-dialog {
+  max-height: min(640px, calc(100dvh - 16px));
+}
 .weq-extras-header {
   display: flex;
   align-items: center;

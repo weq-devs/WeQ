@@ -681,9 +681,11 @@ try {
     assert.doesNotMatch(await page.locator('.weq-contact-title-line').innerText(), /正在听音乐/);
     report.push({ kind: 'short-signature-and-identity-settings', calls: [] });
     await page.locator('.weq-contact-signature-text').click();
-    await page.locator('.weq-contact-workspace-v2').waitFor();
-    assert.equal(await page.locator('[aria-current="page"]').textContent(), '签名历史');
-    report.push({ kind: 'signature-history-navigation', calls: [] });
+    await page.getByRole('dialog', { name: '历史个性签名', exact: true }).waitFor();
+    assert.equal(await page.locator('.weq-member-pop').count(), 1);
+    assert.equal(await page.locator('.weq-contact-workspace-v2').count(), 0);
+    assert.equal(await page.locator('[aria-modal="true"]').count(), 0);
+    report.push({ kind: 'signature-history-popover', calls: [] });
     await page.goto(`${url}?minimal=1&preferences-loading=1`);
     await page.locator('.weq-member-pop').waitFor();
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));

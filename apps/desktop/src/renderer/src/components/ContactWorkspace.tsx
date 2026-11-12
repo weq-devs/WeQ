@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { History } from 'lucide-react';
 import { DEFAULT_CONTACT_CARD, type ContactCardContent } from '@weq/service/contact-card';
 import type { Contact } from '../im-template/template/types';
 import type { ContactWorkspaceTab } from '../lib/profileNavigation';
@@ -17,7 +18,7 @@ import { ContactContent } from './contactProfile/ContactContent';
 import { ContactGroupWorkspace } from './contactProfile/ContactGroupWorkspace';
 import { ProfileDisclosure } from './contactProfile/ProfileDisclosure';
 import { ContactSection, ContactTechnicalDetails, ContactRow } from './contactProfile/ContactRow';
-import { ProfileExtrasContent } from './ProfileExtras';
+import { ProfileExtraDialog, ProfileExtrasContent } from './ProfileExtras';
 import { SelfQQControls } from './settings/SelfQQControls';
 import { SelfAvatarHistory } from './SelfAvatarHistory';
 import { ProfileWorkspace } from './ProfileWorkspace';
@@ -129,13 +130,11 @@ export function ContactWorkspace({
               >
                 <ProfileExtrasContent uin={contact.identityValue} view="education" />
               </ProfileDisclosure>
-              <ProfileDisclosure
-                title="签名历史"
+              <SignatureHistoryEntry
+                uin={contact.identityValue}
                 initiallyOpen={opened === 'signatures'}
                 openRequest={openRequest}
-              >
-                <ProfileExtrasContent uin={contact.identityValue} view="signatures" />
-              </ProfileDisclosure>
+              />
             </>
           ) : null}
           {relationship === 'self' ? (
@@ -228,6 +227,45 @@ export function ContactWorkspace({
       onSelect={select}
       render={panel}
     />
+  );
+}
+
+function SignatureHistoryEntry({
+  uin,
+  initiallyOpen,
+  openRequest,
+}: {
+  uin: string;
+  initiallyOpen: boolean;
+  openRequest: number;
+}) {
+  const anchor = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (initiallyOpen) setOpen(true);
+  }, [initiallyOpen, openRequest]);
+  return (
+    <section className="weq-profile-disclosure">
+      <button
+        ref={anchor}
+        type="button"
+        className="weq-profile-disclosure-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>签名历史</span>
+        <History size={16} aria-hidden />
+      </button>
+      {open ? (
+        <ProfileExtraDialog
+          uin={uin}
+          view="signatures"
+          anchor={anchor.current}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </section>
   );
 }
 

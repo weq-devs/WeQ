@@ -21,6 +21,21 @@ vi.mock('../src/renderer/src/components/MutualMarkDialog', () => ({
 vi.mock('../src/renderer/src/components/ProfileExtras', () => ({
   EducationSection: () => h('p', null, '教育内容'),
   ProfileExtrasContent: ({ view }: { view: string }) => h(Activity, { name: view }),
+  ProfileExtraDialog: ({
+    view,
+    anchor,
+    onClose,
+  }: {
+    view: string;
+    anchor: HTMLElement;
+    onClose: () => void;
+  }) =>
+    h(
+      'div',
+      { role: 'dialog', 'data-anchor': anchor?.textContent },
+      h(Activity, { name: view }),
+      h('button', { 'aria-label': '关闭签名历史', onClick: onClose }),
+    ),
 }));
 vi.mock('../src/renderer/src/components/intentSense/IntentProfileDialog', () => ({
   IntentProfileDialog: () => h(Activity, { name: '画像内容' }),
@@ -105,12 +120,27 @@ it.each([
   )!;
   expect(value.getAttribute('data-active')).toBe('true');
 });
-it('收起历史保留内容但暂停读取', () => {
-  const host = render('signatures');
+it('收起资料历史保留内容但暂停读取', () => {
+  const host = render('history');
   const button = [...host.querySelectorAll('button')].find(
-    (node) => node.textContent === '签名历史',
+    (node) => node.textContent === '资料变更记录',
   )!;
   act(() => button.click());
   expect(host.querySelector('[data-active]')?.getAttribute('data-active')).toBe('false');
+  expect(button.getAttribute('aria-expanded')).toBe('false');
+});
+it('签名历史按钮按需打开对话框，以实际按钮为锚点，不展开页内历史', () => {
+  const host = render();
+  const button = [...host.querySelectorAll('button')].find(
+    (node) => node.textContent === '签名历史',
+  )!;
+  expect(button.getAttribute('aria-haspopup')).toBe('dialog');
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+  act(() => button.click());
+  expect(host.querySelector('[role="dialog"]')?.getAttribute('data-anchor')).toBe('签名历史');
+  expect(host.querySelector('.weq-profile-disclosure-body [data-active]')).toBeNull();
+  expect(button.getAttribute('aria-expanded')).toBe('true');
+  act(() => button.click());
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
   expect(button.getAttribute('aria-expanded')).toBe('false');
 });

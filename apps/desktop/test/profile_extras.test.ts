@@ -122,13 +122,32 @@ it('接口返回能量等级时仍只显示能量值', async () => {
   expect(host.textContent).not.toContain('能量等级');
   expect(host.textContent).not.toContain('987');
 });
-it('签名入口按需打开详情，保留时间地点并支持翻页', async () => {
+it('签名入口按需在触发点旁打开无遮罩详情，保留时间地点并支持翻页', async () => {
   await render('signature');
+  expect(state.signatures).not.toHaveBeenCalled();
   await click('历史签名');
+  expect(document.querySelector('.weq-extras-dialog')?.parentElement?.classList).toContain(
+    'is-anchored-popover',
+  );
+  expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  expect(host.querySelector('button')?.getAttribute('aria-haspopup')).toBe('dialog');
+  expect(host.querySelector('button')?.getAttribute('aria-expanded')).toBe('true');
   expect(document.body.textContent).toContain('合成历史签名');
   expect(document.body.textContent).toContain('合成位置');
   await click('加载更多');
   expect(state.next).toHaveBeenCalledTimes(1);
+});
+it('重复点击签名入口收起历史，关闭按钮同样有效', async () => {
+  await render('signature');
+  await click('历史签名');
+  await click('历史签名');
+  expect(document.querySelector('.weq-extras-dialog')).toBeNull();
+  expect(host.querySelector('button')?.getAttribute('aria-expanded')).toBe('false');
+  await click('历史签名');
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="关闭资料详情"]')!.click(),
+  );
+  expect(document.querySelector('.weq-extras-dialog')).toBeNull();
 });
 it('签名互动复用空间操作栏和评论排版，点赞名单通过悬浮面板展示', async () => {
   state.signatures.mockReturnValue(

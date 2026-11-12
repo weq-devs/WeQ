@@ -96,6 +96,8 @@ async function run() {
       await page.evaluate(() => window.profileExtrasQa.mode('ready'));
       await page.getByText('831', { exact: true }).waitFor();
       await page.getByRole('button', { name: '历史签名', exact: true }).click();
+      assert.equal(await page.locator('[aria-modal="true"]').count(), 0);
+      assert.equal(await page.locator('.weq-dialog-layer.is-anchored-popover').count(), 1);
       await page.getByRole('button', { name: '加载更多', exact: true }).click();
       await page.getByText('第二页签名', { exact: true }).waitFor();
       const firstSignature = page.locator('.weq-extras-list > article').first();
@@ -181,6 +183,22 @@ async function run() {
                 .map((node) => node.className),
             );
             assert.deepEqual(overflow, [], `${width}/${theme}/${accent}: signature overflow`);
+            const layout = await page.locator('.weq-signature-history-dialog').evaluate((node) => {
+              const rect = node.getBoundingClientRect();
+              const layer = getComputedStyle(node.parentElement);
+              return {
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: rect.bottom,
+                background: layer.backgroundColor,
+                pointerEvents: layer.pointerEvents,
+              };
+            });
+            assert.ok(layout.left >= 8 && layout.right <= width - 8);
+            assert.ok(layout.top >= 8 && layout.bottom <= 842);
+            assert.equal(layout.background, 'rgba(0, 0, 0, 0)');
+            assert.equal(layout.pointerEvents, 'none');
             assert.equal(await firstSignature.locator('.weq-qzn-comment-meta time').count(), 1);
             assert.equal(
               await firstSignature.getByRole('button', { name: '点赞人', exact: true }).count(),
@@ -197,7 +215,45 @@ async function run() {
             results.push({ width, theme, accent, signatureLayout: true });
           }
       if (signaturesOnly) {
+        await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
+        const trigger = page.getByRole('button', { name: '历史签名', exact: true });
+        for (const width of [1180, 320]) {
+          await page.setViewportSize({ width, height: 500 });
+          await trigger.evaluate((node) => {
+            Object.assign(node.style, { position: 'fixed', right: '12px', bottom: '12px' });
+          });
+          await trigger.click();
+          const dialog = page.locator('.weq-signature-history-dialog');
+          await dialog.waitFor();
+          await page.evaluate(
+            () =>
+              new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+          );
+          const bounds = await dialog.boundingBox();
+          const anchor = await trigger.boundingBox();
+          const evidence = JSON.stringify({ width, bounds, anchor });
+          assert.ok(bounds.x >= 8 && bounds.x + bounds.width <= width - 8, evidence);
+          assert.ok(bounds.y >= 8 && bounds.y + bounds.height <= 492, evidence);
+          if (width === 1180) assert.ok(Math.abs(bounds.x + bounds.width - anchor.x + 8) <= 1);
+          await trigger.click();
+          await dialog.waitFor({ state: 'detached' });
+          await trigger.press('Enter');
+          await dialog.waitFor();
+          await page.keyboard.press('Escape');
+          await dialog.waitFor({ state: 'detached' });
+          assert.equal(await trigger.evaluate((node) => node === document.activeElement), true);
+          await trigger.click();
+          await dialog.waitFor();
+          await page.mouse.click(4, 4);
+          await dialog.waitFor({ state: 'detached' });
+          results.push({ width, edgePlacement: true, toggle: true, escape: true, outside: true });
+        }
         assert.deepEqual(errors, []);
+        if (output)
+          await writeFile(
+            resolve(output, 'result.json'),
+            JSON.stringify({ results, errors }, null, 2),
+          );
         console.log(JSON.stringify({ cases: results.length, errors, signatures: true }));
         return;
       }

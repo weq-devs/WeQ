@@ -67,7 +67,7 @@
   transition: transform 160ms ease-out;
 }
 
-.weq-profile-disclosure-trigger[aria-expanded='true'] svg {
+.weq-profile-disclosure-trigger[aria-expanded='true']:not([aria-haspopup='dialog']) svg {
   transform: rotate(180deg);
 }
 
