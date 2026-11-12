@@ -217,7 +217,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               useQuery: (input?: { kind?: string }) => ({
                 data: state.data[`${name}:${input?.kind}`] ?? state.data[name],
                 isLoading: false,
-                isFetching: false,
+                isFetching: Boolean(state.data[`fetching:${name}`]),
                 error: state.data[`error:${name}`],
                 refetch: async () => {
                   if (name === 'groupJoinSettings') await state.refreshJoin();
@@ -555,6 +555,25 @@ describe('QQ 主动操作的实际界面', () => {
       groupId: 123,
     });
     expect(close).toHaveBeenCalledOnce();
+  });
+  it('已读取的空待办在后台重复读取和读取失败时保持原文案', async () => {
+    state.data.todoLocalList = [];
+    state.data.todoList = [];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    const summary = () => f.host.querySelector('.weq-todo-summary')?.textContent;
+    expect(summary()).toBe('暂无待办');
+    state.data['fetching:todoLocalList'] = true;
+    state.data['fetching:todoList'] = true;
+    f.update();
+    expect(summary()).toBe('暂无待办');
+    await act(async () => f.button('查看群待办').click());
+    expect(f.host.textContent).not.toContain('读取待办中');
+    expect(f.host.textContent).toContain('暂无群待办');
+    state.data['fetching:todoLocalList'] = false;
+    state.data['fetching:todoList'] = false;
+    state.data['error:todoLocalList'] = new Error('暂时读取失败');
+    f.update();
+    expect(summary()).toBe('暂无待办');
   });
   it('已完成的待办不再提供重复完成操作，取消仍由群管理权限控制', async () => {
     state.data.todoList = [{ sequence: '123', text: '已完成事项', completed: true }];

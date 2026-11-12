@@ -10,12 +10,19 @@ import {
 import { useGroupResourceWindows } from '../src/renderer/src/hooks/useGroupResourceWindows';
 import { useRenderDocument } from '../src/renderer/src/lib/renderDocument';
 import { useAppLock } from '../src/renderer/src/state/lock';
+import {
+  WorkspacePages,
+  WorkspaceContent,
+  WorkspacePage,
+  useWorkspaceActiveTitle,
+} from '../src/renderer/src/components/WorkspacePages';
 
 const state = vi.hoisted(() => ({ inline: false }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/lib/remoteClient', () => ({ isRemoteClient: () => state.inline }));
 vi.mock('../src/renderer/src/lib/responsiveLayout', () => ({
   isSingleColumnLayout: () => state.inline,
+  isMobileClient: () => false,
 }));
 vi.mock('../src/renderer/src/components/Toast', () => ({ ToastHost: () => null }));
 vi.mock('../src/renderer/src/components/HoverTooltip', () => ({ HoverTooltip: () => null }));
@@ -24,8 +31,9 @@ vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
     createElement('main', { 'data-presentation': presentation }, children as never),
 }));
 vi.mock('../src/renderer/src/components/GroupAlbumDialog', () => ({
-  GroupAlbumDialog: ({ groupCode, onClose }: { groupCode: string; onClose: () => void }) =>
-    createElement(
+  GroupAlbumDialog: ({ groupCode, onClose }: { groupCode: string; onClose: () => void }) => {
+    const [page, setPage] = useState(false);
+    return createElement(
       'section',
       {
         'data-kind': 'albums',
@@ -34,7 +42,23 @@ vi.mock('../src/renderer/src/components/GroupAlbumDialog', () => ({
       },
       createElement('input', { defaultValue: '' }),
       createElement('button', { onClick: onClose }, '关闭'),
-    ),
+      createElement(
+        'button',
+        { 'data-open-local-page': true, onClick: () => setPage(true) },
+        '内部页面',
+      ),
+      page
+        ? createElement(
+            WorkspacePage,
+            {
+              title: '资源内部页面',
+              onClose: () => setPage(false),
+            },
+            '内部内容',
+          )
+        : null,
+    );
+  },
 }));
 vi.mock('../src/renderer/src/components/GroupFileDialog', () => ({
   GroupFileDialog: ({ groupCode, onClose }: { groupCode: string; onClose: () => void }) => {
@@ -57,6 +81,46 @@ function Host({ ownerKey }: { ownerKey: string }) {
   return createElement('div', null, controls.windows);
 }
 const popups: HappyWindow[] = [];
+function MainNavigationProbe() {
+  return createElement('output', { 'data-main-page': true }, useWorkspaceActiveTitle() ?? '主聊天');
+}
+it('资源内部页面只使用所属窗口导航，不接管主窗口页面', async () => {
+  vi.spyOn(window, 'open').mockImplementation(() => {
+    const popup = new HappyWindow();
+    popups.push(popup);
+    return popup as unknown as Window;
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(
+          WorkspacePages,
+          {
+            navigationKey: 'main',
+          },
+          [
+            createElement(MainNavigationProbe, { key: 'probe' }),
+            createElement(WorkspaceContent, { key: 'content' }, '主窗口内容'),
+            createElement(Host, { key: 'windows', ownerKey: '10001:source-a' }),
+          ],
+        ),
+      ),
+    );
+    act(() => controls.open({ kind: 'albums', groupCode: '123', groupName: '测试群' }));
+    act(() =>
+      popups[0]!.document.querySelector<HTMLButtonElement>('[data-open-local-page]')!.click(),
+    );
+    expect(host.querySelector('[data-main-page]')?.textContent).toBe('主聊天');
+    expect(host.textContent).not.toContain('内部内容');
+    expect(popups[0]!.document.body.textContent).toContain('内部内容');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.inline = false;

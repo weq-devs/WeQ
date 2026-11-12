@@ -36,7 +36,7 @@ const report = { shots: [], metrics: {}, errors: [] };
 let browser;
 const shot = async (page, name) => {
   const path = resolve(output, `${name}.png`);
-  await page.screenshot({ path });
+  await page.screenshot({ path, animations: 'disabled' });
   report.shots.push(path);
 };
 const setTheme = async (page, theme) => {
@@ -104,6 +104,10 @@ const checkPopoverFits = async (page, name) => {
   assert.ok(rect.right <= rect.innerWidth, `${name}: popover escaped right`);
   assert.ok(rect.bottom <= rect.innerHeight, `${name}: popover escaped bottom`);
   report.metrics[name] = rect;
+  if (name.startsWith('sign-popover')) {
+    assert.ok(rect.width <= 320, 'sign popover is wider than compact layout');
+    assert.ok(rect.bottom - rect.top <= 400, 'sign popover is taller than compact layout');
+  }
 };
 try {
   await mkdir(output, { recursive: true });
@@ -184,6 +188,14 @@ try {
   await page.getByLabel('打卡日期', { exact: true }).waitFor();
   await checkPopoverFits(page, 'sign-popover');
   await shot(page, 'sign-popover-light');
+  await setTheme(page, 'dark');
+  await checkPopoverFits(page, 'sign-popover-dark');
+  await shot(page, 'sign-popover-dark');
+  await page.setViewportSize({ width: 320, height: 640 });
+  await checkPopoverFits(page, 'sign-popover-320');
+  await shot(page, 'sign-popover-320');
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await setTheme(page, 'light');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await page.waitForFunction(
     () => document.querySelector('output')?.getAttribute('data-chat-clicks') === '1',
@@ -225,6 +237,23 @@ try {
   ]);
   firstAlbum.on('pageerror', (error) => report.errors.push(error.message));
   await firstAlbum.locator('.group-album-dialog').waitFor();
+  await firstAlbum.getByRole('navigation', { name: '群相册目录' }).waitFor();
+  assert.ok(
+    (await firstAlbum.locator('.group-file-crumbs').boundingBox()).x < 80,
+    'album breadcrumb was pushed away from its back button',
+  );
+  assert.equal(await firstAlbum.getByRole('button', { name: '返回上级目录' }).isDisabled(), true);
+  await firstAlbum.locator('.group-album-card').first().click();
+  await firstAlbum.waitForFunction(
+    () => !document.querySelector('[aria-label="返回上级目录"]').disabled,
+  );
+  assert.equal(
+    await firstAlbum.locator('.group-album-back').count(),
+    0,
+    'album retained legacy back navigation',
+  );
+  await firstAlbum.getByRole('button', { name: '全部相册', exact: true }).click();
+  await firstAlbum.locator('.group-album-card').first().waitFor();
   await firstAlbum.waitForFunction(() => document.title.includes('原来的群名称'));
   const albumWindowCount = page.context().pages().length;
   await page.getByRole('button', { name: '相册', exact: true }).click();
@@ -255,6 +284,11 @@ try {
   ]);
   files.on('pageerror', (error) => report.errors.push(error.message));
   await files.locator('.group-file-dialog').waitFor();
+  assert.equal(
+    await files.locator('.weq-group-resource-navigation').count(),
+    1,
+    'files use multiple directory navigation bars',
+  );
   await files.bringToFront();
   await files.locator('.weq-file-manager-status').click({ button: 'right' });
   await files.getByRole('menu', { name: '群文件操作', exact: true }).waitFor();

@@ -48,3 +48,91 @@ html[data-theme='dark'] .weq-group-sign-page {
   color: var(--weq-fg-primary);
   background: var(--weq-bg-surface);
 }
+
+.weq-group-feature-layer.weq-group-sign-layer.weq-nonmodal-layer[tabindex] > .weq-group-sign-page {
+  width: min(320px, calc(100vw - 16px));
+  max-height: min(400px, calc(100dvh - 16px));
+}
+.weq-group-sign-layer .weq-group-sign-page > header {
+  padding: 10px 12px;
+}
+.weq-group-sign-layer .weq-group-sign-page > header strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.weq-group-sign-layer .weq-group-sign-page > header span {
+  font-size: 11px;
+}
+.weq-group-sign-layer .weq-group-sign-body {
+  display: flex;
+  overflow: hidden;
+  padding: 10px 12px;
+}
+.weq-group-sign-layer .weq-group-sign-record-page,
+.weq-group-sign-layer .weq-group-sign-records {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+}
+.weq-group-sign-layer .weq-group-sign-tools {
+  position: static;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+}
+.weq-group-sign-layer .weq-group-sign-tools input[type='date'] {
+  flex: 1 1 0;
+  width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 12px;
+}
+.weq-group-sign-layer .weq-group-sign-tools .weq-set-btn {
+  min-height: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.weq-group-sign-layer .weq-group-sign-records > .weq-qq-action-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  scrollbar-color: var(--weq-border-strong) transparent;
+}
+.weq-group-sign-layer .weq-qq-action-list > li {
+  min-height: 28px;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.weq-group-sign-layer .weq-qq-action-list > li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-group-sign-layer .weq-group-sign-records > .weq-qq-action-bar {
+  justify-content: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+}
+.weq-group-sign-layer .weq-group-sign-records .weq-set-iconbtn {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+}

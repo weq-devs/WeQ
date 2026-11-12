@@ -138,7 +138,12 @@ async function resumeWindow() {
   });
 }
 async function mount(
-  options: { initialAlbums?: GroupAlbumWire[]; initialAlbumId?: string; groupCode?: string } = {},
+  options: {
+    initialAlbums?: GroupAlbumWire[];
+    initialAlbumId?: string;
+    groupCode?: string;
+    standalone?: boolean;
+  } = {},
 ) {
   const host = document.createElement('div');
   document.body.append(host);
@@ -148,6 +153,8 @@ async function mount(
       h(GroupAlbumDialog, {
         groupCode: options.groupCode || '12345',
         groupName: '合成群',
+        standalone: options.standalone,
+        embedded: options.standalone,
         onClose: vi.fn(),
         initialAlbums: options.initialAlbums,
         initialAlbumId: options.initialAlbumId,
@@ -204,6 +211,21 @@ function capture(name: string) {
     `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;height:100%;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}</style>${clone.outerHTML}</html>`,
   );
 }
+it('独立相册只使用目录面包屑，不叠加旧返回导航', async () => {
+  await mount({ standalone: true });
+  expect(document.querySelector('[aria-label="群相册目录"]')).not.toBeNull();
+  expect(button('返回上级目录').disabled).toBe(true);
+  const name = document.querySelector('.group-album-card')!.getAttribute('title');
+  await openFirst();
+  expect(document.querySelector('.group-album-dialog > header strong')?.textContent).toBe('群相册');
+  expect(document.querySelector('.group-album-back')).toBeNull();
+  expect(
+    document.querySelector('[aria-label="群相册目录"] [aria-current="page"]')?.textContent,
+  ).toBe(name);
+  await act(async () => button('返回上级目录').click());
+  expect(document.querySelectorAll('.group-album-card')).toHaveLength(2);
+});
+
 it('返回相册后迟到媒体请求不得重新打开已离开的相册', async () => {
   let finish!: (items: unknown[]) => void;
   state.media.mockReturnValueOnce(

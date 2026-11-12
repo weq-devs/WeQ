@@ -1,0 +1,43 @@
+.weq-group-resource-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  gap: 6px;
+  padding: 0 0 8px;
+}
+.weq-group-resource-navigation > .icon-button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+}
+.weq-group-resource-navigation .group-file-crumbs {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.weq-group-resource-crumb {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  color: var(--weq-fg-secondary);
+}
+.weq-group-resource-crumb > button {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.weq-group-resource-crumb > button[aria-current='page'] {
+  color: var(--weq-fg-primary);
+  font-weight: 500;
+}
+.weq-group-resource-navigation :is(button):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}

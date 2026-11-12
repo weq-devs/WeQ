@@ -39,6 +39,7 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { resourceForRenderDocument, useRenderDocument } from '../lib/renderDocument';
+import { GroupResourceNavigation } from './GroupResourceNavigation';
 import '../styles/group-album-browser.css';
 
 type AccountOutput = inferRouterOutputs<AppRouter>['account'];
@@ -120,7 +121,12 @@ function GroupAlbumDialogBody({
       }
     });
   };
-  useMobileBack(Boolean(mediaState.album) && !detached, backToAlbums, 30, () => body.current);
+  useMobileBack(
+    Boolean(mediaState.album) && !standalone && !detached,
+    backToAlbums,
+    30,
+    () => body.current,
+  );
 
   useEffect(() => {
     if (!activity.enabled) {
@@ -256,7 +262,7 @@ function GroupAlbumDialogBody({
       >
         <header>
           <div>
-            <strong>{bodyTitle}</strong>
+            <strong>{standalone ? '群相册' : bodyTitle}</strong>
             <span>{groupName}</span>
           </div>
           {standalone ? (
@@ -274,18 +280,34 @@ function GroupAlbumDialogBody({
         </header>
 
         <div className="group-album-body" ref={body}>
+          {standalone ? (
+            <GroupResourceNavigation
+              label="群相册目录"
+              items={[
+                { id: 'albums', name: '全部相册' },
+                ...(mediaState.album
+                  ? [{ id: mediaState.album.id, name: mediaState.album.title || '未命名相册' }]
+                  : []),
+              ]}
+              onBack={backToAlbums}
+              onSelect={(index) => {
+                if (index === 0 && mediaState.album) backToAlbums();
+              }}
+            />
+          ) : null}
           {!standalone ? management : null}
           {mediaState.album ? (
             <AlbumMediaView
               key={mediaState.album.id}
               state={mediaState}
               groupCode={groupCode}
+              hideNavigation={standalone}
               onChanged={() => {
                 setAlbumRevision((value) => value + 1);
                 if (mediaState.album) void openAlbum(mediaState.album);
               }}
               onBack={() => {
-                if (detached || !mobileBack()) backToAlbums();
+                if (standalone || detached || !mobileBack()) backToAlbums();
               }}
             />
           ) : (
@@ -512,11 +534,13 @@ function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
 function AlbumMediaView({
   state,
   onBack,
+  hideNavigation = false,
   groupCode,
   onChanged,
 }: {
   state: MediaState;
   onBack: () => void;
+  hideNavigation?: boolean;
   groupCode: string;
   onChanged: () => void;
 }): ReactElement {
@@ -615,16 +639,18 @@ function AlbumMediaView({
         loaded={[...references.keys()]}
       />
       <div className="group-album-toolbar">
-        <button
-          type="button"
-          className="group-album-back"
-          title="返回相册列表"
-          aria-label="返回相册列表"
-          onClick={onBack}
-        >
-          <ArrowLeft size={15} />
-          相册
-        </button>
+        {!hideNavigation ? (
+          <button
+            type="button"
+            className="group-album-back"
+            title="返回相册列表"
+            aria-label="返回相册列表"
+            onClick={onBack}
+          >
+            <ArrowLeft size={15} />
+            相册
+          </button>
+        ) : null}
         <span>{state.status === 'loading' && !items.length ? '正在读取' : countText}</span>
         <div className="group-album-toolbar-actions">
           <button

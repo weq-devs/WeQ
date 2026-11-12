@@ -15,6 +15,7 @@ import { OverlayLayer } from '../components/OverlayLayer';
 import { TabActivity } from '../components/RetainedTabs';
 import { ToastHost } from '../components/Toast';
 import { HoverTooltip } from '../components/HoverTooltip';
+import { WorkspacePages, WorkspaceContent } from '../components/WorkspacePages';
 import '../styles/group-resource-window.css';
 
 export interface GroupResourceRequest {
@@ -82,10 +83,15 @@ function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose: () => 
       )}
     </div>
   );
+  const workspace = (
+    <WorkspacePages navigationKey={entry.key}>
+      <WorkspaceContent>{content}</WorkspaceContent>
+    </WorkspacePages>
+  );
   if (tool.fallback)
     return locked ? null : (
       <OverlayLayer presentation="page" title={title} onClose={onClose}>
-        {content}
+        {workspace}
       </OverlayLayer>
     );
   const popup = tool.popup && !tool.popup.closed ? tool.popup : null;
@@ -93,7 +99,7 @@ function GroupResourceWindow({ entry, onClose }: { entry: Entry; onClose: () => 
     ? createPortal(
         <RenderDocumentContext.Provider value={popup.document}>
           <TabActivity active={!locked}>
-            {content}
+            {workspace}
             <ToastHost />
             {!locked ? <HoverTooltip /> : null}
           </TabActivity>

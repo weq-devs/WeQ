@@ -25,6 +25,7 @@ function GroupSignDialogBody({
       presentation={presentation}
       anchor={anchor}
       title="群打卡"
+      className={presentation === 'popover' ? 'weq-group-sign-layer' : undefined}
       onClose={onClose}
     >
       <section className="weq-group-sign-page" aria-label="群打卡">

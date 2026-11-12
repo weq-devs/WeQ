@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Loader2, LocateFixed, RotateCw, Square, X } from 'lucide-react';
+import { Loader2, LocateFixed, RotateCw, Square, X } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
@@ -14,6 +14,7 @@ import { collectGroupFileSubtree, resolveGroupFileSelection } from '../lib/group
 import type { GroupFileWire, GroupFolderWire } from '../lib/groupFile';
 import '../styles/group-media.css';
 import { useExportReportDialog } from '../views/export/ExportReportControl';
+import { GroupResourceNavigation } from './GroupResourceNavigation';
 
 interface Props {
   embedded?: boolean;
@@ -192,31 +193,12 @@ function GroupFileDialogBody({
         </header>
         <div className="group-album-body">
           {embedded && !standalone && crumbs.length < 2 ? null : (
-            <nav className="group-file-toolbar" aria-label="群文件目录">
-              <div className="group-file-crumbs">
-                <button
-                  type="button"
-                  className="icon-button"
-                  title={current.known === false ? '返回全部文件' : '返回上级目录'}
-                  aria-label={current.known === false ? '返回全部文件' : '返回上级目录'}
-                  disabled={crumbs.length < 2}
-                  onClick={() => void leave(() => setCrumbs((old) => old.slice(0, -1)))}
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                {crumbs.map((crumb, index) => (
-                  <button
-                    className="group-file-crumb"
-                    type="button"
-                    key={crumb.id}
-                    aria-current={index === crumbs.length - 1 ? 'page' : undefined}
-                    onClick={() => void leave(() => setCrumbs((old) => old.slice(0, index + 1)))}
-                  >
-                    {crumb.name}
-                  </button>
-                ))}
-              </div>
-            </nav>
+            <GroupResourceNavigation
+              label="群文件目录"
+              items={crumbs}
+              onBack={() => void leave(() => setCrumbs((old) => old.slice(0, -1)))}
+              onSelect={(index) => void leave(() => setCrumbs((old) => old.slice(0, index + 1)))}
+            />
           )}
           {!a.available && <p role="status">QQ 在线能力未就绪</p>}
           {searchMissing && <p role="status">搜索命中的文件已删除或当前目录不可见。</p>}

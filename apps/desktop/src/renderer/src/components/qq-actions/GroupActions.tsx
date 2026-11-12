@@ -323,7 +323,8 @@ function GroupTodosBody({
   };
   const readError = localTodos.error || (a.available && todos.error);
   const reading = localTodos.isFetching || (a.available && todos.isFetching);
-  const isEmpty = localTodos.data !== undefined && !reading && !readError && entries.length === 0;
+  const hasRead = localTodos.data !== undefined || (a.available && todos.data !== undefined);
+  const isEmpty = hasRead && !readError && entries.length === 0;
   async function complete(todo: GroupTodoRecord) {
     await a.perform(
       async (binding) => {
@@ -372,7 +373,7 @@ function GroupTodosBody({
           QQ 在线能力未就绪
         </p>
       )}
-      {reading && !entries.length && (
+      {reading && !hasRead && !entries.length && (
         <p className="weq-content-status" role="status">
           读取待办中…
         </p>
@@ -520,13 +521,15 @@ function GroupTodosBody({
           <span className="weq-todo-summary" aria-label="待办内容">
             {latest
               ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
-              : reading
-                ? '读取中…'
-                : readError
-                  ? '读取失败'
-                  : localTodos.data === undefined
-                    ? '尚未读取'
-                    : '暂无待办'}
+              : hasRead
+                ? '暂无待办'
+                : reading
+                  ? '读取中…'
+                  : readError
+                    ? '读取失败'
+                    : localTodos.data === undefined
+                      ? '尚未读取'
+                      : '暂无待办'}
           </span>
           <ChevronRight size={14} aria-hidden />
         </button>
