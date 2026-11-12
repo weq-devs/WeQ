@@ -72,6 +72,21 @@ html[data-theme='dark'] .weq-profile-directory button[aria-current] {
   overflow-x: auto;
   border-bottom: 1px solid var(--weq-border-subtle);
   scrollbar-width: none;
+  /* 章节多于屏宽时，右缘渐隐提示还能横向滑，与设置页二级导航同一语言。 */
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 8px,
+    #000 calc(100% - 20px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 8px,
+    #000 calc(100% - 20px),
+    transparent 100%
+  );
 }
 
 .weq-profile-directory-tabs::-webkit-scrollbar {
