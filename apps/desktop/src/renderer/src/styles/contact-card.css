@@ -368,51 +368,6 @@
   font-size: 12px;
 }
 
-/* ---------- 更多资料 ---------- */
-
-.weq-contact-more {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.weq-contact-more > details > summary {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.weq-contact-more > details > summary:hover {
-  color: var(--weq-accent-effective);
-}
-
-.weq-contact-more-links {
-  display: grid;
-  gap: 2px;
-  padding-top: 6px;
-}
-
-.weq-contact-more-links > button,
-.weq-contact-more-links [data-action-icon] {
-  min-height: 30px;
-  padding: 4px 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  text-align: start;
-}
-
-.weq-contact-more-links > button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
-  color: var(--weq-accent-effective);
-}
-
 /* ---------- 操作区 ---------- */
 
 .weq-contact-actions {

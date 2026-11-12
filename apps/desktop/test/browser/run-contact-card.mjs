@@ -242,6 +242,8 @@ try {
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
+        assert.equal(await card.getByRole('navigation', { name: '更多资料' }).count(), 0);
+        assert.equal(await card.locator('.weq-contact-more').count(), 0);
         await checkPrivileges(card);
         const layout = await card.locator('.weq-contact-actions > button').evaluateAll((buttons) =>
           buttons.map((node) => {

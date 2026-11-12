@@ -630,11 +630,10 @@ export function ContactContent({
   localOnly?: boolean;
   /** 名片宿主可以把「群内资料」等分区放在基本信息之前。 */
   leading?: ReactNode;
-  /** 设置页预览：只渲染内容，不提供跳转与「更多资料」。 */
+  /** 设置页预览：只渲染内容，不提供跳转。 */
   preview?: boolean;
 }) {
   const [detail, setDetail] = useState<{ view: ProfileExtraView } | null>(null);
-  const [galleryOpen, setGalleryOpen] = useState(false);
   const navigate = useContext(ContactWorkspaceNavigationContext);
   const relationship = usePersonRelationship(person);
   const enabled = (key: ContactCardContent) =>
@@ -648,8 +647,6 @@ export function ContactContent({
     ...new Set([person.extRelation?.displayId, ...(person.extRelation?.preselectedIds ?? [])]),
   ].filter((id): id is number => id !== undefined);
   const privileges = (ext?.privileges ?? []).filter((item) => item.opened && item.iconUrl);
-  // 资料页由宿主承载章节与目录，名片才需要「更多资料」入口。
-  const showMore = !onSection && !preview;
   const technical = full;
   function open(view: ProfileExtraView) {
     if (preview) return;
@@ -898,52 +895,11 @@ export function ContactContent({
           ) : null}
         </div>
       ) : null}
-      {personal && showMore ? (
-        <nav className="weq-contact-more" aria-label="更多资料">
-          <details>
-            <summary>更多资料</summary>
-            <div className="weq-contact-more-links">
-              <button type="button" onClick={() => open('education')}>
-                教育经历
-              </button>
-              <button type="button" onClick={() => open('signatures')}>
-                历史签名
-              </button>
-              <button type="button" onClick={() => open('questions')}>
-                匿问我答
-              </button>
-              <button type="button" onClick={() => setGalleryOpen(true)}>
-                QQ 秀展柜
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  navigate?.({
-                    kind: 'person',
-                    contact: { createdAt: '', ...person } as Contact,
-                    tab: 'history',
-                  })
-                }
-              >
-                资料历史
-              </button>
-            </div>
-          </details>
-        </nav>
-      ) : null}
       {detail && personal ? (
         <ProfileExtraDialog
           uin={person.identityValue}
           {...detail}
           onClose={() => setDetail(null)}
-        />
-      ) : null}
-      {galleryOpen && !person.clone && person.kind !== 'bot' ? (
-        <QqShowGallery
-          uin={person.identityValue}
-          name={displayUserName(person)}
-          currentRevision={null}
-          onClose={() => setGalleryOpen(false)}
         />
       ) : null}
     </>
