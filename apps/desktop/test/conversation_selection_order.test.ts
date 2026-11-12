@@ -11,9 +11,17 @@ import {
 } from '../src/renderer/src/state/contentSelection';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useViewState } from '../src/renderer/src/state/view';
+import { copyTextToClipboard } from '../src/renderer/src/im-template/template/clipboard';
+
+vi.mock('../src/renderer/src/im-template/template/clipboard', () => ({
+  copyTextToClipboard: vi.fn(async () => true),
+}));
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: {}, trpc: {} }));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 let preferenceEpoch = 0;
 let preferenceRevision = 0;
 
@@ -239,6 +247,50 @@ it('菜单目标被移除时关闭菜单，不转向相同位置的新会话', (
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(f.host.querySelector('.is-context-target')).toBeNull();
     expect(f.onSelect).not.toHaveBeenCalled();
+  } finally {
+    f.dispose();
+  }
+});
+
+it('菜单号码点击复制且不关闭菜单，反馈定时消失，失败不显示成功', async () => {
+  const f = fixture();
+  vi.useFakeTimers();
+  try {
+    f.render([f.row('10001', 2)]);
+    act(() => f.rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    const copy = document.querySelector<HTMLButtonElement>('[aria-label="复制群号"]');
+    expect(copy).not.toBeNull();
+    await act(async () => copy!.click());
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith('10001', document);
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    expect(copy!.querySelector('[role="status"]')?.textContent).toBe('已复制');
+    act(() => vi.advanceTimersByTime(1800));
+    expect(copy!.querySelector('[role="status"]')).toBeNull();
+    vi.mocked(copyTextToClipboard).mockResolvedValueOnce(false);
+    await act(async () => copy!.click());
+    expect(copy!.querySelector('[role="status"]')).toBeNull();
+  } finally {
+    f.dispose();
+  }
+});
+
+it('私聊菜单复制 QQ 号原值，连续点击重新计时', async () => {
+  const f = fixture();
+  vi.useFakeTimers();
+  try {
+    const seed = createTemplateDemoData().conversations.find((row) => row.type === 'direct')!;
+    f.render([{ ...seed, otherUser: { ...seed.otherUser, identityValue: '123456789' } }]);
+    act(() => f.rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    const copy = document.querySelector<HTMLButtonElement>('[aria-label="复制QQ 号"]')!;
+    expect(copy).not.toBeNull();
+    await act(async () => copy.click());
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith('123456789', document);
+    act(() => vi.advanceTimersByTime(1000));
+    await act(async () => copy.click());
+    act(() => vi.advanceTimersByTime(1000));
+    expect(copy.querySelector('[role="status"]')).not.toBeNull();
+    act(() => vi.advanceTimersByTime(800));
+    expect(copy.querySelector('[role="status"]')).toBeNull();
   } finally {
     f.dispose();
   }

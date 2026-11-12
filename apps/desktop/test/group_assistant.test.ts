@@ -16,6 +16,8 @@ import {
   saveGroupAssistantPins,
   sidebarConversationsWithoutAssistant,
 } from '../src/renderer/src/lib/groupAssistant';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import { useViewState } from '../src/renderer/src/state/view';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const query = { useQuery: () => ({ data: undefined }) };
@@ -32,6 +34,109 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   };
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('群助手共用悬停保持、菜单目标与身份高亮，设置关闭和失焦立即恢复排序', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let revision = 0;
+  const settings = (enabled: boolean) =>
+    act(() =>
+      acceptPreferences(
+        {
+          epoch: 'group-assistant-hover',
+          revision: ++revision,
+          values: { keepConversationPositionOnHover: enabled },
+          records: {},
+        },
+        false,
+      ),
+    );
+  const rows = groups().map((row) => ({
+    ...row,
+    lastMessage: null,
+    preference: { ...row.preference, pinned: false },
+  }));
+  const render = (values: Conversation[]) =>
+    act(() =>
+      root.render(
+        h(MergedSessionPanel, {
+          kind: 'groupAssistant',
+          conversations: values,
+          groupAssistantIds: new Set(values.map((row) => row.id)),
+          anchorX: 10,
+          anchorY: 10,
+          onBack: vi.fn(),
+          onSelectConversation: vi.fn(),
+        }),
+      ),
+    );
+  const buttons = () => [...host.querySelectorAll<HTMLButtonElement>('.conversation-row')];
+  const ids = () => buttons().map((row) => row.dataset.conversationId);
+  const pointer = (
+    target: Element,
+    type: string,
+    relatedTarget?: EventTarget,
+    pointerType = 'mouse',
+  ) =>
+    act(() =>
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType, relatedTarget })),
+    );
+  const closeMenu = () =>
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+  const previous = useViewState.getState().openedUin;
+  try {
+    settings(true);
+    render(rows);
+    pointer(buttons()[0]!, 'pointerover');
+    const updated = [rows[0], { ...rows[1], updatedAt: '2030-01-03T00:00:00Z', unreadCount: 9 }];
+    render(updated);
+    expect(ids()).toEqual(['10001', '10002']);
+    expect(buttons()[1]!.textContent).toContain('9');
+    act(() => buttons()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    const menu = document.querySelector('[role="menu"]')!;
+    expect(menu.querySelector('.weq-conversation-actions-target')?.textContent).toContain(
+      '合成助手群一',
+    );
+    expect(buttons()[0]!.classList.contains('is-context-target')).toBe(true);
+    pointer(buttons()[0]!, 'pointerout', menu);
+    expect(ids()).toEqual(['10001', '10002']);
+    closeMenu();
+    expect(ids()).toEqual(['10002', '10001']);
+    expect(host.querySelector('.is-context-target')).toBeNull();
+    pointer(buttons()[0]!, 'pointerover');
+    render(rows);
+    expect(ids()).toEqual(['10002', '10001']);
+    settings(false);
+    expect(ids()).toEqual(['10001', '10002']);
+    settings(true);
+    render(updated);
+    expect(ids()).toEqual(['10001', '10002']);
+    act(() => window.dispatchEvent(new Event('blur')));
+    expect(ids()).toEqual(['10002', '10001']);
+    pointer(buttons()[0]!, 'pointerover', undefined, 'touch');
+    render(rows);
+    expect(ids()).toEqual(['10001', '10002']);
+    act(() =>
+      buttons()[0]!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }),
+      ),
+    );
+    act(() => useViewState.getState().setOpenedUin('assistant-other'));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    act(() => buttons()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    render([rows[1]]);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    useViewState.getState().setOpenedUin(previous);
+  }
+});
 
 function groups(): Conversation[] {
   const group = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
@@ -245,6 +350,18 @@ describe('群助手', () => {
       expect(selection().sort()).toEqual(['10001', '10002', '10003']);
       expect(main.textContent).toContain('已选 3');
       expect(host.querySelectorAll('.weq-merged-popover-row.is-multiselected')).toHaveLength(2);
+      act(() =>
+        host
+          .querySelector('.weq-merged-popover-item')!
+          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })),
+      );
+      expect(document.querySelector('.weq-conversation-actions-target')?.textContent).toContain(
+        '已选 3 个会话',
+      );
+      expect(host.querySelectorAll('.weq-conversation-list .is-context-target')).toHaveLength(2);
+      act(() =>
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+      );
       act(() => host.querySelector<HTMLButtonElement>('.weq-merged-popover-item')!.click());
       expect(selection()).toHaveLength(2);
       expect(select).not.toHaveBeenCalled();

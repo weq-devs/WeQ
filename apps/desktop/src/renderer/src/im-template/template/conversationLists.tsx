@@ -85,6 +85,7 @@ import {
   conversationRoamingTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { ConversationMenuTarget } from '../../components/ConversationMenuTarget';
 import { sidebarConversationsWithoutAssistant } from '../../lib/groupAssistant';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { ConversationBatchToolbar } from '../../components/ConversationBatchToolbar';
@@ -749,7 +750,10 @@ export function ConversationList({
                 key={conversation.id}
                 data-conversation-id={conversation.id}
                 className={cn(
-                  listRowClass(!selectionMode && active, 'conversation-row'),
+                  listRowClass(
+                    !selectionMode && (active || contextTargetIds.has(conversation.id)),
+                    'conversation-row',
+                  ),
                   pinned && 'pinned',
                   locateHighlight?.id === conversation.id && 'is-locate-target',
                   selectionMode && rowSelectedIds.has(conversation.id) && 'is-multiselected',
@@ -951,28 +955,13 @@ export function ConversationList({
               : `${conversationTitle(actionMenu.conversation)}的会话操作`
           }
           target={
-            <>
-              <Avatar
-                resolution="small"
-                name={conversationTitle(actionMenu.conversation)}
-                avatarUrl={conversationAvatarUrl(actionMenu.conversation)}
-                seed={conversationSeed(actionMenu.conversation)}
-              />
-              <span>
-                <strong title={conversationTitle(actionMenu.conversation)}>
-                  {actionMenu.ids.length > 1
-                    ? `已选 ${actionMenu.ids.length} 个会话`
-                    : conversationTitle(actionMenu.conversation)}
-                </strong>
-                <small>
-                  {actionMenu.ids.length > 1
-                    ? `从 ${conversationTitle(actionMenu.conversation)} 打开`
-                    : actionMenu.conversation.type === 'merged'
-                      ? '聚合会话'
-                      : `${actionMenu.conversation.type === 'group' ? '群聊' : '私聊'} · ${conversationSeed(actionMenu.conversation)}`}
-                </small>
-              </span>
-            </>
+            <ConversationMenuTarget
+              name={conversationTitle(actionMenu.conversation)}
+              avatarUrl={conversationAvatarUrl(actionMenu.conversation)}
+              identity={conversationSeed(actionMenu.conversation)}
+              kind={actionMenu.conversation.type}
+              count={actionMenu.ids.length}
+            />
           }
           onClose={() => setActionMenu(null)}
           actions={(() => {

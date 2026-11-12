@@ -342,6 +342,7 @@ html[data-component-style='qqnt'][data-theme]
   body
   :is(.conversation-row, .contact-row):hover:not(.active, .is-multiselected) {
   background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
+  box-shadow: var(--weq-skin-selection-shadow);
 }
 
 html[data-component-style='qqnt'][data-theme]

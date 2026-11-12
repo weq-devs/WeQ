@@ -30,7 +30,7 @@ export function ConversationActionsMenu({
   portalTarget?: Element | null;
   /** 右对齐在触发器下方，短屏时滚动菜单而不覆盖标题栏。 */
   dropdown?: boolean;
-  /** 仅在需要明确操作对象的菜单中展示，不占用键盘操作项。 */
+  /** 需要明确操作对象时展示，内含按钮沿用菜单键盘导航。 */
   target?: ReactNode;
 }) {
   const document = useRenderDocument();
