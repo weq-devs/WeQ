@@ -1119,12 +1119,7 @@ function groupDetailToConversation(
       customLabelRecords: detail.customLabels,
       addressName: detail.address?.locationName || null,
     },
-    members:
-      fallback?.type === 'group'
-        ? fallback.members
-        : user
-          ? [{ ...user, role: 'member', joinedAt: updatedAt }]
-          : [],
+    members: fallback?.type === 'group' ? fallback.members : [],
     preference: {
       ...fallbackPreference,
       ...fallback?.preference,
@@ -1490,7 +1485,7 @@ function contactToConversation(
         membershipKnown: false,
         roleKnown: false,
       },
-      members: [{ ...user, role: 'member', joinedAt: updatedAt }],
+      members: [],
       preference,
       unreadCount: 0,
       lastMessage,
