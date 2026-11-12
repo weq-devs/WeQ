@@ -4182,6 +4182,15 @@ function MainWorkspace(): ReactElement {
     () => currentUser(openedUin, selfProfile.data),
     [openedUin, selfProfile.data],
   );
+  const mailPreference = trpc.mail.status.useQuery(
+    { selfUin: user.identityValue },
+    {
+      enabled: onlineReady && /^[1-9]\d{4,19}$/.test(user.identityValue),
+      staleTime: 0,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: false,
+    },
+  );
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
   const [restoredProfiles] = useState(() =>
@@ -11576,8 +11585,9 @@ function MainWorkspace(): ReactElement {
                   active={shell.view === 'mail'}
                   selfUin={user.identityValue}
                   onUnreadChange={setMailUnread}
-                  preferences={
-                    mailPreferences.isFetchedAfterMount ? mailPreferences.data : undefined
+                  enabled={
+                    mailPreference.isFetchedAfterMount &&
+                    Boolean(mailPreference.data?.notifications)
                   }
                   onOpenRequested={openMailView}
                   searchTarget={mailSearchTarget}
