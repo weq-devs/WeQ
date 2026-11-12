@@ -198,8 +198,8 @@ export function QzoneVideo({
             ref={player}
             src={src ? albumMediaUrl(src) : undefined}
             muted
-            loop
             playsInline
+            onEnded={() => setPlaying(false)}
             onError={() => {
               setPlaying(false);
               setPlayError(true);
@@ -225,7 +225,7 @@ export function QzoneVideo({
             setPlaying((value) => !value);
           }}
         >
-          {playing ? <Pause size={13} /> : <CircleDot size={13} />}
+          {playing ? <Pause size={12} /> : <CircleDot size={12} />}
           实况
         </button>
       ) : null}

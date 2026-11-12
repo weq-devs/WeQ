@@ -61,6 +61,7 @@ beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   host = document.createElement('div');
+  host.className = 'weq-qzn';
   document.body.append(host);
   root = createRoot(host);
 });
@@ -84,7 +85,7 @@ describe('空间实况展示', () => {
     expect(live).not.toBeNull();
     await act(async () => live.click());
     const player = document.querySelector('video')!;
-    expect(player.loop).toBe(true);
+    expect(player.loop).toBe(false);
     expect(player.muted).toBe(true);
     expect(player.controls).toBe(false);
     expect(player.play).toHaveBeenCalled();
@@ -95,6 +96,9 @@ describe('空间实况展示', () => {
     expect(document.querySelector('.weq-qz-preview-stage video')!.hasAttribute('controls')).toBe(
       true,
     );
+    expect(document.querySelector<HTMLVideoElement>('.weq-qz-preview-stage video')!.loop).toBe(
+      false,
+    );
     expect(document.querySelector('.weq-qz-preview-toolbar')?.textContent).toContain('实况');
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[aria-label="关闭预览"]')!.click(),
@@ -104,6 +108,27 @@ describe('空间实况展示', () => {
     );
     expect(document.querySelector('video')!.loop).toBe(false);
     expect(document.querySelector('video')!.muted).toBe(false);
+  });
+  it('实况播放一次后恢复封面，再次点击可从头播放', async () => {
+    mocks.query.mockResolvedValue([{ videoId: 'live', isLivePhoto: true }]);
+    await act(async () =>
+      root.render(h(QzoneMediaGrid, { images: [], videos: [videos[0]!], target })),
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="播放实况照片"]')!.click(),
+    );
+    const first = host.querySelector('video')!;
+    expect(first.loop).toBe(false);
+    await act(async () => first.dispatchEvent(new Event('ended', { bubbles: true })));
+    expect(host.querySelector('video')).toBeNull();
+    expect(host.querySelector('[aria-label="播放实况照片"]')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="播放实况照片"]')!.click(),
+    );
+    expect(host.querySelector('video')).not.toBe(first);
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
   });
   it('类型补全前显示封面而非普通视频播放标记', async () => {
     let resolve!: (value: { videoId: string; isLivePhoto: boolean }[]) => void;

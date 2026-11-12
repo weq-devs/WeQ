@@ -257,7 +257,6 @@ export function QzoneMediaPreview({
               poster={item.poster}
               controls
               autoPlay
-              loop={item.isLivePhoto === true}
               muted={item.isLivePhoto === true}
               playsInline
               onError={() => setError('视频暂时无法播放')}
