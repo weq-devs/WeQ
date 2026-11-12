@@ -12,6 +12,9 @@ import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
 import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
 import { useDraftProtection } from '../src/renderer/src/lib/draftClose';
 const mock = vi.hoisted(() => ({ profile: vi.fn() }));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({ available: false, binding: null, busy: false, result: null }),
+}));
 vi.mock('../src/renderer/src/hooks/useGroupProfile', () => ({ useGroupProfile: mock.profile }));
 vi.mock('../src/renderer/src/components/groupProfile/GroupWorkspace', () => ({
   GroupWorkspace: () => h('div', null, '完整资料页'),

@@ -3,7 +3,7 @@ import { CalendarDays, Copy, RefreshCw, Users } from 'lucide-react';
 import type { GroupConversation, GroupMember } from '../../im-template/template/types';
 import { Avatar } from '../../im-template/template/primitives';
 import { GroupRelationshipStatus } from '../RelationshipStatus';
-import { RelationshipDirectoryContext } from '../../lib/contactRelationship';
+import { RelationshipDirectoryContext, useGroupRelationship } from '../../lib/contactRelationship';
 import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
 import { CopyButton } from '../CopyButton';
 import { displayUserName } from '../../im-template/template/user';
@@ -11,6 +11,7 @@ import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import type { useGroupProfile } from '../../hooks/useGroupProfile';
 import { ContactRow } from '../contactProfile/ContactRow';
 import { mergeGroupPreviewMembers } from '../../lib/groupPreviewMembers';
+import { QQProfileField } from '../QQProfileField';
 
 const createdDate = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -54,7 +55,14 @@ export function GroupIdentity({
   onOpen?: () => void;
 }) {
   const open = useContext(ContactWorkspaceNavigationContext);
+  const directory = useContext(RelationshipDirectoryContext);
   const group = conversation.group;
+  const relationship = useGroupRelationship(group);
+  const role = directory?.groups.get(conversation.id)?.role ?? group.role;
+  const editable =
+    !conversation.generated &&
+    relationship !== 'nonmember' &&
+    /^[1-9]\d{0,9}$/.test(conversation.id);
   const name = group.name?.trim() || group.identityValue;
   const enter =
     !full && open && !conversation.generated
@@ -111,7 +119,29 @@ export function GroupIdentity({
           ) : null}
         </div>
       </div>
-      <ContactRow label="备注" value={group.remark} valueClassName="weq-profile-identity-remark" />
+      {editable && (role === 'owner' || role === 'admin') ? (
+        <QQProfileField
+          key={`name:${conversation.id}`}
+          field="groupName"
+          target={conversation.id}
+          initial={name}
+        />
+      ) : null}
+      {editable ? (
+        <QQProfileField
+          key={`remark:${conversation.id}`}
+          field="groupRemark"
+          target={conversation.id}
+          initial={group.remark || ''}
+          valueClassName="weq-profile-identity-remark"
+        />
+      ) : (
+        <ContactRow
+          label="备注"
+          value={group.remark}
+          valueClassName="weq-profile-identity-remark"
+        />
+      )}
     </header>
   );
 }

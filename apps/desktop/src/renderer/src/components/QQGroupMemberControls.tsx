@@ -1,4 +1,4 @@
-import { Check, RefreshCw, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useContext, useState } from 'react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
@@ -9,6 +9,7 @@ import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/group-member-edit.css';
 import { RelationshipDirectoryContext, useGroupRelationship } from '../lib/contactRelationship';
 import type { GroupMemberRole } from '../im-template/template/types';
+import { ProfileInlineField as MemberProfileField } from './ProfileInlineField';
 
 export function QQGroupMemberControls({
   groupCode,
@@ -281,85 +282,5 @@ export function QQGroupMemberEditor({
         )}
       </div>
     </section>
-  );
-}
-
-function MemberProfileField({
-  label,
-  initial,
-  editable,
-  disabled,
-  onSave,
-  initialEditing = false,
-}: {
-  label: string;
-  initial: string;
-  editable: boolean;
-  disabled: boolean;
-  onSave: (value: string) => Promise<boolean>;
-  initialEditing?: boolean;
-}) {
-  const [editing, setEditing] = useState(initialEditing);
-  const [draft, setDraft] = useState(initial);
-  return editing && editable ? (
-    <form
-      className="weq-member-inline-field"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!disabled)
-          void onSave(draft).then((ok) => {
-            if (ok) setEditing(false);
-          });
-      }}
-    >
-      <label>
-        <span>{label}</span>
-        <input
-          aria-label={label}
-          value={draft}
-          maxLength={256}
-          disabled={disabled}
-          autoFocus
-          onChange={(event) => setDraft(event.target.value)}
-        />
-      </label>
-      <button
-        type="submit"
-        className="weq-profile-row-copy"
-        aria-label={`保存${label}`}
-        title={`保存${label}`}
-        disabled={disabled}
-      >
-        <Check size={14} />
-      </button>
-      <button
-        type="button"
-        className="weq-profile-row-copy"
-        aria-label={`取消编辑${label}`}
-        title="取消编辑"
-        disabled={disabled}
-        onClick={() => setEditing(false)}
-      >
-        <X size={14} />
-      </button>
-    </form>
-  ) : editable ? (
-    <ContactRow label={label}>
-      <button
-        type="button"
-        className="weq-contact-value"
-        aria-label={`编辑${label}`}
-        title={`编辑${label}`}
-        disabled={disabled}
-        onClick={() => {
-          setDraft(initial);
-          setEditing(true);
-        }}
-      >
-        {initial || `设置${label}`}
-      </button>
-    </ContactRow>
-  ) : (
-    <ContactRow label={label} value={initial} />
   );
 }

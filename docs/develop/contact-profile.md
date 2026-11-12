@@ -14,6 +14,7 @@
 - 名片壳与资料页壳共用身份区 `ContactIdentity`、操作区 `ContactActions`、页头 `ProfilePageHeader`（工具栏标题 + 右上关闭 + 身份/操作，文档流内、不覆盖章节标题；`actions` 可省略）。
 - `ProfileWorkspace` 负责目录与章节：宽屏 `weq-profile-directory` 竖目录，窄屏折叠为 `weq-profile-directory-tabs` 横向章节条（不用原生 select）；章节标题统一由它输出 17px h2，内嵌组件的 h1–h4 在宿主侧归一为 13px。
 - 样式归属：目录、工作区、行模型、技术详情只在 `styles/profile-workspace.css`；`styles/contact-card.css` 只保留名片壳、身份区、操作区、群上下文与设置页专属部分。QID 在身份区与 QQ 号并列，当前状态复用聊天顶栏的 `OnlineStatus`；两者沿用名片开关，正文不重复。NT UID 是名片可选字段，完整资料页固定收进「技术详情」折叠区。
+- `ProfileInlineField` 共用群昵称、头衔、备注及分组的原行表单；`QQProfileField` 延迟挂载备注／分组／群名的在线状态读取，复用 `qqWrite` 与账号绑定。备注、群名和分组写入需读回确认才退出表单，失败保留草稿；分组使用下拉控件，群名称仅对群主／管理员提供，标题的资料导航行为不变。保存后刷新名片名称与群详情的独立查询缓存，不写入会话名称投影。
 
 ## 数据与加载
 
@@ -33,3 +34,5 @@
 浏览器回归入口为 `apps/desktop/test/browser/run-contact-card.mjs`。通过 `WEQ_PLAYWRIGHT_IMPORT`、`WEQ_BROWSER_EXECUTABLE` 复用已有浏览器；`WEQ_CONTACT_CARD_QA` 指定截图和查询记录目录。脚本使用合成资料，禁止外网请求，退出时关闭自身浏览器和 Vite 服务。`WEQ_CONTACT_CARD_BASELINE=1` 可加载重构前的名片组件作同夹具对照。
 
 浏览器记录用于核对真实首帧、冷开与缓存复用、可选查询及响应式布局，不等同于真实 QQ 网络耗时或长期性能验收。
+
+原行编辑定向测试为 `profile_inline_field.test.ts` 与 `group_member_inline_edit.test.ts`；浏览器入口 `apps/desktop/test/browser/run-profile-inline.mjs` 使用同一运行时环境变量，以 `WEQ_PROFILE_INLINE_QA` 指定截图目录，覆盖备注保存／清空／取消、分组、群名称、失败草稿及深浅主题窄屏布局，所有写入均为合成桩。

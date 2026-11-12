@@ -35,8 +35,7 @@ import { OnlineStatus } from '../OnlineStatus';
 import { ContactBirthdayRow } from '../ContactBirthdayRow';
 import { CommonRelationships } from '../qq-actions/CommonRelationships';
 import { FriendClue } from '../qq-actions/FriendClue';
-import { QQRemarkDialog } from '../QQRemarkDialog';
-import { FriendDirectoryContext } from '../FriendDirectoryControls';
+import { QQProfileField } from '../QQProfileField';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { QQGroupMemberControls } from '../QQGroupMemberControls';
 import { openMediaPreview } from '../mediaPreviewStore';
@@ -128,7 +127,6 @@ export function ContactIdentity({
   pendant?: boolean;
   settings?: ContactCardSettings;
 }) {
-  const [remarkOpen, setRemarkOpen] = useState(false);
   const relationship = usePersonRelationship(person);
   const names = useCardDisplayNames(
     'user',
@@ -222,20 +220,18 @@ export function ContactIdentity({
       </div>
       {remark || editableRemark ? (
         <div className="weq-contact-remarks">
-          <ContactRow
-            label="备注"
-            value={remark || '添加备注'}
-            valueClassName="weq-profile-identity-remark"
-            onActivate={editableRemark ? () => setRemarkOpen(true) : undefined}
-            activateTitle={remark ? '编辑备注' : '添加备注'}
-          />
+          {editableRemark ? (
+            <QQProfileField
+              field="friendRemark"
+              target={person.uid || person.id}
+              nameTarget={person.identityValue}
+              initial={remark || ''}
+              valueClassName="weq-profile-identity-remark"
+            />
+          ) : (
+            <ContactRow label="备注" value={remark} valueClassName="weq-profile-identity-remark" />
+          )}
         </div>
-      ) : null}
-      {remarkOpen && !person.clone && relationship === 'friend' ? (
-        <QQRemarkDialog
-          target={{ kind: 'c2c', conv: person.uid || person.id, name: title }}
-          onClose={() => setRemarkOpen(false)}
-        />
       ) : null}
     </>
   );
@@ -640,7 +636,6 @@ export function ContactContent({
   const [detail, setDetail] = useState<{ view: ProfileExtraView } | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const navigate = useContext(ContactWorkspaceNavigationContext);
-  const friendDirectory = useContext(FriendDirectoryContext);
   const relationship = usePersonRelationship(person);
   const enabled = (key: ContactCardContent) =>
     (!fields || fields.includes(key)) && (full || settings.visible[key]);
@@ -754,18 +749,16 @@ export function ContactContent({
       personal && relationship !== 'self' ? (
         <CommonRelationships uin={person.identityValue} onNavigate={onNavigate} />
       ) : null,
-    category: (
-      <ContactRow
-        label="好友分组"
-        value={person.categoryName}
-        onActivate={
-          relationship === 'friend' && friendDirectory?.available
-            ? () => friendDirectory.move([person.uid || person.id])
-            : undefined
-        }
-        activateTitle="移动好友分组"
-      />
-    ),
+    category:
+      !preview && relationship === 'friend' && /^u_/.test(person.uid || person.id) ? (
+        <QQProfileField
+          field="friendCategory"
+          target={person.uid || person.id}
+          initial={person.categoryName || ''}
+        />
+      ) : (
+        <ContactRow label="好友分组" value={person.categoryName} />
+      ),
     intimacy: <ContactRow label="QQ 亲密度" value={person.intimacy || null} />,
     relations: relationIds.length ? (
       <ContactRow label="关系标签">

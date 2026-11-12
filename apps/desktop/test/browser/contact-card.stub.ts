@@ -18,6 +18,12 @@ export const qa = {
   inGroup: true,
   muted: false,
   noRemark: new URLSearchParams(location.search).has('no-remark'),
+  remark: '小林',
+  groupName: '合成群',
+  groupRemark: '群备注',
+  categoryId: 1,
+  role: 'owner',
+  failWrite: false,
   preferencesReady: !new URLSearchParams(location.search).has('preferences-loading'),
   failLabels: false,
   noConversation: false,
@@ -104,9 +110,26 @@ function value(path: string, input: Record<string, unknown>) {
     return {
       name: qa.mode === 'self' || String(input.target) === qa.account ? '我' : '林同学',
       remark:
-        qa.noRemark || qa.mode === 'self' || String(input.target) === qa.account ? '' : '小林',
+        qa.noRemark || qa.mode === 'self' || String(input.target) === qa.account ? '' : qa.remark,
     };
   if (path === 'account.getBotProfile') return null;
+  if (path === 'account.qqWrite.peerState')
+    return {
+      friend: qa.mode === 'friend',
+      role: qa.role,
+      remark: (input.target as { kind?: string })?.kind === 'group' ? qa.groupRemark : qa.remark,
+      groupName: qa.groupName,
+    };
+  if (path === 'account.qqWrite.friendRemarkState')
+    return { uid: input.uid, remark: qa.noRemark ? '' : qa.remark };
+  if (path === 'account.qqWrite.friendRoster')
+    return {
+      categories: [
+        { id: 1, name: '朋友' },
+        { id: 2, name: '同学' },
+      ],
+      friends: [{ uid: 'u_sample', categoryId: qa.categoryId }],
+    };
   if (path === 'account.conversationBoundary')
     return qa.noConversation ? null : { msgId: '1', msgSeq: '1', sendTime: 1794390000 };
   if (path === 'account.dressup.peerQqShow') return { hasShow: false, url: '' };
@@ -226,7 +249,7 @@ function rpc(path: string[] = []): unknown {
           const data = options.enabled === false ? undefined : value(name, input);
           return name.endsWith('personalityLabels') && qa.failLabels
             ? { ...result(), error: new Error('合成标签失败') }
-            : result(data);
+            : { ...result(data), refetch: async () => ({ data: value(name, input) }) };
         };
       if (key === 'useInfiniteQuery')
         return (input: Record<string, unknown> = {}, options: { enabled?: boolean } = {}) => {
@@ -254,6 +277,15 @@ function rpc(path: string[] = []): unknown {
               qa.configure(input);
               return qa.settings;
             }
+            if (qa.failWrite) throw new Error('合成保存失败');
+            if (name === 'account.qqWrite.friendRemark') {
+              qa.remark = String(input.remark);
+              qa.noRemark = false;
+            }
+            if (name === 'account.qqWrite.groupRemark') qa.groupRemark = String(input.remark);
+            if (name === 'account.qqWrite.groupName') qa.groupName = String(input.name);
+            if (name === 'account.qqWrite.friendCategory') qa.categoryId = Number(input.categoryId);
+            qa.notify();
             return { status: 'accepted' };
           },
         });
@@ -282,6 +314,13 @@ export function useQQWriteSession() {
     available: qa.online,
     busy: false,
     result: null,
-    run: async () => true,
+    run: async (action, _refresh, options) => {
+      try {
+        await action({ expectedAccountUin: qa.account, expectedAccountConfigId: qa.config });
+        return options?.readback ? await options.readback() : true;
+      } catch {
+        return false;
+      }
+    },
   };
 }
