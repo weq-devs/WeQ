@@ -88,7 +88,7 @@ try {
     return layout;
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const width of [1280, 390, 320]) {
+  for (const width of [1280, 600, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark']) {
       await page.goto(url);
@@ -191,7 +191,7 @@ try {
     window.contactCardQa.profileEnabled = true;
     window.contactCardQa.notify();
   });
-  for (const width of [1280, 390, 320]) {
+  for (const width of [1280, 600, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
@@ -234,11 +234,41 @@ try {
         assert.equal(overflow, false, `${width}/${theme}/${title} 不应横向溢出`);
         const identity = await page.locator('.weq-profile-page-identity').boundingBox();
         const actions = await page.locator('.weq-profile-page-actions').boundingBox();
-        assert.ok(
-          actions.x >= identity.x + identity.width + 8,
-          `${width}/${theme} 操作应位于身份区右侧`,
-        );
-        assert.ok(Math.abs(actions.y - identity.y) < 2, '操作区应与身份区顶部对齐');
+        const narrow = await page
+          .locator('.weq-contact-profile-v2')
+          .evaluate((node) => node.clientWidth <= 560);
+        const buttons = await page
+          .locator('.weq-profile-page-actions button')
+          .evaluateAll((nodes) =>
+            nodes.map((node) => {
+              const box = node.getBoundingClientRect();
+              return { x: box.x, y: box.y, width: box.width, height: box.height };
+            }),
+          );
+        if (narrow) {
+          assert.ok(
+            actions.y >= identity.y + identity.height + 8,
+            '空间不足时操作区应移到身份区下方',
+          );
+          assert.ok(Math.abs(actions.width - identity.width) < 2, '下方操作区应铺满身份区宽度');
+          assert.ok(Math.abs(buttons[0].x - actions.x) < 2);
+          const last = buttons.at(-1);
+          assert.ok(
+            Math.abs(last.x + last.width - actions.x - actions.width) < 2,
+            '每行按钮应铺满可用宽度',
+          );
+        } else {
+          assert.ok(
+            actions.x >= identity.x + identity.width + 8,
+            `${width}/${theme} 操作应位于身份区右侧`,
+          );
+          assert.ok(Math.abs(actions.y - identity.y) < 2, '操作区应与身份区顶部对齐');
+          for (let index = 0; index < buttons.length; index++) {
+            assert.ok(Math.abs(buttons[index].width - actions.width) < 2, '右侧每行一个等宽按钮');
+            if (index)
+              assert.ok(buttons[index].y >= buttons[index - 1].y + buttons[index - 1].height + 4);
+          }
+        }
         assert.equal(
           await page
             .locator('.weq-profile-page-header')
@@ -251,6 +281,21 @@ try {
       }
     }
   }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.locator('.contact-fixture').evaluate((node) => {
+    node.style.width = '520px';
+  });
+  const narrowIdentity = await page.locator('.weq-profile-page-identity').boundingBox();
+  const narrowActions = await page.locator('.weq-profile-page-actions').boundingBox();
+  assert.ok(
+    narrowActions.y >= narrowIdentity.y + narrowIdentity.height + 8,
+    '宽窗口内的窄资料面板也应将操作移到下方',
+  );
+  if (output) await page.screenshot({ path: resolve(output, '1280-narrow-pane-actions.png') });
+  report.push({ width: 1280, paneWidth: 520, actionsBelow: true });
+  await page.locator('.contact-fixture').evaluate((node) => {
+    node.style.width = '';
+  });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   for (const width of [1280, 320]) {
     await page.setViewportSize({ width, height: 900 });

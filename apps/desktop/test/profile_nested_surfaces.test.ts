@@ -774,7 +774,7 @@ it.each(['friend', 'group'] as const)('小名片 %s 移除互动入口并可展�
     act(() =>
       dialog
         .querySelector<HTMLButtonElement>(
-          kind === 'friend' ? '[aria-label="联系人详情"]' : '[aria-label="打开完整群资料"]',
+          kind === 'friend' ? '.weq-profile-expand' : '[aria-label="打开完整群资料"]',
         )!
         .click(),
     );

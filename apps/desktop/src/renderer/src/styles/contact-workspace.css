@@ -1,10 +1,14 @@
+.weq-contact-profile-v2 {
+  container: contact-profile / inline-size;
+}
+
 .weq-contact-profile-v2 .weq-profile-page-header {
   padding-block: 12px;
 }
 
 .weq-contact-profile-v2 .weq-profile-page-header--split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1fr) 160px;
   align-items: start;
   gap: 24px;
   max-height: 55dvh;
@@ -21,9 +25,15 @@
 }
 
 .weq-contact-profile-v2 .weq-profile-page-actions .weq-contact-actions {
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: stretch;
   margin: 0;
   padding: 0;
+}
+
+.weq-contact-profile-v2 .weq-profile-page-actions .weq-contact-actions button {
+  justify-content: center;
+  width: 100%;
 }
 
 .weq-contact-profile-v2 .weq-profile-page-header .weq-contact-identity {
@@ -241,22 +251,26 @@ html[data-theme='dark'] .weq-profile-group-picker select {
   min-height: 220px;
 }
 
-@media (max-width: 720px) {
+@container contact-profile (max-width: 560px) {
   .weq-contact-profile-v2 .weq-profile-page-header--split {
-    grid-template-columns: minmax(0, 1fr) 104px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 14px;
   }
 
   .weq-contact-profile-v2 .weq-profile-page-actions .weq-contact-actions {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .weq-contact-profile-v2 .weq-profile-page-actions .weq-contact-actions button {
-    justify-content: center;
-    padding-inline: 8px;
+    flex: 1 1 120px;
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
   }
+}
 
+@media (max-width: 720px) {
   .weq-contact-profile-v2 .weq-contact-portrait .weq-int-profile {
     grid-template-columns: minmax(0, 1fr);
   }

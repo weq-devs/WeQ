@@ -11,7 +11,7 @@
 ### 行模型与容器（唯一实现）
 
 - `components/contactProfile/ContactRow.tsx`：**唯一**的数据行组件（`ContactRow`）、分区小标题（`ContactSection`）、技术详情折叠（`ContactTechnicalDetails`）、局部失败（`ContactInlineError`）、空态（`ContactEmptyState`）。label 固定 96px、值 13px 左对齐可换行、空值整行不渲染；旧组件的 `.weq-profile-row` 通过 `profile-workspace.css` 的容器归一化跟随同一网格，不再各自排版。
-- 名片壳与资料页壳共用身份区 `ContactIdentity`、操作区 `ContactActions`、页头 `ProfilePageHeader`（工具栏标题 + 右上关闭 + 身份/操作，文档流内、不覆盖章节标题；`actions` 可省略）。联系人资料页使用 `layout="split"` 和 `ContactIdentity.cardBody`：左侧沿用名片分行身份正文及显示设置，右侧承载操作，窄屏操作纵向排列；群资料页保留默认布局。
+- 名片壳与资料页壳共用身份区 `ContactIdentity`、操作区 `ContactActions`、页头 `ProfilePageHeader`（工具栏标题 + 右上关闭 + 身份/操作，文档流内、不覆盖章节标题；`actions` 可省略）。联系人资料页使用 `layout="split"` 和 `ContactIdentity.cardBody`：左侧沿用名片分行身份正文及显示设置，右侧每行一个操作；命名容器 `contact-profile` 宽度不足时整组操作移到身份区下方，横向自动换行并填满每行，不依赖浏览器窗口宽度。群资料页保留默认布局。
 - `ProfileWorkspace` 负责目录与章节：宽屏 `weq-profile-directory` 竖目录，窄屏折叠为 `weq-profile-directory-tabs` 横向章节条（不用原生 select）；章节标题统一由它输出 17px h2，内嵌组件的 h1–h4 在宿主侧归一为 13px。
 - 样式归属：目录、工作区、行模型、共用技术详情组件只在 `styles/profile-workspace.css`；`styles/contact-card.css` 只保留名片壳、身份区、操作区、群上下文与设置页专属部分。当前状态复用聊天顶栏的 `OnlineStatus`；QQ、QID、UID、签名使用分行身份正文，沿用名片开关，四页正文不重复。联系人资料页不再挂载技术详情组件。
 - `ProfileInlineField` 共用群昵称、头衔、备注及分组的原行表单；`QQProfileField` 延迟挂载备注／分组／群名的在线状态读取，复用 `qqWrite` 与账号绑定。备注、群名和分组写入需读回确认才退出表单，失败保留草稿；分组使用下拉控件，群名称仅对群主／管理员提供，标题的资料导航行为不变。保存后刷新名片名称与群详情的独立查询缓存，不写入会话名称投影。
