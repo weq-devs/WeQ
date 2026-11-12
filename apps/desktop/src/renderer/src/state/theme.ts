@@ -4,6 +4,7 @@ import { accentColors, normalizeHex } from '../../../shared/theme_colors';
 import '../styles/component-appearance.css';
 import '../styles/qqnt-appearance.css';
 import '../styles/retro-appearance.css';
+import '../styles/form-controls.css';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';

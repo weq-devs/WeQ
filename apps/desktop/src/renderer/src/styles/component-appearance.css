@@ -131,18 +131,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-action-soft,
     .secondary-button,
     .mode-button:not(.active),
-    .weq-set-btn-soft:not(.weq-set-btn-danger):not(.weq-set-btn-del),
-    .weq-input,
-    .weq-set-input,
-    .weq-set-select,
-    .search-box,
-    .form-field input:not([type='checkbox']):not([type='range']):not([type='color']),
-    .form-field select,
-    .form-field textarea,
-    .weq-set-row-ctrl input:not([type='checkbox']):not([type='range']):not([type='color']),
-    .weq-set-row-ctrl select,
-    .weq-set-row-ctrl textarea,
-    .weq-directory-toolbar input
+    .weq-set-btn-soft:not(.weq-set-btn-danger):not(.weq-set-btn-del)
   ):not(:disabled):not(:where(html[data-component-style='qqnt'] button)) {
   border: solid var(--weq-skin-border);
   border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
