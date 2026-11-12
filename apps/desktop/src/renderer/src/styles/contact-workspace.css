@@ -2,6 +2,30 @@
   padding-block: 12px;
 }
 
+.weq-contact-profile-v2 .weq-profile-page-header--split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: start;
+  gap: 24px;
+  max-height: 55dvh;
+  overflow: auto;
+}
+
+.weq-profile-page-identity,
+.weq-profile-page-actions {
+  min-width: 0;
+}
+
+.weq-contact-profile-v2 .weq-profile-page-identity .weq-contact-identity-body {
+  margin-top: 12px;
+}
+
+.weq-contact-profile-v2 .weq-profile-page-actions .weq-contact-actions {
+  justify-content: flex-end;
+  margin: 0;
+  padding: 0;
+}
+
 .weq-contact-profile-v2 .weq-profile-page-header .weq-contact-identity {
   flex-wrap: nowrap;
   gap: 14px;
@@ -18,7 +42,7 @@
 }
 
 .weq-contact-profile-v2 .weq-profile-page-header .weq-contact-remarks {
-  margin-top: 6px;
+  margin-top: 0;
 }
 
 .weq-contact-profile-v2 .weq-profile-workspace-body {
@@ -218,6 +242,21 @@ html[data-theme='dark'] .weq-profile-group-picker select {
 }
 
 @media (max-width: 720px) {
+  .weq-contact-profile-v2 .weq-profile-page-header--split {
+    grid-template-columns: minmax(0, 1fr) 104px;
+    gap: 14px;
+  }
+
+  .weq-contact-profile-v2 .weq-profile-page-actions .weq-contact-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .weq-contact-profile-v2 .weq-profile-page-actions .weq-contact-actions button {
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
   .weq-contact-profile-v2 .weq-contact-portrait .weq-int-profile {
     grid-template-columns: minmax(0, 1fr);
   }

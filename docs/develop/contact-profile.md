@@ -11,9 +11,9 @@
 ### 行模型与容器（唯一实现）
 
 - `components/contactProfile/ContactRow.tsx`：**唯一**的数据行组件（`ContactRow`）、分区小标题（`ContactSection`）、技术详情折叠（`ContactTechnicalDetails`）、局部失败（`ContactInlineError`）、空态（`ContactEmptyState`）。label 固定 96px、值 13px 左对齐可换行、空值整行不渲染；旧组件的 `.weq-profile-row` 通过 `profile-workspace.css` 的容器归一化跟随同一网格，不再各自排版。
-- 名片壳与资料页壳共用身份区 `ContactIdentity`、操作区 `ContactActions`、页头 `ProfilePageHeader`（工具栏标题 + 右上关闭 + 身份/操作，文档流内、不覆盖章节标题；`actions` 可省略）。
+- 名片壳与资料页壳共用身份区 `ContactIdentity`、操作区 `ContactActions`、页头 `ProfilePageHeader`（工具栏标题 + 右上关闭 + 身份/操作，文档流内、不覆盖章节标题；`actions` 可省略）。联系人资料页使用 `layout="split"` 和 `ContactIdentity.cardBody`：左侧沿用名片分行身份正文及显示设置，右侧承载操作，窄屏操作纵向排列；群资料页保留默认布局。
 - `ProfileWorkspace` 负责目录与章节：宽屏 `weq-profile-directory` 竖目录，窄屏折叠为 `weq-profile-directory-tabs` 横向章节条（不用原生 select）；章节标题统一由它输出 17px h2，内嵌组件的 h1–h4 在宿主侧归一为 13px。
-- 样式归属：目录、工作区、行模型、技术详情只在 `styles/profile-workspace.css`；`styles/contact-card.css` 只保留名片壳、身份区、操作区、群上下文与设置页专属部分。QID 在身份区与 QQ 号并列，当前状态复用聊天顶栏的 `OnlineStatus`；两者沿用名片开关，正文不重复。NT UID 是名片可选字段，完整资料页固定收进「技术详情」折叠区。
+- 样式归属：目录、工作区、行模型、共用技术详情组件只在 `styles/profile-workspace.css`；`styles/contact-card.css` 只保留名片壳、身份区、操作区、群上下文与设置页专属部分。当前状态复用聊天顶栏的 `OnlineStatus`；QQ、QID、UID、签名使用分行身份正文，沿用名片开关，四页正文不重复。联系人资料页不再挂载技术详情组件。
 - `ProfileInlineField` 共用群昵称、头衔、备注及分组的原行表单；`QQProfileField` 延迟挂载备注／分组／群名的在线状态读取，复用 `qqWrite` 与账号绑定。备注、群名和分组写入需读回确认才退出表单，失败保留草稿；分组使用下拉控件，群名称仅对群主／管理员提供，标题的资料导航行为不变。保存后刷新名片名称与群详情的独立查询缓存，不写入会话名称投影。
 
 ## 数据与加载
@@ -25,9 +25,9 @@
 - `ProfileExtrasContent` 和 `ProfileDetailsContent` 支持页内承接，`ProfileExtraDialog` 复用相同内容与查询。原有签名、问答、照片互动不另建协议或写入通道。
 - 私聊存在性优先使用完整目录和隐藏、历史及临时会话状态；必要时只读取会话边界。本群发言复用 `browseConversation` 的发送者过滤和游标分页。空间预览按点击延迟加载，复用空间读取和媒体网格，不预取评论或续页。
 
-资料页章节采用已有共享目录容器，保留同一对象的章节、分页和滚动位置。`lib/contactWorkspace.ts` 定义四个内容页及旧导航映射：`details/signatures/history/edit` 归入 `profile`，`portrait` 归入 `marks`，`questions` 归入 `personality`，旧直达入口自动展开所属内容。本人编辑及对外展示设置与名片偏好分开。
+资料页章节采用已有共享目录容器，保留同一对象的章节、分页和滚动位置。`lib/contactWorkspace.ts` 定义四个内容页及旧导航映射：`details/signatures/history/edit` 归入 `profile`，`portrait` 归入 `marks`，`questions` 归入 `personality`。旧签名章节只定位个人资料，不恢复已移除的独立签名历史入口；历史通过身份区签名正文打开。其他旧直达入口展开所属内容。本人编辑及对外展示设置与名片偏好分开。
 
-`ProfileDisclosure` 首次展开后才挂载内容，收起保留现场并通过 `TabActivity` 暂停读取。资料历史按四页归属筛选服务端返回的类别，再按类别分页查询，不使用过滤当前页结果的方式；没有适用类别时不发无类别的全量历史查询。UID 只在个人资料底部出现一次。`styles/contact-workspace.css` 承担联系人资料页专属样式，不修改群资料页的布局。
+`ProfileDisclosure` 首次展开后才挂载内容，收起保留现场并通过 `TabActivity` 暂停读取。资料历史按四页归属筛选服务端返回的类别，再按类别分页查询，不使用过滤当前页结果的方式；没有适用类别时不发无类别的全量历史查询。UID 仅在开启该字段时进入身份区。`styles/contact-workspace.css` 承担联系人资料页专属样式，不修改群资料页的布局。
 
 `ContactGroupWorkspace` 通过绑定账号和数据源的 `listUserGroups` 分页读取本地成员记录，合并来源群，不遍历所有群成员；群名优先使用当前群资料、来源群和已有会话目录，缺失时显示群号。切群重新构造 `profileContext`，不改联系人及当前会话；成员行与本群发言、聊天分析共用该上下文。选择记忆按账号、数据源和 UID 隔离，内存有界；来源群优先于记忆。`listUserGroups` 保留旧调用，同时使用已有 `scopedGroupRead` 拒绝跨账号、跨数据源及迟到响应。
 

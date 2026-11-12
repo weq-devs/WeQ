@@ -82,7 +82,7 @@ export function ContactIdentity({
   onOpen?: () => void;
   pendant?: boolean;
   settings?: ContactCardSettings;
-  /** 仅浮层名片使用五行身份正文，资料页保持原样。 */
+  /** 名片与联系人资料页共用分行身份正文。 */
   cardBody?: boolean;
 }) {
   const relationship = usePersonRelationship(person);

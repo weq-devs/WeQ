@@ -129,8 +129,21 @@ try {
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(url);
+  const identityLabels = await page
+    .locator('.weq-contact-identity-body .weq-profile-data-label')
+    .allTextContents();
   await page.locator('.weq-profile-expand').click();
   await page.locator('.weq-contact-workspace-v2').waitFor();
+  assert.deepEqual(
+    await page.locator('.weq-profile-page-identity .weq-profile-data-label').allTextContents(),
+    identityLabels,
+  );
+  assert.equal(await page.getByRole('button', { name: '签名历史', exact: true }).count(), 0);
+  assert.equal(await page.locator('.weq-contact-profile-v2 .weq-profile-tech').count(), 0);
+  assert.equal(
+    await page.locator('.weq-profile-workspace-body .weq-contact-signature-text').count(),
+    0,
+  );
   assert.deepEqual(await page.locator('.weq-profile-directory button').allTextContents(), [
     '个人资料',
     '与我的关系',
@@ -219,6 +232,19 @@ try {
           );
         }
         assert.equal(overflow, false, `${width}/${theme}/${title} 不应横向溢出`);
+        const identity = await page.locator('.weq-profile-page-identity').boundingBox();
+        const actions = await page.locator('.weq-profile-page-actions').boundingBox();
+        assert.ok(
+          actions.x >= identity.x + identity.width + 8,
+          `${width}/${theme} 操作应位于身份区右侧`,
+        );
+        assert.ok(Math.abs(actions.y - identity.y) < 2, '操作区应与身份区顶部对齐');
+        assert.equal(
+          await page
+            .locator('.weq-profile-page-header')
+            .evaluate((node) => node.scrollWidth > node.clientWidth),
+          false,
+        );
         report.push({ width, theme, title, overflow });
         if (output)
           await page.screenshot({ path: resolve(output, `${width}-${theme}-${title}.png`) });
@@ -234,21 +260,19 @@ try {
       ['个性展示', '个性装扮'],
     ]) {
       await page.getByRole(width > 720 ? 'button' : 'tab', { name: title, exact: true }).click();
-      const trigger = page.getByRole('button', { name: detail, exact: true });
-      if ((await trigger.getAttribute('aria-expanded')) === 'false') await trigger.click();
       if (detail === '签名历史') {
-        await checkSignatureDialog(trigger);
-        if (output)
-          await page.screenshot({ path: resolve(output, `${width}-expanded-${detail}.png`) });
-        await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
-        const signature = page.locator('.weq-contact-signature-text');
+        const signature = page.locator('.weq-profile-page-identity .weq-contact-signature-text');
         await signature.click();
         await checkSignatureDialog(signature);
+        if (output)
+          await page.screenshot({ path: resolve(output, `${width}-expanded-${detail}.png`) });
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('.weq-contact-workspace-v2').count(), 1);
-        report.push({ width, signatureEntries: ['签名历史', '签名正文'], dialog: true });
+        report.push({ width, signatureEntries: ['签名正文'], dialog: true });
         continue;
       }
+      const trigger = page.getByRole('button', { name: detail, exact: true });
+      if ((await trigger.getAttribute('aria-expanded')) === 'false') await trigger.click();
       const panel = page.locator(`#${await trigger.getAttribute('aria-controls')}`);
       await panel.scrollIntoViewIfNeeded();
       if (detail === '互动画像') await page.getByRole('img', { name: '互动风格雷达' }).waitFor();

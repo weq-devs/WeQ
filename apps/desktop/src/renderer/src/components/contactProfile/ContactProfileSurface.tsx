@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import type { Contact } from '../../im-template/template/types';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
-import { useContactProfile } from '../../hooks/useContactCard';
+import { useContactCardSettings, useContactProfile } from '../../hooks/useContactCard';
 import { MemberProfileCard } from '../MemberProfileCard';
 import { ContactWorkspace } from '../ContactWorkspace';
 import { ContactIdentity } from './ContactContent';
@@ -56,6 +56,7 @@ function ContactProfilePage({
   previewContent,
 }: Parameters<typeof ContactProfileSurface>[0]) {
   const { profile, scope } = useContactProfile(contact);
+  const settings = useContactCardSettings();
   const closing = useDraftClose(onClose, null);
   const person: Contact = { createdAt: '', ...profile };
   return (
@@ -68,7 +69,15 @@ function ContactProfilePage({
         <ProfilePageHeader
           title="联系人资料"
           onClose={closing.requestClose}
-          identity={<ContactIdentity person={person} pendant />}
+          layout="split"
+          identity={
+            <ContactIdentity
+              person={person}
+              settings={settings}
+              cardBody
+              pendant={settings.ready && settings.visible.pendant}
+            />
+          }
           actions={
             <ContactActions
               hideGroup

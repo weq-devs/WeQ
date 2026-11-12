@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { History } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { DEFAULT_CONTACT_CARD, type ContactCardContent } from '@weq/service/contact-card';
 import type { Contact } from '../im-template/template/types';
 import type { ContactWorkspaceTab } from '../lib/profileNavigation';
@@ -17,8 +16,8 @@ import { ContactHistory } from './ContactHistory';
 import { ContactContent } from './contactProfile/ContactContent';
 import { ContactGroupWorkspace } from './contactProfile/ContactGroupWorkspace';
 import { ProfileDisclosure } from './contactProfile/ProfileDisclosure';
-import { ContactSection, ContactTechnicalDetails, ContactRow } from './contactProfile/ContactRow';
-import { ProfileExtraDialog, ProfileExtrasContent } from './ProfileExtras';
+import { ContactSection } from './contactProfile/ContactRow';
+import { ProfileExtrasContent } from './ProfileExtras';
 import { SelfQQControls } from './settings/SelfQQControls';
 import { SelfAvatarHistory } from './SelfAvatarHistory';
 import { ProfileWorkspace } from './ProfileWorkspace';
@@ -100,8 +99,6 @@ export function ContactWorkspace({
             </ProfileDisclosure>
           ) : null}
           {content([
-            'signature',
-            'signatureUpdated',
             'gender',
             'age',
             'birthday',
@@ -122,20 +119,13 @@ export function ContactWorkspace({
             'botFeatures',
           ])}
           {human ? (
-            <>
-              <ProfileDisclosure
-                title="教育经历"
-                initiallyOpen={opened === 'details'}
-                openRequest={openRequest}
-              >
-                <ProfileExtrasContent uin={contact.identityValue} view="education" />
-              </ProfileDisclosure>
-              <SignatureHistoryEntry
-                uin={contact.identityValue}
-                initiallyOpen={opened === 'signatures'}
-                openRequest={openRequest}
-              />
-            </>
+            <ProfileDisclosure
+              title="教育经历"
+              initiallyOpen={opened === 'details'}
+              openRequest={openRequest}
+            >
+              <ProfileExtrasContent uin={contact.identityValue} view="education" />
+            </ProfileDisclosure>
           ) : null}
           {relationship === 'self' ? (
             <ContactSection title="头像">
@@ -143,17 +133,6 @@ export function ContactWorkspace({
             </ContactSection>
           ) : null}
           {history('profile')}
-          {hasUid ? (
-            <ContactTechnicalDetails>
-              <ContactRow
-                label="UID"
-                value={contact.uid || contact.id}
-                copyValue={contact.uid || contact.id}
-                mono
-                activateTitle="复制 UID"
-              />
-            </ContactTechnicalDetails>
-          ) : null}
         </>
       );
     if (key === 'marks')
@@ -227,45 +206,6 @@ export function ContactWorkspace({
       onSelect={select}
       render={panel}
     />
-  );
-}
-
-function SignatureHistoryEntry({
-  uin,
-  initiallyOpen,
-  openRequest,
-}: {
-  uin: string;
-  initiallyOpen: boolean;
-  openRequest: number;
-}) {
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (initiallyOpen) setOpen(true);
-  }, [initiallyOpen, openRequest]);
-  return (
-    <section className="weq-profile-disclosure">
-      <button
-        ref={anchor}
-        type="button"
-        className="weq-profile-disclosure-trigger"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span>签名历史</span>
-        <History size={16} aria-hidden />
-      </button>
-      {open ? (
-        <ProfileExtraDialog
-          uin={uin}
-          view="signatures"
-          anchor={anchor.current}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </section>
   );
 }
 

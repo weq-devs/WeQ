@@ -15,8 +15,9 @@ import { X } from 'lucide-react';
  *
  * 约定：
  * - 工具条只放「标题 + 关闭」，不放导航或第二套目录；章节标题由 ProfileWorkspace 输出。
- * - 身份区与操作区之间用 1px hairline；两者都在页头高度 `flex: 0 0 auto`，不随内容滚动。
- * - 页头本身不显示备注重复信息、不显示协议字段。
+ * - 默认纵向布局；联系人使用 split，将名片身份正文与操作区分列。
+ * - 两者都在页头，不随正文滚动；联系人长身份内容可在页头内滚动。
+ * - 身份正文由传入组件决定，外壳不重复输出字段。
  * - 窄屏 padding 降为 12/14，操作行允许换行，不隐藏任何主操作。
  */
 export function ProfilePageHeader({
@@ -25,12 +26,14 @@ export function ProfilePageHeader({
   actions,
   onClose,
   closeLabel = '关闭资料',
+  layout = 'stacked',
 }: {
   title: string;
   identity: ReactNode;
   actions?: ReactNode;
   onClose: () => void;
   closeLabel?: string;
+  layout?: 'stacked' | 'split';
 }) {
   return (
     <>
@@ -46,9 +49,20 @@ export function ProfilePageHeader({
           <X size={18} />
         </button>
       </div>
-      <header className="weq-profile-page-header">
-        {identity}
-        {actions}
+      <header
+        className={`weq-profile-page-header${layout === 'split' ? ' weq-profile-page-header--split' : ''}`}
+      >
+        {layout === 'split' ? (
+          <>
+            <div className="weq-profile-page-identity">{identity}</div>
+            {actions ? <div className="weq-profile-page-actions">{actions}</div> : null}
+          </>
+        ) : (
+          <>
+            {identity}
+            {actions}
+          </>
+        )}
       </header>
     </>
   );

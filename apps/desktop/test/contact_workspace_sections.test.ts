@@ -105,9 +105,10 @@ it('默认显示四页，不提前挂载历史、问答或画像', () => {
   expect(host.textContent).not.toContain('画像内容');
   expect(host.textContent).not.toContain('历史-profile');
   expect(host.textContent).not.toContain('questions');
+  expect(host.textContent).not.toContain('签名历史');
+  expect(host.querySelector('.weq-profile-tech')).toBeNull();
 });
 it.each([
-  ['signatures', '个人资料', 'signatures'],
   ['portrait', '与我的关系', '画像内容'],
   ['questions', '个性展示', 'questions'],
   ['history', '个人资料', '历史-profile'],
@@ -129,18 +130,10 @@ it('收起资料历史保留内容但暂停读取', () => {
   expect(host.querySelector('[data-active]')?.getAttribute('data-active')).toBe('false');
   expect(button.getAttribute('aria-expanded')).toBe('false');
 });
-it('签名历史按钮按需打开对话框，以实际按钮为锚点，不展开页内历史', () => {
-  const host = render();
-  const button = [...host.querySelectorAll('button')].find(
-    (node) => node.textContent === '签名历史',
-  )!;
-  expect(button.getAttribute('aria-haspopup')).toBe('dialog');
+it('旧签名章节返回个人资料，不恢复已移除的独立签名历史按钮或技术详情', () => {
+  const host = render('signatures');
+  expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('个人资料');
+  expect(host.textContent).not.toContain('签名历史');
   expect(host.querySelector('[role="dialog"]')).toBeNull();
-  act(() => button.click());
-  expect(host.querySelector('[role="dialog"]')?.getAttribute('data-anchor')).toBe('签名历史');
-  expect(host.querySelector('.weq-profile-disclosure-body [data-active]')).toBeNull();
-  expect(button.getAttribute('aria-expanded')).toBe('true');
-  act(() => button.click());
-  expect(host.querySelector('[role="dialog"]')).toBeNull();
-  expect(button.getAttribute('aria-expanded')).toBe('false');
+  expect(host.querySelector('.weq-profile-tech')).toBeNull();
 });
