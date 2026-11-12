@@ -1,3 +1,7 @@
+.weq-profile-data-row:has(> .weq-profile-data-value > .weq-friend-source-group) {
+  align-items: center;
+}
+
 .weq-friend-source-group {
   display: flex;
   align-items: center;

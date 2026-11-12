@@ -295,7 +295,13 @@ it('导出真实资料行排版夹具用于深浅色及窄屏核验', () => {
   const output = process.env.WEQ_FRIEND_CLUE_QA;
   if (!output) return;
   mkdirSync(output, { recursive: true });
-  const styles = ['index.css', 'appearance.css', 'contact-profile.css', 'friend-clue.css']
+  const styles = [
+    'index.css',
+    'appearance.css',
+    'contact-profile.css',
+    'profile-workspace.css',
+    'friend-clue.css',
+  ]
     .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
     .join('\n');
   for (const mode of ['normal', 'long', 'unknown', 'error']) {
