@@ -32,6 +32,7 @@ function Fixture() {
             ...source.group,
             id: PROJECT_GROUP_IDS[0]!,
             name: '用于验证标题截断的合成群聊名称与更多工具',
+            luckyChar: { id: 10001, litCount: 3 },
           },
         }
       : source.type === 'direct'

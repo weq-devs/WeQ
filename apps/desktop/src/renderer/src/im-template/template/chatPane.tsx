@@ -95,7 +95,7 @@ import {
   X,
 } from 'lucide-react';
 import { AiOutlineRedEnvelope } from 'react-icons/ai';
-import { resourceUrl } from '../../lib/resourceUrl';
+import { dressUrl, resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { groupMemberEditing } from '../../lib/groupMemberEditing';
 import { canDiscardFailedMessage, isUnpositionedFailure } from '../../lib/localOutgoing';
@@ -5552,7 +5552,9 @@ export function ChatPane({
             {conversation.type === 'group' && conversation.group.luckyChar ? (
               <img
                 className={cn('lucky-char-badge')}
-                src={`https://tianquan.gtimg.cn/groupluckyword/item/${conversation.group.luckyChar.id}/pic-${conversation.group.luckyChar.litCount}.png`}
+                src={dressUrl(
+                  `https://tianquan.gtimg.cn/groupluckyword/item/${conversation.group.luckyChar.id}/pic-${conversation.group.luckyChar.litCount}.png`,
+                )}
                 alt=""
                 title={`幸运字符 · 已点亮 ${conversation.group.luckyChar.litCount} 人`}
                 referrerPolicy="no-referrer"
