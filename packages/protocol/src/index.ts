@@ -164,17 +164,6 @@ export type { PttTransVoice, PttTransAck, PttTransPush } from './ptt-trans';
 export { ReportRead, type ReadReportParams } from './msg/report-read';
 export { SetFriendRemark, ClearFriendRemark } from './oidb/set-friend-remark';
 export type { SetFriendRemarkParams } from './oidb/set-friend-remark';
-export { readFriendSummaryCard, FriendSummaryCardError } from './oidb/profile/summary-card';
-export {
-  parseFriendNoteCard,
-  readFriendNoteDetail,
-  readListedFriendNoteId,
-  replaceFriendNotes,
-  newFriendNoteCard,
-  writeFriendNoteCard,
-  validateFriendNotes,
-} from './oidb/profile/friend-notes';
-export type { FriendNotes } from './oidb/profile/friend-notes';
 export { SetGroupRemark } from './oidb/set-group-remark';
 export type { SetGroupRemarkParams } from './oidb/set-group-remark';
 export { SetFriendCategory } from './oidb/set-friend-category';

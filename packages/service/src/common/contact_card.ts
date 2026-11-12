@@ -30,7 +30,6 @@ export const CONTACT_CARD_FIELDS = [
   ['company', '公司', true],
   ['email', '邮箱', true],
   ['friendClue', '好友添加信息', false],
-  ['notes', '备注资料', true],
   ['botDescription', '机器人简介', true],
   ['botFeatures', '机器人功能', true],
 ] as const;

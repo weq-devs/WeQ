@@ -175,7 +175,6 @@ export function ContactWorkspace({
               'privileges',
               'likes',
               'friendClue',
-              'notes',
             ]}
             onSection={select}
           />

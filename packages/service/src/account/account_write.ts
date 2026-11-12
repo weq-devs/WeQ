@@ -1,5 +1,4 @@
 import type { Buddy, Category } from '@weq/db';
-import { createHash } from 'node:crypto';
 import type { ContactMetricsService } from './contact_metrics';
 import { SelfProfileDisplayService } from './profile_display';
 import { ProfileInteractionWrites } from './profile_interactions';
@@ -35,16 +34,6 @@ import {
   type GroupMessagePolicy,
   type SelfProfilePatch,
   type SetOnlineStatusParams,
-  readFriendSummaryCard,
-  FriendSummaryCardError,
-  parseFriendNoteCard,
-  readFriendNoteDetail,
-  readListedFriendNoteId,
-  replaceFriendNotes,
-  newFriendNoteCard,
-  writeFriendNoteCard,
-  validateFriendNotes,
-  type FriendNotes,
 } from '@weq/protocol';
 
 export interface AccountWriteIdentity {
@@ -63,7 +52,6 @@ export interface AccountWriteOutcome {
 /** 编排账号操作及配套读回；不写 QQ 原库、不自动重发写请求。 */
 export class AccountWriteService {
   contactMetrics?: ContactMetricsService;
-  private readonly noteWrites = new Set<string>();
   private displaySettingsService?: SelfProfileDisplayService;
   private interactionWrites?: ProfileInteractionWrites;
   constructor(
@@ -271,90 +259,6 @@ export class AccountWriteService {
   async getFriendRemark(uid: string) {
     const row = await this.friendSns(uid, false, true);
     return { uid, remark: row.remark ?? null };
-  }
-
-  private async friendNoteSnapshot(uid: string) {
-    const pid = this.resolvePid();
-    const buddy = await this.friend(uid);
-    this.assertCurrentPid(pid);
-    if (buddy.uid !== uid || uid === this.identity.selfUid) throw new Error('好友备注资料目标无效');
-    const targetUin = String(buddy.uin);
-    let id: Uint8Array | null = null;
-    try {
-      const summary = await readFriendSummaryCard(this.nt, pid, targetUin);
-      this.assertCurrentPid(pid);
-      if (summary) id = parseFriendNoteCard(summary, targetUin).id;
-    } catch (error) {
-      this.assertCurrentPid(pid);
-      if (!(error instanceof FriendSummaryCardError) || error.result !== 151) throw error;
-      id = await readListedFriendNoteId(this.nt, pid, targetUin);
-      this.assertCurrentPid(pid);
-      if (!id) throw error;
-    }
-    let raw: Uint8Array | null = null;
-    if (id) {
-      raw = await readFriendNoteDetail(this.nt, pid, id, targetUin);
-      this.assertCurrentPid(pid);
-    }
-    const notes: FriendNotes = raw
-      ? parseFriendNoteCard(raw, targetUin)
-      : { company: '', phones: [], descriptions: [] };
-    const revision = createHash('sha256')
-      .update(`${this.identity.uin}:${uid}:${targetUin}:`)
-      .update(raw ?? 'no-card')
-      .digest('hex');
-    return { pid, targetUin, raw, revision, notes };
-  }
-
-  /** 独立于好友公开资料；原始名片只留在本次服务调用中。 */
-  async getFriendNotes(uid: string) {
-    const snapshot = await this.friendNoteSnapshot(uid);
-    return {
-      uid,
-      exists: snapshot.raw !== null,
-      revision: snapshot.revision,
-      company: snapshot.notes.company,
-      phones: snapshot.notes.phones,
-      descriptions: snapshot.notes.descriptions,
-    };
-  }
-
-  async friendNotes(
-    uid: string,
-    revision: string,
-    notes: FriendNotes,
-  ): Promise<AccountWriteOutcome> {
-    validateFriendNotes(notes);
-    if (this.noteWrites.has(uid)) throw new Error('我的好友备注资料正在保存');
-    this.noteWrites.add(uid);
-    try {
-      const snapshot = await this.friendNoteSnapshot(uid);
-      if (snapshot.revision !== revision) throw new Error('我的备注资料已变化，请刷新后重新编辑');
-      if (
-        JSON.stringify(snapshot.notes.company) === JSON.stringify(notes.company) &&
-        JSON.stringify(snapshot.notes.phones) === JSON.stringify(notes.phones) &&
-        JSON.stringify(snapshot.notes.descriptions) === JSON.stringify(notes.descriptions)
-      )
-        return { state: 'unchanged' };
-      let raw: Uint8Array;
-      if (snapshot.raw) raw = replaceFriendNotes(snapshot.raw, snapshot.targetUin, notes);
-      else {
-        const remark = await this.getFriendRemark(uid);
-        if (remark.remark === null) throw new Error('普通备注未读取完整，请刷新后再试');
-        raw = newFriendNoteCard(snapshot.targetUin, remark.remark, notes);
-      }
-      this.assertCurrentPid(snapshot.pid);
-      try {
-        await writeFriendNoteCard(this.nt, snapshot.pid, raw, snapshot.raw === null);
-      } catch {
-        this.assertCurrentPid(snapshot.pid);
-        return { state: 'unconfirmed' };
-      }
-      this.assertCurrentPid(snapshot.pid);
-      return { state: 'accepted' };
-    } finally {
-      this.noteWrites.delete(uid);
-    }
   }
 
   async groupRemark(groupId: number, remark: string): Promise<AccountWriteOutcome> {

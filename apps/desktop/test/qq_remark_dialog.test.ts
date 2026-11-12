@@ -42,8 +42,6 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
       qqWrite: {
-        friendNotesState: { useQuery: () => ({ data: undefined }) },
-        friendNotes: { useMutation: () => ({ mutateAsync: state.write }) },
         friendRemarkState: {
           useQuery: () => ({
             data: { uid: 'u_peer', remark: state.remark },
@@ -113,6 +111,12 @@ function input(host: HTMLElement, value: string) {
   });
 }
 describe('右键备注编辑器', () => {
+  it('仅保留普通备注，不显示或加载扩展备注编辑器', () => {
+    const f = fixture('c2c');
+    expect(f.host.textContent).not.toContain('我的备注资料');
+    expect(f.host.querySelector('.weq-friend-notes')).toBeNull();
+    expect(f.host.querySelectorAll('input')).toHaveLength(1);
+  });
   it.each(['group', 'c2c'] as const)(
     '%s 使用实际目标和账号绑定保存，可清空并回读',
     async (kind) => {

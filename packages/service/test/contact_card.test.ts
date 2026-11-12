@@ -41,7 +41,6 @@ describe('联系人名片偏好', () => {
       'company',
       'description',
       'email',
-      'notes',
       'school',
       'status',
       'common',

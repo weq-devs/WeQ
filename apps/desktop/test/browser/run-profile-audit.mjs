@@ -187,7 +187,7 @@ try {
   }
 
   for (const theme of ['light', 'dark']) {
-    const { page } = await open('view=card&no-remark=1&empty-notes=1', { width: 320, theme });
+    const { page } = await open('view=card&no-remark=1', { width: 320, theme });
     const remarks = page.locator('.weq-contact-remarks');
     assert.equal(
       await remarks.locator('.weq-profile-identity-remark').innerText(),

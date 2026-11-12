@@ -84,7 +84,6 @@ const _BASIC_FIELDS: readonly ContactCardContent[] = [
   'description',
   'email',
   'energy',
-  'notes',
 ];
 const SOCIAL_FIELDS: readonly ContactCardContent[] = [
   'common',
@@ -111,7 +110,6 @@ const automaticFields: readonly ContactCardContent[] = [
   'description',
   'email',
   'friendClue',
-  'notes',
   'botDescription',
   'botFeatures',
 ];
@@ -239,15 +237,11 @@ export function ContactIdentity({
             onActivate={editableRemark ? () => setRemarkOpen(true) : undefined}
             activateTitle={remark ? '编辑备注' : '添加备注'}
           />
-          {editableRemark && settings?.visible.notes !== false ? (
-            <NotesRows person={person} onEdit={() => setRemarkOpen(true)} />
-          ) : null}
         </div>
       ) : null}
       {remarkOpen && !person.clone && relationship === 'friend' ? (
         <QQRemarkDialog
           target={{ kind: 'c2c', conv: person.uid || person.id, name: title }}
-          showNotes
           onClose={() => setRemarkOpen(false)}
         />
       ) : null}
@@ -375,38 +369,6 @@ function EnergyRow({ person }: { person: ProfilePerson }) {
   );
   const score = query.data?.targetUin === person.identityValue ? query.data.score : null;
   return typeof score === 'number' ? <ContactRow label="QQ 能量值" value={score} /> : null;
-}
-
-function NotesRows({ person, onEdit }: { person: ProfilePerson; onEdit: () => void }) {
-  const session = useQQWriteSession(`contact-notes:${person.id}`, true);
-  const query = trpc.account.qqWrite.friendNotesState.useQuery(
-    { ...session.binding!, uid: person.uid || person.id },
-    { ...PROFILE_QUERY_OPTIONS, enabled: session.available && /^u_/.test(person.uid || person.id) },
-  );
-  const notes = query.data;
-  if (!notes) return null;
-  return (
-    <>
-      <ContactRow
-        label="备注公司"
-        value={notes.company}
-        onActivate={onEdit}
-        activateTitle="编辑备注公司"
-      />
-      <ContactRow
-        label="备注电话"
-        value={notes.phones.filter((value) => value.trim()).join('\n')}
-        onActivate={onEdit}
-        activateTitle="编辑备注电话"
-      />
-      <ContactRow
-        label="备注描述"
-        value={notes.descriptions.filter((value) => value.trim()).join('\n')}
-        onActivate={onEdit}
-        activateTitle="编辑备注描述"
-      />
-    </>
-  );
 }
 
 function LabelsRow({ person, open }: { person: ProfilePerson; open: (id?: string) => void }) {

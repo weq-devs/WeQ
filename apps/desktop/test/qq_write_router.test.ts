@@ -63,15 +63,6 @@ function fixture() {
     accountWrite: {
       friendRemark: vi.fn(accepted),
       getFriendRemark: vi.fn(async (uid: string) => ({ uid, remark: '' })),
-      getFriendNotes: vi.fn(async (uid: string) => ({
-        uid,
-        revision: 'a'.repeat(64),
-        exists: true,
-        company: '我的备注公司',
-        phones: ['10086'],
-        descriptions: ['我写的说明'],
-      })),
-      friendNotes: vi.fn(accepted),
       groupRemark: vi.fn(accepted),
       pin: vi.fn(accepted),
       friendDisturb: vi.fn(accepted),
@@ -182,32 +173,6 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
-  it('我的备注资料独立读写，不调用公开资料设置，拒绝额外字段及切号回包', async () => {
-    const f = fixture();
-    const result = await f.caller.friendNotesState({ ...binding, uid: 'u_peer' });
-    expect(result.company).toBe('我的备注公司');
-    const notes = { company: '', phones: [], descriptions: [] };
-    await f.caller.friendNotes({ ...binding, uid: 'u_peer', revision: result.revision, notes });
-    expect(f.services.accountWrite.friendNotes).toHaveBeenCalledWith(
-      'u_peer',
-      result.revision,
-      notes,
-    );
-    expect(f.services.accountWrite.selfProfile).not.toHaveBeenCalled();
-    await expect(
-      f.caller.friendNotes({
-        ...binding,
-        uid: 'u_peer',
-        revision: result.revision,
-        notes: { ...notes, bindUin: '10003' } as typeof notes,
-      }),
-    ).rejects.toThrow();
-    f.services.accountWrite.getFriendNotes = async (uid) => {
-      f.switchAccount();
-      return { ...result, uid };
-    };
-    await expect(f.caller.friendNotesState({ ...binding, uid: 'u_peer' })).rejects.toThrow('切换');
-  });
   it('好友线索绑定账号和 UID，读取使用在线入口', async () => {
     const f = fixture();
     await expect(f.caller.friendClue({ ...binding, uid: 'u_peer' })).resolves.toMatchObject({

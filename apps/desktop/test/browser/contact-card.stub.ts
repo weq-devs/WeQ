@@ -13,7 +13,6 @@ export const qa = {
   inGroup: true,
   muted: false,
   noRemark: new URLSearchParams(location.search).has('no-remark'),
-  emptyNotes: new URLSearchParams(location.search).has('empty-notes'),
   preferencesReady: !new URLSearchParams(location.search).has('preferences-loading'),
   failLabels: false,
   noConversation: false,
@@ -187,13 +186,6 @@ function value(path: string, input: Record<string, unknown>) {
       source: '合成来源',
       sourceGroupCode: null,
       verificationMessage: '',
-    };
-  if (path === 'account.qqWrite.friendNotesState')
-    return {
-      company: qa.emptyNotes ? ' ' : '合成备注公司',
-      phones: qa.emptyNotes ? ['', ' '] : ['10000'],
-      descriptions: qa.emptyNotes ? ['\n'] : ['合成备注'],
-      revision: '1',
     };
   if (path === 'account.browseConversation')
     return {

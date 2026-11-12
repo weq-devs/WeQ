@@ -127,7 +127,6 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
       },
       qqWrite: {
-        friendNotesState: { useQuery: () => ({ data: undefined }) },
         friendClue: { useQuery: () => ({ data: undefined, isFetching: false }) },
         commonRelationships: {
           useQuery: () => ({

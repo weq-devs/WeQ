@@ -18,7 +18,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const preferences = vi.hoisted(() => ({
   friendClue: false,
   extraDetails: false,
-  notes: undefined as { company: string; phones: string[]; descriptions: string[] } | undefined,
 }));
 
 // 卡片会拉 tRPC 补全陌生人资料 —— 单测不建 ipc 链接，给个死数据桩。
@@ -57,7 +56,7 @@ vi.mock('@renderer/trpc/client', () => ({
       getOnlineStatus: { useQuery: () => ({ data: undefined }) },
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source' } }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
-      qqWrite: { friendNotesState: { useQuery: () => ({ data: preferences.notes }) } },
+      qqWrite: {},
       profileExtras: {
         energy: { useQuery: () => ({ data: undefined }) },
         details: {
@@ -201,27 +200,19 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
-  it('没有备注时添加备注仍位于备注行，不混入号码；备注资料按非空字段直接展示', async () => {
-    preferences.notes = {
-      company: '合成备注公司',
-      phones: [' ', '123', '456'],
-      descriptions: ['第一行\n第二行', ''],
-    };
+  it('没有备注时添加备注仍位于备注行，不再查询或展示扩展备注资料', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, isFriend: true });
     const remarks = layer().querySelector('.weq-contact-remarks')!;
     expect(remarks.querySelector('.weq-profile-identity-remark')?.textContent).toBe('备注添加备注');
     expect(layer().querySelector('.weq-contact-meta')?.textContent).not.toContain('添加备注');
     expect(
       [...remarks.querySelectorAll('.weq-profile-data-label')].map((el) => el.textContent),
-    ).toEqual(['备注', '备注公司', '备注电话', '备注描述']);
-    expect(remarks.textContent).toContain('123\n456');
-    expect(remarks.textContent).toContain('第一行\n第二行');
+    ).toEqual(['备注']);
     expect(layer().textContent).not.toContain('我的备注资料');
     expect(layer().textContent).not.toContain('不是好友公开资料');
     expect(remarks.nextElementSibling?.classList.contains('weq-contact-sections')).toBe(true);
   });
-  it('空白的备注资料字段不在名片中占位', async () => {
-    preferences.notes = { company: '  ', phones: ['', ' '], descriptions: ['\n'] };
+  it('已有好友备注仍独立展示，不附带扩展备注字段', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, isFriend: true, remark: '好友备注' });
     const remarks = layer().querySelector('.weq-contact-remarks')!;
     expect(
@@ -533,7 +524,6 @@ describe('群成员资料卡浮层', () => {
   beforeEach(() => {
     preferences.friendClue = false;
     preferences.extraDetails = false;
-    preferences.notes = undefined;
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
   });

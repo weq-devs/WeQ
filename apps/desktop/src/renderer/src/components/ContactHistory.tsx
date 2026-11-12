@@ -48,7 +48,7 @@ const labels: Record<string, string> = {
   getMessagePolicy: '群消息策略',
   getMemberNotify: '成员消息提醒',
   getFriendRemark: '好友备注',
-  getFriendNotes: '我的备注资料',
+  getFriendNotes: '历史备注资料',
   getFriendDisturb: '好友免打扰',
   getFriendSpecialCare: '特别关心',
   editableSelfProfile: '本人资料',

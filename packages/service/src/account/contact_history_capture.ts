@@ -110,7 +110,6 @@ export const CONTACT_HISTORY_CAPTURE: readonly Capture[] = [
       'commonRelationships',
       'friendClue',
       'getFriendRemark',
-      'getFriendNotes',
       'getFriendDisturb',
       'getFriendSpecialCare',
     ],
