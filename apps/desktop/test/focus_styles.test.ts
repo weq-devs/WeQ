@@ -14,7 +14,7 @@ function rules(file: string) {
 }
 
 describe('控件焦点样式', () => {
-  it('指针模式只隐藏按钮外圈，Tab 模式和非按钮控件不受影响', () => {
+  it('指针模式隐藏长按目标外圈，Tab 模式和原生编辑控件不受影响', () => {
     const rule = rules('form-focus').find((rule) =>
       rule.selectorText.includes("data-weq-input-modality='pointer'"),
     )!;
@@ -29,6 +29,12 @@ describe('控件焦点样式', () => {
         '<button data-test-focus></button>',
         '<span role="button" data-test-focus></span>',
         '<input type="submit" data-test-focus>',
+        '<a href="#" data-test-focus></a>',
+        '<summary data-test-focus></summary>',
+        '<div tabindex="0" data-weq-select-id="message" data-test-focus></div>',
+        '<div tabindex="-1" data-weq-multi-group data-test-focus></div>',
+        '<span role="tab" data-test-focus></span>',
+        '<span role="menuitem" data-test-focus></span>',
       ]) {
         host.innerHTML = markup;
         expect(host.firstElementChild!.matches(selector), markup).toBe(true);
@@ -37,8 +43,16 @@ describe('控件焦点样式', () => {
         html.dataset.weqInputModality = 'pointer';
       }
       for (const type of ['text', 'checkbox', 'radio', 'range', 'color', 'file']) {
-        host.innerHTML = `<input type="${type}" data-test-focus>`;
+        host.innerHTML = `<input type="${type}" tabindex="0" data-test-focus>`;
         expect(host.firstElementChild!.matches(selector), type).toBe(false);
+      }
+      for (const markup of [
+        '<textarea tabindex="0" data-test-focus></textarea>',
+        '<select tabindex="0" data-test-focus></select>',
+        '<div contenteditable="true" tabindex="0" data-test-focus></div>',
+      ]) {
+        host.innerHTML = markup;
+        expect(host.firstElementChild!.matches(selector), markup).toBe(false);
       }
       expect(rule.style.outline).toBe('none');
       expect(rule.style.getPropertyValue('box-shadow')).toBe('');
@@ -52,7 +66,10 @@ describe('控件焦点样式', () => {
 
   it('文本焦点统一去掉外圈，但不覆盖原生非文本控件', () => {
     const rule = rules('form-focus').find(
-      (rule) => rule.style.outline === 'none' && rule.selectorText.includes('textarea'),
+      (rule) =>
+        rule.style.outline === 'none' &&
+        rule.selectorText.includes('textarea') &&
+        !rule.selectorText.includes('data-weq-input-modality'),
     )!;
     document.documentElement.dataset.theme = 'light';
     const host = document.createElement('div');

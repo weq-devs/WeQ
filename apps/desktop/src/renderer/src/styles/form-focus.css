@@ -1,9 +1,14 @@
-/* Esc 关闭浮层后的焦点归还不代表开始键盘导航；指针模式只隐藏按钮外圈，
- * 不清除焦点，也不覆盖按钮自身的边框、阴影或 Tab 导航时的焦点样式。 */
+/* 长按和浮层关闭后的焦点归还不代表键盘导航；指针模式隐藏操作目标外圈，
+ * 不清除焦点，也不覆盖自身边框、阴影或 Tab 导航时的焦点样式。 */
 html:root[data-theme][data-weq-input-modality='pointer'] body
   :is(
     button,
+    a,
+    summary,
     [role='button'],
+    [role='tab'],
+    [role='menuitem'],
+    [tabindex]:not(input, textarea, select, [contenteditable]:not([contenteditable='false'])),
     input:is([type='button'], [type='submit'], [type='reset'], [type='image'])
   ):focus {
   outline: none;

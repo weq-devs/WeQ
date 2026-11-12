@@ -19,7 +19,10 @@ const server = await createServer({
   },
   resolve: {
     dedupe: ['react', 'react-dom'],
-    alias: [{ find: '@resources', replacement: resolve(root, '../../resources') }],
+    alias: [
+      { find: '@resources', replacement: resolve(root, '../../resources') },
+      { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
+    ],
   },
   server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
 });
@@ -32,7 +35,7 @@ try {
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  const page = await browser.newPage({ reducedMotion: 'reduce', hasTouch: true });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) =>
@@ -83,6 +86,35 @@ try {
         await page.getByRole('dialog').waitFor({ state: 'detached' });
         assert.equal(await trigger.evaluate((el) => el === document.activeElement), true);
         assert.notEqual(await outline(trigger), 'none', '键盘打开后 Esc 保留焦点环');
+        const message = page.locator('[data-weq-select-id="message"]');
+        const link = page.getByRole('link', { name: '链接' });
+        await link.tap();
+        assert.equal(await outline(link), 'none', '触摸链接不描边');
+        const rect = await message.boundingBox();
+        const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        const session = await page.context().newCDPSession(page);
+        await session.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [point],
+        });
+        await page.waitForTimeout(600);
+        assert.equal(await message.evaluate((el) => el === document.activeElement), true);
+        assert.equal(await outline(message), 'none', `${theme}/${style}: 长按消息不描边`);
+        assert.equal(
+          await message.evaluate((el) => getComputedStyle(el).webkitTapHighlightColor),
+          'rgba(0, 0, 0, 0)',
+          '触摸目标不显示浏览器高亮块',
+        );
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `chromium-${theme}-${style}-${width}-hold.png`),
+          });
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await session.detach();
+        await page.keyboard.press('Shift+Tab');
+        assert.notEqual(await outline(link), 'none', '触摸后恢复键盘导航仍显示链接焦点');
+        await page.keyboard.press('Tab');
+        assert.notEqual(await outline(message), 'none', '键盘导航消息仍显示焦点');
         if (output)
           await page.screenshot({
             path: resolve(output, `${theme}-${style}-${width}-keyboard.png`),
