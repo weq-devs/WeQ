@@ -31,6 +31,7 @@ type Page = {
   mobileChrome?: boolean;
 };
 const PagesContext = createContext<{
+  suspended: boolean;
   host: HTMLDivElement | null;
   setHost: (host: HTMLDivElement | null) => void;
   sidecarHost: HTMLDivElement | null;
@@ -45,32 +46,37 @@ const PagesContext = createContext<{
 
 export function useWorkspaceActiveTitle(): string | undefined {
   const context = useContext(PagesContext);
+  if (context?.suspended) return undefined;
   return context?.pages.find((page) => page.id === context.active)?.title;
 }
 
 export function useWorkspacePageOpen(): boolean {
   const context = useContext(PagesContext);
   return Boolean(
-    context?.pages.some((page) => page.id === context.active || page.placement === 'sidecar'),
+    !context?.suspended &&
+      context?.pages.some((page) => page.id === context.active || page.placement === 'sidecar'),
   );
 }
 
 /** 「更多」下的工具页保留手机主顶栏和导航栏。 */
 export function useWorkspaceMobilePage() {
   const context = useContext(PagesContext);
+  if (context?.suspended) return undefined;
   return context?.pages.find((page) => page.id === context.active && page.mobileChrome);
 }
 
 export function useWorkspaceMainPageOpen(): boolean {
   const context = useContext(PagesContext);
   return Boolean(
-    context?.pages.some((page) => page.placement === 'main' && page.id === context.active),
+    !context?.suspended &&
+      context?.pages.some((page) => page.placement === 'main' && page.id === context.active),
   );
 }
 
 export function useWorkspaceSidecarOpen(): boolean {
   const context = useContext(PagesContext);
   return (
+    !context?.suspended &&
     Boolean(context?.pages.some((page) => page.placement === 'sidecar')) &&
     !context?.pages.some((page) => page.placement === 'main' && page.id === context.active)
   );
@@ -78,10 +84,12 @@ export function useWorkspaceSidecarOpen(): boolean {
 
 export function WorkspacePages({
   navigationKey,
+  suspended = false,
   onNavigate,
   children,
 }: {
   navigationKey: string;
+  suspended?: boolean;
   onNavigate?: () => void;
   children: ReactNode;
 }) {
@@ -96,13 +104,15 @@ export function WorkspacePages({
   const navigateRef = useRef(onNavigate);
   navigateRef.current = onNavigate;
   useEffect(() => {
+    // 临时查看资料不关闭来源工具；返回原 navigationKey 时直接恢复现场。
+    if (suspended) return;
     if (previousNavigation.current === navigationKey) return;
     previousNavigation.current = navigationKey;
     for (const page of pagesRef.current)
       if (!page.retainOnNavigate) (page.navigate ?? page.close)();
     select(null);
     navigateRef.current?.();
-  }, [navigationKey]);
+  }, [navigationKey, suspended]);
   const register = useCallback((page: Page) => {
     setPages((current) => [...current.filter((item) => item.id !== page.id), page]);
     const selectPage = page.placement === 'sidecar' ? selectSidecar : select;
@@ -121,6 +131,7 @@ export function WorkspacePages({
   return (
     <PagesContext.Provider
       value={{
+        suspended,
         host,
         setHost,
         sidecarHost,
@@ -142,7 +153,7 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
   const context = useContext(PagesContext);
   const mainPages = context?.pages.filter((page) => page.placement === 'main') ?? [];
   const sidecars = context?.pages.filter((page) => page.placement === 'sidecar') ?? [];
-  const mainOpen = mainPages.some((page) => page.id === context?.active);
+  const mainOpen = !context?.suspended && mainPages.some((page) => page.id === context?.active);
   return (
     <div className="weq-workspace-content">
       <div className="weq-workspace-split">
@@ -154,7 +165,7 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
         </div>
         <aside
           className="weq-workspace-sidecar"
-          hidden={!sidecars.length || mainOpen}
+          hidden={context?.suspended || !sidecars.length || mainOpen}
           aria-label="会话附属内容"
         >
           <div className="weq-workspace-sidecar-host" ref={context?.setSidecarHost} />
@@ -216,6 +227,7 @@ export function WorkspacePage({
       : context?.active;
   const host = placement === 'sidecar' ? context?.sidecarHost : context?.host;
   const active =
+    !context?.suspended &&
     (!context || selected === id) &&
     (placement !== 'sidecar' ||
       !context?.pages.some((page) => page.placement === 'main' && page.id === context.active));
@@ -237,7 +249,7 @@ export function WorkspacePage({
       tabIndex={-1}
     >
       <TabActivity active={active}>
-        {active ? (
+        {active || (context?.suspended && selected === id) ? (
           <PageSnapshotScope name={`workspace:${placement}:${title}`}>
             <PageScrollSnapshot
               style={{

@@ -160,6 +160,8 @@ export function useChatShellController({
   });
   const onReadConversationRef = useRef(onReadConversation);
   const restoreRef = useRef<() => () => void>(() => () => {});
+  // 连续查看不同资料时保留最初的外部来源，主动切栏目或选目录对象后清除。
+  const profileReturn = useRef<(() => void) | null>(null);
   restoreRef.current = () => {
     const snapshot = {
       activeConversationId,
@@ -325,6 +327,7 @@ export function useChatShellController({
 
   const switchView = useCallback(
     (nextView: MainView) => {
+      profileReturn.current = null;
       setView(nextView);
       history.replaceShell();
       if (isMobileNavigation()) {
@@ -362,6 +365,7 @@ export function useChatShellController({
 
   const openContactNotice = useCallback(
     (kind: ContactNoticeView) => {
+      profileReturn.current = null;
       history.pushShellDetail();
       backStateRef.current = {
         ...backStateRef.current,
@@ -390,6 +394,7 @@ export function useChatShellController({
 
   const selectConversation = useCallback(
     (conversationId: string) => {
+      profileReturn.current = null;
       history.pushConversationDetail(conversationId);
       setView('messages');
       setActiveConversationId(conversationId);
@@ -399,6 +404,7 @@ export function useChatShellController({
 
   const selectContact = useCallback(
     (contact: Contact) => {
+      profileReturn.current = null;
       history.pushShellDetail();
       setContactNotice(null);
       setContactOverviewOpen(false);
@@ -416,6 +422,7 @@ export function useChatShellController({
 
   const selectGroup = useCallback(
     (conversationId: string) => {
+      profileReturn.current = null;
       history.pushShellDetail();
       setContactNotice(null);
       setContactOverviewOpen(false);
@@ -426,6 +433,7 @@ export function useChatShellController({
 
   const openContactDetails = useCallback(
     (contact: Contact, tab: ContactWorkspaceTab = 'profile') => {
+      if (view !== 'contacts') profileReturn.current = restoreRef.current();
       history.pushShellDetail();
       setView('contacts');
       setContactTab('friends');
@@ -437,6 +445,7 @@ export function useChatShellController({
       setContactWorkspaceTab(tab);
     },
     [
+      view,
       history,
       setContactTab,
       setContactWorkspaceTab,
@@ -450,6 +459,7 @@ export function useChatShellController({
 
   const openGroupDetails = useCallback(
     (conversation: GroupConversation) => {
+      if (view !== 'contacts') profileReturn.current = restoreRef.current();
       history.pushShellDetail();
       setView('contacts');
       setContactTab('groups');
@@ -460,6 +470,7 @@ export function useChatShellController({
       setSelectedGroupConversationId(conversation.id);
     },
     [
+      view,
       history,
       setSelectedGroupConversationId,
       setQuery,
@@ -472,6 +483,7 @@ export function useChatShellController({
 
   const openConversation = useCallback(
     (conversationId: string | null) => {
+      profileReturn.current = null;
       if (conversationId) {
         history.pushConversationDetail(conversationId);
       }
@@ -490,18 +502,23 @@ export function useChatShellController({
   );
 
   const backContact = useCallback(() => {
-    if (mobileBack()) return;
+    const restore = profileReturn.current;
+    profileReturn.current = null;
     setSelectedContactId(null);
-    setContactOverviewOpen(true);
-    history.replaceShell();
-  }, [history, setSelectedContactId, setContactOverviewOpen]);
-
-  const backGroup = useCallback(() => {
-    if (mobileBack()) return;
     setSelectedGroupConversationId(null);
+    setContactNotice(null);
     setContactOverviewOpen(true);
+    restore?.();
     history.replaceShell();
-  }, [history, setSelectedGroupConversationId, setContactOverviewOpen]);
+  }, [
+    history,
+    setSelectedContactId,
+    setSelectedGroupConversationId,
+    setContactNotice,
+    setContactOverviewOpen,
+  ]);
+
+  const backGroup = backContact;
 
   const backContactNotice = useCallback(() => {
     if (mobileBack()) return;
@@ -536,6 +553,7 @@ export function useChatShellController({
     openConversation,
     openContactDetails,
     openGroupDetails,
+    profileReturnPending: view === 'contacts' && profileReturn.current !== null,
     query,
     selectContact,
     selectConversation,

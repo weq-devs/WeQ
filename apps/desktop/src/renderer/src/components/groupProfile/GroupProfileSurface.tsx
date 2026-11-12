@@ -27,6 +27,7 @@ import '../../styles/contact-card.css';
 import '../../styles/profile-workspace.css';
 import '../../styles/group-card.css';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
+import { useSurfaceEscape } from '../../lib/surfaceEscape';
 
 export interface GroupProfileSurfaceProps {
   conversation: GroupConversation | undefined;
@@ -73,6 +74,8 @@ function GroupProfileBody({
     onClose();
   };
   const closing = useDraftClose(close, null);
+  const page = useRef<HTMLElement>(null);
+  useSurfaceEscape(page, closing.requestClose, Boolean(embedded), false);
   const register = useContext(ProfileNavigationGuardContext);
   const leave = useRef(closing.confirmLeave);
   leave.current = closing.confirmLeave;
@@ -140,6 +143,8 @@ function GroupProfileBody({
   const content = (
     <>
       <section
+        ref={page}
+        tabIndex={embedded ? -1 : undefined}
         className={`weq-member-pop weq-contact-card weq-group-card${embedded ? ' weq-group-page' : ' weq-group-quick-card'}${previewContent ? ' is-previewing-chat' : ''}`}
         role={embedded ? 'region' : 'dialog'}
         aria-label="群资料"

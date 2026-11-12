@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
+import { useSurfaceEscape } from '../../lib/surfaceEscape';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import type { Contact } from '../../im-template/template/types';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
@@ -58,10 +59,14 @@ function ContactProfilePage({
   const { profile, scope } = useContactProfile(contact);
   const settings = useContactCardSettings();
   const closing = useDraftClose(onClose, null);
+  const page = useRef<HTMLElement>(null);
+  useSurfaceEscape(page, closing.requestClose, true, false);
   const person: Contact = { createdAt: '', ...profile };
   return (
     <DraftCloseContext.Provider value={closing.drafts}>
       <section
+        ref={page}
+        tabIndex={-1}
         className={`weq-profile-dialog weq-contact-profile-content weq-contact-profile-v2${previewContent ? ' is-previewing-chat' : ''}`}
         role="region"
         aria-label="联系人资料"

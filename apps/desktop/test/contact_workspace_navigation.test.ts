@@ -217,6 +217,45 @@ it('直接进入联系人且尚未打开好友或群聊时，默认显示群交�
   expect(p.state().contactOverviewOpen).toBe(true);
 });
 
+it.each(['home', 'messages', 'qzone', 'export', 'agentlab'] as const)(
+  '从 %s 打开资料，连续查看联系人和群后关闭仍返回来源页',
+  (view) => {
+    const p = mount();
+    act(() => p.state().switchView(view));
+    act(() => p.state().setQuery('来源查询'));
+    act(() => p.state().openContactDetails(person));
+    act(() => p.state().openGroupDetails(group));
+    act(() => p.state().backGroup());
+    expect(p.state().view).toBe(view);
+    expect(p.state().query).toBe('来源查询');
+    expect(p.state().selectedContact).toBeUndefined();
+    expect(p.state().selectedGroupConversation).toBeUndefined();
+  },
+);
+
+it('从联系人目录打开资料，关闭清空两类选择并回到群交集', () => {
+  const p = mount();
+  act(() => p.state().switchView('contacts'));
+  act(() => p.state().openContactDetails(person));
+  act(() => p.state().openGroupDetails(group));
+  act(() => p.state().backGroup());
+  expect(p.state().view).toBe('contacts');
+  expect(p.state().contactOverviewOpen).toBe(true);
+  act(() => p.state().changeContactTab('friends'));
+  expect(p.state().selectedContact).toBeUndefined();
+});
+
+it('主动离开资料页后，重新从联系人目录打开不沿用旧来源', () => {
+  const p = mount();
+  act(() => p.state().switchView('qzone'));
+  act(() => p.state().openContactDetails(person));
+  act(() => p.state().switchView('contacts'));
+  act(() => p.state().selectContact(person));
+  act(() => p.state().backContact());
+  expect(p.state().view).toBe('contacts');
+  expect(p.state().contactOverviewOpen).toBe(true);
+});
+
 it('尚未选择对象时切换标签、离开后重进，都不显示联系人占位页', () => {
   const p = mount();
   act(() => p.state().changeContactTab('groups'));

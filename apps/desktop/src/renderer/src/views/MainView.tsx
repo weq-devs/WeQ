@@ -12596,8 +12596,6 @@ function MainWorkspace(): ReactElement {
           if (shell.view === 'messages') flushAllDirtyDrafts();
           setMemberCard(null);
           setPrivatePreview(null);
-          setArkFeedState(null);
-          setSurfaceNavigation((value) => value + 1);
           if (target.kind === 'person') {
             const contact = profileContacts.find(
               (person) =>
@@ -12772,6 +12770,7 @@ function MainWorkspace(): ReactElement {
                     <FriendDirectoryControls>
                       <ContactDirectoryContext.Provider value={contactDirectoryValue}>
                         <WorkspacePages
+                          suspended={shell.profileReturnPending}
                           navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
                           onNavigate={() => {
                             setSettingsOpen(false);
