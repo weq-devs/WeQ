@@ -30,7 +30,7 @@ import { BootstrapWindowActions } from '../components/BootstrapWindowActions';
 import { SelectScreen } from './bootstrap/SelectScreen';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
-import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
+import { runDesktopStartupWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
 import { IS_MAC, IS_WEB } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
@@ -41,6 +41,7 @@ const BackupSection = lazy(() =>
 );
 import '../styles/startup-shell.css';
 import { WebStartupCache, WEB_STARTUP_CACHE_KEY } from '../lib/webStartupCache';
+import { advanceStartup } from '../state/startupProgress';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -70,6 +71,9 @@ export function BootstrapView(): ReactElement {
   });
   const nativeErr = nativeStatus.data ?? null;
   const nativeOk = nativeStatus.isSuccess && nativeStatus.data === null;
+  useEffect(() => {
+    advanceStartup(nativeOk ? 'account' : 'environment');
+  }, [nativeOk]);
 
   const desktopStartup = trpc.bootstrap.desktopStartup.useQuery(undefined, {
     enabled: !IS_WEB && nativeOk && homeStage === 'booting',
@@ -190,12 +194,16 @@ export function BootstrapView(): ReactElement {
         booted.current = true;
         const uin = currentAccount.data.uin;
         void (async () => {
+          advanceStartup('identity');
           if (!initialSnapshot || utils.account.getAccountConfig.getData()?.uin !== uin)
             await utils.account.getAccountConfig.fetch();
           // Web 只等待挂载必需配置，身份与会话列表在工作区内异步读取。
           if (!IS_WEB) {
             setWindowLayout('chat');
-            await runAccountWarmup(utils, setWarmup);
+            await runDesktopStartupWarmup(utils, (progress) => {
+              setWarmup(progress);
+              advanceStartup('identity', progress.done / Math.max(1, progress.total));
+            });
           }
           const page = IS_WEB ? requestedStartupPage : desktopStartup.data?.page;
           if (IS_WEB || page)
@@ -203,6 +211,7 @@ export function BootstrapView(): ReactElement {
               startupPage: page === 'home' || page === 'messages' ? page : null,
             });
           setOpenedUin(uin);
+          advanceStartup('workspace');
           goTo('main');
           setHomeStage('home');
         })().catch((error: unknown) => {
@@ -287,6 +296,7 @@ export function BootstrapView(): ReactElement {
         // screen rather than re-running the (now consumed) boot splash.
         setHomeStage('home');
         setOpenedUin(cfg.uin);
+        advanceStartup('workspace');
         goTo('main');
       } catch (e) {
         // 已经调大过窗口就调回来——失败要落回 home 屏，不能留着 chat 的尺寸。
@@ -344,7 +354,7 @@ export function BootstrapView(): ReactElement {
         </BootstrapShell>
       );
     return (
-      <BootstrapShell>
+      <BootstrapShell ready>
         <Centered>
           <img src={logoUrl} alt="" width={84} height={84} className="opacity-40 grayscale" />
           <p className="mt-4 text-[14px] text-muted-foreground">
@@ -368,7 +378,16 @@ export function BootstrapView(): ReactElement {
   if (homeStage === 'booting' || nativeStatus.isLoading) {
     return (
       <BootstrapShell>
-        <Splash progress={warmup} />
+        <WarmupSplash
+          progress={warmup}
+          hint={
+            !nativeOk
+              ? '正在检查启动环境'
+              : !IS_WEB && !desktopStartup.isSuccess
+                ? '正在打开账号'
+                : '正在准备工作区'
+          }
+        />
       </BootstrapShell>
     );
   }
@@ -376,13 +395,13 @@ export function BootstrapView(): ReactElement {
   if (!install.data) {
     return (
       <BootstrapShell>
-        <Splash />
+        <WarmupSplash hint="正在加载账号列表" />
       </BootstrapShell>
     );
   }
 
   return (
-    <BootstrapShell showWindowActions={false}>
+    <BootstrapShell ready showWindowActions={false}>
       <SelectScreen install={install.data} />
     </BootstrapShell>
   );
@@ -391,12 +410,17 @@ export function BootstrapView(): ReactElement {
 export function BootstrapShell({
   children,
   showWindowActions = true,
+  ready = false,
 }: {
   children: ReactNode;
   showWindowActions?: boolean;
+  ready?: boolean;
 }): ReactElement {
   return (
-    <main className="weq-home-shell h-screen overflow-hidden font-sans text-foreground">
+    <main
+      className="weq-home-shell h-screen overflow-hidden font-sans text-foreground"
+      data-weq-startup-surface={ready || undefined}
+    >
       {showWindowActions && (
         <header className="weq-startup-titlebar">
           <div className="weq-startup-drag" />
@@ -410,8 +434,4 @@ export function BootstrapShell({
 
 function Centered({ children }: { children: ReactNode }): ReactElement {
   return <div className="flex h-full flex-col items-center justify-center">{children}</div>;
-}
-
-function Splash({ progress }: { progress?: WarmupProgress | null }): ReactElement {
-  return <WarmupSplash progress={progress} />;
 }

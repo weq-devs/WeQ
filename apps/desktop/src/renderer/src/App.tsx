@@ -72,6 +72,7 @@ import { ChatImageCacheProvider } from './components/ChatImageCacheProvider';
 import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { RendererRecoveryNotice } from './components/RendererRecoveryNotice';
 import { RemoteStartupReporter } from './components/RemoteStartupReporter';
+import { StartupProgressReporter } from './components/StartupProgressReporter';
 
 const MainView = lazy(() =>
   import('./views/MainView').then((module) => ({ default: module.MainView })),
@@ -260,6 +261,7 @@ export default function App(): ReactElement {
             <DialogHost />
             <ClientDocumentPreview />
             <RemoteStartupReporter />
+            <StartupProgressReporter />
             <AccountSwitchRequestHost />
             <RemoteRequests />
             <ToastHost />

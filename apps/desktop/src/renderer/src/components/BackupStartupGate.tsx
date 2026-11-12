@@ -14,6 +14,8 @@ import { publishRemoteStartup } from '../lib/remoteStartup';
 import '../styles/backup.css';
 import { IS_WEB } from '../lib/target';
 import { WebStartupCache, hydrateWebStartupCache } from '../lib/webStartupCache';
+import { WarmupSplash } from './WarmupSplash';
+import { advanceStartup } from '../state/startupProgress';
 
 const RUNTIME_ERROR_KEY = 'weq.runtime-file-error';
 
@@ -46,6 +48,7 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
       const seq = ++generation.current;
       setBusy(true);
       setError(null);
+      advanceStartup('restore');
       publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
       try {
         if (recover) await client.bootstrap.backupRetryRecovery.mutate();
@@ -134,6 +137,12 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
     else if (error) publishRemoteStartup({ state: 'error', message: error });
   }, [busy, error, state]);
   if (!busy && state?.ok && !error) return children;
+  if (busy)
+    return (
+      <main className="weq-home-shell weq-initial-startup" data-weq-startup-pending>
+        <WarmupSplash hint="正在检查恢复状态" />
+      </main>
+    );
   const canSkip = state?.result?.status === 'applied' && state.result.clientPending;
   return (
     <main className="weq-backup-gate">

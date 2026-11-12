@@ -14,6 +14,11 @@ export interface StartupResult {
 export class StartupAccount {
   private task: Promise<StartupResult> | undefined;
   private attached = false;
+  private settled = false;
+
+  get pending(): boolean {
+    return this.task !== undefined && !this.settled;
+  }
 
   start(run: () => Promise<StartupResult>): Promise<StartupResult> {
     this.task ??= Promise.resolve()
@@ -22,7 +27,10 @@ export class StartupAccount {
         opened: false,
         page: null,
         error: error instanceof Error ? error.message : String(error),
-      }));
+      }))
+      .finally(() => {
+        this.settled = true;
+      });
     return this.task;
   }
 
@@ -39,6 +47,21 @@ export class StartupAccount {
 }
 
 export const desktopStartupAccount = new StartupAccount();
+
+/** 仅在本轮自动进入尚未结束且目标仍有效时提前使用工作区尺寸。 */
+export function startupWindowLayout(
+  accountOpen: boolean,
+  pending: boolean,
+  config: Pick<UserConfigService, 'getStartupAutoEnter' | 'listAccountConfigs'> | undefined,
+): 'chat' | 'home' {
+  if (accountOpen) return 'chat';
+  if (!pending || !config) return 'home';
+  const target = config.getStartupAutoEnter();
+  return target &&
+    config.listAccountConfigs().some((account) => account.configId === target.configId)
+    ? 'chat'
+    : 'home';
+}
 
 /** 复用正式打开入口，保持在线账号与静态备份的验证、配置及物料处理一致。 */
 export async function openStartupAccount(

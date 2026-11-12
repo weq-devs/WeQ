@@ -6,6 +6,7 @@ export function WorkspaceStartupLoading() {
     <div
       role="status"
       data-weq-startup-pending
+      data-weq-startup-page
       className="weq-home-shell h-screen overflow-hidden font-sans text-foreground"
     >
       <WarmupSplash hint="正在加载会话界面" />

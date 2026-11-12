@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
-import { openStartupAccount, StartupAccount } from '../src/main/startup_account';
+import {
+  openStartupAccount,
+  StartupAccount,
+  startupWindowLayout,
+} from '../src/main/startup_account';
 
 function fixture() {
   type Config = Parameters<typeof openStartupAccount>[0];
@@ -43,6 +47,7 @@ it('不等前端挂载即开始打开，多个等待者与重复调度共享同�
     return { opened: true, page: 'messages' as const, error: null };
   });
   const task = startup.start(run);
+  expect(startup.pending).toBe(true);
   expect(startup.start(run)).toBe(task);
   const waiting = startup.wait();
   const firstWindow = startup.attach();
@@ -51,9 +56,22 @@ it('不等前端挂载即开始打开，多个等待者与重复调度共享同�
   expect(run).toHaveBeenCalledOnce();
   finish();
   expect(await waiting).toEqual(await task);
+  expect(startup.pending).toBe(false);
   expect(await firstWindow).toMatchObject({ opened: true, page: 'messages' });
   expect(await reloadedWindow).toMatchObject({ opened: true, page: null });
   expect(run).toHaveBeenCalledOnce();
+});
+
+it('自动进入目标有效时直接创建工作区尺寸，跳过、失效、已失败不提前放大', () => {
+  const { config } = fixture();
+  expect(startupWindowLayout(false, true, config)).toBe('chat');
+  expect(startupWindowLayout(false, false, config)).toBe('home');
+  config.getStartupAutoEnter.mockReturnValue(null);
+  expect(startupWindowLayout(false, true, config)).toBe('home');
+  config.getStartupAutoEnter.mockReturnValue({ configId: 'missing', uin: '10001' });
+  expect(startupWindowLayout(false, true, config)).toBe('home');
+  expect(startupWindowLayout(false, true, undefined)).toBe('home');
+  expect(startupWindowLayout(true, false, config)).toBe('chat');
 });
 
 it('后台失败可由首屏展示，重载不重试、不重复弹错', async () => {

@@ -57,15 +57,23 @@ describe('系统自启与手动窗口启动边界', () => {
     expect(window.focus).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
-  it.each(['ready-to-show', 'did-finish-load', 'timeout'] as const)(
+  it('文档加载和计时器不代表实际绘制，不提前暴露空窗口', () => {
+    vi.useFakeTimers();
+    const window = new WindowFixture();
+    installStartupWindowReveal(window, true);
+    window.webContents.emit('did-finish-load');
+    vi.advanceTimersByTime(5000);
+    expect(window.show).not.toHaveBeenCalled();
+    window.emit('ready-to-show');
+    expect(window.show).toHaveBeenCalledOnce();
+  });
+  it.each(['ready-to-show'] as const)(
     '普通启动由 %s 首次显示后，重载不再抢焦点、恢复窗口或置顶',
     (first) => {
       vi.useFakeTimers();
       const window = new WindowFixture();
       installStartupWindowReveal(window, true);
-      if (first === 'timeout') vi.advanceTimersByTime(1000);
-      else if (first === 'ready-to-show') window.emit(first);
-      else window.webContents.emit(first);
+      window.emit(first);
 
       expect(window.show).toHaveBeenCalledTimes(1);
       expect(window.focus).toHaveBeenCalledTimes(1);

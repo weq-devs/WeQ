@@ -13,7 +13,13 @@ const server = await createServer({
   root,
   optimizeDeps: { entries: ['test/browser/workspace-startup-loading.html'] },
   plugins: [react(), tailwind()],
-  resolve: { alias: { '@resources': resolve(root, '../../resources') } },
+  resolve: {
+    alias: {
+      '@resources': resolve(root, '../../resources'),
+      '@renderer': resolve(root, 'src/renderer/src'),
+      '@transport': resolve(root, 'test/support/transport.stub.ts'),
+    },
+  },
   server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
 });
 let browser;
@@ -40,7 +46,7 @@ try {
         window.startupQa.theme.getState().setAccent(theme === 'light' ? '#198754' : '#f0ce84');
       }, theme);
       await page.emulateMedia({ reducedMotion: 'no-preference' });
-      const spinner = page.locator('.weq-warmup-spinner');
+      const spinner = page.locator('.weq-warmup-bar');
       await spinner.waitFor({ state: 'visible' });
       const layout = await page.locator('.weq-warmup').evaluate((surface) => {
         const box = surface.getBoundingClientRect();
@@ -67,10 +73,17 @@ try {
       assert.equal(layout.height, 800);
       assert(Math.abs(layout.centerX - width / 2) <= 1, '加载动画水平居中');
       assert(Math.abs(layout.centerY - 400) <= 1, '加载动画垂直居中');
-      const before = await spinner.evaluate((node) => getComputedStyle(node).transform);
-      await page.waitForTimeout(120);
-      const after = await spinner.evaluate((node) => getComputedStyle(node).transform);
-      assert.notEqual(before, after, '正常模式下转圈真实运动，不只是静态图标');
+      assert.equal(
+        await spinner.evaluate((node) =>
+          Math.round(
+            (node.getBoundingClientRect().width /
+              node.parentElement.getBoundingClientRect().width) *
+              100,
+          ),
+        ),
+        5,
+        '整页占位共用全流程进度，不重新开始计数',
+      );
       if (process.env.WEQ_STARTUP_ARTIFACTS) {
         await mkdir(process.env.WEQ_STARTUP_ARTIFACTS, { recursive: true });
         await page.screenshot({
@@ -84,7 +97,7 @@ try {
       assert.equal(
         await spinner.evaluate((node) => node.getAnimations().length),
         0,
-        '减少动态效果时保留居中占位并停止转圈',
+        '减少动态效果时保留居中占位并停止动画',
       );
     }
   }

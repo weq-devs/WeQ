@@ -16,7 +16,10 @@ it('整页等待从首帧显示居中的启动动画，并保留启动未完成�
     expect(surface?.getAttribute('role')).toBe('status');
     expect(surface?.classList.contains('h-screen')).toBe(true);
     expect(surface?.querySelector('img')?.getAttribute('alt')).toBe('WeQ');
-    expect(surface?.querySelector('.weq-warmup-spinner.animate-spin')).not.toBeNull();
+    expect(surface?.querySelector('[role="progressbar"]')).not.toBeNull();
+    expect(surface?.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(
+      true,
+    );
     expect(surface?.textContent).toContain('正在加载会话界面');
   } finally {
     act(() => root.unmount());

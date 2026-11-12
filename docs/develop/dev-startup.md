@@ -75,3 +75,13 @@ pnpm dev --help                         # 查看入口说明，不安装或构�
 ```
 
 无桌面环境的机器可使用 `--prepare-only` 验证准备流程；真正启动仍需要系统提供 Electron 所需的图形环境和动态库。启动器的合成回归测试不依赖 native 私有源码、QQ 数据或网络下载，CI 为 Windows、Linux 和 macOS 分别安排测试。
+
+## 应用启动画面
+
+环境准备结束后，桌面窗口在首次绘制后显示；入口 HTML 自带 Logo、主题快照与进度条，不依赖业务模块加载。全流程使用同一份单调递增的阶段进度：资源加载 5%、恢复检查 10%、环境检查 20%、账号打开 35%、首屏身份预载 55%–80%、工作区模块加载 80%、实际绘制 90%、首屏绘制完成 100%。这些是固定工作权重，不表示剩余时间；有真实计数时按阶段区间推进，迟到回调不会倒退进度。
+
+工作区挂载时进度条收为顶部细线，不遮挡可操作界面；首屏完成绘制后到达 100% 并移除，不等待完整联系人目录、通知或在线状态。账号选择和诊断页同样在实际界面就绪后结束启动。
+
+本轮自动进入目标有效时，初始窗口直接使用工作区尺寸；没有目标或跳过自动进入时使用账号选择尺寸，自动进入失败则回到账号选择。窗口创建和后续布局统一使用内容区尺寸，并在隐藏时完成初始布局，重复布局通知不重置用户调整。
+
+定向回归：`pnpm --filter @weq/desktop exec vitest run test/startup_window.test.ts test/startup_account.test.ts test/startup_surface.test.ts test/startup_theme.test.ts test/startup_progress.test.ts test/window_layout.test.ts`。实际绘制检查使用 `node apps/desktop/test/browser/run-startup-flow.mjs`；可用 `WEQ_PLAYWRIGHT_IMPORT`、`WEQ_BROWSER_EXECUTABLE` 指定已有浏览器依赖，`WEQ_STARTUP_ELECTRON=1` 同时验证隔离 Electron 窗口，不打开真实账号。

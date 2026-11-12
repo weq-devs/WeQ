@@ -2,6 +2,23 @@
 import { expect, it, vi } from 'vitest';
 import { WINDOW_LAYOUTS, applyWindowLayout } from '../src/main/window_layout';
 
+it('窗口创建已应用的内容区布局不因首次 IPC 再缩放或居中', () => {
+  const win = {
+    isMaximized: () => false,
+    isFullScreen: () => false,
+    getBounds: () => ({ x: 100, y: 120, width: 1180, height: 788 }),
+    getContentSize: () => [1180, 760],
+    setMinimumSize: vi.fn(),
+    setContentSize: vi.fn(),
+    setPosition: vi.fn(),
+  };
+  applyWindowLayout(win, 'chat', { x: 0, y: 0, width: 1800, height: 1200 });
+  vi.clearAllMocks();
+  applyWindowLayout(win, 'chat', { x: 0, y: 0, width: 1800, height: 1200 });
+  expect(win.setContentSize).not.toHaveBeenCalled();
+  expect(win.setPosition).not.toHaveBeenCalled();
+});
+
 it('聊天窗口允许缩至登录窗口同样的窄屏宽度，重载不重置竖屏尺寸', () => {
   expect(WINDOW_LAYOUTS.chat.minWidth).toBeLessThanOrEqual(WINDOW_LAYOUTS.home.minWidth);
   let bounds = { x: 100, y: 100, width: 1180, height: 760 };

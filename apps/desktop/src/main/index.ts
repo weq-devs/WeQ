@@ -43,7 +43,7 @@ import { migrateStaticAccountIdentity } from './static_account_identity_migratio
 import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
-import { desktopStartupAccount, openStartupAccount } from './startup_account';
+import { desktopStartupAccount, openStartupAccount, startupWindowLayout } from './startup_account';
 import { guardTrpcReply } from './ipc/reply_guard';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
@@ -586,7 +586,11 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
 
 function createWindow(
   showInitially = true,
-  layout: WindowLayout = getAppContext().account ? 'chat' : 'home',
+  layout: WindowLayout = startupWindowLayout(
+    Boolean(getAppContext().account),
+    desktopStartupAccount.pending,
+    getAppContext().bootstrap?.userConfig,
+  ),
 ): BrowserWindow {
   const icon = resolveWindowIcon();
   const controls = requestedControls(layout);
@@ -597,7 +601,8 @@ function createWindow(
   // (or override to another value) so this can be disabled per-environment.
   const win = new BrowserWindow({
     ...WINDOW_LAYOUTS[layout],
-    show: showInitially,
+    useContentSize: true,
+    show: false,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
@@ -614,6 +619,7 @@ function createWindow(
     },
   });
   windowLayouts.set(win, layout);
+  applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   windowStyles.set(win, controls);
   updateMainWindowControls(win, layout);
 
@@ -973,6 +979,15 @@ void app.whenReady().then(async () => {
     },
   });
   buildTray();
+  // 先安排后台任务，以同一启动目标确定窗口尺寸；不等待数据库打开。
+  if (userConfig && !getAppContext().nativeError && !isQuitting)
+    void desktopStartupAccount.start(() =>
+      openStartupAccount(
+        userConfig,
+        appRouter.createCaller({}).bootstrap,
+        process.platform === 'darwin',
+      ),
+    );
   mainWindowLifecycle.open({
     show: shouldShowStartupWindow({
       autostart,
@@ -982,15 +997,6 @@ void app.whenReady().then(async () => {
     }),
   });
   logger.info('main window created', { event: 'create-window', autostart });
-  // loadURL/loadFile 已发起；账号初始化与前端模块加载并行，不等待首个界面请求。
-  if (userConfig && !getAppContext().nativeError && !isQuitting)
-    void desktopStartupAccount.start(() =>
-      openStartupAccount(
-        userConfig,
-        appRouter.createCaller({}).bootstrap,
-        process.platform === 'darwin',
-      ),
-    );
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
