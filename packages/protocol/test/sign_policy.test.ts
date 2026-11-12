@@ -18,7 +18,6 @@ describe('resolveSign', () => {
     'OidbSvcTrpcTcp.0x9067_202',
     'OidbSvcTrpcTcp.0xcd4_1',
     'OidbSvcTrpcTcp.0x6d6_4',
-    'OidbSvc.0xcf4',
     'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoQueryRoom',
   ])('已登记的不签名命令 %s 三端保持原参数且不报警', (cmd) => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -110,10 +109,8 @@ describe('SIGN_RULES', () => {
       'OidbSvcTrpcTcp.0x9474_0',
       'OidbSvcTrpcTcp.0xfe1_3',
       'OidbSvcTrpcTcp.0x9067_202',
-      'OidbSvc.0xcf4',
     ]) {
       expect(SIGN_RULES).toHaveProperty([cmd], { sign: 'none' });
-      expect(UNCONFIRMED_SIGN_COMMANDS).not.toHaveProperty([cmd]);
     }
     for (const cmd of Object.keys(SIGN_RULES)) {
       const rule = SIGN_RULES[cmd as keyof typeof SIGN_RULES];

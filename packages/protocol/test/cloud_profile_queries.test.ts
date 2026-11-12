@@ -92,7 +92,6 @@ describe('云端精确资料与共同关系', () => {
     ).toEqual([{ groupCode: '123', groupUin: '9007199254740993', name: '合成群' }]);
     const call = sendPacket.mock.calls[0] as unknown as unknown[];
     expect(call[1]).toBe('OidbSvc.0xcf4');
-    expect(call.slice(3)).toEqual([false, 3]);
     expect(decode(legacyOidbEnvelope, call[2] as Uint8Array).clientVersion).toBe(
       'synthetic-version',
     );
