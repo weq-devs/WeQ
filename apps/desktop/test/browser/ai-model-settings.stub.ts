@@ -4,7 +4,7 @@ import {
 } from '@weq/service/intent-context';
 
 const data: Record<string, unknown> = {
-  'account.intentSense.getStatus': {
+  'settings.intent.getStatus': {
     ...DEFAULT_INTENT_TUNING,
     suggestionFallbackTexts: [...DEFAULT_SUGGESTION_FALLBACK_TEXTS],
     enabled: false,

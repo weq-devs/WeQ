@@ -164,4 +164,27 @@ describe('独立客户端的偏好同步', () => {
     expect(module.preferenceValue('background')).toBe('dots');
     expect(JSON.parse(storage.getItem(key)!).revision).toBe(11);
   });
+  it('已观察到的新提交会拒绝 AI 和防撤回的迟到响应，更换宿主后重新计数', async () => {
+    server();
+    const module = await page(new Storage(), 'web');
+    await module.initializePreferences();
+    module.acceptPreferences({
+      epoch: 'fixture',
+      revision: 12,
+      settingsRevision: 10,
+      values: {},
+      records: {},
+    });
+    expect(module.acceptSettingsReply({ settingsRevision: 9 })).toBe(false);
+    expect(module.acceptSettingsReply({ settingsRevision: 11 })).toBe(true);
+    expect(module.acceptSettingsReply({ settingsRevision: 10 })).toBe(false);
+    module.acceptPreferences({
+      epoch: 'other-host',
+      revision: 1,
+      settingsRevision: 1,
+      values: {},
+      records: {},
+    });
+    expect(module.acceptSettingsReply({ settingsRevision: 1 })).toBe(true);
+  });
 });

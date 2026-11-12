@@ -23,6 +23,7 @@ import {
 } from '../src/bootstrap/backup_accounts';
 import { makeBackupPersona } from './fixtures/backup_persona';
 import { WEQ_ACCOUNT_SETTING_FILES } from '../src/common/backup_account_paths';
+import { sharedPreferencePersistence } from '../src/common/shared_preferences';
 
 const roots: string[] = [];
 it('意图显示、回退列表和历史上限的备份校验与服务配置一致', () => {
@@ -108,7 +109,7 @@ const png = Buffer.from(
   'base64',
 );
 
-it('账号偏好按真实文件收集，自定义背景改为便携名，原配置与素材不被改写', async () => {
+it('通用偏好和背景只备份一次，账号备份保留规则与数据源，原件不被改写', async () => {
   const f = fixture();
   const intent = new IntentSenseService(
     {} as AccountSession,
@@ -139,9 +140,17 @@ it('账号偏好按真实文件收集，自定义背景改为便携名，原配�
   dress.setBackgroundOpacity(0.4);
   dress.setActive('bubble', 123);
   const original = readFileSync(weqAccountSettingPath(f.root, f.cache, f.source, 'dress.json'));
-  const snapshot = f.service.snapshot({ parts: ['accounts'], accountConfigIds: [f.source] }, {});
+  f.config.migrateSharedAccountPreferences(f.source);
+  const snapshot = f.service.snapshot(
+    { parts: ['settings', 'accounts'], includeClient: false, accountConfigIds: [f.source] },
+    {},
+  );
   const bundle = readWeqBackup(snapshot.archive);
-  expect(bundle.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length + 2);
+  expect(bundle.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length + 3);
+  expect(bundle.files.some((file) => file.path === `accounts/${f.source}/dress.json`)).toBe(false);
+  expect(bundle.files.filter((file) => file.path.startsWith('settings/background/'))).toHaveLength(
+    1,
+  );
   expect(snapshot.summary.accountConfigIds).toEqual([f.source]);
   expect(readFileSync(weqAccountSettingPath(f.root, f.cache, f.source, 'dress.json'))).toEqual(
     original,
@@ -149,13 +158,14 @@ it('账号偏好按真实文件收集，自定义背景改为便携名，原配�
   expect(readFileSync(outside)).toEqual(png);
   const src = f.service.inspect(snapshot.archive, 'synthetic.zip');
   const preview = f.service.prepare(src.id, {
-    parts: ['accounts'],
+    parts: ['settings', 'accounts'],
     conflict: 'overwrite',
     scopeMap: { [f.source]: f.local },
   });
   expect(preview.warnings.join(' ')).toContain('保留本机接入信息');
   f.service.stage(preview.id);
   expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  f.config.reload();
   const restored = JSON.parse(
     readFileSync(join(f.root, 'config', 'accounts', `${f.local}.json`), 'utf8'),
   );
@@ -166,14 +176,18 @@ it('账号偏好按真实文件收集，自定义背景改为便携名，原配�
     dataDir: f.localDir,
     static: true,
     session: f.existing.session,
-    mailNotifications: true,
   });
   expect(restored.groupKeyword).toBeUndefined();
+  expect(restored.mailNotifications).toBeUndefined();
   expect(
-    new IntentSenseService(
-      {} as AccountSession,
-      join(f.cache, 'intent_sense', f.local),
-    ).getStatus(),
+    new IntentSenseService({} as AccountSession, join(f.cache, 'intent_sense', f.local), {
+      preferences: sharedPreferencePersistence(
+        f.config,
+        'intent',
+        weqAccountSettingPath(f.root, f.cache, f.local, 'intent.json'),
+        ['conversationOverrides'],
+      ),
+    }).getStatus(),
   ).toMatchObject({ enabled: true, analysisTemperature: 0.3 });
   expect(
     new DbToleranceService(
@@ -184,8 +198,11 @@ it('账号偏好按真实文件收集，自定义背景改为便携名，原配�
     JSON.parse(
       readFileSync(weqAccountSettingPath(f.root, f.cache, f.local, 'anti-recall.json'), 'utf8'),
     ),
-  ).toEqual(antiRecall);
-  const restoredDress = new DressConfigService(join(f.root, 'config', 'accounts', f.local));
+  ).toEqual({ targets: antiRecall.targets, notifyTargets: antiRecall.notifyTargets });
+  const restoredDress = new DressConfigService(
+    f.config.sharedAppearanceDir(),
+    sharedPreferencePersistence(f.config, 'dress'),
+  );
   expect(restoredDress.read()).toMatchObject({
     background: 'custom',
     activeBubble: 123,
@@ -196,7 +213,7 @@ it('账号偏好按真实文件收集，自定义背景改为便携名，原配�
   expect(readFileSync(join(f.localDir, 'nt_msg.db'), 'utf8')).toBe('synthetic original QQ bytes');
 });
 
-it('实际应用的账号模型引用与 QQ 装扮资源缺失会提示，跳过该域不产生误告警', () => {
+it('旧账号备份的通用模型和装扮不再应用，也不产生误告警', () => {
   const f = fixture();
   const archive = buildWeqBackup([
     { path: `accounts/${f.source}.json`, data: Buffer.from(JSON.stringify(f.incoming)) },
@@ -215,8 +232,8 @@ it('实际应用的账号模型引用与 QQ 装扮资源缺失会提示，跳过
   ]);
   const source = f.service.inspect(archive, 'synthetic.zip');
   const preview = f.service.prepare(source.id, { parts: ['accounts'], conflict: 'overwrite' });
-  expect(preview.warnings.some((warning) => warning.includes('意图／画像／推荐回复'))).toBe(true);
-  expect(preview.warnings.some((warning) => warning.includes('装扮选择'))).toBe(true);
+  expect(preview.warnings.some((warning) => warning.includes('意图／画像／推荐回复'))).toBe(false);
+  expect(preview.warnings.some((warning) => warning.includes('装扮选择'))).toBe(false);
   const skipped = f.service.prepare(source.id, { parts: ['accounts'], conflict: 'skip' });
   expect(
     skipped.warnings.some(
@@ -228,7 +245,7 @@ it('实际应用的账号模型引用与 QQ 装扮资源缺失会提示，跳过
 it('缺失偏好也作为默认值备份，覆盖时可恢复真正的默认账号设置', () => {
   const f = fixture();
   const snapshot = snapshotWeqAccountPreferences(f.root, f.cache, f.source);
-  expect(snapshot.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length);
+  expect(snapshot.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length - 1);
   for (const file of snapshot.files)
     expect(JSON.parse(file.data.toString())).toEqual(
       file.path.endsWith('/client-state.json')
@@ -257,10 +274,16 @@ it('默认引用的恢复预览使用实际默认配置，失效能力会警告�
   f.config.setSettings({
     agentLab: { providers: [provider], defaultModel: { providerId: provider.id, model: 'chat' } },
   });
-  const snapshot = f.service.snapshot({ parts: ['accounts'], accountConfigIds: [f.source] }, {});
+  f.config.migrateSharedAccountPreferences(f.source);
+  const snapshot = f.service.snapshot(
+    { parts: ['settings', 'accounts'], includeClient: false, accountConfigIds: [f.source] },
+    {},
+  );
   const source = f.service.inspect(snapshot.archive, 'synthetic.zip');
   expect(
-    f.service.prepare(source.id, { parts: ['accounts'], conflict: 'overwrite' }).warnings.join(' '),
+    f.service
+      .prepare(source.id, { parts: ['settings', 'accounts'], conflict: 'overwrite' })
+      .warnings.join(' '),
   ).not.toContain('意图／画像／推荐回复');
   f.config.setSettings({
     agentLab: {
@@ -268,7 +291,9 @@ it('默认引用的恢复预览使用实际默认配置，失效能力会警告�
     },
   });
   expect(
-    f.service.prepare(source.id, { parts: ['accounts'], conflict: 'overwrite' }).warnings.join(' '),
+    f.service
+      .prepare(source.id, { parts: ['settings', 'accounts'], conflict: 'overwrite' })
+      .warnings.join(' '),
   ).toContain('意图／画像／推荐回复');
 });
 
@@ -298,21 +323,36 @@ it('意图与克隆体的显式默认引用可备份恢复，不将关闭状态�
   };
   persona.embeddingModelIdentity = 'synthetic-index-model';
   new AgentLabStore(join(f.cache, 'agentlab', f.source)).savePersona({ persona, pairs: [] });
+  f.config.migrateSharedAccountPreferences(f.source);
   const snapshot = f.service.snapshot(
-    { parts: ['accounts', 'clones'], accountConfigIds: [f.source], cloneConfigIds: [f.source] },
+    {
+      parts: ['settings', 'accounts', 'clones'],
+      includeClient: false,
+      accountConfigIds: [f.source],
+      cloneConfigIds: [f.source],
+    },
     {},
   );
   const src = f.service.inspect(snapshot.archive, 'synthetic.zip');
   const preview = f.service.prepare(src.id, {
-    parts: ['accounts', 'clones'],
+    parts: ['settings', 'accounts', 'clones'],
     conflict: 'overwrite',
     scopeMap: { [f.source]: f.local },
   });
   f.service.stage(preview.id);
   expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  f.config.reload();
   const restored = new IntentSenseService(
     {} as AccountSession,
     join(f.cache, 'intent_sense', f.local),
+    {
+      preferences: sharedPreferencePersistence(
+        f.config,
+        'intent',
+        weqAccountSettingPath(f.root, f.cache, f.local, 'intent.json'),
+        ['conversationOverrides'],
+      ),
+    },
   );
   expect(restored.getStatus()).toMatchObject({
     enabled: false,
@@ -337,7 +377,7 @@ it('意图与克隆体的显式默认引用可备份恢复，不将关闭状态�
   ).toThrow();
 });
 
-it.each([undefined, 1, 2])('意图配置版本 %s 可备份，保留独立画像和推荐回复配置', (version) => {
+it.each([undefined, 1, 2])('旧意图配置版本 %s 仍可读取，但账号备份只包含会话规则', (version) => {
   const f = fixture();
   const config = {
     ...(version === undefined ? {} : { featureSettingsVersion: version }),
@@ -350,7 +390,13 @@ it.each([undefined, 1, 2])('意图配置版本 %s 可备份，保留独立画像
   write(weqAccountSettingPath(f.root, f.cache, f.source, 'intent.json'), config);
   const snapshot = snapshotWeqAccountPreferences(f.root, f.cache, f.source);
   const intent = snapshot.files.find((file) => file.path.endsWith('/intent.json'))!;
-  expect(JSON.parse(intent.data.toString())).toEqual(config);
+  expect(() => validateWeqAccountPreference('intent.json', config)).not.toThrow();
+  expect(JSON.parse(intent.data.toString())).toEqual({});
+  expect(
+    JSON.parse(
+      readFileSync(weqAccountSettingPath(f.root, f.cache, f.source, 'intent.json'), 'utf8'),
+    ),
+  ).toEqual(config);
 });
 
 it.each([0, 3, '2', null])('未知或非法意图配置版本 %s 仍在备份前拒绝', (version) => {

@@ -180,9 +180,10 @@ describe('隐藏正在输入状态设置卡', () => {
         button.textContent?.includes('保存选择'),
       )!;
       await act(async () => save.click());
-      expect(mocks.setHidden).toHaveBeenCalledWith([
-        { accountUin: '10001', accountConfigId: 'source-a', uid: 'u_peer', name: '好友甲' },
-      ]);
+      expect(mocks.setHidden).toHaveBeenCalledWith(
+        [{ accountUin: '10001', accountConfigId: 'source-a', uid: 'u_peer', name: '好友甲' }],
+        { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+      );
       await act(async () => radio(f.host, '永久全选').click());
       expect(mocks.setMode).toHaveBeenCalledWith('all');
     } finally {
@@ -264,10 +265,10 @@ describe('隐藏正在输入状态设置卡', () => {
           .find((b) => b.textContent?.includes('保存选择'))!
           .click(),
       );
-      expect(mocks.setHidden).toHaveBeenCalledWith([
-        other,
-        { accountUin: '10001', accountConfigId: 'source-a', uid: 'u_peer', name: '好友甲' },
-      ]);
+      expect(mocks.setHidden).toHaveBeenCalledWith(
+        [{ accountUin: '10001', accountConfigId: 'source-a', uid: 'u_peer', name: '好友甲' }],
+        { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+      );
     } finally {
       f.dispose();
     }

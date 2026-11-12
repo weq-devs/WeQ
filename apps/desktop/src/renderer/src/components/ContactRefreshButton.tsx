@@ -8,13 +8,7 @@ import { SegmentedControl } from './SegmentedControl';
 import { useContactRefreshTask } from '../hooks/useContactRefreshTask';
 import '../styles/contact-directory-order.css';
 import type { ContactMetric } from '@weq/service';
-import {
-  ACCOUNT_STATE_CHANGED,
-  accountBinding,
-  isAccountStateReady,
-  saveAccountRecords,
-  sharedAccountRecords,
-} from '../lib/clientPreferences';
+import { PREFERENCES_CHANGED, changePreference, preferenceValue } from '../lib/clientPreferences';
 
 export function ContactRefreshButton({
   onRefresh,
@@ -61,18 +55,10 @@ export function ContactCacheRefreshDialog({
     enabled: Boolean(uin),
   });
   const [range, setRange] = useState<'older24h' | 'all' | 'none'>('older24h');
-  const storageKey = `weq.contacts.refreshRange.${config.data?.configId ?? ''}.${uin ?? ''}`;
   useEffect(() => {
     const update = () => {
       try {
-        const source = accountBinding();
-        const saved =
-          isAccountStateReady() &&
-          source &&
-          source.expectedAccountUin === uin &&
-          source.expectedAccountConfigId === config.data?.configId
-            ? sharedAccountRecords('order').refreshRange
-            : localStorage.getItem(storageKey);
+        const saved = preferenceValue('contactOrder').refreshRange;
         if (saved === 'older24h' || saved === 'all' || saved === 'none') setRange(saved);
         else setRange('older24h');
       } catch {
@@ -80,9 +66,9 @@ export function ContactCacheRefreshDialog({
       }
     };
     update();
-    window.addEventListener(ACCOUNT_STATE_CHANGED, update);
-    return () => window.removeEventListener(ACCOUNT_STATE_CHANGED, update);
-  }, [storageKey, uin, config.data?.configId]);
+    window.addEventListener(PREFERENCES_CHANGED, update);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, update);
+  }, []);
   const rebuild = trpc.account.contactMetrics.rebuild.useMutation();
   const showError = useDialog((state) => state.showError);
   const start = async () => {
@@ -150,19 +136,7 @@ export function ContactCacheRefreshDialog({
             ]}
             onChange={(value) => {
               setRange(value);
-              const source = accountBinding();
-              if (
-                source &&
-                source.expectedAccountUin === uin &&
-                source.expectedAccountConfigId === config.data?.configId
-              )
-                saveAccountRecords('order', { refreshRange: value });
-              if (config.data?.uin === uin)
-                try {
-                  localStorage.setItem(storageKey, value);
-                } catch {
-                  /* 更新范围不影响操作。 */
-                }
+              void changePreference('contactOrder', { refreshRange: value });
             }}
           />
           {config.error && <p role="alert">账号信息读取失败：{config.error.message}</p>}

@@ -119,7 +119,7 @@ const data: Record<string, unknown> = {
     canReveal: false,
     canRestart: false,
   },
-  'mail.preferences': {
+  'settings.mail.get': {
     pollIntervalMinutes: 1,
     showUnread: true,
     notifications: false,

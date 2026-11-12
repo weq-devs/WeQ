@@ -36,6 +36,7 @@ import {
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
 import { JsonStore } from '../common/json_store';
+import type { PreferencePersistence } from '../common/shared_preferences';
 import { assistantCapabilityGuidance } from './assistant_capabilities';
 
 export type EndpointResolver = (
@@ -81,6 +82,39 @@ export interface AssistantConfig {
   reasoningEffort?: AssistantReasoningEffort;
   /** 外部 MCP 服务器配置（Claude Desktop JSON 或每行 `名字=url`）。 */
   mcpServers?: string;
+}
+
+export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
+  model: { useDefault: true },
+  permissionMode: 'sandbox',
+  customPrompt: '',
+  mcpServers: '',
+  reasoningEffort: 'off',
+};
+
+export function mergeAssistantConfig(
+  config: AssistantConfig,
+  patch: AssistantConfig & { confirmUnrestricted?: boolean },
+): AssistantConfig {
+  const current = { ...DEFAULT_ASSISTANT_CONFIG, ...config };
+  if (
+    patch.permissionMode === 'unrestricted' &&
+    current.permissionMode !== 'unrestricted' &&
+    patch.confirmUnrestricted !== true
+  )
+    throw new Error(
+      '开启任意权限前必须确认风险：助手可执行任意操作，包括删除 WeQ 目录之外的文件。',
+    );
+  return {
+    permissionMode: patch.permissionMode ?? current.permissionMode ?? 'sandbox',
+    model:
+      patch.model === undefined
+        ? (current.model ?? { useDefault: true })
+        : (normalizeModelSelection(patch.model) ?? undefined),
+    customPrompt: patch.customPrompt ?? current.customPrompt,
+    reasoningEffort: patch.reasoningEffort ?? current.reasoningEffort,
+    mcpServers: patch.mcpServers ?? current.mcpServers,
+  };
 }
 
 /**
@@ -436,13 +470,15 @@ export class AssistantService {
     private readonly usage: TokenUsageStore,
     private readonly conversations: ConversationStore,
     private readonly tools?: AssistantTools,
+    preferences?: PreferencePersistence<AssistantConfig>,
   ) {
     this.configPath = join(rootDir, 'assistant.json');
     this.sessionsPath = join(rootDir, 'assistant_sessions.json');
     this.configStore = new JsonStore<AssistantConfig>(
       this.configPath,
-      () => ({ model: { useDefault: true } }),
+      () => structuredClone(DEFAULT_ASSISTANT_CONFIG),
       {
+        persistence: preferences,
         strict: true,
         pretty: true,
         normalize: (raw) => {
@@ -450,6 +486,7 @@ export class AssistantService {
             throw new Error('助手配置必须是 JSON 对象');
           const config = raw as AssistantConfig;
           return {
+            ...DEFAULT_ASSISTANT_CONFIG,
             ...config,
             permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
             model:
@@ -476,27 +513,7 @@ export class AssistantService {
   }
 
   setConfig(patch: AssistantConfig & { confirmUnrestricted?: boolean }): AssistantConfig {
-    if (
-      patch.permissionMode === 'unrestricted' &&
-      this.config.permissionMode !== 'unrestricted' &&
-      patch.confirmUnrestricted !== true
-    ) {
-      throw new Error(
-        '开启任意权限前必须确认风险：助手可执行任意操作，包括删除 WeQ 目录之外的文件。',
-      );
-    }
-    const next: AssistantConfig = {
-      permissionMode: patch.permissionMode ?? this.config.permissionMode ?? 'sandbox',
-      model:
-        patch.model === undefined
-          ? this.config.model
-          : (normalizeModelSelection(patch.model) ?? undefined),
-      customPrompt:
-        patch.customPrompt !== undefined ? patch.customPrompt : this.config.customPrompt,
-      reasoningEffort:
-        patch.reasoningEffort !== undefined ? patch.reasoningEffort : this.config.reasoningEffort,
-      mcpServers: patch.mcpServers !== undefined ? patch.mcpServers : this.config.mcpServers,
-    };
+    const next = mergeAssistantConfig(this.config, patch);
     const modeChanged = next.permissionMode !== (this.config.permissionMode ?? 'sandbox');
     this.configStore.replace(next);
     if (modeChanged) for (const controller of this.permissionRuns) controller.abort();

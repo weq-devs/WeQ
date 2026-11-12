@@ -11,7 +11,8 @@
  * 启用范围 / 通知总开关仍在「更多 → 防撤回」面板里，这里只做单会话的粒度。
  */
 
-import { useMemo, useState, type ReactElement } from 'react';
+import { useMemo, useRef, useState, type ReactElement } from 'react';
+import { accountBinding } from '../lib/clientPreferences';
 import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
@@ -54,6 +55,7 @@ export function ConversationSettingsDialog({
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
+  const source = useRef(accountBinding());
   const [section, setSection] = useState<SectionId>(kind === 'dataline' ? 'antirecall' : 'qq');
   /** 关键词编辑器的保存状态 —— 由内嵌的 editor 外抛（灯箱那套同一份实现）。 */
   const [keywordSave, setKeywordSave] = useState({ saving: false, savedAt: 0 });
@@ -106,10 +108,10 @@ export function ConversationSettingsDialog({
     try {
       // 防撤回关闭时，打开某个会话等于选择「按会话勾选」。
       if (next && scope === 'off') {
-        await setTargets.mutateAsync({ targets: updated });
+        await setTargets.mutateAsync({ targets: updated, ...source.current });
         applyStatus(await setScope.mutateAsync({ scope: 'selected' }));
       } else {
-        applyStatus(await setTargets.mutateAsync({ targets: updated }));
+        applyStatus(await setTargets.mutateAsync({ targets: updated, ...source.current }));
       }
     } catch (e) {
       void status.refetch();
@@ -121,6 +123,7 @@ export function ConversationSettingsDialog({
   async function onToggleIntent(next: boolean): Promise<void> {
     try {
       const updated = await setIntentOverride.mutateAsync({
+        ...source.current,
         kind: intentKind,
         id: conv,
         enabled: next ? null : false,
@@ -138,7 +141,7 @@ export function ConversationSettingsDialog({
     const current = status.data?.notifyTargets ?? [];
     const updated = next ? [...new Set([...current, key])] : current.filter((k) => k !== key);
     try {
-      applyStatus(await setNotify.mutateAsync({ targets: updated }));
+      applyStatus(await setNotify.mutateAsync({ targets: updated, ...source.current }));
     } catch (e) {
       void status.refetch();
       showError('通知设置失败', errMsg(e));

@@ -13,17 +13,21 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({ mail: { preferences: { invalidate: mocks.invalidate } } }),
-    mail: {
-      preferences: { useQuery: () => ({ data: mocks.preferences }) },
-      setShowUnread: {
-        useMutation: () => ({ mutateAsync: mocks.showUnread, isLoading: false }),
-      },
-      notifications: {
-        useMutation: () => ({ mutateAsync: mocks.notifications, isLoading: false }),
-      },
-      setPollInterval: {
-        useMutation: () => ({ mutateAsync: mocks.pollInterval, isLoading: false }),
+    useUtils: () => ({ settings: { mail: { get: { invalidate: mocks.invalidate } } } }),
+    settings: {
+      mail: {
+        get: { useQuery: () => ({ data: mocks.preferences }) },
+        patch: {
+          useMutation: () => ({
+            isLoading: false,
+            mutateAsync: (input: Record<string, unknown>) =>
+              'showUnread' in input
+                ? mocks.showUnread(input)
+                : 'notifications' in input
+                  ? mocks.notifications(input)
+                  : mocks.pollInterval(input),
+          }),
+        },
       },
     },
   },
@@ -58,7 +62,7 @@ function mount() {
 }
 
 describe('QQ 邮箱设置', () => {
-  it('查询间隔回显并自动保存到当前账号，无效输入不提交', async () => {
+  it('查询间隔回显并自动保存到全局，无效输入不提交', async () => {
     vi.useFakeTimers();
     const view = mount();
     const input = view.host.querySelector<HTMLInputElement>('[type="number"]')!;
@@ -75,7 +79,7 @@ describe('QQ 邮箱设置', () => {
     try {
       expect(input.value).toBe('1');
       await change('5');
-      expect(mocks.pollInterval).toHaveBeenCalledWith({ selfUin: '12345678', minutes: 5 });
+      expect(mocks.pollInterval).toHaveBeenCalledWith({ pollIntervalMinutes: 5 });
       mocks.pollInterval.mockClear();
       await change('0');
       expect(mocks.pollInterval).not.toHaveBeenCalled();
@@ -85,20 +89,18 @@ describe('QQ 邮箱设置', () => {
       vi.useRealTimers();
     }
   });
-  it('回显原有偏好，两个开关独立写入当前账号并刷新共享配置', async () => {
+  it('回显原有偏好，两个开关独立写入全局并刷新共享配置', async () => {
     const view = mount();
     try {
       expect(view.toggle('在邮箱图标上显示红点').getAttribute('aria-checked')).toBe('false');
       expect(view.toggle('收到新邮件时横幅提醒').getAttribute('aria-checked')).toBe('true');
       await act(async () => view.toggle('在邮箱图标上显示红点').click());
-      expect(mocks.showUnread).toHaveBeenCalledWith({ selfUin: '12345678', enabled: true });
+      expect(mocks.showUnread).toHaveBeenCalledWith({ showUnread: true });
       expect(mocks.notifications).not.toHaveBeenCalled();
-      expect(mocks.invalidate).toHaveBeenCalledWith({ selfUin: '12345678' });
+      expect(mocks.invalidate).toHaveBeenCalledWith();
       await act(async () => view.toggle('收到新邮件时横幅提醒').click());
       expect(mocks.notifications).toHaveBeenCalledWith({
-        selfUin: '12345678',
-        enabled: false,
-        requestId: expect.any(String),
+        notifications: false,
       });
     } finally {
       view.close();
@@ -116,12 +118,12 @@ describe('QQ 邮箱设置', () => {
       view.close();
     }
   });
-  it('没有打开账号时禁用开关', () => {
+  it('没有打开账号时仍可配置全局偏好', () => {
     useViewState.setState({ openedUin: null });
     const view = mount();
     try {
-      expect(view.toggle('在邮箱图标上显示红点').disabled).toBe(true);
-      expect(view.toggle('收到新邮件时横幅提醒').disabled).toBe(true);
+      expect(view.toggle('在邮箱图标上显示红点').disabled).toBe(false);
+      expect(view.toggle('收到新邮件时横幅提醒').disabled).toBe(false);
     } finally {
       view.close();
     }

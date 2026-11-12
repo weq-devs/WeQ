@@ -20,6 +20,7 @@
 import { Crown, Search, ShieldCheck, Trash2, UserRound, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { client } from '../trpc/client';
+import { accountBinding } from '../lib/clientPreferences';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
@@ -98,6 +99,7 @@ export function GroupKeywordEditor({
   }, [groupId]);
 
   // 把当前草稿整体写回主进程（按群号 keyed，其余群原样保留）。幂等。
+  const source = useRef(accountBinding());
   const flush = useCallback((): void => {
     if (!dirtyRef.current) return;
     dirtyRef.current = false;
@@ -113,7 +115,7 @@ export function GroupKeywordEditor({
     rulesRef.current = nextRules;
     setSaving(true);
     client.bootstrap.setGroupKeywordRules
-      .mutate({ rules: nextRules })
+      .mutate({ rules: nextRules, groupId, ...source.current })
       .then(() => setSavedAt(Date.now()))
       .catch(() => undefined)
       .finally(() => setSaving(false));

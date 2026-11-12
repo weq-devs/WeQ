@@ -2,23 +2,23 @@ import { createContext, useEffect, useRef } from 'react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useTabActive } from '../RetainedTabs';
-import { usePageSnapshotKey } from '../PageSnapshots';
+import { acceptSettingsReply } from '../../lib/clientPreferences';
 
-/** 三项功能共用账号配置，但只提交本次修改的字段。 */
+/** 三项功能共用全局配置，只提交本次修改的字段。 */
 export function useAiFeatureSettings(title: string) {
   const active = useTabActive();
-  const status = trpc.account.intentSense.getStatus.useQuery(undefined, {
+  const status = trpc.settings.intent.getStatus.useQuery(undefined, {
     enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const save = trpc.account.intentSense.setConfig.useMutation();
+  const save = trpc.settings.intent.setConfig.useMutation();
   const utils = trpc.useUtils();
   const showError = useDialog((s) => s.showError);
   const saving = useRef<Promise<void>>(Promise.resolve());
   const lastQueued = useRef('');
-  const source = usePageSnapshotKey('ai-settings-source');
+  const source = 'global-ai-settings';
   const currentSource = useRef(source);
   currentSource.current = source;
   const mounted = useRef(true);
@@ -54,7 +54,9 @@ export function useAiFeatureSettings(title: string) {
           throw new Error('设置目标已关闭或切换');
         const next = await save.mutateAsync(input);
         if (!mounted.current || currentSource.current !== source) return;
-        utils.account.intentSense.getStatus.setData(undefined, next);
+        if (acceptSettingsReply(next)) utils.settings.intent.getStatus.setData(undefined, next);
+        else await status.refetch();
+        void utils.account.intentSense.getStatus.invalidate();
         refreshResults();
       });
     saving.current = operation;

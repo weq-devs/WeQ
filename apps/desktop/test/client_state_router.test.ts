@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { UserConfigService } from '@weq/service';
 const context = vi.hoisted(() => ({
   root: '',
   uin: '10001',
   configId: '10001_aabbccdd',
-  settings: { showMessageBubble: true },
+  config: null as UserConfigService | null,
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
@@ -17,12 +18,7 @@ vi.mock('../src/main/context/app_context', () => {
   return {
     requirePlatform: () => ({ appDataRoot: () => context.root }),
     requireBootstrap: () => ({
-      userConfig: {
-        getSettings: () => context.settings,
-        setSettings: (value: object) => {
-          Object.assign(context.settings, value);
-        },
-      },
+      userConfig: context.config,
     }),
     getAppContext: () => ({ account: { context: { uin: context.uin } }, services }),
   };
@@ -35,7 +31,7 @@ beforeEach(() => {
   context.root = mkdtempSync(join(tmpdir(), 'weq-sync-router-'));
   context.uin = '10001';
   context.configId = '10001_aabbccdd';
-  context.settings.showMessageBubble = true;
+  context.config = new UserConfigService({ appDataRoot: () => context.root });
 });
 afterEach(() => rmSync(context.root, { recursive: true, force: true }));
 it('手机不能自动提交旧值为共享初值；显式修改和桌面补缺保持最后提交值', async () => {
@@ -59,7 +55,7 @@ it('同号不同配置隔离，旧账号绑定不能写入新配置', async () =
   ).rejects.toThrow('已切换');
   expect(
     (await client.accountSnapshot({ ...old, expectedAccountConfigId: context.configId })).records,
-  ).toEqual({});
+  ).toEqual({ order: {} });
 });
 it('复用真实分段接收后转存素材，临时接收目录丢弃后持久副本仍可读取', async () => {
   const services = getAppContext().services!;

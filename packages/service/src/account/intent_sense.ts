@@ -2,8 +2,8 @@
  * IntentSenseService — 逐条意图/情绪分析、推荐回复及兼容旧 IPC 的配置门面。
  *
  * 三层结构：
- *   • 配置（per account，JsonStore）：总开关、引擎选择（api | local）、API provider
- *     引用、回复建议开关、按会话覆盖。存储模式对齐 {@link AntiRecallService}。
+ *   • 配置：宿主共享总开关、引擎、模型与调优参数；只有单会话覆盖按账号保存。
+ *     独立调用兼容旧 JsonStore，宿主通过 preferences 接入唯一全局来源。
  *   • 分析缓存（per conversation，惰性 JsonStore）：`msgId → 分析结果`，增量补分析
  *     （ensureAnalysis 只跑缓存里没有的消息），上限由 cacheEntries 配置，
  *     按发送时间裁剪最旧的。
@@ -38,6 +38,7 @@ import {
 } from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
 import { JsonStore, readJsonFile, writeJsonFileAtomic } from '../common/json_store';
+import type { PreferencePersistence } from '../common/shared_preferences';
 import { InteractionProfileService } from './interaction_profile';
 import { extractJsonBlock } from './intent_json';
 import { analyzePragmatics, calibrateIntentSense, type IntentContextTurn } from './intent_corpus';
@@ -173,6 +174,7 @@ export interface IntentSenseConfig extends IntentTuning {
 }
 
 export interface IntentSenseStatus extends IntentSenseConfig {
+  settingsRevision?: number;
   analysisRevision: number;
   suggestionRevision: number;
   profileRevision: number;
@@ -541,6 +543,7 @@ function normalizeCacheFile(
 }
 
 export interface IntentSenseOptions {
+  preferences?: PreferencePersistence<IntentSenseConfig>;
   /** 旧画像跟随本地意图资源时，一次性固化当前选择。 */
   legacyLocalModelId?: string;
   /** api 引擎端点解析（与 AssistantService 同源的注入）。 */
@@ -561,6 +564,91 @@ export interface EnsureStats {
   latestMsgId?: string;
   skipped?: 'disabled' | 'config-changed';
   error?: string;
+}
+
+export function normalizeIntentSenseConfig(
+  raw: unknown,
+  legacyLocalModelId?: string,
+): IntentSenseConfig {
+  const p = (raw ?? {}) as Partial<IntentSenseConfig>;
+  const ref = p.providerRef as AgentLabModelSelection | null | undefined;
+  const migrateFeatures = p.featureSettingsVersion === undefined;
+  const migrateProfile = p.featureSettingsVersion !== 2;
+  const follows = !p.profileEngine || (p.profileEngine as string) === 'follow';
+  const migrateSuggestionRef = p.suggestionProviderRef === undefined;
+  // 旧本地引擎不继承历史分析模型；缺少推荐模型时使用全局默认。
+  const suggestionRef = migrateSuggestionRef
+    ? p.engine === 'local'
+      ? null
+      : ref
+    : p.suggestionProviderRef;
+  return {
+    ...normalizeIntentTuning({
+      ...p,
+      profileApiTimeoutSeconds: p.profileApiTimeoutSeconds ?? p.apiTimeoutSeconds,
+      profileApiCooldownSeconds: p.profileApiCooldownSeconds ?? p.apiCooldownSeconds,
+    }),
+    featureSettingsVersion: 2,
+    analysisMode: p.analysisMode === 'manual' ? 'manual' : 'auto',
+    profileMode: p.profileMode === 'manual' ? 'manual' : 'auto',
+    suggestionMode: p.suggestionMode === 'manual' ? 'manual' : 'auto',
+    profileEnabled: migrateFeatures ? p.enabled === true : p.profileEnabled === true,
+    enabled: p.enabled === true,
+    engine: p.engine === 'local' ? 'local' : 'api',
+    providerRef: ref == null ? { useDefault: true } : normalizeModelSelection(ref),
+    suggestionProviderRef:
+      suggestionRef == null ? { useDefault: true } : normalizeModelSelection(suggestionRef),
+    suggestionsEnabled: p.suggestionsEnabled === true && (!migrateFeatures || p.enabled === true),
+    profileEngine:
+      p.profileEngine === 'api' || p.profileEngine === 'local' || p.profileEngine === 'heuristic'
+        ? p.profileEngine
+        : p.engine === 'local'
+          ? 'local'
+          : 'api',
+    profileProviderRef:
+      (migrateProfile && follows ? ref : p.profileProviderRef) == null
+        ? { useDefault: true }
+        : normalizeModelSelection(migrateProfile && follows ? ref : p.profileProviderRef),
+    profileLocalModelId:
+      p.profileLocalModelId === 'laya-multilingual' || p.profileLocalModelId === 'QWeQ-NineBird-v1'
+        ? p.profileLocalModelId
+        : migrateProfile &&
+            (follows || p.profileEngine === 'local') &&
+            (legacyLocalModelId === 'laya-multilingual' ||
+              legacyLocalModelId === 'QWeQ-NineBird-v1')
+          ? legacyLocalModelId
+          : 'auto',
+    analyzeAfterSelf: p.analyzeAfterSelf !== false,
+    persistentDisplay: p.persistentDisplay !== false,
+    hoverDisplay: p.hoverDisplay !== false,
+    loadingAnimation: p.loadingAnimation !== false,
+    suggestionFallbackEnabled: p.suggestionFallbackEnabled !== false,
+    suggestionFallbackTexts: (() => {
+      try {
+        return validateSuggestionFallbackTexts(
+          p.suggestionFallbackTexts ?? DEFAULT_SUGGESTION_FALLBACK_TEXTS,
+        );
+      } catch {
+        return [...DEFAULT_SUGGESTION_FALLBACK_TEXTS];
+      }
+    })(),
+    suggestAfterSelf: p.suggestAfterSelf !== false,
+    analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
+      ? p.analysisContextMessages
+      : DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
+    suggestionContextMessages: isIntentContextCount(p.suggestionContextMessages)
+      ? p.suggestionContextMessages
+      : DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
+    hfMirror: p.hfMirror !== false,
+    conversationOverrides:
+      p.conversationOverrides && typeof p.conversationOverrides === 'object'
+        ? Object.fromEntries(
+            Object.entries(p.conversationOverrides).filter(
+              ([k, v]) => typeof k === 'string' && typeof v === 'boolean',
+            ),
+          )
+        : {},
+  };
 }
 
 export class IntentSenseService {
@@ -615,97 +703,16 @@ export class IntentSenseService {
     private readonly storeDir: string,
     private readonly opts: IntentSenseOptions = {},
   ) {
-    let migrateSuggestionRef = false;
-    let migrateFeatures = false;
-    let migrateProfile = false;
+    const previous = (opts.preferences?.read() ??
+      readJsonFile(`${storeDir}/config.json`) ??
+      {}) as Partial<IntentSenseConfig>;
     this.configStore = new JsonStore(`${storeDir}/config.json`, () => ({ ...DEFAULT_CONFIG }), {
-      normalize: (raw) => {
-        const p = (raw ?? {}) as Partial<IntentSenseConfig>;
-        const ref = p.providerRef as AgentLabModelSelection | null | undefined;
-        migrateFeatures = p.featureSettingsVersion === undefined;
-        migrateProfile = p.featureSettingsVersion !== 2;
-        const follows = !p.profileEngine || (p.profileEngine as string) === 'follow';
-        migrateSuggestionRef = p.suggestionProviderRef === undefined;
-        // 旧本地引擎不继承历史分析模型；缺少推荐模型时使用全局默认。
-        const suggestionRef = migrateSuggestionRef
-          ? p.engine === 'local'
-            ? null
-            : ref
-          : p.suggestionProviderRef;
-        return {
-          ...normalizeIntentTuning({
-            ...p,
-            profileApiTimeoutSeconds: p.profileApiTimeoutSeconds ?? p.apiTimeoutSeconds,
-            profileApiCooldownSeconds: p.profileApiCooldownSeconds ?? p.apiCooldownSeconds,
-          }),
-          featureSettingsVersion: 2,
-          analysisMode: p.analysisMode === 'manual' ? 'manual' : 'auto',
-          profileMode: p.profileMode === 'manual' ? 'manual' : 'auto',
-          suggestionMode: p.suggestionMode === 'manual' ? 'manual' : 'auto',
-          profileEnabled: migrateFeatures ? p.enabled === true : p.profileEnabled === true,
-          enabled: p.enabled === true,
-          engine: p.engine === 'local' ? 'local' : 'api',
-          providerRef: ref == null ? { useDefault: true } : normalizeModelSelection(ref),
-          suggestionProviderRef:
-            suggestionRef == null ? { useDefault: true } : normalizeModelSelection(suggestionRef),
-          suggestionsEnabled:
-            p.suggestionsEnabled === true && (!migrateFeatures || p.enabled === true),
-          profileEngine:
-            p.profileEngine === 'api' ||
-            p.profileEngine === 'local' ||
-            p.profileEngine === 'heuristic'
-              ? p.profileEngine
-              : p.engine === 'local'
-                ? 'local'
-                : 'api',
-          profileProviderRef:
-            (migrateProfile && follows ? ref : p.profileProviderRef) == null
-              ? { useDefault: true }
-              : normalizeModelSelection(migrateProfile && follows ? ref : p.profileProviderRef),
-          profileLocalModelId:
-            p.profileLocalModelId === 'laya-multilingual' ||
-            p.profileLocalModelId === 'QWeQ-NineBird-v1'
-              ? p.profileLocalModelId
-              : migrateProfile &&
-                  (follows || p.profileEngine === 'local') &&
-                  (this.opts.legacyLocalModelId === 'laya-multilingual' ||
-                    this.opts.legacyLocalModelId === 'QWeQ-NineBird-v1')
-                ? this.opts.legacyLocalModelId
-                : 'auto',
-          analyzeAfterSelf: p.analyzeAfterSelf !== false,
-          persistentDisplay: p.persistentDisplay !== false,
-          hoverDisplay: p.hoverDisplay !== false,
-          loadingAnimation: p.loadingAnimation !== false,
-          suggestionFallbackEnabled: p.suggestionFallbackEnabled !== false,
-          suggestionFallbackTexts: (() => {
-            try {
-              return validateSuggestionFallbackTexts(
-                p.suggestionFallbackTexts ?? DEFAULT_SUGGESTION_FALLBACK_TEXTS,
-              );
-            } catch {
-              return [...DEFAULT_SUGGESTION_FALLBACK_TEXTS];
-            }
-          })(),
-          suggestAfterSelf: p.suggestAfterSelf !== false,
-          analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
-            ? p.analysisContextMessages
-            : DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
-          suggestionContextMessages: isIntentContextCount(p.suggestionContextMessages)
-            ? p.suggestionContextMessages
-            : DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
-          hfMirror: p.hfMirror !== false,
-          conversationOverrides:
-            p.conversationOverrides && typeof p.conversationOverrides === 'object'
-              ? Object.fromEntries(
-                  Object.entries(p.conversationOverrides).filter(
-                    ([k, v]) => typeof k === 'string' && typeof v === 'boolean',
-                  ),
-                )
-              : {},
-        };
-      },
+      persistence: opts.preferences,
+      strict: Boolean(opts.preferences),
+      normalize: (raw) => normalizeIntentSenseConfig(raw, opts.legacyLocalModelId),
     });
-    if (migrateSuggestionRef || migrateFeatures || migrateProfile) this.configStore.save();
+    if (previous.featureSettingsVersion !== 2 || previous.suggestionProviderRef === undefined)
+      this.configStore.save();
     this.profileService = new InteractionProfileService(
       () => this.config,
       (kind, peerUid, limit) => this.loadMessages(kind, peerUid, limit),
@@ -772,6 +779,7 @@ export class IntentSenseService {
   getStatus(): IntentSenseStatus {
     this.syncDefaultModels();
     return {
+      settingsRevision: this.opts.preferences?.revision?.(),
       ...this.config,
       analysisRevision: this.analysisRevision,
       suggestionRevision: this.suggestionRevision,
@@ -906,7 +914,7 @@ export class IntentSenseService {
       this.suggestionApiCooldownUntil = 0;
       this.lastSuggestionApiError = null;
     }
-    this.configStore.data = next;
+    this.configStore.replace(next);
     for (const store of this.analysisStores.values()) {
       if (options.preserveAnalysisResults) continue;
       if (store.data.results.length <= next.cacheEntries) continue;
@@ -929,7 +937,6 @@ export class IntentSenseService {
       this.profileRevision++;
       this.profileService.invalidate();
     }
-    this.configStore.save();
     return this.getStatus();
   }
 
@@ -985,8 +992,7 @@ export class IntentSenseService {
     const key = conversationKey(kind, id);
     if (enabled === null) delete overrides[key];
     else overrides[key] = enabled;
-    this.configStore.data = { ...this.config, conversationOverrides: overrides };
-    this.configStore.save();
+    this.configStore.replace({ ...this.config, conversationOverrides: overrides });
     return this.getStatus();
   }
 

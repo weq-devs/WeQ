@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Mail } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { useViewState } from '../../state/view';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import {
@@ -23,17 +22,15 @@ function lastSyncText(lastSync: number | null | undefined): string | null {
 
 export function MailSettingsSection() {
   const active = useTabActive();
-  const selfUin = useViewState((state) => state.openedUin);
-  const input = { selfUin: selfUin ?? '' };
   const utils = trpc.useUtils();
-  const preferences = trpc.mail.preferences.useQuery(input, {
-    enabled: active && Boolean(selfUin),
+  const preferences = trpc.settings.mail.get.useQuery(undefined, {
+    enabled: active,
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const showUnread = trpc.mail.setShowUnread.useMutation();
-  const notifications = trpc.mail.notifications.useMutation();
-  const pollInterval = trpc.mail.setPollInterval.useMutation();
+  const showUnread = trpc.settings.mail.patch.useMutation();
+  const notifications = trpc.settings.mail.patch.useMutation();
+  const pollInterval = trpc.settings.mail.patch.useMutation();
   const savedInterval = preferences.data?.pollIntervalMinutes;
   const [minutes, setMinutes] = useNumericSettingDraft(
     'mail:poll-interval',
@@ -51,20 +48,18 @@ export function MailSettingsSection() {
   const lastSync = lastSyncText(preferences.data?.lastSync);
 
   async function save(kind: 'unread' | 'notifications', enabled: boolean) {
-    if (!selfUin || busy) return;
+    if (busy) return;
     setError('');
     try {
-      if (kind === 'unread') await showUnread.mutateAsync({ selfUin, enabled });
+      if (kind === 'unread') await showUnread.mutateAsync({ showUnread: enabled });
       else
         await notifications.mutateAsync({
-          selfUin,
-          requestId: crypto.randomUUID(),
-          enabled,
+          notifications: enabled,
         });
     } catch (error) {
       setError(error instanceof Error ? error.message : '邮箱设置保存失败。');
     } finally {
-      void utils.mail.preferences.invalidate(input);
+      void utils.settings.mail.get.invalidate();
     }
   }
 
@@ -75,14 +70,13 @@ export function MailSettingsSection() {
         <AutoSave
           value={minutes.trim() ? interval : ''}
           saved={savedInterval ?? DEFAULT_MAIL_POLL_INTERVAL_MINUTES}
-          ready={Boolean(selfUin) && savedInterval !== undefined}
+          ready={savedInterval !== undefined}
           valid={validInterval}
           resetKeys={['poll-interval']}
           reset={() => setMinutes(String(savedInterval ?? DEFAULT_MAIL_POLL_INTERVAL_MINUTES))}
           save={async (value) => {
-            if (!selfUin) return;
-            await pollInterval.mutateAsync({ selfUin, minutes: Number(value) });
-            await utils.mail.preferences.invalidate(input);
+            await pollInterval.mutateAsync({ pollIntervalMinutes: Number(value) });
+            await utils.settings.mail.get.invalidate();
           }}
         >
           <Row
@@ -106,7 +100,7 @@ export function MailSettingsSection() {
                   step={1}
                   required
                   value={minutes}
-                  disabled={!selfUin || savedInterval === undefined}
+                  disabled={savedInterval === undefined}
                   onChange={(event) => setMinutes(event.target.value)}
                 />
                 <span className="weq-set-unit">分钟</span>
@@ -122,7 +116,7 @@ export function MailSettingsSection() {
             <Toggle
               label="在邮箱图标上显示红点"
               checked={preferences.data?.showUnread ?? true}
-              disabled={!selfUin || !preferences.data || busy}
+              disabled={!preferences.data || busy}
               onChange={(enabled) => void save('unread', enabled)}
             />
           }
@@ -135,7 +129,7 @@ export function MailSettingsSection() {
             <Toggle
               label="收到新邮件时横幅提醒"
               checked={preferences.data?.notifications ?? false}
-              disabled={!selfUin || !preferences.data || busy}
+              disabled={!preferences.data || busy}
               onChange={(enabled) => void save('notifications', enabled)}
             />
           }

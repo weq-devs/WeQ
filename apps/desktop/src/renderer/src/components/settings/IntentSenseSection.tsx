@@ -9,10 +9,12 @@ import { ApiModelRow } from './ApiModelSelect';
 import { IntentTuningPanel } from './IntentTuningPanel';
 import { AiFeatureSettingsLayout } from './AiFeatureSettingsLayout';
 import { useAiFeatureSettings } from './useAiFeatureSettings';
+import { useViewState } from '../../state/view';
 import '../../styles/intent-sense.css';
 
 export function IntentSenseSection() {
   const settings = useAiFeatureSettings('意图感知');
+  const hasAccount = Boolean(useViewState((state) => state.openedUin));
   const { active, status, disabled, patch, refreshResults } = settings;
   const s = status.data;
   const local = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
@@ -193,7 +195,7 @@ export function IntentSenseSection() {
                 <button
                   type="button"
                   className="weq-set-btn"
-                  disabled={disabled || inactive || clearCache.isLoading}
+                  disabled={disabled || inactive || !hasAccount || clearCache.isLoading}
                   onClick={() => void onClearCache()}
                 >
                   <RotateCcw size={14} />

@@ -125,9 +125,6 @@ export function TypingStatusSettingsCard() {
   async function onSave(): Promise<void> {
     if (unavailable || !editing || conversations.isLoading || conversations.error) return;
     if (!accountUin || !accountConfigId) return;
-    const others = (query.data?.hidden ?? []).filter(
-      (item) => item.accountUin !== accountUin || item.accountConfigId !== accountConfigId,
-    );
     const byId = new Map(items.map((item) => [item.id, item]));
     const add = [...selected].sort().map((uid) => ({
       accountUin,
@@ -143,7 +140,10 @@ export function TypingStatusSettingsCard() {
         )?.name ??
         uid,
     }));
-    await preferences.setHidden([...others, ...add]);
+    await preferences.setHidden(add, {
+      expectedAccountUin: accountUin,
+      expectedAccountConfigId: accountConfigId,
+    });
   }
 
   return (

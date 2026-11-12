@@ -5,11 +5,26 @@ import { isUpdateCheckInterval } from '../common/update_settings';
 import { normalizeQzonePagination } from '../common/qzone_pagination';
 import { DEFAULT_CONTACT_CARD } from '../common/contact_card';
 import { mailPollIntervalMinutes } from '../account/mail/wire';
+import { validateWeqAccountPreference } from './backup_accounts';
+import { validatePreferencePatch } from '../common/client_preferences';
+import type { SharedPreferences } from '../common/shared_preferences';
+import {
+  normalizedSharedPreferences,
+  SHARED_PREFERENCE_DEFINITIONS,
+} from '../common/shared_preferences';
+import type { AssistantConfig } from '../account/assistant';
 
 export type WeqAppBackupSettings = Omit<
   AppSettings,
-  'agentLab' | 'mcp' | 'oneBot' | 'externalRkey' | 'ssePush' | 'voiceTranscribe'
+  | 'agentLab'
+  | 'mcp'
+  | 'oneBot'
+  | 'externalRkey'
+  | 'ssePush'
+  | 'voiceTranscribe'
+  | 'sharedPreferences'
 > & {
+  sharedPreferences: Omit<SharedPreferences, 'assistant'>;
   voiceTranscribe: Pick<
     AppSettings['voiceTranscribe'],
     'modelId' | 'autoTranscribe' | 'onlineConcurrency'
@@ -24,6 +39,7 @@ export interface WeqApiBackupSettings {
   oneBot: AppSettings['oneBot'];
   externalRkey: AppSettings['externalRkey'];
   ssePush: AppSettings['ssePush'];
+  sharedAssistant?: AssistantConfig;
 }
 
 /** 设置与凭据分区独立；不导出 config.json 中的 TOTP、自动进入或本机缓存根。 */
@@ -35,10 +51,19 @@ export function snapshotWeqSettings(settings: AppSettings): WeqAppBackupSettings
     externalRkey: _rkey,
     ssePush: _sse,
     voiceTranscribe,
+    sharedPreferences,
     ...app
   } = settings;
   return structuredClone({
     ...app,
+    sharedPreferences: Object.fromEntries(
+      Object.entries(
+        normalizedSharedPreferences(sharedPreferences, settings.modelResources.intent),
+      ).filter(
+        ([key]) =>
+          SHARED_PREFERENCE_DEFINITIONS[key as keyof SharedPreferences].backup === 'settings',
+      ),
+    ),
     voiceTranscribe: {
       modelId: voiceTranscribe.modelId,
       autoTranscribe: voiceTranscribe.autoTranscribe,
@@ -63,6 +88,10 @@ export function snapshotWeqApiSettings(settings: AppSettings): WeqApiBackupSetti
       })),
     },
     ssePush: settings.ssePush,
+    sharedAssistant: normalizedSharedPreferences(
+      settings.sharedPreferences,
+      settings.modelResources.intent,
+    ).assistant,
   });
 }
 
@@ -77,6 +106,10 @@ export function snapshotWeqAccount(config: AccountConfig): AccountConfig {
     rkeyUpdatedAt: _rkeyAt,
     clientKey: _clientKey,
     loginPskey: _pskey,
+    mailNotifications: _mailNotifications,
+    mailShowUnread: _mailShowUnread,
+    mailPollIntervalMinutes: _mailPollIntervalMinutes,
+    annualReport: _annualReport,
     ...saved
   } = config;
   return structuredClone(saved);
@@ -157,6 +190,94 @@ function shape(value: unknown, template: unknown, path: string): void {
   }
 }
 
+export function validateSharedPreferences(value: unknown): asserts value is SharedPreferences {
+  const groups = fields(
+    value,
+    'sharedPreferences',
+    [],
+    Object.entries(SHARED_PREFERENCE_DEFINITIONS)
+      .filter(([, spec]) => spec.backup === 'settings')
+      .map(([key]) => key),
+  );
+  if (groups.client !== undefined) validatePreferencePatch(groups.client);
+  if (groups.order !== undefined) validatePreferencePatch({ contactOrder: groups.order });
+  for (const [key, file] of [
+    ['intent', 'intent.json'],
+    ['antiRecall', 'anti-recall.json'],
+    ['dress', 'dress.json'],
+  ] as const) {
+    if (groups[key] === undefined) continue;
+    const group = record(groups[key], `sharedPreferences.${key}`);
+    if (
+      ['conversationOverrides', 'targets', 'notifyTargets'].some((field) =>
+        Object.hasOwn(group, field),
+      )
+    )
+      fail(`sharedPreferences.${key}`);
+    validateWeqAccountPreference(file, group);
+  }
+  if (groups.mail !== undefined) {
+    const mail = fields(
+      groups.mail,
+      'sharedPreferences.mail',
+      [],
+      ['mailNotifications', 'mailShowUnread', 'mailPollIntervalMinutes'],
+    );
+    for (const key of ['mailNotifications', 'mailShowUnread'])
+      if (mail[key] !== undefined && typeof mail[key] !== 'boolean')
+        fail(`sharedPreferences.mail.${key}`);
+    if (
+      mail.mailPollIntervalMinutes !== undefined &&
+      mailPollIntervalMinutes(mail.mailPollIntervalMinutes) !== mail.mailPollIntervalMinutes
+    )
+      fail('sharedPreferences.mail.mailPollIntervalMinutes');
+  }
+  if (groups.annualReport !== undefined) {
+    const report = fields(
+      groups.annualReport,
+      'sharedPreferences.annualReport',
+      [],
+      ['mode', 'enabledPageIds', 'order', 'exportPageIds'],
+    );
+    if (report.mode !== undefined && report.mode !== 'default' && report.mode !== 'custom')
+      fail('sharedPreferences.annualReport.mode');
+    for (const key of ['enabledPageIds', 'order', 'exportPageIds'])
+      if (
+        report[key] !== undefined &&
+        (!Array.isArray(report[key]) || report[key].some((item) => typeof item !== 'string'))
+      )
+        fail(`sharedPreferences.annualReport.${key}`);
+  }
+}
+
+function validateSharedAssistant(value: unknown): void {
+  const row = fields(
+    value,
+    'api.sharedAssistant',
+    [],
+    ['permissionMode', 'model', 'customPrompt', 'reasoningEffort', 'mcpServers'],
+  );
+  strings(row, 'api.sharedAssistant', [], ['customPrompt', 'mcpServers']);
+  if (
+    row.permissionMode !== undefined &&
+    !['sandbox', 'unrestricted'].includes(String(row.permissionMode))
+  )
+    fail('api.sharedAssistant.permissionMode');
+  if (
+    row.reasoningEffort !== undefined &&
+    !['off', 'low', 'medium', 'high'].includes(String(row.reasoningEffort))
+  )
+    fail('api.sharedAssistant.reasoningEffort');
+  if (row.model !== undefined) {
+    const model = record(row.model, 'api.sharedAssistant.model');
+    if (model.useDefault === true) fields(model, 'api.sharedAssistant.model', ['useDefault']);
+    else {
+      fields(model, 'api.sharedAssistant.model', ['providerId', 'model']);
+      strings(model, 'api.sharedAssistant.model', ['providerId', 'model']);
+    }
+  }
+}
+
 export function validateWeqAppSettings(value: unknown): asserts value is WeqAppBackupPatch {
   const input = record(value, 'settings');
   // 默认空数组无法描述元素结构，输入状态单独校验，避免被当作普通对象。
@@ -167,6 +288,7 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     qqShowCacheDays,
     updateCheckIntervalMinutes,
     quitConfirmSuppressed,
+    sharedPreferences,
     ...scalarSettings
   } = input;
   // 旧备份允许携带已退役字段，但不再将它写回正式设置。
@@ -179,6 +301,7 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     fail('settings.updateCheckIntervalMinutes');
   if (qqShowCacheDays !== undefined) number(qqShowCacheDays, 'settings.qqShowCacheDays', 1, 365);
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
+  if (sharedPreferences !== undefined) validateSharedPreferences(sharedPreferences);
   if (contactCard !== undefined) {
     const card = fields(
       contactCard,
@@ -384,8 +507,9 @@ export function validateWeqApiSettings(
     value,
     'api',
     [],
-    ['agentLab', 'ttsProviders', 'mcp', 'oneBot', 'externalRkey', 'ssePush'],
+    ['agentLab', 'ttsProviders', 'mcp', 'oneBot', 'externalRkey', 'ssePush', 'sharedAssistant'],
   );
+  if (api.sharedAssistant !== undefined) validateSharedAssistant(api.sharedAssistant);
   if (api.agentLab !== undefined) {
     const agent = fields(api.agentLab, 'api.agentLab', ['providers'], ['defaultModel']);
     if (agent.defaultModel !== undefined && agent.defaultModel !== null) {

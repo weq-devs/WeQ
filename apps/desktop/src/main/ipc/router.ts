@@ -29,9 +29,11 @@ import { udpCaptureRouter } from './routers/udp_capture';
 import { backgroundTasksRouter } from './routers/background_tasks';
 import { startupRouter } from './routers/startup';
 import { settingsResetRouter } from './routers/settings_reset';
+import { sharedSettingsRouter } from './routers/shared_settings';
 import { performanceMonitorRouter } from './routers/performance_monitor';
 
 export const appRouter = router({
+  settings: sharedSettingsRouter,
   clientState: clientStateRouter,
   performanceMonitor: performanceMonitorRouter,
   settingsReset: settingsResetRouter,

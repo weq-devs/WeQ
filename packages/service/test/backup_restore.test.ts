@@ -782,6 +782,7 @@ it('由真实存储服务写出的完整克隆／助手数据可往返，不复�
     'aborted',
   );
   const snapshot = snapshotWeqClones(sourceRoot);
+  expect(snapshot.files.some((file) => file.path.endsWith('/assistant.json'))).toBe(false);
   const original = snapshot.files.map((entry) => ({
     path: entry.path,
     data: Buffer.from(entry.data),
@@ -832,7 +833,13 @@ it('由真实存储服务写出的完整克隆／助手数据可往返，不复�
     restoredUsage,
     new ConversationStore(join(destination, 'conversations.json')),
   );
-  expect(restoredAssistant.getConfig()).toEqual(assistant.getConfig());
+  expect(restoredAssistant.getConfig()).toMatchObject({
+    permissionMode: 'sandbox',
+    model: { useDefault: true },
+  });
+  expect(JSON.parse(readFileSync(join(source, 'assistant.json'), 'utf8'))).toMatchObject({
+    customPrompt: '合成助手配置',
+  });
   expect(restoredAssistant.listSessions()[0]?.id).toBe(assistantSession.id);
   expect(readFileSync(join(destination, 'reports', report.id), 'utf8')).toBe(
     '<h1>合成报告内容</h1>',

@@ -36,7 +36,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         key === 'useQuery'
           ? () => ({
               data:
-                path.join('.') === 'account.intentSense.getStatus'
+                path.join('.') === 'settings.intent.getStatus'
                   ? { engine: 'api' }
                   : queryData(path.at(-1) ?? ''),
               isLoading: false,
@@ -789,13 +789,11 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('意图感知落在模型与识别，按账号作用域展示', () => {
+  it('意图感知落在模型与识别，不再标记为当前账号设置', () => {
     const f = mount('intent-sense');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('AI 功能');
-      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')?.textContent).toBe(
-        '当前账号',
-      );
+      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).toBeNull();
       expect(f.body().textContent).toContain('启用意图感知');
     } finally {
       f.close();

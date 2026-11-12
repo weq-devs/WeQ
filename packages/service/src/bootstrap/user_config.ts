@@ -16,7 +16,15 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import { mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  unlinkSync,
+  existsSync,
+  statSync,
+} from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
@@ -42,6 +50,13 @@ import {
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { emitSettingsChanged } from '../common/settings_changes';
+import {
+  readPreferenceObject,
+  type SharedPreferences,
+  type SharedPreferenceGroups,
+} from '../common/shared_preferences';
+import { migrateSharedPreferences } from './shared_preferences_migration';
+import { displayPreferenceKeys, validatePreferencePatch } from '../common/client_preferences';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   listStorageUsage,
@@ -709,6 +724,7 @@ export interface LinkPreviewConfig {
 }
 
 export interface AppSettings {
+  sharedPreferences: SharedPreferences;
   contactCard: import('../common/contact_card').ContactCardSettings;
   /** 软件更新是否包含测试发布，默认关闭。 */
   updateCheckPrerelease: boolean;
@@ -1113,6 +1129,7 @@ function normalizeQqShowCacheMinutes(value: unknown, legacyDays?: unknown): numb
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  sharedPreferences: {},
   contactCard: DEFAULT_CONTACT_CARD,
   updateCheckPrerelease: false,
   updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
@@ -1196,6 +1213,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 };
 
 export interface UserConfig {
+  desktopPreferencesSeeded?: boolean;
+  sharedPreferenceRestoreReceipts?: string[];
+  settingsRevision?: number;
+  globalClientPreferencesMigrated?: boolean;
+  sharedPreferencesMigration?: { version: 1; configId: string | null; receipt?: string };
   autoEnter?: AutoEnterTarget | null;
   /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
   skipAutoEnterOnce?: boolean;
@@ -1277,7 +1299,92 @@ export class UserConfigService {
     // settings（都用 `getSettings()` 重建），跑在后面有丢掉旧规则的风险。
     this.migrateGroupKeywordToAccounts();
     this.runConfigMigrations();
+    try {
+      this.migrateGlobalClientPreferences();
+    } catch (error) {
+      this.logger.warn('旧全局偏好迁移失败，保留原件等待重试', logErrorContext(error));
+    }
     qzonePaginationLimiter.configure(this.getSettings().qzonePagination);
+  }
+
+  getSharedPreference<K extends keyof SharedPreferenceGroups>(key: K): SharedPreferenceGroups[K] {
+    return structuredClone(
+      this.read().settings?.sharedPreferences?.[key] ?? {},
+    ) as SharedPreferenceGroups[K];
+  }
+
+  sharedPreferenceRevision(): number {
+    const value = this.read().settingsRevision;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? value
+      : (statSync(this.configPath, { throwIfNoEntry: false })?.mtimeMs ?? 0);
+  }
+
+  patchSharedPreference<K extends keyof SharedPreferenceGroups>(
+    key: K,
+    patch: SharedPreferenceGroups[K],
+  ): void {
+    const settings = this.read().settings ?? {};
+    const groups = settings.sharedPreferences ?? {};
+    const value = { ...groups[key], ...patch };
+    if (JSON.stringify(groups[key]) === JSON.stringify(value)) return;
+    this.write({ settings: { ...settings, sharedPreferences: { ...groups, [key]: value } } });
+  }
+
+  replaceSharedPreference<K extends keyof SharedPreferenceGroups>(
+    key: K,
+    value: SharedPreferenceGroups[K],
+  ): void {
+    const settings = this.read().settings ?? {};
+    const groups = settings.sharedPreferences ?? {};
+    if (JSON.stringify(groups[key]) === JSON.stringify(value)) return;
+    this.write({
+      settings: { ...settings, sharedPreferences: { ...groups, [key]: structuredClone(value) } },
+    });
+  }
+
+  migrateSharedAccountPreferences(configId: string): void {
+    migrateSharedPreferences(this, this.root, this.cacheBaseDir(), configId);
+  }
+
+  sharedAppearanceDir(): string {
+    const path = join(this.root, 'config', 'appearance');
+    mkdirSync(path, { recursive: true });
+    return path;
+  }
+
+  private migrateGlobalClientPreferences(): void {
+    if (this.read().globalClientPreferencesMigrated) return;
+    const legacy = readPreferenceObject(join(this.root, 'client-state', 'global.json'));
+    if (!legacy.values || typeof legacy.values !== 'object' || Array.isArray(legacy.values)) {
+      this.write({ settings: this.read().settings ?? {}, globalClientPreferencesMigrated: true });
+      return;
+    }
+    const current = this.getSharedPreference('client');
+    validatePreferencePatch(legacy.values);
+    const settings = this.read().settings ?? {};
+    const display = Object.fromEntries(
+      Object.entries(legacy.values).filter(
+        ([key]) =>
+          displayPreferenceKeys.includes(key as keyof typeof legacy.values) &&
+          !Object.hasOwn(settings, key),
+      ),
+    );
+    const client = Object.fromEntries(
+      Object.entries(legacy.values).filter(
+        ([key]) =>
+          !displayPreferenceKeys.includes(key as keyof typeof legacy.values) &&
+          key !== 'contactOrder',
+      ),
+    );
+    this.write({
+      settings: {
+        ...settings,
+        ...display,
+        sharedPreferences: { ...settings.sharedPreferences, client: { ...client, ...current } },
+      },
+      globalClientPreferencesMigrated: true,
+    });
   }
 
   /**
@@ -1747,6 +1854,8 @@ export class UserConfigService {
         cause: this.readFailure,
       });
     const next: UserConfig = { ...current, ...patch };
+    if (patch.settings)
+      next.settingsRevision = Math.max(Date.now(), this.sharedPreferenceRevision() + 1);
     mkdirSync(this.root, { recursive: true });
     try {
       writeFileAtomicSync(this.configPath, JSON.stringify(next, null, 2));
@@ -1800,6 +1909,7 @@ export class UserConfigService {
     const suppressAttachHint =
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
+      sharedPreferences: structuredClone(s?.sharedPreferences ?? {}),
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       contactCard: normalizeContactCard(s?.contactCard),
       updateCheckPrerelease: s?.updateCheckPrerelease === true,
@@ -1954,6 +2064,15 @@ export class UserConfigService {
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
+      sharedPreferences: {
+        ...current.sharedPreferences,
+        ...Object.fromEntries(
+          Object.entries(patch.sharedPreferences ?? {}).map(([key, value]) => [
+            key,
+            { ...current.sharedPreferences[key as keyof SharedPreferences], ...value },
+          ]),
+        ),
+      } as SharedPreferences,
       contactCard: normalizeContactCard({
         ...current.contactCard,
         ...patch.contactCard,
@@ -2145,6 +2264,21 @@ export class UserConfigService {
   setTypingStatusHidden(hidden: TypingStatusConversation[]): TypingStatusSettings {
     const current = this.getSettings().typingStatus;
     return this.setSettings({ typingStatus: { ...current, hidden } }).typingStatus;
+  }
+
+  setTypingStatusHiddenForAccount(
+    accountUin: string,
+    accountConfigId: string,
+    hidden: TypingStatusConversation[],
+  ): TypingStatusSettings {
+    if (
+      hidden.some((row) => row.accountUin !== accountUin || row.accountConfigId !== accountConfigId)
+    )
+      throw new Error('会话选择与目标账号不一致');
+    const others = this.getSettings().typingStatus.hidden.filter(
+      (row) => row.accountUin !== accountUin || row.accountConfigId !== accountConfigId,
+    );
+    return this.setTypingStatusHidden([...others, ...hidden]);
   }
 
   getLocalModelId(kind: keyof LocalModelResources): string {

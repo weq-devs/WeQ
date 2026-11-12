@@ -63,8 +63,9 @@ it('共享账号目录中的助手状态与报告一并快照，可直接打包�
   });
   writeFileSync(join(f.account, 'reports', '合成报告-synthetic.html'), '<h1>合成内容</h1>');
   const snapshot = snapshotWeqClones(f.agentlab);
-  expect(snapshot.files).toHaveLength(4);
-  expect(readWeqBackup(buildWeqBackup(snapshot.files)).files).toHaveLength(4);
+  expect(snapshot.files).toHaveLength(3);
+  expect(snapshot.files.some((file) => file.path.endsWith('/assistant.json'))).toBe(false);
+  expect(readWeqBackup(buildWeqBackup(snapshot.files)).files).toHaveLength(3);
   expect(readFileSync(join(f.account, 'reports', '合成报告-synthetic.html'), 'utf8')).toBe(
     '<h1>合成内容</h1>',
   );

@@ -33,7 +33,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return () => ({
             data: state.loading ? undefined : state.data[path],
             isLoading: state.loading,
-            error: path === 'account.intentSense.getStatus' ? state.error : null,
+            error: path === 'settings.intent.getStatus' ? state.error : null,
             refetch: state.refetch,
           });
         if (key === 'useMutation')
@@ -81,7 +81,7 @@ beforeEach(() => {
   state.pending = false;
   state.error = null;
   state.data = {
-    'account.intentSense.getStatus': {
+    'settings.intent.getStatus': {
       ...DEFAULT_INTENT_TUNING,
       suggestionFallbackTexts: [...DEFAULT_SUGGESTION_FALLBACK_TEXTS],
       enabled: false,
@@ -101,7 +101,7 @@ beforeEach(() => {
     ],
   };
   state.save.mockReset().mockImplementation(async (patch) => ({
-    ...(state.data['account.intentSense.getStatus'] as object),
+    ...(state.data['settings.intent.getStatus'] as object),
     ...patch,
   }));
   state.setData.mockReset();
@@ -160,7 +160,7 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
     expect(state.save).toHaveBeenLastCalledWith({
       [model]: { providerId: 'synthetic', model: 'model' },
     });
-    expect(state.invalidate).toHaveBeenCalledTimes(3);
+    expect(state.invalidate).toHaveBeenCalledTimes(4);
     await act(async () => f.toggle(title).click());
     expect(state.save).toHaveBeenLastCalledWith({ [enabled]: true });
   });
@@ -226,7 +226,7 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
     expect(state.save).toHaveBeenCalledTimes(1);
-    await act(async () => finish(state.data['account.intentSense.getStatus']));
+    await act(async () => finish(state.data['settings.intent.getStatus']));
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 650));
     });
@@ -241,7 +241,7 @@ it('等待动画独立保存；本地统计隐藏推断参数及所有模型占�
     intent.host.querySelector<HTMLButtonElement>('[aria-label="批量分析时显示胶囊动画"]')!.click(),
   );
   expect(state.save).toHaveBeenLastCalledWith({ loadingAnimation: false });
-  Object.assign(state.data['account.intentSense.getStatus'] as object, {
+  Object.assign(state.data['settings.intent.getStatus'] as object, {
     profileEngine: 'heuristic',
   });
   const profile = mount(InteractionProfileSection);
@@ -253,7 +253,7 @@ it('等待动画独立保存；本地统计隐藏推断参数及所有模型占�
 });
 
 it('回退列表直接编辑、增删、去空白与重复校验，开关不清空内容', async () => {
-  Object.assign(state.data['account.intentSense.getStatus'] as object, {
+  Object.assign(state.data['settings.intent.getStatus'] as object, {
     suggestionFallbackTexts: ['A', 'B'],
   });
   const f = mount(ReplySuggestionsSection);

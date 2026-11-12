@@ -131,18 +131,7 @@ export interface SettingsScope {
 }
 
 export function settingsScopeFor(section: SectionId): SettingsScope | null {
-  if (
-    [
-      'anti-recall',
-      'intent-sense',
-      'reply-suggestions',
-      'interaction-profile',
-      'model-usage',
-      'mail',
-      'database-tolerance',
-    ].includes(section)
-  )
-    return { label: '当前账号' };
+  if (['model-usage', 'database-tolerance'].includes(section)) return { label: '当前账号' };
   // 混合作用域的页面在具体分区标注，不用页头把全局项误标为当前账号。
   return null;
 }

@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ACCOUNT_STATE_CHANGED,
-  isAccountStateReady,
-  saveAccountRecords,
-  sharedAccountRecords,
-} from '../lib/clientPreferences';
+import { PREFERENCES_CHANGED, changePreference, preferenceValue } from '../lib/clientPreferences';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
-import { accountOrderDefaults } from '@weq/service/client-preferences';
+import { accountOrderDefaults, isDirectoryPreference } from '@weq/service/client-preferences';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useQQReadActivity } from './useQQAutoRefresh';
@@ -74,8 +69,8 @@ export function useContactDirectoryOrder(
       setSaved(undefined);
       setSharedTick((value) => value + 1);
     };
-    window.addEventListener(ACCOUNT_STATE_CHANGED, update);
-    return () => window.removeEventListener(ACCOUNT_STATE_CHANGED, update);
+    window.addEventListener(PREFERENCES_CHANGED, update);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, update);
   }, []);
   const [refreshRequest, setRefreshRequest] = useState<{
     fields: ContactMetric[];
@@ -84,16 +79,9 @@ export function useContactDirectoryOrder(
   const storedPreferences = useMemo(() => {
     if (!enabled) return defaults;
     try {
-      const parsed = isAccountStateReady()
-        ? sharedAccountRecords('order')[kind]
-        : JSON.parse(localStorage.getItem(storageKey) ?? 'null');
-      if (
-        parsed &&
-        Object.hasOwn(groupingOptions, parsed.grouping) &&
-        Object.hasOwn(sortOptions, parsed.sort) &&
-        typeof parsed.descending === 'boolean'
-      )
-        return parsed as DirectoryPreferences;
+      const parsed = preferenceValue('contactOrder')[kind];
+      if (isDirectoryPreference(kind, parsed))
+        return { grouping: parsed.grouping, sort: parsed.sort, descending: parsed.descending };
     } catch {
       /* 缺少偏好时使用默认值。 */
     }
@@ -217,13 +205,7 @@ export function useContactDirectoryOrder(
       ...(patch.sort ? { descending: defaultDescending(patch.sort) } : {}),
     };
     setSaved({ key: storageKey, value });
-    if (enabled) saveAccountRecords('order', { [kind]: value });
-    if (enabled)
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(value));
-      } catch {
-        /* 偏好不影响使用。 */
-      }
+    if (enabled) void changePreference('contactOrder', { [kind]: value });
   };
   const latest = useRef({ key: storageKey, rows: projectedRows });
   if (!freeze || latest.current.key !== storageKey)

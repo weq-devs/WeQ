@@ -13,11 +13,25 @@ const state = vi.hoisted(() => ({
   intent: {} as Record<string, unknown>,
 }));
 vi.mock('../src/main/context/app_context', () => ({
+  getActiveIntentSenseLocalEngine: () => null,
+  requireBootstrap: () => ({
+    userConfig: {
+      getSettings: () => state.settings,
+      sharedPreferenceRevision: () => 0,
+      getSharedPreference: (key: keyof AppSettings['sharedPreferences']) =>
+        state.settings.sharedPreferences[key] ?? {},
+      patchSharedPreference: (key: keyof AppSettings['sharedPreferences'], patch: object) =>
+        Object.assign(state.settings.sharedPreferences, {
+          [key]: { ...state.settings.sharedPreferences[key], ...patch },
+        }),
+    },
+  }),
   closeSalvageConnections: vi.fn(),
   getAppContext: () => ({
     bootstrap: { userConfig: { getSettings: () => state.settings, getAutoEnter: () => null } },
     services: state.account
       ? {
+          mail: { status: () => ({ lastSync: null }) },
           accountConfig: {
             getRecord: () => ({
               configId: state.source,
@@ -184,15 +198,24 @@ describe('分级恢复默认', () => {
     });
     expect(state.calls.map(([method]) => method)).toEqual(['setQzonePagination']);
   });
-  it('隐藏的画像推断参数仍在页面范围内，账号切换后旧确认失效', async () => {
+  it('画像参数为全局设置，账号切换不改变其恢复目标', async () => {
     state.account = true;
     state.intent.profileEngine = 'heuristic';
     const preview = await caller().preview({ page: 'interaction-profile' });
     expect(preview.items.some((item) => item.id === 'profile-model:profileSamples')).toBe(true);
-    expect(preview.items.every((item) => item.scope === '当前账号')).toBe(true);
+    expect(preview.items.every((item) => item.scope === '全局')).toBe(true);
+    expect(preview.source).toBeNull();
+    state.source = 'other-source';
+    const result = await caller().restore({ page: 'interaction-profile', source: preview.source });
+    expect(result.every((item) => item.ok)).toBe(true);
+    expect(state.intent.profileEngine).toBe(DEFAULT_INTENT_SENSE_CONFIG.profileEngine);
+  });
+  it('数据源配置仍拒绝切号前的恢复目标', async () => {
+    state.account = true;
+    const preview = await caller().preview({ page: 'media', card: 'native-media' });
     state.source = 'other-source';
     await expect(
-      caller().restore({ page: 'interaction-profile', source: preview.source }),
+      caller().restore({ page: 'media', card: 'native-media', source: preview.source }),
     ).rejects.toThrow('已切换');
     expect(state.calls).toEqual([]);
   });

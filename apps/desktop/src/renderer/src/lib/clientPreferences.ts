@@ -51,6 +51,8 @@ function readSharedCache(): ClientStateSnapshot | null {
     ) {
       validatePreferencePatch(raw.values);
       return {
+        settingsRevision:
+          typeof raw.settingsRevision === 'number' ? raw.settingsRevision : undefined,
         epoch: typeof raw.epoch === 'string' ? raw.epoch : undefined,
         revision: raw.revision,
         values: raw.values,
@@ -66,6 +68,7 @@ function readSharedCache(): ClientStateSnapshot | null {
 const cached = readSharedCache();
 let shared: PreferencePatch = cached?.values ?? {};
 let revision = cached?.revision ?? -1;
+let settingsCommit = cached?.settingsRevision ?? 0;
 let epoch = cached?.epoch;
 const retiredEpochs = new Set<string>();
 let sequence = 0;
@@ -131,6 +134,11 @@ export function preferenceValue<K extends PreferenceKey>(
   fallback?: PreferenceValues[K],
 ): PreferenceValues[K] {
   const active = pending.get(key);
+  if (key === 'contactOrder')
+    return {
+      ...shared.contactOrder,
+      ...(active?.value as Record<string, unknown> | undefined),
+    } as PreferenceValues[K];
   return (active?.value ??
     shared[key] ??
     fallback ??
@@ -182,17 +190,33 @@ export function acceptPreferences(snapshot: ClientStateSnapshot, persist = true)
     if (epoch) retiredEpochs.add(epoch);
     epoch = snapshot.epoch;
     revision = -1;
+    settingsCommit = 0;
   }
   if (snapshot.revision < revision) return;
   revision = snapshot.revision;
+  settingsCommit = Math.max(settingsCommit, snapshot.settingsRevision ?? 0);
   shared = snapshot.values;
   try {
-    if (persist) write(`${prefix}${serverId}:shared`, { epoch, revision, values: shared });
+    if (persist)
+      write(`${prefix}${serverId}:shared`, {
+        epoch,
+        revision,
+        settingsRevision: settingsCommit,
+        values: shared,
+      });
   } catch {
     /* 共享保存不依赖浏览器缓存。 */
   }
   useClientPreferences.setState({ ready: true });
   notify(pending.size || failedRecords.size || retryActions.size ? undefined : '');
+}
+
+/** 较早提交的慢响应不能覆盖已观察到的更新配置；旧服务无修订号时保持兼容。 */
+export function acceptSettingsReply(reply: { settingsRevision?: number }): boolean {
+  if (reply.settingsRevision === undefined) return true;
+  if (reply.settingsRevision < settingsCommit) return false;
+  settingsCommit = reply.settingsRevision;
+  return true;
 }
 if (typeof window !== 'undefined')
   window.addEventListener('storage', (event) => {
@@ -200,7 +224,12 @@ if (typeof window !== 'undefined')
     const snapshot = readSharedCache();
     if (!snapshot) return;
     if (snapshot.revision < revision) {
-      write(`${prefix}${serverId}:shared`, { epoch, revision, values: shared });
+      write(`${prefix}${serverId}:shared`, {
+        epoch,
+        revision,
+        settingsRevision: settingsCommit,
+        values: shared,
+      });
       return;
     }
     acceptPreferences(snapshot, false);

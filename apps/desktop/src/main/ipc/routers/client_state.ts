@@ -1,4 +1,4 @@
-import { statSync, createReadStream, constants } from 'node:fs';
+import { createReadStream, constants } from 'node:fs';
 import { copyFile, mkdir, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, relative, isAbsolute, extname } from 'node:path';
@@ -83,16 +83,53 @@ const patch = z.custom<PreferencePatch>((value) => {
 });
 const namespace = z.enum(['pins', 'tasks', 'assistant', 'todos', 'order']);
 export function globalClientState() {
-  return store('global');
+  return { snapshot: preferenceSnapshot, identity: () => store('global').identity() };
 }
-function savePreferences(input: PreferencePatch) {
-  const settings = requireBootstrap().userConfig.getSettings();
-  const display = Object.fromEntries(Object.entries(input).filter(([key]) => key in settings));
-  const appearance = Object.fromEntries(
-    Object.entries(input).filter(([key]) => !(key in settings)),
+function settingsRevision() {
+  return requireBootstrap().userConfig.sharedPreferenceRevision();
+}
+function accountSnapshot(input: z.infer<typeof clientAccountBinding>) {
+  const snapshot = boundClientState(input).snapshot();
+  return {
+    ...snapshot,
+    records: {
+      ...snapshot.records,
+      order: requireBootstrap().userConfig.getSharedPreference('order'),
+    },
+    revision: snapshot.revision + settingsRevision(),
+  };
+}
+function savePreferences(input: PreferencePatch, receiptId?: string, seeded = false) {
+  const config = requireBootstrap().userConfig;
+  const receipts = config.read().sharedPreferenceRestoreReceipts ?? [];
+  if (receiptId && receipts.includes(receiptId)) return preferenceSnapshot();
+  const settings = config.getSettings();
+  const display = Object.fromEntries(
+    Object.entries(input).filter(([key]) => key !== 'contactOrder' && key in settings),
   );
-  if (Object.keys(appearance).length) globalClientState().patch(appearance);
-  if (Object.keys(display).length) requireBootstrap().userConfig.setSettings(display);
+  const appearance = Object.fromEntries(
+    Object.entries(input).filter(([key]) => key !== 'contactOrder' && !(key in settings)),
+  );
+  const raw = config.read().settings ?? {};
+  const groups = raw.sharedPreferences ?? {};
+  if (Object.keys(input).length || receiptId || seeded)
+    config.write({
+      settings: {
+        ...raw,
+        ...display,
+        sharedPreferences: {
+          ...groups,
+          ...(input.contactOrder ? { order: { ...groups.order, ...input.contactOrder } } : {}),
+          ...(Object.keys(appearance).length
+            ? { client: { ...groups.client, ...appearance } }
+            : {}),
+        },
+      },
+      ...(receiptId
+        ? { sharedPreferenceRestoreReceipts: [...receipts.slice(-999), receiptId] }
+        : {}),
+      ...(seeded ? { desktopPreferencesSeeded: true } : {}),
+    });
   return preferenceSnapshot();
 }
 function preferenceSnapshot() {
@@ -100,17 +137,19 @@ function preferenceSnapshot() {
   const values: PreferencePatch = {};
   for (const key of displayPreferenceKeys)
     if (key in settings) Object.assign(values, { [key]: settings[key as keyof typeof settings] });
-  const snapshot = globalClientState().snapshot();
+  const serverId = store('global').identity();
   return {
-    ...snapshot,
-    values: { ...preferenceDefaults, ...snapshot.values, ...values },
-    revision: Math.max(
-      snapshot.revision,
-      statSync(globalClientState().path, { throwIfNoEntry: false })?.mtimeMs ?? 0,
-      statSync(join(requirePlatform().appDataRoot(), 'config.json'), { throwIfNoEntry: false })
-        ?.mtimeMs ?? 0,
-    ),
-    serverId: globalClientState().identity(),
+    epoch: `unified-preferences-v1:${serverId}`,
+    settingsRevision: requireBootstrap().userConfig.sharedPreferenceRevision(),
+    records: {},
+    values: {
+      ...preferenceDefaults,
+      ...requireBootstrap().userConfig.getSharedPreference('client'),
+      ...values,
+      contactOrder: requireBootstrap().userConfig.getSharedPreference('order'),
+    },
+    revision: settingsRevision(),
+    serverId,
   };
 }
 export const clientStateRouter = router({
@@ -151,28 +190,35 @@ export const clientStateRouter = router({
     .mutation(({ input }) => {
       if (Object.keys(input.values).some((key) => !Object.hasOwn(legacyPreferenceKeys, key)))
         throw new Error('旧界面备份包含非共享界面字段');
-      globalClientState().restorePreferences(input.values, input.receiptId);
+      savePreferences(input.values, input.receiptId);
       return preferenceSnapshot();
     }),
   seed: procedure.input(patch).mutation(({ input, ctx }) => {
     if (ctx.host) throw new Error('共享初始值由桌面端提供');
-    return globalClientState().seed(input);
+    const config = requireBootstrap().userConfig;
+    if (config.read().desktopPreferencesSeeded) return preferenceSnapshot();
+    const existing = config.getSharedPreference('client');
+    const fresh = Object.fromEntries(
+      Object.entries(input).filter(
+        ([key]) =>
+          !Object.hasOwn(existing, key) && !Object.hasOwn(config.read().settings ?? {}, key),
+      ),
+    );
+    return savePreferences(fresh, undefined, true);
   }),
   changed: procedure.subscription(() =>
     observable<ClientStateChange>((emit) => {
-      const stop = globalClientState().subscribe((event) => emit.next(event));
       const stopSettings = onSettingsChanged(() =>
         emit.next({ revision: Date.now(), section: 'preferences' }),
       );
       return () => {
-        stop();
         stopSettings();
       };
     }),
   ),
   accountSnapshot: procedure
     .input(clientAccountBinding)
-    .query(({ input }) => boundClientState(input).snapshot()),
+    .query(({ input }) => accountSnapshot(input)),
   accountPatch: procedure
     .input(
       clientAccountBinding.extend({
@@ -181,20 +227,35 @@ export const clientStateRouter = router({
         seed: z.boolean().default(false),
       }),
     )
-    .mutation(({ input }) =>
-      boundClientState(input).records(input.namespace, input.values, input.seed),
-    ),
+    .mutation(({ input }) => {
+      boundClientState(input);
+      if (input.namespace === 'order') {
+        // 旧设备的初始化值不能在切号时重新接管全局排序。
+        if (!input.seed) requireBootstrap().userConfig.patchSharedPreference('order', input.values);
+        return accountSnapshot(input);
+      }
+      boundClientState(input).records(input.namespace, input.values, input.seed);
+      return accountSnapshot(input);
+    }),
   accountChanged: procedure.input(clientAccountBinding).subscription(({ input }) => {
     const state = boundClientState(input);
-    return observable<ClientStateChange>((emit) =>
-      state.subscribe((event) => {
+    return observable<ClientStateChange>((emit) => {
+      const publish = (event: ClientStateChange) => {
         try {
           if (boundClientState(input) === state) emit.next(event);
         } catch {
           emit.complete();
         }
-      }),
-    );
+      };
+      const stop = state.subscribe(publish);
+      const stopSettings = onSettingsChanged(() =>
+        publish({ revision: Date.now(), section: 'order' }),
+      );
+      return () => {
+        stop();
+        stopSettings();
+      };
+    });
   }),
   draft: procedure
     .input(clientAccountBinding.extend({ key: z.string().min(1).max(1024) }))

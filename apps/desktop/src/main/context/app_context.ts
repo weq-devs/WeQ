@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
 import { webNotices, type WebNotice } from '../web/notices';
@@ -1538,7 +1539,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.resourcePlatform = platform;
       this.accountIsStatic = false;
       this.accountIsAndroidBackup = false;
-      const accountConfig = new AccountConfigService(session, platform.appDataRoot());
+      const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
       // Keyed by the same (uin, dataDir) id the account record uses.
       const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
@@ -1608,9 +1609,14 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 个性装扮：新架构（cache/config 分离）。
       // 1. 迁移旧数据（如果存在旧 manifest.json）。
       const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
-      const dressConfigDir = join(platform.appDataRoot(), 'config', 'accounts', exportConfigId);
+      const dressConfigDir = userConfig.sharedAppearanceDir();
       const sharedDressCache = userConfig.cacheDir('dress_shared');
-      migrateDressData(legacyDressDir, sharedDressCache, new DressConfigService(dressConfigDir));
+      migrateDressData(
+        legacyDressDir,
+        sharedDressCache,
+        new DressConfigService(join(platform.appDataRoot(), 'config', 'accounts', exportConfigId)),
+      );
+      userConfig.migrateSharedAccountPreferences(exportConfigId);
       // 2. 创建新的装扮服务。
       const dressInstall = createDressService(
         platform.native.ntHelper,
@@ -1618,6 +1624,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         dressConfigDir,
         sharedDressCache,
         resolveOnlinePid,
+        sharedPreferencePersistence(userConfig, 'dress'),
       );
       // 3. 升级后的自愈：缓存里的字体产物若是旧转换链产出的（彩色表 / 炫彩帧都是新
       //    加的），后台就地重新派生一遍（走本地已缓存的原始 zip，完全离线）。
@@ -1662,7 +1669,15 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-        { onRecall: (event) => notifyRecall(session, event) },
+        {
+          onRecall: (event) => notifyRecall(session, event),
+          preferences: sharedPreferencePersistence(
+            userConfig,
+            'antiRecall',
+            join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+            ['targets', 'notifyTargets'],
+          ),
+        },
       );
       // 打开账号就挂上撤回记录监听（拦到新撤回时按会话开关弹系统通知）。
       activeAntiRecall = antiRecall;
@@ -1767,7 +1782,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         accountConfig,
         annualReport: new AnnualReportService(session, {
-          preferences: accountConfig.getRecord()?.annualReport,
+          preferences: userConfig.getSharedPreference('annualReport'),
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
             const record = accountConfig.getRecord();
@@ -1860,6 +1875,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
             sampleHitokoto,
           },
+          sharedPreferencePersistence(userConfig, 'assistant'),
         ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           // 导出是唯一会用到损坏宽容的读取链路：分页真的报出损坏、且该账号已授权
@@ -2067,6 +2083,12 @@ export function initAppContext(fileRoot?: string): AppContext {
           session,
           userConfig.cacheDir(join('intent_sense', exportConfigId)),
           {
+            preferences: sharedPreferencePersistence(
+              userConfig,
+              'intent',
+              join(userConfig.cacheDir(join('intent_sense', exportConfigId)), 'config.json'),
+              ['conversationOverrides'],
+            ),
             resolveEndpoint: resolveAgentEndpoint,
             localEngine: getActiveIntentSenseLocalEngine(),
             legacyLocalModelId: userConfig.getLocalModelId('intent'),
@@ -2440,7 +2462,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.account = session;
       accountCacheRoots.set(this, userConfig.cacheBaseDir());
 
-      const accountConfig = new AccountConfigService(session, platform.appDataRoot());
+      const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       const exportConfigId = accountConfigId(session.context.uin, dirPath);
 
       // Does this machine also hold a native QQ directory for the same account?
@@ -2511,9 +2533,14 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 个性装扮：新架构（cache/config 分离），静态账号也走全局共享缓存。
       // 迁移旧数据（如果存在旧 manifest.json）。
       const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
-      const dressConfigDir = join(platform.appDataRoot(), 'config', 'accounts', exportConfigId);
+      const dressConfigDir = userConfig.sharedAppearanceDir();
       const sharedDressCache = userConfig.cacheDir('dress_shared');
-      migrateDressData(legacyDressDir, sharedDressCache, new DressConfigService(dressConfigDir));
+      migrateDressData(
+        legacyDressDir,
+        sharedDressCache,
+        new DressConfigService(join(platform.appDataRoot(), 'config', 'accounts', exportConfigId)),
+      );
+      userConfig.migrateSharedAccountPreferences(exportConfigId);
       // 创建新的装扮服务。
       const dressInstall = createDressService(
         platform.native.ntHelper,
@@ -2521,6 +2548,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         dressConfigDir,
         sharedDressCache,
         livePid,
+        sharedPreferencePersistence(userConfig, 'dress'),
       );
       // 升级后的自愈：与在线路径同一套（静态账号也该看到新产物）。
       void dressInstall.refreshDerived().then((refreshed) => {
@@ -2556,7 +2584,16 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         staticPlatform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-        { onRecall: (event) => notifyRecall(session, event) },
+        {
+          readOnly: !this.accountIsAndroidBackup,
+          onRecall: (event) => notifyRecall(session, event),
+          preferences: sharedPreferencePersistence(
+            userConfig,
+            'antiRecall',
+            join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+            ['targets', 'notifyTargets'],
+          ),
+        },
       );
 
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
@@ -2623,7 +2660,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
-          preferences: accountConfig.getRecord()?.annualReport,
+          preferences: userConfig.getSharedPreference('annualReport'),
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
             const record = accountConfig.getRecord();
@@ -2715,6 +2752,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
             sampleHitokoto,
           },
+          sharedPreferencePersistence(userConfig, 'assistant'),
         ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           // 导出是唯一会用到损坏宽容的读取链路：分页真的报出损坏、且该账号已授权
@@ -2895,6 +2933,12 @@ export function initAppContext(fileRoot?: string): AppContext {
           session,
           userConfig.cacheDir(join('intent_sense', exportConfigId)),
           {
+            preferences: sharedPreferencePersistence(
+              userConfig,
+              'intent',
+              join(userConfig.cacheDir(join('intent_sense', exportConfigId)), 'config.json'),
+              ['conversationOverrides'],
+            ),
             resolveEndpoint: resolveAgentEndpoint,
             localEngine: getActiveIntentSenseLocalEngine(),
             legacyLocalModelId: userConfig.getLocalModelId('intent'),

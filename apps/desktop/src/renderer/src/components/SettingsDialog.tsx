@@ -771,7 +771,7 @@ function SettingsContent({
                           {active.id === 'chat-interaction' ? (
                             <>
                               {active.render(onOpenMaintenance)}
-                              <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                              <SettingsScopeContext.Provider value={null}>
                                 <AntiRecallDialog
                                   embedded
                                   onClose={() => {}}

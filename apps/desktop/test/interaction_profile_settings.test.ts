@@ -20,9 +20,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({
+      settings: { intent: { getStatus: { setData: fixture.setData } } },
       account: {
         intentSense: {
-          getStatus: { setData: fixture.setData },
+          getStatus: { invalidate: fixture.invalidate },
           getProfile: { invalidate: fixture.invalidate },
           listMessageAnalyses: { invalidate: fixture.invalidate },
           getSuggestions: { invalidate: fixture.invalidate },
@@ -52,8 +53,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         },
       },
     },
-    account: {
-      intentSense: {
+    settings: {
+      intent: {
         getStatus: {
           useQuery: () => ({
             data: {
@@ -109,7 +110,7 @@ it('画像 API 只保存画像引用，运行方式不再包含跟随选项', as
   expect(fixture.save).toHaveBeenCalledWith({
     profileProviderRef: { providerId: 'synthetic', model: 'profile-model' },
   });
-  expect(fixture.invalidate).toHaveBeenCalledTimes(3);
+  expect(fixture.invalidate).toHaveBeenCalledTimes(4);
 });
 
 it('画像本地资源独立选择，在途允许继续选择并由共用队列串行保存', async () => {

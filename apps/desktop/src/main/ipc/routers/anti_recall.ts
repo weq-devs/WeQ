@@ -20,8 +20,10 @@
  */
 
 import { z } from 'zod';
-import { getAppContext, type AccountServices } from '../../context/app_context';
+import { getAppContext, requireBootstrap, type AccountServices } from '../../context/app_context';
+import type { AntiRecallStatus } from '@weq/service';
 import { procedure, router } from '../trpc';
+import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -50,18 +52,35 @@ const target = z.object({
   id: z.string().min(1),
 });
 
-export const antiRecallRouter = router({
+export async function sharedAntiRecallStatus(): Promise<AntiRecallStatus> {
+  const service = getAppContext().services?.antiRecall;
+  if (service) return service.getStatus();
+  const value = requireBootstrap().userConfig.getSharedPreference('antiRecall');
+  return {
+    settingsRevision: requireBootstrap().userConfig.sharedPreferenceRevision(),
+    enabled: value.enabled ?? false,
+    mode: value.mode ?? 'selected',
+    notifyEnabled: value.notifyEnabled ?? false,
+    targets: [],
+    notifyTargets: [],
+    installed: [],
+    qqRunning: false,
+  };
+}
+
+export const antiRecallSettingsProcedures = {
   /** Current config + live trigger state + whether QQ is running. */
   getStatus: procedure.query(() => {
-    return requireServices().antiRecall.getStatus();
+    return sharedAntiRecallStatus();
   }),
 
   /** Turn the feature on/off. Installs or drops triggers to match. */
   setEnabled: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     // Disabling stays allowed: a snapshot imported from a machine that had
     // triggers installed must still be able to drop them.
-    if (input.enabled) refuseWhenStatic();
-    return requireServices().antiRecall.setEnabled(input.enabled);
+    if (getAppContext().services) return requireServices().antiRecall.setEnabled(input.enabled);
+    requireBootstrap().userConfig.patchSharedPreference('antiRecall', { enabled: input.enabled });
+    return sharedAntiRecallStatus();
   }),
 
   /**
@@ -71,8 +90,12 @@ export const antiRecallRouter = router({
   setScope: procedure
     .input(z.object({ scope: z.enum(['off', 'selected', 'all']) }))
     .mutation(({ input }) => {
-      if (input.scope !== 'off') refuseWhenStatic();
-      return requireServices().antiRecall.setScope(input.scope);
+      if (getAppContext().services) return requireServices().antiRecall.setScope(input.scope);
+      requireBootstrap().userConfig.patchSharedPreference('antiRecall', {
+        enabled: input.scope !== 'off',
+        mode: input.scope === 'all' ? 'all' : 'selected',
+      });
+      return sharedAntiRecallStatus();
     }),
 
   /**
@@ -82,15 +105,19 @@ export const antiRecallRouter = router({
   setMode: procedure
     .input(z.object({ mode: z.enum(['selected', 'all']) }))
     .mutation(({ input }) => {
-      refuseWhenStatic();
-      return requireServices().antiRecall.setMode(input.mode);
+      if (getAppContext().services) return requireServices().antiRecall.setMode(input.mode);
+      requireBootstrap().userConfig.patchSharedPreference('antiRecall', { mode: input.mode });
+      return sharedAntiRecallStatus();
     }),
 
   /** Replace the set of conversations protected from recall. */
-  setTargets: procedure.input(z.object({ targets: z.array(target) })).mutation(({ input }) => {
-    refuseWhenStatic();
-    return requireServices().antiRecall.setTargets(input.targets);
-  }),
+  setTargets: procedure
+    .input(z.object({ targets: z.array(target), ...optionalAccountBinding }))
+    .mutation(({ input }) => {
+      assertAccountBinding(input);
+      refuseWhenStatic();
+      return requireServices().antiRecall.setTargets(input.targets);
+    }),
 
   /**
    * 撤回通知：总开关 + 按会话通知集（key `${kind}:${id}`）。不改触发器，纯配置。
@@ -100,11 +127,23 @@ export const antiRecallRouter = router({
       z.object({
         enabled: z.boolean().optional(),
         targets: z.array(z.string()).optional(),
+        ...optionalAccountBinding,
       }),
     )
     .mutation(({ input }) => {
-      return requireServices().antiRecall.setNotify(input);
+      if (input.targets) assertAccountBinding(input);
+      if (getAppContext().services) return requireServices().antiRecall.setNotify(input);
+      if (input.targets) throw new Error('请先打开账号再选择通知会话');
+      if (input.enabled !== undefined)
+        requireBootstrap().userConfig.patchSharedPreference('antiRecall', {
+          notifyEnabled: input.enabled,
+        });
+      return sharedAntiRecallStatus();
     }),
+};
+
+export const antiRecallRouter = router({
+  ...antiRecallSettingsProcedures,
 
   /**
    * 某个会话已记录的撤回（最新在前）—— 撤回记录面板用。只读，不依赖 QQ 在线。

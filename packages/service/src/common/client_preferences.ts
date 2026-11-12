@@ -1,7 +1,17 @@
 import { DEFAULT_SEARCH_CATEGORIES } from '../account/search_policy';
+import { isDirectoryPreference } from './contact_directory_preferences';
+export {
+  accountOrderDefaults,
+  FRIEND_SORTS,
+  FRIEND_GROUPS,
+  GROUP_SORTS,
+  GROUP_GROUPS,
+  isDirectoryPreference,
+} from './contact_directory_preferences';
 export const MAX_SHARED_DRAFT_IMAGE_BYTES = 32 * 1024 * 1024;
 
 export const preferenceDefaults = {
+  contactOrder: {} as Record<string, unknown>,
   preference: 'system',
   privacyMode: false,
   capturePrivacy: false,
@@ -30,11 +40,6 @@ export const preferenceDefaults = {
 export type PreferenceKey = keyof typeof preferenceDefaults;
 export type PreferenceValues = typeof preferenceDefaults;
 export type PreferencePatch = Partial<PreferenceValues>;
-export const accountOrderDefaults = {
-  friends: { grouping: 'qq', sort: 'remark', descending: false },
-  groups: { grouping: 'notify', sort: 'remark', descending: false },
-  refreshRange: 'older24h',
-} as const;
 export const displayPreferenceKeys: readonly PreferenceKey[] = [
   'accent',
   'background',
@@ -75,6 +80,19 @@ export function validatePreferencePatch(value: unknown): asserts value is Prefer
     else if (key === 'componentStyle')
       valid = ['qqnt', 'classic', 'minimal', 'retro'].includes(String(entry));
     else if (key === 'density') valid = entry === 'comfortable' || entry === 'compact';
+    else if (key === 'contactOrder')
+      valid =
+        isRecord(entry) &&
+        Object.keys(entry).every((part) => ['friends', 'groups', 'refreshRange'].includes(part)) &&
+        Object.entries(entry).every(([part, value]) =>
+          part === 'refreshRange'
+            ? ['older24h', 'all', 'none'].includes(String(value))
+            : (part === 'friends' || part === 'groups') &&
+              isDirectoryPreference(part, value) &&
+              Object.keys(value).every((field) =>
+                ['grouping', 'sort', 'descending'].includes(field),
+              ),
+        );
     else if (key === 'calendar')
       valid =
         Array.isArray(entry) && entry.every((part) => preferenceDefaults.calendar.includes(part));
@@ -99,6 +117,7 @@ export interface SharedDraft {
   value: unknown;
 }
 export interface ClientStateSnapshot {
+  settingsRevision?: number;
   epoch?: string;
   revision: number;
   values: PreferencePatch;

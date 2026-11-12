@@ -23,6 +23,7 @@ import { getLogger, logErrorContext } from '../common/logger';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { normalizeGroupKeywordRules, type GroupKeywordRules } from './group_keyword';
 import type { VipInfo } from './vip';
+import type { SharedPreferenceOwner } from '../common/shared_preferences';
 
 /**
  * A download rkey issued by QQ's OIDB service (`FetchDownloadRkeys`). Used
@@ -77,7 +78,7 @@ export function clientKeyExpiryMs(c: ClientKey): number {
 export interface AccountConfig {
   /** WeQ 各端共用的通知阅读记录，与 QQ 申请处理状态独立。 */
   noticeSeen?: Partial<Record<'friend' | 'group', { seen: string[]; readThrough: number }>>;
-  /** 当前账号显式开启的邮箱提醒；不保存邮箱票据。 */
+  /** 兼容读取视图的邮箱偏好；宿主全局保存，不保存邮箱票据。 */
   mailNotifications?: boolean;
   /** 左侧导航显示邮箱未读数；旧配置默认显示。 */
   mailShowUnread?: boolean;
@@ -126,7 +127,7 @@ export interface AccountConfig {
   avatarUrl?: string;
   /** Unix milliseconds of last login. */
   lastLoginAt: number;
-  /** Per-account annual-report page collection and ordering preferences. */
+  /** 兼容读取视图的年度报告页面偏好；宿主全局保存。 */
   annualReport?: AnnualReportPreferences;
 
   /**
@@ -312,6 +313,7 @@ export class AccountConfigService {
   constructor(
     private readonly session: AccountSession,
     appDataRoot: string,
+    private readonly sharedPreferences?: SharedPreferenceOwner,
   ) {
     this.accountsDir = join(appDataRoot, 'config', 'accounts');
     this.currentConfigId = accountConfigId(this.session.context.uin);
@@ -330,7 +332,17 @@ export class AccountConfigService {
     const uin = this.session.context.uin;
     const configId = accountConfigId(uin, metadata.dataDir);
     this.currentConfigId = configId;
-    const prev = this.readRecord();
+    let prev = this.readRecord();
+    if (prev && this.sharedPreferences) {
+      const {
+        mailNotifications: _notifications,
+        mailShowUnread: _unread,
+        mailPollIntervalMinutes: _poll,
+        annualReport: _report,
+        ...account
+      } = prev;
+      prev = account;
+    }
     const config: AccountConfig = {
       ...prev,
       configId,
@@ -361,7 +373,19 @@ export class AccountConfigService {
 
   /** Read the current account's record from disk, or null if not yet written. */
   getRecord(): AccountConfig | null {
-    return this.readRecord();
+    const record = this.readRecord();
+    if (!record || !this.sharedPreferences) return record;
+    const mail = this.sharedPreferences.getSharedPreference('mail');
+    const annualReport = this.sharedPreferences.getSharedPreference('annualReport');
+    return {
+      ...record,
+      mailNotifications: mail.mailNotifications ?? false,
+      mailShowUnread: mail.mailShowUnread ?? true,
+      mailPollIntervalMinutes: mail.mailPollIntervalMinutes ?? 1,
+      annualReport: Object.keys(annualReport).length
+        ? (annualReport as AnnualReportPreferences)
+        : undefined,
+    };
   }
 
   /** 打开账号后刷新菜单昵称，不能把切号时传回的旧配置当作最新资料。 */
@@ -381,6 +405,10 @@ export class AccountConfigService {
   }
 
   setMailNotifications(enabled: boolean): void {
+    if (this.sharedPreferences) {
+      this.sharedPreferences.patchSharedPreference('mail', { mailNotifications: enabled });
+      return;
+    }
     this.patch({ mailNotifications: enabled });
   }
 
@@ -389,10 +417,20 @@ export class AccountConfigService {
   }
 
   setMailShowUnread(enabled: boolean): void {
+    if (this.sharedPreferences) {
+      this.sharedPreferences.patchSharedPreference('mail', { mailShowUnread: enabled });
+      return;
+    }
     this.patch({ mailShowUnread: enabled });
   }
 
   setMailPollIntervalMinutes(minutes: number): void {
+    if (this.sharedPreferences) {
+      this.sharedPreferences.patchSharedPreference('mail', {
+        mailPollIntervalMinutes: minutes,
+      });
+      return;
+    }
     this.patch({ mailPollIntervalMinutes: minutes });
   }
 
@@ -522,6 +560,10 @@ export class AccountConfigService {
 
   /** Persist the user's annual-report page collection and ordering. */
   setAnnualReportPreferences(annualReport: AnnualReportPreferences): void {
+    if (this.sharedPreferences) {
+      this.sharedPreferences.patchSharedPreference('annualReport', annualReport);
+      return;
+    }
     this.patch({ annualReport });
     this.logger.info('stored annual report preferences', {
       event: 'set-annual-report-preferences',

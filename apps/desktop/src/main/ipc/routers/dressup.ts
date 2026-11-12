@@ -140,7 +140,7 @@ const EXCLUDED_WIDGETS = new Set(['9']);
  * 扫目录而不是硬编码列表 —— 加减素材时不必改代码。要求目录里有 `fullscreen.json`
  * (Lottie 本体),否则不算一款可用的挂件。
  */
-function listScreenWidgets(): string[] {
+export function listScreenWidgets(): string[] {
   const root = resolveResource('dress', 'screen');
   if (!root) return [];
   try {

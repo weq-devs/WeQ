@@ -10,6 +10,9 @@ import { getAppContext, closeSalvageConnections } from '../../context/app_contex
 import { bootstrapRouter } from './bootstrap';
 import { remoteRouter } from './remote';
 import { updateRouter } from './update';
+import { sharedSettingsRouter, sharedMailPreferences } from './shared_settings';
+import { sharedIntentStatus } from './intent_sense';
+import { sharedAntiRecallStatus } from './anti_recall';
 import {
   remoteResetCardAvailable,
   remoteSettingAvailable,
@@ -47,6 +50,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   const current = config.getSettings();
   const defaults = DEFAULT_APP_SETTINGS;
   const b = bootstrapRouter.createCaller(ctx);
+  const shared = sharedSettingsRouter.createCaller(ctx);
   const out: Entry[] = [];
   function add(
     card: SettingsResetCardId,
@@ -370,9 +374,9 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     );
   }
   const services = context.services;
-  if (services) {
+  {
     const intent = [...selected].some((card) => /^(intent|suggestion|profile)-/.test(card))
-      ? services.intentSense.getStatus()
+      ? sharedIntentStatus()
       : DEFAULT_INTENT_SENSE_CONFIG;
     const groups: Partial<
       Record<SettingsResetCardId, readonly (keyof typeof DEFAULT_INTENT_SENSE_CONFIG)[]>
@@ -457,13 +461,13 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
           intent[key],
           DEFAULT_INTENT_SENSE_CONFIG[key],
           () =>
-            services.intentSense.setConfig({
+            shared.intent.setConfig({
               [key]: structuredClone(DEFAULT_INTENT_SENSE_CONFIG[key]),
             }),
-          { scope: '当前账号', intentKey: key },
+          { intentKey: key },
         );
       }
-    const record = services.accountConfig.getRecord();
+    const record = services?.accountConfig.getRecord();
     if (record) {
       const selectedHidden = current.typingStatus.hidden.filter(
         (item) => item.accountUin === record.uin && item.accountConfigId === record.configId,
@@ -486,92 +490,69 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
         { scope: '当前账号' },
       );
     }
-    add(
-      'native-media',
-      'enabled',
-      '本机 QQ 资源',
-      record?.nativeMediaEnabled ?? true,
-      true,
-      async () => {
-        services.accountConfig.setNativeMediaEnabled(true);
-        return true;
-      },
-      { scope: '当前账号' },
-    );
-    add(
-      'mail',
-      'unread',
-      '邮箱红点',
-      record?.mailShowUnread ?? true,
-      true,
-      async () => {
-        services.accountConfig.setMailShowUnread(true);
-        services.mail.setShowUnread(true);
-      },
-      { scope: '当前账号' },
-    );
-    add(
-      'mail',
-      'notifications',
-      '邮件横幅提醒',
-      record?.mailNotifications ?? false,
-      false,
-      async () => {
-        services.accountConfig.setMailNotifications(false);
-        await services.mail.setNotifications(false);
-      },
-      { scope: '当前账号' },
-    );
+    if (services)
+      add(
+        'native-media',
+        'enabled',
+        '本机 QQ 资源',
+        record?.nativeMediaEnabled ?? true,
+        true,
+        async () => {
+          services.accountConfig.setNativeMediaEnabled(true);
+          return true;
+        },
+        { scope: '当前账号' },
+      );
+    const mail = sharedMailPreferences();
+    add('mail', 'unread', '邮箱红点', mail.showUnread, true, async () => {
+      await shared.mail.patch({ showUnread: true });
+    });
+    add('mail', 'notifications', '邮件横幅提醒', mail.notifications, false, async () => {
+      await shared.mail.patch({ notifications: false });
+    });
     add(
       'mail',
       'poll-interval',
       '邮箱查询间隔',
-      mailPollIntervalMinutes(record?.mailPollIntervalMinutes),
+      mailPollIntervalMinutes(mail.pollIntervalMinutes),
       DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
       async () => {
-        services.accountConfig.setMailPollIntervalMinutes(DEFAULT_MAIL_POLL_INTERVAL_MINUTES);
-        services.mail.setPollIntervalMinutes(DEFAULT_MAIL_POLL_INTERVAL_MINUTES);
+        await shared.mail.patch({ pollIntervalMinutes: DEFAULT_MAIL_POLL_INTERVAL_MINUTES });
       },
-      { scope: '当前账号' },
     );
     if (selected.has('recall-scope')) {
-      const recall = await services.antiRecall.getStatus();
+      const recall = await sharedAntiRecallStatus();
       add(
         'recall-scope',
         'scope',
         '防撤回启用范围',
         recall.enabled ? recall.mode : 'off',
         'off',
-        async () => services.antiRecall.setScope('off'),
-        { scope: '当前账号' },
+        async () => shared.antiRecall.setScope({ scope: 'off' }),
       );
-      add(
-        'recall-scope',
-        'notify',
-        '撤回通知',
-        recall.notifyEnabled,
-        false,
-        async () => services.antiRecall.setNotify({ enabled: false }),
-        { scope: '当前账号' },
+      add('recall-scope', 'notify', '撤回通知', recall.notifyEnabled, false, async () =>
+        shared.antiRecall.setNotify({ enabled: false }),
       );
-      add(
-        'recall-scope',
-        'targets',
-        '防撤回会话选择',
-        recall.targets,
-        [],
-        async () => services.antiRecall.setTargets([]),
-        { scope: '当前账号' },
-      );
-      add(
-        'recall-scope',
-        'notify-targets',
-        '撤回通知会话选择',
-        recall.notifyTargets,
-        [],
-        async () => services.antiRecall.setNotify({ targets: [] }),
-        { scope: '当前账号' },
-      );
+      if (services)
+        add(
+          'recall-scope',
+          'targets',
+          '防撤回会话选择',
+          recall.targets,
+          [],
+          async () => services.antiRecall.setTargets([]),
+          { scope: '当前账号' },
+        );
+      if (services)
+        add(
+          'recall-scope',
+          'notify-targets',
+          '撤回通知会话选择',
+          recall.notifyTargets,
+          [],
+          async () => services.antiRecall.setNotify({ targets: [] }),
+          { scope: '当前账号' },
+        );
     }
     if (context.dbTolerance)
       add(
@@ -617,7 +598,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
 }
 
 async function preview(ctx: RpcContext, input: SettingsResetTarget) {
-  const source = identity();
+  const accountCards = new Set(['native-media', 'db-tolerance', 'recall-scope', 'typing']);
   const selected = new Set(
     resetCards(input)
       .filter(
@@ -627,6 +608,7 @@ async function preview(ctx: RpcContext, input: SettingsResetTarget) {
       )
       .map(([, card]) => card),
   );
+  const source = [...selected].some((card) => accountCards.has(card)) ? identity() : null;
   const all = (await entries(ctx, selected)).filter(
     (entry) =>
       selected.has(entry.card) &&
@@ -642,7 +624,8 @@ async function preview(ctx: RpcContext, input: SettingsResetTarget) {
       if (entry.id === 'remote:enabled')
         entry.current = (await remoteRouter.createCaller(ctx).status()).enabled;
     }
-  if (source !== identity()) throw new Error('账号或数据源已切换，请重新读取恢复范围');
+  if (source !== null && source !== identity())
+    throw new Error('账号或数据源已切换，请重新读取恢复范围');
   return { source, items: all };
 }
 export const settingsResetRouter = router({
@@ -666,7 +649,8 @@ export const settingsResetRouter = router({
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
-      if (input.source !== identity()) throw new Error('账号或数据源已切换，请重新确认恢复范围');
+      if (input.source !== null && input.source !== identity())
+        throw new Error('账号或数据源已切换，请重新确认恢复范围');
       const result = await preview(ctx, input);
       const allowed = new Set(result.items.map((item) => item.id));
       if ([...input.directories, ...(input.retry ?? [])].some((id) => !allowed.has(id)))
@@ -685,7 +669,7 @@ export const settingsResetRouter = router({
         batch.forEach((item) => {
           completed.add(item.id);
         });
-        if (input.source !== identity()) {
+        if (input.source !== null && input.source !== identity()) {
           batch.forEach((item) => {
             results.push({ id: item.id, ok: false, error: '账号或数据源已切换，已停止后续恢复' });
           });
@@ -694,11 +678,11 @@ export const settingsResetRouter = router({
         try {
           if (entry.intentKey) {
             const service = getAppContext().services?.intentSense;
-            if (!service) throw new Error('账号已关闭');
-            const patch: Parameters<typeof service.setConfig>[0] = {};
+            const patch: Parameters<NonNullable<typeof service>['setConfig']>[0] = {};
             for (const item of batch)
               Object.assign(patch, { [item.intentKey!]: structuredClone(item.defaultValue) });
-            await service.setConfig(patch, { preserveAnalysisResults: true });
+            if (service) await service.setConfig(patch, { preserveAnalysisResults: true });
+            else await sharedSettingsRouter.createCaller(ctx).intent.setConfig(patch);
           } else await entry.apply();
           batch.forEach((item) => {
             results.push({ id: item.id, ok: true });

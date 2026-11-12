@@ -70,6 +70,12 @@ export function weqBackupPart(path: string): WeqBackupPart {
   )
     throw new Error('备份包含非法逻辑路径');
   if (SETTINGS_FILES.has(path)) return 'settings';
+  if (
+    path.startsWith('settings/background/') &&
+    path.split('/').length === 3 &&
+    isWeqBackgroundName(path.split('/')[2]!)
+  )
+    return 'settings';
   if (path === 'api/settings.json') return 'api';
   const parts = path.split('/');
   if (parts[0] === 'accounts' && parts.length === 2) {
@@ -208,7 +214,7 @@ function validateFile(file: WeqBackupFile): void {
   const part = weqBackupPart(file.path);
   if (file.data.length > WEQ_BACKUP_LIMITS.maxEntryBytes) throw new Error('备份单文件超过 64 MiB');
   if (!file.path.endsWith('.json')) {
-    if (part === 'accounts') {
+    if (part === 'accounts' || file.path.startsWith('settings/background/')) {
       validateWeqBackground(file.data, file.path.slice(file.path.lastIndexOf('.')));
       return;
     }

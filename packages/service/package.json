@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./shared-preferences": "./src/common/shared_preferences.ts",
     "./console-output": "./src/common/console_output.ts",
     "./contact-card": "./src/common/contact_card.ts",
     "./client-preferences": "./src/common/client_preferences.ts",

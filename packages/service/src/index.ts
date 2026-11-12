@@ -405,7 +405,7 @@ export {
   WEQ_ASSISTANT_NICK,
 } from './account/weq_assistant';
 export type { WeqTweetCard } from './account/weq_assistant';
-export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
+export { AssistantService, ASSISTANT_AGENT_ID, mergeAssistantConfig } from './account/assistant';
 export type {
   AssistantConfig,
   AssistantReasoningEffort,
@@ -434,6 +434,7 @@ export {
   INTENT_LABELS,
   EMOTION_LABELS,
   DEFAULT_INTENT_SENSE_CONFIG,
+  normalizeIntentSenseConfig,
 } from './account/intent_sense';
 export type {
   IntentKind,

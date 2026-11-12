@@ -17,6 +17,7 @@ import { observable } from '@trpc/server/observable';
 import { trackModelDownload } from '../../model_download_task';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
+import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
 import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
@@ -1019,6 +1020,7 @@ export const bootstrapRouter = router({
   setTypingStatusHidden: procedure
     .input(
       z.object({
+        ...optionalAccountBinding,
         hidden: z.array(
           z.object({
             accountUin: z.string().min(1),
@@ -1029,7 +1031,18 @@ export const bootstrapRouter = router({
         ),
       }),
     )
-    .mutation(({ input }) => requireBootstrap().userConfig.setTypingStatusHidden(input.hidden)),
+    .mutation(({ input }) => {
+      assertAccountBinding(input);
+      const owner = requireBootstrap().userConfig;
+      if (input.expectedAccountConfigId) {
+        return owner.setTypingStatusHiddenForAccount(
+          input.expectedAccountUin!,
+          input.expectedAccountConfigId,
+          input.hidden,
+        );
+      }
+      return owner.setTypingStatusHidden(input.hidden);
+    }),
 
   /**
    * 日志保留天数（设置 → 日志 → 日志保留时长）。0 = 永久保留。
@@ -1410,6 +1423,8 @@ export const bootstrapRouter = router({
   setGroupKeywordRules: procedure
     .input(
       z.object({
+        ...optionalAccountBinding,
+        groupId: z.string().min(1).optional(),
         rules: z.record(
           z.string(),
           z.object({
@@ -1426,11 +1441,18 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      assertAccountBinding(input);
       const accountConfig = getAppContext().services?.accountConfig;
       if (!accountConfig) {
         throw new Error('No account session open — call bootstrap.openAccount first.');
       }
-      accountConfig.setGroupKeywordRules(input.rules);
+      const rules = input.groupId ? { ...accountConfig.getGroupKeywordRules() } : input.rules;
+      if (input.groupId) {
+        const rule = input.rules[input.groupId];
+        if (rule) rules[input.groupId] = rule;
+        else delete rules[input.groupId];
+      }
+      accountConfig.setGroupKeywordRules(rules);
       const next = accountConfig.getGroupKeywordRules();
       await getAppContext().applyGroupKeyword(next);
       return next;

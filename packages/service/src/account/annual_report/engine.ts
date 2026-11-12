@@ -6,6 +6,7 @@ import { ALL_TIME_YEAR, currentReportYear, normalizeReportYear } from './time';
 import { findReportPage, reportPages } from './pages';
 import {
   DEFAULT_REPORT_SCOPE,
+  DEFAULT_ANNUAL_REPORT_PREFERENCES,
   type AnnualReportPreferences,
   type DressNameResolver,
   type PageAvailability,
@@ -17,17 +18,12 @@ import {
   type ReportQzoneCapability,
 } from './types';
 
-const DEFAULT_PREFERENCES: AnnualReportPreferences = {
-  mode: 'default',
-  enabledPageIds: [],
-  order: [],
-  exportPageIds: [],
-};
+const DEFAULT_PREFERENCES = DEFAULT_ANNUAL_REPORT_PREFERENCES;
 
 export type AnnualReportServiceOptions = {
   scope?: ReportScope;
   dataRevision?: string;
-  preferences?: AnnualReportPreferences;
+  preferences?: Partial<AnnualReportPreferences>;
   /**
    * 装扮款名解析器（可选）。名字的两个来源（账号已装清单 / 仓库静态商城榜单）都在
    * service 之外，所以由宿主注入；不注入时装扮页照常出，只是显示 `#itemId`。
@@ -67,7 +63,7 @@ export class AnnualReportService {
       resolveEmojiNames: options.resolveEmojiNames,
       qzone: options.qzone,
     });
-    this.preferences = options.preferences ?? DEFAULT_PREFERENCES;
+    this.preferences = { ...DEFAULT_PREFERENCES, ...options.preferences };
   }
 
   /**

@@ -20,10 +20,12 @@ import { observable } from '@trpc/server/observable';
 import {
   getActiveIntentSenseLocalEngine,
   getAppContext,
+  requireBootstrap,
   type AccountServices,
   type IntentSenseModelProgress,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
 import {
   MAX_INTENT_CONTEXT_MESSAGES,
   INTENT_TUNING,
@@ -32,6 +34,8 @@ import {
   MAX_SUGGESTION_FALLBACK_LENGTH,
   validateSuggestionFallbackTexts,
 } from '@weq/service/intent-context';
+import { normalizeIntentSenseConfig, type IntentSenseStatus } from '@weq/service';
+import { normalizeSharedIntentPreferences } from '@weq/service/shared-preferences';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -64,7 +68,7 @@ const tuning = (key: IntentTuningKey) => {
   return ('step' in rule ? schema : schema.int()).optional();
 };
 
-const configPatch = z.object({
+export const configPatch = z.object({
   analysisMode: z.enum(['auto', 'manual']).optional(),
   profileMode: z.enum(['auto', 'manual']).optional(),
   suggestionMode: z.enum(['auto', 'manual']).optional(),
@@ -126,10 +130,43 @@ const configPatch = z.object({
   hfMirror: z.boolean().optional(),
 });
 
-const intentSenseFeatureProcedures = {
+export function sharedIntentStatus(): IntentSenseStatus {
+  const context = getAppContext();
+  if (context.services) return context.services.intentSense.getStatus();
+  const engine = getActiveIntentSenseLocalEngine();
+  const boot = requireBootstrap();
+  const config = normalizeSharedIntentPreferences(boot.userConfig.getSharedPreference('intent'));
+  const available = (ref: typeof config.providerRef) => {
+    try {
+      if (!ref) return false;
+      boot.agentLabConfig.resolveEndpoint(ref, 'chat');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return {
+    ...config,
+    settingsRevision: boot.userConfig.sharedPreferenceRevision(),
+    analysisRevision: 0,
+    suggestionRevision: 0,
+    profileRevision: 0,
+    apiConfigured: available(config.providerRef),
+    suggestionApiConfigured: available(config.suggestionProviderRef),
+    profileAvailable:
+      config.profileEngine === 'heuristic' ||
+      (config.profileEngine === 'api'
+        ? available(config.profileProviderRef)
+        : Boolean(engine?.forModel?.(config.profileLocalModelId)?.ready ?? engine?.ready)),
+    localAvailable: Boolean(engine),
+    localReady: Boolean(engine?.ready),
+  };
+}
+
+export const intentSenseFeatureProcedures = {
   /** 当前配置 + 引擎可用性（apiConfigured / localAvailable）。 */
   getStatus: procedure.query(() => {
-    const status = requireServices().intentSense.getStatus();
+    const status = sharedIntentStatus();
     if (status.enabled && status.engine === 'local') {
       const engine = getActiveIntentSenseLocalEngine();
       if (engine?.isModelDownloaded()) {
@@ -141,7 +178,20 @@ const intentSenseFeatureProcedures = {
 
   /** 更新全局配置（缺省字段保持原值）。 */
   setConfig: procedure.input(configPatch).mutation(async ({ input }) => {
-    const status = await requireServices().intentSense.setConfig(input);
+    const services = getAppContext().services;
+    let status: IntentSenseStatus;
+    if (services) status = await services.intentSense.setConfig(input);
+    else {
+      const owner = requireBootstrap().userConfig;
+      const next = normalizeIntentSenseConfig({ ...sharedIntentStatus(), ...input });
+      if (
+        next.profileSamples > next.profileMessages ||
+        next.profileMinSamples > next.profileSamples
+      )
+        throw new Error('画像推断最少样本不能超过采样上限，采样上限不能超过统计消息范围');
+      owner.patchSharedPreference('intent', { ...input, featureSettingsVersion: 2 });
+      status = sharedIntentStatus();
+    }
     if (status.enabled && status.engine === 'local') {
       const engine = getActiveIntentSenseLocalEngine();
       if (engine?.isModelDownloaded()) {
@@ -158,11 +208,17 @@ const intentSenseFeatureProcedures = {
         kind: kindSchema,
         id: z.string().min(1),
         enabled: z.boolean().nullable(),
+        ...optionalAccountBinding,
       }),
     )
-    .mutation(({ input }) =>
-      requireServices().intentSense.setConversationOverride(input.kind, input.id, input.enabled),
-    ),
+    .mutation(({ input }) => {
+      assertAccountBinding(input);
+      return requireServices().intentSense.setConversationOverride(
+        input.kind,
+        input.id,
+        input.enabled,
+      );
+    }),
 
   /** 清空当前账号下所有会话的意图分析缓存与建议缓存。 */
   clearCache: procedure.mutation(() => requireServices().intentSense.clearCache()),

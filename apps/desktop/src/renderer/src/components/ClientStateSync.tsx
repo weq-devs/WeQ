@@ -39,6 +39,14 @@ export function ClientStateSync() {
           })
           .catch(() => {});
         void utils.bootstrap.getSettings.invalidate();
+        void utils.settings.invalidate();
+        void utils.account.intentSense.getStatus.invalidate();
+        void utils.account.antiRecall.getStatus.invalidate();
+        void utils.account.getAssistantConfig.invalidate();
+        void utils.account.getAccountConfig.invalidate();
+        void utils.account.dressup.getState.invalidate();
+        void utils.account.annualReport.getManifest.invalidate();
+        void utils.mail.preferences.invalidate();
       },
     });
     return () => {

@@ -46,6 +46,7 @@ import {
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { JsonStore } from '../common/json_store';
+import type { PreferencePersistence } from '../common/shared_preferences';
 import { DbWatchService, type DbWatchHandle, type DbWatchTask } from './db_watch';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -77,6 +78,7 @@ export interface AntiRecallConfig {
 
 /** What the renderer needs to render the settings panel. */
 export interface AntiRecallStatus extends AntiRecallConfig {
+  settingsRevision?: number;
   /** Triggers actually present in the DB right now (source of truth for state). */
   installed: AntiRecallTriggerInfo[];
   /** True while QQ is running — installs are deferred / the UI warns to restart. */
@@ -95,6 +97,8 @@ export interface RecallNotifyEvent {
 }
 
 export interface AntiRecallOptions {
+  readOnly?: boolean;
+  preferences?: PreferencePersistence<AntiRecallConfig>;
   /**
    * Raised for every newly-recorded recall in a conversation whose notification
    * switch is on. Implemented in the Electron main process (native notification
@@ -110,6 +114,8 @@ const DEFAULT_CONFIG: AntiRecallConfig = {
   notifyEnabled: false,
   notifyTargets: [],
 };
+
+export { DEFAULT_CONFIG as DEFAULT_ANTI_RECALL_CONFIG };
 
 /** Conversation key used by {@link AntiRecallConfig.notifyTargets}. */
 export function notifyKey(kind: string, id: string): string {
@@ -162,6 +168,8 @@ export class AntiRecallService {
     private readonly opts: AntiRecallOptions = {},
   ) {
     this.configStore = new JsonStore(storePath, () => ({ ...DEFAULT_CONFIG }), {
+      persistence: opts.preferences,
+      strict: Boolean(opts.preferences),
       normalize: (raw) => {
         const parsed = (raw ?? {}) as Partial<AntiRecallConfig>;
         return {
@@ -184,6 +192,7 @@ export class AntiRecallService {
         };
       },
     });
+    if (opts.preferences) this.reconcileInBackground();
   }
 
   /** 当前配置（内存态）。 */
@@ -192,7 +201,7 @@ export class AntiRecallService {
   }
 
   private set config(next: AntiRecallConfig) {
-    this.configStore.data = next;
+    this.configStore.replace(next);
   }
 
   /** 缓存消息与 QQ 原库使用同一份保护范围。 */
@@ -206,9 +215,10 @@ export class AntiRecallService {
 
   /** Current config + live trigger state + whether QQ is running. */
   async getStatus(): Promise<AntiRecallStatus> {
-    const installed = await this.openDb().status();
+    const installed = this.opts.readOnly ? [] : await this.openDb().status();
     return {
       ...this.config,
+      settingsRevision: this.opts.preferences?.revision?.(),
       installed,
       qqRunning: this.isQqRunning(),
     };
@@ -266,7 +276,6 @@ export class AntiRecallService {
   /** Flip the master switch, then reconcile triggers to match. Persists. */
   async setEnabled(enabled: boolean): Promise<AntiRecallStatus> {
     this.config = { ...this.config, enabled };
-    this.persist();
     // (重新)开启保护时重建通知基线：历史记录不该在新一轮里弹出来。
     this.resetRecallBaseline();
     this.reconcileInBackground();
@@ -284,7 +293,6 @@ export class AntiRecallService {
     const mode: 'selected' | 'all' = scope === 'all' ? 'all' : 'selected';
     const wasEnabled = this.config.enabled;
     this.config = { ...this.config, enabled, mode };
-    this.persist();
     if (enabled && !wasEnabled) this.resetRecallBaseline();
     this.reconcileInBackground();
     return this.optimisticStatus();
@@ -296,7 +304,6 @@ export class AntiRecallService {
    */
   async setMode(mode: 'selected' | 'all'): Promise<AntiRecallStatus> {
     this.config = { ...this.config, mode };
-    this.persist();
     this.reconcileInBackground();
     return this.optimisticStatus();
   }
@@ -316,7 +323,6 @@ export class AntiRecallService {
       clean.push(t);
     }
     this.config = { ...this.config, targets: clean };
-    this.persist();
     this.reconcileInBackground();
     return this.optimisticStatus();
   }
@@ -332,7 +338,6 @@ export class AntiRecallService {
       next.notifyTargets = [...new Set(input.targets.filter((k) => typeof k === 'string' && k))];
     }
     this.config = next;
-    this.persist();
     return this.optimisticStatus();
   }
 
@@ -380,6 +385,7 @@ export class AntiRecallService {
    * callers surface `qqRunning` as a heads-up.
    */
   async applyTriggers(): Promise<void> {
+    if (this.opts.readOnly) return;
     const db = this.openDb();
     try {
       const allConversations = this.config.enabled && this.config.mode === 'all';
@@ -396,6 +402,7 @@ export class AntiRecallService {
    * (SQLCipher) write. Failures are logged; a later `getStatus` shows reality.
    */
   private reconcileInBackground(): void {
+    if (this.opts.readOnly) return;
     void this.applyTriggers().catch((error) => {
       logger.warn('anti-recall reconcile failed', {
         event: 'anti-recall-reconcile-failed',
@@ -406,10 +413,12 @@ export class AntiRecallService {
 
   /** Status snapshot built from the desired config (no DB read). */
   private optimisticStatus(): AntiRecallStatus {
-    const allConversations = this.config.enabled && this.config.mode === 'all';
-    const active = this.config.enabled ? this.config.targets : [];
+    const allConversations =
+      !this.opts.readOnly && this.config.enabled && this.config.mode === 'all';
+    const active = !this.opts.readOnly && this.config.enabled ? this.config.targets : [];
     return {
       ...this.config,
+      settingsRevision: this.opts.preferences?.revision?.(),
       installed: expectedAntiRecallTriggers(allConversations, active),
       qqRunning: this.isQqRunning(),
     };
@@ -539,9 +548,5 @@ export class AntiRecallService {
       key: this.session.context.dbKey,
       algo: algoFor(this.session.context, this.session.msgDbPath),
     });
-  }
-
-  private persist(): void {
-    this.configStore.save();
   }
 }

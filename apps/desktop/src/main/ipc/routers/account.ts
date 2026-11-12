@@ -137,7 +137,7 @@ import {
   activeAssistantRuns,
   type AssistantStreamEvent,
 } from '../../mcp/assistant_bus';
-import { validateMcpConfig } from '../../mcp/external';
+import { assistantSettingsProcedures } from './shared_settings';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
 import {
   clientKeyExpiryMs,
@@ -2720,34 +2720,8 @@ export const accountRouter = router({
     }),
 
   // ── WeQ 助手 ──────────────────────────────────────────────────────────────
-  getAssistantConfig: procedure.query(() => {
-    return requireServices().assistant.getConfig();
-  }),
-
-  setAssistantConfig: procedure
-    .input(
-      z.object({
-        model: agentLabModelRef.optional(),
-        customPrompt: z.string().optional(),
-        reasoningEffort: z.enum(['off', 'low', 'medium', 'high']).optional(),
-        mcpServers: z.string().optional(),
-        permissionMode: z.enum(['sandbox', 'unrestricted']).optional(),
-        confirmUnrestricted: z.boolean().optional(),
-      }),
-    )
-    .mutation(({ input }) => {
-      // MCP 配置若是 JSON 写法但语法有误：显式保存路径上严格校验、抛可读错误（前端 dialog.error 弹出），
-      // 而不是像 parseMcpConfig 那样静默当空处理——避免用户粘错 JSON 后完全无感。
-      if (input.mcpServers !== undefined) validateMcpConfig(input.mcpServers);
-      return requireServices().assistant.setConfig({
-        model: input.model,
-        customPrompt: input.customPrompt,
-        reasoningEffort: input.reasoningEffort,
-        mcpServers: input.mcpServers,
-        permissionMode: input.permissionMode,
-        confirmUnrestricted: input.confirmUnrestricted,
-      });
-    }),
+  getAssistantConfig: assistantSettingsProcedures.getConfig,
+  setAssistantConfig: assistantSettingsProcedures.setConfig,
 
   /** WeQ 助手的会话列表（最近活跃倒序）。 */
   listAssistantSessions: procedure.query(() => {

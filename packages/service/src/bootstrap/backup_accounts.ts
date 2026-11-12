@@ -1,9 +1,7 @@
-import { createHash } from 'node:crypto';
 import { ClientStateStore, validateClientState } from './client_state';
 import { isDefaultModelSelection } from '@weq/agentlab';
 import { existsSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
-import { sniffImageExt } from '../account/export/emoji_export';
+import { join } from 'node:path';
 import {
   INTENT_TUNING_KEYS,
   isIntentTuningValue,
@@ -11,11 +9,10 @@ import {
 } from '../common/intent_context';
 import {
   WEQ_ACCOUNT_SETTING_FILES,
-  WEQ_BACKGROUND_EXTENSIONS,
   isWeqBackgroundName,
   type WeqAccountSettingFile,
 } from '../common/backup_account_paths';
-import { parseWeqBackupJson, validateWeqBackground, type WeqBackupFile } from './backup_bundle';
+import { parseWeqBackupJson, type WeqBackupFile } from './backup_bundle';
 import { readWeqBackupFile } from './backup_clones';
 
 function fail(name: string): never {
@@ -182,6 +179,7 @@ export function snapshotWeqAccountPreferences(
   const files: WeqBackupFile[] = [],
     warnings: string[] = [];
   for (const name of WEQ_ACCOUNT_SETTING_FILES) {
+    if (name === 'dress.json') continue;
     const path = weqAccountSettingPath(root, cache, scope, name);
     const value = existsSync(path)
       ? name === 'client-state.json'
@@ -191,32 +189,13 @@ export function snapshotWeqAccountPreferences(
         ? { revision: 0, values: {}, records: {}, drafts: {} }
         : {};
     const input = record(value, name);
-    if (name === 'dress.json' && input.backgroundFile) {
-      if (
-        typeof input.backgroundFile !== 'string' ||
-        basename(input.backgroundFile) !== input.backgroundFile
-      )
-        fail(`${name}.backgroundFile`);
-      const sourceName = input.backgroundFile;
-      let extension = extname(sourceName).toLowerCase();
-      if (
-        !WEQ_BACKGROUND_EXTENSIONS.includes(
-          extension.slice(1) as (typeof WEQ_BACKGROUND_EXTENSIONS)[number],
-        )
-      )
-        fail(`${name}.backgroundFile`);
-      const source = join(root, 'config', 'accounts', scope, sourceName);
-      if (existsSync(source)) {
-        const data = readWeqBackupFile(source);
-        extension = sniffImageExt(data) ?? extension;
-        validateWeqBackground(data, extension);
-        input.backgroundFile = `bg-${createHash('sha256').update(data).digest('hex')}${extension}`;
-        files.push({ path: `accounts/${scope}/background/${input.backgroundFile}`, data });
-      } else {
-        input.backgroundFile = `bg-${createHash('sha256').update(sourceName).digest('hex')}${extension}`;
-        warnings.push(`${scope} 的自定义背景缺失，保留选择与文件引用。`);
-      }
-    }
+    if (name === 'intent.json')
+      for (const key of Object.keys(input)) if (key !== 'conversationOverrides') delete input[key];
+    if (name === 'anti-recall.json')
+      for (const key of Object.keys(input))
+        if (key !== 'targets' && key !== 'notifyTargets') delete input[key];
+    if (name === 'client-state.json' && input.records && typeof input.records === 'object')
+      delete (input.records as Record<string, unknown>).order;
     validateWeqAccountPreference(name, input);
     files.push({ path: `accounts/${scope}/${name}`, data: Buffer.from(JSON.stringify(input)) });
   }

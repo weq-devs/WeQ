@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, extname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readWeqBackupFile } from './backup_clones';
+import { isWeqBackgroundName } from '../common/backup_account_paths';
+import { validateWeqBackground } from './backup_bundle';
 import type { UserConfigService } from './user_config';
 import { DEFAULT_APP_SETTINGS } from './user_config';
 import { snapshotWeqSettings, snapshotWeqApiSettings, snapshotWeqAccount } from './backup_settings';
@@ -18,7 +22,6 @@ import { snapshotWeqClones } from './backup_clones';
 import { snapshotWeqAccountPreferences } from './backup_accounts';
 import { validateWeqBackupData } from './backup_data';
 import { validateWeqClientSettings } from '../common/backup_client';
-import { ClientStateStore } from './client_state';
 import { preferenceDefaults } from '../common/client_preferences';
 import { weqDefaultsPaths, type WeqDefaultsChoice } from './backup_defaults';
 import {
@@ -99,11 +102,22 @@ export class WeqBackupService {
       : DEFAULT_APP_SETTINGS;
     const warnings: string[] = [];
     if (selection.parts.includes('settings')) {
-      add('settings/app.json', snapshotWeqSettings(settings));
-      add(
-        'settings/shared.json',
-        new ClientStateStore(join(this.root, 'client-state', 'global.json')).exportState(),
-      );
+      const app = snapshotWeqSettings(settings);
+      const background = app.sharedPreferences.dress?.backgroundFile;
+      if (background) {
+        if (background.includes('/') || background.includes('\\'))
+          throw new Error('共享背景文件名无效');
+        const source = join(this.config.sharedAppearanceDir(), background);
+        if (existsSync(source)) {
+          const bytes = readWeqBackupFile(source);
+          validateWeqBackground(bytes, extname(background));
+          const name = `bg-${createHash('sha256').update(bytes).digest('hex')}${extname(background).toLowerCase()}`;
+          if (!isWeqBackgroundName(name)) throw new Error('共享背景格式无效');
+          app.sharedPreferences.dress!.backgroundFile = name;
+          files.push({ path: `settings/background/${name}`, data: bytes });
+        } else warnings.push('共享自定义背景缺失，保留选择与文件引用。');
+      }
+      add('settings/app.json', app);
       if (selection.includeClient !== false) {
         validateWeqClientSettings(client);
         add('settings/client.json', client);

@@ -3,13 +3,14 @@
 ## 所有权与数据流
 
 `@weq/service/client-preferences` 提供共享偏好类型、默认值、既有显示开关映射及旧键映射。全部设置共用同一来源，不提供设备覆盖模式。
-`ClientStateStore` 使用原子写，成功后才通知订阅；共享偏好位于 `client-state/global.json`，账号状态位于 `config/accounts/<configId>/client-state.json`。
+`UserConfigService` 与 `config.json` 是通用偏好的唯一持久来源。已有 AppSettings 字段保留原位置；客户端偏好、AI、邮箱、防撤回模式、装扮、年度报告、联系人排序与助手配置位于 `settings.sharedPreferences` 的相应组。`common/shared_preferences.ts` 集中声明组、对象规则字段、备份归属和完整快照默认值，复用各领域的归一化逻辑。
+`ClientStateStore` 只保存业务状态与草稿，账号状态位于 `config/accounts/<configId>/client-state.json`；旧 `client-state/global.json` 只作为一次性迁移输入，不再参与显示、通知或写入。
 大草稿正文位于同目录的 `client-state-drafts`，状态文件只保存版本和副本摘要；切换背景、更新已读及重读账号状态不会反复解析或重写所有正文。副本列表只读摘要，全文与导出按需获取；备份展开正文，导入的内联正文在下一次写入时转为分文件。
 电脑随机同步标识单独保存为 `client-state/identity.json`，不随备份恢复，不使用文件路径推断电脑身份。
 
-`clientState` 路由提供 snapshot、patch、seed、changed，以及携带 `expectedAccountUin` 和 `expectedAccountConfigId` 的账号状态、草稿和副本接口。
-Web 禁止自动 seed，主动 patch 不受此限制。seed 只补缺，状态删除标记仍占据对应键，避免旧端迁移复活状态。
-既有显示开关继续使用 AppSettings 作为唯一持久来源，不重复维护配置值；成功写配置及恢复后 reload 均发布通知。
+`clientState` 路由提供 snapshot、patch、seed、changed，以及携带 `expectedAccountUin` 和 `expectedAccountConfigId` 的账号状态、草稿和副本接口。通用字段的旧账号路由转接全局来源；`settings` 提供不依赖账号的意图感知、邮箱、防撤回、助手、装扮和年度报告设置入口。
+Web 禁止自动 seed，主动 patch 不受此限制。桌面旧值仅允许宿主级初始化一次，且只补原始文件中缺失的字段；旧账号排序 seed 不再覆盖全局排序。状态删除标记仍占据对应键，避免旧端迁移复活状态。
+成功写配置及恢复后 reload 均发布通知。设置修订号在宿主提交时单调递增，同字段按实际提交顺序生效；字段补丁不会用旧客户端整份快照覆盖其他字段。对象规则请求校验账号与数据源，群关键词和输入状态名单按当前对象合并，保留其他对象的最新规则。
 
 应用只挂一份全局同步组件。订阅开始时补读快照，变化时失效对应查询；无高频全量轮询，也不为每条消息增加查询。
 主题先使用本机已保存快照，异步校准不阻塞消息。主题色滑动保留即时预览，120 ms 合并发送；请求失败只保留未保存预览，必须显式重试。
@@ -21,8 +22,8 @@ Web 禁止自动 seed，主动 patch 不受此限制。seed 只补缺，状态�
 ## 迁移、恢复与草稿
 
 桌面从启用前的 localStorage 快照补充缺失共享字段；Web 直接采用共享值，忽略旧外观差异和旧覆盖记录，不把启动后回填的默认值误当用户设置。
-迁移完成标记在相应持久写成功后保存。同号旧置顶及草稿恢复快照只分配给首个实际配置，原件保留，不复制到后续同号数据源。
-共享设置备份为 `settings/shared.json`，不存在设备覆盖备份；恢复赋予新 epoch，客户端可接受比旧现场修订号更低的恢复值。
+账号通用偏好首次迁移保留显式全局字段，以当前账号初始化其余字段；判断原始键是否存在，不使用读回默认值判断。安装清单跨账号去重合并，自定义背景按内容标识保存到 `config/appearance`。旧偏好及来源写入 `config/migrations/shared-preferences-v1-<hash>.json`，不复制账号票据、密钥和业务内容；全局配置与完成标记在同一次原子提交中保存，失败不标记完成。回执按内容命名，重试不覆盖不同旧值的记录；原迁移输入不在此阶段删除。同号旧置顶及草稿恢复快照只分配给首个实际配置，不复制到后续同号数据源。
+新共享设置备份位于 `settings/app.json`，助手配置与外部 MCP 位于 `api/settings.json` 的 `sharedAssistant`，背景资产位于 `settings/background`；账号包只保存对象规则、数据源配置与业务状态，不重复保存通用偏好。继续读取旧 `settings/shared.json`，但恢复写入全局配置而非恢复旧存储；仅恢复账号不会导入旧账号的通用偏好。显式恢复和恢复默认推进设置修订号，默认操作也阻止旧端再次 seed。
 旧主题备份通过恢复回执接入共享字段，不重新建立独立主题来源。
 
 草稿保存使用预期版本；成功、清稿和删除均产生新版本。助手与合成记录复用既有业务存储，列表变化经同一订阅通知。

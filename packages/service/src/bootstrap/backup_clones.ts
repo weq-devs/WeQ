@@ -110,7 +110,8 @@ export function snapshotWeqClones(
     const assetCache = new Map<string, string | null>();
     for (const name of names) {
       // bot_exports 是当前机器生成的机器人运行入口，包含过期地址／密钥，不是克隆数据。
-      if (!name.endsWith('.json') || name === 'bot_exports.json') continue;
+      if (!name.endsWith('.json') || name === 'bot_exports.json' || name === 'assistant.json')
+        continue;
       const path = `${prefix}/${name}`;
       weqBackupPart(path);
       const data = readWeqBackupFile(join(directory, name));

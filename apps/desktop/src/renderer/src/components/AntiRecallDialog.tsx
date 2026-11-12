@@ -42,6 +42,8 @@ import { ToolSurface } from './ToolSurface';
 import { PageShell } from './PageShell';
 import { useTabActive } from './RetainedTabs';
 import { useAppLock } from '../state/lock';
+import { useViewState } from '../state/view';
+import { acceptSettingsReply } from '../lib/clientPreferences';
 import '../styles/anti-recall-settings.css';
 
 /** 触发器过滤所用的会话类型（与后端 AntiRecallKind 对齐）。 */
@@ -191,26 +193,27 @@ export function AntiRecallDialog({
       (isCurrentSource?.() ?? true);
   };
 
-  const status = trpc.account.antiRecall.getStatus.useQuery(undefined, {
+  const hasAccount = Boolean(useViewState((state) => state.openedUin));
+  const status = trpc.settings.antiRecall.getStatus.useQuery(undefined, {
     enabled: active && !locked,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
-    enabled: active && !locked && (!embedded || editor !== null),
+    enabled: hasAccount && active && !locked && (!embedded || editor !== null),
     refetchOnWindowFocus: false,
   });
   // PC 快照静态账号的库 QQ 不会往里写 —— 触发器拦不到任何东西。
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: active && !locked,
+    enabled: hasAccount && active && !locked,
     refetchOnWindowFocus: false,
   });
   const isStaticPcOnly = (config.data?.static ?? false) && !(config.data?.mobile ?? false);
 
-  const setScope = trpc.account.antiRecall.setScope.useMutation();
+  const setScope = trpc.settings.antiRecall.setScope.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
-  const setNotify = trpc.account.antiRecall.setNotify.useMutation();
+  const setNotify = trpc.settings.antiRecall.setNotify.useMutation();
   const busy = setScope.isLoading || setTargets.isLoading || setNotify.isLoading;
 
   const scope: AntiRecallScope = status.data
@@ -226,6 +229,11 @@ export function AntiRecallDialog({
 
   /** 写操作的返回值（期望状态）直接落进查询缓存：点击即生效。 */
   function applyStatus(next: Awaited<ReturnType<typeof setScope.mutateAsync>>): void {
+    if (!acceptSettingsReply(next)) {
+      void status.refetch();
+      return;
+    }
+    utils.settings.antiRecall.getStatus.setData(undefined, next);
     utils.account.antiRecall.getStatus.setData(undefined, next);
   }
 
@@ -293,6 +301,10 @@ export function AntiRecallDialog({
       const res = await setScope.mutateAsync({ scope: next });
       if (!current()) return;
       applyStatus(res);
+      if (!hasAccount || isStaticPcOnly) {
+        pushToast({ tone: 'success', title: '已保存防撤回设置' });
+        return;
+      }
       if (next === 'off') {
         pushToast({
           tone: 'info',
@@ -325,7 +337,11 @@ export function AntiRecallDialog({
       id,
     }));
     try {
-      const result = await setTargets.mutateAsync({ targets });
+      const result = await setTargets.mutateAsync({
+        targets,
+        expectedAccountUin: config.data?.uin,
+        expectedAccountConfigId: config.data?.configId,
+      });
       if (!current()) return;
       applyStatus(result);
       pushToast({ tone: 'success', title: '已保存受保护会话' });
@@ -382,7 +398,11 @@ export function AntiRecallDialog({
     if (!current()) return;
     const targets = [...notifySelected].map((id) => notifyKeyOf(kindById.get(id) ?? 'c2c', id));
     try {
-      const result = await setNotify.mutateAsync({ targets });
+      const result = await setNotify.mutateAsync({
+        targets,
+        expectedAccountUin: config.data?.uin,
+        expectedAccountConfigId: config.data?.configId,
+      });
       if (!current()) return;
       applyStatus(result);
       pushToast({ tone: 'success', title: '已保存通知会话' });
@@ -399,7 +419,10 @@ export function AntiRecallDialog({
     staleTime: 0,
     refetchOnMount: 'always',
     enabled:
-      active && !locked && (embedded ? editor === 'records' && !recallDetails : tab === 'records'),
+      hasAccount &&
+      active &&
+      !locked &&
+      (embedded ? editor === 'records' && !recallDetails : tab === 'records'),
   });
 
   const nameById = useMemo(() => {
@@ -474,7 +497,7 @@ export function AntiRecallDialog({
   );
 
   if (embedded) {
-    const unavailable = !status.data || !config.data || busy || locked || !active;
+    const unavailable = !status.data || (hasAccount && !config.data) || busy || locked || !active;
     const openEditor = (next: Tab) => {
       if (unavailable || !(isCurrentSource?.() ?? true)) return;
       epoch.current++;
@@ -546,7 +569,7 @@ export function AntiRecallDialog({
                     key={option.value}
                     aria-checked={scope === option.value}
                     className={cn('weq-set-seg-item', scope === option.value && 'is-on')}
-                    disabled={unavailable || (isStaticPcOnly && option.value !== 'off')}
+                    disabled={unavailable}
                     onClick={() => void onSetScope(option.value)}
                   >
                     {option.label}
@@ -564,23 +587,29 @@ export function AntiRecallDialog({
             }
             control={
               <span>
-                {!status.data
-                  ? '尚未读取'
-                  : installedCount
-                    ? `已安装（${installedCount} 张触发器）`
-                    : '未安装'}
+                {!hasAccount
+                  ? '未打开账号'
+                  : isStaticPcOnly
+                    ? '离线快照'
+                    : !status.data
+                      ? '尚未读取'
+                      : installedCount
+                        ? `已安装（${installedCount} 张触发器）`
+                        : '未安装'}
               </span>
             }
           />
           {scope === 'selected' ? (
             <Row
               label="启用防撤回的会话"
-              desc={!status.data ? '会话尚未读取。' : `已选择 ${savedIds.size} 个会话。`}
+              desc={
+                !hasAccount ? '打开账号后选择会话。' : `当前账号已选择 ${savedIds.size} 个会话。`
+              }
               control={
                 <button
                   type="button"
                   className="weq-set-btn"
-                  disabled={unavailable}
+                  disabled={unavailable || !hasAccount || isStaticPcOnly}
                   aria-label="编辑启用防撤回的会话"
                   onClick={() => openEditor('protect')}
                 >
@@ -605,12 +634,14 @@ export function AntiRecallDialog({
           {notifyEnabled ? (
             <Row
               label="通知会话"
-              desc={!status.data ? '通知会话尚未读取。' : `已选择 ${notifyIds.size} 个会话。`}
+              desc={
+                !hasAccount ? '打开账号后选择会话。' : `当前账号已选择 ${notifyIds.size} 个会话。`
+              }
               control={
                 <button
                   type="button"
                   className="weq-set-btn"
-                  disabled={unavailable}
+                  disabled={unavailable || !hasAccount}
                   aria-label="编辑通知会话"
                   onClick={() => openEditor('notify')}
                 >
@@ -630,7 +661,7 @@ export function AntiRecallDialog({
               <button
                 type="button"
                 className="weq-set-btn"
-                disabled={unavailable}
+                disabled={unavailable || !hasAccount}
                 onClick={() => openEditor('records')}
               >
                 <RotateCcw size={14} aria-hidden="true" />
@@ -804,9 +835,7 @@ export function AntiRecallDialog({
                         role="radio"
                         aria-checked={scope === opt.value}
                         className={cn('weq-set-seg-item', scope === opt.value && 'is-on')}
-                        disabled={
-                          busy || status.isLoading || (isStaticPcOnly && opt.value !== 'off')
-                        }
+                        disabled={busy || status.isLoading}
                         onClick={() => void onSetScope(opt.value)}
                       >
                         {opt.label}

@@ -16,9 +16,12 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFileAtomicSync } from './atomic_write';
+import type { PreferencePersistence } from './shared_preferences';
 
 /** {@link JsonStore} 的构造选项。 */
 export interface JsonStoreOptions<T> {
+  /** 宿主注入的权威配置来源；提供后不再读写旧 filePath。 */
+  persistence?: PreferencePersistence<T>;
   /** 权威数据：读取损坏或写盘失败必须抛错。 */
   strict?: boolean;
   /** 读入的原始值 → 期望形状。缺省 = 原样透传（依赖调用方会校验的类型）。 */
@@ -75,6 +78,10 @@ export class JsonStore<T> {
   }
 
   private write(next: T): void {
+    if (this.opts.persistence) {
+      this.opts.persistence.write(next);
+      return;
+    }
     if (this.loadError) {
       if (this.opts.strict) throw this.loadError;
       return; // 坏文件保留原件，宽容缓存也不静默覆盖。
@@ -89,6 +96,10 @@ export class JsonStore<T> {
 
   private load(): T {
     const fallback = (): T => this.makeInitial();
+    if (this.opts.persistence) {
+      const raw = this.opts.persistence.read();
+      return this.opts.normalize ? this.opts.normalize(raw) : (raw as T);
+    }
     try {
       let raw: unknown;
       try {
