@@ -13,7 +13,7 @@ function App() {
   const [hometown, setHometown] = useState(['DEU', '0', 'SWH', '0']);
   return (
     <main
-      className="weq-set weq-self-profile-dialog"
+      className="weq-set weq-self-profile-page"
       style={{ maxWidth: 720, margin: '0 auto', padding: 16 }}
     >
       <RegionEditor

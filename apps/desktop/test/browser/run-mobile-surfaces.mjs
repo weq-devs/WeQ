@@ -48,7 +48,7 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/mobile-surfaces.html`,
   );
-  await page.waitForSelector('.weq-self-profile-body');
+  await page.waitForSelector('.weq-self-profile-page');
   const output = process.env.WEQ_MOBILE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
@@ -161,11 +161,11 @@ try {
               );
             const profileRows = [...container.querySelectorAll('.weq-qq-write-panel .weq-set-row')];
             const profile =
-              container.querySelector('.weq-self-profile-dialog') ??
-              (container.matches('.weq-self-profile-dialog') ? container : null);
+              container.querySelector('.weq-self-profile-page') ??
+              (container.matches('.weq-self-profile-page') ? container : null);
             const profileStyleIssues = [];
             if (profile) {
-              const expectedSize = innerWidth <= 760 ? '16px' : '13px';
+              const expectedSize = '13px';
               for (const control of profile.querySelectorAll(
                 '.weq-qq-write-input,.weq-profile-region-editor select,.weq-profile-region-editor input,.weq-segmented > button',
               )) {
@@ -209,7 +209,7 @@ try {
                 ? []
                 : [
                     ...container.querySelectorAll(
-                      '.weq-self-profile-dialog .weq-set-iconbtn,.weq-self-profile-dialog .weq-qq-write-face-trigger,.weq-self-profile-dialog .weq-qq-write-input,.weq-self-profile-dialog .weq-profile-region-editor select,.weq-self-profile-dialog .weq-profile-region-editor input',
+                      '.weq-self-profile-page .weq-set-iconbtn,.weq-self-profile-page .weq-qq-write-face-trigger,.weq-self-profile-page .weq-qq-write-input,.weq-self-profile-page .weq-profile-region-editor select,.weq-self-profile-page .weq-profile-region-editor input',
                     ),
                   ]
                     .filter(visible)
@@ -258,7 +258,7 @@ try {
           if (output && [390, 1180].includes(width) && height === 844) {
             await page.screenshot({ path: resolve(output, `${surface}-${theme}-${width}.png`) });
             if (surface === 'profile') {
-              const body = page.locator('.weq-self-profile-body');
+              const body = page.locator('.fixture-page');
               const scrollTop = await body.evaluate((node) => {
                 const top = node.scrollTop;
                 node.scrollTop = node.scrollHeight;
@@ -280,7 +280,7 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/mobile-surfaces.html?navigation`,
   );
-  await page.waitForSelector('.weq-self-profile-body');
+  await page.waitForSelector('.weq-self-profile-page');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   for (const surface of ['mail', 'channel-direct']) {
     await page.evaluate((surface) => window.mobileSurfacesQa.show(surface), surface);
@@ -323,7 +323,7 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/mobile-surfaces.html`,
   );
-  await page.waitForSelector('.weq-self-profile-body');
+  await page.waitForSelector('.weq-self-profile-page');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => {
     const viewport = Object.assign(new EventTarget(), { height: 320, offsetTop: 96, scale: 1 });
@@ -331,14 +331,6 @@ try {
     window.mobileSurfacesQa.show('lookup');
   });
   await page.waitForSelector('.weq-friend-directory-editor');
-  await page.evaluate(() => window.mobileSurfacesQa.show('profile'));
-  await page.waitForSelector('.weq-self-profile-body');
-  await page.waitForTimeout(50);
-  const keyboardFits = await page.locator('.weq-self-profile-dialog').evaluate((node) => {
-    const rect = node.getBoundingClientRect();
-    return rect.top >= 96 && rect.bottom <= 416;
-  });
-  if (!keyboardFits) failures.push({ surface: 'profile', keyboard: '弹窗超出可视视口' });
   await page.evaluate(() => window.mobileSurfacesQa.show('qzone'));
   await page.getByRole('button', { name: '写说说', exact: true }).click();
   await page.evaluate(() => {

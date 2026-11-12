@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useRef, type CSSProperties, type ReactNode } from 'react';
 import { useMobileWebLayout, useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
 import {
@@ -11,7 +11,7 @@ import {
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
-import { SelfProfileDialog, TitleBar } from './TitleBar';
+import { TitleBar } from './TitleBar';
 import { IS_MAC, IS_WEB } from '../../lib/target';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
 import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntime';
@@ -105,7 +105,6 @@ export function ChatShell({
 }) {
   const pageOpen = useWorkspacePageOpen();
   const mobilePage = useWorkspaceMobilePage();
-  const [selfProfileOpen, setSelfProfileOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const singleColumn = useMobileWebLayout();
   const sharedShell = IS_WEB || singleColumn;
@@ -193,7 +192,6 @@ export function ChatShell({
           onOpenSettings={onOpenSettings}
           onOpenDressUp={onOpenDressUp}
           onOpenCollection={onOpenCollection}
-          onOpenProfile={() => setSelfProfileOpen(true)}
         />
       )}
       <div className={cn('app-shell', view === 'tools' && 'app-shell-tools')} style={shellStyle}>
@@ -248,12 +246,6 @@ export function ChatShell({
         <MobileRootPreviews user={user} renderHeader={(page) => renderSidebarHeader(page, true)} />
       )}
       {children}
-      {selfProfileOpen && (
-        <SelfProfileDialog
-          key={`${user.id}:${user.identityValue}`}
-          onClose={() => setSelfProfileOpen(false)}
-        />
-      )}
     </div>
   );
 }

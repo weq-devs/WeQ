@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MobileWebNavigation as Navigation } from '../src/renderer/src/components/MobileWebNavigation';
 import { OnlineStatus } from '../src/renderer/src/components/OnlineStatus';
 import { ChatHeader } from '../src/renderer/src/components/ChatHeader';
+import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 const { onlineStatusQuery } = vi.hoisted(() => ({ onlineStatusQuery: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { getOnlineStatus: { useQuery: onlineStatusQuery } } },
@@ -115,16 +116,34 @@ it('更多中的收藏入口复用现有回调，不增加底栏入口', async (
 
 it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
   const onOpenProfile = vi.fn();
-  await act(async () =>
+  const render = (user = props.user) =>
     root.render(
-      createElement(MobileWebNavigation, {
-        ...props,
-        onOpenProfile,
-      }),
+      createElement(
+        ProfileNavigationContext.Provider,
+        { value: onOpenProfile },
+        createElement(MobileWebNavigation, { ...props, user }),
+      ),
+    );
+  await act(async () => render());
+  const avatar = host.querySelector<HTMLButtonElement>('[aria-label="查看我的名片"]')!;
+  vi.spyOn(avatar, 'getBoundingClientRect').mockReturnValue({
+    right: 68,
+    bottom: 40,
+  } as DOMRect);
+  await click('查看我的名片');
+  expect(onOpenProfile).toHaveBeenLastCalledWith(props.user, { x: 68, y: 40 });
+  await act(async () =>
+    avatar.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, detail: 1, clientX: 48, clientY: 24 }),
     ),
   );
+  expect(onOpenProfile).toHaveBeenLastCalledWith(props.user, { x: 48, y: 24 });
+  const nextUser = { ...props.user, identityValue: '10002' };
+  await act(async () => render(nextUser));
   await click('查看我的名片');
-  expect(onOpenProfile).toHaveBeenCalledOnce();
+  expect(onOpenProfile).toHaveBeenLastCalledWith(nextUser, { x: 68, y: 40 });
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+  expect(props.onOpenSettings).not.toHaveBeenCalled();
   expect(host.querySelector('.weq-mobile-actions-toggle')).toBeNull();
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   const more = host.querySelector('[aria-label="更多功能"]')!;

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { SelfProfileDialog } from '../../src/renderer/src/im-template/template/TitleBar';
+import { SelfQQControls } from '../../src/renderer/src/components/settings/SelfQQControls';
 import { QQExactLookup } from '../../src/renderer/src/components/QQExactLookup';
 import { CollectionDialog } from '../../src/renderer/src/components/CollectionDialog';
 import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog';
@@ -90,7 +90,11 @@ function Fixture() {
         >
           <main className={`fixture-page${navigation ? ' chat-main' : ''}`} data-surface={surface}>
             <PageSnapshotScope key={surface} name={`mobile-qa:${surface}`}>
-              {surface === 'profile' && <SelfProfileDialog onClose={noop} />}
+              {surface === 'profile' && (
+                <section className="weq-self-profile-page">
+                  <SelfQQControls editable={false} />
+                </section>
+              )}
               {surface === 'lookup' && <QQExactLookup kind="user" onClose={noop} />}
               {surface === 'collections' && <CollectionDialog open embedded onClose={noop} />}
               {surface === 'mail' && <MailWorkspace active selfUin="10001" onUnreadChange={noop} />}

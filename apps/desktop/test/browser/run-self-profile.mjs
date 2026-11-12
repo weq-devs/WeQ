@@ -69,24 +69,12 @@ try {
   if (output) await mkdir(output, { recursive: true });
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/self-profile.html`;
   await page.goto(url);
-  await page.getByRole('button', { name: '查看资料', exact: true }).waitFor();
-  assert.equal(
-    await page.locator('input, textarea, select').count(),
-    0,
-    'default card is read-only',
-  );
-  assert.equal(
-    await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).count(),
-    0,
-    'editing is absent from card',
-  );
+  await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
   assert.equal(
     await page.evaluate(() => window.selfProfileQa.requests()),
     0,
     'no eager history query',
   );
-  if (output) await page.screenshot({ path: resolve(output, 'readonly-card.png') });
-  await page.getByRole('button', { name: '查看资料', exact: true }).click();
   await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).click();
   await page.getByRole('textbox', { name: 'QQ 昵称', exact: true }).fill('新的合成昵称');
   await page.evaluate(() => window.selfProfileQa.failSave(true));
@@ -132,7 +120,7 @@ try {
         page.evaluate(() =>
           [
             ...document.querySelectorAll(
-              '.weq-self-profile-dialog, .weq-self-field-display, .weq-avatar-history-dialog, .weq-avatar-history-grid article',
+              '.weq-self-profile-page, .weq-self-field-display, .weq-avatar-history-dialog, .weq-avatar-history-grid article',
             ),
           ]
             .filter((el) => el.scrollWidth > el.clientWidth + 2)
@@ -169,7 +157,6 @@ try {
         width,
         theme,
         overflow: false,
-        defaultReadOnly: true,
         sort: true,
         imageDecoded: true,
         escapeOnlyTop: true,

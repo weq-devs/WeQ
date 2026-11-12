@@ -6,22 +6,6 @@
   max-width: 760px;
   padding: 8px 0 24px;
 }
-.weq-self-profile-details-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 0;
-  border: 0;
-  background: transparent;
-  color: var(--weq-fg-primary);
-  cursor: pointer;
-  font-size: 13px;
-}
-.weq-self-profile-details-link:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-}
 .weq-self-profile-page .weq-set-row {
   flex-wrap: wrap;
   gap: 10px;

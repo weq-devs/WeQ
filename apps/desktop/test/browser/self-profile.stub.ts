@@ -153,6 +153,9 @@ const mutate = async (input: { patch?: Record<string, unknown> }) => {
 const mutation = { useMutation: () => ({ mutateAsync: mutate }) };
 const invalidation = { invalidate: async () => {} };
 export const trpc = {
+  bootstrap: {
+    getSettings: { useQuery: () => useFixtureQuery(() => ({ exportSaveMode: 'before' })) },
+  },
   useUtils: () => ({ account: { getSelfProfile: invalidation, getOnlineStatus: invalidation } }),
   account: {
     getSelfProfile: { useQuery: () => useFixtureQuery(() => ({ ...profile, uin: account })) },

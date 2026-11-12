@@ -20,6 +20,7 @@ import {
   FileStack,
 } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
+import { SelfProfileAvatar } from './SelfProfileAvatar';
 import type { MainView, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
@@ -51,7 +52,6 @@ export function MobileWebNavigation({
   onOpenSettings,
   onOpenDressUp,
   onOpenCollection,
-  onOpenProfile,
 }: {
   user: User;
   view: MainView;
@@ -68,7 +68,6 @@ export function MobileWebNavigation({
   onOpenSettings: () => void;
   onOpenDressUp: () => void;
   onOpenCollection: () => void;
-  onOpenProfile?: () => void;
 }) {
   const mobilePage = useWorkspaceMobilePage();
   const mobile = useMobileWebLayout();
@@ -142,19 +141,7 @@ export function MobileWebNavigation({
   return (
     <div className="weq-mobile-navigation" inert={hidden} aria-hidden={hidden}>
       <header className="weq-mobile-header">
-        <button
-          type="button"
-          className="weq-mobile-account"
-          aria-label={onOpenProfile ? '查看我的名片' : '打开设置'}
-          title={onOpenProfile ? '我的名片' : '设置'}
-          onClick={onOpenProfile ?? onOpenSettings}
-        >
-          <Avatar
-            name={displayUserName(user)}
-            avatarUrl={user.avatarUrl}
-            seed={user.identityValue}
-          />
-        </button>
+        <SelfProfileAvatar user={user} className="weq-mobile-account" />
         <div className="weq-mobile-identity">
           <strong title={displayUserName(user)}>{displayUserName(user)}</strong>
           {user.uid && (
