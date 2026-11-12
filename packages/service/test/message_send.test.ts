@@ -31,6 +31,9 @@ import {
   DATALINE_UPLOAD_CMD,
   DATALINE_UPLOAD_REQUEST,
   DATALINE_UPLOAD_RESPONSE,
+  makeSolidPng,
+  NTV2_UPLOAD_RESP_TOP,
+  type SendImageElement,
 } from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
 import {
@@ -1393,6 +1396,121 @@ describe('sendForward（合并转发，离线）', () => {
       },
     };
   }
+
+  it.each(['direct', 'merged', 'nested'] as const)(
+    '%s 图片秒传失败后复用媒体下载服务',
+    async (mode) => {
+      const native = forwardNative();
+      let attempts = 0;
+      let downloads = 0;
+      const file = path.join(dir, `forward-${mode}.png`);
+      await fsp.writeFile(file, makeSolidPng(2, 2));
+      native.sendOidbPacket = async () => {
+        attempts++;
+        return Buffer.from(
+          encode(NTV2_UPLOAD_RESP_TOP, {
+            upload: {
+              ...(attempts === 1 ? { uKey: 'need-bytes' } : {}),
+              msgInfo: { msgInfoBody: [{ fileExist: true }] },
+            },
+          }),
+        );
+      };
+      const svc = new MessageSendService(
+        native,
+        fakeSession(),
+        () => 1,
+        undefined,
+        undefined,
+        undefined,
+        () => false,
+        undefined,
+        {
+          download: async (token, opts) => {
+            downloads++;
+            expect(token).toBe('image-token');
+            expect(opts?.originalUrl).toBe('/original');
+            return file;
+          },
+        },
+      );
+      const image: SendImageElement = {
+        kind: 'image',
+        source: '',
+        fingerprint: {
+          md5Hex: '0f343b0931126a20f133d67c2b018a3b',
+          sha1Hex: '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8',
+          fileSize: 1234,
+        },
+        download: { fileToken: 'image-token', originalUrl: '/original' },
+      };
+      const outcome =
+        mode === 'direct'
+          ? await svc.sendElements({ peerType: 'group', targetId: '42', elements: [image] })
+          : await svc.sendForward({
+              peerType: 'group',
+              targetId: '42',
+              nodes:
+                mode === 'merged'
+                  ? [{ elements: [image] }]
+                  : [{ elements: [], innerForward: [{ elements: [image] }] }],
+            });
+      expect(outcome.ok).toBe(true);
+      expect(attempts).toBe(2);
+      expect(downloads).toBe(1);
+      expect(image.resolveSource).toBeUndefined();
+      expect(native.calls.filter((call) => call.cmd === 'MessageSvc.PbSendMsg')).toHaveLength(1);
+    },
+  );
+
+  it.each(['unavailable', 'failed'])('原图下载 %s 时不发出卡片', async (mode) => {
+    const native = forwardNative();
+    native.sendOidbPacket = async () =>
+      Buffer.from(
+        encode(NTV2_UPLOAD_RESP_TOP, {
+          upload: { uKey: 'need-bytes', msgInfo: { msgInfoBody: [{ fileExist: false }] } },
+        }),
+      );
+    const svc = new MessageSendService(
+      native,
+      fakeSession(),
+      () => 1,
+      undefined,
+      undefined,
+      undefined,
+      () => false,
+      undefined,
+      {
+        download: async () => {
+          if (mode === 'failed') throw new Error('下载原图失败');
+          return null;
+        },
+      },
+    );
+    await expect(
+      svc.sendForward({
+        peerType: 'group',
+        targetId: '42',
+        nodes: [
+          {
+            elements: [
+              {
+                kind: 'image',
+                source: '',
+                download: { fileToken: 'image-token' },
+                fingerprint: {
+                  md5Hex: '0f343b0931126a20f133d67c2b018a3b',
+                  sha1Hex: '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8',
+                  fileSize: 1234,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow(mode === 'failed' ? '下载原图失败' : '无法取回原图');
+    expect(native.calls).toHaveLength(0);
+  });
 
   it('长消息上传后账号失效时不继续发送卡片', async () => {
     const native = forwardNative();

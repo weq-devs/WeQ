@@ -14,7 +14,8 @@
  */
 
 import { promises as fsp } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as highwayClient from '../src/highway/highway-client';
 import {
   amplitudesFromPcmS16le,
   assertUploadableImage,
@@ -585,6 +586,92 @@ describe('uploadImageMsgInfo', () => {
         },
       }),
     ).rejects.toThrow(/免字节/);
+  });
+
+  it('指纹秒传未命中时按需取图，并以真实字节重新申请上传', async () => {
+    let attempts = 0;
+    let downloads = 0;
+    const native = makeNative({
+      oidb: () => uploadResponse(++attempts === 1 ? { uKey: 'need-bytes' } : {}),
+    });
+    const result = await uploadImageMsgInfo(native, 42, C2C_TARGET, {
+      source: '',
+      fingerprint: {
+        md5Hex: '0f343b0931126a20f133d67c2b018a3b',
+        sha1Hex: '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8',
+        fileSize: 1234,
+      },
+      resolveSource: async () => {
+        downloads++;
+        return TINY_PNG;
+      },
+    });
+    expect(downloads).toBe(1);
+    expect(native.oidbCalls).toHaveLength(2);
+    expect(result.fileSize).toBe(TINY_PNG.length);
+    expect(result.md5Hex).not.toBe('0f343b0931126a20f133d67c2b018a3b');
+    const req = decode(NTV2_UPLOAD_REQ_TOP, native.oidbCalls[1]!.body) as {
+      upload?: { uploadInfo?: { fileInfo?: { fileSize?: number; fileHash?: string } }[] };
+    };
+    expect(req.upload?.uploadInfo?.[0]?.fileInfo?.fileSize).toBe(TINY_PNG.length);
+    expect(req.upload?.uploadInfo?.[0]?.fileInfo?.fileHash).toBe(result.md5Hex);
+  });
+
+  it('秒传命中和普通上传拒绝均不触发取图回退', async () => {
+    let downloads = 0;
+    const params = {
+      source: '',
+      fingerprint: {
+        md5Hex: '0f343b0931126a20f133d67c2b018a3b',
+        sha1Hex: '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8',
+        fileSize: 1234,
+      },
+      resolveSource: async () => {
+        downloads++;
+        return TINY_PNG;
+      },
+    };
+    await uploadImageMsgInfo(makeNative({ oidb: () => uploadResponse() }), 42, C2C_TARGET, params);
+    await expect(
+      uploadImageMsgInfo(
+        makeNative({ oidb: () => uploadResponse({ retCode: 1, message: 'denied' }) }),
+        42,
+        C2C_TARGET,
+        params,
+      ),
+    ).rejects.toThrow(/denied/);
+    expect(downloads).toBe(0);
+  });
+
+  it('取回原图后服务端仍要求字节时，真实进入 Highway 上传路径', async () => {
+    const session = vi.spyOn(highwayClient, 'fetchHighwaySession').mockResolvedValue({
+      host: 'unused',
+      port: 80,
+      sigSession: new Uint8Array(0),
+      sessionKey: new Uint8Array(0),
+    });
+    const put = vi.spyOn(highwayClient, 'uploadHighwayHttp').mockImplementation(async (params) => {
+      expect(params.source.size).toBe(TINY_PNG.length);
+      expect(params.fileMd5).toHaveLength(16);
+    });
+    try {
+      const native = makeNative({ oidb: () => uploadResponse({ uKey: 'need-bytes' }) });
+      const result = await uploadImageMsgInfo(native, 42, C2C_TARGET, {
+        source: '',
+        fingerprint: {
+          md5Hex: '0f343b0931126a20f133d67c2b018a3b',
+          sha1Hex: '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8',
+          fileSize: 1234,
+        },
+        resolveSource: async () => TINY_PNG,
+      });
+      expect(result.fastUpload).toBe(false);
+      expect(native.oidbCalls).toHaveLength(2);
+      expect(put).toHaveBeenCalledOnce();
+    } finally {
+      session.mockRestore();
+      put.mockRestore();
+    }
   });
 
   it('覆盖尺寸/格式时按调用方给的走', async () => {

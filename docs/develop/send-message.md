@@ -461,8 +461,11 @@ body 里只有 `downloadPath` / `resId`）。这说明服务端已按 md5 持有
   能解析出对方 uid（上传要有场景）。
 - **转发已有媒体走免字节上传**：转发一条**已有**消息里的图片 / 语音 / 视频时，元素带
   `fingerprint`（来自 wire 的 `md5Bytes`(45406)/`md5`(45424) + `contentHash`(45408, sha1) + 尺寸），就**不读
-  本机文件**，直接把这些报给 NTV2 走 fast-upload（服务端仍坚持要字节时抛 `fastOnlyError`）。
-  对齐 SnowLuma 的 `element.noByteFallback` / `imageDataFromFingerprint`。
+  本机文件**，直接把这些报给 NTV2 走 fast-upload。图片同时保留 `download.fileToken` /
+  `download.originalUrl`，服务端要求字节时由服务层复用统一媒体下载服务（含缓存、CDN 与
+  外部 rkey 回退）取回原图，重新按实际字节计算哈希并申请上传；秒传命中不下载。
+  逐条发送、合并转发和嵌套节点共用此路径。缺少原图或下载失败时不继续发卡片。
+  语音、视频仍在服务端要求字节时抛 `fastOnlyError`。
 - **本机路径要剥 `::NTOSFull::`**：QQ NT 的 45004 / 45403 等路径字段常带这个虚拟前缀，
   不是真实路径；渲染层读出来与协议层 `cleanNtLocalPath()` 都会剥掉，否则 `stat` 必 ENOENT。
 - **节点级装扮**：每个节点可选 `dress`（气泡 / 字体 / 挂件）。字体有**两个** wire 槽位，

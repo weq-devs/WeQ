@@ -127,6 +127,7 @@ export interface MfImageSeg extends MfMediaPreview {
   /** 0 普通图 / 1 动画表情；缺省 0。 */
   subType?: number;
   fingerprint?: MfMediaFingerprint;
+  download?: { fileToken: string; originalUrl?: string };
 }
 
 /** 语音：`path` 是本机 SILK / 音频文件路径；给 `fingerprint` 时可没有本机文件。 */
@@ -919,17 +920,24 @@ export function segToSendElement(seg: MfSeg): SendElement {
         ...(seg.previewWidth ? { previewWidth: seg.previewWidth } : {}),
         ...(seg.previewHeight ? { previewHeight: seg.previewHeight } : {}),
       };
-    case 'image':
+    case 'image': {
       // 有 fingerprint 就是「转发已有图片」：source 可以是空的（协议层走免字节上传）。
+      const fileToken = seg.preview?.data ? str(seg.preview.data, 'fileToken') : '';
+      const originalUrl = seg.preview?.data ? str(seg.preview.data, 'originalUrl') : '';
+      const download =
+        seg.download ??
+        (fileToken ? { fileToken, ...(originalUrl ? { originalUrl } : {}) } : undefined);
       return {
         kind: 'image',
         source: seg.path,
+        ...(download ? { download } : {}),
         ...(seg.fileName ? { fileName: seg.fileName } : {}),
         ...(seg.subType !== undefined ? { subType: seg.subType } : {}),
         ...(seg.width ? { width: seg.width } : {}),
         ...(seg.height ? { height: seg.height } : {}),
         ...(!seg.path.trim() && seg.fingerprint ? { fingerprint: seg.fingerprint } : {}),
       };
+    }
     case 'record':
       return {
         kind: 'record',
@@ -1464,6 +1472,8 @@ export function codecElementToSeg(
     case 'pic': {
       const path = cleanNtPath(str(element, 'localPath') || str(element, 'filePath'));
       const fingerprint = mediaFingerprintOf(element);
+      const fileToken = str(element, 'fileToken');
+      const originalUrl = str(element, 'originalUrl');
       // 本机没有原图也能画（QqImage 走 CDN / 代理按 fileToken + 发送时间取）：有指纹
       // 就还能「免字节」转发出去，没指纹就只能退成只读的 opaque 段。
       if (!path && !fingerprint) return opaqueFor(renderElement, '[图片]');
@@ -1477,6 +1487,7 @@ export function codecElementToSeg(
         height: num(element, 'imgHeight'),
         subType: num(element, 'subType'),
         ...(fingerprint ? { fingerprint } : {}),
+        ...(fileToken ? { download: { fileToken, ...(originalUrl ? { originalUrl } : {}) } } : {}),
         ...(!path && renderElement ? { preview: renderElement } : {}),
       };
     }
