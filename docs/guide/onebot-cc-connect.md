@@ -118,5 +118,3 @@ QQ 原始 `msgId` 为 64 位，接口分配有符号 32 位 ID，兼容 cc-conne
 
 OneBot 配置跟随全局配置保存；多服务器列表、各服务器启用状态和令牌会在配置备份时与 MCP
 一样进入 API 配置分区。旧版单 WebSocket 配置会自动迁移成一张 WebSocket 服务器卡片。
-
-开发实现与复验命令见 [实施记录](../develop/onebot-practical-service-20261029.md)。

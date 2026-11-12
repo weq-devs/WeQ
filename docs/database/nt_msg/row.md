@@ -15,8 +15,8 @@
 | `packages/codec/src/proto/msg/40900.ts` | `MsgType` / `SendType` / `SendStatus` 枚举（同号 tag 也用于 40900 缓存里） |
 
 > 本页只讲**行级列**。行里最复杂的两个 protobuf 列 40800（正文）与 40900（转发/引用缓存）
-> 各自成篇：见 [40800](./40800.md) / [40900](./40900.md)；群聊的贴表情列见
-> [40062](./40062.md)。
+> 各自成篇：见 [40800](40800.md) / [40900](40900.md)；群聊的贴表情列见
+> [40062](40062.md)。
 
 ---
 
@@ -29,7 +29,7 @@
 | `dataline_msg_table` | `40027` | 数据线对端（我的手机 / 电脑 / 平板），结构同 c2c |
 
 c2c 里 `40021`（对端 uid）虽是应用层的会话键，却**没有索引**——所以快路径必须先
-uid → sortNo 翻译一次，再按 `40027` 查（详见 [index.md · nt_uid_mapping_table](./index.md#nt_uid_mapping_table)）。
+uid → sortNo 翻译一次，再按 `40027` 查（详见 [index.md · nt_uid_mapping_table](index.md#nt_uid_mapping_table)）。
 查不到 uid 映射时才退化为按 `40021` 全扫。
 
 群里则相反：`40027` 就是群号本身，应用层和存储层用同一个键。
@@ -44,9 +44,9 @@ uid → sortNo 翻译一次，再按 `40027` 查（详见 [index.md · nt_uid_ma
 | 40005 | `clientSeq` | INTEGER | **发送方本地序号**（wire `contentHead.sequence` tag 5）：谁发的谁给号，随消息一路带到所有存它的人库里；**私聊引用回复要引的就是它**，群聊行恒为 0（群消息这一格就是群内 seq） | 已验证 |
 | 40002 | `msgRandom` | INTEGER | 消息随机数。与 40003 组成 `UNIQUE(40027,40003,40002)`；WeQ 用它当防撤回 trigger 的「允许修改」信号（见下文第五节） | 已验证 |
 | 40003 | `msgSeq` | INTEGER | 会话内递增序号。**不是全序**：灰条与它挂靠的消息共用同一 seq，排序需 `(40003, 40050, 40001)` 三键 | 已验证 |
-| 40010 | `chatType` | INTEGER | 聊天类型（1 私聊 / 2 群聊 / 8 数据线 / 100+ 临时会话…），全表见 [enums.ts](../../../packages/codec/src/domain/msg/enums.ts) 的 `ChatType` | 已验证 |
+| 40010 | `chatType` | INTEGER | 聊天类型（1 私聊 / 2 群聊 / 8 数据线 / 100+ 临时会话…），全表见 [enums.ts](https://github.com/weq-devs/WeQ/blob/dev/packages/codec/src/domain/msg/enums.ts) 的 `ChatType` | 已验证 |
 | 40011 | `msgType` | INTEGER | 消息大类（2 混排 / 5 灰条 / 8 合并转发 / 9 引用回复…），见 `MsgType` | 已验证 |
-| 40012 | `subMsgType` | INTEGER | 子类型，语义跟随 40011。**删除 / 撤回签名的一半**（见第五节）；`40011 = 2` 时是**位标志**而非枚举（闪照 = `& 0x2000`，见 [pic.md](./elements/pic.md#行级-40012位标志不是枚举闪照)） | 已验证 |
+| 40012 | `subMsgType` | INTEGER | 子类型，语义跟随 40011。**删除 / 撤回签名的一半**（见第五节）；`40011 = 2` 时是**位标志**而非枚举（闪照 = `& 0x2000`，见 [pic.md](elements/pic.md#行级-40012位标志不是枚举闪照)） | 已验证 |
 | 40013 | `sendType` | INTEGER | 发送来源：0 别人发的 / 1 本机 / 2 本账号其它端 / 5 转发，见 `SendType` | 已验证 |
 | 40020 | `senderUid` | TEXT | 发送者 uid。私聊里自己发的行此值 = 本账号 uid（≠ 40021） | 已验证 |
 | 40021 | `targetUid` | TEXT | 对端 uid（私聊恒为对端；群聊行为群号体系，此列存群 code） | 已验证 |
@@ -71,10 +71,10 @@ uid → sortNo 翻译一次，再按 `40027` 查（详见 [index.md · nt_uid_ma
 
 | 列 | 字段名 | 类型 | 含义 | 置信度 |
 | -- | ------ | ---- | ---- | ------ |
-| 40800 | `msgBody` | BLOB | 消息正文，protobuf `repeated ElementWire`，见 [40800](./40800.md) | 已验证 |
-| 40801 | `msgDress` | BLOB | 消息装扮（气泡/字体/挂件），见 [40801](./40801.md) | 观测一致 |
-| 40900 | `msgCache` | BLOB | 转发 / 引用时缓存的源消息快照（可递归嵌套），见 [40900](./40900.md) | 已验证 |
-| 40062 | `setEmoji` | BLOB | **仅群聊**：贴表情回应，protobuf `repeated EmojiSticker`，见 [40062](./40062.md) | 已验证 |
+| 40800 | `msgBody` | BLOB | 消息正文，protobuf `repeated ElementWire`，见 [40800](40800.md) | 已验证 |
+| 40801 | `msgDress` | BLOB | 消息装扮（气泡/字体/挂件），见 [40801](40801.md) | 观测一致 |
+| 40900 | `msgCache` | BLOB | 转发 / 引用时缓存的源消息快照（可递归嵌套），见 [40900](40900.md) | 已验证 |
+| 40062 | `setEmoji` | BLOB | **仅群聊**：贴表情回应，protobuf `repeated EmojiSticker`，见 [40062](40062.md) | 已验证 |
 
 ### 手机→PC 迁移的 seq-less 行
 
@@ -109,7 +109,7 @@ SELECT … FROM group_msg_table WHERE rowid > ? ORDER BY rowid ASC LIMIT ?;
 | 差异点 | c2c | group |
 | ------ | --- | ----- |
 | 40027 语义 | 对端 sortNo（整数） | 群号（文本形态） |
-| 40062 贴表情 | 无此列数据 | 有（见 [40062](./40062.md)） |
+| 40062 贴表情 | 无此列数据 | 有（见 [40062](40062.md)） |
 | 排序 tie-break | 40050, 40001 | 40050, 40001（UNIQUE 索引含 40002，但不可靠不依赖） |
 | 40040 语义 | 相同：1 = 本机发出 | 相同 |
 
@@ -132,4 +132,4 @@ WeQ 的行为与签名：
 
 ---
 
-[← 返回 nt_msg.db](./index.md)
+[← 返回 nt_msg.db](index.md)

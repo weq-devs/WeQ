@@ -7,13 +7,13 @@
 > 回写消息文件），三个入口的识别结果**共用一份按图片 md5 寻址的本机缓存**
 > （见第六节）。
 >
-> 模型侧这一轮的落地：注册表 [`packages/service/src/common/ocr_models.ts`](../../packages/service/src/common/ocr_models.ts)、
-> 通用仓库 [`model_store.ts`](../../packages/service/src/common/model_store.ts)、
+> 模型侧这一轮的落地：注册表 [`packages/service/src/common/ocr_models.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/service/src/common/ocr_models.ts)、
+> 通用仓库 [`model_store.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/service/src/common/model_store.ts)、
 > 设置页 `apps/desktop/src/renderer/src/components/settings/OcrModelsSection.tsx`。
 
 ## 一、为什么选 PP-OCR
 
-在线那条线（OIDB 0xe07_0，见 [`packages/protocol/src/oidb/misc/ocr-image.ts`](../../packages/protocol/src/oidb/misc/ocr-image.ts)）
+在线那条线（OIDB 0xe07_0，见 [`packages/protocol/src/oidb/misc/ocr-image.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/protocol/src/oidb/misc/ocr-image.ts)）
 的产物是：**逐行文字 + 4 个角点 + 外接矩形**，坐标就是喂进去那张图的像素坐标，另有一个
 段落标记。
 
@@ -27,7 +27,7 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
 上游是 ModelScope 的 `RapidAI/RapidOCR`（PaddleOCR 官方 PP-OCR 模型的 ONNX 版，与官方
 发布同源）：
 
-<https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/>
+`https://modelscope.cn/models/RapidAI/RapidOCR/resolve/master/`
 
 `resolve/master` 会 302 跳 CDN，下载器（`model_store.ts`）已经处理重定向与 Range 分片。
 
@@ -62,7 +62,7 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
   区分；`voice_transcribe.ts` 与 `ocr_models.ts` 不许撞 id，有测试兜着）。刻意**不放在
   cache 目录下** —— 「清空缓存」不该把模型一起清掉。
 - 下载机制（多线程分片 / 单线程流式、进度事件、状态、删除）在
-  [`common/model_store.ts`](../../packages/service/src/common/model_store.ts)，语音与图片
+  [`common/model_store.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/service/src/common/model_store.ts)，语音与图片
   两个家族共用，`ModelStore<T>` 只管文件级的事，不认识模型语义。
 - 设置项：`settings.ocr.modelId`（识别模型）/ `settings.ocr.filterModelId`（筛图模型），
   空 = 未选。数值都指向注册表 id。
@@ -75,11 +75,11 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
 
 | 文件 | 干什么 |
 | --- | --- |
-| [`main/ocr/pipeline.ts`](../../apps/desktop/src/main/ocr/pipeline.ts) | 纯 TypeScript 的 PP-OCR 管线：det 前后处理 / 透视裁切 / 方向分类 / CTC 解码 / 段落分组。不 import onnxruntime（会话以最小接口注入），所以能单测 |
-| [`main/ocr/worker.ts`](../../apps/desktop/src/main/ocr/worker.ts) | fork 出去的子进程入口：加载 `onnxruntime-node`，跑管线，回一行行结果 |
-| [`main/ocr/engine.ts`](../../apps/desktop/src/main/ocr/engine.ts) | 主进程这侧：fork worker、喂裸 RGB、把结果整成与在线版同构的 `OcrBlock` |
-| [`main/ocr/image.ts`](../../apps/desktop/src/main/ocr/image.ts) | 字节 → 裸 RGB（Electron 的 `nativeImage`，不额外引解码库） |
-| [`main/ocr/local.ts`](../../apps/desktop/src/main/ocr/local.ts) | 可用性判定（模型下好没）+ 取图（复用媒体协议那条链）+ 跑引擎 |
+| [`main/ocr/pipeline.ts`](https://github.com/weq-devs/WeQ/blob/dev/apps/desktop/src/main/ocr/pipeline.ts) | 纯 TypeScript 的 PP-OCR 管线：det 前后处理 / 透视裁切 / 方向分类 / CTC 解码 / 段落分组。不 import onnxruntime（会话以最小接口注入），所以能单测 |
+| [`main/ocr/worker.ts`](https://github.com/weq-devs/WeQ/blob/dev/apps/desktop/src/main/ocr/worker.ts) | fork 出去的子进程入口：加载 `onnxruntime-node`，跑管线，回一行行结果 |
+| [`main/ocr/engine.ts`](https://github.com/weq-devs/WeQ/blob/dev/apps/desktop/src/main/ocr/engine.ts) | 主进程这侧：fork worker、喂裸 RGB、把结果整成与在线版同构的 `OcrBlock` |
+| [`main/ocr/image.ts`](https://github.com/weq-devs/WeQ/blob/dev/apps/desktop/src/main/ocr/image.ts) | 字节 → 裸 RGB（Electron 的 `nativeImage`，不额外引解码库） |
+| [`main/ocr/local.ts`](https://github.com/weq-devs/WeQ/blob/dev/apps/desktop/src/main/ocr/local.ts) | 可用性判定（模型下好没）+ 取图（复用媒体协议那条链）+ 跑引擎 |
 
 要点：
 
@@ -116,7 +116,7 @@ PP-OCR 的「检测（DBNet）+ 方向分类 + 识别（CRNN/SVTR）」三段式
 
 ### MCP / 内置助手的入口：`get_ocr_status` + `ocr_image_text`
 
-同一个策略也挂在工具注册表（[`main/mcp/tools.ts`](../../apps/desktop/src/main/mcp/tools.ts)）
+同一个策略也挂在工具注册表（[`main/mcp/tools.ts`](https://github.com/weq-devs/WeQ/blob/dev/apps/desktop/src/main/mcp/tools.ts)）
 上，因此外部 MCP 客户端与内置助手都能调：
 
 | 工具 | 干什么 |
@@ -287,8 +287,8 @@ body 压成 zlib，native 层原先解不开就把整帧丢掉 —— 表现为�
 同一张图在三个入口被反复识别是纯浪费（本地推理秒级、在线还有 9 天寿命与风控），所以
 识别结果按**图片内容 md5** 存一份到 `<缓存根>/ocr/<md5 前两位>/<md5>.json`：谁先跑出来
 谁写，后面所有人直接命中 —— 在线请求、本地推理、连筛图那一趟检测都省掉。设计取舍与
-完整字段说明见[规划文档](./ocr-cache-plan-20261016.md)，实现是
-[`packages/service/src/common/ocr_cache.ts`](../../packages/service/src/common/ocr_cache.ts)。
+完整字段说明见规划文档，实现是
+[`packages/service/src/common/ocr_cache.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/service/src/common/ocr_cache.ts)。
 
 - **键**：元素 45424 / 45406（渲染视图里就是 `pic.md5`，`mapPic` 顺带把它归一成小写 hex）。
   MCP 给本机文件路径时也能对上 —— QQ 的图片文件名本来就叫 `<md5>.<ext>`。只认 16–64 位
@@ -311,7 +311,7 @@ body 压成 zlib，native 层原先解不开就把整帧丢掉 —— 表现为�
    `resources/node_modules/onnxruntime-node` 的布局在安装包里成立（见第四节的说明）。
 2. **取图**：本地 OCR 只解决「像素 → 文字」。字节来源要么本机 QQ 落盘，要么 rkey + CDN
    下载（需要在线 QQ），链路已在
-   [`media_download.ts`](../../packages/service/src/account/media_download.ts)；
+   [`media_download.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/service/src/account/media_download.ts)；
    所以「离线」只到推理这一步，纯离线只对已缓存 / 已落盘的图成立。
 3. **入口门禁**：群相册 / 收藏 / 本地资源那些入口没带 `fileToken`，灯箱里依旧没有 OCR
    按钮。**「按文件路径取字节」的腿已经在 `local.ts` 里落地了**（MCP 的 `ocr_image_text`
@@ -338,4 +338,4 @@ body 压成 zlib，native 层原先解不开就把整帧丢掉 —— 表现为�
 
 ---
 
-[← 返回开发者入口](./index.md)
+[← 返回开发者入口](index.md)

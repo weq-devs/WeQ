@@ -108,6 +108,16 @@
       }
     },
     {
+      "includes": ["docs/.vitepress/theme/components/**/*.vue"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": [
         "apps/desktop/src/renderer/src/components/relationGraph/RankingModal.tsx",
         "apps/desktop/src/renderer/src/components/relationGraph/GraphCanvas.tsx",

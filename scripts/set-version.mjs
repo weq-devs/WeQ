@@ -6,8 +6,9 @@
  *   pnpm run version:set 0.5.0 --dry-run  # 只打印将要修改的文件
  *   （也支持带 v 前缀：pnpm run version:set v0.5.0）
  *
- * 覆盖范围：仓库根 + apps/* + packages/* 的 package.json（跳过 node_modules /
- * dist / target 等产物目录）。pnpm-lock.yaml 不动 —— 下次 `pnpm i` 自然对齐。
+ * 覆盖范围：仓库根 + apps/* + packages/* + docs/ 的 package.json（跳过
+ * node_modules / dist / target 等产物目录）。docs 也参与统一版本，文档站页脚
+ * 显示的版本号因此永远和当前发版一致。pnpm-lock.yaml 不动 —— 下次 `pnpm i` 自然对齐。
  *
  */
 
@@ -29,7 +30,7 @@ if (!version) {
   process.exit(1);
 }
 
-/** 目标 package.json 清单（根 + 一级 workspace 包）。 */
+/** 目标 package.json 清单（根 + 一级 workspace 包 + docs）。 */
 function targets() {
   const list = [join(repoRoot, 'package.json')];
   for (const scope of ['apps', 'packages']) {
@@ -41,6 +42,9 @@ function targets() {
       if (existsSync(pkg)) list.push(pkg);
     }
   }
+  // 文档站是 workspace 成员但不在一级 scope 目录里，单独列。
+  const docsPkg = join(repoRoot, 'docs', 'package.json');
+  if (existsSync(docsPkg)) list.push(docsPkg);
   return list;
 }
 

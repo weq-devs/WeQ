@@ -267,9 +267,9 @@ seq 缺口渲染出可点击的「此处有 N 条消息缺失 · 点击拉取」
 ## 六、和免打扰的关系：没有关系
 
 一个容易走的弯路：免打扰状态**不在这张表里**。它在
-[`recent_contact_v3_table` 的 `41220` 列](./recent-contact.md#会话设置与来源)。
+[`recent_contact_v3_table` 的 `41220` 列](recent-contact.md#会话设置与来源)。
 这张表只管「读到哪了」和「有哪些提醒」，不管「要不要提醒」。
 
 ---
 
-[← 返回 nt_msg.db](./index.md)
+[← 返回 nt_msg.db](index.md)

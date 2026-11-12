@@ -2,7 +2,7 @@
 
 桌面端进入「设置 → WeQ 服务 → Web 与 Remote」。本机浏览器访问与远程连接是两个独立开关，默认都关闭，任一入口均可单独使用。
 
-手机 App 的源码与原生构建位于公开的 [WeQ Remote 仓库](https://github.com/weq-devs/WeQ-Remote)，[1.0.0b2 安装包](https://github.com/weq-devs/WeQ-Remote/releases/tag/v1.0.0b2)已发布，提供 Android arm64 APK 与 iOS arm64 未签名 IPA，iOS 安装前需正确签名 App 与内嵌 Framework。Web 页面、业务功能和电脑授权仍由 WeQ 提供；使用方式与现有配对不变，配合 WeQ 2.6.0 使用本轮加载进度与缓存改进。开发维护入口见[仓库拆分说明](../develop/remote-repository-split-20261023.md)。
+手机 App 的源码与原生构建位于公开的 [WeQ Remote 仓库](https://github.com/weq-devs/WeQ-Remote)，[1.0.0b2 安装包](https://github.com/weq-devs/WeQ-Remote/releases/tag/v1.0.0b2)已发布，提供 Android arm64 APK 与 iOS arm64 未签名 IPA，iOS 安装前需正确签名 App 与内嵌 Framework。Web 页面、业务功能和电脑授权仍由 WeQ 提供；使用方式与现有配对不变，配合 WeQ 2.6.0 使用本轮加载进度与缓存改进。开发维护入口见仓库拆分说明。
 
 ## 本机浏览器访问
 
@@ -139,7 +139,6 @@ Remote 通话使用页内视图，不因不创建系统子窗口而挂断。iOS 
 新版 Remote 壳接入 Android 网页文件选择与媒体授权、两端外链和鉴权下载。
 Android 通过系统文件保存位置落盘，iOS 下载后使用系统分享菜单；网页生成的 Blob 文件也经过相应处理。
 这些原生变化需要更新手机安装包，仅更新电脑上的 Web 页面不会生效。
-功能与验证记录见[本轮跨端对齐清单](../develop/web-remote-parity-20261106.md)。
 
 手机 Web / Remote 的会话页使用单行标题栏，搜索保持常驻，右侧「更多」下拉菜单直接提供
 分析、导出、拉取漫游消息、撤回列表、删除列表、添加本地消息和会话设置；群聊另有导出名单、

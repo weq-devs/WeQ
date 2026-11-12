@@ -2,7 +2,7 @@
 
 `group_info.db` 是**群聊的资料库**：群名/群主/成员列表/群头衔/精华消息/群通知全在这里。
 `nt_msg.db` 只冗余了会话行那一层的展示信息（见
-[recent-contact](./nt_msg/recent-contact.md) 的「冗余快照」），群的完整资料得来这边查。
+[recent-contact](nt_msg/recent-contact.md) 的「冗余快照」），群的完整资料得来这边查。
 
 对应 WeQ 解析实现：
 
@@ -40,7 +40,7 @@
 | 60241 | `customLabels` | BLOB | protobuf，群标签记录（标签 id / 内容 / 设置人/时间），不是成员专属头衔 | 官方静态映射／观测一致 |
 | 60242 | `address` | BLOB | protobuf，群地址（经纬度 / 地点名 / 设置人/时间） | 观测一致 |
 
-分类目录 `0x967C` 的 id／name／type 与群资料标签／记录是不同结构；创建分类目录项不表示已经应用到当前群。字段边界及尚未完成的生效验证见[群分类目录读取修复](../develop/group-category-directory-20261022.md)。
+分类目录 `0x967C` 的 id／name／type 与群资料标签／记录是不同结构；创建分类目录项不表示已经应用到当前群。
 
 ## 二、`group_member3` — 群成员
 
@@ -150,4 +150,4 @@
 
 ---
 
-[← 返回数据库分析](./index.md)
+[← 返回数据库分析](index.md)

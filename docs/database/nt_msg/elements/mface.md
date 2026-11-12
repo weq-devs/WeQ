@@ -49,7 +49,12 @@ https://i.gtimg.cn/club/item/parcel/item/<hash前2位>/<hash>/<300_300 或 200_2
 
 TEA 解密实现在 `packages/native` 的媒体解密链路里，行为由离线单测覆盖。
 
-> 📌 详细原理另见 [商城表情的解密](../../../principles/mface-decrypt.md)。
+::: tip 相关
+
+详细原理另见 [商城表情的解密](../../../develop/principles/mface-decrypt.md)，
+密钥与本地缓存图片可以直接用[在线工具](/tools/marketface)算。
+
+:::
 
 ## 三、语义未验证的字段
 

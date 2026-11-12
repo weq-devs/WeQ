@@ -39,7 +39,7 @@ NineBird 注入链、`packages/ninebird` 与旧 `native/**/ninebird` 已移除�
 
 ## 版本锚：`native/pinned.json`
 
-长期授权的公开/私有边界、可选产物清单及兼容规则见[长期授权集成](long-term-authorization-20261026.md)。旧 tag 没有助手时仍能正常取回 `.node`，不据此声称长期授权可用。
+长期授权的公开/私有边界、可选产物清单及兼容规则见[长期授权集成](long-term-authorization.md)。旧 tag 没有助手时仍能正常取回 `.node`，不据此声称长期授权可用。
 
 桌面 release 额外使用 `--require-authorization` 强制检查助手；Web 使用 `--no-authorization` 避免携带仅供本机桌面管理的可执行文件。升级锚点时应对同一明确 tag 使用 `--require-fresh --require-authorization --verify --write-pin`，校验失败不会写锚点。
 
@@ -164,7 +164,7 @@ https://github.com/weq-devs/nt_helper_release/releases/download/<tag>/<asset>
 
 Web 发布矩阵改用 `--require-fresh --no-authorization --verify`，压缩包显式排除权限助手。
 CI 的 Web 构建冒烟仍执行 `--require-fresh --verify`，不等同于桌面 release 的助手门禁。
-桌面打包另在 `afterPack` / `afterSign` 校验实际包内双产物，详见[长期授权集成](long-term-authorization-20261026.md#release-门禁)。
+桌面打包另在 `afterPack` / `afterSign` 校验实际包内双产物，详见[长期授权集成](long-term-authorization.md)。
 
 每个 runner 只取自己平台那一份 `.node` + 三个 `.dat`（**按 `native/pinned.json` 锚定的 tag**，
 不是 latest）。`--require-fresh` 在剩余有效期不足 1/5 时失败 —— 也就是说锚点太旧时，发布会在

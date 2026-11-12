@@ -20,7 +20,7 @@ native/<platform>/<arch>/           platform ∈ {win32, linux, darwin}
 
 NineBird 注入链与 `packages/ninebird` 已移除，不再构建或同步 `ninebird/` 目录；
 账号登录取密钥使用现有纯协议路径，在线实例能力另走 attach。长期授权助手的管理、
-开发通道与发布边界见[长期授权集成](../docs/develop/long-term-authorization-20261026.md)。
+开发通道与发布边界见[长期授权集成](../docs/develop/long-term-authorization.md)。
 
 `nt_helper.node` 会从自己所在目录往上找 `../../../resources/dress/<bubble|widget|font>.dat`，
 也可以被 `NT_HELPER_DRESS_DIR` 覆盖（见 nt_helper 的 `src/dress.rs`）。

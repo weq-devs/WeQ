@@ -3,7 +3,7 @@
 对应 WeQ 解析实现：`packages/codec/src/proto/msg/element.ts`（`elementType = 6`）。
 
 QQ 自带表情，包含普通小黄脸、超级表情、互动表情。
-（**商城表情**是另一个类型，见 [mface](./mface.md)。）
+（**商城表情**是另一个类型，见 [mface](mface.md)。）
 
 ---
 
@@ -42,7 +42,7 @@ QQ 自带表情，包含普通小黄脸、超级表情、互动表情。
 
 | tag | 字段名 | 类型 | 含义 |
 | --- | ------ | ---- | ---- |
-| 45004 | `localPath` | string | 本地缓存路径。**这个 tag 落在通用段而非 476xx 段，也不是 FACE 专属** —— 在 PIC 上实测是原图的本机缓存路径（原名 `faceExtDesc`（扩展描述）系误判，见 [pic.md](./pic.md)）。FACE 上一直没见到非空样本，故「扩展描述」降级为存疑 |
+| 45004 | `localPath` | string | 本地缓存路径。**这个 tag 落在通用段而非 476xx 段，也不是 FACE 专属** —— 在 PIC 上实测是原图的本机缓存路径（原名 `faceExtDesc`（扩展描述）系误判，见 [pic.md](pic.md)）。FACE 上一直没见到非空样本，故「扩展描述」降级为存疑 |
 | 47608 | `faceFlag47608` | bytes | 未知的长度分隔字段 |
 | 47622 | `canChain` | bool | 该表情是否支持连锁反应 |
 

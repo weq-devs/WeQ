@@ -129,4 +129,4 @@ Web 操作保存到服务器，完成后可从任务列表下载到浏览器，�
 
 ---
 
-下一步 → [AgentLab（克隆 / 群聊）](./agentlab.md)
+下一步 → [AgentLab（克隆 / 群聊）](agentlab.md)

@@ -11,7 +11,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OcrBlock } from '@weq/protocol';
 import { OCR_CACHE_SCHEMA_VERSION, OcrResultCache, ocrCacheKey } from '../src/common/ocr_cache';
 
@@ -112,6 +112,26 @@ describe('读写与多生产者', () => {
     const newer = await cache.getText(KEY, 'local');
     expect(newer?.text).toBe('新模型结果');
     expect(newer?.modelId).toBe('ppocr-v6-server');
+  });
+
+  it('同一毫秒内换本地模型，local 偏好取后写入的那份', async () => {
+    const cache = new OcrResultCache(dir);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    try {
+      await cache.putText(KEY, 'local:ppocr-v5-mobile', {
+        text: '旧模型结果',
+        frame: FRAME,
+        modelId: 'ppocr-v5-mobile',
+      });
+      await cache.putText(KEY, 'local:ppocr-v6-server', {
+        text: '新模型结果',
+        frame: FRAME,
+        modelId: 'ppocr-v6-server',
+      });
+    } finally {
+      now.mockRestore();
+    }
+    expect((await cache.getText(KEY, 'local'))?.text).toBe('新模型结果');
   });
 
   it('只给在线 / 只给本地偏好时不拿另一条腿顶替', async () => {
