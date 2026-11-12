@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from 'react';
 import { create } from 'zustand';
+import { version } from '../../../../package.json';
 import { IS_WEB } from '../lib/target';
 import {
   DEFAULT_TOAST_DURATIONS,
@@ -54,6 +55,7 @@ interface Toast {
   /** 同一状态或操作的稳定标识，用于替换旧横幅及恢复后清理。 */
   key?: string;
   tone: ToastTone;
+  occurredAt: number;
   /** 计时分类与视觉 tone 独立，long 沿用长期任务原有时长。 */
   durationKind: ToastDurationKind;
   loading?: boolean;
@@ -179,6 +181,7 @@ export const useToast = create<ToastStore>((set, get) => ({
       id,
       key,
       tone,
+      occurredAt: Date.now(),
       durationKind: kind,
       loading,
       title: actualTitle,
@@ -203,6 +206,8 @@ export const useToast = create<ToastStore>((set, get) => ({
       toasts: get().toasts.map((t) => {
         if (t.id !== id) return t;
         const next = { ...t, ...patch };
+        if (patch.tone !== undefined || patch.title !== undefined || patch.detail !== undefined)
+          next.occurredAt = Date.now();
         const reset =
           patch.tone !== undefined ||
           patch.ttl !== undefined ||
@@ -252,7 +257,12 @@ function textOf(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(textOf).join('');
   if (typeof node === 'object' && 'props' in node) {
-    return textOf((node as { props?: { children?: ReactNode } }).props?.children);
+    const element = node as ReactElement<{ children?: ReactNode }>;
+    if (element.type === 'br') return '\n';
+    const text = textOf(element.props.children);
+    return typeof element.type === 'string' && /^(p|div|pre|li)$/.test(element.type)
+      ? `${text}\n`
+      : text;
   }
   return '';
 }
@@ -329,9 +339,31 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   useEffect(() => () => window.clearTimeout(copiedTimerRef.current), []);
 
   const hasDetail = toast.detail != null && textOf(toast.detail).length > 0;
+  const isFailure = toast.tone === 'error' || toast.tone === 'warning';
+  const hasBody = hasDetail || isFailure;
+  const copyLabel = copied ? '已复制' : isFailure ? '复制错误信息' : '复制信息';
 
   const handleCopy = async () => {
-    const ok = await copyText(textOf(toast.detail));
+    const text = [textOf(toast.title).trim(), textOf(toast.detail).trim()]
+      .filter(Boolean)
+      .join('\n\n');
+    const occurredAt = new Date(toast.occurredAt).toLocaleString('sv-SE', {
+      timeZone: 'Asia/Shanghai',
+      hour12: false,
+    });
+    const ok = await copyText(
+      isFailure
+        ? [
+            'WeQ 错误信息',
+            `发生时间：${occurredAt}（北京时间 UTC+08:00）`,
+            `界面版本：${version}`,
+            `运行端：${IS_WEB ? 'Web' : '桌面端'}`,
+            `运行环境：${navigator.userAgent}`,
+            '',
+            text,
+          ].join('\n')
+        : text,
+    );
     if (ok) {
       setCopied(true);
       window.clearTimeout(copiedTimerRef.current);
@@ -374,7 +406,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
         </div>
         <h3 className="weq-toast-title">{toast.title}</h3>
         <div className="weq-toast-actions">
-          {hasDetail ? (
+          {hasBody ? (
             <button
               type="button"
               className="weq-toast-action"
@@ -405,23 +437,23 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
       </div>
 
       {/* 中间：详细内容（默认折叠） */}
-      {hasDetail ? (
+      {hasBody ? (
         <div className="weq-toast-body-wrapper">
           <div className="weq-toast-body">
             <div className="weq-toast-content">
-              <div className="weq-toast-detail">{toast.detail}</div>
+              {hasDetail ? <div className="weq-toast-detail">{toast.detail}</div> : null}
               <button
                 type="button"
                 className="weq-toast-copy"
                 onClick={handleCopy}
-                aria-label={copied ? '已复制' : '复制详情'}
+                aria-label={copyLabel}
               >
                 {copied ? (
                   <Check size={13} strokeWidth={2.2} aria-hidden />
                 ) : (
                   <Copy size={13} strokeWidth={2} aria-hidden />
                 )}
-                {copied ? '已复制' : '复制'}
+                {copyLabel}
               </button>
             </div>
           </div>
