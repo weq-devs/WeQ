@@ -340,8 +340,11 @@ try {
         );
         assert.ok(panel.y >= 8 && panel.y + panel.height <= 892);
         if (width === 1280) {
-          const source = await card.boundingBox();
-          assert.ok(panel.x >= source.x + source.width || panel.x + panel.width <= source.x);
+          const source = await card
+            .getByRole('button', { name: '查看资料卡点赞', exact: true })
+            .boundingBox();
+          assert.ok(Math.abs(panel.x - (source.x + source.width + 8)) < 1);
+          assert.ok(Math.abs(panel.y - Math.max(8, Math.min(source.y, 892 - panel.height))) < 1);
         }
         if (output)
           await page.screenshot({ path: resolve(output, `profile-like-${theme}-${width}.png`) });
@@ -363,6 +366,21 @@ try {
     await page.locator('.weq-contact-overflow > summary').click();
     await page.getByRole('button', { name: '赞资料卡', exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: '赞资料卡', exact: true }).count(), 1);
+    const likeButton = page.getByRole('button', { name: '赞资料卡', exact: true });
+    const likeSource = await likeButton.boundingBox();
+    await likeButton.click();
+    const likeDialog = page
+      .getByRole('dialog')
+      .filter({ has: page.locator('.weq-profile-like-dialog') });
+    await likeDialog.evaluate((node) =>
+      Promise.all(node.getAnimations().map((animation) => animation.finished)),
+    );
+    const likePanel = await likeDialog.boundingBox();
+    assert.ok(Math.abs(likePanel.x - (likeSource.x + likeSource.width + 8)) < 1);
+    assert.ok(
+      Math.abs(likePanel.y - Math.max(8, Math.min(likeSource.y, 892 - likePanel.height))) < 1,
+    );
+    await likeDialog.getByRole('button', { name: '关闭资料卡点赞', exact: true }).click();
     await page.locator('.weq-contact-overflow > summary').click();
     assert.ok(
       !cold.some((call) =>

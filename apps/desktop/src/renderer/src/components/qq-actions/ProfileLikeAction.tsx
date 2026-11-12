@@ -177,8 +177,8 @@ function ProfileLikeActionBody(props: ProfileLikeProps) {
   )
     return props.children ?? null;
   const open = () => {
-    const element = trigger.current;
-    if (element) setAnchor(element.closest<HTMLElement>('.weq-contact-card') ?? element);
+    const element = trigger.current?.querySelector('button');
+    if (element) setAnchor(element);
   };
   return (
     <>

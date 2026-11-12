@@ -244,3 +244,36 @@ it.each([false, true])('累计获赞数字打开同一面板，切换目标即�
     host.remove();
   }
 });
+
+it.each([false, true])('点赞面板锚定实际点击的按钮而非整张名片；数字入口=%s', (number) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('innerWidth', 1280);
+  vi.stubGlobal('innerHeight', 900);
+  useViewState.setState({ openedUin: '10001' });
+  const host = document.createElement('div');
+  host.className = 'weq-contact-card';
+  host.getBoundingClientRect = () => new DOMRect(10, 10, 400, 600);
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(
+          ProfileLikeAction,
+          { uid: 'u_peer', uin: '10002', name: '合成资料' },
+          number ? '128' : undefined,
+        ),
+      ),
+    );
+    const button = host.querySelector('button')!;
+    button.getBoundingClientRect = () => new DOMRect(100, 400, 50, 24);
+    act(() => button.click());
+    const layer = document.querySelector<HTMLElement>('.weq-dialog-layer')!;
+    expect(layer.style.getPropertyValue('--weq-popover-left')).toBe('158px');
+    expect(layer.style.getPropertyValue('--weq-popover-top')).toBe('400px');
+    expect(state.perform).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
