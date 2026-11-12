@@ -43,6 +43,8 @@ export type EditableProfilePatch = {
   school?: string;
   profession?: number;
   hometown?: string[];
+  company?: string;
+  personalDescription?: string;
 };
 const keys = {
   school: 20021,
@@ -50,6 +52,8 @@ const keys = {
   profession: 27037,
   hometown: 24002,
   district: 20043,
+  company: 24008,
+  personalDescription: 20019,
 } as const;
 
 export function packQqRegionCode(code: string) {
@@ -154,7 +158,14 @@ export async function readEditableProfile(
     errors.region = '当前地区读取失败';
   }
   if (legacyResult.status === 'rejected')
-    for (const field of ['email', 'school', 'profession', 'hometown'] as const)
+    for (const field of [
+      'email',
+      'school',
+      'profession',
+      'hometown',
+      'company',
+      'personalDescription',
+    ] as const)
       errors[field] = '该项资料读取失败';
   const date = modern?.bytes.get(20031);
   let birthday: string | null = null;
@@ -168,7 +179,7 @@ export async function readEditableProfile(
       /* 未确认的生日形态保持未知。 */
     }
   }
-  const text = (key: number, field: 'email' | 'school') => {
+  const text = (key: number, field: 'email' | 'school' | 'company' | 'personalDescription') => {
     const bytes = legacy.get(key);
     if (bytes === undefined) return null;
     try {
@@ -184,6 +195,8 @@ export async function readEditableProfile(
     region: decodeRegion(modern?.bytes.get(20032)),
     email: text(keys.email, 'email'),
     school: text(keys.school, 'school'),
+    company: text(keys.company, 'company'),
+    personalDescription: text(keys.personalDescription, 'personalDescription'),
     profession: profession?.length === 4 ? Buffer.from(profession).readUInt32BE() : null,
     hometown: legacy.has(keys.district)
       ? decodeRegion(legacy.get(keys.hometown), legacy.get(keys.district))
@@ -222,10 +235,15 @@ export function encodeEditableProfile(patch: EditableProfilePatch) {
     };
   if (patch.region !== undefined)
     return { modern: { bytes: [{ key: 20032, value: encodeQqRegion(patch.region, 3) }] }, legacy };
-  if (patch.email !== undefined || patch.school !== undefined) {
-    const text = patch.email ?? patch.school!;
+  const textField = (['email', 'school', 'company', 'personalDescription'] as const).find(
+    (field) => patch[field] !== undefined,
+  );
+  if (textField) {
+    const text = patch[textField]!;
+    if (textField === 'personalDescription' && Array.from(text).length > 383)
+      throw new Error('个人说明不能超过 383 字符');
     if (Buffer.byteLength(text) > 996) throw new Error('文本超出 QQ 资料字段容量');
-    legacy.set(patch.email !== undefined ? keys.email : keys.school, Buffer.from(text));
+    legacy.set(keys[textField], Buffer.from(text));
   } else if (patch.profession !== undefined) {
     if (!QQ_PROFESSIONS.some((row) => row.value === patch.profession))
       throw new Error('职业不在支持目录中');

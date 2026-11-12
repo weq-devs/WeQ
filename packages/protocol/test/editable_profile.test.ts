@@ -74,6 +74,36 @@ describe('已确认的本人资料字段编码', () => {
     expect(() => encodeEditableProfile({ profession: 15 })).toThrow();
     expect(() => encodeEditableProfile({ email: 'a', school: 'b' })).toThrow();
   });
+  it('公司与多行个人说明使用独立资料字段，保留空值和换行', () => {
+    expect([...encodeEditableProfile({ company: '' }).legacy]).toEqual([[24008, Buffer.alloc(0)]]);
+    expect([...encodeEditableProfile({ personalDescription: '第一行\n第二行' }).legacy]).toEqual([
+      [20019, Buffer.from('第一行\n第二行')],
+    ]);
+    expect(() => encodeEditableProfile({ personalDescription: 'x'.repeat(384) })).toThrow();
+    expect(() => encodeEditableProfile({ company: '公'.repeat(333) })).toThrow();
+  });
+  it('独立读回公司与个人说明，不把缺字段当作已清空', async () => {
+    const body = Buffer.from('000027110000025dc80001414e330003420a43', 'hex');
+    const result = await readEditableProfile(
+      {
+        sendOidbPacket: async () => {
+          throw new Error('暂不可读');
+        },
+        sendPacket: async () =>
+          Buffer.from(
+            encode(legacyOidbEnvelope, {
+              command: 0x480,
+              serviceType: 9,
+              result: 0,
+              body,
+            }),
+          ),
+      },
+      1,
+      '10001',
+    );
+    expect(result).toMatchObject({ company: 'A', personalDescription: 'B\nC', school: null });
+  });
   it('解析旧资料 TLV 时校验身份、重复键、截断与未建模尾部', () => {
     const body = Buffer.from('000027110000024e2b00004e35000141', 'hex');
     expect([...parseLegacyProfileBody(body, '10001')]).toEqual([

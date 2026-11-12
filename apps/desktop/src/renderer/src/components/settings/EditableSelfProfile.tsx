@@ -7,6 +7,7 @@ import {
   GraduationCap,
   BriefcaseBusiness,
   RefreshCw,
+  FileText,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
@@ -297,6 +298,49 @@ function EditableSelfProfileBody() {
           regions={directory.data?.regions ?? []}
           disabled={disabled || Boolean(errors.hometown)}
           onSave={(hometown) => save({ hometown })}
+        />
+      </SelfProfileField>
+      <SelfProfileField
+        label="公司"
+        displayField="company"
+        value={
+          errors.company || profile.error
+            ? '读取失败'
+            : profile.data
+              ? profile.data.company || '未设置'
+              : null
+        }
+        disabled={disabled || Boolean(errors.company)}
+      >
+        <QQWriteTextRow
+          label="公司"
+          icon={<BriefcaseBusiness size={14} />}
+          initial={profile.data?.company ?? null}
+          disabled={disabled || Boolean(errors.company)}
+          maxLength={996}
+          onSave={(company) => save({ company })}
+        />
+      </SelfProfileField>
+      <SelfProfileField
+        label="个人说明"
+        displayField="personalNote"
+        value={
+          errors.personalDescription || profile.error
+            ? '读取失败'
+            : profile.data
+              ? profile.data.personalDescription || '未设置'
+              : null
+        }
+        disabled={disabled || Boolean(errors.personalDescription)}
+      >
+        <QQWriteTextRow
+          label="个人说明"
+          icon={<FileText size={14} />}
+          initial={profile.data?.personalDescription ?? null}
+          disabled={disabled || Boolean(errors.personalDescription)}
+          maxLength={383}
+          multiline
+          onSave={(personalDescription) => save({ personalDescription })}
         />
       </SelfProfileField>
       <SelfProfileField

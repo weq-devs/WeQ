@@ -179,6 +179,11 @@ export function createQQWriteRouter(
               hometown: z.array(z.string().max(4)).length(4).optional(),
               email: z.string().max(996).optional(),
               school: z.string().max(996).optional(),
+              company: z.string().max(996).optional(),
+              personalDescription: z
+                .string()
+                .refine((value) => Array.from(value).length <= 383)
+                .optional(),
               profession: z.number().int().min(1).max(14).optional(),
             })
             .strict()
