@@ -1,0 +1,235 @@
+.weq-contact-profile-v2 .weq-profile-page-header {
+  padding-block: 12px;
+}
+
+.weq-contact-profile-v2 .weq-profile-page-header .weq-contact-identity {
+  flex-wrap: nowrap;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+}
+
+.weq-contact-profile-v2 .weq-profile-card-actions {
+  position: static;
+  margin-inline: 0;
+  margin-bottom: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.weq-contact-profile-v2 .weq-profile-page-header .weq-contact-remarks {
+  margin-top: 6px;
+}
+
+.weq-contact-profile-v2 .weq-profile-workspace-body {
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-profile-v2 .weq-profile-section-block + .weq-profile-section-block {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-profile-disclosure {
+  margin-top: 20px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-profile-disclosure:first-child {
+  margin-top: 0;
+}
+
+.weq-profile-disclosure-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+
+.weq-profile-disclosure-trigger svg {
+  flex: none;
+  color: var(--weq-fg-secondary);
+  transition: transform 160ms ease-out;
+}
+
+.weq-profile-disclosure-trigger[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.weq-profile-disclosure-trigger:hover {
+  color: var(--weq-accent-effective);
+}
+
+.weq-profile-disclosure-trigger:focus-visible,
+.weq-profile-group-picker select:focus-visible,
+.weq-profile-group-link:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+
+.weq-profile-disclosure-body {
+  padding-bottom: 12px;
+}
+
+.weq-profile-group-picker {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.weq-profile-group-picker label {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-profile-group-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-profile-group-link {
+  display: inline-flex;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-profile-group-link:hover {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-profile-group-picker select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  text-overflow: ellipsis;
+  color-scheme: light;
+}
+
+html[data-theme='dark'] .weq-profile-group-picker select {
+  color-scheme: dark;
+}
+
+.weq-contact-group-workspace .weq-contact-actions {
+  justify-content: flex-start;
+  margin-top: 16px;
+  padding-inline: 0;
+}
+
+.weq-contact-profile-v2 .weq-mutual-dialog,
+.weq-contact-profile-v2 .weq-contact-portrait {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.weq-contact-profile-v2 .weq-contact-portrait > header,
+.weq-contact-profile-v2 .weq-mutual-head {
+  display: none;
+}
+
+.weq-contact-profile-v2 .weq-contact-portrait > .group-keyword-body,
+.weq-contact-profile-v2 .weq-mutual-body {
+  padding: 0;
+}
+
+.weq-contact-profile-v2 .weq-mutual-status {
+  justify-content: flex-start;
+  min-height: 0;
+  padding-block: 10px;
+}
+
+.weq-contact-profile-v2 .weq-int-profile {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+}
+
+.weq-contact-profile-v2 .weq-contact-personality {
+  width: 100%;
+  max-width: 360px;
+  min-height: 280px;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  border-color: var(--weq-border-subtle);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  box-shadow: none;
+}
+
+.weq-contact-profile-v2 .weq-contact-personality.is-empty {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.weq-contact-profile-v2 .weq-contact-personality .weq-perhome-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 280px;
+  padding: 24px 12px 12px;
+}
+
+.weq-contact-profile-v2 .weq-contact-personality .weq-perhome-stage {
+  flex: 1;
+  min-height: 220px;
+}
+
+@media (max-width: 720px) {
+  .weq-contact-profile-v2 .weq-contact-portrait .weq-int-profile {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weq-profile-group-picker {
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-profile-disclosure-trigger svg {
+    transition: none;
+  }
+}

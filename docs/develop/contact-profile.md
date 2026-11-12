@@ -25,7 +25,11 @@
 - `ProfileExtrasContent` 和 `ProfileDetailsContent` 支持页内承接，`ProfileExtraDialog` 复用相同内容与查询。原有签名、问答、照片互动不另建协议或写入通道。
 - 私聊存在性优先使用完整目录和隐藏、历史及临时会话状态；必要时只读取会话边界。本群发言复用 `browseConversation` 的发送者过滤和游标分页。空间预览按点击延迟加载，复用空间读取和媒体网格，不预取评论或续页。
 
-资料页章节采用已有共享目录容器，保留同一对象的章节、分页和滚动位置。导航目标携带群上下文和标签 ID，原有 `profile/personality/marks/portrait/history` 值继续有效。本人编辑及对外展示设置与名片偏好分开。
+资料页章节采用已有共享目录容器，保留同一对象的章节、分页和滚动位置。`lib/contactWorkspace.ts` 定义四个内容页及旧导航映射：`details/signatures/history/edit` 归入 `profile`，`portrait` 归入 `marks`，`questions` 归入 `personality`，旧直达入口自动展开所属内容。本人编辑及对外展示设置与名片偏好分开。
+
+`ProfileDisclosure` 首次展开后才挂载内容，收起保留现场并通过 `TabActivity` 暂停读取。资料历史按四页归属筛选服务端返回的类别，再按类别分页查询，不使用过滤当前页结果的方式；没有适用类别时不发无类别的全量历史查询。UID 只在个人资料底部出现一次。`styles/contact-workspace.css` 承担联系人资料页专属样式，不修改群资料页的布局。
+
+`ContactGroupWorkspace` 通过绑定账号和数据源的 `listUserGroups` 分页读取本地成员记录，合并来源群，不遍历所有群成员；群名优先使用当前群资料、来源群和已有会话目录，缺失时显示群号。切群重新构造 `profileContext`，不改联系人及当前会话；成员行与本群发言、聊天分析共用该上下文。选择记忆按账号、数据源和 UID 隔离，内存有界；来源群优先于记忆。`listUserGroups` 保留旧调用，同时使用已有 `scopedGroupRead` 拒绝跨账号、跨数据源及迟到响应。
 
 ## 定向验证
 
@@ -34,5 +38,7 @@
 浏览器回归入口为 `apps/desktop/test/browser/run-contact-card.mjs`。通过 `WEQ_PLAYWRIGHT_IMPORT`、`WEQ_BROWSER_EXECUTABLE` 复用已有浏览器；`WEQ_CONTACT_CARD_QA` 指定截图和查询记录目录。脚本使用合成资料，禁止外网请求，退出时关闭自身浏览器和 Vite 服务。`WEQ_CONTACT_CARD_BASELINE=1` 可加载重构前的名片组件作同夹具对照。
 
 浏览器记录用于核对真实首帧、冷开与缓存复用、可选查询及响应式布局，不等同于真实 QQ 网络耗时或长期性能验收。
+
+四页资料工作区回归入口为 `apps/desktop/test/browser/run-contact-workspace.mjs`，沿用相同浏览器环境变量，以 `WEQ_CONTACT_WORKSPACE_QA` 指定截图和检查记录目录；覆盖四页导航、历史按需与分类读取、切群及所选群发言、三种宽度与深浅主题。模型与页内展开测试为 `contact_workspace_model.test.ts`、`contact_workspace_sections.test.ts`，账号绑定路由测试在 `group_profile_router.test.ts`。
 
 原行编辑定向测试为 `profile_inline_field.test.ts` 与 `group_member_inline_edit.test.ts`；浏览器入口 `apps/desktop/test/browser/run-profile-inline.mjs` 使用同一运行时环境变量，以 `WEQ_PROFILE_INLINE_QA` 指定截图目录，覆盖备注保存／清空／取消、分组、群名称、失败草稿及深浅主题窄屏布局，所有写入均为合成桩。

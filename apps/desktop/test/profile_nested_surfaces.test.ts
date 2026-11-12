@@ -348,7 +348,7 @@ it.each([false, true])('共同群查看消息关闭列表及浮层好友名片�
   }
   try {
     act(() => root.render(h(Fixture)));
-    if (embedded) act(() => sectionButton(host, '关系与互动').click());
+    if (embedded) act(() => sectionButton(host, '与我的关系').click());
     act(() => document.querySelector<HTMLButtonElement>('[aria-label="查看共同群列表"]')!.click());
     act(() =>
       document.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
@@ -421,10 +421,10 @@ it.each(['friend', 'group'] as const)(
       expect(host.querySelector('.weq-profile-hero')).not.toBeNull();
       if (kind === 'friend') {
         expect(host.querySelector('.weq-profile-workspace')).not.toBeNull();
-        expect(sectionButton(host, '关系与互动')).toBeDefined();
-        expect(host.querySelector('[aria-label="概览"]')?.textContent).not.toContain('亲密度');
-        act(() => sectionButton(host, '关系与互动').click());
-        expect(host.querySelector('[aria-label="关系与互动"]')?.textContent).toContain('亲密度');
+        expect(sectionButton(host, '与我的关系')).toBeDefined();
+        expect(host.querySelector('[aria-label="个人资料"]')?.textContent).not.toContain('亲密度');
+        act(() => sectionButton(host, '与我的关系').click());
+        expect(host.querySelector('[aria-label="与我的关系"]')?.textContent).toContain('亲密度');
       } else {
         expect(host.querySelectorAll('.weq-group-preview-avatars button')).toHaveLength(8);
         expect(sectionButton(host, '成员')).toBeDefined();
@@ -549,7 +549,7 @@ it.each(['资料', '个性主页'] as const)('联系人%s跳转空间不清除�
     if (tab === '个性主页') {
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button')]
-          .find((button) => button.textContent?.includes(tab))!
+          .find((button) => button.textContent?.includes('个性展示'))!
           .click(),
       );
     }
@@ -774,7 +774,7 @@ it.each(['friend', 'group'] as const)('小名片 %s 移除互动入口并可展�
     act(() =>
       dialog
         .querySelector<HTMLButtonElement>(
-          kind === 'friend' ? '[aria-label="联系人详情"]' : '.weq-group-name-link',
+          kind === 'friend' ? '[aria-label="联系人详情"]' : '[aria-label="打开完整群资料"]',
         )!
         .click(),
     );
@@ -825,15 +825,21 @@ it('个性主页、互动标识与互动画像均在联系人正文内切换，�
         h(ContactProfileDialog, { contact: contactFixture, embedded: true, onClose: vi.fn() }),
       ),
     );
-    for (const [label, selector] of [
-      ['个性主页', '.weq-contact-personality'],
-      ['关系与互动', '.weq-contact-marks'],
-      ['互动画像', '.weq-contact-portrait'],
+    for (const [label, disclosure, selector] of [
+      ['个性展示', '个性装扮', '.weq-contact-personality'],
+      ['与我的关系', null, '.weq-contact-marks'],
+      ['与我的关系', '互动画像', '.weq-contact-portrait'],
     ] as const) {
       const entry = [
         ...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button'),
       ].find((button) => button.textContent?.includes(label))!;
       act(() => entry.click());
+      if (disclosure)
+        act(() =>
+          [...host.querySelectorAll<HTMLButtonElement>('.weq-profile-disclosure-trigger')]
+            .find((button) => button.textContent === disclosure)!
+            .click(),
+        );
       expect(host.querySelector(selector)).not.toBeNull();
       expect(document.querySelector('.weq-overlay-layer')).toBeNull();
       expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -862,7 +868,7 @@ it.each([false, undefined])(
           }),
         ),
       );
-      act(() => sectionButton(host, '关系与互动').click());
+      act(() => sectionButton(host, '与我的关系').click());
       expect(host.querySelector('.weq-contact-marks')).toBeNull();
       expect(host.querySelector('.weq-profile-workspace')).not.toBeNull();
       expect(host.textContent).not.toContain('成为好友');
@@ -891,9 +897,11 @@ it('UID 与 QQ 号分开判定，只有 UID 的对象仍可查看互动画像', 
     );
     const options = [...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button')];
     expect(options.find((button) => button.textContent?.includes('个性主页'))).toBeUndefined();
-    act(() => sectionButton(host, '关系与互动').click());
+    act(() => sectionButton(host, '与我的关系').click());
     expect(host.querySelector('.weq-contact-marks')).toBeNull();
-    const portrait = options.find((button) => button.textContent?.includes('互动画像'))!;
+    const portrait = [
+      ...host.querySelectorAll<HTMLButtonElement>('.weq-profile-disclosure-trigger'),
+    ].find((button) => button.textContent?.includes('互动画像'))!;
     expect(portrait.disabled).toBe(false);
     act(() => portrait.click());
     expect(host.querySelector('.weq-contact-portrait')).not.toBeNull();
@@ -959,7 +967,7 @@ it('联系人互动标识内可打开等级浮层，Escape 只关闭等级', () 
   try {
     act(() => root.render(h(ContactProfileDialog, { contact, embedded: true, onClose: close })));
     const open = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-      button.textContent?.includes('关系与互动'),
+      button.textContent?.includes('与我的关系'),
     )!;
     act(() => open.click());
     act(() =>

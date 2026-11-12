@@ -19,6 +19,8 @@ export function ContactActions({
   onPreviewChat,
   onAnalyze,
   onNavigate,
+  groupOnly = false,
+  hideGroup = false,
 }: {
   person: ProfilePerson;
   onClose?: () => void;
@@ -26,6 +28,8 @@ export function ContactActions({
   onPreviewChat?: () => void;
   onAnalyze?: (target: AnalysisTarget) => void;
   onNavigate?: (action: () => void) => void;
+  groupOnly?: boolean;
+  hideGroup?: boolean;
 }) {
   const openChat = useContext(ChatNavigationContext);
   const openSpace = useContext(QzoneNavigationContext);
@@ -41,6 +45,7 @@ export function ContactActions({
     queryFn: () =>
       client.account.conversationBoundary.query({ kind: 'c2c', conv: uid, newest: true }),
     enabled:
+      !groupOnly &&
       !person.clone &&
       !known &&
       Boolean((onOpenChat || openChat || onPreviewChat) && uid && session.binding),
@@ -52,7 +57,8 @@ export function ContactActions({
     !person.clone &&
     ['QQ', 'UIN'].includes(person.identityLabel) &&
     /^[1-9]\d{4,19}$/.test(person.identityValue);
-  const group = !person.clone && person.profileContext && uid ? person.profileContext : null;
+  const group =
+    !hideGroup && !person.clone && person.profileContext && uid ? person.profileContext : null;
   function navigate(action: () => void, close = true) {
     const run = () => {
       if (close) onClose?.();
@@ -61,10 +67,10 @@ export function ContactActions({
     if (onNavigate) onNavigate(run);
     else run();
   }
-  const primary = onOpenChat || openChat;
+  const primary = !groupOnly && (onOpenChat || openChat);
   const secondary: Array<{ key: string; label: string; icon: React.ReactNode; run: () => void }> =
     [];
-  if ((exists || person.clone) && onPreviewChat)
+  if (!groupOnly && (exists || person.clone) && onPreviewChat)
     secondary.push({
       key: 'chat-preview',
       label: '预览消息',
@@ -78,7 +84,7 @@ export function ContactActions({
       icon: <MessageSquare size={14} />,
       run: () => setGroupView('speech'),
     });
-  if (qq && openSpace)
+  if (!groupOnly && qq && openSpace)
     secondary.push({
       key: 'space',
       label: '查看空间',

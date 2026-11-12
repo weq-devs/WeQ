@@ -4,6 +4,7 @@ import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useTabActive } from './RetainedTabs';
 import '../styles/contact-history.css';
+import { contactHistorySection, type ContactWorkspaceSection } from '../lib/contactWorkspace';
 
 const time = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -136,7 +137,13 @@ function categoryName(name: string) {
 const sourceLabel: Record<string, string> = { online: '云端', local: '本地', legacy: '原有缓存' };
 
 /** 历史页仅读取账号配置与本地历史，不使用会触发在线能力检查的写操作 session。 */
-export function ContactHistory({ entity }: { entity: string }) {
+export function ContactHistory({
+  entity,
+  section,
+}: {
+  entity: string;
+  section?: ContactWorkspaceSection;
+}) {
   const active = useTabActive();
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
@@ -153,6 +160,7 @@ export function ContactHistory({ entity }: { entity: string }) {
       key={`${binding.expectedAccountConfigId}:${uin}:${entity}`}
       entity={entity}
       binding={binding}
+      section={section}
     />
   ) : (
     <p role={config.error ? 'alert' : 'status'}>
@@ -166,10 +174,12 @@ function HistoryCategoryFilter({
   value,
   options,
   onChange,
+  allowAll = true,
 }: {
   value: string;
   options: ReadonlyArray<{ value: string; label: string }>;
   onChange: (value: string) => void;
+  allowAll?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -213,7 +223,7 @@ function HistoryCategoryFilter({
       </button>
       {open ? (
         <div className="contact-history-filter-menu" role="listbox" aria-label="资料类别">
-          {[{ value: '', label: '全部' }, ...options].map((option) => (
+          {[...(allowAll ? [{ value: '', label: '全部' }] : []), ...options].map((option) => (
             <button
               key={option.value || 'all'}
               type="button"
@@ -234,9 +244,11 @@ function HistoryCategoryFilter({
 function HistoryQuery({
   entity,
   binding,
+  section,
 }: {
   entity: string;
   binding: { expectedAccountUin: string; expectedAccountConfigId: string };
+  section?: ContactWorkspaceSection;
 }) {
   const active = useTabActive();
   const [category, setCategory] = useState('');
@@ -248,9 +260,21 @@ function HistoryQuery({
     retry: false,
     refetchOnWindowFocus: false,
   });
+  const categories = (categoriesQuery.data ?? []).filter(
+    (name) => !section || contactHistorySection(name) === section,
+  );
+  const selectedCategory = section
+    ? categories.includes(category)
+      ? category
+      : categories[0]
+    : category;
   const list = trpc.account.contactMetrics.history.list.useQuery(
-    { ...input, category, before: cursors.at(-1), limit: 30 },
-    { enabled: active, retry: false, refetchOnWindowFocus: false },
+    { ...input, category: selectedCategory ?? '', before: cursors.at(-1), limit: 30 },
+    {
+      enabled: active && (!section || Boolean(selectedCategory)),
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
   );
   const status = trpc.account.contactMetrics.history.status.useQuery(binding, {
     enabled: active,
@@ -262,12 +286,12 @@ function HistoryQuery({
     { ...input, id: selected ?? 1 },
     { enabled: active && selected !== null, retry: false, refetchOnWindowFocus: false },
   );
-  const categories = categoriesQuery.data ?? [];
   return (
     <section className="contact-history" aria-label="资料历史">
       <header className="contact-history-toolbar">
         <HistoryCategoryFilter
-          value={category}
+          value={selectedCategory ?? ''}
+          allowAll={!section}
           options={categories.map((name) => ({ value: name, label: categoryName(name) }))}
           onChange={(value) => {
             setCategory(value);
@@ -293,7 +317,16 @@ function HistoryQuery({
       {status.data?.migrationErrors.length ? (
         <p role="alert">部分旧缓存尚未迁入，原件已保留：{status.data.migrationErrors.join('；')}</p>
       ) : null}
-      {list.isLoading ? (
+      {categoriesQuery.error ? (
+        <p role="alert">
+          历史类别读取失败：{categoriesQuery.error.message}
+          <button type="button" onClick={() => void categoriesQuery.refetch()}>
+            重试
+          </button>
+        </p>
+      ) : section && !selectedCategory && !categoriesQuery.isFetching ? (
+        <p role="status">暂无这类资料的历史记录</p>
+      ) : list.isLoading ? (
         <p role="status">正在读取历史…</p>
       ) : list.error ? (
         <p role="alert">历史读取失败：{list.error.message}</p>

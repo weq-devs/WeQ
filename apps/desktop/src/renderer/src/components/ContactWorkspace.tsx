@@ -1,32 +1,29 @@
 import { useState, type ReactNode } from 'react';
-import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
+import { DEFAULT_CONTACT_CARD, type ContactCardContent } from '@weq/service/contact-card';
 import type { Contact } from '../im-template/template/types';
 import type { ContactWorkspaceTab } from '../lib/profileNavigation';
+import {
+  CONTACT_WORKSPACE_SECTIONS,
+  contactWorkspaceSection,
+  type ContactWorkspaceSection,
+} from '../lib/contactWorkspace';
 import { PersonalityHomeDialog, type PersonalityHomeProfile } from './PersonalityHomeDialog';
 import { MutualMarkDialog } from './MutualMarkDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context';
 import { usePersonRelationship } from '../lib/contactRelationship';
 import { ContactHistory } from './ContactHistory';
-import { ContactContent, ContactGroupContent } from './contactProfile/ContactContent';
-import { EducationSection, ProfileExtrasContent } from './ProfileExtras';
-import { ProfileDetailsSection } from './ProfileDetailsEntry';
+import { ContactContent } from './contactProfile/ContactContent';
+import { ContactGroupWorkspace } from './contactProfile/ContactGroupWorkspace';
+import { ProfileDisclosure } from './contactProfile/ProfileDisclosure';
+import { ContactSection, ContactTechnicalDetails, ContactRow } from './contactProfile/ContactRow';
+import { ProfileExtrasContent } from './ProfileExtras';
 import { SelfQQControls } from './settings/SelfQQControls';
+import { SelfAvatarHistory } from './SelfAvatarHistory';
 import { ProfileWorkspace } from './ProfileWorkspace';
 import '../styles/contact-card.css';
+import '../styles/contact-workspace.css';
 
-const sections: Array<[ContactWorkspaceTab, string]> = [
-  ['profile', '概览'],
-  ['details', '详细资料'],
-  ['signatures', '签名历史'],
-  ['questions', '匿问我答'],
-  ['marks', '关系与互动'],
-  ['group', '群内资料'],
-  ['personality', '个性主页'],
-  ['portrait', '互动画像'],
-  ['history', '资料历史'],
-  ['edit', '编辑资料'],
-];
 export function ContactWorkspace({
   contact,
   personalityProfile,
@@ -42,6 +39,8 @@ export function ContactWorkspace({
   children?: ReactNode;
 }) {
   const [localTab, setLocalTab] = useState<ContactWorkspaceTab>('profile');
+  const [detail, setDetail] = useState<ContactWorkspaceTab | null>(null);
+  const [openRequest, setOpenRequest] = useState(0);
   const relationship = usePersonRelationship(contact);
   const hasQQ =
     ['QQ', 'UIN'].includes(contact.identityLabel) &&
@@ -49,137 +48,177 @@ export function ContactWorkspace({
     !contact.clone;
   const hasUid = /^u_/.test(contact.uid || contact.id) && !contact.clone;
   const human = hasQQ && contact.kind !== 'bot' && !contact.extInfo?.isEnterprise;
-  const options = sections.filter(([key]) => {
-    if (key === 'edit') return relationship === 'self';
-    if (key === 'group') return Boolean(contact.profileContext) && !contact.clone;
-    if (['questions', 'signatures'].includes(key)) return human;
-    if (key === 'personality') return hasQQ;
-    if (key === 'portrait') return hasUid;
-    if (key === 'history') return hasUid || hasQQ;
-    return true;
-  });
+  const options = CONTACT_WORKSPACE_SECTIONS.filter(
+    ([key]) => key !== 'group' || hasUid || Boolean(contact.profileContext),
+  );
   const requested = tab ?? localTab;
-  const selected = options.some(([key]) => key === requested) ? requested : 'profile';
+  const target = contactWorkspaceSection(requested);
+  const selected = options.some(([key]) => key === target) ? target : 'profile';
   function select(key: ContactWorkspaceTab) {
+    setOpenRequest((value) => value + 1);
+    setDetail(key);
     setLocalTab(key);
     onTabChange?.(key);
   }
-  function panel(key: ContactWorkspaceTab) {
-    if (key === 'history')
-      return (
-        <ContactHistory
-          entity={`friend:${contact.uid || (hasQQ ? contact.identityValue : contact.id)}`}
-        />
-      );
+  const opened = detail ?? requested;
+  const entity = `friend:${contact.uid || (hasQQ ? contact.identityValue : contact.id)}`;
+  function content(fields: ContactCardContent[]) {
+    return (
+      <ContactContent
+        person={contact}
+        settings={DEFAULT_CONTACT_CARD}
+        full
+        technicalDetails={false}
+        fields={fields}
+        onSection={select}
+      />
+    );
+  }
+  function history(section: ContactWorkspaceSection, title = '资料变更记录') {
+    return hasQQ || hasUid ? (
+      <ProfileDisclosure
+        title={title}
+        initiallyOpen={section === 'profile' && opened === 'history'}
+        openRequest={openRequest}
+      >
+        <ContactHistory entity={entity} section={section} />
+      </ProfileDisclosure>
+    ) : null;
+  }
+  function panel(key: ContactWorkspaceSection) {
     if (key === 'profile')
       return (
-        <ContactContent
-          person={contact}
-          settings={DEFAULT_CONTACT_CARD}
-          full
-          fields={[
+        <>
+          {relationship === 'self' ? (
+            <ProfileDisclosure
+              title="编辑资料与展示设置"
+              initiallyOpen={opened === 'edit'}
+              openRequest={openRequest}
+            >
+              <SelfQQControls />
+            </ProfileDisclosure>
+          ) : null}
+          {content([
             'signature',
+            'signatureUpdated',
             'gender',
             'age',
             'birthday',
+            'constellation',
+            'zodiac',
+            'bloodType',
             'region',
+            'occupation',
             'school',
-            'labels',
-            'status',
-            'relations',
-            'level',
-            'qid',
             'company',
             'description',
             'email',
+            'level',
+            'likes',
             'privileges',
+            'energy',
             'botDescription',
-          ]}
-          onSection={select}
-        />
-      );
-    if (key === 'details')
-      return (
-        <>
-          <ContactContent
-            person={contact}
-            settings={DEFAULT_CONTACT_CARD}
-            full
-            fields={[
-              'signatureUpdated',
-              'gender',
-              'age',
-              'birthday',
-              'constellation',
-              'zodiac',
-              'bloodType',
-              'region',
-              'occupation',
-              'school',
-              'energy',
-              'qid',
-              'uid',
-              'botDescription',
-              'botFeatures',
-            ]}
-            onSection={select}
-          />
+            'botFeatures',
+          ])}
           {human ? (
             <>
-              {/* 扩展资料与教育经历共用 ContactRow 行模型，分区标题与刷新动作由分区自己输出。 */}
-              <ProfileDetailsSection uin={contact.identityValue} />
-              <EducationSection uin={contact.identityValue} />
+              <ProfileDisclosure
+                title="教育经历"
+                initiallyOpen={opened === 'details'}
+                openRequest={openRequest}
+              >
+                <ProfileExtrasContent uin={contact.identityValue} view="education" />
+              </ProfileDisclosure>
+              <ProfileDisclosure
+                title="签名历史"
+                initiallyOpen={opened === 'signatures'}
+                openRequest={openRequest}
+              >
+                <ProfileExtrasContent uin={contact.identityValue} view="signatures" />
+              </ProfileDisclosure>
             </>
           ) : null}
+          {relationship === 'self' ? (
+            <ContactSection title="头像">
+              <SelfAvatarHistory />
+            </ContactSection>
+          ) : null}
+          {history('profile')}
+          {hasUid ? (
+            <ContactTechnicalDetails>
+              <ContactRow
+                label="UID"
+                value={contact.uid || contact.id}
+                copyValue={contact.uid || contact.id}
+                mono
+                activateTitle="复制 UID"
+              />
+            </ContactTechnicalDetails>
+          ) : null}
         </>
-      );
-    if (key === 'signatures' || key === 'questions')
-      return <ProfileExtrasContent uin={contact.identityValue} view={key} />;
-    if (key === 'group')
-      return <ContactGroupContent person={contact} settings={DEFAULT_CONTACT_CARD} full />;
-    if (key === 'edit') return <SelfQQControls />;
-    if (key === 'personality')
-      return (
-        <PersonalityHomeDialog
-          embedded
-          uin={contact.identityValue}
-          uid={hasUid ? contact.uid || contact.id : undefined}
-          profile={personalityProfile}
-          isBot={contact.kind === 'bot'}
-          spaceNickname={contact.nick || contact.displayName}
-          onClose={onNavigateAway}
-        />
       );
     if (key === 'marks')
       return (
         <>
-          <ContactContent
-            person={contact}
-            settings={DEFAULT_CONTACT_CARD}
-            full
-            fields={[
-              'common',
-              'category',
-              'intimacy',
-              'relations',
-              'privileges',
-              'likes',
-              'friendClue',
-            ]}
-            onSection={select}
-          />
+          {content(['common', 'intimacy', 'relations', 'friendClue'])}
           {human && relationship === 'friend' ? (
-            <MutualMarkDialog
-              embedded
-              uin={contact.identityValue}
-              name={contact.displayName}
-              cachedMarks={contact.extInfo?.interactMarks}
-              onClose={onNavigateAway}
-            />
+            <ContactSection title="互动标识">
+              <MutualMarkDialog
+                embedded
+                uin={contact.identityValue}
+                name={contact.displayName}
+                cachedMarks={contact.extInfo?.interactMarks}
+                onClose={onNavigateAway}
+              />
+            </ContactSection>
           ) : null}
+          {hasUid ? (
+            <ProfileDisclosure
+              title="互动画像"
+              initiallyOpen={opened === 'portrait'}
+              openRequest={openRequest}
+            >
+              <Portrait contact={contact} />
+            </ProfileDisclosure>
+          ) : null}
+          {history('marks', '关系变更记录')}
         </>
       );
-    return <Portrait contact={contact} />;
+    if (key === 'group')
+      return (
+        <>
+          <ContactGroupWorkspace contact={contact} />
+          {history('group', '所在群历史')}
+        </>
+      );
+    return (
+      <>
+        {content(['labels', 'photos', 'qqShow'])}
+        {hasQQ ? (
+          <ProfileDisclosure title="个性装扮">
+            <PersonalityHomeDialog
+              embedded
+              uin={contact.identityValue}
+              uid={hasUid ? contact.uid || contact.id : undefined}
+              profile={personalityProfile}
+              isBot={contact.kind === 'bot'}
+              spaceNickname={contact.nick || contact.displayName}
+              onClose={onNavigateAway}
+            />
+          </ProfileDisclosure>
+        ) : null}
+        {human ? (
+          <ProfileDisclosure
+            title="匿问我答"
+            initiallyOpen={opened === 'questions'}
+            openRequest={openRequest}
+          >
+            <ProfileExtrasContent uin={contact.identityValue} view="questions" />
+          </ProfileDisclosure>
+        ) : null}
+        {history('personality', '个性展示变更记录')}
+      </>
+    );
   }
   return (
     <ProfileWorkspace
@@ -191,6 +230,7 @@ export function ContactWorkspace({
     />
   );
 }
+
 function Portrait({ contact }: { contact: Contact }) {
   const status = useIntentSenseStatus();
   return status.data?.profileEnabled ? (

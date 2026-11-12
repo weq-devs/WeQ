@@ -4501,17 +4501,15 @@ export const accountRouter = router({
   /** List groups a specific user belongs to. */
   listUserGroups: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         uid: z.string().min(1),
         limit: z.number().int().min(1).max(300).optional(),
         offset: z.number().int().min(0).optional(),
       }),
     )
     .query(async ({ input }) => {
-      const groups = await requireServices().groupInfo.listUserGroups(
-        input.uid,
-        input.limit ?? 100,
-        input.offset ?? 0,
+      const groups = await scopedGroupRead(input, (services) =>
+        services.groupInfo.listUserGroups(input.uid, input.limit ?? 100, input.offset ?? 0),
       );
       return groups.map(groupMemberToWire);
     }),

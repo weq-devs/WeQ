@@ -8,6 +8,7 @@ const rpc = vi.hoisted(() => ({
   read: vi.fn(),
   preview: vi.fn(),
   detail: vi.fn(),
+  userGroups: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
@@ -16,6 +17,7 @@ vi.mock('../src/main/context/app_context', () => {
       getExtendedProfile: rpc.read,
       getMemberPreview: rpc.preview,
       getGroupDetail: rpc.detail,
+      listUserGroups: rpc.userGroups,
     },
   };
   return {
@@ -130,4 +132,20 @@ it('基础群资料兼容旧调用，同时拒绝来源不匹配和迟到结果'
       groupCode: '12345',
     }),
   ).rejects.toThrow('数据源已切换');
+});
+it('联系人所在群分页沿用旧调用，并校验账号及数据源', async () => {
+  rpc.userGroups.mockResolvedValue([]);
+  const api = accountRouter.createCaller({});
+  await expect(api.listUserGroups({ uid: 'u_fixture' })).resolves.toEqual([]);
+  expect(rpc.userGroups).toHaveBeenLastCalledWith('u_fixture', 100, 0);
+  await api.listUserGroups({ ...input, uid: 'u_fixture', limit: 100, offset: 100 });
+  expect(rpc.userGroups).toHaveBeenLastCalledWith('u_fixture', 100, 100);
+  await expect(
+    api.listUserGroups({ ...input, expectedAccountUin: '10002', uid: 'u_fixture' }),
+  ).rejects.toThrow('账号已切换');
+  rpc.userGroups.mockImplementationOnce(async () => {
+    rpc.configId = 'source-b';
+    return [];
+  });
+  await expect(api.listUserGroups({ ...input, uid: 'u_fixture' })).rejects.toThrow('数据源已切换');
 });

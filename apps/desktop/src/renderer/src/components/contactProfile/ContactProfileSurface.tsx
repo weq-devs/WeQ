@@ -71,6 +71,7 @@ function ContactProfilePage({
           identity={<ContactIdentity person={person} pendant />}
           actions={
             <ContactActions
+              hideGroup
               key={JSON.stringify([...scope, person.id, person.identityValue])}
               onNavigate={(action) => {
                 void closing.confirmLeave(action);

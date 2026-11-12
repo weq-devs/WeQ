@@ -26,6 +26,7 @@ export const qa = {
   failWrite: false,
   preferencesReady: !new URLSearchParams(location.search).has('preferences-loading'),
   failLabels: false,
+  profileEnabled: false,
   noConversation: false,
   pendingProfiles: 0,
   notify() {
@@ -113,6 +114,43 @@ function value(path: string, input: Record<string, unknown>) {
         qa.noRemark || qa.mode === 'self' || String(input.target) === qa.account ? '' : qa.remark,
     };
   if (path === 'account.getBotProfile') return null;
+  if (path === 'account.listUserGroups')
+    return [
+      {
+        groupCode: '10003',
+        uid: 'u_sample',
+        uin: '10002',
+        card: '第一群昵称',
+        nick: '林同学',
+        joinTime: 1725120000,
+        lastSpeakTime: 1794390000,
+        muteUntil: null,
+        adminFlag: 0,
+        memberFlag: 0,
+        customTitle: '第一群头衔',
+        memberLevel: 8,
+      },
+      {
+        groupCode: '10004',
+        uid: 'u_sample',
+        uin: '10002',
+        card: '第二群昵称',
+        nick: '林同学',
+        joinTime: 1725206400,
+        lastSpeakTime: 1794390000,
+        muteUntil: null,
+        adminFlag: 1,
+        memberFlag: 0,
+        customTitle: '第二群头衔',
+        memberLevel: 12,
+      },
+    ];
+  if (path === 'account.getGroupDetail')
+    return {
+      groupCode: input.groupCode,
+      groupName: input.groupCode === '10004' ? '第二个合成群' : '合成群',
+      ownerUid: 'u_owner',
+    };
   if (path === 'account.qqWrite.peerState')
     return {
       friend: qa.mode === 'friend',
@@ -229,8 +267,43 @@ function value(path: string, input: Record<string, unknown>) {
       list: [{ tid: '1', content: '合成空间预览', time: 1794390000, images: [], videos: [] }],
       total: 1,
     };
-  if (path === 'account.intentSense.getStatus') return { profileEnabled: false };
-  if (path === 'contactMetrics.history.categories') return [];
+  if (path === 'account.intentSense.getStatus') return { profileEnabled: qa.profileEnabled };
+  if (path === 'account.intentSense.getProfile')
+    return {
+      affinity: 70,
+      tier: 3,
+      trend: [],
+      mbti: { letters: 'ENFP', dims: [], heuristic: true },
+      radar: [
+        { axis: '主动', value: 50 },
+        { axis: '回应', value: 70 },
+        { axis: '表达', value: 65 },
+        { axis: '倾听', value: 60 },
+        { axis: '分享', value: 80 },
+      ],
+      topics: [{ topic: '学习', count: 5 }],
+      sampled: 8,
+      analyzedSamples: 2,
+      engine: 'heuristic',
+    };
+  if (path === 'account.contactMetrics.history.categories')
+    return ['getProfile', 'commonRelationships', 'personalityLabels', 'listUserGroups'];
+  if (path === 'account.contactMetrics.history.status')
+    return { migrating: false, migrationErrors: [] };
+  if (path === 'account.contactMetrics.history.list')
+    return {
+      rows: [
+        {
+          id: 1,
+          category: input.category,
+          first_at: 1794390000000,
+          last_at: 1794390000000,
+          source: 'local',
+          completeness: 'partial',
+        },
+      ],
+      nextBefore: null,
+    };
   return undefined;
 }
 function record(path: string, input: Record<string, unknown>, once = false) {

@@ -54,19 +54,6 @@ import '../../styles/contact-card.css';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
-const SOCIAL_FIELDS: readonly ContactCardContent[] = [
-  'common',
-  'category',
-  'intimacy',
-  'relations',
-  'privileges',
-  'likes',
-  'marks',
-  'friendClue',
-];
-const BOT_FIELDS: readonly ContactCardContent[] = ['botDescription', 'botFeatures'];
-/** QID、UID 随名片身份区展示；资料页技术详情保留 UID。 */
-const TECH_FIELDS: readonly ContactCardContent[] = ['qid', 'uid'];
 const automaticFields: readonly ContactCardContent[] = [
   'qqShow',
   'labels',
@@ -82,16 +69,6 @@ const automaticFields: readonly ContactCardContent[] = [
   'botDescription',
   'botFeatures',
 ];
-
-type ContactProfileGroup = 'basic' | 'social' | 'bot' | 'tech';
-
-/** 完整资料页沿用原分区，不随浮层名片的整理改变。 */
-function contactProfileFieldGroup(key: ContactCardContent): ContactProfileGroup {
-  if (TECH_FIELDS.includes(key)) return 'tech';
-  if (BOT_FIELDS.includes(key)) return 'bot';
-  if (SOCIAL_FIELDS.includes(key)) return 'social';
-  return 'basic';
-}
 
 /** 标题、副标题、编号与关系：名片和资料页共用同一份身份区。 */
 export function ContactIdentity({
@@ -687,6 +664,7 @@ export function ContactContent({
   localOnly = false,
   leading,
   preview = false,
+  technicalDetails = full,
 }: {
   person: ProfilePerson;
   settings: ContactCardSettings;
@@ -699,6 +677,7 @@ export function ContactContent({
   leading?: ReactNode;
   /** 设置页预览：只渲染内容，不提供跳转。 */
   preview?: boolean;
+  technicalDetails?: boolean;
 }) {
   const [detail, setDetail] = useState<{ view: ProfileExtraView } | null>(null);
   const navigate = useContext(ContactWorkspaceNavigationContext);
@@ -714,7 +693,7 @@ export function ContactContent({
     ...new Set([person.extRelation?.displayId, ...(person.extRelation?.preselectedIds ?? [])]),
   ].filter((id): id is number => id !== undefined);
   const privileges = (ext?.privileges ?? []).filter((item) => item.opened && item.iconUrl);
-  const technical = full;
+  const technical = technicalDetails;
   function open(view: ProfileExtraView) {
     if (preview) return;
     if (onSection) onSection(view === 'education' ? 'details' : view);
@@ -880,7 +859,7 @@ export function ContactContent({
     botDescription: person.kind === 'bot' ? <BotDescription person={person} /> : null,
     botFeatures: person.kind === 'bot' ? <BotFeaturesRow person={person} /> : null,
   };
-  const fieldGroup = full ? contactProfileFieldGroup : contactCardFieldGroup;
+  const fieldGroup = contactCardFieldGroup;
   const ordered = settings.order.filter(
     (key) =>
       key !== 'qid' &&
@@ -892,7 +871,9 @@ export function ContactContent({
   );
   // 编号与当前状态已由身份区承载，正文不重复。
   const buckets = {
-    basic: ordered.filter((key) => fieldGroup(key) === 'basic'),
+    basic: ordered.filter(
+      (key) => fieldGroup(key) === 'basic' || (full && fieldGroup(key) === 'identity'),
+    ),
     social: ordered.filter((key) => fieldGroup(key) === 'social'),
     display: ordered.filter((key) => fieldGroup(key) === 'display'),
     account: ordered.filter((key) => fieldGroup(key) === 'account'),

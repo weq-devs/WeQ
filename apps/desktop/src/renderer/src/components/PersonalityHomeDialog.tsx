@@ -104,7 +104,7 @@ export function PersonalityHomeDialog({
   const active = useTabActive();
   const openSpace = useContext(QzoneNavigationContext);
   const dress = useContactDress(uin, active && !isBot);
-  const stats = useContactStats(uin, uid ?? '', 'level', active && !isBot);
+  const stats = useContactStats(uin, uid ?? '', 'level', active && !isBot && !embedded);
   const qqShow = useContactQqShow(uin, active && !isBot);
 
   // 有 QQ 秀时默认展示全身像；切换胶囊可随时切回「头像+挂件」。
@@ -120,7 +120,28 @@ export function PersonalityHomeDialog({
   const cardVideoUrl = dressUrl(dress.data?.cardVideoUrl ?? '');
   const screenUrl = dressUrl(dress.data?.screenUrl ?? '');
   const hasBackdrop = Boolean(cardUrl || cardVideoUrl);
-  const tags = profile.interests;
+  const tags = embedded ? [] : profile.interests;
+
+  if (
+    embedded &&
+    !dress.isLoading &&
+    !qqShow.isLoading &&
+    !hasBackdrop &&
+    !widgetUrl &&
+    !screenUrl &&
+    !qqShowUrlValue
+  )
+    return (
+      <section
+        className="weq-contact-personality is-empty"
+        role="region"
+        aria-label={`${profile.name} 的个性装扮`}
+      >
+        <p className="weq-profile-empty" role="status">
+          {dress.error ? `个性装扮读取失败：${dress.error.message}` : '暂无个性装扮'}
+        </p>
+      </section>
+    );
 
   const content = (
     <section
@@ -196,10 +217,14 @@ export function PersonalityHomeDialog({
           ) : null}
         </div>
 
-        <h2 className="weq-perhome-name">{profile.name}</h2>
-        {profile.signature ? <p className="weq-perhome-sign">{profile.signature}</p> : null}
-        {!isBot && !profile.isEnterprise ? <ProfileExtras uin={uin} section="signature" /> : null}
-        {openSpace && /^[1-9]\d{4,19}$/.test(uin) ? (
+        {!embedded ? <h2 className="weq-perhome-name">{profile.name}</h2> : null}
+        {!embedded && profile.signature ? (
+          <p className="weq-perhome-sign">{profile.signature}</p>
+        ) : null}
+        {!embedded && !isBot && !profile.isEnterprise ? (
+          <ProfileExtras uin={uin} section="signature" />
+        ) : null}
+        {!embedded && openSpace && /^[1-9]\d{4,19}$/.test(uin) ? (
           <div className="weq-profile-actions">
             <button
               className="weq-profile-perhome"
@@ -235,14 +260,14 @@ export function PersonalityHomeDialog({
           </div>
         ) : null}
 
-        {!isBot && !profile.isEnterprise && uid ? (
+        {!embedded && !isBot && !profile.isEnterprise && uid ? (
           <div className="weq-profile-list">
             <ProfileLikesRow uid={uid} uin={uin} name={profile.name} />
           </div>
         ) : null}
-        {!isBot && !profile.isEnterprise ? <ProfileExtras uin={uin} /> : null}
+        {!embedded && !isBot && !profile.isEnterprise ? <ProfileExtras uin={uin} /> : null}
 
-        {profile.privileges.length || profile.region ? (
+        {!embedded && (profile.privileges.length || profile.region) ? (
           <div className="weq-perhome-chips">
             {profile.region ? (
               <span className="weq-perhome-chip">
@@ -270,7 +295,7 @@ export function PersonalityHomeDialog({
           </div>
         ) : null}
 
-        {profile.album.length ? (
+        {!embedded && profile.album.length ? (
           <div className="weq-perhome-album">
             {profile.album.map((photo, index) => (
               <button
