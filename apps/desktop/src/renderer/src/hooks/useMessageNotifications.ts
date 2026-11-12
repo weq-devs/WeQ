@@ -192,6 +192,15 @@ export function useMessageNotifications(options: {
         .catch((error: unknown) => console.warn('[message-notifications] 角标未更新', error));
   }, [scopeKey, badge, options.badgeCount]);
   useEffect(() => {
+    if (!IS_WEB || !scopeKey) return;
+    return () => {
+      const browser = navigator as Navigator & { clearAppBadge?: () => Promise<void> };
+      void browser
+        .clearAppBadge?.()
+        .catch((error: unknown) => console.warn('[message-notifications] 浏览器角标未清除', error));
+    };
+  }, [scopeKey]);
+  useEffect(() => {
     const scope = accountBinding();
     if (IS_WEB || !scopeKey || !scope) return;
     let active = true;

@@ -5,6 +5,7 @@ import { useMessageNotifications } from '../src/renderer/src/hooks/useMessageNot
 import type { NewMessagesWire } from '../src/main/ipc/routers/account';
 
 const f = vi.hoisted(() => ({
+  web: false,
   values: { messageNotifications: false, applicationBadge: true, privacyMode: false },
   locked: false,
   receive: undefined as undefined | ((batch: NewMessagesWire) => void),
@@ -12,7 +13,11 @@ const f = vi.hoisted(() => ({
   badge: vi.fn(async () => true),
   unsubscribe: vi.fn(),
 }));
-vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: false }));
+vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return f.web;
+  },
+}));
 vi.mock('../src/renderer/src/state/lock', () => ({
   useAppLock: (select: (state: { locked: boolean }) => unknown) => select(f),
 }));
@@ -40,6 +45,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 afterEach(() => {
+  f.web = false;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   f.values.messageNotifications = false;
@@ -49,6 +55,22 @@ afterEach(() => {
   f.notify.mockClear();
   f.badge.mockClear();
   f.unsubscribe.mockClear();
+});
+it('Web 角标复用平台计数，退出账号工作区时清除', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  f.web = true;
+  const setAppBadge = vi.fn(async () => undefined),
+    clearAppBadge = vi.fn(async () => undefined);
+  vi.stubGlobal('navigator', { setAppBadge, clearAppBadge });
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    expect(setAppBadge).toHaveBeenLastCalledWith(7);
+    expect(f.badge).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+  }
+  expect(clearAppBadge).toHaveBeenCalledOnce();
 });
 type Options = Parameters<typeof useMessageNotifications>[0];
 const conversations = [
