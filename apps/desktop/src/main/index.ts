@@ -43,6 +43,7 @@ import { migrateStaticAccountIdentity } from './static_account_identity_migratio
 import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
+import { desktopStartupAccount, openStartupAccount } from './startup_account';
 import { guardTrpcReply } from './ipc/reply_guard';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
@@ -976,6 +977,15 @@ void app.whenReady().then(async () => {
     }),
   });
   logger.info('main window created', { event: 'create-window', autostart });
+  // loadURL/loadFile 已发起；账号初始化与前端模块加载并行，不等待首个界面请求。
+  if (userConfig && !getAppContext().nativeError && !isQuitting)
+    void desktopStartupAccount.start(() =>
+      openStartupAccount(
+        userConfig,
+        appRouter.createCaller({}).bootstrap,
+        process.platform === 'darwin',
+      ),
+    );
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(

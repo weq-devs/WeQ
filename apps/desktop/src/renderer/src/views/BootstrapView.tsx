@@ -71,8 +71,15 @@ export function BootstrapView(): ReactElement {
   const nativeErr = nativeStatus.data ?? null;
   const nativeOk = nativeStatus.isSuccess && nativeStatus.data === null;
 
+  const desktopStartup = trpc.bootstrap.desktopStartup.useQuery(undefined, {
+    enabled: !IS_WEB && nativeOk && homeStage === 'booting',
+    refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: Infinity,
+  });
+
   const currentAccount = trpc.bootstrap.currentAccount.useQuery(undefined, {
-    enabled: nativeOk && homeStage === 'booting',
+    enabled: nativeOk && homeStage === 'booting' && (IS_WEB || desktopStartup.isSuccess),
     staleTime: initialSnapshot ? 30_000 : 0,
     refetchOnMount: initialSnapshot ? false : 'always',
     refetchOnWindowFocus: false,
@@ -101,15 +108,10 @@ export function BootstrapView(): ReactElement {
   const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(
     { startup: !IS_WEB },
     {
-      enabled: needsStartup,
+      enabled: needsStartup && IS_WEB,
       refetchOnWindowFocus: false,
     },
   );
-  const startupPage = trpc.bootstrap.getStartupPage.useQuery(undefined, {
-    enabled: needsStartup && !IS_WEB && homeStage === 'booting',
-    refetchOnWindowFocus: false,
-    retry: false,
-  });
   // Remote 的新页面是手机端的一次启动，不受电脑进程的启动快照约束。
   const webSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: IS_WEB && nativeOk && homeStage === 'booting',
@@ -118,7 +120,7 @@ export function BootstrapView(): ReactElement {
     refetchOnWindowFocus: false,
     retry: false,
   });
-  const requestedStartupPage = IS_WEB ? webSettings.data?.startupPage : startupPage.data;
+  const requestedStartupPage = webSettings.data?.startupPage;
 
   // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
   // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。
@@ -158,6 +160,15 @@ export function BootstrapView(): ReactElement {
       return;
     }
     if (nativeOk) {
+      if (!IS_WEB) {
+        if (desktopStartup.isError) {
+          booted.current = true;
+          setHomeStage('home');
+          showError('读取启动状态失败', errMsg(desktopStartup.error));
+          return;
+        }
+        if (!desktopStartup.isSuccess) return;
+      }
       if (currentAccount.isError) {
         booted.current = true;
         setHomeStage('home');
@@ -183,14 +194,13 @@ export function BootstrapView(): ReactElement {
             await utils.account.getAccountConfig.fetch();
           // Web 只等待挂载必需配置，身份与会话列表在工作区内异步读取。
           if (!IS_WEB) {
+            setWindowLayout('chat');
             await runAccountWarmup(utils, setWarmup);
           }
-          if (IS_WEB)
+          const page = IS_WEB ? requestedStartupPage : desktopStartup.data?.page;
+          if (IS_WEB || page)
             useViewState.setState({
-              startupPage:
-                requestedStartupPage === 'home' || requestedStartupPage === 'messages'
-                  ? requestedStartupPage
-                  : null,
+              startupPage: page === 'home' || page === 'messages' ? page : null,
             });
           setOpenedUin(uin);
           goTo('main');
@@ -202,9 +212,15 @@ export function BootstrapView(): ReactElement {
         });
         return;
       }
+      if (!IS_WEB) {
+        // 后台已完成本轮自动进入；未打开或失败都回首页，不由界面再试一次。
+        booted.current = true;
+        setHomeStage('home');
+        if (desktopStartup.data?.error) showError('自动进入失败', desktopStartup.data.error);
+        return;
+      }
     }
     if (!nativeOk || !autoTarget.isFetched || !configs.isFetched) return;
-    if (!IS_WEB && !startupPage.isFetched) return;
     if (IS_MAC && !dataAccess.isFetched) return;
     booted.current = true;
     useViewState.setState({
@@ -264,14 +280,8 @@ export function BootstrapView(): ReactElement {
             ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
           });
         }
-        // 账号已打开，但先别进 MainView。两件事必须发生在它挂载之前：
-        //
-        //  1. resize 到 chat 尺寸。App.tsx 的 layout effect 是在 view 变成 'main'
-        //     *之后* 才发 IPC，也就是 MainView 会先按 home 的 580 高度画一帧——
-        //     左栏上下贴边的按钮在这个高度会重叠。提前调好就不会有这一帧。
-        //  2. 预热 MainView 那 8 个查询，否则首屏是空白头像 + 默认昵称 "WeQ"。
+        // Web 自动进入不预热全量目录，工作区内按需加载。
         setWindowLayout('chat');
-        if (!IS_WEB) await runAccountWarmup(utils, setWarmup);
 
         // Land on 'home' so closing the account later returns to the landing
         // screen rather than re-running the (now consumed) boot splash.
@@ -290,13 +300,16 @@ export function BootstrapView(): ReactElement {
     homeStage,
     nativeOk,
     nativeErr,
+    desktopStartup.isSuccess,
+    desktopStartup.isError,
+    desktopStartup.error,
+    desktopStartup.data,
     currentAccount.isSuccess,
     currentAccount.isError,
     currentAccount.error,
     currentAccount.data,
     autoTarget.isFetched,
     autoTarget.data,
-    startupPage.isFetched,
     requestedStartupPage,
     webSettings.isFetched,
     webSettings.isError,

@@ -115,6 +115,11 @@ import {
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
 import { macLaunchApplication } from '../../mac_launch_application';
 import { refreshWindowControls } from '../../window_controls_events';
+import {
+  desktopStartupAccount,
+  openStartupAccount,
+  type StartupResult,
+} from '../../startup_account';
 
 const qqDebugCopy = new QqDebugCopyManager({
   source: () => {
@@ -2940,8 +2945,22 @@ export const bootstrapRouter = router({
       return ctx.account!.context;
     }),
 
-  /** 首屏或界面重载接回已打开账号，不重新打开数据库。 */
-  currentAccount: procedure.query(() => {
+  /** 仅桌面首屏领走启动页与失败信息，重载不重设栏目、不重复弹错。 */
+  desktopStartup: procedure.query(async (): Promise<StartupResult> => {
+    // 正常启动已由主进程调度；文件恢复曾失败时，在恢复成功后补上未开始的任务。
+    await desktopStartupAccount.start(() =>
+      openStartupAccount(
+        requireBootstrap().userConfig,
+        bootstrapRouter.createCaller({}),
+        process.platform === 'darwin',
+      ),
+    );
+    return desktopStartupAccount.attach();
+  }),
+
+  /** 等待后台启动任务后接回实际账号，Web 同时连接也不能重复开库。 */
+  currentAccount: procedure.query(async () => {
+    await desktopStartupAccount.wait();
     const account = getAppContext().account;
     return account ? { uin: String(account.context.uin) } : null;
   }),

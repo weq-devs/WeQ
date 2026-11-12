@@ -14,6 +14,12 @@ const api = vi.hoisted(() => ({
   webStartupPage: 'home' as 'home' | 'messages' | 'last',
   settingsFetched: true,
   settingsError: false,
+  desktopReady: true,
+  desktopStartup: { opened: false, page: null, error: null } as {
+    opened: boolean;
+    page: 'home' | 'messages' | 'last' | null;
+    error: string | null;
+  },
   queries: vi.fn(),
   mutate: vi.fn(async () => ({ success: true })),
   warmup: vi.fn(async () => {}),
@@ -62,20 +68,24 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return (_input: unknown, opts?: { enabled?: boolean }) => {
             api.queries(path, opts);
             return {
-              data: path.endsWith('currentAccount')
-                ? api.current
-                : path.endsWith('getAutoEnter')
-                  ? { configId: 'other-account' }
-                  : path.endsWith('listAccountConfigs')
-                    ? [{ configId: 'other-account', uin: '10001', dbKey: 'synthetic' }]
-                    : path.endsWith('describeInstall')
-                      ? { hasQqExe: true, hasWrapper: true }
-                      : path.endsWith('getStartupPage')
-                        ? api.startupPage
-                        : path.endsWith('getSettings')
-                          ? { startupPage: api.webStartupPage }
-                          : null,
-              isSuccess: !(path.endsWith('currentAccount') && api.currentError),
+              data: path.endsWith('desktopStartup')
+                ? api.desktopStartup
+                : path.endsWith('currentAccount')
+                  ? api.current
+                  : path.endsWith('getAutoEnter')
+                    ? { configId: 'other-account' }
+                    : path.endsWith('listAccountConfigs')
+                      ? [{ configId: 'other-account', uin: '10001', dbKey: 'synthetic' }]
+                      : path.endsWith('describeInstall')
+                        ? { hasQqExe: true, hasWrapper: true }
+                        : path.endsWith('getStartupPage')
+                          ? api.startupPage
+                          : path.endsWith('getSettings')
+                            ? { startupPage: api.webStartupPage }
+                            : null,
+              isSuccess:
+                !(path.endsWith('desktopStartup') && !api.desktopReady) &&
+                !(path.endsWith('currentAccount') && api.currentError),
               isError:
                 (path.endsWith('currentAccount') && api.currentError) ||
                 (path.endsWith('getSettings') && api.settingsError),
@@ -106,6 +116,8 @@ beforeEach(() => {
   api.webStartupPage = 'home';
   api.settingsFetched = true;
   api.settingsError = false;
+  api.desktopReady = true;
+  api.desktopStartup = { opened: false, page: null, error: null };
   vi.clearAllMocks();
   api.remoteWarmup.mockReset().mockResolvedValue(undefined);
   api.utils.account.getAccountConfig.fetch.mockReset().mockResolvedValue({});
@@ -223,7 +235,8 @@ it.each(['home', 'messages', 'last'] as const)(
   '桌面重新启动将 %s 偏好传入工作区，只有上次页面保留现场',
   async (page) => {
     api.web = false;
-    api.current = null;
+    api.current = { uin: '10001' };
+    api.desktopStartup = { opened: true, page, error: null };
     api.startupPage = page;
     await render();
     expect(useViewState.getState()).toMatchObject({
@@ -231,6 +244,7 @@ it.each(['home', 'messages', 'last'] as const)(
       openedUin: '10001',
       startupPage: page === 'last' ? null : page,
     });
+    expect(api.mutate).not.toHaveBeenCalled();
   },
 );
 it('启动快照已提供配置时直接接回工作区，不追加一次配置读取', async () => {
@@ -273,11 +287,40 @@ it('桌面重载接回后台实际账号，预热但不验密钥、不重开库�
     startupPage: null,
   });
 });
-it.each([true, false])('没有后台账号时保留原自动进入流程：web=%s', async (web) => {
-  api.web = web;
+it('Web 没有后台账号时保留原自动进入流程', async () => {
   api.current = null;
   await render();
   expect(api.mutate).toHaveBeenCalledTimes(2);
-  expect(api.warmup).toHaveBeenCalledTimes(web ? 0 : 1);
+  expect(api.warmup).not.toHaveBeenCalled();
   expect(useViewState.getState()).toMatchObject({ view: 'main', openedUin: '10001' });
 });
+
+it('桌面后台任务未完成时保持启动页，不重复验证密钥或打开账号', async () => {
+  api.web = false;
+  api.current = null;
+  api.desktopReady = false;
+  await render();
+  expect(useViewState.getState().homeStage).toBe('booting');
+  expect(api.mutate).not.toHaveBeenCalled();
+  expect(api.warmup).not.toHaveBeenCalled();
+  api.desktopReady = true;
+  api.desktopStartup = { opened: true, page: 'messages', error: null };
+  api.current = { uin: '10001' };
+  await render();
+  expect(useViewState.getState()).toMatchObject({ view: 'main', startupPage: 'messages' });
+  expect(api.mutate).not.toHaveBeenCalled();
+});
+
+it.each([null, '合成后台打开失败'])(
+  '桌面未打开账号时回首页，不重跑前端自动进入：%s',
+  async (error) => {
+    api.web = false;
+    api.current = null;
+    api.desktopStartup = { opened: false, page: null, error };
+    await render();
+    expect(useViewState.getState()).toMatchObject({ view: 'bootstrap', homeStage: 'home' });
+    expect(api.mutate).not.toHaveBeenCalled();
+    if (error) expect(api.error).toHaveBeenCalledWith('自动进入失败', error);
+    else expect(api.error).not.toHaveBeenCalled();
+  },
+);
