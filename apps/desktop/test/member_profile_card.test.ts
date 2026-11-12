@@ -299,6 +299,30 @@ describe('群成员资料卡浮层', () => {
     ).toBeNull();
     expect(contactCardFieldGroup('level')).toBe('basic');
   });
+  it.each(['u_fixture', 'phone:10002'])(
+    '名片状态回退仍并列展示传统与自定义状态：%s',
+    async (id) => {
+      await mountCard(() => {}, undefined, {
+        ...MEMBER,
+        id,
+        onlineStatus: '忙碌',
+        customStatus: '正在听音乐',
+      });
+      expect(layer().querySelector('.weq-contact-title-line')?.textContent).toContain(
+        '忙碌 · 正在听音乐',
+      );
+    },
+  );
+  it('名片回退文案已包含自定义状态时不重复展示', async () => {
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      onlineStatus: '在线 - 正在听音乐',
+      customStatus: '正在听音乐',
+    });
+    const text = layer().querySelector('.weq-contact-title-line')?.textContent || '';
+    expect(text).toContain('在线 - 正在听音乐');
+    expect(text.match(/正在听音乐/g)).toHaveLength(1);
+  });
   it('复制提示自动消失，重复复制重新计时', async () => {
     await mountCard(() => {});
     vi.useFakeTimers();

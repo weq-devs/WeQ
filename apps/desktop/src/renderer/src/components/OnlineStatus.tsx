@@ -82,13 +82,18 @@ export function OnlineStatus({
       </span>
     ) : null;
 
-  const detail = showBaseStatus ? status.subTypeName || status.displayStatus : status.displayStatus;
-  const hasDetail = showBaseStatus && detail !== status.typeName;
+  const customText =
+    status.type === 10 && status.subType === 2000 ? status.customStatus?.text?.trim() : '';
+  const withBaseStatus = showBaseStatus || Boolean(customText);
+  const detail = withBaseStatus
+    ? status.subTypeName || customText || status.displayStatus
+    : status.displayStatus;
+  const hasDetail = withBaseStatus && detail !== status.typeName;
 
   return (
     <span
       className={className}
-      title={status.displayStatus}
+      title={hasDetail ? `${status.typeName} - ${detail}` : status.displayStatus}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

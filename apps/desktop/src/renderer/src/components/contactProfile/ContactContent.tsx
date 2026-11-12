@@ -142,6 +142,12 @@ export function ContactIdentity({
   const identityLabel = person.clone ? 'ID' : person.identityLabel;
   const editableRemark =
     relationship === 'friend' && !person.clone && /^u_/.test(person.uid || person.id);
+  const onlineStatus = person.onlineStatus?.trim();
+  const customStatus = person.customStatus?.trim();
+  const fallbackStatus =
+    onlineStatus && customStatus && !onlineStatus.includes(customStatus)
+      ? `${onlineStatus} · ${customStatus}`
+      : onlineStatus || customStatus;
   return (
     <>
       <div className="weq-profile-hero weq-contact-identity" data-privacy-sensitive>
@@ -186,12 +192,10 @@ export function ContactIdentity({
                 <OnlineStatus
                   uid={person.uid || person.id}
                   showBaseStatus
-                  fallbackText={person.customStatus || person.onlineStatus}
+                  fallbackText={fallbackStatus}
                 />
               ) : (
-                <span className="weq-contact-status">
-                  {person.customStatus || person.onlineStatus}
-                </span>
+                <span className="weq-contact-status">{fallbackStatus}</span>
               )
             ) : null}
           </div>

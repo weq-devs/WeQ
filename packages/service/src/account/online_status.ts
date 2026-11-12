@@ -129,7 +129,7 @@ export class OnlineStatusService {
       displayStatus = `${typeName} - ${subTypeName}`;
     }
     if (raw.type === OnlineType.ONLINE && raw.subType === 2000 && raw.customStatus?.text) {
-      displayStatus = raw.customStatus.text;
+      displayStatus = `${typeName} - ${raw.customStatus.text}`;
     }
 
     return {

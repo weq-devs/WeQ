@@ -271,7 +271,7 @@ it.each([null, { uid: 'u_other', typeName: '在线' }, { uid: 'u_fixture', typeN
   },
 );
 
-it('桌面等现有入口未启用基础状态展示时保持原有文案', async () => {
+it.each(['awa', '在线 - awa'])('所有入口均并列展示传统与自定义状态：%s', async (displayStatus) => {
   onlineStatusQuery.mockReturnValue({
     data: {
       uid: 'u_fixture',
@@ -279,15 +279,17 @@ it('桌面等现有入口未启用基础状态展示时保持原有文案', asyn
       typeName: '在线',
       subType: 2000,
       subTypeName: '',
-      displayStatus: 'awa',
+      displayStatus,
       customStatus: { faceId: 66, faceType: 1, text: 'awa' },
     },
   });
   await act(async () => root.render(createElement(OnlineStatus, { uid: 'u_fixture' })));
-  expect(host.textContent).toBe('awa');
+  expect(host.textContent).toBe('在线·awa');
+  expect(host.firstElementChild?.getAttribute('title')).toBe('在线 - awa');
+  expect(host.querySelector('img')?.getAttribute('alt')).toBe('合成状态表情');
 });
 
-it('会话标题为手机保留基础状态与自定义状态，桌面维持原有状态文案', async () => {
+it('会话标题在手机与桌面均并列展示传统与自定义状态', async () => {
   onlineStatusQuery.mockReturnValue({
     data: {
       uid: 'u_fixture',
@@ -311,7 +313,7 @@ it('会话标题为手机保留基础状态与自定义状态，桌面维持原�
     ),
   );
   expect(host.querySelector('.chat-title strong')?.textContent).toBe('合成昵称 (00.3.12)');
-  expect(host.querySelector('.chat-status-desktop')?.textContent).toBe('今天是晴天');
+  expect(host.querySelector('.chat-status-desktop')?.textContent).toBe('在线·今天是晴天');
   expect(host.querySelector('.chat-status-mobile')?.textContent).toBe('在线·今天是晴天');
   expect(host.querySelector('.chat-status-mobile img')?.getAttribute('alt')).toBe('合成状态表情');
 });
