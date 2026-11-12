@@ -90,14 +90,10 @@ git clone https://github.com/weq-devs/WeQ   # 克隆仓库代码
 cd WeQ
 git switch dev             # 开发基于 dev，main 为发布分支
 
-pnpm i                     # 安装依赖（electron可能需要单独处理）
-pnpm native:fetch          # 取 nt_helper 原生产物（nt_helper.node + 装扮资源，不入库）
-pnpm run build:bot         # 构建机器人运行时（使用机器人功能时需要）
-
-pnpm dev                   # 启动开发服务器
+pnpm dev                   # 自动补齐依赖、native 和必要构建，启动开发服务器
 ```
 
-源码开发需要 Node.js ≥ 22.12.0，并使用根 `package.json` 锁定的 `pnpm@12.8.1`。
+源码开发需要 Node.js ≥ 22.12.0，并使用根 `package.json` 锁定的 `pnpm@12.8.1`；首次构建远程网络辅助程序需要 Go。默认无需 Rust，本地 native 模式才需要其编译工具链。来源配置与缓存行为见[一行命令开发启动](./docs/develop/dev-startup.md)。
 
 > `native/**/nt_helper.node` 与 `resources/dress/*.dat` 不在仓库里（历史太大），
 > 由 [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发，

@@ -73,6 +73,8 @@ pnpm native:fetch --version <tag> --require-fresh --require-authorization --veri
 
 ## dev 用法
 
+普通开发直接运行 `pnpm dev`：启动器自动检查本机模块和装扮资源，缺失或不匹配时才从锚定版本成套取回，已完整安装时可离线复用。需要编译本地 native 源码时通过开发配置选择 `local`；切换来源、源码指纹、验证和失败恢复见[一行命令开发启动](dev-startup.md)。下列命令继续用于独立维护发布产物及版本锚。
+
 ```bash
 pnpm native:fetch                 # 本机平台 + 装扮资源（锚定的 tag）
 pnpm native:check                 # 只比对：缺失 / 落后 / 被改 / 已过期 → 退出码 1

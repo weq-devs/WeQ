@@ -17,7 +17,7 @@ WeQ 是 QQ NT 本地聊天记录的解密 / 导出 / 查看 / 年度报告工具
 | `docs/` | 文档中心：`guide` 用户向、`develop` 开发向、`principles` 原理、`database` 表结构 |
 
 - Node ≥ 22.12.0；包管理器只能用 **pnpm**（锁定 `pnpm@12.8.1`），别用 npm / yarn，会污染 `pnpm-lock.yaml`。
-- 新克隆里没有原生产物，先 `pnpm native:fetch`，否则桌面端跑不起来。
+- 新克隆直接 `pnpm dev`，自动补依赖、原生产物与必要构建；发布版／本地源码 native 来源通过 `weq.dev.json` 和不入库的 `weq.dev.local.json` 配置，见 `docs/develop/dev-startup.md`。
 
 ## 1. 分支：一切以 dev 为基准
 
@@ -53,7 +53,7 @@ pnpm ci:local --fix       # 先 pnpm format + lint:fix 刷平格式再跑门禁
 pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 ```
 
-- 独立 daemon 已移除，不再需要 Rust 工具链。
+- 独立 daemon 已移除；默认发布版 native 模式不需要 Rust 工具链，本地源码模式需要。
 - 需要单独跑某一步时，等价命令：`pnpm lint`、`pnpm format:check`、`pnpm typecheck`、`pnpm -r test`；
 - 真跑红的检查就如实报告失败项和报错。**不要**为了让门禁变绿去放宽规则、加 `// biome-ignore`、塞 `any` / `@ts-ignore`、跳过或删除测试。
 - 打包链路（electron-builder）不在 PR 门禁里。改到它时用 `pnpm --filter @weq/desktop build:unpack` 本地验一遍。

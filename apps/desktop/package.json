@@ -8,7 +8,7 @@
     "./main/*": "./src/main/*.ts"
   },
   "scripts": {
-    "dev": "node ../../scripts/prepare-dev-electron.mjs --launch -- --user-data-dir=../../.dev-profile",
+    "dev": "node ../../scripts/dev.mjs",
     "build": "electron-vite build && electron-builder",
     "build:unpack": "electron-vite build && electron-builder --dir",
     "preview": "electron-vite preview",

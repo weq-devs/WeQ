@@ -1,6 +1,6 @@
 import type { LoggerContext, LogLevel } from './logger';
+import { formatConsoleHeader, levelColors } from './console_header.mjs';
 
-const levelColors: Record<LogLevel, number> = { debug: 90, info: 32, warn: 33, error: 31 };
 const labels: Record<string, string> = {
   version: '版本',
   mode: '模式',
@@ -130,7 +130,6 @@ export function formatConsoleRecord(
     if (firstLine && !firstLine.startsWith('at '))
       context = { ...context, errorMessage: firstLine };
   }
-  const time = new Date(options.now + 8 * 3600_000).toISOString().slice(11, 19);
   const scope = typeof context.scope === 'string' ? plain(context.scope) : 'app';
   const repeated = typeof context.repeated === 'number' && context.repeated > 0;
   let title =
@@ -227,7 +226,7 @@ export function formatConsoleRecord(
     }
   }
   const limit = options.details ? 12 : 7;
-  const header = `${paint(90, time)} ${paint(levelColors[level], level.toUpperCase().padEnd(5))} ${paint(36, scope)}  ${paint(level === 'error' ? 31 : 39, title)}`;
+  const header = formatConsoleHeader(level, title, scope, options);
   let output = `${header}${parts.length ? `  ${parts.slice(0, limit).join('  ')}` : ''}\n`;
   if (!repeated && typeof stack === 'string' && (level === 'error' || options.details)) {
     const lines = stack.split('\n').filter((line) => line.trim());

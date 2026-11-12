@@ -6,8 +6,7 @@
 
 ```bash
 pnpm i
-pnpm native:fetch   # 取 nt_helper 原生产物（不入库，新克隆里没有）
-pnpm dev
+pnpm dev           # 自动补齐依赖、native 和必要构建后启动
 ```
 
 仅使用根 `package.json` 的 `packageManager` 所锁定的 pnpm；环境与门禁按[贡献指南](https://github.com/weq-devs/WeQ/blob/dev/CONTRIBUTING.md)。以下按主题查阅，不必先读全部专题。
@@ -47,6 +46,7 @@ pnpm dev
 - [开发控制台日志](development-console-logging.md)：终端开关、模块过滤、关联 ID、媒体汇总与慢等待诊断。
 
 - [原生二进制与装扮资源的分发](native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
+- [一行命令开发启动](dev-startup.md) — 自动补依赖、构建与启动，发布版／本地 native 来源配置
 - [测试约定](testing.md) — `@weq/testkit`
 - [WeQ 存储管理](storage-management.md)：统计范围、嵌套目录去重、只读数据与缓存清理白名单。
 - [图文 Ark 卡片发送](ark-send.md) — OIDB 0xdc2_34 的下发结果解析，以及 PC/Linux 端的已知实现缺口

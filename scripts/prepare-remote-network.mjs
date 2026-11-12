@@ -12,6 +12,23 @@ export function prepareRemoteNetwork({
   arch = process.arch,
   build = spawnSync,
   outputDirectory,
+  env = process.env,
+} = {}) {
+  const plan = remoteNetworkBuild({ repoDir, platform, arch, outputDirectory, env });
+  const result = build('go', plan.args, plan.options);
+  if (result.error)
+    throw new Error('无法运行 Go，请先安装或修复 Go 工具链。', { cause: result.error });
+  if (result.status !== 0) throw new Error('远程网络辅助程序构建失败，未启动 WeQ。');
+  return plan.helper;
+}
+
+/** 同步打包与异步开发启动共用构建计划。 */
+export function remoteNetworkBuild({
+  repoDir = root,
+  platform = process.platform,
+  arch = process.arch,
+  outputDirectory,
+  env = process.env,
 } = {}) {
   const goos = { darwin: 'darwin', linux: 'linux', win32: 'windows' }[platform];
   const goarch = { arm64: 'arm64', x64: 'amd64' }[arch];
@@ -22,20 +39,16 @@ export function prepareRemoteNetwork({
     outputDirectory ?? directory,
     platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
   );
-  const result = build(
-    'go',
-    ['build', '-p', '2', '-trimpath', '-ldflags=-s -w', '-o', helper, '.'],
-    {
+  return {
+    helper,
+    args: ['build', '-p', '2', '-trimpath', '-ldflags=-s -w', '-o', helper, '.'],
+    options: {
       cwd: directory,
       stdio: 'inherit',
       windowsHide: true,
-      env: { ...process.env, CGO_ENABLED: '0', GOOS: goos, GOARCH: goarch },
+      env: { ...env, CGO_ENABLED: '0', GOOS: goos, GOARCH: goarch },
     },
-  );
-  if (result.error)
-    throw new Error('无法运行 Go，请先安装或修复 Go 工具链。', { cause: result.error });
-  if (result.status !== 0) throw new Error('远程网络辅助程序构建失败，未启动 WeQ。');
-  return helper;
+  };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

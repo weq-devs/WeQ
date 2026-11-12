@@ -191,25 +191,27 @@ export async function prepareDevElectron({
   }
 }
 
+export async function launchDevElectron(args = [], environment = process.env, executable) {
+  const prepared = await prepareDevElectron(executable ? { executable } : {});
+  const env = { ...environment, ELECTRON_EXEC_PATH: prepared };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const { tsImport } = await import('tsx/esm/api');
+  const { launchDevelopment } = await tsImport(
+    '../apps/desktop/src/main/development_console.ts',
+    import.meta.url,
+  );
+  return launchDevelopment(
+    process.execPath,
+    [await resolveBin('electron-vite', 'electron-vite'), 'dev', ...args],
+    desktop,
+    env,
+  );
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const executable = await prepareDevElectron();
-    if (process.argv[2] !== '--launch') console.log(executable);
-    else {
-      const env = { ...process.env, ELECTRON_EXEC_PATH: executable };
-      delete env.ELECTRON_RUN_AS_NODE;
-      const { tsImport } = await import('tsx/esm/api');
-      const { launchDevelopment } = await tsImport(
-        '../apps/desktop/src/main/development_console.ts',
-        import.meta.url,
-      );
-      process.exitCode = await launchDevelopment(
-        process.execPath,
-        [await resolveBin('electron-vite', 'electron-vite'), 'dev', ...process.argv.slice(3)],
-        desktop,
-        env,
-      );
-    }
+    if (process.argv[2] !== '--launch') console.log(await prepareDevElectron());
+    else process.exitCode = await launchDevElectron(process.argv.slice(3));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

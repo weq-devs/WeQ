@@ -311,8 +311,26 @@ test('大包分片连续无缺口，其他包和 Web 仍完整运行，全部结
   );
   assert.match(desktopConfig, /sequence: \{ sequencer: BalancedSequencer \}/);
   assert.equal(workflow.jobs.test.if, 'always()');
-  assert.deepEqual(workflow.jobs.test.needs, ['test-suites']);
-  assert.equal(workflow.jobs.test.steps[0].run, 'test "$RESULT" = success');
+  assert.deepEqual(workflow.jobs.test.needs, ['test-suites', 'dev-bootstrap']);
+  const bootstrap = workflow.jobs['dev-bootstrap'];
+  assert.deepEqual(bootstrap.strategy.matrix.os, [
+    'ubuntu-latest',
+    'windows-latest',
+    'macos-latest',
+  ]);
+  assert(!bootstrap.steps.some((step) => /pnpm install/.test(step.run ?? '')));
+  assert(
+    bootstrap.steps.some((step) =>
+      /pnpm exec node --test scripts\/dev.test.mjs scripts\/dev-native.test.mjs/.test(
+        step.run ?? '',
+      ),
+    ),
+  );
+  assert.equal(workflow.jobs.test.steps[0].env.DEV_RESULT, `\${{ needs.dev-bootstrap.result }}`);
+  assert.equal(
+    workflow.jobs.test.steps[0].run,
+    'test "$RESULT" = success && test "$DEV_RESULT" = success',
+  );
 });
 
 test('报告保留失败、跳过和慢文件信息，不把用例时间当 CI 墙钟时间', () => {

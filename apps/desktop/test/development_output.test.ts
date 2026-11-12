@@ -51,6 +51,10 @@ describe('开发进程输出', () => {
   });
   it('管道继承真实终端颜色，NO_COLOR 优先，已有 ANSI 在无色输出中移除', () => {
     expect(terminalColor('stderr', { WEQ_DEV_STDERR_TTY: '1' })).toBe(true);
+    expect(
+      developmentChildEnvironment({ WEQ_DEV_STDOUT_TTY: '1', WEQ_DEV_STDERR_TTY: '1' }).FORCE_COLOR,
+    ).toBe('1');
+    expect(developmentChildEnvironment({ WEQ_DEV_STDOUT_TTY: '1' }).WEQ_DEV_STDOUT_TTY).toBe('1');
     expect(terminalColor('stderr', { WEQ_DEV_STDERR_TTY: '1', NO_COLOR: '' })).toBe(false);
     expect(
       developmentChildEnvironment({ NO_COLOR: '', FORCE_COLOR: '1' }).FORCE_COLOR,

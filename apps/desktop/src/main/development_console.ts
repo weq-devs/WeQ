@@ -150,11 +150,12 @@ export function developmentChildEnvironment(env = process.env): NodeJS.ProcessEn
   const next: NodeJS.ProcessEnv = {
     ...env,
     WEQ_DEV_CONSOLE: '1',
-    WEQ_DEV_STDOUT_TTY: process.stdout.isTTY ? '1' : '0',
-    WEQ_DEV_STDERR_TTY: process.stderr.isTTY ? '1' : '0',
+    WEQ_DEV_STDOUT_TTY: env.WEQ_DEV_STDOUT_TTY ?? (process.stdout.isTTY ? '1' : '0'),
+    WEQ_DEV_STDERR_TTY: env.WEQ_DEV_STDERR_TTY ?? (process.stderr.isTTY ? '1' : '0'),
   };
   if (env.NO_COLOR !== undefined) delete next.FORCE_COLOR;
-  else if (process.stdout.isTTY || process.stderr.isTTY) next.FORCE_COLOR = env.FORCE_COLOR ?? '1';
+  else if (terminalColor('stdout', env) || terminalColor('stderr', env))
+    next.FORCE_COLOR = env.FORCE_COLOR ?? '1';
   return next;
 }
 

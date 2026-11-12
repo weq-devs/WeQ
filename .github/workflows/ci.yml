@@ -14,6 +14,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dev-bootstrap:
+    name: dev-bootstrap-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # 有意不先安装项目依赖：启动器必须能从全新 clone 进入准备流程。
+      - name: Test dependency-free development bootstrap
+        run: pnpm exec node --test scripts/dev.test.mjs scripts/dev-native.test.mjs scripts/prepare-remote-network.test.mjs scripts/prepare-dev-electron.test.mjs
+
   lint:
     runs-on: ubuntu-latest
     env:
@@ -182,13 +200,14 @@ jobs:
   # 保留稳定的 test 门禁名称；失败、取消或意外跳过均不能冒充通过。
   test:
     if: always()
-    needs: [test-suites]
+    needs: [test-suites, dev-bootstrap]
     runs-on: ubuntu-latest
     steps:
       - name: Require every test suite
         env:
           RESULT: ${{ needs.test-suites.result }}
-        run: test "$RESULT" = success
+          DEV_RESULT: ${{ needs.dev-bootstrap.result }}
+        run: test "$RESULT" = success && test "$DEV_RESULT" = success
 
   # 浏览器版打包冒烟（linux-x64）：native/ 随包 → 两个守卫 →
   # 启动真实产物走一遍鉴权流程。产物现在按平台/架构各自成包，build-web 冒烟

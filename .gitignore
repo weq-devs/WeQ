@@ -59,6 +59,8 @@ resources/ninebird-runtime/
 /apps/desktop/electron.vite.config.*.mjs
 
 # dev
+/weq.dev.local.json
+/.weq-dev/
 /tmp
 /.codex-local/
 /apps/desktop/.artifacts/
