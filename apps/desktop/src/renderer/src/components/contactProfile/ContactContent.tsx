@@ -52,6 +52,9 @@ import {
 } from './ContactRow';
 import '../../styles/contact-card.css';
 import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './ContactFieldHistory';
+import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
+import { CalendarNavigationContext } from '../../lib/calendarNavigation';
+import { useGroupMemberTimeNavigation } from '../../hooks/useGroupMemberTimeNavigation';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
@@ -625,13 +628,17 @@ export function ContactGroupContent({
   person,
   settings,
   full = false,
+  onNavigate,
 }: {
   person: ProfilePerson;
   settings: ContactCardSettings;
   full?: boolean;
+  onNavigate?: () => void;
 }) {
   const context = person.profileContext;
   const relationship = useGroupRelationship({ id: context?.groupCode });
+  const navigate = useContext(CalendarNavigationContext);
+  const locate = useGroupMemberTimeNavigation(person, navigate, onNavigate);
   if (!context) return null;
   const member = { ...person, ...context.member };
   const muted = member.muteUntil && new Date(member.muteUntil).getTime() > Date.now();
@@ -650,6 +657,10 @@ export function ContactGroupContent({
         key={key}
         label={{ groupLevel: '群等级', joinedAt: '入群时间', lastSpeakAt: '最后群发言' }[key]}
         value={optional[key]}
+        onActivate={
+          key !== 'groupLevel' && optional[key] && navigate ? () => void locate(key) : undefined
+        }
+        activateTitle={key === 'joinedAt' ? '定位到入群时间' : '定位到最后群发言'}
       />
     ));
   const body = (
@@ -671,12 +682,7 @@ export function ContactGroupContent({
         value={member.role ? { owner: '群主', admin: '管理员', member: '成员' }[member.role] : null}
       />
       {member.leftGroup ? <ContactEmptyState>已退出这个群</ContactEmptyState> : null}
-      {muted ? (
-        <ContactRow
-          label="禁言截止"
-          value={new Date(member.muteUntil!).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
-        />
-      ) : null}
+      {muted ? <MemberMuteUntil groupCode={context.groupCode} person={person} /> : null}
       {rows}
     </>
   );
@@ -685,6 +691,26 @@ export function ContactGroupContent({
     <ContactSection title={`群内资料${context.groupName ? `（${context.groupName}）` : ''}`}>
       {body}
     </ContactSection>
+  );
+}
+
+function MemberMuteUntil({ groupCode, person }: { groupCode: string; person: ProfilePerson }) {
+  const member = { ...person, ...person.profileContext?.member };
+  const action = useGroupMemberUnmute({
+    groupCode,
+    uid: person.uid || person.id,
+    name: displayUserName(person),
+    role: member.role,
+    muteUntil: member.muteUntil,
+  });
+  if (!action.muted) return null;
+  return (
+    <ContactRow
+      label="禁言截止"
+      value={memberDate(new Date(action.until).toISOString())}
+      onActivate={action.available ? (anchor) => void action.unmute(anchor.ownerDocument) : undefined}
+      activateTitle="解除禁言"
+    />
   );
 }
 

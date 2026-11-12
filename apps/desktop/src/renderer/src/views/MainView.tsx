@@ -13133,6 +13133,7 @@ function MainWorkspace(): ReactElement {
     NonNullable<React.ContextType<typeof ProfileNavigationContext>>
   >((member, anchor, group) => setMemberCard({ member, anchor, groupContext: group ?? null }), []);
   return (
+    <CalendarNavigationContext.Provider value={locateCalendarMessage}>
     <ContactWorkspaceNavigationContext.Provider
       value={(target) =>
         settingsNavigation.navigate(() => {
@@ -13463,5 +13464,6 @@ function MainWorkspace(): ReactElement {
         </ProfileNavigationContext.Provider>
       </ProfileNavigationGuardContext.Provider>
     </ContactWorkspaceNavigationContext.Provider>
+    </CalendarNavigationContext.Provider>
   );
 }

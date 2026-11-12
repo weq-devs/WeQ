@@ -92,6 +92,8 @@ describe('右键菜单外部点击', () => {
           onMention: vi.fn(),
           onPoke: vi.fn(),
           showMute: true,
+          showUnmute: true,
+          onUnmute: () => mute('unmute'),
           onMute: mute,
         }),
       );
@@ -103,6 +105,13 @@ describe('右键菜单外部点击', () => {
     )!;
     press(duration);
     expect(mute).toHaveBeenCalledOnce();
+    expect(
+      [...document.querySelectorAll('.avatar-context-submenu button')].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(['10 分钟', '1 小时', '12 小时', '1 天']);
+    press(document.querySelector('button[title="解除禁言"]')!);
+    expect(mute).toHaveBeenLastCalledWith('unmute');
     expect(close).not.toHaveBeenCalled();
     press(host);
     expect(close).toHaveBeenCalledOnce();

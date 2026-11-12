@@ -64,6 +64,12 @@ const result = (data?: unknown) => ({
   refetch: async () => ({ data }),
 });
 function value(path: string, input: Record<string, unknown>) {
+  if (path === 'account.qqWrite.memberDetails')
+    return { uid: 'u_sample', muteUntil: qa.muted ? 1893427200 : 0 };
+  if (path === 'account.conversationBoundary')
+    return { msgId: '101', msgSeq: '51', sendTime: 1725120000 };
+  if (path === 'account.browseConversation')
+    return { items: [{ msgId: '102', msgSeq: '52', sendTime: '1725217445' }] };
   const uin = String(input.uin || '10002');
   if (path === 'bootstrap.getSettings')
     return qa.preferencesReady ? { contactCard: qa.settings } : undefined;
@@ -425,6 +431,7 @@ function rpc(path: string[] = []): unknown {
             }
             if (name === 'account.qqWrite.groupRemark') qa.groupRemark = String(input.remark);
             if (name === 'account.qqWrite.groupName') qa.groupName = String(input.name);
+            if (name === 'account.qqWrite.groupMemberMute') qa.muted = Number(input.duration) > 0;
             if (name === 'account.qqWrite.friendCategory') qa.categoryId = Number(input.categoryId);
             qa.notify();
             return { status: 'accepted' };

@@ -47,7 +47,7 @@ export interface QQWriteServices {
   >;
   groupModeration: Pick<
     AccountServices['groupModeration'],
-    'setName' | 'setMemberCard' | 'setSpecialTitle' | 'setEssence'
+    'setName' | 'setMemberCard' | 'setSpecialTitle' | 'setEssence' | 'muteMember'
   >;
   profile: Pick<
     AccountServices['profile'],
@@ -484,6 +484,12 @@ export function createQQWriteRouter(
       .input(binding.extend({ groupId, targetUid: uid, card: z.string().max(256) }))
       .mutation(async ({ input }) => {
         await resolve(input).groupModeration.setMemberCard(input);
+        return { state: 'accepted' as const };
+      }),
+    groupMemberMute: procedure
+      .input(binding.extend({ groupId, targetUid: uid, duration: uint32 }))
+      .mutation(async ({ input }) => {
+        await resolve(input).groupModeration.muteMember(input);
         return { state: 'accepted' as const };
       }),
     groupSpecialTitle: procedure

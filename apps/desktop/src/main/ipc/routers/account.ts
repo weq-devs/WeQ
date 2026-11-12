@@ -3390,22 +3390,31 @@ export const accountRouter = router({
 
   conversationBoundary: procedure
     .input(
-      convInput.extend({
+      convInput.merge(exportAccountBindingInput).extend({
         newest: z.boolean().default(false),
         start: z.number().int().nonnegative().optional(),
         end: z.number().int().nonnegative().optional(),
       }),
     )
-    .query(({ input }) =>
-      requireServices().msgs.boundary(input.kind, input.conv, input.newest, {
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const result = await services.msgs.boundary(input.kind, input.conv, input.newest, {
         start: input.start,
         end: input.end,
-      }),
-    ),
+      });
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return result;
+    }),
 
   browseConversation: procedure
     .input(
-      convInput.extend({
+      convInput.merge(exportAccountBindingInput).extend({
         filter: z.object({
           start: z.number().int().nonnegative().optional(),
           end: z.number().int().nonnegative().optional(),
@@ -3426,13 +3435,21 @@ export const accountRouter = router({
         input.filter.start > input.filter.end
       )
         throw new Error('开始日期不能晚于结束日期。');
-      const result = await requireServices().msgs.browse(
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const result = await services.msgs.browse(
         input.kind,
         input.conv,
         input.filter,
         input.cursor,
         input.limit,
       );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return {
         ...result,
         items: result.items.map((m) => ({

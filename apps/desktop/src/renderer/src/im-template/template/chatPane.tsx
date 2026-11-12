@@ -275,6 +275,7 @@ import { IntentSuggestionBar } from '../../components/intentSense/IntentSuggesti
 import { useDialog } from '../../components/Dialog';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
+import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { ReactionPicker } from './reactionPicker';
 import { useReactionFeedback } from '../../hooks/useReactionFeedback';
 import type { MessageContextMenuState } from './messageContextMenu';
@@ -977,6 +978,24 @@ export function ChatPane({
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
   // 右键头像 → 「@他 / 戳一戳」轻互动菜单。
   const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
+  const unmuteMember =
+    avatarMenu && conversation?.type === 'group'
+      ? conversation.members.find((member) =>
+          selfIdentityValues(member).some((identity) =>
+            selfIdentityValues(avatarMenu.sender).includes(identity),
+          ),
+        )
+      : undefined;
+  const unmuteAction = useGroupMemberUnmute({
+    groupCode:
+      avatarMenu && conversation?.type === 'group' && !conversation.generated
+        ? conversation.group.identityValue
+        : '',
+    uid: avatarMenu ? groupTargetUid(avatarMenu.sender) ?? '' : '',
+    name: avatarMenu ? displayUserName(avatarMenu.sender) : '',
+    role: unmuteMember?.role,
+    muteUntil: unmuteMember?.muteUntil,
+  });
   /** 通话按钮的选择菜单（语音 / 视频）。锚点是被点的那个按钮。 */
   const [callMenu, setCallMenu] = useState<{ x: number; y: number } | null>(null);
   /** 群聊通话入口的「敬请期待」面板。 */
@@ -7221,6 +7240,11 @@ export function ChatPane({
           onChangeTitle={startTitleEdit}
           onKick={startKick}
           onMute={muteAvatar}
+          onUnmute={() =>
+            void unmuteAction.unmute().then((done) => {
+              if (done) setAvatarMenu(null);
+            })
+          }
           onToggleAdmin={toggleAvatarAdmin}
           showChangeCard={!generated && (avatarMenuFlags?.showChangeCard ?? false)}
           showChangeTitle={
@@ -7234,6 +7258,16 @@ export function ChatPane({
               : (avatarMenuFlags?.showKick ?? false)
           }
           showMute={!generated && (avatarMenuFlags?.showMute ?? false)}
+          showUnmute={
+            !conversation?.generated && Boolean(avatarMenuFlags?.showMute) && unmuteAction.muted
+          }
+          unmuteBlockedReason={
+            unmuteAction.available
+              ? null
+              : unmuteAction.busy
+                ? '正在解除禁言'
+                : '当前无法解除禁言'
+          }
           showSetAdmin={!generated && (avatarMenuFlags?.showSetAdmin ?? false)}
           showUnsetAdmin={!generated && (avatarMenuFlags?.showUnsetAdmin ?? false)}
           moderationBlockedReason={
