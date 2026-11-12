@@ -855,11 +855,11 @@ export function ContactContent({
         <div className="weq-profile-data">
           {titled.map((block) =>
             sectioned ? (
-              <ContactSection key={block.key} title={block.title}>
+              <ContactSection key={block.key} title={block.title} fields>
                 {block.rows}
               </ContactSection>
             ) : (
-              <ContactSection key={block.key} title={block.title} hideTitle>
+              <ContactSection key={block.key} title={block.title} hideTitle fields>
                 {block.rows}
               </ContactSection>
             ),

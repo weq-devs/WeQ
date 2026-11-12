@@ -262,7 +262,12 @@ it.each([false, true])('联系人名片以真实昵称为主标题并保留备�
       ),
     );
     expect(document.querySelector('.weq-profile-name')?.textContent).toBe(contactFixture.nick);
-    expect(document.querySelector('.weq-profile-heading')?.textContent).toContain('备注 好友备注');
+    // 备注是身份区下的独立属性行，不再塞进标题块。
+    expect(document.querySelector('.weq-profile-heading')?.textContent).not.toContain('好友备注');
+    expect(
+      document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')
+        ?.textContent,
+    ).toBe('好友备注');
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -292,7 +297,7 @@ it('联系人昵称缺失时不将备注当作昵称', () => {
   }
 });
 
-it.each([false, true])('群名片以备注为主标题，同时保留原群名，内嵌=%s', (embedded) => {
+it.each([false, true])('群名片以群名为主标题，备注单独成行，内嵌=%s', (embedded) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -307,10 +312,13 @@ it.each([false, true])('群名片以备注为主标题，同时保留原群名�
         }),
       ),
     );
-    expect(document.querySelector('.weq-profile-name')?.textContent).toBe('群备注');
-    expect(document.querySelector('.weq-group-original-name')?.textContent).toBe(
+    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(
       groupFixture.group.name,
     );
+    expect(
+      document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')
+        ?.textContent,
+    ).toBe('群备注');
     expect(document.querySelector('[aria-label="群资料"]')?.textContent).toContain('群备注');
   } finally {
     act(() => root.unmount());

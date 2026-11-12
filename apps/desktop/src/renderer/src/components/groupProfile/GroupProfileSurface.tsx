@@ -193,7 +193,9 @@ function GroupProfileBody({
             {members}
           </div>
         )}
-        {canChat || canPreview || canOpenWorkspace ? (
+        {/* 完整资料页的操作已在页头渲染；这里再来一条会重复操作，并因吸底样式
+            压在正文与视口边缘上，所以只在快速名片里保留底部操作行。 */}
+        {!embedded && (canChat || canPreview || canOpenWorkspace) ? (
           <nav
             className="weq-group-card-actions weq-contact-actions weq-profile-card-actions"
             aria-label="群操作"

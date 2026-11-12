@@ -84,16 +84,24 @@ export function ContactSection({
   title,
   action,
   hideTitle = false,
+  fields = false,
   children,
 }: {
   title: string;
   action?: ReactNode;
   /** 只有一个分区时不必重复小标题，避免「小标题 + 两行数据」的冗余。 */
   hideTitle?: boolean;
+  /**
+   * 分区内容全部来自字段行时置真：行组件可能因异步查询无结果而渲染为空，
+   * 这时整块（含小标题）一起隐藏，不让用户看到只有标题的空段。
+   */
+  fields?: boolean;
   children: ReactNode;
 }) {
   return (
-    <section className="weq-profile-section-block">
+    <section
+      className={`weq-profile-section-block${fields ? ' weq-profile-section-block--fields' : ''}`}
+    >
       {hideTitle && !action ? null : (
         <header className="weq-profile-section-head">
           {hideTitle ? <span /> : <h3 className="weq-profile-subtitle">{title}</h3>}

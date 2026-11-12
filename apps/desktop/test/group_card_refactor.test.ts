@@ -102,8 +102,11 @@ it('名片首屏保留本地身份，公告／入群问题／扩展指标不进�
     metrics: { friendCount: { value: 0, updatedAt: 1 } },
   });
   const { host } = mount(h(GroupProfileSurface, { conversation: group, onClose: vi.fn() }));
-  expect(host.querySelector('.weq-profile-name')?.textContent).toBe('我的备注');
-  expect(host.querySelector('.weq-group-original-name')?.textContent).toBe('原群名');
+  // 群名是标题，备注作为身份区的独立属性行，不顶替标题。
+  expect(host.querySelector('.weq-profile-name')?.textContent).toBe('原群名');
+  expect(
+    host.querySelector('.weq-profile-identity-remark .weq-profile-data-value')?.textContent,
+  ).toBe('我的备注');
   // 好友数走共用数据行（label 96px + 值列），真实零值保留。
   const friendRow = [...host.querySelectorAll('.weq-profile-data-row')].find(
     (row) => row.querySelector('.weq-profile-data-label')?.textContent === '群内好友',
@@ -120,6 +123,28 @@ it('名片首屏保留本地身份，公告／入群问题／扩展指标不进�
   expect(host.textContent).toContain('u_1:12345');
   act(() => (host.querySelector('[aria-label="成员名片"] button') as HTMLButtonElement).click());
   expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+});
+it('完整群资料页只在页头渲染一条操作行，不再吸底重复', () => {
+  mock.profile.mockReturnValue({
+    conversation: group,
+    members: group.members,
+    scope: 'a',
+    previewLoading: false,
+    previewError: null,
+    retryPreview: vi.fn(),
+    metrics: {},
+  });
+  const { host } = mount(
+    h(GroupProfileSurface, {
+      conversation: group,
+      onClose: vi.fn(),
+      embedded: true,
+      onOpenChat: vi.fn(),
+    }),
+  );
+  const bars = host.querySelectorAll('.weq-group-card-actions');
+  expect(bars).toHaveLength(1);
+  expect(bars[0].classList.contains('weq-profile-card-actions')).toBe(false);
 });
 it('没有成功值的缓存不显示好友数，正常／未知不占位', () => {
   const metrics = {

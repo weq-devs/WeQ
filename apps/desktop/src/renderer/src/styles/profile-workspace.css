@@ -188,6 +188,15 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   margin-bottom: 4px;
 }
 
+/*
+ * 字段分区里的行组件可能因异步查询失败、无权限或本来就没有数据而渲染为空。
+ * 这时整块连标题一起隐藏，避免名片 / 资料页出现「只有小标题、下面什么都没有」的空段；
+ * 行数据到达后 :has 重新命中，分区自然回来。不支持 :has 的宿主退回旧行为（保留标题）。
+ */
+.weq-profile-section-block--fields:not(:has(.weq-profile-row-slot > *)) {
+  display: none;
+}
+
 /* ---------- 唯一行模型 ---------- */
 
 :root {

@@ -144,9 +144,11 @@ describe('群名片消息', () => {
     expect(dialog.hasAttribute('aria-modal')).toBe(false);
     expect(dialog.parentElement?.classList.contains('weq-nonmodal-layer')).toBe(true);
     expect(dialog.parentElement?.classList.contains('is-popover')).toBe(true);
-    // 清单 G02：有本地备注时备注作主标题，原群名作副标题，两者不重复。
-    expect(dialog.querySelector('.weq-profile-name')?.textContent).toBe('合成群备注');
-    expect(dialog.querySelector('.weq-group-original-name')?.textContent).toBe(target.name);
+    // 群名作主标题，本地备注作为身份区下的独立属性行，不顶替标题。
+    expect(dialog.querySelector('.weq-profile-name')?.textContent).toBe(target.name);
+    expect(
+      dialog.querySelector('.weq-profile-identity-remark .weq-profile-data-value')?.textContent,
+    ).toBe('合成群备注');
     expect(dialog.textContent).toContain(code);
     expect(dialog.textContent).toContain('23');
     // 清单 G04：公告只在完整资料页显示，快速名片不展示公告正文。
