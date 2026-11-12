@@ -9,7 +9,7 @@ import {
 } from './query_diagnostics';
 
 export type DatabasePriority = 'interactive' | 'background';
-export const SLOW_DATABASE_OPERATION_MS = 200;
+export const SLOW_DATABASE_OPERATION_MS = 500;
 export interface SlowDatabaseOperation {
   priority: DatabasePriority;
   jsQueueWaitMs: number;

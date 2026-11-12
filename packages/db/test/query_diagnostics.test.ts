@@ -42,6 +42,8 @@ it('独立诊断可采样低于告警阈值的等待，不改变默认告警订�
 });
 
 it.each([
+  [200, false],
+  [500, false],
   [SLOW_DATABASE_OPERATION_MS - 1, false],
   [SLOW_DATABASE_OPERATION_MS, false],
   [SLOW_DATABASE_OPERATION_MS + 1, true],
