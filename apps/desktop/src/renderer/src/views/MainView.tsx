@@ -8731,8 +8731,8 @@ function MainWorkspace(): ReactElement {
     }
     if (!cached) setMessagesLoading(true);
     entryLoadingRef.current = true;
-    setLoadingNewerMessages(Boolean(cached));
-    if (cached?.anchored) {
+    setLoadingNewerMessages(false);
+    if (cached?.anchored && displaySettings.data?.readFromFirstUnread) {
       // 增量页失败后仍保留向下重试入口，也避免在途实时刷新抢占阅读窗口。
       setHasNewer(true);
       setAnchoredToLatest(false);
@@ -8806,8 +8806,10 @@ function MainWorkspace(): ReactElement {
                 limit: size,
               })
             ).map(toMessageWire),
-          after: async (afterSeq, size) =>
-            (
+          after: async (afterSeq, size) => {
+            // 最新页校准与本地／漫游合并不是向下分页；只有实际读后续页才转圈。
+            if (valid()) setLoadingNewerMessages(true);
+            return (
               await client.account.listAfter.query({
                 ...binding,
                 readWindow: selection?.readWindow,
@@ -8817,7 +8819,8 @@ function MainWorkspace(): ReactElement {
                 afterSeq,
                 limit: size,
               })
-            ).map(toMessageWire),
+            ).map(toMessageWire);
+          },
           latest: async (size) =>
             (
               await measureMessagePhase('entryQuery', () =>
@@ -8874,7 +8877,6 @@ function MainWorkspace(): ReactElement {
                   bottomInset: 64,
                 },
               );
-              setLoadingNewerMessages(true);
             } else if (!first) {
               const scroll = document.querySelector<HTMLElement>(
                 '.weq-readonly-chat .message-scroll',
@@ -8915,7 +8917,6 @@ function MainWorkspace(): ReactElement {
             setHasNewer(next.hasNewer);
             setAnchoredToLatest(next.anchored);
             setMessagesLoading(!complete);
-            if (!complete) setLoadingNewerMessages(true);
             verifiedWindowRowsRef.current = complete ? rows : null;
           },
         });

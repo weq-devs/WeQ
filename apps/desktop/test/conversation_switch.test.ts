@@ -24,6 +24,23 @@ import * as replyPreview from '../src/renderer/src/lib/replyPreview';
 import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
 import { timelineViewport } from '../src/renderer/src/lib/timelineViewport';
+import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession';
+
+vi.mock('../src/renderer/src/hooks/useRecentContactQueries', async () => {
+  const { trpc } = await import('../src/renderer/src/trpc/client');
+  return {
+    useRecentContactQueries: (binding: QQWriteBinding | null, active: boolean) => {
+      const input = binding ?? { expectedAccountUin: '', expectedAccountConfigId: '' };
+      return {
+        contacts: trpc.account.listRecentContacts.useInfiniteQuery({ ...input, limit: 500 }),
+        head: trpc.account.listRecentContacts.useQuery(
+          { ...input, limit: 50, cursor: 0 },
+          { enabled: active },
+        ),
+      };
+    },
+  };
+});
 
 type TestMessage = {
   source?: 'roaming';
@@ -68,6 +85,7 @@ const f = vi.hoisted(() => ({
   refreshRows: undefined as TestMessage[] | undefined,
   gapRows: [] as TestMessage[],
   beforeRows: [] as TestMessage[],
+  afterReply: undefined as (() => Promise<TestMessage[]>) | undefined,
   previewMessages: [] as ComponentProps<typeof GapMessagesModal>['messages'],
   previewMore: undefined as (() => void) | undefined,
   profiles: [] as Array<{ uid: string; uin: string; nick: string; remark: string }>,
@@ -76,6 +94,7 @@ const f = vi.hoisted(() => ({
     | { uid: string; uin: string; card: string; nick: string; adminFlag: number; joinTime: string }
     | undefined,
   messages: [] as ComponentProps<typeof ChatMainContent>['messages'],
+  atLatest: true as ComponentProps<typeof ChatMainContent>['atLatest'],
   commit: undefined as (() => void) | undefined,
   reads: [] as { conv: string; show: (stage: MessagePageStage<TestMessage>) => void }[],
   recent: ['10001', '10002', 'u_peer'].map((targetUid, index) => ({
@@ -156,6 +175,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return async (input?: UnreadInput) => {
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (path.at(-1) === 'listBefore') return f.beforeRows;
+            if (path.at(-1) === 'listAfter') return f.afterReply?.() ?? [];
             if (path.at(-1) === 'fetchGapMessages')
               return { ok: true, messages: f.gapRows, nextStartSeq: null };
             if (path.at(-1) === 'deletedMsgIds')
@@ -249,6 +269,7 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
   return {
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
       f.messages = props.messages;
+      f.atLatest = props.atLatest;
       f.deletionSets = { deleted: props.deletedIds, hidden: props.hiddenDeletedIds };
       useLayoutEffect(() => {
         f.commit?.();
@@ -336,12 +357,14 @@ afterEach(() => {
   f.refreshRows = undefined;
   f.gapRows = [];
   f.beforeRows = [];
+  f.afterReply = undefined;
   f.previewMessages = [];
   f.previewMore = undefined;
   f.profiles = [];
   f.bots = [];
   f.memberDetails = undefined;
   f.messages = [];
+  f.atLatest = true;
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -380,7 +403,7 @@ it.each(['10001', 'u_peer'])(
       );
       const read = f.reads.at(-1)!;
       await act(async () => read.show({ complete: false, rows: [message('1')] }));
-      expect(host.querySelector('[aria-label="正在加载后续消息"]')).not.toBeNull();
+      expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
       await act(async () => {
         // 完整页先同步写入缓存；尚未续跑的旧入口随设置更新失效。
         read.show({ complete: true, rows: [message('2'), message('1')] });
@@ -396,6 +419,86 @@ it.each(['10001', 'u_peer'])(
       expect(f.reads).toHaveLength(1);
     } finally {
       act(() => root.unmount());
+      client.clear();
+      host.remove();
+    }
+  },
+);
+
+it.each([
+  ['10001', false],
+  ['u_peer', false],
+  ['10001', true],
+  ['u_peer', true],
+] as const)(
+  '会话 %s 最新页后台校准不显示后续加载，真实向下读取仍显示：未读模式=%s',
+  async (id, unread) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    f.readFromFirstUnread = unread;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const select = (target: string) =>
+      act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === target)!
+          .click(),
+      );
+    const message = (seq: string): TestMessage => ({
+      msgId: seq,
+      msgSeq: seq,
+      sendTime: '1794200000',
+      senderUid: 'u_peer',
+      senderUin: '20001',
+      elements: [{ type: 'text', text: `消息 ${seq}` }],
+    });
+    let finishAfter: ((rows: TestMessage[]) => void) | undefined;
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await select(id);
+      const read = f.reads.at(-1)!;
+      await act(async () => read.show({ complete: false, rows: [message('1')] }));
+      // 本地最新页已经可读，后台合并迟迟未完成也不应冒充向下分页。
+      await act(async () => vi.advanceTimersByTimeAsync(5000));
+      expect(host.querySelector('[data-message-id="1"]')).not.toBeNull();
+      expect(f.atLatest).toBe(true);
+      expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+      await act(async () => read.show({ complete: true, rows: [message('1')] }));
+      await select('10002');
+      await act(async () => vi.advanceTimersByTimeAsync(4000));
+      f.afterReply = () =>
+        new Promise((resolve) => {
+          finishAfter = resolve;
+        });
+      await select(id);
+      expect(host.querySelector('[data-message-id="1"]')).not.toBeNull();
+      if (unread) {
+        expect(finishAfter).toBeTypeOf('function');
+        expect(host.querySelector('[aria-label="正在加载后续消息"]')).not.toBeNull();
+        await act(async () => finishAfter!([message('2')]));
+      } else {
+        expect(finishAfter).toBeUndefined();
+        expect(f.atLatest).toBe(true);
+        expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+        await act(async () =>
+          f.reads.at(-1)!.show({ complete: true, rows: [message('2'), message('1')] }),
+        );
+      }
+      expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+      expect(host.querySelector('[data-message-id="2"]')).not.toBeNull();
+      expect(f.atLatest).toBe(true);
+    } finally {
+      act(() => root.unmount());
+      finishAfter?.([]);
       client.clear();
       host.remove();
     }
@@ -997,8 +1100,8 @@ it.each(['10001', 'u_peer'])(
         ),
       );
       await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
-      // 启动批次尚未完成时不重复读取最近页；新正文仍须主动校准预览。
-      expect(f.headEnabled).toBe(false);
+      // 当前目录读取由 useRecentContactQueries 共用首屏，消息页启用最近页。
+      expect(f.headEnabled).toBe(true);
       await act(async () =>
         [...host.querySelectorAll<HTMLButtonElement>('nav button')]
           .find((button) => button.textContent === id)!
