@@ -206,6 +206,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     }),
   ),
   {
+    id: 'ocr-prefilter-enabled',
+    section: 'ocr',
+    label: 'OCR 前先筛图',
+    aliases: ['筛图开关', '自动 OCR 筛图'],
+    from: ['ocr'],
+  },
+  {
     id: 'llm-providers',
     section: 'agentlab',
     label: '已保存的服务商',

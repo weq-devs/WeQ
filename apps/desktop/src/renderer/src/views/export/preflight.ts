@@ -186,6 +186,8 @@ export interface OcrReadiness {
   localReady: boolean;
   /** 筛图模型（只判断有没有文字）已选且已下载。 */
   filterReady: boolean;
+  /** 全局非手动 OCR 预筛选开关。 */
+  prefilterEnabled: boolean;
   /** 在线那条腿能不能走：QQ 在线 + 未开完全离线 + a2 / d2 / d2key / guid 齐全。 */
   onlineCapable: boolean;
   /**
@@ -208,6 +210,7 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
   const state: OcrReadiness = {
     localReady: false,
     filterReady: false,
+    prefilterEnabled: true,
     onlineCapable: false,
     localEngineBlocker: null,
   };
@@ -224,7 +227,9 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
     // 与实际执行共用主进程解析结果，避免下载完成时混读旧设置与新文件状态。
     state.localEngineBlocker = access.ocrLocalBlocker ?? null;
     state.localReady = !state.localEngineBlocker && Boolean(access.ocrLocalModelId);
-    state.filterReady = !state.localEngineBlocker && Boolean(access.ocrFilterModelId);
+    state.prefilterEnabled = access.ocrPrefilterEnabled !== false;
+    state.filterReady =
+      state.prefilterEnabled && !state.localEngineBlocker && Boolean(access.ocrFilterModelId);
     return state;
   } catch {
     /* 读不到就当离线；下面本地模型那条腿还能救 */
@@ -233,6 +238,7 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
     const models = await client.bootstrap.localModelResources.query();
     const ocrId = models.selected.ocr;
     const filterId = models.selected.filter;
+    state.prefilterEnabled = models.ocrPrefilterEnabled !== false;
     // 平台能力优先：引擎都跑不起来时，「模型下好了」不算数（主进程的
     // `resolveLocalOcrModel` / `resolveLocalOcrFilterModel` 是同一个口径）。
     state.localEngineBlocker = models.engineBlocker;
@@ -242,7 +248,8 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
         models.ocr.find((m) => m.id === ocrId && m.kind === 'ocr' && !m.downloading)?.downloaded,
     );
     state.filterReady = Boolean(
-      !models.engineBlocker &&
+      state.prefilterEnabled &&
+        !models.engineBlocker &&
         filterId &&
         models.ocr.find((m) => m.id === filterId && m.kind === 'filter' && !m.downloading)
           ?.downloaded,
@@ -269,7 +276,7 @@ export async function preflightOcrImages(dialog: AppDialogApi): Promise<boolean>
     );
     return false;
   }
-  if (!ready.filterReady) {
+  if (ready.prefilterEnabled && !ready.filterReady) {
     // 预筛选是强烈建议项：没有它每张图都要跑一遍识别模型，导出会慢很多。
     const ok = await dialog.confirm(
       ready.localEngineBlocker ? '无法使用本地筛图' : '未下载筛图模型',

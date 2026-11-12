@@ -566,6 +566,8 @@ export interface MediaDeps {
    * 文字」，把风景 / 人像这类直接甩掉。缺省 = 不筛（全部送识别）。
    */
   ocrFilter?: OcrFilterFn;
+  /** 宿主的全局非手动 OCR 策略；不由旧任务或调用端参数覆盖。 */
+  ocrPrefilterEnabled?: () => boolean;
   /**
    * 在线图片 OCR（OIDB 0xe07_0）—— 由 app 注入；服务端自己去取图，所以本机没有
    * 该图也能识别（前提是 CDN 直链还没过期）。并发 / 连续失败放弃由导出阶段控制。
@@ -3282,7 +3284,8 @@ export class ExportTaskManager extends EventEmitter {
       // ---- 图片文字识别（预筛选 → 在线优先 → 本地兜底），与转写等阶段并发 ----
       if (wantOcr && scan) {
         const scene = scan;
-        const usePrefilter = Boolean(task.media?.ocrPrefilter && ocrFilter);
+        const prefilterEnabled = this.deps.ocrPrefilterEnabled?.() ?? task.media?.ocrPrefilter;
+        const usePrefilter = Boolean(prefilterEnabled && ocrFilter);
         const useOnlineOcr = Boolean(task.media?.onlineOcr && onlineOcr);
         jobs.push(async () => {
           const filterStage = this.stage(task, 'ocrfilter');
@@ -3305,7 +3308,12 @@ export class ExportTaskManager extends EventEmitter {
               this.touchStage(
                 task,
                 'ocrfilter',
-                { status: 'skipped', current: 0, total: 0, note: '未下载筛图模型' },
+                {
+                  status: 'skipped',
+                  current: 0,
+                  total: 0,
+                  note: prefilterEnabled ? '筛图模型不可用' : '已关闭 OCR 前筛图',
+                },
                 { persist: true },
               );
             }

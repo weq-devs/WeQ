@@ -1938,6 +1938,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 闭包会自己返回失败，导出阶段据此回退 / 记失败。
             ocrLocal: runLocalOcrFile,
             ocrFilter: runLocalOcrFilterFile,
+            ocrPrefilterEnabled: () => userConfig.getSettings().ocr.prefilterEnabled,
             onlineOcr: onlineOcr.recognize,
             // 识别结果缓存：与灯箱 / MCP 共用同一份（内容寻址，`<缓存根>/ocr/`）。
             // 灯箱里识别过的图，导出直接命中；过期图（CDN 失效 + 本机没本体）也只有它还能出文字。
@@ -2816,6 +2817,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 在线 QQ；在线那条腿不注入（导入目录账号的 rkey 链路未必可用）。
             ocrLocal: runLocalOcrFile,
             ocrFilter: runLocalOcrFilterFile,
+            ocrPrefilterEnabled: () => userConfig.getSettings().ocr.prefilterEnabled,
             // 识别结果缓存（同上：与灯箱 / MCP 共用一份）。
             ocrCache,
             ocrFilterModelId: () => resolveLocalOcrFilterModel()?.modelId ?? null,

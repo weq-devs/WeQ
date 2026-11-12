@@ -19,6 +19,7 @@ import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, SectionHeader } from './controls';
 import { RecognitionConcurrencySetting } from './RecognitionConcurrencySetting';
+import { OcrPrefilterSetting } from './OcrPrefilterSetting';
 import { LoadingIndicator } from '../LoadingIndicator';
 
 function errMsg(e: unknown): string {
@@ -64,6 +65,7 @@ interface ModelRow {
 
 interface ModelKindSectionProps {
   title: string;
+  control?: ReactNode;
   /** 这组模型的用途。 */
   desc: string;
   /** 注册表里这一类为空时显示什么。 */
@@ -83,6 +85,7 @@ interface ModelKindSectionProps {
 /** 本地模型卡片内按用途分组，不另嵌套设置卡片。 */
 function ModelKindSection({
   title,
+  control,
   desc,
   emptyHint,
   models,
@@ -96,6 +99,7 @@ function ModelKindSection({
     <section className="weq-recognition-model-group" aria-label={title}>
       <h4>{title}</h4>
       <p className="weq-set-note">{desc}</p>
+      {control}
       {engineBlocker ? (
         <p className="weq-set-warnbox">
           <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
@@ -295,6 +299,7 @@ export function OcrModelsSection(): ReactElement {
 
         <ModelKindSection
           title="筛图模型"
+          control={<OcrPrefilterSetting />}
           desc="识别前先判断图片是否包含文字，跳过无文字图片以减少处理量。"
           emptyHint={models.isLoading ? <LoadingIndicator /> : '暂无可用模型'}
           models={filterModels}

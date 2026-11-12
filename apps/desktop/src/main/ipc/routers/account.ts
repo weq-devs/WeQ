@@ -712,6 +712,7 @@ export interface GroupAlbumAccessState {
    * 导出面板据此显示「预筛选已就绪 / 去下载」，并决定要不要带 `ocrPrefilter`。
    */
   ocrFilterModelId: string | null;
+  ocrPrefilterEnabled: boolean;
   /**
    * **本机能不能跑本地识别引擎**：能跑为 null，跑不了是给人看的原因（如 macOS Intel
    * 上游没发 onnxruntime 二进制）。与那两个 id 的区别：这是平台能力，跟模型下没下好无关。
@@ -953,6 +954,7 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
     ocrLocalModelId: resolveLocalOcrModel()?.modelId ?? null,
     // 筛图模型只看检测网络（1.7 MB 那份），与识别模型是两个独立的设置项。
     ocrFilterModelId: resolveLocalOcrFilterModel()?.modelId ?? null,
+    ocrPrefilterEnabled: requireBootstrap().userConfig.getSettings().ocr.prefilterEnabled,
     // 平台能力（与模型状态无关）：本机没有可用的推理引擎时两个 id 必然是 null，
     // 渲染层用这句话代替「去下个本地模型」的提示。
     ocrLocalBlocker: localOcrBlocker(),

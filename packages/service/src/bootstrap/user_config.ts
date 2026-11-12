@@ -600,6 +600,8 @@ export interface VoiceTranscribeConfig {
 export interface OcrModelsConfig {
   modelId: string;
   filterModelId: string;
+  /** 非手动 OCR 前先筛除无文字图片，不改变模型资源选择。 */
+  prefilterEnabled: boolean;
   /** 导出时同时向 QQ 发起的在线识别请求数。 */
   onlineConcurrency: number;
 }
@@ -1150,7 +1152,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
   voiceTranscribe: { modelId: '', autoTranscribe: false, onlineConcurrency: 5, ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
-  ocr: { modelId: '', filterModelId: '', onlineConcurrency: 5 },
+  ocr: { modelId: '', filterModelId: '', prefilterEnabled: true, onlineConcurrency: 5 },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: DEFAULT_SERVICE_PORTS.mcp, token: '' },
@@ -2017,6 +2019,10 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        prefilterEnabled:
+          typeof s?.ocr?.prefilterEnabled === 'boolean'
+            ? s.ocr.prefilterEnabled
+            : d.ocr.prefilterEnabled,
         onlineConcurrency: recognitionConcurrency(
           s?.ocr?.onlineConcurrency,
           d.ocr.onlineConcurrency,
@@ -2205,6 +2211,10 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        prefilterEnabled:
+          typeof patch.ocr?.prefilterEnabled === 'boolean'
+            ? patch.ocr.prefilterEnabled
+            : current.ocr.prefilterEnabled,
         onlineConcurrency: recognitionConcurrency(
           patch.ocr?.onlineConcurrency,
           current.ocr.onlineConcurrency,

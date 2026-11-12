@@ -61,6 +61,7 @@ import {
 import { searchCatalog } from '../market_catalog';
 import { resolveResource } from '../resource';
 import { resolveLocalOcrModel, runLocalOcr } from '../ocr/local';
+import { prefilterAutomaticOcr } from '../ocr/prefilter';
 import { decodeBlobBytes, decodeBlobHex, decodeBlobText } from './blob_decoder';
 import {
   JS_SANDBOX_DEFAULT_TIMEOUT_MS,
@@ -2804,6 +2805,8 @@ export const AI_TOOLS: AiTool[] = [
       /** 本地那条腿的不可用原因：先看这台机器有没有引擎（如 macOS Intel 没有），再看模型。 */
       const localEngine = localOcrBlocker();
       return {
+        prefilterEnabled:
+          toolContext().bootstrap?.userConfig.getSettings().ocr.prefilterEnabled !== false,
         online: {
           available: blocker === null,
           ...(blocker ? { reason: blocker } : {}),
@@ -2828,6 +2831,7 @@ export const AI_TOOLS: AiTool[] = [
     name: 'ocr_image_text',
     description:
       '识别【图片里的文字】，**返回值明确标出这次走的是在线接口还是本地离线模型**。' +
+      '\n遵循全局「OCR 前先筛图」设置：开启时先筛图，无文字则返回 source=filter / skipped=true；筛图不可用或失败时继续 OCR，命中识别缓存则直接复用。' +
       '\n【两条腿】① 在线：把图片的 CDN 地址交给 QQ 的图片文字识别接口（OIDB 0xe07_0），精度更好，但需要该账号 QQ 在线、未开完全离线、物料齐全，且 QQ 的图片链接只保留约 9 天（过期图必然失败）。' +
       '② 本地：用 WeQ 里已下载的 PP-OCR 离线模型在本机推理（设置 → 模型与识别 → 图片识别），不把图片发到任何服务，但精度略低一档、CPU 推理较慢。' +
       '\n【怎么选】engine 默认 auto = 在线可用就先走在线，在线失败或不可用再回退本地；也可以指定 online / local 只走那一条（不可用时直接报错，不会偷偷换腿）。先调 get_ocr_status 看两条腿的可用性。' +
@@ -3033,6 +3037,27 @@ export const AI_TOOLS: AiTool[] = [
       }
 
       // ── 3) 依次尝试，第一个成功的就是本次用的腿 ─────────────────────────
+      const prefilter = await prefilterAutomaticOcr({
+        enabled: toolContext().bootstrap?.userConfig.getSettings().ocr.prefilterEnabled !== false,
+        path: localPath,
+        cache,
+        cacheKey,
+      });
+      notes.push(...prefilter.notes);
+      if (prefilter.skip)
+        return {
+          ok: true,
+          found: true,
+          source: 'filter',
+          engine: '本地筛图模型',
+          offline: true,
+          skipped: true,
+          target,
+          text: '',
+          lineCount: 0,
+          notes,
+          hint: '筛图未检测到文字，未执行 OCR。',
+        };
       let failure: string | null = null;
       for (const leg of legs) {
         if (leg === 'online') {

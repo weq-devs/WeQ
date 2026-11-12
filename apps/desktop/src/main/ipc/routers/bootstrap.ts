@@ -288,6 +288,7 @@ export const bootstrapRouter = router({
     const boot = requireBootstrap();
     return {
       selected: boot.userConfig.getSettings().modelResources,
+      ocrPrefilterEnabled: boot.userConfig.getSettings().ocr.prefilterEnabled,
       voice: boot.voiceTranscribe.listModels(),
       ocr: boot.ocrModels.listModels(),
       engineBlocker: localOcrBlocker(),
@@ -1960,6 +1961,12 @@ export const bootstrapRouter = router({
         },
       });
     }),
+
+  setOcrPrefilterEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) =>
+      requireBootstrap().userConfig.setSettings({ ocr: { prefilterEnabled: input.enabled } }),
+    ),
 
   /** The model registry, each entry enriched with on-disk / in-flight state. */
   voiceModels: procedure.query(() => {
