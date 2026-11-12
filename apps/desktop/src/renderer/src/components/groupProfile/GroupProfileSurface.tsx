@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Maximize2, Eye, MessageSquare, X } from 'lucide-react';
+import { Eye, MessageSquare } from 'lucide-react';
+import { ProfileCardControls } from '../ProfileCardControls';
 import type { GroupConversation, User, GroupMember } from '../../im-template/template/types';
 import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
 import { OverlayLayer } from '../OverlayLayer';
@@ -153,26 +154,12 @@ function GroupProfileBody({
           />
         ) : (
           <>
-            {openFullProfile ? (
-              <button
-                className="weq-profile-expand"
-                type="button"
-                title="打开完整群资料"
-                aria-label="打开完整群资料"
-                onClick={openFullProfile}
-              >
-                <Maximize2 size={16} />
-              </button>
-            ) : null}
-            <button
-              className="weq-profile-close"
-              type="button"
-              title="关闭群资料"
-              aria-label="关闭群资料"
-              onClick={closing.requestClose}
-            >
-              <X size={16} />
-            </button>
+            <ProfileCardControls
+              onExpand={openFullProfile}
+              onClose={closing.requestClose}
+              expandLabel="打开完整群资料"
+              closeLabel="关闭群资料"
+            />
             <GroupCardIdentity conversation={conversation} metrics={data.metrics} />
           </>
         )}

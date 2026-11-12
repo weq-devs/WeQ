@@ -29,20 +29,27 @@
   padding-inline-end: 28px;
 }
 
-.weq-contact-card:has(> .weq-profile-expand) .weq-profile-hero {
+.weq-contact-card:has(> .weq-profile-card-controls > button:nth-child(2)) .weq-profile-hero {
   padding-inline-end: 72px;
 }
 
-.weq-contact-card .weq-profile-close,
-.weq-contact-card .weq-profile-expand {
+.weq-profile-card-controls {
   position: absolute;
   top: 6px;
   right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.weq-profile-card-controls > button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -50,27 +57,24 @@
   cursor: pointer;
 }
 
-.weq-contact-card .weq-profile-expand {
-  right: 50px;
+.weq-profile-card-controls > button > svg {
+  flex-shrink: 0;
 }
 
 /* 视觉 28px，热区 44px：触控设备不靠放大图标也点得到。 */
-.weq-contact-card .weq-profile-close::after,
-.weq-contact-card .weq-profile-expand::after {
+.weq-profile-card-controls > button::after {
   content: '';
   position: absolute;
   inset: -8px;
   border-radius: 10px;
 }
 
-.weq-contact-card .weq-profile-close:hover,
-.weq-contact-card .weq-profile-expand:hover {
+.weq-profile-card-controls > button:hover {
   background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
   color: var(--weq-fg-primary);
 }
 
-.weq-contact-card .weq-profile-close:focus-visible,
-.weq-contact-card .weq-profile-expand:focus-visible {
+.weq-profile-card-controls > button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
@@ -626,14 +630,9 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
     height: 44px;
   }
 
-  .weq-contact-card .weq-profile-close,
-  .weq-contact-card .weq-profile-expand {
+  .weq-profile-card-controls > button {
     width: 36px;
     height: 36px;
-  }
-
-  .weq-contact-card .weq-profile-expand {
-    right: 58px;
   }
 
   .weq-contact-actions .weq-contact-primary,

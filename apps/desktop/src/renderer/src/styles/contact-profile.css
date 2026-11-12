@@ -34,32 +34,6 @@
   flex-shrink: 0;
 }
 
-.weq-profile-expand {
-  position: absolute;
-  top: 10px;
-  right: 44px;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  cursor: pointer;
-}
-
-.weq-profile-expand:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-  color: var(--weq-fg-primary);
-}
-
-.weq-profile-expand:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-
 .weq-contact-workspace {
   min-width: 0;
 }

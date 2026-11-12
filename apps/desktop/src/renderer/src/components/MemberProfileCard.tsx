@@ -1,5 +1,4 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Maximize2, X } from 'lucide-react';
 import type { User } from '../im-template/template/types';
 import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
 import type { AnalysisTarget } from '../views/analysis/model';
@@ -9,6 +8,7 @@ import {
   type ProfilePerson,
 } from '../hooks/useContactCard';
 import { OverlayLayer } from './OverlayLayer';
+import { ProfileCardControls } from './ProfileCardControls';
 import {
   ContactContent,
   ContactGroupContent,
@@ -113,26 +113,7 @@ export function MemberProfileCard({
         aria-label="用户资料"
         style={{ position: 'fixed', ...position }}
       >
-        {openProfile ? (
-          <button
-            type="button"
-            className="weq-profile-expand"
-            title="打开完整资料页"
-            aria-label="打开完整资料页"
-            onClick={openProfile}
-          >
-            <Maximize2 size={16} />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="weq-profile-close"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
+        <ProfileCardControls onExpand={openProfile} onClose={onClose} />
         {previewContent || (
           <>
             <ContactIdentity

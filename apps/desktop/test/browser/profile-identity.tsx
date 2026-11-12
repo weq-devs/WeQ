@@ -9,12 +9,13 @@ import {
   GroupMessagePreviewContext,
 } from '../../src/renderer/src/lib/chatNavigation';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
+import { ContactWorkspaceNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
 import type { Contact, GroupConversation } from '../../src/renderer/src/im-template/template/types';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 
 ensureThemeInitialized();
-const qa = { store: useThemeStore, chats: 0, previews: 0 };
+const qa = { store: useThemeStore, chats: 0, previews: 0, expands: 0, closes: 0 };
 Object.assign(window, { profileIdentityQa: qa });
 const params = new URLSearchParams(location.search);
 const embedded = !params.has('popover');
@@ -53,6 +54,7 @@ const group: GroupConversation = {
 const openChat = () => qa.chats++;
 const openPreview = () => qa.previews++;
 const noop = () => {};
+const close = () => qa.closes++;
 
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -64,18 +66,22 @@ createRoot(document.getElementById('root')!).render(
         html,body,#root{height:100%;margin:0;overflow:hidden}
         .profile-identity-fixture{height:100%;max-width:1180px;margin:auto}
       `}</style>
-        <main className="profile-identity-fixture">
-          {params.has('friend') ? (
-            <ContactProfileDialog
-              contact={person}
-              embedded={embedded}
-              onClose={noop}
-              onPreviewChat={openPreview}
-            />
-          ) : (
-            <GroupProfileDialog conversation={group} embedded={embedded} onClose={noop} />
-          )}
-        </main>
+        <ContactWorkspaceNavigationContext.Provider
+          value={params.has('controls') ? () => qa.expands++ : null}
+        >
+          <main className="profile-identity-fixture">
+            {params.has('friend') ? (
+              <ContactProfileDialog
+                contact={person}
+                embedded={embedded}
+                onClose={close}
+                onPreviewChat={openPreview}
+              />
+            ) : (
+              <GroupProfileDialog conversation={group} embedded={embedded} onClose={close} />
+            )}
+          </main>
+        </ContactWorkspaceNavigationContext.Provider>
       </GroupMessagePreviewContext.Provider>
     </ChatNavigationContext.Provider>
   </QueryClientProvider>,
