@@ -64,6 +64,12 @@
   min-width: 0;
   max-width: 100%;
 }
+.weq-profile-label-likes .weq-profile-avatar-button {
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 24px;
+  text-align: left;
+}
 .weq-profile-label-likes .weq-avatar-img,
 .weq-profile-label-likes .weq-avatar-fallback {
   flex-shrink: 0;

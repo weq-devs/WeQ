@@ -3,6 +3,7 @@ import { ProfileExtras, ProfileLabelAlbum } from '../../src/renderer/src/compone
 import { qa, trpc, useQQWriteSession } from './profile-extras.stub';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { useViewState } from '../../src/renderer/src/state/view';
+import { ProfileNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 
@@ -32,7 +33,13 @@ createRoot(document.getElementById('root')!).render(
     <p data-local-signature>本地签名立即显示，不等待在线资料。</p>
     <ProfileExtras uin="10001" section="signature" />
     <ProfileExtras uin="10001" />
-    <LabelFixture />
+    <ProfileNavigationContext.Provider
+      value={(user) => {
+        document.documentElement.dataset.profileTarget = user.identityValue;
+      }}
+    >
+      <LabelFixture />
+    </ProfileNavigationContext.Provider>
     <DialogHost />
   </main>,
 );

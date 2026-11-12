@@ -21,6 +21,7 @@ import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { client, trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { QqAvatar } from './QqAvatar';
+import { ProfileAvatar } from './ProfileAvatar';
 import { QzoneLikesPopover } from './QzoneLikesPopover';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import { chooseBrowserFiles, stageAccountFile } from '../lib/accountFilePicker';
@@ -96,8 +97,10 @@ export function ProfileLabelLikes({
         const displayName = name(user.uin, user.name);
         return (
           <span key={user.id} title={`${displayName} (${user.uin})`}>
-            <QqAvatar uin={user.uin} size={20} />
-            <span className="weq-profile-label-like-name">{displayName}</span>
+            <ProfileAvatar target={{ identity: user.uin, name: displayName }}>
+              <QqAvatar uin={user.uin} size={20} />
+              <span className="weq-profile-label-like-name">{displayName}</span>
+            </ProfileAvatar>
           </span>
         );
       })}

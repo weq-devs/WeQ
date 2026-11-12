@@ -307,7 +307,31 @@ async function run() {
     assert.equal(await page.getByText('全部标签', { exact: true }).count(), 0);
     const labelLikes = page.getByLabel('标签点赞列表');
     assert.equal(await labelLikes.locator('.weq-profile-label-like-name').count(), 4);
-    assert.equal(await labelLikes.locator('button').count(), 0);
+    assert.equal(await labelLikes.locator('button').count(), 4);
+    assert.equal(await labelLikes.locator('[aria-pressed]').count(), 0);
+    const firstLiker = labelLikes.getByRole('button', {
+      name: '查看 合成昵称 的名片',
+      exact: true,
+    });
+    for (const selector of [
+      '.weq-avatar-img, .weq-avatar-fallback',
+      '.weq-profile-label-like-name',
+    ]) {
+      await page.evaluate(() => delete document.documentElement.dataset.profileTarget);
+      await firstLiker.locator(selector).click();
+      assert.equal(
+        await page.evaluate(() => document.documentElement.dataset.profileTarget),
+        '10002',
+      );
+    }
+    await page.evaluate(() => delete document.documentElement.dataset.profileTarget);
+    await firstLiker.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(
+      await page.evaluate(() => document.documentElement.dataset.profileTarget),
+      '10002',
+    );
+    assert.equal(await page.locator('.weq-label-album').count(), 1);
     assert.equal(
       await labelLikes.locator('.weq-profile-label-like-total').textContent(),
       '等 28 人点赞',

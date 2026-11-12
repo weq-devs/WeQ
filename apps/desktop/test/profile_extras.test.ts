@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProfileExtras, ProfileLabelAlbum } from '../src/renderer/src/components/ProfileExtras';
 import type { PersonalityLabel } from '@weq/protocol';
+import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+
+const openProfile = vi.fn();
 
 const state = vi.hoisted(() => ({
   online: true,
@@ -248,21 +251,25 @@ const label: PersonalityLabel = {
 async function renderAlbum(value = label) {
   await act(async () =>
     root.render(
-      h(ProfileLabelAlbum, {
-        key: `${state.account}:${state.target}`,
-        input: {
-          uin: state.target,
-          expectedAccountUin: state.account,
-          expectedAccountConfigId: 'source',
-        },
-        online: state.online,
-        label: value,
-        refresh: async () => {},
-      }),
+      h(
+        ProfileNavigationContext.Provider,
+        { value: openProfile },
+        h(ProfileLabelAlbum, {
+          key: `${state.account}:${state.target}`,
+          input: {
+            uin: state.target,
+            expectedAccountUin: state.account,
+            expectedAccountConfigId: 'source',
+          },
+          online: state.online,
+          label: value,
+          refresh: async () => {},
+        }),
+      ),
     ),
   );
 }
-it('标签点赞以空间同款头像昵称排列，末尾使用总数且不带点赞按钮', async () => {
+it('标签点赞头像昵称共用一个名片入口，末尾使用总数且不带点赞按钮', async () => {
   await renderAlbum({
     ...label,
     likes: '28',
@@ -280,7 +287,23 @@ it('标签点赞以空间同款头像昵称排列，末尾使用总数且不带�
   expect(likes.querySelectorAll('.weq-avatar-img, .weq-avatar-fallback')).toHaveLength(2);
   expect(likes.querySelector('.weq-profile-label-like-total')?.textContent).toBe('等 28 人点赞');
   expect(likes.querySelector('span[title]')?.getAttribute('title')).toBe('合成点赞人 (10003)');
-  expect(likes.querySelector('button')).toBeNull();
+  expect(likes.querySelectorAll('button')).toHaveLength(2);
+  const person = likes.querySelector<HTMLButtonElement>('[aria-label="查看 合成点赞人 的名片"]')!;
+  expect(person.querySelector('.weq-avatar-img, .weq-avatar-fallback')).not.toBeNull();
+  expect(person.querySelector('.weq-profile-label-like-name')?.textContent).toBe('合成点赞人');
+  await act(async () =>
+    person.querySelector<HTMLElement>('.weq-avatar-img, .weq-avatar-fallback')!.click(),
+  );
+  await act(async () => person.querySelector<HTMLElement>('.weq-profile-label-like-name')!.click());
+  expect(openProfile).toHaveBeenCalledTimes(2);
+  for (const [user] of openProfile.mock.calls) {
+    expect(user).toMatchObject({
+      identityLabel: 'QQ',
+      identityValue: '10003',
+      displayName: '合成点赞人',
+    });
+  }
+  expect(likes.querySelector('[aria-pressed]')).toBeNull();
   expect(document.querySelector('.weq-label-album .weq-qzn-actions')).toBeNull();
 });
 it('标签无点赞名单仍显示真实总数，未知总数不使用摘要人数冒充总数', async () => {
