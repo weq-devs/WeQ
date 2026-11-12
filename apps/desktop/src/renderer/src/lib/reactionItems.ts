@@ -10,6 +10,15 @@ export type FaceGroup = {
   items: { id: string | number; desc: string; glyph?: string }[];
 };
 
+export const REACTION_BUTTON_MIN_WIDTH = 44;
+
+/** 使用实际内容宽度，始终为更多表情预留一格。 */
+export function quickReactionCapacity(width: number): number {
+  return Number.isFinite(width)
+    ? Math.max(0, Math.floor(width / REACTION_BUTTON_MIN_WIDTH) - 1)
+    : 0;
+}
+
 export function reactionItems(groups: readonly FaceGroup[]): ReactionItem[] {
   return groups.flatMap((group) =>
     group.items.flatMap((face) => {

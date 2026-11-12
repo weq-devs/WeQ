@@ -169,6 +169,46 @@ try {
       }
     }
   }
+  await page.setViewportSize({ width: 320, height: 844 });
+  await open(0, 0, true);
+  const quick = page.getByRole('menuitemcheckbox');
+  assert.equal(await quick.count(), 5);
+  const initialLabels = await quick.evaluateAll((buttons) =>
+    buttons.map((button) => button.getAttribute('aria-label')),
+  );
+  await quick.last().focus();
+  for (const [width, count] of [
+    [280, 4],
+    [240, 3],
+    [320, 5],
+  ]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.waitForFunction(
+      (count) =>
+        document.querySelectorAll('.message-reaction-strip [role="menuitemcheckbox"]').length ===
+        count,
+      count,
+    );
+    assert.deepEqual(
+      await quick.evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute('aria-label')),
+      ),
+      initialLabels.slice(0, count),
+    );
+    const sizes = await page
+      .locator('.message-reaction-strip button')
+      .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width));
+    assert(
+      sizes.every((size) => size >= 44),
+      `快捷表情点击区域过窄：${sizes}`,
+    );
+    assert(
+      await page
+        .getByRole('menuitem', { name: '更多表情', exact: true })
+        .evaluate((element) => document.activeElement === element),
+    );
+  }
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 320, height: 640 });
   for (const mode of ['sparse', 'voice', 'mixed', 'downloaded', 'private', 'record']) {
     await open(0, 0, true, 'dark', mode);

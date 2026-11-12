@@ -89,7 +89,8 @@
 }
 .message-menu-v2 .message-reaction-strip button {
   display: grid;
-  flex: 1 1 0;
+  flex: 1 0 44px;
+  min-width: 44px;
   grid-template-columns: 1fr;
   justify-items: center;
   padding: 4px;

@@ -33,7 +33,11 @@ import { IS_WEB } from '../../lib/target';
 import { VoiceTranscribeMenuAction } from '../../components/VoiceTranscribeMenuAction';
 import { TextMarkdownMenuAction } from '../../components/TextMarkdownMenuAction';
 import type { MessageMediaTarget } from '../../../../shared/message_media';
-import { DEFAULT_REACTIONS, type ReactionItem } from '../../lib/reactionItems';
+import {
+  DEFAULT_REACTIONS,
+  quickReactionCapacity,
+  type ReactionItem,
+} from '../../lib/reactionItems';
 import type { ForwardExportTarget } from '../../lib/messageForwardTarget';
 import '../../styles/message-context-menu.css';
 
@@ -105,6 +109,8 @@ export function MessageContextMenu(props: Props) {
   const focusedIndex = useRef(0);
   const restoreFocus = useRef(true);
   const [feedbackHost, setFeedbackHost] = useState<HTMLDivElement | null>(null);
+  const [reactionCapacity, setReactionCapacity] = useState(0);
+  const showReactions = (props.showReactions ?? true) && Boolean(props.onReact);
   useSurfaceOutside(menuRef, onClose, useTabActive());
 
   const buttons = useCallback(
@@ -146,6 +152,16 @@ export function MessageContextMenu(props: Props) {
     if (!el) return;
     const place = () => {
       const rect = el.getBoundingClientRect();
+      const strip = el.querySelector<HTMLElement>('.message-reaction-strip');
+      const capacity = quickReactionCapacity(strip?.getBoundingClientRect().width ?? 0);
+      const focused = [
+        ...(strip?.querySelectorAll('button[role="menuitemcheckbox"]') ?? []),
+      ].indexOf(document.activeElement as HTMLButtonElement);
+      if (focused >= capacity && focused >= 0)
+        strip
+          ?.querySelector<HTMLButtonElement>('[aria-label="更多表情"]')
+          ?.focus({ preventScroll: true });
+      setReactionCapacity(capacity);
       const left = state.variant === 'mobile' ? state.x - rect.width / 2 : state.x;
       el.style.left = `${Math.max(8, Math.min(left, window.innerWidth - rect.width - 8))}px`;
       el.style.top = `${Math.max(8, Math.min(state.y, window.innerHeight - rect.height - 8))}px`;
@@ -158,7 +174,7 @@ export function MessageContextMenu(props: Props) {
       observer.disconnect();
       window.removeEventListener('resize', place);
     };
-  }, [state.x, state.y, state.variant]);
+  }, [state.x, state.y, state.variant, showReactions]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape' || event.key === 'Tab') {
@@ -285,9 +301,9 @@ export function MessageContextMenu(props: Props) {
           onTouchStart={(event) => event.stopPropagation()}
         >
           <div className="message-menu-primary">
-            {(props.showReactions ?? true) && props.onReact && (
+            {showReactions && (
               <div className="message-reaction-strip" role="group" aria-label="快捷贴表情">
-                {reactions.slice(0, 4).map((reaction) => {
+                {reactions.slice(0, reactionCapacity).map((reaction) => {
                   const selected = Boolean(
                     message.setEmojiList?.some(
                       (item) => item.emojiId === reaction.code && item.isSelfSet,
