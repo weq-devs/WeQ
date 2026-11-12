@@ -42,17 +42,32 @@ export function isTouchClient() {
 let layoutWidth = 0;
 let layoutHeight = 0;
 function deviceLandscape(): boolean {
-  // 屏幕方向不会因软键盘缩短 layout/visual viewport 而改变。
-  const orientation = window.screen?.orientation?.type;
-  if (orientation) return orientation.startsWith('landscape');
-  const legacy = (window as Window & { orientation?: number }).orientation;
-  if (typeof legacy === 'number') return Math.abs(legacy) === 90;
   const editing = document.activeElement?.matches('input, textarea, [contenteditable="true"]');
   if (layoutWidth !== window.innerWidth || !editing) {
     layoutWidth = window.innerWidth;
     layoutHeight = window.innerHeight;
   }
-  return window.innerWidth > (layoutHeight || window.innerHeight);
+  const viewportLandscape = window.innerWidth > (layoutHeight || window.innerHeight);
+  const screen = window.screen;
+  const screenGeometryKnown =
+    Number.isFinite(screen?.width) &&
+    Number.isFinite(screen?.height) &&
+    screen.width > 0 &&
+    screen.height > 0 &&
+    screen.width !== screen.height;
+  const screenLandscape = screenGeometryKnown ? screen.width > screen.height : undefined;
+  const orientation = screen?.orientation?.type;
+  const legacy = (window as Window & { orientation?: number }).orientation;
+  const reportedLandscape = orientation
+    ? orientation.startsWith('landscape')
+    : typeof legacy === 'number' && Number.isFinite(legacy)
+      ? Math.abs(legacy) === 90
+      : undefined;
+  // WebView 可能误报方向；仅当屏幕与稳定视口均反证它时改用几何结果。
+  // 屏幕尺寸固定为自然方向的宿主仍采用方向 API，键盘缩短视口不改变已记录高度。
+  if (screenLandscape !== undefined && screenLandscape === viewportLandscape)
+    return screenLandscape;
+  return reportedLandscape ?? screenLandscape ?? viewportLandscape;
 }
 
 /** 媒体查询只回答「是否窄」，交给规则函数时用这两个哨兵宽度表示口径。 */
