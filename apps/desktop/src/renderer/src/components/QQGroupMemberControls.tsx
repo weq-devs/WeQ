@@ -5,7 +5,7 @@ import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { QQWriteResult, QQWriteTextRow } from './QQWriteControls';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { groupMemberEditing } from '../lib/groupMemberEditing';
-import { ProfileRow } from '../im-template/template/profilePanes';
+import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/group-member-edit.css';
 import { useGroupRelationship } from '../lib/contactRelationship';
 
@@ -31,10 +31,9 @@ export function QQGroupMemberControls({
             ['专属头衔', profile.title],
           ] as const
         ).map(([label, value]) => (
-          <div key={label} className="weq-profile-row">
-            <span className="weq-profile-row-label">{label}</span>
+          <ContactRow key={label} label={label} empty={relationship === 'nonmember' && !value}>
             {relationship === 'nonmember' ? (
-              <span>{value || '未设置'}</span>
+              value
             ) : (
               <button
                 type="button"
@@ -46,7 +45,7 @@ export function QQGroupMemberControls({
                 {value || `设置${label}`}
               </button>
             )}
-          </div>
+          </ContactRow>
         ))}
       </div>
     );
@@ -335,11 +334,7 @@ function MemberProfileField({
       </button>
     </form>
   ) : editable ? (
-    <div className="weq-profile-row">
-      <span className="weq-profile-row-label">
-        {icon}
-        {label}
-      </span>
+    <ContactRow label={label} icon={icon}>
       <button
         type="button"
         className="weq-contact-value"
@@ -353,8 +348,8 @@ function MemberProfileField({
       >
         {initial || `设置${label}`}
       </button>
-    </div>
+    </ContactRow>
   ) : (
-    <ProfileRow icon={icon} label={label} value={initial || '未设置'} />
+    <ContactRow icon={icon} label={label} value={initial} />
   );
 }

@@ -5,7 +5,7 @@ import {
   profileTimeText,
 } from '@weq/protocol/profile-values';
 import { BriefcaseBusiness, Droplet, UserRound } from 'lucide-react';
-import { ProfileRow } from '../im-template/template/profilePanes';
+import { ContactRow } from './contactProfile/ContactRow';
 import type { ProfileExtInfo } from '../im-template/template/types';
 import '../styles/profile-cache.css';
 
@@ -16,9 +16,7 @@ export function ProfileCacheFields({ extInfo }: { extInfo?: ProfileExtInfo | nul
     { label: '生肖', value: chineseZodiacText(extInfo?.zodiac), Icon: UserRound },
   ];
   return fields.map(({ label, value, Icon }) =>
-    value ? (
-      <ProfileRow key={label} sensitive icon={<Icon size={13} />} label={label} value={value} />
-    ) : null,
+    value ? <ContactRow key={label} icon={<Icon size={13} />} label={label} value={value} /> : null,
   );
 }
 

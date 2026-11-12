@@ -443,25 +443,8 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
   background: transparent;
 }
 
-.weq-contact-profile-content .weq-profile-row {
-  gap: 16px;
-  padding-block: 11px;
-  border-color: var(--weq-border-subtle);
-}
-
-.weq-contact-profile-content .weq-profile-row-label,
 .weq-contact-profile-content .weq-profile-nick {
   color: var(--weq-fg-secondary);
-}
-
-.weq-contact-profile-content .weq-profile-row strong,
-.weq-contact-profile-content .weq-profile-row-text {
-  color: var(--weq-fg-primary);
-  overflow-wrap: anywhere;
-}
-
-.weq-contact-profile-content .weq-profile-row strong.is-accent {
-  color: var(--weq-accent-effective);
 }
 
 .weq-contact-profile-content .weq-profile-section {

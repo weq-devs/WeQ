@@ -5,7 +5,8 @@ import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Modal } from '../Dialog';
 import { withQQAccountScope } from './shared';
 import { GroupAvatar } from '../exportAvatars';
-import { GroupProfileDialog, ProfileRow } from '../../im-template/template/profilePanes';
+import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import { ContactRow } from '../contactProfile/ContactRow';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { sharedGroupConversation } from '../ark/groupShareCard';
@@ -48,31 +49,36 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
   if (uin === session.binding?.expectedAccountUin) return null;
   return (
     <>
-      <ProfileRow
+      <ContactRow
         icon={<UserRound size={13} />}
         label="共同好友"
-        value={String(query.data?.friendCount ?? (query.isFetching ? '…' : '未知'))}
-        mono
-        action={
-          query.error || query.data?.friendError || query.data?.groupError ? (
-            <button
-              className="weq-profile-row-copy"
-              type="button"
-              title="重新读取共同关系"
-              aria-label="重新读取共同关系"
-              disabled={query.isFetching}
-              onClick={() => void query.refetch()}
-            >
-              <RefreshCw size={12} />
-            </button>
-          ) : undefined
+        empty={
+          query.data?.friendCount == null &&
+          !query.isFetching &&
+          !query.error &&
+          !query.data?.friendError &&
+          !query.data?.groupError
         }
-      />
-      <div className="weq-profile-row">
-        <span className="weq-profile-row-label">
-          <UsersRound size={13} />
-          共同群
-        </span>
+      >
+        {query.data?.friendCount ?? (query.isFetching ? '读取中…' : null)}
+        {query.error || query.data?.friendError || query.data?.groupError ? (
+          <button
+            className="weq-profile-row-copy"
+            type="button"
+            title="重新读取共同关系"
+            aria-label="重新读取共同关系"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            <RefreshCw size={12} />
+          </button>
+        ) : undefined}
+      </ContactRow>
+      <ContactRow
+        label="共同群"
+        icon={<UsersRound size={13} />}
+        empty={!query.data?.groups && !query.isFetching}
+      >
         <button
           type="button"
           className="weq-contact-value"
@@ -81,9 +87,9 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           title="查看共同群列表"
           aria-label="查看共同群列表"
         >
-          {String(query.data?.groups?.length ?? (query.isFetching ? '…' : '未知'))}
+          {query.data?.groups?.length ?? '读取中…'}
         </button>
-      </div>
+      </ContactRow>
       {open && (
         <Modal
           centered

@@ -327,67 +327,6 @@ function ContactProfileDialogBody(
 
 export { GroupProfileSurface as GroupProfileDialog } from '../../components/groupProfile/GroupProfileSurface';
 
-export function ProfileRow({
-  icon,
-  label,
-  value,
-  mono,
-  accent,
-  multiline,
-  action,
-  sensitive = false,
-}: {
-  icon?: React.ReactNode;
-  label: string;
-  value: string;
-  mono?: boolean;
-  accent?: boolean;
-  multiline?: boolean;
-  /** 行尾追加的操作（例如复制按钮），自动与 value 归为一行右侧。 */
-  action?: React.ReactNode;
-  sensitive?: boolean;
-}) {
-  if (multiline) {
-    return (
-      <div className="weq-profile-row weq-profile-row--block">
-        <span className="weq-profile-row-label">
-          {icon}
-          {label}
-        </span>
-        <p className="weq-profile-row-text" data-privacy-sensitive={sensitive || undefined}>
-          {value}
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div className="weq-profile-row">
-      <span className="weq-profile-row-label">
-        {icon}
-        {label}
-      </span>
-      {action ? (
-        <span className="weq-profile-row-value">
-          <strong
-            data-privacy-sensitive={sensitive || undefined}
-            className={cn(mono && 'weq-number', accent && 'is-accent')}
-          >
-            {value}
-          </strong>
-          {action}
-        </span>
-      ) : (
-        <strong
-          data-privacy-sensitive={sensitive || undefined}
-          className={cn(mono && 'weq-number', accent && 'is-accent')}
-        >
-          {value}
-        </strong>
-      )}
-    </div>
-  );
-}
-
 export function genderLabel(value?: number) {
   if (value === 1) {
     return '男';

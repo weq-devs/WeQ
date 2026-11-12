@@ -1,11 +1,6 @@
 /**
  * 联系人资料的行模型：名片、资料页、名片预览共用同一个行组件。
  *
- * 为什么不复用旧的 `.weq-profile-row`：那套是「小名片」时代的 space-between 布局，
- * 值靠右、逐行画线；资料页需要的是固定 label 列 + 值左对齐换行。两者混用会让同一份
- * 数据在不同宿主里长成三种样子（审计 B2/B3）。这里给出唯一实现，旧行通过
- * `profile-workspace.css` 里的容器级归一化跟随同一套网格，不需要逐个改第三方组件。
- *
  * 约定（设计契约 v1）：
  * - label 固定 96px、13px muted；值 13px、左对齐、可换行。
  * - 可选内容为空时整行不渲染（`empty` 可显式覆盖判断）。
@@ -13,6 +8,7 @@
  */
 
 import { useId, type ReactNode } from 'react';
+import '../../styles/profile-workspace.css';
 
 function isBlank(value: ReactNode): boolean {
   if (value === null || value === undefined || value === false || value === '') return true;

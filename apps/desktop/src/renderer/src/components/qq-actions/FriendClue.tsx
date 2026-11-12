@@ -2,7 +2,8 @@ import { CalendarDays, ArrowLeftRight, MapPin, MessageSquare } from 'lucide-reac
 import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
-import { GroupProfileDialog, ProfileRow } from '../../im-template/template/profilePanes';
+import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import { ContactRow } from '../contactProfile/ContactRow';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { GroupAvatar } from '../exportAvatars';
@@ -67,11 +68,7 @@ export function SourceGroup({
   }
   return (
     <>
-      <div className="weq-profile-row">
-        <span className="weq-profile-row-label">
-          <MapPin size={13} />
-          添加来源
-        </span>
+      <ContactRow label="添加来源" icon={<MapPin size={13} />}>
         <button
           className="weq-friend-source-group"
           type="button"
@@ -83,7 +80,7 @@ export function SourceGroup({
           <GroupAvatar code={code} size={24} />
           <span title={label}>{label}</span>
         </button>
-      </div>
+      </ContactRow>
       {anchor && (
         <GroupProfileDialog
           conversation={conversation}
@@ -112,21 +109,19 @@ function FriendClueBody({ uid }: { uid: string }) {
       ? '读取中'
       : query.error
         ? '读取失败'
-        : '未知';
+        : null;
   return (
     <>
-      <ProfileRow
-        sensitive
+      <ContactRow
         icon={<CalendarDays size={13} />}
         label="添加时间"
         value={
-          data ? (data.addedAt === null ? '未知' : dateFormat.format(data.addedAt * 1000)) : empty
+          data ? (data.addedAt === null ? null : dateFormat.format(data.addedAt * 1000)) : empty
         }
       />
       {data && (
         <>
-          <ProfileRow
-            sensitive
+          <ContactRow
             icon={<ArrowLeftRight size={13} />}
             label="添加方向"
             value={
@@ -134,7 +129,7 @@ function FriendClueBody({ uid }: { uid: string }) {
                 ? '我添加对方'
                 : data.direction === 'incoming'
                   ? '对方添加我'
-                  : '未知'
+                  : null
             }
           />
           {data.sourceGroupCode ? (
@@ -144,24 +139,13 @@ function FriendClueBody({ uid }: { uid: string }) {
               source={data.source}
             />
           ) : (
-            <ProfileRow
-              sensitive
-              icon={<MapPin size={13} />}
-              label="添加来源"
-              value={data.source || '未知'}
-            />
+            <ContactRow icon={<MapPin size={13} />} label="添加来源" value={data.source} />
           )}
-          <div className="weq-profile-row">
-            <span className="weq-profile-row-label">
-              <MessageSquare size={13} />
-              验证消息
-            </span>
-            <p className="weq-profile-row-text weq-friend-verification" data-privacy-sensitive>
-              {data.verificationMessage === null
-                ? '未知'
-                : data.verificationMessage || '无验证消息'}
-            </p>
-          </div>
+          <ContactRow
+            icon={<MessageSquare size={13} />}
+            label="验证消息"
+            value={data.verificationMessage}
+          />
         </>
       )}
     </>

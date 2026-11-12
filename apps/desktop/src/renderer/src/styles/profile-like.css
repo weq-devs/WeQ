@@ -125,10 +125,10 @@
   overflow-wrap: anywhere;
 }
 
-.weq-profile-likes-row .weq-profile-row-value {
+.weq-profile-likes-row .weq-profile-data-value {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--weq-profile-inline-gap);
   min-width: 0;
 }
 

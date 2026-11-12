@@ -3,10 +3,6 @@
  *
  * 这里同时定义：目录、窄屏 tab 条、内容区、章节标题、以及名片与资料页共用的行模型
  * （`ContactRow` → `.weq-profile-data-*`）。`contact-card.css` 不再重复这些规则。
- *
- * 旧组件仍在用 `.weq-profile-row`（好友添加信息、生日行、共同关系、互动标识……）。
- * 它们在 `.weq-contact-card` / `.weq-profile-workspace` 容器内被下面的「归一化」规则
- * 拉到同一套网格上，所以不必逐个改第三方文件也能保证对齐一致。
  */
 
 /* ---------- 容器 ---------- */
@@ -194,6 +190,11 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
 
 /* ---------- 唯一行模型 ---------- */
 
+:root {
+  --weq-profile-inline-gap: 6px;
+  --weq-profile-tool-size: 22px;
+}
+
 .weq-profile-data-row {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
@@ -269,67 +270,31 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   outline-offset: 3px;
 }
 
-/* ---------- 旧行归一化：容器内所有 `.weq-profile-row` 跟随同一网格 ---------- */
-
-.weq-contact-card .weq-profile-row,
-.weq-contact-card-preview .weq-profile-row,
-.weq-profile-workspace-body .weq-profile-row {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  align-items: baseline;
-  justify-content: start;
-  gap: 12px;
-  min-height: 32px;
-  padding-block: 5px;
-  border-top: 0;
+/* 保留行内工具按钮契约，不再依赖旧行基座。 */
+.weq-profile-row-copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--weq-profile-tool-size);
+  height: var(--weq-profile-tool-size);
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
 }
 
-.weq-contact-card .weq-profile-row-label,
-.weq-contact-card-preview .weq-profile-row-label,
-.weq-profile-workspace-body .weq-profile-row-label {
-  color: var(--weq-fg-muted);
-  font-size: 13px;
-  font-weight: 400;
+.weq-profile-row-copy:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
 }
 
-/* label 列固定 96px，图标会把文字推离基线；统一隐藏行内 label 图标（信息已在文字里）。 */
-.weq-contact-card .weq-profile-row-label svg,
-.weq-contact-card-preview .weq-profile-row-label svg,
-.weq-profile-workspace-body .weq-profile-row-label svg {
-  display: none;
-}
-
-.weq-contact-card .weq-profile-row strong,
-.weq-contact-card .weq-profile-row-value,
-.weq-contact-card .weq-profile-row-text,
-.weq-contact-card-preview .weq-profile-row strong,
-.weq-contact-card-preview .weq-profile-row-value,
-.weq-contact-card-preview .weq-profile-row-text,
-.weq-profile-workspace-body .weq-profile-row strong,
-.weq-profile-workspace-body .weq-profile-row-value,
-.weq-profile-workspace-body .weq-profile-row-text {
-  min-width: 0;
-  max-width: none;
-  color: var(--weq-fg-primary);
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1.6;
-  text-align: start;
-  white-space: pre-wrap;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-
-/* 旧基座把值做成右对齐的 inline-flex；这里改成左对齐的可换行容器。 */
-.weq-contact-card .weq-profile-row-value,
-.weq-contact-card-preview .weq-profile-row-value,
-.weq-profile-workspace-body .weq-profile-row-value {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 6px;
-  max-width: none;
+.weq-profile-row-copy:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
 }
 
 /* 旧的行内值按钮 / 标签容器各自带居中或右对齐，统一拉回左对齐。 */
@@ -365,12 +330,6 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
 .weq-contact-card-preview .weq-profile-interests,
 .weq-profile-workspace-body .weq-profile-interests {
   cursor: default;
-}
-
-/* 块状行（正文说明一类）跨过 label 列。 */
-.weq-contact-card .weq-profile-row--block,
-.weq-profile-workspace-body .weq-profile-row--block {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 /* ---------- 技术详情 / 局部失败 / 空态 ---------- */
@@ -495,9 +454,7 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
     max-width: none;
   }
 
-  .weq-profile-data-row,
-  .weq-contact-card .weq-profile-row,
-  .weq-profile-workspace-body .weq-profile-row {
+  .weq-profile-data-row {
     grid-template-columns: 84px minmax(0, 1fr);
     gap: 10px;
   }
