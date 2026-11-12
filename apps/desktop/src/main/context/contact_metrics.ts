@@ -34,7 +34,7 @@ const METRIC_NAMES: Record<ContactMetric, string> = {
   sourceGroup: '来源群',
   schools: '学校',
   joinedAt: '我的入群时间',
-  grade: 'grade',
+  grade: '群等级',
   freezeState: '冻结状态',
 };
 function needsMetricRefresh(

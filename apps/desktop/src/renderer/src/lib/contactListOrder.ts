@@ -355,8 +355,8 @@ export function groupExtendedGroups<T extends { group: { id: string } }>(
       label:
         basis === 'grade'
           ? value === null
-            ? 'grade 未知'
-            : `grade：${value}`
+            ? '群等级未知'
+            : `群等级：${value}`
           : value === null
             ? '冻结状态未知'
             : value === 0

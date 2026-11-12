@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { GROUP_GROUPS } from '@weq/service/client-preferences';
 import {
   sortFriends,
   sortGroups,
@@ -99,6 +100,7 @@ it('关系类型优先级固定，非好友不变成已删除好友', () => {
   ]);
 });
 it('添加来源只使用明确文案，数字扩展按原值分组，冻结零为正常', () => {
+  expect(GROUP_GROUPS.grade).toBe('群等级');
   expect(
     groupFriends([friend('a'), friend('b')], 'source', {
       'friend:a': { source: ready(' 通过群聊 ') },
@@ -111,10 +113,10 @@ it('添加来源只使用明确文案，数字扩展按原值分组，冻结零�
   };
   const items = ['none', 'b', 'c', 'a'].map(group);
   expect(groupExtendedGroups(items, 'grade', rows).map((row) => row.label)).toEqual([
-    'grade：0',
-    'grade：1',
-    'grade：5',
-    'grade 未知',
+    '群等级：0',
+    '群等级：1',
+    '群等级：5',
+    '群等级未知',
   ]);
   expect(groupExtendedGroups(items, 'freezeState', rows).map((row) => row.label)).toEqual([
     '正常',

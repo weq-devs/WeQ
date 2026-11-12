@@ -146,7 +146,7 @@ try {
     await friends.getByLabel('分组依据').selectOption('type');
     assert.deepEqual(await headers(), ['当前好友']);
     for (const [basis, expected] of [
-      ['grade', ['grade：0', 'grade：5', 'grade 未知']],
+      ['grade', ['群等级：0', '群等级：5', '群等级未知']],
       ['freezeState', ['正常', '已冻结', '冻结状态未知']],
     ]) {
       await groups.getByLabel('分组依据').selectOption(basis);

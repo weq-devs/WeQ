@@ -47,7 +47,7 @@ export const GROUP_GROUPS = {
   identity: '我的身份',
   capacity: '群容量',
   freezeState: '冻结状态',
-  grade: 'grade',
+  grade: '群等级',
 };
 export const accountOrderDefaults = {
   friends: { grouping: 'qq', sort: 'remark', descending: false },
