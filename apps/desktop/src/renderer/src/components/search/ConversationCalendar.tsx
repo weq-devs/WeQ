@@ -10,11 +10,13 @@ export function ConversationCalendar({
   conv,
   onClose,
   onJump,
+  embedded = false,
 }: {
   kind: 'group' | 'c2c';
   conv: string;
   onClose: () => void;
   onJump: (seq: string) => void;
+  embedded?: boolean;
 }) {
   const calendar = trpc.account.conversationCalendar.useQuery(
     { kind, conv },
@@ -56,46 +58,51 @@ export function ConversationCalendar({
       if (run === generation.current) setBusy(false);
     }
   }
-  return (
-    <Modal presentation="popover" onClose={onClose} width={440} labelledBy="message-calendar-title">
-      <div className="weq-message-calendar">
-        <header>
-          <h3 id="message-calendar-title">聊天日历</h3>
-          <button type="button" className="weq-dialog-x" aria-label="关闭" onClick={onClose}>
-            <X size={16} />
+  const content = (
+    <div className="weq-message-calendar">
+      <header>
+        <h3 id="message-calendar-title">聊天日历</h3>
+        <button type="button" className="weq-dialog-x" aria-label="关闭" onClick={onClose}>
+          <X size={16} />
+        </button>
+      </header>
+      <MessageCalendar
+        key={`${kind}:${conv}`}
+        days={calendar.data}
+        loading={calendar.isLoading}
+        busy={busy}
+        error={error || calendar.error?.message}
+        onPick={(day) => void jump(day)}
+        leading={
+          <button
+            type="button"
+            title="最早消息"
+            aria-label="最早消息"
+            disabled={calendar.isLoading || busy}
+            onClick={() => void jump()}
+          >
+            <ChevronsLeft size={16} />
           </button>
-        </header>
-        <MessageCalendar
-          key={`${kind}:${conv}`}
-          days={calendar.data}
-          loading={calendar.isLoading}
-          busy={busy}
-          error={error || calendar.error?.message}
-          onPick={(day) => void jump(day)}
-          leading={
-            <button
-              type="button"
-              title="最早消息"
-              aria-label="最早消息"
-              disabled={calendar.isLoading || busy}
-              onClick={() => void jump()}
-            >
-              <ChevronsLeft size={16} />
-            </button>
-          }
-          trailing={
-            <button
-              type="button"
-              title="最新消息"
-              aria-label="最新消息"
-              disabled={calendar.isLoading || busy}
-              onClick={() => void jump(undefined, true)}
-            >
-              <ChevronsRight size={16} />
-            </button>
-          }
-        />
-      </div>
+        }
+        trailing={
+          <button
+            type="button"
+            title="最新消息"
+            aria-label="最新消息"
+            disabled={calendar.isLoading || busy}
+            onClick={() => void jump(undefined, true)}
+          >
+            <ChevronsRight size={16} />
+          </button>
+        }
+      />
+    </div>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <Modal presentation="popover" onClose={onClose} width={440} labelledBy="message-calendar-title">
+      {content}
     </Modal>
   );
 }

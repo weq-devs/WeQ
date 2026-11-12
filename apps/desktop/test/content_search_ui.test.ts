@@ -241,7 +241,8 @@ it('新增结果真实渲染并交出稳定目标，来源覆盖不是“全部�
   );
   try {
     expect(isContentSearchHit(hit)).toBe(true);
-    expect(f.host.textContent).toContain('已缓存内容 · 1 条 · 缓存有回收或截断');
+    expect(f.host.textContent).not.toContain('已缓存内容');
+    expect(f.host.textContent).not.toContain('缓存有回收或截断');
     act(() => f.host.querySelector<HTMLButtonElement>('[role="option"]')!.click());
     expect(select).toHaveBeenCalledWith(hit);
   } finally {

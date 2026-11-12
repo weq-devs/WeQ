@@ -1,6 +1,5 @@
-import { Loader2, RotateCw, X } from 'lucide-react';
+import { Loader2, RotateCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { Modal } from '../Dialog';
 import { GroupAnnouncementsDialog } from '../GroupAnnouncementsDialog';
 import { GroupEssenceDialog } from '../GroupEssenceDialog';
 import type { ContentSearchTarget } from './types';
@@ -28,6 +27,7 @@ export function SearchGroupContentResult({
   if (query.data?.kind === 'bulletin')
     return (
       <GroupAnnouncementsDialog
+        embedded
         groupCode={target.groupCode}
         groupName={query.data.name}
         bulletins={[query.data.bulletin]}
@@ -39,6 +39,7 @@ export function SearchGroupContentResult({
     const row = query.data.message;
     return (
       <GroupEssenceDialog
+        embedded
         groupCode={target.groupCode}
         groupName={query.data.name}
         initialMsgSeq={row.msgSeq}
@@ -62,21 +63,7 @@ export function SearchGroupContentResult({
     );
   }
   return (
-    <Modal onClose={onClose} labelledBy="weq-search-content-title" width={480}>
-      <header className="weq-tools-header">
-        <h2 id="weq-search-content-title">
-          {target.kind === 'groupBulletin' ? '群公告' : '群精华'}
-        </h2>
-        <button
-          type="button"
-          className="weq-set-iconbtn"
-          title="关闭"
-          aria-label="关闭搜索内容"
-          onClick={onClose}
-        >
-          <X size={18} />
-        </button>
-      </header>
+    <div className="weq-search-content-state">
       {query.error ? (
         <>
           <p role="alert">{query.error.message}</p>
@@ -91,6 +78,6 @@ export function SearchGroupContentResult({
           正在读取对应内容
         </p>
       )}
-    </Modal>
+    </div>
   );
 }

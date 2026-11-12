@@ -326,7 +326,7 @@ import type { MfPerson } from '../components/mergeForward/SenderPicker';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
-import { SearchDropdown } from '../components/search/SearchDropdown';
+import { SearchResultsPanel } from '../components/search/SearchResultsPanel';
 import { isGeneratedSearchHit, isContentSearchHit } from '../components/search/types';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchPreferences } from '../hooks/useSearchPreferences';
@@ -339,15 +339,10 @@ import type { RoamingTarget, MessageBubbleSkin } from '@weq/service';
 import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
 import { createMediaId } from '../im-template/template/composerMedia';
-import {
-  UnifiedSearchModal,
-  type SearchMoreSnapshot,
-} from '../components/search/UnifiedSearchModal';
 import { ChatRecordsModal } from '../components/search/ChatRecordsModal';
 import type {
   ChatRecordSearchHit,
   GeneratedSearchHit,
-  SearchCategory,
   SearchHit,
   ContentSearchTarget,
 } from '../components/search/types';
@@ -3420,27 +3415,6 @@ function MainWorkspace(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
-  const [searchGroupContent, setSearchGroupContent] = useState<
-    | (Extract<ContentSearchTarget, { kind: 'groupBulletin' | 'groupEssence' }> & {
-        expectedAccountUin: string;
-        expectedAccountConfigId: string;
-      })
-    | null
-  >(null);
-  const [searchFlashFile, setSearchFlashFile] = useState<
-    | (Extract<ContentSearchTarget, { kind: 'flashFile' }> & {
-        expectedAccountUin: string;
-        expectedAccountConfigId: string;
-      })
-    | null
-  >(null);
-  const [searchPublicComment, setSearchPublicComment] = useState<
-    | (Extract<ContentSearchTarget, { kind: 'qzonePublicComment' }> & {
-        expectedAccountUin: string;
-        expectedAccountConfigId: string;
-      })
-    | null
-  >(null);
   const [groupSignDialog, setGroupSignDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -4220,11 +4194,6 @@ function MainWorkspace(): ReactElement {
     seq: string;
     record?: ChatMsgWire;
     messageId?: string;
-  } | null>(null);
-  const [searchMore, setSearchMore] = useState<{
-    category: SearchCategory;
-    keyword: string;
-    snapshot?: SearchMoreSnapshot;
   } | null>(null);
   const [chatRecordsTarget, setChatRecordsTarget] = useState<{
     hit: ChatRecordSearchHit;
@@ -8289,8 +8258,19 @@ function MainWorkspace(): ReactElement {
   );
 
   const searchQuery = shell.query.trim();
-  const globalSearch = useGlobalSearch(searchQuery, searchCategories, openedUin, searchSources);
-  const searchReturn = useSearchReturn(openedUin, searchQuery, searchCategories, searchSources);
+  const searchAccountKey = noticeAccountKey || openedUin;
+  const globalSearch = useGlobalSearch(
+    searchQuery,
+    searchCategories,
+    searchAccountKey,
+    searchSources,
+  );
+  const searchReturn = useSearchReturn(
+    searchAccountKey,
+    searchQuery,
+    searchCategories,
+    searchSources,
+  );
   useEffect(() => {
     if (searchQuery) setSearchDismissed(false);
   }, [searchQuery]);
@@ -8415,19 +8395,6 @@ function MainWorkspace(): ReactElement {
             });
             shell.switchView('qzone');
             break;
-          case 'groupBulletin':
-          case 'groupEssence':
-            if (sharedAccountBinding())
-              setSearchGroupContent({ ...target, ...sharedAccountBinding()! });
-            break;
-          case 'flashFile':
-            if (sharedAccountBinding())
-              setSearchFlashFile({ ...target, ...sharedAccountBinding()! });
-            break;
-          case 'qzonePublicComment':
-            if (sharedAccountBinding())
-              setSearchPublicComment({ ...target, ...sharedAccountBinding()! });
-            break;
           case 'mailMessage':
             setMailSearchTarget({ ...target, revision });
             shell.switchView('mail');
@@ -8445,23 +8412,6 @@ function MainWorkspace(): ReactElement {
             setDressUpEmojiTarget({ packId: target.packId, name: hit.title, revision });
             setSettingsOpen(false);
             setDressUpOpen(true);
-            break;
-          case 'groupAlbum':
-            setAlbumDialog({
-              groupCode: target.groupCode,
-              groupName: hit.sourceName,
-              initialAlbumId: target.albumId,
-              searchRevision: revision,
-            });
-            break;
-          case 'groupFile':
-            setGroupFileDialog({
-              groupCode: target.groupCode,
-              groupName: hit.sourceName,
-              initialFolderId: target.folderId,
-              initialFileId: target.fileId,
-              searchRevision: revision,
-            });
             break;
         }
         return;
@@ -8485,12 +8435,6 @@ function MainWorkspace(): ReactElement {
           setConversationLocate({ id: `virtual:${hit.kind}:${hit.ownerId}`, revision: Date.now() });
           shell.switchView('agentlab');
         }
-        return;
-      }
-      if (hit.category === 'chatRecord') {
-        // 聊天记录卡片 → 打开双栏模态（左会话 / 右消息），而不是直接跳会话。
-        locateConversationInView(hit.targetUid);
-        setChatRecordsTarget({ hit, keyword: searchQuery });
         return;
       }
       if (hit.category === 'contact') {
@@ -8633,7 +8577,9 @@ function MainWorkspace(): ReactElement {
           ? hit.targetUid
           : hit.category === 'friend'
             ? hit.uid
-            : hit.groupCode;
+            : hit.category === 'groupMember'
+              ? hit.groupCode
+              : hit.targetUid;
       if (hit.category === 'file') {
         jumpToConvSeq(kind, conv, hit.msgSeq || undefined, true, undefined, hit.msgId);
       } else {
@@ -11933,7 +11879,84 @@ function MainWorkspace(): ReactElement {
             // 它挂在搜索框上（不是可滚动列表里），所以会话列表怎么滚都看得见。
             searchPanel={
               (searchQuery || searchFocused) && !searchDismissed ? (
-                <SearchDropdown
+                <SearchResultsPanel
+                  key={searchAccountKey}
+                  navigation={searchReturn}
+                  renderers={messageRenderers}
+                  onJumpMessage={({ source, targetUid, msgSeq, msgId }) =>
+                    jumpToConvSeq(
+                      source === 'group' ? 'group' : 'c2c',
+                      targetUid,
+                      msgSeq,
+                      false,
+                      undefined,
+                      msgId,
+                    )
+                  }
+                  renderDetail={(hit, onBack) => {
+                    if (!isContentSearchHit(hit)) return null;
+                    const target = hit.target;
+                    const binding = sharedAccountBinding();
+                    if (!binding)
+                      return <div className="weq-search-empty">账号已关闭，请重新打开搜索</div>;
+                    switch (target.kind) {
+                      case 'groupBulletin':
+                      case 'groupEssence':
+                        return (
+                          <SearchGroupContentResult
+                            target={{ ...target, ...binding }}
+                            onClose={onBack}
+                            onJump={(group, seq) =>
+                              jumpToConvSeq('group', group, String(seq), true)
+                            }
+                          />
+                        );
+                      case 'flashFile':
+                        return (
+                          <SearchFlashTransferViewer
+                            embedded
+                            filesetId={target.filesetId}
+                            title="闪传搜索结果"
+                            initialTarget={target}
+                            onClose={onBack}
+                          />
+                        );
+                      case 'qzonePublicComment':
+                        return (
+                          <QzonePublicSearchResult
+                            selfUin={user.identityValue}
+                            target={target}
+                            onClose={onBack}
+                          />
+                        );
+                      case 'groupAlbum':
+                        return (
+                          <GroupAlbumDialog
+                            embedded
+                            groupCode={target.groupCode}
+                            groupName={hit.sourceName}
+                            initialAlbumId={target.albumId}
+                            onClose={onBack}
+                          />
+                        );
+                      case 'groupFile':
+                        return (
+                          <GroupFileDialog
+                            embedded
+                            groupCode={target.groupCode}
+                            groupName={hit.sourceName}
+                            initialFolderId={target.folderId}
+                            initialFileId={target.fileId}
+                            onJumpToMessage={(seq, msgId) =>
+                              jumpToConvSeq('group', target.groupCode, seq, false, undefined, msgId)
+                            }
+                            onClose={onBack}
+                          />
+                        );
+                      default:
+                        return null;
+                    }
+                  }}
                   keyword={searchQuery}
                   numberLookupKeyword={shell.query}
                   onOpenNumberProfile={(profile, anchor) => {
@@ -11986,13 +12009,6 @@ function MainWorkspace(): ReactElement {
                     setAppSearchEnabled(enabled);
                   }}
                   onSelectAppEntry={openAppSearchEntry}
-                  initialPosition={
-                    searchReturn.target?.kind === 'dropdown'
-                      ? searchReturn.target.position
-                      : undefined
-                  }
-                  onNavigate={(position) => searchReturn.remember({ kind: 'dropdown', position })}
-                  onMore={(category) => setSearchMore({ category, keyword: searchQuery })}
                 />
               ) : null
             }
@@ -12660,42 +12676,6 @@ function MainWorkspace(): ReactElement {
               onClose={() => setGroupSignDialog(null)}
             />
           ) : null}
-          {searchGroupContent &&
-          sharedAccountBinding()?.expectedAccountConfigId ===
-            searchGroupContent.expectedAccountConfigId &&
-          user.identityValue === searchGroupContent.expectedAccountUin ? (
-            <SearchGroupContentResult
-              target={searchGroupContent}
-              onClose={() => setSearchGroupContent(null)}
-              onJump={(group, seq) => {
-                setSearchGroupContent(null);
-                jumpToConvSeq('group', group, String(seq), true);
-              }}
-            />
-          ) : null}
-          {searchFlashFile &&
-          sharedAccountBinding()?.expectedAccountConfigId ===
-            searchFlashFile.expectedAccountConfigId &&
-          user.identityValue === searchFlashFile.expectedAccountUin ? (
-            <SearchFlashTransferViewer
-              key={JSON.stringify(searchFlashFile)}
-              filesetId={searchFlashFile.filesetId}
-              title="闪传搜索结果"
-              initialTarget={searchFlashFile}
-              onClose={() => setSearchFlashFile(null)}
-            />
-          ) : null}
-          {searchPublicComment &&
-          sharedAccountBinding()?.expectedAccountConfigId ===
-            searchPublicComment.expectedAccountConfigId &&
-          user.identityValue === searchPublicComment.expectedAccountUin ? (
-            <QzonePublicSearchResult
-              key={JSON.stringify(searchPublicComment)}
-              selfUin={user.identityValue}
-              target={searchPublicComment}
-              onClose={() => setSearchPublicComment(null)}
-            />
-          ) : null}
           {announcementsDialog ? (
             <GroupAnnouncementsDialog
               groupCode={announcementsDialog.groupCode}
@@ -12975,25 +12955,6 @@ function MainWorkspace(): ReactElement {
               />
             </Suspense>
           ))}
-          {searchMore ? (
-            <UnifiedSearchModal
-              sources={searchSources}
-              category={searchMore.category}
-              initialKeyword={searchMore.keyword}
-              initialSnapshot={searchMore.snapshot}
-              onNavigate={(snapshot) => searchReturn.remember({ kind: 'more', snapshot })}
-              onClose={() => setSearchMore(null)}
-              onSelect={openSearchHit}
-              onOpenChatRecords={(hit) => {
-                locateConversationInView((hit as ChatRecordSearchHit).targetUid);
-                setSearchMore(null);
-                setChatRecordsTarget({
-                  hit: hit as ChatRecordSearchHit,
-                  keyword: searchMore.keyword,
-                });
-              }}
-            />
-          ) : null}
           {overviewCalendar ? (
             <ConversationOverviewCalendar
               targets={overviewCalendarTargets}

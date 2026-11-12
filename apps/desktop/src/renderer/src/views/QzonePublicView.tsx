@@ -31,7 +31,6 @@ import {
   UserCheck,
   X,
 } from 'lucide-react';
-import { Modal } from '../components/Dialog';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import type { ContentSearchTarget } from '../components/search/types';
 import { client } from '../trpc/client';
@@ -118,7 +117,7 @@ export function QzonePublicSearchResult({
     };
   }, [capabilitiesRequests, selfUin]);
   return (
-    <Modal onClose={onClose} labelledBy="weq-public-comment-search-title" width={720}>
+    <div>
       <header className="weq-tools-header">
         <h2 id="weq-public-comment-search-title">空友评论</h2>
         <button
@@ -156,7 +155,7 @@ export function QzonePublicSearchResult({
           />
         )}
       </div>
-    </Modal>
+    </div>
   );
 }
 

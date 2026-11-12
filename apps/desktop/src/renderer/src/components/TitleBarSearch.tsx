@@ -171,7 +171,11 @@ export function TitleBarSearch({
                 if (event.pointerType === 'mouse') setHovered(false);
               }}
               onClick={(event) => {
-                if (!(event.target instanceof Element) || !event.target.closest('[role="option"]'))
+                if (
+                  !(event.target instanceof Element) ||
+                  !event.target.closest('[role="option"]') ||
+                  event.target.closest('[data-search-keep-open="true"]')
+                )
                   return;
                 setPinned(false);
                 setHovered(false);

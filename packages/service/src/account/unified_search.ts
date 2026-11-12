@@ -144,6 +144,8 @@ export interface ChatRecordSearchHit {
   targetUin: string;
   name: string;
   count: number;
+  /** 同一群命中的公告数，与聊天消息条数分开统计；点击该会话直接打开群聊。 */
+  matchedBulletins?: number;
 }
 
 export interface FileSearchHit {
@@ -1053,7 +1055,14 @@ export class UnifiedSearchService {
             (['groupBulletin', 'groupEssence'] as const).map((category) =>
               read(
                 category,
-                () => this.options.searchContent?.(category, keyword, offset + limit, 0),
+                // 公告必须先按群合并，不能截取原公告页后再计算会话分页。
+                () =>
+                  this.options.searchContent?.(
+                    category,
+                    keyword,
+                    category === 'groupBulletin' ? Number.MAX_SAFE_INTEGER : offset + limit,
+                    0,
+                  ),
                 undefined,
               ),
             ),
@@ -1072,6 +1081,44 @@ export class UnifiedSearchService {
           return generated ? searchGeneratedMessages(generated, 'assistantMessage', keyword) : [];
         }, [])
       : [];
+    const conversations = real.map((hit) => ({ ...hit }));
+    const groupConversations = new Map(
+      conversations.filter((hit) => hit.source === 'group').map((hit) => [hit.targetUid, hit]),
+    );
+    const bulletinCounts = new Map<string, number>();
+    const bulletinTimes = new Map<string, number>();
+    for (const hit of groupContent[0]?.items ?? []) {
+      if (hit.category !== 'groupBulletin' || hit.target.kind !== 'groupBulletin') continue;
+      const code = hit.target.groupCode;
+      bulletinCounts.set(code, (bulletinCounts.get(code) ?? 0) + 1);
+      bulletinTimes.set(code, Math.max(bulletinTimes.get(code) ?? 0, hit.time));
+    }
+    const missingGroups = [...bulletinCounts.keys()].filter(
+      (code) => !groupConversations.has(code),
+    );
+    const details = missingGroups.length
+      ? await this.session.groupDetail.detailsByGroupCodes(
+          missingGroups.map((code) => BigInt(code)),
+        )
+      : [];
+    const names = new Map(
+      details.map((group) => [String(group.groupCode), group.groupName || group.remark]),
+    );
+    for (const [code, count] of bulletinCounts) {
+      const existing = groupConversations.get(code);
+      if (existing) existing.matchedBulletins = count;
+      else
+        conversations.push({
+          category: 'chatRecord',
+          source: 'group',
+          partition: code,
+          targetUid: code,
+          targetUin: '0',
+          name: names.get(code) || code,
+          count: 0,
+          matchedBulletins: count,
+        });
+    }
     const name = (hit: ChatRecordSearchHit | GeneratedSearchHit | ContentSearchHit) =>
       hit.category === 'chatRecord'
         ? hit.name
@@ -1079,26 +1126,38 @@ export class UnifiedSearchService {
           ? hit.sessionTitle
           : hit.title;
     const ranked = [
-      ...real,
+      ...conversations,
       ...service.items,
       ...clones,
       ...assistants,
       ...(guild?.items ?? []),
-      ...groupContent.flatMap((page) => page?.items ?? []),
+      ...(groupContent[1]?.items ?? []),
     ].sort(
       (a, b) =>
         searchNameRank(keyword, name(b)) - searchNameRank(keyword, name(a)) ||
-        ('ts' in b ? b.ts : 'time' in b ? b.time : 0) -
-          ('ts' in a ? a.ts : 'time' in a ? a.time : 0),
+        ('ts' in b
+          ? b.ts
+          : 'time' in b
+            ? b.time
+            : b.source === 'group'
+              ? (bulletinTimes.get(b.targetUid) ?? 0)
+              : 0) -
+          ('ts' in a
+            ? a.ts
+            : 'time' in a
+              ? a.time
+              : a.source === 'group'
+                ? (bulletinTimes.get(a.targetUid) ?? 0)
+                : 0),
     );
     const items = ranked.slice(offset, offset + limit);
     const total =
-      real.length +
+      conversations.length +
       service.items.length +
       clones.length +
       assistants.length +
       (guild?.total ?? 0) +
-      groupContent.reduce((sum, page) => sum + (page?.total ?? 0), 0);
+      (groupContent[1]?.total ?? 0);
     return {
       items,
       total,

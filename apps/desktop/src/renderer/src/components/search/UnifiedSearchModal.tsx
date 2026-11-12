@@ -1,4 +1,4 @@
-/** Large horizontal "more" modal: full paginated results for one search category. */
+/** 搜索结果框内的分类分页结果，不创建独立弹窗。 */
 
 import {
   useCallback,
@@ -8,13 +8,11 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { RotateCw, X } from 'lucide-react';
-import { Modal } from '../Dialog';
+import { ArrowLeft, RotateCw } from 'lucide-react';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchListSkeleton } from './SearchSkeleton';
 import {
   CATEGORY_META,
-  contentCoverageText,
   searchHitKey,
   type MoreSearchResult,
   type SearchCategory,
@@ -24,6 +22,7 @@ import { client } from '../../trpc/client';
 import { SearchPositionRestore, type SearchPosition } from './searchPosition';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import type { ConversationScope, SearchSource } from '@weq/service/search-policy';
+import '../../styles/search-more.css';
 
 export interface SearchMoreSnapshot extends SearchPosition {
   category: SearchCategory;
@@ -33,24 +32,26 @@ export interface SearchMoreSnapshot extends SearchPosition {
   error: 'more' | null;
 }
 
-export function UnifiedSearchModal({
+export function SearchMoreResults({
   category,
-  initialKeyword,
-  onClose,
+  keyword,
+  onBack,
   onSelect,
   onOpenChatRecords,
   initialSnapshot,
   onNavigate,
+  onSnapshot,
   conversationScope = 'all',
   sources,
 }: {
   category: SearchCategory;
-  initialKeyword: string;
-  onClose: () => void;
+  keyword: string;
+  onBack: () => void;
   onSelect: (hit: SearchHit) => void;
   onOpenChatRecords: (hit: SearchHit) => void;
   initialSnapshot?: SearchMoreSnapshot;
   onNavigate?: (snapshot: SearchMoreSnapshot) => void;
+  onSnapshot?: (snapshot: SearchMoreSnapshot) => void;
   conversationScope?: ConversationScope;
   sources?: readonly SearchSource[];
 }): ReactElement {
@@ -59,7 +60,6 @@ export function UnifiedSearchModal({
   readEnabled.current = activity.enabled;
   const debounceTimer = useRef<number | undefined>(undefined);
   const restored = useRef(initialSnapshot?.category === category ? initialSnapshot : undefined);
-  const [keyword, setKeyword] = useState(restored.current?.keyword ?? initialKeyword);
   const [data, setData] = useState<(MoreSearchResult & { changed?: boolean }) | null>(
     restored.current?.data ?? null,
   );
@@ -70,6 +70,7 @@ export function UnifiedSearchModal({
   const pending = useRef(false);
   const nextOffset = useRef(restored.current?.nextOffset ?? 0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const selectedFocusKey = useRef<string | null>(restored.current?.focusKey ?? null);
   const restoredRequest = useRef(
     restored.current
       ? JSON.stringify([category, restored.current.keyword, conversationScope, sources])
@@ -191,6 +192,23 @@ export function UnifiedSearchModal({
     }
   }, [data, keyword, error, loading, loadingMore, fetchPage]);
 
+  const snapshot = useRef<(() => void) | null>(null);
+  snapshot.current = () => {
+    if (!data || loading) return;
+    onSnapshot?.({
+      category,
+      keyword,
+      data,
+      nextOffset: nextOffset.current,
+      scrollTop: scrollRef.current?.scrollTop ?? 0,
+      focusKey:
+        scrollRef.current?.querySelector<HTMLElement>(':focus')?.dataset.searchHitKey ??
+        selectedFocusKey.current,
+      error: error === 'more' ? 'more' : null,
+    });
+  };
+  useLayoutEffect(() => () => snapshot.current?.(), []);
+
   const retry = (
     <div className="weq-search-failure" role="status">
       <span>{error === 'more' ? '加载更多失败' : '搜索失败'}</span>
@@ -212,96 +230,81 @@ export function UnifiedSearchModal({
   );
 
   return (
-    <Modal
-      presentation="floating"
-      title="搜索结果"
-      onClose={onClose}
-      labelledBy="weq-search-more-title"
-      width={760}
-    >
-      <div className="weq-search-more-modal">
-        <div className="weq-search-more-head" data-window-drag-handle>
-          <h3 id="weq-search-more-title" className="weq-search-more-title">
-            {CATEGORY_META[category].label}搜索
-          </h3>
-          <button
-            type="button"
-            className="weq-dialog-x weq-search-more-close"
-            onClick={onClose}
-            title="关闭搜索结果"
-            aria-label="关闭"
-          >
-            <X size={22} strokeWidth={1.9} aria-hidden />
-          </button>
-        </div>
-        <input
-          className="weq-search-more-input"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
-          placeholder={`搜索${CATEGORY_META[category].label}`}
-          autoFocus
-        />
-        {data?.coverage ? (
-          <div className="weq-search-index-hint">
-            {category === 'file' ? '群文件目录 · ' : category === 'chatRecord' ? '频道私聊 · ' : ''}
-            {contentCoverageText(data.coverage)}
-          </div>
-        ) : null}
-        <div className="weq-search-more-body" ref={scrollRef} onScroll={onScroll}>
-          {error === 'initial' ? (
-            retry
-          ) : loading ? (
-            <SearchListSkeleton rows={5} />
-          ) : data && data.items.length === 0 ? (
-            <div className="weq-search-empty">无结果</div>
-          ) : data ? (
-            <>
-              <div className="weq-search-more-total">
-                {data.changed
-                  ? `已载入 ${data.items.length} 条 · 结果可能已更新${data.limited ? ' · 候选池有上限' : ''}`
-                  : data.limited
-                    ? `当前候选 ${data.total} 条 · 超出本轮检索上限`
-                    : `共 ${data.total} 条结果`}
-              </div>
-              {data.changed ? (
-                <div className="weq-search-failure" role="status">
-                  <span>来源已更新</span>
-                </div>
-              ) : null}
-              {data.items.map((hit) => (
-                <SearchResultCard
-                  key={searchHitKey(hit)}
-                  hit={hit}
-                  keyword={keyword.trim()}
-                  onSelect={(selected, focusKey) => {
-                    onNavigate?.({
-                      category,
-                      keyword,
-                      data,
-                      nextOffset: nextOffset.current,
-                      scrollTop: scrollRef.current?.scrollTop ?? 0,
-                      focusKey: focusKey ?? searchHitKey(selected),
-                      error: error === 'more' ? 'more' : null,
-                    });
-                    // 点击结果跳转会话 / 打开聊天记录时,关闭"更多"模态。
-                    if (selected.category === 'chatRecord') onOpenChatRecords(selected);
-                    else onSelect(selected);
-                    onClose();
-                  }}
-                />
-              ))}
-              {loadingMore ? <SearchListSkeleton rows={2} /> : null}
-              {error === 'more' ? retry : null}
-              {!data.hasMore && data.items.length > 0 ? (
-                <div className="weq-search-more-end">
-                  {data.limited ? '本轮候选已显示完' : '没有更多了'}
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-        <SearchPositionRestore container={scrollRef} position={restored.current} />
+    <div className="weq-search-dropdown weq-search-more-results">
+      <div className="weq-search-more-head">
+        <button
+          type="button"
+          className="weq-search-more-back"
+          onClick={onBack}
+          title="返回搜索总览"
+          aria-label="返回搜索总览"
+        >
+          <ArrowLeft size={18} aria-hidden />
+        </button>
+        <h3 id="weq-search-more-title" className="weq-search-more-title">
+          {CATEGORY_META[category].label}搜索
+        </h3>
       </div>
-    </Modal>
+      <div
+        className="weq-search-more-body"
+        ref={scrollRef}
+        onScroll={onScroll}
+        role="listbox"
+        aria-label={`${CATEGORY_META[category].label}搜索结果`}
+        aria-busy={loading || loadingMore}
+      >
+        {error === 'initial' ? (
+          retry
+        ) : loading ? (
+          <SearchListSkeleton rows={5} />
+        ) : data && data.items.length === 0 ? (
+          <div className="weq-search-empty">无结果</div>
+        ) : data ? (
+          <>
+            <div className="weq-search-more-total">
+              {data.changed
+                ? `已载入 ${data.items.length} 条 · 结果可能已更新${data.limited ? ' · 候选池有上限' : ''}`
+                : data.limited
+                  ? `当前候选 ${data.total} 条 · 超出本轮检索上限`
+                  : `共 ${data.total} 条结果`}
+            </div>
+            {data.changed ? (
+              <div className="weq-search-failure" role="status">
+                <span>来源已更新</span>
+              </div>
+            ) : null}
+            {data.items.map((hit) => (
+              <SearchResultCard
+                key={searchHitKey(hit)}
+                hit={hit}
+                keyword={keyword.trim()}
+                onSelect={(selected, focusKey) => {
+                  selectedFocusKey.current = focusKey ?? searchHitKey(selected);
+                  onNavigate?.({
+                    category,
+                    keyword,
+                    data,
+                    nextOffset: nextOffset.current,
+                    scrollTop: scrollRef.current?.scrollTop ?? 0,
+                    focusKey: focusKey ?? searchHitKey(selected),
+                    error: error === 'more' ? 'more' : null,
+                  });
+                  if (selected.category === 'chatRecord') onOpenChatRecords(selected);
+                  else onSelect(selected);
+                }}
+              />
+            ))}
+            {loadingMore ? <SearchListSkeleton rows={2} /> : null}
+            {error === 'more' ? retry : null}
+            {!data.hasMore && data.items.length > 0 ? (
+              <div className="weq-search-more-end">
+                {data.limited ? '本轮候选已显示完' : '没有更多了'}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+      <SearchPositionRestore container={scrollRef} position={restored.current} />
+    </div>
   );
 }

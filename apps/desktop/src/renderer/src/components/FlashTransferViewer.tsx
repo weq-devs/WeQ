@@ -8,7 +8,15 @@
  * 布局：紧凑文件列表，单次下载操作作为一个任务进入常规任务列表。
  */
 import { formatBytes as formatSize } from '../lib/format';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type ComponentProps,
+} from 'react';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import {
   ArrowLeft,
@@ -31,6 +39,10 @@ import { client } from '../trpc/client';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { useToast } from './Toast';
 import '../styles/flash-transfer.css';
+
+function EmbeddedTransfer({ children }: ComponentProps<typeof Modal>): ReactElement {
+  return <>{children}</>;
+}
 
 /** 与 service 端 FlashListFile 对齐的线格式。 */
 interface FlashEntry {
@@ -127,11 +139,13 @@ export function FlashTransferViewer({
   title,
   onClose,
   initialTarget,
+  embedded = false,
 }: {
   filesetId: string;
   title: string;
   onClose: () => void;
   initialTarget?: { parentId: string; zipFileId: string; fileId: string };
+  embedded?: boolean;
 }): ReactElement | null {
   const searchRoot = useRef<HTMLDivElement>(null);
   const searchHandled = useRef(false);
@@ -386,9 +400,10 @@ export function FlashTransferViewer({
     allReadyCount > 0 &&
     entries.every((f) => !isReady(f) || selected.has(selectKey(f)) || isAncestorSelected(f.path));
 
+  const Surface = embedded ? EmbeddedTransfer : Modal;
   return (
     <>
-      <Modal presentation="floating" onClose={onClose} width={520} title="闪传文件">
+      <Surface presentation="floating" onClose={onClose} width={520} title="闪传文件">
         <div
           className="weq-ft"
           {...multi.rootProps}
@@ -604,7 +619,7 @@ export function FlashTransferViewer({
             </button>
           </footer>
         </div>
-      </Modal>
+      </Surface>
 
       {shareUrl ? (
         <FlashShareDialog

@@ -1,4 +1,4 @@
-/** Chat-record modal: left = matched conversations, right = their matching messages. */
+/** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { CalendarDays, Download, Search, X } from 'lucide-react';
@@ -8,7 +8,7 @@ import { beijingDay, daySeconds } from '../../lib/messageCalendar';
 import { Modal } from '../Dialog';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard';
-import type { ChatRecordSearchHit, ConversationRecordHit, MoreSearchResult } from './types';
+import type { ChatRecordSearchHit, ConversationRecordHit } from './types';
 import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
 import { useExportReportDialog } from '../../views/export/ExportReportControl';
@@ -33,6 +33,7 @@ export function ChatRecordsModal({
   onJumpMessage,
   renderers,
   localSource,
+  embeddedKeyword,
 }: {
   /** 非 QQ 数据源复用同一搜索页面；不向原生记录接口提交本地身份。 */
   localSource?: {
@@ -41,6 +42,8 @@ export function ChatRecordsModal({
     user: User;
     onJump: (messageId: string) => void;
   };
+  /** 全局搜索内嵌明细：共用顶栏关键词，不再查询或显示会话排名。 */
+  embeddedKeyword?: string;
   initialHit: ChatRecordSearchHit;
   initialKeyword: string;
   /**
@@ -61,7 +64,9 @@ export function ChatRecordsModal({
 }): ReactElement {
   const dialog = useAppDialog();
   const requestExport = useRequestContentExport();
-  const [keyword, setKeyword] = useState(initialKeyword);
+  const [localKeyword, setKeyword] = useState(initialKeyword);
+  const embedded = embeddedKeyword !== undefined;
+  const keyword = embeddedKeyword ?? localKeyword;
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [rangeCalendarOpen, setRangeCalendarOpen] = useState(false);
   const [startDay, setStartDay] = useState('');
@@ -108,16 +113,12 @@ export function ChatRecordsModal({
       active = false;
     };
   }, [fixed, localSource]);
-  const [conversations, setConversations] = useState<ChatRecordSearchHit[]>([]);
-  const [convLoading, setConvLoading] = useState(false);
-  // fixed 模式下不请求会话排名，selected 恒为当前会话的 hit。
-  const [selected, setSelected] = useState<ChatRecordSearchHit | null>(initialHit);
+  const selected = initialHit;
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
   const [msgLimited, setMsgLimited] = useState(false);
-  const convRunRef = useRef(0);
   const msgRunRef = useRef(0);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -126,43 +127,6 @@ export function ChatRecordsModal({
     () => localSource?.conversation ?? (selected ? conversationFromHit(selected) : null),
     [selected, localSource],
   );
-
-  // Fetch the conversation ranking for the current keyword.
-  useEffect(() => {
-    if (localSource) return;
-    const trimmed = keyword.trim();
-    if (!trimmed || fixed) return undefined;
-    const run = ++convRunRef.current;
-    setConvLoading(true);
-    const timer = window.setTimeout(() => {
-      void client.account.searchMore
-        .query({
-          category: 'chatRecord',
-          keyword: trimmed,
-          offset: 0,
-          limit: 100,
-          conversationScope: 'real',
-        })
-        .then((result) => {
-          if (run !== convRunRef.current) return;
-          const items = (result as MoreSearchResult).items.filter(
-            (hit): hit is ChatRecordSearchHit => hit.category === 'chatRecord',
-          );
-          setConversations(items);
-          // Keep the selection valid: prefer the previously selected conversation.
-          setSelected((prev) =>
-            prev && items.some((c) => c.partition === prev.partition && c.source === prev.source)
-              ? prev
-              : (items[0] ?? null),
-          );
-        })
-        .catch((err) => console.error('[chat-records] conversation list failed', err))
-        .finally(() => {
-          if (run === convRunRef.current) setConvLoading(false);
-        });
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [keyword, fixed, localSource]);
 
   // Fetch messages for the selected conversation.
   useEffect(() => {
@@ -214,6 +178,8 @@ export function ChatRecordsModal({
     }
     const run = ++msgRunRef.current;
     setMsgLoading(true);
+    setMsgLoadingMore(false);
+    msgScrollRef.current?.scrollTo(0, 0);
     setMsgLimited(false);
     setMsgError('');
     browseCursor.current = null;
@@ -310,7 +276,9 @@ export function ChatRecordsModal({
       .catch((err) => {
         if (run === msgRunRef.current) setMsgError(String(err));
       })
-      .finally(() => setMsgLoadingMore(false));
+      .finally(() => {
+        if (run === msgRunRef.current) setMsgLoadingMore(false);
+      });
   }, [keyword, selected, messages.length, msgLoadingMore, msgLoading, fixed, filter, localSource]);
 
   // Infinite scroll for the message list.
@@ -366,37 +334,31 @@ export function ChatRecordsModal({
   const isGroup = selected?.source === 'group';
   const convKey = isGroup && selected ? selected.targetUid : '';
 
-  return (
-    <Modal
-      presentation="floating"
-      onClose={() => {
-        if (rangeCalendarOpen) setRangeCalendarOpen(false);
-        else if (calendarOpen) setCalendarOpen(false);
-        else onClose();
-      }}
-      width={960}
-      labelledBy="weq-chatrecords-title"
-    >
+  const content = (
+    <>
       {report.dialog}
       <div className="weq-chatrecords">
-        <div className="weq-chatrecords-head" data-window-drag-handle>
-          <div className="weq-chatrecords-title-wrap">
-            <h3 id="weq-chatrecords-title" className="weq-search-more-title">
-              聊天记录
-            </h3>
-            {fixed ? (
-              <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
-                <Search size={13} aria-hidden />
-                {initialHit.name}
-              </span>
-            ) : null}
+        {embedded ? null : (
+          <div className="weq-chatrecords-head" data-window-drag-handle>
+            <div className="weq-chatrecords-title-wrap">
+              <h3 id="weq-chatrecords-title" className="weq-search-more-title">
+                聊天记录
+              </h3>
+              {fixed ? (
+                <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
+                  <Search size={13} aria-hidden />
+                  {initialHit.name}
+                </span>
+              ) : null}
+            </div>
+            <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
+              <X size={16} strokeWidth={1.9} aria-hidden />
+            </button>
           </div>
-          <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
-            <X size={16} strokeWidth={1.9} aria-hidden />
-          </button>
-        </div>
+        )}
         {calendarOpen && selected ? (
           <ConversationCalendar
+            embedded={embedded}
             kind={selected.source === 'group' ? 'group' : 'c2c'}
             conv={selected.targetUid}
             onClose={() => setCalendarOpen(false)}
@@ -410,13 +372,15 @@ export function ChatRecordsModal({
             }}
           />
         ) : null}
-        <input
-          className="weq-search-more-input"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
-          placeholder={fixed ? `搜索「${initialHit.name}」的消息` : '搜索消息'}
-          autoFocus
-        />
+        {embedded ? null : (
+          <input
+            className="weq-search-more-input"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            placeholder={fixed ? `搜索「${initialHit.name}」的消息` : '搜索消息'}
+            autoFocus
+          />
+        )}
         <div className="weq-record-calendar-actions">
           {fixed ? (
             <button type="button" onClick={() => setRangeCalendarOpen(true)}>
@@ -634,30 +598,7 @@ export function ChatRecordsModal({
             {msgError}
           </p>
         ) : null}
-        <div className={`weq-chatrecords-body${fixed ? ' is-fixed' : ''}`}>
-          {fixed ? null : (
-            <div className="weq-chatrecords-convs">
-              {convLoading ? (
-                <SearchListSkeleton rows={4} />
-              ) : conversations.length === 0 ? (
-                <div className="weq-search-empty">无结果</div>
-              ) : (
-                conversations.map((conv) => (
-                  <button
-                    type="button"
-                    key={`${conv.source}:${conv.partition}`}
-                    className={`weq-chatrecords-conv ${selected?.partition === conv.partition && selected.source === conv.source ? 'active' : ''}`}
-                    onClick={() => setSelected(conv)}
-                  >
-                    <span className="weq-chatrecords-conv-name">{conv.name}</span>
-                    <span className="weq-chatrecords-conv-meta">
-                      搜索到<strong>{conv.count}</strong>条包含{keyword.trim()}的消息
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
+        <div className="weq-chatrecords-body is-fixed">
           <div className="weq-chatrecords-msgs" ref={msgScrollRef} onScroll={onMsgScroll}>
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
@@ -785,6 +726,21 @@ export function ChatRecordsModal({
           </div>
         </div>
       </div>
+    </>
+  );
+  if (embedded) return content;
+  return (
+    <Modal
+      presentation="floating"
+      onClose={() => {
+        if (rangeCalendarOpen) setRangeCalendarOpen(false);
+        else if (calendarOpen) setCalendarOpen(false);
+        else onClose();
+      }}
+      width={960}
+      labelledBy="weq-chatrecords-title"
+    >
+      {content}
     </Modal>
   );
 }

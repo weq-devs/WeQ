@@ -29,8 +29,6 @@ import { SearchResultCard } from './SearchResultCard';
 import { SearchSectionSkeleton } from './SearchSkeleton';
 import {
   isQzoneSearchCategory,
-  qzoneSearchCoverage,
-  contentSourcesCoverage,
   rankContentSearchHits,
   rankFileSearchHits,
   DEFAULT_SEARCH_SOURCES,
@@ -43,8 +41,6 @@ import { restoreSearchPosition, type SearchPosition } from './searchPosition';
 import {
   CATEGORY_META,
   CONTENT_CATEGORY_ORDER,
-  isContentSearchCategory,
-  contentCoverageText,
   SEARCH_CATEGORY_ORDER,
   searchHitKey,
   searchHitNameRank,
@@ -442,11 +438,6 @@ export function SearchDropdown({
       </div>
       {hasKeyword ? (
         <>
-          <div className="weq-search-index-hint">
-            来源：{appEnabled ? '应用功能与设置 · ' : ''}
-            {lookupEnabled && isLookupNumber(numberLookupKeyword) ? 'QQ 在线资料 · ' : ''}
-            当前账号 · 本地可检索记录
-          </div>
           {indexBuilding ? (
             <div className="weq-search-index-hint">
               正在校验 QQ 搜索索引，消息/文件首次查询可能较慢…
@@ -482,19 +473,6 @@ export function SearchDropdown({
                 );
               const section = sections.get(category)!;
               const hits = section.hits;
-              const coverage =
-                category === 'chatRecord'
-                  ? slow?.messageCoverage
-                  : category === 'file'
-                    ? contentSourcesCoverage(slow?.contentCoverage ?? {}, [
-                        'groupFile',
-                        'flashFile',
-                      ])
-                    : category === 'qzone'
-                      ? qzoneSearchCoverage(slow?.contentCoverage ?? {})
-                      : isContentSearchCategory(category)
-                        ? slow?.contentCoverage?.[category]
-                        : undefined;
               const failed = failedFor(category);
               return (
                 <div className="weq-search-section" key={category}>
@@ -514,16 +492,6 @@ export function SearchDropdown({
                       </button>
                     ) : null}
                   </div>
-                  {coverage ? (
-                    <div className="weq-search-index-hint">
-                      {category === 'file'
-                        ? '群文件目录 · '
-                        : category === 'chatRecord'
-                          ? '频道私聊 · '
-                          : ''}
-                      {contentCoverageText(coverage)}
-                    </div>
-                  ) : null}
                   {failed ? (
                     <div className="weq-search-failure" role="status">
                       <span>搜索失败</span>

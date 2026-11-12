@@ -20,6 +20,7 @@ import type { SearchHit } from './types';
 import { searchHitKey } from './types';
 import { PersonRelationshipStatus, GroupRelationshipStatus } from '../RelationshipStatus';
 import { classifyChatType } from '@weq/codec';
+import { isInlineSearchHit } from './searchNavigation';
 
 /** Group avatar CDN: https://p.qlogo.cn/gh/<code>/<code>/0 */
 export function groupAvatarSrc(groupCode: string): string | null {
@@ -403,8 +404,18 @@ export function SearchResultCard({
       title = hit.name;
       subtitle = (
         <span className="weq-search-muted">
-          查到<strong className="weq-search-strong">{hit.count}</strong>条包含
-          <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的消息
+          {hit.count > 0 || !hit.matchedBulletins ? (
+            <>
+              查到<strong className="weq-search-strong">{hit.count}</strong>条包含
+              <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的消息
+            </>
+          ) : null}
+          {hit.matchedBulletins ? (
+            <>
+              {hit.count > 0 ? ' · ' : ''}匹配
+              <strong className="weq-search-strong">{hit.matchedBulletins}</strong>条群公告
+            </>
+          ) : null}
         </span>
       );
       break;
@@ -428,6 +439,7 @@ export function SearchResultCard({
       type="button"
       className="weq-search-row"
       data-search-category={hit.category}
+      data-search-keep-open={isInlineSearchHit(hit) || undefined}
       role="option"
       data-search-hit-key={searchHitKey(hit)}
       onClick={() => onSelect?.(hit)}

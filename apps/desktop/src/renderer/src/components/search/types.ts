@@ -52,6 +52,7 @@ export interface ChatRecordSearchHit {
   targetUin: string;
   name: string;
   count: number;
+  matchedBulletins?: number;
 }
 
 export interface FileSearchHit {

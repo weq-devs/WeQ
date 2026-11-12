@@ -2,7 +2,7 @@ import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
-import { UnifiedSearchModal } from '../src/renderer/src/components/search/UnifiedSearchModal';
+import { SearchMoreResults } from '../src/renderer/src/components/search/UnifiedSearchModal';
 import type {
   ContentSearchHit,
   SearchCategory,
@@ -125,7 +125,7 @@ it('空间只有一个范围和结果组，统一预览、缓存覆盖及更多�
     expect(
       [...f.host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent),
     ).toEqual(['空间']);
-    expect(f.host.textContent).toContain('已缓存内容 · 4 条 · 缓存有回收或截断');
+    expect(f.host.textContent).not.toContain('已缓存内容');
     const rows = f.host.querySelectorAll<HTMLButtonElement>('[role="option"]');
     expect(rows).toHaveLength(3);
     for (const row of rows) act(() => row.click());
@@ -169,10 +169,10 @@ it('空间更多页保留作者和相册目标及分页返回现场', async () =
   const select = vi.fn(),
     navigate = vi.fn();
   const f = mount(
-    createElement(UnifiedSearchModal, {
+    createElement(SearchMoreResults, {
       category: 'qzone',
-      initialKeyword: 'needle',
-      onClose: vi.fn(),
+      keyword: 'needle',
+      onBack: vi.fn(),
       onSelect: select,
       onOpenChatRecords: vi.fn(),
       onNavigate: navigate,
