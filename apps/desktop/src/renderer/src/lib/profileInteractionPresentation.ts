@@ -1,6 +1,4 @@
-export function profileLikeSummary(names: string[], total: string | null | undefined) {
-  const shown = names.slice(0, 3).join('、');
-  if (!shown) return total === null || total === undefined ? '' : `${total} 人觉得很赞`;
-  if (total === '1') return `${shown}觉得很赞`;
-  return `${shown}等${total === null || total === undefined ? '人' : ` ${total} 人`}觉得很赞`;
+export function profileLikeSummary(shown: number, total: string | null | undefined) {
+  if (total === null || total === undefined) return shown ? `已显示 ${shown} 人` : '';
+  return total === '0' ? '还没有人赞过' : `${total} 人赞过`;
 }

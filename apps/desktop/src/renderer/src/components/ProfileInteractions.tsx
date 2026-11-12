@@ -75,11 +75,7 @@ export function ProfileLikeSummary({
   users: ProfileLikeUser[];
   total?: string | null;
 }) {
-  const name = useNames();
-  const summary = profileLikeSummary(
-    users.map((user) => name(user.uin, user.name)),
-    total,
-  );
+  const summary = profileLikeSummary(users.length, total);
   return summary ? <p className="weq-profile-like-summary">{summary}</p> : null;
 }
 export function ProfileLabelLikes({

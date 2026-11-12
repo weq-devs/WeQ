@@ -148,7 +148,7 @@ async function run() {
           .getByRole('region', { name: '点赞列表' })
           .locator('.weq-profile-like-summary')
           .textContent(),
-        /等 28 人觉得很赞$/,
+        /^28 人赞过$/,
       );
       if (output) await page.screenshot({ path: resolve(output, 'signature-interactions.png') });
       results.push({
