@@ -19,6 +19,8 @@ export interface ContentOwner {
   kind: ContentKind;
   /** 内容层级的稳定身份，如会话、相册或收藏集合；不能只用内容种类区分。 */
   container: string;
+  /** 右键聊天记录专属导出；scope 仍锁定承载该卡片的一条消息。 */
+  forwardTarget?: { elementIndex: number; resId: string };
 }
 
 export interface GeneratedContentIdentity {
@@ -93,7 +95,15 @@ export function copyContentScope(scope: ContentScope): ContentScope {
 export function createToolDraft(accountId: string, selection: ContentSelection): ToolDraft {
   return {
     accountId,
-    selection: { owner: { ...selection.owner }, scope: copyContentScope(selection.scope) },
+    selection: {
+      owner: {
+        ...selection.owner,
+        ...(selection.owner.forwardTarget
+          ? { forwardTarget: { ...selection.owner.forwardTarget } }
+          : {}),
+      },
+      scope: copyContentScope(selection.scope),
+    },
   };
 }
 

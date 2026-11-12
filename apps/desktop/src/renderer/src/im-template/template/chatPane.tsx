@@ -279,6 +279,8 @@ import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
+import { messageForwardTarget } from '../../lib/messageForwardTarget';
+import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { exportMedia } from '../../lib/mediaExport';
 import {
@@ -970,6 +972,7 @@ export function ChatPane({
   // 右键消息 → 「贴表情」打开的表情面板（仅群聊可用）。
   const [reactionPicker, setReactionPicker] = useState<{
     message: Message;
+    originElement?: HTMLElement | null;
     x: number;
     y: number;
   } | null>(null);
@@ -1281,7 +1284,10 @@ export function ChatPane({
   });
   const rowRestore = useStableCallback(onRestoreMessage);
   const rowContext = useStableCallback(openMessageMenu);
-  const rowLongPress = useStableCallback(openMobileMessageMenu);
+  const rowLongPress = useStableCallback(
+    (point: { x: number; y: number }, message: Message, target?: EventTarget | null) =>
+      openMobileMessageMenu(point, message, undefined, undefined, target),
+  );
   const rowAction = useStableCallback(onMessageAction);
   const rowReedit = useStableCallback(reeditMessage);
   const rowDismiss = useStableCallback(onDismissUnsentMessage);
@@ -2565,6 +2571,7 @@ export function ChatPane({
     const rect = el?.getBoundingClientRect();
     setReactionPicker({
       message,
+      originElement: el,
       x: rect
         ? Math.min(rect.left, Math.max(8, window.innerWidth - 336))
         : window.innerWidth / 2 - 160,
@@ -4515,6 +4522,7 @@ export function ChatPane({
         : pureImageUrl(message);
     setContextMenu({
       message,
+      forwardTarget: messageForwardTarget(message, event.target),
       mediaTarget: messageMediaTarget(message, event.target),
       imageUrl,
       favoriteEmojiUrl:
@@ -4525,8 +4533,8 @@ export function ChatPane({
         (event.target instanceof HTMLImageElement
           ? event.target.currentSrc || event.target.src
           : undefined) || getMessageDownloadUrl(message),
-      x: Math.min(event.clientX, window.innerWidth - 126),
-      y: Math.min(event.clientY, window.innerHeight - 84),
+      x: event.clientX,
+      y: event.clientY,
       variant: 'desktop',
       originElement: anchorEl ?? (event.currentTarget as HTMLElement),
       anchorOffsetX: anchorRect ? event.clientX - anchorRect.left : undefined,
@@ -4541,19 +4549,24 @@ export function ChatPane({
     favoriteEmojiUrl = messageFavoriteEmojiUrl(message),
     target?: EventTarget | null,
   ) {
-    const menuHalfWidth = 112;
-    const maxTop = Math.max(92, window.innerHeight - 166);
+    const origin =
+      target instanceof Element
+        ? target.closest<HTMLElement>('[data-message-id]')
+        : [
+            ...(messageScrollRef.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? []),
+          ].find((element) => element.dataset.messageId === message.id);
     setContextMenu({
       message,
+      forwardTarget: messageForwardTarget(message, target),
       imageUrl: pureImageUrl(message),
       mediaTarget: messageMediaTarget(message, target),
       favoriteEmojiUrl: favoriteEmojiUrl || messageMediaTarget(message, target)?.favoriteUrl,
       clipboard,
       downloadUrl: getMessageDownloadUrl(message),
-      x: Math.min(Math.max(point.x, menuHalfWidth), window.innerWidth - menuHalfWidth),
-      y: Math.min(Math.max(point.y + 10, 92), maxTop),
+      x: point.x,
+      y: point.y + 10,
       variant: 'mobile',
-      originElement: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      originElement: origin ?? null,
     });
   }
 
@@ -4565,7 +4578,7 @@ export function ChatPane({
     window.getSelection()?.removeAllRanges();
     setSelectionMode(true);
     selection.messageCache.set(message.id, message);
-    setSelectedIds(new Set([message.id]));
+    setSelectedIds((previous) => new Set([...previous, message.id]));
     selectionAnchor.current = message.id;
   }
 
@@ -5248,14 +5261,7 @@ export function ChatPane({
     selectionBlockedReason ||
     moderationBlockedReason ||
     (!recallBinding ? '账号信息尚未就绪' : null);
-  const contextSelectionRecall = Boolean(
-    contextMenu && selectionMode && selectedIds.size > 1 && selectedIds.has(contextMenu.message.id),
-  );
-  const contextRecallInfo = contextSelectionRecall
-    ? { show: true, reason: selectionRecallBlockedReason }
-    : contextMenu
-      ? recallAvailability(contextMenu.message)
-      : null;
+  const contextRecallInfo = contextMenu ? recallAvailability(contextMenu.message) : null;
   // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
   const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
   // 闪传文件框同样是**内联**的：占掉正文编辑区那一行（小屏与「只能单独发」的卡片
@@ -5283,12 +5289,15 @@ export function ChatPane({
         : 0;
   const locationShareSelfUin = Number(user.identityValue);
   const mediaSendDisabled = Boolean(sendGateReason);
-  const repeatMessage = repeatTarget(messages, atLatest);
+  const repeatMessage = messages
+    .slice(-2)
+    .some((message) => deletedKeys.has(deletionIdentity(message.id)))
+    ? null
+    : repeatTarget(messages, atLatest);
   function messageCanRepeat(message: Message) {
     return (
       (conversation?.type === 'group' || conversation?.type === 'direct') &&
       !grayTipOf(message) &&
-      !deletedKeys.has(deletionIdentity(message.id)) &&
       canRepeatMessage(message)
     );
   }
@@ -6924,7 +6933,6 @@ export function ChatPane({
       {mediaSave.prompt}
       {contextMenu ? (
         <MessageContextMenu
-          unavailableReason={qqUnavailable}
           onClose={() => setContextMenu(null)}
           favoriteEmojiAction={
             !generated &&
@@ -6940,30 +6948,18 @@ export function ChatPane({
           }
           intentAction={
             intentActionAvailable &&
+            messageHasIntentText(contextMenu.message) &&
             !grayTipOf(contextMenu.message) &&
             !isLocalOutgoingMessage(contextMenu.message) ? (
-              <button
+              <MessageMenuButton
                 type="button"
-                title={
-                  selectionBlockedReason ||
-                  (!messageHasIntentText(contextMenu.message)
-                    ? '当前消息没有可分析的文字'
-                    : '意图感知')
-                }
-                disabled={
-                  Boolean(selectionBlockedReason) || !messageHasIntentText(contextMenu.message)
-                }
-                onClick={() =>
-                  void analyzeMessageIntents(
-                    selectionMode && selectedIds.has(contextMenu.message.id)
-                      ? undefined
-                      : [contextMenu.message],
-                  )
-                }
+                title={messageBatchBlockReason(contextMenu.message, 'analysis') || '意图感知'}
+                disabled={Boolean(messageBatchBlockReason(contextMenu.message, 'analysis'))}
+                onClick={() => void analyzeMessageIntents([contextMenu.message])}
               >
                 <BrainCircuit size={17} />
                 <span>意图感知</span>
-              </button>
+              </MessageMenuButton>
             ) : null
           }
           essenceAction={
@@ -7016,22 +7012,18 @@ export function ChatPane({
           onExport={
             requestExport &&
             conversationExportSelection(conversation) &&
-            ((selectionMode && selectedIds.has(contextMenu.message.id)) ||
-              !messageBatchBlockReason(contextMenu.message, 'export'))
-              ? (message) =>
-                  selectionMode && selectedIds.has(message.id)
-                    ? requestBatchAction('export')
-                    : exportMessageIds([message.id])
+            contextMenu.forwardTarget &&
+            !messageBatchBlockReason(contextMenu.message, 'export')
+              ? (message) => {
+                  const scope = conversationExportSelection(conversation)!;
+                  requestExport({
+                    ...scope,
+                    owner: { ...scope.owner, forwardTarget: contextMenu.forwardTarget },
+                    scope: { type: 'items', ids: [message.id] },
+                  });
+                  setContextMenu(null);
+                }
               : undefined
-          }
-          exportLabel={
-            selectionMode && selectedIds.has(contextMenu.message.id) && selectedIds.size > 1
-              ? '导出所选消息'
-              : '导出'
-          }
-          exportBlockedReason={
-            (selectionMode && selectedIds.has(contextMenu.message.id) && selectionBlockedReason) ||
-            undefined
           }
           onCopy={copyMessage}
           onRepeat={
@@ -7095,12 +7087,10 @@ export function ChatPane({
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
           onRecall={
             !generated && contextRecallInfo?.show
-              ? (message) =>
-                  contextSelectionRecall ? requestBatchAction('recall') : recallMessageFor(message)
+              ? (message) => void recallMessageFor(message)
               : undefined
           }
           recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
-          recallCount={contextSelectionRecall ? selectionFlow.selectedCount : undefined}
         />
       ) : null}
       {redPacketMenu ? (
@@ -7204,6 +7194,7 @@ export function ChatPane({
       ) : null}
       {reactionPicker ? (
         <ReactionPicker
+          originElement={reactionPicker.originElement}
           selectedCodes={reactionPicker.message.setEmojiList
             ?.filter((item) => item.isSelfSet)
             .map((item) => item.emojiId)}

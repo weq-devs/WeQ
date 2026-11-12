@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Star, ListTodo, BrainCircuit, SmilePlus, FolderSearch } from 'lucide-react';
+import { MessageMenuButton } from '../../src/renderer/src/components/MessageMenuButton';
 import {
   MessageContextMenu,
   type MessageContextMenuState,
@@ -15,6 +16,8 @@ import {
   type ThemeBackground,
 } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
+import '../../src/renderer/src/styles/component-appearance.css';
+import '../../src/renderer/src/styles/retro-appearance.css';
 import '../../src/renderer/src/im-template/styles/chat.css';
 import '../../src/renderer/src/im-template/styles/screens.css';
 import '../../src/renderer/src/im-template/styles/responsive.css';
@@ -34,7 +37,7 @@ declare global {
       theme: ThemePreference,
       accent: string,
       background: ThemeBackground,
-      mode?: 'full' | 'sparse' | 'voice' | 'mixed' | 'downloaded' | 'private',
+      mode?: 'full' | 'sparse' | 'voice' | 'mixed' | 'downloaded' | 'private' | 'record',
     ) => void;
     menuActions: string[];
   }
@@ -48,7 +51,7 @@ function Fixture() {
     window.menuActions.push(name);
   };
   const slot = (name: string, icon: React.ReactNode, disabled = false) => (
-    <button
+    <MessageMenuButton
       type="button"
       title={disabled ? `${name}：暂不可用` : name}
       aria-label={name}
@@ -57,7 +60,7 @@ function Fixture() {
     >
       {icon}
       <span>{name}</span>
-    </button>
+    </MessageMenuButton>
   );
   window.menuFixture = (x, y, mobile, theme, accent, background, mode = 'full') => {
     const store = useThemeStore.getState();
@@ -66,18 +69,21 @@ function Fixture() {
     store.setBackground(background);
     setMode(mode);
     setState({
+      forwardTarget: mode === 'record' ? { elementIndex: 0, resId: 'fixture' } : undefined,
       message:
-        mode === 'voice' || mode === 'mixed'
-          ? {
-              ...message,
-              qqElements: [
-                ...(mode === 'mixed' ? message.qqElements : []),
-                { type: 'ptt', data: { fileName: 'fixture.amr', fileToken: 'fixture' } },
-              ],
-            }
-          : mode === 'sparse'
-            ? { ...message, qqElements: [{ type: 'file', data: { fileName: 'fixture.zip' } }] }
-            : message,
+        mode === 'record'
+          ? { ...message, qqElements: [{ type: 'multiMsg', data: { resId: 'fixture' } }] }
+          : mode === 'voice' || mode === 'mixed'
+            ? {
+                ...message,
+                qqElements: [
+                  ...(mode === 'mixed' ? message.qqElements : []),
+                  { type: 'ptt', data: { fileName: 'fixture.amr', fileToken: 'fixture' } },
+                ],
+              }
+            : mode === 'sparse'
+              ? { ...message, qqElements: [{ type: 'file', data: { fileName: 'fixture.zip' } }] }
+              : message,
       x,
       y,
       variant: mobile ? 'mobile' : 'desktop',
@@ -93,7 +99,10 @@ function Fixture() {
         <MessageContextMenu
           state={{ ...state, originElement: document.getElementById('origin') }}
           onClose={() => setState(null)}
-          onCopy={run('复制')}
+          onCopy={() => {
+            run('复制')();
+            setState(null);
+          }}
           onForward={run('转发')}
           onMultiSelect={run('多选')}
           onReply={run('引用')}
@@ -115,7 +124,9 @@ function Fixture() {
           todoAction={slot('设为群待办', <ListTodo size={17} />, true)}
           intentAction={slot('意图感知', <BrainCircuit size={17} />)}
           favoriteEmojiAction={slot('添加到表情', <SmilePlus size={17} />)}
-          revealAction={slot('在文件夹中显示', <FolderSearch size={17} />, mode !== 'downloaded')}
+          revealAction={
+            mode === 'downloaded' ? slot('在文件夹中显示', <FolderSearch size={17} />) : null
+          }
           {...(mode === 'sparse'
             ? {
                 onForward: undefined,
@@ -141,6 +152,7 @@ function Fixture() {
       )}
       {more && (
         <ReactionPicker
+          originElement={document.getElementById('origin')}
           anchor={{ x: 30, y: 30 }}
           selectedCodes={['76']}
           onClose={() => setMore(false)}

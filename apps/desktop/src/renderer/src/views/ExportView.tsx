@@ -1414,6 +1414,14 @@ export function ExportTool({
       .filter((it) => convSelection.has(it.id))
       .map((item) => ({
         ...item,
+        ...(initialSelection?.owner.kind === 'messages' &&
+        initialSelection.owner.forwardTarget &&
+        initialSelection.scope.type === 'items' &&
+        messageSelections[item.id]?.length === 1 &&
+        messageSelections[item.id]?.[0] === initialSelection.scope.ids[0] &&
+        initialConversationIds(initialSelection)[0] === item.id
+          ? { forwardTarget: { ...initialSelection.owner.forwardTarget } }
+          : {}),
         ...(messageSelections[item.id] !== undefined
           ? {
               messageIds: [...messageSelections[item.id]!],
@@ -2686,6 +2694,7 @@ export function ExportTool({
 
       {lightbox ? (
         <ExportLightbox
+          allowContinuation={!initialSelection?.owner.forwardTarget}
           onAuthorizationChange={onAuthorizationChange}
           embedded
           hidden={editingList}

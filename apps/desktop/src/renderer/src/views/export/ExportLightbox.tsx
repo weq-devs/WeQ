@@ -222,6 +222,7 @@ export function ExportLightbox({
   initialOptions,
   initialFormats,
   initialBaselineDirectory,
+  allowContinuation = true,
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
   disabled = false,
@@ -249,6 +250,7 @@ export function ExportLightbox({
   /** 上次使用的导出格式；缺失或不在当前变体可选范围内时退回默认格式。 */
   initialFormats?: ExportFormat[];
   initialBaselineDirectory?: string;
+  allowContinuation?: boolean;
   initialSchedule?: Schedule;
   submitting?: boolean;
   disabled?: boolean;
@@ -461,6 +463,7 @@ export function ExportLightbox({
   async function confirm(): Promise<void> {
     if (confirming || requestingFormat || submitting || disabled || selectionError) return;
     if (
+      allowContinuation &&
       !remote &&
       baselineDirectory &&
       baselineByConversation &&
@@ -524,11 +527,15 @@ export function ExportLightbox({
           },
         },
         baselineDirectory:
-          !remote && selectedFormats.some((format) => format === 'json' || format === 'jsonl')
+          allowContinuation &&
+          !remote &&
+          selectedFormats.some((format) => format === 'json' || format === 'jsonl')
             ? baselineDirectory
             : undefined,
         baselineByConversation:
-          !remote && selectedFormats.some((format) => format === 'json' || format === 'jsonl')
+          allowContinuation &&
+          !remote &&
+          selectedFormats.some((format) => format === 'json' || format === 'jsonl')
             ? baselineByConversation
             : undefined,
         saveAsDefault,
@@ -690,7 +697,8 @@ export function ExportLightbox({
         </header>
 
         <div className="weq-exp-dialog-body">
-          {!remote &&
+          {allowContinuation &&
+          !remote &&
           variant === 'full' &&
           !opts.chatlab &&
           formats.some((format) => format === 'json' || format === 'jsonl') ? (

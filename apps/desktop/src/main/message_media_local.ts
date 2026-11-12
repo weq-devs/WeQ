@@ -18,6 +18,16 @@ export function savedChatFileKey(source: Extract<MediaSaveSource, { kind: 'chat-
   ]);
 }
 
+export function savedMediaSourceKey(source: MediaSaveSource): string | undefined {
+  if (source.kind === 'chat-file') return savedChatFileKey(source);
+  if (source.kind !== 'url') return undefined;
+  const url = new URL(source.url, 'http://weq.local');
+  const path = url.protocol === 'weq-media:' ? `/_media/${url.host}${url.pathname}` : url.pathname;
+  url.searchParams.sort();
+  const identity = path.startsWith('/_media/') ? `${path}?${url.searchParams}` : url.href;
+  return `media-url:${createHash('sha256').update(identity).digest('hex')}`;
+}
+
 async function firstFile(paths: (string | null | undefined)[]): Promise<string | null> {
   for (const path of paths) if (path && (await stat(path).catch(() => null))?.isFile()) return path;
   return null;
@@ -29,6 +39,27 @@ export async function localMessageMedia(
   target: MessageMediaTarget,
 ): Promise<string | null> {
   const context = getAppContext();
+  const savedKey =
+    target.kind === 'file'
+      ? savedChatFileKey({ ...target, kind: 'chat-file' })
+      : target.url
+        ? savedMediaSourceKey({ kind: 'url', url: target.url })
+        : undefined;
+  if (savedKey) {
+    for (const task of services.exportManager.listTasks()) {
+      if (
+        task.status !== 'completed' ||
+        task.resource?.kind !== 'media' ||
+        task.resource.sourceKey !== savedKey
+      )
+        continue;
+      const path = await firstFile([
+        task.save?.status === 'saved' ? task.save.path : null,
+        task.filePath,
+      ]);
+      if (path) return path;
+    }
+  }
   if (target.kind === 'mface') {
     if (!/^\d+$/.test(target.pack) || !/^[a-f\d]{1,128}$/i.test(target.hash)) return null;
     const root = context.platform?.appDataRoot();
@@ -52,20 +83,6 @@ export async function localMessageMedia(
     ]);
   }
   if (target.kind === 'file' && /^\d+$/.test(target.msgId)) {
-    const key = savedChatFileKey({ ...target, kind: 'chat-file' });
-    for (const task of services.exportManager.listTasks()) {
-      if (
-        task.status !== 'completed' ||
-        task.resource?.kind !== 'media' ||
-        task.resource.sourceKey !== key
-      )
-        continue;
-      const path = await firstFile([
-        task.save?.status === 'saved' ? task.save.path : null,
-        task.filePath,
-      ]);
-      if (path) return path;
-    }
     const info = await services.fileAssistant
       .getFileInfoByMsgId(BigInt(target.msgId))
       .catch(() => null);

@@ -1134,6 +1134,10 @@ export class ExportTaskManager extends EventEmitter {
     guild?: GuildExportTaskMeta;
     generated?: GeneratedContentSnapshot;
   }): Promise<string> {
+    if (opts.filter?.forwardTarget && opts.filter.messageIds?.length !== 1)
+      throw new Error('聊天记录导出必须锁定一条承载消息，请重新选择卡片。');
+    if (opts.filter?.forwardTarget && opts.baselineDirectory)
+      throw new Error('聊天记录卡片单独导出，不能合入会话归档。');
     if (opts.content && !opts.qzone && !opts.contacts && !opts.collection && !opts.generated) {
       const content = normalizeExportContent(opts.content, {}, Boolean(opts.guild));
       if (!hasExportContent(content)) throw new Error('请至少选择一项导出内容。');
@@ -1486,6 +1490,9 @@ export class ExportTaskManager extends EventEmitter {
             filter: {
               ...opts.filter,
               ...(opts.filter.messageIds ? { messageIds: [...opts.filter.messageIds] } : {}),
+              ...(opts.filter.forwardTarget
+                ? { forwardTarget: { ...opts.filter.forwardTarget } }
+                : {}),
             },
           }
         : {}),
@@ -1836,7 +1843,10 @@ export class ExportTaskManager extends EventEmitter {
         this.filteredSources.set(task.id, source);
       }
       source.exportJournal = this.journals.get(task.id);
-      source.exportFetchForward = task.media?.completeMessages ? this.deps.fetchForward : undefined;
+      source.exportFetchForward =
+        task.filter?.forwardTarget || task.media?.completeMessages
+          ? this.deps.fetchForward
+          : undefined;
       return source;
     }
     let src = this.guildSources.get(task.id);
@@ -2633,6 +2643,8 @@ export class ExportTaskManager extends EventEmitter {
           dressManifest,
           task.dress,
         );
+        if (task.filter?.forwardTarget && result.messageCount === 0)
+          throw new Error('未找到聊天记录的承载消息，请重新打开消息菜单后重试导出。');
         task.filePath = task.resourceOnly ? undefined : result.filePath;
         task.current = result.messageCount;
         task.total = result.messageCount;

@@ -1,4 +1,5 @@
 import { Star, StarOff } from 'lucide-react';
+import { MessageMenuButton } from './MessageMenuButton';
 import { client, trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { qqEssenceTarget } from '../lib/qqEssenceTarget';
@@ -23,7 +24,8 @@ export function QQMessageEssenceAction({
   onClose: () => void;
   removeLabel?: string;
 }) {
-  if (conversation.type !== 'group') return null;
+  if (conversation.type !== 'group' || !['owner', 'admin'].includes(conversation.group.role))
+    return null;
   return (
     <QQEssenceAction
       target={qqEssenceTarget(conversation, message)}
@@ -103,7 +105,7 @@ export function QQEssenceAction({
   }
   return (
     <>
-      <button
+      <MessageMenuButton
         type="button"
         className={iconOnly ? 'weq-set-iconbtn weq-essence-remove' : undefined}
         aria-label={active ? removeLabel : '设为精华'}
@@ -115,7 +117,7 @@ export function QQEssenceAction({
       >
         {active ? <StarOff size={17} /> : <Star size={17} />}
         {!iconOnly && <span>{active ? removeLabel : '设为精华'}</span>}
-      </button>
+      </MessageMenuButton>
       <QQWriteResult result={session.result} />
     </>
   );

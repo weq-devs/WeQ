@@ -1,6 +1,9 @@
 import { act, createElement, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+vi.mock('../src/renderer/src/hooks/useVoiceTranscription', () => ({
+  useVoiceTranscription: () => ({ available: true, busy: false, run: vi.fn() }),
+}));
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { QQWriteResult } from '../src/renderer/src/components/QQWriteControls';
@@ -46,23 +49,11 @@ async function render(props: Partial<ComponentProps<typeof MessageContextMenu>> 
 const slot = (name: string) =>
   createElement('button', { type: 'button', title: name }, createElement('span', null, name));
 const labels = (selector: string) =>
-  [...host.querySelectorAll<HTMLButtonElement>(`${selector} button`)]
-    .filter(
-      (button) =>
-        !button.classList.contains('message-action-fallback') ||
-        !button.closest('.message-action-slot')?.querySelector('.message-action-content button'),
-    )
-    .filter((button) => {
-      const file = button.closest('.message-file-action');
-      if (!file) return true;
-      const reveal = file.querySelector<HTMLButtonElement>('.message-reveal-action button');
-      return reveal && (!reveal.disabled || !file.hasAttribute('data-has-save'))
-        ? button === reveal
-        : !button.closest('.message-reveal-action');
-    })
-    .map((button) => button.getAttribute('aria-label') || button.textContent);
+  [...host.querySelectorAll<HTMLButtonElement>(`${selector} button`)].map(
+    (button) => button.getAttribute('aria-label') || button.textContent,
+  );
 
-it('文字主菜单顺序固定，扩展动作位于指定三行', async () => {
+it('基础与扩展动作重新分组，不再使用固定四列格位', async () => {
   await render({
     onForward: vi.fn(),
     onMultiSelect: vi.fn(),
@@ -81,49 +72,55 @@ it('文字主菜单顺序固定，扩展动作位于指定三行', async () => {
     onDelete: vi.fn(),
     onSaveMedia: vi.fn(),
   });
-  expect(labels('.message-menu-main')).toEqual(['复制', '转发', '多选', '引用']);
-  const rows = [...host.querySelectorAll('.message-action-row')];
-  expect(rows).toHaveLength(3);
-  expect(labels('.message-action-row')).toEqual([
+  expect(labels('.message-menu-main')).toEqual([
+    '复制',
+    '引用',
+    '转发',
     '+1',
-    '撤回',
+    '多选',
+    '添加到素材库',
+  ]);
+  expect(labels('.message-menu-group')).toEqual([
+    '复制',
+    '引用',
+    '转发',
+    '+1',
+    '多选',
+    '添加到素材库',
+    '显示原文',
+    '另存为',
+    '在文件夹中显示',
+    '查看装扮',
+    '意图感知',
     '设为精华',
     '设为群待办',
-    '添加到素材库',
-    '导出',
-    '意图感知',
-    '查看装扮',
-    '显示原文',
-    '在文件夹中显示',
     '修改本地记录',
+    '撤回',
     '本地删除',
   ]);
   expect(document.activeElement?.textContent).toBe('复制');
 });
 
-it('文字直接显示切换，不打开内容子菜单；禁用与批量文案保留', async () => {
+it('文字直接显示切换，撤回只显示当前消息操作且禁用原因可访问', async () => {
   const recall = vi.fn();
   await render({
     favoriteEmojiAction: slot('添加到表情'),
     onRecall: recall,
-    recallCount: 3,
     recallBlockedReason: '正在处理',
     onExport: vi.fn(),
-    exportLabel: '导出所选消息',
   });
-  expect(labels('.message-action-row')).toContain('显示原文');
+  expect(labels('.message-menu-group')).toContain('显示原文');
   expect(host.querySelector('[data-submenu-panel]')).toBeNull();
-  expect(labels('.message-action-row')).not.toContain('添加到表情');
-  const button = host.querySelector<HTMLButtonElement>('[aria-label="撤回所选 3 条消息"]')!;
-  expect(button.disabled).toBe(true);
+  expect(labels('.message-menu-group')).not.toContain('添加到表情');
+  const button = host.querySelector<HTMLButtonElement>('[aria-label="撤回"]')!;
+  expect(button.getAttribute('aria-disabled')).toBe('true');
   expect(button.title).toBe('正在处理');
 });
 
-it('缺失动作与异步返回空内容均保留固定格位并禁用，不挤占相邻操作', async () => {
+it('缺失动作与异步返回空内容不留占位按钮', async () => {
   const Empty = () => null;
   await render({ essenceAction: createElement(Empty), todoAction: createElement(Empty) });
-  expect(labels('.message-menu-main')).toHaveLength(4);
-  expect(labels('.message-action-row')).toHaveLength(12);
+  expect(labels('.message-menu-main')).toEqual(['复制']);
   for (const label of [
     '转发',
     '多选',
@@ -139,7 +136,7 @@ it('缺失动作与异步返回空内容均保留固定格位并禁用，不挤�
     '修改本地记录',
     '本地删除',
   ]) {
-    expect(host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)?.disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)).toBeNull();
   }
 });
 
@@ -157,23 +154,22 @@ it('文件保存为直达动作，Esc 直接关闭菜单', async () => {
   expect(close).toHaveBeenCalledOnce();
 });
 
-it('文件下载后同一格从另存为切换为定位，文件消失后恢复保存', async () => {
+it('文件下载后另存为与定位并存，文件消失不影响保存入口', async () => {
   const save = vi.fn();
   await render({
     onSaveMedia: save,
-    revealAction: createElement('button', { disabled: true }, '在文件夹中显示'),
+    revealAction: null,
   });
-  expect(labels('.message-action-row')).toContain('另存为');
-  expect(labels('.message-action-row')).not.toContain('在文件夹中显示');
+  expect(labels('.message-menu-group')).toContain('另存为');
+  expect(labels('.message-menu-group')).not.toContain('在文件夹中显示');
   await render({
     onSaveMedia: save,
     revealAction: createElement('button', null, '在文件夹中显示'),
   });
-  expect(labels('.message-action-row')).toContain('在文件夹中显示');
-  expect(labels('.message-action-row')).not.toContain('另存为');
+  expect(labels('.message-menu-group')).toContain('在文件夹中显示');
+  expect(labels('.message-menu-group')).toContain('另存为');
   await render({ onSaveMedia: save, revealAction: null });
-  expect(labels('.message-action-row')).toContain('另存为');
-  expect(labels('.message-action-row')).toHaveLength(12);
+  expect(labels('.message-menu-group')).toContain('另存为');
 });
 
 it('混合消息按右键命中的媒体选择内容操作，不强制将整条消息当成纯文本', async () => {
@@ -182,7 +178,7 @@ it('混合消息按右键命中的媒体选择内容操作，不强制将整条�
     qqElements: [
       ...message.qqElements,
       { type: 'pic', data: { fileName: 'one.png' } },
-      { type: 'ptt', data: { fileName: 'voice.amr', pttTranscript: '已转写' } },
+      { type: 'ptt', data: { fileName: 'voice.amr' } },
     ],
   };
   const target = messageMediaTarget(mixed)!;
@@ -190,14 +186,14 @@ it('混合消息按右键命中的媒体选择内容操作，不强制将整条�
     state: { message: mixed, x: 10, y: 10, mediaTarget: target },
     favoriteEmojiAction: slot('添加到表情'),
   });
-  expect(labels('.message-action-row')).toContain('添加到表情');
+  expect(labels('.message-menu-group')).toContain('添加到表情');
   const element = document.createElement('span');
   element.dataset.messageMediaKey = messageMediaKey(mixed.qqElements[2]!);
   await render({
     state: { message: mixed, x: 10, y: 10, mediaTarget: messageMediaTarget(mixed, element) },
   });
-  expect(labels('.message-action-row')).toContain('转换为文字');
-  expect(labels('.message-action-row')).not.toContain('添加到表情');
+  expect(labels('.message-menu-group')).toContain('转换为文字');
+  expect(labels('.message-menu-group')).not.toContain('添加到表情');
 });
 
 it('方向键在三行按钮间移动，Esc 关闭并归还焦点', async () => {
@@ -220,17 +216,17 @@ it('方向键在三行按钮间移动，Esc 关闭并归还焦点', async () => 
       document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key })),
     );
   press('ArrowRight');
+  expect(document.activeElement?.textContent).toBe('引用');
+  press('ArrowDown');
+  expect(document.activeElement?.textContent).toBe('+1');
+  press('ArrowLeft');
   expect(document.activeElement?.textContent).toBe('转发');
   press('ArrowDown');
-  expect(document.activeElement?.textContent).toBe('引用');
-  press('ArrowLeft');
-  expect(document.activeElement?.textContent).toBe('多选');
-  press('ArrowDown');
-  expect(document.activeElement?.getAttribute('aria-label')).toBe('+1');
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('多选');
   press('ArrowRight');
-  expect(document.activeElement?.getAttribute('aria-label')).toBe('撤回');
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('添加到素材库');
   press('ArrowDown');
-  expect(document.activeElement?.getAttribute('aria-label')).toBe('导出');
+  expect(document.activeElement?.textContent).toBe('显示原文');
   press('Escape');
   expect(close).toHaveBeenCalledOnce();
   expect(document.activeElement).toBe(origin);

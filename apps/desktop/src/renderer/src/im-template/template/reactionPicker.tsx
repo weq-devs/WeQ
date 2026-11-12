@@ -25,12 +25,14 @@ export function ReactionPicker({
   onSelect,
   onClose,
   selectedCodes = [],
+  originElement,
 }: {
   anchor: { x: number; y: number };
   /** 选中一枚表情，参数是可直接交给 0x9082 的 code。 */
   onSelect: (code: string) => void;
   onClose: () => void;
   selectedCodes?: readonly string[];
+  originElement?: HTMLElement | null;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const overview = trpc.account.emojiPanel.overview.useQuery(undefined, { staleTime: 30_000 });
@@ -62,6 +64,21 @@ export function ReactionPicker({
     }
     return out;
   }, [faces]);
+
+  useLayoutEffect(() => {
+    panelRef.current?.focus({ preventScroll: true });
+    return () =>
+      queueMicrotask(() => {
+        if (document.activeElement === document.body && originElement?.isConnected)
+          originElement.focus({ preventScroll: true });
+      });
+  }, [originElement]);
+  useEffect(() => {
+    if (document.activeElement === panelRef.current)
+      panelRef.current
+        ?.querySelector<HTMLButtonElement>('[aria-pressed="true"], button')
+        ?.focus({ preventScroll: true });
+  }, [cells.length]);
 
   // 同款 fixed 定位钳制。
   useLayoutEffect(() => {
@@ -102,6 +119,7 @@ export function ReactionPicker({
       className={cn('reaction-picker')}
       style={{ left: anchor.x, top: anchor.y }}
       role="dialog"
+      tabIndex={-1}
       aria-label="贴表情"
       data-hover-delay="0"
       onMouseDown={(event) => event.stopPropagation()}

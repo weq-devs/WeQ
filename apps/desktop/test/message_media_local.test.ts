@@ -13,7 +13,7 @@ vi.mock('../src/main/context/app_context', () => ({
     bootstrap: { userConfig: { cacheDir: () => join(state.root, 'cache', 'media') } },
   }),
 }));
-import { localMessageMedia } from '../src/main/message_media_local';
+import { localMessageMedia, savedMediaSourceKey } from '../src/main/message_media_local';
 
 afterEach(async () => {
   if (state.root) await rm(state.root, { recursive: true, force: true });
@@ -78,3 +78,23 @@ it('商城表情直接定位 QQ 原始缓存，不解密也不创建 WeQ 副本'
     await localMessageMedia(deps as unknown as AccountServices, { ...selected, pack: '../100' }),
   ).toBeNull();
 });
+
+it.each(['pic', 'video', 'ptt', 'mface'] as const)(
+  '%s 另存后的文件可定位，删除后不返回陈旧路径',
+  async (kind) => {
+    state.root = await mkdtemp(join(tmpdir(), 'weq-menu-saved-media-'));
+    const file = join(state.root, 'saved-media');
+    await writeFile(file, 'fixture');
+    const url = `weq-media://${kind}?token=fixture&name=sample`;
+    const task = {
+      status: 'completed',
+      resource: { kind: 'media', sourceKey: savedMediaSourceKey({ kind: 'url', url }) },
+      save: { status: 'saved', path: file },
+    };
+    const deps = { ...services(), exportManager: { listTasks: () => [task] } };
+    const selected = { ...target(kind), url: `/_media/${kind}?name=sample&token=fixture` };
+    expect(await localMessageMedia(deps as unknown as AccountServices, selected)).toBe(file);
+    await rm(file);
+    expect(await localMessageMedia(deps as unknown as AccountServices, selected)).toBeNull();
+  },
+);

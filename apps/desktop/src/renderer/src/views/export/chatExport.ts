@@ -25,6 +25,7 @@ export interface ChatExportTarget {
   kind?: 'group' | 'c2c';
   total?: number;
   messageIds?: string[];
+  forwardTarget?: { elementIndex: number; resId: string };
 }
 
 /** 灯箱选项 → `account.startExport` 的 media 入参（媒体子选项只在导出媒体时生效）。 */
@@ -149,6 +150,7 @@ export async function startChatExportTasks(
   const frozenTargets = targets.map((target) => ({
     ...target,
     ...(target.messageIds ? { messageIds: [...target.messageIds] } : {}),
+    ...(target.forwardTarget ? { forwardTarget: { ...target.forwardTarget } } : {}),
   }));
   const frozenOptions = structuredClone(options);
   const frozenFormats = [...formats];
@@ -168,6 +170,8 @@ export async function startChatExportTasks(
   const range = { start: frozenOptions.range.start, end: frozenOptions.range.end };
   const ids: string[] = [];
   for (const t of frozenTargets) {
+    if (t.forwardTarget && t.messageIds?.length !== 1)
+      throw new Error('聊天记录导出必须锁定一条承载消息，请重新选择卡片。');
     if (current && !current())
       throw new Error(`已创建 ${ids.length} 个任务；账号数据源已切换，已停止后续任务。`);
     const id = await client.account.startExport.mutate({
@@ -178,12 +182,15 @@ export async function startChatExportTasks(
       content: frozenOptions.content,
       completeAvatar: frozenOptions.completeAvatar,
       incrementalSupport:
+        !t.forwardTarget &&
         !frozenOptions.chatlab &&
         frozenFormats.some((format) => format === 'json' || format === 'jsonl') &&
         true,
-      baselineDirectory: baselineByConversation
-        ? baselineByConversation[`${t.kind ?? 'c2c'}:${t.id}`] || undefined
-        : baselineDirectory,
+      baselineDirectory: t.forwardTarget
+        ? undefined
+        : baselineByConversation
+          ? baselineByConversation[`${t.kind ?? 'c2c'}:${t.id}`] || undefined
+          : baselineDirectory,
       kind: t.kind ?? 'c2c',
       conv: t.id,
       name: t.name,
@@ -196,7 +203,14 @@ export async function startChatExportTasks(
         : {}),
       ...(frozenOptions.chatlab ? { chatlab: true } : {}),
       media,
-      ...(t.messageIds ? { filter: { messageIds: [...t.messageIds] } } : { range }),
+      ...(t.messageIds
+        ? {
+            filter: {
+              messageIds: [...t.messageIds],
+              ...(t.forwardTarget ? { forwardTarget: t.forwardTarget } : {}),
+            },
+          }
+        : { range }),
     });
     ids.push(id);
     onTaskCreated?.(id);

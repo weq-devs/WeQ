@@ -1008,6 +1008,7 @@ export function ForwardMultiMsgPreview({
     <button
       type="button"
       className="weq-forward-preview"
+      data-forward-res-id={resId}
       onClick={(event) => open(event.currentTarget)}
       title="查看合并转发"
     >

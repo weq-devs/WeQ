@@ -1,4 +1,5 @@
 import { Captions, Loader2 } from 'lucide-react';
+import { MessageMenuButton } from './MessageMenuButton';
 import type { Message } from '../im-template/template/types';
 import type { MessageMediaTarget } from '../../../shared/message_media';
 import {
@@ -10,9 +11,15 @@ function VoiceAction({ input, onClose }: { input: VoiceTranscriptionInput; onClo
   const voice = useVoiceTranscription(input);
   if (voice.result?.success) return null;
   return (
-    <button
+    <MessageMenuButton
       type="button"
-      title={voice.available ? '转换为文字' : '请先在设置中下载本地语音模型'}
+      title={
+        voice.busy
+          ? '正在转写语音'
+          : voice.available
+            ? '转换为文字'
+            : '请先在设置中下载本地语音模型'
+      }
       disabled={!voice.available || voice.busy}
       onClick={() => {
         voice.run();
@@ -21,7 +28,7 @@ function VoiceAction({ input, onClose }: { input: VoiceTranscriptionInput; onClo
     >
       {voice.busy ? <Loader2 size={17} className="weq-spin" /> : <Captions size={17} />}
       <span>{voice.busy ? '转写中' : '转换为文字'}</span>
-    </button>
+    </MessageMenuButton>
   );
 }
 

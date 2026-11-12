@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -14,6 +14,7 @@ import type { ExportedMessage } from '../src/account/export/types';
 import type { FetchedForwardRecord } from '../src/account/forward';
 import type { RenderElement } from '../src/account/msg_view';
 import { downloadMissingVideos } from '../src/account/export/media_export';
+import { exportConversationToTxt } from '../src/account/export/txt_exporter';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -30,6 +31,127 @@ const message = (): ExportedMessage => ({
   senderUid: 'u_fixture',
   senderUin: '123',
   elements: [card('outer')],
+});
+
+it('聊天记录专属导出锁定命中的卡片，不导出同消息的文字或其他卡片', async () => {
+  const fetch = vi.fn(
+    async (resId: string): Promise<FetchedForwardRecord[]> => [
+      {
+        msgId: '9',
+        sendNick: '内部作者',
+        senderUin: '456',
+        sendTime: '42',
+        elements: [{ type: 'text', data: { textContent: `正文 ${resId}` } }],
+      },
+    ],
+  );
+  const msgs = {
+    exportFilter: { messageIds: ['1'], forwardTarget: { elementIndex: 2, resId: 'selected' } },
+    listForward: async () => [{ elements: [{ elementType: 1, textContent: '不能归属的缓存' }] }],
+    exportFetchForward: fetch,
+  } as unknown as MsgService;
+  const exported = message();
+  exported.elements = [
+    { type: 'text', data: { textContent: '外层文字' } },
+    card('other'),
+    card('selected'),
+  ];
+  await expandForwards(msgs, 'group', exported);
+  expect(exported.elements).toHaveLength(1);
+  expect(elementsToText(exported.elements)).toContain('正文 selected');
+  expect(elementsToText(exported.elements)).not.toContain('外层文字');
+  expect(elementsToText(exported.elements)).not.toContain('不能归属的缓存');
+  const selected = exported.elements[0];
+  if (selected?.type !== 'multiMsg') throw new Error('fixture');
+  expect(selected.data.forwardMessages?.[0]).toMatchObject({
+    senderName: '内部作者',
+    senderUin: '456',
+    sendTime: 42,
+  });
+  await expandForwards(msgs, 'group', exported);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each(['root', 'nested', 'cycle'])(
+  '专属导出 %s 内容缺失时失败，不输出占位卡片冒充完整记录',
+  async (failure) => {
+    const msgs = {
+      exportFilter: { messageIds: ['1'], forwardTarget: { elementIndex: 0, resId: 'outer' } },
+      listForward: async () => [],
+      exportFetchForward: async (resId: string): Promise<FetchedForwardRecord[]> => {
+        if (failure === 'root' || resId === 'inner') throw new Error('offline');
+        return [{ msgId: '2', elements: [card(failure === 'cycle' ? 'outer' : 'inner')] }];
+      },
+    } as unknown as MsgService;
+    await expect(expandForwards(msgs, 'group', message())).rejects.toThrow('重试');
+  },
+);
+
+it('专属导出支持 Ark 聊天记录，本地嵌套缓存完整时无需联网', async () => {
+  const exported = message();
+  exported.elements = [
+    {
+      type: 'ark',
+      data: {
+        arkData: JSON.stringify({
+          app: 'com.tencent.multimsg',
+          meta: { detail: { resid: 'outer' } },
+        }),
+      },
+    } as RenderElement,
+  ];
+  const msgs = {
+    exportFilter: { messageIds: ['1'], forwardTarget: { elementIndex: 0, resId: 'outer' } },
+    listForward: async () => [
+      {
+        sendNick: '本地作者',
+        sendTime: 42,
+        elements: [{ elementType: 1, textContent: '缓存正文' }],
+      },
+    ],
+    exportFetchForward: vi.fn(),
+  } as unknown as MsgService;
+  await expandForwards(msgs, 'c2c', exported);
+  expect(elementsToText(exported.elements)).toContain('缓存正文');
+  expect(msgs.exportFetchForward).not.toHaveBeenCalled();
+});
+
+it('实际 TXT 文件包含卡片内部作者、时间和嵌套正文，不包含外层其他内容', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-record-txt-'));
+  roots.push(root);
+  const row = {
+    msgId: 1n,
+    msgSeq: 1n,
+    senderUid: 'u_carrier',
+    senderUin: 123n,
+    sendTime: 1n,
+    elements: [{ type: 'text', data: { textContent: '不应导出的外层文字' } }, card('outer')],
+  };
+  const msgs = {
+    exportFilter: { messageIds: ['1'], forwardTarget: { elementIndex: 1, resId: 'outer' } },
+    getC2cAfter: async () => [row],
+    getC2cSeqlessAfterRowId: async () => [],
+    listForward: async () => [],
+    exportFetchForward: async (resId: string): Promise<FetchedForwardRecord[]> => [
+      {
+        msgId: resId === 'outer' ? '2' : '3',
+        sendNick: '内部作者',
+        senderUin: '456',
+        sendTime: '1700000000',
+        elements:
+          resId === 'outer'
+            ? [card('inner')]
+            : [{ type: 'text', data: { textContent: '深层完整正文' } }],
+      },
+    ],
+  } as unknown as MsgService;
+  const outputPath = join(root, 'record.txt');
+  await exportConversationToTxt(msgs, { kind: 'c2c', conv: 'peer', outputPath });
+  const output = readFileSync(outputPath, 'utf8');
+  expect(output).toContain('内部作者');
+  expect(output).toContain('深层完整正文');
+  expect(output).toContain('2023');
+  expect(output).not.toContain('不应导出的外层文字');
 });
 
 it('40900 本地黄金样本展开嵌套正文，不依赖在线接口', async () => {

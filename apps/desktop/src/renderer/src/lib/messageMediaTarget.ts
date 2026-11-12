@@ -20,6 +20,7 @@ export function messageMediaTarget(
   message: Message,
   target?: EventTarget | null,
 ): MessageMediaTarget | undefined {
+  if (target instanceof Element && target.closest('[data-forward-res-id]')) return undefined;
   const elements = (message.qqElements ?? []).filter((element) => kinds.has(element.type ?? ''));
   const key =
     target instanceof Element

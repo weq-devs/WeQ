@@ -10,6 +10,7 @@ export function fixedScopeSummary(selection: ContentSelection): string {
   const count = selection.scope.type === 'items' ? selection.scope.ids.length : null;
   switch (owner.kind) {
     case 'messages': {
+      if (owner.forwardTarget) return '聊天记录 · 卡片内完整消息（含嵌套记录）';
       const conv = owner.container.slice(owner.container.indexOf(':') + 1);
       return count === null ? `会话 ${conv} · 全部消息` : `会话 ${conv} · 精确选中 ${count} 条消息`;
     }

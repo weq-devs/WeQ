@@ -1,4 +1,5 @@
 import { SmilePlus } from 'lucide-react';
+import { MessageMenuButton } from '../MessageMenuButton';
 import { client, trpc } from '../../trpc/client';
 import { useQQAction } from './shared';
 
@@ -39,7 +40,7 @@ export function MessageFavoriteEmojiAction({
     if (completed) onClose();
   }
   return (
-    <button
+    <MessageMenuButton
       type="button"
       aria-label="添加到表情"
       title={
@@ -57,6 +58,6 @@ export function MessageFavoriteEmojiAction({
     >
       <SmilePlus size={17} />
       <span>添加到表情</span>
-    </button>
+    </MessageMenuButton>
   );
 }

@@ -1,9 +1,10 @@
+import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFile, mkdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import sharp from 'sharp';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -31,9 +32,6 @@ const server = await createServer({
   server: { host: '127.0.0.1', port: 0, hmr: false, watch: null },
 });
 let browser;
-const check = (condition, text) => {
-  if (!condition) throw new Error(text);
-};
 try {
   await server.listen();
   browser = await chromium.launch({
@@ -44,142 +42,37 @@ try {
   });
   const output = process.env.WEQ_STYLE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
-  const page = await browser.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const context = await browser.newContext();
   const fallback = await sharp({
     create: { width: 26, height: 26, channels: 3, background: '#21a266' },
   })
     .png()
     .toBuffer();
-  await page.route('**/*', async (route) => {
+  const routes = async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname.startsWith('/_asset/emoji/')) {
-      const rel = url.pathname.slice('/_asset/emoji/'.length);
-      const body = process.env.WEQ_EMOJI_FIXTURE_DIR
-        ? await readFile(resolve(process.env.WEQ_EMOJI_FIXTURE_DIR, rel)).catch(() => fallback)
-        : fallback;
-      return route.fulfill({ contentType: 'image/png', body });
-    }
+    if (url.pathname.startsWith('/_asset/emoji/'))
+      return route.fulfill({ contentType: 'image/png', body: fallback });
     return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
-  });
-  await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/message-menu.html`,
-  );
+  };
+  await context.route('**/*', routes);
+  const page = await context.newPage();
+  page.on('pageerror', (error) => errors.push(error.message));
+  const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/message-menu.html`;
+  await page.goto(url);
   await page.waitForFunction(() => window.menuFixture);
-  for (const [theme, width, height, accent, background] of [
-    ['light', 1280, 900, '#19764c', 'plain'],
-    ['dark', 1280, 900, '#f4cf4c', 'grid'],
-    ['light', 390, 844, '#db3f62', 'paper'],
-    ['dark', 390, 844, '#b7dfdd', 'dots'],
-    ['light', 640, 280, '#19764c', 'plain'],
-  ]) {
-    await page.setViewportSize({ width, height });
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    for (const [corner, x, y] of [
-      ['top-left', 0, 0],
-      ['top-right', width, 0],
-      ['bottom-left', 0, height],
-      ['bottom-right', width, height],
-    ]) {
-      await page.evaluate(
-        (args) => window.menuFixture(...args),
-        [x, y, width < 760, theme, accent, background],
-      );
-      const menu = page.getByRole('menu');
-      await menu.waitFor();
-      await page.waitForFunction(() =>
-        [...document.querySelectorAll('.message-reaction-strip img')].every(
-          (img) => img.complete && img.naturalWidth > 0,
-        ),
-      );
-      const geometry = await menu.evaluate((el) => {
-        const rect = el.getBoundingClientRect();
-        return {
-          left: rect.left,
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom,
-          overflow: el.scrollWidth > el.clientWidth,
-          count: el.querySelectorAll('.message-action-row').length,
-          width: rect.width,
-          reactions: el.querySelectorAll('.message-reaction-strip button[aria-pressed]').length,
-          moreVisible:
-            el.querySelector('.message-reaction-strip button:last-child').getBoundingClientRect()
-              .width > 0,
-        };
-      });
-      check(
-        geometry.left >= 0 &&
-          geometry.top >= 0 &&
-          geometry.right <= width &&
-          geometry.bottom <= height &&
-          !geometry.overflow,
-        `${theme}/${width}/${height}/${corner}: 菜单溢出 ${JSON.stringify(geometry)}`,
-      );
-      check(geometry.count === 3, '扩展按钮区必须固定三行');
-      check(geometry.width <= 236, '菜单未缩窄');
-      check(geometry.reactions === 4 && geometry.moreVisible, '应显示四个贴表情候选和更多入口');
-      const layout = await menu.evaluate((el) => {
-        const center = (node) => {
-          const rect = node.getBoundingClientRect();
-          return rect.left + rect.width / 2;
-        };
-        const main = [...el.querySelectorAll('.message-menu-main button')];
-        const row = el.querySelector('[aria-label="消息互动"]');
-        const cells = [...row.querySelectorAll('button')].filter(
-          (button) => getComputedStyle(button).display !== 'none',
-        );
-        const icons = cells.map((button) => center(button.firstElementChild));
-        return {
-          topRows: main.map((button) => button.getBoundingClientRect().top),
-          aligned: main.every(
-            (button, index) =>
-              Math.abs(center(button.firstElementChild) - icons[(index % 2) * 2]) < 1,
-          ),
-          centered: cells.every(
-            (button) => Math.abs(center(button) - center(button.firstElementChild)) < 1,
-          ),
-          equal: cells.every(
-            (button) =>
-              Math.abs(
-                button.getBoundingClientRect().width - cells[0].getBoundingClientRect().width,
-              ) < 1,
-          ),
-        };
-      });
-      check(
-        layout.topRows[0] === layout.topRows[1] &&
-          layout.topRows[2] === layout.topRows[3] &&
-          layout.topRows[2] > layout.topRows[0],
-        '常用按钮未排成 2×2',
-      );
-      check(layout.aligned && layout.centered && layout.equal, '四列等宽居中或上下图标对齐失败');
-      if (output && corner === 'top-left')
-        await page.screenshot({ path: resolve(output, `${theme}-${width}-${height}.png`) });
-      // disabled 按钮仍应立即提供原因，不能依赖 250ms 全局延迟。
-      const todo = page.getByRole('button', { name: '设为群待办', exact: true });
-      await todo.scrollIntoViewIfNeeded();
-      await todo.hover();
-      await page.waitForFunction(() =>
-        document.querySelector('[role="tooltip"]')?.textContent?.includes('暂不可用'),
-      );
-      check((await page.locator('[data-submenu-panel]').count()) === 0, '不应保留子菜单');
-      check(
-        await page.getByRole('button', { name: '显示原文', exact: true }).isVisible(),
-        '文字切换应直接显示',
-      );
-      await page.keyboard.press('Escape');
-      await menu.waitFor({ state: 'detached' });
-    }
-  }
-  // 动作最多、最少、语音及混合内容均保持同一组十二格，不重叠、不因缺项前移。
-  await page.setViewportSize({ width: 320, height: 640 });
-  let slots;
-  for (const mode of ['full', 'sparse', 'voice', 'mixed', 'downloaded', 'private']) {
+  const open = async (x, y, mobile, theme = 'light', mode = 'full') => {
     await page.evaluate(
-      (mode) => window.menuFixture(0, 0, true, 'dark', '#b7dfdd', 'dots', mode),
-      mode,
+      (args) => window.menuFixture(...args),
+      [
+        x,
+        y,
+        mobile,
+        theme,
+        theme === 'light' ? '#19764c' : '#f4cf4c',
+        theme === 'light' ? 'plain' : 'grid',
+        mode,
+      ],
     );
     await page.getByRole('menu').waitFor();
     await page.waitForFunction(
@@ -189,81 +82,207 @@ try {
           ?.getAttribute('data-menu-fixture-mode') === mode,
       mode,
     );
-    const layout = await page.locator('.message-action-row').evaluateAll((rows) =>
-      rows.map((row) => {
-        const cells = [...row.querySelectorAll('button')].filter(
-          (button) => getComputedStyle(button).display !== 'none',
-        );
-        return cells.map((button) => {
-          const { x, y, width, height } = button.getBoundingClientRect();
-          return { x, y, width, height, disabled: button.disabled };
+  };
+  for (const [width, height] of [
+    [1280, 900],
+    [390, 844],
+    [320, 640],
+    [640, 280],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    for (const theme of ['light', 'dark']) {
+      for (const [x, y] of [
+        [0, 0],
+        [width, 0],
+        [0, height],
+        [width, height],
+      ]) {
+        await open(x, y, width < 760, theme);
+        const layout = await page.getByRole('menu').evaluate((menu) => {
+          const rect = menu.getBoundingClientRect();
+          const buttons = [...menu.querySelectorAll('.message-menu-group button')];
+          return {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            overflow: menu.scrollWidth > menu.clientWidth,
+            columns: [...menu.querySelectorAll('.message-menu-group')]
+              .filter((group) => group.querySelector('button'))
+              .map((group) => getComputedStyle(group).gridTemplateColumns.split(' ').length),
+            textVisible: buttons.every((button) => {
+              const label = button.querySelector('span');
+              return (
+                label &&
+                label.getBoundingClientRect().width > 10 &&
+                getComputedStyle(label).position !== 'absolute'
+              );
+            }),
+            iconsUnified: buttons.every((button) => {
+              const icon = button.querySelector('svg');
+              return (
+                icon &&
+                getComputedStyle(icon).width === '18px' &&
+                getComputedStyle(icon).strokeWidth === '1.75px'
+              );
+            }),
+            minHeight: Math.min(...buttons.map((button) => button.getBoundingClientRect().height)),
+          };
         });
-      }),
-    );
-    check(
-      layout.length === 3 && layout.every((row) => row.length === 4),
-      `${mode}: 非 3×4 ${JSON.stringify(layout)}`,
-    );
-    const positions = layout.map((row) => row.map(({ disabled, ...rect }) => rect));
-    if (mode !== 'private') {
-      if (slots) check(JSON.stringify(positions) === JSON.stringify(slots), `${mode}: 格位移动`);
-      else slots = positions;
+        assert(
+          layout.left >= 0 &&
+            layout.top >= 0 &&
+            layout.right <= width &&
+            layout.bottom <= height &&
+            !layout.overflow,
+          JSON.stringify(layout),
+        );
+        assert(
+          layout.width <= 304 && layout.columns.every((count) => count === 2),
+          JSON.stringify(layout),
+        );
+        assert(
+          layout.textVisible && layout.iconsUnified && layout.minHeight >= (width < 760 ? 44 : 36),
+          JSON.stringify(layout),
+        );
+        assert.equal(await page.locator('.message-action-fallback').count(), 0);
+        assert.equal(await page.getByRole('menuitem', { name: '导出', exact: true }).count(), 0);
+        if (output && x === 0 && y === 0)
+          await page.screenshot({ path: resolve(output, `${theme}-${width}-${height}.png`) });
+        const todo = page.getByRole('menuitem', { name: '设为群待办', exact: true });
+        await todo.scrollIntoViewIfNeeded();
+        await page.mouse.move(width - 1, height - 1);
+        await todo.hover();
+        await page
+          .waitForFunction(
+            () => document.querySelector('[role="tooltip"]')?.textContent?.includes('暂不可用'),
+            undefined,
+            { timeout: 5000 },
+          )
+          .catch(() => {
+            throw new Error(`禁用提示未出现：${theme}/${width}/${height}/${x}/${y}`);
+          });
+        await page.keyboard.press('Escape');
+        await page.getByRole('menu').waitFor({ state: 'detached' });
+      }
     }
-    if (output) await page.screenshot({ path: resolve(output, `${mode}-main-320.png`) });
-    for (const row of positions)
-      for (let index = 1; index < row.length; index++)
-        check(row[index].x >= row[index - 1].x + row[index - 1].width, `${mode}: 按钮重叠`);
-    if (mode === 'sparse')
-      check(layout.flat().filter((cell) => cell.disabled).length >= 11, '不可用动作未置灰');
+  }
+  await page.setViewportSize({ width: 320, height: 640 });
+  for (const mode of ['sparse', 'voice', 'mixed', 'downloaded', 'private', 'record']) {
+    await open(0, 0, true, 'dark', mode);
+    if (mode === 'sparse') {
+      assert.equal(await page.locator('.message-menu-group button').count(), 1);
+      assert.equal(await page.locator('.message-reaction-strip').count(), 0);
+    }
     if (mode === 'downloaded') {
-      await page.getByRole('button', { name: '在文件夹中显示', exact: true }).click();
-      check(
-        await page.evaluate(() => window.menuActions.includes('在文件夹中显示')),
-        '定位没有直接执行',
-      );
-      check(
-        !(await page.getByRole('menuitem', { name: '保存到服务器', exact: true }).isVisible()),
-        '下载后仍显示保存',
+      assert(await page.getByRole('menuitem', { name: '在文件夹中显示', exact: true }).isVisible());
+      assert(await page.getByRole('menuitem', { name: '保存到服务器', exact: true }).isVisible());
+    }
+    if (mode === 'private') assert.equal(await page.locator('.message-reaction-strip').count(), 0);
+    if (mode === 'record') {
+      assert(await page.getByRole('menuitem', { name: '导出', exact: true }).isVisible());
+      assert.equal(
+        await page.getByRole('menuitem', { name: '保存到服务器', exact: true }).count(),
+        0,
       );
     }
-    if (mode === 'private')
-      check((await page.locator('.message-reaction-strip').count()) === 0, '私聊不应显示贴表情');
+    if (output) await page.screenshot({ path: resolve(output, `${mode}-320.png`) });
     if (mode === 'voice' || mode === 'mixed') {
-      const voice = page.getByRole('button', { name: '转换为文字', exact: true });
-      check(await voice.isEnabled(), `${mode}: 语音转换状态错误`);
-      await voice.click();
-      check(await page.evaluate(() => window.menuActions.includes('转文字')), '语音转换未直接执行');
-      await page.getByRole('menu').waitFor({ state: 'detached' });
+      await page.getByRole('menuitem', { name: '转换为文字', exact: true }).click();
+      assert(await page.evaluate(() => window.menuActions.includes('转文字')));
     }
     await page.keyboard.press('Escape');
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.evaluate(() => window.menuFixture(50, 50, false, 'light', '#19764c', 'plain'));
-  await page.getByRole('button', { name: '取消贴表情：赞', exact: true }).click();
-  check(await page.evaluate(() => window.menuActions.includes('76:false')), '回应没有切换为取消');
+  for (const [width, mobile] of [
+    [1280, false],
+    [390, true],
+  ]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate(() => {
+      document.documentElement.dataset.density = 'compact';
+      document.documentElement.dataset.componentStyle = 'retro';
+    });
+    await open(50, 50, mobile);
+    const minHeight = await page
+      .locator('.message-menu-group button')
+      .evaluateAll((buttons) =>
+        Math.min(...buttons.map((button) => button.getBoundingClientRect().height)),
+      );
+    assert(minHeight >= (mobile ? 44 : 36), `紧凑密度缩小了菜单触控目标：${minHeight}`);
+    await page.keyboard.press('Escape');
+  }
+  await page.evaluate(() => {
+    delete document.documentElement.dataset.density;
+    delete document.documentElement.dataset.componentStyle;
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await open(50, 50, false);
+  await page.getByRole('menuitemcheckbox', { name: '取消贴表情：赞', exact: true }).click();
+  assert(await page.evaluate(() => window.menuActions.includes('76:false')));
   await page.getByRole('menuitem', { name: '+1', exact: true }).click();
-  check(await page.evaluate(() => window.menuActions.includes('+1')), '+1 没有执行');
-  await page.keyboard.press('End');
-  await page.keyboard.press('Escape');
-  check(
-    await page.locator('#origin').evaluate((el) => document.activeElement === el),
-    'Esc 未归还焦点',
+  assert(await page.evaluate(() => window.menuActions.includes('+1')));
+  // 禁用项允许通过方向键到达，显示原因但 Enter 不执行。
+  await page.getByRole('menuitem', { name: '设为群待办', exact: true }).focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(() =>
+    document.querySelector('[role="tooltip"]')?.textContent?.includes('暂不可用'),
   );
-  await page.evaluate(() => window.menuFixture(50, 50, false, 'light', '#19764c', 'plain'));
-  await page.getByRole('button', { name: '更多表情', exact: true }).click();
+  await page.keyboard.press('Enter');
+  assert(!(await page.evaluate(() => window.menuActions.includes('设为群待办'))));
+  await page.keyboard.press('Escape');
+  assert(await page.locator('#origin').evaluate((el) => document.activeElement === el));
+  // Tab 与 Shift+Tab 沿触发消息的前后顺序退出。
+  await page.evaluate(() => {
+    for (const id of ['before', 'after']) {
+      const button = document.createElement('button');
+      button.id = id;
+      button.textContent = id;
+      document.getElementById('origin')[id === 'before' ? 'before' : 'after'](button);
+    }
+  });
+  for (const tabIndex of [0, -1]) {
+    await page.locator('#origin').evaluate((element, value) => {
+      element.tabIndex = value;
+    }, tabIndex);
+    for (const [key, id] of [
+      ['Tab', 'after'],
+      ['Shift+Tab', 'before'],
+    ]) {
+      await open(50, 50, false);
+      await page.keyboard.press(key);
+      assert(await page.locator(`#${id}`).evaluate((el) => document.activeElement === el));
+    }
+  }
+  await open(50, 50, false);
+  await page.getByRole('menuitem', { name: '复制', exact: true }).click();
+  await page.getByRole('menu').waitFor({ state: 'detached' });
+  assert(await page.locator('#origin').evaluate((el) => document.activeElement === el));
+  await open(50, 50, false);
+  await page.getByRole('menuitem', { name: '显示原文', exact: true }).click();
+  await page.getByRole('menu').waitFor({ state: 'detached' });
+  assert(await page.locator('#origin').evaluate((el) => document.activeElement === el));
+  await open(50, 50, false);
+  await page.getByRole('menuitem', { name: '更多表情', exact: true }).click();
+  assert(
+    await page
+      .getByRole('dialog', { name: '贴表情' })
+      .evaluate((el) => el.contains(document.activeElement)),
+  );
   const selected = page
     .getByRole('dialog', { name: '贴表情' })
     .getByRole('button', { name: '赞', exact: true });
-  check((await selected.getAttribute('aria-pressed')) === 'true', '更多面板没有显示已贴状态');
+  assert.equal(await selected.getAttribute('aria-pressed'), 'true');
   await selected.click();
-  check(
-    await page.evaluate(() => window.menuActions.includes('more:76:false')),
-    '更多面板不能取消已贴回应',
-  );
-  // 在真实触屏 context 中验证长按只提示，松手不执行。
+  assert(await page.evaluate(() => window.menuActions.includes('more:76:false')));
+
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  await touch.route('**/*', routes);
   const touchPage = await touch.newPage();
-  await touchPage.goto(page.url());
+  await touchPage.goto(url);
   await touchPage.waitForFunction(() => window.menuFixture);
   await touchPage.evaluate(() => window.menuFixture(100, 100, true, 'light', '#19764c', 'plain'));
   const target = touchPage.getByRole('menuitem', { name: '本地删除', exact: true });
@@ -275,16 +294,13 @@ try {
     () => document.querySelector('[role="tooltip"]')?.textContent === '本地删除',
   );
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  check(
-    await touchPage.evaluate(() => !window.menuActions.includes('本地删除')),
-    '长按松手执行了删除',
-  );
+  assert(await touchPage.evaluate(() => !window.menuActions.includes('本地删除')));
   await target.tap();
-  check(await touchPage.evaluate(() => window.menuActions.includes('本地删除')), '长按后短按失效');
+  assert(await touchPage.evaluate(() => window.menuActions.includes('本地删除')));
   await touch.close();
-  check(errors.length === 0, errors.join('\n'));
+  assert.deepEqual(errors, []);
   console.log(
-    '消息菜单浏览器验证通过：5 组主题/尺寸、四角避让、固定 2×2 与 3×4、文字/语音/混合内容直达、下载后定位、私聊隐藏回应、禁用提示、回应取消、+1、焦点归还及真实触屏长按。',
+    'PASS: 两列图文、统一图标、适用项过滤、保存与定位并存、记录专属导出、四尺寸深浅主题四角避让、禁用键盘提示、Tab方向、回应取消及真实触屏长按。',
   );
 } finally {
   await browser?.close();

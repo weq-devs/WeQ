@@ -50,6 +50,7 @@ const messageMediaInput = resourceSourceInput.extend({
     pack: z.string(),
     hash: z.string(),
     label: z.string(),
+    url: z.string().optional(),
   }),
 });
 

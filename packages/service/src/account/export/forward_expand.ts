@@ -72,6 +72,7 @@ export function liftForwardRecords(records: MsgCacheRecord[], depth = 0): Forwar
   for (const raw of records) {
     const rec = raw as CacheRecordLike;
     const elements = recordElements(rec);
+    normalizeNestedForwards(elements);
     // Attach any nested forward to the multiMsg element(s) in this record.
     const nested = Array.isArray(rec.subMsgs) ? rec.subMsgs : [];
     if (nested.length > 0) {
@@ -99,7 +100,7 @@ export function liftForwardRecords(records: MsgCacheRecord[], depth = 0): Forwar
  * The 40900 blob for a MULTI_FORWARD row already nests every level, so one
  * lookup by the carrying msgId resolves the whole tree. Swallows lookup/decode
  * errors so a bad cache never breaks the export — the element just keeps its
- * `[合并转发]` placeholder.
+ * `[合并转发]` placeholder. 右键卡片专属导出则要求嵌套内容完整，失败可重试。
  */
 export async function expandForwards(
   msgs: MsgService,
@@ -107,13 +108,38 @@ export async function expandForwards(
   exported: ExportedMessage,
   localRecords?: MsgCacheRecord[],
 ): Promise<void> {
+  const target = msgs.exportFilter?.forwardTarget;
+  if (target) normalizeNestedForwards(exported.elements);
+  const originalCards = exported.elements.filter((element) => element.type === 'multiMsg');
+  const localUnambiguous =
+    originalCards.length <= 1 ||
+    (originalCards.every((element) => element.data.resId) &&
+      new Set(originalCards.map((element) => element.data.resId)).size === 1);
+  if (target) {
+    const element =
+      exported.elements[target.elementIndex] ??
+      (exported.elements.length === 1 &&
+      exported.elements[0]?.type === 'multiMsg' &&
+      exported.elements[0].data.forwardMessages
+        ? exported.elements[0]
+        : undefined);
+    if (element?.type !== 'multiMsg')
+      throw new Error('聊天记录卡片已变化，请重新打开消息菜单后重试导出。');
+    if (element.data.resId && element.data.resId !== target.resId)
+      throw new Error('聊天记录资源已变化，请重新打开消息菜单后重试导出。');
+    if (target.resId) element.data.resId = target.resId;
+    exported.elements.splice(0, exported.elements.length, element);
+  }
   const hasForward = exported.elements.some(
     (el) => el.type === 'multiMsg' && !el.data.forwardMessages?.length,
   );
-  if (!hasForward) return;
+  if (!hasForward && !target) return;
   let records: MsgCacheRecord[];
   try {
-    records = localRecords ?? (await msgs.listForward(kind, BigInt(exported.msgId)));
+    records =
+      target && !localUnambiguous
+        ? []
+        : (localRecords ?? (await msgs.listForward(kind, BigInt(exported.msgId))));
   } catch {
     records = [];
   }
@@ -122,9 +148,43 @@ export async function expandForwards(
   const unambiguous =
     new Set(cards.map((el) => (el.type === 'multiMsg' ? el.data.resId : ''))).size <= 1;
   for (const el of exported.elements) {
-    if (el.type !== 'multiMsg' || el.data.forwardMessages?.length) continue;
-    if (lifted.length && unambiguous) el.data.forwardMessages = lifted;
+    if (el.type !== 'multiMsg' || (el.data.forwardMessages?.length && !target)) continue;
+    if (!el.data.forwardMessages?.length && lifted.length && unambiguous)
+      el.data.forwardMessages = lifted;
     await expandRemote(msgs, el, new Set(), 0);
+  }
+  if (target) assertForwardComplete(exported.elements);
+}
+
+/** 专属导出不能把缺失的根记录、嵌套记录或循环截断冒充完整聊天记录。 */
+function assertForwardComplete(elements: RenderElement[], depth = 0): void {
+  if (depth > 16) throw new Error('聊天记录嵌套过深，无法完整导出，请检查原记录后重试。');
+  for (const element of elements) {
+    if (element.type !== 'multiMsg') continue;
+    const records = element.data.forwardMessages;
+    if (!records?.length) throw new Error('聊天记录内容尚未完整获取，请检查连接后重试导出。');
+    for (const record of records) assertForwardComplete(record.elements, depth + 1);
+  }
+}
+
+function normalizeNestedForwards(elements: RenderElement[]): void {
+  for (let index = 0; index < elements.length; index++) {
+    const element = elements[index];
+    if (element?.type !== 'ark') continue;
+    try {
+      const raw = element.data.arkData;
+      const ark = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!ark || typeof ark !== 'object' || !('app' in ark) || ark.app !== 'com.tencent.multimsg')
+        continue;
+      const detail = ark.meta?.detail;
+      const resId = detail?.resid ?? detail?.resId;
+      elements[index] = {
+        type: 'multiMsg',
+        data: { resId: typeof resId === 'string' ? resId : '', sessionId: '', xmlContent: '' },
+      };
+    } catch {
+      /* 不是可解析的聊天记录卡片，不猜测资源身份。 */
+    }
   }
 }
 
@@ -139,10 +199,12 @@ async function expandRemote(
   if (resId) visited.add(resId);
   try {
     if (element.data.forwardMessages?.length) {
-      for (const record of element.data.forwardMessages)
+      for (const record of element.data.forwardMessages) {
+        normalizeNestedForwards(record.elements);
         for (const child of record.elements) {
           if (child.type === 'multiMsg') await expandRemote(msgs, child, visited, depth + 1);
         }
+      }
       return;
     }
     if (!resId || !msgs.exportFetchForward) return;
@@ -150,6 +212,7 @@ async function expandRemote(
     const lifted: ForwardMessage[] = [];
     for (const record of records) {
       msgs.exportSignal?.throwIfAborted();
+      normalizeNestedForwards(record.elements);
       for (const child of record.elements) {
         if (child.type === 'multiMsg') await expandRemote(msgs, child, visited, depth + 1);
       }

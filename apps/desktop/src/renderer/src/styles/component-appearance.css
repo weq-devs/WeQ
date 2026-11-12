@@ -387,7 +387,10 @@ html[data-density='compact'] body :is(.weq-set-card, .weq-settings-appearance-ca
   padding-block: 10px;
   gap: 8px;
 }
-html[data-density='compact'] body :is(.message-context-menu, .weq-directory-scope-menu) button {
+html[data-density='compact']
+  body
+  :is(.message-context-menu:not(.message-menu-v2), .weq-directory-scope-menu)
+  button {
   min-height: 28px;
   padding-block: 5px;
 }

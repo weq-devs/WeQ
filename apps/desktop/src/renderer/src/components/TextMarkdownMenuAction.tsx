@@ -1,5 +1,6 @@
 import { CodeXml, FileText } from 'lucide-react';
 import { useContext } from 'react';
+import { MessageMenuButton } from './MessageMenuButton';
 import type { Message } from '../im-template/template/types';
 import {
   autoTextMarkdownBody,
@@ -24,7 +25,7 @@ export function TextMarkdownMenuAction({
   const rendered = override ?? (enabled && autoTextMarkdownBody(elements) !== null);
   const label = rendered ? '显示原文' : '显示 Markdown';
   return (
-    <button
+    <MessageMenuButton
       type="button"
       title={label}
       onClick={() => {
@@ -34,6 +35,6 @@ export function TextMarkdownMenuAction({
     >
       {rendered ? <CodeXml size={17} /> : <FileText size={17} />}
       <span>{label}</span>
-    </button>
+    </MessageMenuButton>
   );
 }

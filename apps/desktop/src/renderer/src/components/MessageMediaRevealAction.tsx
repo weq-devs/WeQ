@@ -1,4 +1,5 @@
 import { FolderSearch } from 'lucide-react';
+import { MessageMenuButton } from './MessageMenuButton';
 import { trpc, client } from '../trpc/client';
 import type { MessageMediaTarget } from '../../../shared/message_media';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
@@ -30,8 +31,9 @@ export function MessageMediaRevealAction({
         : !local.data
           ? '尚无本地文件'
           : '';
+  if (!local.data) return null;
   return (
-    <button
+    <MessageMenuButton
       type="button"
       aria-label="在文件夹中显示"
       title={`${reason || '在文件夹中显示'}：${target.label}`}
@@ -49,6 +51,6 @@ export function MessageMediaRevealAction({
     >
       <FolderSearch size={17} />
       <span>在文件夹中显示</span>
-    </button>
+    </MessageMenuButton>
   );
 }

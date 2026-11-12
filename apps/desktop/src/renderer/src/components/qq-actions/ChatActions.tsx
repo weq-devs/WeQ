@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { ListTodo } from 'lucide-react';
+import { MessageMenuButton } from '../MessageMenuButton';
 import { client, trpc } from '../../trpc/client';
 import type { Conversation, Message } from '../../im-template/template/types';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
@@ -23,14 +24,14 @@ export function MessageTodoAction({
   );
   if (
     conversation.type !== 'group' ||
-    !permissions.data?.canManage ||
+    !(permissions.data?.canManage ?? ['owner', 'admin'].includes(conversation.group.role)) ||
     !message.msgSeq ||
     !/^[1-9]\d*$/.test(message.msgSeq)
   )
     return null;
   return (
     <>
-      <button
+      <MessageMenuButton
         type="button"
         aria-label="设为群待办"
         title={
@@ -72,7 +73,7 @@ export function MessageTodoAction({
       >
         <ListTodo size={17} />
         <span>设为群待办</span>
-      </button>
+      </MessageMenuButton>
       <ActionFeedback action={a} />
     </>
   );

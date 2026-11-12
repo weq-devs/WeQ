@@ -7670,6 +7670,9 @@ export const accountRouter = router({
         filter: z
           .object({
             messageIds: exactMessageIdsInput,
+            forwardTarget: z
+              .object({ elementIndex: z.number().int().min(0), resId: z.string().max(4096) })
+              .optional(),
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
             category: z

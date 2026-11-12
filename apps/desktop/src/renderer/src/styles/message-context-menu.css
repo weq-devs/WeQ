@@ -1,22 +1,66 @@
 .message-menu-v2.message-context-menu {
   display: flex;
   flex-direction: column;
-  width: 236px;
+  width: 304px;
   max-width: calc(100vw - 16px);
   max-height: calc(100dvh - 16px);
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 6px;
-  gap: 2px;
+  gap: 4px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 8px;
   background: var(--weq-bg-surface);
   box-shadow: var(--weq-shadow-card);
   color: var(--weq-fg-primary);
 }
+.message-menu-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.message-menu-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.message-menu-group:not(:has(button)) {
+  display: none;
+}
+.message-menu-group ~ .message-menu-group:has(button) {
+  padding-top: 5px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.message-menu-slot,
+.message-file-action,
+.message-reveal-action,
+.message-save-action {
+  display: contents;
+}
 .message-menu-v2.message-context-menu button {
-  min-height: 32px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  width: 100%;
+  min-height: 36px;
+  height: auto;
+  padding: 7px 8px;
   letter-spacing: 0;
+  text-align: left;
   color: var(--weq-fg-primary);
+  touch-action: manipulation;
+}
+.message-menu-v2 button > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.message-menu-v2.message-context-menu button svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
 }
 .message-menu-v2.message-context-menu button:hover {
   background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
@@ -28,51 +72,24 @@
 .message-menu-v2.message-context-menu button[data-danger] {
   color: var(--destructive);
 }
-.message-menu-v2.message-context-menu button:disabled:hover {
-  background: transparent;
-}
-.message-menu-v2.message-context-menu button:disabled {
+.message-menu-v2.message-context-menu button:is(:disabled, [aria-disabled='true']) {
   pointer-events: auto;
   color: var(--weq-fg-muted);
   filter: grayscale(1);
+  cursor: default;
 }
-.message-menu-primary {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.message-menu-main {
-  display: grid;
-  gap: 2px;
-}
-.message-menu-main > div {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-}
-.message-menu-v2 .message-menu-main button {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  justify-items: center;
-  gap: 4px;
-  padding: 0;
-}
-.message-menu-main button > span {
-  justify-self: start;
-}
-.message-menu-main > div:empty {
-  display: none;
+.message-menu-v2.message-context-menu button:is(:disabled, [aria-disabled='true']):hover {
+  background: transparent;
 }
 .message-reaction-strip {
   display: flex;
   align-items: center;
   border-bottom: 1px solid var(--weq-border-subtle);
-  padding-bottom: 4px;
+  padding-bottom: 5px;
 }
 .message-menu-v2 .message-reaction-strip button {
   display: grid;
   flex: 1 1 0;
-  width: 100%;
-  height: 32px;
   grid-template-columns: 1fr;
   justify-items: center;
   padding: 4px;
@@ -82,6 +99,9 @@
   height: 24px;
   object-fit: contain;
 }
+.message-reaction-strip span {
+  font-size: 24px;
+}
 .message-reaction-strip button[aria-pressed='true'] {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
   box-shadow: inset 0 0 0 1px var(--weq-accent-effective);
@@ -90,66 +110,7 @@
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
   outline: 1px solid var(--weq-accent-effective);
 }
-.message-reaction-strip span {
-  font-size: 24px;
-}
-.message-action-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  padding-top: 4px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-.message-action-slot {
-  display: grid;
-  min-width: 0;
-}
-.message-action-content {
-  display: contents;
-}
-.message-file-action {
-  display: grid;
-  min-width: 0;
-}
-.message-reveal-action,
-.message-save-action {
-  display: contents;
-}
-.message-menu-v2 .message-file-action[data-has-save] .message-reveal-action button:disabled,
-.message-menu-v2
-  .message-file-action:has(.message-reveal-action button:not(:disabled))
-  .message-save-action
-  button,
-.message-menu-v2
-  .message-file-action:not([data-has-save]):has(.message-reveal-action button)
-  .message-save-action
-  button {
-  display: none;
-}
-.message-action-slot:has(.message-action-content button) > .message-action-fallback {
-  display: none;
-}
-.message-menu-v2 .message-action-row button {
-  display: grid;
-  width: 100%;
-  height: 32px;
-  grid-template-columns: 1fr;
-  justify-items: center;
-  padding: 0;
-}
-.message-action-row button > span:not(.message-plus-one) {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.message-plus-one {
-  font-size: 16px;
-  font-weight: 600;
-}
-.message-action-row p {
+.message-menu-group p {
   grid-column: 1 / -1;
   margin: 4px;
   font-size: 12px;
@@ -158,14 +119,7 @@
 .message-menu-touch.message-menu-v2 button {
   min-height: 44px;
 }
-.message-menu-touch .message-action-row button {
-  height: 44px;
-}
-.message-menu-touch .message-reaction-strip button {
-  height: 44px;
-}
 html[data-theme='dark'] .message-menu-v2.message-context-menu {
-  background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
 }
 html[data-theme='dark'] .message-menu-v2.message-context-menu button:hover {

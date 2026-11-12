@@ -125,7 +125,13 @@ export function ContentSelectionProvider({ children }: { children: ReactNode }) 
   const requestExport = useCallback(
     (next: ContentSelection) =>
       setExportRequest((previous) => ({
-        selection: { owner: { ...next.owner }, scope: copyContentScope(next.scope) },
+        selection: {
+          owner: {
+            ...next.owner,
+            ...(next.owner.forwardTarget ? { forwardTarget: { ...next.owner.forwardTarget } } : {}),
+          },
+          scope: copyContentScope(next.scope),
+        },
         revision: (previous?.revision ?? 0) + 1,
       })),
     [],
