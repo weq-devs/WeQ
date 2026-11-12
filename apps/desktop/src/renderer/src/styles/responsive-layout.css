@@ -61,8 +61,21 @@ html[data-weq-input='touch'] .app-shell .composer-tools button {
 
 html[data-weq-mobile-client='true'][data-weq-layout='wide']
   .app-title-bar
-  :is(.weq-titlebar-search, .weq-titlebar-search button, .app-title-bar-logo-wrap) {
+  :is(.weq-titlebar-search button, .app-title-bar-logo-wrap) {
   min-height: 44px;
+}
+
+/* 框体留出上下间距，按钮仍保留 44px 触控区域。 */
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-title-bar .weq-titlebar-search {
+  height: 36px;
+  min-height: 36px;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide']
+  .app-title-bar
+  .weq-titlebar-search-clear {
+  padding-block: 4px;
+  background-clip: content-box;
 }
 
 html[data-weq-mobile-client='true'][data-weq-layout='wide']
