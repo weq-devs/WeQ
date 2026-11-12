@@ -144,83 +144,93 @@ export function ContactIdentity({
   const identity = person.clone ? person.id.replace(/^virtual:/, '') : person.identityValue;
   const identityLabel = person.clone ? 'ID' : person.identityLabel;
   return (
-    <div className="weq-profile-hero weq-contact-identity" data-privacy-sensitive>
-      <button
-        type="button"
-        className={`weq-profile-avatar${person.clone ? ' weq-clone-profile-avatar' : ''}`}
-        title="查看头像"
-        aria-label="查看头像"
-        onClick={() => person.avatarUrl && openLightbox(person.avatarUrl, title)}
-      >
-        <Avatar name={title} avatarUrl={person.avatarUrl} seed={person.identityValue} />
-        {person.clone ? <VirtualConversationBadge /> : null}
-        {pendant && !person.clone && ['QQ', 'UIN'].includes(person.identityLabel) ? (
-          <ContactPendant person={person} />
-        ) : null}
-      </button>
-      <div className="weq-profile-heading">
+    <>
+      <div className="weq-profile-hero weq-contact-identity" data-privacy-sensitive>
         <button
           type="button"
-          className="weq-profile-name weq-contact-name"
-          aria-label={onOpen ? '联系人详情' : undefined}
-          title={onOpen ? '联系人详情' : undefined}
-          disabled={!onOpen}
-          onClick={(event) => {
-            const selection = window.getSelection();
-            if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
-              onOpen?.();
-          }}
+          className={`weq-profile-avatar${person.clone ? ' weq-clone-profile-avatar' : ''}`}
+          title="查看头像"
+          aria-label="查看头像"
+          onClick={() => person.avatarUrl && openLightbox(person.avatarUrl, title)}
         >
-          {title}
+          <Avatar name={title} avatarUrl={person.avatarUrl} seed={person.identityValue} />
+          {person.clone ? <VirtualConversationBadge /> : null}
+          {pendant && !person.clone && ['QQ', 'UIN'].includes(person.identityLabel) ? (
+            <ContactPendant person={person} />
+          ) : null}
         </button>
-        <div className="weq-contact-meta">
-          {!person.clone ? <PersonRelationshipStatus person={person} /> : null}
-          {!person.clone && person.kind === 'bot' ? (
-            <span className="weq-contact-identity-kind">
-              <Bot size={12} />
-              机器人
-            </span>
-          ) : null}
-          {!person.clone && person.extInfo?.isEnterprise ? (
-            <span className="weq-contact-identity-kind">
-              <Building2 size={12} />
-              企业用户
-            </span>
-          ) : null}
-          {relationship !== 'friend' && remark ? (
-            <span className="weq-contact-identity-kind">备注 {remark}</span>
-          ) : null}
-        </div>
-        <div className="weq-contact-meta">
+        <div className="weq-profile-heading">
           <button
             type="button"
-            className="weq-contact-number"
-            title={copied ? '已复制' : '复制号码'}
-            aria-label={person.clone ? '复制 ID' : `复制 ${identityLabel} 号码`}
-            onClick={() => void copyTextToClipboard(identity).then(setCopied)}
+            className="weq-profile-name weq-contact-name"
+            aria-label={onOpen ? '联系人详情' : undefined}
+            title={onOpen ? '联系人详情' : undefined}
+            disabled={!onOpen}
+            onClick={(event) => {
+              const selection = window.getSelection();
+              if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
+                onOpen?.();
+            }}
           >
-            {identityLabel} <span className="weq-number">{identity}</span>
-            {copied ? ' 已复制' : ''}
+            {title}
           </button>
-          {relationship === 'friend' && !person.clone ? (
+          <div className="weq-contact-meta">
+            {!person.clone ? <PersonRelationshipStatus person={person} /> : null}
+            {!person.clone && person.kind === 'bot' ? (
+              <span className="weq-contact-identity-kind">
+                <Bot size={12} />
+                机器人
+              </span>
+            ) : null}
+            {!person.clone && person.extInfo?.isEnterprise ? (
+              <span className="weq-contact-identity-kind">
+                <Building2 size={12} />
+                企业用户
+              </span>
+            ) : null}
+          </div>
+          <div className="weq-contact-meta">
             <button
               type="button"
               className="weq-contact-number"
-              disabled={!/^u_/.test(person.uid || person.id)}
-              onClick={() => setRemarkOpen(true)}
+              title={copied ? '已复制' : '复制号码'}
+              aria-label={person.clone ? '复制 ID' : `复制 ${identityLabel} 号码`}
+              onClick={() => void copyTextToClipboard(identity).then(setCopied)}
             >
-              {remark ? `备注 ${remark}` : '添加备注'}
+              {identityLabel} <span className="weq-number">{identity}</span>
+              {copied ? ' 已复制' : ''}
             </button>
-          ) : null}
+            {relationship === 'friend' && !person.clone && !remark ? (
+              <button
+                type="button"
+                className="weq-contact-number"
+                disabled={!/^u_/.test(person.uid || person.id)}
+                onClick={() => setRemarkOpen(true)}
+              >
+                添加备注
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
+      <ContactRow
+        label="备注"
+        value={remark}
+        valueClassName="weq-profile-identity-remark"
+        onActivate={
+          relationship === 'friend' && !person.clone && /^u_/.test(person.uid || person.id)
+            ? () => setRemarkOpen(true)
+            : undefined
+        }
+        activateTitle="编辑备注"
+      />
       {remarkOpen && !person.clone && relationship === 'friend' ? (
         <QQRemarkDialog
           target={{ kind: 'c2c', conv: person.uid || person.id, name: title }}
           onClose={() => setRemarkOpen(false)}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 

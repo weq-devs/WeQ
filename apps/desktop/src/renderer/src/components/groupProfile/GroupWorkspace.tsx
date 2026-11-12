@@ -162,7 +162,6 @@ export function GroupDetails({ conversation }: { conversation: GroupConversation
       <GroupTags group={group} />
       <div className="weq-group-details-rows">
         <ContactRow label="群名称" value={group.name} />
-        <ContactRow label="群备注" value={group.remark} />
         <ContactRow label="群号" value={group.identityValue} mono />
         <ContactRow label="创建时间" value={groupCreationDate(group.createTime) || null} />
         <ContactRow

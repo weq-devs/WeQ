@@ -243,6 +243,11 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   color: var(--weq-fg-secondary);
 }
 
+/* 身份区下方的备注是重要属性，不顶替昵称或群名，也不混入号码等辅助信息。 */
+.weq-profile-identity-remark .weq-profile-data-value {
+  font-weight: 600;
+}
+
 .weq-profile-data-action {
   display: inline;
   max-width: 100%;

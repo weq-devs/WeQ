@@ -55,11 +55,7 @@ export function GroupIdentity({
   const [copied, setCopied] = useState(false);
   const open = useContext(ContactWorkspaceNavigationContext);
   const group = conversation.group;
-  const name = group.remark?.trim() || group.name;
-  const original =
-    group.remark?.trim() && group.remark.trim() !== group.name && group.name !== group.identityValue
-      ? group.name
-      : '';
+  const name = group.name?.trim() || group.identityValue;
   const enter =
     !full && open && !conversation.generated
       ? () => {
@@ -92,11 +88,6 @@ export function GroupIdentity({
           ) : (
             <strong className="weq-profile-name">{name}</strong>
           )}
-          {original ? (
-            <span className="weq-group-original-name" data-privacy-sensitive>
-              {original}
-            </span>
-          ) : null}
           {/* 快速名片用状态 pill 说明关系；完整资料页把它收进「详细资料」的身份行，
               避免页头和目录之外再多一条状态提示（既有验收要求）。 */}
           {!full && !conversation.generated ? <GroupRelationshipStatus group={group} /> : null}
@@ -131,6 +122,7 @@ export function GroupIdentity({
           ) : null}
         </div>
       </div>
+      <ContactRow label="备注" value={group.remark} valueClassName="weq-profile-identity-remark" />
     </header>
   );
 }

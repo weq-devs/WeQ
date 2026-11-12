@@ -83,18 +83,6 @@
   min-width: 0;
 }
 
-.weq-group-identity .weq-profile-name,
-.weq-group-original-name {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-.weq-group-original-name {
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .weq-group-count,
 .weq-group-meta {
   display: flex;
