@@ -153,6 +153,8 @@ describe('开发构建摘要', () => {
       };
       await build(config);
       expect(sink.mock.calls).toHaveLength(2);
+      expect(sink.mock.calls[0]![0]).toContain('内置 Web 构建开始');
+      expect(sink.mock.calls[1]![0]).toContain('内置 Web 构建完成');
       expect(sink.mock.calls[1]![0]).toContain('共 121');
       expect(sink.mock.calls.flat().join('')).not.toContain('fixture-');
       sink.mockClear();

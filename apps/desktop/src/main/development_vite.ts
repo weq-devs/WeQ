@@ -11,7 +11,12 @@ export function developmentViteLogging(
   if (env.WEQ_DEV_CONSOLE !== '1' || env.WEQ_LOG_LEVEL === 'debug')
     return { config: {}, plugins: [] };
   const scope = `vite-${target}`;
-  const title = { main: '主进程', preload: '预加载', web: '内置 Web', renderer: '界面' }[target];
+  const title = {
+    main: '主进程构建',
+    preload: '预加载构建',
+    web: '内置 Web 构建',
+    renderer: '界面构建',
+  }[target];
   let started = 0;
   let building = target !== 'renderer';
   const warned = new Set<string>();
@@ -63,11 +68,11 @@ export function developmentViteLogging(
     buildStart() {
       building = true;
       started = now();
-      write('info', `${title}构建开始`);
+      write('info', `${title}开始`);
     },
     writeBundle(_options, bundle) {
       sink(
-        developmentRecord('info', `${title}构建完成`, {
+        developmentRecord('info', `${title}完成`, {
           scope,
           durationMs: Math.round(now() - started),
           count: Object.keys(bundle).length,
