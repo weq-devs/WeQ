@@ -44,7 +44,12 @@ import {
 } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
-import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
+import {
+  queryMessageDays,
+  queryMessageBoundary,
+  queryMessageYears,
+  type MessageBounds,
+} from './calendar';
 import {
   browseConditions,
   type BrowseFilter,
@@ -724,15 +729,10 @@ export class GroupMsgDb {
 
   /**
    * 从真实发送时间取北京日历年份，不依赖可能缺失或滞后的 40058 日字段。
-   * 先按整数北京日去重，再转换年份；不筛方向，调用方按数据修订缓存。
+   * 复用已有时间索引按年跳转；无索引时短分页，不筛发送方向。
    */
   async yearsWithMessages(): Promise<number[]> {
-    const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y', day * 86400, 'unixepoch') AS INTEGER) AS y
-       FROM (SELECT DISTINCT CAST(("40050" + 28800) / 86400 AS INTEGER) AS day
-             FROM group_msg_table WHERE "40050" > 0)`,
-    );
-    return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
+    return queryMessageYears(this.qq, 'group_msg_table');
   }
 
   /**

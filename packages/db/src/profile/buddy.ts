@@ -24,7 +24,8 @@ export interface BuddyDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
-const SELECT_COLUMNS = `"1000","1001","1002","25007"`;
+const BUDDY_COLUMNS = ['1000', '1001', '1002', '25007'];
+const SELECT_COLUMNS = BUDDY_COLUMNS.map((column) => `"${column}"`).join(',');
 
 export class BuddyDb {
   get dbPath(): string {
@@ -41,14 +42,20 @@ export class BuddyDb {
    * List buddies. Omit limit to fetch all rows (for AgentLab clone picker).
    */
   async listBuddies(limit?: number, offset = 0): Promise<Buddy[]> {
-    const rows =
-      limit === undefined
-        ? await this.qq.query(`SELECT ${SELECT_COLUMNS} FROM buddy_list`, [])
-        : await this.qq.query(`SELECT ${SELECT_COLUMNS} FROM buddy_list LIMIT ? OFFSET ?`, [
-            limit,
-            offset,
-          ]);
-    return rows.map(rowToBuddy);
+    const result: Buddy[] = [];
+    if (limit === 0) return result;
+    let skip = limit === undefined ? 0 : Math.max(0, offset);
+    for await (const rows of this.qq.rowidPages('buddy_list', BUDDY_COLUMNS)) {
+      for (const row of rows) {
+        if (skip > 0) {
+          skip--;
+          continue;
+        }
+        result.push(rowToBuddy(row.slice(1)));
+        if (limit !== undefined && limit > 0 && result.length >= limit) return result;
+      }
+    }
+    return result;
   }
 
   /**

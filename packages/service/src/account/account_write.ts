@@ -50,7 +50,7 @@ export interface AccountWriteIdentity {
   selfUid: string;
   getBuddy: (uid: string) => Promise<Buddy | null>;
   listCategories: () => Promise<Category[]>;
-  clientVersion?: () => string;
+  clientVersion?: () => string | Promise<string>;
 }
 
 export interface AccountWriteOutcome {
@@ -152,6 +152,11 @@ export class AccountWriteService {
 
   async commonRelationships(target: string, priority = 0) {
     const pid = this.resolvePid();
+    const loadGroups = async () => {
+      const version = (await this.identity.clientVersion?.()) ?? '';
+      this.assertCurrentPid(pid);
+      return getCommonGroups(this.nt, pid, this.identity.uin, target, version);
+    };
     const [friends, groups] = await Promise.allSettled([
       this.contactMetrics
         ? this.contactMetrics.query(
@@ -166,26 +171,11 @@ export class AccountWriteService {
         ? this.contactMetrics.query(
             `friend:${target}`,
             ['commonGroups'],
-            () =>
-              getCommonGroups(
-                this.nt,
-                pid,
-                this.identity.uin,
-                target,
-                this.identity.clientVersion?.() ?? '',
-              ),
+            loadGroups,
             (value) => ({ commonGroups: value }),
             priority,
           )
-        : Promise.resolve().then(() =>
-            getCommonGroups(
-              this.nt,
-              pid,
-              this.identity.uin,
-              target,
-              this.identity.clientVersion?.() ?? '',
-            ),
-          ),
+        : loadGroups(),
     ]);
     this.assertCurrentPid(pid);
     return {

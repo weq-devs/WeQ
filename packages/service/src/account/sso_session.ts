@@ -13,7 +13,12 @@
  */
 
 import { statSync } from 'node:fs';
-import type { AppidInfo, NtHelperBinding, SessionMaterial } from '@weq/native';
+import {
+  resolveAppidFromMajorAsync,
+  type AppidInfo,
+  type NtHelperBinding,
+  type SessionMaterial,
+} from '@weq/native';
 import type { Platform } from '@weq/platform';
 import type { AttachHook } from '../bootstrap/attach';
 import { getSignerHints } from '../bootstrap/signer_cache';
@@ -120,12 +125,13 @@ function moduleStamp(path: string | null): string | null {
 }
 
 /** Resolve all registration fields from one observed running-client metadata read. */
-export function resolveSsoClientSnapshot(
+export async function resolveSsoClientSnapshot(
   nt: Pick<NtHelperBinding, 'resolveAppidFromMajor'>,
-  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath' | 'prepareQqRuntimeModules'>,
   pid: number,
   identity: SsoIdentity,
-): SsoClientSnapshot {
+): Promise<SsoClientSnapshot> {
+  await platform.prepareQqRuntimeModules?.(pid);
   const majorPath = platform.qqMajorNodePath(pid);
   const wrapperPath = platform.qqWrapperNodePath(pid);
   let info: AppidInfo | undefined;
@@ -140,7 +146,7 @@ export function resolveSsoClientSnapshot(
         const cached = clientMetadata.get(nt)?.get(key);
         if (before && cached?.stamp === before) info = cached.info;
         else {
-          info = nt.resolveAppidFromMajor(majorPath);
+          info = await resolveAppidFromMajorAsync(nt, majorPath);
           const after = moduleStamp(majorPath);
           if (before !== after) throw new Error('QQ 模块在读取期间发生变化，请稍后重试。');
           if (after) {
@@ -228,7 +234,7 @@ function materialToBuffers(
  */
 export function registerSsoSession(
   nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
-  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath' | 'prepareQqRuntimeModules'>,
   pid: number,
   identity: SsoIdentity,
   material: SessionMaterial,
@@ -253,7 +259,7 @@ export function registerSsoSession(
 /** Internal: caller must already hold queueSsoWork through registration and ownership publication. */
 export async function registerSsoSessionInTurn(
   nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
-  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath' | 'prepareQqRuntimeModules'>,
   pid: number,
   identity: SsoIdentity,
   material: SessionMaterial,
@@ -276,7 +282,8 @@ export async function registerSsoSessionInTurn(
 
   try {
     if (!isCurrent()) return false;
-    const client = snapshot ?? resolveSsoClientSnapshot(nt, platform, pid, identity);
+    const client = snapshot ?? (await resolveSsoClientSnapshot(nt, platform, pid, identity));
+    if (!isCurrent()) return false;
     if (
       client.pid !== pid ||
       client.identity.uin !== identity.uin ||
@@ -357,7 +364,7 @@ export interface StoredSsoMaterial {
  */
 export async function registerSsoSessionFromStored(
   nt: Pick<NtHelperBinding, 'setSsoSession' | 'resolveAppidFromMajor'>,
-  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath'>,
+  platform: Pick<Platform, 'qqWrapperNodePath' | 'qqMajorNodePath' | 'prepareQqRuntimeModules'>,
   pid: number,
   uin: string,
   stored: StoredSsoMaterial,

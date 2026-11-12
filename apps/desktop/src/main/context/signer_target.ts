@@ -10,5 +10,7 @@ export async function resolveSignerWrapper(
   const pid = platform.resolveQqPidAsync
     ? await platform.resolveQqPidAsync(uin)
     : platform.resolveQqPid(uin);
-  return pid === null ? null : platform.qqWrapperNodePath(pid);
+  if (pid === null) return null;
+  await platform.prepareQqRuntimeModules?.(pid);
+  return platform.qqWrapperNodePath(pid);
 }

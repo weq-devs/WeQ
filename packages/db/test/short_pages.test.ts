@@ -23,6 +23,15 @@ function fixture() {
   return { path, nt, db: new QqDb(nt, { dbPath: path }) };
 }
 
+it.each([0, -1, 0.5, Number.NaN])('非法页大小 %s 不触发无界读取', async (size) => {
+  const f = fixture();
+  const execute = vi.spyOn(f.nt, 'executeSql');
+  await expect(f.db.queryPage('SELECT value FROM items LIMIT ?', [], size)).rejects.toThrow(
+    '正整数',
+  );
+  expect(execute).not.toHaveBeenCalled();
+});
+
 it('超出原生预算时缩小同一未完成页，之后按实际页大小续读，不跳行', async () => {
   const f = fixture();
   const read = vi.fn(async (path, sql, params, budget) => {

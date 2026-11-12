@@ -28,6 +28,7 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/service/bad-pages',
   '@weq/service/search-index-retirement',
   '@weq/types',
+  'satori',
   // 备份探测 worker 位于 asar 外，校验协议需随共享 chunks 一起打包。
   'zod',
 ];
@@ -84,6 +85,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           imageWorker: resolve(__dirname, 'src/main/image_worker.ts'),
+          coverWorker: resolve(__dirname, 'src/main/cover_worker.ts'),
           transcribeWorker: resolve(__dirname, 'src/main/transcribe/worker.ts'),
           // 本地 OCR 推理同样在子进程里跑（onnxruntime 是原生库，见 main/ocr/worker.ts）。
           ocrWorker: resolve(__dirname, 'src/main/ocr/worker.ts'),
@@ -109,6 +111,7 @@ export default defineConfig({
         output: {
           entryFileNames: (chunk) =>
             chunk.name === 'imageWorker' ||
+            chunk.name === 'coverWorker' ||
             chunk.name === 'transcribeWorker' ||
             chunk.name === 'ocrWorker' ||
             chunk.name === 'attachWorker' ||

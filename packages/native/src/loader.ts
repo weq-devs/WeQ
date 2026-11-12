@@ -36,6 +36,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const requireFromHere = createRequire(import.meta.url);
 
 let cached: NativeBundle | undefined;
+const loadedPaths = new WeakMap<object, string>();
+
+/** 已实际载入的绑定路径，供只读元数据子进程复用，不重新猜测组件来源。 */
+export function loadedNtHelperPath(binding: object): string | undefined {
+  return loadedPaths.get(binding);
+}
 let logFilePath: string | undefined;
 
 /** Initialize log file path for loader diagnostics */
@@ -142,6 +148,7 @@ export function loadNative(opts: LoadNativeOptions = {}): NativeBundle {
   }
 
   configureNtHelperLogging(ntHelper);
+  loadedPaths.set(ntHelper, ntHelperPath);
 
   cached = { ntHelper };
   logToFile('[loadNative] Native module loaded and cached successfully', {

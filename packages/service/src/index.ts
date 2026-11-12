@@ -240,6 +240,7 @@ export {
   registerSsoSession,
   registerSsoSessionFromStored,
   resolveDeviceGuid,
+  resolveSsoClientSnapshot,
   resolveSubAppId,
   PC_SUB_APP_ID,
 } from './account/sso_session';

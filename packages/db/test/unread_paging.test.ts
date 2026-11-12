@@ -9,6 +9,7 @@ import {
   scheduleDatabase,
 } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
+import type { NtHelperBinding } from '@weq/native';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -49,6 +50,26 @@ async function fixture() {
 }
 const self = { selfUid: 'u_self', selfUin: '10001' };
 const targets = [{ chatType: 2, uid: '70001' }];
+
+it('未读页预算缩小后沿用已适配的页大小，不在每页重复提交超预算读取', async () => {
+  const f = await fixture();
+  const sizes: number[] = [];
+  f.nt.executeSqlBudgeted = vi.fn<NonNullable<NtHelperBinding['executeSqlBudgeted']>>(
+    async (path, query, params, budgetMs) => {
+      expect(budgetMs).toBe(15);
+      const size = Number(params?.at(-1));
+      sizes.push(size);
+      if (size > 64) throw new Error('database_query_execution_timeout');
+      return f.nt.executeSql(path, query, params);
+    },
+  );
+  expect((await f.db.getUnreadInfos(targets, self))[0]?.outgoingSeqs).toEqual([]);
+  expect(sizes.filter((size) => size > 64)).toEqual([
+    UNREAD_OUTGOING_PAGE_SIZE,
+    UNREAD_OUTGOING_PAGE_SIZE / 2,
+  ]);
+  expect(sizes.slice(2).every((size) => size === 64)).toBe(true);
+});
 
 it('零条自己发言分块扫描但每页只回传游标，同 seq 大段与 64 位 rowid 不漏页且命中索引', async () => {
   const f = await fixture();

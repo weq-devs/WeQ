@@ -26,6 +26,11 @@ import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
 import { WebBusinessCache } from '../components/WebBusinessCache';
 import { resolvedProfilesKey } from '../lib/webBusinessCache';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
+import {
+  nextStartupQueryStage,
+  scheduleStartupQueryBatch,
+  type StartupQueryStage,
+} from '../lib/startupQueries';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
@@ -2386,15 +2391,23 @@ function MainWorkspace(): ReactElement {
   const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
-  const [contactsPageOpen, setContactsPageOpen] = useState(!IS_WEB);
-  const [directoryReady, setDirectoryReady] = useState(!IS_WEB);
-  const [secondaryReady, setSecondaryReady] = useState(!IS_WEB);
+  const [contactsPageOpen, setContactsPageOpen] = useState(false);
+  const [startupStage, setStartupStage] = useState<StartupQueryStage>(0);
+  const directoryReady = startupStage >= 1;
+  const groupsReady = startupStage >= 2;
+  const profilesReady = startupStage >= 3;
+  const secondaryReady = startupStage >= 4;
+  const onlineReady = startupStage >= 5;
+  const initialMessagesPendingRef = useRef(false);
   const directoryOptions = {
     enabled: directoryReady || contactsPageOpen,
     staleTime: IS_WEB ? 60_000 : 5 * 60_000,
     refetchOnMount: IS_WEB,
   } as const;
-  const secondaryOptions = { ...directoryOptions, enabled: secondaryReady || contactsPageOpen };
+  const groupOptions = { ...directoryOptions, enabled: groupsReady || contactsPageOpen };
+  const profileOptions = { ...directoryOptions, enabled: profilesReady || contactsPageOpen };
+  const secondaryOptions = { ...directoryOptions, enabled: secondaryReady };
+  const onlineOptions = { ...directoryOptions, enabled: onlineReady };
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
   const pinSession = useQQWriteSession('conversation-pin');
@@ -2451,14 +2464,18 @@ function MainWorkspace(): ReactElement {
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
       // 恢复的完整目录先展示；最新页单独刷新，不串行重读所有已缓存分页。
-      refetchOnMount: IS_WEB ? false : undefined,
+      refetchOnMount: false,
     },
   );
   // 前台保持最新页查询活跃，恢复窗口和主动失效都能刷新；不串行重读整个目录。
   const recentHead = trpc.account.listRecentContacts.useQuery(
     { limit: 500, cursor: 0, ...pinSession.binding },
     {
-      enabled: Boolean(pinSession.binding) && Boolean(contacts.data) && messageActivity.enabled,
+      enabled:
+        Boolean(pinSession.binding) &&
+        Boolean(contacts.data) &&
+        messageActivity.enabled &&
+        secondaryReady,
       keepPreviousData: false,
       staleTime: 0,
       refetchOnWindowFocus: false,
@@ -2466,14 +2483,6 @@ function MainWorkspace(): ReactElement {
     },
   );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
-  useEffect(() => {
-    if (!IS_WEB || !firstContactsReady) return;
-    return scheduleBackgroundLoad(() => setDirectoryReady(true));
-  }, [firstContactsReady]);
-  useEffect(() => {
-    if (!IS_WEB || !directoryReady) return;
-    return scheduleBackgroundLoad(() => setSecondaryReady(true), 700);
-  }, [directoryReady]);
   const headRefetchRef = useRef(recentHead.refetch);
   headRefetchRef.current = recentHead.refetch;
   const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
@@ -2487,13 +2496,13 @@ function MainWorkspace(): ReactElement {
   // Folder membership must cover older rows too; never classify unobserved groups as folded.
   useEffect(() => {
     if (contacts.hasNextPage && !contacts.isFetching && !contacts.error) {
-      if (IS_WEB) {
-        if (!directoryReady || !contacts.isFetchedAfterMount) return;
-        return scheduleBackgroundLoad(() => {
+      if (!secondaryReady || !contacts.isFetchedAfterMount) return;
+      return scheduleStartupQueryBatch(
+        () => {
           void contacts.fetchNextPage();
-        });
-      }
-      void contacts.fetchNextPage();
+        },
+        () => !initialMessagesPendingRef.current && queryClient.isFetching() === 0,
+      );
     }
   }, [
     contacts.hasNextPage,
@@ -2501,12 +2510,12 @@ function MainWorkspace(): ReactElement {
     contacts.error,
     contacts.data?.pages.length,
     contacts.fetchNextPage,
-    directoryReady,
+    secondaryReady,
+    queryClient,
     contacts.isFetchedAfterMount,
   ]);
   useEffect(() => {
     if (
-      !IS_WEB ||
       !secondaryReady ||
       !contacts.data ||
       contacts.isFetchedAfterMount ||
@@ -2516,16 +2525,19 @@ function MainWorkspace(): ReactElement {
       return;
     const binding = messageBindingRef.current;
     const source = messageScope;
-    return scheduleBackgroundLoad(() => {
-      const headInput = { limit: 500, cursor: 0, ...binding };
-      const previousHead = utils.account.listRecentContacts.getData(headInput);
-      void contacts.refetch().then((result) => {
-        if (result.isError || !result.data || messageScopeRef.current !== source) return;
-        // 全目录校准完成后清掉旧页里已删除的会话，不覆盖更晚的实时 head。
-        if (utils.account.listRecentContacts.getData(headInput) !== previousHead) return;
-        utils.account.listRecentContacts.setData(headInput, result.data.pages[0]);
-      });
-    });
+    return scheduleStartupQueryBatch(
+      () => {
+        const headInput = { limit: 500, cursor: 0, ...binding };
+        const previousHead = utils.account.listRecentContacts.getData(headInput);
+        void contacts.refetch().then((result) => {
+          if (result.isError || !result.data || messageScopeRef.current !== source) return;
+          // 全目录校准完成后清掉旧页里已删除的会话，不覆盖更晚的实时 head。
+          if (utils.account.listRecentContacts.getData(headInput) !== previousHead) return;
+          utils.account.listRecentContacts.setData(headInput, result.data.pages[0]);
+        });
+      },
+      () => !initialMessagesPendingRef.current && queryClient.isFetching() === 0,
+    );
   }, [
     secondaryReady,
     contacts.data,
@@ -2535,6 +2547,7 @@ function MainWorkspace(): ReactElement {
     recentHead.isFetching,
     utils,
     messageScope,
+    queryClient,
   ]);
   const topContacts = trpc.account.listTopContacts.useQuery(
     {
@@ -2592,7 +2605,7 @@ function MainWorkspace(): ReactElement {
       rawRecentContactsData.map((row) => applyObservedContactPreview(row, observedContactPreviews)),
     [rawRecentContactsData, observedContactPreviews],
   );
-  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, directoryOptions);
+  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, groupOptions);
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
   const previousGroupAssistantIds = useRef(new Set<string>());
   const groupAssistantIds = useMemo(() => {
@@ -2639,7 +2652,10 @@ function MainWorkspace(): ReactElement {
     () => (guildDirectSessions.data ?? []).map(guildConversationRow),
     [guildDirectSessions.data],
   );
-  const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, directoryOptions);
+  const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, {
+    ...directoryOptions,
+    enabled: Boolean(pinSession.binding),
+  });
   const displaySettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
@@ -2662,32 +2678,58 @@ function MainWorkspace(): ReactElement {
       sendAccess.data.hasGuid,
   );
   const groupBugStatus = trpc.groupFeedback.status.useQuery(undefined, {
-    enabled: directoryReady,
+    enabled: onlineReady,
     refetchOnWindowFocus: true,
     staleTime: 8000,
   });
   const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 }, directoryOptions);
-  const botUidList = trpc.account.botUids.useQuery(undefined, directoryOptions);
+  const botUidList = trpc.account.botUids.useQuery(undefined, profileOptions);
   const categories = trpc.account.listCategories.useQuery(undefined, directoryOptions);
-  const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 }, directoryOptions);
+  const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 }, profileOptions);
   const noticeOptions = { enabled: contactsPageOpen, staleTime: 60_000 };
   const buddyRequests = trpc.account.listBuddyRequests.useQuery({ limit: 2000 }, noticeOptions);
   const groupNotifies = trpc.account.listGroupNotifies.useQuery({ limit: 2000 }, noticeOptions);
   const openedUin = useViewState((s) => s.openedUin);
   const mailPreferences = trpc.mail.preferences.useQuery(
     { selfUin: openedUin ?? '' },
-    { enabled: Boolean(openedUin) && secondaryReady, staleTime: 0, refetchOnMount: 'always' },
+    { enabled: Boolean(openedUin) && onlineReady, staleTime: 0, refetchOnMount: 'always' },
   );
   const specialCareUnavailable = specialCareBlocker(sendAccess.data);
   const specialCare = trpc.account.specialCare.useQuery(
     { selfUin: openedUin ?? '' },
     {
-      enabled: directoryReady && Boolean(openedUin && specialCareUnavailable === null),
+      enabled: onlineReady && Boolean(openedUin && specialCareUnavailable === null),
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: true,
       retry: false,
     },
   );
+  const batchSettled = (
+    startupStage === 1
+      ? [buddies, categories]
+      : startupStage === 2
+        ? [allGroups]
+        : startupStage === 3
+          ? [profiles, botUidList]
+          : startupStage === 4
+            ? [
+                hiddenSessions,
+                deletedSessions,
+                officialAccounts,
+                serviceAccounts,
+                guildDirectSessions,
+              ]
+            : []
+  ).every((query) => query.isFetched && !query.isFetching);
+  const essentialReady = firstContactsReady && selfProfile.isFetched;
+  useEffect(() => {
+    const next = nextStartupQueryStage(startupStage, essentialReady, batchSettled);
+    if (next === null) return;
+    return scheduleStartupQueryBatch(
+      () => setStartupStage(next),
+      () => !initialMessagesPendingRef.current && queryClient.isFetching() === 0,
+    );
+  }, [startupStage, essentialReady, batchSettled, queryClient]);
   const [refreshingContacts, setRefreshingContacts] = useState(false);
   const refreshingContactsRef = useRef(false);
   const refreshContacts = async (): Promise<void> => {
@@ -4098,7 +4140,7 @@ function MainWorkspace(): ReactElement {
   const mailPreference = trpc.mail.status.useQuery(
     { selfUin: user.identityValue },
     {
-      enabled: secondaryReady && /^[1-9]\d{4,19}$/.test(user.identityValue),
+      enabled: onlineReady && /^[1-9]\d{4,19}$/.test(user.identityValue),
       staleTime: 0,
       refetchOnMount: 'always',
       refetchOnWindowFocus: false,
@@ -5013,7 +5055,7 @@ function MainWorkspace(): ReactElement {
     history: shellHistory,
   });
   useEffect(() => {
-    setContactsPageOpen(!IS_WEB || shell.view === 'contacts');
+    setContactsPageOpen(shell.view === 'contacts');
   }, [shell.view]);
   const detailContact = shell.view === 'contacts' ? shell.selectedContact : undefined;
   const { uid: detailContactUid, uin: detailContactUin } = contactProfileIdentity(detailContact);
@@ -5613,7 +5655,6 @@ function MainWorkspace(): ReactElement {
   // cancelling and restarting an all-conversation scan on every change.
   const unreadContactsRef = useRef(recentContactsData);
   unreadContactsRef.current = recentContactsData;
-  const initialMessagesPendingRef = useRef(false);
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
@@ -6550,11 +6591,11 @@ function MainWorkspace(): ReactElement {
     let offset = 0;
     const resolveBatch = () => {
       if (disposed) return;
-      if (IS_WEB && (initialMessagesPendingRef.current || document.visibilityState === 'hidden')) {
+      if (initialMessagesPendingRef.current || document.visibilityState === 'hidden') {
         cancel = scheduleBackgroundLoad(resolveBatch, 500);
         return;
       }
-      const batch = IS_WEB ? recentContactsData.slice(offset, offset + 30) : recentContactsData;
+      const batch = recentContactsData.slice(offset, offset + 30);
       const uids: string[] = [];
       for (const contact of batch) {
         const ids = previewIdentityIds(contact.preview, contact.senderUid).filter((id) =>
@@ -6566,11 +6607,9 @@ function MainWorkspace(): ReactElement {
       }
       resolveProfiles(uids);
       offset += batch.length;
-      if (IS_WEB && offset < recentContactsData.length)
-        cancel = scheduleBackgroundLoad(resolveBatch);
+      if (offset < recentContactsData.length) cancel = scheduleBackgroundLoad(resolveBatch);
     };
-    if (IS_WEB) cancel = scheduleBackgroundLoad(resolveBatch, 100);
-    else resolveBatch();
+    cancel = scheduleBackgroundLoad(resolveBatch, 100);
     return () => {
       disposed = true;
       cancel?.();
@@ -6578,7 +6617,7 @@ function MainWorkspace(): ReactElement {
   }, [recentContactsData, groupInfoRevision, resolvePreviewMembers, resolveProfiles]);
 
   useEffect(() => {
-    if (IS_WEB && (!directoryReady || !profiles.isFetched)) return;
+    if (!profiles.isFetched) return;
     const uids: string[] = [];
     for (const buddy of (buddies.data ?? []) as BuddyWire[]) uids.push(buddy.uid);
     for (const request of (buddyRequests.data ?? []) as BuddyRequestWire[])
@@ -10582,9 +10621,9 @@ function MainWorkspace(): ReactElement {
     shell.view === 'mail' ||
     shell.view === 'channel' ||
     shell.view === 'annual';
-  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(undefined, secondaryOptions);
+  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(undefined, onlineOptions);
   useCloneTaskRefresh();
-  const directoryGroups = trpc.account.listAgentLabGroups.useQuery(undefined, secondaryOptions);
+  const directoryGroups = trpc.account.listAgentLabGroups.useQuery(undefined, onlineOptions);
   const virtualRows = useMemo(
     () => [
       ...(directoryPersonas.data ?? []).map((item) => ({

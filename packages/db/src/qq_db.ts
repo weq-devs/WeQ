@@ -59,9 +59,30 @@ export class QqDb {
   private readonly encrypted: boolean;
   private readonly columns = new Map<string, Promise<ReadonlySet<string>>>();
 
+  async hasLeadingIndex(table: string, column: string): Promise<boolean> {
+    return this.hasIndexPrefix(table, [column]);
+  }
+
+  async hasIndexPrefix(table: string, columns: readonly string[]): Promise<boolean> {
+    if (!columns.length) return false;
+    return (
+      (
+        await this.query(
+          `SELECT 1 FROM pragma_index_list(?) i WHERE i.partial=0 AND NOT EXISTS (
+         SELECT 1 FROM json_each(?) wanted LEFT JOIN pragma_index_info(i.name) c
+           ON c.seqno=CAST(wanted.key AS INTEGER)
+         WHERE c.name IS NULL OR c.name!=wanted.value
+       ) LIMIT 1`,
+          [table, JSON.stringify(columns)],
+        )
+      ).length > 0
+    );
+  }
+
   /** LIMIT 必须是最后一个参数；超预算只缩小未完成页，不丢弃或跳过数据。 */
   async queryPage(sql: string, params: SqlValue[], pageSize = 64) {
-    let limit = pageSize;
+    if (!Number.isSafeInteger(pageSize) || pageSize < 1) throw new Error('分页大小必须是正整数');
+    let limit = Math.min(pageSize, 1024);
     const read = this.nt.executeSqlBudgeted;
     for (;;) {
       databaseRequestSignal()?.throwIfAborted();

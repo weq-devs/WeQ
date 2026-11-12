@@ -47,6 +47,7 @@ export type {
 
 export { AntiRecallDb, expectedAntiRecallTriggers } from './anti_recall';
 export { AnnualReportIndexDb } from './annual_report_index';
+export { MessageReadIndexDb } from './message_read_index';
 export type { AnnualReportIndexInfo } from './annual_report_index';
 export type {
   AntiRecallKind,

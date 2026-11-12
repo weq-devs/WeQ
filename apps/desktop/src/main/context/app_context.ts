@@ -30,7 +30,12 @@ import { VipBadgeService } from '../vip_badge';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { AnnualReportIndexDb, withDatabasePriority, waitForDatabaseQuiet } from '@weq/db';
+import {
+  AnnualReportIndexDb,
+  MessageReadIndexDb,
+  withDatabasePriority,
+  waitForDatabaseQuiet,
+} from '@weq/db';
 import { waitForCalendarWrites } from '@weq/service/conversation-calendar-store';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
@@ -83,6 +88,7 @@ import {
   getVoiceModel,
   MsgService,
   getHost,
+  resolveSsoClientSnapshot,
   resolveExportSaveDirectory,
   resolveGeneratedResource,
   RecentContactService,
@@ -666,28 +672,15 @@ export function closeSalvageConnections(ctx: AppContext): number {
 }
 
 /**
- * 年度报告索引的后台预热 —— 开账号时调一次，把两个派生索引补齐。
- *
- * 为什么放在这里（而不是打开报告时）：这两个索引让报告第一页从 ~0.9s 降到
- * ~0.06s（实测 200 万行），但**第一次**建它要全表扫一遍写 B-tree。native 对同一个
- * 库的查询是串行化的（实测：一个慢查询会把同库的 `SELECT 1` 挡 1.5s），所以若等到
- * 用户打开报告那一刻才建，用户会先等一次建索引 —— 恰好把优化抵消掉。放在开账号后
- * 的后台，用户还没走到报告页，这次建索引就是「白捡」的。
- *
- * 三个刻意的选择：
- *   • 延迟仅是首次检查；缺失索引逐个等待数据库队列为空且交互安静五秒，
- *     再以后台优先级创建，不能将定时器到点当作空闲。已执行的 DDL 不可抢占。
- *   • **best-effort**：静态快照、只读目录、无写权限都会抛错，一律只记日志 ——
- *     报告不该因为装不上索引就打不开，只是慢一点。
- *   • **幂等**：先检查已有索引，不重复提交 DDL；两个缺失索引之间再次让出。
- *
- * 返回前会核对 session 仍是当前账号 —— 期间用户切了账号就整个丢弃。
+ * UID 消息读取与年度报告派生索引的空闲预热。
+ * 每个不可抢占的 DDL 前重新等队列排空、交互安静五秒；不能把定时器到点当作空闲。
+ * 已有等价索引不重建。只读来源等安装失败只记日志，读取仍使用短段回退。
  */
 function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platform: Platform): void {
   cancelAnnualReportWarmup();
   const controller = new AbortController();
   annualIndexController = controller;
-  const logger = getLogger().child({ scope: 'annual-report-index' });
+  const logger = getLogger().child({ scope: 'database-index' });
   annualIndexWarmup = setTimeout(() => {
     annualIndexWarmup = null;
     // 期间切过账号 / 关过账号就放弃：索引属于刚打开的那个会话。
@@ -700,28 +693,35 @@ function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platfor
       });
       const installed = await withDatabasePriority(
         'background',
-        () =>
-          db.ensure({
-            beforeCreate: () =>
-              waitForDatabaseQuiet(
-                session.msgDbPath,
-                () => ctx.account === session && !controller.signal.aborted,
-              ),
-          }),
+        async () => {
+          const beforeCreate = () =>
+            waitForDatabaseQuiet(
+              session.msgDbPath,
+              () => ctx.account === session && !controller.signal.aborted,
+            );
+          const uidTables = await new MessageReadIndexDb(platform.native.ntHelper, {
+            dbPath: session.msgDbPath,
+            key: session.context.dbKey,
+            algo: algoFor(session.context, session.msgDbPath),
+          }).ensure({ beforeCreate });
+          const annual = await db.ensure({ beforeCreate });
+          return { uidTables, annual };
+        },
         controller.signal,
       );
       if (ctx.account !== session) return;
-      logger.info('annual report indexes ready', {
-        event: 'annual-index-ready',
+      logger.info('database read indexes ready', {
+        event: 'read-index-ready',
         accountUin: session.context.uin,
-        indexes: installed.map((index) => index.name),
+        indexes: installed.annual.map((index) => index.name),
+        uidTables: installed.uidTables,
       });
       // 读侧复用账号连接；写侧 QqDb.write 已在每条 DDL 结束后释放锁。
     })()
       .catch((error) => {
         if (controller.signal.aborted) return;
-        logger.warn('failed to build annual report indexes (report still works, just slower)', {
-          event: 'annual-index-failed',
+        logger.warn('failed to build read indexes (short reads remain available)', {
+          event: 'read-index-failed',
           accountUin: session.context.uin,
           ...logErrorContext(error),
         });
@@ -2175,12 +2175,19 @@ export function initAppContext(fileRoot?: string): AppContext {
             selfUid: session.selfUid,
             getBuddy: (uid) => session.buddies.getBuddy(uid),
             listCategories: () => session.categories.listCategories(),
-            clientVersion: () => {
-              const path = platform.qqMajorNodePath(resolveOnlinePid());
-              if (!path) throw new Error('无法读取当前 QQ 版本');
-              const info = platform.native.ntHelper.resolveAppidFromMajor(path);
-              if (!info.version || !info.build) throw new Error('当前 QQ 版本信息不完整');
-              return `${info.version}-${info.build}`;
+            clientVersion: async () => {
+              const client = await resolveSsoClientSnapshot(
+                platform.native.ntHelper,
+                platform,
+                resolveOnlinePid(),
+                {
+                  uin: session.context.uin,
+                  uid: session.selfUid,
+                  guid: accountConfig.getRecord()?.guid ?? '',
+                },
+              );
+              if (!client.identity.clientVersion) throw new Error('当前 QQ 版本信息不完整');
+              return client.identity.clientVersion;
             },
           },
           () => {
@@ -2987,12 +2994,19 @@ export function initAppContext(fileRoot?: string): AppContext {
             selfUid: session.selfUid,
             getBuddy: (uid) => session.buddies.getBuddy(uid),
             listCategories: () => session.categories.listCategories(),
-            clientVersion: () => {
-              const path = platform.qqMajorNodePath(livePid());
-              if (!path) throw new Error('无法读取当前 QQ 版本');
-              const info = platform.native.ntHelper.resolveAppidFromMajor(path);
-              if (!info.version || !info.build) throw new Error('当前 QQ 版本信息不完整');
-              return `${info.version}-${info.build}`;
+            clientVersion: async () => {
+              const client = await resolveSsoClientSnapshot(
+                platform.native.ntHelper,
+                platform,
+                livePid(),
+                {
+                  uin: session.context.uin,
+                  uid: session.selfUid,
+                  guid: accountConfig.getRecord()?.guid ?? '',
+                },
+              );
+              if (!client.identity.clientVersion) throw new Error('当前 QQ 版本信息不完整');
+              return client.identity.clientVersion;
             },
           },
           () => {

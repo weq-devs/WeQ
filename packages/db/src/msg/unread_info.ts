@@ -22,7 +22,7 @@ import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { databaseRequestSignal } from '../query_schedule';
 import { toBigint } from './util';
 
-export const UNREAD_OUTGOING_PAGE_SIZE = 64;
+export const UNREAD_OUTGOING_PAGE_SIZE = 256;
 const OUTGOING_CACHE_MAX_AGE_MS = 60_000;
 const OUTGOING_CACHE_MAX_SEQUENCES = 32_768;
 interface OutgoingWindow {
@@ -333,6 +333,7 @@ export class UnreadInfoDb {
     const outgoing = new Set(reusable ? cached.sequences.filter((seq) => BigInt(seq) > from) : []);
     if (reusable && cached.through > from) afterSeq = String(cached.through);
     let cursor: [bigint, bigint] | undefined;
+    let pageSize = UNREAD_OUTGOING_PAGE_SIZE;
     for (;;) {
       databaseRequestSignal()?.throwIfAborted();
       // LIMIT 位于发送者筛选前；即使没有自己发言，也只交付一页真实消息。
@@ -355,8 +356,9 @@ export class UnreadInfoDb {
           ...(cursor ?? [afterSeq]),
           snapshot.latestSeq!,
         ],
-        UNREAD_OUTGOING_PAGE_SIZE,
+        pageSize,
       );
+      pageSize = page.limit;
       const rows = page.rows;
       databaseRequestSignal()?.throwIfAborted();
       for (const row of rows) if (Number(row[2]) === 1) outgoing.add(String(row[1]));

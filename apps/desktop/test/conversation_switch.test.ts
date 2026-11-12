@@ -997,7 +997,8 @@ it.each(['10001', 'u_peer'])(
         ),
       );
       await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
-      expect(f.headEnabled).toBe(true);
+      // 启动批次尚未完成时不重复读取最近页；新正文仍须主动校准预览。
+      expect(f.headEnabled).toBe(false);
       await act(async () =>
         [...host.querySelectorAll<HTMLButtonElement>('nav button')]
           .find((button) => button.textContent === id)!

@@ -34,6 +34,8 @@ files:
 extraResources:
   - from: out/main/imageWorker.mjs
     to: out/main/imageWorker.mjs
+  - from: out/main/coverWorker.mjs
+    to: out/main/coverWorker.mjs
   - from: out/main/backupProbeWorker.mjs
     to: out/main/backupProbeWorker.mjs
   - from: out/main/dbCheckupWorker.mjs

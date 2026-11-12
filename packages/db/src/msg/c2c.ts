@@ -46,7 +46,12 @@ import {
 } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
-import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
+import {
+  queryMessageDays,
+  queryMessageBoundary,
+  queryMessageYears,
+  type MessageBounds,
+} from './calendar';
 import {
   browseConditions,
   type BrowseFilter,
@@ -195,7 +200,8 @@ export class C2cMsgDb {
 
   /** Newest N messages in one conversation, newest-first (DESC by seq). */
   async listLatest(part: C2cPartition, limit = 50): Promise<C2cMsg[]> {
-    if ('uid' in part) return this.listUidPage(part.uid, limit, true);
+    if ('uid' in part && !(await this.qq.hasLeadingIndex(this.table, '40021')))
+      return this.listUidPage(part.uid, limit, true);
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
@@ -238,7 +244,7 @@ export class C2cMsgDb {
 
   /** The page of messages just older than `beforeSeq` (exclusive), newest-first. */
   async listBefore(part: C2cPartition, beforeSeq: bigint, limit = 50): Promise<C2cMsg[]> {
-    if ('uid' in part)
+    if ('uid' in part && !(await this.qq.hasLeadingIndex(this.table, '40021')))
       return this.listUidPage(
         part.uid,
         limit,
@@ -258,7 +264,7 @@ export class C2cMsgDb {
 
   /** The page of messages just newer than `afterSeq` (exclusive), oldest-first. */
   async listAfter(part: C2cPartition, afterSeq: bigint, limit = 50): Promise<C2cMsg[]> {
-    if ('uid' in part)
+    if ('uid' in part && !(await this.qq.hasLeadingIndex(this.table, '40021')))
       return this.listUidPage(
         part.uid,
         limit,
@@ -307,7 +313,7 @@ export class C2cMsgDb {
    * plus in-place edits (recall) within the window.
    */
   async listFrom(part: C2cPartition, sinceSeq: bigint, limit = 500): Promise<C2cMsg[]> {
-    if ('uid' in part)
+    if ('uid' in part && !(await this.qq.hasLeadingIndex(this.table, '40021')))
       return this.listUidPage(
         part.uid,
         limit,
@@ -748,16 +754,10 @@ export class C2cMsgDb {
 
   /**
    * 从真实发送时间取北京日历年份，不依赖可能缺失或滞后的 40058 日字段。
-   * 先按整数北京日去重，再转换年份，避免每条消息重复计算 strftime。
-   * 不筛方向；调用方按数据修订缓存此候选探测。
+   * 复用已有时间索引按年跳转；无索引时短分页，不筛发送方向。
    */
   async yearsWithMessages(): Promise<number[]> {
-    const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y', day * 86400, 'unixepoch') AS INTEGER) AS y
-       FROM (SELECT DISTINCT CAST(("40050" + 28800) / 86400 AS INTEGER) AS day
-             FROM ${this.table} WHERE "40050" > 0)`,
-    );
-    return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
+    return queryMessageYears(this.qq, this.table);
   }
 
   /**

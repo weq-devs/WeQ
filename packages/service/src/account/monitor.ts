@@ -581,7 +581,8 @@ export class AccountMonitorService {
       uid: record?.uid ?? '',
       guid: record?.guid ?? '',
     };
-    const client = resolveSsoClientSnapshot(this.nt, this.platform, pid, identity);
+    const client = await resolveSsoClientSnapshot(this.nt, this.platform, pid, identity);
+    this.assertCurrent(generation, pid);
     // Only a registration confirmed by this monitor can establish the fingerprint.
     // hasSsoSession alone says nothing about whether new material has been installed.
     const fingerprint = createHash('sha256')

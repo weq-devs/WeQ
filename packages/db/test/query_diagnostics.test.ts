@@ -15,6 +15,32 @@ import { ACTIVE_QUERY_DIAGNOSTIC_LIMIT, withDatabaseRequest } from '../src/query
 
 afterEach(() => vi.unstubAllEnvs());
 
+it('独立诊断可采样低于告警阈值的等待，不改变默认告警订阅', async () => {
+  let now = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const warning = vi.fn(),
+    diagnostic = vi.fn();
+  const stopWarning = observeSlowDatabaseOperations(warning);
+  const stopDiagnostic = observeSlowDatabaseOperations(diagnostic, SLOW_DATABASE_OPERATION_MS / 4);
+  try {
+    await scheduleDatabase('/synthetic/separate-observation.db', async () => {
+      now += SLOW_DATABASE_OPERATION_MS / 2;
+    });
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(warning).not.toHaveBeenCalled();
+    stopDiagnostic();
+    await scheduleDatabase('/synthetic/separate-observation.db', async () => {
+      now += SLOW_DATABASE_OPERATION_MS / 2;
+    });
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(warning).not.toHaveBeenCalled();
+  } finally {
+    stopWarning();
+    stopDiagnostic();
+    clock.mockRestore();
+  }
+});
+
 it.each([
   [SLOW_DATABASE_OPERATION_MS - 1, false],
   [SLOW_DATABASE_OPERATION_MS, false],
