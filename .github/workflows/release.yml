@@ -106,7 +106,7 @@ jobs:
       # 不能混版本）。--require-fresh 卡住 30 天有效期，--verify 当场 require 一次
       # 跑 getInitStatus()，二进制有问题在这里就炸，而不是出厂后才发现。
       - name: Fetch nt_helper native artifacts
-        run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
+        run: node scripts/fetch-native.mjs --require-fresh --require-authorization --require-qq-sync --verify
 
       # 把 tag 里的版本号（v1.2.3 -> 1.2.3）写进 package.json，
       # 让 electron-builder 命名产物、app.getVersion() 也能读到。

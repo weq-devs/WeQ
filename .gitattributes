@@ -11,6 +11,7 @@
 # Source code
 *.ts text eol=lf
 *.tsx text eol=lf
+*.mts text eol=lf
 *.js text eol=lf
 *.jsx text eol=lf
 # ESM / CJS 脚本（scripts/、apps/web/scripts/ 等）：Biome 要求 LF，不写进来就会

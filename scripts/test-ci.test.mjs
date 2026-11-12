@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { testSummary } from './test-summary.mjs';
 import { fileCosts } from './test-timing-reporter.mjs';
 import BalancedSequencer, {
@@ -144,7 +144,7 @@ test('实际 tsc 增量信息不会掩盖依赖修改、删除或编译选项引
 });
 
 test('安装中的 Vitest 与桌面成本分片器覆盖全部真实测试文件且每文件恰好一次', async () => {
-  const { BaseSequencer } = await import(desktopRequire.resolve('vitest/node'));
+  const { BaseSequencer } = await import(pathToFileURL(desktopRequire.resolve('vitest/node')).href);
   for (const [directory, count] of [
     ['apps/desktop', 6],
     ['packages/service', 2],
@@ -206,7 +206,7 @@ test('分片稳定、与输入顺序和 checkout 路径无关，新文件及失�
     balancedShards([], 2, cost, (file) => file),
     [[], []],
   );
-  const { BaseSequencer } = await import(desktopRequire.resolve('vitest/node'));
+  const { BaseSequencer } = await import(pathToFileURL(desktopRequire.resolve('vitest/node')).href);
   const ctx = {
     config: { root: '/project' },
     cache: {
@@ -234,7 +234,7 @@ test('实测成本基线有效且均衡后最大分片成本不高于原生分�
     assert.match(file, /^test\/.*\.test\.ts$/);
     assert.ok(Number.isFinite(cost) && cost > 0);
   }
-  const { BaseSequencer } = await import(desktopRequire.resolve('vitest/node'));
+  const { BaseSequencer } = await import(pathToFileURL(desktopRequire.resolve('vitest/node')).href);
   const root = fileURLToPath(new URL('../apps/desktop/', import.meta.url));
   const files = readdirSync(resolve(root, 'test'), { recursive: true })
     .filter((name) => name.endsWith('.test.ts'))

@@ -13,6 +13,7 @@ import { clearStorageAfterExit, clearStorageNow, storageCleanupResult } from './
 import { DialogLocations } from './dialog_locations';
 import { AppAutostart } from './autostart';
 import { manualRestartArgs } from './startup_window';
+import { getPrivateTextSentHandler } from './qq_sync';
 import { prepareDevelopmentRestart } from './development_restart';
 
 let startup: AppAutostart | null = null;
@@ -131,6 +132,9 @@ function desktopStorageRoots(): StorageRoot[] {
 }
 
 export const electronHost: HostBridge = {
+  get syncPrivateTextSent() {
+    return getPrivateTextSentHandler();
+  },
   storageRoots: desktopStorageRoots,
   clearStorageAfterExit,
   clearStorageNow,
