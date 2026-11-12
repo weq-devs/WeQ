@@ -299,7 +299,6 @@ export function useChatShellController({
           ...expanded,
           ...local,
           profileContext: expanded.profileContext,
-          profileLabelId: expanded.profileLabelId,
         }
       : (local ?? expanded);
   }, [contacts, selectedContactId, expandedContact, contactTab]);

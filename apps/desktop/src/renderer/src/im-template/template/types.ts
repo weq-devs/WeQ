@@ -72,7 +72,6 @@ export type OnlineStatusInfo = {
 
 export type Contact = User & {
   profileContext?: { groupCode: string; groupName: string; member?: Partial<GroupMember> };
-  profileLabelId?: string;
   sigUpdateTime?: number;
   createdAt: string;
   categoryId?: number;

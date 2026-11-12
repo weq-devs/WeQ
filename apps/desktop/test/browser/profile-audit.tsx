@@ -171,7 +171,7 @@ function Fixture() {
               <ContactWorkspaceNavigationContext.Provider
                 value={(next) => {
                   if (next.kind === 'person') {
-                    setPerson({ ...next.contact, profileLabelId: next.labelId });
+                    setPerson(next.contact);
                     setTab(next.tab ?? 'profile');
                     setPage('page');
                   }

@@ -94,11 +94,21 @@ it('重建界面恢复栏目和联系人详情，另一数据源不继承旧导�
   expect(other.state().selectedContactId).toBeNull();
 });
 
+it('旧标签相册章节快照恢复为概览，不重新打开已移除的聚合页', () => {
+  const storage = new Storage();
+  const scope = 'removed-label-albums';
+  const first = mount(storage, scope);
+  act(() => first.state().openContactDetails(person, 'marks'));
+  pageSnapshots.write(JSON.stringify([scope, 'shell:contact-detail']), 'labels');
+  const restored = mount(storage, scope);
+  expect(restored.state().selectedContactId).toBe(person.id);
+  expect(restored.state().contactWorkspaceTab).toBe('profile');
+});
+
 it.each([
   'profile',
   'details',
   'signatures',
-  'labels',
   'questions',
   'marks',
   'group',

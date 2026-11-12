@@ -1,7 +1,8 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { ProfileExtras } from '../src/renderer/src/components/ProfileExtras';
+import { ProfileExtras, ProfileLabelAlbum } from '../src/renderer/src/components/ProfileExtras';
+import type { PersonalityLabel } from '@weq/protocol';
 
 const state = vi.hoisted(() => ({
   online: true,
@@ -185,37 +186,102 @@ it('未返回互动数量的问答保留可辨认的展开入口', async () => {
   expect(button?.textContent).toContain('查看互动');
   expect(button?.getAttribute('aria-label')).toBe('查看问答互动');
 });
-it('能量值失败不阻塞标签入口', async () => {
+it('扩展资料不再保留全部标签的聚合入口', async () => {
   state.energy.mockReturnValue({ ...result(), error: new Error('暂不可用') });
   await render();
   expect(host.textContent).toContain('暂不可读取');
-  await click('标签相册');
-  expect(state.labels).toHaveBeenCalled();
-  expect(document.body.textContent).toContain('暂无标签相册');
+  expect(host.textContent).not.toContain('标签相册');
+  expect(state.labels).not.toHaveBeenCalled();
 });
-it('已结束的照片首批直接展示，点击复用预览', async () => {
-  state.labels.mockReturnValue(
-    result({
-      targetUin: '10002',
-      labels: [
-        {
-          id: 'label',
-          text: '合成相册',
-          cover: null,
-          photoCount: 1,
-          photoCursor: null,
-          photos: [{ id: 'p', url: 'https://p.qpic.cn/fixture', uploadedAt: null, likes: null }],
+const label: PersonalityLabel = {
+  id: 'label',
+  text: '合成相册',
+  cover: null,
+  photoCount: 1,
+  photoCursor: null,
+  photos: [{ id: 'p', url: 'https://p.qpic.cn/fixture', uploadedAt: null, likes: null }],
+  likes: null,
+};
+async function renderAlbum(value = label) {
+  await act(async () =>
+    root.render(
+      h(ProfileLabelAlbum, {
+        key: `${state.account}:${state.target}`,
+        input: {
+          uin: state.target,
+          expectedAccountUin: state.account,
+          expectedAccountConfigId: 'source',
         },
-      ],
-    }),
+        online: state.online,
+        label: value,
+        refresh: async () => {},
+      }),
+    ),
   );
-  await render();
-  await click('标签相册');
+}
+it('已结束的照片首批直接展示，点击复用预览', async () => {
+  await renderAlbum();
+  expect(state.photos).not.toHaveBeenCalled();
   await click('合成相册');
+  expect(document.querySelector('.weq-overlay-layer.is-popover')).toBeTruthy();
+  expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  expect(document.body.textContent).not.toContain('全部标签');
   expect(state.photos.mock.calls.at(-1)?.[1].enabled).toBe(false);
   const photo = document.querySelector<HTMLButtonElement>('[aria-label="查看第 1 张照片"]');
   await act(async () => photo!.click());
   expect(document.querySelector('[aria-label="标签照片预览"]')).toBeTruthy();
+});
+it('重复点击标签收起相册，关闭按钮也可收起', async () => {
+  await renderAlbum();
+  await click('合成相册');
+  expect(host.querySelector('button')?.getAttribute('aria-expanded')).toBe('true');
+  await click('合成相册');
+  expect(document.querySelector('.weq-label-album')).toBeNull();
+  await click('合成相册');
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="关闭标签相册"]')!.click(),
+  );
+  expect(document.querySelector('.weq-label-album')).toBeNull();
+});
+it('空相册不请求照片，未知总数的相册按需读取并保留首批', async () => {
+  await renderAlbum({ ...label, photoCount: 0, photos: [] });
+  await click('合成相册');
+  expect(document.body.textContent).toContain('暂无照片');
+  expect(state.photos.mock.calls.at(-1)?.[1].enabled).toBe(false);
+  await renderAlbum({ ...label, photoCount: null });
+  expect(state.photos.mock.calls.at(-1)?.[1].enabled).toBe(true);
+  expect(document.querySelector('[aria-label="查看第 1 张照片"]')).toBeTruthy();
+});
+it('离线保留首批照片，缺少照片时说明不能在线读取', async () => {
+  state.online = false;
+  await renderAlbum({ ...label, photoCount: 3 });
+  await click('合成相册');
+  expect(state.photos.mock.calls.at(-1)?.[1].enabled).toBe(false);
+  expect(document.querySelector('[aria-label="查看第 1 张照片"]')).toBeTruthy();
+  await renderAlbum({ ...label, photoCount: null, photos: [] });
+  expect(document.body.textContent).toContain('暂不可在线读取');
+});
+it('后续照片失败保留首批，可重试且使用当前标签游标', async () => {
+  const refetch = vi.fn();
+  state.photos.mockReturnValue({ ...result(), error: new Error('暂不可读'), refetch });
+  await renderAlbum({ ...label, photoCount: 3, photoCursor: 'cursor' });
+  await click('合成相册');
+  expect(state.photos.mock.calls.at(-1)?.[0].labelId).toBe(label.id);
+  expect(state.photos.mock.calls.at(-1)?.[1].initialCursor).toBe('cursor');
+  expect(document.querySelector('[aria-label="查看第 1 张照片"]')).toBeTruthy();
+  await click('重试本页');
+  expect(refetch).toHaveBeenCalledOnce();
+});
+it('切账号或联系人卸载旧相册', async () => {
+  await renderAlbum();
+  await click('合成相册');
+  state.account = '10003';
+  await renderAlbum();
+  expect(document.querySelector('.weq-label-album')).toBeNull();
+  await click('合成相册');
+  state.target = '10004';
+  await renderAlbum();
+  expect(document.querySelector('.weq-label-album')).toBeNull();
 });
 it('后续页失败保留已加载签名，重试不清空正文', async () => {
   state.signatures.mockReturnValue({

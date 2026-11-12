@@ -41,7 +41,6 @@ export const contactWorkspaceTabSchema = z.enum([
   'profile',
   'details',
   'signatures',
-  'labels',
   'questions',
   'marks',
   'group',
@@ -68,7 +67,6 @@ export type ContactWorkspaceTarget =
       contact: Contact;
       tab?: ContactWorkspaceTab;
       group?: ProfileGroup;
-      labelId?: string;
     }
   | {
       kind: 'group';

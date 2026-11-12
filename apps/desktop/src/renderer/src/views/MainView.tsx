@@ -12616,7 +12616,6 @@ function MainWorkspace(): ReactElement {
                       member: target.contact.profileContext?.member,
                     }
                   : target.contact.profileContext,
-                profileLabelId: target.labelId,
               },
               target.tab,
             );

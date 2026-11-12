@@ -216,14 +216,20 @@ try {
         .filter((call) => call.path.endsWith('peerStats'))
         .every((call) => JSON.stringify(call.input.fields) === '["level"]'),
     );
+    await card.getByRole('button', { name: '没有照片的标签', exact: true }).click();
+    await page.getByText('暂无照片', { exact: true }).waitFor();
+    assert.equal(await page.locator('.weq-extras-dialog').count(), 0);
+    await page.getByRole('button', { name: '关闭标签相册', exact: true }).click();
     await page.locator('.weq-profile-name').click();
     await page.locator('.weq-contact-workspace-v2').waitFor();
     const expanded = await page.evaluate(() => window.contactCardQa.calls);
     assert.equal(expanded.filter((call) => call.path === 'account.getProfile').length, 1);
     assert.equal(expanded.filter((call) => call.path === 'account.getCardDisplayNames').length, 1);
-    await page.getByRole('button', { name: '标签相册', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '标签相册', exact: true }).count(), 0);
     await page.getByRole('button', { name: /没有照片的标签/ }).click();
     await page.getByText('暂无照片', { exact: true }).waitFor();
+    assert.equal(await page.locator('.weq-label-album').count(), 1);
+    await page.getByRole('button', { name: '关闭标签相册', exact: true }).click();
     assert.equal(
       (await page.evaluate(() => window.contactCardQa.calls)).filter((call) =>
         call.path.endsWith('personalityPhotos'),

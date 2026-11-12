@@ -49,7 +49,7 @@ import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { QQGroupMemberControls } from '../QQGroupMemberControls';
 import { openMediaPreview } from '../mediaPreviewStore';
 import { QqShowGallery } from '../QqShowGallery';
-import { ProfileExtraDialog, type ProfileExtraView } from '../ProfileExtras';
+import { ProfileExtraDialog, ProfileLabelAlbum, type ProfileExtraView } from '../ProfileExtras';
 import {
   ContactEmptyState,
   ContactInlineError,
@@ -371,36 +371,40 @@ function EnergyRow({ person }: { person: ProfilePerson }) {
   return typeof score === 'number' ? <ContactRow label="QQ 能量值" value={score} /> : null;
 }
 
-function LabelsRow({ person, open }: { person: ProfilePerson; open: (id?: string) => void }) {
+function LabelsRow({ person, preview }: { person: ProfilePerson; preview: boolean }) {
   const session = useQQWriteSession(`profile-extras:${person.identityValue}`, true);
-  const query = trpc.account.profileExtras.personalityLabels.useQuery(
-    {
-      expectedAccountUin: session.binding?.expectedAccountUin ?? '',
-      expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
-      uin: person.identityValue,
-    },
-    { ...PROFILE_QUERY_OPTIONS, enabled: session.available },
-  );
+  const input = {
+    expectedAccountUin: session.binding?.expectedAccountUin ?? '',
+    expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
+    uin: person.identityValue,
+  };
+  const query = trpc.account.profileExtras.personalityLabels.useQuery(input, {
+    ...PROFILE_QUERY_OPTIONS,
+    enabled: session.available,
+  });
   const data = query.data?.targetUin === person.identityValue ? query.data : null;
   const fallback = [...new Set(person.extInfo?.interests ?? [])];
-  const items = data
-    ? data.labels.map((label) => ({ key: label.id, text: label.text, labelId: label.id }))
-    : fallback.map((text) => ({ key: text, text, labelId: undefined }));
-  if (!items.length) return null;
+  if (!(data ? data.labels.length : fallback.length)) return null;
   return (
     <>
       <ContactRow label="标签">
         <div className="weq-profile-tags">
-          {items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className="weq-profile-interest"
-              onClick={() => open(item.labelId)}
-            >
-              {item.text}
-            </button>
-          ))}
+          {data
+            ? data.labels.map((label) => (
+                <ProfileLabelAlbum
+                  key={`${input.expectedAccountUin}:${input.expectedAccountConfigId}:${input.uin}:${label.id}`}
+                  input={input}
+                  online={session.available}
+                  label={label}
+                  refresh={query.refetch}
+                  disabled={preview}
+                />
+              ))
+            : fallback.map((text) => (
+                <span key={text} className="weq-profile-interest">
+                  {text}
+                </span>
+              ))}
         </div>
       </ContactRow>
       {query.error ? (
@@ -625,7 +629,7 @@ export function ContactContent({
   settings: ContactCardSettings;
   full?: boolean;
   fields?: ContactCardContent[];
-  onSection?: (section: ContactWorkspaceTab, labelId?: string) => void;
+  onSection?: (section: ContactWorkspaceTab) => void;
   onNavigate?: () => void;
   localOnly?: boolean;
   /** 名片宿主可以把「群内资料」等分区插在正文与「更多资料」之间，保持分区顺序一致。 */
@@ -633,7 +637,7 @@ export function ContactContent({
   /** 设置页预览：只渲染内容，不提供跳转与「更多资料」。 */
   preview?: boolean;
 }) {
-  const [detail, setDetail] = useState<{ view: ProfileExtraView; labelId?: string } | null>(null);
+  const [detail, setDetail] = useState<{ view: ProfileExtraView } | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const navigate = useContext(ContactWorkspaceNavigationContext);
   const friendDirectory = useContext(FriendDirectoryContext);
@@ -652,10 +656,10 @@ export function ContactContent({
   // 资料页由宿主承载章节与目录，名片才需要「更多资料」入口。
   const showMore = !onSection && !preview;
   const technical = full;
-  function open(view: ProfileExtraView, labelId?: string) {
+  function open(view: ProfileExtraView) {
     if (preview) return;
-    if (onSection) onSection(view === 'education' ? 'details' : view, labelId);
-    else setDetail({ view, labelId });
+    if (onSection) onSection(view === 'education' ? 'details' : view);
+    else setDetail({ view });
   }
   const rows: Partial<Record<ContactCardContent, ReactNode>> = {
     qqShow: hasQQ && !person.clone && person.kind !== 'bot' ? <QqShowRow person={person} /> : null,
@@ -693,7 +697,7 @@ export function ContactContent({
         activateTitle="查看教育经历"
       />
     ),
-    labels: personal ? <LabelsRow person={person} open={(id) => open('labels', id)} /> : null,
+    labels: personal ? <LabelsRow person={person} preview={preview} /> : null,
     photos: ext?.album.length ? (
       <ContactRow label="精选照片">
         <div className="weq-profile-album">

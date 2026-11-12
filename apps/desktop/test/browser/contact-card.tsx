@@ -140,7 +140,7 @@ function Fixture() {
               <ContactWorkspaceNavigationContext.Provider
                 value={(target) => {
                   if (target.kind === 'person') {
-                    setPerson({ ...target.contact, profileLabelId: target.labelId });
+                    setPerson(target.contact);
                     setTab(target.tab ?? 'profile');
                     setView('page');
                   }

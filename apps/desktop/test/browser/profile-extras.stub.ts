@@ -282,7 +282,13 @@ function useInfiniteQuery(kind: string) {
   };
 }
 export const trpc = {
+  bootstrap: {
+    getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
+  },
   account: {
+    getAccountConfig: {
+      useQuery: () => ({ data: { uin: account, configId: 'fixture' }, isLoading: false }),
+    },
     profileExtras: {
       details: { useQuery: (input: { uin: string }) => useQuery('details', input) },
       energy: { useQuery: (input: { uin: string }) => useQuery('energy', input) },

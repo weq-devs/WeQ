@@ -1,11 +1,9 @@
-import { useEffect, useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import {
   ArrowDown,
-  ArrowLeft,
   ChevronRight,
   GraduationCap,
   History,
-  Images,
   MessageCircleQuestion,
   RotateCcw,
   X,
@@ -13,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { PersonalityLabel, PersonalityPhoto } from '@weq/protocol';
 import { Modal } from './Dialog';
+import { OverlayLayer } from './OverlayLayer';
 import { SegmentedControl } from './SegmentedControl';
 import { ProfileDetailsEntry, ProfileDetailsContent } from './ProfileDetailsEntry';
 import { ProfileDisplayEntry } from './ProfileDisplaySettings';
@@ -33,17 +32,9 @@ import { educationDegree, educationRows, educationYears } from '../lib/profileEd
 import '../styles/profile-extras.css';
 
 type Target = QQWriteBinding & { uin: string };
-type View = 'signatures' | 'labels' | 'questions' | 'education';
+type View = 'signatures' | 'questions' | 'education';
 export type ProfileExtraView = View | 'details';
-export function ProfileExtrasContent({
-  uin,
-  view,
-  labelId,
-}: {
-  uin: string;
-  view: ProfileExtraView;
-  labelId?: string;
-}) {
+export function ProfileExtrasContent({ uin, view }: { uin: string; view: ProfileExtraView }) {
   const session = useQQWriteSession(`profile-extras:${uin}`);
   const input = {
     expectedAccountUin: session.binding?.expectedAccountUin ?? '',
@@ -59,8 +50,6 @@ export function ProfileExtrasContent({
         <EducationHistory input={input} online={session.available} />
       ) : view === 'signatures' ? (
         <Signatures input={input} online={session.available} />
-      ) : view === 'labels' ? (
-        <Labels input={input} online={session.available} labelId={labelId} />
       ) : (
         <Questions input={input} online={session.available} />
       )}
@@ -70,12 +59,10 @@ export function ProfileExtrasContent({
 export function ProfileExtraDialog({
   uin,
   view,
-  labelId,
   onClose,
 }: {
   uin: string;
   view: ProfileExtraView;
-  labelId?: string;
   onClose: () => void;
 }) {
   const id = useId();
@@ -83,7 +70,6 @@ export function ProfileExtraDialog({
     details: '详细资料',
     education: '教育经历',
     signatures: '历史个性签名',
-    labels: '标签相册',
     questions: '匿问我答',
   }[view];
   return (
@@ -94,7 +80,7 @@ export function ProfileExtraDialog({
           <X size={18} />
         </button>
       </header>
-      <ProfileExtrasContent uin={uin} view={view} labelId={labelId} />
+      <ProfileExtrasContent uin={uin} view={view} />
     </Modal>
   );
 }
@@ -158,13 +144,7 @@ function ExtrasBody({
   const usable = energy.data?.targetUin === input.uin ? energy.data : null;
   const titleId = useId();
   const title =
-    view === 'signatures'
-      ? '历史个性签名'
-      : view === 'labels'
-        ? '标签相册'
-        : view === 'education'
-          ? '教育经历'
-          : '匿问我答';
+    view === 'signatures' ? '历史个性签名' : view === 'education' ? '教育经历' : '匿问我答';
   return (
     <>
       {section === 'signature' ? (
@@ -215,13 +195,6 @@ function ExtrasBody({
                 <ChevronRight size={14} />
               </button>
             </ProfileDisplayEntry>
-            <ProfileDisplayEntry field="personalityLabels">
-              <button type="button" onClick={() => setView('labels')}>
-                <Images size={15} />
-                标签相册
-                <ChevronRight size={14} />
-              </button>
-            </ProfileDisplayEntry>
             <ProfileDisplayEntry field="anonymousQuestions">
               <button type="button" onClick={() => setView('questions')}>
                 <MessageCircleQuestion size={15} />
@@ -255,8 +228,6 @@ function ExtrasBody({
               <EducationHistory input={input} online={online} />
             ) : view === 'signatures' ? (
               <Signatures input={input} online={online} />
-            ) : view === 'labels' ? (
-              <Labels input={input} online={online} />
             ) : (
               <Questions input={input} online={online} />
             )}
@@ -581,77 +552,79 @@ function QuestionList({
     </>
   );
 }
-function Labels({ input, online, labelId }: { input: Target; online: boolean; labelId?: string }) {
-  const active = useTabActive();
-  const [selected, setSelected] = useState<PersonalityLabel | null>(null);
+export function ProfileLabelAlbum({
+  input,
+  online,
+  label,
+  refresh,
+  disabled = false,
+}: {
+  input: Target;
+  online: boolean;
+  label: PersonalityLabel;
+  refresh: () => Promise<unknown>;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
   const [photoRevision, setPhotoRevision] = useState(0);
-  const query = trpc.account.profileExtras.personalityLabels.useQuery(input, {
-    ...queryOptions,
-    enabled: online && active,
-  });
-  useEffect(() => {
-    if (labelId)
-      setSelected((previous) =>
-        previous?.id === labelId
-          ? previous
-          : (query.data?.labels.find((label) => label.id === labelId) ?? null),
-      );
-  }, [labelId, query.data]);
-  if (selected)
-    return (
-      <>
-        <button type="button" className="weq-extras-back" onClick={() => setSelected(null)}>
-          <ArrowLeft size={14} />
-          全部标签
-        </button>
-        <h3 className="weq-extras-label-title">{selected.text}</h3>
-        <ProfileLikeSummary users={selected.likeUsers ?? []} total={selected.likes} />
-        {input.uin === input.expectedAccountUin ? (
-          <PersonalityPhotoUploader
-            input={input}
-            label={selected}
-            online={online}
-            refresh={async () => {
-              const result = await query.refetch();
-              const fresh = result.data?.labels.find((label) => label.id === selected.id);
-              if (fresh) setSelected(fresh);
-              setPhotoRevision((value) => value + 1);
-            }}
-          />
-        ) : null}
-        <Photos
-          key={`${selected.id}:${photoRevision}`}
-          input={input}
-          online={online}
-          label={selected}
-        />
-      </>
-    );
+  const anchor = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  const title = label.text || '未命名标签';
   return (
     <>
-      <PageStatus
-        online={online}
-        pending={query.isFetching}
-        error={query.error}
-        empty={!query.data?.labels.length}
-        emptyText={query.data?.closed ? '标签相册未公开' : '暂无标签相册'}
-        retry={() => void query.refetch()}
-      />
-      <div className="weq-extras-labels">
-        {query.data?.labels.map((label) => (
-          <button type="button" key={label.id} onClick={() => setSelected(label)}>
-            {label.cover ? (
-              <ProfilePhoto src={label.cover} alt="" />
-            ) : (
-              <span className="weq-extras-label-placeholder">
-                <Images size={24} />
-              </span>
-            )}
-            <span>{label.text || '未命名标签'}</span>
-            <small>{label.photoCount === null ? '' : `${label.photoCount} 张`}</small>
-          </button>
-        ))}
-      </div>
+      <button
+        ref={anchor}
+        type="button"
+        className="weq-profile-interest"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {title}
+      </button>
+      {open ? (
+        <OverlayLayer presentation="popover" anchor={anchor.current} onClose={() => setOpen(false)}>
+          <section
+            id={id}
+            className="weq-label-album"
+            aria-label={`${title}相册`}
+            data-privacy-sensitive
+          >
+            <header className="weq-extras-header">
+              <h2>{title}</h2>
+              <button
+                type="button"
+                title="关闭相册"
+                aria-label="关闭标签相册"
+                onClick={() => setOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </header>
+            <div className="weq-label-album-content">
+              <ProfileLikeSummary users={label.likeUsers ?? []} total={label.likes} />
+              {input.uin === input.expectedAccountUin ? (
+                <PersonalityPhotoUploader
+                  input={input}
+                  label={label}
+                  online={online}
+                  refresh={async () => {
+                    await refresh();
+                    setPhotoRevision((value) => value + 1);
+                  }}
+                />
+              ) : null}
+              <Photos
+                key={`${label.id}:${photoRevision}`}
+                input={input}
+                online={online}
+                label={label}
+              />
+            </div>
+          </section>
+        </OverlayLayer>
+      ) : null}
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
 import type { Contact } from '../im-template/template/types';
 import type { ContactWorkspaceTab } from '../lib/profileNavigation';
@@ -19,7 +19,6 @@ const sections: Array<[ContactWorkspaceTab, string]> = [
   ['profile', '概览'],
   ['details', '详细资料'],
   ['signatures', '签名历史'],
-  ['labels', '标签相册'],
   ['questions', '匿问我答'],
   ['marks', '关系与互动'],
   ['group', '群内资料'],
@@ -43,8 +42,6 @@ export function ContactWorkspace({
   children?: ReactNode;
 }) {
   const [localTab, setLocalTab] = useState<ContactWorkspaceTab>('profile');
-  const [labelId, setLabelId] = useState(contact.profileLabelId);
-  useEffect(() => setLabelId(contact.profileLabelId), [contact.profileLabelId]);
   const relationship = usePersonRelationship(contact);
   const hasQQ =
     ['QQ', 'UIN'].includes(contact.identityLabel) &&
@@ -55,7 +52,7 @@ export function ContactWorkspace({
   const options = sections.filter(([key]) => {
     if (key === 'edit') return relationship === 'self';
     if (key === 'group') return Boolean(contact.profileContext) && !contact.clone;
-    if (['labels', 'questions', 'signatures'].includes(key)) return human;
+    if (['questions', 'signatures'].includes(key)) return human;
     if (key === 'personality') return hasQQ;
     if (key === 'portrait') return hasUid;
     if (key === 'history') return hasUid || hasQQ;
@@ -63,8 +60,7 @@ export function ContactWorkspace({
   });
   const requested = tab ?? localTab;
   const selected = options.some(([key]) => key === requested) ? requested : 'profile';
-  function select(key: ContactWorkspaceTab, label?: string) {
-    setLabelId(label);
+  function select(key: ContactWorkspaceTab) {
     setLocalTab(key);
     onTabChange?.(key);
   }
@@ -137,14 +133,8 @@ export function ContactWorkspace({
           ) : null}
         </>
       );
-    if (key === 'signatures' || key === 'labels' || key === 'questions')
-      return (
-        <ProfileExtrasContent
-          uin={contact.identityValue}
-          view={key}
-          labelId={key === 'labels' ? labelId : undefined}
-        />
-      );
+    if (key === 'signatures' || key === 'questions')
+      return <ProfileExtrasContent uin={contact.identityValue} view={key} />;
     if (key === 'group')
       return <ContactGroupContent person={contact} settings={DEFAULT_CONTACT_CARD} full />;
     if (key === 'edit') return <SelfQQControls />;
