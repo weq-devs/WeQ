@@ -17,7 +17,6 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   Check,
-  CheckCheck,
   ChevronDown,
   Copy,
   Database,
@@ -394,11 +393,7 @@ export function AccountBasicsSection({
       <>
         <Row
           settingId="read-sync"
-          label={
-            <span className="weq-set-row-icon">
-              <CheckCheck size={15} strokeWidth={1.8} aria-hidden />向 QQ 服务器上报已读位置
-            </span>
-          }
+          label="向 QQ 服务器上报已读位置"
           desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在线完整模式生效；标为未读不能恢复其他端已清除的提醒。"
           control={
             <Toggle

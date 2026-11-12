@@ -139,6 +139,9 @@ describe('设置中的已读上报开关', () => {
     let f = mount();
     try {
       expect(f.toggle().getAttribute('aria-checked')).toBe('false');
+      expect(
+        f.host.querySelector('[data-setting-id="read-sync"] .weq-set-row-label svg'),
+      ).toBeNull();
       await act(async () => {
         f.toggle().click();
       });
