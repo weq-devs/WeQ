@@ -32,7 +32,7 @@ vi.mock('@renderer/trpc/client', () => ({
   },
 }));
 
-import { ImageLightbox, openLightbox } from '@renderer/components/ImageLightbox';
+import { MediaPreviewHost, openMediaPreview } from '@renderer/components/mediaPreviewStore';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -53,7 +53,7 @@ function mount(): void {
   document.body.appendChild(host);
   root = createRoot(host);
   act(() => {
-    root?.render(createElement(ImageLightbox));
+    root?.render(createElement(MediaPreviewHost));
   });
 }
 
@@ -85,12 +85,18 @@ describe('图片灯箱滚轮缩放', () => {
     mount();
     try {
       act(() =>
-        openLightbox(
-          'weq-media://synthetic-child-image',
-          '合成图片',
-          null,
-          child.document as unknown as Document,
-        ),
+        openMediaPreview({
+          items: [
+            {
+              key: 'weq-media://synthetic-child-image',
+              kind: 'image',
+              src: 'weq-media://synthetic-child-image',
+              title: '合成图片',
+              ocr: null,
+            },
+          ],
+          ownerDocument: child.document as unknown as Document,
+        }),
       );
       expect(document.querySelector('.weq-lightbox-frame')).toBeNull();
       const media = child.document.querySelector<HTMLElement>('.weq-lightbox-frame')!;
@@ -120,7 +126,13 @@ describe('图片灯箱滚轮缩放', () => {
 
   it('在图片上滚轮 → frame 上的 transform 放大', () => {
     mount();
-    act(() => openLightbox('weq-media://pic?t=1', '图'));
+    act(() =>
+      openMediaPreview({
+        items: [
+          { key: 'weq-media://pic?t=1', kind: 'image', src: 'weq-media://pic?t=1', title: '图' },
+        ],
+      }),
+    );
 
     const before = frame().style.transform;
     expect(before).toContain('scale(1)');
@@ -135,14 +147,26 @@ describe('图片灯箱滚轮缩放', () => {
 
   it('图片还没加载出来（尺寸为 0）时滚轮也照样缩放', () => {
     mount();
-    act(() => openLightbox('weq-media://pic?t=2', '图'));
+    act(() =>
+      openMediaPreview({
+        items: [
+          { key: 'weq-media://pic?t=2', kind: 'image', src: 'weq-media://pic?t=2', title: '图' },
+        ],
+      }),
+    );
     wheel(frame(), -120);
     expect(frame().style.transform).toMatch(/scale\(1\.15/);
   });
 
   it('滚轮落在图外的暗底上也能缩放（整块灯箱可滚）', () => {
     mount();
-    act(() => openLightbox('weq-media://pic?t=3', '图'));
+    act(() =>
+      openMediaPreview({
+        items: [
+          { key: 'weq-media://pic?t=3', kind: 'image', src: 'weq-media://pic?t=3', title: '图' },
+        ],
+      }),
+    );
 
     wheel(document.querySelector('.weq-lightbox-layer')!, -120);
     expect(frame().style.transform).toMatch(/scale\(1\.15/);
@@ -150,7 +174,13 @@ describe('图片灯箱滚轮缩放', () => {
 
   it('同一个滚轮事件不会被算两次（图上滚一格 = 一档）', () => {
     mount();
-    act(() => openLightbox('weq-media://pic?t=4', '图'));
+    act(() =>
+      openMediaPreview({
+        items: [
+          { key: 'weq-media://pic?t=4', kind: 'image', src: 'weq-media://pic?t=4', title: '图' },
+        ],
+      }),
+    );
 
     wheel(document.querySelector('.weq-lightbox-image')!, -120);
     // 1.15^2 ≈ 1.32；只应缩放一档（1.15）

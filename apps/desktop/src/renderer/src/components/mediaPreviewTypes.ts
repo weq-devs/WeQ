@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { MediaSaveSource } from '../../../shared/media_save';
 
-export interface LightboxOcrContext {
+export interface PreviewOcrContext {
   peerType: 'c2c' | 'group';
   fileToken: string;
   width: number;
@@ -22,7 +22,7 @@ export interface PreviewMedia {
   load?: (refresh?: boolean) => Promise<{ src: string; kind: 'image' | 'video' }>;
   saveSource?: MediaSaveSource | null;
   saveLabel?: string;
-  ocr?: LightboxOcrContext | null;
+  ocr?: PreviewOcrContext | null;
   order?: { time: number; messageId: string; rawId?: string; element: number; sequence?: string };
 }
 

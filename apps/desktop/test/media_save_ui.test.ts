@@ -5,8 +5,11 @@ import type { ExportSavePolicy } from '@weq/service';
 import { MediaSourceSave, useMediaSave } from '../src/renderer/src/components/MediaSaveControls';
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
-import { ImageLightbox, openLightbox } from '../src/renderer/src/components/ImageLightbox';
-import { VideoLightbox } from '../src/renderer/src/components/VideoLightbox';
+import {
+  MediaPreviewHost,
+  openMediaPreview,
+} from '../src/renderer/src/components/mediaPreviewStore';
+
 import {
   FlatMediaExplorer,
   MonthMediaExplorer,
@@ -492,8 +495,19 @@ it('图片右键只保留一个另存为动作并保留消息身份', async () =
 });
 it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏览', async () => {
   state.save.mockResolvedValueOnce(null);
-  await mount(h(ImageLightbox));
-  act(() => openLightbox('weq-media://pic?name=photo.jpg', 'photo.jpg'));
+  await mount(h(MediaPreviewHost));
+  act(() =>
+    openMediaPreview({
+      items: [
+        {
+          key: 'weq-media://pic?name=photo.jpg',
+          kind: 'image',
+          src: 'weq-media://pic?name=photo.jpg',
+          title: 'photo.jpg',
+        },
+      ],
+    }),
+  );
   try {
     const frame = document.querySelector<HTMLElement>('.weq-lightbox-frame')!;
     act(() =>
@@ -602,7 +616,7 @@ it('群文件与文件夹所选范围复用保存偏好，取消不创建任务�
 it.each(['photoWall', 'qzone'] as const)('%s 缓存原有灯箱保存复用公共策略', async (kind) => {
   state.cacheEntries = [{ rel: 'ab/photo', name: 'photo', size: 1024 }];
   const view = await mount(h(FlatMediaExplorer, { kind }));
-  await mount(h(ImageLightbox));
+  await mount(h(MediaPreviewHost));
   act(() => view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!.click());
   try {
     await click(document.body, '保存图片');
@@ -633,7 +647,7 @@ it.each([true, false])('图片缓存保存保留原图优先及缩略图回退�
     },
   ];
   const view = await mount(h(MonthMediaExplorer, { kind: 'pic' }));
-  await mount(h(ImageLightbox));
+  await mount(h(MediaPreviewHost));
   act(() => view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!.click());
   try {
     await click(document.body, '保存图片');
@@ -661,7 +675,7 @@ it.each([true, false])(
       },
     ];
     const view = await mount(h(MonthMediaExplorer, { kind: 'video' }));
-    await mount(h(VideoLightbox));
+    await mount(h(MediaPreviewHost));
     const button = view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!;
     expect(button.disabled).toBe(!hasOri);
     act(() => button.click());
@@ -723,8 +737,19 @@ it.each([false, true])('保存控件合成布局，Web=%s', async (web) => {
   );
   capture(group.host, web ? 'media-group-web.html' : 'media-group-desktop.html');
   expect(group.host.querySelector('.weq-media-save-controls')).not.toBeNull();
-  await mount(h(ImageLightbox));
-  act(() => openLightbox('weq-media://pic?name=photo.png', '合成图片.png'));
+  await mount(h(MediaPreviewHost));
+  act(() =>
+    openMediaPreview({
+      items: [
+        {
+          key: 'weq-media://pic?name=photo.png',
+          kind: 'image',
+          src: 'weq-media://pic?name=photo.png',
+          title: '合成图片.png',
+        },
+      ],
+    }),
+  );
   try {
     capture(
       document.querySelector<HTMLElement>('.weq-lightbox-layer')!,

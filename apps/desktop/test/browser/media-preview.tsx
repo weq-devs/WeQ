@@ -6,8 +6,11 @@ import {
   openMarketFaceLightbox,
 } from '../../src/renderer/src/components/MarketFaceLightbox';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ImageLightbox, openLightbox } from '../../src/renderer/src/components/ImageLightbox';
-import { VideoLightbox, openVideoLightbox } from '../../src/renderer/src/components/VideoLightbox';
+import {
+  MediaPreviewHost,
+  openMediaPreview,
+} from '../../src/renderer/src/components/mediaPreviewStore';
+
 import { QqImage, QqVideo, QqVoice } from '../../src/renderer/src/components/QqMedia';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
@@ -58,11 +61,21 @@ function View() {
       <button
         type="button"
         onClick={() =>
-          openLightbox('/_media/pic?token=good', '合成图片', {
-            peerType: 'c2c',
-            fileToken: 'fixture',
-            width: 640,
-            height: 480,
+          openMediaPreview({
+            items: [
+              {
+                key: '/_media/pic?token=good',
+                kind: 'image',
+                src: '/_media/pic?token=good',
+                title: '合成图片',
+                ocr: {
+                  peerType: 'c2c',
+                  fileToken: 'fixture',
+                  width: 640,
+                  height: 480,
+                },
+              },
+            ],
           })
         }
       >
@@ -71,16 +84,38 @@ function View() {
       <button
         type="button"
         onClick={() =>
-          openLightbox('/_media/pic?token=fail', '失败图片', null, document, undefined, [
-            '/_media/pic?token=fail&v=thumb',
-          ])
+          openMediaPreview({
+            items: [
+              {
+                key: '/_media/pic?token=fail',
+                kind: 'image',
+                src: '/_media/pic?token=fail',
+                title: '失败图片',
+                ocr: null,
+                fallbackSources: ['/_media/pic?token=fail&v=thumb'],
+              },
+            ],
+            ownerDocument: document,
+          })
         }
       >
         打开失败图片
       </button>
       <button
         type="button"
-        onClick={() => openVideoLightbox('/_media/video?token=fail', '', '合成视频')}
+        onClick={() =>
+          openMediaPreview({
+            items: [
+              {
+                key: '/_media/video?token=fail',
+                kind: 'video',
+                src: '/_media/video?token=fail',
+                poster: '',
+                title: '合成视频',
+              },
+            ],
+          })
+        }
       >
         打开视频
       </button>
@@ -107,8 +142,7 @@ function View() {
         sendTimeMs={1}
       />
       <button type="button">背景按钮</button>
-      <ImageLightbox />
-      <VideoLightbox />
+      <MediaPreviewHost />
       <MarketFaceLightbox />
       {gallery ? (
         <MediaPreview

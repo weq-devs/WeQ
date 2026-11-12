@@ -12,8 +12,10 @@ import {
   MarketFaceLightbox,
   openMarketFaceLightbox,
 } from '../src/renderer/src/components/MarketFaceLightbox';
-import { ImageLightbox, openLightbox } from '../src/renderer/src/components/ImageLightbox';
-import { VideoLightbox, openVideoLightbox } from '../src/renderer/src/components/VideoLightbox';
+import {
+  MediaPreviewHost,
+  openMediaPreview,
+} from '../src/renderer/src/components/mediaPreviewStore';
 
 const mocks = vi.hoisted(() => ({
   ocr: vi.fn(),
@@ -163,9 +165,13 @@ it('稀疏空页继续前进，分页错误可以原地重试', async () => {
   expect(page).toHaveBeenCalledTimes(3);
 });
 it('同文档图片和视频预览互相替换', () => {
-  act(() => root.render(h('div', null, h(ImageLightbox), h(VideoLightbox))));
-  act(() => openLightbox(items[0]!.src));
-  act(() => openVideoLightbox(items[1]!.src));
+  act(() => root.render(h(MediaPreviewHost)));
+  act(() =>
+    openMediaPreview({ items: [{ key: items[0]!.src, kind: 'image', src: items[0]!.src }] }),
+  );
+  act(() =>
+    openMediaPreview({ items: [{ key: items[1]!.src, kind: 'video', src: items[1]!.src }] }),
+  );
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   expect(document.querySelector('img')).toBeNull();
   expect(document.querySelector('video')).not.toBeNull();
@@ -288,8 +294,10 @@ it('聊天元素按消息与元素位置标识，不混入闪照、表情和嵌�
   ).toEqual(['roaming:native:10:1:0', 'roaming:native:11:1:0']);
 });
 it('商城表情复用外壳后保留整组、参数与分级Escape，打开时替换旧图片预览', () => {
-  act(() => root.render(h('div', null, h(ImageLightbox), h(MarketFaceLightbox))));
-  act(() => openLightbox(items[0]!.src));
+  act(() => root.render(h('div', null, h(MediaPreviewHost), h(MarketFaceLightbox))));
+  act(() =>
+    openMediaPreview({ items: [{ key: items[0]!.src, kind: 'image', src: items[0]!.src }] }),
+  );
   act(() => openMarketFaceLightbox('123'));
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   act(() => document.querySelector<HTMLButtonElement>('.weq-mface-lb-cell')!.click());
@@ -341,7 +349,7 @@ it('真实消息渲染入口接入混排、双向分页、实时追加和账号�
           }),
         ),
       ),
-      h(ImageLightbox),
+      h(MediaPreviewHost),
     );
   await act(async () => root.render(scene(messages)));
   const trigger = document.querySelector<HTMLButtonElement>(

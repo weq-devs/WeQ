@@ -13,7 +13,7 @@ import {
 import type { ExportViewerMessage, ExportViewerPart } from '@weq/service';
 import { client, trpc } from '../trpc/client';
 import { useTabActive } from '../components/RetainedTabs';
-import { openLightbox } from '../components/ImageLightbox';
+import { openMediaPreview } from '../components/mediaPreviewStore';
 import { mediaUrl } from '../lib/resourceUrl';
 import { useDialog } from '../components/Dialog';
 import { FolderScanStatus } from '../components/FolderScanStatus';
@@ -65,7 +65,9 @@ function Part({
         className="weq-ev-image"
         title="查看原图"
         aria-label="查看原图"
-        onClick={() => openLightbox(src, part.text)}
+        onClick={() =>
+          openMediaPreview({ items: [{ key: src, kind: 'image', src: src, title: part.text }] })
+        }
       >
         <img
           data-privacy-sensitive

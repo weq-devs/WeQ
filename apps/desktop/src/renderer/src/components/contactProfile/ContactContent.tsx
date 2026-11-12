@@ -47,7 +47,7 @@ import { QQRemarkDialog } from '../QQRemarkDialog';
 import { FriendDirectoryContext } from '../FriendDirectoryControls';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { QQGroupMemberControls } from '../QQGroupMemberControls';
-import { openLightbox } from '../ImageLightbox';
+import { openMediaPreview } from '../mediaPreviewStore';
 import { QqShowGallery } from '../QqShowGallery';
 import { ProfileExtraDialog, type ProfileExtraView } from '../ProfileExtras';
 import {
@@ -160,7 +160,14 @@ export function ContactIdentity({
           className={`weq-profile-avatar${person.clone ? ' weq-clone-profile-avatar' : ''}`}
           title="查看头像"
           aria-label="查看头像"
-          onClick={() => person.avatarUrl && openLightbox(person.avatarUrl, title)}
+          onClick={() =>
+            person.avatarUrl &&
+            openMediaPreview({
+              items: [
+                { key: person.avatarUrl, kind: 'image', src: person.avatarUrl, title: title },
+              ],
+            })
+          }
         >
           <Avatar name={title} avatarUrl={person.avatarUrl} seed={person.identityValue} />
           {person.clone ? <VirtualConversationBadge /> : null}
@@ -750,7 +757,18 @@ export function ContactContent({
                 className="weq-profile-photo"
                 title="查看精选图片"
                 aria-label="查看精选图片"
-                onClick={() => openLightbox(albumMediaUrl(url), '精选图片')}
+                onClick={() =>
+                  openMediaPreview({
+                    items: [
+                      {
+                        key: albumMediaUrl(url),
+                        kind: 'image',
+                        src: albumMediaUrl(url),
+                        title: '精选图片',
+                      },
+                    ],
+                  })
+                }
               >
                 <img src={albumMediaUrl(url)} alt="精选图片" loading="lazy" />
               </button>

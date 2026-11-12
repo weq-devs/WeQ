@@ -21,7 +21,7 @@ import { useContext, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
-import { openLightbox } from './ImageLightbox';
+import { openMediaPreview } from './mediaPreviewStore';
 import {
   albumMediaUrl,
   collectionImageUrl,
@@ -279,7 +279,18 @@ export function PersonalityHomeDialog({
                 type="button"
                 className="weq-perhome-photo"
                 title="精选图片"
-                onClick={() => openLightbox(albumMediaUrl(photo.full), '精选图片')}
+                onClick={() =>
+                  openMediaPreview({
+                    items: [
+                      {
+                        key: albumMediaUrl(photo.full),
+                        kind: 'image',
+                        src: albumMediaUrl(photo.full),
+                        title: '精选图片',
+                      },
+                    ],
+                  })
+                }
               >
                 <img src={albumMediaUrl(photo.thumb)} alt="" loading="lazy" />
               </button>

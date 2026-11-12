@@ -33,8 +33,8 @@ import {
 import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
-import { openLightbox } from './ImageLightbox';
-import { openVideoLightbox } from './VideoLightbox';
+import { openMediaPreview } from './mediaPreviewStore';
+
 import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { openMarketFaceLightbox } from './MarketFaceLightbox';
@@ -312,12 +312,18 @@ export function QqImage({
         onClick={
           flashFullSrc && interactive
             ? (event) => {
-                openLightbox(
-                  flashFullSrc,
-                  name || '[闪照]',
-                  ocrContext,
-                  event.currentTarget.ownerDocument,
-                );
+                openMediaPreview({
+                  items: [
+                    {
+                      key: flashFullSrc,
+                      kind: 'image',
+                      src: flashFullSrc,
+                      title: name || '[闪照]',
+                      ocr: ocrContext,
+                    },
+                  ],
+                  ownerDocument: event.currentTarget.ownerDocument,
+                });
               }
             : undefined
         }
@@ -348,19 +354,26 @@ export function QqImage({
                 })
               )
                 return;
-              openLightbox(
-                source === proxySrc ? originalProxySrc : source,
-                name || '[图片]',
-                ocrContext,
-                event.currentTarget.ownerDocument,
-                undefined,
-                [
-                  ...candidates
-                    .slice(srcIndex + 1)
-                    .map((candidate) => (candidate === proxySrc ? originalProxySrc : candidate)),
-                  proxySrc,
+              openMediaPreview({
+                items: [
+                  {
+                    key: source === proxySrc ? originalProxySrc : source,
+                    kind: 'image',
+                    src: source === proxySrc ? originalProxySrc : source,
+                    title: name || '[图片]',
+                    ocr: ocrContext,
+                    fallbackSources: [
+                      ...candidates
+                        .slice(srcIndex + 1)
+                        .map((candidate) =>
+                          candidate === proxySrc ? originalProxySrc : candidate,
+                        ),
+                      proxySrc,
+                    ],
+                  },
                 ],
-              );
+                ownerDocument: event.currentTarget.ownerDocument,
+              });
             }
           : undefined
       }
@@ -525,7 +538,10 @@ export function QqVideo({
   function expand() {
     playerRef.current?.pause();
     if (!galleryOpen?.(previewKey, ownerDocument))
-      openVideoLightbox(videoSrc, coverSrc, name, ownerDocument);
+      openMediaPreview({
+        items: [{ key: videoSrc, kind: 'video', src: videoSrc, poster: coverSrc, title: name }],
+        ownerDocument: ownerDocument,
+      });
   }
   const expandButton = interactive ? (
     <button

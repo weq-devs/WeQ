@@ -5,7 +5,7 @@ import type { OcrBlock } from '@weq/protocol';
 import { trpc } from '../trpc/client';
 import { OcrTextPanel } from './OcrTextPanel';
 import { useToast } from './Toast';
-import type { LightboxOcrContext } from './mediaPreviewTypes';
+import type { PreviewOcrContext } from './mediaPreviewTypes';
 
 /** OCR 只挂载到图片与工具栏插槽，不重挂载媒体外壳或播放器。 */
 export function PreviewOcr({
@@ -17,7 +17,7 @@ export function PreviewOcr({
   ready,
 }: {
   src: string;
-  context: LightboxOcrContext;
+  context: PreviewOcrContext;
   frame: HTMLElement;
   actions: HTMLElement;
   size: { width: number; height: number };
@@ -40,7 +40,7 @@ export function PreviewOcr({
 }
 
 /** 每次展示独立持有 OCR 结果，失效请求不能回写到下一张图片。 */
-export function usePreviewOcr(src: string, context: LightboxOcrContext | null | undefined) {
+export function usePreviewOcr(src: string, context: PreviewOcrContext | null | undefined) {
   const [result, setResult] = useState<{
     blocks: OcrBlock[];
     width: number;
@@ -112,7 +112,8 @@ export function usePreviewOcr(src: string, context: LightboxOcrContext | null | 
       });
       setVisible(true);
       setPanel(value.blocks.length > 0);
-      if (!value.blocks.length) useToast.getState().push({ tone: 'info', title: '没识别到文字' });
+      if (!value.blocks.length)
+        useToast.getState().push({ tone: 'info', durationKind: 'success', title: '没识别到文字' });
     } catch (error) {
       if (request === generation.current)
         useToast.getState().push({

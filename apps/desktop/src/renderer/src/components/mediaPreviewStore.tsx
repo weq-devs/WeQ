@@ -3,7 +3,8 @@ import { useEffect, useRef } from 'react';
 import { MediaPreview } from './MediaPreview';
 import type { MediaPreviewOptions } from './mediaPreviewTypes';
 
-type Session = MediaPreviewOptions & { id: number; hostKind: 'image' | 'video' };
+type OpenMediaPreviewOptions = Omit<MediaPreviewOptions, 'onClose'> & { onClose?: () => void };
+type Session = MediaPreviewOptions & { id: number };
 let sequence = 0;
 const usePreviews = create<{ sessions: Map<Document, Session> }>(() => ({ sessions: new Map() }));
 
@@ -16,10 +17,7 @@ export function closeMediaPreview(owner: Document, id?: number) {
   current.onClose();
 }
 
-export function openMediaPreview(
-  options: MediaPreviewOptions,
-  hostKind: 'image' | 'video' = 'image',
-) {
+export function openMediaPreview(options: OpenMediaPreviewOptions) {
   const owner = options.ownerDocument ?? document;
   const existing = usePreviews.getState().sessions.get(owner);
   if (
@@ -38,7 +36,22 @@ export function openMediaPreview(
   closeMediaPreview(owner);
   const id = ++sequence;
   const sessions = new Map(usePreviews.getState().sessions);
-  sessions.set(owner, { ...options, ownerDocument: owner, id, hostKind });
+  sessions.set(owner, {
+    ...options,
+    items: options.items.map((item) =>
+      item.saveSource !== undefined || item.load
+        ? item
+        : {
+            ...item,
+            saveSource: item.src.startsWith('blob:')
+              ? null
+              : { kind: 'url', url: item.src, name: item.title },
+          },
+    ),
+    onClose: options.onClose ?? (() => {}),
+    ownerDocument: owner,
+    id,
+  });
   usePreviews.setState({ sessions });
   return previewHandle(owner, id);
 }
@@ -56,29 +69,26 @@ function previewHandle(owner: Document, id: number) {
   };
 }
 
-export function MediaPreviewHost({ kind }: { kind?: 'image' | 'video' }) {
+export function MediaPreviewHost() {
   const sessions = usePreviews((state) => state.sessions);
   const owned = useRef(sessions);
   owned.current = sessions;
   useEffect(
     () => () => {
       for (const session of owned.current.values())
-        if (!kind || session.hostKind === kind)
-          closeMediaPreview(session.ownerDocument!, session.id);
+        closeMediaPreview(session.ownerDocument!, session.id);
     },
-    [kind],
+    [],
   );
   return (
     <>
-      {[...sessions.values()]
-        .filter((session) => !kind || session.hostKind === kind)
-        .map((session) => (
-          <MediaPreview
-            key={session.id}
-            {...session}
-            onClose={() => closeMediaPreview(session.ownerDocument!, session.id)}
-          />
-        ))}
+      {[...sessions.values()].map((session) => (
+        <MediaPreview
+          key={session.id}
+          {...session}
+          onClose={() => closeMediaPreview(session.ownerDocument!, session.id)}
+        />
+      ))}
     </>
   );
 }

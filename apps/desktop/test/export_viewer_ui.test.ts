@@ -83,7 +83,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-vi.mock('../src/renderer/src/components/ImageLightbox', () => ({ openLightbox: vi.fn() }));
+vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({ openMediaPreview: vi.fn() }));
 const source = {
   id: 'synthetic-id',
   name: '合成归档',

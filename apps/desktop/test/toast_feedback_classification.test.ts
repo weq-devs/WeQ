@@ -6,7 +6,7 @@ import { DEFAULT_TOAST_DURATIONS } from '@weq/service/toast-settings';
 import { useToast } from '../src/renderer/src/components/Toast';
 
 const cases = [
-  ['components/ImageLightbox.tsx', '没识别到文字'],
+  ['components/usePreviewOcr.tsx', '没识别到文字'],
   ['components/UdpCapturePanel.tsx', '没有可导出的数据报'],
   ['components/settings/McpServerSection.tsx', '没有可安装的客户端'],
   ['components/settings/GlobalSettingsSection.tsx', '已安排清除剩余项目'],

@@ -43,7 +43,7 @@ import {
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
-import { openLightbox } from './ImageLightbox';
+import { openMediaPreview } from './mediaPreviewStore';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { CollectionContent, collectionContentText } from './CollectionContent';
@@ -309,7 +309,9 @@ function Thumb({ pic, alt }: { pic: PicWire; alt: string }): ReactElement {
     <button
       type="button"
       className="weq-col-thumb"
-      onClick={() => openLightbox(src, alt)}
+      onClick={() =>
+        openMediaPreview({ items: [{ key: src, kind: 'image', src: src, title: alt }] })
+      }
       title="查看大图"
     >
       <CollectionImage
@@ -414,7 +416,12 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
           <button
             type="button"
             className="weq-col-video-cover"
-            onClick={() => src && openLightbox(src, v.title || '视频封面')}
+            onClick={() =>
+              src &&
+              openMediaPreview({
+                items: [{ key: src, kind: 'image', src: src, title: v.title || '视频封面' }],
+              })
+            }
             disabled={!src}
           >
             {src && v.cover ? (

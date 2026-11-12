@@ -1,7 +1,10 @@
 import { act, createElement as h, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { ImageLightbox, openLightbox } from '../src/renderer/src/components/ImageLightbox';
+import {
+  MediaPreviewHost,
+  openMediaPreview,
+} from '../src/renderer/src/components/mediaPreviewStore';
 import { QqImage } from '../src/renderer/src/components/QqMedia';
 import {
   releaseAttachment,
@@ -45,7 +48,7 @@ afterEach(async () => {
 
 async function mount(data: Record<string, unknown>) {
   await act(async () =>
-    root.render(h(Fragment, null, h(QqImage, { data, sendTimeMs: 1000 }), h(ImageLightbox))),
+    root.render(h(Fragment, null, h(QqImage, { data, sendTimeMs: 1000 }), h(MediaPreviewHost))),
   );
 }
 function preview() {
@@ -95,7 +98,11 @@ it('重复打开不会多占引用，换图后释放旧预览但不释放仍属�
   await act(async () => host.querySelector('img')!.click());
   await act(async () => host.querySelector('img')!.click());
   releaseAttachment(attachment('blob:pending-image'));
-  await act(async () => openLightbox('blob:next-image'));
+  await act(async () =>
+    openMediaPreview({
+      items: [{ key: 'blob:next-image', kind: 'image', src: 'blob:next-image' }],
+    }),
+  );
   expect(revoke.mock.calls).toEqual([['blob:pending-image']]);
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   expect(revoke).not.toHaveBeenCalledWith('blob:next-image');

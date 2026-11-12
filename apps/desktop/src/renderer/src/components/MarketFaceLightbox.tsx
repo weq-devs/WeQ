@@ -14,8 +14,8 @@
  * 参数（pack / hash / enc / key）。参数是按当前包实时拼的，key 来自
  * `getPackKey`（拿不到时显示「未恢复」，并说明可手输时间戳）。
  *
- * 视觉与 {@link ImageLightbox} 同骨架（.weq-lightbox-layer/-stage/-close），
- * 内容换成表情包信息条 + 表情网格。点击背景或 ESC 关闭。
+ * 复用 MediaPreviewShell 外壳，保留表情包信息条、网格与单张详情。
+ * 点击背景关闭；详情中的 ESC 返回网格，再按 ESC 关闭。
  */
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';

@@ -120,7 +120,7 @@ import {
 } from 'react';
 import { ReplyJumpContext } from '../../components/QqMessageContent';
 import { ChatMediaGallery } from '../../components/ChatMediaGallery';
-import { openLightbox } from '../../components/ImageLightbox';
+import { openMediaPreview } from '../../components/mediaPreviewStore';
 import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
 import '../../styles/composer-grouped-actions.css';
@@ -2411,21 +2411,33 @@ export function ChatPane({
     const owner = editor.ownerDocument;
     const range = composerSelectionRef.current?.cloneRange();
     const id = conversation?.id;
-    openLightbox(image.currentSrc || image.src, image.alt, null, owner, () => {
-      owner.defaultView?.requestAnimationFrame(() => {
-        if (!editor.isConnected || owner.defaultView?.closed || !isActiveConversation(id)) return;
-        if (
-          range &&
-          isNodeInside(editor, range.startContainer) &&
-          isNodeInside(editor, range.endContainer)
-        ) {
-          editor.focus({ preventScroll: true });
-          const selection = owner.getSelection();
-          selection?.removeAllRanges();
-          selection?.addRange(range);
-          composerSelectionRef.current = range.cloneRange();
-        } else focusComposerEnd(editor);
-      });
+    openMediaPreview({
+      items: [
+        {
+          key: image.currentSrc || image.src,
+          kind: 'image',
+          src: image.currentSrc || image.src,
+          title: image.alt,
+          ocr: null,
+        },
+      ],
+      ownerDocument: owner,
+      onClose: () => {
+        owner.defaultView?.requestAnimationFrame(() => {
+          if (!editor.isConnected || owner.defaultView?.closed || !isActiveConversation(id)) return;
+          if (
+            range &&
+            isNodeInside(editor, range.startContainer) &&
+            isNodeInside(editor, range.endContainer)
+          ) {
+            editor.focus({ preventScroll: true });
+            const selection = owner.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            composerSelectionRef.current = range.cloneRange();
+          } else focusComposerEnd(editor);
+        });
+      },
     });
   }
 

@@ -24,8 +24,8 @@ import { Play, Pause, FileText, Loader2 } from 'lucide-react';
 import type { FlatMediaEntry, MonthMediaEntry, VoiceMediaEntry } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localMediaUrl, localVoiceUrl } from '../../lib/resourceUrl';
-import { openLightbox } from '../../components/ImageLightbox';
-import { openVideoLightbox } from '../../components/VideoLightbox';
+import { openMediaPreview } from '../../components/mediaPreviewStore';
+
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
@@ -79,7 +79,9 @@ function FlatCard({ kind, entry }: { kind: FlatKind; entry: FlatMediaEntry }): R
       <button
         type="button"
         className="weq-cache-avatar-thumb weq-cache-media-open"
-        onClick={() => openLightbox(src, entry.name)}
+        onClick={() =>
+          openMediaPreview({ items: [{ key: src, kind: 'image', src: src, title: entry.name }] })
+        }
       >
         <ShimmerImage src={src} alt={entry.name} loading="lazy" />
       </button>
@@ -149,11 +151,31 @@ function MonthCard({ kind, entry }: { kind: MonthKind; entry: MonthMediaEntry })
     if (playable) {
       // 默认文件名取 Ori 的文件名（entry 只有 rel 路径，没有单独的 name 字段）。
       const fileName = entry.oriRel?.split('/').pop() ?? '';
-      openVideoLightbox(localMediaUrl(kind, entry.oriRel!), previewSrc ?? undefined, fileName);
+      openMediaPreview({
+        items: [
+          {
+            key: localMediaUrl(kind, entry.oriRel!),
+            kind: 'video',
+            src: localMediaUrl(kind, entry.oriRel!),
+            poster: previewSrc ?? undefined,
+            title: fileName,
+          },
+        ],
+      });
     } else if (!isVideo) {
       // Image: prefer the original in the lightbox, fall back to the thumbnail.
       const full = entry.oriRel ?? entry.thumbRel;
-      if (full) openLightbox(localMediaUrl(kind, full), entry.hash);
+      if (full)
+        openMediaPreview({
+          items: [
+            {
+              key: localMediaUrl(kind, full),
+              kind: 'image',
+              src: localMediaUrl(kind, full),
+              title: entry.hash,
+            },
+          ],
+        });
     }
   };
   const clickable = playable || (!isVideo && (entry.oriRel || entry.thumbRel));

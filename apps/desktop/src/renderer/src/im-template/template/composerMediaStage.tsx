@@ -53,6 +53,7 @@ function ComposerMediaItem({
   onRemove: () => void;
 }) {
   const [preview, setPreview] = useState(false);
+  const tabActive = useTabActive();
   const kindLabel = attachmentKindText(attachment.kind);
   const playable = attachment.kind === 'video' && Boolean(attachment.url);
 
@@ -82,7 +83,14 @@ function ComposerMediaItem({
         }
       />
       {preview && attachment.url ? (
-        <AttachmentLightbox attachment={attachment} onClose={() => setPreview(false)} />
+        <MediaPreview
+          active={tabActive}
+          onClose={() => setPreview(false)}
+          items={[
+            { key: attachment.id, kind: 'video', src: attachment.url, title: attachment.name },
+          ]}
+          renderActions={() => <span>{attachmentMetaText(attachment)}</span>}
+        />
       ) : null}
     </>
   );
@@ -174,26 +182,6 @@ function ComposerSingleCard({
         <X size={14} strokeWidth={2.6} />
       </button>
     </div>
-  );
-}
-
-function AttachmentLightbox({
-  attachment,
-  onClose,
-}: {
-  attachment: ComposerAttachment;
-  onClose: () => void;
-}) {
-  const tabActive = useTabActive();
-  return (
-    <MediaPreview
-      active={tabActive}
-      onClose={onClose}
-      items={[
-        { key: attachment.id, kind: 'video', src: attachment.url || '', title: attachment.name },
-      ]}
-      renderActions={() => <span>{attachmentMetaText(attachment)}</span>}
-    />
   );
 }
 

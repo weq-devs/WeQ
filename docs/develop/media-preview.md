@@ -17,7 +17,9 @@
 
 `mediaPreviewStore` 按所属文档保存命令式预览；同一文档的新预览替换旧预览，
 不同窗口互不替换。受控预览也参与同一文档的占用管理。
-旧 `openLightbox`、`openVideoLightbox` 只保留兼容适配，不再持有独立展示逻辑。
+所有命令式入口直接使用 `openMediaPreview({ items, ownerDocument?, onClose? })`，
+应用仅挂载一个 `MediaPreviewHost`，不再保留分图片／视频的组件、打开函数或宿主筛选。
+单项预览也使用媒体项数组，保存来源由统一入口准备；业务提供的保存来源仍优先。
 
 ## 交互
 

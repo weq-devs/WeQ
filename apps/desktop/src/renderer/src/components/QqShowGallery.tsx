@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ImageOff, Loader2, Maximize2, RefreshCw, Sparkles, X } from 'lucide-react';
 import { client } from '../trpc/client';
-import { openLightbox } from './ImageLightbox';
+import { openMediaPreview } from './mediaPreviewStore';
 import { qqShowUrl } from '../lib/resourceUrl';
 import { OverlayLayer } from './OverlayLayer';
 import '../styles/qqshow-gallery.css';
@@ -104,7 +104,16 @@ export function QqShowGallery({ uin, name, currentRevision, onClose }: Props): R
 
   const open = useCallback(
     (item: GalleryItem) => {
-      openLightbox(qqShowUrl(item.url, item.revision), `${name} 的 QQ 秀 · #${item.revision}`);
+      openMediaPreview({
+        items: [
+          {
+            key: qqShowUrl(item.url, item.revision),
+            kind: 'image',
+            src: qqShowUrl(item.url, item.revision),
+            title: `${name} 的 QQ 秀 · #${item.revision}`,
+          },
+        ],
+      });
     },
     [name],
   );
