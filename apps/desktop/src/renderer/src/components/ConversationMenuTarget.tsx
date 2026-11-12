@@ -44,7 +44,7 @@ export function ConversationMenuTarget({
             containedCount === undefined ? (
               '聚合会话'
             ) : (
-              `内含 ${containedCount} 个会话`
+              `内含 ${containedCount} 个群`
             )
           ) : (
             <>

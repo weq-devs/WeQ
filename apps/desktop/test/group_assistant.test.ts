@@ -496,7 +496,7 @@ describe('群助手', () => {
           '群助手的会话操作',
         );
         expect(document.querySelector('.weq-conversation-actions-target')?.textContent).toBe(
-          `群助手内含 ${groupCount} 个会话`,
+          `群助手内含 ${groupCount} 个群`,
         );
         expect(document.querySelector('.weq-conversation-actions-target .avatar')).toBeNull();
         expect(host.querySelectorAll('.is-context-target')).toHaveLength(1);
