@@ -36,6 +36,42 @@ it('慢 query 告警，订阅不按存活时间告警', async () => {
   expect(logger.warn).toHaveBeenCalledTimes(1);
   expect(logger.debug).toHaveBeenCalledTimes(1);
 });
+it.each([
+  ['bootstrap.openAccount', 'mutation', 2060, false],
+  ['bootstrap.openAccount', 'mutation', 2999, false],
+  ['bootstrap.openAccount', 'mutation', 3000, true],
+  ['bootstrap.openAccount', 'mutation', 3500, true],
+  ['bootstrap.openAccount', 'subscription', 3500, false],
+  ['bootstrap.other', 'mutation', 1000, true],
+  ['account.getUnreadInfos', 'query', 999, false],
+  ['account.getUnreadInfos', 'query', 1000, true],
+])('%s %s 耗时 %dms 的慢请求告警为 %s', async (path, type, durationMs, warns) => {
+  const logger = fixture();
+  let time = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => time);
+  await logRequest('trpc', path, type, async () => {
+    time += durationMs;
+  });
+  expect(logger.warn).toHaveBeenCalledTimes(warns ? 1 : 0);
+  expect(logger.debug).toHaveBeenCalledTimes(warns ? 0 : 1);
+  expect((warns ? logger.warn : logger.debug).mock.calls[0]![1]).toMatchObject({
+    path,
+    durationMs,
+    event: warns ? 'request-slow' : 'request-complete',
+  });
+});
+it('打开账号的失败不受慢请求阈值影响', async () => {
+  const logger = fixture();
+  await expect(
+    logRequest('trpc', 'bootstrap.openAccount', 'mutation', async () => {
+      throw new Error('open failed');
+    }),
+  ).rejects.toThrow('open failed');
+  expect(logger.error).toHaveBeenCalledWith(
+    '请求未完成',
+    expect.objectContaining({ event: 'request-failed', outcome: 'failed' }),
+  );
+});
 it('返回失败结果和抛出异常各记录一次，校验、未登录和取消为 debug', async () => {
   const logger = fixture();
   const error = new Error('failure');

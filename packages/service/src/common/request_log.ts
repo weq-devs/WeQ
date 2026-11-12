@@ -50,11 +50,12 @@ export async function logRequest<T>(
         detail?.name === 'AbortError' ||
         (detail?.cause instanceof Error && detail.cause.name === 'AbortError') ||
         detail?.code === 'CLIENT_CLOSED_REQUEST';
+      const slowThresholdMs = path === 'bootstrap.openAccount' ? 3000 : 1000;
       const level = failed
         ? cancelled || expected.has(detail?.code ?? '')
           ? 'debug'
           : 'error'
-        : durationMs >= 1000 && (type === 'query' || type === 'mutation')
+        : durationMs >= slowThresholdMs && (type === 'query' || type === 'mutation')
           ? 'warn'
           : 'debug';
       const operationId = currentOperationId();
