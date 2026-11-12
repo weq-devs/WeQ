@@ -12,6 +12,39 @@ export function createContactMetricsRouter(
 ) {
   return router({
     history: router({
+      fieldSummary: procedure
+        .input(
+          binding.extend({
+            entity: z.string().regex(/^(friend|group):[\w-]+$/),
+            memberUid: z
+              .string()
+              .regex(/^u_[\w-]+$/)
+              .optional(),
+          }),
+        )
+        .query(({ input }) => resolve(input).history.fieldSummary(input.entity, input.memberUid)),
+      fieldVersions: procedure
+        .input(
+          binding.extend({
+            entity: z.string().regex(/^(friend|group):[\w-]+$/),
+            memberUid: z
+              .string()
+              .regex(/^u_[\w-]+$/)
+              .optional(),
+            field: z.string().regex(/^[A-Za-z][A-Za-z0-9]{0,63}$/),
+            before: z.number().int().positive().safe().optional(),
+            limit: z.number().int().min(1).max(100).default(30),
+          }),
+        )
+        .query(({ input }) =>
+          resolve(input).history.fieldVersions(
+            input.entity,
+            input.field,
+            input.memberUid,
+            input.before,
+            input.limit,
+          ),
+        ),
       categories: procedure
         .input(binding.extend({ entity: z.string().regex(/^(friend|group|account):[\w-]+$/) }))
         .query(({ input }) => resolve(input).history.categories(input.entity)),

@@ -14,7 +14,7 @@ import type { Contact } from '../../im-template/template/types';
 import { displayUserName } from '../../im-template/template/user';
 import { CopyButton } from '../CopyButton';
 import { contactBirth } from '../../lib/contactBirth';
-import { albumMediaUrl, collectionImageUrl, dressUrl } from '../../lib/resourceUrl';
+import { albumMediaUrl, collectionImageUrl, dressUrl, qqShowUrl } from '../../lib/resourceUrl';
 import {
   ContactWorkspaceNavigationContext,
   type ContactWorkspaceTab,
@@ -51,6 +51,7 @@ import {
   ContactTechnicalDetails,
 } from './ContactRow';
 import '../../styles/contact-card.css';
+import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './ContactFieldHistory';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
@@ -98,6 +99,7 @@ export function ContactIdentity({
   const identityLabel = person.clone ? 'ID' : person.identityLabel;
   const editableRemark =
     relationship === 'friend' && !person.clone && /^u_/.test(person.uid || person.id);
+  const showStatus = !person.clone && settings?.visible.status !== false;
   const onlineStatus = person.onlineStatus?.trim();
   const customStatus = person.customStatus?.trim();
   const fallbackStatus =
@@ -146,6 +148,7 @@ export function ContactIdentity({
             <ContactPendant person={person} />
           ) : null}
         </button>
+        <ContactFieldHistoryButton field="avatar" label="头像" />
         <div className="weq-profile-heading">
           <div className="weq-contact-title-line">
             <CopyButton
@@ -156,7 +159,8 @@ export function ContactIdentity({
             >
               {title}
             </CopyButton>
-            {!person.clone && settings?.visible.status !== false ? (
+            <ContactFieldHistoryButton field="nick" label="昵称" />
+            {showStatus ? (
               /^u_/.test(person.uid || person.id) ? (
                 <OnlineStatus
                   uid={person.uid || person.id}
@@ -167,9 +171,12 @@ export function ContactIdentity({
                 <span className="weq-contact-status">{fallbackStatus}</span>
               )
             ) : null}
+            {showStatus ? <ContactFieldHistoryButton field="status" label="在线状态" /> : null}
           </div>
           <div className="weq-contact-meta">
             {!person.clone ? <PersonRelationshipStatus person={person} editableCategory /> : null}
+            <ContactFieldHistoryButton field="relationship" label="好友关系" />
+            <ContactFieldHistoryButton field="category" label="好友分组" />
             {!person.clone && person.kind === 'bot' ? (
               <span className="weq-contact-identity-kind">
                 <Bot size={12} />
@@ -273,30 +280,44 @@ function ContactPendant({ person }: { person: ProfilePerson }) {
 }
 
 function QqShowRow({ person }: { person: ProfilePerson }) {
+  const hasHistory = useContactFieldHistoryAvailable('QQ 秀');
   const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const query = useContactQqShow(person.identityValue);
   const url = query.data?.hasShow ? query.data.url : null;
-  if (!url || failedUrl === url) return null;
+  if (!url || failedUrl === url)
+    return hasHistory ? (
+      <ContactRow label="QQ 秀" value={url && failedUrl === url ? '图片读取失败' : null} />
+    ) : null;
   return (
     <>
       <ContactRow label="QQ 秀">
         <button
           type="button"
           className="weq-contact-qqshow"
+          ref={anchor}
           title="查看 QQ 秀展柜"
           aria-label="查看 QQ 秀展柜"
-          onClick={() => setOpen(true)}
+          onClick={() => setOpen((value) => !value)}
         >
-          <img src={dressUrl(url)} alt="当前 QQ 秀" onError={() => setFailedUrl(url)} />
+          <img
+            src={qqShowUrl(url, query.data?.expiresAt)}
+            alt="当前 QQ 秀"
+            onError={() => setFailedUrl(url)}
+          />
         </button>
       </ContactRow>
       {open ? (
         <QqShowGallery
           uin={person.identityValue}
+          anchor={anchor.current}
           name={displayUserName(person)}
           currentRevision={url ? Number(/\/(\d+)\.png/.exec(url)?.[1]) || null : null}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            anchor.current?.focus({ preventScroll: true });
+          }}
         />
       ) : null}
     </>
@@ -325,7 +346,9 @@ function ContactStats({
         value.toLocaleString('zh-CN')
       )}
     </ContactRow>
-  ) : null;
+  ) : (
+    <ContactRow label={field === 'level' ? 'QQ 等级' : '累计获赞'} value={null} />
+  );
 }
 
 function ExtraField({
@@ -369,7 +392,7 @@ function EnergyRow({ person }: { person: ProfilePerson }) {
     { ...PROFILE_QUERY_OPTIONS, enabled: session.available },
   );
   const score = query.data?.targetUin === person.identityValue ? query.data.score : null;
-  return typeof score === 'number' ? <ContactRow label="QQ 能量值" value={score} /> : null;
+  return <ContactRow label="QQ 能量值" value={typeof score === 'number' ? score : null} />;
 }
 
 function LabelsRow({ person, preview }: { person: ProfilePerson; preview: boolean }) {
@@ -385,7 +408,8 @@ function LabelsRow({ person, preview }: { person: ProfilePerson; preview: boolea
   });
   const data = query.data?.targetUin === person.identityValue ? query.data : null;
   const fallback = [...new Set(person.extInfo?.interests ?? [])];
-  if (!(data ? data.labels.length : fallback.length)) return null;
+  if (!(data ? data.labels.length : fallback.length))
+    return <ContactRow label="标签" value={null} />;
   return (
     <>
       <ContactRow label="标签">
@@ -515,6 +539,7 @@ function SignatureRow({
   historyUin?: string;
   updated?: string | null;
 }) {
+  const hasHistory = useContactFieldHistoryAvailable('个性签名');
   const [open, setOpen] = useState(false);
   const [historyAnchor, setHistoryAnchor] = useState<HTMLButtonElement | null>(null);
   const [overflow, setOverflow] = useState(false);
@@ -534,7 +559,7 @@ function SignatureRow({
     observer?.observe(element);
     return () => observer?.disconnect();
   }, [text]);
-  if (!text && !updated) return null;
+  if (!text && !updated) return hasHistory ? <ContactRow label="个性签名" value={null} /> : null;
   return (
     <ContactRow label="个性签名">
       <div className={`weq-contact-signature${open ? ' is-open' : ''}`}>
@@ -649,9 +674,7 @@ export function ContactGroupContent({
       {muted ? (
         <ContactRow
           label="禁言截止"
-          value={new Date(member.muteUntil!).toLocaleString('zh-CN', {
-            timeZone: 'Asia/Shanghai',
-          })}
+          value={new Date(member.muteUntil!).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
         />
       ) : null}
       {rows}
@@ -690,7 +713,9 @@ export function ContactContent({
   preview?: boolean;
   technicalDetails?: boolean;
 }) {
-  const [detail, setDetail] = useState<{ view: ProfileExtraView } | null>(null);
+  const [detail, setDetail] = useState<{ view: ProfileExtraView; anchor?: HTMLElement } | null>(
+    null,
+  );
   const navigate = useContext(ContactWorkspaceNavigationContext);
   const relationship = usePersonRelationship(person);
   const enabled = (key: ContactCardContent) =>
@@ -705,10 +730,11 @@ export function ContactContent({
   ].filter((id): id is number => id !== undefined);
   const privileges = (ext?.privileges ?? []).filter((item) => item.opened && item.iconUrl);
   const technical = technicalDetails;
-  function open(view: ProfileExtraView) {
+  function open(view: ProfileExtraView, anchor?: HTMLElement) {
     if (preview) return;
-    if (onSection) onSection(view === 'education' ? 'details' : view);
-    else setDetail({ view });
+    if (view === 'education') setDetail({ view, anchor });
+    else if (onSection) onSection(view);
+    else setDetail({ view, anchor });
   }
   const rows: Partial<Record<ContactCardContent, ReactNode>> = {
     qqShow: hasQQ && !person.clone && person.kind !== 'bot' ? <QqShowRow person={person} /> : null,
@@ -748,7 +774,7 @@ export function ContactContent({
       <ContactRow
         label="学校"
         value={[ext?.school, ext?.degree].filter(Boolean).join(' · ')}
-        onActivate={() => open('education')}
+        onActivate={(anchor) => open('education', anchor)}
         activateTitle="查看教育经历"
       />
     ),
@@ -784,7 +810,9 @@ export function ContactContent({
           })}
         </div>
       </ContactRow>
-    ) : null,
+    ) : (
+      <ContactRow label="精选照片" value={null} />
+    ),
     status: null,
     common:
       personal && relationship !== 'self' ? (
@@ -802,7 +830,9 @@ export function ContactContent({
           ))}
         </div>
       </ContactRow>
-    ) : null,
+    ) : (
+      <ContactRow label="关系标签" value={null} />
+    ),
     marks:
       personal && relationship === 'friend' ? (
         <MarksRow
@@ -833,7 +863,9 @@ export function ContactContent({
           ))}
         </div>
       </ContactRow>
-    ) : null,
+    ) : (
+      <ContactRow label="已开通特权" value={null} />
+    ),
     level:
       hasQQ && !person.clone && person.kind !== 'bot' ? (
         <ContactStats person={person} field="level" />
@@ -858,7 +890,7 @@ export function ContactContent({
     botFeatures: person.kind === 'bot' ? <BotFeaturesRow person={person} /> : null,
   };
   const fieldGroup = contactCardFieldGroup;
-  const ordered = settings.order.filter(
+  const ordered = (full && fields ? fields : settings.order).filter(
     (key) =>
       key !== 'qid' &&
       key !== 'uid' &&

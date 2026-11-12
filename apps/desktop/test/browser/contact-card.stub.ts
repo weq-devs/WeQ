@@ -114,6 +114,31 @@ function value(path: string, input: Record<string, unknown>) {
         qa.noRemark || qa.mode === 'self' || String(input.target) === qa.account ? '' : qa.remark,
     };
   if (path === 'account.getBotProfile') return null;
+  if (path === 'account.contactMetrics.history.fieldSummary')
+    return {
+      fields: input.memberUid
+        ? ['card', 'customTitle']
+        : ['nick', 'company', 'school', 'commonGroups', 'marks', 'labels'],
+      pending: false,
+    };
+  if (path === 'account.contactMetrics.history.fieldVersions')
+    return {
+      rows: [
+        {
+          id: 2,
+          first_at: 1794390000000,
+          last_at: 1794390000000,
+          value: input.field === 'company' ? '示例工作室' : '当前项目值',
+        },
+        {
+          id: 1,
+          first_at: 1794300000000,
+          last_at: 1794300000000,
+          value: input.field === 'company' ? '以前的工作室' : '之前的项目值',
+        },
+      ],
+      nextBefore: null,
+    };
   if (path === 'account.listUserGroups')
     return [
       {
@@ -170,7 +195,36 @@ function value(path: string, input: Record<string, unknown>) {
     };
   if (path === 'account.conversationBoundary')
     return qa.noConversation ? null : { msgId: '1', msgSeq: '1', sendTime: 1794390000 };
-  if (path === 'account.dressup.peerQqShow') return { hasShow: false, url: '' };
+  if (path === 'account.dressup.peerQqShow')
+    return new URLSearchParams(location.search).has('qqshow')
+      ? { hasShow: true, url: 'https://fixture.invalid/qqshow.png' }
+      : { hasShow: false, url: '' };
+  if (path === 'account.mutualMark.get')
+    return {
+      totalNum: 3,
+      lightUpNum: 2,
+      rarityNum: 0,
+      categories: [
+        {
+          id: 'common',
+          name: '互动标识',
+          totalNum: 3,
+          lightUpNum: 2,
+          marks: ['小船', '火花', '幸运字符'].map((name, index) => ({
+            id: String(index),
+            name,
+            intro: '合成互动标识',
+            level: 2,
+            isLightup: index < 2,
+            isWearing: index === 0,
+            lightupDays: 12,
+            actDays: 20,
+            iconUrl: 'https://fixture.invalid/mark.png',
+            levels: [],
+          })),
+        },
+      ],
+    };
   if (path === 'account.dressup.peerHome')
     return new URLSearchParams(location.search).has('pendant')
       ? { widgetUrl: 'https://fixture.invalid/contact-pendant.png' }
@@ -374,6 +428,32 @@ function rpc(path: string[] = []): unknown {
             qa.pendingProfiles--;
           }
           return value(name, input);
+        };
+      if (key === 'subscribe')
+        return (input: Record<string, unknown>, handlers: { onData: (value: unknown) => void }) => {
+          record(name, input);
+          let closed = false;
+          queueMicrotask(() => {
+            if (!closed) {
+              handlers.onData({
+                kind: 'item',
+                item: {
+                  revision: 101,
+                  url: 'https://fixture.invalid/qqshow.png',
+                  md5: 'fixture',
+                  bytes: 100,
+                },
+                scanned: 101,
+                ceiling: 101,
+              });
+              handlers.onData({ kind: 'done', scanned: 101, ceiling: 101, truncated: false });
+            }
+          });
+          return {
+            unsubscribe() {
+              closed = true;
+            },
+          };
         };
       if (key === 'mutate') return async () => {};
       if (key === 'getData') return () => undefined;

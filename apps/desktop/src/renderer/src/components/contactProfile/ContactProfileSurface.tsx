@@ -10,6 +10,7 @@ import { ContactIdentity } from './ContactContent';
 import { ContactActions } from './ContactActions';
 import { ProfilePageHeader } from './ProfilePageHeader';
 import { toPersonalityProfile } from '../../im-template/template/profilePanes';
+import { ContactFieldHistoryProvider } from './ContactFieldHistory';
 
 export function ContactProfileSurface({
   contact,
@@ -64,57 +65,62 @@ function ContactProfilePage({
   const person: Contact = { createdAt: '', ...profile };
   return (
     <DraftCloseContext.Provider value={closing.drafts}>
-      <section
-        ref={page}
-        tabIndex={-1}
-        className={`weq-profile-dialog weq-contact-profile-content weq-contact-profile-v2${previewContent ? ' is-previewing-chat' : ''}`}
-        role="region"
-        aria-label="联系人资料"
+      <ContactFieldHistoryProvider
+        key={JSON.stringify(scope)}
+        entity={`friend:${person.uid || (/^u_/.test(person.id) ? person.id : person.identityValue)}`}
       >
-        <ProfilePageHeader
-          title="联系人资料"
-          onClose={closing.requestClose}
-          layout="split"
-          identity={
-            <ContactIdentity
-              person={person}
-              settings={settings}
-              cardBody
-              pendant={settings.ready && settings.visible.pendant}
-            />
-          }
-          actions={
-            <ContactActions
-              hideGroup
-              key={JSON.stringify([...scope, person.id, person.identityValue])}
-              onNavigate={(action) => {
-                void closing.confirmLeave(action);
-              }}
-              person={person}
-              onPreviewChat={onPreviewChat ? () => onPreviewChat(person) : undefined}
-            />
-          }
-        />
-        {previewContent ? (
-          <div className="weq-contact-chat-preview">{previewContent}</div>
-        ) : (
-          <ContactWorkspace
-            key={JSON.stringify([...scope, person.id, person.profileContext?.groupCode])}
-            contact={person}
-            tab={tab}
-            onTabChange={onTabChange}
-            onNavigateAway={onClose}
-            personalityProfile={toPersonalityProfile(
-              {
-                name: person.displayName,
-                avatarUrl: person.avatarUrl,
-                signature: person.signature,
-              },
-              person.extInfo,
-            )}
+        <section
+          ref={page}
+          tabIndex={-1}
+          className={`weq-profile-dialog weq-contact-profile-content weq-contact-profile-v2${previewContent ? ' is-previewing-chat' : ''}`}
+          role="region"
+          aria-label="联系人资料"
+        >
+          <ProfilePageHeader
+            title="联系人资料"
+            onClose={closing.requestClose}
+            layout="split"
+            identity={
+              <ContactIdentity
+                person={person}
+                settings={settings}
+                cardBody
+                pendant={settings.ready && settings.visible.pendant}
+              />
+            }
+            actions={
+              <ContactActions
+                hideGroup
+                key={JSON.stringify([...scope, person.id, person.identityValue])}
+                onNavigate={(action) => {
+                  void closing.confirmLeave(action);
+                }}
+                person={person}
+                onPreviewChat={onPreviewChat ? () => onPreviewChat(person) : undefined}
+              />
+            }
           />
-        )}
-      </section>
+          {previewContent ? (
+            <div className="weq-contact-chat-preview">{previewContent}</div>
+          ) : (
+            <ContactWorkspace
+              key={JSON.stringify([...scope, person.id, person.profileContext?.groupCode])}
+              contact={person}
+              tab={tab}
+              onTabChange={onTabChange}
+              onNavigateAway={onClose}
+              personalityProfile={toPersonalityProfile(
+                {
+                  name: person.displayName,
+                  avatarUrl: person.avatarUrl,
+                  signature: person.signature,
+                },
+                person.extInfo,
+              )}
+            />
+          )}
+        </section>
+      </ContactFieldHistoryProvider>
     </DraftCloseContext.Provider>
   );
 }

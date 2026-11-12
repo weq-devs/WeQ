@@ -774,7 +774,7 @@ it.each(['friend', 'group'] as const)('小名片 %s 移除互动入口并可展�
     act(() =>
       dialog
         .querySelector<HTMLButtonElement>(
-          kind === 'friend' ? '.weq-profile-expand' : '[aria-label="打开完整群资料"]',
+          kind === 'friend' ? '[aria-label="打开完整资料页"]' : '[aria-label="打开完整群资料"]',
         )!
         .click(),
     );
@@ -807,7 +807,9 @@ it('其他页面的群名片默认仍为浮层', () => {
     expect(
       document.querySelector('[role="dialog"][aria-label="群资料"]')?.closest('.weq-overlay-layer'),
     ).not.toBeNull();
-    expect(document.querySelector('.weq-profile-close')).not.toBeNull();
+    expect(
+      document.querySelector('.weq-profile-card-controls [aria-label="关闭群资料"]'),
+    ).not.toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -826,9 +828,9 @@ it('个性主页、互动标识与互动画像均在联系人正文内切换，�
       ),
     );
     for (const [label, disclosure, selector] of [
-      ['个性展示', '个性装扮', '.weq-contact-personality'],
+      ['个性展示', null, '.weq-profile-tags'],
       ['与我的关系', null, '.weq-contact-marks'],
-      ['与我的关系', '互动画像', '.weq-contact-portrait'],
+      ['与我的关系', null, '.weq-contact-portrait'],
     ] as const) {
       const entry = [
         ...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button'),
@@ -899,11 +901,7 @@ it('UID 与 QQ 号分开判定，只有 UID 的对象仍可查看互动画像', 
     expect(options.find((button) => button.textContent?.includes('个性主页'))).toBeUndefined();
     act(() => sectionButton(host, '与我的关系').click());
     expect(host.querySelector('.weq-contact-marks')).toBeNull();
-    const portrait = [
-      ...host.querySelectorAll<HTMLButtonElement>('.weq-profile-disclosure-trigger'),
-    ].find((button) => button.textContent?.includes('互动画像'))!;
-    expect(portrait.disabled).toBe(false);
-    act(() => portrait.click());
+    expect(host.querySelector('.weq-profile-disclosure-trigger[aria-expanded]')).toBeNull();
     expect(host.querySelector('.weq-contact-portrait')).not.toBeNull();
   } finally {
     act(() => root.unmount());

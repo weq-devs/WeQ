@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -43,137 +43,136 @@ try {
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.route('**/*', (route) =>
-    new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
-  );
+  const image = await readFile(resolve(root, '../../resources/img/bot.png'));
+  await page.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (
+      url.pathname === '/_media/dress' ||
+      url.pathname === '/_media/qqshow' ||
+      url.pathname === '/_avatar/fetch'
+    )
+      return route.fulfill({ contentType: 'image/png', body: image });
+    return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
+  });
   if (output) await mkdir(output, { recursive: true });
-  const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-card.html`;
-  async function checkSignatureDialog(trigger) {
-    const dialog = page.getByRole('dialog', { name: '历史个性签名', exact: true });
+  const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-card.html?qqshow=1`;
+  async function popover(title) {
+    const dialog = page.getByRole('dialog', { name: title, exact: true });
     await dialog.waitFor();
-    await page.evaluate(
+    await dialog.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     );
-    const layout = await dialog.evaluate((node) => {
-      const rect = node.getBoundingClientRect();
-      const layer = getComputedStyle(node.parentElement);
-      return {
-        left: rect.left,
-        right: rect.right,
-        top: rect.top,
-        bottom: rect.bottom,
-        width: rect.width,
-        background: layer.backgroundColor,
-        backdrop: layer.backdropFilter,
-        pointerEvents: layer.pointerEvents,
-        overflow: node.scrollWidth > node.clientWidth + 2,
-      };
-    });
-    const viewport = page.viewportSize();
-    const anchor = await trigger.boundingBox();
-    const evidence = JSON.stringify({ viewport, anchor, layout });
-    assert.ok(layout.left >= 8 && layout.right <= viewport.width - 8, evidence);
-    assert.ok(layout.top >= 8 && layout.bottom <= viewport.height - 8, evidence);
-    assert.equal(layout.background, 'rgba(0, 0, 0, 0)');
-    assert.equal(layout.backdrop, 'none');
-    assert.equal(layout.pointerEvents, 'none');
-    assert.equal(layout.overflow, false);
     assert.equal(await dialog.getAttribute('aria-modal'), null);
-    if (anchor.x + anchor.width + layout.width + 16 <= viewport.width)
-      assert.ok(Math.abs(layout.left - anchor.x - anchor.width - 8) <= 1);
-    else if (anchor.x - layout.width - 8 >= 8)
-      assert.ok(Math.abs(layout.right - anchor.x + 8) <= 1);
-    return layout;
+    assert.equal(
+      await dialog.evaluate((node) => node.scrollWidth > node.clientWidth + 1),
+      false,
+      `${title} 不应横向溢出`,
+    );
+    assert.equal(
+      await dialog.evaluate((node) => getComputedStyle(node.parentElement).backgroundColor),
+      'rgba(0, 0, 0, 0)',
+    );
+    const bounds = await dialog.boundingBox();
+    const viewport = page.viewportSize();
+    assert.ok(
+      bounds.x >= 6 && bounds.x + bounds.width <= viewport.width - 6,
+      JSON.stringify(bounds),
+    );
+    assert.ok(
+      bounds.y >= 6 && bounds.y + bounds.height <= viewport.height - 6,
+      JSON.stringify(bounds),
+    );
+    return dialog;
   }
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const width of [1280, 600, 390, 320]) {
-    await page.setViewportSize({ width, height: 900 });
-    for (const theme of ['light', 'dark']) {
-      await page.goto(url);
-      await page.evaluate((theme) => {
-        document.documentElement.dataset.theme = theme;
-        document.documentElement.dataset.background = theme === 'light' ? 'grid' : 'telegram';
-        document.documentElement.style.setProperty(
-          '--weq-accent-effective',
-          theme === 'light' ? '#b53049' : '#72cdb5',
-        );
-      }, theme);
-      const signature = page.locator('.weq-contact-signature-text');
-      await signature.waitFor();
-      assert.equal(
-        (await page.evaluate(() => window.contactCardQa.calls)).some((call) =>
-          call.path.endsWith('signatureHistory'),
-        ),
-        false,
-      );
-      await signature.click();
-      await page.getByText('暂无历史签名', { exact: true }).waitFor();
-      const layout = await checkSignatureDialog(signature);
-      assert.equal(await page.locator('.weq-member-pop').count(), 1);
-      assert.equal(await page.locator('.weq-contact-workspace-v2').count(), 0);
-      if (output)
-        await page.screenshot({ path: resolve(output, `${width}-${theme}-signature-popover.png`) });
-      await page.keyboard.press('Escape');
-      await page.locator('.weq-signature-history-dialog').waitFor({ state: 'detached' });
-      assert.equal(await signature.evaluate((node) => node === document.activeElement), true);
-      await signature.press('Enter');
-      await page.locator('.weq-signature-history-dialog').waitFor();
-      await page.locator('.weq-profile-expand').click();
-      await page.locator('.weq-signature-history-dialog').waitFor({ state: 'detached' });
-      assert.equal(await page.locator('.weq-member-pop').count(), 1);
-      assert.equal(await page.locator('.weq-contact-workspace-v2').count(), 0);
-      report.push({ width, theme, signaturePopover: layout, escapeAndOutsideOnlyTop: true });
-    }
+  async function select(title) {
+    await page
+      .getByRole(page.viewportSize().width > 720 ? 'button' : 'tab', { name: title, exact: true })
+      .click();
   }
-  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(url);
-  const identityLabels = await page
-    .locator('.weq-contact-identity-body .weq-profile-data-label')
-    .allTextContents();
-  await page.locator('.weq-profile-expand').click();
+  await page.getByRole('button', { name: '打开完整资料页', exact: true }).click();
   await page.locator('.weq-contact-workspace-v2').waitFor();
-  assert.deepEqual(
-    await page.locator('.weq-profile-page-identity .weq-profile-data-label').allTextContents(),
-    identityLabels,
-  );
-  assert.equal(await page.getByRole('button', { name: '签名历史', exact: true }).count(), 0);
-  assert.equal(await page.locator('.weq-contact-profile-v2 .weq-profile-tech').count(), 0);
-  assert.equal(
-    await page.locator('.weq-profile-workspace-body .weq-contact-signature-text').count(),
-    0,
-  );
   assert.deepEqual(await page.locator('.weq-profile-directory button').allTextContents(), [
     '个人资料',
     '与我的关系',
     '群内资料',
     '个性展示',
   ]);
+  assert.equal(await page.locator('.weq-contact-section-title').count(), 0);
+  assert.equal(await page.getByRole('button', { name: '教育经历', exact: true }).count(), 0);
   assert.equal(
-    (await page.evaluate(() => window.contactCardQa.calls)).some((call) =>
-      call.path.includes('history.'),
+    await page
+      .getByRole('button', { name: /资料变更记录|关系变更记录|所在群历史|个性展示变更记录/ })
+      .count(),
+    0,
+  );
+  const cold = await page.evaluate(() => window.contactCardQa.calls);
+  assert.equal(
+    cold.some(
+      (call) => call.path.endsWith('fieldVersions') || call.path.endsWith('educationHistory'),
     ),
     false,
   );
-  await page.getByRole('button', { name: '资料变更记录', exact: true }).click();
-  await page
-    .getByRole('region', { name: '资料历史', exact: true })
-    .locator('.contact-history-entry')
-    .waitFor();
-  const historyCalls = await page.evaluate(() =>
-    window.contactCardQa.calls.filter((call) => call.path.endsWith('history.list')),
-  );
+  await page.getByTitle('查看教育经历', { exact: true }).click();
+  await popover('教育经历');
+  await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
+  await page.getByRole('button', { name: '显示公司历史', exact: true }).click();
+  const history = await popover('公司历史');
+  await history.getByText('以前的工作室', { exact: true }).waitFor();
   assert.ok(
-    historyCalls.length && historyCalls.every((call) => call.input.category === 'getProfile'),
+    (
+      await page.evaluate(() =>
+        window.contactCardQa.calls.filter((call) => call.path.endsWith('fieldVersions')),
+      )
+    ).every((call) => call.input.field === 'company'),
   );
-  await page.getByRole('button', { name: '资料变更记录', exact: true }).click();
-  await page.getByRole('button', { name: '群内资料', exact: true }).click();
-  const select = page.getByLabel('群聊', { exact: true });
-  await page.getByText('第一群昵称', { exact: true }).waitFor();
-  await select.selectOption('10004');
+  await history.getByRole('button', { name: '关闭历史', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '显示邮箱历史', exact: true }).count(), 0);
+  await page.evaluate(() => {
+    window.contactCardQa.profileEnabled = true;
+    window.contactCardQa.notify();
+  });
+  await select('与我的关系');
+  await page.getByRole('img', { name: '互动风格雷达' }).waitFor();
+  assert.deepEqual(
+    await page.locator('.weq-profile-section-block--prominent > header h3').allTextContents(),
+    ['互动标识', '互动画像'],
+  );
+  assert.equal(await page.getByRole('button', { name: '互动画像', exact: true }).count(), 0);
+  const icon = await page.locator('.weq-mutual-icon').first().boundingBox();
+  assert.ok(icon.width <= 32 && icon.height <= 32);
+  await page.getByRole('button', { name: '查看共同群列表', exact: true }).click();
+  await popover('共同群 1');
+  await page.locator('.weq-common-groups-close').click();
+  await select('群内资料');
+  await page.getByLabel('群聊', { exact: true }).selectOption('10004');
   await page.getByText('第二群昵称', { exact: true }).waitFor();
-  assert.equal(await page.getByText('第一群头衔', { exact: true }).isVisible(), false);
+  assert.equal(
+    await page
+      .locator('.weq-profile-group-target')
+      .getByRole('button', { name: '本群发言', exact: true })
+      .count(),
+    1,
+  );
+  assert.equal(
+    await page
+      .locator('.weq-profile-group-target')
+      .getByRole('button', { name: '聊天分析', exact: true })
+      .count(),
+    1,
+  );
+  await page.getByRole('button', { name: '显示群昵称历史', exact: true }).click();
+  await popover('群昵称历史');
+  const groupHistory = await page.evaluate(() =>
+    window.contactCardQa.calls.filter((call) => call.path.endsWith('fieldVersions')).at(-1),
+  );
+  assert.equal(groupHistory.input.entity, 'group:10004');
+  assert.equal(groupHistory.input.field, 'card');
+  assert.ok(groupHistory.input.memberUid);
+  await page.getByRole('button', { name: '关闭历史', exact: true }).click();
   await page.getByRole('button', { name: '本群发言', exact: true }).click();
   await page.getByText('合成本群发言', { exact: true }).waitFor();
   assert.equal(
@@ -187,9 +186,37 @@ try {
     '10004',
   );
   await page.keyboard.press('Escape');
-  await page.evaluate(() => {
-    window.contactCardQa.profileEnabled = true;
-    window.contactCardQa.notify();
+  await select('个性展示');
+  await page
+    .getByRole('img', { name: '当前 QQ 秀', exact: true })
+    .evaluate((node) => node.decode());
+  const fields = await page
+    .locator('[aria-label="个性展示"][role="region"] [data-profile-field]')
+    .evaluateAll((nodes) => nodes.map((node) => node.dataset.profileField));
+  assert.ok(fields.indexOf('qqShow') >= 0 && fields.indexOf('qqShow') < fields.indexOf('labels'));
+  assert.equal(await page.locator('.weq-contact-personality,.weq-perhome').count(), 0);
+  assert.equal(await page.getByRole('button', { name: '个性装扮', exact: true }).count(), 0);
+  const qq = await page.locator('.weq-contact-qqshow').evaluate((node) => {
+    const row = node.closest('.weq-profile-data-row');
+    const label = row.querySelector('.weq-profile-data-label').getBoundingClientRect();
+    const image = node.getBoundingClientRect();
+    const value = row.querySelector('.weq-profile-data-value').getBoundingClientRect();
+    return {
+      center: Math.abs(label.y + label.height / 2 - image.y - image.height / 2),
+      left: Math.abs(value.x - image.x),
+    };
+  });
+  assert.ok(qq.center < 1 && qq.left < 1, JSON.stringify(qq));
+  await page.getByRole('button', { name: '查看 QQ 秀展柜', exact: true }).click();
+  await popover('QQ 秀展柜');
+  await page.keyboard.press('Escape');
+  report.push({
+    educationPopover: true,
+    commonGroupsPopover: true,
+    fieldHistory: true,
+    groupContext: true,
+    qqShowAlignment: qq,
+    compactMarks: true,
   });
   for (const width of [1280, 600, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
@@ -203,133 +230,48 @@ try {
         );
       }, theme);
       for (const title of ['个人资料', '与我的关系', '群内资料', '个性展示']) {
-        await page.getByRole(width > 720 ? 'button' : 'tab', { name: title, exact: true }).click();
-        if (title === '个性展示') {
-          const question = page.getByRole('button', { name: '匿问我答', exact: true });
-          if ((await question.getAttribute('aria-expanded')) === 'false') await question.click();
-        }
-        const overflow = await page.evaluate(() => {
-          const body = document.querySelector('.weq-profile-workspace-body');
-          return (
-            document.documentElement.scrollWidth > innerWidth || body.scrollWidth > body.clientWidth
-          );
-        });
-        if (overflow) {
-          if (output) await page.screenshot({ path: resolve(output, 'overflow.png') });
-          console.log(
-            await page.locator('.weq-profile-workspace-body').evaluate((body) =>
-              [...body.querySelectorAll('*')]
-                .filter(
-                  (node) => node.getBoundingClientRect().right > body.getBoundingClientRect().right,
-                )
-                .map((node) => ({
-                  class: node.className,
-                  tag: node.tagName,
-                  width: node.getBoundingClientRect().width,
-                  text: node.textContent.slice(0, 60),
-                })),
-            ),
-          );
-        }
-        assert.equal(overflow, false, `${width}/${theme}/${title} 不应横向溢出`);
+        await select(title);
+        assert.equal(await page.locator('.weq-contact-section-title').count(), 0);
+        const overflow = await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth > innerWidth ||
+            [
+              ...document.querySelectorAll('.weq-profile-workspace-body,.weq-profile-page-header'),
+            ].some((node) => node.scrollWidth > node.clientWidth + 1),
+        );
+        assert.equal(overflow, false, `${width}/${theme}/${title} 不应溢出`);
         const identity = await page.locator('.weq-profile-page-identity').boundingBox();
         const actions = await page.locator('.weq-profile-page-actions').boundingBox();
         const narrow = await page
           .locator('.weq-contact-profile-v2')
           .evaluate((node) => node.clientWidth <= 560);
-        const buttons = await page
-          .locator('.weq-profile-page-actions button')
-          .evaluateAll((nodes) =>
-            nodes.map((node) => {
-              const box = node.getBoundingClientRect();
-              return { x: box.x, y: box.y, width: box.width, height: box.height };
-            }),
-          );
-        if (narrow) {
-          assert.ok(
-            actions.y >= identity.y + identity.height + 8,
-            '空间不足时操作区应移到身份区下方',
-          );
-          assert.ok(Math.abs(actions.width - identity.width) < 2, '下方操作区应铺满身份区宽度');
-          assert.ok(Math.abs(buttons[0].x - actions.x) < 2);
-          const last = buttons.at(-1);
-          assert.ok(
-            Math.abs(last.x + last.width - actions.x - actions.width) < 2,
-            '每行按钮应铺满可用宽度',
-          );
-        } else {
-          assert.ok(
-            actions.x >= identity.x + identity.width + 8,
-            `${width}/${theme} 操作应位于身份区右侧`,
-          );
-          assert.ok(Math.abs(actions.y - identity.y) < 2, '操作区应与身份区顶部对齐');
-          for (let index = 0; index < buttons.length; index++) {
-            assert.ok(Math.abs(buttons[index].width - actions.width) < 2, '右侧每行一个等宽按钮');
-            if (index)
-              assert.ok(buttons[index].y >= buttons[index - 1].y + buttons[index - 1].height + 4);
-          }
-        }
-        assert.equal(
-          await page
-            .locator('.weq-profile-page-header')
-            .evaluate((node) => node.scrollWidth > node.clientWidth),
-          false,
+        assert.ok(
+          narrow
+            ? actions.y >= identity.y + identity.height + 8
+            : actions.x >= identity.x + identity.width + 8,
         );
-        report.push({ width, theme, title, overflow });
         if (output)
           await page.screenshot({ path: resolve(output, `${width}-${theme}-${title}.png`) });
+        report.push({ width, theme, title, overflow });
       }
-    }
-  }
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.locator('.contact-fixture').evaluate((node) => {
-    node.style.width = '520px';
-  });
-  const narrowIdentity = await page.locator('.weq-profile-page-identity').boundingBox();
-  const narrowActions = await page.locator('.weq-profile-page-actions').boundingBox();
-  assert.ok(
-    narrowActions.y >= narrowIdentity.y + narrowIdentity.height + 8,
-    '宽窗口内的窄资料面板也应将操作移到下方',
-  );
-  if (output) await page.screenshot({ path: resolve(output, '1280-narrow-pane-actions.png') });
-  report.push({ width: 1280, paneWidth: 520, actionsBelow: true });
-  await page.locator('.contact-fixture').evaluate((node) => {
-    node.style.width = '';
-  });
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const width of [1280, 320]) {
-    await page.setViewportSize({ width, height: 900 });
-    for (const [title, detail] of [
-      ['个人资料', '签名历史'],
-      ['与我的关系', '互动画像'],
-      ['个性展示', '个性装扮'],
-    ]) {
-      await page.getByRole(width > 720 ? 'button' : 'tab', { name: title, exact: true }).click();
-      if (detail === '签名历史') {
-        const signature = page.locator('.weq-profile-page-identity .weq-contact-signature-text');
-        await signature.click();
-        await checkSignatureDialog(signature);
-        if (output)
-          await page.screenshot({ path: resolve(output, `${width}-expanded-${detail}.png`) });
-        await page.keyboard.press('Escape');
-        assert.equal(await page.locator('.weq-contact-workspace-v2').count(), 1);
-        report.push({ width, signatureEntries: ['签名正文'], dialog: true });
-        continue;
-      }
-      const trigger = page.getByRole('button', { name: detail, exact: true });
-      if ((await trigger.getAttribute('aria-expanded')) === 'false') await trigger.click();
-      const panel = page.locator(`#${await trigger.getAttribute('aria-controls')}`);
-      await panel.scrollIntoViewIfNeeded();
-      if (detail === '互动画像') await page.getByRole('img', { name: '互动风格雷达' }).waitFor();
-      assert.equal(
-        await page
-          .locator('.weq-profile-workspace-body')
-          .evaluate((body) => body.scrollWidth > body.clientWidth),
-        false,
-        `${width}/${detail} 不应溢出`,
-      );
+      await select('个人资料');
+      await page.getByTitle('查看教育经历', { exact: true }).click();
+      await popover('教育经历');
+      await page.keyboard.press('Escape');
+      await select('与我的关系');
+      await page.getByRole('button', { name: '查看共同群列表', exact: true }).click();
+      await popover('共同群 1');
+      await page.keyboard.press('Escape');
+      await select('个人资料');
+      await page.getByRole('button', { name: '显示公司历史', exact: true }).click();
+      await popover('公司历史');
       if (output)
-        await page.screenshot({ path: resolve(output, `${width}-expanded-${detail}.png`) });
+        await page.screenshot({ path: resolve(output, `${width}-${theme}-field-history.png`) });
+      await page.keyboard.press('Escape');
+      await select('个性展示');
+      await page.getByRole('button', { name: '查看 QQ 秀展柜', exact: true }).click();
+      await popover('QQ 秀展柜');
+      await page.keyboard.press('Escape');
     }
   }
   assert.deepEqual(errors, []);

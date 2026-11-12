@@ -7,26 +7,24 @@ import {
   contactWorkspaceSection,
   type ContactWorkspaceSection,
 } from '../lib/contactWorkspace';
-import { PersonalityHomeDialog, type PersonalityHomeProfile } from './PersonalityHomeDialog';
+import type { PersonalityHomeProfile } from './PersonalityHomeDialog';
 import { MutualMarkDialog } from './MutualMarkDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context';
 import { usePersonRelationship } from '../lib/contactRelationship';
-import { ContactHistory } from './ContactHistory';
 import { ContactContent } from './contactProfile/ContactContent';
 import { ContactGroupWorkspace } from './contactProfile/ContactGroupWorkspace';
 import { ProfileDisclosure } from './contactProfile/ProfileDisclosure';
 import { ContactSection } from './contactProfile/ContactRow';
 import { ProfileExtrasContent } from './ProfileExtras';
 import { SelfQQControls } from './settings/SelfQQControls';
-import { SelfAvatarHistory } from './SelfAvatarHistory';
 import { ProfileWorkspace } from './ProfileWorkspace';
+import { ContactDressRow } from './contactProfile/ContactDressRow';
 import '../styles/contact-card.css';
 import '../styles/contact-workspace.css';
 
 export function ContactWorkspace({
   contact,
-  personalityProfile,
   tab,
   onTabChange,
   onNavigateAway,
@@ -61,7 +59,6 @@ export function ContactWorkspace({
     onTabChange?.(key);
   }
   const opened = detail ?? requested;
-  const entity = `friend:${contact.uid || (hasQQ ? contact.identityValue : contact.id)}`;
   function content(fields: ContactCardContent[]) {
     return (
       <ContactContent
@@ -73,17 +70,6 @@ export function ContactWorkspace({
         onSection={select}
       />
     );
-  }
-  function history(section: ContactWorkspaceSection, title = '资料变更记录') {
-    return hasQQ || hasUid ? (
-      <ProfileDisclosure
-        title={title}
-        initiallyOpen={section === 'profile' && opened === 'history'}
-        openRequest={openRequest}
-      >
-        <ContactHistory entity={entity} section={section} />
-      </ProfileDisclosure>
-    ) : null;
   }
   function panel(key: ContactWorkspaceSection) {
     if (key === 'profile')
@@ -118,21 +104,6 @@ export function ContactWorkspace({
             'botDescription',
             'botFeatures',
           ])}
-          {human ? (
-            <ProfileDisclosure
-              title="教育经历"
-              initiallyOpen={opened === 'details'}
-              openRequest={openRequest}
-            >
-              <ProfileExtrasContent uin={contact.identityValue} view="education" />
-            </ProfileDisclosure>
-          ) : null}
-          {relationship === 'self' ? (
-            <ContactSection title="头像">
-              <SelfAvatarHistory />
-            </ContactSection>
-          ) : null}
-          {history('profile')}
         </>
       );
     if (key === 'marks')
@@ -140,7 +111,7 @@ export function ContactWorkspace({
         <>
           {content(['common', 'intimacy', 'relations', 'friendClue'])}
           {human && relationship === 'friend' ? (
-            <ContactSection title="互动标识">
+            <ContactSection title="互动标识" prominent>
               <MutualMarkDialog
                 embedded
                 uin={contact.identityValue}
@@ -151,40 +122,17 @@ export function ContactWorkspace({
             </ContactSection>
           ) : null}
           {hasUid ? (
-            <ProfileDisclosure
-              title="互动画像"
-              initiallyOpen={opened === 'portrait'}
-              openRequest={openRequest}
-            >
+            <ContactSection title="互动画像" prominent>
               <Portrait contact={contact} />
-            </ProfileDisclosure>
+            </ContactSection>
           ) : null}
-          {history('marks', '关系变更记录')}
         </>
       );
-    if (key === 'group')
-      return (
-        <>
-          <ContactGroupWorkspace contact={contact} />
-          {history('group', '所在群历史')}
-        </>
-      );
+    if (key === 'group') return <ContactGroupWorkspace contact={contact} />;
     return (
       <>
-        {content(['labels', 'photos', 'qqShow'])}
-        {hasQQ ? (
-          <ProfileDisclosure title="个性装扮">
-            <PersonalityHomeDialog
-              embedded
-              uin={contact.identityValue}
-              uid={hasUid ? contact.uid || contact.id : undefined}
-              profile={personalityProfile}
-              isBot={contact.kind === 'bot'}
-              spaceNickname={contact.nick || contact.displayName}
-              onClose={onNavigateAway}
-            />
-          </ProfileDisclosure>
-        ) : null}
+        {content(['qqShow', 'labels', 'photos'])}
+        {hasQQ && contact.kind !== 'bot' ? <ContactDressRow person={contact} /> : null}
         {human ? (
           <ProfileDisclosure
             title="匿问我答"
@@ -194,12 +142,12 @@ export function ContactWorkspace({
             <ProfileExtrasContent uin={contact.identityValue} view="questions" />
           </ProfileDisclosure>
         ) : null}
-        {history('personality', '个性展示变更记录')}
       </>
     );
   }
   return (
     <ProfileWorkspace
+      showTitle={false}
       label="联系人详情分区"
       sections={options}
       selected={selected}

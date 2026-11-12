@@ -1,4 +1,4 @@
-import { useContext, useId, useState } from 'react';
+import { useContext, useId, useRef, useState } from 'react';
 import { X, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
@@ -18,6 +18,7 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
   const directory = useContext(ConversationDirectoryContext);
   const openChat = useContext(ChatNavigationContext);
   const titleId = useId();
+  const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const query = trpc.account.qqWrite.commonRelationships.useQuery(
@@ -75,10 +76,13 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
       </ContactRow>
       <ContactRow label="共同群" empty={!query.data?.groups && !query.isFetching}>
         <button
+          ref={anchor}
           type="button"
           className="weq-contact-value"
           disabled={!query.data?.groups}
-          onClick={() => setOpen(true)}
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-haspopup="dialog"
           title="查看共同群列表"
           aria-label="查看共同群列表"
         >
@@ -87,7 +91,9 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
       </ContactRow>
       {open && (
         <Modal
-          centered
+          presentation="popover"
+          anchor={anchor.current}
+          anchorPlacement="side"
           width={420}
           title="共同群"
           labelledBy={titleId}

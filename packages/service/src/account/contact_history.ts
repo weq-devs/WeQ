@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { contactHistoryWorker } from './contact_history_worker';
 import type { ContactMetricRows } from './contact_metrics';
 import { validGroupProfile, validGroupRosterMember } from './contact_cache_validation';
+import { projectContactHistoryFields } from './contact_field_history';
 
 export function canonicalContactValue(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalContactValue).join(',')}]`;
@@ -115,7 +116,7 @@ export class ContactHistoryService {
   private flushing?: Promise<void>;
   constructor(readonly root: string) {
     this.worker = new Worker(
-      `(${contactHistoryWorker.toString()})(${encodeContactValue.toString()},require)`,
+      `(${contactHistoryWorker.toString()})(${encodeContactValue.toString()},require,${projectContactHistoryFields.toString()})`,
       {
         eval: true,
         workerData: { path: join(root, 'history.sqlite') },
@@ -277,6 +278,22 @@ export class ContactHistoryService {
     await this.migration;
     await this.drain();
     return this.request<string[]>('categories', { entity });
+  }
+  async fieldSummary(entity: string, memberUid = '') {
+    await this.migration;
+    await this.drain();
+    return this.request<{ fields: string[]; pending: boolean }>('fieldSummary', {
+      entity,
+      memberUid,
+    });
+  }
+  async fieldVersions(entity: string, field: string, memberUid = '', before?: number, limit = 30) {
+    await this.migration;
+    await this.drain();
+    return this.request<{
+      rows: Array<{ id: number; first_at: number; last_at: number; value: unknown }>;
+      nextBefore: number | null;
+    }>('fieldVersions', { entity, field, memberUid, before, limit });
   }
   async saveProjections(rows: ContactMetricRows) {
     await this.migration;

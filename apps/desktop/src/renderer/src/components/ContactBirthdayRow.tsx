@@ -5,7 +5,7 @@ import '../styles/contact-birth.css';
 
 export function ContactBirthdayRow({ birth }: { birth: ContactBirth }) {
   const text = contactBirthdayText(birth);
-  if (!text) return null;
+  if (!text) return <ContactRow label="生日" value={null} />;
   const detail = birthRangeText(birth);
   return (
     <ContactRow label="生日">

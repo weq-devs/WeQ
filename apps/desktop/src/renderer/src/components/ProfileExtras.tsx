@@ -80,7 +80,7 @@ export function ProfileExtraDialog({
       labelledBy={id}
       width={view === 'signatures' ? 520 : 680}
       className={`weq-extras-dialog${view === 'signatures' ? ' weq-signature-history-dialog' : ''}`}
-      presentation={view === 'signatures' ? 'popover' : 'modal'}
+      presentation={view === 'signatures' || view === 'education' ? 'popover' : 'modal'}
       anchor={anchor}
       anchorPlacement="side"
     >

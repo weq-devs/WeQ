@@ -44,7 +44,8 @@ export function QQGroupMemberControls({
           const editable =
             relationship !== 'nonmember' &&
             (label === '群昵称' ? permissions.card : permissions.title);
-          if (!value?.trim() && (!editable || !session.available)) return null;
+          if (!value?.trim() && (!editable || !session.available))
+            return <ContactRow key={label} label={label} value={null} />;
           // 已有值在权限未知时仍可点击读取；空值必须已有明确可编辑权限。
           const inspect = relationship !== 'nonmember' && (!current || editable);
           return (

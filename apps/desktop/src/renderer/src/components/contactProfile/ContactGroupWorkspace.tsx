@@ -15,6 +15,7 @@ import { ContactEmptyState, ContactInlineError } from './ContactRow';
 import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
 import { sharedGroupConversation } from '../ark/groupShareCard';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
+import { ContactFieldHistoryProvider } from './ContactFieldHistory';
 
 const rememberedGroups = new Map<string, string>();
 
@@ -123,101 +124,103 @@ function GroupWorkspace({
   };
   return (
     <DraftCloseContext.Provider value={closing.drafts}>
-      <div className="weq-contact-group-workspace">
-        <div className="weq-profile-group-picker">
-          <label htmlFor={`contact-group-${uid}`}>群聊</label>
-          <div className="weq-profile-group-target">
-            <select
-              id={`contact-group-${uid}`}
-              value={code ?? ''}
-              disabled={!codes.length}
-              onChange={(event) => {
-                const next = event.target.value;
-                void closing.confirmLeave(() => {
-                  setSelected(next);
-                  rememberedGroups.delete(scope);
-                  rememberedGroups.set(scope, next);
-                  if (rememberedGroups.size > 200)
-                    rememberedGroups.delete(rememberedGroups.keys().next().value!);
-                });
-              }}
-            >
-              {!codes.length ? (
-                <option value="">{groups.isFetching ? '正在读取群聊…' : '暂无群聊'}</option>
-              ) : (
-                codes.map((value) => (
-                  <option key={value} value={value}>
-                    {name(value)}
-                    {name(value) !== value ? `（${value}）` : ''}
-                  </option>
-                ))
-              )}
-            </select>
-            {code && navigate ? (
-              <button
-                type="button"
-                className="weq-profile-group-link"
-                title="查看所选群资料"
-                aria-label="查看所选群资料"
-                onClick={() => {
-                  const known = directory?.real?.find(
-                    (item) => item.type === 'group' && item.id === code,
-                  );
-                  const conversation =
-                    known?.type === 'group'
-                      ? known
-                      : sharedGroupConversation({
-                          code,
-                          name: name(code),
-                          avatar: avatarFromGroupCode(code) ?? '',
-                        });
-                  void closing.confirmLeave(() => navigate({ kind: 'group', conversation }));
+      <ContactFieldHistoryProvider entity={`group:${code || '0'}`} memberUid={uid}>
+        <div className="weq-contact-group-workspace">
+          <div className="weq-profile-group-picker">
+            <label htmlFor={`contact-group-${uid}`}>群聊</label>
+            <div className="weq-profile-group-target">
+              <select
+                id={`contact-group-${uid}`}
+                value={code ?? ''}
+                disabled={!codes.length}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  void closing.confirmLeave(() => {
+                    setSelected(next);
+                    rememberedGroups.delete(scope);
+                    rememberedGroups.set(scope, next);
+                    if (rememberedGroups.size > 200)
+                      rememberedGroups.delete(rememberedGroups.keys().next().value!);
+                  });
                 }}
               >
-                <ExternalLink size={16} />
-              </button>
-            ) : null}
+                {!codes.length ? (
+                  <option value="">{groups.isFetching ? '正在读取群聊…' : '暂无群聊'}</option>
+                ) : (
+                  codes.map((value) => (
+                    <option key={value} value={value}>
+                      {name(value)}
+                      {name(value) !== value ? `（${value}）` : ''}
+                    </option>
+                  ))
+                )}
+              </select>
+              {code && navigate ? (
+                <button
+                  type="button"
+                  className="weq-profile-group-link"
+                  title="查看所选群资料"
+                  aria-label="查看所选群资料"
+                  onClick={() => {
+                    const known = directory?.real?.find(
+                      (item) => item.type === 'group' && item.id === code,
+                    );
+                    const conversation =
+                      known?.type === 'group'
+                        ? known
+                        : sharedGroupConversation({
+                            code,
+                            name: name(code),
+                            avatar: avatarFromGroupCode(code) ?? '',
+                          });
+                    void closing.confirmLeave(() => navigate({ kind: 'group', conversation }));
+                  }}
+                >
+                  <ExternalLink size={16} />
+                </button>
+              ) : null}
+              {code ? <ContactActions key={code} person={person} groupOnly /> : null}
+            </div>
           </div>
+          {groups.error ? (
+            <ContactInlineError
+              message="所在群读取失败，已有资料保留。"
+              onRetry={() => void groups.refetch()}
+              retrying={groups.isFetching}
+            />
+          ) : null}
+          {groups.hasNextPage ? (
+            <button
+              className="weq-profile-section-action"
+              type="button"
+              disabled={groups.isFetching}
+              onClick={() => void groups.fetchNextPage()}
+            >
+              加载更多群聊
+            </button>
+          ) : null}
+          {code ? (
+            <div key={code}>
+              {detail.error ? (
+                <ContactInlineError
+                  message="群资料读取失败"
+                  onRetry={() => void detail.refetch()}
+                  retrying={detail.isFetching}
+                />
+              ) : null}
+              {row || source ? (
+                <ContactGroupContent person={person} settings={DEFAULT_CONTACT_CARD} full />
+              ) : (
+                <ContactEmptyState>
+                  {groups.isFetching ? '正在读取群内资料…' : '没有已保存的成员资料。'}
+                </ContactEmptyState>
+              )}
+            </div>
+          ) : !groups.isFetching && !groups.error ? (
+            <ContactEmptyState>没有可显示的群内资料。</ContactEmptyState>
+          ) : null}
         </div>
-        {groups.error ? (
-          <ContactInlineError
-            message="所在群读取失败，已有资料保留。"
-            onRetry={() => void groups.refetch()}
-            retrying={groups.isFetching}
-          />
-        ) : null}
-        {groups.hasNextPage ? (
-          <button
-            className="weq-profile-section-action"
-            type="button"
-            disabled={groups.isFetching}
-            onClick={() => void groups.fetchNextPage()}
-          >
-            加载更多群聊
-          </button>
-        ) : null}
-        {code ? (
-          <div key={code}>
-            {detail.error ? (
-              <ContactInlineError
-                message="群资料读取失败"
-                onRetry={() => void detail.refetch()}
-                retrying={detail.isFetching}
-              />
-            ) : null}
-            {row || source ? (
-              <ContactGroupContent person={person} settings={DEFAULT_CONTACT_CARD} full />
-            ) : (
-              <ContactEmptyState>
-                {groups.isFetching ? '正在读取群内资料…' : '没有已保存的成员资料。'}
-              </ContactEmptyState>
-            )}
-            <ContactActions person={person} groupOnly />
-          </div>
-        ) : !groups.isFetching && !groups.error ? (
-          <ContactEmptyState>没有可显示的群内资料。</ContactEmptyState>
-        ) : null}
-      </div>
+      </ContactFieldHistoryProvider>
     </DraftCloseContext.Provider>
   );
 }

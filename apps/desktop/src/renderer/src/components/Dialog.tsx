@@ -24,6 +24,7 @@ import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
 import { IS_WEB } from '../lib/target';
 import '../styles/dialog-layout.css';
+import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
 
 export type DialogTone = 'error' | 'warning' | 'info';
 
@@ -224,7 +225,7 @@ export function Modal({
         onClose={onClose}
         dismissOnOutside={dismissOnOutside}
       >
-        {children}
+        <ContactFieldHistoryBoundary>{children}</ContactFieldHistoryBoundary>
       </WindowSurface>
     );
   if (presentation === 'page' || presentation === 'sidecar')
@@ -239,7 +240,7 @@ export function Modal({
           className={`weq-modal${className ? ` ${className}` : ''}`}
           aria-labelledby={labelledBy}
         >
-          {children}
+          <ContactFieldHistoryBoundary>{children}</ContactFieldHistoryBoundary>
         </div>
       </WorkspacePage>
     ) : null;
@@ -266,7 +267,7 @@ export function Modal({
       >
         <OverlayLayerContext.Provider value={layer}>
           <OverlayAnchorContext.Provider value={placement.trigger}>
-            {children}
+            <ContactFieldHistoryBoundary>{children}</ContactFieldHistoryBoundary>
           </OverlayAnchorContext.Provider>
         </OverlayLayerContext.Provider>
       </div>

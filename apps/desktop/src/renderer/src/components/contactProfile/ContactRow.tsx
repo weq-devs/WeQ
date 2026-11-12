@@ -9,6 +9,7 @@
 
 import { useId, type ReactNode } from 'react';
 import { CopyButton } from '../CopyButton';
+import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './ContactFieldHistory';
 import '../../styles/profile-workspace.css';
 
 function isBlank(value: ReactNode): boolean {
@@ -29,6 +30,7 @@ export function ContactRow({
   activateTitle,
   valueClassName,
   copyValue,
+  historyField,
 }: {
   label: string;
   /** label 前的小图标，与设置页 SectionHeader 的图标语言一致；不是每行都需要。 */
@@ -42,14 +44,18 @@ export function ContactRow({
   /** 等宽展示（编号、UUID 一类），仍然可选中复制。 */
   mono?: boolean;
   /** 点值进入编辑/详情；拖动选择文本时不触发。 */
-  onActivate?: () => void;
+  onActivate?: (anchor: HTMLButtonElement) => void;
   activateTitle?: string;
   valueClassName?: string;
   /** 点值复制，成功后就地提示。 */
   copyValue?: string;
+  /** 同名字段可指向不同项目，例如普通添加来源与来源群。 */
+  historyField?: string;
 }) {
-  const content = children ?? value;
-  if (empty ?? isBlank(content)) return null;
+  const hasHistory = useContactFieldHistoryAvailable(label, historyField);
+  const blank = empty ?? isBlank(children ?? value);
+  const content = blank ? '暂无当前资料' : (children ?? value);
+  if (blank && !hasHistory) return null;
   const className = `weq-profile-data-row${valueClassName ? ` ${valueClassName}` : ''}`;
   return (
     <div className={className}>
@@ -60,9 +66,10 @@ export function ContactRow({
           </span>
         ) : null}
         {label}
+        <ContactFieldHistoryButton label={label} field={historyField} />
       </span>
       <div className={`weq-profile-data-value${mono ? ' is-mono' : ''}`} data-privacy-sensitive>
-        {copyValue !== undefined ? (
+        {copyValue !== undefined && !blank ? (
           <CopyButton text={copyValue} className="weq-profile-data-action" title={activateTitle}>
             {content}
           </CopyButton>
@@ -74,7 +81,7 @@ export function ContactRow({
             onClick={(event) => {
               const selection = window.getSelection();
               if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
-                onActivate();
+                onActivate(event.currentTarget);
             }}
           >
             {content}
@@ -93,6 +100,7 @@ export function ContactSection({
   action,
   hideTitle = false,
   fields = false,
+  prominent = false,
   children,
 }: {
   title: string;
@@ -104,15 +112,23 @@ export function ContactSection({
    * 这时整块（含小标题）一起隐藏，不让用户看到只有标题的空段。
    */
   fields?: boolean;
+  prominent?: boolean;
   children: ReactNode;
 }) {
   return (
     <section
-      className={`weq-profile-section-block${fields ? ' weq-profile-section-block--fields' : ''}`}
+      className={`weq-profile-section-block${fields ? ' weq-profile-section-block--fields' : ''}${prominent ? ' weq-profile-section-block--prominent' : ''}`}
     >
       {hideTitle && !action ? null : (
         <header className="weq-profile-section-head">
-          {hideTitle ? <span /> : <h3 className="weq-profile-subtitle">{title}</h3>}
+          {hideTitle ? (
+            <span />
+          ) : (
+            <h3 className="weq-profile-subtitle">
+              {title}
+              <ContactFieldHistoryButton label={title} />
+            </h3>
+          )}
           {action}
         </header>
       )}

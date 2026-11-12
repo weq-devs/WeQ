@@ -89,6 +89,7 @@ function fixture() {
 async function select(host: HTMLElement, value: string) {
   await act(async () => {
     const input = host.querySelector('select')!;
+    input.focus();
     input.value = value;
     input.dispatchEvent(new Event('change', { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 15));
@@ -103,6 +104,7 @@ it('来源群不在当前所在群名单中仍可浏览，切群仅改变成员�
   await select(host, '10003');
   expect(host.querySelector('[data-member]')?.textContent).toBe('10003:另一个群昵称');
   expect(host.querySelector('[data-actions]')?.textContent).toBe('10003');
+  expect(document.activeElement).toBe(host.querySelector('select'));
   expect(contact.profileContext?.groupCode).toBe('99999');
   expect(rpc.groups).toHaveBeenCalledWith(
     expect.objectContaining({ expectedAccountConfigId: 'source-a', uid: contact.id, offset: 0 }),

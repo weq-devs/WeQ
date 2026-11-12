@@ -7,7 +7,7 @@ import '../styles/profile-workspace.css';
  * 资料类详情（联系人 / 群）共用的「目录 + 内容」容器。
  *
  * 宽屏左侧竖目录、窄屏横向 tab 条（不再是原生 select——原生控件与应用的导航语言不一致，
- * 也没法承载选中态与小标题层级）。章节标题统一由这里输出 17px 的 h2，调用方不再自己画标题。
+ * 也没法承载选中态与小标题层级）。章节标题默认输出 17px h2，可由宿主关闭以避免重复。
  *
  * 目录类名用 `weq-profile-directory`：旧名 `weq-contact-directory` 已被联系人列表侧栏
  * （conversationLists.tsx + conversation-directory.css）占用，同名会让两套布局互相污染。
@@ -18,12 +18,14 @@ export function ProfileWorkspace<K extends string>({
   selected,
   onSelect,
   render,
+  showTitle = true,
 }: {
   label: string;
   sections: ReadonlyArray<readonly [K, string]>;
   selected: K;
   onSelect: (key: K) => void;
   render: (key: K) => ReactNode;
+  showTitle?: boolean;
 }) {
   const [visited, setVisited] = useState<Set<K>>(() => new Set([selected]));
   const scroll = useRef<HTMLDivElement>(null);
@@ -110,7 +112,7 @@ export function ProfileWorkspace<K extends string>({
           {visible.map(([key, title]) => (
             <div key={key} hidden={selected !== key} aria-label={title} role="region">
               <TabActivity active={selected === key}>
-                <h2 className="weq-contact-section-title">{title}</h2>
+                {showTitle ? <h2 className="weq-contact-section-title">{title}</h2> : null}
                 {render(key)}
               </TabActivity>
             </div>

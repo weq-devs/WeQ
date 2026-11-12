@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { TabActivity, useTabActive } from '../RetainedTabs';
+import { ContactFieldHistoryButton } from './ContactFieldHistory';
 
 /** 展开后才挂载，收起保留分页和草稿，同时暂停读取。 */
 export function ProfileDisclosure({
@@ -26,19 +27,22 @@ export function ProfileDisclosure({
   }, [initiallyOpen, openRequest]);
   return (
     <section className="weq-profile-disclosure">
-      <button
-        type="button"
-        className="weq-profile-disclosure-trigger"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => {
-          setVisited(true);
-          setOpen((value) => !value);
-        }}
-      >
-        <span>{title}</span>
-        <ChevronDown size={16} aria-hidden />
-      </button>
+      <div className="weq-profile-disclosure-head">
+        <button
+          type="button"
+          className="weq-profile-disclosure-trigger"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => {
+            setVisited(true);
+            setOpen((value) => !value);
+          }}
+        >
+          <span>{title}</span>
+          <ChevronDown size={16} aria-hidden />
+        </button>
+        <ContactFieldHistoryButton label={title} />
+      </div>
       <div id={id} hidden={!open} className="weq-profile-disclosure-body">
         {visited ? <TabActivity active={active && open}>{children}</TabActivity> : null}
       </div>

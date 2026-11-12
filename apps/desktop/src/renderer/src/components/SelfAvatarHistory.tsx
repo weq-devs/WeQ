@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, History, RotateCcw, X } from 'lucide-react';
 import type { HistoricalAvatar } from '@weq/protocol';
 import { Modal } from './Dialog';
@@ -28,10 +28,16 @@ export const avatarHistoryTime = (value: number | null) =>
 export function SelfAvatarHistory() {
   const session = useQQWriteSession('self-avatar-history');
   const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
   const identity = `${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}`;
   return (
     <>
-      <button className="weq-avatar-history-entry" type="button" onClick={() => setOpen(true)}>
+      <button
+        ref={anchor}
+        className="weq-avatar-history-entry"
+        type="button"
+        onClick={() => setOpen(true)}
+      >
         <History size={15} />
         历史头像
       </button>
@@ -40,6 +46,7 @@ export function SelfAvatarHistory() {
           key={identity}
           binding={session.binding}
           online={session.available}
+          anchor={anchor.current}
           onClose={() => setOpen(false)}
         />
       ) : null}
@@ -50,10 +57,12 @@ export function AvatarHistoryDialog({
   binding,
   online,
   onClose,
+  anchor,
 }: {
   binding: QQWriteBinding;
   online: boolean;
   onClose: () => void;
+  anchor?: HTMLElement | null;
 }) {
   const titleId = useId();
   const activity = useQQReadActivity(online);
@@ -98,7 +107,15 @@ export function AvatarHistoryDialog({
     else void query.refetch();
   };
   return (
-    <Modal onClose={onClose} labelledBy={titleId} width={760} className="weq-avatar-history-dialog">
+    <Modal
+      onClose={onClose}
+      labelledBy={titleId}
+      width={760}
+      className="weq-avatar-history-dialog"
+      presentation={anchor ? 'popover' : 'modal'}
+      anchor={anchor}
+      anchorPlacement="side"
+    >
       <header className="weq-avatar-history-header">
         <h2 id={titleId}>历史头像</h2>
         <button type="button" title="关闭" aria-label="关闭历史头像" onClick={onClose}>

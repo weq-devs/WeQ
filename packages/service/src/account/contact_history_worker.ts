@@ -1,5 +1,9 @@
 /** 自包含函数供 worker 执行；不捕获主线程闭包，桌面和 Web 共用同一实现。 */
-export function contactHistoryWorker(encode: (value: unknown) => unknown, load: NodeRequire) {
+export function contactHistoryWorker(
+  encode: (value: unknown) => unknown,
+  load: NodeRequire,
+  projectFields: typeof import('./contact_field_history').projectContactHistoryFields,
+) {
   const { parentPort, workerData } = load(
     'node:worker_threads',
   ) as typeof import('node:worker_threads');
@@ -23,7 +27,29 @@ export function contactHistoryWorker(encode: (value: unknown) => unknown, load: 
     CREATE INDEX IF NOT EXISTS history_entity ON versions(entity,first_at DESC,id DESC);
     CREATE INDEX IF NOT EXISTS history_stream ON versions(entity,category,source,scope,first_at DESC,id DESC);
     CREATE TABLE IF NOT EXISTS projections(key TEXT PRIMARY KEY, data TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS migrations(path TEXT PRIMARY KEY, hash TEXT NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS migrations(path TEXT PRIMARY KEY, hash TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS history_entity_id ON versions(entity,id);
+    CREATE TABLE IF NOT EXISTS field_progress(entity TEXT NOT NULL,member_uid TEXT NOT NULL,cursor INTEGER NOT NULL,PRIMARY KEY(entity,member_uid));
+    CREATE TABLE IF NOT EXISTS field_changed(entity TEXT NOT NULL,member_uid TEXT NOT NULL,field TEXT NOT NULL,PRIMARY KEY(entity,member_uid,field));
+    CREATE TABLE IF NOT EXISTS field_versions(entity TEXT NOT NULL,member_uid TEXT NOT NULL,field TEXT NOT NULL,stream TEXT NOT NULL,
+      version_id INTEGER NOT NULL,first_at REAL NOT NULL,last_at REAL NOT NULL,value TEXT NOT NULL,
+      PRIMARY KEY(entity,member_uid,field,version_id));
+    CREATE INDEX IF NOT EXISTS field_stream ON field_versions(entity,member_uid,field,stream,version_id DESC);
+    CREATE INDEX IF NOT EXISTS field_progress_member ON field_progress(member_uid) WHERE member_uid!='';
+    CREATE INDEX IF NOT EXISTS field_versions_member ON field_versions(member_uid) WHERE member_uid!='';
+    CREATE INDEX IF NOT EXISTS field_changed_member ON field_changed(member_uid) WHERE member_uid!='';`);
+  db.exec(
+    'CREATE TABLE IF NOT EXISTS field_index_meta(key TEXT PRIMARY KEY,version INTEGER NOT NULL)',
+  );
+  if (
+    Number(
+      db.prepare("SELECT version FROM field_index_meta WHERE key='format'").get()?.version ?? 0,
+    ) !== 3
+  ) {
+    db.exec(
+      "BEGIN IMMEDIATE; DELETE FROM field_progress; DELETE FROM field_versions; DELETE FROM field_changed; INSERT OR REPLACE INTO field_index_meta VALUES('format',3); COMMIT;",
+    );
+  }
   if (
     !db
       .prepare('PRAGMA table_info(versions)')
@@ -131,6 +157,12 @@ export function contactHistoryWorker(encode: (value: unknown) => unknown, load: 
       return;
     }
     if (a !== b) {
+      db.prepare('DELETE FROM field_progress WHERE entity IN (?,?)').run(a, b);
+      db.prepare('DELETE FROM field_versions WHERE entity IN (?,?)').run(a, b);
+      db.prepare('DELETE FROM field_changed WHERE entity IN (?,?)').run(a, b);
+      db.prepare("DELETE FROM field_progress WHERE member_uid=? AND member_uid!=''").run(uid);
+      db.prepare("DELETE FROM field_versions WHERE member_uid=? AND member_uid!=''").run(uid);
+      db.prepare("DELETE FROM field_changed WHERE member_uid=? AND member_uid!=''").run(uid);
       db.prepare('UPDATE versions SET entity=? WHERE entity=?').run(a, b);
       db.prepare('UPDATE aliases SET entity=? WHERE entity=?').run(a, b);
     }
@@ -214,6 +246,104 @@ export function contactHistoryWorker(encode: (value: unknown) => unknown, load: 
     };
   }
   function dispatch(method: string, input: Record<string, unknown>): unknown {
+    if (method === 'fieldSummary') {
+      const key = entity(String(input.entity));
+      const uid = String(input.memberUid ?? '');
+      const peer = uid ? entity(`friend:${uid}`) : key;
+      const cursor = Number(
+        db
+          .prepare('SELECT cursor FROM field_progress WHERE entity=? AND member_uid=?')
+          .get(key, uid)?.cursor ?? 0,
+      );
+      const rows = db
+        .prepare(
+          'SELECT id,category,source,scope,hash,first_at,last_at FROM versions WHERE entity IN (?,?) AND id>? ORDER BY id LIMIT 100',
+        )
+        .all(key, peer, cursor);
+      const previous = db.prepare(
+        'SELECT version_id,value FROM field_versions WHERE entity=? AND member_uid=? AND field=? AND stream=? ORDER BY version_id DESC LIMIT 1',
+      );
+      const insert = db.prepare('INSERT INTO field_versions VALUES(?,?,?,?,?,?,?,?)');
+      const touch = db.prepare(
+        'UPDATE field_versions SET last_at=? WHERE entity=? AND member_uid=? AND field=? AND version_id=?',
+      );
+      const changed = db.prepare('INSERT OR IGNORE INTO field_changed VALUES(?,?,?)');
+      for (const row of rows) {
+        const stream = JSON.stringify([row.category, row.source, uid ? '' : row.scope]);
+        for (const [field, value] of projectFields(
+          String(row.category),
+          () => unpack(readBlob(String(row.hash))),
+          uid,
+          key.startsWith('group:') ? key.slice(6) : '',
+        )) {
+          const old = previous.get(key, uid, field, stream);
+          const text = canonical(
+            old && ['birthday', 'region'].includes(field)
+              ? merge(JSON.parse(String(old.value)), value)
+              : value,
+          );
+          if (old?.value === text)
+            touch.run(Number(row.last_at), key, uid, field, Number(old.version_id));
+          else {
+            insert.run(
+              key,
+              uid,
+              field,
+              stream,
+              Number(row.id),
+              Number(row.first_at),
+              Number(row.last_at),
+              text,
+            );
+            if (old) changed.run(key, uid, field);
+          }
+        }
+      }
+      const next = Number(rows.at(-1)?.id ?? cursor);
+      db.prepare('INSERT OR REPLACE INTO field_progress VALUES(?,?,?)').run(key, uid, next);
+      const fields = db
+        .prepare('SELECT field FROM field_changed WHERE entity=? AND member_uid=? ORDER BY field')
+        .all(key, uid)
+        .map((row) => String(row.field));
+      return {
+        fields,
+        pending: Boolean(
+          db
+            .prepare('SELECT 1 FROM versions WHERE entity IN (?,?) AND id>? LIMIT 1')
+            .get(key, peer, next),
+        ),
+      };
+    }
+    if (method === 'fieldVersions') {
+      const key = entity(String(input.entity));
+      const uid = String(input.memberUid ?? '');
+      const limit = Number(input.limit ?? 30);
+      const before = Number(
+        db
+          .prepare(
+            'SELECT first_at FROM field_versions WHERE entity=? AND member_uid=? AND field=? AND version_id=?',
+          )
+          .get(key, uid, String(input.field), Number(input.before ?? 0))?.first_at ??
+          Number.MAX_VALUE,
+      );
+      const rows = db
+        .prepare(
+          'SELECT version_id AS id,first_at,last_at,value FROM field_versions WHERE entity=? AND member_uid=? AND field=? AND (first_at<? OR (first_at=? AND version_id<?)) ORDER BY first_at DESC,version_id DESC LIMIT ?',
+        )
+        .all(
+          key,
+          uid,
+          String(input.field),
+          before,
+          before,
+          Number(input.before ?? Number.MAX_SAFE_INTEGER),
+          limit + 1,
+        );
+      return {
+        rows: rows.slice(0, limit).map((row) => ({ ...row, value: JSON.parse(String(row.value)) })),
+        nextBefore: rows.length > limit ? Number(rows[limit - 1]?.id) : null,
+      };
+    }
     if (method === 'importMetrics') {
       for (const [key, fields] of Object.entries(input.rows as Record<string, unknown>)) {
         if (
@@ -429,6 +559,7 @@ export function contactHistoryWorker(encode: (value: unknown) => unknown, load: 
           'projection',
           'migration',
           'importMetrics',
+          'fieldSummary',
         ].includes(message.method);
         if (transactional) db.exec('BEGIN IMMEDIATE');
         try {

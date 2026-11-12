@@ -67,7 +67,7 @@ export function SourceGroup({
   }
   return (
     <>
-      <ContactRow label="添加来源">
+      <ContactRow label="添加来源" historyField="sourceGroup">
         <button
           className="weq-friend-source-group"
           type="button"

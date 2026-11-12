@@ -15,6 +15,9 @@ vi.mock('../src/renderer/src/components/contactProfile/ContactGroupWorkspace', (
 vi.mock('../src/renderer/src/components/PersonalityHomeDialog', () => ({
   PersonalityHomeDialog: () => h('p', null, '装扮内容'),
 }));
+vi.mock('../src/renderer/src/components/contactProfile/ContactDressRow', () => ({
+  ContactDressRow: () => h('p', null, '装扮素材'),
+}));
 vi.mock('../src/renderer/src/components/MutualMarkDialog', () => ({
   MutualMarkDialog: () => h('p', null, '互动标识内容'),
 }));
@@ -111,7 +114,6 @@ it('默认显示四页，不提前挂载历史、问答或画像', () => {
 it.each([
   ['portrait', '与我的关系', '画像内容'],
   ['questions', '个性展示', 'questions'],
-  ['history', '个人资料', '历史-profile'],
 ] as const)('旧入口 %s 自动展开所属内容', (tab, section, content) => {
   const host = render(tab);
   expect(host.querySelector('[aria-current="page"]')?.textContent).toBe(section);
@@ -121,14 +123,22 @@ it.each([
   )!;
   expect(value.getAttribute('data-active')).toBe('true');
 });
-it('收起资料历史保留内容但暂停读取', () => {
+it('旧历史入口不恢复汇总区，页内不重复章节标题或教育分区', () => {
   const host = render('history');
-  const button = [...host.querySelectorAll('button')].find(
-    (node) => node.textContent === '资料变更记录',
-  )!;
-  act(() => button.click());
-  expect(host.querySelector('[data-active]')?.getAttribute('data-active')).toBe('false');
-  expect(button.getAttribute('aria-expanded')).toBe('false');
+  expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('个人资料');
+  expect(host.querySelector('.weq-contact-section-title')).toBeNull();
+  expect(host.textContent).not.toContain('资料变更记录');
+  expect(host.textContent).not.toContain('教育经历');
+});
+it('互动标识和互动画像同级常驻，不使用折叠控件', () => {
+  const host = render('portrait');
+  expect(
+    [...host.querySelectorAll('.weq-profile-section-block--prominent h3')].map(
+      (node) => node.textContent,
+    ),
+  ).toEqual(['互动标识', '互动画像']);
+  expect(host.querySelector('.weq-profile-disclosure-trigger')).toBeNull();
+  expect(host.querySelector('[data-active]')?.getAttribute('data-active')).toBe('true');
 });
 it('旧签名章节返回个人资料，不恢复已移除的独立签名历史按钮或技术详情', () => {
   const host = render('signatures');

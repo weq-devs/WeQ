@@ -72,6 +72,7 @@ function MarkCell({
   mark: FriendMark;
   onOpen: (mark: FriendMark, anchor: HTMLButtonElement) => void;
 }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const chips: string[] = [];
   if (mark.isLightup) {
     if (mark.level > 0) chips.push(`Lv.${mark.level}`);
@@ -98,8 +99,13 @@ function MarkCell({
         aria-label={`查看 ${mark.name} 的全部等级`}
         onClick={(event) => onOpen(mark, event.currentTarget)}
       >
-        {mark.iconUrl ? (
-          <img src={mark.iconUrl} alt={mark.name} loading="lazy" />
+        {mark.iconUrl && failedUrl !== mark.iconUrl ? (
+          <img
+            src={collectionImageUrl(mark.iconUrl)}
+            alt={mark.name}
+            loading="lazy"
+            onError={() => setFailedUrl(mark.iconUrl)}
+          />
         ) : (
           <Award size={30} />
         )}
@@ -219,12 +225,14 @@ export function MutualMarkDialog({
           ) : null}
           {categories.map((cat) => (
             <section key={cat.id || cat.name} className="weq-mutual-cat">
-              <h3>
-                {cat.name}
-                <span className="weq-mutual-cat-count">
-                  {cat.lightUpNum}/{cat.totalNum}
-                </span>
-              </h3>
+              {!embedded || cat.name !== '互动标识' ? (
+                <h3>
+                  {cat.name}
+                  <span className="weq-mutual-cat-count">
+                    {cat.lightUpNum}/{cat.totalNum}
+                  </span>
+                </h3>
+              ) : null}
               <div className="weq-mutual-grid">
                 {cat.marks.map((mark) => (
                   <MarkCell

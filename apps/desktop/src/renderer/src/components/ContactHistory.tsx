@@ -428,6 +428,18 @@ function HistoryQuery({
 }
 
 const fields: Record<string, string> = {
+  name: '名称',
+  text: '内容',
+  photoId: '照片编号',
+  country: '国家',
+  province: '省份',
+  city: '城市',
+  birthYear: '出生年份',
+  birthMonth: '出生月份',
+  birthDay: '出生日',
+  qid: 'QID',
+  bizId: '特权编号',
+  opened: '已开通',
   uid: 'UID',
   uin: 'QQ 号',
   nick: '昵称',
@@ -458,7 +470,7 @@ const fields: Record<string, string> = {
   joinTime: '入群时间',
   lastSpeakTime: '最后发言时间',
 };
-function HistoryValue({ value }: { value: unknown }) {
+export function HistoryValue({ value }: { value: unknown }) {
   const [count, setCount] = useState(50);
   if (Array.isArray(value))
     return (

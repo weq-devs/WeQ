@@ -38,9 +38,16 @@ interface Props {
   /** 当前形象序号（来自资料卡已有的 QQ 秀查询）；拿不到就传 null。 */
   currentRevision: number | null;
   onClose: () => void;
+  anchor?: HTMLElement | null;
 }
 
-export function QqShowGallery({ uin, name, currentRevision, onClose }: Props): React.ReactElement {
+export function QqShowGallery({
+  uin,
+  name,
+  currentRevision,
+  onClose,
+  anchor,
+}: Props): React.ReactElement {
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [scanned, setScanned] = useState(START_REVISION - 1);
   const [ceiling, setCeiling] = useState(START_REVISION - 1);
@@ -123,12 +130,19 @@ export function QqShowGallery({ uin, name, currentRevision, onClose }: Props): R
 
   return (
     <OverlayLayer
-      presentation="modal"
+      presentation={anchor ? 'popover' : 'modal'}
+      anchor={anchor}
+      anchorPlacement="side"
       title="QQ 秀展柜"
-      className="weq-qqshow-gallery-scrim"
+      className={anchor ? 'weq-qqshow-gallery-popover' : 'weq-qqshow-gallery-scrim'}
       onClose={onClose}
     >
-      <section className="weq-qqshow-gallery" aria-labelledby="weq-qqshow-gallery-title">
+      <section
+        className="weq-qqshow-gallery"
+        role="dialog"
+        aria-modal={anchor ? undefined : true}
+        aria-labelledby="weq-qqshow-gallery-title"
+      >
         <header className="weq-qqshow-gallery-head">
           <div className="weq-qqshow-gallery-title">
             <Sparkles size={17} strokeWidth={1.9} />
