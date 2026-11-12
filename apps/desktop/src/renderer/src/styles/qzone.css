@@ -443,22 +443,20 @@
 
 /* The generic modal paints a fixed light gradient; this surface follows the app theme. */
 .weq-modal.weq-qzn-compose-modal {
+  display: flex;
+  flex-direction: column;
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
   border-color: var(--weq-border-strong);
 }
 .weq-qzn-composer {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   color: var(--weq-fg-primary);
 }
 @media (max-width: 760px) {
-  .weq-web-dialog-layer > .weq-qzn-compose-modal {
-    display: flex;
-    flex-direction: column;
-  }
   .weq-web-dialog-layer .weq-qzn-composer {
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
     padding: 16px;
   }
   .weq-web-dialog-layer .weq-qzn-composer footer {
