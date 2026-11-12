@@ -307,6 +307,9 @@ export function ConversationList({
     () => new Set(actionMenu ? [actionMenu.conversation.id, ...actionMenu.ids] : []),
     [actionMenu],
   );
+  const groupAssistantMenu =
+    actionMenu?.conversation.type === 'merged' &&
+    actionMenu.conversation.mergedKind === 'groupAssistant';
   const selectConversation = (id: string, event: React.MouseEvent) => {
     if (!filtered.ids.includes(id)) return;
     const virtual = directory?.virtual.find((item) => item.id === id);
@@ -336,6 +339,13 @@ export function ConversationList({
     assistantIds.length > 0 && assistantIds.every((id) => selectedIds.has(id));
   const rowSelectedIds = new Set(selectedIds);
   if (assistantSelected) rowSelectedIds.add('merged:group-assistant');
+  const menuIds = (conversation: Conversation) =>
+    // 群助手入口的菜单不继承内部群的选区；只有显式多选才展开内部会话。
+    conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
+      ? [conversation.id]
+      : selectionMode && rowSelectedIds.has(conversation.id)
+        ? [...selectedIds]
+        : [conversation.id];
   const allSelected = allSelectionIdsSelected(filteredIds, selectedIds);
   const toggleAll = () => {
     invertFrom.current = null;
@@ -771,10 +781,7 @@ export function ConversationList({
                   event.preventDefault();
                   setActionMenu({
                     conversation,
-                    ids:
-                      selectionMode && rowSelectedIds.has(conversation.id)
-                        ? [...selectedIds]
-                        : [...expandIds([conversation.id])],
+                    ids: menuIds(conversation),
                     x: event.clientX,
                     y: event.clientY,
                   });
@@ -786,10 +793,7 @@ export function ConversationList({
                   const rect = event.currentTarget.getBoundingClientRect();
                   setActionMenu({
                     conversation,
-                    ids:
-                      selectionMode && rowSelectedIds.has(conversation.id)
-                        ? [...selectedIds]
-                        : [...expandIds([conversation.id])],
+                    ids: menuIds(conversation),
                     x: rect.left + 20,
                     y: rect.top + 20,
                   });
@@ -966,7 +970,7 @@ export function ConversationList({
           onClose={() => setActionMenu(null)}
           actions={(() => {
             return [
-              ...(directory?.onReadState
+              ...(directory?.onReadState && !groupAssistantMenu
                 ? [
                     ...[false, true].map((unread) => ({
                       label: unread ? '标为未读' : '标为已读',
@@ -1013,7 +1017,7 @@ export function ConversationList({
                     },
                   ]
                 : []),
-              ...(requestExport
+              ...(requestExport && !groupAssistantMenu
                 ? [
                     {
                       label: actionMenu.ids.length > 1 ? '导出所选会话' : '导出',
@@ -1041,7 +1045,7 @@ export function ConversationList({
                     },
                   ]
                 : []),
-              ...(directory?.onRoaming
+              ...(directory?.onRoaming && !groupAssistantMenu
                 ? [
                     {
                       label: actionMenu.ids.length > 1 ? '拉取所选会话漫游消息' : '拉取漫游消息',

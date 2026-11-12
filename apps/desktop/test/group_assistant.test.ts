@@ -411,6 +411,122 @@ describe('群助手', () => {
       host.remove();
     }
   });
+
+  it.each(
+    [0, 1, 2].flatMap((groupCount) =>
+      [false, true].flatMap((selecting) =>
+        ['mouse', 'ContextMenu', 'F10'].map((trigger) => ({ groupCount, selecting, trigger })),
+      ),
+    ),
+  )(
+    '群助手入口菜单只操作入口：$groupCount 个群、多选 $selecting、$trigger',
+    ({ groupCount, selecting, trigger }) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      vi.stubGlobal('localStorage', new Storage());
+      const host = document.createElement('div');
+      document.body.append(host);
+      const root = createRoot(host);
+      const assistantGroups = groups().slice(0, groupCount);
+      const other = { ...groups()[0], id: '10003' };
+      const entry: Conversation = {
+        ...other,
+        type: 'merged',
+        id: 'merged:group-assistant',
+        mergedKind: 'groupAssistant',
+        title: '群助手',
+        avatarUrl: null,
+        group: null,
+        otherUser: null,
+        members: [],
+      };
+      const pin = vi.fn();
+      const readState = vi.fn();
+      const roaming = vi.fn();
+      function Probe() {
+        return h('output', null, JSON.stringify(useCurrentContentSelection()));
+      }
+      const render = (pinned: boolean) =>
+        act(() =>
+          root.render(
+            h(
+              ContentSelectionProvider,
+              null,
+              h(
+                ConversationDirectoryContext.Provider,
+                {
+                  value: {
+                    real: [...assistantGroups, other, entry],
+                    virtual: [],
+                    groupAssistantIds: new Set(assistantGroups.map((row) => row.id)),
+                    onVirtual: vi.fn(),
+                    onCreate: vi.fn(),
+                    onPin: pin,
+                    onReadState: readState,
+                    onRoaming: roaming,
+                  },
+                },
+                h(ConversationList, {
+                  conversations: [other, entry],
+                  activeConversationId: null,
+                  preferences: { [entry.id]: { pinned } },
+                  drafts: {},
+                  onSelect: vi.fn(),
+                }),
+                h(Probe),
+              ),
+            ),
+          ),
+        );
+      const open = () => {
+        const row = host.querySelector<HTMLElement>(`[data-conversation-id="${entry.id}"]`)!;
+        act(() =>
+          row.dispatchEvent(
+            trigger === 'mouse'
+              ? new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+              : new KeyboardEvent('keydown', {
+                  key: trigger,
+                  shiftKey: trigger === 'F10',
+                  bubbles: true,
+                  cancelable: true,
+                }),
+          ),
+        );
+        expect(document.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe(
+          '群助手的会话操作',
+        );
+        expect(document.querySelector('.weq-conversation-actions-target')?.textContent).toBe(
+          '群助手聚合会话',
+        );
+        expect(host.querySelectorAll('.is-context-target')).toHaveLength(1);
+        return [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+      };
+      try {
+        render(false);
+        if (selecting) {
+          act(() => host.querySelector<HTMLButtonElement>('[aria-label="多选会话"]')!.click());
+          act(() => host.querySelector<HTMLButtonElement>('[aria-label="全选当前结果"]')!.click());
+        }
+        const before = host.querySelector('output')!.textContent;
+        const actions = open();
+        expect(actions.map((node) => node.textContent)).toEqual(['置顶']);
+        act(() => actions[0]!.click());
+        expect(pin).toHaveBeenLastCalledWith(entry, true);
+        expect(host.querySelector('output')!.textContent).toBe(before);
+        render(true);
+        const pinnedActions = open();
+        expect(pinnedActions.map((node) => node.textContent)).toEqual(['取消置顶']);
+        act(() => pinnedActions[0]!.click());
+        expect(pin).toHaveBeenLastCalledWith(entry, false);
+        expect(host.querySelector('output')!.textContent).toBe(before);
+        expect(readState).not.toHaveBeenCalled();
+        expect(roaming).not.toHaveBeenCalled();
+      } finally {
+        act(() => root.unmount());
+        host.remove();
+      }
+    },
+  );
+
   it('定位后生成的临时群会话仍不能出现在主列表，普通群与聚合入口不受影响', () => {
     const [group, other] = groups();
     const assistant: Conversation = {

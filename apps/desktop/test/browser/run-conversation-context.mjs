@@ -105,6 +105,36 @@ try {
           .evaluate((el) => el.scrollWidth > el.clientWidth);
         assert.equal(overflow, false, '长标题不能横向溢出');
         await page.keyboard.press('Escape');
+        await page.evaluate(() => window.conversationContextQa.assistant());
+        const assistant = page.locator('[data-conversation-id="merged:group-assistant"]');
+        for (const selecting of [false, true]) {
+          if (selecting) {
+            await page.getByRole('button', { name: '多选会话', exact: true }).click();
+            await page.getByRole('button', { name: '全选当前结果', exact: true }).click();
+          }
+          await assistant.click({ button: 'right' });
+          await menu.waitFor();
+          assert.equal(await menu.getAttribute('aria-label'), '群助手的会话操作');
+          assert.deepEqual(await menu.getByRole('menuitem').allTextContents(), ['置顶']);
+          assert.equal(await page.locator('.is-context-target').count(), 1);
+          const assistantRect = await menu.boundingBox();
+          assert.ok(
+            assistantRect.x >= 0 &&
+              assistantRect.x + assistantRect.width <= width &&
+              assistantRect.y + assistantRect.height <= 800,
+          );
+          if (output && !selecting)
+            await page.screenshot({
+              path: resolve(output, `${width}-${theme}-${style}-assistant.png`),
+            });
+          await menu.getByRole('menuitem', { name: '置顶', exact: true }).click();
+          await assistant.click({ button: 'right' });
+          assert.deepEqual(await menu.getByRole('menuitem').allTextContents(), ['取消置顶']);
+          await menu.getByRole('menuitem', { name: '取消置顶', exact: true }).click();
+          assert.equal(await page.locator('output').getAttribute('data-marked'), '10001');
+          if (selecting)
+            assert.match(await page.locator('.weq-directory-toolbar').innerText(), /已选 2/);
+        }
         cases++;
       }
     }

@@ -28,8 +28,25 @@ const row = (id: string, day: number): Conversation => ({
   preference: { pinned: false, muted: false, blocked: false },
 });
 let revision = 0;
+const assistantEntry: Conversation = {
+  ...seed,
+  type: 'merged',
+  id: 'merged:group-assistant',
+  mergedKind: 'groupAssistant',
+  title: '群助手',
+  avatarUrl: null,
+  otherUser: null,
+  group: null,
+  members: [],
+  updatedAt: '2030-01-04T00:00:00Z',
+  lastMessage: null,
+  unreadCount: 3,
+  preference: { pinned: false, muted: false, blocked: false },
+};
 function Fixture() {
   const [rows, setRows] = useState([row('10001', 2), row('10002', 1)]);
+  const [assistant, setAssistant] = useState(false);
+  const [pinned, setPinned] = useState(false);
   const [selected, setSelected] = useState('');
   const [marked, setMarked] = useState<string[]>([]);
   Object.assign(window, {
@@ -46,6 +63,7 @@ function Fixture() {
           false,
         ),
       update: () => setRows([row('10001', 2), row('10002', 3)]),
+      assistant: () => setAssistant(true),
     },
   });
   return (
@@ -53,8 +71,12 @@ function Fixture() {
       <ConversationDirectoryContext.Provider
         value={{
           virtual: [],
+          real: assistant ? [...rows, assistantEntry] : rows,
+          groupAssistantIds: assistant ? new Set(rows.map((row) => row.id)) : undefined,
           onVirtual: () => {},
           onCreate: () => {},
+          onPin: (_, value) => setPinned(value),
+          onRoaming: () => {},
           onReadState: (targets) => setMarked(targets.map((target) => target.id)),
         }}
       >
@@ -64,9 +86,9 @@ function Fixture() {
             <aside className="sidebar">
               <div className="sidebar-body">
                 <ConversationList
-                  conversations={rows}
+                  conversations={assistant ? [...rows, assistantEntry] : rows}
                   activeConversationId="10002"
-                  preferences={{}}
+                  preferences={{ [assistantEntry.id]: { pinned } }}
                   drafts={{}}
                   onSelect={setSelected}
                 />
