@@ -22,8 +22,9 @@ import {
   ProfileLikeSummary,
   PersonalityPhotoUploader,
 } from './ProfileInteractions';
-import { QzoneMediaPreview } from './QzoneMediaPreview';
+import { MediaPreview } from './MediaPreview';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
+import { ContactInlineError, ContactRow, ContactSection } from './contactProfile/ContactRow';
 import { useTabActive } from './RetainedTabs';
 import { trpc } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
@@ -265,55 +266,113 @@ function ExtrasBody({
     </>
   );
 }
-function EducationHistory({ input, online }: { input: Target; online: boolean }) {
+type EducationQuery = {
+  rows: ReturnType<typeof educationRows>;
+  error: unknown;
+  fetching: boolean;
+  refetch: () => unknown;
+};
+
+/** 教育经历同样走唯一行模型：一段经历一组数据行，前端不再自建卡片或浮动刷新条。 */
+function useEducation(input: Target, online: boolean): EducationQuery {
   const active = useTabActive();
   const query = trpc.account.profileExtras.educationHistory.useQuery(input, {
     ...queryOptions,
     enabled: online && active,
   });
   const usable = query.data?.targetUin === input.uin ? query.data : null;
-  const rows = educationRows(usable?.items ?? [], input.uin === input.expectedAccountUin);
-  const error = query.error || (query.data && !usable ? new Error('教育经历返回目标不匹配') : null);
+  return {
+    rows: educationRows(usable?.items ?? [], input.uin === input.expectedAccountUin),
+    error: query.error || (query.data && !usable ? new Error('教育经历返回目标不匹配') : null),
+    fetching: query.isFetching,
+    refetch: query.refetch,
+  };
+}
+
+function EducationRows({ rows }: { rows: ReturnType<typeof educationRows> }) {
+  return (
+    <div className="weq-profile-data">
+      {rows.map(({ key, record }) => (
+        <div className="weq-education-record" key={key}>
+          <ContactRow label="学校" value={record.schoolName?.trim() || '未填写学校'} />
+          <ContactRow label="院系" value={record.departmentName} />
+          <ContactRow label="学历" value={educationDegree(record.degree)} />
+          <ContactRow label="时间" value={educationYears(record)} />
+          <ContactRow
+            label="状态"
+            value={
+              [record.verifyStatus === 2 ? '已认证' : '', record.hidden === 1 ? '未公开' : '']
+                .filter(Boolean)
+                .join(' · ') || null
+            }
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EducationHistory({ input, online }: { input: Target; online: boolean }) {
+  const education = useEducation(input, online);
   return (
     <>
       <PageStatus
         online={online}
-        pending={query.isFetching}
-        error={error}
-        empty={!rows.length}
+        pending={education.fetching}
+        error={education.error}
+        empty={!education.rows.length}
         emptyText="暂无可展示的教育经历"
-        retry={() => void query.refetch()}
+        retry={() => void education.refetch()}
       />
-      {rows.length ? (
-        <div className="weq-education-refresh">
-          {error ? <span role="status">读取失败，已显示的教育经历保留。</span> : null}
+      {education.rows.length ? <EducationRows rows={education.rows} /> : null}
+      {education.rows.length && education.error ? (
+        <ContactInlineError
+          message="刷新失败，已显示的教育经历保留。"
+          onRetry={() => void education.refetch()}
+          retrying={education.fetching}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** 资料页「教育经历」分区：无内容且无错误时不占位，有内容时标题右侧提供刷新。 */
+export function EducationSection({ uin }: { uin: string }) {
+  const session = useQQWriteSession(`profile-extras:${uin}`);
+  const input = {
+    expectedAccountUin: session.binding?.expectedAccountUin ?? '',
+    expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
+    uin,
+  };
+  const education = useEducation(input, session.available);
+  if (!education.rows.length && !education.error) return null;
+  return (
+    <ContactSection
+      title="教育经历"
+      action={
+        education.rows.length ? (
           <button
             type="button"
-            className="weq-extras-back"
-            disabled={!online || query.isFetching}
-            onClick={() => void query.refetch()}
-            aria-label="重新读取教育经历"
+            className="weq-profile-section-action"
+            title="重新读取教育经历"
+            disabled={!session.available || education.fetching}
+            onClick={() => void education.refetch()}
           >
-            <RotateCcw size={14} />
-            {query.isFetching ? '读取中…' : '刷新'}
+            <RotateCcw size={12} />
+            {education.fetching ? '读取中…' : '刷新'}
           </button>
-        </div>
+        ) : undefined
+      }
+    >
+      {education.rows.length ? <EducationRows rows={education.rows} /> : null}
+      {education.error ? (
+        <ContactInlineError
+          message={education.rows.length ? '刷新失败，已显示的教育经历保留。' : '教育经历读取失败'}
+          onRetry={() => void education.refetch()}
+          retrying={education.fetching}
+        />
       ) : null}
-      <div className="weq-extras-list weq-education-list">
-        {rows.map(({ key, record }) => (
-          <article key={key}>
-            <h3>{record.schoolName?.trim() || '未填写学校'}</h3>
-            {record.departmentName ? <p>{record.departmentName}</p> : null}
-            {educationDegree(record.degree) ? <p>{educationDegree(record.degree)}</p> : null}
-            {educationYears(record) ? <p>{educationYears(record)}</p> : null}
-            <div className="weq-extras-counts">
-              {record.verifyStatus === 2 ? <span>已认证</span> : null}
-              {record.hidden === 1 ? <span>未公开</span> : null}
-            </div>
-          </article>
-        ))}
-      </div>
-    </>
+    </ContactSection>
   );
 }
 function PageStatus({
@@ -669,7 +728,7 @@ function Photos({
         />
       ) : null}
       {preview !== null ? (
-        <QzoneMediaPreview
+        <MediaPreview
           label="标签照片预览"
           items={items.map((item) => ({
             key: item.id,

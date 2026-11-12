@@ -9,7 +9,8 @@ import { useIntentSenseStatus } from './intentSense/context';
 import { usePersonRelationship } from '../lib/contactRelationship';
 import { ContactHistory } from './ContactHistory';
 import { ContactContent, ContactGroupContent } from './contactProfile/ContactContent';
-import { ProfileExtrasContent } from './ProfileExtras';
+import { EducationSection, ProfileExtrasContent } from './ProfileExtras';
+import { ProfileDetailsSection } from './ProfileDetailsEntry';
 import { SelfQQControls } from './settings/SelfQQControls';
 import { ProfileWorkspace } from './ProfileWorkspace';
 import '../styles/contact-card.css';
@@ -127,9 +128,9 @@ export function ContactWorkspace({
           />
           {human ? (
             <>
-              <ProfileExtrasContent uin={contact.identityValue} view="details" />
-              <h3>教育经历</h3>
-              <ProfileExtrasContent uin={contact.identityValue} view="education" />
+              {/* 扩展资料与教育经历共用 ContactRow 行模型，分区标题与刷新动作由分区自己输出。 */}
+              <ProfileDetailsSection uin={contact.identityValue} />
+              <EducationSection uin={contact.identityValue} />
             </>
           ) : null}
         </>

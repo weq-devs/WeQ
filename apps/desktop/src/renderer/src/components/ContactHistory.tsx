@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useTabActive } from './RetainedTabs';
@@ -161,6 +161,76 @@ export function ContactHistory({ entity }: { entity: string }) {
   );
 }
 
+/** 资料类别筛选：与应用其他筛选同一套按钮 + 弹出列表语言，不再使用原生 select。 */
+function HistoryCategoryFilter({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const current = options.find((option) => option.value === value)?.label ?? '全部';
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+  const choose = (next: string) => {
+    setOpen(false);
+    onChange(next);
+    trigger.current?.focus();
+  };
+  return (
+    <div className="contact-history-filter" ref={root}>
+      <button
+        ref={trigger}
+        type="button"
+        className="contact-history-filter-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((previous) => !previous)}
+      >
+        <span>资料类别</span>
+        <strong>{current}</strong>
+        <ChevronDown size={14} aria-hidden />
+      </button>
+      {open ? (
+        <div className="contact-history-filter-menu" role="listbox" aria-label="资料类别">
+          {[{ value: '', label: '全部' }, ...options].map((option) => (
+            <button
+              key={option.value || 'all'}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className={option.value === value ? 'is-selected' : undefined}
+              onClick={() => choose(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function HistoryQuery({
   entity,
   binding,
@@ -196,25 +266,15 @@ function HistoryQuery({
   return (
     <section className="contact-history" aria-label="资料历史">
       <header className="contact-history-toolbar">
-        <label>
-          资料类别
-          <select
-            aria-label="资料类别"
-            value={category}
-            onChange={(event) => {
-              setCategory(event.target.value);
-              setCursors([undefined]);
-              setSelected(null);
-            }}
-          >
-            <option value="">全部</option>
-            {categories.map((name) => (
-              <option key={name} value={name}>
-                {categoryName(name)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <HistoryCategoryFilter
+          value={category}
+          options={categories.map((name) => ({ value: name, label: categoryName(name) }))}
+          onChange={(value) => {
+            setCategory(value);
+            setCursors([undefined]);
+            setSelected(null);
+          }}
+        />
         <button
           type="button"
           className="icon-button"

@@ -49,7 +49,7 @@ it('打开详细资料后才一次查询三项，保留多行个人说明', asyn
   await open();
   expect(state.query.mock.calls.at(-1)?.[0]).toEqual(binding);
   expect(state.query.mock.calls.at(-1)?.[1].enabled).toBe(true);
-  expect(document.querySelectorAll('.weq-profile-details-list article')).toHaveLength(3);
+  expect(document.querySelectorAll('.weq-profile-data-row')).toHaveLength(3);
   expect(document.body.textContent).toContain('合成公司');
   expect(document.body.textContent).toContain('第一行\n第二行');
   expect(document.body.textContent).toContain('synthetic@example.invalid');
@@ -65,7 +65,7 @@ it('未返回、明确为空和单项格式错误分开，其他字段仍可展�
   );
   await render();
   await open();
-  const rows = [...document.querySelectorAll('.weq-profile-details-list article')].map(
+  const rows = [...document.querySelectorAll('.weq-profile-data-row')].map(
     (row) => row.textContent,
   );
   expect(rows).toEqual(['公司未填写', '个人说明未返回', '邮箱文本格式无法识别']);
@@ -77,7 +77,7 @@ it('刷新失败保留已读内容，重试不清空正文', async () => {
   expect(document.body.textContent).toContain('合成公司');
   expect(document.body.textContent).toContain('已显示的资料保留');
   await act(async () =>
-    document.querySelector<HTMLButtonElement>('[aria-label="重新读取详细资料"]')!.click(),
+    document.querySelector<HTMLButtonElement>('.weq-profile-inline-error button')!.click(),
   );
   expect(state.refetch).toHaveBeenCalledOnce();
 });
@@ -90,7 +90,7 @@ it('离线和加载态不伪装成未填写，离线查询禁用', async () => {
   state.query.mockReturnValue({ ...result(), data: undefined, isFetching: true });
   await render();
   expect(document.body.textContent).toContain('读取中');
-  expect(document.querySelector('.weq-profile-details-list')).toBeNull();
+  expect(document.querySelectorAll('.weq-profile-data-row')).toHaveLength(0);
 });
 it('错目标数据不展示，切账号或切目标关闭旧详情', async () => {
   state.query.mockReturnValue(result({ ...data, targetUin: '10003' }));
@@ -114,7 +114,7 @@ it('个人说明与邮箱内容按纯文本展示，不将资料当 HTML 执行'
   );
   await render();
   await open();
-  expect(document.querySelector('.weq-profile-details-list img')).toBeNull();
+  expect(document.querySelector('.weq-profile-data img')).toBeNull();
   expect(document.body.textContent).toContain('<img src=x onerror=alert(1)>');
   expect(document.body.textContent).toContain('非标准邮箱文本');
 });

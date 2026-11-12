@@ -13,20 +13,82 @@
 .contact-history-toolbar {
   justify-content: space-between;
 }
-.contact-history-toolbar label {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+.contact-history-filter {
+  position: relative;
   min-width: 0;
 }
-.contact-history select {
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 4px;
+.contact-history-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
   max-width: 100%;
-  padding: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.contact-history-filter-trigger strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--weq-fg-primary);
+  font-weight: 500;
+}
+.contact-history-filter-trigger:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-fg-primary);
+}
+.contact-history-filter-trigger:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.contact-history-filter-menu {
+  position: absolute;
+  inset-inline-start: 0;
+  top: calc(100% + 4px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  max-width: min(320px, 80vw);
+  max-height: 280px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+}
+.contact-history-filter-menu button {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.contact-history-filter-menu button:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+.contact-history-filter-menu button[aria-selected='true'] {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  font-weight: 600;
+}
+.contact-history-filter-menu button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
 }
 .contact-history-list {
   list-style: none;

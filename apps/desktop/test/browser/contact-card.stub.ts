@@ -122,7 +122,53 @@ function value(path: string, input: Record<string, unknown>) {
         { id: 'empty', text: '没有照片的标签', photoCount: 0, photos: [], likeUsers: [], likes: 0 },
       ],
     };
-  if (path === 'account.profileExtras.educationHistory') return { targetUin: uin, items: [] };
+  if (path === 'account.profileExtras.educationHistory')
+    return {
+      targetUin: uin,
+      // 默认空列表；带 ?education=1 的审计页用两段合成经历压换行与分行。
+      items: new URLSearchParams(location.search).has('education')
+        ? [
+            {
+              index: 1,
+              category: 3,
+              schoolId: 'school',
+              schoolName: '示例大学',
+              departmentId: 'department',
+              departmentName: '计算机学院',
+              degree: 6,
+              enrollmentYear: 2019,
+              graduationYear: 2023,
+              allowRecommend: 0,
+              createSource: null,
+              createdAt: null,
+              updateSource: null,
+              updatedAt: null,
+              hidden: 0,
+              verifyStatus: 2,
+              verifyType: 1,
+            },
+            {
+              index: 2,
+              category: 3,
+              schoolId: 'school2',
+              schoolName: '示例附属中学',
+              departmentId: null,
+              departmentName: null,
+              degree: 7,
+              enrollmentYear: 2016,
+              graduationYear: 2019,
+              allowRecommend: 0,
+              createSource: null,
+              createdAt: null,
+              updateSource: null,
+              updatedAt: null,
+              hidden: 1,
+              verifyStatus: 0,
+              verifyType: 0,
+            },
+          ]
+        : [],
+    };
   if (
     path === 'account.profileExtras.signatureHistory' ||
     path === 'account.profileExtras.anonymousQuestions'

@@ -37,8 +37,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-vi.mock('../src/renderer/src/components/QzoneMediaPreview', () => ({
-  QzoneMediaPreview: () => h('div', { role: 'dialog', 'aria-label': '标签照片预览' }),
+vi.mock('../src/renderer/src/components/MediaPreview', () => ({
+  MediaPreview: () => h('div', { role: 'dialog', 'aria-label': '标签照片预览' }),
 }));
 function result(data?: unknown) {
   return {
@@ -273,7 +273,7 @@ it('教育经历打开后才查询，展示全部同校记录和院系学历年�
     uin: '10002',
     expectedAccountUin: '10001',
   });
-  expect(document.querySelectorAll('.weq-education-list article')).toHaveLength(2);
+  expect(document.querySelectorAll('.weq-education-record')).toHaveLength(2);
   expect(document.body.textContent).toContain('合成院系');
   expect(document.body.textContent).toContain('本科');
   expect(document.body.textContent).toContain('研究生');
@@ -287,7 +287,7 @@ it('他人隐藏经历不展示，自己的经历保留并标明未公开', asyn
   );
   await render();
   await click('教育经历');
-  expect(document.querySelectorAll('.weq-education-list article')).toHaveLength(0);
+  expect(document.querySelectorAll('.weq-education-record')).toHaveLength(0);
   state.target = state.account;
   await render();
   await click('教育经历');
@@ -305,7 +305,7 @@ it('教育刷新失败保留已读内容，可重试且不展示其他目标的�
   await click('教育经历');
   expect(document.body.textContent).toContain('合成大学');
   expect(document.body.textContent).toContain('已显示的教育经历保留');
-  await click('刷新');
+  await click('重试');
   expect(refetch).toHaveBeenCalledOnce();
   state.education.mockReturnValue(result({ targetUin: '10003', items: [education] }));
   await render();
