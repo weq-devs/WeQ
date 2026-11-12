@@ -624,6 +624,9 @@ importers:
 
   packages/service:
     dependencies:
+      '@babel/parser':
+        specifier: 7.29.7
+        version: 7.29.7
       '@streamparser/json':
         specifier: ^0.0.26
         version: 0.0.26
@@ -654,6 +657,9 @@ importers:
       ajv-formats:
         specifier: ^3.0.1
         version: 3.0.1
+      es-module-lexer:
+        specifier: 1.7.0
+        version: 1.7.0
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -663,9 +669,27 @@ importers:
       parse5:
         specifier: 8.0.1
         version: 8.0.1
+      postcss:
+        specifier: 8.5.30
+        version: 8.5.30
+      postcss-value-parser:
+        specifier: 4.2.0
+        version: 4.2.0
+      remark-parse:
+        specifier: 11.0.0
+        version: 11.0.0(supports-color@7.2.0)
+      remark-stringify:
+        specifier: 11.0.0
+        version: 11.0.0
+      srcset:
+        specifier: 5.0.3
+        version: 5.0.3
       tough-cookie:
         specifier: 6.0.2
         version: 6.0.2
+      unified:
+        specifier: 11.0.5
+        version: 11.0.5
       ws:
         specifier: 8.21.0
         version: 8.21.0
@@ -4739,6 +4763,10 @@ packages:
 
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
+
+  srcset@5.0.3:
+    resolution: {integrity: sha512-AZswtOXIsu0LeHdo6YY7d0r2pCH2Rl1D8ae1utvXUX4GxG3RggsVUAOFX1r8RI4YHFMYb4g89+UBPBv3mNUU2g==}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
   ssri@9.0.1:
     resolution: {integrity: sha512-o57Wcn66jMQvfHG1FlYbWeZWW/dHZhJXjpIcTfXldXEk5nz5lStPo3mK0OJQfGR3RbZUlbISexbljkJzuEj/8Q==}
@@ -9641,6 +9669,8 @@ snapshots:
   source-map@0.6.1: {}
 
   space-separated-tokens@2.0.2: {}
+
+  srcset@5.0.3: {}
 
   ssri@9.0.1:
     dependencies:

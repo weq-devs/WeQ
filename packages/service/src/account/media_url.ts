@@ -416,7 +416,7 @@ async function firstResolved(attempts: Array<() => Promise<string>>): Promise<st
 
 /** Successful download evidence; it does not prove that a server supplied the original variant. */
 export type DownloadOutcome =
-  | { ok: true; bytes: number; sha256: string; contentType: string }
+  | { ok: true; bytes: number; sha256: string; contentType: string; finalUrl?: string }
   | { ok: false; reason: string };
 
 export interface DownloadOptions {
@@ -426,6 +426,8 @@ export interface DownloadOptions {
   expectedSha256?: string;
   maxBytes?: number;
   timeoutMs?: number;
+  /** 生成成果的静态依赖可包含样式及脚本；聊天媒体默认仍拒绝文本响应。 */
+  allowText?: boolean;
 }
 
 function mediaSignature(bytes: Buffer, kind: 'image' | 'video'): boolean {
@@ -482,9 +484,8 @@ export async function downloadUrlToFile(
       if (
         !res.ok ||
         !res.body ||
-        ct.startsWith('text/') ||
-        ct.includes('json') ||
-        ct.includes('xml')
+        (!options.allowText &&
+          (ct.startsWith('text/') || ct.includes('json') || ct.includes('xml')))
       ) {
         await res.body?.cancel();
         retry = res.status === 429 || res.status >= 500;
@@ -522,7 +523,10 @@ export async function downloadUrlToFile(
         );
         retry = false;
         const sha256 = hash.digest('hex');
-        if (!bytes || /^\s*(?:<!doctype|<html|<\?xml)/i.test(prefix.toString('utf8')))
+        if (
+          !bytes ||
+          (!options.allowText && /^\s*(?:<!doctype|<html|<\?xml)/i.test(prefix.toString('utf8')))
+        )
           throw new Error('媒体为空或返回了错误页面。');
         if (options.expectedKind && !mediaSignature(prefix, options.expectedKind))
           throw new Error('媒体格式与期望不符，可能返回了错误页面。');
@@ -556,7 +560,13 @@ export async function downloadUrlToFile(
           if (existing.digest('hex') !== sha256)
             throw new Error('目标已有不同内容，已保留原文件。');
         }
-        return { ok: true, bytes, sha256, contentType: ct };
+        return {
+          ok: true,
+          bytes,
+          sha256,
+          contentType: ct,
+          ...(options.allowText ? { finalUrl: res.url } : {}),
+        };
       }
     } catch (error) {
       if (options.signal?.aborted || attempt === 3 || !retry)

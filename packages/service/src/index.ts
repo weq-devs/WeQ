@@ -18,6 +18,15 @@
  */
 
 // ---- bootstrap ----
+export { AnalysisReportsService } from './account/analysis_reports';
+export { installContentSearchCapture } from './account/content_search_capture';
+export { writeCompositionBundle } from './account/export/composition_export';
+export { fileDigest } from './account/export/archive_resource';
+export type {
+  SavedAnalysisRequest,
+  SavedAnalysisReport,
+  AnalysisReportSummary,
+} from './account/analysis_reports';
 export { Win32DetectService } from './bootstrap/win32_detect';
 export type { QqInstallInfo } from './bootstrap/win32_detect';
 

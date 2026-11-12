@@ -6,6 +6,8 @@ export const preferenceDefaults = {
   privacyMode: false,
   capturePrivacy: false,
   webNotifications: false,
+  messageNotifications: false,
+  applicationBadge: true,
   accent: '',
   background: 'plain',
   componentStyle: 'qqnt',

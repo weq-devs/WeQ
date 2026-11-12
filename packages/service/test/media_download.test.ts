@@ -20,6 +20,21 @@ const response = (bytes: Uint8Array | string, type = 'image/png') =>
   new Response(bytes, { headers: { 'content-type': type } });
 
 describe('verified media publication', () => {
+  it('only explicit static-artifact downloads allow HTML while ordinary media keeps rejecting it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response('<!doctype html><html>dependency</html>', 'text/html')),
+    );
+    expect(
+      await downloadUrlToFile('https://fixture.invalid/page', join(directory, 'media')),
+    ).toMatchObject({ ok: false });
+    expect(
+      await downloadUrlToFile('https://fixture.invalid/page', join(directory, 'page.html'), {
+        allowText: true,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await readFile(join(directory, 'page.html'), 'utf8')).toContain('dependency');
+  });
   it('streams a valid image and records byte count and hash', async () => {
     vi.stubGlobal(
       'fetch',

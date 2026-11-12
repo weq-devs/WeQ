@@ -10,6 +10,9 @@ export const QZONE_SEARCH_CATEGORIES = [
   'qzoneAlbum',
   'otherQzonePost',
   'otherQzoneAlbum',
+  'qzoneComment',
+  'otherQzoneComment',
+  'qzonePublicComment',
 ] as const satisfies readonly ContentSearchCategory[];
 
 export function isQzoneSearchCategory(category: string): boolean {
@@ -94,11 +97,17 @@ export function rankContentSearchHits(
   );
 }
 
-/** 四个空间来源互不重叠，合并覆盖时保留任一来源的回收及保存失败提示。 */
+/** 空间来源分别保留覆盖范围、回收及保存失败提示。 */
 export function qzoneSearchCoverage(
   coverage: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>,
 ): ContentSearchCoverage | undefined {
-  const sources = QZONE_SEARCH_CATEGORIES.flatMap((category) =>
+  return contentSourcesCoverage(coverage, QZONE_SEARCH_CATEGORIES);
+}
+export function contentSourcesCoverage(
+  coverage: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>,
+  categories: readonly ContentSearchCategory[],
+): ContentSearchCoverage | undefined {
+  const sources = categories.flatMap((category) =>
     coverage[category] ? [coverage[category]] : [],
   );
   if (!sources.length) return undefined;

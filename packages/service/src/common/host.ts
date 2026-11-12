@@ -99,6 +99,8 @@ export interface HostBridge {
    * Web 端没有「窗口」这个概念，不提供该能力（调用方据此判断是否可投递）。
    */
   showMainWindow?(): void;
+  showMessageNotification?(notice: { title: string; body: string }, onClick: () => void): boolean;
+  setApplicationBadge?(count: number): boolean;
   /** Whether {@link revealPath} does anything — the UI hides the button when false. */
   readonly canReveal: boolean;
   /**

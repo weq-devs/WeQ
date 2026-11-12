@@ -6,6 +6,7 @@
   "exports": {
     "./contact-card": "./src/common/contact_card.ts",
     "./client-preferences": "./src/common/client_preferences.ts",
+    "./live-message": "./src/common/live_message.ts",
     "./client-state": "./src/bootstrap/client_state.ts",
     "./settings-changes": "./src/common/settings_changes.ts",
     "./performance": "./src/performance/index.ts",
@@ -28,6 +29,7 @@
     "./bad-pages": "./src/account/bad_pages.ts",
     "./qzone-pagination": "./src/common/qzone_pagination.ts",
     "./qzone-public-settings": "./src/common/qzone_public_settings.ts",
+    "./qzone-public-text": "./src/common/qzone_public_text.ts",
     "./toast-settings": "./src/common/toast_settings.ts",
     "./update-settings": "./src/common/update_settings.ts",
     "./chat-image-cache": "./src/common/chat_image_cache.ts",
@@ -54,6 +56,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@babel/parser": "7.29.7",
     "@streamparser/json": "^0.0.26",
     "@weq/account": "workspace:*",
     "@weq/agentlab": "workspace:*",
@@ -64,10 +67,17 @@
     "@weq/protocol": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
+    "es-module-lexer": "1.7.0",
     "exceljs": "^4.4.0",
     "marked": "^16.4.2",
     "parse5": "8.0.1",
+    "postcss": "8.5.30",
+    "postcss-value-parser": "4.2.0",
+    "remark-parse": "11.0.0",
+    "remark-stringify": "11.0.0",
+    "srcset": "5.0.3",
     "tough-cookie": "6.0.2",
+    "unified": "11.0.5",
     "ws": "8.21.0"
   },
   "devDependencies": {

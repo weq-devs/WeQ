@@ -33,6 +33,7 @@ import {
   rankContentSearchHits,
   rankFileSearchHits,
   searchNameRank,
+  contentSourcesCoverage,
 } from './search_policy';
 import {
   searchContacts,
@@ -486,7 +487,7 @@ export class UnifiedSearchService {
       Boolean(
         needle &&
           ((categories ?? DEFAULT_SEARCH_CATEGORIES).includes(category) ||
-            (category === 'groupFile' &&
+            ((category === 'groupFile' || category === 'flashFile') &&
               (categories ?? DEFAULT_SEARCH_CATEGORIES).includes('file')) ||
             (isQzoneSearchCategory(category) &&
               (categories ?? DEFAULT_SEARCH_CATEGORIES).includes('qzone'))),
@@ -616,7 +617,13 @@ export class UnifiedSearchService {
       case 'groupFile':
       case 'mailMessage':
       case 'marketEmoji':
-      case 'guildMessage': {
+      case 'guildMessage':
+      case 'groupBulletin':
+      case 'groupEssence':
+      case 'flashFile':
+      case 'qzoneComment':
+      case 'otherQzoneComment':
+      case 'qzonePublicComment': {
         const result = await this.options.searchContent?.(category, needle, page, offset);
         return {
           category,
@@ -691,23 +698,28 @@ export class UnifiedSearchService {
       }
       case 'file': {
         // 合并前各取足够的前缀，避免先分页再合并导致跨来源漏项或顺序漂移。
-        const [messages, directory] = await Promise.all([
+        const [messages, directory, flash] = await Promise.all([
           this.cachedFileRanking(needle),
           this.options.searchContent?.('groupFile', needle, offset + page, 0),
+          this.options.searchContent?.('flashFile', needle, offset + page, 0),
         ]);
         const ranked = rankFileSearchHits<FileSearchHit | ContentSearchHit>(needle, [
           ...messages,
           ...(directory?.items ?? []),
+          ...(flash?.items ?? []),
         ]);
         const items = ranked.slice(offset, offset + page);
-        const total = messages.length + (directory?.total ?? 0);
+        const total = messages.length + (directory?.total ?? 0) + (flash?.total ?? 0);
         return {
           category,
           items,
           total,
           hasMore: offset + items.length < total,
           limited: this.fileCache.get(needle)?.limited ?? false,
-          ...(directory ? { coverage: directory.coverage } : {}),
+          coverage: contentSourcesCoverage(
+            { groupFile: directory?.coverage, flashFile: flash?.coverage },
+            ['groupFile', 'flashFile'],
+          ),
         };
       }
     }
@@ -967,7 +979,7 @@ export class UnifiedSearchService {
         return fallback;
       }
     };
-    const [real, guild] = await Promise.all([
+    const [real, guild, groupContent] = await Promise.all([
       scope === 'all' || scope === 'real'
         ? read('chatRecord', () => this.cachedChatRecordRanking(keyword), [])
         : [],
@@ -978,6 +990,17 @@ export class UnifiedSearchService {
             undefined,
           )
         : undefined,
+      scope === 'all' || scope === 'real'
+        ? Promise.all(
+            (['groupBulletin', 'groupEssence'] as const).map((category) =>
+              read(
+                category,
+                () => this.options.searchContent?.(category, keyword, offset + limit, 0),
+                undefined,
+              ),
+            ),
+          )
+        : [],
     ]);
     const clones =
       scope === 'all' || scope === 'virtual'
@@ -988,11 +1011,18 @@ export class UnifiedSearchService {
         : [];
     const name = (hit: ChatRecordSearchHit | GeneratedSearchHit | ContentSearchHit) =>
       hit.category === 'chatRecord' ? hit.name : hit.title;
-    const ranked = [...real, ...clones, ...(guild?.items ?? [])].sort(
-      (a, b) => searchNameRank(keyword, name(b)) - searchNameRank(keyword, name(a)),
-    );
+    const ranked = [
+      ...real,
+      ...clones,
+      ...(guild?.items ?? []),
+      ...groupContent.flatMap((page) => page?.items ?? []),
+    ].sort((a, b) => searchNameRank(keyword, name(b)) - searchNameRank(keyword, name(a)));
     const items = ranked.slice(offset, offset + limit);
-    const total = real.length + clones.length + (guild?.total ?? 0);
+    const total =
+      real.length +
+      clones.length +
+      (guild?.total ?? 0) +
+      groupContent.reduce((sum, page) => sum + (page?.total ?? 0), 0);
     return {
       items,
       total,
@@ -1000,7 +1030,14 @@ export class UnifiedSearchService {
       limited:
         (scope === 'all' || scope === 'real') &&
         (this.chatRecordCache.get(keyword)?.limited ?? false),
-      ...(guild ? { coverage: guild.coverage } : {}),
+      coverage: contentSourcesCoverage(
+        {
+          guildMessage: guild?.coverage,
+          groupBulletin: groupContent[0]?.coverage,
+          groupEssence: groupContent[1]?.coverage,
+        },
+        ['guildMessage', 'groupBulletin', 'groupEssence'],
+      ),
     };
   }
 

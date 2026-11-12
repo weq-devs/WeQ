@@ -388,6 +388,7 @@ export interface ExportTask {
       | 'annual-report'
       | 'analytics-report'
       | 'persona-bot'
+      | 'composition'
       | 'media';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
@@ -1611,11 +1612,13 @@ export class ExportTaskManager extends EventEmitter {
                 ? '导出收藏表情'
                 : opts.kind === 'persona-bot'
                   ? '打包机器人'
-                  : opts.kind === 'assistant-artifact' ||
-                      opts.kind === 'annual-report' ||
-                      opts.kind === 'analytics-report'
-                    ? '保存报告'
-                    : '下载资源',
+                  : opts.kind === 'composition'
+                    ? '导出合成记录'
+                    : opts.kind === 'assistant-artifact' ||
+                        opts.kind === 'annual-report' ||
+                        opts.kind === 'analytics-report'
+                      ? '保存报告'
+                      : '下载资源',
           status: 'pending',
           current: 0,
           total: 0,
