@@ -9,11 +9,51 @@ import {
   UNREAD_COUNT_BATCH_SIZE,
   UNREAD_WATERMARK_BATCH_SIZE,
   createUnreadCountCache,
+  createUnreadRefreshState,
 } from '../src/renderer/src/lib/unreadRefresh';
 
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
+  it('手动操作直接回显忽略待确认数量，不将缺少数量和提醒的结果按零应用', () => {
+    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    const apply = source.slice(
+      source.indexOf('const applyUnreadRows ='),
+      source.indexOf('const markVisibleConversationRead ='),
+    );
+    expect(apply).toContain('!row.readError && !row.countPending');
+    expect(apply).toContain('if (row.readError || row.countPending) continue;');
+  });
+  it('同账号重建保留操作保护与计数缓存，换账号或同号换目录后隔离', () => {
+    const state = createUnreadRefreshState();
+    const first = state.bind('["10001","source-a"]');
+    expect(first.changed).toBe(true);
+    const row = { chatType: 1, uid: 'u_fixture', msgSeq: '1', latestSeq: '10' };
+    first.countCache.remember(row, 1, first.guard.revision());
+    const finish = first.guard.begin([row.uid]);
+    const same = state.bind('["10001","source-a"]');
+    expect(same.changed).toBe(false);
+    expect(same.guard).toBe(first.guard);
+    expect(same.countCache).toBe(first.countCache);
+    expect(same.guard.accepts(row.uid, same.guard.revision())).toBe(false);
+    finish();
+    const other = state.bind('["10001","source-b"]');
+    expect(other.changed).toBe(true);
+    expect(other.guard).not.toBe(first.guard);
+    expect(other.countCache.needsCount(row, 1, other.guard.accepts)).toBe(true);
+    expect(state.bind('["10002","source-b"]').changed).toBe(true);
+  });
+  it('未读读取器仅在账号数据源改变时清空角标，不因 effect 重建无条件清空', () => {
+    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    const effect = source.slice(
+      source.indexOf('let scannedDbRevision = -1;'),
+      source.indexOf('async function loadUnread()'),
+    );
+    expect(effect).not.toContain('setReadUndo(null);\n    setUnreadByConv({});');
+    expect(effect).toMatch(
+      /if \([^)]*changed[^)]*\) \{\s*setReadUndo\(null\);\s*setUnreadByConv\(\{\}\);/,
+    );
+  });
   it('已完成统计不随无关库写入重算，同水位历史修正低频校准，阅读和水位变化立即校准', () => {
     vi.useFakeTimers();
     const cache = createUnreadCountCache();

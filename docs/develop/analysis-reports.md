@@ -4,6 +4,13 @@
 `analysis-reports/<账号配置与账号的哈希>/reports.sqlite`，SQLite 读写和结果压缩在 worker
 内执行，不属于普通临时缓存，不复制 QQ 数据库。
 
+存储 Worker 使用独立 ESM 入口 `packages/service/src/account/analysis_reports_worker.mjs`，
+桌面与 Web 构建均输出 `analysisReportsWorker.mjs`。桌面安装包将其放入真实的
+`resources/out/main`，调用方通过 `resolveChildWorkerPath` 定位后传入服务，源码单测可直接加载源入口。
+不要以函数 `toString()` 创建 eval Worker：打包器生成的依赖 helper 属于外层模块，无法随函数文本转移。
+`apps/desktop/test/analysis_reports_worker.test.ts` 使用实际 Vite 打包后执行存取、重开与删除回归，
+与直接运行源码的服务单测共同验证。
+
 群报告按消息统计、入群批次、关系图三阶段保存，其他报告保存其统计阶段。失败或停止后保留
 已完成阶段；新进程把运行中的记录恢复为待继续，打开报告或点击继续才接续。原生单次读取不能
 抢占时，等待读取结束后丢弃迟到结果，不再启动后续阶段。

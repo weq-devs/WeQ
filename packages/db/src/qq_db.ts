@@ -83,6 +83,7 @@ export class QqDb {
   async queryPage(sql: string, params: SqlValue[], pageSize = 64) {
     if (!Number.isSafeInteger(pageSize) || pageSize < 1) throw new Error('分页大小必须是正整数');
     let limit = Math.min(pageSize, 1024);
+    let waits = 0;
     const read = this.nt.executeSqlBudgeted;
     for (;;) {
       databaseRequestSignal()?.throwIfAborted();
@@ -107,6 +108,16 @@ export class QqDb {
           : await this.query(sql, values);
         return { rows, limit };
       } catch (error) {
+        if (
+          read &&
+          error instanceof Error &&
+          error.message.includes('database_query_wait_timeout') &&
+          waits < 2
+        ) {
+          waits++;
+          await new Promise<void>((done) => setTimeout(done, 20));
+          continue;
+        }
         if (
           limit <= 1 ||
           !(error instanceof Error) ||

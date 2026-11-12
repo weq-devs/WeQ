@@ -56,12 +56,22 @@ function fixture() {
     }));
   });
   const markRead = vi.fn(async () => true);
+  const setReadState = vi.fn(async (chatType: number, uid: string, readSeq: string) => ({
+    chatType,
+    uid,
+    existed: true,
+    before: new Uint8Array([1]),
+    after: new Uint8Array([2]),
+    afterReadSeq: readSeq,
+    beforeReadSeq: snapshot.msgSeq?.toString(),
+  }));
+  const undoReadState = vi.fn(async () => true);
   const service = new UnreadInfoService(
     {
       context: { uin: '10001' },
       selfUid: 'u_self',
       msgDbPath: '/synthetic/unread.db',
-      unreadInfo: { getUnreadInfos, markRead },
+      unreadInfo: { getUnreadInfos, markRead, setReadState, undoReadState },
     } as unknown as AccountSession,
     undefined,
     undefined,
@@ -91,6 +101,65 @@ function fixture() {
 const settle = () => vi.advanceTimersByTimeAsync(0);
 
 describe('QQ 计数来源与统一未读', () => {
+  it('手动未读在来源暂不可用时继续精确统计，新消息与 QQ 水位变化都不冻结数量', async () => {
+    const f = fixture();
+    await f.query();
+    await settle();
+    await f.service.setReadState([target], true);
+    f.read.mockRejectedValue(new Error('暂不可用'));
+    await vi.advanceTimersByTimeAsync(1500);
+    expect((await f.query())[0]?.unreadCount).toBe(10);
+    f.setDb(db('102', 90));
+    expect((await f.query())[0]?.unreadCount).toBe(12);
+    f.setDb(db('102', 95));
+    expect((await f.query())[0]?.unreadCount).toBe(7);
+  });
+  it('手动未读与撤销的直接回显也使用可信来源，不在轮询前短暂归零', async () => {
+    const f = fixture();
+    f.setDb(db('100', 100));
+    await f.query();
+    await settle();
+    const change = await f.service.setReadState([target], true);
+    expect(change.rows[0]?.unreadCount).toBe(10);
+    expect((await f.service.undoReadState(change.undoToken)).rows[0]?.unreadCount).toBe(10);
+    const later = await f.service.setReadState([target], true);
+    f.read.mockRejectedValue(new Error('暂不可用'));
+    await vi.advanceTimersByTimeAsync(1500);
+    expect((await f.service.undoReadState(later.undoToken)).rows[0]).toMatchObject({
+      countPending: true,
+    });
+  });
+  it('已采用内存正数但数据库仍为零时，来源失败不把回退零交付为已读，恢复后继续校准', async () => {
+    const f = fixture();
+    f.setDb(db('100', 100));
+    await f.query();
+    await settle();
+    expect((await f.query())[0]?.unreadCount).toBe(10);
+    f.read.mockRejectedValue(new Error('暂不可用'));
+    await vi.advanceTimersByTimeAsync(1500);
+    for (const fast of [false, true]) {
+      const row = (await f.query(fast))[0];
+      expect(row?.countPending).toBe(true);
+      expect(row?.readError).toBeUndefined();
+      expect(row?.unreadCount).toBeUndefined();
+    }
+    f.read.mockResolvedValue(memory(8));
+    await vi.advanceTimersByTimeAsync(3000);
+    expect((await f.query())[0]?.unreadCount).toBe(8);
+  });
+
+  it('来源不可用时显式本地阅读仍按精确范围生效，后续新消息不冻结', async () => {
+    const f = fixture();
+    await f.query();
+    await settle();
+    f.read.mockRejectedValue(new Error('暂不可用'));
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(await f.service.markReadAndReport(1, target.uid, '96')).toMatchObject({ changed: true });
+    expect((await f.query())[0]?.unreadCount).toBe(4);
+    f.setDb(db('102', 90));
+    expect((await f.query())[0]?.unreadCount).toBe(6);
+  });
+
   it('单次页面请求取消不取消账号级后台校准，也不污染下一轮定时刷新', async () => {
     const f = fixture();
     const controller = new AbortController();
@@ -193,13 +262,13 @@ describe('QQ 计数来源与统一未读', () => {
     await settle();
     f.read.mockResolvedValue(memory(0, { rows: [], missingTargets: [target] }));
     await vi.advanceTimersByTimeAsync(1500);
-    expect((await f.query())[0]?.unreadCount).toBe(10);
+    expect((await f.query())[0]).toMatchObject({ countPending: true });
     f.read.mockResolvedValue(memory(0, { success: false }));
     await vi.advanceTimersByTimeAsync(1500);
-    expect((await f.query())[0]?.unreadCount).toBe(10);
+    expect((await f.query())[0]).toMatchObject({ countPending: true });
     f.read.mockResolvedValue(memory(0, { layout: 'unknown' }));
     await vi.advanceTimersByTimeAsync(3000);
-    expect((await f.query())[0]?.unreadCount).toBe(10);
+    expect((await f.query())[0]).toMatchObject({ countPending: true });
     f.read.mockImplementation(async () => {
       f.setDb(db('102', 90));
       return memory(0);
@@ -213,7 +282,7 @@ describe('QQ 计数来源与统一未读', () => {
         return memory(0);
       });
     await vi.advanceTimersByTimeAsync(1500);
-    expect((await f.query())[0]?.unreadCount).toBe(13);
+    expect((await f.query())[0]).toMatchObject({ countPending: true });
   });
 
   it('换来源与关闭时立即放弃缓存，旧请求迟到不发布，清理原生定位', async () => {

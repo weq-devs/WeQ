@@ -145,7 +145,7 @@ import {
   sameUnreadHighlights,
   UNREAD_COUNT_BATCH_SIZE,
   UNREAD_WATERMARK_BATCH_SIZE,
-  createUnreadCountCache,
+  createUnreadRefreshState,
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
@@ -4080,6 +4080,7 @@ function MainWorkspace(): ReactElement {
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
   const unreadUpdateGuardRef = useRef(createUnreadUpdateGuard());
+  const unreadRefreshStateRef = useRef(createUnreadRefreshState());
   const manualReadPendingRef = useRef(new Set<string>());
   const [readStateBusy, setReadStateBusy] = useState(false);
   const readStateBusyRef = useRef(false);
@@ -5744,12 +5745,13 @@ function MainWorkspace(): ReactElement {
       Boolean(binding) &&
       messageScopeRef.current === source &&
       useViewState.getState().openedUin === openedUin;
-    const guard = createUnreadUpdateGuard();
-    const countCache = createUnreadCountCache();
+    const { guard, countCache, changed } = unreadRefreshStateRef.current.bind(source);
     unreadUpdateGuardRef.current = guard;
-    setReadUndo(null);
-    setUnreadByConv({});
-    setHighlightsByConv({});
+    if (changed) {
+      setReadUndo(null);
+      setUnreadByConv({});
+      setHighlightsByConv({});
+    }
 
     async function loadUnread(): Promise<boolean> {
       if (!isCurrent() || !openedUin) return true;
@@ -7527,13 +7529,14 @@ function MainWorkspace(): ReactElement {
     (rows: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>) => {
       setUnreadByConv((current) => {
         const next = { ...current };
-        for (const row of rows) if (!row.readError) next[row.uid] = row.unreadCount ?? 0;
+        for (const row of rows)
+          if (!row.readError && !row.countPending) next[row.uid] = row.unreadCount ?? 0;
         return next;
       });
       setHighlightsByConv((current) => {
         const next = { ...current };
         for (const row of rows) {
-          if (row.readError) continue;
+          if (row.readError || row.countPending) continue;
           if (row.highlights?.length) next[row.uid] = row.highlights as ConversationHighlight[];
           else delete next[row.uid];
         }

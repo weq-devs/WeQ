@@ -21,6 +21,7 @@ import type { PbNode, PbValue } from '@weq/codec/raw';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { databaseRequestSignal } from '../query_schedule';
 import { toBigint } from './util';
+import { stat } from 'node:fs/promises';
 
 export const UNREAD_OUTGOING_PAGE_SIZE = 256;
 const OUTGOING_CACHE_MAX_AGE_MS = 60_000;
@@ -30,6 +31,7 @@ interface OutgoingWindow {
   through: bigint;
   verifiedAt: number;
   sequences: string[];
+  revision: string;
 }
 
 export interface UnreadInfoDbOptions {
@@ -180,7 +182,10 @@ export class UnreadInfoDb {
     options: { reuseOutgoing?: boolean } = {},
   ): Promise<UnreadInfoSnapshot[]> {
     const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
+    if (!unique.length) return [];
     const result: UnreadInfoSnapshot[] = [];
+    // 同连接写入与其他连接提交都参与校验，不能把同水位历史修正漏在缓存之外。
+    const revision = self && options.reuseOutgoing ? await this.outgoingRevision() : undefined;
     const batchSize = self ? 128 : 256;
     for (let offset = 0; offset < unique.length; offset += batchSize) {
       databaseRequestSignal()?.throwIfAborted();
@@ -239,9 +244,35 @@ export class UnreadInfoDb {
           result.push({ ...identity, readError: true });
         }
       }
-      if (self) await this.loadOutgoingSequences(candidates, self, options.reuseOutgoing);
+      if (self) await this.loadOutgoingSequences(candidates, self, revision);
     }
     return result;
+  }
+
+  /** 读取缓存校验代次；不替代消息水位和阅读范围。 */
+  private async outgoingRevision(): Promise<string | undefined> {
+    let stamps: string[];
+    try {
+      stamps = await Promise.all(
+        [this.qq.dbPath, `${this.qq.dbPath}-wal`].map(async (path, index) => {
+          try {
+            const value = await stat(path, { bigint: true });
+            return [value.dev, value.ino, value.size, value.mtimeNs, value.ctimeNs].join(':');
+          } catch (error) {
+            if (index === 1 && (error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
+            throw error;
+          }
+        }),
+      );
+    } catch {
+      // 元数据不可用仅禁用缓存，不影响精确读取。
+      return undefined;
+    }
+    // data_version 属于连接；文件代次同时防止原生连接重建后计数归初值而误复用。
+    const rows = await this.qq.query(
+      'SELECT data_version, total_changes() FROM pragma_data_version',
+    );
+    return JSON.stringify([stamps, rows.map((row) => row.map(String))]);
   }
 
   /** 索引分区分页读取轻量列，让首屏能在统计页之间进入同库队列。 */
@@ -252,7 +283,7 @@ export class UnreadInfoDb {
       afterSeq: string;
     }>,
     self: { selfUid: string; selfUin: string },
-    reuseOutgoing = false,
+    revision?: string,
   ): Promise<void> {
     for (const kind of ['group', 'direct', 'direct-fallback'] as const) {
       const targets = candidates.filter(({ snapshot, partition }) =>
@@ -272,7 +303,7 @@ export class UnreadInfoDb {
             group,
             self,
             afterSeq,
-            reuseOutgoing,
+            revision,
           );
         }
         continue;
@@ -312,7 +343,7 @@ export class UnreadInfoDb {
     group: boolean,
     self: { selfUid: string; selfUin: string },
     afterSeq: string,
-    reuseOutgoing: boolean,
+    revision: string | undefined,
   ): Promise<void> {
     const table = group ? 'group_msg_table' : 'c2c_msg_table';
     const direction = group
@@ -321,16 +352,21 @@ export class UnreadInfoDb {
     const latest = BigInt(snapshot.latestSeq!);
     const from = BigInt(afterSeq);
     const key = JSON.stringify([table, partition, self.selfUid, self.selfUin]);
-    const cached = reuseOutgoing ? this.outgoingWindows.get(key) : undefined;
+    const cached = revision === undefined ? undefined : this.outgoingWindows.get(key);
     const now = Date.now();
-    // 仅复用向前增长的尾部；相同水位的显式校准、阅读回退和到期均完整重读。
+    // 数据库未变时复用同边界；历史修正、阅读回退和到期必须完整重读。
     const reusable =
       cached &&
       from >= cached.from &&
-      latest > cached.through &&
+      latest >= cached.through &&
+      revision === cached.revision &&
       now >= cached.verifiedAt &&
       now - cached.verifiedAt < OUTGOING_CACHE_MAX_AGE_MS;
     const outgoing = new Set(reusable ? cached.sequences.filter((seq) => BigInt(seq) > from) : []);
+    if (reusable && latest === cached.through) {
+      snapshot.outgoingSeqs = [...outgoing];
+      return;
+    }
     if (reusable && cached.through > from) afterSeq = String(cached.through);
     let cursor: [bigint, bigint] | undefined;
     let pageSize = UNREAD_OUTGOING_PAGE_SIZE;
@@ -381,12 +417,13 @@ export class UnreadInfoDb {
         second = BigInt(b);
       return first < second ? -1 : first > second ? 1 : 0;
     });
-    if (reuseOutgoing)
+    if (revision !== undefined)
       this.rememberOutgoingWindow(key, {
         from,
         through: latest,
         verifiedAt: reusable ? cached.verifiedAt : now,
         sequences: snapshot.outgoingSeqs,
+        revision,
       });
   }
 

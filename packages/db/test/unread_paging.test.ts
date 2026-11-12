@@ -10,6 +10,11 @@ import {
 } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import type { NtHelperBinding } from '@weq/native';
+import { createRequire } from 'node:module';
+
+const { DatabaseSync } = createRequire(import.meta.url)(
+  'node:sqlite',
+) as typeof import('node:sqlite');
 
 const roots: string[] = [];
 afterEach(() => {
@@ -50,6 +55,72 @@ async function fixture() {
 }
 const self = { selfUid: 'u_self', selfUin: '10001' };
 const targets = [{ chatType: 2, uid: '70001' }];
+
+it('同边界重复精确统计复用结果，历史内容修正即使水位不变也重新统计', async () => {
+  const f = await fixture();
+  const options = { reuseOutgoing: true };
+  const execute = vi.spyOn(f.nt, 'executeSql');
+  await f.db.getUnreadInfos(targets, self, undefined, options);
+  execute.mockClear();
+  expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual(
+    [],
+  );
+  expect(execute.mock.calls.filter(([, query]) => query.includes('group_msg_table'))).toHaveLength(
+    0,
+  );
+  f.sql.exec('UPDATE group_msg_table SET "40020"=\'u_self\' WHERE "40003"=1');
+  expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual([
+    '1',
+  ]);
+});
+
+it('另一连接的同水位历史修正使缓存失效，不依赖本连接 total_changes', async () => {
+  const f = await fixture();
+  const options = { reuseOutgoing: true };
+  await f.db.getUnreadInfos(targets, self, undefined, options);
+  const external = new DatabaseSync(f.path);
+  try {
+    external.exec('UPDATE group_msg_table SET "40020"=\'u_self\' WHERE "40003"=1');
+  } finally {
+    external.close();
+  }
+  expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual([
+    '1',
+  ]);
+});
+
+it('连接代数回到初值时仍用文件提交变化校准，不把 data_version 当跨连接身份', async () => {
+  const f = await fixture();
+  const execute = f.nt.executeSql.bind(f.nt);
+  vi.spyOn(f.nt, 'executeSql').mockImplementation(async (path, query, params) =>
+    query.includes('pragma_data_version') ? [[1n, 0n]] : execute(path, query, params),
+  );
+  const options = { reuseOutgoing: true };
+  await f.db.getUnreadInfos(targets, self, undefined, options);
+  f.sql.exec('UPDATE group_msg_table SET "40020"=\'u_self\' WHERE "40003"=1');
+  expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual([
+    '1',
+  ]);
+});
+
+it('短预算等待失败有界让路重试，不缩小页面；持续失败仍明确返回', async () => {
+  const f = await fixture();
+  let failures = 1;
+  const sizes: number[] = [];
+  f.nt.executeSqlBudgeted = vi.fn<NonNullable<NtHelperBinding['executeSqlBudgeted']>>(
+    async (path, query, params) => {
+      sizes.push(Number(params?.at(-1)));
+      if (failures-- > 0) throw new Error('database_query_wait_timeout');
+      return f.nt.executeSql(path, query, params);
+    },
+  );
+  expect((await f.db.getUnreadInfos(targets, self))[0]?.outgoingSeqs).toEqual([]);
+  expect(sizes.every((size) => size === UNREAD_OUTGOING_PAGE_SIZE)).toBe(true);
+  sizes.length = 0;
+  failures = 100;
+  await expect(f.db.getUnreadInfos(targets, self)).rejects.toThrow('database_query_wait_timeout');
+  expect(sizes).toHaveLength(3);
+});
 
 it('未读页预算缩小后沿用已适配的页大小，不在每页重复提交超预算读取', async () => {
   const f = await fixture();
@@ -141,7 +212,7 @@ it('普通递增序号跨满页前进，不遗漏页末、下一页首条和最�
   expect((await f.db.getUnreadInfos(targets, self))[0]?.outgoingSeqs).toEqual(expected.map(String));
 });
 
-it('未读尾部增长时只读增量；同水位校准、阅读回退与到期仍重读历史', async () => {
+it('数据库提交、同水位历史修正、阅读回退与到期均校准，不盲目复用旧区间', async () => {
   const f = await fixture();
   const options = { reuseOutgoing: true };
   const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
@@ -154,8 +225,8 @@ it('未读尾部增长时只读增量；同水位校准、阅读回退与到期�
       ['3'],
     );
     let pages = execute.mock.calls.filter(([, query]) => query.includes('group_msg_table'));
-    expect(pages).toHaveLength(1);
-    expect(pages[0]?.[2]?.[5]).toBe('2');
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages[0]?.[2]?.[5]).toBe('0');
 
     f.sql.exec('UPDATE group_msg_table SET "40020"=\'u_self\' WHERE "40003"=1');
     expect((await f.db.getUnreadInfos(targets, self, undefined, options))[0]?.outgoingSeqs).toEqual(

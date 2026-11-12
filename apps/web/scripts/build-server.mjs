@@ -56,6 +56,7 @@ const ENTRIES = {
   server: join(appRoot, 'src/server/index.ts'),
   imageWorker: join(desktopMain, 'image_worker.ts'),
   coverWorker: join(desktopMain, 'cover_worker.ts'),
+  analysisReportsWorker: join(repoRoot, 'packages/service/src/account/analysis_reports_worker.mjs'),
   attachWorker: join(desktopMain, 'attach_worker.ts'),
   backupProbeWorker: join(desktopMain, 'backup_probe_worker.ts'),
   transcribeWorker: join(desktopMain, 'transcribe/worker.ts'),

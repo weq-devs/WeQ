@@ -5,6 +5,25 @@ export const UNREAD_COUNT_BATCH_SIZE = 16;
 export const UNREAD_WATERMARK_BATCH_SIZE = 256;
 const UNREAD_RECONCILE_MS = 60_000;
 
+/** 同账号 effect 重建沿用计数与操作版本；换数据源时才丢弃。 */
+export function createUnreadRefreshState() {
+  let current:
+    | {
+        scope: string;
+        guard: ReturnType<typeof createUnreadUpdateGuard>;
+        countCache: ReturnType<typeof createUnreadCountCache>;
+      }
+    | undefined;
+  return {
+    bind(scope: string) {
+      const changed = current?.scope !== scope;
+      if (changed || !current)
+        current = { scope, guard: createUnreadUpdateGuard(), countCache: createUnreadCountCache() };
+      return { ...current, changed };
+    },
+  };
+}
+
 interface CountWatermark {
   chatType: number;
   uid: string;

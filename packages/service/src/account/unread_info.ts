@@ -188,8 +188,11 @@ export class UnreadInfoService {
     if (this.disposed || manualRevision !== this.manualRevision)
       return snapshots.map((row) => ({ ...row, readError: true }));
     const rows = snapshots.map((row): ResolvedUnreadInfo => {
-      const count = this.local.canUseCount(row) ? this.counts?.get(row) : undefined;
+      const canUseCount = this.local.canUseCount(row);
+      const count = canUseCount ? this.counts?.get(row) : undefined;
       if (count !== undefined) return this.local.resolve(row, count);
+      // 数据库水位并非同批 QQ 阅读位置；来源失效或无法对齐时不能把回退零发布为已读。
+      if (canUseCount && this.countNeedsConfirmation(row)) return { ...row, countPending: true };
       // 统计期间来源失效或发生本地操作，轻量行不能冒充已完成精确统计。
       if (this.countOnlySnapshots.has(row)) return { ...row, readError: true };
       const currentFloor = this.local.countFloor(row.chatType, row.uid) ?? '0';
@@ -228,7 +231,9 @@ export class UnreadInfoService {
     const light = await this.readSnapshots(targets, undefined, true);
     if (this.disposed) return light;
     const fallback = light.filter(
-      (row) => !this.local.canUseCount(row) || this.counts?.get(row) === undefined,
+      (row) =>
+        !this.local.canUseCount(row) ||
+        (this.counts?.get(row) === undefined && !this.countNeedsConfirmation(row)),
     );
     const exact = fallback.length ? await this.readSnapshots(fallback, readSeqs) : [];
     const byPeer = new Map(exact.map((row) => [row.peer, row]));
@@ -238,6 +243,14 @@ export class UnreadInfoService {
       this.countOnlySnapshots.add(row);
       return row;
     });
+  }
+
+  private countNeedsConfirmation(snapshot: UnreadInfoSnapshot): boolean {
+    // 手动未读只维持标记，来源失效时仍精确统计，不能冻结其数量。
+    return (
+      !this.local.hasManualUnread(snapshot.chatType, snapshot.uid) &&
+      this.counts?.requiresConfirmation(snapshot) === true
+    );
   }
 
   private readSnapshots(
@@ -336,7 +349,10 @@ export class UnreadInfoService {
     const undoToken = randomUUID();
     this.readHistory.set(undoToken, changes);
     if (!unread) this.scheduleManualReports(changes);
-    return { undoToken, rows: snapshots.map((snapshot) => this.local.resolve(snapshot)) };
+    return {
+      undoToken,
+      rows: snapshots.map((snapshot) => this.local.resolve(snapshot, this.counts?.get(snapshot))),
+    };
   }
 
   async undoReadState(undoToken: string) {
@@ -401,7 +417,16 @@ export class UnreadInfoService {
     this.scheduleManualReports(restored, true);
     return {
       restored: restored.length,
-      rows: [...rowsByPeer.values()].map((snapshot) => this.local.resolve(snapshot)),
+      rows: [...rowsByPeer.values()].map((snapshot): ResolvedUnreadInfo => {
+        const count = this.counts?.get(snapshot);
+        if (
+          count === undefined &&
+          this.local.canUseCount(snapshot) &&
+          this.countNeedsConfirmation(snapshot)
+        )
+          return { ...snapshot, countPending: true };
+        return this.local.resolve(snapshot, count);
+      }),
     };
   }
 

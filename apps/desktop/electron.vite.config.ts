@@ -86,6 +86,10 @@ export default defineConfig({
           index: resolve(__dirname, 'src/main/index.ts'),
           imageWorker: resolve(__dirname, 'src/main/image_worker.ts'),
           coverWorker: resolve(__dirname, 'src/main/cover_worker.ts'),
+          analysisReportsWorker: resolve(
+            __dirname,
+            '../../packages/service/src/account/analysis_reports_worker.mjs',
+          ),
           transcribeWorker: resolve(__dirname, 'src/main/transcribe/worker.ts'),
           // 本地 OCR 推理同样在子进程里跑（onnxruntime 是原生库，见 main/ocr/worker.ts）。
           ocrWorker: resolve(__dirname, 'src/main/ocr/worker.ts'),
@@ -112,6 +116,7 @@ export default defineConfig({
           entryFileNames: (chunk) =>
             chunk.name === 'imageWorker' ||
             chunk.name === 'coverWorker' ||
+            chunk.name === 'analysisReportsWorker' ||
             chunk.name === 'transcribeWorker' ||
             chunk.name === 'ocrWorker' ||
             chunk.name === 'attachWorker' ||

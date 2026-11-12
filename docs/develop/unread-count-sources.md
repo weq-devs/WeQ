@@ -22,7 +22,8 @@ WeQ 只消费正式 API，不扫描或修改 QQ 内存。实际构建须包含 `
 
 - 无 WeQ 阅读差异、来源可信且数据库边界一致时，直接使用内存计数，完整查询不再扫描该会话的自己发言。
 - 存在 WeQ 自动或手动阅读记录时，不能从数量变化推测 QQ 确认了哪些消息；继续使用现有按有效水位排除自己发言的精确统计。
-- 缺失对象不等于零；数据库边界变化、读取失败或来源失效时回到数据库，不沿用错位的内存数。
+- 缺失对象不等于零。尚未使用过原生计数的目标继续按数据库精确统计；已有本地阅读差异的目标始终精确回退。
+- 曾纳入可信内存来源、又没有本地阅读差异且未手动标记未读的目标，来源失效、缺失或无法对齐时返回 `countPending`，不把数据库解释出的零冒充 QQ 已读，也不沿用错位内存数。来源恢复后重新校准；计数待确认不阻断用户按固定消息边界继续阅读。手动未读在来源不可用时继续精确统计，不冻结数量。
 - 内存数量与数据库结果不同不代表差异全部已读。未对齐的数量不生成跳转水位，也不写入本地已读记录。
 
 只有未来取得可验证的同边界 QQ 阅读范围，才可仅校准其与 WeQ 阅读记录的交集、缩小未确认范围。
@@ -37,7 +38,14 @@ generation 一致的目标，不使用启动时数字与十几秒后的计数建
 
 后台每 1.5 秒校准已实例化普通私聊与群聊，失败有界退避。数量或消息／阅读边界发生变化都会通知现有目标刷新订阅，
 所以 QQ 读旧消息同时收到同数量新消息时不会因总数不变而跳过刷新。缓存有时效上限，关闭账号停止定时器并清理定位；
-换源或旧请求迟到时不发布旧结果。设备会话与缺失目标继续沿用现有逻辑。
+换源或旧请求迟到时不发布旧结果。设备会话与从未纳入计数来源的目标继续沿用现有逻辑。
+
+同账号、同数据目录的前端刷新器重建保留已显示角标、提醒、撤销及在途操作版本；只有账号或数据源
+变化才清空。手动操作的直接回显也遵守待确认状态，不能将缺少数量的结果按零应用。
+
+精确统计可在有效阅读范围未回退、同边界且数据库未变化时复用已扫描结果。校验同时包含连接内的
+`total_changes()`、外部提交的 `data_version` 和数据库／WAL 文件代次，连接重建或同水位历史修正不
+误用旧缓存；到期仍重新校准。15ms 短预算页等待失败最多让路重试两次，持续失败不交付部分计数。
 
 ## 持久化与操作
 
@@ -53,7 +61,9 @@ generation 一致的目标，不使用启动时数字与十几秒后的计数建
 pnpm --filter @weq/service exec vitest run test/local_unread.test.ts test/unread_count_source.test.ts test/unread_scheduling.test.ts test/read_report.test.ts
 pnpm --filter @weq/desktop exec vitest run test/unread_router.test.ts test/unread_refresh.test.ts test/local_unread_ui.test.ts
 WEQ_PLAYWRIGHT_IMPORT=/absolute/path/to/playwright/index.mjs pnpm exec tsx apps/desktop/test/browser/run-unread-counts.mts
+WEQ_PLAYWRIGHT_IMPORT=/absolute/path/to/playwright/index.mjs pnpm --filter @weq/desktop exec node test/browser/run-unread-hmr.mjs
 ```
 
 浏览器回归使用真实 `ConversationList` 组件和合成 `UnreadInfoService` 服务，覆盖深浅主题、桌面与窄屏。
+HMR 回归将组件与挂载入口分离，检查实际绘制帧、在途操作保护和换账号清空，不把整页重挂当作保留状态的热更新。
 这不等于安装运行版已切换来源，也不替代原生读取端的真 QQ 验收。

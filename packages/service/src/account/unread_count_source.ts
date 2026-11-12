@@ -54,7 +54,11 @@ export function createQqUnreadCountSource(
 
 function boundary(row: UnreadInfoSnapshot): string | null {
   if (row.readError || row.latestSeq === null || !/^\d{1,20}$/.test(row.latestSeq)) return null;
-  return JSON.stringify([row.latestSeq, row.msgSeq, row.highlights]);
+  return JSON.stringify([
+    row.latestSeq,
+    row.msgSeq,
+    row.highlights?.length ? row.highlights : null,
+  ]);
 }
 
 interface CountEntry extends UnreadInfoTarget {
@@ -65,6 +69,7 @@ interface CountEntry extends UnreadInfoTarget {
 /** 冷定位永不进入请求等待链；定位完成后重新夹取 DB 水位，不使用启动数字差。 */
 export class UnreadCountCache {
   private entries = new Map<string, CountEntry>();
+  private readonly observed = new Set<string>();
   private identity: string | null = null;
   private generation?: string;
   private updatedAt = 0;
@@ -98,10 +103,17 @@ export class UnreadCountCache {
     return this.entries.size > 0 && this.currentIdentity() === this.identity;
   }
 
+  /** 失去曾使用的计数来源不等于已读；没有本地差异时等待该来源重新确认。 */
+  requiresConfirmation(row: UnreadInfoSnapshot): boolean {
+    const identity = this.currentIdentity();
+    return this.observed.has(row.peer) && (identity === null || identity === this.identity);
+  }
+
   dispose(): void {
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);
     this.entries.clear();
+    this.observed.clear();
     try {
       this.source.clear();
     } catch {
@@ -167,6 +179,12 @@ export class UnreadCountCache {
           next.set(key, { ...row, count: row.unreadCount, boundary: aligned });
       }
       this.entries = next;
+      if (this.identity !== identity) this.observed.clear();
+      for (const key of next.keys()) {
+        if (!this.observed.has(key) && this.observed.size >= 8192)
+          this.observed.delete(this.observed.values().next().value!);
+        this.observed.add(key);
+      }
       this.identity = identity;
       const generationChanged = this.generation !== counts.generation;
       this.generation = counts.generation;

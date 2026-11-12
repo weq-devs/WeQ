@@ -7,6 +7,7 @@ import { AnalysisReportsService } from '@weq/service';
 import { getAppContext, accountEventBus, type AccountServices } from '../../context/app_context';
 import { backgroundTasks } from '../../background_tasks';
 import { procedure, router } from '../trpc';
+import { resolveChildWorkerPath } from '../../worker_path';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -96,6 +97,7 @@ export function createAnalysisReportsRouter(
             wordLimit: 150,
           });
         }),
+      resolveChildWorkerPath('analysisReportsWorker.mjs', import.meta.dirname),
     );
     stores.set(services, service);
     const current = service;

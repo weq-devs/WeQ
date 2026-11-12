@@ -233,6 +233,10 @@ export class LocalUnreadStore {
     );
   }
 
+  hasManualUnread(chatType: number, uid: string): boolean {
+    return this.positions.get(`${chatType}_${uid}`)?.manual?.unread === true;
+  }
+
   /** 计数型来源没有阅读边界，存在本地阅读时必须精确回退，不能猜固定差值。 */
   canUseCount(snapshot: UnreadInfoSnapshot): boolean {
     if (snapshot.readError || !sequence(snapshot.latestSeq)) return false;
