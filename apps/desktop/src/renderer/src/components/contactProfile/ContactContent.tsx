@@ -201,7 +201,7 @@ export function ContactIdentity({
             ) : null}
           </div>
           <div className="weq-contact-meta">
-            {!person.clone ? <PersonRelationshipStatus person={person} /> : null}
+            {!person.clone ? <PersonRelationshipStatus person={person} editableCategory /> : null}
             {!person.clone && person.kind === 'bot' ? (
               <span className="weq-contact-identity-kind">
                 <Bot size={12} />
@@ -767,16 +767,7 @@ export function ContactContent({
       personal && relationship !== 'self' ? (
         <CommonRelationships uin={person.identityValue} onNavigate={onNavigate} />
       ) : null,
-    category:
-      !preview && relationship === 'friend' && /^u_/.test(person.uid || person.id) ? (
-        <QQProfileField
-          field="friendCategory"
-          target={person.uid || person.id}
-          initial={person.categoryName || ''}
-        />
-      ) : (
-        <ContactRow label="好友分组" value={person.categoryName} />
-      ),
+    category: null,
     intimacy: <ContactRow label="QQ 亲密度" value={person.intimacy || null} />,
     relations: relationIds.length ? (
       <ContactRow label="关系标签">

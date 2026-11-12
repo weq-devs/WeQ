@@ -241,7 +241,14 @@ it.each([false, true])(
     );
     const scope = embedded ? host : document.body;
     expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('我的好友');
-    expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('同学');
+    expect(
+      scope.querySelector('.weq-contact-identity [aria-label="编辑好友分组"]')?.textContent,
+    ).toBe('同学');
+    expect(
+      [...scope.querySelectorAll('.weq-profile-data-label')].some(
+        (node) => node.textContent === '好友分组',
+      ),
+    ).toBe(false);
     // 内嵌时由 ProfileWorkspace 提供「联系人资料」页头；浮层名片沿用统一名片外壳的 aria-label。
     expect(
       scope.querySelector(embedded ? '[aria-label="联系人资料"]' : '[aria-label="用户资料"]'),

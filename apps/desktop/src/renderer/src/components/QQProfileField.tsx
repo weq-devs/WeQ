@@ -14,11 +14,12 @@ type Props = {
   label?: string;
   nameTarget?: string;
   valueClassName?: string;
+  inline?: boolean;
 };
 
 /** 先显示名片已有值，点击后才挂载在线读取和编辑器。 */
 export function QQProfileField(props: Props) {
-  const { field, target, initial, valueClassName } = props;
+  const { field, target, initial, valueClassName, inline = false } = props;
   const label =
     props.label ??
     (field === 'groupName' ? '群名称' : field === 'friendCategory' ? '好友分组' : '备注');
@@ -42,27 +43,32 @@ export function QQProfileField(props: Props) {
         }}
       />
     );
-  return (
+  const trigger = (
+    <button
+      type="button"
+      className="weq-contact-value"
+      aria-label={`编辑${label}`}
+      title={`编辑${label}`}
+      disabled={!session.available}
+      onClick={(event) => {
+        const selection = event.currentTarget.ownerDocument.getSelection();
+        if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
+          setEditing(scope);
+      }}
+    >
+      {value ||
+        (field === 'friendCategory'
+          ? '设置好友分组'
+          : field === 'groupName'
+            ? '设置群名称'
+            : '添加备注')}
+    </button>
+  );
+  return inline ? (
+    trigger
+  ) : (
     <ContactRow label={label} valueClassName={valueClassName}>
-      <button
-        type="button"
-        className="weq-contact-value"
-        aria-label={`编辑${label}`}
-        title={`编辑${label}`}
-        disabled={!session.available}
-        onClick={(event) => {
-          const selection = event.currentTarget.ownerDocument.getSelection();
-          if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
-            setEditing(scope);
-        }}
-      >
-        {value ||
-          (field === 'friendCategory'
-            ? '设置好友分组'
-            : field === 'groupName'
-              ? '设置群名称'
-              : '添加备注')}
-      </button>
+      {trigger}
     </ContactRow>
   );
 }
@@ -72,6 +78,7 @@ function QQProfileFieldEditor({
   target,
   label,
   nameTarget,
+  inline = false,
   onClose,
   onSaved,
 }: Props & {
@@ -148,7 +155,7 @@ function QQProfileFieldEditor({
     ]);
   };
   return (
-    <div data-qq-action>
+    <div data-qq-action className={inline ? 'weq-profile-field-inline' : undefined}>
       {ready && allowed ? (
         <ProfileInlineField
           label={label}

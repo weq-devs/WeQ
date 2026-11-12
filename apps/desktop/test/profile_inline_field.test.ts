@@ -103,6 +103,7 @@ let cache: QueryClient;
 function render(
   field: 'friendRemark' | 'groupRemark' | 'groupName' | 'friendCategory' = 'friendRemark',
   initial = '旧备注',
+  inline = false,
 ) {
   act(() =>
     root.render(
@@ -113,6 +114,7 @@ function render(
           field,
           target: field.startsWith('group') ? '20001' : 'u_peer',
           initial,
+          inline,
         }),
       ),
     ),
@@ -257,6 +259,33 @@ it('好友分组原行下拉选择并核对所选分组', async () => {
   });
   await click('保存好友分组');
   expect(button('编辑好友分组').textContent).toBe('默认分组');
+});
+it('头部分组不渲染正文行，保存失败保留选择，取消后还原名称', async () => {
+  render('friendCategory', '朋友', true);
+  expect(host.querySelector('.weq-profile-data-row')).toBeNull();
+  expect(mock.reads).not.toHaveBeenCalled();
+  await click('编辑好友分组');
+  expect(host.querySelector('.weq-profile-field-inline select')).not.toBeNull();
+  await act(async () => {
+    const select = host.querySelector('select')!;
+    select.value = '2';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  mock.fail = true;
+  await click('保存好友分组');
+  expect(host.querySelector('select')?.value).toBe('2');
+  await click('取消编辑好友分组');
+  expect(button('编辑好友分组').textContent).toBe('朋友');
+  mock.fail = false;
+  await click('编辑好友分组');
+  await act(async () => {
+    const select = host.querySelector('select')!;
+    select.value = '2';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click('保存好友分组');
+  expect(button('编辑好友分组').textContent).toBe('同学');
+  expect(host.querySelector('.weq-profile-data-row')).toBeNull();
 });
 it('群成员共用编辑器拒绝重复提交，失败保留文本', async () => {
   let finish!: (value: boolean) => void;

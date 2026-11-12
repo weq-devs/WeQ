@@ -71,10 +71,81 @@ try {
   await page.getByRole('textbox', { name: '备注', exact: true }).fill('新的好友备注');
   await button('保存备注').click();
   assert.equal(await button('编辑备注').textContent(), '新的好友备注');
+  assert.equal(await button('编辑好友分组').count(), 1);
+  assert.equal(
+    await page
+      .locator('.weq-contact-identity')
+      .getByRole('button', { name: '编辑好友分组', exact: true })
+      .count(),
+    1,
+  );
+  assert.equal(
+    await page.locator('.weq-profile-data-label').filter({ hasText: '好友分组' }).count(),
+    0,
+  );
   await button('编辑好友分组').click();
+  for (const width of [1280, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          theme === 'dark' ? '#47bc97' : '#c64556',
+        );
+      }, theme);
+      const form = page.locator('.weq-contact-identity .weq-member-inline-field');
+      const geometry = await form.evaluate((node) => {
+        const bounds = node.closest('.weq-contact-card').getBoundingClientRect();
+        return [...node.querySelectorAll('select,button')].map((control) => {
+          const rect = control.getBoundingClientRect();
+          return rect.width > 0 && rect.left >= bounds.left && rect.right <= bounds.right + 1;
+        });
+      });
+      assert.ok(geometry.every(Boolean));
+      if (width === 1280) {
+        const relation = await page
+          .locator('.weq-contact-identity [data-relationship]')
+          .boundingBox();
+        const select = await page.getByRole('combobox', { name: '好友分组' }).boundingBox();
+        assert.ok(
+          Math.abs(relation.y + relation.height / 2 - (select.y + select.height / 2)) < 1,
+          JSON.stringify({
+            relation,
+            select,
+            header: await page.locator('.weq-profile-heading').boundingBox(),
+          }),
+        );
+      }
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      if (output)
+        await page.screenshot({ path: resolve(output, `category-${width}-${theme}.png`) });
+    }
   await page.getByRole('combobox', { name: '好友分组' }).selectOption('2');
   await button('保存好友分组').click();
   assert.equal(await button('编辑好友分组').textContent(), '同学');
+  await button('编辑好友分组').click();
+  await page.getByRole('combobox', { name: '好友分组' }).selectOption('1');
+  await button('取消编辑好友分组').click();
+  assert.equal(await button('编辑好友分组').textContent(), '同学');
+  await page.evaluate(() => {
+    window.contactCardQa.online = false;
+    window.contactCardQa.notify();
+  });
+  assert.equal(await button('编辑好友分组').isDisabled(), true);
+  await page.evaluate(() => {
+    window.contactCardQa.online = true;
+    window.contactCardQa.mode = 'nonfriend';
+    window.contactCardQa.notify();
+  });
+  assert.equal(await button('编辑好友分组').count(), 0);
+  await page.evaluate(() => {
+    window.contactCardQa.mode = 'friend';
+    window.contactCardQa.notify();
+  });
   await button('编辑备注').click();
   await page.getByRole('textbox', { name: '备注', exact: true }).fill('');
   await button('保存备注').click();
