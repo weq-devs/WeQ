@@ -9,12 +9,47 @@ import {
   promoteDatabaseSignal,
   measureMessageWork,
   observeSlowDatabaseOperations,
+  SLOW_DATABASE_OPERATION_MS,
 } from '../src/query_schedule';
 import { ACTIVE_QUERY_DIAGNOSTIC_LIMIT, withDatabaseRequest } from '../src/query_diagnostics';
 
 afterEach(() => vi.unstubAllEnvs());
 
-it('未开启完整诊断时仍归因超过 50ms 的原生读取，不泄露 SQL 或参数', async () => {
+it.each([
+  [SLOW_DATABASE_OPERATION_MS - 1, false],
+  [SLOW_DATABASE_OPERATION_MS, false],
+  [SLOW_DATABASE_OPERATION_MS + 1, true],
+] as const)('排队与原生等待 %sms 的阈值边界均正确', async (elapsed, warn) => {
+  let now = 0;
+  let release!: () => void;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const samples: Array<{ jsQueueWaitMs: number; nativePromiseAwaitMs: number }> = [];
+  const stop = observeSlowDatabaseOperations((sample) => samples.push(sample));
+  try {
+    const path = `/synthetic/warning-boundary-${elapsed}.db`;
+    const first = scheduleDatabase(
+      path,
+      () =>
+        new Promise<void>((done) => {
+          release = done;
+        }),
+    );
+    const second = scheduleDatabase(path, async () => []);
+    now = elapsed;
+    release();
+    await Promise.all([first, second]);
+    expect(samples).toHaveLength(warn ? 2 : 0);
+    if (warn) {
+      expect(samples.some((sample) => sample.nativePromiseAwaitMs === elapsed)).toBe(true);
+      expect(samples.some((sample) => sample.jsQueueWaitMs === elapsed)).toBe(true);
+    }
+  } finally {
+    stop();
+    clock.mockRestore();
+  }
+});
+
+it('未开启完整诊断时仍归因超过阈值的原生读取，不泄露 SQL 或参数', async () => {
   vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '');
   let now = 0;
   const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
@@ -23,7 +58,7 @@ it('未开启完整诊断时仍归因超过 50ms 的原生读取，不泄露 SQL
   const path = '/synthetic/slow-source.db';
   const nt = {
     executeSql: async () => {
-      now += 51;
+      now += SLOW_DATABASE_OPERATION_MS + 1;
       return [];
     },
   } as unknown as NtHelperBinding;
@@ -37,7 +72,7 @@ it('未开启完整诊断时仍归因超过 50ms 的原生读取，不泄露 SQL
     await new FixtureReader().read();
     expect(samples).toEqual([
       expect.objectContaining({
-        nativePromiseAwaitMs: 51,
+        nativePromiseAwaitMs: SLOW_DATABASE_OPERATION_MS + 1,
         fingerprint: createHash('sha256').update('SELECT ?').digest('hex').slice(0, 16),
         caller: 'FixtureReader.read',
       }),
