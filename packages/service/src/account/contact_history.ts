@@ -25,6 +25,7 @@ export interface ContactObservation {
   completeness?: 'partial' | 'complete' | 'page';
   value: unknown;
   at?: number;
+  avatarContentHash?: string;
 }
 export interface ContactHistoryRow {
   id: number;
@@ -114,6 +115,34 @@ export class ContactHistoryService {
   private retryTimer?: ReturnType<typeof setTimeout>;
   private checkpointTimer?: ReturnType<typeof setTimeout>;
   private flushing?: Promise<void>;
+  private avatarReader?: (url: string, cachedOnly: boolean) => Promise<Uint8Array | null>;
+  setAvatarReader(reader: NonNullable<ContactHistoryService['avatarReader']>) {
+    this.avatarReader = reader;
+  }
+  private async avatarHash(url: string, cachedOnly: boolean) {
+    try {
+      const bytes = await this.avatarReader?.(url, cachedOnly);
+      return bytes?.length ? createHash('sha256').update(bytes).digest('hex') : undefined;
+    } catch {
+      // 无法取得图片时保留原始资料，不把地址变化冒充已确认的头像变化。
+      return undefined;
+    }
+  }
+  private async fingerprint(input: ContactObservation): Promise<ContactObservation> {
+    if (!this.avatarReader) return input;
+    const avatar = projectContactHistoryFields(input.category, input.value).find(
+      ([field]) => field === 'avatar',
+    )?.[1];
+    return typeof avatar === 'string' && /^https?:\/\//i.test(avatar)
+      ? {
+          ...input,
+          avatarContentHash: await this.avatarHash(
+            avatar,
+            !/^(getProfile|getBuddy|getBotProfile|exactProfile)$/.test(input.category),
+          ),
+        }
+      : input;
+  }
   constructor(readonly root: string) {
     this.worker = new Worker(
       `(${contactHistoryWorker.toString()})(${encodeContactValue.toString()},require,${projectContactHistoryFields.toString()})`,
@@ -177,7 +206,9 @@ export class ContactHistoryService {
     });
   }
   async observe(input: ContactObservation) {
+    input = { ...input, at: input.at ?? Date.now() };
     await this.migration;
+    input = await this.fingerprint(input);
     return this.request<number>('observe', { ...input, value: encodeContactValue(input.value) });
   }
   /** 正常读取无需等待写盘；缓冲达到上限后才向调用方施加背压。 */
@@ -187,13 +218,17 @@ export class ContactHistoryService {
   ) {
     if (!this.accepting) return;
     if (this.failedCaptures.length >= 32) throw new Error('资料历史保存失败，待重试缓冲已满');
-    observations = structuredClone(observations);
+    observations = structuredClone(observations).map((input) => ({
+      ...input,
+      at: input.at ?? Date.now(),
+    }));
     this.admissions++;
     try {
       while (this.captures.size >= 32) await Promise.race(this.captures);
       const task = new Promise<void>((done) => setImmediate(done))
         .then(async () => {
           await this.migration;
+          observations = await Promise.all(observations.map((input) => this.fingerprint(input)));
           await this.request('batch', { links, observations, raw: true });
           if (!this.failedCaptures.length) this.lastError = null;
         })
@@ -282,9 +317,18 @@ export class ContactHistoryService {
   async fieldSummary(entity: string, memberUid = '') {
     await this.migration;
     await this.drain();
+    const avatarHashes: Record<string, string> = {};
+    if (this.avatarReader && !memberUid) {
+      const urls = await this.request<string[]>('fieldAvatarCandidates', { entity });
+      for (const url of urls) {
+        const hash = await this.avatarHash(url, true);
+        if (hash) avatarHashes[url] = hash;
+      }
+    }
     return this.request<{ fields: string[]; pending: boolean }>('fieldSummary', {
       entity,
       memberUid,
+      avatarHashes,
     });
   }
   async fieldVersions(entity: string, field: string, memberUid = '', before?: number, limit = 30) {

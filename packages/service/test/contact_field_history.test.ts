@@ -2,8 +2,13 @@ import { afterEach, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { ContactHistoryService } from '../src/account/contact_history';
 import { projectContactHistoryFields } from '../src/account/contact_field_history';
+
+const { DatabaseSync } = createRequire(import.meta.url)(
+  'node:sqlite',
+) as typeof import('node:sqlite');
 
 const opened: Array<{ history: ContactHistoryService; root: string }> = [];
 async function open() {
@@ -18,6 +23,151 @@ afterEach(async () => {
     await history.dispose();
     await rm(root, { recursive: true, force: true });
   }
+});
+it('跨接口连续相同值合并，跨页保留真正的 A→B→A', async () => {
+  const h = await open();
+  const entity = 'friend:u_duplicates';
+  for (const [at, category, nick] of [
+    [100, 'getProfile', 'A'],
+    [110, 'profile.profilesByUids', 'A'],
+    [120, 'getProfile', 'B'],
+    [130, 'profile.profilesByUids', 'B'],
+    [140, 'getProfile', 'A'],
+    [150, 'profile.profilesByUids', 'A'],
+  ] as const)
+    await h.observe({ entity, category, source: 'local', value: { nick }, at });
+  await h.fieldSummary(entity);
+  const page = await h.fieldVersions(entity, 'nick', '', undefined, 2);
+  expect(page.rows.map((row) => [row.value, row.first_at, row.last_at])).toEqual([
+    ['A', 140, 150],
+    ['B', 120, 130],
+  ]);
+  expect(
+    (await h.fieldVersions(entity, 'nick', '', page.nextBefore!, 2)).rows.map((r) => r.value),
+  ).toEqual(['A']);
+});
+it('只变头像链接不算换头像，图片内容变化才产生历史', async () => {
+  const h = await open();
+  const entity = 'friend:u_avatar';
+  let bytes = Buffer.from('picture A');
+  h.setAvatarReader(async () => bytes);
+  for (const [at, avatarUrl] of [
+    [100, 'https://qh.qlogo.cn/g?ek=old'],
+    [110, 'https://qh.qlogo.cn/g?ek=new'],
+  ] as const)
+    await h.observe({ entity, category: 'getProfile', source: 'local', value: { avatarUrl }, at });
+  expect((await h.fieldSummary(entity)).fields).not.toContain('avatar');
+  expect((await h.fieldVersions(entity, 'avatar')).rows).toHaveLength(1);
+  bytes = Buffer.from('picture B');
+  await h.observe({
+    entity,
+    category: 'getProfile',
+    source: 'local',
+    value: { avatarUrl: 'https://qh.qlogo.cn/g?ek=new' },
+    at: 120,
+  });
+  expect((await h.fieldSummary(entity)).fields).toContain('avatar');
+  expect((await h.fieldVersions(entity, 'avatar')).rows).toHaveLength(2);
+});
+it('跨来源合并相同值，已核实不同图片的跨来源观察也保留', async () => {
+  const h = await open();
+  const entity = 'friend:u_sources';
+  h.setAvatarReader(async (url) => Buffer.from(url.endsWith('/c') ? 'different' : 'same'));
+  for (const [at, source, avatarUrl] of [
+    [100, 'local', 'https://example.test/a'],
+    [110, 'online', 'https://example.test/b'],
+    [120, 'online', 'https://example.test/c'],
+  ] as const) {
+    await h.observe({
+      entity,
+      category: 'getProfile',
+      source,
+      value: { nick: '同名', avatarUrl },
+      at,
+    });
+  }
+  expect((await h.fieldSummary(entity)).fields).toEqual(['avatar']);
+  expect((await h.fieldVersions(entity, 'nick')).rows).toHaveLength(1);
+  expect((await h.fieldVersions(entity, 'avatar')).rows).toHaveLength(2);
+});
+it('旧头像仅用缓存补算；缺图和下载失败不把 URL 变化当作头像变化', async () => {
+  const h = await open();
+  const entity = 'friend:u_old_avatar';
+  for (const [at, avatarUrl] of [
+    [100, 'https://example.test/a'],
+    [110, 'https://example.test/b'],
+  ] as const)
+    await h.observe({ entity, category: 'getProfile', source: 'local', value: { avatarUrl }, at });
+  const calls: boolean[] = [];
+  h.setAvatarReader(async (_url, cachedOnly) => {
+    calls.push(cachedOnly);
+    return Buffer.from('same image');
+  });
+  expect((await h.fieldSummary(entity)).fields).not.toContain('avatar');
+  expect((await h.fieldVersions(entity, 'avatar')).rows).toHaveLength(1);
+  expect(calls).toEqual([true, true]);
+  h.setAvatarReader(async () => {
+    throw new Error('offline');
+  });
+  await h.observe({
+    entity,
+    category: 'getProfile',
+    source: 'local',
+    value: { avatarUrl: 'https://example.test/c' },
+    at: 120,
+  });
+  expect((await h.fieldSummary(entity)).fields).not.toContain('avatar');
+});
+it('缓存稍后出现时自动补算；目录采集不批量下载头像', async () => {
+  const h = await open();
+  const entity = 'friend:u_late_avatar';
+  let cached = false;
+  const modes: boolean[] = [];
+  h.setAvatarReader(async (_url, cachedOnly) => {
+    modes.push(cachedOnly);
+    return cached ? Buffer.from('cached picture') : null;
+  });
+  await h.capture([
+    {
+      entity,
+      category: 'profile.profilesByUids',
+      source: 'local',
+      value: { avatarUrl: 'https://example.test/a', nick: 'A' },
+      at: 100,
+    },
+  ]);
+  expect((await h.fieldSummary(entity)).fields).toEqual([]);
+  expect((await h.fieldVersions(entity, 'avatar')).rows).toHaveLength(0);
+  cached = true;
+  await h.fieldSummary(entity);
+  expect((await h.fieldVersions(entity, 'avatar')).rows).toHaveLength(1);
+  expect(modes.every(Boolean)).toBe(true);
+});
+it('升级自动重建旧字段索引且不删除原始观察版本', async () => {
+  const h = await open();
+  const entity = 'friend:u_upgrade';
+  await h.observe({
+    entity,
+    category: 'getProfile',
+    source: 'local',
+    value: { nick: 'A' },
+    at: 100,
+  });
+  await h.fieldSummary(entity);
+  const entry = opened.at(-1)!;
+  await h.dispose();
+  const db = new DatabaseSync(join(entry.root, 'history.sqlite'));
+  db.exec(
+    "UPDATE field_index_meta SET version=3 WHERE key='format'; UPDATE field_versions SET value='\"stale\"';",
+  );
+  db.close();
+  entry.history = new ContactHistoryService(entry.root);
+  await entry.history.migration;
+  expect((await entry.history.fieldSummary(entity)).fields).toEqual([]);
+  expect((await entry.history.fieldVersions(entity, 'nick')).rows.map((r) => r.value)).toEqual([
+    'A',
+  ]);
+  expect((await entry.history.list(entity)).rows).toHaveLength(1);
 });
 it('详细资料的 null 表示未返回，不覆盖历史；空字符串明确清空会产生变化', async () => {
   const h = await open();

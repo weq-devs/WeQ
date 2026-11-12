@@ -2235,6 +2235,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         () => this.account === session,
         exportConfigId,
       );
+      this.services.contactDirectory.history.setAvatarReader(
+        async (url) => (await bootstrap.avatarCache.getLocal(url, 'avatar'))?.data ?? null,
+      );
       generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
@@ -3077,6 +3080,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
         () => this.account === session,
         exportConfigId,
+      );
+      this.services.contactDirectory.history.setAvatarReader(
+        async (url) => (await bootstrap.avatarCache.getLocal(url, 'avatar'))?.data ?? null,
       );
       generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
 

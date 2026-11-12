@@ -39,15 +39,21 @@ export function contactHistoryWorker(
     CREATE INDEX IF NOT EXISTS field_versions_member ON field_versions(member_uid) WHERE member_uid!='';
     CREATE INDEX IF NOT EXISTS field_changed_member ON field_changed(member_uid) WHERE member_uid!='';`);
   db.exec(
+    'CREATE TABLE IF NOT EXISTS avatar_content(version_id INTEGER PRIMARY KEY,hash TEXT NOT NULL)',
+  );
+  db.exec(
+    'CREATE TABLE IF NOT EXISTS avatar_pending(version_id INTEGER PRIMARY KEY,url TEXT NOT NULL); CREATE INDEX IF NOT EXISTS avatar_pending_url ON avatar_pending(url)',
+  );
+  db.exec(
     'CREATE TABLE IF NOT EXISTS field_index_meta(key TEXT PRIMARY KEY,version INTEGER NOT NULL)',
   );
   if (
     Number(
       db.prepare("SELECT version FROM field_index_meta WHERE key='format'").get()?.version ?? 0,
-    ) !== 3
+    ) !== 4
   ) {
     db.exec(
-      "BEGIN IMMEDIATE; DELETE FROM field_progress; DELETE FROM field_versions; DELETE FROM field_changed; INSERT OR REPLACE INTO field_index_meta VALUES('format',3); COMMIT;",
+      "BEGIN IMMEDIATE; DELETE FROM field_progress; DELETE FROM field_versions; DELETE FROM field_changed; INSERT OR REPLACE INTO field_index_meta VALUES('format',4); COMMIT;",
     );
   }
   if (
@@ -197,7 +203,16 @@ export function contactHistoryWorker(
         'SELECT id,hash,effective_hash,completeness,first_at FROM versions WHERE entity=? AND category=? AND source=? AND scope=? AND first_at<=? ORDER BY first_at DESC,id DESC LIMIT 1',
       )
       .get(key, category, source, scope, at);
-    if (prev?.hash === hash && prev.completeness === completeness && at >= Number(prev.first_at)) {
+    const avatarHash = typeof input.avatarContentHash === 'string' ? input.avatarContentHash : null;
+    const previousAvatarHash = prev
+      ? db.prepare('SELECT hash FROM avatar_content WHERE version_id=?').get(prev.id!)?.hash
+      : null;
+    if (
+      prev?.hash === hash &&
+      prev.completeness === completeness &&
+      at >= Number(prev.first_at) &&
+      (!avatarHash || avatarHash === previousAvatarHash)
+    ) {
       db.prepare('UPDATE versions SET last_at=MAX(last_at,?) WHERE id=?').run(at, prev.id!);
       return prev.id;
     }
@@ -211,6 +226,7 @@ export function contactHistoryWorker(
         )
         .run(key, category, source, scope, completeness, hash, at, at, effective).lastInsertRowid,
     );
+    if (avatarHash) db.prepare('INSERT INTO avatar_content VALUES(?,?)').run(id, avatarHash);
     // 失败重试可能补入较早观察；按时间重建后继投影，不改变各次原始回包。
     let cursorAt = at,
       cursorId = id;
@@ -246,10 +262,58 @@ export function contactHistoryWorker(
     };
   }
   function dispatch(method: string, input: Record<string, unknown>): unknown {
+    if (method === 'fieldAvatarCandidates') {
+      const key = entity(String(input.entity));
+      const cursor = Number(
+        db.prepare("SELECT cursor FROM field_progress WHERE entity=? AND member_uid=''").get(key)
+          ?.cursor ?? 0,
+      );
+      const urls = new Set<string>();
+      for (const row of db
+        .prepare(
+          'SELECT p.url FROM avatar_pending p JOIN versions v ON v.id=p.version_id WHERE v.entity=? LIMIT 100',
+        )
+        .all(key))
+        urls.add(String(row.url));
+      for (const row of db
+        .prepare(
+          'SELECT id,category,hash FROM versions WHERE entity=? AND id>? ORDER BY id LIMIT 100',
+        )
+        .all(key, cursor)) {
+        if (db.prepare('SELECT 1 FROM avatar_content WHERE version_id=?').get(row.id!)) continue;
+        for (const [field, value] of projectFields(String(row.category), () =>
+          unpack(readBlob(String(row.hash))),
+        ))
+          if (field === 'avatar' && typeof value === 'string' && /^https?:\/\//i.test(value))
+            urls.add(value);
+      }
+      return [...urls];
+    }
     if (method === 'fieldSummary') {
       const key = entity(String(input.entity));
       const uid = String(input.memberUid ?? '');
       const peer = uid ? entity(`friend:${uid}`) : key;
+      if (!uid && Object.keys((input.avatarHashes ?? {}) as object).length) {
+        let rebuild = false;
+        for (const row of db
+          .prepare(
+            'SELECT p.version_id,p.url FROM avatar_pending p JOIN versions v ON v.id=p.version_id WHERE v.entity=? AND p.url IN (SELECT key FROM json_each(?)) LIMIT 100',
+          )
+          .all(key, JSON.stringify(input.avatarHashes))) {
+          const hash = (input.avatarHashes as Record<string, string> | undefined)?.[
+            String(row.url)
+          ];
+          if (!hash) continue;
+          db.prepare('INSERT OR IGNORE INTO avatar_content VALUES(?,?)').run(row.version_id!, hash);
+          db.prepare('DELETE FROM avatar_pending WHERE version_id=?').run(row.version_id!);
+          rebuild = true;
+        }
+        if (rebuild) {
+          db.prepare("DELETE FROM field_progress WHERE entity=? AND member_uid=''").run(key);
+          db.prepare("DELETE FROM field_versions WHERE entity=? AND member_uid=''").run(key);
+          db.prepare("DELETE FROM field_changed WHERE entity=? AND member_uid=''").run(key);
+        }
+      }
       const cursor = Number(
         db
           .prepare('SELECT cursor FROM field_progress WHERE entity=? AND member_uid=?')
@@ -261,7 +325,7 @@ export function contactHistoryWorker(
         )
         .all(key, peer, cursor);
       const previous = db.prepare(
-        'SELECT version_id,value FROM field_versions WHERE entity=? AND member_uid=? AND field=? AND stream=? ORDER BY version_id DESC LIMIT 1',
+        'SELECT f.version_id,f.value,a.hash AS avatar_hash FROM field_versions f LEFT JOIN avatar_content a ON a.version_id=f.version_id WHERE entity=? AND member_uid=? AND field=? AND stream=? ORDER BY f.version_id DESC LIMIT 1',
       );
       const insert = db.prepare('INSERT INTO field_versions VALUES(?,?,?,?,?,?,?,?)');
       const touch = db.prepare(
@@ -269,20 +333,35 @@ export function contactHistoryWorker(
       );
       const changed = db.prepare('INSERT OR IGNORE INTO field_changed VALUES(?,?,?)');
       for (const row of rows) {
-        const stream = JSON.stringify([row.category, row.source, uid ? '' : row.scope]);
+        const stream = JSON.stringify([row.source]);
         for (const [field, value] of projectFields(
           String(row.category),
           () => unpack(readBlob(String(row.hash))),
           uid,
           key.startsWith('group:') ? key.slice(6) : '',
         )) {
+          let avatarHash: string | undefined;
+          if (field === 'avatar') {
+            avatarHash = db
+              .prepare('SELECT hash FROM avatar_content WHERE version_id=?')
+              .get(row.id!)?.hash as string | undefined;
+            avatarHash ??= (input.avatarHashes as Record<string, string> | undefined)?.[
+              String(value)
+            ];
+            if (!avatarHash) {
+              if (typeof value === 'string' && /^https?:\/\//i.test(value))
+                db.prepare('INSERT OR IGNORE INTO avatar_pending VALUES(?,?)').run(row.id!, value);
+              continue;
+            }
+            db.prepare('INSERT OR IGNORE INTO avatar_content VALUES(?,?)').run(row.id!, avatarHash);
+          }
           const old = previous.get(key, uid, field, stream);
           const text = canonical(
             old && ['birthday', 'region'].includes(field)
               ? merge(JSON.parse(String(old.value)), value)
               : value,
           );
-          if (old?.value === text)
+          if (old && (field === 'avatar' ? old.avatar_hash === avatarHash : old.value === text))
             touch.run(Number(row.last_at), key, uid, field, Number(old.version_id));
           else {
             insert.run(
@@ -305,6 +384,19 @@ export function contactHistoryWorker(
         .prepare('SELECT field FROM field_changed WHERE entity=? AND member_uid=? ORDER BY field')
         .all(key, uid)
         .map((row) => String(row.field));
+      if (
+        !uid &&
+        !fields.includes('avatar') &&
+        Number(
+          db
+            .prepare(
+              "SELECT COUNT(DISTINCT a.hash) AS n FROM field_versions f JOIN avatar_content a ON a.version_id=f.version_id WHERE f.entity=? AND f.member_uid='' AND f.field='avatar'",
+            )
+            .get(key)?.n ?? 0,
+        ) > 1
+      )
+        fields.push('avatar');
+      fields.sort();
       return {
         fields,
         pending: Boolean(
@@ -318,24 +410,30 @@ export function contactHistoryWorker(
       const key = entity(String(input.entity));
       const uid = String(input.memberUid ?? '');
       const limit = Number(input.limit ?? 30);
-      const before = Number(
-        db
-          .prepare(
-            'SELECT first_at FROM field_versions WHERE entity=? AND member_uid=? AND field=? AND version_id=?',
-          )
-          .get(key, uid, String(input.field), Number(input.before ?? 0))?.first_at ??
-          Number.MAX_VALUE,
-      );
       const rows = db
         .prepare(
-          'SELECT version_id AS id,first_at,last_at,value FROM field_versions WHERE entity=? AND member_uid=? AND field=? AND (first_at<? OR (first_at=? AND version_id<?)) ORDER BY first_at DESC,version_id DESC LIMIT ?',
+          `WITH ordered AS (
+            SELECT f.*,COALESCE(a.hash,f.value) AS identity,
+              LAG(COALESCE(a.hash,f.value)) OVER (ORDER BY f.first_at,f.version_id) AS previous
+            FROM field_versions f LEFT JOIN avatar_content a ON f.field='avatar' AND a.version_id=f.version_id
+            WHERE entity=? AND member_uid=? AND field=?
+          ), runs AS (
+            SELECT *,SUM(CASE WHEN identity=previous THEN 0 ELSE 1 END)
+              OVER (ORDER BY first_at,version_id) AS run FROM ordered
+          ), grouped AS (
+            SELECT MIN(version_id) AS id,MIN(first_at) AS first_at,MAX(last_at) AS last_at,value FROM runs GROUP BY run
+          ) SELECT id,first_at,last_at,value FROM grouped
+          WHERE first_at<COALESCE((SELECT first_at FROM grouped WHERE id=?),?)
+            OR (first_at=(SELECT first_at FROM grouped WHERE id=?) AND id<?)
+          ORDER BY first_at DESC,id DESC LIMIT ?`,
         )
         .all(
           key,
           uid,
           String(input.field),
-          before,
-          before,
+          Number(input.before ?? 0),
+          Number.MAX_VALUE,
+          Number(input.before ?? 0),
           Number(input.before ?? Number.MAX_SAFE_INTEGER),
           limit + 1,
         );
