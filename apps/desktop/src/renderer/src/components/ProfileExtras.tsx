@@ -18,7 +18,7 @@ import { ProfileDisplayEntry } from './ProfileDisplaySettings';
 import {
   SignatureInteractions,
   QuestionInteractions,
-  ProfileLikeSummary,
+  ProfileLabelLikes,
   PersonalityPhotoUploader,
 } from './ProfileInteractions';
 import { MediaPreview } from './MediaPreview';
@@ -603,7 +603,7 @@ export function ProfileLabelAlbum({
               </button>
             </header>
             <div className="weq-label-album-content">
-              <ProfileLikeSummary users={label.likeUsers ?? []} total={label.likes} />
+              <ProfileLabelLikes users={label.likeUsers ?? []} total={label.likes} />
               {input.uin === input.expectedAccountUin ? (
                 <PersonalityPhotoUploader
                   input={input}

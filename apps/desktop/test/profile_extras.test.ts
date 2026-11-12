@@ -262,6 +262,41 @@ async function renderAlbum(value = label) {
     ),
   );
 }
+it('标签点赞以空间同款头像昵称排列，末尾使用总数且不带点赞按钮', async () => {
+  await renderAlbum({
+    ...label,
+    likes: '28',
+    likeUsers: [
+      { id: '10003', uin: '10003', name: '合成点赞人', time: null },
+      { id: '10004', uin: '10004', name: null, time: null },
+    ],
+  });
+  await click('合成相册');
+  const likes = document.querySelector('[aria-label="标签点赞列表"]')!;
+  expect(likes.classList.contains('weq-qzn-like-users')).toBe(true);
+  expect(
+    [...likes.querySelectorAll('.weq-profile-label-like-name')].map((node) => node.textContent),
+  ).toEqual(['合成点赞人', '10004']);
+  expect(likes.querySelectorAll('.weq-avatar-img, .weq-avatar-fallback')).toHaveLength(2);
+  expect(likes.querySelector('.weq-profile-label-like-total')?.textContent).toBe('等 28 人点赞');
+  expect(likes.querySelector('span[title]')?.getAttribute('title')).toBe('合成点赞人 (10003)');
+  expect(likes.querySelector('button')).toBeNull();
+  expect(document.querySelector('.weq-label-album .weq-qzn-actions')).toBeNull();
+});
+it('标签无点赞名单仍显示真实总数，未知总数不使用摘要人数冒充总数', async () => {
+  await renderAlbum({ ...label, likes: '0' });
+  await click('合成相册');
+  expect(document.querySelector('.weq-profile-label-like-total')?.textContent?.trim()).toBe(
+    '0 人点赞',
+  );
+  await renderAlbum({
+    ...label,
+    likeUsers: [{ id: '10003', uin: '10003', name: '合成点赞人', time: null }],
+  });
+  expect(document.querySelector('.weq-profile-label-like-total')?.textContent).toBe('等人点赞');
+  await renderAlbum();
+  expect(document.querySelector('[aria-label="标签点赞列表"]')).toBeNull();
+});
 it('已结束的照片首批直接展示，点击复用预览', async () => {
   await renderAlbum();
   expect(state.photos).not.toHaveBeenCalled();

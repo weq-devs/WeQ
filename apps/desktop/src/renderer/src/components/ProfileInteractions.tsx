@@ -81,6 +81,34 @@ export function ProfileLikeSummary({
   );
   return summary ? <p className="weq-profile-like-summary">{summary}</p> : null;
 }
+export function ProfileLabelLikes({
+  users,
+  total,
+}: {
+  users: ProfileLikeUser[];
+  total?: string | null;
+}) {
+  const name = useNames();
+  if (!users.length && (total === null || total === undefined)) return null;
+  return (
+    <div className="weq-profile-label-likes weq-qzn-like-users" aria-label="标签点赞列表">
+      {users.map((user) => {
+        const displayName = name(user.uin, user.name);
+        return (
+          <span key={user.id} title={`${displayName} (${user.uin})`}>
+            <QqAvatar uin={user.uin} size={20} />
+            <span className="weq-profile-label-like-name">{displayName}</span>
+          </span>
+        );
+      })}
+      <span className="weq-profile-label-like-total">
+        {total === null || total === undefined
+          ? '等人点赞'
+          : `${users.length ? '等 ' : ''}${total} 人点赞`}
+      </span>
+    </div>
+  );
+}
 function CommentRows({
   items,
   reply,

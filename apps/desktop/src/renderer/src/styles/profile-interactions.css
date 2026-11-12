@@ -56,6 +56,29 @@
   gap: 8px;
   padding-block: 8px;
 }
+.weq-profile-label-likes {
+  margin: 4px 0 10px;
+  color: var(--weq-fg-primary);
+}
+.weq-profile-label-likes > span {
+  min-width: 0;
+  max-width: 100%;
+}
+.weq-profile-label-likes .weq-avatar-img,
+.weq-profile-label-likes .weq-avatar-fallback {
+  flex-shrink: 0;
+}
+.weq-profile-label-like-name {
+  min-width: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-profile-label-like-total {
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+}
 .weq-profile-comments {
   list-style: none;
   padding: 0;

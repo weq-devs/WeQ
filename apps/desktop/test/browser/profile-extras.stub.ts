@@ -101,7 +101,12 @@ const label = {
   photos: [photo(0)],
   photoCursor: 'AAAABQ==',
   likes: '28',
-  likeUsers: [{ id: '10002', uin: '10002', name: '合成昵称', time: null }],
+  likeUsers: [
+    { id: '10002', uin: '10002', name: '合成昵称', time: null },
+    { id: '10003', uin: '10003', name: '很长的合成昵称用于核对窄屏展示不会撑开相册', time: null },
+    { id: '10004', uin: '10004', name: null, time: null },
+    { id: '10005', uin: '10005', name: '第四位点赞人', time: null },
+  ],
 };
 const comment = {
   id: '22',

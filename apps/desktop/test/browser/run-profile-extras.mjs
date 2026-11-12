@@ -305,6 +305,13 @@ async function run() {
     await page.getByRole('button', { name: '合成标签相册' }).click();
     assert.equal(await page.locator('[aria-modal="true"]').count(), 0);
     assert.equal(await page.getByText('全部标签', { exact: true }).count(), 0);
+    const labelLikes = page.getByLabel('标签点赞列表');
+    assert.equal(await labelLikes.locator('.weq-profile-label-like-name').count(), 4);
+    assert.equal(await labelLikes.locator('button').count(), 0);
+    assert.equal(
+      await labelLikes.locator('.weq-profile-label-like-total').textContent(),
+      '等 28 人点赞',
+    );
     for (const width of [1180, 390, 320])
       for (const theme of ['light', 'dark'])
         for (const accent of ['#167d67', '#a82555']) {
@@ -342,6 +349,24 @@ async function run() {
           assert.equal(layout.overflow, false);
           assert.equal(layout.background, 'rgba(0, 0, 0, 0)');
           assert.equal(layout.pointerEvents, 'none');
+          const likesLayout = await labelLikes.evaluate((list) => {
+            const rect = list.getBoundingClientRect();
+            return {
+              overflow: list.scrollWidth > list.clientWidth + 2,
+              outside: [...list.children].some((child) => {
+                const item = child.getBoundingClientRect();
+                return item.left < rect.left - 1 || item.right > rect.right + 1;
+              }),
+              avatars: list.querySelectorAll('.weq-avatar-img, .weq-avatar-fallback').length,
+              avatarSize: list
+                .querySelector('.weq-avatar-img, .weq-avatar-fallback')
+                .getBoundingClientRect().width,
+            };
+          });
+          assert.equal(likesLayout.overflow, false);
+          assert.equal(likesLayout.outside, false);
+          assert.equal(likesLayout.avatars, 4);
+          assert.equal(likesLayout.avatarSize, 20);
           const anchor = await page
             .getByRole('button', { name: '合成标签相册', exact: true })
             .boundingBox();
