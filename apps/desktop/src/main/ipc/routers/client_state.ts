@@ -275,7 +275,17 @@ export const clientStateRouter = router({
         expectedVersion: z.string().nullable(),
       }),
     )
-    .mutation(({ input }) =>
-      boundClientState(input).saveDraft(input.key, input.value, input.expectedVersion),
-    ),
+    .mutation(({ input }) => {
+      const state = boundClientState(input);
+      if (input.key.startsWith('assistant:') && input.key !== 'assistant:new') {
+        const id = input.key.slice('assistant:'.length);
+        if (
+          !getAppContext()
+            .services?.assistant.listSessions()
+            .some((session) => session.id === id)
+        )
+          throw new Error('这段助手会话已删除，草稿不再保存。');
+      }
+      return state.saveDraft(input.key, input.value, input.expectedVersion);
+    }),
 });

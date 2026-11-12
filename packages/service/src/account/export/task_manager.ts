@@ -29,7 +29,7 @@ import {
 import { basename, dirname, join, relative } from 'node:path';
 import { fileExtension, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
-import type { SenderResolveDeps } from './sender_resolve';
+import { iterateConv, type SenderResolveDeps } from './sender_resolve';
 import type { GapFetchedMessage, GapHistoryService } from '../gap_history';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
 import type { MediaDownloadService } from '../media_download';
@@ -161,8 +161,8 @@ import {
   type EmojiExportScope,
 } from './emoji_export';
 import type { MediaUrlService } from '../media_url';
-import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from './message_source';
-import { expandForwards, exportForwardContents } from './forward_expand';
+import { toExportedMessage, type RoamMessageSource } from './message_source';
+import { expandForwards } from './forward_expand';
 import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
 import { messageToText, annotateExportPaths, collectFaceIds } from './element_text';
@@ -1155,7 +1155,11 @@ export class ExportTaskManager extends EventEmitter {
     if (opts.filter?.forwardTarget && opts.baselineDirectory)
       throw new Error('聊天记录卡片单独导出，不能合入会话归档。');
     if (opts.content && !opts.qzone && !opts.contacts && !opts.collection && !opts.generated) {
-      const content = normalizeExportContent(opts.content, {}, Boolean(opts.guild));
+      const content = normalizeExportContent(
+        opts.content,
+        {},
+        Boolean(opts.guild) || opts.kind === 'official' || opts.kind === 'service',
+      );
       if (!hasExportContent(content)) throw new Error('请至少选择一项导出内容。');
       const flags = exportContentFlags(content);
       opts = {
@@ -1178,6 +1182,9 @@ export class ExportTaskManager extends EventEmitter {
           completeDressKinds: flags.completeDressKinds,
         },
       };
+    }
+    if ((opts.kind === 'official' || opts.kind === 'service') && opts.media?.completeMessages) {
+      opts = { ...opts, media: { ...opts.media, completeMessages: false } };
     }
     const resourceOnly = opts.formats?.length === 0;
     if (opts.chatlab && (opts.formats ?? [opts.format]).includes('jsonl.gz'))
@@ -2063,11 +2070,7 @@ export class ExportTaskManager extends EventEmitter {
     const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
 
     try {
-      if (
-        !task.guild &&
-        (task.kind === 'group' || task.kind === 'c2c') &&
-        typeof this.msgs.exportSourceStamp === 'function'
-      ) {
+      if (!task.guild && typeof this.msgs.exportSourceStamp === 'function') {
         const binding = {
           source: this.msgs.exportSourceStamp(task.kind, task.conv),
           options: exportOptionsHash(task),
@@ -2225,7 +2228,11 @@ export class ExportTaskManager extends EventEmitter {
 
       // ---- stage: 消息补全 (runs FIRST — fills the roam cache so the message
       // stage + media scan below can include the backfilled messages) ----
-      const wantBackfill = Boolean(task.media?.completeMessages && !task.guild);
+      const wantBackfill = Boolean(
+        task.media?.completeMessages &&
+          !task.guild &&
+          (task.kind === 'group' || task.kind === 'c2c'),
+      );
       let backfillWindow: import('./msg_backfill').BackfillSeqWindow | undefined;
       let rateLimitedNotified = false;
       if (wantBackfill && this.stage(task, 'backfill')?.status !== 'completed') {
@@ -2474,7 +2481,7 @@ export class ExportTaskManager extends EventEmitter {
       // 从一开始就有分母，且不会出现“已导出条数超过总量”的倒挂。
       const countPromise = (async (): Promise<number> => {
         if (task.filter?.messageIds) return task.filter.messageIds.length;
-        if (task.kind !== 'group' && task.kind !== 'c2c') return 0;
+        if (task.kind !== 'group' && task.kind !== 'c2c') return task.total;
         try {
           let total = await this.msgsFor(task).countConv(task.kind, task.conv, {
             startTime: task.range?.start ?? undefined,
@@ -3675,8 +3682,7 @@ export class ExportTaskManager extends EventEmitter {
       task.sourceChanged =
         !!task.resumeBinding &&
         typeof this.msgs.exportSourceStamp === 'function' &&
-        task.resumeBinding.source !==
-          this.msgs.exportSourceStamp(task.kind as 'group' | 'c2c', task.conv);
+        task.resumeBinding.source !== this.msgs.exportSourceStamp(task.kind, task.conv);
       this.touchStage(task, 'finalize', { current: 3, note: '校验导出文件…' });
       task.outputHashes = await this.hashMessageOutputs(task);
       if (aborted()) {
@@ -5725,21 +5731,13 @@ export class ExportTaskManager extends EventEmitter {
     const audit = new MessageAudit();
     try {
       if (framing.head) await writer.write(framing.head);
-      for await (const m of exportForwardContents(
-        iterateC2cMessages(msgs, peerUid, {
-          pageSize: 2000,
-          range,
-          roam,
-        }),
-        msgs,
-        'c2c',
-      )) {
+      for await (const m of iterateConv(msgs, kind, peerUid, range, roam)) {
         const exported = toExportedMessage(m);
         const dec = exported.forwardSource ? undefined : dressLookup?.(exported.msgId);
         if (dec) exported.decoration = dec;
         senders?.add(exported.senderUin);
         if (faces) collectFaceIds(exported.elements, faces);
-        await expandForwards(msgs, 'c2c', exported);
+        await expandForwards(msgs, kind, exported);
         audit.observe(exported.elements);
         if (withMediaPaths) annotateExportPaths(exported.elements);
         const record = renderRecord(exported);

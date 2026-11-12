@@ -18,6 +18,7 @@ import {
   initialExportMode,
 } from '../src/renderer/src/views/export/exportScope';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
+import { conversationViewFixture } from './support/conversation-view-fixture';
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
 
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
@@ -164,6 +165,10 @@ describe('会话右键备注入口', () => {
                 ConversationDirectoryContext.Provider,
                 {
                   value: {
+                    ...conversationViewFixture(
+                      kind === 'virtual' ? { clone: [row] } : { regular: [row] },
+                      kind === 'virtual' ? 'clone' : 'regular',
+                    ),
                     virtual: kind === 'virtual' ? [virtual] : [],
                     onVirtual: vi.fn(),
                     onCreate: vi.fn(),

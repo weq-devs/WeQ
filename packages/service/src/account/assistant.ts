@@ -463,6 +463,11 @@ export class AssistantService {
   /** 按实际模型记住不支持 reasoning_effort 的端点，不影响切换后的其他模型。 */
   private readonly reasoningUnsupported = new Set<string>();
   private readonly permissionRuns = new Set<AbortController>();
+  private readonly sessionRuns = new Map<
+    string,
+    { controller: AbortController; done: Promise<unknown> }
+  >();
+  private readonly deletingSessions = new Set<string>();
 
   constructor(
     private readonly rootDir: string,
@@ -529,8 +534,10 @@ export class AssistantService {
   }
 
   /** 会话列表，按最近活跃倒序（最新在前）。 */
-  listSessions(): AssistantSession[] {
-    return [...this.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+  listSessions(): Array<AssistantSession & { running: boolean }> {
+    return this.sessions
+      .map((session) => ({ ...session, running: this.sessionRuns.has(session.id) }))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   /** 新建一个空会话并返回（标题待首轮对话后自动总结）。 */
@@ -547,12 +554,50 @@ export class AssistantService {
     return session;
   }
 
-  /** 删除会话：移除元数据 + 清掉其对话桶 + 清理断点快照。 */
-  deleteSession(sessionId: string): void {
-    this.sessions = this.sessions.filter((s) => s.id !== sessionId);
-    this.conversations.clear(this.bucketId(sessionId));
-    this.clearRun(sessionId);
-    this.persistSessions();
+  /** 仅停止所选会话，待全部写入收尾后再永久移除元数据、历史和断点。 */
+  async deleteSessions(sessionIds: readonly string[]): Promise<void> {
+    const selected = new Set(sessionIds);
+    for (const id of selected) this.deletingSessions.add(id);
+    try {
+      const runs = [...selected]
+        .map((id) => this.sessionRuns.get(id))
+        .filter((run) => run !== undefined);
+      for (const run of runs) run.controller.abort();
+      await Promise.allSettled(runs.map((run) => run.done));
+      this.sessions = this.sessions.filter((session) => !selected.has(session.id));
+      for (const id of selected) {
+        this.conversations.clear(this.bucketId(id));
+        this.clearRun(id);
+      }
+      this.persistSessions();
+    } finally {
+      for (const id of selected) this.deletingSessions.delete(id);
+    }
+  }
+
+  deleteSession(sessionId: string): Promise<void> {
+    return this.deleteSessions([sessionId]);
+  }
+
+  private runForSession<T>(
+    sessionId: string,
+    signal: AbortSignal | undefined,
+    run: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    if (this.deletingSessions.has(sessionId))
+      return Promise.reject(new Error('会话正在永久删除。'));
+    if (this.sessionRuns.has(sessionId))
+      return Promise.reject(new Error('这段会话已有正在生成的回答。'));
+    const controller = new AbortController();
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+    const done = Promise.resolve().then(() => run(combinedSignal));
+    const current = { controller, done };
+    this.sessionRuns.set(sessionId, current);
+    return done.finally(() => {
+      if (this.sessionRuns.get(sessionId) === current) this.sessionRuns.delete(sessionId);
+    });
   }
 
   /** 重命名会话（空标题回退占位标题）。 */
@@ -638,7 +683,18 @@ export class AssistantService {
    * 失败（包括异常）也会作为 `error` step 推出后再抛出，便于前端统一处理。
    * 若该会话存在未完成的断点快照（上次中断的任务），新消息会**取代**它（快照作废）。
    */
-  async chat(
+  chat(
+    sessionId: string,
+    text: string,
+    onStep?: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<{ text: string; steps: AssistantStep[] }> {
+    return this.runForSession(sessionId, signal, (runSignal) =>
+      this.chatRun(sessionId, text, onStep, runSignal),
+    );
+  }
+
+  private async chatRun(
     sessionId: string,
     text: string,
     onStep?: (step: AssistantStep) => void,
@@ -720,7 +776,7 @@ export class AssistantService {
       // 放在 emit(final) 之前完成，前端收到 final 后刷新会话列表即可拿到新标题（无竞态）。
       if (session.title === DEFAULT_SESSION_TITLE) {
         try {
-          const title = await this.generateTitle(text, reply);
+          const title = await this.generateTitle(text, reply, signal);
           if (title) session.title = title;
         } catch {
           /* 标题总结失败不影响对话本身 */
@@ -767,7 +823,17 @@ export class AssistantService {
    * 已完成的工具调用与其结果原样保留，不重查。完成后把会话里那条半截 assistant
    * 回合替换成完整答复。无可用快照时抛可读错误。
    */
-  async resumeAssistantRun(
+  resumeAssistantRun(
+    sessionId: string,
+    onStep?: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<{ text: string; steps: AssistantStep[] }> {
+    return this.runForSession(sessionId, signal, (runSignal) =>
+      this.resumeRun(sessionId, onStep, runSignal),
+    );
+  }
+
+  private async resumeRun(
     sessionId: string,
     onStep?: (step: AssistantStep) => void,
     signal?: AbortSignal,
@@ -874,7 +940,11 @@ export class AssistantService {
    * 让模型用一句短语概括对话主题，作为会话标题。轻量调用（无工具），
    * 失败/为空时返回 ''（上层保留占位标题）。
    */
-  private async generateTitle(userText: string, reply: string): Promise<string> {
+  private async generateTitle(
+    userText: string,
+    reply: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     if (!this.config.model) return '';
     const endpoint: AgentLabEndpoint = {
       ...this.resolveEndpoint(this.config.model),
@@ -895,6 +965,7 @@ export class AssistantService {
         { role: 'user', content: `用户：${userText.slice(0, 600)}\n助手：${reply.slice(0, 600)}` },
       ],
       [],
+      { signal },
     );
     const raw = pickMessageText(data.choices?.[0]?.message);
     return cleanTitle(raw);
@@ -1452,11 +1523,12 @@ export class AssistantService {
     endpoint: AgentLabEndpoint,
     messages: ApiMessage[],
     specs: AssistantToolSpec[],
-    options: { maxTokens?: number } = {},
+    options: { maxTokens?: number; signal?: AbortSignal } = {},
   ): Promise<{ choices?: Array<{ message?: ApiMessage }>; usage?: unknown }> {
     try {
       return await requestApiJson(endpoint, '/chat/completions', {
         method: 'POST',
+        signal: options.signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
           model: endpoint.model,

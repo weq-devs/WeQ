@@ -21,18 +21,82 @@ export function isQzoneSearchCategory(category: string): boolean {
 
 export type ConversationScope = 'all' | 'real' | 'virtual' | 'guild';
 
-/** 可见范围默认全选，克隆和频道来源随会话显示范围并入对象分类。 */
+export const SEARCH_SOURCES = ['qq', 'clone', 'assistant', 'app'] as const;
+export type SearchSource = (typeof SEARCH_SOURCES)[number];
+export const DEFAULT_SEARCH_SOURCES: readonly SearchSource[] = SEARCH_SOURCES;
+
+/** 对外仅提供七类；具体数据源的类别保留为内部结果身份。 */
 export const DEFAULT_SEARCH_CATEGORIES: readonly SearchCategory[] = [
   'contact',
   'group',
   'chatRecord',
   'file',
-  'groupAlbum',
-  'collection',
   'qzone',
+  'collection',
   'mailMessage',
-  'assistantMessage',
 ];
+
+export function searchCategoriesForSources(sources: readonly SearchSource[]): SearchCategory[] {
+  if (sources.includes('qq')) return [...DEFAULT_SEARCH_CATEGORIES];
+  if (sources.includes('clone')) return ['contact', 'group', 'chatRecord'];
+  if (sources.includes('assistant')) return ['chatRecord'];
+  return [];
+}
+
+export function searchCategorySupportsSources(
+  category: SearchCategory,
+  sources: readonly SearchSource[],
+): boolean {
+  if (category === 'cloneMessage') return sources.includes('clone');
+  if (category === 'assistantMessage') return sources.includes('assistant');
+  if (category === 'contact' || category === 'group')
+    return sources.includes('qq') || sources.includes('clone');
+  if (category === 'chatRecord') return sources.some((source) => source !== 'app');
+  return sources.includes('qq');
+}
+
+export interface SearchPreferences {
+  version?: 2;
+  sources?: SearchSource[];
+  categories: SearchCategory[];
+  appEnabled: boolean;
+  numberLookupEnabled: boolean;
+}
+export interface CurrentSearchPreferences extends SearchPreferences {
+  version: 2;
+  sources: SearchSource[];
+}
+
+/** 旧筛选不猜测映射，新模型首次统一重置；之后保留显式空选区。 */
+export function normalizeSearchPreferences(value: unknown): CurrentSearchPreferences {
+  const record = value && typeof value === 'object' ? value : null;
+  if (
+    !record ||
+    !('version' in record) ||
+    record.version !== 2 ||
+    !('sources' in record) ||
+    !Array.isArray(record.sources) ||
+    !('categories' in record) ||
+    !Array.isArray(record.categories)
+  )
+    return {
+      version: 2,
+      sources: [...DEFAULT_SEARCH_SOURCES],
+      categories: [...DEFAULT_SEARCH_CATEGORIES],
+      appEnabled: true,
+      numberLookupEnabled: true,
+    };
+  const savedSources = record.sources;
+  const savedCategories = record.categories;
+  const sources = SEARCH_SOURCES.filter((source) => savedSources.includes(source));
+  return {
+    version: 2,
+    sources,
+    categories: DEFAULT_SEARCH_CATEGORIES.filter((category) => savedCategories.includes(category)),
+    appEnabled: sources.includes('app'),
+    numberLookupEnabled: !('numberLookupEnabled' in record) || record.numberLookupEnabled !== false,
+  };
+}
 
 function normalizedSearchText(value: string): string {
   return value.normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/gu, ' ');

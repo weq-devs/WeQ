@@ -23,7 +23,7 @@ import {
 import { client } from '../../trpc/client';
 import { SearchPositionRestore, type SearchPosition } from './searchPosition';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import type { ConversationScope } from '@weq/service/search-policy';
+import type { ConversationScope, SearchSource } from '@weq/service/search-policy';
 
 export interface SearchMoreSnapshot extends SearchPosition {
   category: SearchCategory;
@@ -42,6 +42,7 @@ export function UnifiedSearchModal({
   initialSnapshot,
   onNavigate,
   conversationScope = 'all',
+  sources,
 }: {
   category: SearchCategory;
   initialKeyword: string;
@@ -51,6 +52,7 @@ export function UnifiedSearchModal({
   initialSnapshot?: SearchMoreSnapshot;
   onNavigate?: (snapshot: SearchMoreSnapshot) => void;
   conversationScope?: ConversationScope;
+  sources?: readonly SearchSource[];
 }): ReactElement {
   const activity = useQQReadActivity(true);
   const readEnabled = useRef(activity.enabled);
@@ -70,7 +72,7 @@ export function UnifiedSearchModal({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const restoredRequest = useRef(
     restored.current
-      ? JSON.stringify([category, restored.current.keyword, conversationScope])
+      ? JSON.stringify([category, restored.current.keyword, conversationScope, sources])
       : null,
   );
 
@@ -89,6 +91,7 @@ export function UnifiedSearchModal({
           offset,
           limit: 30,
           conversationScope,
+          sources: sources ? [...sources] : undefined,
         })) as MoreSearchResult;
         if (run !== runRef.current) return;
         nextOffset.current = offset + result.items.length;
@@ -118,12 +121,14 @@ export function UnifiedSearchModal({
         }
       }
     },
-    [category, conversationScope],
+    [category, conversationScope, sources],
   );
 
   // Reset + fetch first page when the keyword settles.
   useLayoutEffect(() => {
-    if (restoredRequest.current === JSON.stringify([category, keyword, conversationScope])) {
+    if (
+      restoredRequest.current === JSON.stringify([category, keyword, conversationScope, sources])
+    ) {
       return () => {
         ++runRef.current;
       };
@@ -149,7 +154,7 @@ export function UnifiedSearchModal({
       pending.current = false;
       window.clearTimeout(timer);
     };
-  }, [keyword, fetchPage, category, conversationScope]);
+  }, [keyword, fetchPage, category, conversationScope, sources]);
 
   const previousActivity = useRef(activity);
   const currentData = useRef(data);

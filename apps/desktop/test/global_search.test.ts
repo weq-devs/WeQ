@@ -2,7 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useGlobalSearch } from '../src/renderer/src/hooks/useGlobalSearch';
-import type { ConversationScope } from '@weq/service/search-policy';
+import type { ConversationScope, SearchSource } from '@weq/service/search-policy';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
 import { contactSearchHit } from './support/search-fixtures';
 import {
@@ -66,7 +66,7 @@ function mountSearch() {
     query: string;
     categories: SearchCategory[];
     account: string;
-    scope: ConversationScope;
+    scope: ConversationScope | readonly SearchSource[];
   }) => {
     result = useGlobalSearch(query, categories, account, scope);
     return null;
@@ -79,7 +79,7 @@ function mountSearch() {
       query: string,
       categories: SearchCategory[] = SEARCH_CATEGORY_ORDER,
       account = 'account-a',
-      scope: ConversationScope = 'all',
+      scope: ConversationScope | readonly SearchSource[] = 'all',
     ) {
       act(() => root.render(createElement(Harness, { query, categories, account, scope })));
     },
@@ -220,7 +220,7 @@ describe('全局搜索请求生命周期', () => {
       f.close();
     }
   });
-  it('切换会话显示范围即清除旧结果，迟到响应不覆盖新范围', async () => {
+  it('切换全局搜索来源即清除旧结果，迟到响应不覆盖新来源', async () => {
     vi.useFakeTimers();
     const old = deferred<QuickSearchResult>();
     rpc.quick
@@ -229,16 +229,17 @@ describe('全局搜索请求生命周期', () => {
     const f = mountSearch();
     try {
       const categories: SearchCategory[] = ['contact'];
-      f.render('合成', categories, 'account-a', 'all');
+      f.render('合成', categories, 'account-a', ['qq']);
       await act(async () => vi.advanceTimersByTimeAsync(200));
-      f.render('合成', categories, 'account-a', 'virtual');
+      f.render('合成', categories, 'account-a', ['clone']);
       expect(f.result.quick).toBeNull();
       await act(async () => vi.advanceTimersByTimeAsync(200));
       expect(rpc.quick).toHaveBeenLastCalledWith({
         keyword: '合成',
         categories,
         limit: 3,
-        conversationScope: 'virtual',
+        conversationScope: 'all',
+        sources: ['clone'],
       });
       await act(async () => old.resolve(quickResult));
       expect(f.result.quick?.contacts).toEqual([]);
@@ -486,7 +487,9 @@ describe('搜索范围与失败界面', () => {
   it('可见分类默认全选，频道与克隆合并且移除公共商城范围', () => {
     expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('marketEmoji');
     expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('cloneMessage');
-    expect(DEFAULT_SEARCH_CATEGORIES).toContain('assistantMessage');
+    expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('assistantMessage');
+    expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('groupAlbum');
+    expect(DEFAULT_SEARCH_CATEGORIES).toContain('chatRecord');
     expect(SEARCH_CATEGORY_ORDER).toHaveLength(new Set(SEARCH_CATEGORY_ORDER).size);
     expect(SEARCH_CATEGORY_ORDER).toEqual(DEFAULT_SEARCH_CATEGORIES);
     expect(SEARCH_CATEGORY_ORDER).not.toContain('guildMessage');
@@ -599,7 +602,7 @@ describe('搜索范围与失败界面', () => {
           }),
         ),
       );
-      const all = host.querySelector<HTMLButtonElement>('[aria-label="全部范围"]')!;
+      const all = host.querySelector<HTMLButtonElement>('[aria-label="全部类型"]')!;
       expect(all.getAttribute('aria-pressed')).toBe('mixed');
       expect(
         [...host.querySelectorAll('.weq-search-section-name')].map((item) => item.textContent),

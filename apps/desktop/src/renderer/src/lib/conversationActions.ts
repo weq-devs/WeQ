@@ -3,6 +3,17 @@ import type { ContentSelection } from '../../../shared/content_selection';
 import type { Conversation } from '../im-template/template/types';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { generatedContentContainer } from '../../../shared/content_selection';
+import { classifyChatType } from '@weq/codec';
+
+function ordinaryQqConversation(conversation: Conversation): boolean {
+  if (conversation.directoryKind && conversation.directoryKind !== 'qq') return false;
+  if (conversation.id.startsWith('guild:') || conversation.id.startsWith('service:')) return false;
+  if (conversation.type === 'direct' && conversation.chatType !== undefined) {
+    const kind = classifyChatType(conversation.chatType);
+    if (kind === 'official' || kind === 'service' || kind === 'dataline') return false;
+  }
+  return true;
+}
 
 export function conversationExportSelection(
   conversation?: Conversation | null,
@@ -30,7 +41,12 @@ export function conversationExportSelection(
 export function conversationAnalysisTarget(
   conversation?: Conversation | null,
 ): AnalysisTarget | null {
-  if (!conversation || conversation.generated || conversation.id.startsWith('virtual:'))
+  if (
+    !conversation ||
+    conversation.generated ||
+    conversation.id.startsWith('virtual:') ||
+    !ordinaryQqConversation(conversation)
+  )
     return null;
   if (conversation.type === 'group') return { kind: 'group', groupCode: conversation.group.id };
   if (conversation.type === 'direct' && conversation.otherUser.id.startsWith('u_'))
@@ -41,7 +57,12 @@ export function conversationAnalysisTarget(
 export function conversationRoamingTarget(
   conversation?: Conversation | null,
 ): RoamingTarget | null {
-  if (!conversation || conversation.generated || conversation.id.startsWith('virtual:'))
+  if (
+    !conversation ||
+    conversation.generated ||
+    conversation.id.startsWith('virtual:') ||
+    !ordinaryQqConversation(conversation)
+  )
     return null;
   if (
     conversation.type === 'group' &&

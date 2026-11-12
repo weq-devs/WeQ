@@ -27,6 +27,14 @@ function snapshot(): CalendarKind[] {
       selected = Array.isArray(value)
         ? CALENDAR_SOURCE_ORDER.filter((kind) => value.includes(kind))
         : [...CALENDAR_SOURCE_ORDER];
+      if (
+        Array.isArray(value) &&
+        !value.includes('assistant') &&
+        CALENDAR_SOURCE_ORDER.filter((kind) => kind !== 'assistant').every((kind) =>
+          value.includes(kind),
+        )
+      )
+        selected.push('assistant');
     } catch {
       selected = [...CALENDAR_SOURCE_ORDER];
     }

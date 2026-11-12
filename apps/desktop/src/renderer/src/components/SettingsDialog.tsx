@@ -39,6 +39,7 @@ import {
   LockKeyhole,
   Mail,
   Monitor,
+  MessagesSquare,
   Moon,
   Package,
   Palette,
@@ -1042,6 +1043,32 @@ function AppearanceSection({
       )}
       {page === 'messages' && (
         <>
+          {category === 'reading' && (
+            <Card title="全部会话" icon={<MessagesSquare size={15} />}>
+              <Row
+                settingId="all-conversations-include-hidden"
+                label="包含已隐藏会话"
+                control={
+                  <SharedDisplayToggle
+                    name="allConversationsIncludeHidden"
+                    label="包含已隐藏会话"
+                    fallback={false}
+                  />
+                }
+              />
+              <Row
+                settingId="all-conversations-include-deleted"
+                label="包含已删除会话"
+                control={
+                  <SharedDisplayToggle
+                    name="allConversationsIncludeDeleted"
+                    label="包含已删除会话"
+                    fallback={false}
+                  />
+                }
+              />
+            </Card>
+          )}
           {category === 'reading' && (
             <Card title="未读显示" icon={<Bell size={15} strokeWidth={1.8} />}>
               <Row

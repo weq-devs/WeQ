@@ -2,7 +2,7 @@ import { useLayoutEffect, useState } from 'react';
 import type { SearchCategory } from '../components/search/types';
 import type { SearchPosition } from '../components/search/searchPosition';
 import type { SearchMoreSnapshot } from '../components/search/UnifiedSearchModal';
-import type { ConversationScope } from '@weq/service/search-policy';
+import type { ConversationScope, SearchSource } from '@weq/service/search-policy';
 
 type SearchReturnTarget =
   | { kind: 'dropdown'; position: SearchPosition }
@@ -12,7 +12,7 @@ export function useSearchReturn(
   accountKey: string | null,
   keyword: string,
   categories: readonly SearchCategory[],
-  scope: ConversationScope = 'all',
+  scope: ConversationScope | readonly SearchSource[] = 'all',
 ) {
   const key = JSON.stringify([accountKey, keyword, categories, scope]);
   const [saved, setSaved] = useState<{ key: string; target: SearchReturnTarget } | null>(null);

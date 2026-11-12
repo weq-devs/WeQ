@@ -41,6 +41,7 @@ const targetInput = z.object({
     'guild',
     'persona',
     'cloneGroup',
+    'assistant',
   ]),
   conv: z.string().min(1).max(256),
   name: z.string().max(512),
@@ -239,7 +240,12 @@ export const conversationCalendarRouter = router({
         return { id, day: value.day, background: value.job.inBackground };
       }
       if (
-        unique.some((target) => target.kind !== 'persona' && target.kind !== 'cloneGroup') &&
+        unique.some(
+          (target) =>
+            target.kind !== 'persona' &&
+            target.kind !== 'cloneGroup' &&
+            target.kind !== 'assistant',
+        ) &&
         !native.executeSqlBudgeted
       )
         throw new Error('会话日历需要支持短预算读取的原生组件，请更新原生组件后重试');
@@ -478,7 +484,7 @@ export const conversationCalendarRouter = router({
             ).find((message) => timelineRowKey({ ...message, source: 'roaming' }) === anchor.id)
           : undefined;
       const exists =
-        target.kind === 'persona' || target.kind === 'cloneGroup'
+        target.kind === 'persona' || target.kind === 'cloneGroup' || target.kind === 'assistant'
           ? generatedMessages(value.services, target, anchor.sessionId ?? null).some(
               (message) => message.id === anchor.id && message.ts / 1000 === anchor.time,
             )

@@ -1,11 +1,13 @@
-import { act, createElement, type CSSProperties, type ReactNode } from 'react';
+import { act, createElement, type ComponentProps, type CSSProperties, type ReactNode } from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelView } from '../src/renderer/src/views/ChannelView';
+import { GuildDirectDialog } from '../src/renderer/src/components/GuildDirectDialog';
+import type { MessageRenderer } from '../src/renderer/src/im-template/template/messageRenderers';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { useUpdateStore } from '../src/renderer/src/state/update';
@@ -48,7 +50,7 @@ const rpc = vi.hoisted(() => ({
       senderTinyId: '42',
       sendType: '0',
       sendTime: '1700000000',
-      elements: [],
+      elements: [] as unknown[],
     },
   ]),
 }));
@@ -71,6 +73,7 @@ vi.mock('../src/renderer/src/views/ExternalSiteView', () => ({
     createElement('input', { 'aria-label': '合成频道浏览现场', defaultValue: '初始' }),
 }));
 
+beforeEach(() => vi.stubGlobal('localStorage', new Storage()));
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -84,6 +87,7 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
   act(() => root.render(element));
   return {
     host,
+    render: (next: Parameters<typeof root.render>[0]) => root.render(next),
     close: () => {
       act(() => root.unmount());
       host.remove();
@@ -91,7 +95,23 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
   };
 }
 
-describe('QQ 频道内的私聊工作区', () => {
+let targetRevision = 0;
+function mainChat(
+  nodeId = 'synthetic-node',
+  props: Partial<ComponentProps<typeof GuildDirectDialog>> = {},
+) {
+  return createElement(GuildDirectDialog, {
+    open: true,
+    embedded: true,
+    chatOnly: true,
+    selfUser: createTemplateDemoData().user,
+    onClose() {},
+    searchTarget: { nodeId, msgId: '', msgSeq: '', revision: `main-chat-${++targetRevision}` },
+    ...props,
+  });
+}
+
+describe('主聊天区域的频道私聊', () => {
   it('频道所选消息可复制和导出，各会话分别保留自己的选区', async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
@@ -113,22 +133,12 @@ describe('QQ 频道内的私聊工作区', () => {
         JSON.stringify(useContentExportRequest()),
       );
     }
-    const f = mount(
-      createElement(
-        ContentSelectionProvider,
-        null,
-        createElement(ChannelView, {
-          selfUser: createTemplateDemoData().user,
-          initialDirectOpen: true,
-        }),
-        createElement(ExportProbe),
-      ),
-    );
+    const renderNode = (nodeId: string) =>
+      createElement(ContentSelectionProvider, null, mainChat(nodeId), createElement(ExportProbe));
+    const f = mount(renderNode('a'));
     try {
       await act(async () => {});
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
-      );
+      expect(f.host.querySelector('.weq-guild-direct-side')).toBeNull();
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
       act(() => f.host.querySelector<HTMLElement>('.weq-guild-direct-msg')!.click());
       expect(f.host.querySelector('[aria-label="导出所选消息"]')).not.toBeNull();
@@ -145,10 +155,9 @@ describe('QQ 频道内的私聊工作区', () => {
       );
       expect(writeText).toHaveBeenCalledOnce();
       expect(f.host.querySelector('[aria-label="撤回所选消息"]')).toBeNull();
-      const sessions = f.host.querySelectorAll<HTMLButtonElement>('.weq-guild-direct-item');
-      await act(async () => sessions[1]!.click());
+      await act(async () => f.render(renderNode('b')));
       expect(f.host.querySelector('.is-selected')).toBeNull();
-      await act(async () => sessions[0]!.click());
+      await act(async () => f.render(renderNode('a')));
       expect(f.host.querySelectorAll('.weq-guild-direct-msg[aria-selected="true"]')).toHaveLength(
         1,
       );
@@ -165,17 +174,9 @@ describe('QQ 频道内的私聊工作区', () => {
     rpc.latest.mockResolvedValueOnce([
       { msgId: '1', msgSeq: '0', senderTinyId: '42', sendType: '0', sendTime: '0', elements: [] },
     ]);
-    const f = mount(
-      createElement(ChannelView, {
-        selfUser: createTemplateDemoData().user,
-        initialDirectOpen: true,
-      }),
-    );
+    const f = mount(mainChat());
     try {
       await act(async () => {});
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
-      );
       expect(f.host.querySelector('.message-time-divider')).toBeNull();
       expect(f.host.textContent).not.toContain('1970');
     } finally {
@@ -196,8 +197,7 @@ describe('QQ 频道内的私聊工作区', () => {
     ]);
     const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
     const f = mount(
-      createElement(ChannelView, {
-        selfUser: createTemplateDemoData().user,
+      mainChat('100', {
         searchTarget: {
           nodeId: '100',
           msgId: '9007199254740993',
@@ -237,17 +237,9 @@ describe('QQ 频道内的私聊工作区', () => {
   });
   it('消息读取失败保留重试入口，不将失败当作已成功读取', async () => {
     rpc.latest.mockRejectedValueOnce(new Error('合成读取失败'));
-    const f = mount(
-      createElement(ChannelView, {
-        selfUser: createTemplateDemoData().user,
-        initialDirectOpen: true,
-      }),
-    );
+    const f = mount(mainChat());
     try {
       await act(async () => {});
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
-      );
       expect(f.host.textContent).toContain('消息读取失败');
       await act(async () =>
         f.host.querySelector<HTMLButtonElement>('[aria-label="重试读取消息"]')!.click(),
@@ -277,21 +269,10 @@ describe('QQ 频道内的私聊工作区', () => {
       );
     }
     const f = mount(
-      createElement(
-        ContentSelectionProvider,
-        null,
-        createElement(ChannelView, {
-          selfUser: createTemplateDemoData().user,
-          initialDirectOpen: true,
-        }),
-        createElement(Probe),
-      ),
+      createElement(ContentSelectionProvider, null, mainChat(), createElement(Probe)),
     );
     try {
       await act(async () => {});
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
-      );
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
       const rows = f.host.querySelectorAll<HTMLElement>('.weq-guild-direct-msg');
       act(() => {
@@ -327,7 +308,7 @@ describe('QQ 频道内的私聊工作区', () => {
       f.close();
     }
   });
-  it('全宽页面的外层侧栏为零时，频道私聊仍保留正常会话列表宽度', async () => {
+  it('主区域chatOnly不再挂载独立侧栏，外层侧栏宽度为零时正文仍占满宽度', async () => {
     const style = document.createElement('style');
     style.textContent = readFileSync(
       resolve(__dirname, '../src/renderer/src/styles/channel.css'),
@@ -335,65 +316,114 @@ describe('QQ 频道内的私聊工作区', () => {
     );
     document.head.append(style);
     const f = mount(
-      createElement(
-        'div',
-        { style: { '--sidebar-width': '0px' } as CSSProperties },
-        createElement(ChannelView, {
-          selfUser: createTemplateDemoData().user,
-          initialDirectOpen: true,
-          sidebarWidth: 340,
-        }),
-      ),
+      createElement('div', { style: { '--sidebar-width': '0px' } as CSSProperties }, mainChat()),
     );
     try {
       await act(async () => {});
-      expect(
-        window.getComputedStyle(f.host.querySelector('.weq-guild-direct-side')!).flexBasis,
-      ).toBe('340px');
+      expect(f.host.querySelector('.weq-guild-direct.is-chat-only')).not.toBeNull();
+      expect(f.host.querySelector('.weq-guild-direct-side')).toBeNull();
+      expect(f.host.querySelector('.weq-guild-direct-item')).toBeNull();
+      expect(window.getComputedStyle(f.host.querySelector('.weq-guild-direct-chat')!).width).toBe(
+        '100%',
+      );
+      expect(window.getComputedStyle(f.host.querySelector('.weq-guild-direct-chat')!).display).toBe(
+        'flex',
+      );
     } finally {
       f.close();
       style.remove();
     }
   });
-  it('频道和私聊互相卸载，重建后恢复所选会话并重新读取消息', async () => {
-    vi.stubGlobal('localStorage', new Storage());
-    const f = mount(
+  it('导航在频道网站与主聊天区之间卸载重建，恢复所选频道会话并重新读取消息', async () => {
+    const openDirect = vi.fn();
+    const workspace = (direct: boolean, explicitTarget = false) =>
       createElement(
         PageSnapshots,
         { scope: 'synthetic' },
-        createElement(ChannelView, { selfUser: createTemplateDemoData().user }),
-      ),
-    );
+        direct
+          ? mainChat('synthetic-node', explicitTarget ? {} : { searchTarget: null })
+          : createElement(ChannelView, { onOpenDirect: openDirect }),
+      );
+    const f = mount(workspace(false));
     try {
       expect(rpc.sessions).not.toHaveBeenCalled();
       const browser = f.host.querySelector<HTMLInputElement>('[aria-label="合成频道浏览现场"]')!;
       browser.value = '保留的频道现场';
       const open = f.host.querySelector<HTMLButtonElement>('[aria-label="频道私聊"]')!;
       await act(async () => open.click());
+      expect(openDirect).toHaveBeenCalledOnce();
+      expect(rpc.sessions).not.toHaveBeenCalled();
+      expect(browser.isConnected).toBe(true);
+      await act(async () => f.render(workspace(true, true)));
       expect(rpc.sessions).toHaveBeenCalledOnce();
       expect(f.host.querySelector('.weq-channel-browser')).toBeNull();
       expect(browser.isConnected).toBe(false);
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
-      );
+      expect(f.host.querySelector('.weq-guild-direct-side')).toBeNull();
       expect(rpc.latest).toHaveBeenCalledWith({
         nodeId: 'synthetic-node',
         limit: 50,
         stablePaging: true,
       });
       expect(f.host.querySelector('.has-selected-session')).not.toBeNull();
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="返回 QQ 频道"]')!.click());
+      await act(async () => f.render(workspace(false)));
       expect(f.host.querySelector('.weq-channel-browser')).not.toBeNull();
       expect(f.host.querySelector('[aria-label="合成频道浏览现场"]')).not.toBe(browser);
       expect(f.host.querySelector('.weq-guild-direct')).toBeNull();
       await act(async () =>
         f.host.querySelector<HTMLButtonElement>('[aria-label="频道私聊"]')!.click(),
       );
+      expect(openDirect).toHaveBeenCalledTimes(2);
+      await act(async () => f.render(workspace(true)));
       expect(rpc.sessions).toHaveBeenCalledTimes(2);
       expect(rpc.latest).toHaveBeenCalledTimes(2);
       expect(f.host.querySelector('.has-selected-session')).not.toBeNull();
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="会话列表"]')!.click());
+      await act(async () => f.render(workspace(false)));
       expect(f.host.querySelector('.has-selected-session')).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+
+  it('频道媒体和装扮交给共用渲染器，自发消息仍使用主界面自己的身份', async () => {
+    const user = createTemplateDemoData().user;
+    const element = { kind: 'image', fileName: 'synthetic-image.png' };
+    const message = {
+      msgId: 'media',
+      msgSeq: '1',
+      senderTinyId: 'other-device-id',
+      sendType: '2',
+      sendTime: '1700000000',
+      elements: [element],
+      decoration: { bubbleId: 7, fontId: 8, widgetId: 9 },
+    };
+    rpc.latest.mockImplementationOnce(async () => [message]);
+    const src =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+    const render = vi.fn<MessageRenderer['render']>(() =>
+      createElement('img', { src, alt: '合成频道图片' }),
+    );
+    const f = mount(
+      mainChat('synthetic-node', {
+        selfUser: user,
+        renderers: [{ id: 'synthetic-media', match: () => true, render }],
+      }),
+    );
+    try {
+      await act(async () => {});
+      expect(f.host.querySelector<HTMLImageElement>('img[alt="合成频道图片"]')?.src).toBe(src);
+      expect(render).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mine: true,
+          sender: user,
+          conversation: expect.objectContaining({ id: 'guild:synthetic-node' }),
+          message: expect.objectContaining({
+            qqElements: [element],
+            decoration: message.decoration,
+            msgId: 'media',
+          }),
+        }),
+      );
+      expect(f.host.querySelector('.weq-guild-direct-side')).toBeNull();
     } finally {
       f.close();
     }

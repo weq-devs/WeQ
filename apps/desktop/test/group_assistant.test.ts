@@ -18,6 +18,8 @@ import {
 } from '../src/renderer/src/lib/groupAssistant';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useViewState } from '../src/renderer/src/state/view';
+import { conversationViewFixture } from './support/conversation-view-fixture';
+import type { ConversationView } from '../src/renderer/src/lib/conversationViews';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const query = { useQuery: () => ({ data: undefined }) };
@@ -223,16 +225,16 @@ describe('群助手', () => {
   it('会话时间与外层列表一致：今天、昨天、周内、更早和跨年', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date(2026, 9, 26, 12));
+    vi.setSystemTime(new Date('2026-10-26T12:00:00+08:00'));
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
     const dates = [
-      new Date(2026, 9, 26, 9, 5),
-      new Date(2026, 9, 25, 23, 59),
-      new Date(2026, 9, 20, 9),
-      new Date(2026, 9, 19, 9),
-      new Date(2025, 11, 31, 9),
+      new Date('2026-10-26T09:05:00+08:00'),
+      new Date('2026-10-25T23:59:00+08:00'),
+      new Date('2026-10-20T09:00:00+08:00'),
+      new Date('2026-10-19T09:00:00+08:00'),
+      new Date('2025-12-31T09:00:00+08:00'),
     ];
     const rows = dates.map((date, index) => ({
       ...groups()[0],
@@ -266,7 +268,7 @@ describe('群助手', () => {
       );
       const times = (selector: string) =>
         Array.from(host.querySelectorAll(selector), (node) => node.textContent);
-      const expected = ['09:05', '昨天 23:59', '星期二', '2026/10/19', '2025/12/31'];
+      const expected = ['09:05', '昨天 23:59', '星期二', '2026-10-19', '2025-12-31'];
       expect(times('.weq-conversation-window .row-time-line')).toEqual(expected);
       expect(times('.weq-conversation-list .row-time-line')).toEqual(expected);
     } finally {
@@ -276,7 +278,7 @@ describe('群助手', () => {
     }
   });
 
-  it('主列表全选展开助手内会话，两处共享选区且从顶部进入多选', () => {
+  it('常规全选只选择平铺会话，进入群助手后才选择内部群，聚合入口始终只是导航', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const host = document.createElement('div');
@@ -295,98 +297,100 @@ describe('群助手', () => {
       otherUser: null,
       members: [],
     };
-    const rows = [...assistantGroups, other, entry];
     const assistantIds = new Set(assistantGroups.map((row) => row.id));
     const select = vi.fn(),
-      back = vi.fn(),
       pin = vi.fn();
     function Probe() {
       return h('output', null, JSON.stringify(useCurrentContentSelection()));
     }
-    try {
-      act(() =>
-        root.render(
-          h(
-            ContentSelectionProvider,
-            null,
-            h(
-              ConversationDirectoryContext.Provider,
-              {
-                value: {
-                  real: rows,
-                  virtual: [],
-                  groupAssistantIds: assistantIds,
-                  onVirtual: vi.fn(),
-                  onCreate: vi.fn(),
-                  onPin: pin,
-                },
+    function View() {
+      const [view, setView] = useState<ConversationView>('regular');
+      const [returnToRegular, setReturnToRegular] = useState(false);
+      const fixture = conversationViewFixture(
+        { regular: [other, entry], groupAssistant: assistantGroups },
+        view,
+      );
+      return h(
+        ContentSelectionProvider,
+        null,
+        h(
+          ConversationDirectoryContext.Provider,
+          {
+            value: {
+              ...fixture,
+              real: [...assistantGroups, other, entry],
+              virtual: [],
+              groupAssistantIds: assistantIds,
+              onVirtual: vi.fn(),
+              onCreate: vi.fn(),
+              onPin: pin,
+              returnToRegular,
+              onViewChange: (next, fromAggregate) => {
+                setView(next);
+                setReturnToRegular(Boolean(fromAggregate));
               },
-              h(ConversationList, {
-                conversations: [other, entry],
-                activeConversationId: null,
-                preferences: {},
-                drafts: {},
-                onSelect: select,
-              }),
-              h(MergedSessionPanel, {
-                kind: 'groupAssistant',
-                conversations: rows,
-                groupAssistantIds: assistantIds,
-                anchorX: 10,
-                anchorY: 10,
-                onBack: back,
-                onSelectConversation: select,
-              }),
-              h(Probe),
-            ),
-          ),
+              onReturnToRegular: () => {
+                setView('regular');
+                setReturnToRegular(false);
+              },
+            },
+          },
+          h(ConversationList, {
+            conversations: fixture.rows,
+            activeConversationId: null,
+            preferences: {},
+            drafts: {},
+            onSelect: select,
+          }),
+          h(Probe),
         ),
       );
+    }
+    try {
+      act(() => root.render(h(View)));
       const main = host.querySelector('.weq-conversation-directory')!;
       act(() => main.querySelector<HTMLButtonElement>('[aria-label="多选会话"]')!.click());
       act(() => main.querySelector<HTMLButtonElement>('[aria-label="全选当前结果"]')!.click());
       const selection = () =>
-        JSON.parse(host.querySelector('output')!.textContent!).scope.ids as string[];
-      expect(selection().sort()).toEqual(['10001', '10002', '10003']);
-      expect(main.textContent).toContain('已选 3');
-      expect(host.querySelectorAll('.weq-merged-popover-row.is-multiselected')).toHaveLength(2);
-      act(() =>
+        (JSON.parse(host.querySelector('output')!.textContent!)?.scope?.ids ?? []) as string[];
+      expect(selection()).toEqual(['10003']);
+      expect(main.textContent).toContain('已选 1');
+      expect(host.querySelectorAll('.is-multiselected')).toHaveLength(1);
+      expect(host.querySelector('[data-conversation-id="10001"]')).toBeNull();
+      expect(
         host
-          .querySelector('.weq-merged-popover-item')!
-          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })),
-      );
-      expect(document.querySelector('.weq-conversation-actions-target')?.textContent).toContain(
-        '已选 3 个会话',
-      );
-      expect(host.querySelectorAll('.weq-conversation-list .is-context-target')).toHaveLength(2);
-      act(() =>
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
-      );
-      act(() => host.querySelector<HTMLButtonElement>('.weq-merged-popover-item')!.click());
-      expect(selection()).toHaveLength(2);
-      expect(select).not.toHaveBeenCalled();
-      expect(back).not.toHaveBeenCalled();
+          .querySelector('[data-conversation-id="merged:group-assistant"]')
+          ?.getAttribute('aria-pressed'),
+      ).not.toBe('true');
       act(() => main.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click());
       act(() =>
         host
-          .querySelector('.weq-merged-popover-item')!
-          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+          .querySelector<HTMLButtonElement>('[data-conversation-id="merged:group-assistant"]')!
+          .click(),
       );
-      expect(
-        [...document.querySelectorAll('[role="menuitem"]')].some(
-          (node) => node.textContent === '多选',
-        ),
-      ).toBe(false);
+      expect(main.querySelector('[aria-label="返回常规视图"]')).not.toBeNull();
+      expect(host.querySelector('[data-conversation-id="10003"]')).toBeNull();
+      act(() => main.querySelector<HTMLButtonElement>('[aria-label="多选会话"]')!.click());
+      act(() => main.querySelector<HTMLButtonElement>('[aria-label="全选当前结果"]')!.click());
+      expect(selection().sort()).toEqual(['10001', '10002']);
+      expect(host.querySelectorAll('.is-multiselected')).toHaveLength(2);
+      act(() =>
+        host
+          .querySelector('[data-conversation-id="10001"]')!
+          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })),
+      );
+      expect(document.querySelector('.weq-conversation-actions-target')?.textContent).toContain(
+        '已选 2 个会话',
+      );
+      expect(host.querySelectorAll('.is-context-target')).toHaveLength(2);
       act(() =>
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
       );
-      act(() => host.querySelector<HTMLButtonElement>('[aria-label="多选群助手会话"]')!.click());
-      act(() => host.querySelector<HTMLButtonElement>('.weq-merged-popover-item')!.click());
-      expect(selection()).toHaveLength(1);
-      expect(main.textContent).toContain('已选 1');
-      const ordinary = main.querySelector<HTMLElement>('[data-conversation-id="10003"]')!;
+      act(() => host.querySelector<HTMLButtonElement>('[data-conversation-id="10001"]')!.click());
+      expect(selection()).toEqual(['10002']);
+      expect(select).not.toHaveBeenCalled();
       act(() =>
-        ordinary.dispatchEvent(
+        host.querySelector('[data-conversation-id="10002"]')!.dispatchEvent(
           new KeyboardEvent('keydown', {
             key: 'a',
             metaKey: true,
@@ -395,8 +399,12 @@ describe('群助手', () => {
           }),
         ),
       );
-      expect(selection().sort()).toEqual(['10001', '10002', '10003']);
+      expect(selection().sort()).toEqual(['10001', '10002']);
       act(() => main.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click());
+      act(() => main.querySelector<HTMLButtonElement>('[aria-label="返回常规视图"]')!.click());
+      expect(selection()).toEqual([]);
+      expect(main.querySelector('[aria-label="会话视图"]')).not.toBeNull();
+      const ordinary = main.querySelector<HTMLElement>('[data-conversation-id="10003"]')!;
       act(() =>
         ordinary.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
       );
@@ -440,6 +448,7 @@ describe('群助手', () => {
         members: [],
       };
       const pin = vi.fn();
+      const navigate = vi.fn();
       const readState = vi.fn();
       const roaming = vi.fn();
       function Probe() {
@@ -455,6 +464,10 @@ describe('群助手', () => {
                 ConversationDirectoryContext.Provider,
                 {
                   value: {
+                    ...conversationViewFixture({
+                      regular: [other, entry],
+                      groupAssistant: assistantGroups.slice(0, 1),
+                    }),
                     // 两个群时只加载首个会话，入口数量仍以完整归属集合为准。
                     real: [...assistantGroups.slice(0, 1), other, entry],
                     virtual: [],
@@ -462,6 +475,7 @@ describe('群助手', () => {
                     onVirtual: vi.fn(),
                     onCreate: vi.fn(),
                     onPin: pin,
+                    onViewChange: navigate,
                     onReadState: readState,
                     onRoaming: roaming,
                   },
@@ -510,15 +524,19 @@ describe('群助手', () => {
         }
         const before = host.querySelector('output')!.textContent;
         const actions = open();
-        expect(actions.map((node) => node.textContent)).toEqual(['置顶']);
-        act(() => actions[0]!.click());
+        expect(actions.map((node) => node.textContent)).toEqual(['进入群助手', '置顶']);
+        act(() => actions[1]!.click());
         expect(pin).toHaveBeenLastCalledWith(entry, true);
         expect(host.querySelector('output')!.textContent).toBe(before);
         render(true);
         const pinnedActions = open();
-        expect(pinnedActions.map((node) => node.textContent)).toEqual(['取消置顶']);
-        act(() => pinnedActions[0]!.click());
+        expect(pinnedActions.map((node) => node.textContent)).toEqual(['进入群助手', '取消置顶']);
+        act(() => pinnedActions[1]!.click());
         expect(pin).toHaveBeenLastCalledWith(entry, false);
+        expect(host.querySelector('output')!.textContent).toBe(before);
+        const navigationActions = open();
+        act(() => navigationActions[0]!.click());
+        expect(navigate).toHaveBeenCalledWith('groupAssistant', true);
         expect(host.querySelector('output')!.textContent).toBe(before);
         expect(readState).not.toHaveBeenCalled();
         expect(roaming).not.toHaveBeenCalled();

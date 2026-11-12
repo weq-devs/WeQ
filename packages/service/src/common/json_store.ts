@@ -71,22 +71,27 @@ export class JsonStore<T> {
     this.write(this.data);
   }
 
+  /** 迁移不能把读取失败的回落值当作真实空数据。 */
+  assertReadable(): void {
+    if (this.loadError) throw this.loadError;
+  }
+
   /** 先持久化再发布内存态，失败不暴露未保存的变更。 */
-  replace(next: T): void {
-    this.write(next);
+  replace(next: T, requireDurable = false): void {
+    this.write(next, requireDurable);
     this.data = next;
   }
 
-  private write(next: T): void {
+  private write(next: T, requireDurable = false): void {
     if (this.opts.persistence) {
       this.opts.persistence.write(next);
       return;
     }
     if (this.loadError) {
-      if (this.opts.strict) throw this.loadError;
+      if (this.opts.strict || requireDurable) throw this.loadError;
       return; // 坏文件保留原件，宽容缓存也不静默覆盖。
     }
-    if (this.opts.strict)
+    if (this.opts.strict || requireDurable)
       writeFileAtomicSync(
         this.filePath,
         this.opts.pretty ? JSON.stringify(next, null, 2) : JSON.stringify(next),

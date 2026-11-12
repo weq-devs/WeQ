@@ -47,7 +47,7 @@ import { type SalvageBindingOptions, isLikelyCorruptionError, withDatabasePriori
 import type { SalvageSkippedRange } from '@weq/native';
 import type { MsgSalvageSource, MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
 import type { GapFetchedMessage } from '../gap_history';
-import type { ExportedMessage, ExportTimeRange } from './types';
+import type { ConvKind, ExportedMessage, ExportTimeRange } from './types';
 import { compileMessageFilter, messageSelectionKey } from '../message_filter';
 import { expandForwards } from './forward_expand';
 
@@ -273,7 +273,7 @@ async function* selectMessages<T extends RenderGroupMsg | RenderC2cMsg>(
   msgs: MsgService,
   range: ExportTimeRange | undefined,
   matches: (message: T) => boolean,
-  kind: 'group' | 'c2c',
+  kind: ConvKind,
 ): AsyncGenerator<T> {
   for await (const message of source) {
     msgs.exportSignal?.throwIfAborted();
@@ -472,16 +472,13 @@ export async function* iterateOfficialMessages(
   peerUid: string,
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderC2cMsg> {
+  if (msgs.exportFilter?.messageIds?.length === 0) return;
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   const merged = mergeBySendTime(
     pageC2cBySeq(msgs, peerUid, pageSize),
     pageC2cBySeqlessRowId(msgs, peerUid, pageSize),
   );
-  for await (const m of merged) {
-    if (!withinRange(Number(m.sendTime), opts.range)) continue;
-    if (!hasArkElement(m)) continue;
-    yield m;
-  }
+  yield* selectFeedMessages(merged, msgs, opts.range, 'official');
 }
 
 /**
@@ -493,16 +490,34 @@ export async function* iterateServiceMessages(
   appId: string,
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderC2cMsg> {
+  if (msgs.exportFilter?.messageIds?.length === 0) return;
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
   const merged = mergeBySendTime(
     pageServiceBySeq(msgs, appId, pageSize),
     pageServiceBySeqlessRowId(msgs, appId, pageSize),
   );
-  for await (const m of merged) {
-    if (!withinRange(Number(m.sendTime), opts.range)) continue;
-    if (!hasArkElement(m)) continue;
-    yield m;
-  }
+  yield* selectFeedMessages(merged, msgs, opts.range, 'service');
+}
+
+async function* selectFeedMessages(
+  source: AsyncGenerator<RenderC2cMsg>,
+  msgs: MsgService,
+  range: ExportTimeRange | undefined,
+  kind: 'official' | 'service',
+): AsyncGenerator<RenderC2cMsg> {
+  const filter = compileMessageFilter(msgs.exportFilter);
+  const selected = selectMessages(
+    source,
+    msgs,
+    range,
+    (message) => hasArkElement(message) && filter(message),
+    kind,
+  );
+  yield* msgs.exportJournal
+    ? msgs.exportJournal.capture(selected, async (row) =>
+        expandForwards(msgs, kind, toExportedMessage(row)),
+      )
+    : selected;
 }
 
 /** Service seq cursor for service_assistant_msg_table. */

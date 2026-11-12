@@ -113,8 +113,9 @@ export class MemoryStore {
   }
 
   clear(personaId: string): void {
-    delete this.data[personaId];
-    this.persist();
+    const next = { ...this.data };
+    delete next[personaId];
+    this.store.replace(next, true);
   }
 
   /** 强度 = access 热度 + 时间新鲜度；容量超限时淘汰最弱的。 */

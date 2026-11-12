@@ -171,7 +171,7 @@ describe('号码查询', () => {
           keyword: '10002',
           numberLookupEnabled: true,
           onOpenNumberProfile: open,
-          categories: [],
+          categories: ['contact', 'group'],
           onCategoriesChange: vi.fn(),
           quick: null,
           quickLoading: false,
@@ -269,7 +269,8 @@ describe('号码查询', () => {
       h(SearchDropdown, {
         keyword: keyword.trim(),
         numberLookupKeyword: keyword,
-        categories: [],
+        categories: ['contact', 'group'],
+        sources: enabled ? ['qq'] : [],
         onCategoriesChange: vi.fn(),
         quick: null,
         quickLoading: false,
@@ -277,8 +278,7 @@ describe('号码查询', () => {
         slowLoading: false,
         onSelect: vi.fn(),
         onMore: vi.fn(),
-        numberLookupEnabled: enabled,
-        onNumberLookupEnabledChange: vi.fn(),
+        numberLookupEnabled: true,
       });
     const search = (enabled: boolean, keyword = '10002') =>
       h(TitleBarSearch, {

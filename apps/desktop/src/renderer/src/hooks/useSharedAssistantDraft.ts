@@ -8,6 +8,7 @@ import {
   forgetClientRetry,
 } from '../lib/clientPreferences';
 import { resolveDraftSave } from '../lib/draftPersistence';
+import { isAssistantDraftDeleted } from '../lib/assistantWorkspace';
 
 /** 本机逐字恢复仍由原组件维护；停顿后共享，收到远端变化不覆盖未提交输入。 */
 export function useSharedAssistantDraft(
@@ -32,6 +33,11 @@ export function useSharedAssistantDraft(
     const retry = save.current;
     const binding = accountBinding();
     const current = state.current;
+    const scope = current.scope || currentAccountScope();
+    if (isAssistantDraftDeleted(scope, key)) {
+      forgetClientRetry(`assistant:${scope}:${key}`);
+      return;
+    }
     if (current.scope && current.scope !== currentAccountScope()) {
       useClientPreferences.setState({ error: '请返回原账号后重试草稿保存' });
       return;
@@ -53,16 +59,18 @@ export function useSharedAssistantDraft(
         value,
         current.version,
         async (expectedVersion) => {
+          if (isAssistantDraftDeleted(scope, key)) throw new Error('这段助手会话已永久删除。');
           const result = await client.clientState.saveDraft.mutate({
             ...binding,
             key,
             value,
             expectedVersion,
           });
+          if (isAssistantDraftDeleted(scope, key)) throw new Error('这段助手会话已永久删除。');
           return !result.ok && current.submitted === value ? { ...result, ok: true } : result;
         },
       );
-      if (state.current !== current) return;
+      if (state.current !== current || isAssistantDraftDeleted(scope, key)) return;
       forgetClientRetry(`assistant:${current.scope}:${key}`);
       current.version = result.current.version;
       current.saved = typeof result.current.value === 'string' ? result.current.value : '';
@@ -72,6 +80,10 @@ export function useSharedAssistantDraft(
       );
       if (live.current === value && !result.local) setInput(current.saved);
     } catch (error) {
+      if (isAssistantDraftDeleted(scope, key)) {
+        forgetClientRetry(`assistant:${scope}:${key}`);
+        return;
+      }
       rememberClientRetry(`assistant:${current.scope}:${key}`, () => {
         if (state.current.key !== key) {
           useClientPreferences.setState({ error: '请回到原草稿后重试保存' });
@@ -89,9 +101,10 @@ export function useSharedAssistantDraft(
     let active = true;
     const refresh = async () => {
       const binding = accountBinding();
-      if (!binding) return;
+      const scope = currentAccountScope();
+      if (!binding || isAssistantDraftDeleted(scope, key)) return;
       const remote = await client.clientState.draft.query({ ...binding, key });
-      if (!active) return;
+      if (!active || isAssistantDraftDeleted(scope, key) || scope !== currentAccountScope()) return;
       let current = state.current;
       if (current.key !== key) {
         let base: { version: string | null; saved: string } = { version: null, saved: '' };
@@ -138,10 +151,12 @@ export function useSharedAssistantDraft(
     prepareSubmitted(value: string) {
       const binding = accountBinding();
       const current = state.current;
+      const scope = current.scope || currentAccountScope();
       return async () => {
-        if (!binding) return;
+        if (!binding || isAssistantDraftDeleted(scope, key)) return;
         current.submitted = value;
         const remote = await client.clientState.draft.query({ ...binding, key });
+        if (isAssistantDraftDeleted(scope, key)) return;
         if (remote.value !== null && remote.value !== value) return;
         await client.clientState.saveDraft.mutate({
           ...binding,

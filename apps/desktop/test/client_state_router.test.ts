@@ -9,11 +9,13 @@ const context = vi.hoisted(() => ({
   uin: '10001',
   configId: '10001_aabbccdd',
   config: null as UserConfigService | null,
+  assistantSessions: [] as Array<{ id: string }>,
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
     accountConfig: { getRecord: () => ({ configId: context.configId }) },
     fileResource: { trustPath: vi.fn() },
+    assistant: { listSessions: () => context.assistantSessions },
   };
   return {
     requirePlatform: () => ({ appDataRoot: () => context.root }),
@@ -23,7 +25,7 @@ vi.mock('../src/main/context/app_context', () => {
     getAppContext: () => ({ account: { context: { uin: context.uin } }, services }),
   };
 });
-import { clientStateRouter } from '../src/main/ipc/routers/client_state';
+import { clientStateRouter, boundClientState } from '../src/main/ipc/routers/client_state';
 import { createWebHost } from '../src/main/web/host';
 import { getAppContext } from '../src/main/context/app_context';
 import { pickedBrowserFiles } from '../src/main/browser_files';
@@ -32,8 +34,39 @@ beforeEach(() => {
   context.uin = '10001';
   context.configId = '10001_aabbccdd';
   context.config = new UserConfigService({ appDataRoot: () => context.root });
+  context.assistantSessions = [];
 });
 afterEach(() => rmSync(context.root, { recursive: true, force: true }));
+it('助手永久删除后的迟到草稿写入不能恢复内容，不影响未删除会话', async () => {
+  const client = clientStateRouter.createCaller({});
+  const binding = { expectedAccountUin: context.uin, expectedAccountConfigId: context.configId };
+  context.assistantSessions = [{ id: 'selected' }, { id: 'unselected' }];
+  const saved = await client.saveDraft({
+    ...binding,
+    key: 'assistant:selected',
+    value: '原草稿',
+    expectedVersion: null,
+  });
+  context.assistantSessions = [{ id: 'unselected' }];
+  boundClientState(binding).observeDraft('assistant:selected', null);
+  await expect(
+    client.saveDraft({
+      ...binding,
+      key: 'assistant:selected',
+      value: '迟到草稿',
+      expectedVersion: saved.current.version,
+    }),
+  ).rejects.toThrow('已删除');
+  expect((await client.draft({ ...binding, key: 'assistant:selected' })).value).toBeNull();
+  await expect(
+    client.saveDraft({
+      ...binding,
+      key: 'assistant:unselected',
+      value: '继续输入',
+      expectedVersion: null,
+    }),
+  ).resolves.toMatchObject({ ok: true });
+});
 it('手机不能自动提交旧值为共享初值；显式修改和桌面补缺保持最后提交值', async () => {
   const desktop = clientStateRouter.createCaller({});
   const mobile = clientStateRouter.createCaller({

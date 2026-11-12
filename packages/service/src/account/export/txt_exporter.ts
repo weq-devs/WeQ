@@ -54,7 +54,7 @@ export async function exportConversationToTxt(
       const exported = toExportedMessage(message);
       opts.collectSenders?.add(exported.senderUin);
       if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
-      await expandForwards(msgs, opts.kind === 'group' ? 'group' : 'c2c', exported);
+      await expandForwards(msgs, opts.kind, exported);
       audit.observe(exported.elements);
       if (opts.withMediaPaths) annotateExportPaths(exported.elements);
       const body = messageToText(

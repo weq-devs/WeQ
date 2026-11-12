@@ -7,6 +7,7 @@ import {
   useSearchPreferences,
 } from '../src/renderer/src/hooks/useSearchPreferences';
 import { SEARCH_CATEGORY_ORDER } from '../src/renderer/src/components/search/types';
+import { DEFAULT_SEARCH_SOURCES } from '@weq/service/search-policy';
 import {
   acceptPreferences,
   preferenceValue,
@@ -60,6 +61,8 @@ afterEach(() => {
 
 it('默认全选；保存分类及功能开关，重新挂载恢复，包括空选择', () => {
   expect(readSearchPreferences()).toEqual({
+    version: 2,
+    sources: DEFAULT_SEARCH_SOURCES,
     categories: SEARCH_CATEGORY_ORDER,
     appEnabled: true,
     numberLookupEnabled: true,
@@ -95,14 +98,15 @@ it('默认全选；保存分类及功能开关，重新挂载恢复，包括空�
   expect(readSearchPreferences().categories).toEqual(SEARCH_CATEGORY_ORDER);
 });
 
-it('忽略旧分类、非法数据；损坏的存储回退全选', () => {
+it('旧分类首次重置全选，损坏的存储同样回退全选', () => {
   window.localStorage.setItem(
     SEARCH_PREFERENCES_KEY,
     JSON.stringify({
       categories: ['marketEmoji', 'guildMessage', 'cloneMessage', 'file', 'file', 'unknown'],
     }),
   );
-  expect(readSearchPreferences().categories).toEqual(['file']);
+  expect(readSearchPreferences().categories).toEqual(SEARCH_CATEGORY_ORDER);
+  expect(readSearchPreferences().sources).toEqual(DEFAULT_SEARCH_SOURCES);
   expect(readSearchPreferences().numberLookupEnabled).toBe(true);
   window.localStorage.setItem(SEARCH_PREFERENCES_KEY, '{');
   expect(readSearchPreferences().categories).toEqual(SEARCH_CATEGORY_ORDER);

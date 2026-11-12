@@ -112,8 +112,9 @@ export class AgentLabSessionStore {
   /** 删除某 owner 的全部会话（删除克隆体 / 群聊时调用）。 */
   deleteOwner(ownerId: string): void {
     if (!this.store.data[ownerId]) return;
-    delete this.store.data[ownerId];
-    this.store.save();
+    const next = { ...this.store.data };
+    delete next[ownerId];
+    this.store.replace(next, true);
   }
 }
 
@@ -141,6 +142,16 @@ export class AgentLabGroupSessionMessageStore {
     return [...(this.store.data[bucket] ?? [])];
   }
 
+  /** 包括元数据丢失的旧桶，迁移时不能只遍历 sessions.json。 */
+  listGroupBuckets(
+    groupId: string,
+  ): Array<{ sessionId: string; messages: AgentLabGroupMessage[] }> {
+    const prefix = `${groupId}:`;
+    return Object.entries(this.store.data)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, messages]) => ({ sessionId: key.slice(prefix.length), messages: [...messages] }));
+  }
+
   append(bucket: string, message: AgentLabGroupMessage): void {
     const cur = this.store.data[bucket] ?? [];
     cur.push(message);
@@ -160,13 +171,14 @@ export class AgentLabGroupSessionMessageStore {
   /** 删除某群的全部会话消息（删除群聊时调用）。 */
   deleteGroup(groupId: string): void {
     const prefix = `${groupId}:`;
+    const next = { ...this.store.data };
     let changed = false;
     for (const key of Object.keys(this.store.data)) {
       if (key.startsWith(prefix)) {
-        delete this.store.data[key];
+        delete next[key];
         changed = true;
       }
     }
-    if (changed) this.store.save();
+    if (changed) this.store.replace(next, true);
   }
 }

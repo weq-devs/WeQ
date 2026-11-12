@@ -340,7 +340,9 @@ export function useChatShellController({
         setActiveConversationId(
           (current) =>
             current ??
-            (history.shouldAutoSelectConversation() ? (conversations[0]?.id ?? null) : null),
+            (history.shouldAutoSelectConversation()
+              ? (conversations.find((conversation) => conversation.type !== 'merged')?.id ?? null)
+              : null),
         );
     },
     [

@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { client } from '../trpc/client';
-import type { ConversationScope } from '@weq/service/search-policy';
+import {
+  searchCategorySupportsSources,
+  type ConversationScope,
+  type SearchSource,
+} from '@weq/service/search-policy';
 import { isSlowSearchCategory } from '../components/search/types';
 import type {
   QuickSearchResult,
@@ -23,11 +27,20 @@ export function useGlobalSearch(
   keyword: string,
   categories: readonly SearchCategory[],
   accountKey: string | null,
-  conversationScope: ConversationScope = 'all',
+  filter: readonly SearchSource[] | ConversationScope = 'all',
 ) {
   const query = keyword.trim();
+  const sources = typeof filter === 'string' ? undefined : filter;
+  const conversationScope = typeof filter === 'string' ? filter : 'all';
+  const enabledCategories = useMemo(
+    () =>
+      sources
+        ? categories.filter((category) => searchCategorySupportsSources(category, sources))
+        : categories,
+    [categories, sources],
+  );
   const [revision, setRevision] = useState(0);
-  const key = JSON.stringify([accountKey, query, categories, conversationScope, revision]);
+  const key = JSON.stringify([accountKey, query, enabledCategories, filter, revision]);
   const [state, setState] = useState<SearchState>(() => ({ key, results: {} }));
   const currentKey = useRef(key);
   currentKey.current = key;
@@ -42,10 +55,16 @@ export function useGlobalSearch(
         results: { ...(previous.key === key ? previous.results : {}), [category]: result },
       }));
     };
-    if (!accountKey || !query || !categories.length) return undefined;
+    if (!accountKey || !query || !enabledCategories.length) return undefined;
     const timer = window.setTimeout(() => {
-      for (const category of new Set(categories)) {
-        const input = { keyword: query, limit: 3, categories: [category], conversationScope };
+      for (const category of new Set(enabledCategories)) {
+        const input = {
+          keyword: query,
+          limit: 3,
+          categories: [category],
+          conversationScope,
+          ...(sources ? { sources: [...sources] } : {}),
+        };
         if (isSlowSearchCategory(category)) {
           void client.account.searchSlow.query(input).then(
             (slow) => update(category, { slow, error: false }),
@@ -63,7 +82,7 @@ export function useGlobalSearch(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [key, query, categories, accountKey, conversationScope]);
+  }, [key, query, enabledCategories, accountKey, conversationScope, sources]);
 
   return useMemo(() => {
     // 按分类顺序合并，响应先后不改变同分结果顺序；新请求第一帧即隔离旧数据。
@@ -84,7 +103,7 @@ export function useGlobalSearch(
     let slowLoading = false;
     let quickError = false;
     let slowError = false;
-    for (const category of new Set(categories)) {
+    for (const category of new Set(enabledCategories)) {
       const result = results[category];
       const loading = Boolean(accountKey && query && !result);
       const error = result?.error ?? false;
@@ -135,5 +154,5 @@ export function useGlobalSearch(
       categoryStates,
       retry: () => setRevision((value) => value + 1),
     };
-  }, [state, key, categories, accountKey, query]);
+  }, [state, key, enabledCategories, accountKey, query]);
 }

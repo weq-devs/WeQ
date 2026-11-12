@@ -1,0 +1,119 @@
+.weq-conversation-batch-export {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+}
+
+.weq-conversation-batch-export .weq-exp-dialog {
+  animation: none;
+}
+
+.weq-conversation-batch-targets {
+  flex: 0 1 auto;
+  max-height: 160px;
+  margin: 0;
+  padding: 8px 18px;
+  overflow: auto;
+  list-style: none;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-conversation-batch-targets > li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.weq-conversation-batch-target-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-conversation-batch-targets small {
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+}
+
+.weq-conversation-batch-targets p {
+  grid-column: 2 / -1;
+  margin: 0 0 6px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.weq-conversation-batch-generated {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 16px 18px;
+  overflow: auto;
+}
+
+.weq-conversation-batch-formats,
+.weq-conversation-batch-formats label,
+.weq-conversation-batch-foot,
+.weq-conversation-batch-foot button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-conversation-batch-formats {
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.weq-conversation-batch-formats input {
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-conversation-batch-export :is(.weq-exp-primary, .weq-exp-btn.is-primary),
+html[data-theme='dark']
+  .weq-conversation-batch-export
+  :is(.weq-exp-primary, .weq-exp-btn.is-primary) {
+  background: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-primary));
+  color: var(--weq-accent-on, var(--weq-fg-primary));
+}
+
+.weq-conversation-batch-export :is(.weq-exp-primary, .weq-exp-btn.is-primary):not(:disabled):hover,
+html[data-theme='dark']
+  .weq-conversation-batch-export
+  :is(.weq-exp-primary, .weq-exp-btn.is-primary):not(:disabled):hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 90%, var(--weq-fg-primary));
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 70%, var(--weq-fg-primary));
+}
+
+.weq-conversation-batch-foot {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+html[data-theme='dark'] .weq-conversation-batch-targets,
+html[data-theme='dark'] .weq-conversation-batch-foot {
+  border-color: var(--weq-border-strong);
+}
+
+@media (max-width: 600px) {
+  .weq-conversation-batch-targets {
+    max-height: 120px;
+    padding: 6px 12px;
+  }
+
+  .weq-conversation-batch-generated {
+    padding: 12px;
+  }
+}

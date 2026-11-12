@@ -1,0 +1,92 @@
+.weq-assistant-main-conversation {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  background: var(--weq-chat-bg, var(--weq-bg-surface));
+}
+
+.weq-assistant-main-conversation[hidden] {
+  display: none;
+}
+
+.weq-assistant-main-conversation .weq-agentlab-chat {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.weq-assistant-main-conversation .weq-agentlab-head {
+  flex: 0 0 auto;
+  min-width: 0;
+  border-bottom-color: var(--weq-border-subtle);
+}
+
+.weq-assistant-main-conversation .weq-agentlab-head-left {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.weq-assistant-main-conversation .weq-agentlab-head-left > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-assistant-main-conversation .weq-agentlab-head .weq-set-iconbtn {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-assistant-main-conversation .weq-agentlab-head .weq-set-iconbtn:not(:disabled):hover {
+  color: var(--weq-fg-primary);
+}
+
+.weq-assistant-main-conversation .weq-assistant-directory-back {
+  display: none;
+}
+
+html[data-weq-layout='single'] .weq-assistant-main-conversation .weq-assistant-directory-back {
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+}
+
+.weq-assistant-main-conversation .weq-agentlab-transcript {
+  min-width: 0;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.weq-assistant-main-conversation .weq-asst-composer {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+html[data-theme='dark'] .weq-assistant-main-conversation .weq-agentlab-head {
+  border-bottom-color: var(--weq-border-strong);
+}
+
+@media (max-width: 600px) {
+  .weq-assistant-main-conversation .weq-agentlab-head {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .weq-assistant-main-conversation .weq-asst-composer {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .weq-assistant-main-conversation .weq-asst-composer-tools {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+}

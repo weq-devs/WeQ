@@ -213,9 +213,13 @@ export class MsgService {
     );
   }
 
-  exportSourceStamp(kind: 'group' | 'c2c', conv: string): string {
+  exportSourceStamp(kind: 'group' | 'c2c' | 'official' | 'service', conv: string): string {
     return sourceStamp(
-      kind === 'group' ? this.session.groupMsgs.sourcePath : this.c2cDbFor(conv).sourcePath,
+      kind === 'group'
+        ? this.session.groupMsgs.sourcePath
+        : kind === 'service'
+          ? this.session.serviceAssistantMsgs.sourcePath
+          : this.c2cDbFor(conv).sourcePath,
     );
   }
   async exportSourceRows(

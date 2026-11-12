@@ -17,14 +17,10 @@ import ExcelJS from 'exceljs';
 import { statSync } from 'node:fs';
 import { MessageAudit } from './message_audit';
 import type { MsgService } from '../msg';
-import {
-  iterateC2cMessages,
-  iterateGroupMessages,
-  toExportedMessage,
-  type RoamMessageSource,
-} from './message_source';
+import { toExportedMessage, type RoamMessageSource } from './message_source';
+import { iterateConv } from './sender_resolve';
 import { TABLE_HEADERS, messageToCells, annotateExportPaths, collectFaceIds } from './element_text';
-import { expandForwards, exportForwardContents } from './forward_expand';
+import { expandForwards } from './forward_expand';
 import type { ConvKind, ExportResult, ExportTimeRange, ProgressCallback } from './types';
 
 /** Rows per worksheet before rolling to a new one (margin under Excel's cap). */
@@ -79,22 +75,11 @@ export async function exportToXlsx(
   let rowsInSheet = 0;
   let sheetIndex = 1;
 
-  const iterator =
-    opts.kind === 'group'
-      ? iterateGroupMessages(msgs, opts.conv, {
-          pageSize: opts.pageSize,
-          range: opts.range,
-          roam: opts.roam,
-        })
-      : iterateC2cMessages(msgs, opts.conv, {
-          pageSize: opts.pageSize,
-          range: opts.range,
-          roam: opts.roam,
-        });
+  const iterator = iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam, opts.pageSize);
 
   let count = 0;
   const audit = new MessageAudit();
-  for await (const m of exportForwardContents(iterator, msgs, opts.kind)) {
+  for await (const m of iterator) {
     if (rowsInSheet >= SHEET_ROW_LIMIT) {
       sheet.commit();
       sheetIndex += 1;

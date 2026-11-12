@@ -526,6 +526,7 @@ export function AssistantPanel({
   searchTarget,
   chatModels,
   onBack,
+  onBackToDirectory,
   onSessionCreated,
   compact = false,
   draftAccount,
@@ -538,6 +539,7 @@ export function AssistantPanel({
   searchTarget?: GeneratedSearchHit;
   chatModels: FlatModels['chat'];
   onBack: () => void;
+  onBackToDirectory?: () => void;
   /** 草稿会话首次发送、后端建好真会话后回调（父组件据此刷新列表 + 更新选中态）。 */
   onSessionCreated: (sessionId: string) => void;
   compact?: boolean;
@@ -943,7 +945,20 @@ export function AssistantPanel({
         <header className="weq-agentlab-head">
           <div className="weq-agentlab-head-left">
             {draftAccount ? (
-              <strong>{workspaceTitle ?? '新会话'}</strong>
+              <>
+                {onBackToDirectory ? (
+                  <button
+                    type="button"
+                    className="weq-set-iconbtn weq-assistant-directory-back"
+                    aria-label="返回会话列表"
+                    title="返回会话列表"
+                    onClick={onBackToDirectory}
+                  >
+                    <ArrowLeft size={18} />
+                  </button>
+                ) : null}
+                <strong>{workspaceTitle ?? '新会话'}</strong>
+              </>
             ) : (
               <>
                 <button
@@ -1038,8 +1053,7 @@ export function AssistantPanel({
                 <span className="weq-asst-empty-icon">
                   <Sparkles size={26} strokeWidth={1.6} />
                 </span>
-                <strong>把任务交给 WeQ 助手</strong>
-                <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
+                <strong>WeQ 助手</strong>
                 <div className="weq-asst-presets">
                   {PRESET_QUESTIONS.map((q) => (
                     <button
@@ -1116,9 +1130,7 @@ export function AssistantPanel({
                   void onSend();
                 }
               }}
-              placeholder={
-                compact ? '发送消息…' : '把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）'
-              }
+              placeholder="发送消息…"
               disabled={busy}
             />
             {busy ? (

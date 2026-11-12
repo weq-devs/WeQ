@@ -204,6 +204,7 @@ export function GuildDirectDialog({
   selfUser,
   renderers,
   embedded = false,
+  chatOnly = false,
   active = open,
   searchTarget,
   onActiveSessionChange,
@@ -215,6 +216,7 @@ export function GuildDirectDialog({
   /** 与主聊天相同的渲染器（qqMessageRenderer 等）。 */
   renderers?: MessageRenderer[];
   embedded?: boolean;
+  chatOnly?: boolean;
   active?: boolean;
   searchTarget?: GuildSearchTarget | null;
   /** 当前打开的会话 nodeId，交给外层浮动工具按当前位置导出。 */
@@ -588,160 +590,171 @@ export function GuildDirectDialog({
         'weq-guild-direct',
         selected && 'has-selected-session',
         embedded && 'is-embedded',
+        chatOnly && 'is-chat-only',
       )}
       role={embedded ? 'region' : undefined}
-      aria-labelledby="weq-guild-direct-title"
+      aria-labelledby={chatOnly ? undefined : 'weq-guild-direct-title'}
+      aria-label={chatOnly ? '频道私聊' : undefined}
     >
-      <header className="weq-guild-direct-head">
-        <span className="weq-guild-direct-title">
-          <span className="weq-guild-direct-title-icon" aria-hidden="true">
-            <Hash size={16} strokeWidth={2} />
+      {!chatOnly && (
+        <header className="weq-guild-direct-head">
+          <span className="weq-guild-direct-title">
+            <span className="weq-guild-direct-title-icon" aria-hidden="true">
+              <Hash size={16} strokeWidth={2} />
+            </span>
+            <strong id="weq-guild-direct-title">频道私聊</strong>
           </span>
-          <strong id="weq-guild-direct-title">频道私聊</strong>
-        </span>
-        <button
-          type="button"
-          className="weq-compose-x"
-          onClick={onClose}
-          title={embedded ? '返回 QQ 频道' : '关闭'}
-          aria-label={embedded ? '返回 QQ 频道' : '关闭'}
-        >
-          {embedded ? <ArrowLeft size={17} /> : <X size={17} />}
-        </button>
-      </header>
+          <button
+            type="button"
+            className="weq-compose-x"
+            onClick={onClose}
+            title={embedded ? '返回 QQ 频道' : '关闭'}
+            aria-label={embedded ? '返回 QQ 频道' : '关闭'}
+          >
+            {embedded ? <ArrowLeft size={17} /> : <X size={17} />}
+          </button>
+        </header>
+      )}
 
       {searchNotice ? <p role="status">{searchNotice}</p> : null}
       <div className="weq-guild-direct-body">
-        <aside className="weq-guild-direct-side">
-          <div className="weq-guild-direct-side-title">
-            <span>
-              会话列表
-              {sessionSelection.selectionMode ? ` · 已选 ${sessionSelection.selectedIds.size}` : ''}
-            </span>
-            <button
-              type="button"
-              className="weq-compose-x"
-              aria-label={sessionSelection.selectionMode ? '退出会话多选' : '多选频道私聊'}
-              title={sessionSelection.selectionMode ? '退出会话多选' : '多选频道私聊'}
-              onClick={() => sessionSelection.setSelectionMode(!sessionSelection.selectionMode)}
-            >
-              {sessionSelection.selectionMode ? <X size={16} /> : <CheckSquare size={16} />}
-            </button>
-          </div>
-          {sessionSelection.selectionMode ? (
-            <div className="weq-guild-session-actions">
-              <label>
-                <input
-                  type="checkbox"
-                  aria-label="全选频道私聊"
-                  checked={allSelectionIdsSelected(sessionIds, sessionSelection.selectedIds)}
-                  onChange={() =>
-                    sessionSelection.setSelectedIds(
-                      toggleAllSelectionIds(sessionIds, sessionSelection.selectedIds),
-                    )
-                  }
-                />
-                全选
-              </label>
-              {requestExport ? (
-                <button
-                  type="button"
-                  className="selection-action"
-                  aria-label="导出所选频道私聊"
-                  title="导出所选频道私聊"
-                  disabled={!sessionSelection.selectedIds.size}
-                  onClick={() =>
-                    requestExport({
-                      owner: { kind: 'guild-conversations', container: 'guild-list' },
-                      scope: { type: 'items', ids: [...sessionSelection.selectedIds] },
-                    })
-                  }
-                >
-                  <Download size={17} />
-                </button>
-              ) : null}
+        {!chatOnly && (
+          <aside className="weq-guild-direct-side">
+            <div className="weq-guild-direct-side-title">
+              <span>
+                会话列表
+                {sessionSelection.selectionMode
+                  ? ` · 已选 ${sessionSelection.selectedIds.size}`
+                  : ''}
+              </span>
+              <button
+                type="button"
+                className="weq-compose-x"
+                aria-label={sessionSelection.selectionMode ? '退出会话多选' : '多选频道私聊'}
+                title={sessionSelection.selectionMode ? '退出会话多选' : '多选频道私聊'}
+                onClick={() => sessionSelection.setSelectionMode(!sessionSelection.selectionMode)}
+              >
+                {sessionSelection.selectionMode ? <X size={16} /> : <CheckSquare size={16} />}
+              </button>
             </div>
-          ) : null}
-          <div className="weq-guild-direct-list" {...sessionMulti.rootProps}>
-            {listLoading && !sessions ? (
-              <div className="weq-guild-direct-empty" role="status">
-                <LoadingIndicator />
-              </div>
-            ) : listError ? (
-              <div className="weq-guild-direct-empty">
-                <Inbox size={26} />
-                <span>会话列表加载失败</span>
-                <small>{listError}</small>
-              </div>
-            ) : !sessions || sessions.length === 0 ? (
-              <div className="weq-guild-direct-empty">
-                <Inbox size={26} />
-                <span>没有频道私聊会话</span>
-                <small>该账号本地没有 direct_node_list_table 会话记录。</small>
-              </div>
-            ) : (
-              sessions.map((session) => {
-                const active = selected?.nodeId === session.nodeId;
-                const previewText = sessionPreviewText(session);
-                return (
+            {sessionSelection.selectionMode ? (
+              <div className="weq-guild-session-actions">
+                <label>
+                  <input
+                    type="checkbox"
+                    aria-label="全选频道私聊"
+                    checked={allSelectionIdsSelected(sessionIds, sessionSelection.selectedIds)}
+                    onChange={() =>
+                      sessionSelection.setSelectedIds(
+                        toggleAllSelectionIds(sessionIds, sessionSelection.selectedIds),
+                      )
+                    }
+                  />
+                  全选
+                </label>
+                {requestExport ? (
                   <button
                     type="button"
-                    key={session.nodeId}
-                    {...sessionMulti.itemProps(session.nodeId)}
-                    className={cn(
-                      'weq-guild-direct-item',
-                      active && 'active',
-                      sessionSelection.selectionMode && 'selection-mode',
-                      sessionSelection.selectedIds.has(session.nodeId) && 'is-multiselected',
-                    )}
-                    aria-pressed={
-                      sessionSelection.selectionMode
-                        ? sessionSelection.selectedIds.has(session.nodeId)
-                        : undefined
+                    className="selection-action"
+                    aria-label="导出所选频道私聊"
+                    title="导出所选频道私聊"
+                    disabled={!sessionSelection.selectedIds.size}
+                    onClick={() =>
+                      requestExport({
+                        owner: { kind: 'guild-conversations', container: 'guild-list' },
+                        scope: { type: 'items', ids: [...sessionSelection.selectedIds] },
+                      })
                     }
-                    onClick={() => openSession(session)}
                   >
-                    {sessionSelection.selectionMode ? (
-                      <span className="weq-guild-session-check" aria-hidden>
-                        {sessionSelection.selectedIds.has(session.nodeId) ? (
-                          <Check size={13} />
-                        ) : null}
-                      </span>
-                    ) : null}
-                    <Avatar
-                      name={session.peerNick || session.peerTinyId}
-                      avatarUrl={session.peerAvatarUrl}
-                      seed={session.peerTinyId}
-                    />
-                    <span className="weq-guild-direct-item-main">
-                      <span className="weq-guild-direct-item-top">
-                        <span className="weq-guild-direct-item-title">
-                          <span className="weq-guild-direct-item-name">
-                            {session.peerNick || session.peerTinyId}
-                          </span>
-                          {session.guildName ? (
-                            <span className="weq-guild-direct-item-guild" title={session.guildName}>
-                              <Hash size={11} strokeWidth={2.4} aria-hidden="true" />
-                              <span className="weq-guild-direct-item-guild-text">
-                                {session.guildName}
-                              </span>
-                            </span>
+                    <Download size={17} />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="weq-guild-direct-list" {...sessionMulti.rootProps}>
+              {listLoading && !sessions ? (
+                <div className="weq-guild-direct-empty" role="status">
+                  <LoadingIndicator />
+                </div>
+              ) : listError ? (
+                <div className="weq-guild-direct-empty">
+                  <Inbox size={26} />
+                  <span>会话列表加载失败</span>
+                  <small>{listError}</small>
+                </div>
+              ) : !sessions || sessions.length === 0 ? (
+                <div className="weq-guild-direct-empty">
+                  <Inbox size={26} />
+                  <span>没有频道私聊会话</span>
+                  <small>该账号本地没有 direct_node_list_table 会话记录。</small>
+                </div>
+              ) : (
+                sessions.map((session) => {
+                  const active = selected?.nodeId === session.nodeId;
+                  const previewText = sessionPreviewText(session);
+                  return (
+                    <button
+                      type="button"
+                      key={session.nodeId}
+                      {...sessionMulti.itemProps(session.nodeId)}
+                      className={cn(
+                        'weq-guild-direct-item',
+                        active && 'active',
+                        sessionSelection.selectionMode && 'selection-mode',
+                        sessionSelection.selectedIds.has(session.nodeId) && 'is-multiselected',
+                      )}
+                      aria-pressed={
+                        sessionSelection.selectionMode
+                          ? sessionSelection.selectedIds.has(session.nodeId)
+                          : undefined
+                      }
+                      onClick={() => openSession(session)}
+                    >
+                      {sessionSelection.selectionMode ? (
+                        <span className="weq-guild-session-check" aria-hidden>
+                          {sessionSelection.selectedIds.has(session.nodeId) ? (
+                            <Check size={13} />
                           ) : null}
                         </span>
-                        <time className="weq-guild-direct-item-time">
-                          {formatListTime(session.lastTime)}
-                        </time>
+                      ) : null}
+                      <Avatar
+                        name={session.peerNick || session.peerTinyId}
+                        avatarUrl={session.peerAvatarUrl}
+                        seed={session.peerTinyId}
+                      />
+                      <span className="weq-guild-direct-item-main">
+                        <span className="weq-guild-direct-item-top">
+                          <span className="weq-guild-direct-item-title">
+                            <span className="weq-guild-direct-item-name">
+                              {session.peerNick || session.peerTinyId}
+                            </span>
+                            {session.guildName ? (
+                              <span
+                                className="weq-guild-direct-item-guild"
+                                title={session.guildName}
+                              >
+                                <Hash size={11} strokeWidth={2.4} aria-hidden="true" />
+                                <span className="weq-guild-direct-item-guild-text">
+                                  {session.guildName}
+                                </span>
+                              </span>
+                            ) : null}
+                          </span>
+                          <time className="weq-guild-direct-item-time">
+                            {formatListTime(session.lastTime)}
+                          </time>
+                        </span>
+                        <span className="weq-guild-direct-item-preview">
+                          {previewText || '（无本地预览）'}
+                        </span>
                       </span>
-                      <span className="weq-guild-direct-item-preview">
-                        {previewText || '（无本地预览）'}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </aside>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+        )}
 
         <section className="weq-guild-direct-chat">
           {!selected || !conversation || !peer ? (
@@ -759,6 +772,10 @@ export function GuildDirectDialog({
                   title="会话列表"
                   aria-label="会话列表"
                   onClick={() => {
+                    if (chatOnly) {
+                      onClose();
+                      return;
+                    }
                     setSelected(null);
                     setRestoreNode(null);
                   }}

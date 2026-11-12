@@ -48,7 +48,7 @@ describe('全局搜索号码范围', () => {
     }
   });
 
-  it('并列范围参与全选，保留原词、本地命中、更多与选择', () => {
+  it('QQ 来源控制号码查询，保留原词、本地命中、更多与选择', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host),
@@ -111,10 +111,10 @@ describe('全局搜索号码范围', () => {
         [...panel.querySelectorAll('.weq-search-scope button')]
           .map((button) => button.textContent)
           .slice(0, 4),
-      ).toEqual(['全部', '功能与设置', 'QQ号/群号', '联系人']);
+      ).toEqual(['全部', 'QQ', '克隆', 'WeQ 助手']);
       expect(panel.textContent).toContain('合成好友1');
       expect(panel.textContent).toContain('QQ 在线能力未就绪');
-      expect(scope('QQ号/群号').getAttribute('aria-pressed')).toBe('true');
+      expect(scope('QQ').getAttribute('aria-pressed')).toBe('true');
       const output = process.env.WEQ_ENTRY_LAYOUT_DIR;
       if (output) {
         mkdirSync(output, { recursive: true });
@@ -131,13 +131,13 @@ describe('全局搜索号码范围', () => {
           `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;font-family:system-ui;background:var(--background);color:var(--foreground)}.weq-titlebar-search-results{left:8px!important;top:48px!important;width:min(720px,calc(100vw - 16px))!important;max-height:calc(100dvh - 64px)!important}</style><body>${document.body.innerHTML}</body></html>`,
         );
       }
-      act(() => scope('QQ号/群号').click());
+      act(() => scope('QQ').click());
       expect(panel.querySelector('[aria-label="QQ号/群号"]')).toBeNull();
       expect(scope('全部').getAttribute('aria-pressed')).toBe('mixed');
       act(() => scope('全部').click());
-      expect(scope('QQ号/群号').getAttribute('aria-pressed')).toBe('true');
+      expect(scope('QQ').getAttribute('aria-pressed')).toBe('true');
       act(() => scope('全部').click());
-      expect(scope('QQ号/群号').getAttribute('aria-pressed')).toBe('false');
+      expect(scope('QQ').getAttribute('aria-pressed')).toBe('false');
       expect(panel.textContent).toContain('未选择搜索范围');
       act(() => scope('全部').click());
       act(() => scope('联系人').click());

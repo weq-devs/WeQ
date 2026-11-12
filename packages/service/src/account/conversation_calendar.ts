@@ -6,7 +6,8 @@ export type CalendarKind =
   | 'service'
   | 'guild'
   | 'persona'
-  | 'cloneGroup';
+  | 'cloneGroup'
+  | 'assistant';
 export interface CalendarTarget {
   kind: CalendarKind;
   conv: string;
@@ -65,6 +66,7 @@ export const CALENDAR_SOURCE_ORDER: readonly CalendarKind[] = [
   'guild',
   'persona',
   'cloneGroup',
+  'assistant',
 ];
 export const CALENDAR_SOURCE_LABELS: Record<CalendarKind, string> = {
   c2c: '私聊',
@@ -75,6 +77,7 @@ export const CALENDAR_SOURCE_LABELS: Record<CalendarKind, string> = {
   guild: '频道私聊',
   persona: '好友克隆',
   cloneGroup: '克隆群聊',
+  assistant: 'WeQ 助手会话',
 };
 export function calendarTargetKey(target: Pick<CalendarTarget, 'kind' | 'conv'>): string {
   return `${target.kind}:${target.conv}`;
@@ -107,7 +110,8 @@ export function filterCalendarTargets(
   const needle = query.trim().toLocaleLowerCase();
   const unique = new Map<string, CalendarTarget>();
   for (const target of targets) {
-    const virtual = target.kind === 'persona' || target.kind === 'cloneGroup';
+    const virtual =
+      target.kind === 'persona' || target.kind === 'cloneGroup' || target.kind === 'assistant';
     if (
       (scope === 'real' && (virtual || target.kind === 'guild')) ||
       (scope === 'virtual' && !virtual) ||

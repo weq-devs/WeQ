@@ -39,6 +39,18 @@ export const RoamingBackfillPanel = lazyPanel<
 export const AgentLabView = lazyPanel<
   ComponentProps<typeof import('../views/AgentLabView').AgentLabView>
 >(() => import('../views/AgentLabView').then((m) => ({ default: m.AgentLabView })));
+export const AssistantConversationPane = lazyPanel<
+  ComponentProps<
+    typeof import('../views/agentlab/AssistantConversationPane').AssistantConversationPane
+  >
+>(() =>
+  import('../views/agentlab/AssistantConversationPane').then((m) => ({
+    default: m.AssistantConversationPane,
+  })),
+);
+export const GuildDirectDialog = lazyPanel<
+  ComponentProps<typeof import('./GuildDirectDialog').GuildDirectDialog>
+>(() => import('./GuildDirectDialog').then((m) => ({ default: m.GuildDirectDialog })));
 export const AnnualReportView = lazyPanel<
   NonNullable<
     ComponentProps<typeof import('../views/annual-report/AnnualReportView').AnnualReportView>

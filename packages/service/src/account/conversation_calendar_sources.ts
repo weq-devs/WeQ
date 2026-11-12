@@ -7,8 +7,10 @@ import type { CalendarSource, CalendarTarget, CalendarKind } from './conversatio
 import type { MsgService } from './msg';
 import type { GapHistoryService } from './gap_history';
 import type { AgentLabService } from './agentlab';
+import type { AssistantService } from './assistant';
 
 export interface CalendarSourceServices {
+  assistant?: Pick<AssistantService, 'getConversation'>;
   msgs: Pick<MsgService, 'getHiddenDeletedMsgIds'>;
   gapHistory: Pick<
     GapHistoryService,
@@ -46,6 +48,10 @@ export function generatedMessages(
   sessionId: string | null,
 ) {
   const lab = services.agentLab;
+  if (target.kind === 'assistant') {
+    if (!services.assistant) throw new Error('助手会话读取服务尚未就绪');
+    return services.assistant.getConversation(target.conv);
+  }
   if (target.kind === 'persona')
     return sessionId === null
       ? lab.getConversation(target.conv)
@@ -56,11 +62,12 @@ export function generatedMessages(
 }
 
 function generatedSource(
-  kind: 'persona' | 'cloneGroup',
+  kind: 'persona' | 'cloneGroup' | 'assistant',
   targets: CalendarTarget[],
   services: CalendarSourceServices,
 ): CalendarSource {
   const buckets = targets.flatMap((target) => {
+    if (kind === 'assistant') return [{ target, sessionId: target.conv as string | null }];
     const list =
       kind === 'persona'
         ? services.agentLab.listPersonaSessions(target.conv)
@@ -102,7 +109,7 @@ function generatedSource(
         cursor: next,
         done: next.bucket >= buckets.length,
         progress: {
-          phase: `子会话 ${cursor.bucket + 1}/${buckets.length}`,
+          phase: `会话 ${cursor.bucket + 1}/${buckets.length}`,
           processed: Math.min(cursor.offset + limit, messages.length),
           total: messages.length,
           unit: '条元数据',
@@ -121,7 +128,7 @@ export function createCalendarSources(
   const kinds = [...new Set(value.targets.map((target) => target.kind))];
   return kinds.map((kind): CalendarSource => {
     const targets = value.targets.filter((target) => target.kind === kind);
-    if (kind === 'persona' || kind === 'cloneGroup') {
+    if (kind === 'persona' || kind === 'cloneGroup' || kind === 'assistant') {
       const source = generatedSource(kind, targets, value.services);
       return {
         ...source,

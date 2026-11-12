@@ -85,30 +85,31 @@ export function iterateConv(
   conv: string,
   range?: ExportTimeRange,
   roam?: RoamMessageSource,
+  pageSize = 2000,
 ): AsyncGenerator<RenderGroupMsg | RenderC2cMsg> {
   if (kind === 'group') {
     return exportForwardContents(
-      iterateGroupMessages(msgs, conv, { pageSize: 2000, range, roam }),
+      iterateGroupMessages(msgs, conv, { pageSize, range, roam }),
       msgs,
       kind,
     );
   }
   if (kind === 'official') {
     return exportForwardContents(
-      iterateOfficialMessages(msgs, conv, { pageSize: 2000, range, roam }),
+      iterateOfficialMessages(msgs, conv, { pageSize, range, roam }),
       msgs,
       kind,
     );
   }
   if (kind === 'service') {
     return exportForwardContents(
-      iterateServiceMessages(msgs, conv, { pageSize: 2000, range, roam }),
+      iterateServiceMessages(msgs, conv, { pageSize, range, roam }),
       msgs,
       kind,
     );
   }
   return exportForwardContents(
-    iterateC2cMessages(msgs, conv, { pageSize: 2000, range, roam }),
+    iterateC2cMessages(msgs, conv, { pageSize, range, roam }),
     msgs,
     kind,
   );
@@ -205,6 +206,36 @@ export async function resolveC2cSenders(
       ...(self.avatar ? { avatar: self.avatar } : {}),
     });
     ownerId = platformId;
+  }
+  if (selection && (selection.kind === 'official' || selection.kind === 'service')) {
+    const actual = await resolveForwardSenders(
+      selection.msgs,
+      selection.kind,
+      conv,
+      selection.range,
+      selection.roam,
+    );
+    for (const [uid, sender] of actual) {
+      const profile =
+        deps.resolveProfile && uid ? await deps.resolveProfile(uid).catch(() => null) : null;
+      const previous = senders.get(uid);
+      const uin = sender.uin || profile?.uin || previous?.uin;
+      const sourceName = profile?.nick || previous?.sourceName || sender.sourceName;
+      senders.set(uid, {
+        ...sender,
+        uin,
+        platformId: uin && uin !== '0' ? uin : sender.platformId,
+        sourceName,
+        displayName:
+          profile?.remark?.trim() ||
+          profile?.nick?.trim() ||
+          previous?.displayName ||
+          sender.displayName,
+        accountName: sourceName || sender.accountName,
+        ...(profile?.avatar ? { avatar: profile.avatar } : {}),
+      });
+    }
+    return { senders, ownerId };
   }
   // Peer uid is the conversation key itself.
   const peer = deps.resolveProfile ? await deps.resolveProfile(conv).catch(() => null) : null;

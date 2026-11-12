@@ -4,7 +4,11 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
 import { createTemplateDemoData } from './support/templateDemoData';
-import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
+import {
+  ConversationDirectoryContext,
+  virtualConversationRow,
+} from '../src/renderer/src/lib/conversationDirectory';
+import { conversationViewFixture } from './support/conversation-view-fixture';
 import {
   ContentSelectionProvider,
   useContentExportRequest,
@@ -79,6 +83,12 @@ describe('会话底部多选栏', () => {
       group: { ...base.group, id, name: id },
     }));
     const mark = vi.fn();
+    const virtual = {
+      id: 'virtual:fixture',
+      kind: 'persona' as const,
+      ownerId: 'fixture',
+      name: '虚拟会话',
+    };
     const f = mount(
       h(
         ContentSelectionProvider,
@@ -87,10 +97,12 @@ describe('会话底部多选栏', () => {
           ConversationDirectoryContext.Provider,
           {
             value: {
+              ...conversationViewFixture(
+                { regular: groups, clone: [virtualConversationRow(virtual)] },
+                'all',
+              ),
               real: groups,
-              virtual: [
-                { id: 'virtual:fixture', kind: 'persona', ownerId: 'fixture', name: '虚拟会话' },
-              ],
+              virtual: [virtual],
               onVirtual: vi.fn(),
               onCreate: vi.fn(),
               onReadState: mark,
@@ -186,6 +198,7 @@ describe('会话底部多选栏', () => {
           ConversationDirectoryContext.Provider,
           {
             value: {
+              ...conversationViewFixture({ regular: groups }),
               real: groups,
               virtual: [],
               onVirtual: vi.fn(),
@@ -272,6 +285,14 @@ describe('会话底部多选栏', () => {
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const group = { ...base, id: '10001', group: { ...base.group, id: '10001', name: '合成群聊' } };
     const roaming = vi.fn();
+    const exportBatch = vi.fn();
+    const virtual = {
+      id: 'virtual:fixture',
+      kind: 'persona' as const,
+      ownerId: 'fixture',
+      name: '合成虚拟会话',
+    };
+    const clone = virtualConversationRow(virtual);
     function Probe() {
       return h('output', null, JSON.stringify(useContentExportRequest()));
     }
@@ -283,18 +304,13 @@ describe('会话底部多选栏', () => {
           ConversationDirectoryContext.Provider,
           {
             value: {
+              ...conversationViewFixture({ regular: [group], clone: [clone] }, 'all'),
               real: [group],
-              virtual: [
-                {
-                  id: 'virtual:fixture',
-                  kind: 'persona',
-                  ownerId: 'fixture',
-                  name: '合成虚拟会话',
-                },
-              ],
+              virtual: [virtual],
               onVirtual: vi.fn(),
               onCreate: vi.fn(),
               onRoaming: roaming,
+              onExportBatch: exportBatch,
             },
           },
           h(ConversationList, {
@@ -320,15 +336,13 @@ describe('会话底部多选栏', () => {
       expect(button(f.host, '导出名单').disabled).toBe(false);
       act(() => button(f.host, '导出名单').click());
       expect(JSON.parse(f.host.querySelector('output')!.textContent!).selection).toEqual({
-        owner: { kind: 'contacts', container: 'groups' },
-        scope: { type: 'items', ids: ['10001'] },
+        owner: { kind: 'contacts', container: 'group:10001' },
+        scope: { type: 'all' },
       });
       act(() => button(f.host, '拉取所选会话漫游消息').click());
       expect(roaming).toHaveBeenCalledWith([{ kind: 'group', conv: '10001', name: '合成群聊' }]);
       act(() => button(f.host, '导出所选会话').click());
-      expect(JSON.parse(f.host.querySelector('output')!.textContent!).selection.scope.ids).toEqual([
-        '10001',
-      ]);
+      expect(exportBatch).toHaveBeenLastCalledWith([group]);
       expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(1);
       act(() => button(f.host, '全选当前结果').click());
       expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(false);
@@ -345,25 +359,14 @@ describe('会话底部多选栏', () => {
       );
       expect(roaming).toHaveBeenCalledTimes(2);
       act(() => button(f.host, '导出所选会话').click());
-      const exportDialog = document.querySelector('[role="dialog"]')!;
-      expect(exportDialog.textContent).toContain('1 个会话不支持导出');
-      expect(exportDialog.textContent).toContain('合成虚拟会话');
-      act(() =>
-        [...exportDialog.querySelectorAll('button')]
-          .find((node) => node.textContent === '取消')!
-          .click(),
-      );
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(exportBatch).toHaveBeenLastCalledWith([group, clone]);
       expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(2);
       act(() => f.host.querySelector<HTMLButtonElement>('[data-conversation-id="10001"]')!.click());
+      expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(true);
+      expect(button(f.host, '拉取所选会话漫游消息').title).toBe('所选会话不支持拉取漫游消息');
       act(() => button(f.host, '拉取所选会话漫游消息').click());
-      const unsupportedDialog = document.querySelector('[role="dialog"]')!;
-      expect(unsupportedDialog.textContent).toContain('没有可处理的会话');
-      expect(unsupportedDialog.textContent).not.toContain('仅处理支持的会话');
-      act(() =>
-        [...unsupportedDialog.querySelectorAll('button')]
-          .find((node) => node.textContent === '知道了')!
-          .click(),
-      );
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
       expect(roaming).toHaveBeenCalledTimes(2);
       act(() => f.host.querySelector<HTMLButtonElement>('[data-conversation-id="10001"]')!.click());
       act(() => button(f.host, '取消全选当前结果').click());

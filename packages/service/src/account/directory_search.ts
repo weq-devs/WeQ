@@ -1,6 +1,8 @@
 import type { AccountSession } from '@weq/account';
-import { classifyChatType, ChatType } from '@weq/codec';
+import { classifyChatType, toChatTypeNumber, ChatType } from '@weq/codec';
 import { searchNameRank } from './search_policy';
+
+export type SearchConversationView = 'regular' | 'hidden' | 'deleted' | 'groupAssistant';
 
 export interface ContactSearchHit {
   category: 'contact';
@@ -13,6 +15,9 @@ export interface ContactSearchHit {
   isFriend: boolean;
   hasConversation: boolean;
   temporary: boolean;
+  /** 非普通私聊使用原会话类型定位公众号、服务号或数据线。 */
+  chatType?: number;
+  conversationView?: SearchConversationView;
   aliases: string[];
   groups: Array<{ groupCode: string; groupName: string; display: string }>;
 }
@@ -25,6 +30,7 @@ export interface GroupSearchHit {
   remark: string;
   inDirectory: boolean;
   hasConversation: boolean;
+  conversationView?: SearchConversationView;
   aliases: string[];
 }
 
@@ -52,12 +58,48 @@ async function groupDetails(session: AccountSession, codes: string[]) {
   return out;
 }
 
+async function recentConversationEvidence(session: AccountSession, uids: string[]) {
+  if (!session.recentContacts.getByTargetUids) return null;
+  const rows = new Map<string, { notifyLevel: number; chatType?: string | number }>();
+  const unique = [...new Set(uids.filter(Boolean))];
+  for (let offset = 0; offset < unique.length; offset += 300)
+    for (const row of await session.recentContacts.getByTargetUids(
+      unique.slice(offset, offset + 300),
+    ))
+      rows.set(row.targetUid, row);
+  return rows;
+}
+
+/** 删除记录可能在重开会话后保留；隐藏需与当前会话存在性相互印证。 */
+function conversationViewForIdentity(
+  id: string,
+  current: ReadonlySet<string>,
+  recent: ReadonlyMap<string, { notifyLevel: number; chatType?: string | number }> | null,
+  hidden: ReadonlySet<string>,
+  deleted: ReadonlySet<string>,
+  groups?: ReadonlyMap<string, { notifyLevel: number }>,
+): SearchConversationView | undefined {
+  const record = recent?.get(id);
+  const inRecent = current.has(id) || Boolean(recent?.has(id));
+  if (inRecent && hidden.has(id)) return 'hidden';
+  if (!inRecent && deleted.has(id)) return recent ? 'deleted' : undefined;
+  if (!inRecent && hidden.has(id) && recent === null) return undefined;
+  if (
+    groups &&
+    (groups.get(id)?.notifyLevel === 2 ||
+      (record?.notifyLevel === 2 && classifyChatType(record.chatType ?? '') === 'group'))
+  )
+    return 'groupAssistant';
+  if (inRecent || groups?.has(id)) return 'regular';
+  return undefined;
+}
+
 /** 合并的是本地身份，不把资料缓存或删除会话当作好友关系证明。 */
 export async function searchContacts(
   session: AccountSession,
   keyword: string,
 ): Promise<ContactSearchHit[]> {
-  const [cached, conversations, members, deleted, buddies] = await Promise.all([
+  const [cached, conversations, members, deleted, buddies, hidden, services] = await Promise.all([
     session.profileInfo.searchContacts(keyword),
     session.recentContacts.searchIdentities(keyword),
     session.groupMembers.searchMembers(keyword, -1, 0, {
@@ -66,12 +108,19 @@ export async function searchContacts(
     }),
     session.deletedSessions.listDeletedSessions(),
     session.buddies.listBuddies(),
+    session.hiddenSessions?.listHiddenSessions() ?? [],
+    session.serviceAssistantContacts?.listContacts() ?? [],
   ]);
-  const direct = conversations.filter((row) => classifyChatType(row.chatType) === 'direct');
+  const isContactConversation = (chatType: number) =>
+    ['direct', 'dataline', 'official', 'service'].includes(classifyChatType(chatType) ?? '');
+  const direct = conversations.filter((row) => isContactConversation(row.chatType));
   const historical = deleted.filter(
-    (row) => classifyChatType(row.chatType) === 'direct' || row.chatType === 10,
+    (row) => isContactConversation(row.chatType) || row.chatType === 10,
   );
-  const [details, people] = await Promise.all([
+  const hiddenContacts = hidden.filter((row) =>
+    isContactConversation(toChatTypeNumber(row.chatType) ?? 0),
+  );
+  const [details, people, recent] = await Promise.all([
     groupDetails(
       session,
       members.items.map((row) => row.groupCode),
@@ -79,9 +128,25 @@ export async function searchContacts(
     profiles(session, [
       ...direct.map((row) => row.targetUid),
       ...historical.map((row) => row.targetUid),
+      ...hiddenContacts.map((row) => row.targetUid),
       ...members.items.map((row) => row.uid),
     ]),
+    recentConversationEvidence(
+      session,
+      [...historical, ...hiddenContacts].map((row) => row.targetUid),
+    ),
   ]);
+  const currentIds = new Set(direct.map((row) => row.targetUid));
+  const hiddenIds = new Set(
+    hiddenContacts
+      .filter((row) => toChatTypeNumber(row.chatType) === ChatType.KCHATTYPEC2C)
+      .map((row) => row.targetUid),
+  );
+  const deletedIds = new Set(
+    historical
+      .filter((row) => row.chatType === ChatType.KCHATTYPEC2C || row.chatType === 10)
+      .map((row) => row.targetUid),
+  );
   const profileByUid = new Map(people.map((row) => [row.uid, row]));
   const buddyByUid = new Map(buddies.map((row) => [row.uid, row]));
   const buddyByUin = new Map(buddies.map((row) => [row.uin.toString(), row]));
@@ -96,6 +161,7 @@ export async function searchContacts(
     avatarUrl?: string | null;
     conversation?: boolean;
     temporary?: boolean;
+    chatType?: number;
     aliases?: string[];
     group?: ContactSearchHit['groups'][number];
   };
@@ -108,9 +174,32 @@ export async function searchContacts(
       remark: row.remark,
       aliases: [row.groupNick],
       conversation: true,
-      temporary: row.chatType !== ChatType.KCHATTYPEC2C,
+      temporary:
+        classifyChatType(row.chatType) === 'direct' && row.chatType !== ChatType.KCHATTYPEC2C,
+      chatType: row.chatType,
     })),
-    ...historical.map((row) => ({ uid: row.targetUid, uin: '', nick: '', conversation: true })),
+    ...historical.map((row) => ({
+      uid: row.targetUid,
+      uin: '',
+      nick: '',
+      conversation: true,
+      chatType: row.chatType,
+    })),
+    ...hiddenContacts.map((row) => ({
+      uid: row.targetUid,
+      uin: row.targetUin,
+      nick: '',
+      conversation: true,
+      chatType: toChatTypeNumber(row.chatType) ?? undefined,
+    })),
+    ...services.map((row) => ({
+      uid: String(row.appId),
+      uin: '',
+      nick: row.displayName,
+      avatarUrl: row.avatarUrl,
+      conversation: true,
+      chatType: ChatType.KCHATTYPESERVICEASSISTANT,
+    })),
     ...members.items.map((row) => ({
       uid: row.uid,
       uin: row.uin,
@@ -137,8 +226,11 @@ export async function searchContacts(
     const profile = profileByUid.get(row.uid);
     const uin = uinByUid.get(row.uid) || validUin(row.uin);
     if (!row.uid && !uin) continue;
-    const key = uin ? `uin:${uin}` : `uid:${row.uid}`;
-    const buddy = buddyByUid.get(row.uid) ?? buddyByUin.get(uin);
+    const special =
+      row.chatType !== undefined &&
+      ['dataline', 'official', 'service'].includes(classifyChatType(row.chatType) ?? '');
+    const key = special ? `chat:${row.chatType}:${row.uid}` : uin ? `uin:${uin}` : `uid:${row.uid}`;
+    const buddy = special ? undefined : (buddyByUid.get(row.uid) ?? buddyByUin.get(uin));
     const friend = Boolean(buddy);
     let hit = merged.get(key);
     if (!hit) {
@@ -167,6 +259,7 @@ export async function searchContacts(
     hit.nick ||= profile?.nick || row.nick;
     hit.isFriend ||= friend;
     hit.hasConversation ||= Boolean(row.conversation);
+    if (row.chatType !== undefined) hit.chatType = row.chatType;
     hit.temporary ||= Boolean(row.temporary);
     hit.aliases = [
       ...new Set(
@@ -185,6 +278,12 @@ export async function searchContacts(
     if (row.group && !hit.groups.some((group) => group.groupCode === row.group!.groupCode))
       hit.groups.push(row.group);
   }
+  for (const hit of merged.values()) {
+    const kind = classifyChatType(hit.chatType ?? ChatType.KCHATTYPEC2C);
+    if (kind === 'official' || kind === 'service') continue;
+    const view = conversationViewForIdentity(hit.uid, currentIds, recent, hiddenIds, deletedIds);
+    if (view) hit.conversationView = view;
+  }
   return [...merged.values()]
     .filter((hit) => searchNameRank(keyword, hit.uid, hit.uin, ...hit.aliases) > 0)
     .sort(
@@ -200,20 +299,33 @@ export async function searchGroups(
   session: AccountSession,
   keyword: string,
 ): Promise<GroupSearchHit[]> {
-  const [cached, conversations, deleted, directory] = await Promise.all([
+  const [cached, conversations, deleted, directory, hidden] = await Promise.all([
     session.groupDetail.searchIdentities(keyword),
     session.recentContacts.searchIdentities(keyword),
     session.deletedSessions.listDeletedSessions(),
     session.groupDetail.listDirectory(),
+    session.hiddenSessions?.listHiddenSessions() ?? [],
   ]);
   const groupConversations = conversations.filter(
     (row) => classifyChatType(row.chatType) === 'group',
   );
-  const historical = deleted.filter((row) => classifyChatType(row.chatType) === 'group');
-  const details = await groupDetails(
-    session,
-    [...groupConversations, ...historical].map((row) => row.targetUid),
+  const historical = [
+    ...deleted.filter((row) => classifyChatType(row.chatType) === 'group'),
+    ...hidden.filter((row) => classifyChatType(row.chatType) === 'group'),
+  ];
+  const targetIds = [...groupConversations, ...historical].map((row) => row.targetUid);
+  const [details, recent] = await Promise.all([
+    groupDetails(session, targetIds),
+    recentConversationEvidence(session, targetIds),
+  ]);
+  const currentIds = new Set(groupConversations.map((row) => row.targetUid));
+  const hiddenIds = new Set(
+    hidden.filter((row) => classifyChatType(row.chatType) === 'group').map((row) => row.targetUid),
   );
+  const deletedIds = new Set(
+    deleted.filter((row) => classifyChatType(row.chatType) === 'group').map((row) => row.targetUid),
+  );
+  const groupDirectory = new Map(directory.map((row) => [row.groupCode, row]));
   const detailByCode = new Map(details.map((row) => [row.groupCode.toString(), row]));
   const current = new Set(directory.map((row) => row.groupCode));
   const candidates = [
@@ -263,6 +375,17 @@ export async function searchGroups(
         ].filter(Boolean),
       ),
     ];
+  }
+  for (const hit of merged.values()) {
+    const view = conversationViewForIdentity(
+      hit.groupCode,
+      currentIds,
+      recent,
+      hiddenIds,
+      deletedIds,
+      groupDirectory,
+    );
+    if (view) hit.conversationView = view;
   }
   return [...merged.values()]
     .filter((hit) => searchNameRank(keyword, hit.groupCode, ...hit.aliases) > 0)

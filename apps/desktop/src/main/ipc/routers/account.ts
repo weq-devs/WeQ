@@ -35,6 +35,7 @@ import {
 } from '../../../shared/browser_file_upload';
 import { assertEmbeddingModelIdentity, AGENTLAB_PERSONA_ID_PATTERN } from '@weq/agentlab';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
+import { SEARCH_SOURCES } from '@weq/service/search-policy';
 import {
   SEARCH_CATEGORIES,
   saveExportOutput,
@@ -2275,6 +2276,10 @@ export const accountRouter = router({
       return requireServices().agentLab.deletePersona(input.personaId);
     }),
 
+  getAgentLabRunningConversations: procedure.query(() => {
+    return requireServices().agentLab.getRunningConversations();
+  }),
+
   /** 导出克隆体为独立 OneBot bot（napcat/snowluma）产物文件夹。 */
   exportAgentLabPersona: procedure
     .input(
@@ -2531,8 +2536,8 @@ export const accountRouter = router({
 
   deleteAgentLabGroup: procedure
     .input(z.object({ groupId: z.string().min(1) }))
-    .mutation(({ input }) => {
-      requireServices().agentLab.deleteGroup(input.groupId);
+    .mutation(async ({ input }) => {
+      await requireServices().agentLab.deleteGroup(input.groupId);
       return true;
     }),
 
@@ -2740,17 +2745,40 @@ export const accountRouter = router({
   /** 删除一个会话（含其对话内容）。 */
   deleteAssistantSession: procedure
     .input(z.object({ sessionId: z.string().min(1) }))
-    .mutation(({ input }) => {
-      requireServices().assistant.deleteSession(input.sessionId);
+    .mutation(async ({ input }) => {
+      const assistant = requireServices().assistant;
+      const state = currentDraftState();
+      await assistant.deleteSession(input.sessionId);
+      state.observeDraft(`assistant:${input.sessionId}`, null);
       try {
-        currentDraftState().records('assistant', { [input.sessionId]: null });
+        state.records('assistant', { [input.sessionId]: null });
       } catch (error) {
-        currentDraftState().announceDrafts();
+        state.announceDrafts();
         throw new Error(
           `会话已删除，但已读状态清理失败：${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      currentDraftState().announceDrafts();
+      state.announceDrafts();
+      return true;
+    }),
+
+  /** 所选助手会话停止并写完后永久删除，不改变其他会话的运行。 */
+  deleteAssistantSessions: procedure
+    .input(z.object({ sessionIds: z.array(z.string().min(1)).min(1) }))
+    .mutation(async ({ input }) => {
+      const assistant = requireServices().assistant;
+      const state = currentDraftState();
+      await assistant.deleteSessions(input.sessionIds);
+      for (const id of input.sessionIds) state.observeDraft(`assistant:${id}`, null);
+      try {
+        state.records('assistant', Object.fromEntries(input.sessionIds.map((id) => [id, null])));
+      } catch (error) {
+        state.announceDrafts();
+        throw new Error(
+          `会话已删除，但已读状态清理失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      state.announceDrafts();
       return true;
     }),
 
@@ -4748,6 +4776,7 @@ export const accountRouter = router({
         limit: z.number().int().min(1).max(20).default(3),
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
         conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
+        sources: z.array(z.enum(SEARCH_SOURCES)).optional(),
       }),
     )
     .query(async ({ input }) => {
@@ -4756,6 +4785,7 @@ export const accountRouter = router({
         input.limit,
         input.categories,
         input.conversationScope,
+        input.sources,
       );
     }),
 
@@ -4767,6 +4797,7 @@ export const accountRouter = router({
         limit: z.number().int().min(1).max(20).default(3),
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
         conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
+        sources: z.array(z.enum(SEARCH_SOURCES)).optional(),
       }),
     )
     .query(async ({ input }) => {
@@ -4775,6 +4806,7 @@ export const accountRouter = router({
         input.limit,
         input.categories,
         input.conversationScope,
+        input.sources,
       );
     }),
 
@@ -4794,6 +4826,7 @@ export const accountRouter = router({
       z.object({
         category: z.enum(SEARCH_CATEGORIES),
         conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
+        sources: z.array(z.enum(SEARCH_SOURCES)).optional(),
         keyword: z.string().trim().min(1),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
@@ -4806,6 +4839,7 @@ export const accountRouter = router({
         input.offset,
         input.limit,
         input.conversationScope,
+        input.sources,
       );
     }),
 
@@ -7847,7 +7881,7 @@ export const accountRouter = router({
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         baselineDirectory: z.string().min(1).optional(),
-        kind: z.enum(['group', 'c2c']),
+        kind: z.enum(['group', 'c2c', 'official', 'service']),
         conv: z.string().min(1),
         name: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']),

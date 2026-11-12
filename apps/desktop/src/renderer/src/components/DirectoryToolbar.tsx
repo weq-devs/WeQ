@@ -39,6 +39,9 @@ export function DirectoryToolbar({
   const [searching, setSearching] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
+    if (query) setSearching(true);
+  }, [query]);
+  useEffect(() => {
     if (searching && (!selecting || separateSelectionBar)) input.current?.focus();
   }, [searching, selecting, separateSelectionBar]);
   const closeSearch = () => {

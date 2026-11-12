@@ -19,7 +19,9 @@ export function SharedDisplayToggle({
     | 'showMessageTime'
     | 'showMessageDate'
     | 'showMessageSeq'
-    | 'keepConversationPositionOnHover';
+    | 'keepConversationPositionOnHover'
+    | 'allConversationsIncludeHidden'
+    | 'allConversationsIncludeDeleted';
   label: string;
   fallback: boolean;
   disabled?: boolean;

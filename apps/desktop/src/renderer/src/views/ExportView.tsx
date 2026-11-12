@@ -105,6 +105,7 @@ import {
 } from './export/exportScope';
 import { ContactScopePicker } from './export/ContactScopePicker';
 import { GeneratedExportPane } from './export/GeneratedExportPane';
+import { ConversationBatchExportPane } from './export/ConversationBatchExportPane';
 import { MailExportPane } from './export/MailExportPane';
 import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/workspace-tools.css';
@@ -357,6 +358,14 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
 
 export function ExportTool(props: Parameters<typeof ExportToolBody>[0]): ReactElement {
   const selection = props.initialSelection;
+  if (props.surface !== 'tasks' && selection?.owner.kind === 'conversation-batch')
+    return (
+      <ConversationBatchExportPane
+        initialSelection={selection}
+        onClose={props.onClose}
+        onAuthorizationChange={props.onAuthorizationChange}
+      />
+    );
   if (
     props.surface !== 'tasks' &&
     selection?.scope.type === 'references' &&

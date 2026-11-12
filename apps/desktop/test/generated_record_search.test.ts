@@ -20,8 +20,7 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
       get: (_target, key) =>
         key === 'query' || key === 'mutate'
           ? (input: unknown) => {
-              nativeReads(path.join('.'), input);
-              return Promise.resolve({ items: [], total: 0 });
+              return Promise.resolve(nativeReads(path.join('.'), input) ?? { items: [], total: 0 });
             }
           : proxy([...path, String(key)]),
     });
@@ -30,6 +29,75 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  nativeReads.mockReset();
+  vi.useRealTimers();
+});
+
+it('服务号搜索显示候选截断提示，消息定位保留服务号和消息身份', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const jump = vi.fn();
+  const hit = {
+    category: 'chatRecord' as const,
+    source: 'buddy' as const,
+    partition: '90001',
+    targetUid: 'service:90001',
+    targetUin: '',
+    name: '合成服务号',
+    count: 1,
+  };
+  nativeReads.mockImplementation((path: string) =>
+    path === 'account.searchConversationRecords'
+      ? {
+          items: [
+            {
+              msgId: 'm1',
+              msgSeq: '1',
+              senderUid: 'service-sender',
+              senderUin: '',
+              senderName: '',
+              sendTime: '1',
+              content: '合成正文',
+            },
+          ],
+          total: 1,
+          limited: true,
+        }
+      : path === 'account.searchMore'
+        ? { category: 'chatRecord', items: [hit], total: 1, hasMore: false }
+        : undefined,
+  );
+  try {
+    await act(async () =>
+      root.render(
+        h(ChatRecordsModal, {
+          initialKeyword: '合成',
+          initialHit: hit,
+          onClose: vi.fn(),
+          onJumpMessage: jump,
+        }),
+      ),
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(document.body.textContent).toContain('本轮候选已显示完');
+    expect(document.body.textContent).not.toContain('没有更多了');
+    const message = document.querySelector<HTMLButtonElement>('.weq-chatrecords-msg')!;
+    act(() => message.click());
+    expect(jump).toHaveBeenCalledWith({
+      source: 'buddy',
+      targetUid: 'service:90001',
+      msgSeq: '1',
+      msgId: 'm1',
+    });
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it('克隆复用普通搜索窗，分页显示但按完整匹配身份导出，不查询原生 QQ 记录', async () => {

@@ -42,10 +42,6 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces', () => ({
   ExportViewer: () => h('div', { 'data-search-tool': 'viewer' }),
   AnalysisTool: () => h('div', { 'data-search-tool': 'analysis' }),
 }));
-vi.mock('../src/renderer/src/views/agentlab/AssistantMenuWorkspace', () => ({
-  AssistantMenuWorkspace: () => h('div', { 'data-search-tool': 'assistant' }),
-}));
-
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -59,7 +55,7 @@ function visibleTool(tool: SearchableTool) {
 }
 
 describe('搜索直达现有工作工具', () => {
-  it.each(['export', 'viewer', 'analysis', 'tasks', 'assistant'] as const)(
+  it.each(['export', 'viewer', 'analysis', 'tasks'] as const)(
     '%s 仅处理当前账号来源的请求，关闭后可再次打开',
     (tool: SearchableTool) => {
       const host = document.createElement('div');
@@ -82,9 +78,7 @@ describe('搜索直达现有工作工具', () => {
         render('fixture/config', 2);
         expect(visibleTool(tool)).toBeDefined();
         const closeSelector =
-          tool === 'tasks' || tool === 'assistant'
-            ? '[aria-label="关闭完整面板"]'
-            : '[aria-label="关闭工具"]';
+          tool === 'tasks' ? '[aria-label="关闭完整面板"]' : '[aria-label="关闭工具"]';
         const close = document.querySelector<HTMLButtonElement>(closeSelector)!;
         act(() => close.click());
         const closedButton = document.querySelector(closeSelector);
@@ -99,4 +93,39 @@ describe('搜索直达现有工作工具', () => {
       }
     },
   );
+
+  it('助手请求只转交当前账号的主聊天导航，不再挂载任务菜单中的助手面板', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const openAssistant = vi.fn();
+    const current = { scope: 'fixture/config', revision: 2, tool: 'assistant' as const };
+    const render = (request: typeof current) =>
+      act(() =>
+        root.render(
+          h(WorkspaceTools, {
+            accountScope: 'fixture/config',
+            footerControls: null,
+            onOpenAnalysis: vi.fn(),
+            onOpenAssistant: openAssistant,
+            searchRequest: request,
+          }),
+        ),
+      );
+    try {
+      render({ ...current, scope: 'other/config' });
+      expect(openAssistant).not.toHaveBeenCalled();
+      render(current);
+      expect(openAssistant).toHaveBeenCalledOnce();
+      expect(visibleTool('assistant')).toBeUndefined();
+      render(current);
+      expect(openAssistant).toHaveBeenCalledOnce();
+      render({ ...current, revision: 3 });
+      expect(openAssistant).toHaveBeenCalledTimes(2);
+      expect(visibleTool('assistant')).toBeUndefined();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
 });

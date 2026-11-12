@@ -30,6 +30,8 @@ export function WindowedList<T>({
   resetKey,
   onVisibleItems,
   bufferScreens = 0,
+  restoreScrollTop = 0,
+  onScrollTopChange,
 }: {
   items: readonly T[];
   rowHeight: number;
@@ -45,6 +47,8 @@ export function WindowedList<T>({
   onVisibleItems?: (items: readonly T[]) => void;
   /** 主滚动列表可显式预留视口缓冲；选择器默认保留紧凑 DOM 预算。 */
   bufferScreens?: number;
+  restoreScrollTop?: number;
+  onScrollTopChange?: (top: number) => void;
 }) {
   const [top, setTop] = useState(0);
   const root = useRef<HTMLDivElement>(null);
@@ -61,10 +65,10 @@ export function WindowedList<T>({
   }, []);
   useLayoutEffect(() => {
     if (resetKey !== undefined && root.current) {
-      root.current.scrollTop = 0;
-      setTop(0);
+      root.current.scrollTop = restoreScrollTop;
+      setTop(restoreScrollTop);
     }
-  }, [resetKey]);
+  }, [resetKey, restoreScrollTop]);
   useLayoutEffect(() => {
     const request = `${scrollToKey}:${scrollRevision ?? 0}`;
     if (!scrollToKey || applied.current === request) return;
@@ -128,6 +132,7 @@ export function WindowedList<T>({
       style={{ height: Math.min(height, items.length * rowHeight), overflowY: 'auto' }}
       onScroll={(event) => {
         const element = event.currentTarget;
+        onScrollTopChange?.(element.scrollTop);
         const first = Math.floor(element.scrollTop / rowHeight);
         const last = Math.ceil((element.scrollTop + element.clientHeight) / rowHeight);
         const current = renderedRangeRef.current;

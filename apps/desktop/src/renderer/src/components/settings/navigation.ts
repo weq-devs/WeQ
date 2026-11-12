@@ -436,6 +436,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['message-unread-badge', '在消息图标上显示红点', '显示消息汇总红点'],
       ['contact-unread-count', '在联系人界面显示未读消息数'],
       ['group-assistant-count', '群助手显示总消息数'],
+      ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
+      ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
       ['read-first-unread', '从第一条新消息开始阅读'],
       ['keep-conversation-position-on-hover', '鼠标停留时保持会话位置', '会话排序', '悬停排序'],
       ['auto-follow-latest-messages', '自动跟随最新消息'],

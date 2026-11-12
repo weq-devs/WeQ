@@ -7,7 +7,10 @@ import {
   type CalendarTarget,
 } from '@weq/service/conversation-calendar';
 import { ConversationOverviewCalendar } from '../src/renderer/src/components/ConversationOverviewCalendar';
-import { calendarCloneRevision } from '../src/renderer/src/lib/calendarSourceRevision';
+import {
+  calendarCloneRevision,
+  calendarAssistantRevision,
+} from '../src/renderer/src/lib/calendarSourceRevision';
 import { setCalendarKinds } from '../src/renderer/src/hooks/useCalendarKinds';
 import type { CalendarControlState } from '@weq/service/conversation-calendar';
 
@@ -447,6 +450,17 @@ it('相同内容的目录重新拉取和顺序改变不算更新，实际消息�
     ),
   ).toBe(original);
   expect(calendarCloneRevision([{ ...rows[0]!, preview: 'new' }, rows[1]!], [])).not.toBe(original);
+});
+
+it('助手日历的来源版本只跟随各独立会话内容时间，目录重排不触发重新扫描', () => {
+  const rows = [
+    { id: 'one', updatedAt: 1 },
+    { id: 'two', updatedAt: 2 },
+  ];
+  const original = calendarAssistantRevision(rows);
+  expect(calendarAssistantRevision([...rows].reverse())).toBe(original);
+  expect(calendarAssistantRevision([{ ...rows[0]!, updatedAt: 3 }, rows[1]!])).not.toBe(original);
+  expect(calendarAssistantRevision([rows[1]!])).not.toBe(original);
 });
 
 it('扫描中的数据变更不重开任务，直接关闭后停止且没有轮询或自动重启', async () => {

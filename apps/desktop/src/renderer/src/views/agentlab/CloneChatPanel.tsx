@@ -1,7 +1,6 @@
 /**
  * 克隆私聊的数据源适配：页面、输入区、消息与多选全部由普通 ChatPane 渲染。
- *  - 草稿会话：点克隆体进来就是新草稿，发第一条消息才落库建会话（sessionId null → 真 id），
- *    期间组件不重挂载、流式不中断（navKey 由父组件维持）。
+ * 每个克隆角色始终读写同一段长期对话，旧子会话由服务层合并。
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { AgentLabModelSelection } from '@weq/agentlab';
@@ -18,7 +17,6 @@ import {
   cloneChatMessages,
   cloneChatInput,
 } from './cloneChatAdapter';
-import { SessionSwitcher } from './SessionSwitcher';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -39,27 +37,26 @@ interface ChatTurn {
   text: string;
   /** 该条消息的时间戳（持久化回合来自库里的 ts，本地回合取发送/生成时刻）。 */
   ts: number;
+  sourceSessionId?: string | null;
+  sourceSessionTitle?: string;
+  sourceMessageId?: string;
 }
 
 export function CloneChatPanel({
   personaId,
   persona,
-  sessionId,
   searchTarget,
   readOnlyLegacy = false,
   selfUin,
   clonedUin,
   faces,
   onBack,
-  onSessionCreated,
-  onSwitchSession,
-  onNewSession,
   onOpenSettings,
 }: {
   personaId: string;
   persona: ClonePersonaLite;
   /** 真实会话 id；null = 草稿会话（首条消息才落库）。 */
-  sessionId: string | null;
+  sessionId?: string | null;
   searchTarget?: GeneratedSearchHit;
   readOnlyLegacy?: boolean;
   selfUin?: string;
@@ -69,40 +66,21 @@ export function CloneChatPanel({
   modelLabel: string;
   onBack: () => void;
   /** 草稿会话首条消息落库后回调（父组件据此把选中态指向新会话，不换 key）。 */
-  onSessionCreated: (sessionId: string) => void;
+  onSessionCreated?: (sessionId: string) => void;
   /** 切到同一克隆体的另一段会话（克隆体进了会话列表后，只剩这里能切）。 */
-  onSwitchSession: (sessionId: string) => void;
-  onNewSession: () => void;
+  onSwitchSession?: (sessionId: string) => void;
+  onNewSession?: () => void;
   onOpenSettings: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const userFaces = useMemo(() => (faces ? inputFaceContext(faces.descToId) : undefined), [faces]);
   const utils = trpc.useUtils();
   const chat = trpc.account.chatWithAgentLabPersona.useMutation();
-  const createSession = trpc.account.createAgentLabPersonaSession.useMutation();
-  const deleteSession = trpc.account.deleteAgentLabPersonaSession.useMutation();
-  const sessionList = trpc.account.listAgentLabPersonaSessions.useQuery(
+  const legacy = readOnlyLegacy;
+  const conversation = trpc.account.getAgentLabConversation.useQuery(
     { personaId },
-    { staleTime: 0 },
+    { staleTime: 0, refetchOnMount: 'always' },
   );
-  // 页面身份在草稿升级时保持稳定，查询身份则切到持久会话以接管正式消息 ID。
-  const initialSessionId = useRef(sessionId).current;
-  const [currentSessionId, setCurrentSessionId] = useState(sessionId);
-  const sessionIdRef = useRef<string | null>(sessionId);
-  const legacy = readOnlyLegacy || Boolean(searchTarget && searchTarget.sessionId === null);
-  const sessionConversation = trpc.account.getAgentLabPersonaSessionConversation.useQuery(
-    { personaId, sessionId: currentSessionId ?? '' },
-    {
-      enabled: !!currentSessionId,
-      staleTime: 0,
-      refetchOnMount: 'always',
-    },
-  );
-  const legacyConversation = trpc.account.getAgentLabConversation.useQuery(
-    { personaId },
-    { enabled: legacy, staleTime: 0, refetchOnMount: 'always' },
-  );
-  const conversation = legacy ? legacyConversation : sessionConversation;
 
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
@@ -113,7 +91,7 @@ export function CloneChatPanel({
   const [jumpRequest, setJumpRequest] = useState(
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
-  const viewId = useRef(`virtual:clone:persona:${personaId}:${sessionId ?? 'draft'}`).current;
+  const viewId = `virtual:clone:persona:${personaId}`;
   const user = useMemo(() => cloneChatUser('self', '我', selfUin), [selfUin]);
   const peer = useMemo(
     () => cloneChatUser(personaId, persona.name, clonedUin, true),
@@ -125,13 +103,13 @@ export function CloneChatPanel({
         target: {
           kind: 'persona',
           ownerId: personaId,
-          sessionId: legacy ? null : currentSessionId,
+          sessionId: null,
         },
         viewId,
         name: persona.name,
         peer,
       }),
-    [personaId, legacy, currentSessionId, viewId, persona.name, peer],
+    [personaId, viewId, persona.name, peer],
   );
   const messages = useMemo(
     () =>
@@ -139,6 +117,10 @@ export function CloneChatPanel({
         history[index]?.role === 'user' ? user : peer,
       ),
     [history, viewId, user, peer],
+  );
+  const sourceMessages = useMemo(
+    () => new Map(history.map((message) => [message.id, message])),
+    [history],
   );
   const renderers = useMemo<MessageRenderer[]>(
     () => [
@@ -150,11 +132,16 @@ export function CloneChatPanel({
             text={message.body}
             faces={mine ? userFaces : faces}
             personaId={mine ? undefined : personaId}
+            sourceSession={{
+              id: sourceMessages.get(message.id)?.sourceSessionId,
+              title: sourceMessages.get(message.id)?.sourceSessionTitle,
+              messageId: sourceMessages.get(message.id)?.sourceMessageId,
+            }}
           />
         ),
       },
     ],
-    [userFaces, faces, personaId],
+    [userFaces, faces, personaId, sourceMessages],
   );
 
   // 首次加载持久化对话（真实会话）。
@@ -165,9 +152,7 @@ export function CloneChatPanel({
       !conversation.isFetching &&
       (!seeded.current || lastPersisted.current !== conversation.data)
     ) {
-      setHistory(
-        conversation.data.map((t) => ({ id: t.id, role: t.role, text: t.text, ts: t.ts })),
-      );
+      setHistory(conversation.data.map((t) => ({ ...t })));
       seeded.current = true;
       lastPersisted.current = conversation.data;
     }
@@ -183,34 +168,13 @@ export function CloneChatPanel({
     const nextHistory = [...history, { role: 'user' as const, text, ts: Date.now() }];
     setHistory(nextHistory);
     try {
-      // 草稿会话：真正发第一条消息时才落库建会话（与 WeQ 助手一致）。
-      let id = sessionIdRef.current;
-      if (!id) {
-        const session = await createSession.mutateAsync({ personaId });
-        id = session.id;
-        sessionIdRef.current = id;
-        setCurrentSessionId(id);
-        seeded.current = true; // 新会话无历史可 seed，别被首帧空对话覆盖本地 turns
-        await utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
-        onSessionCreated(id);
-      }
-      const result = await chat.mutateAsync({ personaId, text, history, sessionId: id });
-      // 多会话兜底：后端重建了会话时采纳新 id。
-      if (result.sessionId && result.sessionId !== id) {
-        sessionIdRef.current = result.sessionId;
-        setCurrentSessionId(result.sessionId);
-        onSessionCreated(result.sessionId);
-      }
+      const result = await chat.mutateAsync({ personaId, text, history });
       // 首句标题 / 时间刷新由后端落库，这里让列表跟上。
-      void utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
       void utils.account.listAgentLabPersonas.invalidate();
       // 发言意愿对私聊生效且这次「懒得回」：只保留用户这条，不加回复气泡。
       if (result.silent) {
         seeded.current = true;
-        void utils.account.getAgentLabPersonaSessionConversation.invalidate({
-          personaId,
-          sessionId: sessionIdRef.current ?? id,
-        });
+        void utils.account.getAgentLabConversation.invalidate({ personaId });
         return;
       }
       const segments =
@@ -233,10 +197,7 @@ export function CloneChatPanel({
       }
       // 让持久化对话缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
       seeded.current = true;
-      void utils.account.getAgentLabPersonaSessionConversation.invalidate({
-        personaId,
-        sessionId: sessionIdRef.current ?? id,
-      });
+      void utils.account.getAgentLabConversation.invalidate({ personaId });
     } catch (error) {
       // 生成失败前可能已经保存用户消息，主列表仍需读取实际活动时间。
       void utils.account.listAgentLabPersonas.invalidate();
@@ -245,11 +206,7 @@ export function CloneChatPanel({
       throw error;
     } finally {
       setAnimating(false);
-      if (sessionIdRef.current)
-        void utils.account.getAgentLabPersonaSessionConversation.invalidate({
-          personaId,
-          sessionId: sessionIdRef.current,
-        });
+      void utils.account.getAgentLabConversation.invalidate({ personaId });
     }
   }
 
@@ -261,9 +218,7 @@ export function CloneChatPanel({
         conversation={chatConversation}
         messages={messages}
         messageRenderers={renderers}
-        loading={Boolean(
-          conversation.isFetching && !history.length && (initialSessionId || legacy),
-        )}
+        loading={Boolean(conversation.isFetching && !history.length)}
         preference={undefined}
         draft={input}
         onDraftChange={(_id, value) => setInput(value)}
@@ -277,32 +232,6 @@ export function CloneChatPanel({
         onOpenConversationSettings={onOpenSettings}
         onSearchChatRecords={() => setSearchOpen(true)}
         jumpRequest={jumpRequest}
-        headerActions={
-          <SessionSwitcher
-            sessions={sessionList.data ?? []}
-            activeSessionId={sessionIdRef.current}
-            draft={!legacy && !sessionIdRef.current}
-            loading={sessionList.isLoading}
-            disabled={legacy}
-            compact
-            onSwitch={onSwitchSession}
-            onNew={onNewSession}
-            onDelete={(target) => {
-              void (async () => {
-                const ok = await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
-                  okLabel: '删除',
-                  tone: 'warning',
-                });
-                // confirm 的 okLabel 已经写明是删除，不再二次确认。
-                if (!ok) return;
-                await deleteSession.mutateAsync({ personaId, sessionId: target });
-                await utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
-                // 删的就是当前这段：退回新草稿，避免停在一个已不存在的会话上。
-                if (sessionIdRef.current === target) onNewSession();
-              })();
-            }}
-          />
-        }
       />
       {searchOpen ? (
         <ChatRecordsModal

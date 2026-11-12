@@ -8,11 +8,13 @@ export type OpenNumberProfile = (profile: NumberLookupProfile, anchor: HTMLEleme
 export function NumberLookupResults({
   keyword,
   onOpenProfile,
+  kinds = ['user', 'group'],
 }: {
   keyword: string;
   onOpenProfile?: OpenNumberProfile;
+  kinds?: readonly ('user' | 'group')[];
 }) {
-  const lookup = useNumberLookup(keyword);
+  const lookup = useNumberLookup(keyword, kinds);
   return (
     <section className="weq-search-section" aria-label="QQ号/群号">
       <div className="weq-search-section-header">
@@ -23,7 +25,7 @@ export function NumberLookupResults({
           QQ 在线能力未就绪
         </div>
       ) : (
-        (['user', 'group'] as const).map((kind) => {
+        kinds.map((kind) => {
           const result = lookup[kind];
           const label = kind === 'user' ? '用户' : '群聊';
           const Icon = kind === 'user' ? UserRound : UsersRound;

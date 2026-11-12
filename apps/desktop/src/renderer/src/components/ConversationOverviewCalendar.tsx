@@ -19,6 +19,7 @@ import { CalendarStatistics, calendarReadLabel } from './CalendarStatistics';
 import { useCalendarKinds } from '../hooks/useCalendarKinds';
 import { useTabActive } from './RetainedTabs';
 import '../styles/conversation-overview-calendar.css';
+import type { ConversationView } from '../lib/conversationViews';
 
 type Snapshot = ReturnType<ConversationCalendarJob['snapshot']>;
 type Located = Awaited<ReturnType<typeof client.account.calendarOverview.locate.mutate>>;
@@ -34,7 +35,7 @@ export function ConversationOverviewCalendar({
   onLocate,
 }: {
   targets: CalendarTarget[];
-  scope: 'all' | 'real' | 'virtual' | 'guild';
+  scope: ConversationView;
   query: string;
   ready: boolean;
   directoryError?: string;
@@ -77,10 +78,7 @@ export function ConversationOverviewCalendar({
         : null,
     [expectedAccountUin, expectedAccountConfigId],
   );
-  const selected = useMemo(
-    () => filterCalendarTargets(targets, scope, query),
-    [targets, scope, query],
-  );
+  const selected = useMemo(() => filterCalendarTargets(targets, 'all', query), [targets, query]);
   const selectionKey = useMemo(() => calendarTargetSetKey(selected), [selected]);
   const selectedByKey = useMemo(
     () => new Map(selected.map((target) => [calendarTargetKey(target), target])),
@@ -333,7 +331,7 @@ export function ConversationOverviewCalendar({
       className="weq-overview-calendar-modal"
       labelledBy="conversation-overview-calendar-title"
     >
-      <div className="weq-overview-calendar">
+      <div className="weq-overview-calendar" data-conversation-view={scope}>
         <header>
           <h3 id="conversation-overview-calendar-title">会话日历</h3>
           <button

@@ -93,19 +93,21 @@ describe('搜索范围选择工具栏', () => {
     const f = mount();
     try {
       const buttons = [...f.scope().querySelectorAll<HTMLButtonElement>('button')];
-      expect(buttons).toHaveLength(SEARCH_CATEGORY_ORDER.length + 2);
+      expect(buttons).toHaveLength(SEARCH_CATEGORY_ORDER.length + 6);
       expect(buttons.map((button) => button.textContent)).toEqual([
         '全部',
+        'QQ',
+        '克隆',
+        'WeQ 助手',
         '功能与设置',
+        '全部',
         '联系人',
         '群聊',
-        '消息',
+        '聊天记录',
         '文件',
-        '群相册',
-        '收藏',
         '空间',
+        '收藏',
         '邮件',
-        '助手会话',
       ]);
       for (const button of buttons) {
         expect(button.textContent?.trim()).not.toBe('');
@@ -129,7 +131,7 @@ describe('搜索范围选择工具栏', () => {
   it('全部按钮区分部分、全部和未选状态，清空后输入才显示未选择提示', () => {
     const f = mount();
     try {
-      const all = f.scope().querySelector<HTMLButtonElement>('[aria-label="全部范围"]')!;
+      const all = f.scope().querySelector<HTMLButtonElement>('[aria-label="全部来源"]')!;
       expect(all.getAttribute('aria-pressed')).toBe('true');
       act(() => all.click());
       expect(all.getAttribute('aria-pressed')).toBe('false');

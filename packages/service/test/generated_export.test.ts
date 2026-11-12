@@ -87,7 +87,7 @@ it.each(['jsonl', 'jsonl.gz'] as const)(
     expect(f.get).not.toHaveBeenCalled();
   },
 );
-it('表格区分 null 旧版身份与名称恰为 legacy 的真实会话', async () => {
+it('表格标识长期对话并保留合并前的会话来源', async () => {
   const f = fixture();
   const root = mkdtempSync(join(tmpdir(), 'weq-generated-identity-'));
   roots.push(root);
@@ -96,12 +96,20 @@ it('表格区分 null 旧版身份与名称恰为 legacy 的真实会话', async
     { kind: 'persona', ownerId: 'persona-fixture', sessionId: null },
     ['m1'],
   );
+  snapshot.messages[0]!.sourceSessionId = 'source-session';
+  snapshot.messages[0]!.sourceSessionTitle = '合并前标题';
+  snapshot.messages[0]!.sourceMessageId = 'original-conflicting-id';
   await writeGeneratedContent(snapshot, 'txt', join(root, 'old.txt'));
   snapshot.target.sessionId = 'legacy';
   await writeGeneratedContent(snapshot, 'txt', join(root, 'session.txt'));
-  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain('会话身份: \n旧版记录: true');
+  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain('会话身份: \n长期对话: true');
+  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain('原会话身份: source-session');
+  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain('原会话标题: 合并前标题');
+  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain(
+    '原消息身份: original-conflicting-id',
+  );
   expect(readFileSync(join(root, 'session.txt'), 'utf8')).toContain(
-    '会话身份: legacy\n旧版记录: false',
+    '会话身份: legacy\n长期对话: false',
   );
 });
 it.each(targets)('生成内容 $kind/$sessionId 按对象与会话读取，精确快照不随原件修改', (target) => {
@@ -134,7 +142,23 @@ it('未持久化或删除的身份明确失败，空集合不变成整场对话'
   expect(() => captureGeneratedContent(f.sources, { ...target, ownerId: 'wrong' })).toThrow(
     '不存在',
   );
-  expect(listGeneratedConversations(f.sources)).toHaveLength(5);
+  expect(listGeneratedConversations(f.sources)).toHaveLength(3);
+});
+
+it('空克隆仍只有一行并可创建空的长期对话导出快照', () => {
+  const f = fixture();
+  f.messages.length = 0;
+  const cloneRows = listGeneratedConversations(f.sources).filter((row) => row.kind !== 'assistant');
+  expect(cloneRows).toHaveLength(2);
+  expect(cloneRows.every((row) => row.count === 0 && row.sessionId === null)).toBe(true);
+  const snapshot = captureGeneratedContent(f.sources, {
+    kind: 'persona',
+    ownerId: 'persona-fixture',
+    sessionId: 'old-session',
+  });
+  expect(snapshot.target.sessionId).toBeNull();
+  expect(snapshot.sessionTitle).toBe('长期对话');
+  expect(snapshot.messages).toEqual([]);
 });
 it('实际生成内容任务写多格式、自动保存和恢复快照，不读 QQ 消息或调用模型', async () => {
   const f = fixture();

@@ -26,6 +26,8 @@ export function fixedScopeSummary(selection: ContentSelection): string {
         ? `${visible ? '当前列表' : owner.container} · 全部会话`
         : `已选 ${count} 个会话`;
     }
+    case 'conversation-batch':
+      return count === null ? '会话批量导出' : `已选 ${count} 个会话 · 按各自来源导出`;
     case 'guild-direct':
       return count === null ? '频道私聊 · 会话全部消息' : `频道私聊 · 精确选中 ${count} 条消息`;
     case 'guild-conversations':

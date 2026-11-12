@@ -1,4 +1,9 @@
-import { DEFAULT_SEARCH_CATEGORIES } from '../account/search_policy';
+import {
+  DEFAULT_SEARCH_CATEGORIES,
+  SEARCH_SOURCES,
+  normalizeSearchPreferences,
+  type SearchPreferences,
+} from '../account/search_policy';
 import { isDirectoryPreference } from './contact_directory_preferences';
 export {
   accountOrderDefaults,
@@ -30,12 +35,20 @@ export const preferenceDefaults = {
   showMessageDate: false,
   showMessageSeq: false,
   keepConversationPositionOnHover: false,
-  search: {
-    categories: [...DEFAULT_SEARCH_CATEGORIES],
-    appEnabled: true,
-    numberLookupEnabled: true,
-  },
-  calendar: ['c2c', 'group', 'dataline', 'official', 'service', 'guild', 'persona', 'cloneGroup'],
+  allConversationsIncludeHidden: false,
+  allConversationsIncludeDeleted: false,
+  search: normalizeSearchPreferences(null) as SearchPreferences,
+  calendar: [
+    'c2c',
+    'group',
+    'dataline',
+    'official',
+    'service',
+    'guild',
+    'persona',
+    'cloneGroup',
+    'assistant',
+  ],
 };
 export type PreferenceKey = keyof typeof preferenceDefaults;
 export type PreferenceValues = typeof preferenceDefaults;
@@ -100,10 +113,18 @@ export function validatePreferencePatch(value: unknown): asserts value is Prefer
       valid =
         isRecord(entry) &&
         Object.keys(entry).every((part) =>
-          ['categories', 'appEnabled', 'numberLookupEnabled'].includes(part),
+          ['version', 'sources', 'categories', 'appEnabled', 'numberLookupEnabled'].includes(part),
         ) &&
         Array.isArray(entry.categories) &&
-        entry.categories.every((part) => DEFAULT_SEARCH_CATEGORIES.includes(part)) &&
+        entry.categories.every(
+          (part) =>
+            DEFAULT_SEARCH_CATEGORIES.includes(part) ||
+            (entry.version === undefined && ['groupAlbum', 'assistantMessage'].includes(part)),
+        ) &&
+        (entry.version === undefined || entry.version === 2) &&
+        (entry.version === undefined ||
+          (Array.isArray(entry.sources) &&
+            entry.sources.every((part) => SEARCH_SOURCES.includes(part)))) &&
         typeof entry.appEnabled === 'boolean' &&
         typeof entry.numberLookupEnabled === 'boolean';
     else if (Object.hasOwn(preferenceDefaults, key)) valid = typeof entry === 'boolean';

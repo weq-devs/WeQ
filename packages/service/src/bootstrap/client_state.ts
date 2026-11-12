@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { normalizeSearchPreferences } from '../account/search_policy';
 import {
   isRecord,
   validatePreferencePatch,
@@ -83,6 +84,13 @@ export class ClientStateStore {
     if (!existsSync(this.path))
       return { epoch: 'empty', revision: 0, values: {}, records: {}, drafts: {} };
     const data: unknown = JSON.parse(readFileSync(this.path, 'utf8'));
+    if (
+      isRecord(data) &&
+      isRecord(data.values) &&
+      isRecord(data.values.search) &&
+      data.values.search.version === undefined
+    )
+      data.values.search = normalizeSearchPreferences(data.values.search);
     validateClientState(data);
     return data;
   }

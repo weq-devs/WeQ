@@ -19,6 +19,7 @@ import { resolveAvatar } from '../../lib/avatarResolver';
 import type { SearchHit } from './types';
 import { searchHitKey } from './types';
 import { PersonRelationshipStatus, GroupRelationshipStatus } from '../RelationshipStatus';
+import { classifyChatType } from '@weq/codec';
 
 /** Group avatar CDN: https://p.qlogo.cn/gh/<code>/<code>/0 */
 export function groupAvatarSrc(groupCode: string): string | null {
@@ -153,6 +154,15 @@ export function SearchResultCard({
 
   switch (hit.category) {
     case 'contact': {
+      const conversationKind = classifyChatType(hit.chatType ?? 1);
+      const sourceLabel =
+        conversationKind === 'official'
+          ? '公众号'
+          : conversationKind === 'service'
+            ? '服务号'
+            : conversationKind === 'dataline'
+              ? '数据线'
+              : null;
       const matchedAlias =
         keyword.trim() &&
         hit.aliases.find(
@@ -175,13 +185,15 @@ export function SearchResultCard({
             '克隆体'
           ) : hit.target?.kind === 'guild' ? (
             '频道私聊'
+          ) : sourceLabel ? (
+            sourceLabel
           ) : (
             <PersonRelationshipStatus
               person={{ id: hit.uid, identityValue: hit.uin, isFriend: hit.isFriend }}
               compact
             />
           )}
-          {!hit.target && !hit.isFriend
+          {!hit.target && !sourceLabel && !hit.isFriend
             ? ` · ${hit.temporary ? '临时会话' : hit.hasConversation ? '本地会话' : '本地资料'}`
             : null}
           {' · '}
@@ -328,10 +340,11 @@ export function SearchResultCard({
           {hit.kind === 'assistant' ? <Bot size={22} /> : <MessagesSquare size={22} />}
         </span>
       );
-      title = `${hit.title} · ${hit.sessionTitle}`;
+      title = hit.kind === 'assistant' ? hit.sessionTitle : hit.title;
       subtitle = (
         <span className="weq-search-muted">
-          {hit.category === 'cloneMessage' ? '本地克隆对话' : '本地助手对话'} ·{' '}
+          {hit.category === 'cloneMessage' ? '克隆' : 'WeQ 助手'} ·{' '}
+          {hit.matchType === 'title' ? '标题命中' : '正文命中'} ·{' '}
           <span data-privacy-sensitive>{highlightText(hit.content, keyword)}</span>
         </span>
       );

@@ -15,6 +15,7 @@ import {
   MessagesSquare,
   RotateCw,
   Settings2,
+  Sparkles,
   Smile,
   UserRound,
   UsersRound,
@@ -32,6 +33,9 @@ import {
   contentSourcesCoverage,
   rankContentSearchHits,
   rankFileSearchHits,
+  DEFAULT_SEARCH_SOURCES,
+  searchCategoriesForSources,
+  type SearchSource,
 } from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
 import { appSearchEntryRank, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
@@ -44,6 +48,7 @@ import {
   SEARCH_CATEGORY_ORDER,
   searchHitKey,
   searchHitNameRank,
+  searchHitSource,
   isSlowSearchCategory,
   type SearchCategory,
   type SearchHit,
@@ -89,6 +94,12 @@ const scopeOptions = SEARCH_CATEGORY_ORDER.map((category) => ({
   categories: [category],
 }));
 const scopeIds = scopeOptions.map((option) => option.id);
+const sourceOptions: Array<{ id: SearchSource; Icon: LucideIcon; label: string }> = [
+  { id: 'qq', Icon: MessagesSquare, label: 'QQ' },
+  { id: 'clone', Icon: Bot, label: '克隆' },
+  { id: 'assistant', Icon: Sparkles, label: 'WeQ 助手' },
+  { id: 'app', Icon: Settings2, label: '功能与设置' },
+];
 
 export function SearchDropdown({
   keyword,
@@ -112,7 +123,8 @@ export function SearchDropdown({
   onSelectAppEntry,
   categoryStates,
   numberLookupEnabled = false,
-  onNumberLookupEnabledChange,
+  sources,
+  onSourcesChange,
 }: {
   keyword: string;
   numberLookupKeyword?: string;
@@ -136,13 +148,34 @@ export function SearchDropdown({
   categoryStates?: SearchCategoryStates;
   numberLookupEnabled?: boolean;
   onNumberLookupEnabledChange?: (enabled: boolean) => void;
+  sources?: readonly SearchSource[];
+  onSourcesChange?: (sources: SearchSource[]) => void;
 }): ReactElement {
   const hasKeyword = keyword.trim().length > 0;
-  const allSelected =
-    SEARCH_CATEGORY_ORDER.every((category) => categories.includes(category)) &&
-    (!onSelectAppEntry || appSearchEnabled) &&
-    (!onNumberLookupEnabledChange || numberLookupEnabled);
-  const partiallySelected = categories.length > 0 || appSearchEnabled || numberLookupEnabled;
+  const [localSources, setLocalSources] = useState<SearchSource[]>(['qq', 'clone', 'assistant']);
+  const activeSources = useMemo(
+    () => sources ?? (appSearchEnabled ? [...localSources, 'app' as const] : localSources),
+    [sources, appSearchEnabled, localSources],
+  );
+  const visibleCategories = useMemo(
+    () => searchCategoriesForSources(activeSources),
+    [activeSources],
+  );
+  const visibleOptions = scopeOptions.filter((option) => visibleCategories.includes(option.id));
+  const changeSources = (next: SearchSource[]) => {
+    if (onSourcesChange) {
+      onSourcesChange(next);
+      return;
+    }
+    if (!sources) setLocalSources(next.filter((source) => source !== 'app'));
+    onAppSearchEnabledChange?.(next.includes('app'));
+  };
+  const appEnabled = activeSources.includes('app');
+  const numberKinds = (['contact', 'group'] as const)
+    .filter((category) => categories.includes(category))
+    .map((category) => (category === 'contact' ? ('user' as const) : ('group' as const)));
+  const lookupEnabled =
+    activeSources.includes('qq') && numberLookupEnabled && numberKinds.length > 0;
   const root = useRef<HTMLDivElement | null>(null);
   const position = useRef(initialPosition);
   const [expandedAppKeyword, setExpandedAppKeyword] = useState(
@@ -150,8 +183,8 @@ export function SearchDropdown({
   );
   const appResultsExpanded = expandedAppKeyword === keyword;
   const appEntries = useMemo(
-    () => (appSearchEnabled ? searchAppEntries(keyword) : []),
-    [keyword, appSearchEnabled],
+    () => (appEnabled ? searchAppEntries(keyword) : []),
+    [keyword, appEnabled],
   );
   const rememberPosition = (focusKey: string) =>
     onNavigate?.({
@@ -196,7 +229,13 @@ export function SearchDropdown({
       loading: quickLoading && !quick,
     });
     sections.set('chatRecord', {
-      hits: slow ? (slow.messageHits ?? slow.chatRecords) : null,
+      hits: slow
+        ? (slow.messageHits ?? [
+            ...slow.chatRecords,
+            ...slow.cloneMessages,
+            ...slow.assistantMessages,
+          ])
+        : null,
       loading: slowLoading && !slow,
     });
     sections.set('file', {
@@ -231,26 +270,32 @@ export function SearchDropdown({
       loading: slowLoading && !slow,
     });
     for (const [category, section] of sections) {
+      if (section.hits && categories.includes(category))
+        section.hits = section.hits.filter((hit) => activeSources.includes(searchHitSource(hit)));
       const status = categoryStates?.[category];
       if (status) section.loading = status.loading;
     }
     return sections;
-  }, [keyword, quick, slow, quickLoading, slowLoading, categoryStates]);
+  }, [keyword, quick, slow, quickLoading, slowLoading, categoryStates, activeSources, categories]);
 
   const indexBuilding =
     categories.some((c) => c === 'chatRecord' || c === 'file') &&
     !slowLoading &&
     slow?.indexStatus === 'building';
   const scopeSelection = useMultiSelection({
-    ids: scopeIds,
+    ids: scopeIds.filter((category) => visibleCategories.includes(category)),
     selected: new Set(
-      scopeOptions
+      visibleOptions
         .filter((option) => option.categories.every((category) => categories.includes(category)))
         .map((option) => option.id),
     ),
     onChange: (next) =>
       onCategoriesChange(
-        scopeOptions.filter((option) => next.has(option.id)).flatMap((option) => option.categories),
+        SEARCH_CATEGORY_ORDER.filter(
+          (category) =>
+            (!visibleCategories.includes(category) && categories.includes(category)) ||
+            next.has(category),
+        ),
       ),
   });
   const failedFor = (category: SearchCategory) =>
@@ -263,6 +308,7 @@ export function SearchDropdown({
               (source) =>
                 source === 'guildMessage' ||
                 source === 'cloneMessage' ||
+                source === 'assistantMessage' ||
                 source === 'groupBulletin' ||
                 source === 'groupEssence',
             ),
@@ -275,7 +321,7 @@ export function SearchDropdown({
           )) ||
         (category === 'qzone' && Boolean(slow?.failedCategories?.some(isQzoneSearchCategory)))
       : (categoryStates?.[category]?.error ?? quickError);
-  const appSectionEnabled = appSearchEnabled && Boolean(onSelectAppEntry);
+  const appSectionEnabled = appEnabled && Boolean(onSelectAppEntry);
   const orderedCategories = useMemo(() => {
     const bestRank = (category: SearchCategory | 'app') =>
       category === 'app'
@@ -288,7 +334,7 @@ export function SearchDropdown({
       category === 'app' ? appEntries.length > 0 : Boolean(sections.get(category)?.hits?.length);
     const categoryOrder: Array<SearchCategory | 'app'> = [
       ...(appSectionEnabled ? ['app' as const] : []),
-      ...SEARCH_CATEGORY_ORDER.filter((category) => categories.includes(category)),
+      ...visibleCategories.filter((category) => categories.includes(category)),
     ];
     return categoryOrder
       .map((category, index) => ({
@@ -302,66 +348,103 @@ export function SearchDropdown({
           Number(b.hasResults) - Number(a.hasResults) || b.rank - a.rank || a.index - b.index,
       )
       .map((item) => item.category);
-  }, [appSectionEnabled, appEntries, sections, categories, keyword]);
+  }, [appSectionEnabled, appEntries, sections, categories, keyword, visibleCategories]);
 
   return (
     <div className="weq-search-dropdown" ref={attachRoot}>
-      <div
-        className="weq-search-scope"
-        role="group"
-        aria-label="搜索范围"
-        {...scopeSelection.rootProps}
-      >
-        <button
-          type="button"
-          aria-label="全部范围"
-          aria-pressed={allSelected ? true : partiallySelected ? 'mixed' : false}
-          onClick={() => {
-            onCategoriesChange(allSelected ? [] : [...SEARCH_CATEGORY_ORDER]);
-            onAppSearchEnabledChange?.(!allSelected);
-            onNumberLookupEnabledChange?.(!allSelected);
-          }}
-        >
-          <Layers size={14} aria-hidden />
-          全部
-        </button>
-        {onSelectAppEntry ? (
+      <div className="weq-search-filters" role="group" aria-label="搜索范围">
+        <div className="weq-search-scope" role="group" aria-label="搜索来源">
+          <span className="weq-search-filter-label">来源</span>
           <button
             type="button"
-            aria-pressed={appSearchEnabled}
-            onClick={() => onAppSearchEnabledChange?.(!appSearchEnabled)}
+            aria-label="全部来源"
+            aria-pressed={
+              DEFAULT_SEARCH_SOURCES.every((source) => activeSources.includes(source))
+                ? true
+                : activeSources.length
+                  ? 'mixed'
+                  : false
+            }
+            onClick={() =>
+              changeSources(
+                DEFAULT_SEARCH_SOURCES.every((source) => activeSources.includes(source))
+                  ? []
+                  : [...DEFAULT_SEARCH_SOURCES],
+              )
+            }
           >
-            <Settings2 size={14} aria-hidden />
-            功能与设置
+            <Layers size={14} aria-hidden />
+            全部
           </button>
+          {sourceOptions.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={activeSources.includes(option.id)}
+              onClick={() =>
+                changeSources(
+                  activeSources.includes(option.id)
+                    ? activeSources.filter((source) => source !== option.id)
+                    : [...activeSources, option.id],
+                )
+              }
+            >
+              <option.Icon size={14} aria-hidden />
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {visibleCategories.length > 0 ? (
+          <div
+            className="weq-search-scope"
+            role="group"
+            aria-label="搜索类型"
+            {...scopeSelection.rootProps}
+          >
+            <span className="weq-search-filter-label">类型</span>
+            <button
+              type="button"
+              aria-label="全部类型"
+              aria-pressed={
+                visibleCategories.every((category) => categories.includes(category))
+                  ? true
+                  : visibleCategories.some((category) => categories.includes(category))
+                    ? 'mixed'
+                    : false
+              }
+              onClick={() =>
+                onCategoriesChange(
+                  visibleCategories.every((category) => categories.includes(category))
+                    ? categories.filter((category) => !visibleCategories.includes(category))
+                    : SEARCH_CATEGORY_ORDER.filter(
+                        (category) =>
+                          categories.includes(category) || visibleCategories.includes(category),
+                      ),
+                )
+              }
+            >
+              <Layers size={14} aria-hidden />
+              全部
+            </button>
+            {visibleOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={option.categories.every((category) => categories.includes(category))}
+                {...scopeSelection.itemProps(option.id)}
+              >
+                <option.Icon size={14} aria-hidden />
+                {option.label}
+              </button>
+            ))}
+          </div>
         ) : null}
-        {onNumberLookupEnabledChange ? (
-          <button
-            type="button"
-            aria-pressed={numberLookupEnabled}
-            onClick={() => onNumberLookupEnabledChange(!numberLookupEnabled)}
-          >
-            <Hash size={14} aria-hidden />
-            QQ号/群号
-          </button>
-        ) : null}
-        {scopeOptions.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            aria-pressed={option.categories.every((category) => categories.includes(category))}
-            {...scopeSelection.itemProps(option.id)}
-          >
-            <option.Icon size={14} aria-hidden />
-            {option.label}
-          </button>
-        ))}
       </div>
       {hasKeyword ? (
         <>
           <div className="weq-search-index-hint">
-            来源：{appSearchEnabled ? '应用功能与设置 · ' : ''}
-            {numberLookupEnabled && isLookupNumber(numberLookupKeyword) ? 'QQ 在线资料 · ' : ''}
+            来源：{appEnabled ? '应用功能与设置 · ' : ''}
+            {lookupEnabled && isLookupNumber(numberLookupKeyword) ? 'QQ 在线资料 · ' : ''}
             当前账号 · 本地可检索记录
           </div>
           {indexBuilding ? (
@@ -370,13 +453,16 @@ export function SearchDropdown({
             </div>
           ) : null}
           <div role="listbox" aria-label="搜索结果" aria-busy={quickLoading || slowLoading}>
-            {categories.length === 0 && !appSearchEnabled && !numberLookupEnabled ? (
+            {!activeSources.length ||
+            (!visibleCategories.some((category) => categories.includes(category)) &&
+              !appEnabled) ? (
               <div className="weq-search-empty">未选择搜索范围</div>
             ) : null}
-            {numberLookupEnabled && isLookupNumber(numberLookupKeyword) ? (
+            {lookupEnabled && isLookupNumber(numberLookupKeyword) ? (
               <NumberLookupResults
                 keyword={numberLookupKeyword}
                 onOpenProfile={onOpenNumberProfile}
+                kinds={numberKinds}
               />
             ) : null}
             {orderedCategories.map((category) => {

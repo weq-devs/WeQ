@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CloneChatPanel } from '../../src/renderer/src/views/agentlab/CloneChatPanel';
 import { GroupChatPanel } from '../../src/renderer/src/views/agentlab/GroupChatPanel';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
@@ -51,6 +52,7 @@ const persona = {
   models: { chat: { providerId: 'fixture', model: 'fixture-model' } },
 };
 const group = new URLSearchParams(location.search).has('group');
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function Fixture() {
   const [settings, setSettings] = useState(false);
   return (
@@ -102,7 +104,9 @@ function Fixture() {
   );
 }
 createRoot(document.getElementById('root')!).render(
-  <OverlayAnchorProvider>
-    <Fixture />
-  </OverlayAnchorProvider>,
+  <QueryClientProvider client={queryClient}>
+    <OverlayAnchorProvider>
+      <Fixture />
+    </OverlayAnchorProvider>
+  </QueryClientProvider>,
 );

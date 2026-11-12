@@ -47,6 +47,27 @@ function server() {
   return response;
 }
 describe('独立客户端的偏好同步', () => {
+  it('全部会话包含隐藏与删除独立跨端同步，切号不回灌旧值', async () => {
+    const response = server();
+    const desktop = await page(new Storage(), 'desktop');
+    await desktop.initializePreferences();
+    expect(desktop.preferenceValue('allConversationsIncludeHidden')).toBe(false);
+    expect(desktop.preferenceValue('allConversationsIncludeDeleted')).toBe(false);
+    await desktop.changePreference('allConversationsIncludeHidden', true);
+    const mobile = await page(new Storage(), 'web');
+    await mobile.initializePreferences();
+    expect(mobile.preferenceValue('allConversationsIncludeHidden')).toBe(true);
+    expect(mobile.preferenceValue('allConversationsIncludeDeleted')).toBe(false);
+    mobile.bindAccountState({
+      expectedAccountUin: '20002',
+      expectedAccountConfigId: 'other-account',
+    });
+    expect(mobile.preferenceValue('allConversationsIncludeHidden')).toBe(true);
+    await mobile.changePreference('allConversationsIncludeDeleted', true);
+    desktop.acceptPreferences(response());
+    expect(desktop.preferenceValue('allConversationsIncludeHidden')).toBe(true);
+    expect(desktop.preferenceValue('allConversationsIncludeDeleted')).toBe(true);
+  });
   it('异步加载客户端期间切换数据源，旧操作不能写入新账号', async () => {
     server();
     const module = await page(new Storage(), 'web');

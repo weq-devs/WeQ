@@ -46,6 +46,12 @@
   border-radius: 0;
 }
 
+.weq-guild-direct.is-chat-only .weq-guild-direct-chat {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+
 .weq-guild-direct .weq-guild-direct-side {
   flex-basis: var(--weq-channel-sidebar-width, var(--im-sidebar-width, 240px));
   min-width: 0;

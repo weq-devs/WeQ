@@ -44,6 +44,8 @@ import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
+import { useMobileBack } from '../hooks/useMobileNavigation';
 import { MobileSidebarPages } from '../components/MobileSidebarPages';
 import { withBrowserFile } from '../lib/browserFileUpload';
 import { stageAccountFile } from '../lib/accountFilePicker';
@@ -67,8 +69,11 @@ import { specialCareBlocker } from '../lib/specialCareAccess';
 import {
   loadGroupAssistantPins,
   saveGroupAssistantPins,
+  isAssistantPinned,
+  groupAssistantPreferences,
   sidebarConversationsWithoutAssistant,
 } from '../lib/groupAssistant';
+import { groupDirectoryPreference, mutedFromNotifyLevel } from '../lib/groupNotifications';
 import {
   mergeRoamingTimeline,
   mergeRoamingWindow,
@@ -80,6 +85,7 @@ import {
   rememberClientRetry,
   forgetClientRetry,
   useClientPreferences,
+  preferenceValue,
   accountBinding as sharedAccountBinding,
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
@@ -185,7 +191,7 @@ import {
   recentContactPreviewIsBehind,
   type ObservedContactPreview,
 } from '../lib/recentContacts';
-import { useContentSelectionScope } from '../state/contentSelection';
+import { useContentSelectionScope, useRequestContentExport } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import {
   ConversationWindowCache,
@@ -242,6 +248,8 @@ import {
   DressUpDialog,
   GroupBugDialog,
   AgentLabView,
+  AssistantConversationPane,
+  GuildDirectDialog,
   AnnualReportView,
 } from '../components/lazyWorkspaces';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
@@ -322,7 +330,6 @@ import { SearchDropdown } from '../components/search/SearchDropdown';
 import { isGeneratedSearchHit, isContentSearchHit } from '../components/search/types';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchPreferences } from '../hooks/useSearchPreferences';
-import type { ConversationScope } from '@weq/service/search-policy';
 import { useSearchReturn } from '../hooks/useSearchReturn';
 import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
@@ -351,13 +358,29 @@ import {
   guildConversationRow,
   virtualConversationRow,
 } from '../lib/conversationDirectory';
-import { displayGroupName, displayUserName } from '../im-template/template/user';
+import {
+  CONVERSATION_VIEWS,
+  aggregateView,
+  conversationViewRows,
+  conversationViewForTarget,
+  conversationRowName,
+  type ConversationView,
+  type ConversationViewDirectory,
+} from '../lib/conversationViews';
+import {
+  archivedConversationRow,
+  feedConversationRow,
+  assistantConversationRow,
+  generatedAggregateRow,
+} from '../lib/conversationDirectoryRows';
+import { conversationBatchSelection } from '../../../shared/content_selection';
+import { displayUserName } from '../im-template/template/user';
 import { isDatalineUid } from '@weq/codec';
 import type { CalendarTarget as OverviewCalendarTarget } from '@weq/service/conversation-calendar';
 import { ConversationOverviewCalendar } from '../components/ConversationOverviewCalendar';
 import { CalendarNavigationContext, type CalendarNavigate } from '../lib/calendarNavigation';
 import { conversationListSearchText } from '../lib/conversationListSearchText';
-import { calendarCloneRevision } from '../lib/calendarSourceRevision';
+import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
 import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
@@ -454,7 +477,6 @@ import {
 import type { SetEmojiItem } from '@weq/codec';
 import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
-import { MergedSessionPanel } from '../components/sidebar/MergedSessionPanel';
 import { ArkFeedView } from '../components/ArkFeedView';
 import {
   DatabaseDamagedDialog,
@@ -1082,13 +1104,14 @@ function groupDetailToConversation(
   // 沉底，与 lastMessage 仍是 null 的事实一致。
   const updatedAt = fallback?.updatedAt ?? new Date(0).toISOString();
   const group = fallback?.type === 'group' ? fallback.group : null;
+  const notifyLevel =
+    detail.directory?.notifyLevel ??
+    (fallback?.type === 'group' ? fallback.notifyLevel : undefined);
 
   return {
     id: detail.groupCode,
     type: 'group',
-    notifyLevel:
-      detail.directory?.notifyLevel ??
-      (fallback?.type === 'group' ? fallback.notifyLevel : undefined),
+    notifyLevel,
     updatedAt,
     otherUser: null,
     group: {
@@ -1119,11 +1142,11 @@ function groupDetailToConversation(
       addressName: detail.address?.locationName || null,
     },
     members: fallback?.type === 'group' ? fallback.members : [],
-    preference: {
-      ...fallbackPreference,
-      ...fallback?.preference,
-      pinned: detail.directory?.pinned ?? fallback?.preference?.pinned ?? false,
-    },
+    preference: groupDirectoryPreference(
+      notifyLevel,
+      fallback?.preference,
+      detail.directory?.pinned,
+    ),
     unreadCount: fallback?.unreadCount ?? 0,
     lastMessage: fallback?.lastMessage ?? null,
   };
@@ -1340,16 +1363,6 @@ function levelNameFor(
   if (level === undefined || level === 0) return null;
   const bracket = levelBracketFor(level);
   return levelConfigs.find((item) => item.level === bracket)?.levelName || `Lv${level}`;
-}
-
-/**
- * Derive the 免打扰/muted flag from `recent_contact` column 41220.
- * Observed values: 1 = notify normally, 4 = muted. Treat 0/1 as "notify"
- * (0 = unset) and anything else (2/3/4 — QQ's various push-restriction modes)
- * as muted, so the conversation shows the grey badge + disabled-bell indicator.
- */
-function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
-  return notifyLevel !== undefined && notifyLevel !== 0 && notifyLevel !== 1;
 }
 
 /**
@@ -2772,13 +2785,6 @@ function MainWorkspace(): ReactElement {
   };
   const [damagedEvent, setDamagedEvent] = useState<DatabaseDamagedEvent | null>(null);
 
-  // 合并会话面板状态：包含类型和点击位置
-  const [mergedPanel, setMergedPanel] = useState<{
-    kind: import('../im-template/template').MergedKind;
-    anchorX: number;
-    anchorY: number;
-  } | null>(null);
-
   // ARK Feed 显示状态（公众号/服务号消息流）
   const [arkFeedState, setArkFeedState] = useState<{
     kind: 'official' | 'service';
@@ -3241,11 +3247,67 @@ function MainWorkspace(): ReactElement {
     setAppEnabled: setAppSearchEnabled,
     numberLookupEnabled,
     setNumberLookupEnabled,
+    sources: searchSources,
+    setSources: setSearchSources,
   } = useSearchPreferences();
-  const [conversationScope, setConversationScope] = usePageState<ConversationScope>(
-    'workspace:conversation-scope',
-    'all',
-    z.enum(['all', 'real', 'virtual', 'guild']),
+  const [conversationView, setConversationView] = usePageState<ConversationView>(
+    'workspace:conversation-view',
+    'regular',
+    z.enum(CONVERSATION_VIEWS),
+  );
+  const [returnToRegular, setReturnToRegular] = useState(false);
+  const changeConversationView = useCallback(
+    (view: ConversationView, fromAggregate = false) => {
+      setReturnToRegular(fromAggregate && conversationView === 'regular');
+      setConversationView(view);
+    },
+    [conversationView, setConversationView],
+  );
+  const conversationViewsRef = useRef<ConversationViewDirectory | null>(null);
+  const [specialChat, setSpecialChat] = useState<'assistant' | 'guild' | null>(null);
+  const mobileLayout = useMobileWebLayout();
+  const [mobileConversationList, setMobileConversationList] = useState(false);
+  const [assistantSessionId, setAssistantSessionId] = useState<string | null>(null);
+  const [assistantVisited, setAssistantVisited] = useState(false);
+  const [deletedAssistantSessions, setDeletedAssistantSessions] = useState<string[]>([]);
+  const [conversationLocate, setConversationLocate] = useState<{
+    id: string;
+    revision: number;
+  } | null>(null);
+  const requestConversationExport = useRequestContentExport();
+  const openAssistantConversation = useStableCallback(
+    (sessionId: string, searchTarget?: GeneratedSearchHit): void => {
+      flushAllDirtyDrafts();
+      setSettingsOpen(false);
+      setAssistantVisited(true);
+      setMobileConversationList(false);
+      setAssistantSessionId(sessionId);
+      setAssistantSearchTarget(searchTarget ?? null);
+      setSpecialChat('assistant');
+      setArkFeedState(null);
+      setConversationLocate({ id: `assistant:${sessionId}`, revision: Date.now() });
+      shell.switchView('messages');
+    },
+  );
+  const locateConversationInView = useCallback(
+    (id: string, preferred?: ConversationView) => {
+      const directory = conversationViewsRef.current;
+      const view = preferred ?? conversationViewForTarget(directory, id);
+      setReturnToRegular(false);
+      setConversationView(view);
+      setConversationLocate({ id, revision: Date.now() });
+    },
+    [setConversationView],
+  );
+  useClientPreferences((state) => state.tick);
+  const includeHiddenConversations = preferenceValue('allConversationsIncludeHidden');
+  const includeDeletedConversations = preferenceValue('allConversationsIncludeDeleted');
+  const allConversationOptions = useMemo(
+    () => ({
+      includeHidden: includeHiddenConversations,
+      includeDeleted: includeDeletedConversations,
+    }),
+    [includeHiddenConversations, includeDeletedConversations],
   );
   useEffect(() => {
     if (!settingsOpen) setSettingsSearchTarget(null);
@@ -3319,7 +3381,6 @@ function MainWorkspace(): ReactElement {
   const [currentQzoneUin, setCurrentQzoneUin] = useState<string | null>(null);
   /** 频道私聊当前打开的 nodeId（浮动工具按当前位置导出）。 */
   const [activeGuildNodeId, setActiveGuildNodeId] = useState<string | null>(null);
-  const [guildDirectOpenRequest, setGuildDirectOpenRequest] = useState(0);
   const [dressUpSearchKind, setDressUpSearchKind] = useState<DressKind>('bubble');
   const [dressUpEmojiTarget, setDressUpEmojiTarget] = useState<{
     packId: string;
@@ -4160,7 +4221,6 @@ function MainWorkspace(): ReactElement {
     record?: ChatMsgWire;
     messageId?: string;
   } | null>(null);
-  // "更多" modal (full paginated results for one category) + chat-record modal.
   const [searchMore, setSearchMore] = useState<{
     category: SearchCategory;
     keyword: string;
@@ -4379,13 +4439,26 @@ function MainWorkspace(): ReactElement {
       map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
     }
     for (const [id, conversation] of map)
+      map.set(id, {
+        ...applyOutgoingConversationPreview(conversation, outgoingConversationPreviews, user),
+        hidden: true,
+      });
+    for (const hidden of (hiddenSessions.data ?? []) as HiddenSessionWire[]) {
+      if (!hidden.resolvable || !hidden.targetUid || map.has(hidden.targetUid)) continue;
       map.set(
-        id,
-        applyOutgoingConversationPreview(conversation, outgoingConversationPreviews, user),
+        hidden.targetUid,
+        archivedConversationRow(
+          hidden,
+          'hidden',
+          profileByUid.get(hidden.targetUid),
+          groupNameByCode.get(hidden.targetUid),
+        ),
       );
+    }
     return map;
   }, [
     hiddenUidSet,
+    hiddenSessions.data,
     recentContactsData,
     allGroups.data,
     groupNameByCode,
@@ -4467,6 +4540,7 @@ function MainWorkspace(): ReactElement {
       }
     }
 
+    for (const [id, row] of map) map.set(id, { ...row, deleted: true });
     return map;
   }, [
     deletedUidSet,
@@ -5200,7 +5274,7 @@ function MainWorkspace(): ReactElement {
   const selectedUid = selectedConversation?.id ?? '';
   const selectedUidRef = useRef(selectedUid);
   selectedUidRef.current = selectedUid;
-  const messagesTabActive = shell.view === 'messages' && !arkFeedState;
+  const messagesTabActive = shell.view === 'messages' && !arkFeedState && !specialChat;
   useMessageNotifications({
     selfUin: user.identityValue,
     selfUid: user.uid,
@@ -5607,9 +5681,20 @@ function MainWorkspace(): ReactElement {
   }, []);
 
   const handleSelectConversation = useCallback(
-    (conversationId: string, event?: React.MouseEvent) =>
+    (conversationId: string) =>
       settingsNavigation.navigate(() => {
+        const row = Object.values(conversationViewsRef.current ?? {})
+          .flat()
+          .find((item) => item.id === conversationId);
+        if (row?.type === 'merged') {
+          changeConversationView(aggregateView(row.mergedKind), true);
+          return;
+        }
+        setMobileConversationList(false);
         if (conversationId.startsWith('guild:')) {
+          syncDraftsFromPending();
+          setSpecialChat('guild');
+          setArkFeedState(null);
           setGuildSearchTarget({
             kind: 'guildMessage',
             nodeId: conversationId.slice(6),
@@ -5617,16 +5702,18 @@ function MainWorkspace(): ReactElement {
             msgSeq: '',
             revision: crypto.randomUUID(),
           });
-          shell.switchView('channel');
+          shell.switchView('messages');
           return;
         }
-        const conv = conversations.find((c) => c.id === conversationId);
-        if (conv?.type === 'merged') {
-          // 只是打开会话选择器面板，当前页面（包括正在看的 ARK Feed）先保持不动——
-          // 之前在这里无条件 setArkFeedState(null) 会导致点选择器就直接退出消息页。
-          const x = event?.clientX ?? window.innerWidth / 2;
-          const y = event?.clientY ?? window.innerHeight / 2;
-          setMergedPanel({ kind: conv.mergedKind, anchorX: x, anchorY: y });
+        if (row?.directoryKind === 'official' || row?.directoryKind === 'service') {
+          syncDraftsFromPending();
+          setSpecialChat(null);
+          setArkFeedState({
+            kind: row.directoryKind,
+            conversationId: row.id,
+            title: conversationRowName(row),
+          });
+          shell.switchView('messages');
           return;
         }
         // 真正切换到一个普通会话时才关闭 ARK Feed。
@@ -5635,11 +5722,12 @@ function MainWorkspace(): ReactElement {
         // 监听 `shell.activeConversationId` 的 effect 收口，「返回 / 搜索跳转 / 选择器
         // 进入」这些不走本函数的路径也能覆盖到。
         syncDraftsFromPending();
+        setSpecialChat(null);
         setArkFeedState(null);
         setSurfaceNavigation((value) => value + 1);
         shell.selectConversation(conversationId);
       }),
-    [conversations, shell, syncDraftsFromPending, settingsNavigation],
+    [shell, syncDraftsFromPending, settingsNavigation, changeConversationView],
   );
 
   /**
@@ -8201,8 +8289,8 @@ function MainWorkspace(): ReactElement {
   );
 
   const searchQuery = shell.query.trim();
-  const globalSearch = useGlobalSearch(searchQuery, searchCategories, openedUin, conversationScope);
-  const searchReturn = useSearchReturn(openedUin, searchQuery, searchCategories, conversationScope);
+  const globalSearch = useGlobalSearch(searchQuery, searchCategories, openedUin, searchSources);
+  const searchReturn = useSearchReturn(openedUin, searchQuery, searchCategories, searchSources);
   useEffect(() => {
     if (searchQuery) setSearchDismissed(false);
   }, [searchQuery]);
@@ -8217,9 +8305,28 @@ function MainWorkspace(): ReactElement {
       toastOnMissingSeq = false,
       record?: ChatMsgWire,
       messageId?: string,
+      preferredView?: ConversationView,
     ): void => {
       setSearchDismissed(true);
       if (!conv) return;
+      setMobileConversationList(false);
+      const feed = [
+        ...(conversationViewsRef.current?.official ?? []),
+        ...(conversationViewsRef.current?.service ?? []),
+      ].find((row) => row.id === conv || (row.type === 'direct' && row.otherUser.id === conv));
+      setSpecialChat(null);
+      if (feed && (feed.directoryKind === 'official' || feed.directoryKind === 'service')) {
+        locateConversationInView(feed.id);
+        setArkFeedState({
+          kind: feed.directoryKind,
+          conversationId: feed.id,
+          title: conversationRowName(feed),
+          anchorId: messageId,
+        });
+        shell.switchView('messages');
+        return;
+      }
+      locateConversationInView(conv, preferredView);
       setArkFeedState(null);
       if (!seq) {
         if (toastOnMissingSeq) {
@@ -8244,10 +8351,10 @@ function MainWorkspace(): ReactElement {
       pendingSearchJumpRef.current = { conv, kind, seq, record, messageId };
       shell.selectConversation(conv);
     },
-    [centerWindowOnSeq, pushToast, shell],
+    [centerWindowOnSeq, pushToast, shell, locateConversationInView],
   );
 
-  // Click a search hit (dropdown / more modal): resolve conversation key + kind,
+  // Click a search hit: resolve conversation key + kind,
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
     (hit: SearchHit): void => {
@@ -8255,6 +8362,10 @@ function MainWorkspace(): ReactElement {
       setSearchFocused(false);
       if ((hit.category === 'contact' || hit.category === 'group') && hit.target) {
         if (hit.target.kind === 'guild') {
+          setMobileConversationList(false);
+          locateConversationInView(`guild:${hit.target.nodeId}`, 'guild');
+          setSpecialChat('guild');
+          setArkFeedState(null);
           setGuildSearchTarget({
             kind: 'guildMessage',
             nodeId: hit.target.nodeId,
@@ -8262,8 +8373,11 @@ function MainWorkspace(): ReactElement {
             msgSeq: '',
             revision: crypto.randomUUID(),
           });
-          shell.switchView('channel');
+          shell.switchView('messages');
         } else {
+          changeConversationView('clone');
+          setMobileConversationList(false);
+          setSpecialChat(null);
           setCloneSearchTarget(null);
           setVirtualOpen({ kind: hit.target.kind, id: hit.target.ownerId, revision: Date.now() });
           shell.switchView('agentlab');
@@ -8319,8 +8433,12 @@ function MainWorkspace(): ReactElement {
             shell.switchView('mail');
             break;
           case 'guildMessage':
+            setMobileConversationList(false);
+            locateConversationInView(`guild:${target.nodeId}`, 'guild');
+            setSpecialChat('guild');
+            setArkFeedState(null);
             setGuildSearchTarget({ ...target, revision });
-            shell.switchView('channel');
+            shell.switchView('messages');
             break;
           case 'marketEmoji':
             // 商城表情已并入个性装扮的「商城表情」页签，搜索直达该页签。
@@ -8356,8 +8474,13 @@ function MainWorkspace(): ReactElement {
       }
       if (isGeneratedSearchHit(hit)) {
         setSearchDismissed(true);
-        if (hit.category === 'assistantMessage') setAssistantSearchTarget({ ...hit });
-        else {
+        if (hit.category === 'assistantMessage' && hit.sessionId) {
+          changeConversationView('assistant');
+          openAssistantConversation(hit.sessionId, { ...hit });
+        } else {
+          changeConversationView('clone');
+          setMobileConversationList(false);
+          setSpecialChat(null);
           setCloneSearchTarget({ ...hit });
           setConversationLocate({ id: `virtual:${hit.kind}:${hit.ownerId}`, revision: Date.now() });
           shell.switchView('agentlab');
@@ -8366,10 +8489,66 @@ function MainWorkspace(): ReactElement {
       }
       if (hit.category === 'chatRecord') {
         // 聊天记录卡片 → 打开双栏模态（左会话 / 右消息），而不是直接跳会话。
+        locateConversationInView(hit.targetUid);
         setChatRecordsTarget({ hit, keyword: searchQuery });
         return;
       }
       if (hit.category === 'contact') {
+        if (hit.hasConversation || hit.chatType === 103 || hit.chatType === 118) {
+          const id = hit.chatType === 118 ? `service:${hit.uid}` : hit.uid;
+          const preferred =
+            hit.chatType === 103
+              ? 'official'
+              : hit.chatType === 118
+                ? 'service'
+                : hit.conversationView;
+          locateConversationInView(id, preferred);
+          if (hit.chatType === 103 || hit.chatType === 118) {
+            setSpecialChat(null);
+            setArkFeedState({
+              kind: hit.chatType === 103 ? 'official' : 'service',
+              conversationId: id,
+              title: hit.remark || hit.nick || hit.uin || hit.uid,
+            });
+            shell.switchView('messages');
+          } else {
+            if (
+              !conversations.some((row) => row.id === id) &&
+              !hiddenConversationsById.has(id) &&
+              !deletedConversationsById.has(id)
+            )
+              setTemporaryConversations((current) => ({
+                ...current,
+                [id]: {
+                  appearedAt: Date.now(),
+                  conversation: {
+                    id,
+                    type: 'direct',
+                    directoryKind: 'qq',
+                    hidden: preferred === 'hidden',
+                    deleted: preferred === 'deleted',
+                    chatType: hit.chatType,
+                    otherUser: {
+                      id,
+                      username: hit.nick || id,
+                      displayName: hit.remark || hit.nick || hit.uin || id,
+                      identityLabel: hit.uin ? 'QQ' : 'UID',
+                      identityValue: hit.uin || id,
+                      avatarUrl: resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl }),
+                    },
+                    group: null,
+                    members: [],
+                    updatedAt: '',
+                    preference: fallbackPreference,
+                    unreadCount: 0,
+                    lastMessage: null,
+                  },
+                },
+              }));
+            jumpToConvSeq('c2c', id, undefined, false, undefined, undefined, preferred);
+          }
+          return;
+        }
         const anchor = document.querySelector('.weq-titlebar-search')?.getBoundingClientRect();
         setMemberCard({
           member: {
@@ -8404,6 +8583,8 @@ function MainWorkspace(): ReactElement {
                       id: hit.groupCode,
                       type: 'group',
                       updatedAt: new Date(0).toISOString(),
+                      hidden: hit.conversationView === 'hidden',
+                      deleted: hit.conversationView === 'deleted',
                       otherUser: null,
                       group: {
                         id: hit.groupCode,
@@ -8424,7 +8605,15 @@ function MainWorkspace(): ReactElement {
                   },
                 },
           );
-        jumpToConvSeq('group', hit.groupCode);
+        jumpToConvSeq(
+          'group',
+          hit.groupCode,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          hit.conversationView,
+        );
         return;
       }
       const kind: 'group' | 'c2c' =
@@ -8446,7 +8635,7 @@ function MainWorkspace(): ReactElement {
             ? hit.uid
             : hit.groupCode;
       if (hit.category === 'file') {
-        jumpToConvSeq(kind, conv, hit.msgSeq || undefined, true);
+        jumpToConvSeq(kind, conv, hit.msgSeq || undefined, true, undefined, hit.msgId);
       } else {
         jumpToConvSeq(kind, conv);
       }
@@ -8461,6 +8650,9 @@ function MainWorkspace(): ReactElement {
       deletedConversationsById,
       setSettingsOpen,
       setDressUpOpen,
+      changeConversationView,
+      locateConversationInView,
+      openAssistantConversation,
     ],
   );
 
@@ -10669,6 +10861,14 @@ function MainWorkspace(): ReactElement {
   const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(undefined, onlineOptions);
   useCloneTaskRefresh();
   const directoryGroups = trpc.account.listAgentLabGroups.useQuery(undefined, onlineOptions);
+  const directoryAssistant = trpc.account.listAssistantSessions.useQuery(undefined, {
+    ...onlineOptions,
+    refetchInterval:
+      onlineReady &&
+      (conversationView === 'assistant' || conversationView === 'all' || assistantVisited)
+        ? 2500
+        : false,
+  });
   const virtualRows = useMemo(
     () => [
       ...(directoryPersonas.data ?? []).map((item) => ({
@@ -10700,6 +10900,312 @@ function MainWorkspace(): ReactElement {
     id: string;
     revision: number;
   } | null>(null);
+  const conversationViews = useMemo<ConversationViewDirectory>(() => {
+    const clone = virtualRows.map(virtualConversationRow);
+    const assistant = (directoryAssistant.data ?? []).map(assistantConversationRow);
+    const archivedIds = new Set([...hiddenUidSet, ...deletedUidSet]);
+    const temporaryRows = Object.values(temporaryConversations).map((entry) => entry.conversation);
+    for (const row of temporaryRows) if (row.hidden || row.deleted) archivedIds.add(row.id);
+    const regular = sidebarConversations
+      .filter((row) => row.type === 'merged' || !archivedIds.has(row.id))
+      .map((row) =>
+        row.type === 'merged' && (row.mergedKind === 'hidden' || row.mergedKind === 'deleted')
+          ? { ...row, title: row.mergedKind === 'hidden' ? '已隐藏会话' : '已删除会话' }
+          : row,
+      );
+    return {
+      regular: [
+        ...regular,
+        generatedAggregateRow('clone', clone),
+        generatedAggregateRow('assistant', assistant),
+      ],
+      groupAssistant: conversations.filter(
+        (row) => row.type === 'group' && groupAssistantIds.has(row.id) && !archivedIds.has(row.id),
+      ),
+      official: (officialAccounts.data ?? []).map((item) =>
+        feedConversationRow(
+          {
+            id: item.peerUid,
+            name: item.displayName,
+            uin: item.targetUin,
+            avatarUrl: item.avatarUrl,
+            sendTime: item.sendTime,
+            prompt: item.prompt,
+          },
+          'official',
+        ),
+      ),
+      service: (serviceAccounts.data ?? []).map((item) =>
+        feedConversationRow(
+          {
+            id: item.appId,
+            name: item.displayName,
+            avatarUrl: item.avatarUrl,
+            sendTime: item.sendTime,
+            prompt: item.prompt,
+          },
+          'service',
+        ),
+      ),
+      guild: guildConversationRows,
+      hidden: [...temporaryRows.filter((row) => row.hidden), ...hiddenConversationsById.values()],
+      deleted: [
+        ...temporaryRows.filter((row) => row.deleted),
+        ...deletedConversationsById.values(),
+      ],
+      clone,
+      assistant,
+    };
+  }, [
+    virtualRows,
+    directoryAssistant.data,
+    sidebarConversations,
+    conversations,
+    groupAssistantIds,
+    groupAssistantPins,
+    officialAccounts.data,
+    serviceAccounts.data,
+    guildConversationRows,
+    hiddenConversationsById,
+    deletedConversationsById,
+    hiddenUidSet,
+    deletedUidSet,
+    temporaryConversations,
+  ]);
+  conversationViewsRef.current = conversationViews;
+  const currentViewRows = useMemo(() => {
+    const rows = conversationViewRows(conversationViews, conversationView, allConversationOptions);
+    return conversationView === 'groupAssistant'
+      ? rows.map((row) => ({
+          ...row,
+          pinStateKnown: false,
+          preference: {
+            ...fallbackPreference,
+            ...row.preference,
+            pinned: isAssistantPinned(row, groupAssistantPins),
+          },
+        }))
+      : rows;
+  }, [conversationViews, conversationView, allConversationOptions, groupAssistantPins]);
+  const currentViewPreferences = useMemo(
+    () =>
+      conversationView === 'groupAssistant'
+        ? groupAssistantPreferences(
+            conversationViews.groupAssistant,
+            conversationPrefs,
+            groupAssistantPins,
+          )
+        : conversationPrefs,
+    [conversationView, conversationPrefs, conversationViews.groupAssistant, groupAssistantPins],
+  );
+  const currentViewPaged =
+    conversationView === 'regular' ||
+    conversationView === 'all' ||
+    conversationView === 'groupAssistant';
+  const currentViewQueries =
+    conversationView === 'all'
+      ? [
+          contacts,
+          allGroups,
+          officialAccounts,
+          serviceAccounts,
+          guildDirectSessions,
+          directoryPersonas,
+          directoryGroups,
+          directoryAssistant,
+          ...(allConversationOptions.includeHidden ? [hiddenSessions] : []),
+          ...(allConversationOptions.includeDeleted ? [deletedSessions] : []),
+        ]
+      : conversationView === 'clone'
+        ? [directoryPersonas, directoryGroups]
+        : conversationView === 'assistant'
+          ? [directoryAssistant]
+          : conversationView === 'official'
+            ? [officialAccounts]
+            : conversationView === 'service'
+              ? [serviceAccounts]
+              : conversationView === 'guild'
+                ? [guildDirectSessions]
+                : conversationView === 'hidden'
+                  ? [hiddenSessions]
+                  : conversationView === 'deleted'
+                    ? [deletedSessions]
+                    : [contacts, allGroups, hiddenSessions, deletedSessions];
+  const currentViewError =
+    currentViewQueries
+      .map((query) => query.error?.message)
+      .filter(Boolean)
+      .join('；') || undefined;
+  const currentViewLoading =
+    !currentViewRows.length && currentViewQueries.some((query) => query.isLoading);
+  const currentViewCalendarReady =
+    currentViewQueries.every((query) => !query.isLoading) &&
+    (!currentViewPaged || !contacts.hasNextPage || Boolean(contacts.error));
+
+  async function createAssistantConversation(): Promise<void> {
+    const source = messageScope;
+    try {
+      const session = await client.account.createAssistantSession.mutate();
+      if (messageScopeRef.current !== source) return;
+      void utils.account.listAssistantSessions.invalidate();
+      changeConversationView('assistant', conversationView === 'regular');
+      openAssistantConversation(session.id);
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '新建助手会话失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const [deletingAi, setDeletingAi] = useState(false);
+  async function deleteAiConversations(rows: Conversation[]): Promise<void> {
+    if (deletingAi || !rows.length) return;
+    const source = messageScope;
+    setDeletingAi(true);
+    try {
+      const [cloneRuns, assistantSessions] = await Promise.all([
+        rows.some((row) => row.generated?.kind !== 'assistant')
+          ? client.account.getAgentLabRunningConversations.query()
+          : Promise.resolve([]),
+        rows.some((row) => row.generated?.kind === 'assistant')
+          ? client.account.listAssistantSessions.query()
+          : Promise.resolve([]),
+      ]);
+      if (messageScopeRef.current !== source) return;
+      const running = rows.filter((row) =>
+        row.generated?.kind === 'assistant'
+          ? assistantSessions.some(
+              (session) => session.id === row.generated?.sessionId && session.running,
+            )
+          : cloneRuns.some(
+              (run) => run.kind === row.generated?.kind && run.id === row.generated?.ownerId,
+            ),
+      );
+      const confirmed = await confirmReadState(
+        '永久删除 AI 会话',
+        <>
+          <p>
+            将永久删除以下 {rows.length}{' '}
+            个会话，无法恢复，也不会进入“已删除会话”。克隆角色或克隆群及其数据会一并删除；助手仅删除所选独立会话。
+          </p>
+          <ul>
+            {rows.map((row) => (
+              <li key={row.id}>{conversationRowName(row)}</li>
+            ))}
+          </ul>
+          {running.length ? (
+            <p>
+              其中 {running.map(conversationRowName).join('、')}{' '}
+              正在生成回答。确认后会先停止这些运行，等待写入结束，再永久删除；其他运行不受影响。
+            </p>
+          ) : null}
+        </>,
+        { tone: 'warning', okLabel: '永久删除', cancelLabel: '取消' },
+      );
+      if (!confirmed || messageScopeRef.current !== source) return;
+      const failed: string[] = [];
+      const assistantRows = rows.filter((row) => row.generated?.kind === 'assistant');
+      const sessionIds = assistantRows.flatMap((row) =>
+        row.generated?.sessionId ? [row.generated.sessionId] : [],
+      );
+      await Promise.all([
+        ...(sessionIds.length
+          ? [
+              client.account.deleteAssistantSessions.mutate({ sessionIds }).then(
+                () => {
+                  if (messageScopeRef.current !== source) return;
+                  setDeletedAssistantSessions((current) => [
+                    ...new Set([...current, ...sessionIds]),
+                  ]);
+                  if (assistantSessionId && sessionIds.includes(assistantSessionId))
+                    setSpecialChat(null);
+                },
+                () => {
+                  failed.push(...assistantRows.map(conversationRowName));
+                },
+              ),
+            ]
+          : []),
+        ...rows
+          .filter((row) => row.generated?.kind !== 'assistant')
+          .map(async (row) => {
+            const target = row.generated;
+            if (!target || target.kind === 'assistant' || messageScopeRef.current !== source)
+              return;
+            try {
+              if (target.kind === 'persona')
+                await client.account.deleteAgentLabPersona.mutate({ personaId: target.ownerId });
+              else await client.account.deleteAgentLabGroup.mutate({ groupId: target.ownerId });
+              if (messageScopeRef.current !== source) return;
+              if (
+                (virtualOpen?.kind === target.kind && virtualOpen.id === target.ownerId) ||
+                (cloneSearchTarget?.kind === target.kind &&
+                  cloneSearchTarget.ownerId === target.ownerId)
+              ) {
+                setVirtualOpen(null);
+                setCloneSearchTarget(null);
+                shell.switchView('messages');
+                shell.backConversation();
+              }
+            } catch {
+              failed.push(conversationRowName(row));
+            }
+          }),
+      ]);
+      if (messageScopeRef.current !== source) return;
+      await Promise.all([
+        utils.account.listAgentLabPersonas.invalidate(),
+        utils.account.listAgentLabGroups.invalidate(),
+        utils.account.listAssistantSessions.invalidate(),
+        utils.account.generatedConversations.invalidate(),
+      ]);
+      if (failed.length)
+        pushToast({ tone: 'error', title: '部分会话删除失败', detail: failed.join('、') });
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '删除会话失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setDeletingAi(false);
+    }
+  }
+  function exportConversationRows(rows: Conversation[]): void {
+    requestConversationExport?.(
+      conversationBatchSelection(
+        rows.map((row) => ({
+          id: row.id,
+          name: conversationRowName(row),
+          kind:
+            row.generated?.kind === 'assistant'
+              ? 'assistant'
+              : row.generated?.kind === 'group'
+                ? 'cloneGroup'
+                : row.generated?.kind === 'persona'
+                  ? 'persona'
+                  : row.directoryKind === 'guild'
+                    ? 'guild'
+                    : row.directoryKind === 'service'
+                      ? 'service'
+                      : row.directoryKind === 'official'
+                        ? 'official'
+                        : row.type === 'group'
+                          ? 'group'
+                          : 'c2c',
+          ownerId:
+            row.generated?.ownerId ??
+            (row.directoryKind === 'guild'
+              ? row.id.slice(6)
+              : row.directoryKind === 'service'
+                ? row.id.slice(8)
+                : row.id),
+          sessionId: row.generated?.sessionId,
+        })),
+      ),
+    );
+  }
   const [cloneCreateRequest, setCloneCreateRequest] = useState<{
     revision: number;
     friendUids?: string[];
@@ -10707,118 +11213,55 @@ function MainWorkspace(): ReactElement {
   function handleCreateClone(friendUids?: string[]): void {
     flushAllDirtyDrafts();
     setSettingsOpen(false);
+    setMobileConversationList(false);
     setCloneCreateRequest((current) => ({
       revision: (current?.revision ?? 0) + 1,
       friendUids,
     }));
+    changeConversationView('clone', conversationView === 'regular');
+    setSpecialChat(null);
     shell.switchView('agentlab');
   }
   const [cloneGroupRequest, setCloneGroupRequest] = useState(0);
-  const [conversationLocate, setConversationLocate] = useState<{
-    id: string;
-    revision: number;
-  } | null>(null);
   const [overviewCalendar, setOverviewCalendar] = useState<{ query: string } | null>(null);
   calendarOpenRef.current = overviewCalendar !== null;
   const overviewCalendarTargets = useMemo(() => {
     if (!overviewCalendar) return [];
     const targets: OverviewCalendarTarget[] = [];
-    const roots = new Map(
-      conversations.flatMap((row) =>
-        row.type === 'merged' ? [[row.mergedKind, conversationListSearchText(row)] as const] : [],
-      ),
-    );
-    const guildSearch = new Map(
-      guildConversationRows.map((row) => [row.id, conversationListSearchText(row)]),
-    );
-    const add = (
-      conversation: Conversation,
-      ancestors: string[] = [],
-      listingSearchText?: string,
-    ) => {
-      if (conversation.type === 'merged') return;
-      const group = conversation.type === 'group';
+    for (const row of currentViewRows) {
+      if (row.type === 'merged') continue;
+      const generated = row.generated;
+      const kind =
+        generated?.kind === 'assistant'
+          ? 'assistant'
+          : generated?.kind === 'persona'
+            ? 'persona'
+            : generated?.kind === 'group'
+              ? 'cloneGroup'
+              : row.directoryKind === 'official' ||
+                  row.directoryKind === 'service' ||
+                  row.directoryKind === 'guild'
+                ? row.directoryKind
+                : row.type === 'group'
+                  ? 'group'
+                  : isDatalineUid(row.id)
+                    ? 'dataline'
+                    : 'c2c';
       targets.push({
-        kind: group ? 'group' : isDatalineUid(conversation.id) ? 'dataline' : 'c2c',
-        conv: conversation.id,
-        searchText: conversationListSearchText(conversation),
-        listingSearchText:
-          listingSearchText ??
-          (group && groupAssistantIds.has(conversation.id)
-            ? (roots.get('groupAssistant') ?? '')
-            : undefined),
-        name: group
-          ? displayGroupName(conversation.group)
-          : displayUserName(conversation.otherUser),
-        avatar: group ? conversation.group.avatarUrl : conversation.otherUser.avatarUrl,
-        ancestors: [
-          ...ancestors,
-          ...(group && groupAssistantIds.has(conversation.id) ? ['群助手'] : []),
-          ...(group ? [] : [conversation.otherUser.identityValue]),
-        ],
-      });
-    };
-    conversations.forEach((conversation) => {
-      add(conversation);
-    });
-    hiddenConversationsById.forEach((conversation) => {
-      add(conversation, ['隐藏会话'], roots.get('hidden') ?? '');
-    });
-    deletedConversationsById.forEach((conversation) => {
-      add(conversation, ['删除的会话'], roots.get('deleted') ?? '');
-    });
-    for (const item of officialAccounts.data ?? [])
-      targets.push({
-        kind: 'official',
-        conv: item.peerUid,
-        name: item.displayName || item.peerUid,
-        avatar: resolveAvatar({ uin: item.targetUin }),
-        ancestors: ['公众号', item.targetUin],
-        listingSearchText: roots.get('official') ?? '',
-      });
-    for (const item of serviceAccounts.data ?? [])
-      targets.push({
-        kind: 'service',
-        conv: item.appId,
-        name: item.displayName || item.appId,
-        avatar: item.avatarUrl,
-        ancestors: ['服务号'],
-        listingSearchText: roots.get('service') ?? '',
-      });
-    for (const item of guildDirectSessions.data ?? [])
-      targets.push({
-        kind: 'guild',
-        conv: item.nodeId,
-        name: item.peerNick || item.nodeId,
-        avatar: item.peerAvatarUrl,
-        ancestors: ['频道私聊', item.peerTinyId],
-        searchText: guildSearch.get(`guild:${item.nodeId}`) ?? '',
-        listingSearchText: roots.get('guildDirect') ?? '',
-      });
-    for (const item of virtualRows) {
-      const uin = item.kind === 'persona' ? item.uin : undefined;
-      targets.push({
-        kind: item.kind === 'persona' ? 'persona' : 'cloneGroup',
-        conv: item.ownerId,
-        name: item.name,
-        avatar: uin ? resolveAvatar({ uin }) : null,
-        ancestors: uin ? [uin] : [],
-        searchText: conversationListSearchText(virtualConversationRow(item)),
+        kind,
+        conv:
+          generated?.kind === 'assistant'
+            ? generated.sessionId!
+            : (generated?.ownerId ??
+              (kind === 'guild' ? row.id.slice(6) : kind === 'service' ? row.id.slice(8) : row.id)),
+        name: conversationRowName(row),
+        avatar: row.type === 'group' ? row.group.avatarUrl : (row.otherUser.avatarUrl ?? null),
+        ancestors: [],
+        searchText: conversationListSearchText(row),
       });
     }
     return targets;
-  }, [
-    overviewCalendar,
-    conversations,
-    hiddenConversationsById,
-    deletedConversationsById,
-    officialAccounts.data,
-    serviceAccounts.data,
-    guildDirectSessions.data,
-    guildConversationRows,
-    virtualRows,
-    groupAssistantIds,
-  ]);
+  }, [overviewCalendar, currentViewRows]);
   const sidebarView = shell.view === 'agentlab' ? 'messages' : shell.view;
   const qzonePageReady = useMobilePageSettled(
     shell.view === 'qzone' && !arkFeedState,
@@ -11227,14 +11670,24 @@ function MainWorkspace(): ReactElement {
     } else if (target.kind === 'conversation-directory') {
       flushAllDirtyDrafts();
       setSurfaceNavigation((value) => value + 1);
-      setArkFeedState(null);
-      setCloneSearchTarget(null);
-      setVirtualOpen(null);
       shell.setQuery('');
-      setConversationScope(target.scope);
+      changeConversationView(
+        target.scope === 'virtual'
+          ? 'clone'
+          : target.scope === 'guild'
+            ? 'guild'
+            : target.scope === 'all'
+              ? 'all'
+              : 'regular',
+      );
       shell.switchView('messages');
-      shell.backConversation();
     } else if (target.kind === 'tool') {
+      if (target.tool === 'assistant') {
+        changeConversationView('assistant');
+        if (directoryAssistant.data?.[0]) openAssistantConversation(directoryAssistant.data[0].id);
+        else void createAssistantConversation();
+        return;
+      }
       setToolSearchRequest((previous) => ({
         scope: messageScope,
         tool: target.tool,
@@ -11245,6 +11698,8 @@ function MainWorkspace(): ReactElement {
       if (target.group) {
         flushAllDirtyDrafts();
         setCloneGroupRequest((current) => current + 1);
+        changeConversationView('clone', conversationView === 'regular');
+        setSpecialChat(null);
         shell.switchView('agentlab');
       } else handleCreateClone();
     } else if (target.kind === 'composition') compositionWindow.open();
@@ -11255,8 +11710,9 @@ function MainWorkspace(): ReactElement {
     } else {
       if (shell.view === 'messages' && target.view !== 'messages') flushAllDirtyDrafts();
       if (target.view === 'guild-direct') {
-        setGuildSearchTarget(null);
-        setGuildDirectOpenRequest((current) => current + 1);
+        changeConversationView('guild');
+        shell.switchView('messages');
+        return;
       }
       shell.switchView(target.view);
     }
@@ -11267,9 +11723,23 @@ function MainWorkspace(): ReactElement {
     else settingsNavigation.navigate(() => openAppSearchEntryNow(entry));
   };
 
+  useMobileBack(
+    mobileLayout &&
+      !mobileConversationList &&
+      ((shell.view === 'messages' && Boolean(specialChat || arkFeedState)) ||
+        shell.view === 'agentlab'),
+    () => setMobileConversationList(true),
+    10,
+    () => document.querySelector<HTMLElement>('.app-shell > .chat-main'),
+  );
+
   const locateCalendarMessage: CalendarNavigate = (target, anchor, record) => {
     flushAllDirtyDrafts();
+    setMobileConversationList(false);
     if (target.kind === 'guild') {
+      locateConversationInView(`guild:${target.conv}`, 'guild');
+      setSpecialChat('guild');
+      setArkFeedState(null);
       setGuildSearchTarget({
         kind: 'guildMessage',
         nodeId: target.conv,
@@ -11277,8 +11747,23 @@ function MainWorkspace(): ReactElement {
         msgSeq: anchor.seq,
         revision: crypto.randomUUID(),
       });
-      shell.switchView('channel');
+      shell.switchView('messages');
+    } else if (target.kind === 'assistant') {
+      changeConversationView('assistant');
+      openAssistantConversation(target.conv, {
+        category: 'assistantMessage',
+        kind: 'assistant',
+        ownerId: 'assistant',
+        sessionId: target.conv,
+        messageId: anchor.id,
+        title: target.name,
+        sessionTitle: target.name,
+        content: '',
+        ts: anchor.time * 1000,
+      });
     } else if (target.kind === 'persona' || target.kind === 'cloneGroup') {
+      changeConversationView('clone');
+      setSpecialChat(null);
       setCloneSearchTarget({
         category: 'cloneMessage',
         kind: target.kind === 'persona' ? 'persona' : 'group',
@@ -11292,6 +11777,8 @@ function MainWorkspace(): ReactElement {
       });
       shell.switchView('agentlab');
     } else if (target.kind === 'official' || target.kind === 'service') {
+      changeConversationView(target.kind);
+      setSpecialChat(null);
       setArkFeedState({
         kind: target.kind,
         conversationId: target.kind === 'service' ? `service:${target.conv}` : target.conv,
@@ -11340,10 +11827,12 @@ function MainWorkspace(): ReactElement {
             activeNotice={shell.contactNotice}
             sidebarWidth={fullBleedView ? 0 : shell.sidebarWidth}
             mainOpen={
-              shell.mainOpen ||
-              shell.view === 'mail' ||
-              (shell.view === 'messages' && Boolean(arkFeedState)) ||
-              (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget))
+              (!mobileLayout || !mobileConversationList) &&
+              (shell.mainOpen ||
+                shell.view === 'mail' ||
+                (shell.view === 'messages' && Boolean(arkFeedState)) ||
+                (shell.view === 'messages' && Boolean(specialChat)) ||
+                (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget)))
             }
             messageBadgeCount={
               displaySettings.data?.showMessageUnreadBadge === false ? 0 : shell.messageUnreadCount
@@ -11362,6 +11851,7 @@ function MainWorkspace(): ReactElement {
                 setMaintenanceTool(null);
                 setDressUpOpen(false);
                 setArkFeedState(null);
+                changeConversationView('regular');
                 shell.setQuery('');
                 shell.switchView('messages');
                 if (isMobileShell()) shell.backConversation();
@@ -11378,6 +11868,12 @@ function MainWorkspace(): ReactElement {
             groupNoticeCount={groupNoticeCount}
             onViewChange={(view) =>
               settingsNavigation.navigate(() => {
+                if (view === 'guild-direct' || view === 'agentlab') {
+                  setMobileConversationList(true);
+                  changeConversationView(view === 'guild-direct' ? 'guild' : 'clone');
+                  shell.switchView('messages');
+                  return;
+                }
                 setSurfaceNavigation((value) => value + 1);
                 // 离开消息页 —— 另一个草稿落库时机。
                 if (shell.view === 'messages' && view !== 'messages') {
@@ -11478,6 +11974,8 @@ function MainWorkspace(): ReactElement {
                   categoryStates={globalSearch.categoryStates}
                   categories={searchCategories}
                   onCategoriesChange={setSearchCategories}
+                  sources={searchSources}
+                  onSourcesChange={setSearchSources}
                   onRetry={globalSearch.retry}
                   onSelect={openSearchHit}
                   appSearchEnabled={appSearchEnabled}
@@ -11525,31 +12023,41 @@ function MainWorkspace(): ReactElement {
                           view === 'contacts'
                             ? contactDirectoryConversations
                             : view === 'messages'
-                              ? sidebarConversations
+                              ? currentViewRows
                               : conversations
                         }
                         activeConversationId={
-                          shell.view === 'agentlab' &&
-                          cloneSearchTarget &&
-                          cloneSearchTarget.kind !== 'assistant'
-                            ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
-                            : shell.view === 'agentlab' && virtualOpen
-                              ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
-                              : shell.activeConversationId
+                          shell.view === 'messages' &&
+                          specialChat === 'assistant' &&
+                          assistantSessionId
+                            ? `assistant:${assistantSessionId}`
+                            : shell.view === 'messages' &&
+                                specialChat === 'guild' &&
+                                activeGuildNodeId
+                              ? `guild:${activeGuildNodeId}`
+                              : shell.view === 'messages' && arkFeedState
+                                ? arkFeedState.conversationId
+                                : shell.view === 'agentlab' &&
+                                    cloneSearchTarget &&
+                                    cloneSearchTarget.kind !== 'assistant'
+                                  ? `virtual:${cloneSearchTarget.kind}:${cloneSearchTarget.ownerId}`
+                                  : shell.view === 'agentlab' && virtualOpen
+                                    ? `virtual:${virtualOpen.kind}:${virtualOpen.id}`
+                                    : shell.activeConversationId
                         }
                         selectedGroupConversationId={shell.selectedGroupConversationId}
                         selectedContactId={shell.selectedContactId}
-                        conversationPrefs={conversationPrefs}
+                        conversationPrefs={currentViewPreferences}
                         drafts={drafts}
                         contacts={buddyContacts}
                         categoryDefinitions={(categories.data ?? []) as CategoryWire[]}
                         specialContactSections={specialContactSections}
                         historicalContactSections={historicalContactSections}
-                        loading={sidebarLoading}
+                        loading={view === 'messages' ? currentViewLoading : sidebarLoading}
                         onLoadMoreConversations={
-                          view === sidebarView ? loadMoreContacts : undefined
+                          view === sidebarView && currentViewPaged ? loadMoreContacts : undefined
                         }
-                        conversationsHasMore={contactsHasMore}
+                        conversationsHasMore={currentViewPaged && contactsHasMore}
                         conversationsLoadingMore={contactsLoadingMore}
                         query={shell.query}
                         onSelectConversation={handleSelectConversation}
@@ -11593,14 +12101,48 @@ function MainWorkspace(): ReactElement {
                     onSpaceChange={setCurrentQzoneUin}
                   />
                 ) : null}
+                {assistantVisited ? (
+                  <AssistantConversationPane
+                    accountScope={messageScope}
+                    sessionId={assistantSessionId}
+                    deletedSessionIds={deletedAssistantSessions}
+                    searchTarget={assistantSearchTarget}
+                    active={
+                      shell.view === 'messages' &&
+                      specialChat === 'assistant' &&
+                      (!mobileLayout || !mobileConversationList)
+                    }
+                    onBackToDirectory={() => setMobileConversationList(true)}
+                    onSessionCreated={(id) => {
+                      setAssistantSessionId(id);
+                      void utils.account.listAssistantSessions.invalidate();
+                    }}
+                    onNewSession={() => void createAssistantConversation()}
+                  />
+                ) : null}
                 <RetainedTabs snapshotKey="main" activeKey={shell.view}>
-                  {shell.view === 'messages' && arkFeedState ? (
+                  {shell.view === 'messages' && specialChat === 'assistant' ? null : shell.view ===
+                      'messages' && specialChat === 'guild' ? (
+                    <GuildDirectDialog
+                      open
+                      embedded
+                      chatOnly
+                      selfUser={user}
+                      renderers={messageRenderers}
+                      searchTarget={guildSearchTarget}
+                      onActiveSessionChange={setActiveGuildNodeId}
+                      onClose={() => {
+                        setMobileConversationList(true);
+                      }}
+                    />
+                  ) : shell.view === 'messages' && arkFeedState ? (
                     <ArkFeedView
                       conversationId={arkFeedState.conversationId}
                       anchorId={arkFeedState.anchorId}
                       title={arkFeedState.title}
                       onBack={() => {
-                        setArkFeedState(null);
+                        if (mobileLayout) setMobileConversationList(true);
+                        else setArkFeedState(null);
                       }}
                       onEditMessage={async (msgId: string) => {
                         try {
@@ -11623,7 +12165,19 @@ function MainWorkspace(): ReactElement {
                         createRequest={cloneCreateRequest}
                         openGroupRequest={cloneGroupRequest}
                         embedded
+                        onConversationCreated={(target) => {
+                          setVirtualOpen({ ...target, revision: Date.now() });
+                          setConversationLocate({
+                            id: `virtual:${target.kind}:${target.id}`,
+                            revision: Date.now(),
+                          });
+                          setConversationView('clone');
+                        }}
                         onBackToDirectory={() => {
+                          if (mobileLayout) {
+                            setMobileConversationList(true);
+                            return;
+                          }
                           setVirtualOpen(null);
                           shell.backConversation();
                           shell.switchView('messages');
@@ -11641,13 +12195,12 @@ function MainWorkspace(): ReactElement {
                       'channel' || shell.view === 'guild-direct' ? (
                     <ChannelView
                       key={messageScope}
-                      selfUser={user}
-                      sidebarWidth={shell.sidebarWidth}
-                      renderers={messageRenderers}
                       initialDirectOpen={shell.view === 'guild-direct'}
-                      directOpenRequest={shell.view === 'guild-direct' ? guildDirectOpenRequest : 0}
-                      searchTarget={guildSearchTarget}
-                      onActiveNodeChange={setActiveGuildNodeId}
+                      onOpenDirect={() => {
+                        setMobileConversationList(true);
+                        changeConversationView('guild');
+                        shell.switchView('messages');
+                      }}
                     />
                   ) : shell.view === 'contacts' && shell.contactNotice === 'friend' ? (
                     <ContactNoticeDialog
@@ -11912,71 +12465,7 @@ function MainWorkspace(): ReactElement {
                 </RetainedTabs>
               </WorkspaceContent>
             }
-          >
-            {mergedPanel && (
-              <MergedSessionPanel
-                kind={mergedPanel.kind}
-                conversations={conversations}
-                groupAssistantIds={groupAssistantIds}
-                groupAssistantPins={groupAssistantPins}
-                onGroupAssistantPin={(id, pinned) => {
-                  const next = { ...groupAssistantPins, [id]: pinned };
-                  try {
-                    saveGroupAssistantPins(user.identityValue, next);
-                    setGroupAssistantPins(next);
-                  } catch {
-                    pushToast({
-                      tone: 'info',
-                      durationKind: 'failure',
-                      title: '群助手置顶保存失败，请重试',
-                    });
-                  }
-                }}
-                groupAssistantLoading={contacts.isLoading}
-                groupAssistantHasMore={Boolean(contacts.hasNextPage)}
-                onLoadMoreGroupAssistant={loadMoreContacts}
-                groupAssistantError={contacts.error?.message}
-                profileByUid={profileByUid}
-                groupNameByCode={groupNameByCode}
-                anchorX={mergedPanel.anchorX}
-                anchorY={mergedPanel.anchorY}
-                onBack={() => setMergedPanel(null)}
-                onSelectConversation={(conv) => {
-                  if (mergedPanel.kind === 'official' || mergedPanel.kind === 'service') {
-                    const title =
-                      conv.type === 'group'
-                        ? conv.group?.name || ''
-                        : conv.otherUser?.displayName || '';
-                    setArkFeedState({
-                      kind: mergedPanel.kind,
-                      conversationId: conv.id,
-                      title,
-                    });
-                    // 优化：选中公众号/服务号会话后，取消其它会话（普通/隐藏）的选中态。
-                    shell.backConversation();
-                  } else if (mergedPanel.kind === 'guildDirect') {
-                    // 频道私聊：跳到频道页并让私聊面板定位到这一条。
-                    const nodeId = conv.id.replace(/^guild:/, '');
-                    setMergedPanel(null);
-                    setGuildSearchTarget({
-                      kind: 'guildMessage',
-                      nodeId,
-                      msgId: '',
-                      msgSeq: '',
-                      revision: crypto.randomUUID(),
-                    });
-                    shell.switchView('channel');
-                  } else if (mergedPanel.kind === 'groupAssistant') {
-                    handleSelectConversation(conv.id);
-                  } else {
-                    // 从隐藏会话或删除会话选择器进入普通会话前，先关掉可能开着的 ARK Feed。
-                    setArkFeedState(null);
-                    shell.selectConversation(conv.id);
-                  }
-                }}
-              />
-            )}
-          </ChatShell>
+          />
 
           {editorState ? (
             <MsgElementEditor
@@ -12038,16 +12527,35 @@ function MainWorkspace(): ReactElement {
                   key={messageScope}
                   accountScope={messageScope}
                   footerControls={controls}
+                  onOpenAssistant={(target) => {
+                    changeConversationView('assistant');
+                    if (target?.sessionId) openAssistantConversation(target.sessionId, target);
+                    else if (directoryAssistant.data?.[0])
+                      openAssistantConversation(directoryAssistant.data[0].id);
+                    else void createAssistantConversation();
+                  }}
                   onOpenClone={(id) => {
                     flushAllDirtyDrafts();
                     setCloneSearchTarget(null);
+                    setMobileConversationList(false);
                     setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
+                    if (conversationView !== 'clone') changeConversationView('clone');
+                    setSpecialChat(null);
                     shell.switchView('agentlab');
                   }}
-                  currentConversation={shell.view === 'messages' ? activeConversation : null}
+                  currentConversation={
+                    shell.view === 'messages' && !specialChat && !arkFeedState
+                      ? activeConversation
+                      : null
+                  }
                   workspace={{
                     view: shell.view,
-                    conversation: shell.view === 'messages' ? activeConversation : null,
+                    conversation:
+                      shell.view === 'messages' && !specialChat && !arkFeedState
+                        ? activeConversation
+                        : null,
+                    specialChat: shell.view === 'messages' ? specialChat : null,
+                    assistantSessionId: specialChat === 'assistant' ? assistantSessionId : null,
                     officialFeed: shell.view === 'messages' ? arkFeedState : null,
                     contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
                     groupConversation:
@@ -12065,7 +12573,10 @@ function MainWorkspace(): ReactElement {
                               )?.name ?? '',
                           }
                         : null,
-                    guildNodeId: shell.view === 'channel' ? activeGuildNodeId : null,
+                    guildNodeId:
+                      shell.view === 'channel' || specialChat === 'guild'
+                        ? activeGuildNodeId
+                        : null,
                   }}
                   analysisRequest={analysisRequest}
                   roamingRequest={roamingRequest}
@@ -12466,7 +12977,7 @@ function MainWorkspace(): ReactElement {
           ))}
           {searchMore ? (
             <UnifiedSearchModal
-              conversationScope={conversationScope}
+              sources={searchSources}
               category={searchMore.category}
               initialKeyword={searchMore.keyword}
               initialSnapshot={searchMore.snapshot}
@@ -12474,6 +12985,7 @@ function MainWorkspace(): ReactElement {
               onClose={() => setSearchMore(null)}
               onSelect={openSearchHit}
               onOpenChatRecords={(hit) => {
+                locateConversationInView((hit as ChatRecordSearchHit).targetUid);
                 setSearchMore(null);
                 setChatRecordsTarget({
                   hit: hit as ChatRecordSearchHit,
@@ -12485,35 +12997,12 @@ function MainWorkspace(): ReactElement {
           {overviewCalendar ? (
             <ConversationOverviewCalendar
               targets={overviewCalendarTargets}
-              sourceRevision={`${dbRevisionRef.current}:${calendarDataRevision}:${calendarCloneRevision(directoryPersonas.data ?? [], directoryGroups.data ?? [])}`}
-              scope={conversationScope}
+              sourceRevision={`${dbRevisionRef.current}:${calendarDataRevision}:${calendarCloneRevision(directoryPersonas.data ?? [], directoryGroups.data ?? [])}:${calendarAssistantRevision(directoryAssistant.data ?? [])}`}
+              scope={conversationView}
               query={overviewCalendar.query}
-              ready={
-                !contacts.isLoading &&
-                !allGroups.isLoading &&
-                (!contacts.hasNextPage || Boolean(contacts.error)) &&
-                !hiddenSessions.isLoading &&
-                !deletedSessions.isLoading &&
-                !officialAccounts.isLoading &&
-                !serviceAccounts.isLoading &&
-                !guildDirectSessions.isLoading &&
-                !directoryPersonas.isLoading &&
-                !directoryGroups.isLoading
-              }
+              ready={currentViewCalendarReady}
               directoryError={
-                [
-                  contacts.error,
-                  allGroups.error,
-                  hiddenSessions.error,
-                  deletedSessions.error,
-                  officialAccounts.error,
-                  serviceAccounts.error,
-                  guildDirectSessions.error,
-                  directoryPersonas.error,
-                  directoryGroups.error,
-                ].some(Boolean)
-                  ? '部分会话目录读取失败，统计结果尚不完整'
-                  : undefined
+                currentViewError ? `当前视图部分目录读取失败：${currentViewError}` : undefined
               }
               binding={pinSession.binding}
               onClose={() => setOverviewCalendar(null)}
@@ -12527,8 +13016,15 @@ function MainWorkspace(): ReactElement {
               fixed={chatRecordsTarget.fixed}
               renderers={messageRenderers}
               onClose={() => setChatRecordsTarget(null)}
-              onJumpMessage={({ source, targetUid, msgSeq }) =>
-                jumpToConvSeq(source === 'group' ? 'group' : 'c2c', targetUid, msgSeq)
+              onJumpMessage={({ source, targetUid, msgSeq, msgId }) =>
+                jumpToConvSeq(
+                  source === 'group' ? 'group' : 'c2c',
+                  targetUid,
+                  msgSeq,
+                  false,
+                  undefined,
+                  msgId,
+                )
               }
             />
           ) : null}
@@ -12719,19 +13215,47 @@ function MainWorkspace(): ReactElement {
                         );
                       },
                       guild: guildConversationRows,
-                      scope: conversationScope,
-                      onScopeChange: setConversationScope,
-                      preferences: conversationPrefs,
+                      view: conversationView,
+                      views: conversationViews,
+                      rows: currentViewRows,
+                      returnToRegular,
+                      onViewChange: changeConversationView,
+                      onReturnToRegular: () => changeConversationView('regular'),
+                      onAssistant: (id) => openAssistantConversation(id),
+                      onCreateAssistant: () => void createAssistantConversation(),
+                      onDelete: deleteAiConversations,
+                      deleteBusy: deletingAi,
+                      onRetry: () => {
+                        for (const query of currentViewQueries) void query.refetch();
+                      },
+                      onExportBatch: exportConversationRows,
+                      preferences: currentViewPreferences,
                       showContactUnreadCount: displaySettings.data?.showContactUnreadCount ?? false,
                       groupAssistantIds,
                       showGroupAssistantMessageCount:
                         displaySettings.data?.showGroupAssistantMessageCount ?? false,
-                      loadingError: contacts.error?.message,
+                      loadingError: currentViewError,
                       virtual: virtualRows,
                       locate: conversationLocate,
                       onAnalyze: handleAnalyzeConversation,
-                      onPin: (conversation, pinned) =>
-                        updateConversationPreference(conversation.id, 'pinned', pinned),
+                      onPin: (conversation, pinned) => {
+                        if (
+                          conversationView === 'groupAssistant' &&
+                          conversation.type === 'group'
+                        ) {
+                          const next = { ...groupAssistantPins, [conversation.id]: pinned };
+                          try {
+                            saveGroupAssistantPins(user.identityValue, next);
+                            setGroupAssistantPins(next);
+                          } catch (error) {
+                            pushToast({
+                              tone: 'error',
+                              title: '群助手置顶保存失败',
+                              detail: error instanceof Error ? error.message : String(error),
+                            });
+                          }
+                        } else updateConversationPreference(conversation.id, 'pinned', pinned);
+                      },
                       onEditRemark: (conversation) => {
                         const target = conversationRoamingTarget(conversation);
                         if (target) setRemarkTarget(target);
@@ -12750,19 +13274,36 @@ function MainWorkspace(): ReactElement {
                       onRoaming: handleRoamingTargets,
                       onReadState: (rows, unread) => void changeConversationReadState(rows, unread),
                       readStateBusy,
-                      onVisibleConversations: prefetchVisible,
-                      onConversationIntent: prefetchIntent,
+                      onVisibleConversations: (rows) =>
+                        prefetchVisible(
+                          rows.filter(
+                            (row) =>
+                              row.type !== 'merged' &&
+                              !row.generated &&
+                              (!row.directoryKind || row.directoryKind === 'qq'),
+                          ),
+                        ),
+                      onConversationIntent: (row) => {
+                        if (!row.generated && (!row.directoryKind || row.directoryKind === 'qq'))
+                          prefetchIntent(row);
+                      },
                       onCalendar: (query) => setOverviewCalendar({ query }),
                       onVirtual: (item) => {
                         flushAllDirtyDrafts();
+                        setMobileConversationList(false);
                         setCloneSearchTarget(null);
                         setVirtualOpen({ kind: item.kind, id: item.ownerId, revision: Date.now() });
+                        setSpecialChat(null);
+                        setArkFeedState(null);
                         shell.switchView('agentlab');
                       },
                       onCreate: handleCreateClone,
                       onCreateGroup: () => {
                         flushAllDirtyDrafts();
+                        setMobileConversationList(false);
                         setCloneGroupRequest((current) => current + 1);
+                        changeConversationView('clone', conversationView === 'regular');
+                        setSpecialChat(null);
                         shell.switchView('agentlab');
                       },
                     })}

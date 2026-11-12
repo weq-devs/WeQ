@@ -8,6 +8,7 @@
 import type { AssistantStep } from './assistant';
 import { createHash, randomUUID } from 'node:crypto';
 import { JsonStore } from '../common/json_store';
+import { hasCloneMessageIdCollision, uniqueCloneMessageIds } from './clone_message_identity';
 
 export interface ConversationTurn {
   /** 历史数据可缺省；通过 ConversationStore 读取后始终有稳定身份。 */
@@ -15,6 +16,10 @@ export interface ConversationTurn {
   role: 'user' | 'assistant';
   text: string;
   ts: number;
+  /** 合并前的会话来源；null 表示旧版主对话。 */
+  sourceSessionId?: string | null;
+  sourceSessionTitle?: string;
+  sourceMessageId?: string;
   /** assistant 回合用到的工具名（WeQ 助手）。 */
   toolsUsed?: string[];
   /** assistant 回合的多轮思考/工具调用过程（WeQ 助手），用于刷新后回放折叠历史。 */
@@ -26,6 +31,7 @@ export const MAX_CONVERSATION_TURNS = 400;
 
 export class ConversationStore {
   private readonly store: JsonStore<Record<string, ConversationTurn[]>>;
+  private readonly unbounded = new Set<string>();
 
   constructor(filePath: string) {
     this.store = new JsonStore(filePath, () => ({}), {
@@ -61,11 +67,67 @@ export class ConversationStore {
     return out.sort((a, b) => a.ts - b.ts);
   }
 
+  /** 在同一个原子文件内合并旧分会话；身份、时间及来源都保持不变。 */
+  mergeOwner(agentId: string, titles: ReadonlyMap<string, string>): void {
+    this.store.assertReadable();
+    if (this.unbounded.has(agentId)) return;
+    const keys = Object.keys(this.store.data).filter((key) => key.startsWith(`${agentId}:`));
+    if (!keys.length) {
+      const current = this.get(agentId);
+      if (hasCloneMessageIdCollision(current)) {
+        this.store.replace(
+          {
+            ...this.store.data,
+            [agentId]: uniqueCloneMessageIds(
+              agentId,
+              current.map((turn) => ({
+                ...turn,
+                sourceSessionId: turn.sourceSessionId === undefined ? null : turn.sourceSessionId,
+                sourceSessionTitle: turn.sourceSessionTitle ?? '原始对话',
+              })),
+            ),
+          },
+          true,
+        );
+      }
+      this.unbounded.add(agentId);
+      return;
+    }
+    const merged = [
+      ...this.get(agentId).map((turn) => ({
+        ...turn,
+        sourceSessionId: turn.sourceSessionId === undefined ? null : turn.sourceSessionId,
+        sourceSessionTitle: turn.sourceSessionTitle ?? '原始对话',
+      })),
+      ...keys.flatMap((key) => {
+        const sessionId = key.slice(agentId.length + 1);
+        return this.get(key).map((turn) => ({
+          ...turn,
+          sourceSessionId: turn.sourceSessionId ?? sessionId,
+          sourceSessionTitle: turn.sourceSessionTitle ?? titles.get(sessionId) ?? sessionId,
+        }));
+      }),
+    ].sort((a, b) => a.ts - b.ts);
+    const next = { ...this.store.data, [agentId]: uniqueCloneMessageIds(agentId, merged) };
+    for (const key of keys) delete next[key];
+    this.store.replace(next, true);
+    this.unbounded.add(agentId);
+  }
+
+  clearOwner(agentId: string): void {
+    const next = { ...this.store.data };
+    for (const key of Object.keys(next)) {
+      if (key === agentId || key.startsWith(`${agentId}:`)) delete next[key];
+    }
+    this.store.replace(next, true);
+    this.unbounded.delete(agentId);
+  }
+
   append(agentId: string, turns: ConversationTurn[]): void {
     const cur = this.get(agentId);
     const next = [...cur, ...turns.map((turn) => ({ ...turn, id: randomUUID() }))];
     this.store.data[agentId] =
-      next.length > MAX_CONVERSATION_TURNS
+      !this.unbounded.has(agentId) && next.length > MAX_CONVERSATION_TURNS
         ? next.slice(next.length - MAX_CONVERSATION_TURNS)
         : next;
     this.store.save();

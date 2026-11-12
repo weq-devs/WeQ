@@ -3,6 +3,7 @@ import type { Conversation, ConversationPreferences, User } from '../im-template
 import type { RoamingTarget } from '@weq/service';
 import type { ConversationScope } from '@weq/service/search-policy';
 import { previewNodes, previewNodesToText } from './conversationPreview';
+import type { ConversationView, ConversationViewDirectory } from './conversationViews';
 
 export interface VirtualConversation {
   id: string;
@@ -28,6 +29,18 @@ export const ConversationDirectoryContext = createContext<{
   guild?: Conversation[];
   scope?: ConversationScope;
   onScopeChange?: (scope: ConversationScope) => void;
+  view?: ConversationView;
+  views?: ConversationViewDirectory;
+  rows?: Conversation[];
+  returnToRegular?: boolean;
+  onViewChange?: (view: ConversationView, fromAggregate?: boolean) => void;
+  onReturnToRegular?: () => void;
+  onCreateAssistant?: () => void;
+  onAssistant?: (sessionId: string) => void;
+  onDelete?: (rows: Conversation[]) => Promise<void>;
+  onExportBatch?: (rows: Conversation[]) => void;
+  deleteBusy?: boolean;
+  onRetry?: () => void;
   preferences?: ConversationPreferences;
   /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
   groupAssistantIds?: ReadonlySet<string>;
@@ -73,6 +86,7 @@ export function guildConversationRow(session: GuildConversationSession): Convers
   const updatedAt = new Date(Number(session.lastTime) * 1000).toISOString();
   return {
     id,
+    directoryKind: 'guild',
     type: 'direct',
     otherUser: {
       id,
@@ -112,6 +126,8 @@ export function virtualConversationRow(item: VirtualConversation): Conversation 
   const updatedAt = seconds > 0 ? new Date(seconds * 1000).toISOString() : '';
   return {
     id: item.id,
+    directoryKind: item.kind === 'persona' ? 'persona' : 'cloneGroup',
+    generated: { kind: item.kind, ownerId: item.ownerId, sessionId: null },
     type: 'direct',
     otherUser: {
       id: item.id,

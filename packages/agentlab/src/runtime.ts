@@ -167,6 +167,8 @@ export class AgentRuntime {
   private readonly lifecycle = new AbortController();
   private readonly externalSignal?: AbortSignal;
   private readonly background = new Set<Promise<void>>();
+  private readonly personaBackground = new Map<string, Set<Promise<void>>>();
+  private readonly personaControllers = new Map<string, AbortController>();
   private readonly rootDir: string;
   private readonly store: AgentLabStore;
   private readonly endpoints: EndpointResolver;
@@ -201,12 +203,32 @@ export class AgentRuntime {
     await Promise.all(this.background);
   }
 
-  private startBackground(task: Promise<void>): void {
+  async waitForPersonaWrites(personaId: string): Promise<void> {
+    await Promise.allSettled(this.personaBackground.get(personaId) ?? []);
+  }
+
+  async stopPersona(personaId: string): Promise<void> {
+    this.personaControllers.get(personaId)?.abort(new DOMException('克隆对话已停止', 'AbortError'));
+    await this.waitForPersonaWrites(personaId);
+    this.personaControllers.delete(personaId);
+  }
+
+  private startBackground(task: Promise<void>, personaId?: string): void {
     this.background.add(task);
-    void task.then(
-      () => this.background.delete(task),
-      () => this.background.delete(task),
-    );
+    if (personaId) {
+      const pending = this.personaBackground.get(personaId) ?? new Set<Promise<void>>();
+      pending.add(task);
+      this.personaBackground.set(personaId, pending);
+    }
+    const finish = (): void => {
+      this.background.delete(task);
+      if (personaId) {
+        const pending = this.personaBackground.get(personaId);
+        pending?.delete(task);
+        if (!pending?.size) this.personaBackground.delete(personaId);
+      }
+    };
+    void task.then(finish, finish);
   }
 
   private selfMemberId(): string {
@@ -228,7 +250,13 @@ export class AgentRuntime {
     ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant'; signal?: AbortSignal },
   ): AgentLabEndpoint {
     const ep = this.endpoints(ref, kind);
-    const signal = this.requestSignal(ep.signal, ctx.signal);
+    let ownerSignal: AbortSignal | undefined;
+    if (ctx.personaId) {
+      const owner = this.personaControllers.get(ctx.personaId) ?? new AbortController();
+      this.personaControllers.set(ctx.personaId, owner);
+      ownerSignal = owner.signal;
+    }
+    const signal = this.requestSignal(ep.signal, ctx.signal, ownerSignal);
     return {
       ...ep,
       signal,
@@ -582,8 +610,12 @@ export class AgentRuntime {
         dataKey,
         input.privatePeerId,
       ),
+      input.personaId,
     );
-    this.startBackground(this.maybeReflect(dataKey, record.persona.name, chatEndpoint));
+    this.startBackground(
+      this.maybeReflect(dataKey, record.persona.name, chatEndpoint),
+      input.personaId,
+    );
 
     return { ...result, renderedTurns, silent: false };
   }
@@ -629,6 +661,7 @@ export class AgentRuntime {
           /* 嵌入失败就退化成关键词召回 */
         }
       }
+      chatEndpoint.signal?.throwIfAborted();
       this.memories.add(
         dataKey,
         fresh,

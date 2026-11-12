@@ -467,6 +467,11 @@ export interface AgentLabGroupMessage {
   /** 原始有序动作（可选，富渲染/调试用；纯文本消息可省）。 */
   actions?: AgentLabChatAction[];
   ts: number;
+  /** 合并前的会话来源；null 表示旧版主对话。 */
+  sourceSessionId?: string | null;
+  sourceSessionTitle?: string;
+  sourceMessageId?: string;
+  sourceReplyToId?: string;
   /** 回复的目标消息 id（可选）。 */
   replyToId?: string;
   /** @ 到的成员 memberId 列表（驱动 @必回）。 */

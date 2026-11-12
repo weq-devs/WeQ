@@ -50,7 +50,12 @@ export function ChatRecordsModal({
   fixed?: boolean;
   onClose: () => void;
   /** Jump to a conversation + seq (like a file hit). */
-  onJumpMessage: (hit: { source: 'buddy' | 'group'; targetUid: string; msgSeq: string }) => void;
+  onJumpMessage: (hit: {
+    source: 'buddy' | 'group';
+    targetUid: string;
+    msgSeq: string;
+    msgId?: string;
+  }) => void;
   /** The same message renderers the chat pane uses (qqMessageRenderer etc.). */
   renderers?: MessageRenderer[];
 }): ReactElement {
@@ -111,6 +116,7 @@ export function ChatRecordsModal({
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
+  const [msgLimited, setMsgLimited] = useState(false);
   const convRunRef = useRef(0);
   const msgRunRef = useRef(0);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
@@ -208,6 +214,7 @@ export function ChatRecordsModal({
     }
     const run = ++msgRunRef.current;
     setMsgLoading(true);
+    setMsgLimited(false);
     setMsgError('');
     browseCursor.current = null;
     const request = fixed
@@ -227,7 +234,8 @@ export function ChatRecordsModal({
     void request
       .then((result) => {
         if (run !== msgRunRef.current) return;
-        const r = result as { items: ConversationRecordHit[]; total: number };
+        const r = result as { items: ConversationRecordHit[]; total: number; limited?: boolean };
+        setMsgLimited(Boolean(r.limited));
         setMessages(r.items);
         if (fixed) {
           const page = result as {
@@ -286,7 +294,8 @@ export function ChatRecordsModal({
     void request
       .then((result) => {
         if (run !== msgRunRef.current) return;
-        const r = result as { items: ConversationRecordHit[]; total: number };
+        const r = result as { items: ConversationRecordHit[]; total: number; limited?: boolean };
+        setMsgLimited(Boolean(r.limited));
         setMessages((prev) => [...prev, ...r.items]);
         if (fixed) {
           const page = result as {
@@ -335,12 +344,20 @@ export function ChatRecordsModal({
         return;
       }
       if (!selected) return;
-      if (!/^\d+$/.test(msg.msgSeq) || BigInt(msg.msgSeq) <= 0n) {
+      if (
+        (!/^\d+$/.test(msg.msgSeq) || BigInt(msg.msgSeq) <= 0n) &&
+        !(selected.targetUid.startsWith('service:') && msg.msgId)
+      ) {
         setMsgError('该消息没有可定位的原生序号。');
         return;
       }
       // 跳转进会话时自动关闭聊天记录模态。
-      onJumpMessage({ source: selected.source, targetUid: selected.targetUid, msgSeq: msg.msgSeq });
+      onJumpMessage({
+        source: selected.source,
+        targetUid: selected.targetUid,
+        msgSeq: msg.msgSeq,
+        msgId: msg.msgId,
+      });
       onClose();
     },
     [onJumpMessage, onClose, selected, localSource],
@@ -365,7 +382,7 @@ export function ChatRecordsModal({
         <div className="weq-chatrecords-head" data-window-drag-handle>
           <div className="weq-chatrecords-title-wrap">
             <h3 id="weq-chatrecords-title" className="weq-search-more-title">
-              消息
+              聊天记录
             </h3>
             {fixed ? (
               <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
@@ -746,7 +763,9 @@ export function ChatRecordsModal({
                         {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
                         {(fixed ? !browseHasMore : messages.length >= msgTotal) &&
                         messages.length > 0 ? (
-                          <div className="weq-search-more-end">没有更多了</div>
+                          <div className="weq-search-more-end">
+                            {msgLimited ? '本轮候选已显示完' : '没有更多了'}
+                          </div>
                         ) : null}
                       </>
                     )}
