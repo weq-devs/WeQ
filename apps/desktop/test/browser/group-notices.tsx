@@ -38,7 +38,16 @@ createRoot(document.getElementById('root')!).render(
       style={{ maxWidth: 720, margin: '24px auto', padding: 16 }}
     >
       <GroupBulletinList
-        entries={entries}
+        entries={
+          new URLSearchParams(location.search).has('history')
+            ? entries.map((entry) => ({
+                ...entry,
+                noticeId: undefined,
+                date: '',
+                readNum: undefined,
+              }))
+            : entries
+        }
         groupCode="123456"
         groupName="合成测试群"
         tools={() => null}

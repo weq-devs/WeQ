@@ -55,9 +55,9 @@ export function GroupBulletinList({
             <div className="group-bulletin-main">
               <div className="group-bulletin-header">
                 <span className="group-bulletin-date">
-                  {entry.date}
-                  {entry.readNum !== undefined && <> · {entry.readNum} 人已读</>}
-                  {!entry.noticeId && ' · 本地记录'}
+                  {entry.date && <span>{entry.date}</span>}
+                  {entry.readNum !== undefined && <span>{entry.readNum} 人已读</span>}
+                  {!entry.noticeId && <span>历史记录</span>}
                 </span>
                 {tools(entry)}
               </div>
