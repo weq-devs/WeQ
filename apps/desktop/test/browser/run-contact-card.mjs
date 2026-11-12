@@ -244,6 +244,14 @@ try {
         }, theme);
         assert.equal(await card.getByRole('navigation', { name: '更多资料' }).count(), 0);
         assert.equal(await card.locator('.weq-contact-more').count(), 0);
+        assert.equal(await card.locator('.weq-contact-overflow').count(), 0);
+        assert.deepEqual(await card.locator('.weq-contact-actions > button').allTextContents(), [
+          '打开会话',
+          '预览消息',
+          '本群发言',
+          '查看空间',
+          '聊天分析',
+        ]);
         await checkPrivileges(card);
         const layout = await card.locator('.weq-contact-actions > button').evaluateAll((buttons) =>
           buttons.map((node) => {
@@ -253,12 +261,17 @@ try {
             return {
               direction: style.flexDirection,
               height: rect.height,
+              fits:
+                rect.left >= node.parentElement.getBoundingClientRect().left &&
+                rect.right <= node.parentElement.getBoundingClientRect().right &&
+                node.scrollWidth <= node.clientWidth,
               centered: Math.abs(icon.top + icon.height / 2 - (rect.top + rect.height / 2)) < 2,
             };
           }),
         );
         assert.ok(
-          layout.length >= 2 && layout.every((item) => item.direction === 'row' && item.centered),
+          layout.length === 5 &&
+            layout.every((item) => item.direction === 'row' && item.centered && item.fits),
         );
         assert.equal(layout[0].height, layout[1].height);
         const bounds = await card.boundingBox();
@@ -362,26 +375,9 @@ try {
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     report.push({ kind: 'profile-like-side-panel', calls: [] });
-    // 点赞与空间预览收进操作行的「更多操作」，展开后仍然只有一个入口。
-    await page.locator('.weq-contact-overflow > summary').click();
-    await page.getByRole('button', { name: '赞资料卡', exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: '赞资料卡', exact: true }).count(), 1);
-    const likeButton = page.getByRole('button', { name: '赞资料卡', exact: true });
-    const likeSource = await likeButton.boundingBox();
-    await likeButton.click();
-    const likeDialog = page
-      .getByRole('dialog')
-      .filter({ has: page.locator('.weq-profile-like-dialog') });
-    await likeDialog.evaluate((node) =>
-      Promise.all(node.getAnimations().map((animation) => animation.finished)),
-    );
-    const likePanel = await likeDialog.boundingBox();
-    assert.ok(Math.abs(likePanel.x - (likeSource.x + likeSource.width + 8)) < 1);
-    assert.ok(
-      Math.abs(likePanel.y - Math.max(8, Math.min(likeSource.y, 892 - likePanel.height))) < 1,
-    );
-    await likeDialog.getByRole('button', { name: '关闭资料卡点赞', exact: true }).click();
-    await page.locator('.weq-contact-overflow > summary').click();
+    // 底部移除点赞入口；累计获赞数值仍沿用上面的面板验证。
+    assert.equal(await page.getByRole('button', { name: '赞资料卡', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '预览空间', exact: true }).count(), 0);
     assert.ok(
       !cold.some((call) =>
         /energy|friendClue|friendNotesState|educationHistory|signatureHistory|personalityPhotos|qzone.posts|browseConversation/.test(
@@ -552,11 +548,7 @@ try {
         ),
       ),
     );
-    // 空间预览在「更多操作」菜单里
-    await page.locator('.weq-contact-overflow > summary').click();
-    await page.getByRole('button', { name: '预览空间', exact: true }).click();
-    await page.getByText('合成空间预览', { exact: true }).waitFor();
-    await page.locator('.weq-contact-overflow > summary').click();
+    assert.equal(await page.getByRole('button', { name: '预览空间', exact: true }).count(), 0);
     report.push({ kind: 'minimal', calls: minimal });
     await page.evaluate(() => {
       const qa = window.contactCardQa;

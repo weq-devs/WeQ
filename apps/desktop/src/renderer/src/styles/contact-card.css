@@ -448,75 +448,9 @@
   color: var(--weq-accent-effective);
 }
 
-.weq-contact-actions button:focus-visible,
-.weq-contact-overflow > summary:focus-visible {
+.weq-contact-actions button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
-}
-
-/* 「更多」菜单承接未常驻的空间、群发言、分析及点赞入口。 */
-.weq-contact-overflow {
-  position: relative;
-}
-
-.weq-contact-overflow > summary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 6px;
-  color: var(--weq-fg-secondary);
-  cursor: pointer;
-  list-style: none;
-}
-
-.weq-contact-overflow > summary::-webkit-details-marker {
-  display: none;
-}
-
-.weq-contact-overflow[open] > summary,
-.weq-contact-overflow > summary:hover {
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
-  color: var(--weq-accent-effective);
-}
-
-.weq-contact-overflow-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 6px);
-  z-index: 1;
-  display: grid;
-  gap: 2px;
-  min-width: 148px;
-  padding: 6px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 8px;
-  background: var(--weq-bg-surface);
-  box-shadow: var(--weq-shadow-card);
-}
-
-.weq-contact-overflow-menu > button,
-.weq-contact-overflow-menu [data-action-icon] {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 30px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--weq-fg-primary);
-  font-size: 12px;
-  text-align: start;
-  cursor: pointer;
-}
-
-.weq-contact-overflow-menu > button:hover,
-.weq-contact-overflow-menu [data-action-icon]:hover {
-  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
 }
 
 /* ---------- 群上下文 ---------- */
@@ -610,7 +544,6 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   outline-offset: 2px;
 }
 
-.weq-contact-space-preview,
 .weq-contact-speech {
   min-width: 0;
   max-height: 55dvh;
@@ -618,7 +551,6 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   padding: 12px;
 }
 
-.weq-contact-space-preview article,
 .weq-contact-speech article {
   padding-block: 12px;
   border-bottom: 1px solid var(--weq-border-subtle);
@@ -626,7 +558,6 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   overflow-wrap: anywhere;
 }
 
-.weq-contact-space-preview time,
 .weq-contact-speech time {
   color: var(--weq-fg-muted);
   font-size: 12px;
@@ -655,8 +586,7 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
     height: 44px;
   }
 
-  .weq-contact-card .weq-profile-close,
-  .weq-contact-overflow > summary {
+  .weq-contact-card .weq-profile-close {
     width: 36px;
     height: 36px;
   }

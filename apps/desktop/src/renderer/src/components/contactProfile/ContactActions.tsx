@@ -1,6 +1,6 @@
-import { lazy, Suspense, useContext, useState } from 'react';
+import { useContext, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { BarChart3, Eye, MessageSquare, MoreHorizontal, Star } from 'lucide-react';
+import { BarChart3, Eye, MessageSquare, Star } from 'lucide-react';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
@@ -10,14 +10,8 @@ import { PROFILE_QUERY_OPTIONS, type ProfilePerson } from '../../hooks/useContac
 import { Modal } from '../Dialog';
 import { MemberAnalyticsDialog } from '../MemberAnalyticsDialog';
 import type { AnalysisTarget } from '../../views/analysis/model';
-import { ProfileLikeAction } from '../qq-actions/ProfileLikeAction';
-import { displayUserName } from '../../im-template/template/user';
-const SpacePreview = lazy(() => import('./ContactSpacePreview'));
 
-/**
- * 名片操作区：一个主操作 + 至多一个常驻次操作，其余入口收进「更多」。
- * 同一张名片在窄窗口内也保持一行，不缩小文字或依赖按钮换行。
- */
+/** 名片操作全部常驻，窄窗口内沿用操作区的自动换行。 */
 export function ContactActions({
   person,
   onClose,
@@ -37,7 +31,6 @@ export function ContactActions({
   const openSpace = useContext(QzoneNavigationContext);
   const directory = useContext(ConversationDirectoryContext);
   const session = useQQWriteSession(`contact-actions:${person.id}`, true);
-  const [previewSpace, setPreviewSpace] = useState(false);
   const [groupView, setGroupView] = useState<'speech' | 'analysis' | null>(null);
   const uid = person.uid || (person.id.startsWith('u_') ? person.id : '');
   const known =
@@ -60,13 +53,6 @@ export function ContactActions({
     ['QQ', 'UIN'].includes(person.identityLabel) &&
     /^[1-9]\d{4,19}$/.test(person.identityValue);
   const group = !person.clone && person.profileContext && uid ? person.profileContext : null;
-  // 点赞入口只对真实的 QQ 好友/成员开放：机器人、企业用户、本地克隆都不给。
-  const canLike =
-    !person.clone &&
-    person.kind !== 'bot' &&
-    !person.extInfo?.isEnterprise &&
-    qq &&
-    /^u_/.test(person.uid || person.id);
   function navigate(action: () => void, close = true) {
     const run = () => {
       if (close) onClose?.();
@@ -99,9 +85,8 @@ export function ContactActions({
       icon: <Star size={14} />,
       run: () => navigate(() => openSpace(person.identityValue, person.nick || person.displayName)),
     });
-  const [visibleSecondary, ...overflow] = secondary;
   if (group)
-    overflow.push({
+    secondary.push({
       key: 'group-analysis',
       label: '聊天分析',
       icon: <BarChart3 size={14} />,
@@ -114,13 +99,6 @@ export function ContactActions({
               memberUin: person.identityValue,
             })
           : setGroupView('analysis'),
-    });
-  if (qq && openSpace)
-    overflow.push({
-      key: 'space-preview',
-      label: previewSpace ? '收起空间预览' : '预览空间',
-      icon: <Eye size={14} />,
-      run: () => setPreviewSpace(!previewSpace),
     });
   return (
     <>
@@ -137,53 +115,16 @@ export function ContactActions({
             }
           >
             <MessageSquare size={14} />
-            {person.clone || exists ? '查看消息' : resolved ? '发起会话' : '打开会话'}
+            {person.clone || exists || !resolved ? '打开会话' : '发起会话'}
           </button>
         ) : null}
-        {visibleSecondary ? (
-          <button type="button" className="weq-contact-secondary" onClick={visibleSecondary.run}>
-            {visibleSecondary.icon}
-            {visibleSecondary.label}
+        {secondary.map((item) => (
+          <button key={item.key} type="button" className="weq-contact-secondary" onClick={item.run}>
+            {item.icon}
+            {item.label}
           </button>
-        ) : null}
-        {overflow.length || canLike ? (
-          <details className="weq-contact-overflow">
-            <summary aria-label="更多操作" title="更多操作">
-              <MoreHorizontal size={16} />
-            </summary>
-            <div className="weq-contact-overflow-menu">
-              {overflow.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={(event) => {
-                    event.currentTarget.closest('details')?.removeAttribute('open');
-                    item.run();
-                  }}
-                >
-                  {item.icon}
-                  {item.label}
-                </button>
-              ))}
-              {canLike ? (
-                <ProfileLikeAction
-                  uid={person.uid || person.id}
-                  uin={person.identityValue}
-                  name={displayUserName(person)}
-                />
-              ) : null}
-            </div>
-          </details>
-        ) : null}
+        ))}
       </div>
-      {previewSpace && qq ? (
-        <Suspense fallback={<p role="status">正在加载空间预览…</p>}>
-          <SpacePreview
-            key={JSON.stringify([session.binding, person.identityValue])}
-            person={person}
-          />
-        </Suspense>
-      ) : null}
       {groupView === 'analysis' && group ? (
         <MemberAnalyticsDialog
           groupCode={group.groupCode}

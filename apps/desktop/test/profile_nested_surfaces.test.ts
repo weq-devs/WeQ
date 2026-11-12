@@ -510,7 +510,7 @@ it.each([false, true])('好友资料的私聊操作使用当前对象，内嵌=%
       ),
     );
     const entry = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-      button.textContent?.includes('查看消息'),
+      button.textContent?.includes('打开会话'),
     )!;
     expect(entry).toBeDefined();
     act(() => entry.click());

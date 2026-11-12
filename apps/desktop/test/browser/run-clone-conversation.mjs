@@ -159,7 +159,7 @@ try {
             ),
           });
         if (!groupCard) {
-          await card.getByRole('button', { name: '查看消息', exact: true }).waitFor();
+          await card.getByRole('button', { name: '打开会话', exact: true }).waitFor();
           await card.getByRole('button', { name: '预览消息', exact: true }).click();
           await card.locator('.weq-private-preview-inline .message-line').first().waitFor();
           const previewFits = await card.evaluate((node) => {

@@ -102,7 +102,12 @@ try {
               assert.equal(result.actionsBelow, width <= 760, `${label}: 操作区换行错误`);
             }
             layouts.push(result);
-            await page.getByRole('button', { name: '查看消息', exact: true }).click();
+            await page
+              .getByRole('button', {
+                name: kind === 'group' ? '查看消息' : '打开会话',
+                exact: true,
+              })
+              .click();
             assert.equal(await page.evaluate(() => window.profileIdentityQa.chats), 1);
             if (surface === 'embedded' || kind === 'group') {
               await page.getByRole('button', { name: '预览消息', exact: true }).click();
