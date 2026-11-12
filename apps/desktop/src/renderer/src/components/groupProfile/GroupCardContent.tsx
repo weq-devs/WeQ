@@ -12,6 +12,7 @@ import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { openMediaPreview } from '../mediaPreviewStore';
 import { GroupFreezeNotice, GroupTags, groupCreationDate } from './GroupContent';
 import { GroupCardMemberList } from './GroupCardMemberList';
+import { groupJoinedDate } from '../../lib/groupProfileRows';
 import '../../styles/group-quick-card.css';
 
 type ProfileData = ReturnType<typeof useGroupProfile>;
@@ -101,11 +102,13 @@ export function GroupCardIdentity({
 export function GroupCardContent({
   conversation,
   metrics,
+  joinedAt,
   ownerUid,
   onOpenMember,
 }: {
   conversation: GroupConversation;
   metrics: ProfileData['metrics'];
+  joinedAt?: number | null;
   ownerUid?: string;
   onOpenMember: (member: GroupMember, anchor: { x: number; y: number }) => void;
 }) {
@@ -122,13 +125,14 @@ export function GroupCardContent({
       ? friend.value
       : null;
   const created = groupCreationDate(group.createTime);
+  const joined = !generated ? groupJoinedDate(joinedAt) : null;
   const hasTags = Boolean(
     group.labels?.trim() || group.customLabels?.some((label) => label.trim()),
   );
   const count = group.memberCount > 0 || generated ? `${group.memberCount} 人` : null;
   return (
     <div className="weq-profile-data weq-contact-sections weq-group-quick-sections">
-      {group.description?.trim() || hasTags || created ? (
+      {group.description?.trim() || hasTags || created || joined ? (
         <ContactSection title="群资料">
           {group.description?.trim() ? (
             <ContactRow label="简介">
@@ -141,6 +145,7 @@ export function GroupCardContent({
             </ContactRow>
           ) : null}
           <ContactRow label="创建时间" value={created || null} />
+          <ContactRow label="我的入群时间" value={joined} />
         </ContactSection>
       ) : null}
       <ContactSection title="成员">

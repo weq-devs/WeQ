@@ -69,7 +69,9 @@ async function reply(path: string, input) {
   if (path === 'account.getGroupExtendedProfile')
     return {
       groupId: 12345,
+      joinedAt: 1704038407,
       profile: {
+        joinedAt: 1704038407,
         grade: 4,
         activeMemberCount: 105,
         freezeState: 0,

@@ -10,6 +10,12 @@ export function validGroupProfile(value: unknown): value is GroupProfileExtras {
   if (!value || typeof value !== 'object') return false;
   const row = value as Record<string, unknown>;
   if (
+    row.joinedAt !== undefined &&
+    row.joinedAt !== null &&
+    (!numberOrNull(row.joinedAt) || Number(row.joinedAt) <= 1)
+  )
+    return false;
+  if (
     !['grade', 'activeMemberCount', 'freezeState', 'freezeReason', 'portraitSequence'].every(
       (key) => numberOrNull(row[key]),
     )

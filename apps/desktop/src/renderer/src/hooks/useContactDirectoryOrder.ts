@@ -12,6 +12,7 @@ import {
   FRIEND_SORTS,
   GROUP_GROUPS,
   GROUP_SORTS,
+  withLocalGroupJoinTimes,
   type DirectoryPreferences,
   type RegionNode,
   type DirectoryRows,
@@ -157,22 +158,7 @@ export function useContactDirectoryOrder(
             updatedAt: profile.computedAt,
           },
         };
-    if (preferences.sort === 'joinedAt')
-      for (const [id, value] of Object.entries(joins.data ?? {}))
-        rows[`group:${id}`] = {
-          ...rows[`group:${id}`],
-          joinedAt: {
-            value: Math.max(
-              value,
-              typeof rows[`group:${id}`]?.joinedAt?.value === 'number'
-                ? Number(rows[`group:${id}`]?.joinedAt?.value)
-                : 0,
-            ),
-            state: 'ready',
-            attemptedAt: 0,
-          },
-        };
-    return rows;
+    return preferences.sort === 'joinedAt' ? withLocalGroupJoinTimes(rows, joins.data ?? {}) : rows;
   }, [
     snapshot.data?.rows,
     needsTimes,

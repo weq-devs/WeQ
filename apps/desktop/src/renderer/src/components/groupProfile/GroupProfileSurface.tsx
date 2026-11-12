@@ -187,7 +187,11 @@ function GroupProfileBody({
               <>
                 <GroupDescription text={conversation.group.description} />
                 <GroupTags group={conversation.group} />
-                <GroupFacts conversation={conversation} metrics={data.metrics} />
+                <GroupFacts
+                  conversation={conversation}
+                  metrics={data.metrics}
+                  joinedAt={data.joinedAt}
+                />
                 <GroupFreezeNotice metrics={data.metrics} />
               </>
             }
@@ -199,6 +203,7 @@ function GroupProfileBody({
             key={`${data.scope}:${conversation.id}`}
             conversation={conversation}
             metrics={data.metrics}
+            joinedAt={data.joinedAt}
             ownerUid={data.ownerUid}
             onOpenMember={(value, at) => {
               if (conversation.generated && onOpenMember) onOpenMember(value, at);

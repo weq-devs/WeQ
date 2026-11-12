@@ -204,7 +204,9 @@ export function groupSortDetail(
     if (sort !== 'joinedAt' && cell?.state === 'ready' && cell.value === undefined)
       return { text: sort === 'lastSpokeAt' ? '无本地本人发言记录' : '无本地群消息记录' };
     return metricDetail(label, cell, (value) =>
-      typeof value === 'number' && value > 0 ? profileTimeText(value) : null,
+      typeof value === 'number' && value > (sort === 'joinedAt' ? 1 : 0)
+        ? profileTimeText(value)
+        : null,
     );
   }
   return metricDetail(

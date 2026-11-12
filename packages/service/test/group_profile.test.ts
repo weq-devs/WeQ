@@ -148,6 +148,16 @@ it('缓存落盘失败仍交付在线资料，并保留内存结果供重试', a
   });
   expect((await reader.read(123)).profile).toEqual(profile);
 });
+it('本人时间随扩展快照保存，离线重开仍能读取', async () => {
+  const { root, reader } = await setup();
+  vi.spyOn(GetGroupJoinInfo, 'invoke').mockResolvedValue(
+    reply({ ...profile, joinedAt: 1704038407 }),
+  );
+  await reader.read(123, true);
+  const reopened = new GroupProfileReader();
+  reopened.setCache(root);
+  expect((await reopened.read(123)).profile?.joinedAt).toBe(1704038407);
+});
 
 it('请求期间 QQ 离线时保留旧快照，不把迟到的新值存入缓存', async () => {
   const { reader, setPid } = await setup();

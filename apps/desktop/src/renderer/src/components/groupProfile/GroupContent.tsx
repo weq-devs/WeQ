@@ -12,6 +12,7 @@ import type { useGroupProfile } from '../../hooks/useGroupProfile';
 import { ContactRow } from '../contactProfile/ContactRow';
 import { mergeGroupPreviewMembers } from '../../lib/groupPreviewMembers';
 import { QQProfileField } from '../QQProfileField';
+import { groupJoinedDate } from '../../lib/groupProfileRows';
 
 const createdDate = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -175,9 +176,11 @@ export function GroupDescription({ text, full = false }: { text?: string | null;
 export function GroupFacts({
   conversation,
   metrics,
+  joinedAt,
 }: {
   conversation: GroupConversation;
   metrics?: ReturnType<typeof useGroupProfile>['metrics'];
+  joinedAt?: number | null;
 }) {
   const group = conversation.group;
   const friend = metrics?.friendCount;
@@ -192,6 +195,11 @@ export function GroupFacts({
   return (
     <div className="weq-group-facts">
       <ContactRow label="创建时间" icon={<CalendarDays size={13} />} value={created || null} />
+      <ContactRow
+        label="我的入群时间"
+        icon={<CalendarDays size={13} />}
+        value={conversation.generated ? null : groupJoinedDate(joinedAt)}
+      />
       <ContactRow
         label="群内好友"
         icon={<Users size={13} />}

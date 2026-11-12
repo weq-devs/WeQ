@@ -63,7 +63,9 @@ try {
   assert.equal(await page.getByText('只在完整资料显示的公告', { exact: true }).count(), 0);
   assert.equal(await page.locator('.weq-group-preview-avatars').count(), 0);
   const calls = await page.evaluate(() => window.groupCardCalls);
-  assert.equal(calls.includes('account.getGroupExtendedProfile'), false);
+  assert.equal(calls.includes('account.getGroupExtendedProfile'), true);
+  await page.getByText('2024/1/1 00:00:07', { exact: true }).waitFor();
+  assert.equal(await page.getByText('我的入群时间', { exact: true }).count(), 1);
   assert.equal(calls.includes('account.listGroupMembers'), false);
   assert.equal(calls.includes('account.groupMemberPreview'), false);
   assert.equal(await page.locator('.weq-group-quick-identity .weq-profile-id').count(), 0);
@@ -202,7 +204,7 @@ try {
     window.groupCardQa.empty();
   });
   await page.waitForFunction(() => !document.querySelector('.weq-group-description'));
-  assert.equal(await page.getByRole('heading', { name: '群资料', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('heading', { name: '群资料', exact: true }).count(), 1);
   await page.evaluate(() => window.groupCardQa.normal());
   await page.setViewportSize({ width: 1180, height: 900 });
   await page.getByRole('button', { name: '打开完整群资料', exact: true }).first().click();
@@ -241,6 +243,7 @@ try {
           .getByRole('tablist', { name: '群详情分区' })
           .getByRole('tab', { name: '概览', exact: true })
           .click();
+      await page.getByText('我的入群时间', { exact: true }).first().waitFor();
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
@@ -283,7 +286,7 @@ try {
       'no-heavy-card-requests',
       'nested-return',
       'shared-directory',
-      'details-only-extension',
+      'shared-self-join-time-in-card-and-profile',
       'member-search',
       'six-responsive-theme-captures',
       'long-names-remain-navigable',

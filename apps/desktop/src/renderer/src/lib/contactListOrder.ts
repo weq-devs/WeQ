@@ -18,6 +18,23 @@ export type DirectoryRows = Record<
   >
 >;
 
+/** 本地本人记录只补缺失值，不用较大的旧值覆盖协议更新后的统一指标。 */
+export function withLocalGroupJoinTimes(
+  rows: DirectoryRows,
+  times: Record<string, number>,
+): DirectoryRows {
+  const result = { ...rows };
+  for (const [id, value] of Object.entries(times)) {
+    const key = `group:${id}`;
+    const known = rows[key]?.joinedAt?.value;
+    if (typeof known === 'number' && Number.isInteger(known) && known > 1 && known <= 0xffffffff)
+      continue;
+    if (!Number.isInteger(value) || value <= 1 || value > 0xffffffff) continue;
+    result[key] = { ...rows[key], joinedAt: { value, state: 'ready', attemptedAt: 0 } };
+  }
+  return result;
+}
+
 export function directoryTimeSeeds(
   items: readonly Conversation[],
   selfUid?: string,
@@ -180,6 +197,8 @@ export function sortGroups(
       return time > 0 ? time : null;
     }
     const result = metricValue(rows, `group:${group.id}`, sort);
+    if (sort === 'joinedAt' && (typeof result !== 'number' || result <= 1 || result > 0xffffffff))
+      return null;
     return typeof result === 'number' ? result : null;
   };
   return items

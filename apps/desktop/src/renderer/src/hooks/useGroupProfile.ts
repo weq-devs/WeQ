@@ -78,6 +78,23 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
     ...PROFILE_QUERY_OPTIONS,
     enabled,
   });
+  const extended = useQuery({
+    queryKey: ['group-profile-joined-at', key, conversation.id],
+    queryFn: () =>
+      client.account.getGroupExtendedProfile.query({
+        ...binding!,
+        groupId: Number(conversation.id),
+        refresh: true,
+      }),
+    enabled,
+    ...PROFILE_QUERY_OPTIONS,
+    staleTime: 5 * 60_000,
+  });
+  const joinedAt =
+    enabled && extended.data?.groupId === Number(conversation.id) ? extended.data.joinedAt : null;
+  const cachedJoin = enabled
+    ? metrics.data?.rows[`group:${conversation.id}`]?.joinedAt?.value
+    : null;
   const local = detail.data;
   const knownName = local?.groupName?.trim() || conversation.group.name?.trim();
   const cloudName = useQuery({
@@ -116,6 +133,7 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
   return {
     conversation: { ...conversation, group },
     ownerUid: local?.ownerUid,
+    joinedAt: joinedAt ?? (typeof cachedJoin === 'number' && cachedJoin > 1 ? cachedJoin : null),
     binding,
     scope: key,
     members: mergeGroupPreviewMembers([

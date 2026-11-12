@@ -10,6 +10,18 @@ import type { GroupProfileExtras } from '@weq/protocol';
  */
 export type GroupProfileRow = readonly [label: string, value: string, technical?: boolean];
 
+const joinedDate = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  dateStyle: 'short',
+  timeStyle: 'medium',
+  hourCycle: 'h23',
+});
+export function groupJoinedDate(value?: number | null): string | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 1 && value <= 0xffffffff
+    ? joinedDate.format(value * 1000)
+    : null;
+}
+
 const freezeText = (profile: GroupProfileExtras | null) => {
   if (profile?.freezeState == null) return null;
   if (profile.freezeState === 0) return '正常';
@@ -20,6 +32,8 @@ const freezeText = (profile: GroupProfileExtras | null) => {
 export function groupProfileRows(profile: GroupProfileExtras | null): GroupProfileRow[] {
   const rows: GroupProfileRow[] = [];
   const freeze = freezeText(profile);
+  const joined = groupJoinedDate(profile?.joinedAt);
+  if (joined) rows.push(['我的入群时间', joined]);
   if (profile?.grade != null) rows.push(['群等级', String(profile.grade)]);
   if (profile?.activeMemberCount != null)
     rows.push(['活跃成员', `${profile.activeMemberCount} 人`]);

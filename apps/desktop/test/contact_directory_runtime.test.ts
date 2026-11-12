@@ -160,7 +160,10 @@ it('新增好友字段复用现有范围，来源单独刷新不会被添加时�
 });
 it('群扩展失败仍准备本人入群时间，群资料范围不触发好友查询', async () => {
   const { runtime, services } = await setup();
-  services.groupInfo.getExtendedProfile.mockResolvedValueOnce({ error: '读取失败' });
+  services.groupInfo.getExtendedProfile.mockImplementationOnce(async () => {
+    await runtime.cache.project('group:10001', { joinedAt: 123 });
+    return { error: '读取失败' };
+  });
   await runtime.rebuild(false, ['grade', 'freezeState', 'joinedAt']);
   await vi.waitFor(() => {
     expect(runtime.cache.progress.done).toBe(1);
@@ -168,6 +171,16 @@ it('群扩展失败仍准备本人入群时间，群资料范围不触发好友�
   });
   expect((await runtime.cache.row('group:10001')).joinedAt?.value).toBe(123);
   expect(services.accountWrite.friendClue).not.toHaveBeenCalled();
+  expect(services.groupInfo.fetchOnlineMembers).not.toHaveBeenCalled();
+});
+it('只刷新本人入群时间也查询直接群资料，不为此拉全群成员', async () => {
+  const { runtime, services } = await setup();
+  await runtime.rebuild(false, ['joinedAt'], 'all');
+  await vi.waitFor(() =>
+    expect(services.groupInfo.getExtendedProfile).toHaveBeenCalledWith(10001, true, true),
+  );
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(services.groupInfo.fetchOnlineMembers).not.toHaveBeenCalled();
 });
 it('本地时间、入群和画像摘要在账号切换后拒绝旧读取', async () => {
   const { runtime, services, switchAccount } = await setup();

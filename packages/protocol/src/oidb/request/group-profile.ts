@@ -9,6 +9,8 @@ export interface GroupPortraitInfo {
   bottom: number | null;
 }
 export interface GroupProfileExtras {
+  /** 本人入群 Unix 秒；旧缓存可能缺少此字段，0／1 不作为日期。 */
+  joinedAt?: number | null;
   grade: number | null;
   activeMemberCount: number | null;
   freezeState: number | null;
@@ -29,7 +31,7 @@ const portraitInfo = message([
   { name: 'bottom', tag: 5, type: 'uint32' },
 ]);
 
-/** Android GroupInfo FieldMap；0x88d_110 真回包已验证这些字段。 */
+/** Android GroupInfo FieldMap；tag 49 的桌面真实回包兼容性单独验证。 */
 export const GROUP_PROFILE_FIELDS = message([
   { name: 'grade', tag: 36, type: 'uint32', force: true },
   { name: 'activeMemberCount', tag: 37, type: 'uint32', force: true },
@@ -43,6 +45,7 @@ export const GROUP_PROFILE_FIELDS = message([
       { name: 'defaultId', tag: 3, type: 'uint32' },
     ]),
   },
+  { name: 'joinedAt', tag: 49, type: 'uint32', force: true },
   { name: 'freezeState', tag: 91, type: 'uint32', force: true },
   { name: 'freezeReason', tag: 100, type: 'uint32', force: true },
 ]);
@@ -56,6 +59,7 @@ function optionalNumber(row: Record<string, unknown>, key: string): number | nul
 }
 
 export function parseGroupProfileExtras(row: Record<string, unknown>): GroupProfileExtras {
+  const joinedAt = optionalNumber(row, 'joinedAt');
   let portrait: GroupProfileExtras['portrait'] = null;
   if (row.portrait !== undefined) {
     const raw = responseObject(row.portrait, '群头像资料');
@@ -78,6 +82,7 @@ export function parseGroupProfileExtras(row: Record<string, unknown>): GroupProf
     };
   }
   return {
+    joinedAt: joinedAt !== null && joinedAt > 1 ? joinedAt : null,
     grade: optionalNumber(row, 'grade'),
     activeMemberCount: optionalNumber(row, 'activeMemberCount'),
     freezeState: optionalNumber(row, 'freezeState'),

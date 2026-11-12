@@ -42,6 +42,9 @@ export class GroupProfileReader {
   private current() {
     if (!this.active) throw new Error('账号已关闭，请重新读取群资料');
   }
+  assertActive() {
+    this.current();
+  }
   private remember(groupId: number, snapshot: Snapshot | null) {
     this.cache.delete(groupId);
     this.cache.set(groupId, snapshot);

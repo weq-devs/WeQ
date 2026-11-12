@@ -11,13 +11,18 @@ const mock = vi.hoisted(() => ({
   preview: vi.fn(),
   snapshots: vi.fn(),
   names: vi.fn(),
+  extended: vi.fn(),
 }));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: (select) => select({ openedUin: '10001' }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
-    account: { getGroupDetail: { query: mock.detail }, getCardDisplayNames: { query: mock.names } },
+    account: {
+      getGroupDetail: { query: mock.detail },
+      getCardDisplayNames: { query: mock.names },
+      getGroupExtendedProfile: { query: mock.extended },
+    },
   },
   trpc: {
     account: {
@@ -63,6 +68,7 @@ function fixture(input = group, previewMembers = true) {
     .mockResolvedValue({ members: [], source: 'local', partial: true, error: null });
   mock.snapshots.mockReset().mockResolvedValue({ rows: {} });
   mock.names.mockReset().mockResolvedValue({ name: '补全的群名称' });
+  mock.extended.mockReset().mockResolvedValue({ groupId: 12345, joinedAt: 1704038407 });
   const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const host = document.createElement('div'),
     root = createRoot(host);
@@ -75,7 +81,7 @@ function fixture(input = group, previewMembers = true) {
     return h(
       'span',
       null,
-      `${result.scope}:${result.conversation.group.name}:${result.members.map((row) => row.displayName).join(',')}`,
+      `${result.scope}:${result.conversation.group.name}:${result.joinedAt}:${result.members.map((row) => row.displayName).join(',')}`,
     );
   }
   function render(active = true) {
@@ -94,11 +100,12 @@ it('快速名片关闭成员预览查询，完整资料页保留原来的预览�
   expect(mock.detail).toHaveBeenCalledOnce();
   expect(mock.preview).not.toHaveBeenCalled();
 });
-it('名片和资料页重用查询，不查询公告／扩展资料；inactive 不启动读取', async () => {
-  const { render } = fixture();
+it('名片和资料页按需读取本人时间且复用查询；inactive 不启动读取', async () => {
+  const { host, render } = fixture();
   render(false);
   expect(mock.detail).not.toHaveBeenCalled();
   expect(mock.preview).not.toHaveBeenCalled();
+  expect(mock.extended).not.toHaveBeenCalled();
   render();
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -110,6 +117,14 @@ it('名片和资料页重用查询，不查询公告／扩展资料；inactive �
   expect(mock.detail).toHaveBeenCalledTimes(1);
   expect(mock.names).not.toHaveBeenCalled();
   expect(mock.preview).toHaveBeenCalledTimes(1);
+  expect(mock.extended).toHaveBeenCalledOnce();
+  expect(mock.extended).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    groupId: 12345,
+    refresh: true,
+  });
+  expect(host.textContent).toContain('1704038407');
   expect(mock.preview).toHaveBeenCalledWith({
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'source-a',
@@ -139,6 +154,42 @@ it('本地生成群不向真实群资料或成员接口查询', async () => {
   expect(mock.detail).not.toHaveBeenCalled();
   expect(mock.preview).not.toHaveBeenCalled();
   expect(mock.names).not.toHaveBeenCalled();
+  expect(mock.extended).not.toHaveBeenCalled();
+});
+it('协议查询未完成时先显示本地已知时间，不阻塞群名', async () => {
+  const { host, render } = fixture(group, false);
+  mock.extended.mockReturnValue(new Promise(() => {}));
+  mock.snapshots.mockResolvedValue({
+    rows: { 'group:12345': { joinedAt: { value: 1704038407 } } },
+  });
+  render();
+  expect(host.textContent).toContain('本地群名');
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+  expect(host.textContent).toContain('1704038407');
+});
+it('同号切换数据源后不接收旧本人时间的迟到响应', async () => {
+  const { host, render } = fixture(group, false);
+  let finish!: (value: unknown) => void;
+  mock.extended.mockResolvedValue({ groupId: 12345, joinedAt: null }).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  mock.config = 'source-b';
+  render();
+  await act(async () => {
+    finish({ groupId: 12345, joinedAt: 1704038407 });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+  expect(host.textContent).toContain('source-b');
+  expect(host.textContent).not.toContain('1704038407');
 });
 it.each([undefined, 'u_self'])(
   '本人占位与成员预览按 QQ 号合并，保留真实群成员资料（uid=%s）',

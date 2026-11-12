@@ -397,6 +397,23 @@ export class GroupInfoService {
 
   async getExtendedProfile(groupId: number, refresh = false, force = false) {
     const result = await this.groupProfiles.read(groupId, refresh, force);
+    let joinedAt = result.profile?.joinedAt ?? null;
+    if (joinedAt === null) {
+      try {
+        const member = this.session.selfUid
+          ? await this.session.groupMembers.getMember(BigInt(groupId), this.session.selfUid)
+          : (
+              await this.session.groupMembers.getMembersByUins(BigInt(groupId), [
+                BigInt(this.session.context.uin),
+              ])
+            )[0];
+        if (member?.memberFlag === 0 && member.joinTime > 1) joinedAt = member.joinTime;
+      } catch {
+        /* 在线资料仍可交付；本地本人记录缺失不触发全群查询。 */
+      }
+    }
+    // 再检查账号读取生命周期，拒绝本地查询期间关闭后的迟到结果。
+    this.groupProfiles.assertActive();
     if (result.profile && result.updatedAt)
       await this.contactMetrics?.project(
         `group:${groupId}`,
@@ -406,10 +423,20 @@ export class GroupInfoService {
         },
         result.updatedAt,
       );
+    if (joinedAt !== null)
+      await this.contactMetrics?.project(
+        `group:${groupId}`,
+        { joinedAt },
+        result.updatedAt ?? Date.now(),
+      );
+    else {
+      const previous = (await this.contactMetrics?.row(`group:${groupId}`))?.joinedAt?.value;
+      if (typeof previous === 'number' && previous > 1) joinedAt = previous;
+    }
     if (result.error)
       for (const field of ['grade', 'freezeState'] as const)
         await this.contactMetrics?.failed(`group:${groupId}`, field, result.error);
-    return result;
+    return { ...result, joinedAt };
   }
 
   disposeGroupProfiles(): void {

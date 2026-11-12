@@ -89,6 +89,7 @@ export namespace GetGroupJoinInfo {
                   activeMemberCount: 0,
                   portraitSequence: 0,
                   portrait: {},
+                  joinedAt: 0,
                   freezeState: 0,
                   freezeReason: 0,
                 }

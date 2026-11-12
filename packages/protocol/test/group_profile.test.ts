@@ -31,6 +31,7 @@ describe('群扩展资料', () => {
     const read = (info: Record<string, unknown>) =>
       GetGroupJoinInfo.deserialize({ groups: [{ groupCode: 123n, info }] })[0]!.extensions;
     expect(read({})).toEqual({
+      joinedAt: null,
       grade: null,
       activeMemberCount: null,
       freezeState: null,
@@ -75,6 +76,7 @@ describe('群扩展资料', () => {
     expect(decoded(true).groups).toMatchObject([
       {
         info: {
+          joinedAt: 0,
           grade: 0,
           activeMemberCount: 0,
           freezeState: 0,
@@ -84,6 +86,22 @@ describe('群扩展资料', () => {
         },
       },
     ]);
+  });
+  it('按独立 tag 49 字节读取本人入群时间，0／1 和缺失不作为日期', () => {
+    // GroupInfo@3 内 49:uint32 = 1704038407；不是建群时间@2。
+    const bytes = Buffer.from('0a0d087b10001a07880387a0c6ac06', 'hex');
+    expect(
+      GetGroupJoinInfo.deserialize(decode(GetGroupJoinInfo.respSchema, bytes))[0]?.extensions,
+    ).toMatchObject({ joinedAt: 1704038407 });
+    for (const joinedAt of [undefined, 0, 1])
+      expect(
+        GetGroupJoinInfo.deserialize({ groups: [{ groupCode: 123n, info: { joinedAt } }] })[0]
+          ?.extensions,
+      ).toMatchObject({ joinedAt: null });
+    for (const joinedAt of [-1, 1.5, 0x100000000, Number.NaN])
+      expect(() =>
+        GetGroupJoinInfo.deserialize({ groups: [{ groupCode: 123n, info: { joinedAt } }] }),
+      ).toThrow('无效');
   });
   it('拒绝错群、业务错误及非法字段，不生成空的成功资料', async () => {
     const nt = { sendOidbPacket: vi.fn(async () => Buffer.from('0a04087c1a00', 'hex')) };

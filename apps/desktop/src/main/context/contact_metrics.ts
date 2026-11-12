@@ -184,7 +184,7 @@ export class ContactDirectoryRuntime {
               (Boolean(this.selfUid) && member.uid === this.selfUid) ||
               (!member.uid && String(member.uin) === this.scope.uin),
           );
-          if (self?.joinTime && self.joinTime > 0)
+          if (self?.joinTime && self.joinTime > 1)
             await this.cache.record(`group:${groupId}`, { joinedAt: self.joinTime });
           this.assertCurrent();
           this.memberships.set(String(groupId), ids);
@@ -265,7 +265,7 @@ export class ContactDirectoryRuntime {
         this.assertCurrent();
         const times = await this.session.groupMembers.selfJoinTimes(this.selfUid, this.scope.uin);
         this.assertCurrent();
-        return times;
+        return Object.fromEntries(Object.entries(times).filter(([, value]) => value > 1));
       },
       this.lifetime.signal,
     );
@@ -756,58 +756,13 @@ export class ContactDirectoryRuntime {
                     key: `group:${group.groupCode}:profile`,
                     label: `群资料（${group.groupCode}）`,
                     run: async () => {
-                      const errors: string[] = [];
-                      if (requested.some((field) => field === 'grade' || field === 'freezeState')) {
-                        try {
-                          const result = await this.services.groupInfo.getExtendedProfile(
-                            Number(group.groupCode),
-                            true,
-                            true,
-                          );
-                          if (result.error) throw new Error(result.error);
-                        } catch (error) {
-                          this.assertCurrent();
-                          errors.push(error instanceof Error ? error.message : String(error));
-                        }
-                      }
-                      if (requested.includes('joinedAt')) {
-                        try {
-                          const local = this.selfUid
-                            ? await this.session.groupMembers.getMember(
-                                BigInt(group.groupCode),
-                                this.selfUid,
-                              )
-                            : (
-                                await this.session.groupMembers.getMembersByUins(
-                                  BigInt(group.groupCode),
-                                  [BigInt(this.scope.uin)],
-                                )
-                              )[0];
-                          this.assertCurrent();
-                          let joinedAt = local?.memberFlag === 0 ? local.joinTime : null;
-                          if (!joinedAt) {
-                            const members = await this.services.groupInfo.fetchOnlineMembers(
-                              Number(group.groupCode),
-                              { priority: 1 },
-                            );
-                            this.assertCurrent();
-                            joinedAt =
-                              members.find(
-                                (member) =>
-                                  (Boolean(this.selfUid) && member.uid === this.selfUid) ||
-                                  (!member.uid && String(member.uin) === this.scope.uin),
-                              )?.joinTime ?? null;
-                          }
-                          await this.cache.project(`group:${group.groupCode}`, {
-                            joinedAt: joinedAt && joinedAt > 0 ? joinedAt : null,
-                          });
-                        } catch (error) {
-                          this.assertCurrent();
-                          await this.cache.failed(`group:${group.groupCode}`, 'joinedAt', error);
-                          errors.push(error instanceof Error ? error.message : String(error));
-                        }
-                      }
-                      if (errors.length) throw new Error(errors.join('；'));
+                      const result = await this.services.groupInfo.getExtendedProfile(
+                        Number(group.groupCode),
+                        true,
+                        true,
+                      );
+                      this.assertCurrent();
+                      if (result.error) throw new Error(result.error);
                     },
                   });
               }
