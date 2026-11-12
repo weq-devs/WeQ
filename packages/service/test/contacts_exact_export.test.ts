@@ -126,11 +126,13 @@ describe('联系人精确条目导出', () => {
     expect(manager.getTask(id)?.save).toMatchObject({
       status: 'saved',
       path: realpathSync(target),
+      savedAt: expect.any(Number),
     });
+    const savedAt = manager.getTask(id)?.save?.savedAt;
     await expect(manager.saveTaskOutput(id, join(cache, 'missing-directory'))).rejects.toThrow();
     const task = manager.getTask(id)!;
     expect(task.status).toBe('completed');
-    expect(task.save).toMatchObject({ status: 'failed', path: realpathSync(target) });
+    expect(task.save).toMatchObject({ status: 'failed', path: realpathSync(target), savedAt });
     expect(existsSync(task.filePath!)).toBe(true);
     expect(existsSync(target)).toBe(true);
   });

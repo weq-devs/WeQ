@@ -14,7 +14,8 @@ import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
 import { getHost } from '@weq/service';
-import { localMessageMedia } from '../../message_media_local';
+import { messageMediaLocations } from '../../message_media_local';
+import { messageMediaLocationMissing } from '../../../shared/message_media';
 import {
   resourceSourceInput,
   requireResourceSource,
@@ -55,22 +56,36 @@ const messageMediaInput = resourceSourceInput.extend({
 });
 
 export const mediaResourceRouter = router({
-  messageLocalAvailable: procedure.input(messageMediaInput).query(async ({ input }) => {
+  messageLocations: procedure.input(messageMediaInput).query(async ({ input }) => {
     const services = requireResourceSource(input);
-    const path = await localMessageMedia(services, input.target);
+    const locations = await messageMediaLocations(services, input.target);
     assertResourceSource(services, input);
-    return Boolean(path);
+    return locations.map(({ kind, key, available }) => ({ kind, key, available }));
   }),
-  revealMessageMedia: procedure.input(messageMediaInput).mutation(async ({ input }) => {
-    const host = getHost();
-    if (!host.canReveal) throw new Error('当前环境不支持在文件夹中显示');
-    const services = requireResourceSource(input);
-    const path = await localMessageMedia(services, input.target);
-    assertResourceSource(services, input);
-    if (!path) throw new Error('尚无本地文件');
-    await host.revealInFolder(path);
-    return true;
-  }),
+  revealMessageMedia: procedure
+    .input(
+      messageMediaInput.extend({
+        location: z.object({
+          kind: z.enum(['saved', 'local', 'cache', 'thumbnail', 'cover', 'transcoded']),
+          key: z.string().min(1),
+        }),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const host = getHost();
+      if (!host.canReveal) throw new Error('当前环境不支持在文件夹中显示');
+      const services = requireResourceSource(input);
+      const locations = await messageMediaLocations(services, input.target);
+      assertResourceSource(services, input);
+      const selected = locations.find(
+        ({ kind, key }) => kind === input.location.kind && key === input.location.key,
+      );
+      if (!selected && locations.some(({ kind }) => kind === input.location.kind))
+        throw new Error('文件定位位置已更新，请重新打开菜单后再试');
+      if (!selected?.available) throw new Error(messageMediaLocationMissing(input.location.kind));
+      await host.revealInFolder(selected.path);
+      return true;
+    }),
   /** One page of a flat hash cache (图片墙 / QQ空间缓存). */
   listFlat: procedure.input(pageInput.extend({ kind: flatKind })).query(({ input }) => {
     return requireServices().mediaResource.listFlat(input.kind, {

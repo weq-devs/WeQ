@@ -258,6 +258,46 @@ try {
     delete document.documentElement.dataset.density;
     delete document.documentElement.dataset.componentStyle;
   });
+  for (const [width, height] of [
+    [1280, 900],
+    [320, 640],
+  ]) {
+    await page.setViewportSize({ width, height });
+    for (const theme of ['light', 'dark']) {
+      await page.mouse.move(width - 2, height - 2);
+      await open(0, 0, width < 760, theme, 'saved-media');
+      for (const name of [
+        '显示另存文件',
+        '显示缓存文件',
+        '显示缓存缩略图',
+        '显示封面缓存',
+        '显示转码缓存',
+      ]) {
+        const button = page.getByRole('menuitem', { name, exact: true });
+        assert(await button.isVisible());
+        assert(
+          await button.evaluate((element) => {
+            const label = element.querySelector('span');
+            return (
+              element.scrollWidth <= element.clientWidth && label.scrollWidth <= label.clientWidth
+            );
+          }),
+          `${name} 文案溢出`,
+        );
+      }
+      if (output)
+        await page.screenshot({ path: resolve(output, `saved-media-${theme}-${width}.png`) });
+      await page.getByRole('menuitem', { name: '显示另存文件', exact: true }).click();
+      await page
+        .getByText('另存的文件已被移动或删除，请使用“另存为”重新保存', { exact: true })
+        .last()
+        .waitFor();
+      assert(await page.evaluate(() => window.menuActions.at(-1) === 'reveal:saved:saved-file'));
+      await open(0, 0, width < 760, theme, 'saved-media');
+      await page.getByRole('menuitem', { name: '显示缓存文件', exact: true }).click();
+      assert(await page.evaluate(() => window.menuActions.at(-1) === 'reveal:cache:cache-file'));
+    }
+  }
   await page.setViewportSize({ width: 1280, height: 900 });
   await open(50, 50, false);
   await page.getByRole('menuitemcheckbox', { name: '取消贴表情：赞', exact: true }).click();

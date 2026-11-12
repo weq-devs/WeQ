@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaElement, type MsgService } from '@weq/service';
 import { makeSolidPng } from '@weq/protocol';
 import { mediaSaveRouter } from '../src/main/ipc/routers/media_save';
-import { localMessageMedia } from '../src/main/message_media_local';
+import { messageMediaLocations } from '../src/main/message_media_local';
 import type { AccountServices } from '../src/main/context/app_context';
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -217,6 +217,7 @@ it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，
       savePolicy: { mode: 'before', directory: root },
     }),
   );
+  await vi.waitFor(() => expect(task.save?.status).toBe('saved'));
   const services = {
     ...state.services,
     exportManager: new ExportTaskManager({} as MsgService, join(root, 'tasks')),
@@ -235,12 +236,23 @@ it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，
     hash: '',
     label: 'report.txt',
   };
-  expect(await localMessageMedia(services, target)).toBe(task.save?.path ?? task.filePath);
-  expect(await localMessageMedia(services, { ...target, token: 'another-token' })).toBeNull();
-  expect(await localMessageMedia(services, { ...target, msgId: '43' })).toBeNull();
-  rmSync(task.save?.path ?? task.filePath!);
+  expect(services.exportManager.getTask(task.id)?.save?.savedAt).toBe(task.save?.savedAt);
+  const locations = await messageMediaLocations(services, target);
+  expect(locations).toEqual([
+    expect.objectContaining({ kind: 'saved', path: task.save?.path, available: true }),
+    expect.objectContaining({ kind: 'cache', path: task.filePath, available: true }),
+  ]);
+  expect(await messageMediaLocations(services, { ...target, token: 'another-token' })).toEqual([]);
+  expect(await messageMediaLocations(services, { ...target, msgId: '43' })).toEqual([]);
+  rmSync(task.save!.path!);
+  expect(await messageMediaLocations(services, target)).toEqual([
+    { ...locations[0], available: false },
+    locations[1],
+  ]);
   rmSync(task.filePath!, { force: true });
-  expect(await localMessageMedia(services, target)).toBeNull();
+  expect(await messageMediaLocations(services, target)).toEqual([
+    { ...locations[0], available: false },
+  ]);
 });
 it('转发文件沿用携带消息／子消息与未知场景换链，不误用外层消息', async () => {
   const element = { kind: 'file', fileToken: 'token-a', fileName: 'report.txt' };

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Star, ListTodo, BrainCircuit, SmilePlus, FolderSearch } from 'lucide-react';
 import { MessageMenuButton } from '../../src/renderer/src/components/MessageMenuButton';
+import { MessageMediaRevealAction } from '../../src/renderer/src/components/MessageMediaRevealAction';
+import { ToastHost, useToast } from '../../src/renderer/src/components/Toast';
 import {
   MessageContextMenu,
   type MessageContextMenuState,
@@ -37,7 +39,15 @@ declare global {
       theme: ThemePreference,
       accent: string,
       background: ThemeBackground,
-      mode?: 'full' | 'sparse' | 'voice' | 'mixed' | 'downloaded' | 'private' | 'record',
+      mode?:
+        | 'full'
+        | 'sparse'
+        | 'voice'
+        | 'mixed'
+        | 'downloaded'
+        | 'private'
+        | 'record'
+        | 'saved-media',
     ) => void;
     menuActions: string[];
   }
@@ -63,6 +73,7 @@ function Fixture() {
     </MessageMenuButton>
   );
   window.menuFixture = (x, y, mobile, theme, accent, background, mode = 'full') => {
+    useToast.setState({ toasts: [] });
     const store = useThemeStore.getState();
     store.setPreference(theme);
     store.setAccent(accent);
@@ -125,7 +136,26 @@ function Fixture() {
           intentAction={slot('意图感知', <BrainCircuit size={17} />)}
           favoriteEmojiAction={slot('添加到表情', <SmilePlus size={17} />)}
           revealAction={
-            mode === 'downloaded' ? slot('在文件夹中显示', <FolderSearch size={17} />) : null
+            mode === 'saved-media' ? (
+              <MessageMediaRevealAction
+                binding={{ expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' }}
+                target={{
+                  kind: 'mface',
+                  t: 1,
+                  name: '',
+                  token: '',
+                  md5: '',
+                  msgId: '1',
+                  conv: '2',
+                  pack: '100',
+                  hash: 'ab',
+                  label: '表情',
+                }}
+                onClose={() => setState(null)}
+              />
+            ) : mode === 'downloaded' ? (
+              slot('在文件夹中显示', <FolderSearch size={17} />)
+            ) : null
           }
           {...(mode === 'sparse'
             ? {
@@ -163,6 +193,7 @@ function Fixture() {
         />
       )}
       <HoverTooltip />
+      <ToastHost />
     </>
   );
 }

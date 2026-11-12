@@ -2,6 +2,10 @@ import { FolderSearch } from 'lucide-react';
 import { MessageMenuButton } from './MessageMenuButton';
 import { trpc, client } from '../trpc/client';
 import type { MessageMediaTarget } from '../../../shared/message_media';
+import {
+  MESSAGE_MEDIA_LOCATION_LABELS,
+  messageMediaLocationMissing,
+} from '../../../shared/message_media';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useToast } from './Toast';
 
@@ -15,42 +19,42 @@ export function MessageMediaRevealAction({
   onClose: () => void;
 }) {
   const input = { ...binding, target };
-  const local = trpc.account.mediaResource.messageLocalAvailable.useQuery(input, {
+  const local = trpc.account.mediaResource.messageLocations.useQuery(input, {
     enabled: Boolean(binding),
     staleTime: 0,
     retry: false,
-    refetchInterval: (available) => (available ? false : 2000),
+    refetchInterval: 2000,
   });
   const push = useToast((state) => state.push);
-  const reason = !binding
-    ? '账号信息尚未就绪'
-    : local.isLoading
-      ? '正在查找本地文件'
-      : local.error
-        ? '本地文件查询失败'
-        : !local.data
-          ? '尚无本地文件'
-          : '';
-  if (!local.data) return null;
+  if (!binding || !local.data?.length) return null;
   return (
-    <MessageMenuButton
-      type="button"
-      aria-label="在文件夹中显示"
-      title={`${reason || '在文件夹中显示'}：${target.label}`}
-      disabled={Boolean(reason)}
-      onClick={() => {
-        onClose();
-        void client.account.mediaResource.revealMessageMedia.mutate(input).catch((error: unknown) =>
-          push({
-            tone: 'error',
-            title: '无法定位文件',
-            detail: error instanceof Error ? error.message : String(error),
-          }),
+    <>
+      {local.data.map((location) => {
+        const label = MESSAGE_MEDIA_LOCATION_LABELS[location.kind];
+        const reason = !location.available ? messageMediaLocationMissing(location.kind) : '';
+        return (
+          <MessageMenuButton
+            key={location.key}
+            type="button"
+            aria-label={label}
+            title={`${reason || label}：${target.label}`}
+            onClick={() => {
+              onClose();
+              void client.account.mediaResource.revealMessageMedia
+                .mutate({ ...input, location: { kind: location.kind, key: location.key } })
+                .catch((error: unknown) =>
+                  push({
+                    tone: 'error',
+                    title: error instanceof Error ? error.message : String(error),
+                  }),
+                );
+            }}
+          >
+            <FolderSearch size={17} />
+            <span>{label}</span>
+          </MessageMenuButton>
         );
-      }}
-    >
-      <FolderSearch size={17} />
-      <span>在文件夹中显示</span>
-    </MessageMenuButton>
+      })}
+    </>
   );
 }

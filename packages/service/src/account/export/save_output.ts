@@ -20,6 +20,8 @@ export interface ExportSaveState {
   policy: ExportSavePolicy;
   status: 'pending' | 'saving' | 'saved' | 'failed' | 'interrupted';
   path?: string;
+  /** 最近一次成功保存的时间；再次保存失败时保留。 */
+  savedAt?: number;
   error?: string;
 }
 

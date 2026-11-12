@@ -934,10 +934,12 @@ export class ExportTaskManager extends EventEmitter {
         : { directory: target }),
     });
     const previousPath = task.save?.path;
+    const previousSavedAt = task.save?.savedAt;
     task.save = {
       policy: task.save?.policy ?? policy,
       status: 'saving',
       ...(previousPath ? { path: previousPath } : {}),
+      ...(previousSavedAt !== undefined ? { savedAt: previousSavedAt } : {}),
     };
     this.saveTasks();
     const saving = saveExportOutput(
@@ -949,7 +951,12 @@ export class ExportTaskManager extends EventEmitter {
       },
     )
       .then((path) => {
-        task.save = { policy: task.save?.policy ?? policy, status: 'saved', path };
+        task.save = {
+          policy: task.save?.policy ?? policy,
+          status: 'saved',
+          path,
+          savedAt: Date.now(),
+        };
         return path;
       })
       .catch((error: unknown) => {
@@ -957,6 +964,7 @@ export class ExportTaskManager extends EventEmitter {
           policy: task.save?.policy ?? policy,
           status: 'failed',
           ...(previousPath ? { path: previousPath } : {}),
+          ...(previousSavedAt !== undefined ? { savedAt: previousSavedAt } : {}),
           error: error instanceof Error ? error.message : String(error),
         };
         throw error;
