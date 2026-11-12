@@ -48,6 +48,8 @@ async function sourceFixture(t) {
   const options = await fixture(t);
   const source = join(options.directory, 'native source');
   await mkdir(join(source, 'src'), { recursive: true });
+  await mkdir(join(source, 'build_support'), { recursive: true });
+  await writeFile(join(source, 'build_support/dress.rs'), 'fixture dress packer');
   await writeFile(join(source, 'Cargo.toml'), '[package]\nname="nt-helper"');
   await writeFile(join(source, 'src/lib.rs'), 'fixture source');
   await writeFile(join(source, '.gitignore'), 'resources/dress/*_resources\ntarget/\n');
@@ -82,7 +84,12 @@ test('源码指纹包含未提交、新增、删除、被 Git 忽略的装扮输
   const original = await nativeSourceFingerprint(source);
   await writeFile(join(source, 'README.md'), 'docs');
   assert.equal(await nativeSourceFingerprint(source), original);
-  for (const path of ['src/lib.rs', 'src/new.rs', 'resources/dress/font_resources']) {
+  for (const path of [
+    'src/lib.rs',
+    'src/new.rs',
+    'build_support/dress.rs',
+    'resources/dress/font_resources',
+  ]) {
     let before;
     try {
       before = await readFile(join(source, path));

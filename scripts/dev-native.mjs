@@ -22,6 +22,8 @@ const inputs = [
   'Cargo.toml',
   'Cargo.lock',
   'build.rs',
+  'build_support',
+  'dress-packer/Cargo.toml',
   'rust-toolchain',
   'rust-toolchain.toml',
   '.cargo',

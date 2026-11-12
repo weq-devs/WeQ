@@ -132,7 +132,7 @@ QQ 在线协议与后台索引下载互不阻塞；QQ 不在线时，可通过�
 weq-devs/nt_helper (私有源码)
   Release：将指定 ref 转发到公开构建仓
     -> weq-devs/nt_helper_release / Release
-       固定源码 commit，五平台构建和验证
+       固定源码 commit，单次加工加密索引，五平台构建和配套读取验证
        -> nt_helper-<日期>-<短 SHA> Release
           .node × 5、权限助手 × 5、装扮 .dat × 3、manifest.json、SHA256SUMS
 
@@ -149,6 +149,8 @@ WeQ 构建
 
 当前阶段独立的是分发，资源生成仍沿用 native 构建与原加密格式；不表示资源已能脱离 native commit 任意更新。
 资源仓仅保存发布工具、格式契约和测试，大索引只放 Release，不进入 Git 历史。
+
+native 发布工作流先由独立任务加工一套三类索引，保持 NTDR v1、Brotli q9、AES-256-CBC 和 commit 派生密钥不变。五平台编译通过 `NT_HELPER_PACK_DRESS=0` 只嵌入同源密钥，不再各自重复压缩、加密；每个平台实际验证 addon 能读取本轮共享索引，发布前再比对草稿资产与共享文件。中转仅含加密索引与来源／哈希清单，按 artifact ID 下载，收尾清理，最长保留一天。发布入口及最终资产契约不变；这不是解除资源与 native commit 的绑定。新工作流要求私有源码版本已包含内部加工工具，旧 ref 不自动改用其他来源。
 
 明确版本的下载入口（不需要 API 或 token）：
 
