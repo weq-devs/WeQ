@@ -33,7 +33,13 @@ import {
   getCloneTasks,
   subscribeCloneTasks,
 } from '../../views/agentlab/cloneTaskStore';
-import { taskIcon, taskPct, taskTypeLabel, type UiTask } from '../../views/export/TaskList';
+import {
+  taskIcon,
+  taskPct,
+  taskTypeLabel,
+  taskSaveActionLabel,
+  type UiTask,
+} from '../../views/export/TaskList';
 import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
 import '../../styles/flash-transfer.css';
 import { CloneTaskLog } from '../../views/agentlab/CloneTaskLog';
@@ -68,7 +74,6 @@ export function CurrentTaskList({
   loadingExports,
   renderExport,
   onOpenClone,
-  onSaveAll,
   autoSelectId,
   layout = 'inline',
   onOpenDetail,
@@ -80,7 +85,6 @@ export function CurrentTaskList({
   loadingExports?: boolean;
   renderExport: (task: UiTask) => ReactNode;
   onOpenClone?: (id: string) => void;
-  onSaveAll: () => void;
   autoSelectId?: string | null;
   layout?: 'inline' | 'compact' | 'split';
   onOpenDetail?: () => void;
@@ -130,6 +134,7 @@ export function CurrentTaskList({
 
   const items: LongTaskItem[] = exports.map((task): LongTaskItem => {
     const saving = task.save?.status === 'saving';
+    const saveLabel = taskSaveActionLabel(task);
     const saveFailed =
       task.status === 'completed' &&
       (task.save?.status === 'failed' || task.save?.status === 'interrupted');
@@ -152,14 +157,10 @@ export function CurrentTaskList({
           },
         );
       }
-      if (
-        exportActions.save &&
-        (task.status === 'completed' ||
-          (task.status === 'paused' && task.partialReady && task.canResume && task.filePath))
-      )
+      if (exportActions.save && saveLabel)
         actions.push({
           id: 'save',
-          label: task.status === 'completed' ? '保存' : '保存现有进度',
+          label: saveLabel,
           icon: <Download size={14} />,
           disabled: saving,
           secondary: Boolean(task.save?.path),
@@ -712,7 +713,7 @@ export function CurrentTaskList({
     );
     try {
       const ok = await confirm(
-        '清除已结束任务',
+        '清理已结束任务',
         `确定清除 ${finished.length} 项已结束任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
         { okLabel: `清除 ${finished.length} 项`, cancelLabel: '保留' },
       );
@@ -771,26 +772,16 @@ export function CurrentTaskList({
           {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
         </span>
         <div className="weq-current-tasks-actions">
-          {exports.some((task) => task.status === 'completed') ? (
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              title="全部保存"
-              aria-label="全部保存"
-              onClick={onSaveAll}
-            >
-              <Download size={14} />
-            </button>
-          ) : null}
           <button
             type="button"
             className="weq-set-btn weq-set-btn-soft"
-            title="清除已结束任务"
-            aria-label="清除已结束任务"
+            title="清理已结束任务"
+            aria-label="清理已结束任务"
             disabled={clearing || loading || !cleanupBinding || !finished.length}
             onClick={() => void clearFinished()}
           >
             <Trash2 size={14} />
+            清理已结束任务
           </button>
         </div>
       </header>

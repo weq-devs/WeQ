@@ -1151,35 +1151,6 @@ function ExportToolBody({
     }
   }
 
-  /** 一键按全局保存方式处理全部已完成任务，询问模式可逐个取消。 */
-  const onSaveAll = async (): Promise<void> => {
-    const completed = uiTasks.filter((t) => t.status === 'completed');
-    if (completed.length === 0) return;
-    const failed: string[] = [];
-    let okCount = 0;
-    let cancelled = false;
-    for (const t of completed) {
-      const saved = await saveTask(t);
-      if (saved.status === 'saved') okCount += 1;
-      else if (saved.status === 'failed') failed.push(t.name);
-      else {
-        cancelled = true;
-        break;
-      }
-    }
-    refetchTasks();
-    if (failed.length > 0) {
-      dialog.error(
-        '部分任务保存失败',
-        `成功 ${okCount} 个，失败 ${failed.length} 个：${failed.slice(0, 8).join('、')}${failed.length > 8 ? '…' : ''}`,
-      );
-    } else if (cancelled) {
-      dialog.info('已取消保存', `已保存 ${okCount} 个任务，其余已生成结果仍保留在任务列表中。`);
-    } else {
-      dialog.success('批量保存完成', `已保存 ${okCount} 个导出任务。`);
-    }
-  };
-
   // ---- primary action per mode ----
   function onPrimary(intent?: import('@weq/service').ExportSavePolicy): void {
     saveIntent.current = intent;
@@ -2674,7 +2645,6 @@ function ExportToolBody({
                 exportError={tasks.error?.message}
                 loadingExports={tasks.isLoading}
                 onOpenClone={onOpenClone}
-                onSaveAll={() => void onSaveAll()}
                 autoSelectId={autoSelectTaskId}
                 renderExport={(task) => (
                   <TaskList

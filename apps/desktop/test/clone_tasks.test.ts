@@ -177,7 +177,6 @@ it('统一任务列表按账号展示克隆任务，完成后可打开克隆体�
       h(CurrentTaskList, {
         exports: [],
         renderExport: () => null,
-        onSaveAll: () => {},
         onOpenClone: open,
       }),
     ),

@@ -120,8 +120,10 @@ try {
     if (menuOverflow) throw new Error('更多操作菜单溢出');
     await page.keyboard.press('End');
     await page.keyboard.press('Home');
-    if ((await page.evaluate(() => document.activeElement?.textContent)) !== '保存')
-      throw new Error('菜单键盘导航未聚焦保存');
+    if ((await page.evaluate(() => document.activeElement?.textContent)) !== '完整性报告')
+      throw new Error('菜单键盘导航未聚焦完整性报告');
+    if (await menu.getByRole('menuitem', { name: '保存', exact: true }).count())
+      throw new Error('已保存结果不应重复提供保存入口');
     if (await page.locator('button button,.weq-current-task-details,.weq-long-task-detail').count())
       throw new Error('小菜单不应嵌套按钮或挂载详情');
     if (output)
@@ -141,8 +143,6 @@ try {
   await saved.getByRole('button', { name: '打开保存结果', exact: true }).click();
   await saved.getByRole('button', { name: '在文件夹中显示', exact: true }).click();
   await openMore(saved);
-  await page.getByRole('menuitem', { name: '保存', exact: true }).click();
-  await openMore(saved);
   await page.getByRole('menuitem', { name: '完整性报告', exact: true }).click();
   const single = page.locator('.weq-long-task-entry').filter({ hasText: '合成下载-single' });
   await single.getByRole('button', { name: '打开文件', exact: true }).click();
@@ -155,7 +155,7 @@ try {
     window.taskQuickCalls.filter((call) => call.action !== 'clientState.patch'),
   );
   if (
-    calls.length !== 7 ||
+    calls.length !== 6 ||
     calls.filter((call) => call.action === 'account.flashOpenDownloadOutput').length !== 3
   )
     throw new Error(`结果快捷操作调用异常: ${JSON.stringify(calls)}`);
@@ -175,7 +175,7 @@ try {
   if (await forwarding.count()) throw new Error('转发删除后仍在列表中');
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    '小菜单任务快捷操作：4 组主题/宽窄屏、结果打开/定位/保存/报告、闪传单文件/目录、任务控制、更多菜单及键盘操作通过',
+    '小菜单任务快捷操作：4 组主题/宽窄屏、结果打开/定位/报告且不重复保存、闪传单文件/目录、任务控制、更多菜单及键盘操作通过',
   );
 } catch (error) {
   console.error('页面错误:', errors);

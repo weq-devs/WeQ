@@ -400,6 +400,24 @@ function TaskCard({
   );
 }
 
+/** 自动保存中的任务不重复提供手动入口，旧版未保存结果仍可取回。 */
+export function taskSaveActionLabel(task: UiTask): string | null {
+  if (task.status === 'completed') {
+    if (task.save?.status === 'failed' || task.save?.status === 'interrupted') return '重试保存';
+    if (
+      !task.save ||
+      (task.save.status === 'pending' &&
+        !task.save.policy?.directory &&
+        !task.save.policy?.filePath)
+    )
+      return '保存结果';
+    return null;
+  }
+  return task.status === 'paused' && task.partialReady && task.canResume && task.filePath
+    ? '保存现有进度'
+    : null;
+}
+
 /** 选中任务的详情：子任务进度条 + 每子任务日志 + 任务级日志。 */
 function TaskDetail({
   task: t,
@@ -433,6 +451,7 @@ function TaskDetail({
   const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
   const resourceMissing = (t.generatedResources?.missing ?? t.resource?.failed ?? 0) > 0;
+  const saveLabel = taskSaveActionLabel(t);
   const pauseDraining =
     t.canResume === false &&
     !t.resource &&
@@ -565,11 +584,11 @@ function TaskDetail({
               <Pause size={15} />
             </button>
           ) : null}
-          {t.status === 'completed' ||
-          (t.status === 'paused' && t.partialReady && t.canResume && t.filePath) ? (
+          {saveLabel ? (
             <button
               type="button"
-              title={t.status !== 'completed' ? '保存现有进度' : '保存'}
+              title={saveLabel}
+              aria-label={saveLabel}
               disabled={t.save?.status === 'saving'}
               onClick={() => onDownload(t)}
             >
@@ -748,7 +767,6 @@ export function TaskList({
   onBrowserDownload,
   onDelete,
   onShowFailures,
-  onSaveAll,
   autoSelectId,
   isExpanded = false,
   onToggleExpanded,
@@ -768,8 +786,6 @@ export function TaskList({
   onDelete: (t: UiTask) => void;
   /** Open the failure-detail lightbox for a task's media-completion failures. */
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
-  /** 一键把全部已完成任务逐个保存（每个都弹系统路径选择）。 */
-  onSaveAll?: () => void;
   /** 外部强制选中的任务 id（新任务到达时由父组件设置）。 */
   autoSelectId?: string | null;
   /** 面板展开状态（由父组件控制）。 */
@@ -857,20 +873,6 @@ export function TaskList({
           </span>
         ) : !isExpanded && hasTasks ? (
           <span className="weq-exp-tasks-mini-status">{overallProgress}%</span>
-        ) : null}
-        {onSaveAll && completedCount > 0 ? (
-          <button
-            type="button"
-            className="weq-exp-tasks-save-all"
-            title="逐个选择路径保存全部已完成任务"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSaveAll();
-            }}
-          >
-            <Download size={14} />
-            全部保存（{completedCount}）
-          </button>
         ) : null}
         {hasTasks && onToggleExpanded ? (
           <button

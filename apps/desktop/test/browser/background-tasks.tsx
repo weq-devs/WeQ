@@ -127,7 +127,6 @@ function Fixture() {
             throw new Error('快捷操作不应展开完整面板');
           }}
           cleanupBinding={{ expectedAccountUin: 'synthetic', expectedAccountConfigId: 'fixture' }}
-          onSaveAll={() => {}}
           renderExport={() => null}
         />
       </main>

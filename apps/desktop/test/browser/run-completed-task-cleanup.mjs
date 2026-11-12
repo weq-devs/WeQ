@@ -54,9 +54,9 @@ try {
   // 保留真实入场动画，等待其完成后检查可见性和命中层级。
   await page
     .locator('.weq-workspace-menu')
-    .getByRole('button', { name: '清除已结束任务', exact: true })
+    .getByRole('button', { name: '清理已结束任务', exact: true })
     .click();
-  const menuDialog = page.getByRole('dialog', { name: '清除已结束任务', exact: true });
+  const menuDialog = page.getByRole('dialog', { name: '清理已结束任务', exact: true });
   await page.waitForFunction(
     () => {
       const dialog = document.querySelector('.weq-message-modal');
@@ -98,7 +98,15 @@ try {
     await page.setViewportSize({ width, height: 800 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.evaluate(([dark, accent]) => window.cleanupTheme(dark, accent), [dark, accent]);
-    await page.getByRole('button', { name: '清除已结束任务', exact: true }).click();
+    const cleanupButton = page.getByRole('button', { name: '清理已结束任务', exact: true });
+    assert.equal((await cleanupButton.innerText()).trim(), '清理已结束任务');
+    assert.equal(await cleanupButton.locator('svg').count(), 1);
+    assert.equal(await page.getByRole('button', { name: '全部保存', exact: true }).count(), 0);
+    if (output)
+      await page.screenshot({
+        path: resolve(output, `task-toolbar-${dark ? 'dark' : 'light'}-${width}.png`),
+      });
+    await page.getByRole('button', { name: '清理已结束任务', exact: true }).click();
     await page.getByText('确定清除 3 项已结束任务？', { exact: false }).waitFor();
     await page.getByText('其中 2 项导出尚未保存', { exact: false }).waitFor();
     const overflow = await page.evaluate(() =>
@@ -118,7 +126,7 @@ try {
       });
     await page.getByRole('button', { name: '保留', exact: true }).click();
     await page
-      .getByRole('button', { name: '清除已结束任务', exact: true })
+      .getByRole('button', { name: '清理已结束任务', exact: true })
       .waitFor({ state: 'visible' });
     for (const name of ['信息提示', '错误提示']) {
       // 真实点击右下角入口，验证提示不沿用触发点，也不退回靠右浮层布局。

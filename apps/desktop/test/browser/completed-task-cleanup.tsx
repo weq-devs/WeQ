@@ -49,7 +49,6 @@ function TaskMenu() {
           layout="compact"
           exports={[task, { ...task, id: 'menu-running', status: 'running' }]}
           cleanupBinding={{ expectedAccountUin: 'fixture', expectedAccountConfigId: 'fixture' }}
-          onSaveAll={() => {}}
           renderExport={(item) => <p>{item.name}</p>}
         />
       </Modal>
@@ -69,7 +68,6 @@ createRoot(document.getElementById('root')!).render(
           { ...task, id: 'running', name: '合成进行中任务', status: 'running' },
         ]}
         cleanupBinding={{ expectedAccountUin: 'fixture', expectedAccountConfigId: 'fixture' }}
-        onSaveAll={() => {}}
         renderExport={(item) => <p>{item.name}</p>}
       />
     </main>

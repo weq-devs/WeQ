@@ -249,7 +249,7 @@ describe('统一当前任务', () => {
       host.remove();
     }
   });
-  it('完成结果可在小菜单打开、定位、保存和查看报告，多文件闪传只打开目录', async () => {
+  it('成功结果只提供打开、定位和报告，不再重复保存，多文件闪传只打开目录', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     fixture.flashStatus = 'done';
     getCloneTasks()[0]!.status = 'done';
@@ -292,7 +292,6 @@ describe('统一当前任务', () => {
             exports: [exportTask],
             exportActions: actions,
             renderExport: () => null,
-            onSaveAll: vi.fn(),
             onOpenClone: clone,
             onOpenDetail: expand,
             cleanupBinding: { ...binding, expectedAccountConfigId: config },
@@ -314,8 +313,10 @@ describe('统一当前任务', () => {
       expect(actions.openSaved).toHaveBeenLastCalledWith(task, false);
       await click(task.name, '在文件夹中显示');
       expect(actions.openSaved).toHaveBeenLastCalledWith(task, true);
-      await click(task.name, '保存');
-      expect(actions.save).toHaveBeenCalledWith(task);
+      expect(quickButton(row(task.name), '保存')).toBeNull();
+      expect(quickButton(row(task.name), '重试保存')).toBeNull();
+      expect(host.querySelector('[aria-label="全部保存"]')).toBeNull();
+      expect(actions.save).not.toHaveBeenCalled();
       await click(task.name, '完整性报告');
       expect(actions.report).toHaveBeenCalledWith(task);
       await click('合成闪传', '打开文件');
@@ -378,11 +379,7 @@ describe('统一当前任务', () => {
     const host = document.createElement('div');
     const root = createRoot(host);
     try {
-      act(() =>
-        root.render(
-          h(CurrentTaskList, { exports: [], onSaveAll: vi.fn(), renderExport: () => null }),
-        ),
-      );
+      act(() => root.render(h(CurrentTaskList, { exports: [], renderExport: () => null })));
       const row = [...host.querySelectorAll('.weq-long-task')].find((node) =>
         node.textContent?.includes('合成联系人刷新'),
       )!;
@@ -424,7 +421,6 @@ describe('统一当前任务', () => {
             layout: 'compact',
             exports: [],
             renderExport: () => null,
-            onSaveAll: vi.fn(),
           }),
         ),
       );
@@ -474,7 +470,6 @@ describe('统一当前任务', () => {
             exports: [task],
             exportActions: actions,
             renderExport: () => null,
-            onSaveAll: vi.fn(),
             onOpenDetail: expand,
           }),
         ),
@@ -506,8 +501,26 @@ describe('统一当前任务', () => {
       expect(button('删除导出缓存')?.disabled).toBe(true);
       render({ ...base, status: 'completed', save: { status: 'saving' } });
       expect(button('删除导出缓存')?.disabled).toBe(true);
-      expect(button('保存')?.disabled).toBe(true);
+      expect(button('保存')).toBeNull();
+      expect(button('重试保存')).toBeNull();
       expect(button('取消')).toBeNull();
+      for (const status of ['failed', 'interrupted'] as const) {
+        const failed = { ...base, status: 'completed' as const, save: { status } };
+        render(failed);
+        await act(async () => button('重试保存')!.click());
+        expect(actions.save).toHaveBeenLastCalledWith(failed);
+      }
+      render({
+        ...base,
+        status: 'completed',
+        save: { status: 'pending', policy: { mode: 'before', directory: '/target' } },
+      });
+      expect(button('重试保存')).toBeNull();
+      expect(button('保存结果')).toBeNull();
+      render({ ...base, status: 'completed' });
+      expect(button('保存结果')).not.toBeNull();
+      render({ ...base, status: 'completed', save: { status: 'pending' } });
+      expect(button('保存结果')).not.toBeNull();
       expect(expand).not.toHaveBeenCalled();
     } finally {
       act(() => root.unmount());
@@ -526,7 +539,6 @@ describe('统一当前任务', () => {
             layout: 'compact',
             exports: [],
             renderExport: () => null,
-            onSaveAll: vi.fn(),
             onOpenDetail: expand,
             cleanupBinding: {
               expectedAccountUin: fixture.accountId,
@@ -616,7 +628,6 @@ describe('统一当前任务', () => {
             layout: 'compact',
             exports: [],
             renderExport: () => null,
-            onSaveAll: vi.fn(),
           }),
         ),
       );
@@ -657,7 +668,6 @@ describe('统一当前任务', () => {
             layout: 'compact',
             exports: [],
             renderExport: () => null,
-            onSaveAll: vi.fn(),
             onOpenDetail: expand,
           }),
         ),
@@ -702,7 +712,6 @@ describe('统一当前任务', () => {
           h(CurrentTaskList, {
             exports: [],
             renderExport: () => null,
-            onSaveAll: vi.fn(),
             cleanupBinding: {
               expectedAccountUin: fixture.accountId,
               expectedAccountConfigId: 'fixture-config',
@@ -713,7 +722,7 @@ describe('统一当前任务', () => {
       expect(host.textContent).toContain('合成逐条转发');
       expect(host.textContent).not.toContain('旧闪传目录');
       expect(
-        host.querySelector('[aria-label="清除已结束任务"]')?.classList.contains('weq-set-btn-soft'),
+        host.querySelector('[aria-label="清理已结束任务"]')?.classList.contains('weq-set-btn-soft'),
       ).toBe(true);
       expect(host.textContent).not.toContain('其他账号转发');
       act(() =>
@@ -731,7 +740,7 @@ describe('统一当前任务', () => {
       fixture.confirm.mockResolvedValueOnce(true);
       fixture.clear.mockResolvedValueOnce({ removed: 0, skipped: 0, errors: [] });
       await act(async () =>
-        host.querySelector<HTMLButtonElement>('[aria-label="清除已结束任务"]')!.click(),
+        host.querySelector<HTMLButtonElement>('[aria-label="清理已结束任务"]')!.click(),
       );
       expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
       expect(localBackgroundTasks.snapshot().some((task) => task.id === other)).toBe(true);
@@ -747,11 +756,7 @@ describe('统一当前任务', () => {
     const host = document.createElement('div');
     const root = createRoot(host);
     try {
-      act(() =>
-        root.render(
-          h(CurrentTaskList, { exports: [], onSaveAll: vi.fn(), renderExport: () => null }),
-        ),
-      );
+      act(() => root.render(h(CurrentTaskList, { exports: [], renderExport: () => null })));
       expect(host.textContent).toContain('未发现可补全的缺口');
       expect(host.textContent).not.toContain('候选缺口已覆盖');
     } finally {
@@ -770,17 +775,16 @@ describe('统一当前任务', () => {
         expectedAccountConfigId: 'fixture-config',
       },
       exports: [],
-      onSaveAll: vi.fn(),
       renderExport: () => null,
     };
     fixture.confirm.mockResolvedValue(true);
     fixture.clear.mockRejectedValueOnce(new Error('写入失败'));
     try {
       act(() => root.render(h(CurrentTaskList, props)));
-      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清除已结束任务"]')!;
+      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清理已结束任务"]')!;
       await act(async () => button().click());
       expect(fixture.confirm).toHaveBeenCalledWith(
-        '清除已结束任务',
+        '清理已结束任务',
         expect.stringContaining('确定清除 1 项'),
         expect.anything(),
       );
@@ -831,16 +835,15 @@ describe('统一当前任务', () => {
             { ...task, id: 'interrupted', save: { status: 'interrupted' } },
             { ...task, id: 'paused', status: 'paused' },
           ],
-          onSaveAll: vi.fn(),
           renderExport: () => null,
         }),
       );
     try {
       act(() => render());
-      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清除已结束任务"]')!;
+      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清理已结束任务"]')!;
       await act(async () => button().click());
       expect(fixture.confirm).toHaveBeenCalledWith(
-        '清除已结束任务',
+        '清理已结束任务',
         expect.stringContaining('确定清除 6 项'),
         expect.objectContaining({ okLabel: '清除 6 项' }),
       );
@@ -909,16 +912,15 @@ describe('统一当前任务', () => {
               { ...task, id: 'paused', status: 'paused' },
               { ...task, id: 'running', status: 'running' },
             ],
-            onSaveAll: vi.fn(),
             renderExport: () => null,
           }),
         ),
       );
-      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清除已结束任务"]')!;
+      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清理已结束任务"]')!;
       expect(button().disabled).toBe(false);
       await act(async () => button().click());
       expect(fixture.confirm).toHaveBeenCalledWith(
-        '清除已结束任务',
+        '清理已结束任务',
         expect.stringContaining('确定清除 4 项'),
         expect.objectContaining({ okLabel: '清除 4 项' }),
       );
@@ -954,7 +956,6 @@ describe('统一当前任务', () => {
               exports: [],
               loadingExports,
               renderExport: () => null,
-              onSaveAll: vi.fn(),
             }),
           ),
         ),
@@ -991,7 +992,6 @@ describe('统一当前任务', () => {
         h(CurrentTaskList, {
           layout,
           exports: [],
-          onSaveAll: vi.fn(),
           renderExport: () => null,
           onOpenDetail: expand,
         }),
@@ -1031,7 +1031,6 @@ describe('统一当前任务', () => {
       root.render(
         h(CurrentTaskList, {
           exports: [task],
-          onSaveAll: vi.fn(),
           renderExport: (item) => h('span', null, `导出详情 ${item.name}`),
         }),
       );
