@@ -20,6 +20,7 @@ import { useStableCallback } from '../../hooks/useStableCallback';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
 import {
+  isMobileClient,
   isSingleColumnLayout,
   isTouchClient,
   subscribeResponsiveLayout,
@@ -1730,18 +1731,19 @@ export function ChatPane({
   }, [conversation?.id, user.id, draft]);
 
   useLayoutEffect(() => {
-    if (!isMobileWebComposer()) return;
+    const mobileComposer = isMobileWebComposer();
+    if (isMobileClient() || mobileComposer) composerEditorRef.current?.blur();
+    if (!mobileComposer) return;
     setComposerCollapsed(false);
     setMobileComposerExpanded(false);
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
     setMentionMenu(null);
-    composerEditorRef.current?.blur();
   }, [conversation?.id, tabActive, compactHeader]);
 
   useEffect(() => {
-    if (!tabActive || isMobileWebComposer()) return;
+    if (!tabActive || isMobileClient() || isMobileWebComposer()) return;
     const editor = composerEditorRef.current;
     if (editor?.contentEditable !== 'true') return;
     focusComposerEnd(editor);

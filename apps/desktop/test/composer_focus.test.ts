@@ -90,6 +90,63 @@ function fixture() {
 }
 
 describe('进入会话自动聚焦', () => {
+  it.each([
+    ['Remote 窄横屏', 640, 320, 'WeQRemote Android', 5],
+    ['Remote 手机横屏', 844, 390, 'WeQRemote iOS', 5],
+    ['Remote 平板横屏', 1024, 768, 'WeQRemote iPadOS', 5],
+    ['Remote 宽竖屏', 820, 1180, 'WeQRemote iPadOS', 5],
+    ['手机网页横屏', 844, 390, 'Mozilla/5.0 (Linux; Android 15)', 5],
+    ['iPad 桌面 UA 横屏', 1024, 768, 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', 5],
+  ] as const)(
+    '%s 进入、切换及返回会话不自动聚焦，手动输入仍可用',
+    (_name, width, height, userAgent, maxTouchPoints) => {
+      target.web = true;
+      vi.stubGlobal('navigator', { userAgent, maxTouchPoints });
+      vi.stubGlobal('innerWidth', width);
+      vi.stubGlobal('innerHeight', height);
+      vi.stubGlobal('screen', {
+        width,
+        height,
+        orientation: Object.assign(new EventTarget(), {
+          type: width > height ? 'landscape-primary' : 'portrait-primary',
+        }),
+      });
+      vi.stubGlobal('matchMedia', (query: string) =>
+        Object.assign(new EventTarget(), {
+          matches: query === '(max-width: 760px)' ? width <= 760 : true,
+        }),
+      );
+      const f = fixture();
+      try {
+        act(() => f.otherInput.focus());
+        f.render();
+        expect(document.activeElement).toBe(f.otherInput);
+        expect(f.editor().textContent).toBe('已有草稿');
+
+        act(() => {
+          f.editor().focus();
+          f.editor().textContent = '手动输入';
+          f.editor().dispatchEvent(new InputEvent('input', { bubbles: true }));
+        });
+        expect(document.activeElement).toBe(f.editor());
+        expect(f.props.onDraftChange).toHaveBeenLastCalledWith(f.props.conversation.id, '手动输入');
+
+        f.render({
+          conversation: { ...f.props.conversation, id: 'next-landscape' },
+          draft: '新草稿',
+        });
+        expect(document.activeElement).not.toBe(f.editor());
+        expect(f.editor().textContent).toBe('新草稿');
+        act(() => f.otherInput.focus());
+        f.render({}, false);
+        f.render();
+        expect(document.activeElement).toBe(f.otherInput);
+      } finally {
+        f.dispose();
+      }
+    },
+  );
+
   it.each(['0', '1'])('手机输入区常驻，忽略旧收起偏好 %s 且不抢焦点', (saved) => {
     const f = fixture();
     target.web = true;

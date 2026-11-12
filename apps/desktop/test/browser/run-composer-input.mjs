@@ -49,6 +49,83 @@ try {
   const output = process.env.WEQ_COMPOSER_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const results = [];
+  for (const [width, height, remote] of [
+    [390, 844, true],
+    [640, 320, true],
+    [844, 390, true],
+    [1024, 768, true],
+    [820, 1180, true],
+    [1280, 874, false],
+    [640, 320, false],
+  ]) {
+    const page = await browser.newPage({
+      viewport: { width, height },
+      hasTouch: remote,
+      isMobile: remote,
+      ...(remote ? { userAgent: 'WeQRemote/1.0' } : {}),
+      reducedMotion: 'reduce',
+    });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.route('**/*', (route) =>
+      new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+    );
+    try {
+      await page.addInitScript(() => {
+        window.composerAutoFocusEvents = [];
+        document.addEventListener('focusin', (event) => {
+          if (event.target.matches('.composer-editor')) window.composerAutoFocusEvents.push(true);
+        });
+      });
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?mobile-input&composer-actions&count=30`,
+      );
+      const editor = page.locator('.composer > .composer-editor');
+      await editor.waitFor();
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      const automatic = !remote && width > 760;
+      assert.equal(
+        await page.evaluate(() => window.composerAutoFocusEvents.length > 0),
+        automatic,
+        `首次进入自动聚焦错误: ${width}×${height} / Remote ${remote}`,
+      );
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.setProperty(
+            '--weq-accent-effective',
+            theme === 'light' ? '#15764a' : '#ebbd51',
+          );
+        }, theme);
+        if (remote) await editor.tap();
+        else await editor.click();
+        await page.keyboard.type('manual input');
+        assert(await editor.evaluate((node) => document.activeElement === node));
+        assert.equal(await editor.textContent(), 'manual input');
+        await page.evaluate(() => window.timelineTest.reenter());
+        await page.waitForFunction(
+          () => document.querySelector('.composer > .composer-editor').textContent === '',
+        );
+        await page.waitForFunction(
+          (automatic) =>
+            (document.activeElement === document.querySelector('.composer > .composer-editor')) ===
+            automatic,
+          automatic,
+        );
+        if (output)
+          await page.screenshot({
+            path: resolve(
+              output,
+              `${theme}-${width}-${height}-${remote ? 'remote' : 'desktop'}-focus.png`,
+            ),
+          });
+        results.push({ focus: true, width, height, remote, theme });
+      }
+      assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
+  }
   for (const width of [320, 402, 430, 1280]) {
     const page = await browser.newPage({
       viewport: { width, height: 874 },
