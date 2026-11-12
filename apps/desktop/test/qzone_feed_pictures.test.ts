@@ -27,6 +27,16 @@ const plainFeed = (img: string): string =>
   `<div class="f-single-content f-wrap"><div class="f-item f-s-i" id="feed_3088951402_311_0_1792085940_0_1"><div class="f-info">普通说说</div><div class="f-ct "><div class="img-box img-box-row row-two"><a class="img-item " href="https://user.qzone.qq.com/3088951402/311/">${img}</a></div></div></div></div>`;
 
 describe('Qzone feed body pictures', () => {
+  it('记录 HTML 图片和视频混排的原始位置，忽略重复视频根节点', () => {
+    const body = projectQzoneFeed(`<div class="f-single-content">
+      <a data-v_itemid="first" data-v_vidiourl="https://photovideo.photo.qq.com/first.mp4"><img src="https://a.qpic.cn/first.jpg" /></a>
+      <img src="https://a.qpic.cn/still.jpg" />
+      <a data-v_itemid="first" data-v_vidiourl="https://photovideo.photo.qq.com/first.mp4"><img src="https://a.qpic.cn/first.jpg" /></a>
+      <video src="https://photovideo.photo.qq.com/end.mp4" />
+    </div>`);
+    expect(body.images).toEqual(['https://a.qpic.cn/still.jpg']);
+    expect(body.videos.map((video) => video.mediaIndex)).toEqual([0, 2]);
+  });
   it('recovers the real URL from an onload trueSrc placeholder', () => {
     const body = projectQzoneFeed(PLACEHOLDER_FEED);
     expect(body.images).toHaveLength(2);

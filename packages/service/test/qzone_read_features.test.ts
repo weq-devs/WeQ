@@ -94,6 +94,35 @@ describe('post completion', () => {
       }).list[0],
     ).toMatchObject({ imageTotal: 2, imageReturned: 1 });
   });
+  it('保留混合照片、实况和顶层视频的原始位置，转发媒体独立计数', () => {
+    const pic = [
+      {},
+      {
+        is_video: 1,
+        video_info: { url3: 'https://photovideo.photo.qq.com/live.mp4', video_id: 'live' },
+      },
+      { url3: 'https://a.qpic.cn/still.jpg' },
+      {
+        is_video: 1,
+        video_info: { url3: 'https://photovideo.photo.qq.com/end.mp4', video_id: 'end' },
+      },
+    ];
+    const post = mapMsgList({
+      msglist: [
+        {
+          tid: 'fixture',
+          pic,
+          rt_tid: 'original',
+          rt_pic: [...pic].reverse(),
+          video: [{ url3: 'https://photovideo.photo.qq.com/top.mp4' }],
+        },
+      ],
+    }).list[0]!;
+    expect(post.images).toEqual(['https://a.qpic.cn/still.jpg']);
+    expect(post.videos.map((video) => video.mediaIndex)).toEqual([0, 2, 3]);
+    expect(post.repost!.videos.map((video) => video.videoId)).toEqual(['end', 'live', '']);
+    expect(post.repost!.videos.map((video) => video.mediaIndex)).toEqual([0, 2, 3]);
+  });
   it('requires an explicit cleared truncation flag to declare full content', () => {
     expect(
       parseQzonePostDetail(

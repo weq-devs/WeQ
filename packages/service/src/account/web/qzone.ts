@@ -299,6 +299,8 @@ export interface QzoneEmotionVideo {
   videoId: string;
   /** 时长 ms。 */
   duration: number;
+  /** 原始媒体序列中的位置，供图片与视频混排。 */
+  mediaIndex?: number;
 }
 
 /** 一条说说(归一化形态)。 */
@@ -366,9 +368,13 @@ function pickPicUrl(pic: RawPic): string | undefined {
  */
 function mapVideos(pic: RawPic[], topVideo: RawTopVideo[] | undefined): QzoneEmotionVideo[] {
   const out: QzoneEmotionVideo[] = [];
+  let mediaIndex = 0;
   for (const p of pic) {
     const vi = p.video_info;
-    if (!p.is_video || !vi) continue;
+    if (!p.is_video || !vi?.url3) {
+      if (pickPicUrl(p)) mediaIndex++;
+      continue;
+    }
     const videoUrl = vi.url3 || '';
     if (!videoUrl) continue;
     out.push({
@@ -376,6 +382,7 @@ function mapVideos(pic: RawPic[], topVideo: RawTopVideo[] | undefined): QzoneEmo
       videoUrl,
       videoId: String(vi.video_id ?? ''),
       duration: Number(vi.video_time ?? 0),
+      mediaIndex: mediaIndex++,
     });
   }
   for (const v of topVideo ?? []) {
@@ -386,6 +393,7 @@ function mapVideos(pic: RawPic[], topVideo: RawTopVideo[] | undefined): QzoneEmo
       videoUrl,
       videoId: String(v.video_id ?? ''),
       duration: Number(v.video_time ?? 0),
+      mediaIndex: mediaIndex++,
     });
   }
   return out;

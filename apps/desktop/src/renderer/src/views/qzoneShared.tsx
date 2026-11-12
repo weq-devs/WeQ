@@ -16,7 +16,7 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
-import { CircleDot, Loader2, Play, VideoOff } from 'lucide-react';
+import { CircleDot, Loader2, Pause, Play, VideoOff } from 'lucide-react';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { qzoneMediaSource } from '../lib/qzone';
@@ -114,63 +114,122 @@ export interface QzoneMediaVideo {
   videoId: string;
   duration: number;
   isLivePhoto?: boolean;
+  mediaIndex?: number;
 }
 
 export function QzoneVideo({
   video,
   index,
   onOpen,
+  typePending = false,
+  active = true,
 }: {
   video: QzoneMediaVideo;
   index: number;
   onOpen: () => void;
+  typePending?: boolean;
+  active?: boolean;
 }) {
   const [coverFailed, setCoverFailed] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [playError, setPlayError] = useState(false);
+  const player = useRef<HTMLVideoElement>(null);
   const src = qzoneMediaSource(video.videoUrl);
   const cover = qzoneMediaSource(video.coverUrl);
+  const live = video.isLivePhoto === true;
+  useEffect(() => {
+    if (!active) setPlaying(false);
+  }, [active]);
+  useEffect(() => {
+    const element = player.current;
+    if (!playing || !element) return;
+    let current = true;
+    void element.play().catch(() => {
+      if (current) {
+        setPlaying(false);
+        setPlayError(true);
+      }
+    });
+    return () => {
+      current = false;
+      element.pause();
+    };
+  }, [playing, src]);
   return (
-    <button
-      type="button"
-      className="weq-qzn-video"
-      disabled={!src}
-      aria-label={
-        src
-          ? `播放空间${video.isLivePhoto === true ? '实况照片' : '视频'} ${index + 1}`
-          : `空间${video.isLivePhoto === true ? '实况照片' : '视频'} ${index + 1} 暂无播放地址`
-      }
-      title={
-        src
-          ? video.isLivePhoto === true
-            ? '播放实况照片'
-            : '播放视频'
-          : '此媒体暂时没有可播放地址'
-      }
-      onClick={onOpen}
-    >
-      {cover && !coverFailed ? (
-        <img
-          src={albumMediaUrl(cover)}
-          alt={`${video.isLivePhoto === true ? '实况照片' : '视频封面'} ${index + 1}`}
-          loading="lazy"
-          onError={() => setCoverFailed(true)}
-        />
-      ) : (
-        <span className="weq-qzn-video-placeholder">
-          {coverFailed ? '封面暂时无法加载' : video.isLivePhoto === true ? '实况照片' : '视频'}
-        </span>
-      )}
-      {video.isLivePhoto !== true ? (
-        <span className="weq-qzn-video-play">
-          {src ? <Play size={20} /> : <VideoOff size={20} />}
-        </span>
-      ) : null}
-      {video.isLivePhoto === true ? (
-        <span className="weq-qzn-live-label">
-          <CircleDot size={13} />
+    <div className="weq-qzn-video">
+      <button
+        type="button"
+        className="weq-qzn-video-open"
+        disabled={!src && !cover}
+        aria-label={
+          live
+            ? `查看空间实况照片 ${index + 1}`
+            : typePending
+              ? `查看空间媒体 ${index + 1}`
+              : src
+                ? `播放空间视频 ${index + 1}`
+                : `空间${video.isLivePhoto === true ? '实况照片' : '视频'} ${index + 1} 暂无播放地址`
+        }
+        title={
+          typePending
+            ? '查看媒体'
+            : src
+              ? video.isLivePhoto === true
+                ? '查看实况照片'
+                : '播放视频'
+              : '此媒体暂时没有可播放地址'
+        }
+        onClick={onOpen}
+      >
+        {cover && !coverFailed ? (
+          <img
+            src={albumMediaUrl(cover)}
+            alt={`${live ? '实况照片' : typePending ? '媒体封面' : '视频封面'} ${index + 1}`}
+            loading="lazy"
+            onError={() => setCoverFailed(true)}
+          />
+        ) : (
+          <span className="weq-qzn-video-placeholder">
+            {coverFailed ? '封面暂时无法加载' : live ? '实况照片' : typePending ? '媒体' : '视频'}
+          </span>
+        )}
+        {playing ? (
+          <video
+            ref={player}
+            src={src ? albumMediaUrl(src) : undefined}
+            muted
+            loop
+            playsInline
+            onError={() => {
+              setPlaying(false);
+              setPlayError(true);
+            }}
+          />
+        ) : null}
+        {!live && !typePending ? (
+          <span className="weq-qzn-video-play">
+            {src ? <Play size={20} /> : <VideoOff size={20} />}
+          </span>
+        ) : null}
+      </button>
+      {live ? (
+        <button
+          type="button"
+          className="weq-qzn-live-label"
+          disabled={!src}
+          aria-label={playing ? '暂停实况照片' : playError ? '重试播放实况照片' : '播放实况照片'}
+          aria-pressed={playing}
+          title={playing ? '暂停实况照片' : playError ? '播放失败，点击重试' : '播放实况照片'}
+          onClick={() => {
+            setPlayError(false);
+            setPlaying((value) => !value);
+          }}
+        >
+          {playing ? <Pause size={13} /> : <CircleDot size={13} />}
           实况
-        </span>
+        </button>
       ) : null}
-    </button>
+    </div>
   );
 }
 
@@ -255,6 +314,7 @@ export function QzoneMediaGrid({
         if (live) setTypes({ key: typeKey, values });
       })
       .catch(() => {
+        if (live) setTypes({ key: typeKey, values: [] });
         /* 补全失败不阻塞或替换现有 Web 媒体。 */
       })
       .finally(() => {
@@ -289,30 +349,56 @@ export function QzoneMediaGrid({
     ),
   ];
   const count = urls.length + uniqueVideos.length;
-  const items: QzonePreviewMedia[] = [
-    ...urls.map((url) => ({ key: url, kind: 'image' as const, src: albumMediaUrl(url) })),
-    ...uniqueVideos.map((video) => ({
+  const media: ({ kind: 'image'; url: string } | { kind: 'video'; video: QzoneMediaVideo })[] =
+    urls.map((url) => ({ kind: 'image', url }));
+  for (const video of [...uniqueVideos].sort(
+    (a, b) => (a.mediaIndex ?? Infinity) - (b.mediaIndex ?? Infinity),
+  )) {
+    const index = video.mediaIndex;
+    media.splice(
+      index !== undefined && Number.isSafeInteger(index) && index >= 0
+        ? Math.min(index, media.length)
+        : media.length,
+      0,
+      { kind: 'video', video },
+    );
+  }
+  const items: QzonePreviewMedia[] = media.map((entry) => {
+    if (entry.kind === 'image')
+      return { key: entry.url, kind: 'image', src: albumMediaUrl(entry.url) };
+    const video = entry.video;
+    const src = qzoneMediaSource(video.videoUrl);
+    const poster = qzoneMediaSource(video.coverUrl);
+    return {
       key: video.videoId || video.videoUrl,
-      kind: 'video' as const,
-      src: albumMediaUrl(video.videoUrl),
-      poster: video.coverUrl ? albumMediaUrl(video.coverUrl) : undefined,
+      kind: src ? 'video' : 'image',
+      src: src ? albumMediaUrl(src) : poster ? albumMediaUrl(poster) : '',
+      poster: poster ? albumMediaUrl(poster) : undefined,
       isLivePhoto: video.isLivePhoto,
-    })),
-  ];
+    };
+  });
   return count ? (
     <>
       <div ref={grid} className="weq-qzn-pictures" data-media-count={count}>
-        {urls.map((url, index) => (
-          <Picture key={url} url={url} index={index} onOpen={() => setPreview(index)} />
-        ))}
-        {uniqueVideos.map((video, index) => (
-          <QzoneVideo
-            key={video.videoId || video.videoUrl || video.coverUrl}
-            video={video}
-            index={index}
-            onOpen={() => setPreview(urls.length + index)}
-          />
-        ))}
+        {media.map((entry, index) =>
+          entry.kind === 'image' ? (
+            <Picture
+              key={entry.url}
+              url={entry.url}
+              index={index}
+              onOpen={() => setPreview(index)}
+            />
+          ) : (
+            <QzoneVideo
+              key={entry.video.videoId || entry.video.videoUrl || entry.video.coverUrl}
+              video={entry.video}
+              index={index}
+              typePending={Boolean(target && time > 0 && types?.key !== typeKey)}
+              active={active && preview === null}
+              onOpen={() => setPreview(index)}
+            />
+          ),
+        )}
       </div>
       {preview !== null ? (
         <QzoneMediaPreview

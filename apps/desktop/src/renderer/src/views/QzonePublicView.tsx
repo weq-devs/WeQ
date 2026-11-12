@@ -188,18 +188,29 @@ function PublicText({ content }: { content: string }) {
 
 function toGridMedia(media: PublicFeedView['media']): {
   images: string[];
-  videos: { coverUrl: string; videoUrl: string; videoId: string; duration: number }[];
+  videos: {
+    coverUrl: string;
+    videoUrl: string;
+    videoId: string;
+    duration: number;
+    mediaIndex: number;
+  }[];
 } {
   return {
     images: media.filter((item) => item.kind === 'image').map((item) => item.src),
-    videos: media
-      .filter((item) => item.kind === 'video')
-      .map((item) => ({
-        coverUrl: item.poster,
-        videoUrl: item.src,
-        videoId: item.key,
-        duration: item.durationMs,
-      })),
+    videos: media.flatMap((item, mediaIndex) =>
+      item.kind === 'video'
+        ? [
+            {
+              coverUrl: item.poster,
+              videoUrl: item.src,
+              videoId: item.key,
+              duration: item.durationMs,
+              mediaIndex,
+            },
+          ]
+        : [],
+    ),
   };
 }
 

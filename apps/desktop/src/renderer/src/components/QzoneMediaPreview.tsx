@@ -63,6 +63,18 @@ export function QzoneMediaPreview({
   }, []);
 
   useEffect(() => {
+    // 原生视频控件会吞掉冒泡键盘事件，Esc 必须在捕获阶段处理。
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || topSurface(document) !== root.current) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onClose();
+    }
+    document.addEventListener('keydown', handleEscape, true);
+    return () => document.removeEventListener('keydown', handleEscape, true);
+  }, [onClose]);
+
+  useEffect(() => {
     let live = true;
     setError('');
     setDetailError(false);
@@ -109,10 +121,6 @@ export function QzoneMediaPreview({
       onKeyDown={(event) => {
         const top = topSurface(document);
         if (top && top !== root.current) return;
-        if (event.key === 'Escape') {
-          event.stopPropagation();
-          onClose();
-        }
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
           const target = event.target as HTMLElement;
           if (
