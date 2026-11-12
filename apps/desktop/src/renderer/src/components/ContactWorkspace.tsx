@@ -94,6 +94,8 @@ export function ContactWorkspace({
             'level',
             'qid',
             'company',
+            'description',
+            'email',
             'privileges',
             'botDescription',
           ]}

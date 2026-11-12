@@ -84,6 +84,7 @@ const _BASIC_FIELDS: readonly ContactCardContent[] = [
   'description',
   'email',
   'energy',
+  'notes',
 ];
 const SOCIAL_FIELDS: readonly ContactCardContent[] = [
   'common',
@@ -94,7 +95,6 @@ const SOCIAL_FIELDS: readonly ContactCardContent[] = [
   'likes',
   'marks',
   'friendClue',
-  'notes',
 ];
 const BOT_FIELDS: readonly ContactCardContent[] = ['botDescription', 'botFeatures'];
 /** QID 随身份区展示；NT UID 在名片可选、资料页技术详情中展示。 */
@@ -152,6 +152,8 @@ export function ContactIdentity({
     : names?.name || person.nick?.trim() || person.identityValue || person.username;
   const identity = person.clone ? person.id.replace(/^virtual:/, '') : person.identityValue;
   const identityLabel = person.clone ? 'ID' : person.identityLabel;
+  const editableRemark =
+    relationship === 'friend' && !person.clone && /^u_/.test(person.uid || person.id);
   return (
     <>
       <div className="weq-profile-hero weq-contact-identity" data-privacy-sensitive>
@@ -225,33 +227,27 @@ export function ContactIdentity({
             {!person.clone && person.qid && settings?.visible.qid !== false ? (
               <IdentityNumber label="QID" value={person.qid} />
             ) : null}
-            {relationship === 'friend' && !person.clone && !remark ? (
-              <button
-                type="button"
-                className="weq-contact-number"
-                disabled={!/^u_/.test(person.uid || person.id)}
-                onClick={() => setRemarkOpen(true)}
-              >
-                添加备注
-              </button>
-            ) : null}
           </div>
         </div>
       </div>
-      <ContactRow
-        label="备注"
-        value={remark}
-        valueClassName="weq-profile-identity-remark"
-        onActivate={
-          relationship === 'friend' && !person.clone && /^u_/.test(person.uid || person.id)
-            ? () => setRemarkOpen(true)
-            : undefined
-        }
-        activateTitle="编辑备注"
-      />
+      {remark || editableRemark ? (
+        <div className="weq-contact-remarks">
+          <ContactRow
+            label="备注"
+            value={remark || '添加备注'}
+            valueClassName="weq-profile-identity-remark"
+            onActivate={editableRemark ? () => setRemarkOpen(true) : undefined}
+            activateTitle={remark ? '编辑备注' : '添加备注'}
+          />
+          {editableRemark && settings?.visible.notes !== false ? (
+            <NotesRows person={person} onEdit={() => setRemarkOpen(true)} />
+          ) : null}
+        </div>
+      ) : null}
       {remarkOpen && !person.clone && relationship === 'friend' ? (
         <QQRemarkDialog
           target={{ kind: 'c2c', conv: person.uid || person.id, name: title }}
+          showNotes
           onClose={() => setRemarkOpen(false)}
         />
       ) : null}
@@ -340,11 +336,9 @@ function ContactStats({ person, field }: { person: ProfilePerson; field: 'level'
 function ExtraField({
   person,
   field,
-  onOpen,
 }: {
   person: ProfilePerson;
   field: 'company' | 'description' | 'email';
-  onOpen: () => void;
 }) {
   const session = useQQWriteSession(`contact-details:${person.id}`, true);
   const query = trpc.account.profileExtras.details.useQuery(
@@ -356,21 +350,9 @@ function ExtraField({
     { ...PROFILE_QUERY_OPTIONS, enabled: session.available },
   );
   const data = query.data?.targetUin === person.identityValue ? query.data : null;
-  if (field === 'company')
-    return (
-      <ContactRow
-        label="公司"
-        value={data?.company}
-        onActivate={onOpen}
-        activateTitle="查看详细资料"
-      />
-    );
+  if (field === 'company') return <ContactRow label="公司" value={data?.company} />;
   if (field === 'description')
-    return (
-      <ContactRow label="个人说明" onActivate={onOpen} activateTitle="查看详细资料">
-        <span className="weq-contact-clamp">{data?.personalDescription}</span>
-      </ContactRow>
-    );
+    return <ContactRow label="个人说明" value={data?.personalDescription} />;
   return (
     <ContactRow
       label="邮箱"
@@ -395,7 +377,7 @@ function EnergyRow({ person }: { person: ProfilePerson }) {
   return typeof score === 'number' ? <ContactRow label="QQ 能量值" value={score} /> : null;
 }
 
-function NotesRow({ person, onEdit }: { person: ProfilePerson; onEdit: () => void }) {
+function NotesRows({ person, onEdit }: { person: ProfilePerson; onEdit: () => void }) {
   const session = useQQWriteSession(`contact-notes:${person.id}`, true);
   const query = trpc.account.qqWrite.friendNotesState.useQuery(
     { ...session.binding!, uid: person.uid || person.id },
@@ -403,14 +385,27 @@ function NotesRow({ person, onEdit }: { person: ProfilePerson; onEdit: () => voi
   );
   const notes = query.data;
   if (!notes) return null;
-  const text = [notes.company, ...notes.phones, ...notes.descriptions].filter(Boolean).join(' · ');
   return (
-    <ContactRow
-      label="我的备注资料"
-      value={text || '添加备注资料'}
-      onActivate={onEdit}
-      activateTitle="编辑备注资料"
-    />
+    <>
+      <ContactRow
+        label="备注公司"
+        value={notes.company}
+        onActivate={onEdit}
+        activateTitle="编辑备注公司"
+      />
+      <ContactRow
+        label="备注电话"
+        value={notes.phones.filter((value) => value.trim()).join('\n')}
+        onActivate={onEdit}
+        activateTitle="编辑备注电话"
+      />
+      <ContactRow
+        label="备注描述"
+        value={notes.descriptions.filter((value) => value.trim()).join('\n')}
+        onActivate={onEdit}
+        activateTitle="编辑备注描述"
+      />
+    </>
   );
 }
 
@@ -647,14 +642,7 @@ export function ContactGroupContent({
   );
   if (full) return <>{body}</>;
   return (
-    <ContactSection
-      title="群内资料"
-      action={
-        context.groupName ? (
-          <span className="weq-profile-section-note">{context.groupName}</span>
-        ) : null
-      }
-    >
+    <ContactSection title={`群内资料${context.groupName ? `（${context.groupName}）` : ''}`}>
       {body}
     </ContactSection>
   );
@@ -684,7 +672,6 @@ export function ContactContent({
   preview?: boolean;
 }) {
   const [detail, setDetail] = useState<{ view: ProfileExtraView; labelId?: string } | null>(null);
-  const [remarkOpen, setRemarkOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const navigate = useContext(ContactWorkspaceNavigationContext);
   const friendDirectory = useContext(FriendDirectoryContext);
@@ -853,19 +840,9 @@ export function ContactContent({
     ),
     friendClue:
       personal && relationship === 'friend' ? <FriendClue uid={person.uid || person.id} /> : null,
-    notes:
-      personal && relationship === 'friend' ? (
-        <NotesRow person={person} onEdit={() => setRemarkOpen(true)} />
-      ) : null,
-    company: personal ? (
-      <ExtraField person={person} field="company" onOpen={() => open('details')} />
-    ) : null,
-    description: personal ? (
-      <ExtraField person={person} field="description" onOpen={() => open('details')} />
-    ) : null,
-    email: personal ? (
-      <ExtraField person={person} field="email" onOpen={() => open('details')} />
-    ) : null,
+    company: personal ? <ExtraField person={person} field="company" /> : null,
+    description: personal ? <ExtraField person={person} field="description" /> : null,
+    email: personal ? <ExtraField person={person} field="email" /> : null,
     botDescription: person.kind === 'bot' ? <BotDescription person={person} /> : null,
     botFeatures: person.kind === 'bot' ? <BotFeaturesRow person={person} /> : null,
   };
@@ -921,8 +898,8 @@ export function ContactContent({
           {person.clone ? '这个本地会话还没有可显示的资料。' : '没有可显示的公开资料。'}
         </ContactEmptyState>
       ) : null}
-      {titled.length ? (
-        <div className="weq-profile-data">
+      {titled.length || trailing ? (
+        <div className="weq-profile-data weq-contact-sections">
           {titled.map((block) =>
             sectioned ? (
               <ContactSection key={block.key} title={block.title} fields>
@@ -939,17 +916,14 @@ export function ContactContent({
           ) : techBlock ? (
             <ContactTechnicalDetails>{techBlock.rows}</ContactTechnicalDetails>
           ) : null}
+          {trailing}
         </div>
       ) : null}
-      {trailing}
       {personal && showMore ? (
         <nav className="weq-contact-more" aria-label="更多资料">
           <details>
             <summary>更多资料</summary>
             <div className="weq-contact-more-links">
-              <button type="button" onClick={() => open('details')}>
-                详细资料
-              </button>
               <button type="button" onClick={() => open('education')}>
                 教育经历
               </button>
@@ -962,15 +936,6 @@ export function ContactContent({
               <button type="button" onClick={() => setGalleryOpen(true)}>
                 QQ 秀展柜
               </button>
-              {relationship === 'friend' ? (
-                <button
-                  type="button"
-                  disabled={!/^u_/.test(person.uid || person.id)}
-                  onClick={() => setRemarkOpen(true)}
-                >
-                  我的备注资料
-                </button>
-              ) : null}
               <button
                 type="button"
                 onClick={() =>
@@ -1000,13 +965,6 @@ export function ContactContent({
           name={displayUserName(person)}
           currentRevision={null}
           onClose={() => setGalleryOpen(false)}
-        />
-      ) : null}
-      {remarkOpen && personal && relationship === 'friend' ? (
-        <QQRemarkDialog
-          target={{ kind: 'c2c', conv: person.uid || person.id, name: displayUserName(person) }}
-          showNotes
-          onClose={() => setRemarkOpen(false)}
         />
       ) : null}
     </>

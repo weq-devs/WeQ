@@ -71,7 +71,7 @@ describe('我的备注资料编辑器', () => {
     expect(query.enabled).toBe(false);
     act(() => host.querySelector<HTMLButtonElement>('[aria-expanded]')!.click());
     expect(query.enabled).toBe(true);
-    expect(host.textContent).toContain('我为好友添加的备注，不是好友公开资料');
+    expect(host.textContent).not.toContain('不是好友公开资料');
     expect(host.querySelector('[role="alert"]')!.textContent).toContain('151');
     expect(host.querySelector('input')).toBeNull();
   });

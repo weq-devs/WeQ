@@ -60,11 +60,6 @@
 .weq-friend-notes-disclosure:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
 }
-.weq-friend-notes-provenance {
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
 .weq-friend-notes-form {
   display: grid;
   gap: 8px;

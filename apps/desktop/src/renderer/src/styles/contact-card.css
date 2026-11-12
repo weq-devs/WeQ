@@ -256,7 +256,23 @@
 }
 
 /* 名片里分区之间用一条 hairline 分隔；资料页正文不画行线，只靠间距。 */
-.weq-contact-card .weq-profile-section-block + .weq-profile-section-block {
+.weq-contact-card .weq-contact-remarks + .weq-contact-sections:has(.weq-profile-data-row) {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-contact-card .weq-profile-section-head > .weq-profile-subtitle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-card
+  .weq-contact-sections
+  > .weq-profile-section-block:not(
+    .weq-profile-section-block--fields:not(:has(.weq-profile-row-slot > *))
+  )
+  ~ .weq-profile-section-block {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--weq-border-subtle);
@@ -283,13 +299,6 @@
   max-width: 100%;
   height: 100%;
   object-fit: contain;
-}
-
-.weq-contact-clamp {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
 }
 
 .weq-contact-description {
@@ -561,12 +570,6 @@
 }
 
 /* ---------- 群上下文 ---------- */
-
-.weq-profile-section-note {
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
 
 .weq-common-groups-list .weq-common-group-target {
   display: flex;

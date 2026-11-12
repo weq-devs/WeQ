@@ -12,6 +12,8 @@ export const qa = {
   mode: 'friend' as 'friend' | 'nonfriend' | 'self' | 'bot' | 'enterprise' | 'clone',
   inGroup: true,
   muted: false,
+  noRemark: new URLSearchParams(location.search).has('no-remark'),
+  emptyNotes: new URLSearchParams(location.search).has('empty-notes'),
   preferencesReady: !new URLSearchParams(location.search).has('preferences-loading'),
   failLabels: false,
   noConversation: false,
@@ -97,7 +99,8 @@ function value(path: string, input: Record<string, unknown>) {
   if (path === 'account.getCardDisplayNames')
     return {
       name: qa.mode === 'self' || String(input.target) === qa.account ? '我' : '林同学',
-      remark: qa.mode === 'self' || String(input.target) === qa.account ? '' : '小林',
+      remark:
+        qa.noRemark || qa.mode === 'self' || String(input.target) === qa.account ? '' : '小林',
     };
   if (path === 'account.getBotProfile') return null;
   if (path === 'account.conversationBoundary')
@@ -187,9 +190,9 @@ function value(path: string, input: Record<string, unknown>) {
     };
   if (path === 'account.qqWrite.friendNotesState')
     return {
-      company: '我备注的公司',
-      phones: ['10000'],
-      descriptions: ['合成备注'],
+      company: qa.emptyNotes ? ' ' : '合成备注公司',
+      phones: qa.emptyNotes ? ['', ' '] : ['10000'],
+      descriptions: qa.emptyNotes ? ['\n'] : ['合成备注'],
       revision: '1',
     };
   if (path === 'account.browseConversation')

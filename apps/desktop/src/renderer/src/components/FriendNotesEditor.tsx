@@ -180,7 +180,6 @@ export function FriendNotesEditor({
         )}
       </div>
       <div id={panelId} hidden={!expanded}>
-        <p className="weq-friend-notes-provenance">我为好友添加的备注，不是好友公开资料。</p>
         {state.isLoading && session.available && <p role="status">正在读取我的备注资料…</p>}
         {state.error && <p role="alert">{state.error.message}</p>}
         {state.data && (

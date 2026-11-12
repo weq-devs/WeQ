@@ -112,10 +112,54 @@ try {
     }));
     if (overflow.doc)
       report[`overflow:${cell.view}-${cell.width}-${cell.theme}-${cell.state}`] = true;
+    if (cell.view === 'card') {
+      if (await page.locator('.weq-contact-remarks').count())
+        assert.equal(
+          await page
+            .locator('.weq-contact-sections')
+            .evaluate((node) => getComputedStyle(node).borderTopWidth),
+          '1px',
+          '备注与基本信息之间保留分割线',
+        );
+      const sections = await page.locator('.weq-contact-sections').evaluate((container) =>
+        [...container.children]
+          .filter(
+            (node) => node.matches('.weq-profile-section-block') && node.getClientRects().length,
+          )
+          .map((node) => ({
+            title: node.querySelector('h3')?.textContent ?? '',
+            border: getComputedStyle(node).borderTopWidth,
+          })),
+      );
+      sections.forEach((section, index) => {
+        assert.equal(section.border, index ? '1px' : '0px', `分区分割线：${section.title}`);
+      });
+      if (cell.state !== 'empty') {
+        assert.equal(
+          await page.locator('.weq-profile-subtitle').filter({ hasText: '群内资料' }).textContent(),
+          `群内资料（${cell.state === 'long' ? '一个名字特别长的群聊用来测试群上下文标题换行' : '合成群'}）`,
+        );
+        for (const field of ['company', 'description', 'email'])
+          assert.ok(
+            await page.locator(`[data-profile-field="${field}"]`).isVisible(),
+            `${field} 直接可见`,
+          );
+        assert.equal(await page.getByRole('button', { name: '详细资料', exact: true }).count(), 0);
+      }
+    }
     await page.screenshot({
       path: resolve(output, `${cell.view}-${cell.state}-${cell.width}-${cell.theme}.png`),
       fullPage: false,
     });
+    if (cell.view === 'card' && cell.state !== 'empty') {
+      await page
+        .locator('.weq-profile-subtitle')
+        .filter({ hasText: '群内资料' })
+        .scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: resolve(output, `card-group-${cell.state}-${cell.width}-${cell.theme}.png`),
+      });
+    }
     if (cell.view.startsWith('settings'))
       await page.screenshot({
         path: resolve(
@@ -124,6 +168,38 @@ try {
         ),
       });
     assert.deepEqual(errors, [], `${cell.view}/${cell.state}/${cell.width}/${cell.theme}`);
+    await page.close();
+  }
+
+  // ---------- 隐藏与空字段不在首个可见分区前留下分割线 ----------
+  for (const theme of ['light', 'dark']) {
+    const { page } = await open('view=card&minimal=1', { width: 320, theme });
+    const group = page.locator('.weq-profile-section-block').filter({ hasText: '群内资料' });
+    assert.equal(await group.evaluate((node) => getComputedStyle(node).borderTopWidth), '0px');
+    await page.evaluate(() => {
+      const qa = window.profileAuditQa;
+      qa.configure({ ...qa.settings, visible: { ...qa.settings.visible, company: true } });
+    });
+    await page.locator('[data-profile-field="company"]').waitFor();
+    assert.equal(await group.evaluate((node) => getComputedStyle(node).borderTopWidth), '1px');
+    await page.screenshot({ path: resolve(output, `card-minimal-320-${theme}.png`) });
+    await page.close();
+  }
+
+  for (const theme of ['light', 'dark']) {
+    const { page } = await open('view=card&no-remark=1&empty-notes=1', { width: 320, theme });
+    const remarks = page.locator('.weq-contact-remarks');
+    assert.equal(
+      await remarks.locator('.weq-profile-identity-remark').innerText(),
+      '备注\n添加备注',
+    );
+    assert.equal(await remarks.locator('.weq-profile-data-row').count(), 1);
+    assert.equal(
+      await page.locator('.weq-contact-meta').filter({ hasText: '添加备注' }).count(),
+      0,
+    );
+    assert.equal(await page.getByRole('button', { name: '我的备注资料', exact: true }).count(), 0);
+    await page.screenshot({ path: resolve(output, `card-add-remark-320-${theme}.png`) });
     await page.close();
   }
 

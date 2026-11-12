@@ -39,6 +39,9 @@ describe('联系人名片偏好', () => {
       'age',
       'birthday',
       'company',
+      'description',
+      'email',
+      'notes',
       'school',
       'status',
       'common',
@@ -55,7 +58,6 @@ describe('联系人名片偏好', () => {
       'zodiac',
       'bloodType',
       'energy',
-      'notes',
       'friendClue',
     ] as const)
       expect(value.visible[key]).toBe(false);
@@ -64,7 +66,13 @@ describe('联系人名片偏好', () => {
   });
   it('保留开关与排序、去重未知项并补齐新增项，不复活旧等级', () => {
     const value = normalizeContactCard({
-      visible: { energy: true, company: false, energyLevel: true },
+      visible: {
+        energy: true,
+        company: false,
+        description: false,
+        email: false,
+        energyLevel: true,
+      },
       order: ['energy', 'energy', 'unknown', 'company'],
       groupOrder: ['joinedAt'],
     });
@@ -72,6 +80,8 @@ describe('联系人名片偏好', () => {
     expect(value.order).toHaveLength(DEFAULT_CONTACT_CARD.order.length);
     expect(value.visible.energy).toBe(true);
     expect(value.visible.company).toBe(false);
+    expect(value.visible.description).toBe(false);
+    expect(value.visible.email).toBe(false);
     expect(value.visible).not.toHaveProperty('energyLevel');
     expect(value.groupOrder).toEqual(['joinedAt', 'groupLevel', 'lastSpeakAt']);
   });
