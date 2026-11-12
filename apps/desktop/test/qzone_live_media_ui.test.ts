@@ -169,17 +169,42 @@ describe('空间实况展示', () => {
     );
     expect(document.querySelector('.weq-qz-preview-toolbar')?.textContent).toContain('1 / 2');
   });
-  it('播放器持有焦点并截断冒泡时 Esc 仍可关闭最上层预览', async () => {
+  it('页面收到视频上的 Esc 时，即使冒泡被截断也能关闭最上层预览', async () => {
     mocks.query.mockResolvedValue([{ videoId: 'normal', isLivePhoto: false }]);
     await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos: [videos[1]!] })));
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!.click());
     const player = document.querySelector('video')!;
+    player.tabIndex = 0;
     player.focus();
     player.addEventListener('keydown', (event) => event.stopPropagation());
     await act(async () =>
       player.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
     );
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+  it('原生播放器通过指针取得焦点后立即归还预览，不留下媒体焦点框', async () => {
+    await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos: [videos[1]!] })));
+    await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!.click());
+    const player = document.querySelector('video')!;
+    player.tabIndex = 0;
+    vi.spyOn(player, 'matches').mockReturnValue(false);
+    await act(async () => player.focus());
+    expect(document.activeElement).toBe(document.querySelector('.weq-qz-preview'));
+    await act(async () =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      ),
+    );
+    expect(document.querySelector('.weq-qz-preview')).toBeNull();
+  });
+  it('键盘进入播放器时保留原生控件焦点', async () => {
+    await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos: [videos[1]!] })));
+    await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!.click());
+    const player = document.querySelector('video')!;
+    player.tabIndex = 0;
+    vi.spyOn(player, 'matches').mockReturnValue(true);
+    await act(async () => player.focus());
+    expect(document.activeElement).toBe(player);
   });
   it('请求失败仍显示 Web 媒体，不标记实况或隐藏正文', async () => {
     mocks.query.mockRejectedValue(new Error('offline'));

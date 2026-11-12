@@ -259,6 +259,16 @@ export function QzoneMediaPreview({
               autoPlay
               muted={item.isLivePhoto === true}
               playsInline
+              onFocus={(event) => {
+                const video = event.currentTarget;
+                // 原生控件吞掉指针和 Esc 事件；指针聚焦时立即归还预览焦点。
+                // Tab 进入时保留原生键盘操作和焦点提示。
+                if (
+                  !video.matches(':focus-visible') &&
+                  topSurface(video.ownerDocument) === root.current
+                )
+                  root.current?.focus({ preventScroll: true });
+              }}
               onError={() => setError('视频暂时无法播放')}
             />
           )}
