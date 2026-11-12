@@ -47,7 +47,7 @@ DEBUG 补充短关联 ID 与有界诊断摘要。耗时自动使用 ms / s，大
 - tRPC query/mutation 超过 1 秒会告警；普通成功调用为 DEBUG。订阅不按存活时间判慢。请求 ID 使用 `operationId`，只存在于日志上下文，不进入业务返回值；嵌套 MCP、账号和 tRPC 操作沿用它。
 - 参数校验、未登录、预期拒绝与取消为 DEBUG；最终请求失败为 ERROR。同一异常在共用入口和 HTTP/WS 回调之间不重复打印堆栈，传输层独有错误仍会上报。
 - 媒体命中缓存、逐图成功和单次尝试为 DEBUG；成功路径按来源每 5 秒汇总次数、失败数、累计耗时。最终失败包含媒体散列标识和各阶段原因计数，不打印 fileToken 或 rkey。禁止在线请求或运行态失活不作为最终失败告警。
-- 数据库 `jsQueueWaitMs` 和 `nativePromiseAwaitMs` 任一达到 500 毫秒会报告，两者独立计量。后者包含原生异步等待，**不是纯 SQL 执行耗时**。不开 `WEQ_DATABASE_DIAGNOSTICS` 也能报告，完整查询指纹和调用点仍由原开关控制。
+- 数据库 `jsQueueWaitMs` 和 `nativePromiseAwaitMs` 任一超过 50 毫秒会报告，两者独立计量。后者包含原生异步等待，**不是纯 SQL 执行耗时**。慢样本始终附带匿名查询指纹和源码调用点；普通快查询不展开调用栈或计算指纹。`WEQ_DATABASE_DIAGNOSTICS` 仅控制完整的有界逐查询历史。
 - 主应用开发版的未处理异常与 Promise rejection 通过显式日志桥接上报；不全量转发 DevTools console。渲染进程异常退出沿用现有恢复入口记录。
 - macOS 不在未知账号的启动期预加载安装目录中的 QQ wrapper。完整模式确认目标 QQ 后，预热与诊断重新扫描均选择该进程实际加载的模块，避免安装旧版和热更新版重复注册 Objective-C 类；不屏蔽其他 `objc` 错误。已加载两份模块的旧进程需完整退出再启动，HMR 不能移除它们。
 

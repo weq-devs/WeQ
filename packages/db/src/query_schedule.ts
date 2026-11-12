@@ -9,6 +9,7 @@ import {
 } from './query_diagnostics';
 
 export type DatabasePriority = 'interactive' | 'background';
+export const SLOW_DATABASE_OPERATION_MS = 50;
 export interface SlowDatabaseOperation {
   priority: DatabasePriority;
   jsQueueWaitMs: number;
@@ -295,13 +296,16 @@ export function scheduleDatabase<T>(
           if (job.trace) job.trace.endedAtMs = performance.now();
           const nativePromiseAwaitMs = performance.now() - began;
           record(data.nativeAwait, nativePromiseAwaitMs);
-          if (jsQueueWaitMs >= 500 || nativePromiseAwaitMs >= 500) {
+          if (
+            jsQueueWaitMs > SLOW_DATABASE_OPERATION_MS ||
+            nativePromiseAwaitMs > SLOW_DATABASE_OPERATION_MS
+          ) {
             notifySlow?.({
               priority: job.priority,
               jsQueueWaitMs,
               nativePromiseAwaitMs,
               outcome,
-              ...(job.trace ? job.trace.source : {}),
+              ...(job.trace?.source ?? source ?? {}),
             });
           }
           if (job.priority === 'interactive') data.lastInteractiveAt = performance.now();

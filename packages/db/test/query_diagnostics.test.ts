@@ -8,10 +8,48 @@ import {
   withDatabasePriority,
   promoteDatabaseSignal,
   measureMessageWork,
+  observeSlowDatabaseOperations,
 } from '../src/query_schedule';
 import { ACTIVE_QUERY_DIAGNOSTIC_LIMIT, withDatabaseRequest } from '../src/query_diagnostics';
 
 afterEach(() => vi.unstubAllEnvs());
+
+it('未开启完整诊断时仍归因超过 50ms 的原生读取，不泄露 SQL 或参数', async () => {
+  vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '');
+  let now = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const samples: unknown[] = [];
+  const stop = observeSlowDatabaseOperations((sample) => samples.push(sample));
+  const path = '/synthetic/slow-source.db';
+  const nt = {
+    executeSql: async () => {
+      now += 51;
+      return [];
+    },
+  } as unknown as NtHelperBinding;
+  const db = new QqDb(nt, { dbPath: path });
+  class FixtureReader {
+    read() {
+      return db.query('SELECT ?', ['不得记录的 UID']);
+    }
+  }
+  try {
+    await new FixtureReader().read();
+    expect(samples).toEqual([
+      expect.objectContaining({
+        nativePromiseAwaitMs: 51,
+        fingerprint: createHash('sha256').update('SELECT ?').digest('hex').slice(0, 16),
+        caller: 'FixtureReader.read',
+      }),
+    ]);
+    for (const forbidden of [path, 'SELECT', '不得记录的 UID'])
+      expect(JSON.stringify(samples)).not.toContain(forbidden);
+    expect(databasePerformance(path).diagnostics).toMatchObject({ enabled: false, queries: [] });
+  } finally {
+    stop();
+    clock.mockRestore();
+  }
+});
 
 it('默认不开启逐查询采样；启用后只记录指纹与调用点，不记录 SQL、参数和路径', async () => {
   vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '');

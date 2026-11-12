@@ -38,17 +38,27 @@ const recent: Array<{ path: string; trace: QueryTrace }> = [];
 
 export const databaseDiagnosticsEnabled = () => process.env.WEQ_DATABASE_DIAGNOSTICS === '1';
 
-/** 仅对受控诊断计算查询指纹；不保留 SQL、参数、文件路径或错误正文。 */
-export function queryDiagnosticSource(sql: string): QuerySource | undefined {
-  if (!databaseDiagnosticsEnabled()) return undefined;
-  const caller = new Error().stack
-    ?.split('\n')
-    .slice(2)
-    .map((frame) => /^\s*at (?:async )?([\w.$]+)(?: \(|$)/.exec(frame)?.[1])
-    .find((name) => name && name !== 'QqDb.query' && name !== 'QqDb.write');
+/** 延迟展开栈和指纹：普通快查询不计算，慢查询无需重启即可归因。 */
+export function queryDiagnosticSource(sql: string): QuerySource {
+  const origin = new Error();
+  let fingerprint: string | undefined;
+  let caller: string | undefined;
   return {
-    fingerprint: createHash('sha256').update(sql).digest('hex').slice(0, 16),
-    caller: caller && /^[\w.$]{1,100}$/.test(caller) ? caller : 'unknown',
+    get fingerprint() {
+      fingerprint ??= createHash('sha256').update(sql).digest('hex').slice(0, 16);
+      return fingerprint;
+    },
+    get caller() {
+      if (caller === undefined) {
+        const name = origin.stack
+          ?.split('\n')
+          .slice(2)
+          .map((frame) => /^\s*at (?:async )?([\w.$]+)(?: \(|$)/.exec(frame)?.[1])
+          .find((name) => name && !name.startsWith('QqDb.'));
+        caller = name && /^[\w.$]{1,100}$/.test(name) ? name : 'unknown';
+      }
+      return caller;
+    },
   };
 }
 

@@ -49,6 +49,8 @@ export interface QqDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
+export const DATABASE_SCAN_PAGE_SIZE = 256;
+
 export class QqDb {
   readonly dbPath: string;
   private readonly key?: string;
@@ -56,6 +58,88 @@ export class QqDb {
   private readonly nt: NtHelperBinding;
   private readonly encrypted: boolean;
   private readonly columns = new Map<string, Promise<ReadonlySet<string>>>();
+
+  /** LIMIT 必须是最后一个参数；超预算只缩小未完成页，不丢弃或跳过数据。 */
+  async queryPage(sql: string, params: SqlValue[], pageSize = 64) {
+    let limit = pageSize;
+    const read = this.nt.executeSqlBudgeted;
+    for (;;) {
+      databaseRequestSignal()?.throwIfAborted();
+      const values = [...params, BigInt(limit)];
+      try {
+        const rows = read
+          ? await scheduleDatabase(
+              this.dbPath,
+              () =>
+                read.call(
+                  this.nt,
+                  this.dbPath,
+                  sql,
+                  values,
+                  15,
+                  this.encrypted ? this.key : null,
+                  this.encrypted ? this.algo : null,
+                ),
+              this.nt,
+              queryDiagnosticSource(sql),
+            )
+          : await this.query(sql, values);
+        return { rows, limit };
+      } catch (error) {
+        if (
+          limit <= 1 ||
+          !(error instanceof Error) ||
+          !error.message.includes('database_query_execution_timeout')
+        )
+          throw error;
+        limit = Math.max(1, Math.floor(limit / 2));
+        await new Promise<void>((done) => setImmediate(done));
+      }
+    }
+  }
+
+  /** 固定本轮 rowid 上界，按真实键续读，支持稀疏、负数及 64 位键。 */
+  async *rowidPages(
+    table: string,
+    columns: readonly string[],
+    pageSize = DATABASE_SCAN_PAGE_SIZE,
+    filter?: { column: string; value: SqlValue },
+  ) {
+    if (![table, ...columns].every((name) => /^[\w]+$/.test(name)))
+      throw new Error('分页表或字段名无效');
+    if (filter && !columns.includes(filter.column)) throw new Error('分页筛选列不在投影中');
+    const end = (await this.query(`SELECT MAX(rowid) FROM "${table}"`))[0]?.[0];
+    if (end === null || end === undefined) return;
+    let cursor: SqlValue | undefined;
+    let limit = pageSize;
+    for (;;) {
+      databaseRequestSignal()?.throwIfAborted();
+      const projection = columns.map((name) => `"${name}"`).join(',');
+      const select = `SELECT rowid AS rowid,${projection} FROM "${table}"
+         WHERE rowid<=?${cursor === undefined ? '' : ' AND rowid>?'} ORDER BY rowid LIMIT ?`;
+      const bounds = cursor === undefined ? [end] : [end, cursor];
+      const page = await this.queryPage(
+        filter
+          ? `WITH target(value) AS (VALUES(?)), page AS MATERIALIZED (${select})
+             SELECT rowid,${projection},0 FROM page WHERE "${filter.column}"=(SELECT value FROM target)
+             UNION ALL SELECT MAX(rowid),${columns.map(() => 'NULL').join(',')},1 FROM page`
+          : select,
+        filter ? [filter.value, ...bounds] : bounds,
+        limit,
+      );
+      limit = page.limit;
+      const tail = page.rows.at(-1)?.[0];
+      if (tail === null || tail === undefined) return;
+      const rows = filter ? page.rows.slice(0, -1).map((row) => row.slice(0, -1)) : page.rows;
+      if (rows.length) yield rows;
+      cursor = tail;
+      if (
+        (!filter && page.rows.length < limit) ||
+        BigInt(cursor as bigint) >= BigInt(end as bigint)
+      )
+        return;
+    }
+  }
 
   constructor(nt: NtHelperBinding, opts: QqDbOptions) {
     this.nt = nt;

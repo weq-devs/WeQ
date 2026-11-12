@@ -195,6 +195,7 @@ export class C2cMsgDb {
 
   /** Newest N messages in one conversation, newest-first (DESC by seq). */
   async listLatest(part: C2cPartition, limit = 50): Promise<C2cMsg[]> {
+    if ('uid' in part) return this.listUidPage(part.uid, limit, true);
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
@@ -237,6 +238,13 @@ export class C2cMsgDb {
 
   /** The page of messages just older than `beforeSeq` (exclusive), newest-first. */
   async listBefore(part: C2cPartition, beforeSeq: bigint, limit = 50): Promise<C2cMsg[]> {
+    if ('uid' in part)
+      return this.listUidPage(
+        part.uid,
+        limit,
+        true,
+        (row) => row[2] !== null && toBigint(row[2]) < beforeSeq,
+      );
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
@@ -250,6 +258,13 @@ export class C2cMsgDb {
 
   /** The page of messages just newer than `afterSeq` (exclusive), oldest-first. */
   async listAfter(part: C2cPartition, afterSeq: bigint, limit = 50): Promise<C2cMsg[]> {
+    if ('uid' in part)
+      return this.listUidPage(
+        part.uid,
+        limit,
+        false,
+        (row) => row[2] !== null && toBigint(row[2]) > afterSeq,
+      );
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
@@ -292,6 +307,13 @@ export class C2cMsgDb {
    * plus in-place edits (recall) within the window.
    */
   async listFrom(part: C2cPartition, sinceSeq: bigint, limit = 500): Promise<C2cMsg[]> {
+    if ('uid' in part)
+      return this.listUidPage(
+        part.uid,
+        limit,
+        true,
+        (row) => row[2] !== null && toBigint(row[2]) >= sinceSeq,
+      );
     const { clause, value } = partitionWhere(part);
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM ${this.table}
@@ -301,6 +323,67 @@ export class C2cMsgDb {
       [value, sinceSeq, BigInt(limit)],
     );
     return rows.map(rowToC2cMsg);
+  }
+
+  /** 缺失映射时只分段扫描轻量列；正文最后按主键读取，不让 UID 全表扫描占住队列。 */
+  private async listUidPage(
+    uid: string,
+    limit: number,
+    descending: boolean,
+    accept: (row: SqlRow) => boolean = () => true,
+  ): Promise<C2cMsg[]> {
+    if (limit === 0) return [];
+    const selected: SqlRow[] = [];
+    const compare = (a: SqlRow, b: SqlRow) => {
+      for (const index of [2, 3, 4]) {
+        const left = a[index],
+          right = b[index];
+        const order =
+          left === null
+            ? right === null
+              ? 0
+              : -1
+            : right === null
+              ? 1
+              : toBigint(left) < toBigint(right)
+                ? -1
+                : toBigint(left) > toBigint(right)
+                  ? 1
+                  : 0;
+        if (order) return descending ? -order : order;
+      }
+      return 0;
+    };
+    for await (const rows of this.qq.rowidPages(
+      this.table,
+      ['40021', '40003', '40050', '40001'],
+      undefined,
+      { column: '40021', value: uid },
+    )) {
+      selected.push(...rows.filter(accept));
+      selected.sort(compare);
+      if (limit >= 0 && selected.length > limit) selected.length = limit;
+    }
+    const messages = new Map<string, C2cMsg>();
+    for (let offset = 0; offset < selected.length; offset += 16) {
+      let ids = selected.slice(offset, offset + 16).map((row) => String(row[0]));
+      while (ids.length) {
+        const page = await this.qq.queryPage(
+          `SELECT rowid,${SELECT_COLUMNS} FROM ${this.table}
+           WHERE rowid IN (SELECT CAST(value AS INTEGER) FROM json_each(?)) ORDER BY rowid LIMIT ?`,
+          [JSON.stringify(ids)],
+          ids.length,
+        );
+        if (!page.rows.length) break;
+        for (const row of page.rows) messages.set(String(row[0]), rowToC2cMsg(row.slice(1)));
+        const read = new Set(page.rows.map((row) => String(row[0])));
+        ids = ids.filter((id) => !read.has(id));
+      }
+    }
+    return selected.flatMap((row) => {
+      const message = messages.get(String(row[0]));
+      return message ? [message] : [];
+    });
   }
 
   /** Most recent N messages across all peers, newest first. Useful for "test dump". */

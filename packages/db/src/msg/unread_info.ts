@@ -22,7 +22,7 @@ import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { databaseRequestSignal } from '../query_schedule';
 import { toBigint } from './util';
 
-export const UNREAD_OUTGOING_PAGE_SIZE = 512;
+export const UNREAD_OUTGOING_PAGE_SIZE = 64;
 const OUTGOING_CACHE_MAX_AGE_MS = 60_000;
 const OUTGOING_CACHE_MAX_SEQUENCES = 32_768;
 interface OutgoingWindow {
@@ -185,12 +185,13 @@ export class UnreadInfoDb {
     for (let offset = 0; offset < unique.length; offset += batchSize) {
       databaseRequestSignal()?.throwIfAborted();
       const batch = unique.slice(offset, offset + batchSize);
+      // 类型只作剩余筛选，避免 SQLite 选择低选择性的类型索引而逐目标扫整类会话。
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
          SELECT t.chatType, t.uid, t.peer, u."48902", r."40003"${self ? ', r."40027"' : ''}
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
-         LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND r."40010" = t.chatType`,
+         LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND CAST(r."40010" AS INTEGER) = t.chatType`,
         batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
       );
       databaseRequestSignal()?.throwIfAborted();
@@ -336,7 +337,7 @@ export class UnreadInfoDb {
       databaseRequestSignal()?.throwIfAborted();
       // LIMIT 位于发送者筛选前；即使没有自己发言，也只交付一页真实消息。
       // 同序号尾段单独按 rowid 续读，避免二元游标只按 seq 定位而重扫前页。
-      const rows = await this.qq.query(
+      const page = await this.qq.queryPage(
         `WITH page AS MATERIALIZED (
          SELECT m.rowid AS id, m."40003" AS seq,
            CASE WHEN ${direction} THEN 1 ELSE 0 END AS outgoing
@@ -353,15 +354,16 @@ export class UnreadInfoDb {
           partition,
           ...(cursor ?? [afterSeq]),
           snapshot.latestSeq!,
-          BigInt(UNREAD_OUTGOING_PAGE_SIZE),
         ],
+        UNREAD_OUTGOING_PAGE_SIZE,
       );
+      const rows = page.rows;
       databaseRequestSignal()?.throwIfAborted();
       for (const row of rows) if (Number(row[2]) === 1) outgoing.add(String(row[1]));
       // 聚合游标在空页也存在；其他行只带自己发言，避免搬运整个未读区间。
       const tail = rows.find((row) => row[3] !== null);
       if (!tail) throw new Error('未读统计缺少分页游标');
-      if (Number(tail[3]) < UNREAD_OUTGOING_PAGE_SIZE) {
+      if (Number(tail[3]) < page.limit) {
         if (!cursor || cursor[0] >= latest) break;
         afterSeq = String(cursor[0]);
         cursor = undefined;
