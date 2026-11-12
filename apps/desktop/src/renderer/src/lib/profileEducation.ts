@@ -1,7 +1,11 @@
 import type { ProfileEducationRecord } from '@weq/protocol';
 
-// 腾讯教育经历 H5 的学历选项；未知枚举保留原始编号。
+// Android QQ getDegreeName 的完整映射（2、3 均为中学）；H5 仅提供 5–9。
 const degrees: Record<number, string> = {
+  1: '小学',
+  2: '中学',
+  3: '中学',
+  4: '中专',
   5: '大专',
   6: '本科',
   7: '研究生',
