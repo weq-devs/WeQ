@@ -116,6 +116,24 @@ try {
             const modal = document.querySelector('.weq-modal[role="dialog"]');
             const container = modal ?? document.querySelector('.fixture-page');
             const bounds = container.getBoundingClientRect();
+            /**
+             * 元素是否落在可横向滚动的祖先里（例如手机设置页顶部的分区导航条、
+             * `.weq-settings-subnav`）。横向滚动条是设计的一部分：条内按钮本来就
+             * 会超出视口，用户滑一下就到，不算溢出。只豁免这一种情况，纵向/真实
+             * 越界仍然会被下面这条检查抓到。
+             */
+            const inHorizontalScroller = (el) => {
+              for (
+                let node = el.parentElement;
+                node && node !== container;
+                node = node.parentElement
+              ) {
+                const style = getComputedStyle(node);
+                if (!/auto|scroll/.test(style.overflowX)) continue;
+                if (node.scrollWidth > node.clientWidth + 1) return true;
+              }
+              return false;
+            };
             const overflow = [
               ...container.querySelectorAll(
                 'input,select,textarea,button,.weq-set-row-main,.weq-set-row-ctrl',
@@ -124,7 +142,8 @@ try {
               .filter(visible)
               .filter((el) => {
                 const rect = el.getBoundingClientRect();
-                return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+                const outside = rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+                return outside && !inHorizontalScroller(el);
               })
               .map(
                 (el) =>
@@ -150,8 +169,13 @@ try {
                 if (control.matches('select') && control.getBoundingClientRect().height < 35)
                   profileStyleIssues.push('下拉框高度低于其他输入控件');
               }
-              if (!profile.querySelector('.weq-set-card .weq-self-profile-additional'))
-                profileStyleIssues.push('补充资料未归入资料分组');
+              // 「补充资料」必须落在某个分区卡片里，但本人资料用的是
+              // SelfProfileSection（`.weq-self-card-section`），历史上从来不是设置页的
+              // `.weq-set-card`；这里两种分组容器都认，只保证"已归组"这个语义。
+              const groupedAdditional = profile.querySelector(
+                '.weq-self-card-section .weq-self-profile-additional, .weq-set-card .weq-self-profile-additional',
+              );
+              if (!groupedAdditional) profileStyleIssues.push('补充资料未归入资料分组');
               if (profile.querySelector('.weq-qq-live-status'))
                 profileStyleIssues.push('仍显示重复的服务端状态行');
             }

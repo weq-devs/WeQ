@@ -101,7 +101,7 @@ function GroupProfileBody({
   const chatAction = canChat ? (
     <button
       type="button"
-      className="weq-profile-perhome"
+      className="weq-profile-perhome weq-contact-primary"
       onClick={() => {
         if (!embedded) close();
         if (onOpenChat) onOpenChat();
@@ -115,10 +115,10 @@ function GroupProfileBody({
   const previewAction = canPreview ? (
     <button
       type="button"
-      className="weq-group-text-action"
+      className="weq-contact-secondary"
       onClick={() => preview?.open(conversation)}
     >
-      <Eye size={13} />
+      <Eye size={14} />
       预览消息
     </button>
   ) : null;
@@ -194,20 +194,24 @@ function GroupProfileBody({
           </div>
         )}
         {canChat || canPreview || canOpenWorkspace ? (
-          <nav className="weq-group-card-actions weq-profile-card-actions" aria-label="群操作">
+          <nav
+            className="weq-group-card-actions weq-contact-actions weq-profile-card-actions"
+            aria-label="群操作"
+          >
             {chatAction}
             {previewAction}
             {canOpenWorkspace ? (
               <button
                 type="button"
-                className="weq-group-text-action"
+                className="weq-contact-secondary"
+                title="打开完整群资料"
                 onClick={() => {
                   close();
                   openWorkspace?.({ kind: 'group', conversation });
                 }}
               >
+                <ChevronRight size={14} />
                 完整群资料
-                <ChevronRight size={13} />
               </button>
             ) : null}
           </nav>

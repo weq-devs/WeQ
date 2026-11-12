@@ -886,11 +886,28 @@ html[data-privacy] .weq-mail-text-editor {
   .weq-mail-brand span {
     display: none;
   }
+  /* 320 宽时顶栏必须能收缩：按钮允许缩到图标宽，写邮件只保留图标，任何元素都不能越过视口。 */
+  .weq-mail-topbar {
+    gap: 8px;
+  }
   .weq-mail-top-actions {
     gap: 2px;
+    min-width: 0;
   }
   .weq-mail-top-actions > button {
     padding: 5px 7px;
+    flex-shrink: 1;
+  }
+  .weq-mail-primary {
+    flex-shrink: 1;
+    min-width: 32px;
+    max-width: 100%;
+  }
+  .weq-mail-primary > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .weq-mail-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -936,4 +953,14 @@ html[data-privacy] .weq-mail-text-editor {
 /* 邮件列表的键盘归属在行上：容器被程序化聚焦时不要画整块强调色外框。 */
 .weq-mail-workspace .weq-mail-rows[data-weq-multi-group]:focus-visible {
   outline: none;
+}
+
+@media (max-width: 380px) {
+  .weq-mail-primary > span {
+    display: none;
+  }
+  /* 顶栏「更新于」在 320 会挤掉发送入口；列表头的同步状态仍在（窄屏列表无独立入口时隐藏）。 */
+  .weq-mail-sync-state-compact {
+    display: none;
+  }
 }

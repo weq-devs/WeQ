@@ -11,6 +11,7 @@ import { PageSnapshotScope } from '../../src/renderer/src/components/PageSnapsho
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { MobileWebNavigation } from '../../src/renderer/src/components/MobileWebNavigation';
+import { subscribeResponsiveLayout } from '../../src/renderer/src/lib/responsiveLayout';
 import { MobileNavigationRuntime } from '../../src/renderer/src/components/MobileNavigationRuntime';
 import type { MainView } from '../../src/renderer/src/im-template/template/types';
 import '../../src/renderer/src/styles/index.css';
@@ -26,6 +27,26 @@ const user = {
   identityValue: '10001',
   avatarUrl: null,
 };
+/**
+ * headless 的 `screen.orientation` 不会跟着视口走（320×844 竖屏下也可能报
+ * landscape-primary），移动端会被误判成多栏、退回桌面 inset，制造假阳性。
+ * 这里按实际视口同步方向，并在 resize 时派发 change，让布局判断拿到真值。
+ */
+const qaOrientation = Object.assign(new EventTarget(), { type: 'portrait-primary' });
+Object.defineProperty(screen, 'orientation', { configurable: true, value: qaOrientation });
+function syncOrientation(): void {
+  const type = innerWidth > innerHeight ? 'landscape-primary' : 'portrait-primary';
+  if (qaOrientation.type === type) return;
+  qaOrientation.type = type;
+  qaOrientation.dispatchEvent(new Event('change'));
+}
+syncOrientation();
+// 布局模块在 import 阶段用的是当时的 orientation（那时上面这次同步还没跑），
+// 而这个 fixture 默认不渲染任何会订阅布局的组件，所以必须主动重算一次；
+// subscribeResponsiveLayout 会立刻跑一次 update 并保留后续 resize 的监听。
+subscribeResponsiveLayout(() => {});
+window.addEventListener('resize', syncOrientation);
+
 ensureThemeInitialized();
 useViewState.setState({ openedUin: '10001' });
 function Fixture() {

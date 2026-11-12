@@ -630,6 +630,7 @@ export function MailPage({
           <button
             type="button"
             className="weq-mail-primary"
+            aria-label={draft ? '继续写信' : '写邮件'}
             disabled={!ready}
             onClick={() => {
               if (!draft) setDraft(newMailDraft());
