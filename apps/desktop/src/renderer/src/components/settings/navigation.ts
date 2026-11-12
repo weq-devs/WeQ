@@ -500,8 +500,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'read-sync',
     section: 'chat-messages',
-    label: '同步已读状态到 QQ',
-    aliases: ['手动标记时上报已读位置', '手动标记已读'],
+    label: '向 QQ 服务器上报已读位置',
+    aliases: ['同步已读状态到 QQ', '同步已读到 QQ', '手动标记时上报已读位置', '手动标记已读'],
     from: ['account', 'chat-messages'],
   },
   {

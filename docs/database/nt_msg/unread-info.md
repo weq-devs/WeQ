@@ -200,7 +200,7 @@ interface UnreadHighlight {
 
 ### 可选服务端上报
 
-设置 → 账号接入与消息提供「同步已读状态到 QQ」，全局偏好 `reportReadEnabled` 默认关闭。
+设置 → 基础功能 → 阅读与未读 → 未读提醒提供「向 QQ 服务器上报已读位置」，全局偏好 `reportReadEnabled` 默认开启。
 开启后，桌面端已读入口在本地写入完成后异步请求
 `trpc.msg.msg_svc.MsgService.SsoReadedReport`，不阻塞聊天页，也不批量补报开启之前的阅读。
 关闭开关立即取消尚未发出的重试，但不能撤销已发出的网络请求。

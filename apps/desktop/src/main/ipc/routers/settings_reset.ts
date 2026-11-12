@@ -133,10 +133,10 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   app('reading', 'showScrollToBottomButton', '回到底部按钮', (enabled) =>
     b.setShowScrollToBottomButton({ enabled }),
   );
-  app('read-sync', 'reportReadEnabled', '自动阅读同步', (enabled) =>
+  app('unread', 'reportReadEnabled', '自动阅读上报已读位置', (enabled) =>
     b.setReportReadEnabled({ enabled }),
   );
-  app('read-sync', 'manualReadReportEnabled', '手动标记同步', (enabled) =>
+  app('unread', 'manualReadReportEnabled', '手动标记上报已读位置', (enabled) =>
     b.setManualReadReportEnabled({ enabled }),
   );
   app('message-time', 'showMessageSeq', '消息序号', (enabled) => b.setShowMessageSeq({ enabled }));

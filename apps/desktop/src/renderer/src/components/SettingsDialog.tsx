@@ -400,12 +400,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'chat-messages',
     label: '阅读与未读',
     icon: <BookOpen size={16} />,
-    render: () => (
-      <>
-        <AppearanceSection page="messages" category="reading" />
-        <AccountBasicsSection page="read" heading={false} />
-      </>
-    ),
+    render: () => <AppearanceSection page="messages" category="reading" />,
   },
   {
     id: 'message-display',
@@ -1110,6 +1105,7 @@ function AppearanceSection({
                   }
                 />
               ))}
+              <AccountBasicsSection page="read" heading={false} />
             </Card>
           )}
           {(category === 'reading' || category === 'sending') && (

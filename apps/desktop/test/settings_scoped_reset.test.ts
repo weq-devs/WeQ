@@ -76,6 +76,28 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('已读上报随未读提醒卡片恢复，不影响阅读定位配置', async () => {
+    state.settings.reportReadEnabled = false;
+    state.settings.manualReadReportEnabled = false;
+    const preview = await caller().preview({ page: 'chat-messages', card: 'unread' });
+    expect(preview.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'unread:reportReadEnabled', current: false }),
+        expect.objectContaining({ id: 'unread:manualReadReportEnabled', current: false }),
+      ]),
+    );
+    expect(preview.items.every((item) => item.id.startsWith('unread:'))).toBe(true);
+    await caller().restore({ page: 'chat-messages', card: 'unread', source: null });
+    expect(state.calls).toContainEqual([
+      'setReportReadEnabled',
+      { enabled: DEFAULT_APP_SETTINGS.reportReadEnabled },
+    ]);
+    expect(state.calls).toContainEqual([
+      'setManualReadReportEnabled',
+      { enabled: DEFAULT_APP_SETTINGS.manualReadReportEnabled },
+    ]);
+    expect(state.calls.some(([method]) => method === 'setReadFromFirstUnread')).toBe(false);
+  });
   it('稳定卡片 ID 唯一，跨页面卡片与任意配置键拒绝', async () => {
     expect(new Set(SETTINGS_RESET_CARDS.map(([, id]) => id)).size).toBe(
       SETTINGS_RESET_CARDS.length,

@@ -327,13 +327,19 @@ describe('设置归位后的实际页面', () => {
         '在消息图标上显示红点',
         '在联系人界面显示未读消息数',
         '群助手显示总消息数',
+        '向 QQ 服务器上报已读位置',
         '鼠标停留时保持会话位置',
         '从第一条新消息开始阅读',
         '自动跟随最新消息',
         '发送消息后定位到最新消息',
         '向下滚动时显示定位到底部按钮',
-        '同步已读状态到 QQ',
       ]);
+      const readReportRow = f.body().querySelector('[data-setting-id="read-sync"]');
+      expect(
+        readReportRow?.closest('.weq-set-card')?.querySelector('.weq-set-card-title')?.textContent,
+      ).toBe('未读提醒');
+      expect(f.body().querySelectorAll('[data-setting-id="read-sync"]')).toHaveLength(1);
+      expect(f.body().querySelector('.weq-set-card .weq-set-card')).toBeNull();
       expect(f.body().querySelector('.weq-settings-appearance-card')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="anti-recall"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="text-markdown"]')).toBeNull();
@@ -427,6 +433,7 @@ describe('设置归位后的实际页面', () => {
   it.each([
     ['global', '默认发送正在输入状态', 'typing-status', '互动与防撤回'],
     ['account', '手动标记时上报已读位置', 'read-sync', '阅读与未读'],
+    ['chat-messages', '向 QQ 服务器上报已读位置', 'read-sync', '阅读与未读'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '关联本机媒体目录', 'linked-resources', '媒体来源'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '媒体来源'],

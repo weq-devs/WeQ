@@ -53,7 +53,6 @@ export const SETTINGS_RESET_CARDS = [
   ['voice', 'voice-online', 'QQ 在线转写'],
   ['ocr', 'ocr-online', 'QQ 在线识别'],
   ['account', 'realtime', '实时监听'],
-  ['chat-messages', 'read-sync', '同步已读到 QQ'],
   ['account', 'attach', '自动进入完整模式'],
   ['accounts', 'auto-enter', '现有配置'],
   ['media', 'native-media', '关联资源目录'],

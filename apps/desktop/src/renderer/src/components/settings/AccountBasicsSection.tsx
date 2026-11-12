@@ -295,9 +295,9 @@ export function AccountBasicsSection({
       if (
         enabled &&
         !(await confirm(
-          '同步已读状态到 QQ',
-          '开启后，自动阅读与手动标记已读都会同步到 QQ，可能清除其他客户端的未读提醒。标为未读不能恢复已清除的提醒。',
-          { okLabel: '开启同步' },
+          '向 QQ 服务器上报已读位置',
+          '开启后，自动阅读与手动标记已读都会向 QQ 服务器上报已读位置，可能清除其他客户端的未读提醒。标为未读不能恢复已清除的提醒。',
+          { okLabel: '开启上报' },
         ))
       )
         return;
@@ -389,16 +389,47 @@ export function AccountBasicsSection({
     }
   }
 
+  if (page === 'read') {
+    return (
+      <>
+        <Row
+          settingId="read-sync"
+          label={
+            <span className="weq-set-row-icon">
+              <CheckCheck size={15} strokeWidth={1.8} aria-hidden />向 QQ 服务器上报已读位置
+            </span>
+          }
+          desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在线完整模式生效；标为未读不能恢复其他端已清除的提醒。"
+          control={
+            <Toggle
+              checked={reportRead || manualReadReport}
+              disabled={
+                settingsLoading ||
+                !settings.data ||
+                Boolean(settings.error) ||
+                savingReadSync ||
+                setReadSyncEnabled.isPending
+              }
+              onChange={(v) => void toggleReportRead(v)}
+              label="向 QQ 服务器上报已读位置"
+            />
+          }
+        />
+        {reportRead !== manualReadReport ? (
+          <p className="weq-set-note">
+            {reportRead ? '仅自动阅读上报，沿用原设置' : '仅手动标记上报，沿用原设置'}
+          </p>
+        ) : null}
+      </>
+    );
+  }
+
   return (
     <div className="weq-set">
       {heading && (
         <SectionHeader
           icon={<User size={16} strokeWidth={1.8} />}
-          title={
-            { account: '监听与读取', credentials: '凭据管理', media: '媒体来源', read: '已读同步' }[
-              page
-            ]
-          }
+          title={{ account: '监听与读取', credentials: '凭据管理', media: '媒体来源' }[page]}
           desc={
             page === 'account'
               ? '数据库监听与 QQ 内存读取开关为全局设置；当前账号资料不再在这里重复展示。'
@@ -665,38 +696,6 @@ export function AccountBasicsSection({
               />
             }
           />
-        </Card>
-      )}
-      {page === 'read' && (
-        <Card title="同步已读到 QQ" settingId="read-sync" resetId="read-sync">
-          <Row
-            label={
-              <span className="weq-set-row-icon">
-                <CheckCheck size={15} strokeWidth={1.8} aria-hidden />
-                同步已读状态到 QQ
-              </span>
-            }
-            desc="向 QQ 上报在 WeQ 阅读和手动标记的位置，可能清除其他端的未读提醒。默认开启，仅在线完整模式生效；标为未读只在本地生效，不能恢复其他端已清除的提醒。"
-            control={
-              <Toggle
-                checked={reportRead || manualReadReport}
-                disabled={
-                  settingsLoading ||
-                  !settings.data ||
-                  Boolean(settings.error) ||
-                  savingReadSync ||
-                  setReadSyncEnabled.isPending
-                }
-                onChange={(v) => void toggleReportRead(v)}
-                label="同步已读状态到 QQ"
-              />
-            }
-          />
-          {reportRead !== manualReadReport ? (
-            <p className="weq-set-note">
-              {reportRead ? '仅自动阅读同步，沿用原设置' : '仅手动标记同步，沿用原设置'}
-            </p>
-          ) : null}
         </Card>
       )}
       {page === 'account' && (

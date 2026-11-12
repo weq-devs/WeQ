@@ -70,6 +70,12 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
     { section: 'account', target: 'account' },
     {
+      section: 'chat-messages',
+      item: '向 QQ 服务器上报已读位置',
+      target: 'chat-messages',
+      settingId: 'read-sync',
+    },
+    {
       section: 'account',
       item: '同步已读状态到 QQ',
       target: 'chat-messages',

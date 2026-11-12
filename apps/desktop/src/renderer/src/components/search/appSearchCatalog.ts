@@ -114,7 +114,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['accounts', '现有配置', '自动进入账号'],
   ['account', '启用数据库监听', '自动刷新消息'],
   ['account', '长期授权', '权限助手', '免重复提权', '管理员授权'],
-  ['account', '同步已读状态到 QQ'],
+  ['chat-messages', '向 QQ 服务器上报已读位置'],
   ['account', '手动标记时上报已读位置'],
   ['account', '自动读取 QQ 内存（完整功能）', '完整模式'],
   ['account', '进入受限模式时横幅提醒', '受限横幅'],
