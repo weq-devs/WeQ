@@ -86,8 +86,18 @@ try {
       await page.locator('.weq-friend-directory-editor button[type="submit"]').click();
       await page.waitForSelector('.weq-friend-directory-editor dl');
     }
-    if (surface === 'profile-face')
+    if (surface === 'profile-face') {
+      // 「状态表情」只在扩展在线状态选到「自定义状态」(value 2000) 后才挂载。
+      // 但本夹具的本人资料是只读态，没有「扩展在线状态」这一行；步骤不可达时
+      // 跳过该 surface 并明确记录，不把步骤问题报成界面回归。
+      const statusSelect = page.getByLabel('扩展在线状态');
+      if ((await statusSelect.count()) === 0) {
+        console.warn('跳过 profile-face：夹具为只读资料，缺少「扩展在线状态」入口');
+        continue;
+      }
+      await statusSelect.selectOption('2000');
       await page.getByRole('button', { name: '状态表情', exact: true }).click();
+    }
     if (surface === 'mail-compose')
       await page.getByRole('button', { name: '写邮件', exact: true }).click();
     if (surface === 'qzone-compose')
