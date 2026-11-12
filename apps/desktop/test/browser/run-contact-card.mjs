@@ -524,6 +524,19 @@ try {
           1,
         );
         assert.equal(await settings.locator('[data-setting-id="contact-card-preview"]').count(), 0);
+        assert.deepEqual(await settings.locator('h4').allTextContents(), [
+          '身份区',
+          '群内资料',
+          '个人资料',
+          '与我的关系',
+          '个性展示',
+          'QQ 账号',
+          '机器人信息',
+        ]);
+        assert.equal(
+          await settings.locator('#contact-card-identity-sort .weq-contact-sort-handle').count(),
+          0,
+        );
         assert.equal(await settings.getByRole('button', { name: /^(上移|下移)/ }).count(), 0);
         assert.equal(
           await settings.locator('.weq-contact-sort-item').count(),
@@ -536,15 +549,39 @@ try {
           0,
         );
         for (const [id, orderKey] of [
-          ['contact-card-sort', 'order'],
+          ['contact-card-basic-sort', 'order'],
+          ['contact-card-social-sort', 'order'],
+          ['contact-card-display-sort', 'order'],
+          ['contact-card-account-sort', 'order'],
+          ['contact-card-bot-sort', 'order'],
           ['contact-card-group-sort', 'groupOrder'],
         ]) {
           const list = page.locator(`#${id}`);
+          await list.evaluate((node) => node.scrollIntoView({ block: 'start' }));
           const before = await list
             .locator('li')
             .evaluateAll((rows) => rows.map((row) => row.dataset.field));
+          const savedBefore = await page.evaluate(
+            (orderKey) => window.contactCardQa.settings[orderKey],
+            orderKey,
+          );
+          await page.waitForFunction(
+            (id) => !document.querySelector(`#${id} .weq-contact-sort-handle`).disabled,
+            id,
+          );
           await list.locator('.weq-contact-sort-handle').first().dragTo(list.locator('li').nth(1));
           const expected = [before[1], before[0], ...before.slice(2)];
+          let index = 0;
+          const savedExpected = savedBefore.map((key) =>
+            before.includes(key) ? expected[index++] : key,
+          );
+          await page.waitForFunction(
+            ({ id, expected }) =>
+              JSON.stringify(
+                [...document.querySelectorAll(`#${id} li`)].map((row) => row.dataset.field),
+              ) === JSON.stringify(expected),
+            { id, expected },
+          );
           assert.deepEqual(
             await list.locator('li').evaluateAll((rows) => rows.map((row) => row.dataset.field)),
             expected,
@@ -552,7 +589,7 @@ try {
           await page.waitForFunction(
             ({ orderKey, expected }) =>
               JSON.stringify(window.contactCardQa.settings[orderKey]) === JSON.stringify(expected),
-            { orderKey, expected },
+            { orderKey, expected: savedExpected },
           );
           // 拖拽不会改变开关；键盘用户仍能在把手上调整顺序。
           const handle = list.locator('.weq-contact-sort-handle').nth(1);
@@ -561,9 +598,43 @@ try {
           await page.waitForFunction(
             ({ orderKey, before }) =>
               JSON.stringify(window.contactCardQa.settings[orderKey]) === JSON.stringify(before),
-            { orderKey, before },
+            { orderKey, before: savedBefore },
+          );
+          await list.locator('.weq-contact-sort-handle').first().press('ArrowUp');
+          await list.locator('.weq-contact-sort-handle').last().press('ArrowDown');
+          assert.deepEqual(
+            await list.locator('li').evaluateAll((rows) => rows.map((row) => row.dataset.field)),
+            before,
           );
         }
+        const visibilityBefore = await page.evaluate(() => window.contactCardQa.settings.visible);
+        const orderBeforeCrossDrop = await page.evaluate(() => window.contactCardQa.settings.order);
+        await settings
+          .locator('#contact-card-display-sort')
+          .evaluate((node) => node.scrollIntoView({ block: 'start' }));
+        await settings
+          .locator('#contact-card-display-sort .weq-contact-sort-handle')
+          .first()
+          .dragTo(settings.locator('#contact-card-account-sort li').first());
+        assert.deepEqual(
+          await page.evaluate(() => window.contactCardQa.settings.order),
+          orderBeforeCrossDrop,
+        );
+        await settings.getByRole('button', { name: '全部隐藏', exact: true }).click();
+        await page.waitForFunction(() =>
+          Object.values(window.contactCardQa.settings.visible).every((value) => !value),
+        );
+        assert.equal(await settings.getByRole('switch', { checked: true }).count(), 0);
+        await settings.getByRole('button', { name: '全部显示', exact: true }).click();
+        await page.waitForFunction(() =>
+          Object.values(window.contactCardQa.settings.visible).every(Boolean),
+        );
+        assert.equal(await settings.getByRole('switch', { checked: false }).count(), 0);
+        await page.evaluate(
+          (visible) =>
+            window.contactCardQa.configure({ ...window.contactCardQa.settings, visible }),
+          visibilityBefore,
+        );
         const energy = page.getByRole('switch', { name: 'QQ 能量值', exact: true });
         const previousEnergy = (await energy.getAttribute('aria-checked')) === 'true';
         await energy.click();
@@ -587,6 +658,10 @@ try {
         });
         if (output)
           await page.screenshot({ path: resolve(output, `${theme}-${width}-settings.png`) });
+        if (output) {
+          await settings.locator('#contact-card-bot-sort').scrollIntoViewIfNeeded();
+          await page.screenshot({ path: resolve(output, `${theme}-${width}-settings-lower.png`) });
+        }
       }
     await page.goto(`${url}?short-signature=1`);
     await page.locator('.weq-contact-signature-text').waitFor();

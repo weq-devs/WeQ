@@ -8,6 +8,7 @@ import {
   profileTimeText,
 } from '@weq/protocol/profile-values';
 import type { ContactCardContent, ContactCardSettings } from '@weq/service/contact-card';
+import { contactCardFieldGroup } from '../../lib/contactCardSections';
 import { Avatar } from '../../im-template/template/primitives';
 import type { Contact } from '../../im-template/template/types';
 import { displayUserName } from '../../im-template/template/user';
@@ -51,6 +52,8 @@ import {
 } from './ContactRow';
 import '../../styles/contact-card.css';
 
+export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
+
 const SOCIAL_FIELDS: readonly ContactCardContent[] = [
   'common',
   'category',
@@ -81,7 +84,6 @@ const automaticFields: readonly ContactCardContent[] = [
 ];
 
 type ContactProfileGroup = 'basic' | 'social' | 'bot' | 'tech';
-export type ContactCardGroup = ContactProfileGroup | 'identity' | 'display' | 'account';
 
 /** 完整资料页沿用原分区，不随浮层名片的整理改变。 */
 function contactProfileFieldGroup(key: ContactCardContent): ContactProfileGroup {
@@ -89,17 +91,6 @@ function contactProfileFieldGroup(key: ContactCardContent): ContactProfileGroup 
   if (BOT_FIELDS.includes(key)) return 'bot';
   if (SOCIAL_FIELDS.includes(key)) return 'social';
   return 'basic';
-}
-
-/** 名片按内容归类，分区内仍保留用户保存的字段顺序。 */
-export function contactCardFieldGroup(key: ContactCardContent): ContactCardGroup {
-  if (
-    ['qid', 'uid', 'signature', 'signatureUpdated', 'status', 'category', 'pendant'].includes(key)
-  )
-    return 'identity';
-  if (['qqShow', 'labels', 'photos'].includes(key)) return 'display';
-  if (['level', 'likes', 'privileges', 'energy'].includes(key)) return 'account';
-  return contactProfileFieldGroup(key);
 }
 
 /** 标题、副标题、编号与关系：名片和资料页共用同一份身份区。 */

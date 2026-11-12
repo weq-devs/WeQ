@@ -14,6 +14,7 @@ export function ContactFieldSort<K extends string>({
   keys,
   labels,
   disabled = false,
+  sortable = true,
   control,
   onMove,
 }: {
@@ -22,6 +23,7 @@ export function ContactFieldSort<K extends string>({
   keys: readonly K[];
   labels: (key: K) => string;
   disabled?: boolean;
+  sortable?: boolean;
   control: (key: K) => ReactNode;
   onMove: (key: K, offset: number) => void;
 }) {
@@ -50,35 +52,37 @@ export function ContactFieldSort<K extends string>({
             setTarget(null);
           }}
           onDragOver={(event) => {
-            if (disabled || !dragged) return;
+            if (disabled || !sortable || !dragged) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = 'move';
             setTarget(key);
           }}
           onDrop={(event) => {
             event.preventDefault();
-            if (!disabled && dragged && dragged !== key)
+            if (!disabled && sortable && dragged && dragged !== key)
               onMove(dragged, index - keys.indexOf(dragged));
             setDragged(null);
             setTarget(null);
           }}
         >
-          <button
-            type="button"
-            className="weq-contact-sort-handle"
-            aria-label={`调整${labels(key)}的顺序，方向键可移动`}
-            title="拖动或按方向键调整顺序"
-            disabled={disabled}
-            draggable={!disabled}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = 'move';
-              event.dataTransfer.setData('text/plain', key);
-              setDragged(key);
-            }}
-            onKeyDown={(event) => onKeyDown(event, key)}
-          >
-            <GripVertical size={14} aria-hidden />
-          </button>
+          {sortable ? (
+            <button
+              type="button"
+              className="weq-contact-sort-handle"
+              aria-label={`调整${labels(key)}的顺序，方向键可移动`}
+              title="拖动或按方向键调整顺序"
+              disabled={disabled}
+              draggable={!disabled}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', key);
+                setDragged(key);
+              }}
+              onKeyDown={(event) => onKeyDown(event, key)}
+            >
+              <GripVertical size={14} aria-hidden />
+            </button>
+          ) : null}
           <span className="weq-contact-sort-label">{labels(key)}</span>
           {control(key)}
         </li>
