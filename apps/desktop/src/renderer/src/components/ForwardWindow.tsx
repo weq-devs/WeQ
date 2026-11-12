@@ -695,6 +695,7 @@ function ForwardRow({
       data-widget={widget?.animated ? widget.itemId : undefined}
     >
       <ProfileAvatar
+        className="weq-identity-link weq-forward-author"
         target={{
           identity: record.senderUid || record.senderUin || '',
           uin: record.senderUin,
@@ -710,10 +711,10 @@ function ForwardRow({
           )}
           {widget ? <PendantLayer widget={widget} /> : null}
         </div>
+        <span className="weq-forward-row-name">{displayName}</span>
       </ProfileAvatar>
       <div className="weq-forward-row-main">
         <div className="weq-forward-row-meta">
-          <span className="weq-forward-row-name">{displayName}</span>
           {time ? <span className="weq-forward-row-time">{time}</span> : null}
         </div>
         <ForwardBubble record={record} kind={kind} sendTimeMs={sendTimeMs} />

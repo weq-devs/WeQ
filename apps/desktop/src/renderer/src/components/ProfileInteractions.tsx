@@ -166,11 +166,16 @@ function CommentRows({
             key={item.id}
             className={qzone ? `weq-qzn-comment${item.replyId ? ' is-reply' : ''}` : undefined}
           >
-            {qzone ? <QqAvatar uin={item.fromUin} size={26} /> : null}
             <div>
-              <strong className={qzone ? 'weq-qzn-person' : undefined}>
-                {name(item.fromUin, item.fromName)}
-              </strong>
+              <ProfileAvatar
+                className="weq-identity-link"
+                target={{ identity: item.fromUin, name: name(item.fromUin, item.fromName) }}
+              >
+                {qzone ? <QqAvatar uin={item.fromUin} size={26} /> : null}
+                <strong className={qzone ? 'weq-qzn-person' : undefined}>
+                  {name(item.fromUin, item.fromName)}
+                </strong>
+              </ProfileAvatar>
               {item.replyId && item.toUin ? (
                 <>
                   {' '}
@@ -259,8 +264,13 @@ export function SignatureInteractions({
             <div className="weq-qzn-like-users">
               {likeUsers.map((user) => (
                 <span key={user.id}>
-                  <QqAvatar uin={user.uin} size={20} />
-                  <span>{name(user.uin, user.name)}</span>
+                  <ProfileAvatar
+                    className="weq-identity-link"
+                    target={{ identity: user.uin, name: name(user.uin, user.name) }}
+                  >
+                    <QqAvatar uin={user.uin} size={20} />
+                    <span>{name(user.uin, user.name)}</span>
+                  </ProfileAvatar>
                 </span>
               ))}
             </div>

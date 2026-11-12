@@ -1,6 +1,7 @@
 import { useContext, type ReactNode, type CSSProperties } from 'react';
 import { QzoneProfileContext, QzonePersonContext } from '../lib/qzoneNavigation';
 import { QqAvatar } from './QqAvatar';
+import '../styles/identity-links.css';
 
 /** 昵称与头像共用设置，当前空间主人始终打开名片。 */
 export function QzonePersonButton({
@@ -32,13 +33,54 @@ export function QzonePersonButton({
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (showProfile)
-          openProfile?.(uin, nickname || uin, { x: event.clientX, y: event.clientY });
-        else openSpace?.(uin, nickname);
+        if (showProfile) {
+          const rect = event.currentTarget.getBoundingClientRect();
+          openProfile?.(
+            uin,
+            nickname || uin,
+            event.detail === 0
+              ? { x: rect.right, y: rect.bottom }
+              : { x: event.clientX, y: event.clientY },
+          );
+        } else openSpace?.(uin, nickname);
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
       }}
     >
       {children}
     </button>
+  );
+}
+
+export function QzonePersonIdentity({
+  uin,
+  nickname,
+  url,
+  size,
+  className = '',
+  onSpace,
+  children,
+}: {
+  uin: string;
+  nickname?: string;
+  url?: string | null;
+  size: number;
+  className?: string;
+  onSpace?: (uin: string, nickname?: string) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <QzonePersonButton
+      uin={uin}
+      nickname={nickname}
+      onSpace={onSpace}
+      className={`weq-qzn-identity-link ${className}`}
+    >
+      <QqAvatar uin={uin} url={url} size={size} />
+      {children ?? <span className="weq-qzn-name">{nickname || uin}</span>}
+    </QzonePersonButton>
   );
 }
 

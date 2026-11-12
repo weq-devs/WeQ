@@ -25,6 +25,25 @@
   outline-offset: 2px;
 }
 
+.weq-identity-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--weq-identity-gap, 8px);
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+  line-height: inherit;
+  vertical-align: middle;
+}
+.weq-identity-link > :is(.avatar, .weq-avatar-img, .weq-avatar-fallback) {
+  flex-shrink: 0;
+}
+.weq-identity-link > :is(span, strong):not(.avatar, .weq-avatar-fallback) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ── 资料卡 hero 里那颗「点开 QQ 秀展柜」的头像 ───────────────────────────
  * 它本身是 64×64 的方头像容器，不是圆形小图标，所以不复用上面那个通用包装器
  * （那套会把它压成 max-content 的圆按钮）。

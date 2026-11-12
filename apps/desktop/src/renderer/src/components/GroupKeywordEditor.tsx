@@ -298,6 +298,7 @@ export function GroupKeywordEditor({
                     {selected.slice(0, 8).map((m) => (
                       <span key={m.uid} className="group-keyword-member" title={m.displayName}>
                         <ProfileAvatar
+                          className="weq-identity-link"
                           target={{
                             identity: m.uid,
                             uin: m.uin,
@@ -307,8 +308,8 @@ export function GroupKeywordEditor({
                           }}
                         >
                           <Avatar name={m.displayName} avatarUrl={m.avatarUrl} seed={m.uid} />
+                          <span className="group-keyword-member-name">{m.displayName}</span>
                         </ProfileAvatar>
-                        <span className="group-keyword-member-name">{m.displayName}</span>
                       </span>
                     ))}
                     {selected.length > 8 ? (
@@ -353,6 +354,7 @@ export function GroupKeywordEditor({
                         {selected.map((m) => (
                           <span key={m.uid} className="group-keyword-member">
                             <ProfileAvatar
+                              className="weq-identity-link"
                               target={{
                                 identity: m.uid,
                                 uin: m.uin,
@@ -362,8 +364,8 @@ export function GroupKeywordEditor({
                               }}
                             >
                               <Avatar name={m.displayName} avatarUrl={m.avatarUrl} seed={m.uid} />
+                              <span className="group-keyword-member-name">{m.displayName}</span>
                             </ProfileAvatar>
-                            <span className="group-keyword-member-name">{m.displayName}</span>
                             <button type="button" title="移除" {...memberMulti.itemProps(m.uid)}>
                               <X size={12} />
                             </button>

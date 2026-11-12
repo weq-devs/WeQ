@@ -553,15 +553,16 @@ function CollectionCard({
           />
         ) : null}
         <ProfileAvatar
+          className="weq-identity-link"
           enabled={!selecting}
           target={{ identity: it.authorUin, name: it.authorName }}
         >
           <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
+          <span className="weq-col-card-who">
+            <span className="weq-col-card-name">{it.authorName || '未知'}</span>
+          </span>
         </ProfileAvatar>
-        <span className="weq-col-card-who">
-          <span className="weq-col-card-name">{it.authorName || '未知'}</span>
-          {it.groupName ? <span className="weq-col-card-group">{it.groupName}</span> : null}
-        </span>
+        {it.groupName ? <span className="weq-col-card-group">{it.groupName}</span> : null}
         <span className={`weq-col-kind-badge weq-col-kind-${it.kind}`}>
           {kindIcon(it.kind)}
           {KIND_LABEL[it.kind] ?? '其他'}
@@ -1258,13 +1259,14 @@ export function CollectionDialog({
           {selected ? (
             <section className="weq-col-detail">
               <div className="weq-col-detail-meta">
-                <ProfileAvatar target={{ identity: selected.authorUin, name: selected.authorName }}>
+                <ProfileAvatar
+                  className="weq-identity-link"
+                  target={{ identity: selected.authorUin, name: selected.authorName }}
+                >
                   <QqAvatar uin={selected.authorUin || undefined} size={30} />
+                  <span>{selected.authorName || '未知'}</span>
                 </ProfileAvatar>
-                <span>
-                  {selected.authorName || '未知'}
-                  {selected.groupName ? ` · ${selected.groupName}` : ''}
-                </span>
+                {selected.groupName ? <span>{selected.groupName}</span> : null}
                 <time>{humanTime(selected.collectTime)}</time>
               </div>
               {detailLoading ? (

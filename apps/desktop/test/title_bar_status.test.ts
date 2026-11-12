@@ -128,9 +128,11 @@ describe('标题栏在线状态', () => {
   it('在昵称与签名之间显示本人状态，并定期刷新本地记录', () => {
     const f = fixture();
     const nick = f.host.querySelector('.app-title-bar-nick')!;
-    expect(nick.nextElementSibling?.classList.contains('weq-title-online-status')).toBe(true);
-    expect(nick.nextElementSibling?.textContent).toBe('在线');
-    expect(nick.nextElementSibling?.nextElementSibling?.textContent).toBe('个性签名');
+    const identity = nick.closest('button')!;
+    expect(identity.querySelector('.avatar')).not.toBeNull();
+    expect(identity.nextElementSibling?.classList.contains('weq-title-online-status')).toBe(true);
+    expect(identity.nextElementSibling?.textContent).toBe('在线');
+    expect(identity.nextElementSibling?.nextElementSibling?.textContent).toBe('个性签名');
     expect(state.query).toHaveBeenCalledWith(
       { uid: 'u_self' },
       expect.objectContaining({ refetchInterval: 15_000, refetchOnMount: 'always' }),

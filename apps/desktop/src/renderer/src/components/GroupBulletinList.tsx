@@ -34,6 +34,7 @@ export function GroupBulletinList({
         >
           <div className="group-bulletin-layout">
             <ProfileAvatar
+              className="weq-identity-link group-bulletin-author"
               target={{
                 identity: entry.publisherUid,
                 name: entry.publisherName || entry.publisherUid,
@@ -46,12 +47,12 @@ export function GroupBulletinList({
                 avatarUrl={entry.publisherAvatar}
                 seed={entry.publisherUid}
               />
+              <span className="group-bulletin-publisher-name">
+                {entry.publisherName || `用户 ${entry.publisherUid || '未知'}`}
+              </span>
             </ProfileAvatar>
             <div className="group-bulletin-main">
               <div className="group-bulletin-header">
-                <span className="group-bulletin-publisher-name">
-                  {entry.publisherName || `用户 ${entry.publisherUid || '未知'}`}
-                </span>
                 <span className="group-bulletin-date">
                   {entry.date}
                   {entry.readNum !== undefined && <> · {entry.readNum} 人已读</>}

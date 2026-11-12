@@ -147,13 +147,17 @@ try {
           const name = page.locator('button.notice-group-name').first();
           await name.focus();
           await page.keyboard.press('Enter');
-          const card = page.locator('.weq-group-profile-layer');
+          const card = page.getByRole('dialog', { name: '群资料', exact: true });
           await card.waitFor({ state: 'visible' });
           if (!(await card.textContent()).includes('20001'))
             throw new Error('群名没有打开对应群名片');
           await page.keyboard.press('Escape');
           await card.waitFor({ state: 'detached' });
         }
+        const person = page.locator('.notice-identity').first();
+        await person.locator('.notice-who').click();
+        if ((await page.evaluate(() => document.documentElement.dataset.noticeProfile)) !== '10001')
+          throw new Error('通知昵称没有打开同一申请人的名片');
         if (output)
           await page.screenshot({
             path: resolve(output, `${group ? 'group' : 'friend'}-${width}-${theme}.png`),

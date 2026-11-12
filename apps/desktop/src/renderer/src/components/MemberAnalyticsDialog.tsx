@@ -176,6 +176,7 @@ export function MemberAnalyticsDialog({
     <>
       <div className="ba-hero">
         <ProfileAvatar
+          className="weq-identity-link"
           enabled={!exportMode}
           target={{
             identity: member.uid,
@@ -190,9 +191,9 @@ export function MemberAnalyticsDialog({
             seed={member.uid}
             avatarUrl={resolveAvatar({ uin: member.uin, profileAvatarUrl: member.avatarUrl })}
           />
+          <strong>{member.name}</strong>
         </ProfileAvatar>
         <div className="ba-hero-info">
-          <strong>{member.name}</strong>
           <span>
             {formatDate(stats.firstMessageTime)} — {formatDate(stats.lastMessageTime)}
           </span>

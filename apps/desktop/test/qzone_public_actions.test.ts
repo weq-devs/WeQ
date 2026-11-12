@@ -16,6 +16,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: { getSettings: { query: async () => ({ qzoneForwardQuotePrevious: true }) } },
     account: {
+      qzone: { cancel: { mutate: async () => {} } },
       qzonePublic: {
         me: { query: async () => ({ uin: '10001', uid: 'self', nick: '自己', publicUid: 'self' }) },
         capabilities: {
@@ -107,7 +108,7 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
       ),
     ),
   );
-  const avatar = host.querySelector<HTMLButtonElement>('.weq-qzn-profile-avatar')!;
+  const avatar = host.querySelector<HTMLButtonElement>('.weq-qzn-identity-link')!;
   act(() => avatar.click());
   expect(space).toHaveBeenCalledWith('10002', '原作者');
   expect(profile).not.toHaveBeenCalled();

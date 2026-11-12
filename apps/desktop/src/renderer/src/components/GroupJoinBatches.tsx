@@ -307,6 +307,7 @@ export function GroupJoinBatches({
                   {batch.topSpeaker ? (
                     <span className="gc-top" title="这批人里发言最多的一位">
                       <ProfileAvatar
+                        className="weq-identity-link"
                         enabled={Boolean(group)}
                         target={{
                           identity: batch.topSpeaker.uid,
@@ -321,10 +322,10 @@ export function GroupJoinBatches({
                           avatarUrl={avatarUrlOf(batch.topSpeaker.uin)}
                           seed={batch.topSpeaker.uid}
                         />
+                        <span className="gc-top-name" title={batch.topSpeaker.displayName}>
+                          {batch.topSpeaker.displayName}
+                        </span>
                       </ProfileAvatar>
-                      <span className="gc-top-name" title={batch.topSpeaker.displayName}>
-                        {batch.topSpeaker.displayName}
-                      </span>
                       <small>{formatNumber(batch.topSpeaker.messageCount)} 条</small>
                     </span>
                   ) : (

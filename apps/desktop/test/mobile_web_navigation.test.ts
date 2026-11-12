@@ -157,11 +157,12 @@ it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
 it('各页面和更多页顶栏始终显示昵称，不再显示页面标题', async () => {
   for (const view of ['messages', 'contacts', 'qzone', 'mail', 'tools'] as const) {
     await act(async () => root.render(createElement(MobileWebNavigation, { ...props, view })));
-    expect(host.querySelector('.weq-mobile-identity > strong')?.textContent).toBe('合成账号');
+    expect(host.querySelector('.weq-mobile-account > strong')?.textContent).toBe('合成账号');
+    expect(host.querySelector('.weq-mobile-account .avatar')).not.toBeNull();
     expect(host.querySelector('.weq-mobile-header > strong')).toBeNull();
   }
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
-  expect(host.querySelector('.weq-mobile-identity > strong')?.textContent).toBe('合成账号');
+  expect(host.querySelector('.weq-mobile-account > strong')?.textContent).toBe('合成账号');
 });
 
 it.each([

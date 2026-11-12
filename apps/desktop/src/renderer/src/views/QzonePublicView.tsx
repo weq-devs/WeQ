@@ -38,7 +38,7 @@ import { client } from '../trpc/client';
 import { normalizeQzonePublicRefreshCooldown } from '@weq/service/qzone-public-settings';
 import { PageDataCache } from '../lib/pageDataCache';
 import { QqAvatar } from '../components/QqAvatar';
-import { QzoneProfileAvatar, QzonePersonButton } from '../components/QzoneProfileAvatar';
+import { QzonePersonIdentity } from '../components/QzoneProfileAvatar';
 import { QzoneEmoji } from '../components/QzoneEmoji';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
@@ -670,29 +670,23 @@ function PublicFeedCard({
   return (
     <article className="weq-qzn-post weq-qzn-public-post">
       <header className="weq-qzn-post-head">
-        {canOpenSpace ? (
-          <QzoneProfileAvatar
-            uin={view.author.uin}
-            nickname={authorLabel}
-            url={view.author.portrait}
-            size={36}
-            onSpace={onSpace}
-          />
-        ) : (
-          <QqAvatar uin={null} url={view.author.portrait} size={36} />
-        )}
         <div>
-          {canOpenSpace && onSpace ? (
-            <QzonePersonButton
+          {canOpenSpace ? (
+            <QzonePersonIdentity
+              size={36}
+              url={view.author.portrait}
               className="weq-qzn-public-name"
               uin={view.author.uin}
               nickname={authorLabel}
               onSpace={onSpace}
             >
               {authorLabel}
-            </QzonePersonButton>
+            </QzonePersonIdentity>
           ) : (
-            <strong className="weq-qzn-public-name">{authorLabel}</strong>
+            <span className="weq-qzn-identity-link">
+              <QqAvatar uin={null} url={view.author.portrait} size={36} />
+              <strong className="weq-qzn-public-name">{authorLabel}</strong>
+            </span>
           )}
           <time>{timeText(view.time)}</time>
         </div>
@@ -808,6 +802,30 @@ function PublicFeedCard({
         </QzoneForwardDialog>
       ) : null}
     </article>
+  );
+}
+
+function PublicCommentIdentity({
+  author,
+  size,
+}: {
+  author: PublicCommentView['author'];
+  size: number;
+}) {
+  const name = author.nick || author.uin || '匿名用户';
+  return author.uin && /^[1-9]\d{4,19}$/.test(author.uin) ? (
+    <QzonePersonIdentity
+      uin={author.uin}
+      nickname={name}
+      url={author.portrait}
+      size={size}
+      className="weq-qzn-public-name"
+    />
+  ) : (
+    <span className="weq-qzn-identity-link">
+      <QqAvatar uin={null} url={author.portrait} size={size} />
+      <span className="weq-qzn-public-name">{name}</span>
+    </span>
   );
 }
 
@@ -1090,11 +1108,8 @@ function PublicFeedDetail({
               className="weq-qzn-public-comment"
             >
               <div className="weq-qzn-comment">
-                <QqAvatar uin={null} url={comment.author.portrait} size={26} />
                 <div>
-                  <span className="weq-qzn-public-name">
-                    {comment.author.nick || comment.author.uin || '匿名用户'}
-                  </span>
+                  <PublicCommentIdentity author={comment.author} size={26} />
                   <p>
                     <PublicText content={comment.text} />
                   </p>
@@ -1128,11 +1143,8 @@ function PublicFeedDetail({
                       data-public-comment-key={JSON.stringify([comment.id, reply.id])}
                       className="weq-qzn-comment is-reply"
                     >
-                      <QqAvatar uin={null} url={reply.author.portrait} size={22} />
                       <div>
-                        <span className="weq-qzn-public-name">
-                          {reply.author.nick || reply.author.uin || '匿名用户'}
-                        </span>
+                        <PublicCommentIdentity author={reply.author} size={22} />
                         <p>
                           <PublicText content={reply.text} />
                         </p>

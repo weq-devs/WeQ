@@ -92,7 +92,6 @@ function ContactNoticeDialogBody({
             />
           ) : (
             cards.map(({ notice: request, operation }) => {
-              const who = displayUserName(request.user);
               const badge = FRIEND_STATE_LABEL[request.status];
               const fields = splitNoticeMessage(request.message || '请求添加对方为好友');
               return (
@@ -103,9 +102,6 @@ function ContactNoticeDialogBody({
                   <NoticeAvatar user={request.user} onOpenProfile={onOpenProfile} />
                   <div className="notice-copy">
                     <p className="notice-line-head">
-                      <span className="notice-who" title={who}>
-                        {who}
-                      </span>
                       <span className="notice-action-text">
                         {request.status === 'accepted'
                           ? '已同意好友申请'
@@ -255,7 +251,6 @@ function GroupNoticeDialogBody({
           ) : (
             cards.map(({ notice: request, operation }) => {
               const badge = HANDLE_STATE_LABEL[request.handleState];
-              const who = displayUserName(request.user);
               const fields = request.message ? splitNoticeMessage(request.message) : [];
               return (
                 <article
@@ -269,9 +264,6 @@ function GroupNoticeDialogBody({
                   />
                   <div className={cn('notice-copy')}>
                     <p className="notice-line-head">
-                      <span className="notice-who" title={who}>
-                        {who}
-                      </span>
                       <span className="notice-action-text">{request.action}</span>
                     </p>
                     <p className="notice-line-group">
@@ -371,7 +363,6 @@ function OnlineRequestCard({
       />
       <div className="notice-copy">
         <p className="notice-line-head">
-          <span className="notice-who">{operation.name}</span>
           <span className="notice-action-text">
             {operation.groupId ? '申请加入' : '请求加为好友'}
           </span>
@@ -440,11 +431,20 @@ function NoticeAvatar({
 }) {
   const name = displayUserName(user);
   const avatar = <Avatar name={name} avatarUrl={user.avatarUrl} seed={user.identityValue} />;
-  if (!onOpenProfile || (!user.id && !user.identityValue)) return avatar;
+  const identity = (
+    <>
+      {avatar}
+      <span className="notice-who" title={name}>
+        {name}
+      </span>
+    </>
+  );
+  if (!onOpenProfile || (!user.id && !user.identityValue))
+    return <span className="notice-avatar-button notice-identity">{identity}</span>;
   return (
     <button
       type="button"
-      className="notice-avatar-button"
+      className="notice-avatar-button notice-identity"
       title={`查看 ${name} 的名片`}
       aria-label={`查看 ${name} 的名片`}
       onClick={(event) => {
@@ -457,7 +457,7 @@ function NoticeAvatar({
         onOpenProfile(user, anchor, group);
       }}
     >
-      {avatar}
+      {identity}
     </button>
   );
 }

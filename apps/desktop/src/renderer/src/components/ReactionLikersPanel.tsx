@@ -194,6 +194,7 @@ export function ReactionLikersPanel({
                   title={name !== user.uin ? `${name}（${user.uin}）` : user.uin}
                 >
                   <ProfileAvatar
+                    className="weq-identity-link reaction-likers-identity"
                     target={{
                       identity: user.uid || user.uin,
                       uin: user.uin,
@@ -208,13 +209,13 @@ export function ReactionLikersPanel({
                       size={30}
                       className={cn('reaction-likers-avatar')}
                     />
+                    <span className={cn('reaction-likers-meta')}>
+                      <span className={cn('reaction-likers-name')}>{name}</span>
+                      {name !== user.uin ? (
+                        <span className={cn('reaction-likers-uin')}>{user.uin}</span>
+                      ) : null}
+                    </span>
                   </ProfileAvatar>
-                  <span className={cn('reaction-likers-meta')}>
-                    <span className={cn('reaction-likers-name')}>{name}</span>
-                    {name !== user.uin ? (
-                      <span className={cn('reaction-likers-uin')}>{user.uin}</span>
-                    ) : null}
-                  </span>
                   {isSelf ? <span className={cn('reaction-likers-tag')}>我</span> : null}
                 </div>
               );

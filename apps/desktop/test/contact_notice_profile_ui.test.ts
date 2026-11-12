@@ -88,9 +88,9 @@ function fixture(element: ReactNode) {
 function click(host: HTMLElement, detail = 1) {
   const button = host.querySelector<HTMLButtonElement>('[aria-label="查看 申请人 的名片"]')!;
   act(() =>
-    button.dispatchEvent(
-      new MouseEvent('click', { bubbles: true, detail, clientX: 42, clientY: 64 }),
-    ),
+    button
+      .querySelector('.notice-who')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, detail, clientX: 42, clientY: 64 })),
   );
   return button;
 }

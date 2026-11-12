@@ -264,13 +264,14 @@ export function BuddyAnalyticsDialog({
       {/* Hero: peer + overview */}
       <div className="ba-hero">
         <ProfileAvatar
+          className="weq-identity-link"
           enabled={!exportMode}
           target={{ identity: data.peer?.uid || peerUid, uin: data.peer?.uin, name: peerName }}
         >
           <Avatar name={peerName} avatarUrl={avatarUrl(data.peer?.uin)} />
+          <strong>{peerName}</strong>
         </ProfileAvatar>
         <div className="ba-hero-info">
-          <strong>{peerName}</strong>
           <span>
             {formatDate(stats.firstMessageTime)} — {formatDate(stats.lastMessageTime)}
           </span>

@@ -322,6 +322,7 @@ function RedBagDetailDialog({
                         className={`weq-redbag-detail-item${mine ? ' is-mine' : ''}`}
                       >
                         <ProfileAvatar
+                          className="weq-identity-link weq-redbag-claim-person"
                           target={{
                             identity: c.uin,
                             name: mine ? '我' : c.nickname || c.uin,
@@ -329,8 +330,6 @@ function RedBagDetailDialog({
                           }}
                         >
                           <QqAvatar uin={c.uin} size={36} />
-                        </ProfileAvatar>
-                        <div className="weq-redbag-detail-item-main">
                           <span className="weq-redbag-detail-item-name">
                             {mine ? '我' : c.nickname || c.uin}
                             {king ? (
@@ -342,6 +341,8 @@ function RedBagDetailDialog({
                               />
                             ) : null}
                           </span>
+                        </ProfileAvatar>
+                        <div className="weq-redbag-detail-item-main">
                           <span className="weq-redbag-detail-item-time">
                             {formatTime(c.claimTime)}
                           </span>

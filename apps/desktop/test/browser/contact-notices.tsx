@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import { useState } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GroupProfileDialog } from '../../src/renderer/src/im-template/template/profilePanes';
 import { sharedGroupConversation } from '../../src/renderer/src/components/ark/groupShareCard';
 import {
@@ -19,6 +20,7 @@ import '../../src/renderer/src/im-template/styles.css';
 
 ensureThemeInitialized();
 const root = createRoot(document.getElementById('root')!);
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 const requests: ContactRequest[] = Array.from({ length: 12 }, (_, index) => ({
   id: `synthetic-${index}`,
   user: {
@@ -70,10 +72,20 @@ function NoticePanels({ group }: { group: boolean }) {
           open
           requests={groupRequests}
           onClose={() => {}}
+          onOpenProfile={(user) => {
+            document.documentElement.dataset.noticeProfile = user.identityValue;
+          }}
           onOpenGroupProfile={(group, anchor) => setCard({ ...group, anchor })}
         />
       ) : (
-        <ContactNoticeDialog open requests={requests} onClose={() => {}} />
+        <ContactNoticeDialog
+          open
+          requests={requests}
+          onClose={() => {}}
+          onOpenProfile={(user) => {
+            document.documentElement.dataset.noticeProfile = user.identityValue;
+          }}
+        />
       )}
       {card && (
         <GroupProfileDialog
@@ -88,8 +100,9 @@ function NoticePanels({ group }: { group: boolean }) {
 }
 function render(group: boolean, cards: Element[] = []) {
   root.render(
-    <WorkspacePages navigationKey="contacts">
-      <style>{`
+    <QueryClientProvider client={queryClient}>
+      <WorkspacePages navigationKey="contacts">
+        <style>{`
       html, body, #root { height: 100%; margin: 0; overflow: hidden; }
       .app-shell.notice-qa-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); height: 100%; min-height: 0; }
       .notice-qa-sidebar { padding: 16px; border-right: 1px solid var(--weq-border-subtle); }
@@ -98,31 +111,32 @@ function render(group: boolean, cards: Element[] = []) {
         .notice-qa-sidebar { display: none; }
       }
     `}</style>
-      <div className="app-shell notice-qa-shell">
-        <aside className="notice-qa-sidebar">联系人</aside>
-        <WorkspaceContent>
-          <NoticePanels group={group} />
-        </WorkspaceContent>
-        {cards.map((card, index) =>
-          createPortal(
-            <RequestActions
-              operation={{
-                kind: group ? 'group' : 'friend',
-                token: String(index),
-                uid: `u_synthetic_${index}`,
-                uin: '10001',
-                name: '合成联系人',
-                groupId: group ? '20001' : '',
-                groupName: group ? '合成群' : '',
-                message: '合成留言',
-              }}
-            />,
-            card,
-            String(index),
-          ),
-        )}
-      </div>
-    </WorkspacePages>,
+        <div className="app-shell notice-qa-shell">
+          <aside className="notice-qa-sidebar">联系人</aside>
+          <WorkspaceContent>
+            <NoticePanels group={group} />
+          </WorkspaceContent>
+          {cards.map((card, index) =>
+            createPortal(
+              <RequestActions
+                operation={{
+                  kind: group ? 'group' : 'friend',
+                  token: String(index),
+                  uid: `u_synthetic_${index}`,
+                  uin: '10001',
+                  name: '合成联系人',
+                  groupId: group ? '20001' : '',
+                  groupName: group ? '合成群' : '',
+                  message: '合成留言',
+                }}
+              />,
+              card,
+              String(index),
+            ),
+          )}
+        </div>
+      </WorkspacePages>
+    </QueryClientProvider>,
   );
 }
 Object.assign(window, {

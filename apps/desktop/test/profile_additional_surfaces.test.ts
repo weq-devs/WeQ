@@ -146,8 +146,11 @@ function buttons(scope: ParentNode = document) {
   return [...scope.querySelectorAll<HTMLButtonElement>('.weq-profile-avatar-button')];
 }
 function click(button: HTMLButtonElement) {
+  const target = button.classList.contains('weq-identity-link') ? button.lastElementChild! : button;
+  if (button.classList.contains('weq-identity-link'))
+    expect(button.textContent?.trim()).not.toBe('');
   act(() =>
-    button.dispatchEvent(
+    target.dispatchEvent(
       new MouseEvent('click', { bubbles: true, detail: 1, clientX: 40, clientY: 60 }),
     ),
   );
@@ -170,6 +173,7 @@ function capture(element: Element, name: string) {
   const css = [
     'styles/index.css',
     'styles/profile-avatar.css',
+    'styles/identity-links.css',
     'styles/conversation-analytics.css',
     'im-template/styles/base.css',
     'im-template/styles/chat.css',
@@ -220,7 +224,10 @@ it('群收款名单按成员 UID 打开并保留来源群', async () => {
   );
   await act(async () => f.host.querySelector<HTMLElement>('.weq-group-receipt-card')!.click());
   capture(document.querySelector('.weq-group-receipt-dialog')!, 'receipt');
-  click(buttons(document.querySelector('.weq-group-receipt-dialog')!)[0]!);
+  const person = buttons(document.querySelector('.weq-group-receipt-dialog')!)[0]!;
+  expect(person.textContent).toContain(member.name);
+  expect(person.querySelector('.weq-group-receipt-item-amount')).toBeNull();
+  click(person);
   expectTarget(f.open, member.uin, group);
   expect(f.open.mock.calls[0]![0].id).toBe(member.uid);
 });
@@ -236,6 +243,9 @@ it.each(['group', 'c2c'] as const)(
     click(avatars[0]!);
     expectTarget(f.open, '10002', kind === 'group' ? group : undefined);
     click(avatars[1]!);
+    expect(avatars[1]!.textContent).toContain('我');
+    expect(avatars[1]!.querySelector('.weq-redbag-detail-item-time')).toBeNull();
+    expect(avatars[1]!.querySelector('.weq-redbag-detail-item-amount')).toBeNull();
     expectTarget(f.open, '10001', kind === 'group' ? group : undefined);
     expect(rpc.grab).not.toHaveBeenCalled();
   },

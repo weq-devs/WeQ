@@ -141,18 +141,21 @@ export function MobileWebNavigation({
   return (
     <div className="weq-mobile-navigation" inert={hidden} aria-hidden={hidden}>
       <header className="weq-mobile-header">
-        <SelfProfileAvatar user={user} className="weq-mobile-account" />
-        <div className="weq-mobile-identity">
-          <strong title={displayUserName(user)}>{displayUserName(user)}</strong>
-          {user.uid && (
-            <OnlineStatus
-              key={user.uid}
-              uid={user.uid}
-              className="weq-mobile-online-status"
-              refetchInterval={15_000}
-              showBaseStatus
-            />
-          )}
+        <div className="weq-mobile-self-identity">
+          <SelfProfileAvatar user={user} className="weq-mobile-account">
+            <strong title={displayUserName(user)}>{displayUserName(user)}</strong>
+          </SelfProfileAvatar>
+          <div className="weq-mobile-identity">
+            {user.uid && (
+              <OnlineStatus
+                key={user.uid}
+                uid={user.uid}
+                className="weq-mobile-online-status"
+                refetchInterval={15_000}
+                showBaseStatus
+              />
+            )}
+          </div>
         </div>
         <TitleBarSearch
           query={query}

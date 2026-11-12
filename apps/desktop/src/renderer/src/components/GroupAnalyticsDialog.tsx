@@ -33,6 +33,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
+import { GroupProfileIdentity } from './GroupProfileIdentity';
 import { OverlayLayer } from './OverlayLayer';
 import { AnalyticsSkeleton } from './AnalyticsSkeleton';
 import {
@@ -350,9 +351,16 @@ export function GroupAnalyticsDialog({
     <div className="ga-overview">
       {/* Hero：群头像 + 名字 + 口径概览 */}
       <div className="ga-ov-hero">
-        <Avatar name={groupName} avatarUrl={avatarUrl ?? null} seed={groupCode} />
-        <div className="ga-ov-hero-info">
+        <GroupProfileIdentity
+          code={groupCode}
+          name={groupName}
+          avatarUrl={avatarUrl}
+          enabled={!forExport && !exportMode}
+        >
+          <Avatar name={groupName} avatarUrl={avatarUrl ?? null} seed={groupCode} />
           <strong data-privacy-sensitive>{groupName}</strong>
+        </GroupProfileIdentity>
+        <div className="ga-ov-hero-info">
           <span>
             {dateRange ? `${dateRange.from} — ${dateRange.to}` : '暂无聊天记录'}
             {overview ? ` · 共 ${formatNumber(overview.total)} 条消息` : ''}

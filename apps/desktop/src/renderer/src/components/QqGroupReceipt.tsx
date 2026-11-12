@@ -99,6 +99,7 @@ function GroupReceiptDialog({
             return (
               <div key={payer.uin} className="weq-group-receipt-item">
                 <ProfileAvatar
+                  className="weq-identity-link"
                   target={{
                     identity: profile?.uid || payer.uin,
                     uin: payer.uin,
@@ -107,8 +108,8 @@ function GroupReceiptDialog({
                   }}
                 >
                   <QqAvatar uin={payer.uin} size={36} />
+                  <span className="weq-group-receipt-item-name">{displayName}</span>
                 </ProfileAvatar>
-                <span className="weq-group-receipt-item-name">{displayName}</span>
                 <span className="weq-group-receipt-item-amount">¥{formatAmount(amount)}</span>
               </div>
             );

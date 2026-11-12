@@ -474,17 +474,17 @@ export function PersonWeekCard({
       style={accent ? ({ '--ca-person-accent': accent } as CSSProperties) : undefined}
     >
       <div className="ca-person-head">
-        <span className="ca-person-avatar">
-          <ProfileAvatar target={profile}>
+        <ProfileAvatar target={profile} className="weq-identity-link">
+          <span className="ca-person-avatar">
             <Avatar
               name={name}
               avatarUrl={avatarUrl}
               seed={profile?.identity || profile?.uin || name}
             />
-          </ProfileAvatar>
-        </span>
-        <span className="ca-person-meta">
+          </span>
           <strong title={name}>{name}</strong>
+        </ProfileAvatar>
+        <span className="ca-person-meta">
           <em>{subtitle ?? `${formatNumber(count)} 条`}</em>
         </span>
         {rank !== undefined ? <span className="ca-person-rank">{rank}</span> : null}

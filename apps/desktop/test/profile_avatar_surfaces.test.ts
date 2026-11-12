@@ -126,8 +126,11 @@ function fixture(element: ReactNode) {
 function click(host: HTMLElement) {
   const button = host.querySelector<HTMLButtonElement>('.weq-profile-avatar-button')!;
   expect(button).not.toBeNull();
+  const target = button.classList.contains('weq-identity-link') ? button.lastElementChild! : button;
+  if (button.classList.contains('weq-identity-link'))
+    expect(button.textContent?.trim()).not.toBe('');
   act(() =>
-    button.dispatchEvent(
+    target.dispatchEvent(
       new MouseEvent('click', { bubbles: true, detail: 1, clientX: 40, clientY: 60 }),
     ),
   );
@@ -153,6 +156,7 @@ function captureLayout(host: HTMLElement, name: string) {
       'conversation-analytics.css',
       'collection-search.css',
       'profile-avatar.css',
+      'identity-links.css',
     ].map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8')),
   ].join('\n');
   writeFileSync(

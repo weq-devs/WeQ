@@ -87,6 +87,7 @@ export function QzoneLikesPopover({
             <div
               ref={layer}
               className="weq-qzn-like-layer"
+              data-weq-surface
               style={{ ...placement.position, zIndex }}
             >
               <div

@@ -52,8 +52,9 @@ export function TitleBar({
       </button>
       {!windowOnly && (
         <div className="app-title-bar-user">
-          <SelfProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} />
-          <span className="app-title-bar-nick">{displayUserName(user)}</span>
+          <SelfProfileAvatar key={`${user.id}:${user.identityValue}`} user={user}>
+            <span className="app-title-bar-nick">{displayUserName(user)}</span>
+          </SelfProfileAvatar>
           {/* 会员徽标：独立兄弟节点，不嵌进昵称 —— 那个 span 自带 ellipsis 会把它裁掉。 */}
           <VipBadge key={user.identityValue} />
           {user.uid && (

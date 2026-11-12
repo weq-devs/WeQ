@@ -103,6 +103,11 @@ async function run() {
       await firstSignature.getByRole('button', { name: '取消签名点赞', exact: true }).waitFor();
       await firstSignature.getByRole('button', { name: '取消签名点赞', exact: true }).click();
       await firstSignature.getByRole('button', { name: '评论', exact: true }).click();
+      await firstSignature.locator('.weq-qzn-comment .weq-identity-link strong').first().click();
+      assert.equal(
+        await page.evaluate(() => document.documentElement.dataset.profileTarget),
+        '10001',
+      );
       await firstSignature.getByRole('button', { name: '回复评论', exact: true }).click();
       await firstSignature.getByLabel('签名评论').fill('合成回复验收');
       await page.evaluate(() => window.profileExtrasQa.failNext('signatureComment'));
@@ -123,10 +128,27 @@ async function run() {
         .waitFor({ state: 'detached' });
       await firstSignature.getByRole('button', { name: '点赞签名', exact: true }).hover();
       await page.getByRole('region', { name: '点赞列表' }).waitFor();
-      assert.ok(
-        (await page.getByRole('region', { name: '点赞列表' }).textContent()).includes(
-          '合成昵称等 28 人点赞',
-        ),
+      const signatureLiker = page
+        .getByRole('region', { name: '点赞列表' })
+        .locator('.weq-identity-link')
+        .first();
+      assert.equal(
+        await signatureLiker.locator('.weq-avatar-img, .weq-avatar-fallback').count(),
+        1,
+      );
+      const signatureLikerMarkup = await signatureLiker.evaluate((node) => node.outerHTML);
+      await signatureLiker.locator('span').last().click();
+      assert.equal(
+        await page.evaluate(() => document.documentElement.dataset.profileTarget),
+        '10002',
+        signatureLikerMarkup,
+      );
+      assert.match(
+        await page
+          .getByRole('region', { name: '点赞列表' })
+          .locator('.weq-profile-like-summary')
+          .textContent(),
+        /等 28 人点赞$/,
       );
       if (output) await page.screenshot({ path: resolve(output, 'signature-interactions.png') });
       results.push({
