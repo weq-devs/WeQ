@@ -979,6 +979,7 @@ export {
 } from './account/message_send';
 export type {
   MediaSource,
+  PrivateTextSentReceipt,
   PttWaveformSource,
   ResolvedSendTarget,
   SendArkCardParams,

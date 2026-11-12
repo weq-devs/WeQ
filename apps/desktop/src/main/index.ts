@@ -837,6 +837,7 @@ void app.whenReady().then(async () => {
         : join(app.getAppPath(), '../web/dist/public'),
       exportDir: join(app.getPath('userData'), 'web-exports'),
       renderer: electronHost,
+      syncPrivateTextSent: electronHost.syncPrivateTextSent,
       version: app.getVersion(),
       router: appRouter,
     });

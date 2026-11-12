@@ -79,6 +79,17 @@ export type {
 /** 发送目标类型。 */
 export type SendPeerType = 'c2c' | 'group';
 
+/** 本机同步所需的发送回执定位信息。 */
+export interface PrivateTextSentReceipt {
+  pid: number;
+  selfUid: string;
+  peerUid: string;
+  clientSequence: number;
+  timestamp: number;
+  privateSequence?: number;
+  msgRandom?: number;
+}
+
 /**
  * 群临时会话的来源群号 —— 传了就走 `routingHead.grpTmp`（**不是** c2c）。
  *
@@ -510,6 +521,10 @@ export class MessageSendService {
     private readonly currentChatFontId?: () => number | undefined,
     private readonly sendWithQqFont: () => boolean = () => true,
     private readonly currentChatBubbleId?: () => number | undefined,
+    private readonly onPrivateTextSent?: (
+      receipt: PrivateTextSentReceipt,
+      isCurrent: () => boolean,
+    ) => void | Promise<void>,
   ) {}
 
   /** 回读前按账号配置预览气泡，不把预览 ID 写入发送请求。 */
@@ -1021,6 +1036,9 @@ export class MessageSendService {
         : this.resolveTarget(params.targetId, params.peerType, needUpload);
     const pid = this.resolvePid();
     const previewBubbleId = device ? 0 : this.readCurrentBubbleId();
+    const onPrivateTextSent =
+      !device && target.scene === 'c2c' ? this.onPrivateTextSent : undefined;
+    const sendingSelfUid = onPrivateTextSent ? this.session.selfUid : undefined;
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
     const elements = device ? params.elements : await this.fillMarketFaceKeys(params.elements);
 
@@ -1120,6 +1138,42 @@ export class MessageSendService {
       outcome.hint = '消息已发送；尚未同步到当前字体的可靠原值，本次按普通字体发送。';
     }
     const sequence = target.peerType === 'group' ? receipt.groupSequence : receipt.privateSequence;
+    if (
+      onPrivateTextSent &&
+      outcome.ok &&
+      elements.every((element) => element.kind === 'text') &&
+      receipt.privateSequence > 0 &&
+      receipt.clientSequence > 0 &&
+      receipt.response.timestamp1 > 0 &&
+      sendingSelfUid &&
+      target.uid
+    ) {
+      const isCurrent = () => {
+        try {
+          return this.session.selfUid === sendingSelfUid && this.resolvePid() === pid;
+        } catch {
+          return false;
+        }
+      };
+      const accepted: PrivateTextSentReceipt = {
+        pid,
+        selfUid: sendingSelfUid,
+        peerUid: target.uid,
+        clientSequence: receipt.clientSequence,
+        timestamp: receipt.response.timestamp1,
+        privateSequence: receipt.privateSequence,
+        ...(receipt.random > 0 ? { msgRandom: receipt.random } : {}),
+      };
+      void Promise.resolve()
+        .then(() => {
+          if (isCurrent()) return onPrivateTextSent(accepted, isCurrent);
+        })
+        .catch(() =>
+          logger.debug('QQ 本机同步未完成，发送结果保持成功', {
+            event: 'qq-local-sync-unavailable',
+          }),
+        );
+    }
     // 设备由 dataline 表同步接管，不写入普通私聊的漫游缓存。
     if (!device && outcome.ok && sequence > 0 && this.retainSent) {
       try {

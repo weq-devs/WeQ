@@ -19,6 +19,7 @@ export interface WebHostOptions {
   version: string;
   /** 内置 Web 只借用电脑的离屏渲染，不借用文件框或系统管理权限。 */
   renderer?: Pick<HostBridge, 'renderHtmlToPdf' | 'renderHtmlToSlidesPng' | 'renderHtmlToLongPng'>;
+  syncPrivateTextSent?: HostBridge['syncPrivateTextSent'];
 }
 
 /** Pending downloads, keyed by the id handed to the client. */
@@ -50,10 +51,16 @@ export function lookupDownload(id: string) {
   return entry;
 }
 
-export function createWebHost({ exportDir, version, renderer }: WebHostOptions): HostBridge {
+export function createWebHost({
+  exportDir,
+  version,
+  renderer,
+  syncPrivateTextSent,
+}: WebHostOptions): HostBridge {
   mkdirSync(exportDir, { recursive: true });
 
   return {
+    syncPrivateTextSent,
     exportRoot: exportDir,
     registerDownload(path, name, kind) {
       return { url: `/_download/${registerDownload(path, name, kind)}` };

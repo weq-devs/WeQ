@@ -24,10 +24,33 @@ it('内置 Web 复用离屏渲染，但不开放桌面文件框与系统能力',
     expect(host.canAutostart).toBe(false);
     expect(host.restartApplication).toBeUndefined();
     const standalone = createWebHost({ exportDir: root, version: 'test' });
+    expect(standalone.syncPrivateTextSent).toBeUndefined();
     await expect(standalone.renderHtmlToPdf('fixture')).rejects.toThrow('不支持');
     await expect(standalone.renderHtmlToLongPng('fixture')).rejects.toThrow('不支持');
     renderer.renderHtmlToPdf.mockRejectedValueOnce(new Error('捕获失败'));
     await expect(host.renderHtmlToPdf('fixture')).rejects.toThrow('捕获失败');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('桌面内置 Web 可转交成功回执及账号守卫，独立 Web 不自动安装同步桥接', () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-web-sync-'));
+  try {
+    const syncPrivateTextSent = vi.fn();
+    const host = createWebHost({ exportDir: root, version: 'test', syncPrivateTextSent });
+    const receipt = {
+      pid: 42,
+      selfUid: 'u_fixture_self',
+      peerUid: 'u_fixture_peer',
+      clientSequence: 1,
+      timestamp: 1793940000,
+    };
+    const guard = () => true;
+    host.syncPrivateTextSent?.(receipt, guard);
+    expect(syncPrivateTextSent).toHaveBeenCalledWith(receipt, guard);
+    expect(host.canReveal).toBe(false);
+    expect(host.restartApplication).toBeUndefined();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
