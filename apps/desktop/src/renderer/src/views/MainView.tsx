@@ -204,6 +204,7 @@ import {
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
 import { messageTemplateContext } from '../lib/messageTemplateContext';
 import { reconcileConversationRows, sortConversationRows } from '../lib/conversationListOrder';
+import { useRecentContactHeadRefresh } from '../hooks/useRecentContactHeadRefresh';
 import { createConversationProjection } from '../lib/conversationProjection';
 import type { MessageReadWindow } from '../../../shared/message_read';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
@@ -2487,8 +2488,6 @@ function MainWorkspace(): ReactElement {
     messageActivity.enabled,
   );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
-  const headRefetchRef = useRef(recentHead.refetch);
-  headRefetchRef.current = recentHead.refetch;
   const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
     pinSession.binding ?? undefined,
     { enabled: Boolean(pinSession.binding), keepPreviousData: false, staleTime: 0 },
@@ -2567,16 +2566,7 @@ function MainWorkspace(): ReactElement {
       refetchOnReconnect: 'always',
     },
   );
-  const recentHeadRefresh = useMemo(
-    () =>
-      createUnreadRefresh(async () => {
-        const result = await headRefetchRef.current({ cancelRefetch: false });
-        return !result.isError;
-      }, 100),
-    [messageScope],
-  );
-  useEffect(() => () => recentHeadRefresh.dispose(), [recentHeadRefresh]);
-  const refreshRecentHead = useCallback(() => recentHeadRefresh.request(), [recentHeadRefresh]);
+  const refreshRecentHead = useRecentContactHeadRefresh(recentHead.refetch, messageScope);
   useEffect(() => {
     const refresh = () => {
       if (messageScopeRef.current && document.visibilityState !== 'hidden') refreshRecentHead();
