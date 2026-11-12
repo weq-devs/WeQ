@@ -191,22 +191,60 @@ it('目录外群名片可展开，连续切换不会残留前一个好友或群'
   expect(p.state().contactWorkspaceTab).toBe('profile');
 });
 
-it('切换好友与群聊分别保留详情和好友分区，未选对象时显示群交集首页', () => {
+it('切换左侧好友与群聊不替换或关闭右侧详情，点击对象才切换详情', () => {
   const p = mount();
   act(() => p.state().openContactDetails(person, 'marks'));
   act(() => p.state().changeContactTab('groups'));
-  expect(p.state().selectedContact).toBeUndefined();
-  expect(p.state().selectedGroupConversation).toBeUndefined();
-  expect(p.state().contactOverviewOpen).toBe(true);
-  act(() => p.state().openGroupDetails(group));
-  act(() => p.state().changeContactTab('friends'));
+  expect(p.state().contactTab).toBe('groups');
   expect(p.state().selectedContact).toEqual(person);
   expect(p.state().selectedGroupConversation).toBeUndefined();
   expect(p.state().contactWorkspaceTab).toBe('marks');
+  expect(p.state().contactOverviewOpen).toBe(false);
+  expect(p.state().mainOpen).toBe(true);
+  act(() => p.state().openGroupDetails(group));
+  act(() => p.state().changeContactTab('friends'));
+  expect(p.state().contactTab).toBe('friends');
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().selectedGroupConversation).toEqual(group);
+  expect(p.state().contactOverviewOpen).toBe(false);
+  expect(p.state().mainOpen).toBe(true);
   act(() => p.state().changeContactTab('groups'));
   expect(p.state().selectedGroupConversation).toEqual(group);
   expect(p.state().selectedContact).toBeUndefined();
+  act(() => p.state().selectContact(person));
+  expect(p.state().selectedContact).toEqual(person);
+  expect(p.state().selectedGroupConversation).toBeUndefined();
+  act(() => p.state().selectGroup(group.id));
+  expect(p.state().selectedGroupConversation).toEqual(group);
+  expect(p.state().selectedContact).toBeUndefined();
   expect(p.read).not.toHaveBeenCalled();
+});
+
+it('重建界面时分别恢复左侧分类和右侧已打开详情', () => {
+  const storage = new Storage();
+  const scope = 'independent-contact-detail';
+  const first = mount(storage, scope);
+  act(() => first.state().openContactDetails(person, 'marks'));
+  act(() => first.state().changeContactTab('groups'));
+  const restored = mount(storage, scope);
+  expect(restored.state().contactTab).toBe('groups');
+  expect(restored.state().selectedContact).toEqual(person);
+  expect(restored.state().contactWorkspaceTab).toBe('marks');
+  expect(restored.state().contactOverviewOpen).toBe(false);
+});
+
+it('旧现场没有独立详情分类时，首次切换目录仍保留原详情', () => {
+  const storage = new Storage();
+  const scope = 'legacy-contact-detail';
+  mount(storage, scope);
+  pageSnapshots.write(JSON.stringify([scope, 'shell:view']), 'contacts');
+  pageSnapshots.write(JSON.stringify([scope, 'shell:contact-tab']), 'friends');
+  pageSnapshots.write(JSON.stringify([scope, 'shell:contact']), person.id);
+  const restored = mount(storage, scope);
+  expect(restored.state().selectedContact).toEqual(person);
+  act(() => restored.state().changeContactTab('groups'));
+  expect(restored.state().selectedContact).toEqual(person);
+  expect(mount(storage, scope).state().selectedContact).toEqual(person);
 });
 
 it('直接进入联系人且尚未打开好友或群聊时，默认显示群交集', () => {

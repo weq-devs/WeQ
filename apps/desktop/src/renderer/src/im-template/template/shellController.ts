@@ -116,6 +116,12 @@ export function useChatShellController({
     'friends',
     z.enum(['friends', 'groups']),
   );
+  const [contactDetailTab, setContactDetailTab] = usePageState<ContactTab | null>(
+    'shell:contact-detail-tab',
+    null,
+    z.enum(['friends', 'groups']).nullable(),
+  );
+  const activeContactDetailTab = contactDetailTab ?? contactTab;
   const [contactNotice, setContactNotice] = usePageState<ContactNoticeView | null>(
     'shell:notice',
     null,
@@ -170,6 +176,7 @@ export function useChatShellController({
       selectedGroupConversationId,
       view,
       contactTab,
+      contactDetailTab,
       contactWorkspaceTab,
       contactOverviewOpen,
       query,
@@ -181,6 +188,7 @@ export function useChatShellController({
       setSelectedContactId(snapshot.selectedContactId);
       setSelectedGroupConversationId(snapshot.selectedGroupConversationId);
       setContactTab(snapshot.contactTab);
+      setContactDetailTab(snapshot.contactDetailTab);
       setContactWorkspaceTab(snapshot.contactWorkspaceTab);
       setContactOverviewOpen(snapshot.contactOverviewOpen);
       setQuery(snapshot.query);
@@ -293,7 +301,7 @@ export function useChatShellController({
     if (activeConversation) openedConversation.current = activeConversation;
   }, [activeConversation]);
   const selectedContact = useMemo(() => {
-    if (contactTab !== 'friends') return undefined;
+    if (activeContactDetailTab !== 'friends') return undefined;
     const local = contacts.find((contact) => contact.id === selectedContactId);
     const expanded = expandedContact?.id === selectedContactId ? expandedContact : undefined;
     return local && expanded
@@ -303,16 +311,16 @@ export function useChatShellController({
           profileContext: expanded.profileContext,
         }
       : (local ?? expanded);
-  }, [contacts, selectedContactId, expandedContact, contactTab]);
+  }, [contacts, selectedContactId, expandedContact, activeContactDetailTab]);
   const selectedGroupConversation = useMemo(
     () =>
-      contactTab === 'groups'
+      activeContactDetailTab === 'groups'
         ? (conversations.find(
             (conversation): conversation is GroupConversation =>
               conversation.type === 'group' && conversation.id === selectedGroupConversationId,
           ) ?? (expandedGroup?.id === selectedGroupConversationId ? expandedGroup : undefined))
         : undefined,
-    [conversations, selectedGroupConversationId, expandedGroup, contactTab],
+    [conversations, selectedGroupConversationId, expandedGroup, activeContactDetailTab],
   );
   const messageUnreadCount = useMemo(
     () => countVisibleUnreadConversations(conversations, conversationPrefs),
@@ -358,11 +366,18 @@ export function useChatShellController({
 
   const changeContactTab = useCallback(
     (tab: ContactTab) => {
+      setContactDetailTab(activeContactDetailTab);
       setContactTab(tab);
       setContactNotice(null);
       setContactOverviewOpen(false);
     },
-    [setContactTab, setContactOverviewOpen, setContactNotice],
+    [
+      activeContactDetailTab,
+      setContactDetailTab,
+      setContactTab,
+      setContactOverviewOpen,
+      setContactNotice,
+    ],
   );
 
   const openContactNotice = useCallback(
@@ -411,12 +426,14 @@ export function useChatShellController({
       setContactNotice(null);
       setContactOverviewOpen(false);
       setSelectedContactId(contact.id);
+      setContactDetailTab('friends');
       setContactWorkspaceTab('profile');
     },
     [
       history,
       setContactWorkspaceTab,
       setSelectedContactId,
+      setContactDetailTab,
       setContactOverviewOpen,
       setContactNotice,
     ],
@@ -429,8 +446,15 @@ export function useChatShellController({
       setContactNotice(null);
       setContactOverviewOpen(false);
       setSelectedGroupConversationId(conversationId);
+      setContactDetailTab('groups');
     },
-    [history, setSelectedGroupConversationId, setContactOverviewOpen, setContactNotice],
+    [
+      history,
+      setSelectedGroupConversationId,
+      setContactDetailTab,
+      setContactOverviewOpen,
+      setContactNotice,
+    ],
   );
 
   const openContactDetails = useCallback(
@@ -439,6 +463,7 @@ export function useChatShellController({
       history.pushShellDetail();
       setView('contacts');
       setContactTab('friends');
+      setContactDetailTab('friends');
       setContactNotice(null);
       setContactOverviewOpen(false);
       setQuery('');
@@ -450,6 +475,7 @@ export function useChatShellController({
       view,
       history,
       setContactTab,
+      setContactDetailTab,
       setContactWorkspaceTab,
       setQuery,
       setSelectedContactId,
@@ -465,6 +491,7 @@ export function useChatShellController({
       history.pushShellDetail();
       setView('contacts');
       setContactTab('groups');
+      setContactDetailTab('groups');
       setContactNotice(null);
       setContactOverviewOpen(false);
       setQuery('');
@@ -477,6 +504,7 @@ export function useChatShellController({
       setSelectedGroupConversationId,
       setQuery,
       setContactTab,
+      setContactDetailTab,
       setContactOverviewOpen,
       setView,
       setContactNotice,
