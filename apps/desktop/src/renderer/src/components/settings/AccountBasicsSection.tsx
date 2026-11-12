@@ -16,7 +16,6 @@
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
-  Check,
   ChevronDown,
   Copy,
   Database,
@@ -39,6 +38,7 @@ import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { QqDebugCopy } from '../QqDebugCopy';
 import { IS_WEB } from '../../lib/target';
+import { CopyButton } from '../CopyButton';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -72,34 +72,15 @@ function KeyValueRow({
   secret?: boolean;
 }): ReactElement {
   const active = useTabActive();
-  const showError = useDialog((s) => s.showError);
   const [revealed, setRevealed] = useState(false);
-  const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!active) {
       setRevealed(false);
-      setCopied(false);
     }
   }, [active]);
 
-  useEffect(() => {
-    if (!active || !copied) return undefined;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied, active]);
-
   const hasValue = Boolean(value);
   const shown = !value ? '未获取' : secret && !revealed ? maskSecret(value) : value;
-
-  async function copy(): Promise<void> {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-    } catch (e) {
-      showError('复制失败', errMsg(e));
-    }
-  }
 
   return (
     <div className="weq-set-keyfield">
@@ -120,16 +101,15 @@ function KeyValueRow({
             {revealed ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
         ) : null}
-        <button
-          type="button"
+        <CopyButton
+          text={value ?? ''}
           className="weq-set-iconbtn"
           title={`复制 ${label}`}
           aria-label={`复制 ${label}`}
           disabled={!hasValue}
-          onClick={() => void copy()}
         >
-          {copied ? <Check size={15} className="weq-set-ok" /> : <Copy size={15} />}
-        </button>
+          <Copy size={15} />
+        </CopyButton>
       </div>
     </div>
   );
@@ -188,11 +168,9 @@ export function AccountBasicsSection({
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
 
   const [revealKey, setRevealKey] = useState(false);
-  const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!active) {
       setRevealKey(false);
-      setCopied(false);
     }
   }, [active]);
 
@@ -245,12 +223,6 @@ export function AccountBasicsSection({
     setExternalChatpicEnabled(d.externalChatpic.enabled);
   }, [settings.data, page]);
 
-  useEffect(() => {
-    if (!active || !copied) return undefined;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied, active]);
-
   const cfg = config.data;
   const dbKey = cfg?.dbKey ?? '';
   const maskedKey = dbKey ? maskSecret(dbKey) : '';
@@ -262,16 +234,6 @@ export function AccountBasicsSection({
   const nativeMediaDir = cfg?.nativeMediaDir ?? null;
   // macOS 现在也能读内存（需 root 且关闭 SIP），开关不再置灰 —— 只在文案里提示门槛。
   const isMac = systemInfo.data?.platformKind === 'darwin';
-
-  async function copyText(text: string, onOk?: () => void): Promise<void> {
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      onOk?.();
-    } catch (e) {
-      showError('复制失败', errMsg(e));
-    }
-  }
 
   // Each toggle: flip locally for instant feedback, persist, then refetch so a
   // reopen reflects what's on disk. On failure, reconcile + surface the error.
@@ -455,16 +417,15 @@ export function AccountBasicsSection({
                 >
                   {revealKey ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
-                <button
-                  type="button"
+                <CopyButton
+                  text={dbKey}
                   className="weq-set-iconbtn"
                   title="复制"
                   aria-label="复制密钥"
                   disabled={!dbKey}
-                  onClick={() => void copyText(dbKey, () => setCopied(true))}
                 >
-                  {copied ? <Check size={15} className="weq-set-ok" /> : <Copy size={15} />}
-                </button>
+                  <Copy size={15} />
+                </CopyButton>
               </div>
             </div>
             {cfg?.algos?.['nt_msg.db'] ? (
@@ -536,15 +497,14 @@ export function AccountBasicsSection({
                         <span className={`weq-set-rkey-exp${exp.expired ? ' is-expired' : ''}`}>
                           {exp.text}
                         </span>
-                        <button
-                          type="button"
+                        <CopyButton
+                          text={r.rkey}
                           className="weq-set-iconbtn"
                           title="复制 rKey"
                           aria-label="复制 rKey"
-                          onClick={() => void copyText(r.rkey)}
                         >
                           <Copy size={13} />
-                        </button>
+                        </CopyButton>
                       </div>
                       <KeyValueRow label="rKey" value={r.rkey} secret />
                     </li>
@@ -604,15 +564,14 @@ export function AccountBasicsSection({
                         .text
                     }
                   </span>
-                  <button
-                    type="button"
+                  <CopyButton
+                    text={clientKey.clientKey}
                     className="weq-set-iconbtn"
                     title="复制 ClientKey"
                     aria-label="复制 ClientKey"
-                    onClick={() => void copyText(clientKey.clientKey)}
                   >
                     <Copy size={13} />
-                  </button>
+                  </CopyButton>
                 </div>
                 <KeyValueRow label="ClientKey" value={clientKey.clientKey} secret />
               </div>

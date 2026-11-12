@@ -5133,6 +5133,7 @@ export function ChatPane({
       setContextMenu(null);
       const result = await exportMedia({ url: image }, 'clipboard');
       if (!result.ok) pushToast({ tone: 'error', title: '复制图片失败', detail: result.error });
+      else pushToast({ tone: 'success', title: '已复制' });
       return;
     }
     const body = message.body?.trim() ? message.body : `msgid=${message.msgId ?? message.id}`;
@@ -5145,6 +5146,7 @@ export function ChatPane({
           messageContentClipboard(message.qqElements, body),
         );
       if (!(await writeMentionClipboard(rich))) throw new Error('未能写入剪贴板，请重新复制。');
+      pushToast({ tone: 'success', title: '已复制' });
     } catch (error) {
       pushToast({
         tone: 'error',

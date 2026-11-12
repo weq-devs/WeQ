@@ -190,36 +190,6 @@
   min-width: 0;
 }
 
-.weq-contact-copy-feedback {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 2;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-secondary);
-  white-space: nowrap;
-  pointer-events: none;
-  animation: weq-contact-copy-fade 1800ms ease-out forwards;
-}
-
-@keyframes weq-contact-copy-fade {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .weq-contact-copy-feedback {
-    animation: none;
-  }
-}
-
 .weq-contact-number .weq-number {
   color: var(--weq-fg-primary);
   font-variant-numeric: tabular-nums;

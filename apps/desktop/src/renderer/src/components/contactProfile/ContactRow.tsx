@@ -8,6 +8,7 @@
  */
 
 import { useId, type ReactNode } from 'react';
+import { CopyButton } from '../CopyButton';
 import '../../styles/profile-workspace.css';
 
 function isBlank(value: ReactNode): boolean {
@@ -27,6 +28,7 @@ export function ContactRow({
   onActivate,
   activateTitle,
   valueClassName,
+  copyValue,
 }: {
   label: string;
   /** label 前的小图标，与设置页 SectionHeader 的图标语言一致；不是每行都需要。 */
@@ -43,6 +45,8 @@ export function ContactRow({
   onActivate?: () => void;
   activateTitle?: string;
   valueClassName?: string;
+  /** 点值复制，成功后就地提示。 */
+  copyValue?: string;
 }) {
   const content = children ?? value;
   if (empty ?? isBlank(content)) return null;
@@ -58,7 +62,11 @@ export function ContactRow({
         {label}
       </span>
       <div className={`weq-profile-data-value${mono ? ' is-mono' : ''}`} data-privacy-sensitive>
-        {onActivate ? (
+        {copyValue !== undefined ? (
+          <CopyButton text={copyValue} className="weq-profile-data-action" title={activateTitle}>
+            {content}
+          </CopyButton>
+        ) : onActivate ? (
           <button
             type="button"
             className="weq-profile-data-action"

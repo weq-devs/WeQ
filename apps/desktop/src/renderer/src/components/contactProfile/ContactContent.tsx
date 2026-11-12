@@ -1,12 +1,4 @@
-import {
-  Fragment,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { Fragment, useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, Building2, ChevronDown } from 'lucide-react';
 import {
@@ -19,7 +11,7 @@ import type { ContactCardContent, ContactCardSettings } from '@weq/service/conta
 import { Avatar } from '../../im-template/template/primitives';
 import type { Contact } from '../../im-template/template/types';
 import { displayUserName } from '../../im-template/template/user';
-import { copyTextToClipboard } from '../../im-template/template/clipboard';
+import { CopyButton } from '../CopyButton';
 import { contactBirth } from '../../lib/contactBirth';
 import { albumMediaUrl, collectionImageUrl, dressUrl } from '../../lib/resourceUrl';
 import {
@@ -250,31 +242,15 @@ export function ContactIdentity({
 }
 
 function IdentityNumber({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(0);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(0), 1800);
-    return () => clearTimeout(timer);
-  }, [copied]);
   return (
-    <button
-      type="button"
+    <CopyButton
+      text={value}
       className="weq-contact-number"
       title={`复制 ${label}`}
       aria-label={label === 'ID' || label === 'QID' ? `复制 ${label}` : `复制 ${label} 号码`}
-      onClick={() =>
-        void copyTextToClipboard(value).then((ok) => {
-          if (ok) setCopied((value) => value + 1);
-        })
-      }
     >
       {label} <span className="weq-number">{value}</span>
-      {copied ? (
-        <span key={copied} role="status" className="weq-contact-copy-feedback">
-          已复制
-        </span>
-      ) : null}
-    </button>
+    </CopyButton>
   );
 }
 
@@ -351,7 +327,7 @@ function ExtraField({
     <ContactRow
       label="邮箱"
       value={data?.email}
-      onActivate={() => data?.email && void copyTextToClipboard(data.email)}
+      copyValue={data?.email ?? undefined}
       activateTitle="复制邮箱"
     />
   );
@@ -801,7 +777,7 @@ export function ContactContent({
         label="NT UID"
         value={/^u_/.test(person.uid || person.id) ? person.uid || person.id : null}
         mono
-        onActivate={() => void copyTextToClipboard(person.uid || person.id)}
+        copyValue={person.uid || person.id}
         activateTitle="复制 UID"
       />
     ),

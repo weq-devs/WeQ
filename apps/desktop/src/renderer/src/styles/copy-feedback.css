@@ -1,0 +1,38 @@
+.weq-copy-target {
+  position: relative;
+}
+
+.weq-copy-feedback {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 2;
+  padding: 2px 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  text-decoration: none;
+  animation: weq-copy-fade 1800ms ease-out forwards;
+}
+
+@keyframes weq-copy-fade {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-copy-feedback {
+    animation: none;
+  }
+}

@@ -1,11 +1,11 @@
 import { useContext, useState } from 'react';
-import { CalendarDays, Check, Copy, RefreshCw, Users } from 'lucide-react';
+import { CalendarDays, Copy, RefreshCw, Users } from 'lucide-react';
 import type { GroupConversation, GroupMember } from '../../im-template/template/types';
 import { Avatar } from '../../im-template/template/primitives';
 import { GroupRelationshipStatus } from '../RelationshipStatus';
 import { RelationshipDirectoryContext } from '../../lib/contactRelationship';
 import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
-import { copyTextToClipboard } from '../../im-template/template/clipboard';
+import { CopyButton } from '../CopyButton';
 import { displayUserName } from '../../im-template/template/user';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import type { useGroupProfile } from '../../hooks/useGroupProfile';
@@ -53,7 +53,6 @@ export function GroupIdentity({
   full?: boolean;
   onOpen?: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
   const open = useContext(ContactWorkspaceNavigationContext);
   const group = conversation.group;
   const name = group.name?.trim() || group.identityValue;
@@ -92,28 +91,17 @@ export function GroupIdentity({
           {/* 快速名片用状态 pill 说明关系；完整资料页把它收进「详细资料」的身份行，
               避免页头和目录之外再多一条状态提示（既有验收要求）。 */}
           {!full && !conversation.generated ? <GroupRelationshipStatus group={group} /> : null}
-          <button
-            type="button"
+          <CopyButton
+            text={conversation.generated?.ownerId ?? group.identityValue}
             className="weq-profile-id"
-            title={copied ? '已复制群号' : '复制群号'}
-            onClick={async () => {
-              if (await copyTextToClipboard(conversation.generated?.ownerId ?? group.identityValue))
-                setCopied(true);
-            }}
+            title={conversation.generated ? '复制 ID' : '复制群号'}
           >
             <span>{conversation.generated ? 'ID' : '群号'}</span>
             <span className="weq-number">
               {conversation.generated?.ownerId ?? group.identityValue}
             </span>
-            {copied ? (
-              <>
-                <Check size={12} />
-                <span>已复制</span>
-              </>
-            ) : (
-              <Copy size={12} />
-            )}
-          </button>
+            <Copy size={12} />
+          </CopyButton>
           {group.memberCount > 0 || conversation.generated ? (
             <span className="weq-group-count">
               <Users size={13} />

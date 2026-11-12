@@ -180,15 +180,15 @@ try {
     assert.equal(await levelSection.locator('h3').innerText(), '基本信息');
     await page.context().grantPermissions(['clipboard-write', 'clipboard-read']);
     await card.getByRole('button', { name: '复制 QQ 号码', exact: true }).click();
-    await card.locator('.weq-contact-copy-feedback').waitFor();
+    await card.locator('.weq-copy-feedback').waitFor();
     assert.equal(
       await card
-        .locator('.weq-contact-copy-feedback')
+        .locator('.weq-copy-feedback')
         .evaluate((node) => getComputedStyle(node).animationName),
-      'weq-contact-copy-fade',
+      'weq-copy-fade',
     );
     assert.ok(
-      await card.locator('.weq-contact-copy-feedback').evaluate((node) => {
+      await card.locator('.weq-copy-feedback').evaluate((node) => {
         const animation = node.getAnimations()[0];
         animation.pause();
         animation.currentTime = 1650;
@@ -197,7 +197,29 @@ try {
         return opacity > 0 && opacity < 0.5;
       }),
     );
-    await card.locator('.weq-contact-copy-feedback').waitFor({ state: 'detached' });
+    await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
+    await card.getByTitle('复制邮箱', { exact: true }).click();
+    await card.locator('.weq-copy-feedback').waitFor();
+    const emailBounds = await card.getByTitle('复制邮箱', { exact: true }).boundingBox();
+    const emailFeedbackBounds = await card.locator('.weq-copy-feedback').boundingBox();
+    assert.ok(emailFeedbackBounds.y + emailFeedbackBounds.height <= emailBounds.y + 1);
+    assert.equal(
+      await page.evaluate(() => navigator.clipboard.readText()),
+      'sample@example.invalid',
+    );
+    if (output) await page.screenshot({ path: resolve(output, 'copy-feedback-email.png') });
+    await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
+    const previousSettings = await page.evaluate(() => {
+      const qa = window.contactCardQa;
+      const previous = qa.settings;
+      qa.configure({ ...previous, visible: { ...previous.visible, uid: true } });
+      return previous;
+    });
+    await card.getByTitle('复制 UID', { exact: true }).click();
+    await card.locator('.weq-copy-feedback').waitFor();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'u_sample');
+    await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
+    await page.evaluate((settings) => window.contactCardQa.configure(settings), previousSettings);
     const signature = card.locator('.weq-contact-signature');
     await signature.getByRole('button', { name: '展开' }).click();
     assert.equal(
@@ -232,18 +254,27 @@ try {
         assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
         if (output)
           await page.screenshot({ path: resolve(output, `fixed-card-${theme}-${width}.png`) });
+        await card.getByRole('button', { name: '复制 QQ 号码', exact: true }).click();
+        const feedback = card.locator('.weq-copy-feedback');
+        await feedback.waitFor();
+        const feedbackBounds = await feedback.boundingBox();
+        assert.ok(feedbackBounds.x >= 0 && feedbackBounds.x + feedbackBounds.width <= width);
+        assert.equal(await feedback.innerText(), '已复制');
+        if (output)
+          await page.screenshot({ path: resolve(output, `copy-feedback-${theme}-${width}.png`) });
+        await feedback.waitFor({ state: 'detached' });
       }
     }
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await card.getByRole('button', { name: '复制 QQ 号码', exact: true }).click();
-    await card.locator('.weq-contact-copy-feedback').waitFor();
+    await card.locator('.weq-copy-feedback').waitFor();
     assert.equal(
       await card
-        .locator('.weq-contact-copy-feedback')
+        .locator('.weq-copy-feedback')
         .evaluate((node) => getComputedStyle(node).animationName),
       'none',
     );
-    await card.locator('.weq-contact-copy-feedback').waitFor({ state: 'detached' });
+    await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.setViewportSize({ width: 1280, height: 900 });
     report.push({ kind: 'card-layout-and-copy', calls: [] });

@@ -80,30 +80,8 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
-.weq-conversation-copy-feedback {
-  position: absolute;
+.weq-conversation-copy-number > .weq-copy-feedback {
   inset: auto 0 100% auto;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-secondary);
-  white-space: nowrap;
-  pointer-events: none;
-  animation: weq-conversation-copy-fade 1800ms ease-out forwards;
-}
-@keyframes weq-conversation-copy-fade {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .weq-conversation-copy-feedback {
-    animation: none;
-  }
 }
 .weq-conversation-actions-menu button:hover:not(:disabled),
 .weq-conversation-actions-menu button:focus-visible {

@@ -6,6 +6,7 @@ import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { RepeatElement } from '../src/renderer/src/lib/messageRepeat';
+import { useToast } from '../src/renderer/src/components/Toast';
 
 const copied = vi.hoisted(() => vi.fn(async (_value: { text: string; html: string }) => true));
 vi.mock('../src/renderer/src/lib/mentionClipboard', async (original) => ({
@@ -29,6 +30,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   copied.mockClear();
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
 });
 
 function mount(pureFace = false, override?: RepeatElement[]) {
@@ -134,6 +136,21 @@ describe('聊天内容复制交互', () => {
       expect(value.text).toContain('合成分享标题');
       expect(value.text).toContain('合成摘要');
       expect(value.text).toContain('https://example.invalid/shared');
+      expect(useToast.getState().toasts.at(-1)).toMatchObject({
+        tone: 'success',
+        title: '已复制',
+      });
+    } finally {
+      f.close();
+    }
+  });
+  it('复制失败只提示失败，不显示已复制', async () => {
+    const f = mount();
+    copied.mockResolvedValueOnce(false);
+    try {
+      await copyMenu(f.host, f.host.querySelector('.message-bubble')!);
+      expect(useToast.getState().toasts.at(-1)).toMatchObject({ tone: 'error', title: '复制失败' });
+      expect(useToast.getState().toasts.some((toast) => toast.title === '已复制')).toBe(false);
     } finally {
       f.close();
     }

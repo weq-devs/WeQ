@@ -317,6 +317,11 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   outline-offset: 3px;
 }
 
+.weq-profile-data-action > .weq-copy-feedback {
+  top: auto;
+  bottom: 100%;
+}
+
 /* 保留行内工具按钮契约，不再依赖旧行基座。 */
 .weq-profile-row-copy {
   display: inline-flex;

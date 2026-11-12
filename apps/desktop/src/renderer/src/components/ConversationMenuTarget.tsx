@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react';
 import { Avatar } from '../im-template/template/primitives';
-import { copyTextToClipboard } from '../im-template/template/clipboard';
-import { useRenderDocument } from '../lib/renderDocument';
+import { CopyButton } from './CopyButton';
 
 /** 主列表和群助手共用右键对象与号码复制反馈。 */
 export function ConversationMenuTarget({
@@ -19,16 +17,6 @@ export function ConversationMenuTarget({
   count: number;
   containedCount?: number;
 }) {
-  const document = useRenderDocument();
-  const [copied, setCopied] = useState(0);
-  useEffect(() => {
-    setCopied(0);
-  }, [identity]);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(0), 1800);
-    return () => clearTimeout(timer);
-  }, [copied]);
   const numberLabel = kind === 'group' ? '群号' : /^\d+$/.test(identity) ? 'QQ 号' : 'ID';
   return (
     <>
@@ -49,29 +37,15 @@ export function ConversationMenuTarget({
           ) : (
             <>
               {kind === 'group' ? '群聊' : '私聊'} ·{' '}
-              <button
-                type="button"
+              <CopyButton
+                text={identity}
                 role="menuitem"
                 className="weq-conversation-copy-number"
                 title={`复制${numberLabel}`}
                 aria-label={`复制${numberLabel}`}
-                onClick={(event) => {
-                  const button = event.currentTarget;
-                  void copyTextToClipboard(identity, document).then((ok) => {
-                    if (ok && button.isConnected) {
-                      setCopied((value) => value + 1);
-                      button.focus();
-                    }
-                  });
-                }}
               >
                 {identity}
-                {copied ? (
-                  <span key={copied} role="status" className="weq-conversation-copy-feedback">
-                    已复制
-                  </span>
-                ) : null}
-              </button>
+              </CopyButton>
             </>
           )}
         </small>
