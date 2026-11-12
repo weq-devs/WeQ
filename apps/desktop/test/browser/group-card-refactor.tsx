@@ -55,12 +55,25 @@ function App() {
   const [full, setFull] = useState(false);
   const [code, setCode] = useState('12345');
   const [long, setLong] = useState(false);
+  const [short, setShort] = useState(false);
+  const [admin, setAdmin] = useState(false);
+  const [empty, setEmpty] = useState(false);
+  const [section, setSection] = useState<'members' | undefined>();
   Object.assign(window, {
     groupCardQa: {
       full: () => setFull(true),
       card: () => setFull(false),
       switch: () => setCode('67890'),
       long: () => setLong(true),
+      normal: () => {
+        setLong(false);
+        setShort(false);
+        setAdmin(false);
+        setEmpty(false);
+      },
+      short: () => setShort(true),
+      admin: () => setAdmin(true),
+      empty: () => setEmpty(true),
       theme: useThemeStore,
     },
   });
@@ -70,10 +83,16 @@ function App() {
         value={{
           friends: new Map([['u_member8', {}]]),
           friendsComplete: true,
-          groups: new Map([['12345', { listed: true, role: 'member' }]]),
+          groups: new Map([['12345', { listed: true, role: admin ? 'admin' : 'member' }]]),
         }}
       >
-        <ContactWorkspaceNavigationContext.Provider value={() => setFull(true)}>
+        <ContactWorkspaceNavigationContext.Provider
+          value={(target) => {
+            if (target.kind === 'group')
+              setSection(target.section === 'members' ? 'members' : undefined);
+            setFull(true);
+          }}
+        >
           <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
             <GroupProfileSurface
               conversation={{
@@ -83,12 +102,25 @@ function App() {
                   ...conversation.group,
                   id: code,
                   identityValue: code,
+                  ...(short ? { description: '短简介' } : {}),
+                  ...(empty
+                    ? {
+                        description: '',
+                        labels: '',
+                        customLabels: [],
+                        createTime: null,
+                        memberCount: 0,
+                        maxMemberCount: 0,
+                        remark: null,
+                      }
+                    : {}),
                   ...(long
                     ? { name: '原来的群名称'.repeat(10), remark: '我的群备注'.repeat(12) }
                     : {}),
                 },
               }}
               embedded={full}
+              section={section}
               onClose={() => setFull(false)}
             />
           </div>

@@ -11,7 +11,13 @@ import { ProfileWorkspace } from '../src/renderer/src/components/ProfileWorkspac
 import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
 import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
 import { useDraftProtection } from '../src/renderer/src/lib/draftClose';
-const mock = vi.hoisted(() => ({ profile: vi.fn() }));
+import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import { RelationshipDirectoryContext } from '../src/renderer/src/lib/contactRelationship';
+import { GroupMessagePreviewContext } from '../src/renderer/src/lib/chatNavigation';
+const mock = vi.hoisted(() => ({ profile: vi.fn(), media: vi.fn() }));
+vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
+  openMediaPreview: mock.media,
+}));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({ available: false, binding: null, busy: false, result: null }),
 }));
@@ -119,13 +125,39 @@ it('名片首屏保留本地身份，公告／入群问题／扩展指标不进�
   expect(host.textContent).not.toContain('扩展资料');
   const text = host.querySelector('.weq-group-description p')!;
   expect(text.classList.contains('is-clamped')).toBe(true);
-  act(() => (host.querySelector('.weq-group-text-action') as HTMLButtonElement).click());
-  expect(text.classList.contains('is-clamped')).toBe(false);
+  expect(host.querySelectorAll('.weq-profile-subtitle')).toHaveLength(3);
   act(() => (host.querySelector('.weq-group-preview-avatars button') as HTMLButtonElement).click());
   expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(2);
   expect(host.textContent).toContain('u_1:12345');
   act(() => (host.querySelector('[aria-label="成员名片"] button') as HTMLButtonElement).click());
   expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+});
+it('短简介不显示展开，完整资料入口移到右上角，成员数量直达现有成员页', () => {
+  const conversation = { ...group, group: { ...group.group, description: '短简介' } };
+  mock.profile.mockReturnValue({
+    conversation,
+    members: group.members,
+    scope: 'a',
+    retryPreview: vi.fn(),
+    metrics: {},
+  });
+  const navigate = vi.fn();
+  const close = vi.fn();
+  const { host } = mount(
+    h(
+      ContactWorkspaceNavigationContext.Provider,
+      { value: navigate },
+      h(GroupProfileSurface, { conversation, onClose: close, onOpenChat: vi.fn() }),
+    ),
+  );
+  expect(host.querySelector('.weq-group-description p')?.textContent).toBe('短简介');
+  expect(host.querySelector('.weq-group-description button')).toBeNull();
+  expect(host.querySelector('.weq-group-card-actions')?.textContent).not.toContain('完整群资料');
+  act(() => (host.querySelector('.weq-profile-expand') as HTMLButtonElement).click());
+  expect(navigate).toHaveBeenLastCalledWith({ kind: 'group', conversation });
+  act(() => (host.querySelector('[aria-label="查看全部群成员"]') as HTMLButtonElement).click());
+  expect(navigate).toHaveBeenLastCalledWith({ kind: 'group', conversation, section: 'members' });
+  expect(close).toHaveBeenCalledTimes(2);
 });
 it('完整群资料页只在页头渲染一条操作行，不再吸底重复', () => {
   mock.profile.mockReturnValue({
@@ -148,6 +180,110 @@ it('完整群资料页只在页头渲染一条操作行，不再吸底重复', (
   const bars = host.querySelectorAll('.weq-group-card-actions');
   expect(bars).toHaveLength(1);
   expect(bars[0].classList.contains('weq-profile-card-actions')).toBe(false);
+  expect(host.querySelector('.weq-group-quick-card')).toBeNull();
+  expect(host.querySelector('.weq-contact-identity-body')).toBeNull();
+  expect(host.querySelector('.weq-profile-expand')).toBeNull();
+  expect(host.querySelector('.weq-profile-id')?.textContent).toContain('12345');
+});
+it('快速名片底部只显示消息操作，预览不关闭名片，打开消息关闭名片', () => {
+  mock.profile.mockReturnValue({
+    conversation: group,
+    members: [],
+    scope: 'a',
+    retryPreview: vi.fn(),
+    metrics: undefined,
+  });
+  const close = vi.fn();
+  const chat = vi.fn();
+  const preview = vi.fn();
+  const { host } = mount(
+    h(
+      GroupMessagePreviewContext.Provider,
+      {
+        value: {
+          open: preview,
+          close: vi.fn(),
+          conversationId: null,
+          content: null,
+        },
+      },
+      h(GroupProfileSurface, { conversation: group, onClose: close, onOpenChat: chat }),
+    ),
+  );
+  const actions = host.querySelectorAll('.weq-group-card-actions button');
+  expect([...actions].map((button) => button.textContent)).toEqual(['查看消息', '预览消息']);
+  act(() => (actions[1] as HTMLButtonElement).click());
+  expect(preview).toHaveBeenCalledWith(group);
+  expect(close).not.toHaveBeenCalled();
+  act(() => (actions[0] as HTMLButtonElement).click());
+  expect(chat).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
+});
+it('未加入的群保留资料但不提供编辑；头像沿用共用媒体预览，冻结状态位于身份区', () => {
+  const conversation = {
+    ...group,
+    group: {
+      ...group.group,
+      avatarUrl: '/group.png',
+      role: 'admin' as const,
+      roleKnown: true,
+      membershipKnown: true,
+      listed: false,
+    },
+  };
+  mock.profile.mockReturnValue({
+    conversation,
+    members: [],
+    scope: 'a',
+    retryPreview: vi.fn(),
+    metrics: {
+      friendCount: { value: 5, attemptedAt: 1, state: 'failed' },
+      freezeState: { value: 1, updatedAt: 1, state: 'ready' },
+    },
+  });
+  const { host } = mount(
+    h(
+      RelationshipDirectoryContext.Provider,
+      {
+        value: { friends: new Map(), friendsComplete: true, groups: new Map() },
+      },
+      h(GroupProfileSurface, { conversation, onClose: vi.fn() }),
+    ),
+  );
+  expect(host.querySelector('[aria-label="编辑群名称"]')).toBeNull();
+  expect(host.querySelector('[aria-label="编辑备注"]')).toBeNull();
+  expect(host.querySelector('.weq-group-quick-identity')?.textContent).toContain('该群已冻结');
+  expect(host.querySelector('.weq-group-quick-sections')?.textContent).not.toContain('与我的关系');
+  act(() => (host.querySelector('[aria-label="查看群头像"]') as HTMLButtonElement).click());
+  expect(mock.media).toHaveBeenLastCalledWith({
+    items: [{ key: '/group.png', kind: 'image', src: '/group.png', title: '原群名' }],
+  });
+});
+it('本地合成群不出现 QQ 关系、在线编辑或完整资料跳转', () => {
+  const conversation = {
+    ...group,
+    generated: { ownerId: 'virtual-owner' } as GroupConversation['generated'],
+  };
+  mock.profile.mockReturnValue({
+    conversation,
+    members: [],
+    scope: 'a',
+    retryPreview: vi.fn(),
+    metrics: undefined,
+  });
+  const { host } = mount(
+    h(
+      ContactWorkspaceNavigationContext.Provider,
+      { value: vi.fn() },
+      h(GroupProfileSurface, { conversation, onClose: vi.fn() }),
+    ),
+  );
+  expect(host.querySelector('.weq-profile-expand')).toBeNull();
+  expect(host.querySelector('.weq-relationship-status')).toBeNull();
+  expect(host.querySelector('[aria-label="编辑备注"]')).toBeNull();
+  expect(host.querySelector('.weq-contact-identity-body')?.textContent).toContain(
+    'IDvirtual-owner',
+  );
 });
 it('没有成功值的缓存不显示好友数，正常／未知不占位', () => {
   const metrics = {

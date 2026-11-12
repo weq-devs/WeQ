@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 const calls: string[] = [];
 const preferences = { epoch: 'fixture', revision: 0, values: {}, records: {} };
+let groupName = '原来的群名称';
 Object.assign(window, { groupCardCalls: calls });
 const row = (n: number) => ({
   uid: `u_member${n}`,
@@ -36,6 +37,12 @@ async function reply(path: string, input) {
       source: { expectedAccountUin: '99999', expectedAccountConfigId: 'fixture' },
     };
   if (path === 'account.getGroupDetail') return null;
+  if (path === 'account.qqWrite.peerState')
+    return { role: 'admin', groupName, remark: '我的群备注' };
+  if (path === 'account.qqWrite.groupName') {
+    groupName = input.name;
+    return { state: 'confirmed' };
+  }
   if (path === 'account.groupMemberPreview') {
     await new Promise((resolve) => setTimeout(resolve, 400));
     return {
@@ -110,7 +117,8 @@ function proxy(parts: string[], hooks: boolean): unknown {
             ...options,
           });
       if (key === 'useSubscription') return () => {};
-      if (key === 'useMutation') return () => ({ mutate: () => {}, mutateAsync: async () => ({}) });
+      if (key === 'useMutation')
+        return () => ({ mutate: () => {}, mutateAsync: (input) => reply(path, input) });
       if (key === 'useUtils') return () => proxy([], false);
       if (key === 'invalidate' || key === 'refetch') return async () => {};
       return proxy([...parts, String(key)], hooks);

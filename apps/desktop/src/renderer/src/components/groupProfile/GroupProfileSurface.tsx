@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Eye, MessageSquare, X } from 'lucide-react';
+import { Maximize2, Eye, MessageSquare, X } from 'lucide-react';
 import type { GroupConversation, User, GroupMember } from '../../im-template/template/types';
 import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
 import { OverlayLayer } from '../OverlayLayer';
@@ -14,6 +14,7 @@ import {
   GroupTags,
 } from './GroupContent';
 import { GroupWorkspace } from './GroupWorkspace';
+import { GroupCardContent, GroupCardIdentity } from './GroupCardContent';
 import type { GroupWorkspaceTab } from '../../lib/profileNavigation';
 import {
   ContactWorkspaceNavigationContext,
@@ -98,6 +99,12 @@ function GroupProfileBody({
   const canChat = Boolean(onOpenChat || openChat);
   const canPreview = Boolean(preview) && !conversation.generated;
   const canOpenWorkspace = !embedded && Boolean(openWorkspace) && !conversation.generated;
+  const openFullProfile = canOpenWorkspace
+    ? () => {
+        close();
+        openWorkspace?.({ kind: 'group', conversation });
+      }
+    : undefined;
   const chatAction = canChat ? (
     <button
       type="button"
@@ -132,7 +139,7 @@ function GroupProfileBody({
   const content = (
     <>
       <section
-        className={`weq-member-pop weq-contact-card weq-group-card${embedded ? ' weq-group-page' : ''}${previewContent ? ' is-previewing-chat' : ''}`}
+        className={`weq-member-pop weq-contact-card weq-group-card${embedded ? ' weq-group-page' : ' weq-group-quick-card'}${previewContent ? ' is-previewing-chat' : ''}`}
         role={embedded ? 'region' : 'dialog'}
         aria-label="群资料"
       >
@@ -146,6 +153,17 @@ function GroupProfileBody({
           />
         ) : (
           <>
+            {openFullProfile ? (
+              <button
+                className="weq-profile-expand"
+                type="button"
+                title="打开完整群资料"
+                aria-label="打开完整群资料"
+                onClick={openFullProfile}
+              >
+                <Maximize2 size={16} />
+              </button>
+            ) : null}
             <button
               className="weq-profile-close"
               type="button"
@@ -155,7 +173,11 @@ function GroupProfileBody({
             >
               <X size={16} />
             </button>
-            <GroupIdentity conversation={conversation} onOpen={close} />
+            <GroupCardIdentity
+              conversation={conversation}
+              metrics={data.metrics}
+              onOpen={openFullProfile}
+            />
           </>
         )}
         {data.profileError ? (
@@ -185,37 +207,29 @@ function GroupProfileBody({
             onOpenMember={(value, at) => setMember({ value, anchor: at, scope: data.scope })}
           />
         ) : (
-          <div className="weq-group-card-body">
-            <GroupDescription text={conversation.group.description} />
-            <GroupTags group={conversation.group} />
-            <GroupFacts conversation={conversation} metrics={data.metrics} />
-            <GroupFreezeNotice metrics={data.metrics} />
-            {members}
-          </div>
+          <GroupCardContent
+            conversation={conversation}
+            metrics={data.metrics}
+            members={members}
+            onOpenMembers={
+              canOpenWorkspace
+                ? () => {
+                    close();
+                    openWorkspace?.({ kind: 'group', conversation, section: 'members' });
+                  }
+                : undefined
+            }
+          />
         )}
         {/* 完整资料页的操作已在页头渲染；这里再来一条会重复操作，并因吸底样式
             压在正文与视口边缘上，所以只在快速名片里保留底部操作行。 */}
-        {!embedded && (canChat || canPreview || canOpenWorkspace) ? (
+        {!embedded && (canChat || canPreview) ? (
           <nav
             className="weq-group-card-actions weq-contact-actions weq-profile-card-actions"
             aria-label="群操作"
           >
             {chatAction}
             {previewAction}
-            {canOpenWorkspace ? (
-              <button
-                type="button"
-                className="weq-contact-secondary"
-                title="打开完整群资料"
-                onClick={() => {
-                  close();
-                  openWorkspace?.({ kind: 'group', conversation });
-                }}
-              >
-                <ChevronRight size={14} />
-                完整群资料
-              </button>
-            ) : null}
           </nav>
         ) : null}
       </section>
