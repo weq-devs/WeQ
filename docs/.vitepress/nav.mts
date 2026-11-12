@@ -68,6 +68,8 @@ export const guideSidebar = [
       { text: '联系人排序与分组', link: '/guide/contact-directory' },
       { text: '资料历史', link: '/guide/contact-history' },
       { text: '个人资料扩展', link: '/guide/profile-extras' },
+      { text: '联系人名片与资料页', link: '/guide/contact-card' },
+      { text: '群名片与群资料', link: '/guide/group-profiles' },
       { text: '群交集图谱', link: '/guide/relation-graph' },
       { text: '我的名片与资料页', link: '/guide/self-profile' },
       { text: 'QQ 在线操作（资料 / 群管理）', link: '/guide/qq-actions' },
@@ -78,6 +80,7 @@ export const guideSidebar = [
     collapsed: false,
     items: [
       { text: '统一导出', link: '/guide/export' },
+      { text: '报告、精确选择与资源导出', link: '/guide/saved-reports-and-content-export' },
       { text: '我的收藏', link: '/guide/collection' },
       { text: '表情与装扮资源', link: '/guide/emoji-resources' },
     ],
@@ -113,6 +116,7 @@ export const guideSidebar = [
       { text: 'Web 服务与手机连接', link: '/guide/remote-web' },
       { text: 'QQ NT 外观预设', link: '/guide/qqnt-appearance' },
       { text: '设置总览', link: '/guide/settings' },
+      { text: '跨端设置与草稿', link: '/guide/cross-device-settings' },
     ],
   },
 ];
@@ -220,6 +224,10 @@ export const developSidebar = [
     items: [
       { text: '群扩展资料读取', link: '/develop/group-profile-extensions' },
       { text: '联系人与群资料历史', link: '/develop/contact-history' },
+      { text: '统一联系人名片与资料页', link: '/develop/contact-profile' },
+      { text: '群资料页与成员预览', link: '/develop/group-profile-workspace' },
+      { text: '统一媒体预览', link: '/develop/media-preview' },
+      { text: '未读计数来源', link: '/develop/unread-count-sources' },
       { text: '本地文字识别模型', link: '/develop/ocr-models' },
     ],
   },
@@ -228,6 +236,8 @@ export const developSidebar = [
     items: [
       { text: '统一导出格式', link: '/develop/export-format/README' },
       { text: 'WeQ 存储管理', link: '/develop/storage-management' },
+      { text: '持久分析报告', link: '/develop/analysis-reports' },
+      { text: '跨端偏好与功能状态', link: '/develop/client-state-sync' },
     ],
   },
   {
