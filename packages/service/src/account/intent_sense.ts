@@ -12,8 +12,8 @@
  *     （桌面版 utilityProcess 里的 Laya ONNX worker；web 版没有，保持 null）。
  *     API 引擎生成回复建议；本地或 API 不可用时使用本地意图候选，Laya 不生成自由文本。
  *
- * 画像委派给 InteractionProfileService：独立模型、情绪输入与运行状态，
- * 不读取这里的逐条分析缓存；共享配置文件和消息读取以兼容旧 IPC 与持久化格式。
+ * 画像委派给 InteractionProfileService：独立模型与运行状态，本地和统计模式
+ * 只读复用有效的逐条情绪结果；共享配置文件和消息读取以兼容旧 IPC 与持久化格式。
  *
  * Renderer 驱动：intentSense tRPC router（getStatus / setConfig / ensureAnalysis /
  * getMessageAnalyses / analyzeMessage / getProfile / getSuggestions / onAnalyzed）。
@@ -717,7 +717,10 @@ export class IntentSenseService {
       () => this.config,
       (kind, peerUid, limit) => this.loadMessages(kind, peerUid, limit),
       (ref) => this.endpoint(ref),
-      { localEngine: this.opts.localEngine },
+      {
+        localEngine: this.opts.localEngine,
+        readAnalyses: (peerUid, msgIds) => this.getMessageAnalyses('c2c', peerUid, msgIds),
+      },
     );
   }
 
