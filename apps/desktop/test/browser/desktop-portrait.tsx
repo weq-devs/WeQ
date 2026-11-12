@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatShell } from '../../src/renderer/src/im-template/template/chatShell';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
@@ -9,6 +9,8 @@ import type { Conversation, Message } from '../../src/renderer/src/im-template/t
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { isSingleColumnLayout } from '../../src/renderer/src/lib/responsiveLayout';
+import { MediaPreviewShell } from '../../src/renderer/src/components/MediaPreviewShell';
+import previewImage from '@resources/brand/logo.png';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/workspace-tools.css';
 
@@ -55,6 +57,10 @@ const noop = () => {};
 
 function DesktopFixture() {
   const [draft, setDraft] = useState('');
+  const [preview, setPreview] = useState(false);
+  useEffect(() => {
+    Object.assign(window, { openWindowLayoutPreview: () => setPreview(true) });
+  }, []);
   const shell = useChatShellController({
     conversations,
     contacts: [peer],
@@ -71,6 +77,11 @@ function DesktopFixture() {
   });
   return (
     <ContentSelectionProvider>
+      {preview && (
+        <MediaPreviewShell title="窗口适配预览" onClose={() => setPreview(false)}>
+          <img src={previewImage} alt="WeQ" width={220} height={220} />
+        </MediaPreviewShell>
+      )}
       <ChatShell
         user={user}
         view={shell.view}

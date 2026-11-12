@@ -1745,9 +1745,12 @@ export function ChatPane({
   }, [conversation?.id, user.id, draft]);
 
   useLayoutEffect(() => {
-    const mobileComposer = isMobileWebComposer();
+    // 切换会话/标签时收起键盘；仅切换窗口布局不打断当前输入。
     if (isMobileClient()) composerEditorRef.current?.blur();
-    if (!mobileComposer) return;
+  }, [conversation?.id, tabActive]);
+
+  useLayoutEffect(() => {
+    if (!isMobileWebComposer()) return;
     setComposerCollapsed(false);
     setMobileComposerExpanded(false);
     setEmojiOpen(false);

@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, type RefObject } from 'react';
 import {
   attachMobileHistory,
   isMobileNavigation,
@@ -11,8 +11,11 @@ import { topSurface } from '../lib/surfaceEscape';
 import { setMobileNavigationBusy } from '../lib/mobilePageLoading';
 import { createMobileRootTransition, mobileRootTab } from '../lib/mobileRootTransition';
 import '../styles/mobile-navigation.css';
+import { observeRemoteWindowLayout } from '../lib/remoteWindowLayout';
+import '../styles/remote-window-layout.css';
 
 export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement | null> }) {
+  useLayoutEffect(() => observeRemoteWindowLayout(root.current?.ownerDocument ?? document), [root]);
   useEffect(() => {
     const element = root.current;
     if (!element) return;

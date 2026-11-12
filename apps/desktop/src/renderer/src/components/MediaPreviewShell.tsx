@@ -80,6 +80,9 @@ export function MediaPreviewShell({
   useSurfaceEscape(root, onEscape, active, true);
   useLayoutEffect(() => {
     if (!active) return;
+    // portal 首次绘制即避让系统窗口控件，不等待下一帧的 DOM 观察回调。
+    if (ownerDocument.defaultView?.weqRemoteWindowLayout)
+      ownerDocument.defaultView.dispatchEvent(new Event('weq-remote-window-layout'));
     const element = root.current;
     const claim = new CustomEvent(ownershipEvent, {
       detail: element,
