@@ -21,6 +21,7 @@ import {
   type RoamMessageSource,
 } from './message_source';
 import type { ConvKind, ExportedMessage, ExportTimeRange } from './types';
+import { exportForwardContents } from './forward_expand';
 
 /** A resolved group member (the fields the structured exporters need). */
 export interface ResolvedGroupMember {
@@ -86,15 +87,31 @@ export function iterateConv(
   roam?: RoamMessageSource,
 ): AsyncGenerator<RenderGroupMsg | RenderC2cMsg> {
   if (kind === 'group') {
-    return iterateGroupMessages(msgs, conv, { pageSize: 2000, range, roam });
+    return exportForwardContents(
+      iterateGroupMessages(msgs, conv, { pageSize: 2000, range, roam }),
+      msgs,
+      kind,
+    );
   }
   if (kind === 'official') {
-    return iterateOfficialMessages(msgs, conv, { pageSize: 2000, range, roam });
+    return exportForwardContents(
+      iterateOfficialMessages(msgs, conv, { pageSize: 2000, range, roam }),
+      msgs,
+      kind,
+    );
   }
   if (kind === 'service') {
-    return iterateServiceMessages(msgs, conv, { pageSize: 2000, range, roam });
+    return exportForwardContents(
+      iterateServiceMessages(msgs, conv, { pageSize: 2000, range, roam }),
+      msgs,
+      kind,
+    );
   }
-  return iterateC2cMessages(msgs, conv, { pageSize: 2000, range, roam });
+  return exportForwardContents(
+    iterateC2cMessages(msgs, conv, { pageSize: 2000, range, roam }),
+    msgs,
+    kind,
+  );
 }
 
 /**
@@ -111,6 +128,8 @@ export async function resolveGroupSenders(
   ownerUid: string,
   roam?: RoamMessageSource,
 ): Promise<Map<string, ResolvedSender>> {
+  if (msgs.exportFilter?.forwardTarget)
+    return resolveForwardSenders(msgs, 'group', conv, range, roam);
   // Pass 1: distinct sender uid → uin (from the message rows).
   const uinByUid = new Map<string, string>();
   for await (const m of iterateConv(msgs, 'group', conv, range, roam)) {
@@ -155,7 +174,23 @@ export async function resolveGroupSenders(
 export async function resolveC2cSenders(
   conv: string,
   deps: SenderResolveDeps,
+  selection?: {
+    msgs: MsgService;
+    kind: ConvKind;
+    range?: ExportTimeRange;
+    roam?: RoamMessageSource;
+  },
 ): Promise<{ senders: Map<string, ResolvedSender>; ownerId?: string }> {
+  if (selection?.msgs.exportFilter?.forwardTarget)
+    return {
+      senders: await resolveForwardSenders(
+        selection.msgs,
+        selection.kind,
+        conv,
+        selection.range,
+        selection.roam,
+      ),
+    };
   const senders = new Map<string, ResolvedSender>();
   let ownerId: string | undefined;
 
@@ -191,5 +226,31 @@ export async function resolveC2cSenders(
 export function fallbackSender(m: ExportedMessage): ResolvedSender {
   const uin = m.senderUin;
   const platformId = uin && uin !== '0' ? uin : m.senderUid;
-  return { platformId, accountName: platformId };
+  return {
+    platformId,
+    accountName: m.senderName || platformId,
+    ...(m.senderName ? { sourceName: m.senderName } : {}),
+  };
+}
+
+async function resolveForwardSenders(
+  msgs: MsgService,
+  kind: ConvKind,
+  conv: string,
+  range?: ExportTimeRange,
+  roam?: RoamMessageSource,
+): Promise<Map<string, ResolvedSender>> {
+  const senders = new Map<string, ResolvedSender>();
+  for await (const row of iterateConv(msgs, kind, conv, range, roam)) {
+    if (senders.has(row.senderUid)) continue;
+    const uin = String(row.senderUin);
+    senders.set(row.senderUid, {
+      platformId: uin !== '0' ? uin : row.senderUid,
+      uin: uin !== '0' ? uin : undefined,
+      sourceName: row.senderName,
+      displayName: row.senderName,
+      accountName: row.senderName || uin,
+    });
+  }
+  return senders;
 }

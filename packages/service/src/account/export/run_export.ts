@@ -15,7 +15,7 @@ import { createExportWriter } from './stream_utils';
 import type { MsgService } from '../msg';
 import { iterateGroupMessages, toExportedMessage } from './message_source';
 import { annotateExportPaths, collectFaceIds } from './element_text';
-import { expandForwards } from './forward_expand';
+import { expandForwards, exportForwardContents } from './forward_expand';
 import type { ExportedMessage, ExportFormat, ExportResult, GroupExportOptions } from './types';
 
 export interface Framing {
@@ -43,11 +43,15 @@ export async function runGroupExport(
   const audit = new MessageAudit();
   try {
     if (framing.head) await writer.write(framing.head);
-    for await (const m of iterateGroupMessages(msgs, opts.groupCode, {
-      pageSize: opts.pageSize,
-      range: opts.range,
-      roam: opts.roam,
-    })) {
+    for await (const m of exportForwardContents(
+      iterateGroupMessages(msgs, opts.groupCode, {
+        pageSize: opts.pageSize,
+        range: opts.range,
+        roam: opts.roam,
+      }),
+      msgs,
+      'group',
+    )) {
       const exported = toExportedMessage(m);
       opts.collectSenders?.add(exported.senderUin);
       if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);

@@ -894,7 +894,12 @@ export async function exportToHtml(
       opts.roam,
     );
   } else {
-    const r = await resolveC2cSenders(opts.conv, deps);
+    const r = await resolveC2cSenders(opts.conv, deps, {
+      msgs,
+      kind: opts.kind,
+      range: opts.range,
+      roam: opts.roam,
+    });
     senders = r.senders;
     selfId = selfId ?? r.ownerId;
   }
@@ -938,8 +943,10 @@ export async function exportToHtml(
         await writeRow(`<div class="day"><span>${escapeHtml(day)}</span></div>`);
         lastDay = day;
       }
-      const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
-      const dec = opts.dressLookup?.(exported.msgId);
+      const sender = exported.forwardSource
+        ? fallbackSender(exported)
+        : (senders.get(exported.senderUid) ?? fallbackSender(exported));
+      const dec = exported.forwardSource ? undefined : opts.dressLookup?.(exported.msgId);
       await writeRow(
         renderMessage(
           exported,

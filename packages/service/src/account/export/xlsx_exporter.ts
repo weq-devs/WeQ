@@ -24,7 +24,7 @@ import {
   type RoamMessageSource,
 } from './message_source';
 import { TABLE_HEADERS, messageToCells, annotateExportPaths, collectFaceIds } from './element_text';
-import { expandForwards } from './forward_expand';
+import { expandForwards, exportForwardContents } from './forward_expand';
 import type { ConvKind, ExportResult, ExportTimeRange, ProgressCallback } from './types';
 
 /** Rows per worksheet before rolling to a new one (margin under Excel's cap). */
@@ -94,7 +94,7 @@ export async function exportToXlsx(
 
   let count = 0;
   const audit = new MessageAudit();
-  for await (const m of iterator) {
+  for await (const m of exportForwardContents(iterator, msgs, opts.kind)) {
     if (rowsInSheet >= SHEET_ROW_LIMIT) {
       sheet.commit();
       sheetIndex += 1;

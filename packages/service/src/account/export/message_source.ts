@@ -553,6 +553,7 @@ function hasArkElement(m: RenderC2cMsg | RenderGroupMsg): boolean {
 /** Normalize a render message into the export record (bigints → strings). */
 export function toExportedMessage(m: RenderGroupMsg | RenderC2cMsg): ExportedMessage {
   return {
+    ...(m.forwardSource ? { forwardSource: m.forwardSource, senderName: m.senderName } : {}),
     msgId: m.msgId.toString(),
     msgSeq: m.msgSeq.toString(),
     sendTime: Number(m.sendTime),

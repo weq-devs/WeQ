@@ -21,6 +21,13 @@ it.each(['complete', 'missing', 'absent'] as const)(
                 sendTime: '1700000000',
                 elements: [{ type: 'text' as const, data: { textContent: '任务内完整正文' } }],
               },
+              {
+                msgId: '3',
+                senderUin: '789',
+                sendNick: '另一位记录作者',
+                sendTime: '1700000001',
+                elements: [{ type: 'text' as const, data: { textContent: '任务内第二条正文' } }],
+              },
             ],
       );
       const source = {
@@ -70,6 +77,11 @@ it.each(['complete', 'missing', 'absent'] as const)(
         const contents = await readFile(task.filePath!, 'utf8');
         expect(contents).toContain('记录作者');
         expect(contents).toContain('任务内完整正文');
+        expect(contents).toContain('任务内第二条正文');
+        expect(contents).not.toContain('10002');
+        expect(contents).not.toContain('[聊天记录]');
+        expect(task.current).toBe(2);
+        expect(task.total).toBe(2);
       } else {
         expect(task.status).toBe('failed');
         expect(task.error).toContain('重试');

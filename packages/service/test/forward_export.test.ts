@@ -15,6 +15,13 @@ import type { FetchedForwardRecord } from '../src/account/forward';
 import type { RenderElement } from '../src/account/msg_view';
 import { downloadMissingVideos } from '../src/account/export/media_export';
 import { exportConversationToTxt } from '../src/account/export/txt_exporter';
+import { exportJsonConversation } from '../src/account/export/json_meta_exporter';
+import { exportToHtml } from '../src/account/export/html_exporter';
+import { exportToChatlab } from '../src/account/export/chatlab_exporter';
+import { exportGroupToCsv } from '../src/account/export/csv_exporter';
+import { exportToXlsx } from '../src/account/export/xlsx_exporter';
+import { MessageJournal } from '../src/account/export/message_journal';
+import ExcelJS from 'exceljs';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -116,7 +123,7 @@ it('专属导出支持 Ark 聊天记录，本地嵌套缓存完整时无需联�
   expect(msgs.exportFetchForward).not.toHaveBeenCalled();
 });
 
-it('实际 TXT 文件包含卡片内部作者、时间和嵌套正文，不包含外层其他内容', async () => {
+it('实际 TXT 文件直接输出内部消息，不保留承载消息的作者、时间或卡片包装', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-record-txt-'));
   roots.push(root);
   const row = {
@@ -146,12 +153,249 @@ it('实际 TXT 文件包含卡片内部作者、时间和嵌套正文，不包�
     ],
   } as unknown as MsgService;
   const outputPath = join(root, 'record.txt');
-  await exportConversationToTxt(msgs, { kind: 'c2c', conv: 'peer', outputPath });
+  const result = await exportConversationToTxt(msgs, { kind: 'c2c', conv: 'peer', outputPath });
   const output = readFileSync(outputPath, 'utf8');
   expect(output).toContain('内部作者');
   expect(output).toContain('深层完整正文');
   expect(output).toContain('2023');
   expect(output).not.toContain('不应导出的外层文字');
+  expect(output).not.toContain('123');
+  expect(output).not.toContain('1970');
+  expect(output.match(/\[聊天记录\]/g)).toHaveLength(1);
+  expect(result.messageCount).toBe(1);
+});
+
+it.each([true, false])(
+  'JSON（旧格式=%s）把内部消息作为独立记录并正确计数',
+  async (legacyFormat) => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-record-json-'));
+    roots.push(root);
+    const msgs = {
+      exportFilter: { messageIds: ['1'], forwardTarget: { elementIndex: 0, resId: 'outer' } },
+      getC2cAfter: async () => [
+        {
+          msgId: 1n,
+          msgSeq: 1n,
+          senderUid: 'u_carrier',
+          senderUin: 123n,
+          sendTime: 1n,
+          elements: [card('outer')],
+        },
+      ],
+      getC2cSeqlessAfterRowId: async () => [],
+      listForward: async () => [],
+      exportFetchForward: async (): Promise<FetchedForwardRecord[]> => [
+        {
+          msgId: '9',
+          senderUid: 'u_inside',
+          senderUin: '456',
+          sendNick: '内部作者',
+          sendTime: '42',
+          elements: [{ type: 'text', data: { textContent: '第一条正文' } }],
+        },
+        {
+          msgId: '',
+          senderUin: '789',
+          sendNick: '另一作者',
+          sendTime: '43',
+          elements: [{ type: 'text', data: { textContent: '第二条正文' } }],
+        },
+      ],
+      exportSourceRows: vi.fn(async () => {
+        throw new Error('内部消息不能按承载会话查询原始行');
+      }),
+    } as unknown as MsgService;
+    const outputPath = join(root, 'record.json');
+    const result = await exportJsonConversation(msgs, {
+      kind: 'c2c',
+      conv: 'peer',
+      outputPath,
+      format: 'json',
+      legacyFormat,
+    });
+    const output = readFileSync(outputPath, 'utf8');
+    expect(result.messageCount).toBe(2);
+    expect(output).toContain('第一条正文');
+    expect(output).toContain('第二条正文');
+    expect(output).toContain('内部作者');
+    expect(output).toContain('另一作者');
+    expect(output).not.toContain('u_carrier');
+    expect(output).not.toContain('multiMsg');
+    expect(msgs.exportSourceRows).not.toHaveBeenCalled();
+    if (legacyFormat) {
+      const records = JSON.parse(output).messages;
+      expect(records).toHaveLength(2);
+      expect(records[0]).toMatchObject({
+        msgId: '9',
+        senderUid: 'u_inside',
+        senderUin: '456',
+        senderName: '内部作者',
+        sendTime: 42,
+        msgSeq: '0',
+      });
+      expect(records[1].msgId).not.toBe(records[0].msgId);
+    }
+  },
+);
+
+it.each(['txt', 'html', 'csv', 'xlsx', 'chatlab', 'jsonl', 'archive-jsonl'] as const)(
+  '%s 导出以内部消息为顶层，重复消息 ID 和同作者不同昵称不丢失',
+  async (format) => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-record-formats-'));
+    roots.push(root);
+    const row = {
+      msgId: 1n,
+      msgSeq: 1n,
+      targetGroupCode: '777',
+      senderUid: 'u_carrier',
+      senderUin: 123n,
+      sendTime: 1n,
+      msgRandom: 99n,
+      elements: [card('outer')],
+    };
+    const records: FetchedForwardRecord[] = ['第一位作者', '第二个昵称'].map((sendNick, index) => ({
+      msgId: '9',
+      senderUid: 'u_inside',
+      senderUin: '456',
+      sendNick,
+      sendTime: String(42 + index),
+      elements: [{ type: 'text', data: { textContent: `内部正文${index}` } }],
+    }));
+    const msgs = {
+      exportFilter: { messageIds: ['1'], forwardTarget: { elementIndex: 0, resId: 'outer' } },
+      getGroupAfter: async () => [row],
+      getGroupSeqlessAfterRowId: async () => [],
+      listForward: async () => [],
+      exportFetchForward: async () => records,
+      // 格式器会重放封存后的进度文件，不能再次把内部记录当承载消息展开。
+      exportJournal: new MessageJournal(join(root, 'messages.jsonl'), undefined, true),
+    } as unknown as MsgService;
+    const outputPath = join(root, `record.${format === 'xlsx' ? 'xlsx' : 'txt'}`);
+    const opts = { kind: 'group' as const, conv: '777', groupCode: '777', outputPath };
+    const result =
+      format === 'txt'
+        ? await exportConversationToTxt(msgs, opts)
+        : format === 'html'
+          ? await exportToHtml(msgs, opts)
+          : format === 'csv'
+            ? await exportGroupToCsv(msgs, opts)
+            : format === 'xlsx'
+              ? await exportToXlsx(msgs, opts)
+              : format === 'chatlab'
+                ? await exportToChatlab(msgs, { ...opts, format: 'json' })
+                : await exportJsonConversation(msgs, {
+                    ...opts,
+                    format: 'jsonl',
+                    legacyFormat: format === 'jsonl',
+                    archive: { profile: 'full' },
+                  });
+    expect(result.messageCount).toBe(2);
+    let output: string;
+    if (format === 'xlsx') {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(outputPath);
+      const sheet = workbook.worksheets[0]!;
+      expect(sheet.rowCount).toBe(3);
+      expect(sheet.getRow(2).getCell(2).value).toBe('456');
+      output = JSON.stringify(sheet.getSheetValues());
+    } else output = readFileSync(outputPath, 'utf8');
+    expect(output).toContain('内部正文0');
+    expect(output).toContain('内部正文1');
+    expect(output).not.toContain('u_carrier');
+    expect(output).not.toContain('multiMsg');
+    if (format !== 'csv' && format !== 'xlsx') {
+      expect(output).toContain('第一位作者');
+      expect(output).toContain('第二个昵称');
+    }
+    if (format === 'archive-jsonl') {
+      const messages = output
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .filter((entry) => entry.record?.kind === 'message');
+      expect(messages).toHaveLength(2);
+      expect(messages[0].record.id).not.toBe(messages[1].record.id);
+      expect(output).not.toContain('msgRandom');
+    }
+    expect(msgs.exportJournal?.count).toBe(1);
+  },
+);
+
+it('普通会话导出仍保留承载消息及完整的聊天记录卡片', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-record-normal-'));
+  roots.push(root);
+  const msgs = {
+    getC2cAfter: async () => [
+      {
+        msgId: 1n,
+        msgSeq: 1n,
+        senderUid: 'u_carrier',
+        senderUin: 123n,
+        sendTime: 1n,
+        elements: [card('outer')],
+      },
+    ],
+    getC2cSeqlessAfterRowId: async () => [],
+    listForward: async () => [
+      { sendNick: '内部作者', elements: [{ elementType: 1, textContent: '内部正文' }] },
+    ],
+  } as unknown as MsgService;
+  const outputPath = join(root, 'normal.txt');
+  const result = await exportConversationToTxt(msgs, { kind: 'c2c', conv: 'peer', outputPath });
+  const output = readFileSync(outputPath, 'utf8');
+  expect(result.messageCount).toBe(1);
+  expect(output).toContain('123');
+  expect(output).toContain('[聊天记录]');
+  expect(output).toContain('内部正文');
+});
+
+it.each(['official', 'service'] as const)('%s 的 Ark 卡片仍只导出选中的记录', async (kind) => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-record-ark-'));
+  roots.push(root);
+  const page = async () =>
+    ['other', 'outer'].map((resId, index) => ({
+      msgId: BigInt(index),
+      msgSeq: BigInt(index + 1),
+      senderUid: 'u_carrier',
+      senderUin: 123n,
+      sendTime: 1n,
+      elements: [
+        {
+          type: 'ark',
+          data: {
+            arkData: JSON.stringify({
+              app: 'com.tencent.multimsg',
+              meta: { detail: { resid: resId } },
+            }),
+          },
+        },
+      ],
+    }));
+  const fetch = vi.fn(
+    async (resId: string): Promise<FetchedForwardRecord[]> => [
+      {
+        msgId: '9',
+        senderUin: '456',
+        sendNick: '内部作者',
+        sendTime: '42',
+        elements: [{ type: 'text', data: { textContent: `选中的正文 ${resId}` } }],
+      },
+    ],
+  );
+  const msgs = {
+    exportFilter: { messageIds: ['1'], forwardTarget: { elementIndex: 0, resId: 'outer' } },
+    getC2cAfter: page,
+    getServiceAfter: page,
+    getC2cSeqlessAfterRowId: async () => [],
+    getServiceSeqlessAfterRowId: async () => [],
+    listForward: async () => [],
+    exportFetchForward: fetch,
+  } as unknown as MsgService;
+  const outputPath = join(root, 'record.txt');
+  const result = await exportConversationToTxt(msgs, { kind, conv: 'peer', outputPath });
+  expect(result.messageCount).toBe(1);
+  expect(readFileSync(outputPath, 'utf8')).toContain('内部作者');
+  expect(fetch.mock.calls.every((args) => args[0] === 'outer')).toBe(true);
 });
 
 it('40900 本地黄金样本展开嵌套正文，不依赖在线接口', async () => {

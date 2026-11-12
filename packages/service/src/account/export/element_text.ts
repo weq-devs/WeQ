@@ -152,6 +152,7 @@ export function messageToText(
 ): string {
   return plainMessageText({
     ...sender,
+    ...(m.senderName ? { name: m.senderName } : {}),
     uin: sender.uin || m.senderUin,
     time: new Date(m.sendTime * 1000),
     elements: m.elements,

@@ -138,6 +138,8 @@ export interface RecallInfo {
 type RecallMap = Map<string, { revokeUid: string; senderUid: string; recallTs: number }>;
 
 export interface RenderC2cMsg extends Omit<C2cMsg, 'elements'> {
+  forwardSource?: import('./export/types').ExportedMessage['forwardSource'];
+  senderName?: string;
   elements: RenderElement[];
   deletedKind?: DeletedKind;
   recall?: RecallInfo;
@@ -156,6 +158,8 @@ export interface MsgSalvageSource {
 }
 
 export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
+  forwardSource?: import('./export/types').ExportedMessage['forwardSource'];
+  senderName?: string;
   elements: RenderElement[];
   deletedKind?: DeletedKind;
   recall?: RecallInfo;

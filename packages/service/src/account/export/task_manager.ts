@@ -162,7 +162,7 @@ import {
 } from './emoji_export';
 import type { MediaUrlService } from '../media_url';
 import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from './message_source';
-import { expandForwards } from './forward_expand';
+import { expandForwards, exportForwardContents } from './forward_expand';
 import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
 import { messageToText, annotateExportPaths, collectFaceIds } from './element_text';
@@ -5717,13 +5717,17 @@ export class ExportTaskManager extends EventEmitter {
     const audit = new MessageAudit();
     try {
       if (framing.head) await writer.write(framing.head);
-      for await (const m of iterateC2cMessages(msgs, peerUid, {
-        pageSize: 2000,
-        range,
-        roam,
-      })) {
+      for await (const m of exportForwardContents(
+        iterateC2cMessages(msgs, peerUid, {
+          pageSize: 2000,
+          range,
+          roam,
+        }),
+        msgs,
+        'c2c',
+      )) {
         const exported = toExportedMessage(m);
-        const dec = dressLookup?.(exported.msgId);
+        const dec = exported.forwardSource ? undefined : dressLookup?.(exported.msgId);
         if (dec) exported.decoration = dec;
         senders?.add(exported.senderUin);
         if (faces) collectFaceIds(exported.elements, faces);

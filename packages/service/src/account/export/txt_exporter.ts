@@ -29,7 +29,14 @@ export async function exportConversationToTxt(
   const senders =
     opts.kind === 'group'
       ? await resolveGroupSenders(msgs, opts.conv, opts.range, deps, '', opts.roam)
-      : (await resolveC2cSenders(opts.conv, deps)).senders;
+      : (
+          await resolveC2cSenders(opts.conv, deps, {
+            msgs,
+            kind: opts.kind,
+            range: opts.range,
+            roam: opts.roam,
+          })
+        ).senders;
   const byUin = new Map([...senders.values()].map((sender) => [sender.platformId, sender]));
   const resolveSender: PlainSenderLookup = (uid, uin) => {
     const sender = senders.get(uid) ?? byUin.get(uin);

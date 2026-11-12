@@ -19,9 +19,11 @@
  */
 
 import { decodeElement, type MsgCacheRecord } from '@weq/codec';
-import type { MsgService } from '../msg';
+import type { MsgService, RenderC2cMsg, RenderGroupMsg } from '../msg';
+import { toExportedMessage } from './message_source';
 import { toRenderElements, type ForwardMessage, type RenderElement } from '../msg_view';
 import type { ConvKind, ExportedMessage } from './types';
+import { compileMessageFilter } from '../message_filter';
 
 /** A raw 40900 record's fields we read (all optional on the wire). */
 interface CacheRecordLike {
@@ -83,6 +85,7 @@ export function liftForwardRecords(records: MsgCacheRecord[], depth = 0): Forwar
     }
     out.push({
       ...(rec.msgId != null ? { msgId: String(rec.msgId) } : {}),
+      ...(rec.senderUid ? { senderUid: rec.senderUid } : {}),
       senderName: recordSenderName(rec),
       senderUin: num(rec.senderUin) > 0 ? String(num(rec.senderUin)) : '',
       sendTime: num(rec.sendTime),
@@ -108,6 +111,7 @@ export async function expandForwards(
   exported: ExportedMessage,
   localRecords?: MsgCacheRecord[],
 ): Promise<void> {
+  if (exported.forwardSource) return;
   const target = msgs.exportFilter?.forwardTarget;
   if (target) normalizeNestedForwards(exported.elements);
   const originalCards = exported.elements.filter((element) => element.type === 'multiMsg');
@@ -218,6 +222,7 @@ async function expandRemote(
       }
       lifted.push({
         msgId: record.msgId,
+        senderUid: record.senderUid,
         senderName: record.sendNick || record.senderUin || record.senderUid || '匿名',
         senderUin: record.senderUin ?? '',
         sendTime: Number(record.sendTime ?? 0),
@@ -229,5 +234,43 @@ async function expandRemote(
     msgs.exportSignal?.throwIfAborted();
   } finally {
     visited.delete(resId);
+  }
+}
+
+/** 仅格式输出拆掉选中卡片的最外层；扫描和断点仍使用真实承载消息。 */
+export async function* exportForwardContents(
+  source: AsyncGenerator<RenderGroupMsg | RenderC2cMsg>,
+  msgs: MsgService,
+  kind: ConvKind,
+): AsyncGenerator<RenderGroupMsg | RenderC2cMsg> {
+  const target = msgs.exportFilter?.forwardTarget;
+  const matches = compileMessageFilter({ messageIds: msgs.exportFilter?.messageIds });
+  for await (const row of source) {
+    if (!target || row.forwardSource) {
+      yield row;
+      continue;
+    }
+    if (!matches(row)) continue;
+    await expandForwards(msgs, kind, toExportedMessage(row));
+    const element = row.elements[0];
+    if (element?.type !== 'multiMsg') throw new Error('聊天记录卡片已变化，请重试导出。');
+    for (const [index, record] of (element.data.forwardMessages ?? []).entries()) {
+      msgs.exportSignal?.throwIfAborted();
+      yield {
+        ...('targetGroupCode' in row
+          ? { targetGroupCode: row.targetGroupCode }
+          : { targetUid: row.targetUid, targetUin: row.targetUin }),
+        msgId: record.msgId ? BigInt(record.msgId) : -(BigInt(index) + 1n),
+        msgSeq: 0n,
+        senderUid:
+          record.senderUid ||
+          (record.senderUin ? `forward:qq:${record.senderUin}` : `forward:record:${index}`),
+        senderUin: BigInt(record.senderUin || '0'),
+        senderName: record.senderName,
+        sendTime: BigInt(record.sendTime),
+        elements: record.elements,
+        forwardSource: { carrierMsgId: String(row.msgId), resId: target.resId, recordIndex: index },
+      };
+    }
   }
 }
