@@ -7,10 +7,8 @@ import { useSettingsMaintenance } from '../src/renderer/src/hooks/useSettingsMai
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
 import { useUpdateStore } from '../src/renderer/src/state/update';
-import {
-  DataMaintenanceDialog,
-  type MaintenanceTool,
-} from '../src/renderer/src/components/settings/DataMaintenanceSection';
+import type { MaintenanceTool } from '../src/renderer/src/components/settings/DataMaintenanceSection';
+import { DataMaintenanceDialog } from '../src/renderer/src/components/settings/DataMaintenanceDialog';
 import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 
 vi.mock('../src/renderer/src/trpc/client', () => {

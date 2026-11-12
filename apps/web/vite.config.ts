@@ -19,7 +19,7 @@ const developmentViteLogging: typeof import('../desktop/src/main/development_vit
  *     tree-shakes every `<DesktopOnly>` branch out of the bundle
  */
 
-const RENDERER = resolve(__dirname, '../desktop/src/renderer');
+const RENDERER = resolve(import.meta.dirname, '../desktop/src/renderer');
 const logging = developmentViteLogging('web');
 
 export default defineConfig({
@@ -33,12 +33,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@renderer': resolve(RENDERER, 'src'),
-      '@resources': resolve(__dirname, '../../resources'),
+      '@resources': resolve(import.meta.dirname, '../../resources'),
       '@transport': resolve(RENDERER, 'src/trpc/transport.web.ts'),
     },
   },
   build: {
-    outDir: resolve(process.env.WEQ_WEB_DIST ?? resolve(__dirname, 'dist'), 'public'),
+    outDir: resolve(process.env.WEQ_WEB_DIST ?? resolve(import.meta.dirname, 'dist'), 'public'),
     emptyOutDir: true,
     rollupOptions: {
       input: { index: resolve(RENDERER, 'index.html') },

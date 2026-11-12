@@ -4,9 +4,9 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DataMaintenanceSection,
-  DataMaintenanceDialog,
   type MaintenanceTool,
 } from '../src/renderer/src/components/settings/DataMaintenanceSection';
+import { DataMaintenanceDialog } from '../src/renderer/src/components/settings/DataMaintenanceDialog';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';

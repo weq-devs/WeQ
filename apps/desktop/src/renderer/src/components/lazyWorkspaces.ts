@@ -5,9 +5,9 @@ export const SettingsDialog = lazyPanel<
   ComponentProps<typeof import('./SettingsDialog').SettingsDialog>
 >(() => import('./SettingsDialog').then((m) => ({ default: m.SettingsDialog })));
 export const DataMaintenanceDialog = lazyPanel<
-  ComponentProps<typeof import('./settings/DataMaintenanceSection').DataMaintenanceDialog>
+  ComponentProps<typeof import('./settings/DataMaintenanceDialog').DataMaintenanceDialog>
 >(() =>
-  import('./settings/DataMaintenanceSection').then((m) => ({ default: m.DataMaintenanceDialog })),
+  import('./settings/DataMaintenanceDialog').then((m) => ({ default: m.DataMaintenanceDialog })),
 );
 export const CollectionDialog = lazyPanel<
   ComponentProps<typeof import('./CollectionDialog').CollectionDialog>

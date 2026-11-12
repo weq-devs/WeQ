@@ -60,7 +60,7 @@
   },
   "devDependencies": {
     "@electron/osx-sign": "1.3.1",
-    "@tailwindcss/vite": "^4.0.0",
+    "@tailwindcss/vite": "^4.3.5",
     "@tanstack/react-query": "^4.44.0",
     "@tanstack/react-virtual": "3.14.22",
     "@trpc/react-query": "^10.45.4",
@@ -89,7 +89,7 @@
     "shiki": "^4.3.1",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^2.6.0",
-    "tailwindcss": "^4.0.0",
+    "tailwindcss": "^4.3.5",
     "vite": "^8.3.4",
     "vitest": "^2.1.9",
     "zustand": "^5.0.3"
