@@ -100,6 +100,12 @@ async function checkPrivileges(scope) {
     sizes.every(({ width, height, fit }) => width === 22 && height === 22 && fit === 'contain'),
     `特权图标应限制在 22px 内并保持图片比例: ${JSON.stringify(sizes)}`,
   );
+  const alignment = await icons.first().evaluate((image) => {
+    const value = image.closest('.weq-profile-data-value').getBoundingClientRect();
+    const bounds = image.getBoundingClientRect();
+    return { left: bounds.left - value.left, top: bounds.top - value.top };
+  });
+  assert.deepEqual(alignment, { left: 0, top: 0 }, '特权图标应与其他字段值左对齐且无顶部偏移');
 }
 try {
   await server.listen();
