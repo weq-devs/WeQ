@@ -30,7 +30,9 @@ export function ConversationMenuTarget({
   const numberLabel = kind === 'group' ? '群号' : /^\d+$/.test(identity) ? 'QQ 号' : 'ID';
   return (
     <>
-      <Avatar resolution="small" name={name} avatarUrl={avatarUrl} seed={identity} />
+      {avatarUrl ? (
+        <Avatar resolution="small" name={name} avatarUrl={avatarUrl} seed={identity} />
+      ) : null}
       <span>
         <strong title={name}>{count > 1 ? `已选 ${count} 个会话` : name}</strong>
         <small>

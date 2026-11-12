@@ -497,6 +497,7 @@ describe('群助手', () => {
         expect(document.querySelector('.weq-conversation-actions-target')?.textContent).toBe(
           '群助手聚合会话',
         );
+        expect(document.querySelector('.weq-conversation-actions-target .avatar')).toBeNull();
         expect(host.querySelectorAll('.is-context-target')).toHaveLength(1);
         return [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
       };
