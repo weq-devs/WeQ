@@ -30,7 +30,7 @@ const conversation = {
     avatarUrl: null,
     announcement: '只在完整资料显示的公告',
     description: '这是群简介，正文应当能够选择复制。\n'.repeat(12),
-    memberCount: 255,
+    memberCount: 110,
     maxMemberCount: 1000,
     role: 'member',
     listed: true,
@@ -82,7 +82,7 @@ function App() {
     <QueryClientProvider client={query}>
       <RelationshipDirectoryContext.Provider
         value={{
-          friends: new Map([['u_member8', {}]]),
+          friends: new Map([['u_member108', {}]]),
           friendsComplete: true,
           groups: new Map([['12345', { listed: true, role: admin ? 'admin' : 'member' }]]),
         }}

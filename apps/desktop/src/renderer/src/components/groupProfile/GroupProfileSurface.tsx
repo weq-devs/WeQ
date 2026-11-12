@@ -56,7 +56,7 @@ function GroupProfileBody({
   onOpenMember,
   ...location
 }: GroupProfileSurfaceProps & { conversation: GroupConversation }) {
-  const data = useGroupProfile(initial);
+  const data = useGroupProfile(initial, Boolean(embedded));
   const { conversation } = data;
   const openChat = useContext(ChatNavigationContext);
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
@@ -204,17 +204,14 @@ function GroupProfileBody({
           />
         ) : (
           <GroupCardContent
+            key={`${data.scope}:${conversation.id}`}
             conversation={conversation}
             metrics={data.metrics}
-            members={members}
-            onOpenMembers={
-              canOpenWorkspace
-                ? () => {
-                    close();
-                    openWorkspace?.({ kind: 'group', conversation, section: 'members' });
-                  }
-                : undefined
-            }
+            ownerUid={data.ownerUid}
+            onOpenMember={(value, at) => {
+              if (conversation.generated && onOpenMember) onOpenMember(value, at);
+              else setMember({ value, anchor: at, scope: data.scope });
+            }}
           />
         )}
         {/* 完整资料页的操作已在页头渲染；这里再来一条会重复操作，并因吸底样式

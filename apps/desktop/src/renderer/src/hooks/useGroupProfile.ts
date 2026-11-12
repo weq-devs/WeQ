@@ -52,7 +52,7 @@ export function useGroupReadScope() {
     refreshScope: config.refetch,
   };
 }
-export function useGroupProfile(conversation: GroupConversation) {
+export function useGroupProfile(conversation: GroupConversation, previewMembers = true) {
   const { active, binding, key, refreshScope } = useGroupReadScope();
   const enabled =
     active && Boolean(binding) && !conversation.generated && /^[1-9]\d{0,9}$/.test(conversation.id);
@@ -68,6 +68,7 @@ export function useGroupProfile(conversation: GroupConversation) {
       ...PROFILE_QUERY_OPTIONS,
       enabled:
         enabled &&
+        previewMembers &&
         conversation.members
           .slice(0, 32)
           .filter((member) => member.memberFlag !== 1 && member.identityValue !== '0').length < 8,

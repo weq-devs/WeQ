@@ -1,6 +1,6 @@
-import { useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Pencil } from 'lucide-react';
-import type { GroupConversation } from '../../im-template/template/types';
+import { useContext, useLayoutEffect, useRef, useState } from 'react';
+import { Pencil } from 'lucide-react';
+import type { GroupConversation, GroupMember } from '../../im-template/template/types';
 import { Avatar } from '../../im-template/template/primitives';
 import { RelationshipDirectoryContext, useGroupRelationship } from '../../lib/contactRelationship';
 import type { useGroupProfile } from '../../hooks/useGroupProfile';
@@ -11,6 +11,7 @@ import { CopyButton } from '../CopyButton';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { openMediaPreview } from '../mediaPreviewStore';
 import { GroupFreezeNotice, GroupTags, groupCreationDate } from './GroupContent';
+import { GroupCardMemberList } from './GroupCardMemberList';
 import '../../styles/group-quick-card.css';
 
 type ProfileData = ReturnType<typeof useGroupProfile>;
@@ -100,19 +101,18 @@ export function GroupCardIdentity({
 export function GroupCardContent({
   conversation,
   metrics,
-  members,
-  onOpenMembers,
+  ownerUid,
+  onOpenMember,
 }: {
   conversation: GroupConversation;
   metrics: ProfileData['metrics'];
-  members: ReactNode;
-  onOpenMembers?: () => void;
+  ownerUid?: string;
+  onOpenMember: (member: GroupMember, anchor: { x: number; y: number }) => void;
 }) {
   const { group, generated } = conversation;
-  const directory = useContext(RelationshipDirectoryContext);
-  const relationship = useGroupRelationship(group);
-  const role =
-    directory?.groups.get(conversation.id)?.role ?? (group.roleKnown ? group.role : null);
+  const [list, setList] = useState<{ kind: 'members' | 'friends'; anchor: HTMLElement } | null>(
+    null,
+  );
   const friend = metrics?.friendCount;
   const friendCount =
     typeof friend?.value === 'number' &&
@@ -120,10 +120,6 @@ export function GroupCardContent({
     friend.value >= 0 &&
     (friend.updatedAt ?? 0) > 0
       ? friend.value
-      : null;
-  const roleLabel =
-    relationship === 'member' && role
-      ? { owner: '群主', admin: '管理员', member: '成员' }[role]
       : null;
   const created = groupCreationDate(group.createTime);
   const hasTags = Boolean(
@@ -147,35 +143,46 @@ export function GroupCardContent({
           <ContactRow label="创建时间" value={created || null} />
         </ContactSection>
       ) : null}
-      {roleLabel || friendCount !== null ? (
-        <ContactSection title="与我的关系">
-          <ContactRow label="我的身份" value={roleLabel} />
-          <ContactRow label="群内好友" value={friendCount === null ? null : `${friendCount} 人`} />
-        </ContactSection>
-      ) : null}
-      <ContactSection
-        title="成员"
-        action={
-          onOpenMembers ? (
-            <button
-              type="button"
-              className="weq-profile-section-action"
-              aria-label="查看全部群成员"
-              onClick={onOpenMembers}
-            >
-              {count || '查看全部'}
-              <ChevronRight size={14} />
-            </button>
-          ) : count ? (
-            <span className="weq-group-count">{count}</span>
-          ) : undefined
-        }
-      >
-        {members}
+      <ContactSection title="成员">
         {group.maxMemberCount ? (
           <ContactRow label="群容量" value={`${group.maxMemberCount} 人`} />
         ) : null}
+        <ContactRow label="群成员数">
+          <button
+            type="button"
+            className="weq-contact-value"
+            aria-label="查看群成员列表"
+            title="查看群成员列表"
+            onClick={(event) => setList({ kind: 'members', anchor: event.currentTarget })}
+          >
+            {count || '查看'}
+          </button>
+        </ContactRow>
+        {!generated ? (
+          <ContactRow label="群内好友数">
+            <button
+              type="button"
+              className="weq-contact-value"
+              aria-label="查看群内好友列表"
+              title="查看群内好友列表"
+              onClick={(event) => setList({ kind: 'friends', anchor: event.currentTarget })}
+            >
+              {friendCount === null ? '查看' : `${friendCount} 人`}
+            </button>
+          </ContactRow>
+        ) : null}
       </ContactSection>
+      {list ? (
+        <GroupCardMemberList
+          key={list.kind}
+          conversation={conversation}
+          ownerUid={ownerUid}
+          kind={list.kind}
+          anchor={list.anchor}
+          onClose={() => setList(null)}
+          onOpenMember={onOpenMember}
+        />
+      ) : null}
     </div>
   );
 }

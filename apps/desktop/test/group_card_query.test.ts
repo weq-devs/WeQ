@@ -54,7 +54,7 @@ afterEach(() => {
   for (const fn of cleanup.splice(0)) fn();
   vi.unstubAllGlobals();
 });
-function fixture(input = group) {
+function fixture(input = group, previewMembers = true) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mock.config = 'source-a';
   mock.detail.mockReset().mockResolvedValue(null);
@@ -71,7 +71,7 @@ function fixture(input = group) {
     query.clear();
   });
   function Probe() {
-    const result = useGroupProfile(input);
+    const result = useGroupProfile(input, previewMembers);
     return h(
       'span',
       null,
@@ -85,6 +85,15 @@ function fixture(input = group) {
   }
   return { host, render };
 }
+it('快速名片关闭成员预览查询，完整资料页保留原来的预览读取', async () => {
+  const { render } = fixture(group, false);
+  render();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  expect(mock.detail).toHaveBeenCalledOnce();
+  expect(mock.preview).not.toHaveBeenCalled();
+});
 it('名片和资料页重用查询，不查询公告／扩展资料；inactive 不启动读取', async () => {
   const { render } = fixture();
   render(false);

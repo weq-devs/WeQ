@@ -25,6 +25,19 @@ vi.mock('../src/renderer/src/hooks/useGroupProfile', () => ({ useGroupProfile: m
 vi.mock('../src/renderer/src/components/groupProfile/GroupWorkspace', () => ({
   GroupWorkspace: () => h('div', null, '完整资料页'),
 }));
+vi.mock('../src/renderer/src/components/groupProfile/GroupCardMemberList', () => ({
+  GroupCardMemberList: ({ kind, conversation, onClose, onOpenMember }) =>
+    h(
+      'div',
+      { role: 'dialog', 'aria-label': kind === 'members' ? '群成员' : '群内好友' },
+      h(
+        'button',
+        { onClick: () => onOpenMember(conversation.members[0], { x: 10, y: 10 }) },
+        '查看成员甲',
+      ),
+      h('button', { onClick: onClose }, '关闭名单'),
+    ),
+}));
 vi.mock('../src/renderer/src/components/MemberProfileCard', () => ({
   MemberProfileCard: ({ member, groupCode, onClose }) =>
     h(
@@ -118,21 +131,30 @@ it('名片首屏保留本地身份，公告／入群问题／扩展指标不进�
   ).toBe('我的备注');
   // 好友数走共用数据行（label 96px + 值列），真实零值保留。
   const friendRow = [...host.querySelectorAll('.weq-profile-data-row')].find(
-    (row) => row.querySelector('.weq-profile-data-label')?.textContent === '群内好友',
+    (row) => row.querySelector('.weq-profile-data-label')?.textContent === '群内好友数',
   )!;
   expect(friendRow.querySelector('.weq-profile-data-value')?.textContent).toBe('0 人');
   expect(host.textContent).not.toContain('不应出现');
   expect(host.textContent).not.toContain('扩展资料');
   const text = host.querySelector('.weq-group-description p')!;
   expect(text.classList.contains('is-clamped')).toBe(true);
-  expect(host.querySelectorAll('.weq-profile-subtitle')).toHaveLength(3);
-  act(() => (host.querySelector('.weq-group-preview-avatars button') as HTMLButtonElement).click());
-  expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(2);
+  expect(
+    [...host.querySelectorAll('.weq-profile-subtitle')].map((node) => node.textContent),
+  ).toEqual(['群资料', '成员']);
+  expect(host.textContent).not.toContain('与我的关系');
+  expect(host.querySelector('.weq-group-preview-avatars')).toBeNull();
+  const labels = [...host.querySelectorAll('.weq-profile-data-label')].map(
+    (node) => node.textContent,
+  );
+  expect(labels.slice(-3)).toEqual(['群容量', '群成员数', '群内好友数']);
+  act(() => (host.querySelector('[aria-label="查看群成员列表"]') as HTMLButtonElement).click());
+  act(() => (host.querySelector('[aria-label="群成员"] button') as HTMLButtonElement).click());
+  expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(3);
   expect(host.textContent).toContain('u_1:12345');
   act(() => (host.querySelector('[aria-label="成员名片"] button') as HTMLButtonElement).click());
-  expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(2);
 });
-it('短简介不显示展开，完整资料入口移到右上角，成员数量直达现有成员页', () => {
+it('短简介不显示展开，成员和好友数量打开旁侧名单而不关闭名片或跳资料页', () => {
   const conversation = { ...group, group: { ...group.group, description: '短简介' } };
   mock.profile.mockReturnValue({
     conversation,
@@ -155,9 +177,15 @@ it('短简介不显示展开，完整资料入口移到右上角，成员数量�
   expect(host.querySelector('.weq-profile-card-actions')?.textContent).not.toContain('完整群资料');
   act(() => (host.querySelector('.weq-profile-expand') as HTMLButtonElement).click());
   expect(navigate).toHaveBeenLastCalledWith({ kind: 'group', conversation });
-  act(() => (host.querySelector('[aria-label="查看全部群成员"]') as HTMLButtonElement).click());
-  expect(navigate).toHaveBeenLastCalledWith({ kind: 'group', conversation, section: 'members' });
-  expect(close).toHaveBeenCalledTimes(2);
+  act(() => (host.querySelector('[aria-label="查看群成员列表"]') as HTMLButtonElement).click());
+  expect(host.querySelector('[aria-label="群成员"]')).not.toBeNull();
+  act(() =>
+    (host.querySelector('[aria-label="群成员"] button:last-child') as HTMLButtonElement).click(),
+  );
+  act(() => (host.querySelector('[aria-label="查看群内好友列表"]') as HTMLButtonElement).click());
+  expect(host.querySelector('[aria-label="群内好友"]')).not.toBeNull();
+  expect(navigate).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
 });
 it('完整群资料页只在页头渲染一条操作行，不再吸底重复', () => {
   mock.profile.mockReturnValue({

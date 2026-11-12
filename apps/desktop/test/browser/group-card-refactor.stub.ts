@@ -58,7 +58,7 @@ async function reply(path: string, input) {
         '12345': {},
         'group:12345': {
           friendCount: {
-            value: 0,
+            value: 1,
             updatedAt: 1794380000000,
             attemptedAt: 1794380000000,
             state: 'ready',
@@ -82,7 +82,10 @@ async function reply(path: string, input) {
       error: null,
     };
   if (path === 'account.listGroupMembers')
-    return input.offset ? [] : Array.from({ length: 10 }, (_, i) => row(i + 1));
+    return Array.from(
+      { length: Math.max(0, Math.min(input.limit ?? 100, 110 - input.offset)) },
+      (_, i) => row(input.offset + i + 1),
+    );
   if (path === 'account.searchGroupMembers') return { members: [row(3)], total: 1 };
   if (path === 'account.getGroupEssencePageWithContent') return { complete: true, messages: [] };
   if (path === 'account.qqActions.groupReadTools')

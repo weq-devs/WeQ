@@ -61,20 +61,27 @@ try {
   assert.equal(firstPaint.hasDescription, true);
   assert.equal(firstPaint.avatars, 0);
   assert.equal(await page.getByText('只在完整资料显示的公告', { exact: true }).count(), 0);
-  await page.locator('.weq-group-preview-avatars button').nth(7).waitFor();
-  assert.equal(await page.locator('.weq-group-preview-avatars button').count(), 8);
-  assert.match(
-    await page.locator('.weq-group-preview-avatars button').first().getAttribute('title'),
-    /8/,
-  );
+  assert.equal(await page.locator('.weq-group-preview-avatars').count(), 0);
   const calls = await page.evaluate(() => window.groupCardCalls);
   assert.equal(calls.includes('account.getGroupExtendedProfile'), false);
   assert.equal(calls.includes('account.listGroupMembers'), false);
-  assert.equal(calls.filter((x) => x === 'account.groupMemberPreview').length, 1);
+  assert.equal(calls.includes('account.groupMemberPreview'), false);
   assert.equal(await page.locator('.weq-group-quick-identity .weq-profile-id').count(), 0);
   assert.deepEqual(
     await page.locator('.weq-group-quick-card .weq-profile-subtitle').allTextContents(),
-    ['群资料', '与我的关系', '成员'],
+    ['群资料', '成员'],
+  );
+  assert.equal(
+    await page
+      .locator('.weq-group-quick-card .weq-group-tags')
+      .evaluate((element) => getComputedStyle(element).borderTopWidth),
+    '0px',
+  );
+  assert.deepEqual(
+    (await page.locator('.weq-group-quick-card .weq-profile-data-label').allTextContents()).slice(
+      -3,
+    ),
+    ['群容量', '群成员数', '群内好友数'],
   );
   const cardActions = page.locator('.weq-group-quick-card .weq-profile-card-actions');
   assert.equal(await cardActions.locator('button.weq-contact-secondary').count(), 2);
@@ -82,11 +89,28 @@ try {
   await page.getByRole('button', { name: '展开', exact: true }).click();
   assert.equal(await page.locator('.weq-group-description .is-clamped').count(), 0);
   await page.getByRole('button', { name: '收起', exact: true }).click();
-  await page.locator('.weq-group-preview-avatars button').first().click();
+  await page.getByRole('button', { name: '查看群成员列表', exact: true }).click();
+  const memberList = page.getByRole('dialog', { name: '群成员', exact: true });
+  await memberList.getByRole('button', { name: '查看 成员 100 的资料', exact: true }).waitFor();
+  await memberList.locator('ul').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await memberList.getByRole('button', { name: '查看 成员 110 的资料', exact: true }).waitFor();
+  assert.ok((await memberList.boundingBox()).height <= 481);
+  await memberList.getByRole('searchbox', { name: '搜索群成员' }).fill('成员3');
+  await memberList.getByRole('button', { name: '查看 成员 3 的资料', exact: true }).waitFor();
+  await page.waitForFunction(
+    () => document.querySelectorAll('.weq-group-card-member-list li').length === 1,
+  );
+  await memberList.getByRole('searchbox', { name: '搜索群成员' }).fill('');
+  await memberList.getByRole('button', { name: '查看 成员 1 的资料', exact: true }).click();
   await page.getByRole('dialog', { name: '用户资料', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('dialog', { name: '用户资料', exact: true }).waitFor({ state: 'detached' });
   await page.getByRole('dialog', { name: '群资料', exact: true }).waitFor();
+  await memberList.waitFor();
+  await page.keyboard.press('Escape');
+  await memberList.waitFor({ state: 'detached' });
   if (output) await mkdir(output, { recursive: true });
   for (const width of [1180, 390, 320])
     for (const theme of ['light', 'dark']) {
@@ -123,6 +147,18 @@ try {
       assert.deepEqual(buttons[0], buttons[1]);
       assert.equal(await cardActions.evaluate((element) => getComputedStyle(element).gap), '8px');
       if (output) await page.screenshot({ path: resolve(output, `card-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: '查看群内好友列表', exact: true }).click();
+      const friends = page.getByRole('dialog', { name: '群内好友', exact: true });
+      await friends.getByRole('button', { name: '查看 成员 108 的资料', exact: true }).waitFor();
+      assert.equal(await friends.locator('li').count(), 1);
+      assert.equal(await friends.locator('li').first().textContent(), '成员 10810108');
+      const popup = await friends.boundingBox();
+      assert.ok(popup.x >= 0 && popup.x + popup.width <= width + 1);
+      if (output) await page.screenshot({ path: resolve(output, `friends-${width}-${theme}.png`) });
+      await friends.getByRole('searchbox', { name: '搜索群内好友' }).fill('没有匹配');
+      await friends.getByText('没有匹配的成员', { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      await friends.waitFor({ state: 'detached' });
     }
   await page.evaluate(() => window.groupCardQa.short());
   await page.waitForFunction(
@@ -168,9 +204,6 @@ try {
   await page.waitForFunction(() => !document.querySelector('.weq-group-description'));
   assert.equal(await page.getByRole('heading', { name: '群资料', exact: true }).count(), 0);
   await page.evaluate(() => window.groupCardQa.normal());
-  await page.getByRole('button', { name: '查看全部群成员', exact: true }).click();
-  await page.getByRole('textbox', { name: '搜索群成员' }).waitFor();
-  await page.evaluate(() => window.groupCardQa.card());
   await page.setViewportSize({ width: 1180, height: 900 });
   await page.getByRole('button', { name: '打开完整群资料', exact: true }).first().click();
   await page.getByRole('navigation', { name: '群详情分区' }).waitFor();
@@ -241,9 +274,12 @@ try {
       'short-description-no-toggle',
       'admin-title-edit-without-duplicate',
       'narrow-title-editor-save-and-escape',
-      'member-count-direct-navigation',
+      'member-and-friend-count-popovers',
+      'member-list-scroll-pagination-and-search',
+      'friend-on-second-page',
+      'tags-without-management-border',
       'six-quick-card-theme-captures',
-      'eight-friend-priority',
+      'no-preview-avatar-or-preview-request',
       'no-heavy-card-requests',
       'nested-return',
       'shared-directory',
