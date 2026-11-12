@@ -83,7 +83,7 @@ export const exportViewerRouter = router({
           ? await getHost().pickDirectory({ title: '选择 WeQ 导出文件夹' })
           : await getHost().pickFile({
               title: '选择聊天 JSON / JSONL',
-              extensions: ['json', 'jsonl'],
+              extensions: ['json', 'jsonl', 'gz'],
             });
       if (!path) return null;
       if (input.directory) {

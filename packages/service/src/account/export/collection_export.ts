@@ -551,7 +551,7 @@ export async function exportCollections(
         });
     }
   }
-  if (opts.format === 'json' || opts.format === 'jsonl')
+  if (opts.format === 'json' || opts.format === 'jsonl' || opts.format === 'jsonl.gz')
     await writeCollectionArchive(rows, coverage, opts.outputPath, opts.format, opts.archive);
   else await writeTable(opts.format, COLLECTION_COLS, rows, opts.outputPath, '收藏');
   opts.signal?.throwIfAborted();

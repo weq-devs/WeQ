@@ -253,7 +253,9 @@ export const electronHost: HostBridge = {
         dialogLocations().directory(key) ?? (await defaultSaveDirectory(defaultDirectory)),
         basename(defaultName),
       ),
-      filters: extension ? [{ name: 'File', extensions: [extension] }] : undefined,
+      filters: extension
+        ? [{ name: 'File', extensions: [extension === 'jsonl.gz' ? 'gz' : extension] }]
+        : undefined,
     });
     if (result.canceled || !result.filePath) return null;
     dialogLocations().remember(key, result.filePath);

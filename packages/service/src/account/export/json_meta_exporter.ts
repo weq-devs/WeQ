@@ -48,7 +48,7 @@ export interface JsonMetaExportOptions {
   /** Conversation display name (fallback for meta.name when unresolvable). */
   name?: string;
   outputPath: string;
-  format: 'json' | 'jsonl';
+  format: 'json' | 'jsonl' | 'jsonl.gz';
   range?: ExportTimeRange;
   progressEvery?: number;
   onProgress?: ProgressCallback;

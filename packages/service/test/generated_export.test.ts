@@ -49,41 +49,44 @@ const targets: GeneratedContentTarget[] = [
   { kind: 'group', ownerId: 'group-fixture', sessionId: null },
   { kind: 'assistant', ownerId: 'assistant', sessionId: 's' },
 ];
-it('生成对话增量复用正式 JSONL 与确认快照，不重新读取模型或追加重复正文', async () => {
-  const f = fixture();
-  const root = mkdtempSync(join(tmpdir(), 'weq-generated-update-'));
-  roots.push(root);
-  const manager = new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root));
-  const snapshot = captureGeneratedContent(f.sources, {
-    kind: 'assistant',
-    ownerId: 'assistant',
-    sessionId: 's',
-  });
-  const id = await manager.startTask({
-    kind: 'c2c',
-    conv: 'generated',
-    name: '合成生成对话',
-    format: 'jsonl',
-    total: 3,
-    generated: snapshot,
-  });
-  await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
-  const saved = manager.getTask(id)!.save!.path!;
-  const path = join(saved, '合成生成对话.jsonl');
-  const prefix = readFileSync(path, 'utf8');
-  f.get.mockClear();
-  f.messages.length = 0;
-  expect(manager.resumeTask(id, true)).toBe(true);
-  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
-  expect(manager.getTask(id)?.error).toBeUndefined();
-  expect(manager.getTask(id)?.filePath).toBe(path);
-  expect(readFileSync(path, 'utf8').startsWith(prefix)).toBe(true);
-  const { readArchiveFile } = await import('../src/account/export/archive');
-  const { archive } = await readArchiveFile(path, 'jsonl');
-  expect(archive.records).toHaveLength(3);
-  expect(archive.observations).toHaveLength(6);
-  expect(f.get).not.toHaveBeenCalled();
-});
+it.each(['jsonl', 'jsonl.gz'] as const)(
+  '生成对话增量复用正式 %s 与确认快照，不重新读取模型或追加重复正文',
+  async (format) => {
+    const f = fixture();
+    const root = mkdtempSync(join(tmpdir(), 'weq-generated-update-'));
+    roots.push(root);
+    const manager = new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root));
+    const snapshot = captureGeneratedContent(f.sources, {
+      kind: 'assistant',
+      ownerId: 'assistant',
+      sessionId: 's',
+    });
+    const id = await manager.startTask({
+      kind: 'c2c',
+      conv: 'generated',
+      name: '合成生成对话',
+      format,
+      total: 3,
+      generated: snapshot,
+    });
+    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    const saved = manager.getTask(id)!.save!.path!;
+    const path = join(saved, `合成生成对话.${format}`);
+    const prefix = readFileSync(path);
+    f.get.mockClear();
+    f.messages.length = 0;
+    expect(manager.resumeTask(id, true)).toBe(true);
+    await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+    expect(manager.getTask(id)?.error).toBeUndefined();
+    expect(manager.getTask(id)?.filePath).toBe(path);
+    expect(readFileSync(path).subarray(0, prefix.length)).toEqual(prefix);
+    const { readArchiveFile } = await import('../src/account/export/archive');
+    const { archive } = await readArchiveFile(path, format);
+    expect(archive.records).toHaveLength(3);
+    expect(archive.observations).toHaveLength(6);
+    expect(f.get).not.toHaveBeenCalled();
+  },
+);
 it('表格区分 null 旧版身份与名称恰为 legacy 的真实会话', async () => {
   const f = fixture();
   const root = mkdtempSync(join(tmpdir(), 'weq-generated-identity-'));

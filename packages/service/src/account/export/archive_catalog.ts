@@ -5,7 +5,7 @@ import { readArchiveHeader } from './archive_stream';
 import type { ExportBaselineEntry } from './baseline';
 
 export interface FormalArchiveEntry extends ExportBaselineEntry {
-  formal: { path: string; format: 'json' | 'jsonl'; archiveId: string };
+  formal: { path: string; format: 'json' | 'jsonl' | 'jsonl.gz'; archiveId: string };
 }
 /** 有界探索；归档身份来自 header，不以文件名或目录名猜测会话。 */
 export async function listFormalArchives(directory: string): Promise<FormalArchiveEntry[]> {
@@ -16,20 +16,23 @@ export async function listFormalArchives(directory: string): Promise<FormalArchi
   else {
     const entries = await readdir(root, { withFileTypes: true });
     for (const entry of entries.slice(0, 512)) {
-      if (entry.isFile() && /\.jsonl?$/i.test(entry.name)) candidates.push(join(root, entry.name));
+      if (entry.isFile() && /\.(?:json|jsonl(?:\.gz)?)$/i.test(entry.name))
+        candidates.push(join(root, entry.name));
       else if (entry.isDirectory() && !entry.name.startsWith('.')) {
         for (const file of (await readdir(join(root, entry.name), { withFileTypes: true })).slice(
           0,
           128,
         ))
-          if (file.isFile() && /\.jsonl?$/i.test(file.name))
+          if (file.isFile() && /\.(?:json|jsonl(?:\.gz)?)$/i.test(file.name))
             candidates.push(join(root, entry.name, file.name));
       }
     }
   }
   const found: FormalArchiveEntry[] = [];
   for (const path of candidates.slice(0, 512)) {
-    for (const format of ['json', 'jsonl'] as const) {
+    for (const format of (path.toLowerCase().endsWith('.jsonl.gz')
+      ? ['jsonl.gz']
+      : ['json', 'jsonl']) as Array<'json' | 'jsonl' | 'jsonl.gz'>) {
       try {
         const header = await readArchiveHeader(path, format);
         const selection = object(object(object(header.scope).selection).value);
@@ -65,7 +68,7 @@ export async function resolveArchiveTargets(
   selected: string,
   conversation: { kind: string; conv: string },
   formats: string[],
-): Promise<Partial<Record<'json' | 'jsonl', string>> | undefined> {
+): Promise<Partial<Record<'json' | 'jsonl' | 'jsonl.gz', string>> | undefined> {
   const info = await lstat(selected);
   const entries = (await listFormalArchives(selected)).filter(
     (entry) => entry.kind === conversation.kind && entry.conv === conversation.conv,
@@ -74,9 +77,9 @@ export async function resolveArchiveTargets(
   const ids = new Set(entries.map((entry) => entry.formal.archiveId));
   if (ids.size !== 1) throw new Error('找到多个相同会话的正式归档，请选择具体归档文件。');
   const siblings = info.isFile() ? await listFormalArchives(dirname(selected)) : entries;
-  const result: Partial<Record<'json' | 'jsonl', string>> = {};
+  const result: Partial<Record<'json' | 'jsonl' | 'jsonl.gz', string>> = {};
   for (const format of formats)
-    if (format === 'json' || format === 'jsonl') {
+    if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') {
       const matches = siblings.filter(
         (entry) =>
           entry.formal.archiveId === entries[0]!.formal.archiveId && entry.formal.format === format,

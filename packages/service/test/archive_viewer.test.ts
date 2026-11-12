@@ -37,7 +37,7 @@ describe('正式归档查看投影', () => {
         observedAt: { unixSeconds: time, precision: 'nanosecond' },
       },
     );
-  it.each(['json', 'jsonl'] as const)(
+  it.each(['json', 'jsonl', 'jsonl.gz'] as const)(
     '最新局部观察不能抹掉完整旧正文，%s 流式与内存查看一致',
     async (format) => {
       const root = await mkdtemp(join(tmpdir(), 'weq-view-'));
@@ -53,7 +53,12 @@ describe('正式归档查看投影', () => {
         expect(JSON.stringify(projected)).toContain('已有正文');
         expect(JSON.stringify(projected)).toContain('最新观察正文不完整');
         const path = join(root, `view.${format}`);
-        await writeArchiveEntries(path, format, { ...header, formats: [format] }, entries);
+        await writeArchiveEntries(
+          path,
+          format,
+          { ...header, formats: [format === 'jsonl.gz' ? 'jsonl' : format] },
+          entries,
+        );
         const stream = [];
         for await (const value of streamArchiveViewerValues(path, format)) stream.push(value);
         expect(JSON.stringify(stream)).toContain('已有正文');

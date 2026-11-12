@@ -417,7 +417,10 @@ export function ExportLightbox({
   async function changeContent(content: ExportContentPolicy): Promise<void> {
     let next = content;
     if (
-      (opts.chatlab || !formats.some((format) => format === 'json' || format === 'jsonl')) &&
+      (opts.chatlab ||
+        !formats.some(
+          (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+        )) &&
       addedStructuredContent(contentPolicy, next)
     ) {
       setRequestingFormat(true);
@@ -484,7 +487,9 @@ export function ExportLightbox({
         isMessageFlow &&
         requiresStructuredExport(selectedContent) &&
         (selectedChatlab ||
-          !selectedFormats.some((format) => format === 'json' || format === 'jsonl'))
+          !selectedFormats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          ))
       ) {
         if (await askForJson()) {
           selectedFormats = selectedFormats.includes('json')
@@ -529,13 +534,17 @@ export function ExportLightbox({
         baselineDirectory:
           allowContinuation &&
           !remote &&
-          selectedFormats.some((format) => format === 'json' || format === 'jsonl')
+          selectedFormats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          )
             ? baselineDirectory
             : undefined,
         baselineByConversation:
           allowContinuation &&
           !remote &&
-          selectedFormats.some((format) => format === 'json' || format === 'jsonl')
+          selectedFormats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          )
             ? baselineByConversation
             : undefined,
         saveAsDefault,
@@ -701,7 +710,9 @@ export function ExportLightbox({
           !remote &&
           variant === 'full' &&
           !opts.chatlab &&
-          formats.some((format) => format === 'json' || format === 'jsonl') ? (
+          formats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          ) ? (
             <div className="weq-export-baseline">
               <span>继续更新归档</span>
               <input

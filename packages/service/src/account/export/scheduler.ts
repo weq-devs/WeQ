@@ -430,7 +430,10 @@ export class ExportScheduler extends EventEmitter {
         const id = await this.deps.taskManager.startTask({
           autoOpenTaskList: reason === 'manual',
           baselineDirectory:
-            !t.chatlab && formats.some((format) => format === 'json' || format === 'jsonl')
+            !t.chatlab &&
+            formats.some(
+              (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+            )
               ? t.archives?.[`${c.kind}:${c.id}`]
               : undefined,
           content: t.options.content,

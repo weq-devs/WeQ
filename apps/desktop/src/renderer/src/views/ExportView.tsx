@@ -290,8 +290,8 @@ function fmtSeconds(sec: number): string {
 }
 
 /** QQ 空间导出格式收窄：html 直通，其余非 txt 一律回退 json。 */
-function qzoneFormatOf(f: ExportFormat): 'json' | 'jsonl' | 'txt' | 'html' {
-  if (f === 'jsonl') return 'jsonl';
+function qzoneFormatOf(f: ExportFormat): 'json' | 'jsonl' | 'jsonl.gz' | 'txt' | 'html' {
+  if (f === 'jsonl' || f === 'jsonl.gz') return f;
   if (f === 'txt') return 'txt';
   if (f === 'html') return 'html';
   return 'json';
@@ -753,18 +753,21 @@ function ExportToolBody({
     };
   }, []);
 
-  // 好友空间 only json/txt/html; 联系人受子类限制 — clamp。
+  // 空间与联系人各自限制可用格式。
   useEffect(() => {
-    if (mode === 'qzone' && format !== 'json' && format !== 'txt' && format !== 'html')
+    if (mode === 'qzone' && !['json', 'jsonl', 'jsonl.gz', 'txt', 'html'].includes(format))
       setFormat('json');
     if (mode === 'contacts') {
       const allowed =
         contactScope === 'friends'
-          ? ['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']
-          : ['json', 'jsonl', 'csv', 'xlsx', 'txt'];
+          ? ['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt', 'vcard']
+          : ['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt'];
       if (!allowed.includes(format)) setFormat('csv');
     }
-    if (mode === 'collection' && !['json', 'csv', 'xlsx', 'txt'].includes(format))
+    if (
+      mode === 'collection' &&
+      !['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt'].includes(format)
+    )
       setFormat('json');
     // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
     if (mode !== 'contacts' && format === 'vcard') setFormat('json');
@@ -1308,7 +1311,9 @@ function ExportToolBody({
     }
     const binding = { expectedAccountUin: account.uin, expectedAccountConfigId: account.configId };
     // 联系人格式收窄到 startContactsExport 接受的集合（灯箱 chips 已保证）。
-    const cfmts = [...formats] as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
+    const cfmts = [...formats] as Array<
+      'json' | 'jsonl' | 'jsonl.gz' | 'csv' | 'xlsx' | 'txt' | 'vcard'
+    >;
     const cats = [...catSelection];
     const groupIds = groupListIds === undefined ? undefined : [...groupListIds];
     const selectedFriends = friendUids === undefined ? undefined : [...friendUids];
@@ -1404,7 +1409,7 @@ function ExportToolBody({
   async function runCollectionExport(): Promise<void> {
     const intent = saveIntent.current;
     const binding = saveBinding;
-    const cfmt = format as 'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt';
+    const cfmt = format as 'json' | 'jsonl' | 'jsonl.gz' | 'csv' | 'xlsx' | 'txt';
     const structured = structuredExportOptions(collectionStructured, [cfmt]);
     const kinds = [...collectionKinds];
     const cids = [...(collectionIds ?? filteredCollectionIds)];

@@ -7,6 +7,12 @@ import { dirname } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020';
 import { syncArchiveDirectory } from './archive_resource';
 import { bufferedFileWriter } from './stream_utils';
+import {
+  compressedArchiveWriter,
+  compressedArchiveBlocks,
+  compressArchiveBlock,
+  type ArchiveFormat,
+} from './archive_compression';
 import addFormats from 'ajv-formats';
 import archiveSchema from '../../../../../schemas/export/v1/archive.schema.json';
 import commonSchema from '../../../../../schemas/export/v1/common.schema.json';
@@ -33,7 +39,7 @@ export interface ArchiveOptions {
   accountUin?: string;
   partition?: string;
   archiveId?: string;
-  formats?: Array<'json' | 'jsonl'>;
+  formats?: ArchiveFormat[];
   selection?: Json;
 }
 export type ArchiveHeader = Pick<
@@ -174,7 +180,13 @@ export function actor(uin?: string, uid?: string, name?: string): JsonObject {
   return { identities, ...(name === undefined ? {} : { name }) };
 }
 export function archiveHeader(options: ArchiveOptions = {}): ArchiveHeader {
-  const formats = [...new Set(options.formats?.length ? options.formats : (['json'] as const))];
+  const formats = [
+    ...new Set(
+      (options.formats?.length ? options.formats : (['json'] as const)).map((format) =>
+        format === 'jsonl.gz' ? 'jsonl' : format,
+      ),
+    ),
+  ];
   const account = actor(options.accountUin);
   return {
     format: 'weq-export',
@@ -617,7 +629,7 @@ export class ArchiveGraph {
 /** 大会话流式写入：JSON 的观察暂存于同目录，结束后拼接并移除；JSONL 分批提交。 */
 export async function writeArchiveEntries(
   path: string,
-  format: 'json' | 'jsonl',
+  format: ArchiveFormat,
   header: ArchiveHeader,
   entries: AsyncIterable<ArchiveEntry> | Iterable<ArchiveEntry>,
   options: { retainInterrupted?: boolean } = {},
@@ -628,7 +640,7 @@ export async function writeArchiveEntries(
   const file = await open(temporary, 'wx', 0o600);
   const observations = await open(observationPath, 'wx', 0o600);
   const resources = await open(resourcePath, 'wx', 0o600);
-  const output = bufferedFileWriter(file),
+  const output = format === 'jsonl.gz' ? compressedArchiveWriter(file) : bufferedFileWriter(file),
     observationOutput = bufferedFileWriter(observations),
     resourceOutput = bufferedFileWriter(resources);
   const revisions = new Set<string>(),
@@ -657,7 +669,7 @@ export async function writeArchiveEntries(
   };
   const commit = async () => {
     graph.finish();
-    await output.flush();
+    if (format !== 'jsonl.gz') await output.flush();
     await file.sync();
     const entry = {
       type: 'commit',
@@ -685,7 +697,7 @@ export async function writeArchiveEntries(
       resources: [],
     });
     await output.write(
-      format === 'jsonl'
+      format !== 'json'
         ? `${canonical({ type: 'header', header })}\n`
         : `${canonical(header).slice(0, -1)},"records":[`,
     );
@@ -706,14 +718,14 @@ export async function writeArchiveEntries(
         if (!revisions.has(key(entry.record))) {
           revisions.add(key(entry.record));
           graph.record(entry.record);
-          if (format === 'jsonl') await emit('revision', entry.record);
+          if (format !== 'json') await emit('revision', entry.record);
           else await output.write(`${recordCount ? ',' : ''}${canonical(entry.record)}`);
           recordCount++;
         }
         for (const observation of sourceObservations) {
           assert(!observationIds.has(String(observation.id)), '重复来源观察');
           observationIds.add(String(observation.id));
-          if (format === 'jsonl') await emit('observation', observation);
+          if (format !== 'json') await emit('observation', observation);
           else
             await observationOutput.write(
               `${observationCount ? ',' : ''}${canonical(observation)}`,
@@ -726,11 +738,11 @@ export async function writeArchiveEntries(
           if (resourceKeys.has(resourceKey)) continue;
           resourceKeys.add(resourceKey);
           graph.resource(resource);
-          if (format === 'jsonl') await emit('resource', resource);
+          if (format !== 'json') await emit('resource', resource);
           else await resourceOutput.write(`${resourceCount ? ',' : ''}${resourceKey}`);
           resourceCount++;
         }
-        if (format === 'jsonl' && batchEntries >= 384 && graph.canCommit()) await commit();
+        if (format !== 'json' && batchEntries >= 384 && graph.canCommit()) await commit();
       }
     } catch (error) {
       if (
@@ -745,7 +757,7 @@ export async function writeArchiveEntries(
         throw error;
     }
     graph.finish();
-    if (format === 'jsonl') {
+    if (format !== 'json') {
       if (batchEntries || sequence === 1n) await commit();
     } else {
       await observationOutput.flush();
@@ -880,7 +892,7 @@ export function decodeArchiveLog(text: string): { archive: Archive; uncommittedT
 /** 独占临时文件与原子发布；失败不截断目标，临时文件不作为正文基线。 */
 export async function writeArchive(
   path: string,
-  format: 'json' | 'jsonl',
+  format: ArchiveFormat,
   archive: Archive,
 ): Promise<void> {
   checkArchiveShape('archive.schema.json', archive);
@@ -889,7 +901,11 @@ export async function writeArchive(
   const file = await open(temporary, 'wx', 0o600);
   try {
     await file.writeFile(
-      format === 'json' ? `${canonical(archive)}\n` : encodeArchiveLog(archive),
+      format === 'jsonl.gz'
+        ? await compressArchiveBlock(encodeArchiveLog(archive))
+        : format === 'json'
+          ? `${canonical(archive)}\n`
+          : encodeArchiveLog(archive),
       'utf8',
     );
     await file.sync();
@@ -904,18 +920,33 @@ export async function writeArchive(
 
 export async function readArchiveFile(
   path: string,
-  format: 'json' | 'jsonl',
+  format: ArchiveFormat,
   signal?: AbortSignal,
 ): Promise<{ archive: Archive; uncommittedTail: boolean }> {
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of createReadStream(path, { signal })) {
+  let compressedEnd = 0;
+  const input =
+    format === 'jsonl.gz'
+      ? (async function* () {
+          for await (const block of compressedArchiveBlocks(path, signal)) {
+            compressedEnd = block.end;
+            yield block.data;
+          }
+        })()
+      : createReadStream(path, { signal });
+  for await (const chunk of input) {
     size += chunk.length;
     assert(size <= 64 * 1024 * 1024, '正式归档超过当前读取器的 64 MiB 上限');
     chunks.push(Buffer.from(chunk));
   }
   const text = Buffer.concat(chunks).toString('utf8');
-  return format === 'jsonl'
-    ? decodeArchiveLog(text)
-    : { archive: readArchive(parseArchiveJson(text)), uncommittedTail: false };
+  if (format === 'json')
+    return { archive: readArchive(parseArchiveJson(text)), uncommittedTail: false };
+  const result = decodeArchiveLog(text);
+  if (format === 'jsonl.gz') {
+    const { stat } = await import('node:fs/promises');
+    result.uncommittedTail ||= (await stat(path)).size > compressedEnd;
+  }
+  return result;
 }

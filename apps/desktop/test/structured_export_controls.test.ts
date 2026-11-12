@@ -17,12 +17,13 @@ describe('结构化导出兼容入口', () => {
         onChange,
       }),
     );
-    expect(html).toContain('仅 json/jsonl 支持增量导出');
+    expect(html).toContain('仅 JSON、JSONL、JSONL（压缩）支持增量导出');
     expect(html).not.toContain('<input');
     expect(onChange).not.toHaveBeenCalled();
     expect(structuredExportOptions({}, ['json'])).toEqual({
       profile: 'full',
       incrementalSupport: true,
     });
+    expect(structuredExportOptions({}, ['jsonl.gz']).incrementalSupport).toBe(true);
   });
 });

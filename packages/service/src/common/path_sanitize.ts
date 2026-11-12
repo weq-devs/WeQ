@@ -86,7 +86,7 @@ export function uniqueName(name: string, used: Set<string>): string {
     used.add(key);
     return name;
   }
-  const ext = extname(name);
+  const ext = fileExtension(name);
   const stem = ext ? name.slice(0, -ext.length) : name;
   for (let i = 2; ; i += 1) {
     const next = `${stem}-${i}${ext}`;
@@ -96,6 +96,11 @@ export function uniqueName(name: string, used: Set<string>): string {
       return next;
     }
   }
+}
+
+/** 导出复合扩展名作为整体保留，包括用户重命名后的大小写。 */
+export function fileExtension(name: string): string {
+  return name.toLowerCase().endsWith('.jsonl.gz') ? name.slice(-9) : extname(name);
 }
 
 /** 把相对路径按 `/` 拆段逐段清洗（防目录穿越 + 非法字符）。 */

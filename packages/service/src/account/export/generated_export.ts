@@ -4,7 +4,14 @@ import type { GeneratedResourceManifest } from './generated_resources';
 import { writeGeneratedArchive } from './archive_domain';
 import type { ArchiveOptions } from './archive';
 
-export const GENERATED_EXPORT_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
+export const GENERATED_EXPORT_FORMATS = [
+  'json',
+  'jsonl',
+  'jsonl.gz',
+  'txt',
+  'csv',
+  'xlsx',
+] as const;
 export type GeneratedExportFormat = (typeof GENERATED_EXPORT_FORMATS)[number];
 type Row = GeneratedContentSnapshot['messages'][number];
 
@@ -16,7 +23,7 @@ export async function writeGeneratedContent(
   resources?: GeneratedResourceManifest,
   archive?: ArchiveOptions,
 ): Promise<void> {
-  if (format === 'json' || format === 'jsonl')
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
     return writeGeneratedArchive(snapshot, path, format, archive, resources);
   const { messages } = snapshot;
   const cols: Array<Col<Row>> = [

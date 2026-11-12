@@ -88,7 +88,7 @@ export interface QzoneExportDeps extends Partial<QzoneAlbumExportDeps> {
 }
 
 /** 说说导出可选产物格式。 */
-export type QzoneFormat = 'json' | 'jsonl' | 'txt' | 'html';
+export type QzoneFormat = 'json' | 'jsonl' | 'jsonl.gz' | 'txt' | 'html';
 
 export interface QzoneExportOpts {
   tids?: string[];
@@ -1559,7 +1559,7 @@ export async function writeQzone(
 ): Promise<void> {
   const rows = data.rows;
   const body =
-    format === 'json' || format === 'jsonl'
+    format === 'json' || format === 'jsonl' || format === 'jsonl.gz'
       ? null
       : format === 'html'
         ? buildHtmlDoc(
@@ -1579,7 +1579,8 @@ export async function writeQzone(
               .join('\n'),
           )
         : rows.map(emotionToTxt).join('\n');
-  if (format === 'json' || format === 'jsonl') await writeQzoneArchive(data, opts, format);
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
+    await writeQzoneArchive(data, opts, format);
   else await writeFileStream(opts.outputPath, body!);
   const bodySha256 = (await fileDigest(opts.outputPath)).sha256;
   await writeFileStream(

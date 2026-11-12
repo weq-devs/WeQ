@@ -25,7 +25,7 @@ export interface Col<T> {
 }
 
 /** 表格格式（vcard 等特殊格式由调用方单独处理）。 */
-export type TableFormat = 'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt';
+export type TableFormat = 'json' | 'jsonl' | 'jsonl.gz' | 'csv' | 'xlsx' | 'txt';
 
 /** CSV 字段转义：含逗号/引号/换行时加引号，内部引号翻倍。 */
 export function escapeCsv(value: string): string {
@@ -119,6 +119,8 @@ export async function writeTable<T>(
       return writeJson(cols, rows, outputPath);
     case 'jsonl':
       return writeJsonl(cols, rows, outputPath);
+    case 'jsonl.gz':
+      throw new Error('JSONL（压缩）必须通过正式归档写入器生成');
     case 'csv':
       return writeCsv(cols, rows, outputPath);
     case 'xlsx':

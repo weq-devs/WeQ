@@ -25,7 +25,7 @@ export async function updateArchiveBundle(
     source: string;
     path: string;
     archiveId: string;
-    format: 'json' | 'jsonl';
+    format: 'json' | 'jsonl' | 'jsonl.gz';
   }> = [];
   const visit = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -33,8 +33,12 @@ export async function updateArchiveBundle(
       const source = join(directory, entry.name);
       if (entry.isDirectory() && directory === stage && entry.name === 'albums')
         await visit(source);
-      else if (entry.isFile() && /\.jsonl?$/.test(entry.name)) {
-        const format = entry.name.endsWith('.jsonl') ? 'jsonl' : 'json';
+      else if (entry.isFile() && /\.(?:json|jsonl(?:\.gz)?)$/.test(entry.name)) {
+        const format = entry.name.endsWith('.jsonl.gz')
+          ? 'jsonl.gz'
+          : entry.name.endsWith('.jsonl')
+            ? 'jsonl'
+            : 'json';
         let header: ArchiveHeader;
         try {
           header = await readArchiveHeader(source, format);

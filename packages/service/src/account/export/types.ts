@@ -17,7 +17,15 @@ import type { RoamMessageSource } from './message_source';
 import type { MsgDecoration } from '@weq/codec';
 
 /** Output formats, mirroring QCE (+ jsonl). `vcard` is contacts-only (联系人导出). */
-export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html' | 'vcard';
+export type ExportFormat =
+  | 'json'
+  | 'jsonl'
+  | 'jsonl.gz'
+  | 'txt'
+  | 'csv'
+  | 'xlsx'
+  | 'html'
+  | 'vcard';
 
 /** Conversation kind an export targets. */
 export type ConvKind = 'group' | 'c2c' | 'service' | 'official';

@@ -814,7 +814,9 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         variant: z.enum(['full', 'scheduled', 'qzone', 'contacts']),
-        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html', 'vcard'])).min(1),
+        formats: z
+          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html', 'vcard']))
+          .min(1),
         options: exportPresetOptionsSchema,
         schedule: exportPresetScheduleSchema.optional(),
       }),

@@ -27,11 +27,19 @@ export type ExportMode =
 
 /** Every output format the 完整消息 / 定时 flows can request. HTML is one of the
  *  完整消息 chips; `vcard` is contacts-only (导出联系人). */
-export type ExportFormat = 'json' | 'jsonl' | 'xlsx' | 'csv' | 'txt' | 'html' | 'vcard';
+export type ExportFormat =
+  | 'json'
+  | 'jsonl'
+  | 'jsonl.gz'
+  | 'xlsx'
+  | 'csv'
+  | 'txt'
+  | 'html'
+  | 'vcard';
 export type QzoneExportContent = 'posts' | 'both' | 'albums';
 
 /** Formats the backend (`account.startExport`) can produce. */
-export const BACKEND_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
+export const BACKEND_FORMATS = ['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx'] as const;
 export type BackendFormat = (typeof BACKEND_FORMATS)[number];
 
 export function isBackendFormat(f: ExportFormat): f is BackendFormat {
@@ -43,6 +51,7 @@ export function isBackendFormat(f: ExportFormat): f is BackendFormat {
 export const FULL_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
+  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'csv', label: 'CSV' },
   { value: 'txt', label: 'TXT' },
@@ -59,6 +68,7 @@ export const CHATLAB_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
+  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
   { value: 'txt', label: 'TXT' },
   { value: 'html', label: 'HTML' },
 ];
@@ -67,6 +77,7 @@ export const QZONE_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 export const FRIEND_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
+  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'txt', label: 'TXT' },
@@ -77,6 +88,7 @@ export const FRIEND_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 export const MEMBER_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
+  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'txt', label: 'TXT' },
@@ -86,6 +98,7 @@ export const MEMBER_FORMATS: Array<{ value: ExportFormat; label: string }> = [
 export const COLLECTION_FORMATS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'json', label: 'JSON' },
   { value: 'jsonl', label: 'JSONL' },
+  { value: 'jsonl.gz', label: 'JSONL（压缩）' },
   { value: 'csv', label: 'CSV' },
   { value: 'xlsx', label: 'XLSX' },
   { value: 'txt', label: 'TXT' },

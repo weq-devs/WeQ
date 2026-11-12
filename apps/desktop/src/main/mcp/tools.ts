@@ -403,6 +403,7 @@ function convKindOf(chatType: unknown): 'c2c' | 'group' | null {
 const EXPORT_MIME: Record<string, string> = {
   json: 'application/json',
   jsonl: 'application/x-ndjson',
+  'jsonl.gz': 'application/gzip',
   txt: 'text/plain',
   csv: 'text/csv',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -2258,13 +2259,13 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '把某个会话的聊天记录【快速导出】成一个本地文件，完成后会在你的回复里出现一张「导出」卡片，用户可「打开」或「另存为」。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。' +
-      'format 默认 html（自带样式、可直接看），也支持 txt/json/jsonl/csv/xlsx。days 只导出最近 N 天（不传=全部）。' +
+      'format 默认 html（自带样式、可直接看），也支持 txt/json/jsonl/jsonl.gz/csv/xlsx。days 只导出最近 N 天（不传=全部）。' +
       '注意：本工具只导出纯文字记录、不含图片/语音/视频；要带媒体或超大批量，请提示用户去应用内「导出中心」操作。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
       format: z
-        .enum(['html', 'txt', 'json', 'jsonl', 'csv', 'xlsx'])
+        .enum(['html', 'txt', 'json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx'])
         .default('html')
         .describe('导出格式，默认 html'),
       name: z.string().default('').describe('文件名（建议传联系人/群名，便于识别）'),

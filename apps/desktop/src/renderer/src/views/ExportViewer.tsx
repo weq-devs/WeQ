@@ -283,7 +283,10 @@ export function ExportViewer({
     try {
       let uploadPath: string | undefined;
       if (IS_WEB && !directory) {
-        const file = await chooseBrowserFile('.json,.jsonl,application/json', controller.signal);
+        const file = await chooseBrowserFile(
+          '.json,.jsonl,.jsonl.gz,application/json,application/gzip',
+          controller.signal,
+        );
         if (!file) return;
         uploadPath = (await stageAccountFile(file, undefined, controller.signal)).path;
       }
@@ -381,7 +384,7 @@ export function ExportViewer({
         )}
         <button type="button" disabled={picking} onClick={() => void pick(false)}>
           <FileJson size={16} />
-          {remote ? '上传 JSON / JSONL' : '打开 JSON / JSONL'}
+          {remote ? '上传归档' : '打开归档'}
         </button>
         {picking ? (
           scanning ? (

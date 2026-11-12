@@ -184,7 +184,9 @@ export async function startChatExportTasks(
       incrementalSupport:
         !t.forwardTarget &&
         !frozenOptions.chatlab &&
-        frozenFormats.some((format) => format === 'json' || format === 'jsonl') &&
+        frozenFormats.some(
+          (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+        ) &&
         true,
       baselineDirectory: t.forwardTarget
         ? undefined

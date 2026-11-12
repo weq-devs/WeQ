@@ -584,7 +584,7 @@ const structuredExportInput = {
 };
 const resourceArchiveInput = {
   ...structuredExportInput,
-  metadataFormat: z.enum(['json', 'jsonl', 'none']).optional(),
+  metadataFormat: z.enum(['json', 'jsonl', 'jsonl.gz', 'none']).optional(),
 };
 
 const dressInput = z
@@ -3860,9 +3860,11 @@ export const accountRouter = router({
         messageIds: z.array(z.string().regex(/^-?\d+$/)).optional(),
         /** 任务显示名（对方昵称）。 */
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']),
         /** 多格式导出：一次任务产出多个文件进同一 bundle（媒体只带一份）。 */
-        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
+        formats: z
+          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
+          .optional(),
         /** Also export every sender's avatar into an avatars/ subfolder. */
         exportAvatar: z.boolean().optional(),
         /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
@@ -7841,9 +7843,11 @@ export const accountRouter = router({
         kind: z.enum(['group', 'c2c']),
         conv: z.string().min(1),
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']),
         /** 多格式导出：一次任务产出多个文件进同一 bundle（媒体只带一份）。 */
-        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
+        formats: z
+          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
+          .optional(),
         total: z.number().int().min(0),
         /** Also export every sender's avatar into an avatars/ subfolder. */
         exportAvatar: z.boolean().optional(),
@@ -7930,9 +7934,9 @@ export const accountRouter = router({
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'txt', 'html']),
+        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'html']),
         /** 多格式导出：json / txt / html 一次任务全出。 */
-        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'html'])).optional(),
+        formats: z.array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'html'])).optional(),
         /** 补全互动：按 tid 拉取评论 + 点赞（空间动态页 HTML 解析，best-effort，需在线 QQ）。 */
         includeInteraction: z.boolean().optional(),
         downloadMedia: z.boolean(),
@@ -7997,9 +8001,11 @@ export const accountRouter = router({
           .optional(),
         groupCode: z.string().optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']),
+        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt', 'vcard']),
         /** 多格式导出：一次任务产出多个表文件（头像只带一份）。 */
-        formats: z.array(z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard'])).optional(),
+        formats: z
+          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt', 'vcard']))
+          .optional(),
         exportAvatar: z.boolean().optional(),
         categoryIds: z.array(z.number().int()).optional(),
         uids: z.array(z.string().min(1)).min(1).optional(),
@@ -8020,7 +8026,7 @@ export const accountRouter = router({
       const format = input.scope !== 'friends' && input.format === 'vcard' ? 'csv' : input.format;
       const formats = (input.formats ?? [input.format]).map((f) =>
         input.scope !== 'friends' && f === 'vcard' ? 'csv' : f,
-      ) as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
+      ) as Array<'json' | 'jsonl' | 'jsonl.gz' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
       return requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
@@ -8073,7 +8079,7 @@ export const accountRouter = router({
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt']),
+        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt']),
         kinds: z.array(z.string()).optional(),
         cids: z.array(z.string().min(1)).min(1).optional(),
       }),
@@ -8155,7 +8161,9 @@ export const accountRouter = router({
               .optional(),
           })
           .optional(),
-        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
+        formats: z
+          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
+          .optional(),
         exportMedia: z.boolean().optional(),
       }),
     )
@@ -8385,9 +8393,11 @@ export const accountRouter = router({
       z.object({
         ...exportAccountBindingInput.shape,
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']),
         /** 灯箱多选的导出格式（媒体只带一份；缺省 = [format]）。 */
-        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
+        formats: z
+          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
+          .optional(),
         conversations: z
           .array(
             z.object({
@@ -8462,8 +8472,10 @@ export const accountRouter = router({
         id: z.string().min(1),
         patch: z.object({
           name: z.string().min(1).optional(),
-          format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']).optional(),
-          formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'])).optional(),
+          format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']).optional(),
+          formats: z
+            .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
+            .optional(),
           conversations: z
             .array(
               z.object({
@@ -8548,7 +8560,7 @@ export const accountRouter = router({
       exportAccountBindingInput.extend({
         sourcePath: z.string().min(1),
         defaultName: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
+        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']),
       }),
     )
     .mutation(async ({ input }) => {

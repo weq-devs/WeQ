@@ -112,7 +112,7 @@ export const mailRouter = router({
         extra: exportExtraInput.optional(),
         profile: z.enum(['basic', 'full']).optional(),
         incrementalSupport: z.boolean().optional(),
-        format: z.enum(['json', 'jsonl']).default('json'),
+        format: z.enum(['json', 'jsonl', 'jsonl.gz']).default('json'),
         filter: mailExportFilterInput.optional(),
         expandThreads: z.boolean().default(true),
         includeIntegrityReport: z.boolean().optional(),

@@ -8,6 +8,7 @@ import { type ArchiveEvent, scanArchiveFile, streamArchiveEvents } from './archi
 import { archiveResource, fileDigest, syncArchiveDirectory } from './archive_resource';
 import { bufferedFileWriter } from './stream_utils';
 import { acquireArchiveLock } from './archive_lock';
+import { compressArchiveBlock } from './archive_compression';
 
 const recordKey = (value: JsonObject) => `${value.id}\0${value.revision}`;
 
@@ -15,7 +16,7 @@ const recordKey = (value: JsonObject) => `${value.id}\0${value.revision}`;
 export async function updateArchiveFile(
   target: string,
   incoming: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   signal?: AbortSignal,
   resourceRoots?: { target: string; incoming: string },
 ): Promise<{ archiveId: string; entries: number; messageCount: number }> {
@@ -116,7 +117,7 @@ export async function updateArchiveFile(
             ? freshResources.has(canonical(event.value))
             : false;
     await unchanged();
-    if (format === 'jsonl') {
+    if (format !== 'json') {
       if (entries || old.state.uncommittedTail) {
         const file = await open(target, 'r+');
         try {
@@ -128,8 +129,18 @@ export async function updateArchiveFile(
             let position = old.state.committedBytes,
               sequence = BigInt(old.state.sequence),
               previous = old.state.previous;
+            let compressedPending: string[] = [],
+              compressedBytes = 0;
             const write = async (text: string) => {
-              const bytes = Buffer.from(text);
+              if (format === 'jsonl.gz') {
+                compressedBytes += Buffer.byteLength(text);
+                assert(compressedBytes <= 65 * 1024 * 1024, '压缩归档单块超过 65 MiB');
+                compressedPending.push(text);
+                return;
+              }
+              await writeBytes(Buffer.from(text));
+            };
+            const writeBytes = async (bytes: Buffer) => {
               let offset = 0;
               while (offset < bytes.length) {
                 const result = await file.write(bytes, offset, bytes.length - offset, position);
@@ -150,6 +161,11 @@ export async function updateArchiveFile(
                 previous,
               };
               await write(`${canonical(value)}\n`);
+              if (format === 'jsonl.gz') {
+                await writeBytes(await compressArchiveBlock(compressedPending.join('')));
+                compressedPending = [];
+                compressedBytes = 0;
+              }
               await file.sync();
               previous = createHash('sha256').update(canonical(value)).digest('hex');
               batchId = randomUUID();

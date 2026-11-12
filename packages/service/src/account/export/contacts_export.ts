@@ -175,13 +175,13 @@ export async function writeGroupDirectory(
   outputPath: string,
   archive?: ArchiveOptions,
 ): Promise<void> {
-  if (format === 'json' || format === 'jsonl')
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
     return writeDirectoryArchive(rows, 'group', outputPath, format, archive);
   await writeTable(format, GROUP_COLS, rows, outputPath, '群聊名单');
 }
 
 /** 联系人导出格式。 */
-const CONTACT_FORMATS = ['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard'] as const;
+const CONTACT_FORMATS = ['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt', 'vcard'] as const;
 export type ContactsFormat = (typeof CONTACT_FORMATS)[number];
 
 export function normaliseContactsFormats(
@@ -485,7 +485,7 @@ export async function writeFriends(
   outputPath: string,
   archive?: ArchiveOptions,
 ): Promise<void> {
-  if (format === 'json' || format === 'jsonl')
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
     return writeDirectoryArchive(rows, 'contact', outputPath, format, archive);
   if (format === 'vcard') {
     await writeFriendsVcard(rows, outputPath);
@@ -657,7 +657,7 @@ export async function writeGroupMembers(
   archive?: ArchiveOptions,
   groupCode?: string,
 ): Promise<void> {
-  if (format === 'json' || format === 'jsonl')
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
     return writeDirectoryArchive(rows, 'member', outputPath, format, archive, groupCode);
   await writeTable(format, MEMBER_COLS, rows, outputPath, '群成员');
 }

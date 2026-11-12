@@ -13,7 +13,7 @@ import { archiveResource } from '../export/archive_resource';
 import type { MailAddress } from './types';
 
 export interface MailArchiveOptions extends ArchiveOptions {
-  format?: 'json' | 'jsonl';
+  format?: 'json' | 'jsonl' | 'jsonl.gz';
 }
 function mailActor(address: MailAddress): JsonObject {
   return {

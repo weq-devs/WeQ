@@ -26,8 +26,8 @@ import {
   lstatSync,
   realpathSync,
 } from 'node:fs';
-import { basename, dirname, extname, join, relative } from 'node:path';
-import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
+import { basename, dirname, join, relative } from 'node:path';
+import { fileExtension, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
 import type { SenderResolveDeps } from './sender_resolve';
 import type { GapFetchedMessage, GapHistoryService } from '../gap_history';
@@ -368,7 +368,7 @@ export interface ExportTask {
   scanId?: string;
   scanStartedAt?: number;
   extra?: import('../../common/export_content').ExportExtraOptions;
-  archiveTargets?: Partial<Record<'json' | 'jsonl', string>>;
+  archiveTargets?: Partial<Record<'json' | 'jsonl' | 'jsonl.gz', string>>;
   domainUpdate?: DomainArchiveTarget;
   archivePublished?: boolean;
   publishedOutputs?: Record<string, string>;
@@ -871,7 +871,11 @@ export class ExportTaskManager extends EventEmitter {
     if (!task?.archiveId || task.chatlab || !task.outputDirectory) return undefined;
     const formats = task.formats ?? [task.format],
       paths = this.exportFilePaths(task, task.outputDirectory);
-    const index = formats.includes('jsonl') ? formats.indexOf('jsonl') : formats.indexOf('json');
+    const index = formats.includes('jsonl.gz')
+      ? formats.indexOf('jsonl.gz')
+      : formats.includes('jsonl')
+        ? formats.indexOf('jsonl')
+        : formats.indexOf('json');
     return index >= 0 ? paths[index] : undefined;
   }
 
@@ -904,7 +908,7 @@ export class ExportTaskManager extends EventEmitter {
           {
             kind: 'file',
             name: task.name,
-            extension: extname(task.filePath).slice(1) || task.format,
+            extension: fileExtension(task.filePath).slice(1) || task.format,
           },
           task.id,
         ),
@@ -1166,6 +1170,8 @@ export class ExportTaskManager extends EventEmitter {
       };
     }
     const resourceOnly = opts.formats?.length === 0;
+    if (opts.chatlab && (opts.formats ?? [opts.format]).includes('jsonl.gz'))
+      throw new Error('JSONL（压缩）使用 WeQ 正式归档，不支持 ChatLab。');
     if (
       resourceOnly &&
       (!opts.content ||
@@ -1180,11 +1186,13 @@ export class ExportTaskManager extends EventEmitter {
       opts.content &&
       requiresStructuredExport(opts.content) &&
       (opts.chatlab ||
-        !(opts.formats ?? [opts.format]).some((format) => format === 'json' || format === 'jsonl'))
+        !(opts.formats ?? [opts.format]).some(
+          (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+        ))
     )
       throw new Error('所选附加数据需要 WeQ JSON/JSONL，请选择格式或关闭相应附加数据。');
     const structuredFormats = (opts.formats?.length ? opts.formats : [opts.format]).filter(
-      (format) => format === 'json' || format === 'jsonl',
+      (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
     );
     if (
       Object.values(opts.extra ?? {}).some(Boolean) &&
@@ -1512,7 +1520,7 @@ export class ExportTaskManager extends EventEmitter {
         const selected = Object.values(task.archiveTargets)[0]!;
         const format = Object.entries(task.archiveTargets).find(
           ([, path]) => path === selected,
-        )![0] as 'json' | 'jsonl';
+        )![0] as 'json' | 'jsonl' | 'jsonl.gz';
         const { readArchiveHeader } = await import('./archive_stream');
         task.archiveId = String((await readArchiveHeader(selected, format)).archiveId);
       }
@@ -1716,7 +1724,7 @@ export class ExportTaskManager extends EventEmitter {
       ) {
         await writeResourceDirectoryArchive(
           bundle.stageDir,
-          task.format === 'jsonl' ? 'jsonl' : 'json',
+          task.format === 'jsonl' || task.format === 'jsonl.gz' ? task.format : 'json',
           {
             ...task.resourceArchive,
             ...(await this.archiveOptions(task)),
@@ -3457,7 +3465,12 @@ export class ExportTaskManager extends EventEmitter {
         });
       if (!task.resourceOnly && task.archiveId && !task.chatlab && !aborted()) {
         const archive = await this.archiveOptions(task);
-        if (task.content && !formats.some((format) => format === 'json' || format === 'jsonl'))
+        if (
+          task.content &&
+          !formats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          )
+        )
           await exportArchiveConversation(
             this.msgsFor(task),
             {
@@ -3509,7 +3522,10 @@ export class ExportTaskManager extends EventEmitter {
           Object.values(transcripts ?? {}).some(Boolean) ||
           Object.values(ocr ?? {}).some((value) => Boolean(value.text));
         for (const [index, format] of formats.entries())
-          if (needsFinalization && (format === 'json' || format === 'jsonl')) {
+          if (
+            needsFinalization &&
+            (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
+          ) {
             await finalizeArchiveMessages(paths[index]!, format, {
               media: wantMedia,
               transcripts,
@@ -3522,6 +3538,7 @@ export class ExportTaskManager extends EventEmitter {
           if (
             format !== 'json' &&
             format !== 'jsonl' &&
+            format !== 'jsonl.gz' &&
             format !== 'vcard' &&
             task.content?.messages === 'none'
           ) {
@@ -3579,7 +3596,7 @@ export class ExportTaskManager extends EventEmitter {
         const published: Record<string, string> = {};
         const { copyFile, constants } = await import('node:fs/promises');
         for (const [index, format] of formats.entries()) {
-          if (format === 'json' || format === 'jsonl') {
+          if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') {
             const target = targets[format];
             if (!target) throw new Error('未选择该格式的正式归档。');
             const updated = await updateArchiveFile(target, staged[index]!, format, abort.signal);
@@ -3867,8 +3884,8 @@ export class ExportTaskManager extends EventEmitter {
             ? 'txt'
             : format === 'html'
               ? 'html'
-              : format === 'jsonl'
-                ? 'jsonl'
+              : format === 'jsonl' || format === 'jsonl.gz'
+                ? format
                 : 'json';
         await writeQzone(qzoneFormat, data, {
           name: task.name,
@@ -4105,7 +4122,7 @@ export class ExportTaskManager extends EventEmitter {
         const outPath = join(
           outDir,
           task.domainUpdate
-            ? `${basename(task.domainUpdate.primaryRelative, extname(task.domainUpdate.primaryRelative))}.${ext}`
+            ? `${basename(task.domainUpdate.primaryRelative, fileExtension(task.domainUpdate.primaryRelative))}.${ext}`
             : `${isBundle ? sanitizeSegment(task.name, task.conv || task.id) : task.id}.${ext}`,
         );
         if (i === 0) {
@@ -4232,11 +4249,11 @@ export class ExportTaskManager extends EventEmitter {
           await this.archiveOptions(task),
         );
         for (const format of formats)
-          if (format === 'json' || format === 'jsonl') {
+          if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') {
             const path = join(
               outDir,
               task.domainUpdate
-                ? `${basename(task.domainUpdate.primaryRelative, extname(task.domainUpdate.primaryRelative))}.${format}`
+                ? `${basename(task.domainUpdate.primaryRelative, fileExtension(task.domainUpdate.primaryRelative))}.${format}`
                 : `${isBundle ? sanitizeSegment(task.name, task.conv || task.id) : task.id}.${format}`,
             );
             await finalizeArchiveMessages(path, format, {
@@ -5318,7 +5335,7 @@ export class ExportTaskManager extends EventEmitter {
           dressManifest,
           dressKinds,
         );
-        if (task.archiveId && (format === 'json' || format === 'jsonl')) {
+        if (task.archiveId && (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')) {
           task.current = Math.max(task.current, result.messageCount);
           task.formatCounts[format] = result.messageCount;
         }
@@ -5376,7 +5393,8 @@ export class ExportTaskManager extends EventEmitter {
       archiveId: task.archiveId,
       partition: sha256(this.cacheDir),
       formats: (task.formats?.length ? task.formats : [task.format]).filter(
-        (format): format is 'json' | 'jsonl' => format === 'json' || format === 'jsonl',
+        (format): format is 'json' | 'jsonl' | 'jsonl.gz' =>
+          format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
       ),
       selection: sourceValue(
         task.generated
@@ -5424,7 +5442,7 @@ export class ExportTaskManager extends EventEmitter {
     task.publishedOutputs = Object.fromEntries(
       [...paths]
         .filter(([path]) => dirname(path) === dirname(target.primaryRelative))
-        .map(([path, published]) => [extname(path).slice(1), published]),
+        .map(([path, published]) => [fileExtension(path).slice(1).toLowerCase(), published]),
     );
     task.archivePublished = true;
     if (task.save) {
@@ -5473,7 +5491,7 @@ export class ExportTaskManager extends EventEmitter {
         this.senderDeps(task) ?? {},
       );
     }
-    if (task.archiveId && (format === 'json' || format === 'jsonl')) {
+    if (task.archiveId && (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')) {
       return exportArchiveConversation(
         this.msgsFor(task),
         {
@@ -5818,7 +5836,10 @@ export class ExportTaskManager extends EventEmitter {
         const paths = this.exportFilePaths(task, task.outputDirectory ?? dirname(task.filePath!));
         const hashes: Record<string, string> = {};
         for (const [index, format] of formats.entries())
-          if ((format === 'json' || format === 'jsonl') && existsSync(paths[index]!)) {
+          if (
+            (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') &&
+            existsSync(paths[index]!)
+          ) {
             const scan = await scanArchiveFile(paths[index]!, format);
             task.current = Math.max(task.current, scan.messageCount);
             hashes[paths[index]!] = await fileSha256(paths[index]!);
@@ -5889,7 +5910,7 @@ export class ExportTaskManager extends EventEmitter {
           (task.archiveId &&
             task.incrementalSupport &&
             (task.formats ?? [task.format]).some(
-              (format) => format === 'json' || format === 'jsonl',
+              (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
             )),
       )
     );
@@ -5930,11 +5951,12 @@ export class ExportTaskManager extends EventEmitter {
       (task.qzone || task.collection || task.contacts || task.generated)
     ) {
       const formats = (task.formats ?? [task.format]).filter(
-        (format) => format === 'json' || format === 'jsonl',
+        (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
       );
       if (!formats.length || !task.filePath) return false;
       const oldRoot = task.bundleDir ?? dirname(task.filePath);
-      const primary = `${task.filePath.slice(0, -extname(task.filePath).length)}.${formats[0]}`;
+      const suffix = fileExtension(task.filePath);
+      const primary = `${task.filePath.slice(0, -suffix.length)}.${formats[0]}`;
       const saved = task.save?.status === 'saved' ? task.save.path : undefined;
       const directory = task.bundleDir ? (saved ?? oldRoot) : saved ? dirname(saved) : oldRoot;
       const primaryRelative = relative(oldRoot, primary);
@@ -5958,9 +5980,11 @@ export class ExportTaskManager extends EventEmitter {
     } else if ((incremental || resumeFormal) && task.archiveId) {
       const formats = task.formats ?? [task.format],
         paths = this.exportFilePaths(task, task.outputDirectory ?? dirname(task.filePath!));
-      const targets: Partial<Record<'json' | 'jsonl', string>> = { ...task.archiveTargets };
+      const targets: Partial<Record<'json' | 'jsonl' | 'jsonl.gz', string>> = {
+        ...task.archiveTargets,
+      };
       for (const [index, format] of formats.entries())
-        if (format === 'json' || format === 'jsonl') {
+        if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') {
           const path = targets[format] ?? paths[index]!;
           if (!existsSync(path)) return false;
           targets[format] = path;
