@@ -76,7 +76,9 @@ try {
     await page.locator('.weq-group-quick-card .weq-profile-subtitle').allTextContents(),
     ['群资料', '与我的关系', '成员'],
   );
-  assert.equal(await page.locator('.weq-group-card-actions').count(), 0);
+  const cardActions = page.locator('.weq-group-quick-card .weq-profile-card-actions');
+  assert.equal(await cardActions.locator('button.weq-contact-secondary').count(), 2);
+  assert.equal(await cardActions.locator('.weq-contact-primary').count(), 0);
   await page.getByRole('button', { name: '展开', exact: true }).click();
   assert.equal(await page.locator('.weq-group-description .is-clamped').count(), 0);
   await page.getByRole('button', { name: '收起', exact: true }).click();
@@ -105,6 +107,21 @@ try {
         .locator('.weq-group-quick-card')
         .evaluate((el) => ({ width: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(bounds.scroll <= bounds.width + 1, JSON.stringify(bounds));
+      const buttons = await cardActions.locator('button').evaluateAll((elements) =>
+        elements.map((element) => {
+          const style = getComputedStyle(element);
+          return {
+            height: element.getBoundingClientRect().height,
+            background: style.backgroundColor,
+            border: style.border,
+            color: style.color,
+            padding: style.padding,
+            radius: style.borderRadius,
+          };
+        }),
+      );
+      assert.deepEqual(buttons[0], buttons[1]);
+      assert.equal(await cardActions.evaluate((element) => getComputedStyle(element).gap), '8px');
       if (output) await page.screenshot({ path: resolve(output, `card-${width}-${theme}.png`) });
     }
   await page.evaluate(() => window.groupCardQa.short());
@@ -220,6 +237,7 @@ try {
     checks: [
       'identity-first',
       'quick-card-sections-only',
+      'matching-outlined-actions-and-shared-spacing',
       'short-description-no-toggle',
       'admin-title-edit-without-duplicate',
       'narrow-title-editor-save-and-escape',

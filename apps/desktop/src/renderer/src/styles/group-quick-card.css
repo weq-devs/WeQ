@@ -75,10 +75,6 @@
   gap: 4px;
 }
 
-.weq-group-quick-card .weq-group-card-actions {
-  margin-top: 14px;
-}
-
 .weq-group-quick-card .weq-profile-avatar:disabled {
   cursor: default;
 }

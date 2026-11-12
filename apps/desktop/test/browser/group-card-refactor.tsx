@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GroupProfileSurface } from '../../src/renderer/src/components/groupProfile/GroupProfileSurface';
 import { ContactWorkspaceNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
+import { GroupMessagePreviewContext } from '../../src/renderer/src/lib/chatNavigation';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
@@ -94,35 +95,40 @@ function App() {
           }}
         >
           <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
-            <GroupProfileSurface
-              conversation={{
-                ...conversation,
-                id: code,
-                group: {
-                  ...conversation.group,
+            <GroupMessagePreviewContext.Provider
+              value={{ open: () => {}, close: () => {}, conversationId: null, content: null }}
+            >
+              <GroupProfileSurface
+                conversation={{
+                  ...conversation,
                   id: code,
-                  identityValue: code,
-                  ...(short ? { description: '短简介' } : {}),
-                  ...(empty
-                    ? {
-                        description: '',
-                        labels: '',
-                        customLabels: [],
-                        createTime: null,
-                        memberCount: 0,
-                        maxMemberCount: 0,
-                        remark: null,
-                      }
-                    : {}),
-                  ...(long
-                    ? { name: '原来的群名称'.repeat(10), remark: '我的群备注'.repeat(12) }
-                    : {}),
-                },
-              }}
-              embedded={full}
-              section={section}
-              onClose={() => setFull(false)}
-            />
+                  group: {
+                    ...conversation.group,
+                    id: code,
+                    identityValue: code,
+                    ...(short ? { description: '短简介' } : {}),
+                    ...(empty
+                      ? {
+                          description: '',
+                          labels: '',
+                          customLabels: [],
+                          createTime: null,
+                          memberCount: 0,
+                          maxMemberCount: 0,
+                          remark: null,
+                        }
+                      : {}),
+                    ...(long
+                      ? { name: '原来的群名称'.repeat(10), remark: '我的群备注'.repeat(12) }
+                      : {}),
+                  },
+                }}
+                embedded={full}
+                section={section}
+                onClose={() => setFull(false)}
+                onOpenChat={() => {}}
+              />
+            </GroupMessagePreviewContext.Provider>
           </div>
         </ContactWorkspaceNavigationContext.Provider>
       </RelationshipDirectoryContext.Provider>

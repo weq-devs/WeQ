@@ -152,7 +152,7 @@ it('短简介不显示展开，完整资料入口移到右上角，成员数量�
   );
   expect(host.querySelector('.weq-group-description p')?.textContent).toBe('短简介');
   expect(host.querySelector('.weq-group-description button')).toBeNull();
-  expect(host.querySelector('.weq-group-card-actions')?.textContent).not.toContain('完整群资料');
+  expect(host.querySelector('.weq-profile-card-actions')?.textContent).not.toContain('完整群资料');
   act(() => (host.querySelector('.weq-profile-expand') as HTMLButtonElement).click());
   expect(navigate).toHaveBeenLastCalledWith({ kind: 'group', conversation });
   act(() => (host.querySelector('[aria-label="查看全部群成员"]') as HTMLButtonElement).click());
@@ -180,6 +180,7 @@ it('完整群资料页只在页头渲染一条操作行，不再吸底重复', (
   const bars = host.querySelectorAll('.weq-group-card-actions');
   expect(bars).toHaveLength(1);
   expect(bars[0].classList.contains('weq-profile-card-actions')).toBe(false);
+  expect(bars[0].querySelector('.weq-contact-primary')).not.toBeNull();
   expect(host.querySelector('.weq-group-quick-card')).toBeNull();
   expect(host.querySelector('.weq-contact-identity-body')).toBeNull();
   expect(host.querySelector('.weq-profile-expand')).toBeNull();
@@ -210,8 +211,11 @@ it('快速名片底部只显示消息操作，预览不关闭名片，打开消�
       h(GroupProfileSurface, { conversation: group, onClose: close, onOpenChat: chat }),
     ),
   );
-  const actions = host.querySelectorAll('.weq-group-card-actions button');
+  const bar = host.querySelector('.weq-profile-card-actions')!;
+  expect(bar.classList.contains('weq-group-card-actions')).toBe(false);
+  const actions = bar.querySelectorAll('button');
   expect([...actions].map((button) => button.textContent)).toEqual(['查看消息', '预览消息']);
+  expect([...actions].every((button) => button.className === 'weq-contact-secondary')).toBe(true);
   act(() => (actions[1] as HTMLButtonElement).click());
   expect(preview).toHaveBeenCalledWith(group);
   expect(close).not.toHaveBeenCalled();

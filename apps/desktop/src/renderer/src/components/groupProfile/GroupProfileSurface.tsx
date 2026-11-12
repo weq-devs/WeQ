@@ -108,7 +108,7 @@ function GroupProfileBody({
   const chatAction = canChat ? (
     <button
       type="button"
-      className="weq-profile-perhome weq-contact-primary"
+      className={embedded ? 'weq-profile-perhome weq-contact-primary' : 'weq-contact-secondary'}
       onClick={() => {
         if (!embedded) close();
         if (onOpenChat) onOpenChat();
@@ -225,7 +225,7 @@ function GroupProfileBody({
             压在正文与视口边缘上，所以只在快速名片里保留底部操作行。 */}
         {!embedded && (canChat || canPreview) ? (
           <nav
-            className="weq-group-card-actions weq-contact-actions weq-profile-card-actions"
+            className="weq-profile-actions weq-contact-actions weq-profile-card-actions"
             aria-label="群操作"
           >
             {chatAction}
