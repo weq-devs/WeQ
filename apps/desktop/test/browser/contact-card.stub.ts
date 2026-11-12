@@ -3,6 +3,11 @@ import { DEFAULT_CONTACT_CARD, normalizeContactCard } from '@weq/service/contact
 const listeners = new Set<() => void>();
 let revision = 0;
 const seen = new Set<string>();
+export const fixturePrivileges = [
+  { bizId: 1, opened: true, level: 3, iconUrl: 'https://fixture.invalid/privilege-square.png' },
+  { bizId: 2, opened: true, level: 2, iconUrl: 'https://fixture.invalid/privilege-wide.png' },
+  { bizId: 3, opened: false, level: 1, iconUrl: 'https://fixture.invalid/privilege-closed.png' },
+];
 export const qa = {
   calls: [] as Array<{ path: string; input: Record<string, unknown> }>,
   settings: normalizeContactCard(DEFAULT_CONTACT_CARD),
@@ -89,7 +94,7 @@ function value(path: string, input: Record<string, unknown>) {
         city: '厦门',
         school: '自己的学校',
         degree: '本科',
-        privileges: [],
+        privileges: fixturePrivileges,
         interactMarks: [],
         album: [],
         interests: [],

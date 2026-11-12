@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
+import sharp from 'sharp';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const stub = resolve(root, 'test/browser/contact-card.stub.ts');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
@@ -71,6 +72,35 @@ const server = await createServer({
 });
 let browser;
 const report = [];
+async function checkPrivileges(scope) {
+  const icons = scope.locator('.weq-profile-privileges img');
+  assert.equal(await icons.count(), 2);
+  await icons.first().scrollIntoViewIfNeeded();
+  await icons.evaluateAll((images) => Promise.all(images.map((image) => image.decode())));
+  const sizes = await icons.evaluateAll((images) =>
+    images.map((image) => {
+      const bounds = image.getBoundingClientRect();
+      return {
+        width: bounds.width,
+        height: bounds.height,
+        naturalWidth: image.naturalWidth,
+        naturalHeight: image.naturalHeight,
+        fit: getComputedStyle(image).objectFit,
+      };
+    }),
+  );
+  assert.deepEqual(
+    sizes.map(({ naturalWidth, naturalHeight }) => [naturalWidth, naturalHeight]),
+    [
+      [512, 512],
+      [640, 128],
+    ],
+  );
+  assert.ok(
+    sizes.every(({ width, height, fit }) => width === 22 && height === 22 && fit === 'contain'),
+    `特权图标应限制在 22px 内并保持图片比例: ${JSON.stringify(sizes)}`,
+  );
+}
 try {
   await server.listen();
   browser = await chromium.launch({
@@ -85,6 +115,22 @@ try {
   await page.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
   );
+  await page.route('**/_avatar/fetch?*', async (route) => {
+    const src = new URL(route.request().url()).searchParams.get('src');
+    if (!src?.startsWith('https://fixture.invalid/privilege-')) return route.abort();
+    const wide = src.endsWith('privilege-wide.png');
+    const body = await sharp({
+      create: {
+        width: wide ? 640 : 512,
+        height: wide ? 128 : 512,
+        channels: 4,
+        background: '#cf304b',
+      },
+    })
+      .png()
+      .toBuffer();
+    await route.fulfill({ contentType: 'image/png', body });
+  });
   if (output) await mkdir(output, { recursive: true });
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-card.html`;
   await page.goto(`${url}?slow=1`);
@@ -159,6 +205,7 @@ try {
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
+        await checkPrivileges(card);
         const layout = await card.locator('.weq-contact-actions > button').evaluateAll((buttons) =>
           buttons.map((node) => {
             const style = getComputedStyle(node);
@@ -253,9 +300,11 @@ try {
           () => document.documentElement.scrollWidth > innerWidth,
         );
         assert.equal(overflow, false);
+        await checkPrivileges(page.locator('.weq-contact-workspace-v2'));
         if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-page.png`) });
         await page.getByRole('button', { name: '名片设置', exact: true }).click();
         await page.getByRole('switch', { name: 'QQ 能量值', exact: true }).waitFor();
+        await checkPrivileges(page.locator('.weq-contact-card-preview'));
         // 预览必须用本人资料，不能出现任何虚构联系人
         const previewText = await page.locator('.weq-contact-card-preview').innerText();
         assert.equal(

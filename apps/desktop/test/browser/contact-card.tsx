@@ -14,7 +14,7 @@ import { QzoneNavigationContext } from '../../src/renderer/src/lib/qzoneNavigati
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { useViewState } from '../../src/renderer/src/state/view';
 import type { Contact } from '../../src/renderer/src/im-template/template/types';
-import { qa, useFixture } from './contact-card.stub';
+import { fixturePrivileges, qa, useFixture } from './contact-card.stub';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/contact-profile.css';
 
@@ -49,7 +49,7 @@ const sample: Contact = {
     country: '中国',
     province: '福建',
     city: '厦门',
-    privileges: [],
+    privileges: fixturePrivileges,
     interactMarks: [],
     album: [],
   },

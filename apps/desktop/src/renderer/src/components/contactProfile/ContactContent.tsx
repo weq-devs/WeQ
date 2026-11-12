@@ -780,6 +780,7 @@ export function ContactContent({
           {privileges.map((item) => (
             <img
               key={`${item.bizId}:${item.iconUrl}:${item.level}`}
+              className="weq-profile-privilege"
               src={collectionImageUrl(item.iconUrl!)}
               alt={`特权 ${item.bizId ?? ''}`}
               title={`特权 ${item.bizId ?? ''}${item.level ? ` · ${item.level} 级` : ''}`}
