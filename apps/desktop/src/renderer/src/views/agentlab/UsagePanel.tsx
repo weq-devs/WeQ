@@ -4,7 +4,7 @@
  * 数据来自 account.getAgentLabTokenStats，图表全用纯 SVG / CSS，不引图表库。
  */
 
-import { useMemo, useState, type ReactElement } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { BarChart3, Clock, Coins, Users, Activity } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -114,12 +114,24 @@ function BarList({
 }
 
 /** 近 24 小时 token 开销折线图（面积 + 折线 + 网格 + 时刻轴）。 */
-function HourLine({
+export function HourLine({
   data,
 }: {
   data: Array<{ hour: string; tokens: number; calls: number }>;
 }): ReactElement {
-  const W = 560;
+  const plotRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(560);
+  useLayoutEffect(() => {
+    const plot = plotRef.current;
+    if (!plot) return;
+    const measure = (): void => setWidth(Math.max(1, plot.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(plot);
+    return () => observer.disconnect();
+  }, []);
+  // 使用真实绘图区尺寸，避免拉伸 SVG 时将圆点变成椭圆。
+  const W = width;
   const H = 140;
   const PAD_X = 8;
   const PAD_Y = 8;
@@ -148,7 +160,7 @@ function HourLine({
             <span key={`${tick}-${index}`}>{fmt(tick)}</span>
           ))}
         </div>
-        <div className="weq-usage-line-plot">
+        <div className="weq-usage-line-plot" ref={plotRef}>
           <svg
             viewBox={`0 0 ${W} ${H}`}
             preserveAspectRatio="none"
@@ -202,8 +214,8 @@ function HourLine({
             <div
               className="weq-usage-line-tooltip"
               style={{
-                left: `${(activePoint[0] / W) * 100}%`,
-                top: `${(activePoint[1] / H) * 100}%`,
+                left: `clamp(54px, ${(activePoint[0] / W) * 100}%, calc(100% - 54px))`,
+                top: activePoint[1],
               }}
             >
               <strong>{activeDatum.hour}</strong>
@@ -212,9 +224,13 @@ function HourLine({
             </div>
           ) : null}
           <div className="weq-usage-line-axis">
-            {data.map((d, i) => (
-              <span key={d.hour}>{i % 3 === 0 ? d.hour.slice(0, 2) : ''}</span>
-            ))}
+            {data.map((d, i) =>
+              i % 3 === 0 ? (
+                <span key={d.hour} style={{ left: `${(pts[i]![0] / W) * 100}%` }}>
+                  {d.hour.slice(0, 2)}
+                </span>
+              ) : null,
+            )}
           </div>
         </div>
       </div>

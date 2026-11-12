@@ -12432,7 +12432,7 @@ html[data-theme='dark'] .weq-provider-modal {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 2px 0 20px;
+  padding: 3px 0 19px;
 }
 .weq-usage-line-yaxis span {
   font-size: 10px;
@@ -12461,9 +12461,6 @@ html[data-theme='dark'] .weq-provider-modal {
   stroke: var(--weq-accent-effective);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
-  stroke-dasharray: 1000;
-  stroke-dashoffset: 1000;
-  animation: weq-usage-line-draw 1.1s ease forwards;
 }
 .weq-usage-line-area {
   fill: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
@@ -12517,10 +12514,12 @@ html[data-theme='dark'] .weq-provider-modal {
   color: var(--weq-fg-muted);
 }
 .weq-usage-line-axis {
-  display: flex;
+  position: relative;
+  height: 16px;
 }
 .weq-usage-line-axis span {
-  flex: 1;
+  position: absolute;
+  transform: translateX(-50%);
   text-align: center;
   font-size: 9.5px;
   color: var(--weq-fg-muted);
@@ -12721,12 +12720,6 @@ html[data-theme='dark'] .weq-provider-modal {
   color: var(--weq-fg-secondary);
   text-align: right;
   white-space: nowrap;
-}
-
-@keyframes weq-usage-line-draw {
-  to {
-    stroke-dashoffset: 0;
-  }
 }
 
 @keyframes weq-usage-fade-up {
