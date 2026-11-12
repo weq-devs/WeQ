@@ -106,7 +106,7 @@ export function ContactActions({
         {primary ? (
           <button
             type="button"
-            className="weq-contact-primary"
+            className="weq-contact-secondary"
             onClick={() =>
               navigate(() => {
                 if (onOpenChat) onOpenChat();

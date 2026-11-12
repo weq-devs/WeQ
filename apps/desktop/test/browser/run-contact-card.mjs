@@ -261,6 +261,17 @@ try {
             return {
               direction: style.flexDirection,
               height: rect.height,
+              appearance: {
+                background: style.backgroundColor,
+                border: style.border,
+                radius: style.borderRadius,
+                color: style.color,
+                fontSize: style.fontSize,
+                fontWeight: style.fontWeight,
+                padding: style.padding,
+                width: rect.width,
+                height: rect.height,
+              },
               fits:
                 rect.left >= node.parentElement.getBoundingClientRect().left &&
                 rect.right <= node.parentElement.getBoundingClientRect().right &&
@@ -273,7 +284,8 @@ try {
           layout.length === 5 &&
             layout.every((item) => item.direction === 'row' && item.centered && item.fits),
         );
-        assert.equal(layout[0].height, layout[1].height);
+        for (const item of layout)
+          assert.deepEqual(item.appearance, layout[0].appearance, '所有操作按钮样式应一致');
         const bounds = await card.boundingBox();
         assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
         if (output)
