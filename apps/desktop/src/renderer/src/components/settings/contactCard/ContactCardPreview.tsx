@@ -62,7 +62,7 @@ export function ContactCardPreview({ settings }: { settings: ContactCardSettings
       aria-label="名片预览（我的名片）"
       data-preview-uid={session.binding?.expectedAccountUin ?? uin}
     >
-      <ContactIdentity person={person} />
+      <ContactIdentity person={person} settings={settings} />
       <ContactContent person={person} settings={settings} preview />
     </div>
   );

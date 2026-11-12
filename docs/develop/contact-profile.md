@@ -13,7 +13,7 @@
 - `components/contactProfile/ContactRow.tsx`：**唯一**的数据行组件（`ContactRow`）、分区小标题（`ContactSection`）、技术详情折叠（`ContactTechnicalDetails`）、局部失败（`ContactInlineError`）、空态（`ContactEmptyState`）。label 固定 96px、值 13px 左对齐可换行、空值整行不渲染；旧组件的 `.weq-profile-row` 通过 `profile-workspace.css` 的容器归一化跟随同一网格，不再各自排版。
 - 名片壳与资料页壳共用身份区 `ContactIdentity`、操作区 `ContactActions`、页头 `ProfilePageHeader`（工具栏标题 + 右上关闭 + 身份/操作，文档流内、不覆盖章节标题；`actions` 可省略）。
 - `ProfileWorkspace` 负责目录与章节：宽屏 `weq-profile-directory` 竖目录，窄屏折叠为 `weq-profile-directory-tabs` 横向章节条（不用原生 select）；章节标题统一由它输出 17px h2，内嵌组件的 h1–h4 在宿主侧归一为 13px。
-- 样式归属：目录、工作区、行模型、技术详情只在 `styles/profile-workspace.css`；`styles/contact-card.css` 只保留名片壳、身份区、操作区、群上下文与设置页专属部分。协议字段（QID / NT UID）只出现在资料页「技术详情」折叠区。
+- 样式归属：目录、工作区、行模型、技术详情只在 `styles/profile-workspace.css`；`styles/contact-card.css` 只保留名片壳、身份区、操作区、群上下文与设置页专属部分。QID 在身份区与 QQ 号并列，当前状态复用聊天顶栏的 `OnlineStatus`；两者沿用名片开关，正文不重复。NT UID 是名片可选字段，完整资料页固定收进「技术详情」折叠区。
 
 ## 数据与加载
 

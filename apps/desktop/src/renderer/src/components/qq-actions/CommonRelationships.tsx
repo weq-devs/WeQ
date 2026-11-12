@@ -1,5 +1,5 @@
 import { useContext, useId, useState } from 'react';
-import { UsersRound, UserRound, X, RefreshCw } from 'lucide-react';
+import { X, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Modal } from '../Dialog';
@@ -50,7 +50,6 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
   return (
     <>
       <ContactRow
-        icon={<UserRound size={13} />}
         label="共同好友"
         empty={
           query.data?.friendCount == null &&
@@ -74,11 +73,7 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           </button>
         ) : undefined}
       </ContactRow>
-      <ContactRow
-        label="共同群"
-        icon={<UsersRound size={13} />}
-        empty={!query.data?.groups && !query.isFetching}
-      >
+      <ContactRow label="共同群" empty={!query.data?.groups && !query.isFetching}>
         <button
           type="button"
           className="weq-contact-value"

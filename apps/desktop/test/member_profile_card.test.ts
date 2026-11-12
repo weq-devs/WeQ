@@ -50,6 +50,7 @@ vi.mock('@renderer/trpc/client', () => ({
     },
     useUtils: () => ({}),
     account: {
+      getOnlineStatus: { useQuery: () => ({ data: undefined }) },
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source' } }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       profileExtras: {
@@ -74,6 +75,9 @@ vi.mock('@renderer/hooks/useQQWriteSession', () => ({
     available: true,
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source' },
   }),
+}));
+vi.mock('@renderer/im-template/template/clipboard', () => ({
+  copyTextToClipboard: vi.fn(async () => true),
 }));
 
 // 卡片底部的三个「从卡片里再打开」的灯箱与本次断言无关，换成空壳避免把
@@ -106,6 +110,7 @@ import {
   profileTargetUser,
 } from '@renderer/lib/profileNavigation';
 import { client } from '@renderer/trpc/client';
+import { contactCardFieldGroup } from '@renderer/components/contactProfile/ContactContent';
 import {
   RelationshipDirectoryContext,
   type RelationshipDirectory,
@@ -179,6 +184,42 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('QID 与 QQ 号并列、状态位于昵称旁，生日无装饰图标，等级归基本信息', async () => {
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      qid: 'synthetic-qid',
+      customStatus: '正在听音乐',
+      birthMonth: 5,
+      birthDay: 12,
+    });
+    const numbers = layer().querySelector('.weq-contact-meta:has(.weq-contact-number)');
+    expect(numbers?.textContent).toContain('synthetic-qid');
+    expect(numbers?.textContent).toContain('10001');
+    expect(layer().querySelector('.weq-contact-title-line')?.textContent).toContain('正在听音乐');
+    expect(layer().querySelector('[data-profile-field="status"]')).toBeNull();
+    expect(layer().querySelector('[data-profile-field="qid"]')).toBeNull();
+    expect(
+      layer().querySelector('[data-profile-field="birthday"] .weq-profile-data-label svg'),
+    ).toBeNull();
+    expect(contactCardFieldGroup('level')).toBe('basic');
+  });
+  it('复制提示自动消失，重复复制重新计时', async () => {
+    await mountCard(() => {});
+    vi.useFakeTimers();
+    try {
+      const copy = layer().querySelector<HTMLButtonElement>('.weq-contact-number')!;
+      await act(async () => copy.click());
+      expect(layer().textContent).toContain('已复制');
+      await act(async () => vi.advanceTimersByTime(1200));
+      await act(async () => copy.click());
+      await act(async () => vi.advanceTimersByTime(700));
+      expect(layer().textContent).toContain('已复制');
+      await act(async () => vi.advanceTimersByTime(1100));
+      expect(layer().textContent).not.toContain('已复制');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('数字设备身份不作为 QQ 号请求名片名称、QQ 秀和资料', async () => {
     const show = vi.spyOn(client.account.dressup.peerQqShow, 'query');
     const dress = vi.spyOn(client.account.dressup.peerHome, 'query');

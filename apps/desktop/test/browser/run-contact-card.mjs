@@ -107,6 +107,93 @@ try {
   const cold = await page.evaluate(() => window.contactCardQa.calls);
   report.push({ kind: baseline ? 'baseline' : 'cold', calls: cold });
   if (!baseline) {
+    const card = page.locator('.weq-contact-card');
+    assert.match(await card.locator('.weq-contact-title-line').innerText(), /正在听音乐/);
+    assert.match(
+      await card.locator('.weq-contact-meta').last().innerText(),
+      /QQ\s+10002.*QID\s+sample-person/s,
+    );
+    assert.equal(
+      await card.locator('[data-profile-field="qid"], [data-profile-field="status"]').count(),
+      0,
+    );
+    assert.equal(
+      await card.locator('[data-profile-field="birthday"] .weq-profile-data-label svg').count(),
+      0,
+    );
+    assert.equal(await card.locator('.weq-profile-data-label svg').count(), 0);
+    const levelSection = card
+      .locator('.weq-profile-section-block')
+      .filter({ has: page.getByText('QQ 等级', { exact: true }) });
+    assert.equal(await levelSection.locator('h3').innerText(), '基本信息');
+    await page.context().grantPermissions(['clipboard-write', 'clipboard-read']);
+    await card.getByRole('button', { name: '复制 QQ 号码', exact: true }).click();
+    await card.locator('.weq-contact-copy-feedback').waitFor();
+    assert.equal(
+      await card
+        .locator('.weq-contact-copy-feedback')
+        .evaluate((node) => getComputedStyle(node).animationName),
+      'weq-contact-copy-fade',
+    );
+    assert.ok(
+      await card.locator('.weq-contact-copy-feedback').evaluate((node) => {
+        const animation = node.getAnimations()[0];
+        animation.pause();
+        animation.currentTime = 1650;
+        const opacity = Number.parseFloat(getComputedStyle(node).opacity);
+        animation.play();
+        return opacity > 0 && opacity < 0.5;
+      }),
+    );
+    await card.locator('.weq-contact-copy-feedback').waitFor({ state: 'detached' });
+    const signature = card.locator('.weq-contact-signature');
+    await signature.getByRole('button', { name: '展开' }).click();
+    assert.equal(
+      await signature.locator('p').evaluate((node) => node.scrollHeight > node.clientHeight + 1),
+      false,
+    );
+    await signature.getByRole('button', { name: '收起' }).click();
+    for (const width of [1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        const layout = await card.locator('.weq-contact-actions > button').evaluateAll((buttons) =>
+          buttons.map((node) => {
+            const style = getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            const icon = node.querySelector('svg').getBoundingClientRect();
+            return {
+              direction: style.flexDirection,
+              height: rect.height,
+              centered: Math.abs(icon.top + icon.height / 2 - (rect.top + rect.height / 2)) < 2,
+            };
+          }),
+        );
+        assert.ok(
+          layout.length >= 2 && layout.every((item) => item.direction === 'row' && item.centered),
+        );
+        assert.equal(layout[0].height, layout[1].height);
+        const bounds = await card.boundingBox();
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
+        if (output)
+          await page.screenshot({ path: resolve(output, `fixed-card-${theme}-${width}.png`) });
+      }
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await card.getByRole('button', { name: '复制 QQ 号码', exact: true }).click();
+    await card.locator('.weq-contact-copy-feedback').waitFor();
+    assert.equal(
+      await card
+        .locator('.weq-contact-copy-feedback')
+        .evaluate((node) => getComputedStyle(node).animationName),
+      'none',
+    );
+    await card.locator('.weq-contact-copy-feedback').waitFor({ state: 'detached' });
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    report.push({ kind: 'card-layout-and-copy', calls: [] });
     await page.evaluate(() => {
       const qa = window.contactCardQa;
       qa.configure({ ...qa.settings, visible: { ...qa.settings.visible, likes: true } });
@@ -181,6 +268,19 @@ try {
         if (output)
           await page.screenshot({ path: resolve(output, `${theme}-${width}-settings.png`) });
       }
+    await page.goto(`${url}?short-signature=1`);
+    await page.locator('.weq-contact-signature p').waitFor();
+    assert.equal(await page.locator('.weq-contact-signature button').count(), 0);
+    await page.evaluate(() => {
+      const qa = window.contactCardQa;
+      qa.configure({
+        ...qa.settings,
+        visible: { ...qa.settings.visible, qid: false, status: false },
+      });
+    });
+    assert.equal(await page.getByRole('button', { name: '复制 QID', exact: true }).count(), 0);
+    assert.doesNotMatch(await page.locator('.weq-contact-title-line').innerText(), /正在听音乐/);
+    report.push({ kind: 'short-signature-and-identity-settings', calls: [] });
     await page.goto(`${url}?minimal=1&preferences-loading=1`);
     await page.locator('.weq-member-pop').waitFor();
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));

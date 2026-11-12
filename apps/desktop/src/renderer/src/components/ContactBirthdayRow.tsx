@@ -1,4 +1,4 @@
-import { Cake, ChevronDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { birthRangeText, contactBirthdayText, type ContactBirth } from '../lib/contactBirth';
 import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/contact-birth.css';
@@ -8,7 +8,7 @@ export function ContactBirthdayRow({ birth }: { birth: ContactBirth }) {
   if (!text) return null;
   const detail = birthRangeText(birth);
   return (
-    <ContactRow label="生日" icon={<Cake size={13} />}>
+    <ContactRow label="生日">
       {detail ? (
         <details className="weq-birth-details" data-privacy-sensitive>
           <summary aria-label={`生日详情：${text}`}>

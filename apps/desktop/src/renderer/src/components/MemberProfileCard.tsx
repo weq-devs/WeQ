@@ -120,6 +120,7 @@ export function MemberProfileCard({
             <ContactIdentity
               key={`identity:${identityKey}`}
               person={person}
+              settings={settings}
               pendant={settings.ready && settings.visible.pendant}
               onOpen={
                 !localClone && open

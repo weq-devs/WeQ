@@ -62,18 +62,25 @@ export function OnlineStatus({
   className,
   refetchInterval,
   showBaseStatus = false,
+  fallbackText,
 }: {
   uid: string;
   className?: string;
   refetchInterval?: number;
   showBaseStatus?: boolean;
+  fallbackText?: string | null;
 }) {
   const { data: status } = trpc.account.getOnlineStatus.useQuery(
     { uid },
     { refetchInterval, refetchOnMount: 'always' },
   );
 
-  if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid)) return null;
+  if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid))
+    return fallbackText ? (
+      <span className={className} style={{ fontSize: 12, color: 'var(--weq-fg-secondary)' }}>
+        {fallbackText}
+      </span>
+    ) : null;
 
   const detail = showBaseStatus ? status.subTypeName || status.displayStatus : status.displayStatus;
   const hasDetail = showBaseStatus && detail !== status.typeName;

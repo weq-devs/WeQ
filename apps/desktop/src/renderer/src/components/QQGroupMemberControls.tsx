@@ -1,5 +1,5 @@
-import { BadgeCheck, Check, RefreshCw, UserRound, X } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { Check, RefreshCw, X } from 'lucide-react';
+import { useContext, useState } from 'react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { QQWriteResult, QQWriteTextRow } from './QQWriteControls';
@@ -7,7 +7,8 @@ import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/group-member-edit.css';
-import { useGroupRelationship } from '../lib/contactRelationship';
+import { RelationshipDirectoryContext, useGroupRelationship } from '../lib/contactRelationship';
+import type { GroupMemberRole } from '../im-template/template/types';
 
 export function QQGroupMemberControls({
   groupCode,
@@ -16,11 +17,19 @@ export function QQGroupMemberControls({
 }: {
   groupCode: string;
   uid: string;
-  profile?: { card?: string; title?: string };
+  profile?: { card?: string; title?: string; role?: GroupMemberRole };
 }) {
   const [editing, setEditing] = useState<'群昵称' | '专属头衔' | null>(null);
   const session = useQQWriteSession(`member-entry:${groupCode}:${uid}`, true);
   const relationship = useGroupRelationship({ id: groupCode });
+  const directory = useContext(RelationshipDirectoryContext);
+  const current = directory?.groups.get(groupCode);
+  const role = current?.listed ? current.role : null;
+  const permissions = groupMemberEditing(
+    role === 'owner' || role === 'admin' || role === 'member' ? role : null,
+    profile?.role,
+    directory?.selfUid === uid,
+  );
   if (!/^u_[A-Za-z0-9_-]+$/.test(uid) || !/^[1-9]\d*$/.test(groupCode)) return null;
   if (!editing && profile)
     return (
@@ -30,23 +39,31 @@ export function QQGroupMemberControls({
             ['群昵称', profile.card],
             ['专属头衔', profile.title],
           ] as const
-        ).map(([label, value]) => (
-          <ContactRow key={label} label={label} empty={relationship === 'nonmember' && !value}>
-            {relationship === 'nonmember' ? (
-              value
-            ) : (
-              <button
-                type="button"
-                className="weq-contact-value"
-                aria-label={`查看${label}`}
-                disabled={!session.available}
-                onClick={() => setEditing(label)}
-              >
-                {value || `设置${label}`}
-              </button>
-            )}
-          </ContactRow>
-        ))}
+        ).map(([label, value]) => {
+          const editable =
+            relationship !== 'nonmember' &&
+            (label === '群昵称' ? permissions.card : permissions.title);
+          if (!value?.trim() && (!editable || !session.available)) return null;
+          // 已有值在权限未知时仍可点击读取；空值必须已有明确可编辑权限。
+          const inspect = relationship !== 'nonmember' && (!current || editable);
+          return (
+            <ContactRow key={label} label={label}>
+              {!inspect ? (
+                value
+              ) : (
+                <button
+                  type="button"
+                  className="weq-contact-value"
+                  aria-label={`查看${label}`}
+                  disabled={!session.available}
+                  onClick={() => setEditing(label)}
+                >
+                  {value || `设置${label}`}
+                </button>
+              )}
+            </ContactRow>
+          );
+        })}
       </div>
     );
   return (
@@ -110,7 +127,6 @@ export function QQGroupMemberEditor({
         <MemberProfileField
           label="群昵称"
           initialEditing={initialField === '群昵称'}
-          icon={<UserRound size={13} />}
           initial={matched ? (state.data?.card ?? '') : (profile.card ?? '')}
           editable={matched && permissions.card}
           disabled={disabled}
@@ -134,7 +150,6 @@ export function QQGroupMemberEditor({
         <MemberProfileField
           label="专属头衔"
           initialEditing={initialField === '专属头衔'}
-          icon={<BadgeCheck size={13} />}
           initial={matched ? (state.data?.title ?? '') : (profile.title ?? '')}
           editable={matched && permissions.title}
           disabled={disabled}
@@ -271,7 +286,6 @@ export function QQGroupMemberEditor({
 
 function MemberProfileField({
   label,
-  icon,
   initial,
   editable,
   disabled,
@@ -279,7 +293,6 @@ function MemberProfileField({
   initialEditing = false,
 }: {
   label: string;
-  icon: ReactNode;
   initial: string;
   editable: boolean;
   disabled: boolean;
@@ -300,10 +313,7 @@ function MemberProfileField({
       }}
     >
       <label>
-        <span>
-          {icon}
-          {label}
-        </span>
+        <span>{label}</span>
         <input
           aria-label={label}
           value={draft}
@@ -334,7 +344,7 @@ function MemberProfileField({
       </button>
     </form>
   ) : editable ? (
-    <ContactRow label={label} icon={icon}>
+    <ContactRow label={label}>
       <button
         type="button"
         className="weq-contact-value"
@@ -350,6 +360,6 @@ function MemberProfileField({
       </button>
     </ContactRow>
   ) : (
-    <ContactRow icon={icon} label={label} value={initial} />
+    <ContactRow label={label} value={initial} />
   );
 }

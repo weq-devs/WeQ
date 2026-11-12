@@ -130,6 +130,25 @@
   cursor: default;
 }
 
+.weq-contact-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-contact-title-line > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-status {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
 .weq-contact-meta {
   display: flex;
   flex-wrap: wrap;
@@ -150,6 +169,7 @@
 }
 
 .weq-contact-number {
+  position: relative;
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
@@ -161,6 +181,43 @@
   font-size: 12px;
   line-height: 1.5;
   cursor: pointer;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-contact-number .weq-number {
+  min-width: 0;
+}
+
+.weq-contact-copy-feedback {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: weq-contact-copy-fade 1800ms ease-out forwards;
+}
+
+@keyframes weq-contact-copy-fade {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-contact-copy-feedback {
+    animation: none;
+  }
 }
 
 .weq-contact-number .weq-number {
@@ -256,6 +313,7 @@
   overflow: hidden;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  line-height: 1.6;
 }
 
 .weq-contact-signature.is-open > p {
@@ -328,22 +386,22 @@
 }
 
 .weq-contact-more-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  display: grid;
+  gap: 2px;
   padding-top: 6px;
 }
 
 .weq-contact-more-links > button,
 .weq-contact-more-links [data-action-icon] {
-  min-height: 26px;
-  padding: 0 8px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 6px;
+  min-height: 30px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
   background: transparent;
   color: var(--weq-fg-secondary);
   font-size: 12px;
   cursor: pointer;
+  text-align: start;
 }
 
 .weq-contact-more-links > button:hover:not(:disabled) {
@@ -386,22 +444,18 @@
   font-size: 13px;
 }
 
-/* 主按钮按内容定宽，不被旧的 .weq-profile-perhome 全宽规则拉伸。 */
-.weq-profile-actions.weq-contact-actions > .weq-profile-perhome {
-  flex: 0 0 auto;
-  width: auto;
-  min-width: 108px;
-}
-
 .weq-contact-actions .weq-contact-primary {
   flex: 0 0 auto;
   width: auto;
+  min-width: 108px;
   display: inline-flex;
+  flex-direction: row;
+  justify-content: center;
   align-items: center;
   gap: 6px;
   min-height: 32px;
   padding: 0 14px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 6px;
   background: var(--weq-accent-effective);
   color: #fff;
@@ -417,10 +471,12 @@
   flex: 0 0 auto;
   width: auto;
   display: inline-flex;
+  flex-direction: row;
+  justify-content: center;
   align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  padding: 0 10px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 6px;
   background: transparent;
@@ -448,8 +504,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 6px;
   color: var(--weq-fg-secondary);

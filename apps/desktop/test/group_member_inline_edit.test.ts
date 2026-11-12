@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { QQGroupMemberControls } from '../src/renderer/src/components/QQGroupMemberControls';
+import { RelationshipDirectoryContext } from '../src/renderer/src/lib/contactRelationship';
 
 const rpc = vi.hoisted(() => ({
   role: 'owner',
@@ -54,6 +55,44 @@ afterEach(() => {
   rpc.role = 'owner';
   rpc.targetRole = 'member';
   rpc.isSelf = false;
+});
+
+it.each([
+  ['member', false, []],
+  ['member', true, ['群昵称']],
+  ['admin', false, ['群昵称']],
+  ['owner', false, ['群昵称', '专属头衔']],
+] as const)('空成员资料按实际权限显示：%s / 本人 %s', (role, isSelf, labels) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(
+          RelationshipDirectoryContext.Provider,
+          {
+            value: {
+              selfUid: isSelf ? 'u_peer' : 'u_self',
+              friends: new Map(),
+              friendsComplete: true,
+              groups: new Map([['123', { listed: true, role }]]),
+            },
+          },
+          h(QQGroupMemberControls, {
+            groupCode: '123',
+            uid: 'u_peer',
+            profile: { card: '', title: '', role: 'member' },
+          }),
+        ),
+      ),
+    );
+    expect(
+      [...host.querySelectorAll('.weq-profile-data-label')].map((node) => node.textContent),
+    ).toEqual(labels);
+  } finally {
+    act(() => root.unmount());
+  }
 });
 
 it('普通成员可在自己的资料卡原行编辑群昵称，但不能编辑专属头衔或他人昵称', async () => {

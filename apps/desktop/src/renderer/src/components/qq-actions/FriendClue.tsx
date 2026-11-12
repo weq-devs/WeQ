@@ -1,4 +1,3 @@
-import { CalendarDays, ArrowLeftRight, MapPin, MessageSquare } from 'lucide-react';
 import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
@@ -68,7 +67,7 @@ export function SourceGroup({
   }
   return (
     <>
-      <ContactRow label="添加来源" icon={<MapPin size={13} />}>
+      <ContactRow label="添加来源">
         <button
           className="weq-friend-source-group"
           type="button"
@@ -113,7 +112,6 @@ function FriendClueBody({ uid }: { uid: string }) {
   return (
     <>
       <ContactRow
-        icon={<CalendarDays size={13} />}
         label="添加时间"
         value={
           data ? (data.addedAt === null ? null : dateFormat.format(data.addedAt * 1000)) : empty
@@ -122,7 +120,6 @@ function FriendClueBody({ uid }: { uid: string }) {
       {data && (
         <>
           <ContactRow
-            icon={<ArrowLeftRight size={13} />}
             label="添加方向"
             value={
               data.direction === 'outgoing'
@@ -139,13 +136,9 @@ function FriendClueBody({ uid }: { uid: string }) {
               source={data.source}
             />
           ) : (
-            <ContactRow icon={<MapPin size={13} />} label="添加来源" value={data.source} />
+            <ContactRow label="添加来源" value={data.source} />
           )}
-          <ContactRow
-            icon={<MessageSquare size={13} />}
-            label="验证消息"
-            value={data.verificationMessage}
-          />
+          <ContactRow label="验证消息" value={data.verificationMessage} />
         </>
       )}
     </>

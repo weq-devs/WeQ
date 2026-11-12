@@ -127,14 +127,15 @@ try {
     await page.close();
   }
 
-  // ---------- QID / NT UID：正文可选项 vs 资料页技术详情 ----------
+  // ---------- QID 身份区 / NT UID 正文可选项与资料页技术详情 ----------
   for (const theme of ['light', 'dark']) {
     const { page } = await open('view=card&state=default', { theme });
     await page.locator('.weq-member-pop').waitFor();
     const read = () =>
       page.evaluate(() => document.querySelector('.weq-member-pop')?.innerText ?? '');
     const initial = await read();
-    assert.ok(initial.includes('QID'), 'QID 默认开，应在名片正文');
+    assert.ok(initial.includes('QID'), 'QID 默认开，应在名片身份区');
+    assert.match(await page.locator('.weq-contact-meta').last().innerText(), /QID/);
     assert.ok(!initial.includes('NT UID'), 'NT UID 默认关，不应在名片正文');
     await page.screenshot({
       path: resolve(output, `card-qid-on-1280-${theme}.png`),
@@ -146,7 +147,7 @@ try {
     });
     await page.waitForTimeout(300);
     const toggled = await read();
-    assert.ok(!toggled.includes('QID'), '关闭 QID 后正文不应出现');
+    assert.ok(!toggled.includes('QID'), '关闭 QID 后名片不应出现');
     assert.ok(toggled.includes('NT UID'), '开启 NT UID 后正文应出现');
     await page.screenshot({
       path: resolve(output, `card-qid-off-1280-${theme}.png`),
@@ -168,7 +169,8 @@ try {
     const tech = await page.evaluate(
       () => document.querySelector('.weq-profile-tech')?.innerText ?? '',
     );
-    assert.ok(tech.includes('QID') && tech.includes('NT UID'), '技术详情始终包含 QID / NT UID');
+    assert.ok(!tech.includes('QID') && tech.includes('NT UID'), '技术详情只保留 NT UID');
+    assert.match(await page.locator('.weq-contact-meta').last().innerText(), /QID/);
     report[`qidTechnical:${theme}`] = tech.replace(/\s+/g, ' ').slice(0, 80);
     await page.close();
   }

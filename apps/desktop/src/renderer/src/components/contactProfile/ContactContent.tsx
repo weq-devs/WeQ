@@ -1,4 +1,12 @@
-import { Fragment, useContext, useState, type ReactNode } from 'react';
+import {
+  Fragment,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, Building2, ChevronDown } from 'lucide-react';
 import {
@@ -31,6 +39,7 @@ import {
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { client, trpc } from '../../trpc/client';
 import { PersonRelationshipStatus } from '../RelationshipStatus';
+import { OnlineStatus } from '../OnlineStatus';
 import { ContactBirthdayRow } from '../ContactBirthdayRow';
 import { CommonRelationships } from '../qq-actions/CommonRelationships';
 import { FriendClue } from '../qq-actions/FriendClue';
@@ -82,14 +91,13 @@ const SOCIAL_FIELDS: readonly ContactCardContent[] = [
   'intimacy',
   'relations',
   'privileges',
-  'level',
   'likes',
   'marks',
   'friendClue',
   'notes',
 ];
 const BOT_FIELDS: readonly ContactCardContent[] = ['botDescription', 'botFeatures'];
-/** 协议字段不参与名片正文，只在资料页「技术详情」折叠区出现。 */
+/** QID 随身份区展示；NT UID 在名片可选、资料页技术详情中展示。 */
 const TECH_FIELDS: readonly ContactCardContent[] = ['qid', 'uid'];
 const automaticFields: readonly ContactCardContent[] = [
   'qqShow',
@@ -123,13 +131,14 @@ export function ContactIdentity({
   person,
   onOpen,
   pendant = false,
+  settings,
 }: {
   person: ProfilePerson;
   onOpen?: () => void;
   pendant?: boolean;
+  settings?: ContactCardSettings;
 }) {
   const [remarkOpen, setRemarkOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const relationship = usePersonRelationship(person);
   const names = useCardDisplayNames(
     'user',
@@ -160,20 +169,35 @@ export function ContactIdentity({
           ) : null}
         </button>
         <div className="weq-profile-heading">
-          <button
-            type="button"
-            className="weq-profile-name weq-contact-name"
-            aria-label={onOpen ? '联系人详情' : undefined}
-            title={onOpen ? '联系人详情' : undefined}
-            disabled={!onOpen}
-            onClick={(event) => {
-              const selection = window.getSelection();
-              if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
-                onOpen?.();
-            }}
-          >
-            {title}
-          </button>
+          <div className="weq-contact-title-line">
+            <button
+              type="button"
+              className="weq-profile-name weq-contact-name"
+              aria-label={onOpen ? '联系人详情' : undefined}
+              title={onOpen ? '联系人详情' : undefined}
+              disabled={!onOpen}
+              onClick={(event) => {
+                const selection = window.getSelection();
+                if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
+                  onOpen?.();
+              }}
+            >
+              {title}
+            </button>
+            {!person.clone && settings?.visible.status !== false ? (
+              /^u_/.test(person.uid || person.id) ? (
+                <OnlineStatus
+                  uid={person.uid || person.id}
+                  showBaseStatus
+                  fallbackText={person.customStatus || person.onlineStatus}
+                />
+              ) : (
+                <span className="weq-contact-status">
+                  {person.customStatus || person.onlineStatus}
+                </span>
+              )
+            ) : null}
+          </div>
           <div className="weq-contact-meta">
             {!person.clone ? <PersonRelationshipStatus person={person} /> : null}
             {!person.clone && person.kind === 'bot' ? (
@@ -190,16 +214,10 @@ export function ContactIdentity({
             ) : null}
           </div>
           <div className="weq-contact-meta">
-            <button
-              type="button"
-              className="weq-contact-number"
-              title={copied ? '已复制' : '复制号码'}
-              aria-label={person.clone ? '复制 ID' : `复制 ${identityLabel} 号码`}
-              onClick={() => void copyTextToClipboard(identity).then(setCopied)}
-            >
-              {identityLabel} <span className="weq-number">{identity}</span>
-              {copied ? ' 已复制' : ''}
-            </button>
+            <IdentityNumber label={identityLabel} value={identity} />
+            {!person.clone && person.qid && settings?.visible.qid !== false ? (
+              <IdentityNumber label="QID" value={person.qid} />
+            ) : null}
             {relationship === 'friend' && !person.clone && !remark ? (
               <button
                 type="button"
@@ -231,6 +249,35 @@ export function ContactIdentity({
         />
       ) : null}
     </>
+  );
+}
+
+function IdentityNumber({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(0);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(0), 1800);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      className="weq-contact-number"
+      title={`复制 ${label}`}
+      aria-label={label === 'ID' || label === 'QID' ? `复制 ${label}` : `复制 ${label} 号码`}
+      onClick={() =>
+        void copyTextToClipboard(value).then((ok) => {
+          if (ok) setCopied((value) => value + 1);
+        })
+      }
+    >
+      {label} <span className="weq-number">{value}</span>
+      {copied ? (
+        <span key={copied} role="status" className="weq-contact-copy-feedback">
+          已复制
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -492,14 +539,30 @@ function BotFeaturesRow({ person }: { person: ProfilePerson }) {
 
 function SignatureRow({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
+  const [overflow, setOverflow] = useState(false);
+  const content = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => {
+    const element = content.current;
+    if (!element) return;
+    const measure = () => {
+      const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+      setOverflow(element.scrollHeight > lineHeight * 3 + 1);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [text]);
   return (
     <ContactRow label="个性签名">
       <div className={`weq-contact-signature${open ? ' is-open' : ''}`}>
-        <p>{text}</p>
-        <button type="button" onClick={() => setOpen(!open)}>
-          {open ? '收起' : '展开'}
-          <ChevronDown size={12} className={open ? 'is-open' : undefined} />
-        </button>
+        <p ref={content}>{text}</p>
+        {overflow ? (
+          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? '收起' : '展开'}
+            <ChevronDown size={12} className={open ? 'is-open' : undefined} />
+          </button>
+        ) : null}
       </div>
     </ContactRow>
   );
@@ -556,7 +619,7 @@ export function ContactGroupContent({
         <QQGroupMemberControls
           groupCode={context.groupCode}
           uid={person.uid || person.id}
-          profile={{ card: member.card, title: member.customTitle ?? undefined }}
+          profile={{ card: member.card, title: member.customTitle ?? undefined, role: member.role }}
         />
       )}
       <ContactRow
@@ -696,7 +759,7 @@ export function ContactContent({
         </div>
       </ContactRow>
     ) : null,
-    status: <ContactRow label="当前状态" value={person.customStatus || person.onlineStatus} />,
+    status: null,
     common:
       personal && relationship !== 'self' ? (
         <CommonRelationships uin={person.identityValue} onNavigate={onNavigate} />
@@ -761,15 +824,6 @@ export function ContactContent({
       ) : null,
     likes: personal ? <ContactStats person={person} field="likeCount" /> : null,
     energy: personal ? <EnergyRow person={person} /> : null,
-    qid: (
-      <ContactRow
-        label="QID"
-        value={person.qid}
-        mono
-        onActivate={() => person.qid && void copyTextToClipboard(person.qid)}
-        activateTitle="复制 QID"
-      />
-    ),
     uid: (
       <ContactRow
         label="NT UID"
@@ -798,10 +852,13 @@ export function ContactContent({
     botFeatures: person.kind === 'bot' ? <BotFeaturesRow person={person} /> : null,
   };
   const ordered = settings.order.filter(
-    (key) => enabled(key) && (!localOnly || !automaticFields.includes(key)),
+    (key) =>
+      key !== 'qid' &&
+      key !== 'status' &&
+      enabled(key) &&
+      (!localOnly || !automaticFields.includes(key)),
   );
-  // 名片正文：「其他与机器人」把 QID / NT UID 这类可选展示项也收进来（清单 A39/A40 要求它们是正文可选项）；
-  // 资料页则把它们固定放进「技术详情」，与开关无关。
+  // QID 与当前状态已由身份区承载，正文不重复；NT UID 仍按设置展示。
   const buckets = {
     basic: ordered.filter((key) => contactCardFieldGroup(key) === 'basic'),
     social: ordered.filter((key) => contactCardFieldGroup(key) === 'social'),
@@ -829,14 +886,9 @@ export function ContactContent({
       .filter(Boolean) as ReactNode[];
   const techBlockRaw = blocks.find((block) => block.key === 'tech');
   if (!technical && techBlockRaw) techBlockRaw.rows = [];
-  // 资料页技术详情：QID / NT UID 始终在，不受名片开关影响。
+  // 资料页技术详情：NT UID 始终在，不受名片开关影响。
   const techRows = technical
-    ? (
-        [
-          ['qid', rows.qid],
-          ['uid', rows.uid],
-        ] as const
-      )
+    ? ([['uid', rows.uid]] as const)
         .filter(([, node]) => Boolean(node))
         .map(([key, node]) => <Fragment key={key}>{node}</Fragment>)
     : [];

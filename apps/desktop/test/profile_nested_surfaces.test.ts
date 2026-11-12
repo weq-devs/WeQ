@@ -76,6 +76,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       account: { intentSense: { getProfile: { setData: vi.fn() } } },
     }),
     account: {
+      getOnlineStatus: { useQuery: () => ({ data: undefined }) },
       groupMemberPreview: { useQuery: () => ({ data: undefined }) },
       qqActions: {
         groupPermissions: { useQuery: () => ({ data: undefined }) },
@@ -265,8 +266,7 @@ it.each([false, true])('联系人名片以真实昵称为主标题并保留备�
     // 备注是身份区下的独立属性行，不再塞进标题块。
     expect(document.querySelector('.weq-profile-heading')?.textContent).not.toContain('好友备注');
     expect(
-      document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')
-        ?.textContent,
+      document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')?.textContent,
     ).toBe('好友备注');
   } finally {
     act(() => root.unmount());
@@ -312,12 +312,9 @@ it.each([false, true])('群名片以群名为主标题，备注单独成行，�
         }),
       ),
     );
-    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(
-      groupFixture.group.name,
-    );
+    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(groupFixture.group.name);
     expect(
-      document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')
-        ?.textContent,
+      document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')?.textContent,
     ).toBe('群备注');
     expect(document.querySelector('[aria-label="群资料"]')?.textContent).toContain('群备注');
   } finally {
