@@ -61,7 +61,6 @@ import { getAppContext } from './context/app_context';
 import { fullModeAllowed } from './context/full_mode';
 import { resolveResource } from './resource';
 import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
-import { decodeSilkToWav, isSilkFile } from './voice';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
@@ -843,6 +842,8 @@ async function routeMediaRequest(request: Request): Promise<Response> {
             }
           }
           if (!silk) return notFound('ptt not found');
+          const { decodeSilkToWav } = await import('./voice');
+          mediaBinding.getStore()?.();
           const wav = await decodeSilkToWav(silk);
           return wav ? fileResponse(wav) : notFound('ptt decode failed');
         }
@@ -981,6 +982,8 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           if (!path) return notFound('localfilevoice needs path');
           const resolved = await services.fileResource.resolveLocalFile(path);
           if (!resolved) return notFound('localfilevoice not found');
+          const { decodeSilkToWav, isSilkFile } = await import('./voice');
+          mediaBinding.getStore()?.();
           if (!isSilkFile(resolved)) return fileResponse(resolved);
           const wav = await decodeSilkToWav(resolved);
           return wav ? fileResponse(wav) : notFound('localfilevoice decode failed');
@@ -1006,6 +1009,8 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           if (!rel) return notFound('localvoice needs rel');
           const silk = await services.mediaResource.resolveFile('ptt', rel);
           if (!silk) return notFound('localvoice not found');
+          const { decodeSilkToWav } = await import('./voice');
+          mediaBinding.getStore()?.();
           const wav = await decodeSilkToWav(silk);
           return wav ? fileResponse(wav) : notFound('localvoice decode failed');
         }

@@ -93,6 +93,7 @@ import {
   localOcrBlocker,
 } from '@weq/service';
 import { runBackupProbe } from '../../backup_probe';
+import { resolveOnlineInstances } from '../../capture_session';
 import {
   backupLoginDbPaths,
   scanBackupCandidates,
@@ -165,17 +166,14 @@ function backupScanContext() {
   const boot = requireBootstrap();
   const configs = boot.userConfig.listAccountConfigs();
   for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
-  let online: ReturnType<typeof import('../../capture_session').resolveOnlineInstances> | undefined;
+  let online: ReturnType<typeof resolveOnlineInstances> | undefined;
   return {
     configs,
     options: {
       allowOnline: fullModeAllowed(getAppContext()),
       attachHook: boot.attachHook,
       keyContext: createOtherDeviceKeyContext(),
-      resolveOnline: () =>
-        (online ??= import('../../capture_session').then(({ resolveOnlineInstances }) =>
-          resolveOnlineInstances(boot, requirePlatform()),
-        )),
+      resolveOnline: () => (online ??= resolveOnlineInstances(boot, requirePlatform())),
     },
   };
 }
@@ -2877,10 +2875,7 @@ export const bootstrapRouter = router({
         dbKey: input.dbKey,
         allowOnline: fullModeAllowed(getAppContext()),
         attachHook: boot.attachHook,
-        resolveOnline: () =>
-          import('../../capture_session').then(({ resolveOnlineInstances }) =>
-            resolveOnlineInstances(boot, requirePlatform()),
-          ),
+        resolveOnline: () => resolveOnlineInstances(boot, requirePlatform()),
       });
     }),
 

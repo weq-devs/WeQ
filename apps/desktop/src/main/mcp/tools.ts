@@ -20,6 +20,7 @@ import { databasePerformance } from '@weq/db';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope } from './account_scope';
+import { runAssistantTool } from './openai_tools';
 import { hasAccountSwitchSubscriber, pushAccountSwitchRequest } from '../account_switch_bus';
 import {
   classifyChatType,
@@ -5372,8 +5373,6 @@ export const AI_TOOLS: AiTool[] = [
         .describe('执行超时（毫秒）'),
     }),
     run: async ({ code, timeoutMs }) => {
-      // 动态 import：执行入口在 openai_tools.ts，静态引入会与 AI_TOOLS 绕成一个环。
-      const { runAssistantTool } = await import('./openai_tools');
       const { toolExecutionOptions } = await import('./account_scope');
       const options = toolExecutionOptions();
       return runJsSandbox(
