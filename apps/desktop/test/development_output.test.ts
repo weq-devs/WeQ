@@ -42,13 +42,62 @@ describe('开发进程输出', () => {
     expect(lines).toHaveLength(3);
     expect(lines.join('').match(/x/g)).toHaveLength(160);
     const system = createDevelopmentOutput((line) => lines.push(line), false);
-    system.write(
-      '2026-11-12 14:25:49.733 Electron[52183:739564] TSM AdjustCapsLockLEDForKeyTransitionHandling - Inhibit\n',
-    );
+    system.write('2026-11-12 14:25:49.733 Electron[52183:739564] Unknown system diagnostic\n');
     system.end();
     expect(lines.at(-1)).toContain('electron-system');
-    expect(lines.at(-1)).toContain('TSM AdjustCapsLockLEDForKeyTransitionHandling - Inhibit');
+    expect(lines.at(-1)).toContain('Unknown system diagnostic');
     expect(lines.at(-1)).not.toContain('52183');
+  });
+  const macInputDiagnostics = [
+    'TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit',
+    '+[IMKClient subclass]: chose IMKClient_Modern',
+    '+[IMKClient subclass]: chose IMKClient_Legacy',
+    '+[IMKInputSession subclass]: chose IMKInputSession_Modern',
+    '+[IMKInputSession subclass]: chose IMKInputSession_Legacy',
+  ];
+  it.each(['info', 'debug'])('%s 模式只收起已知无害的系统输入诊断', (level) => {
+    vi.stubEnv('WEQ_LOG_LEVEL', level);
+    onTestFinished(() => vi.unstubAllEnvs());
+    const lines: string[] = [];
+    const output = createDevelopmentOutput((line) => lines.push(line), false);
+    for (const diagnostic of macInputDiagnostics) {
+      const bytes = Buffer.from(`2026-11-13 05:16:04.123 Electron[123:456] ${diagnostic}\r\n`);
+      output.write(bytes.subarray(0, 60));
+      output.write(bytes.subarray(60));
+    }
+    output.write('12:34:56 INFO  startup  已就绪\n');
+    output.end();
+    expect(lines).toHaveLength(level === 'debug' ? macInputDiagnostics.length + 1 : 1);
+    if (level === 'debug') {
+      for (const diagnostic of macInputDiagnostics) expect(lines.join('')).toContain(diagnostic);
+    }
+    expect(lines.at(-1)).toBe('12:34:56 INFO  startup  已就绪\n');
+  });
+  it('不吞掉输入系统的相似异常、未知实现与其他系统故障', () => {
+    vi.stubEnv('WEQ_LOG_LEVEL', 'info');
+    onTestFinished(() => vi.unstubAllEnvs());
+    const messages = [
+      `${macInputDiagnostics[0]} failed`,
+      '+[IMKClient subclass]: chose IMKClient_Unknown',
+      '+[IMKInputSession subclass]: failed to initialize',
+      '+[IMKClient subclass]: chose IMKInputSession_Modern',
+      'GPU process exited unexpectedly',
+      'Certificate verification failed',
+      'Permission denied',
+      'Database error: fixture',
+      'Native module failed to load',
+      'Electron Security Warning: fixture',
+    ];
+    const lines: string[] = [];
+    const output = createDevelopmentOutput((line) => lines.push(line), false);
+    for (const message of messages)
+      output.write(`2026-11-13 05:16:04.123 Electron[123:456] ${message}\n`);
+    output.write(`${macInputDiagnostics[0]}\n`);
+    output.end();
+    expect(lines).toHaveLength(messages.length + 1);
+    for (const message of messages) expect(lines.join('')).toContain(message);
+    expect(lines.at(-1)).toContain('dev-process');
+    expect(lines.at(-1)).toContain(macInputDiagnostics[0]);
   });
   it('管道继承真实终端颜色，NO_COLOR 优先，已有 ANSI 在无色输出中移除', () => {
     expect(terminalColor('stderr', { WEQ_DEV_STDERR_TTY: '1' })).toBe(true);

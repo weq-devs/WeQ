@@ -37,6 +37,15 @@ function timingBoilerplate(line: string): boolean {
   );
 }
 
+function benignSystemInputDiagnostic(message: string): boolean {
+  return (
+    message ===
+      'TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit' ||
+    /^\+\[IMKClient subclass\]: chose IMKClient_(?:Modern|Legacy)$/.test(message) ||
+    /^\+\[IMKInputSession subclass\]: chose IMKInputSession_(?:Modern|Legacy)$/.test(message)
+  );
+}
+
 /** 已知构建警告压成摘要，其他警告和定位仍原样输出。 */
 export function summarizeDevelopmentBuildWarning(text: string): string {
   const chunk = /Some chunks are larger than ([\d.]+\s*kB) after minification/.exec(text);
@@ -97,6 +106,7 @@ export function createDevelopmentOutput(
       return;
     }
     const system = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ (\S+)\[\d+:\d+\] (.*)$/.exec(text);
+    if (!debug && system && benignSystemInputDiagnostic(system[2]!)) return;
     const vite = /^\s*(?:\d{1,2}:\d{2}:\d{2}(?:\s*[AP]M)?\s+)?\[vite\]\s*(.*)$/.exec(text);
     const scope = system ? 'electron-system' : vite ? 'vite' : 'dev-process';
     const lifecycle: Record<string, string> = {
