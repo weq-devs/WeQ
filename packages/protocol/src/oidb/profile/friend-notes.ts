@@ -108,6 +108,37 @@ const detailResponse = message([
 ]);
 const cardRequest = message([{ name: 'card', tag: 1, type: 'bytes' }]);
 
+/** 首批列表只做正向定位；null 不能证明没有关联卡，更不能据此新建空名片。 */
+export async function readListedFriendNoteId(nt: TrpcNative, pid: number, targetUin: string) {
+  const target = requireUin(targetUin);
+  const bytes = await invokeLegacyOidb(
+    nt,
+    pid,
+    0x43c,
+    4,
+    'OidbSvc.0x43c_4',
+    encode(
+      message([
+        { name: 'seq', tag: 1, type: 'uint32', force: true },
+        { name: 'next', tag: 2, type: 'uint32', force: true },
+        { name: 'count', tag: 3, type: 'uint32' },
+      ]),
+      { seq: 0, next: 0, count: 10 },
+    ),
+    { strict: true },
+  );
+  if (bytes.length > 1048576) throw new Error('好友备注列表响应超限');
+  const list = decode(message([{ name: 'cards', tag: 3, type: 'bytes', repeated: true }]), bytes, {
+    strict: true,
+  });
+  const targetField = message([{ name: 'target', tag: 8, type: 'uint64' }]);
+  const matches = ((list.cards ?? []) as Uint8Array[]).filter(
+    (card) => decode(targetField, card, { strict: true }).target === target,
+  );
+  if (matches.length > 1) throw new Error('好友备注列表存在多条关联名片，无法确认当前资料');
+  return matches[0] ? parseFriendNoteCard(matches[0], targetUin).id : null;
+}
+
 export async function readFriendNoteDetail(
   nt: TrpcNative,
   pid: number,

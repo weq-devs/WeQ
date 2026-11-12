@@ -3,6 +3,13 @@ import { requireUin } from '../write-validation';
 
 type Value = number | bigint | string | Buffer | Value[] | Map<Value, Value>;
 
+export class FriendSummaryCardError extends Error {
+  constructor(readonly result: number | null) {
+    super(`我的好友备注资料读取失败（${result ?? '未知'}）`);
+    this.name = 'FriendSummaryCardError';
+  }
+}
+
 // SummaryCard 仍使用 JCE UniPacket；只在本模块适配，不混入 protobuf 传输。
 function field(tag: number, value: Value): Buffer {
   let type: number;
@@ -202,8 +209,8 @@ export function decodeFriendSummaryCard(bytes: Uint8Array, targetUin: string): U
     return row;
   };
   const head = read('RespHead');
-  if (head.get(1) !== 0)
-    throw new Error(`我的好友备注资料读取失败（${String(head.get(1) ?? '未知')}）`);
+  const result = head.get(1);
+  if (result !== 0) throw new FriendSummaryCardError(typeof result === 'number' ? result : null);
   const row = read('RespSummaryCard');
   if (String(row.get(23)) !== targetUin) throw new Error('好友备注资料返回目标不匹配');
   const card = row.get(62);

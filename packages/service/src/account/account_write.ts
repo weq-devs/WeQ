@@ -36,8 +36,10 @@ import {
   type SelfProfilePatch,
   type SetOnlineStatusParams,
   readFriendSummaryCard,
+  FriendSummaryCardError,
   parseFriendNoteCard,
   readFriendNoteDetail,
+  readListedFriendNoteId,
   replaceFriendNotes,
   newFriendNoteCard,
   writeFriendNoteCard,
@@ -277,11 +279,20 @@ export class AccountWriteService {
     this.assertCurrentPid(pid);
     if (buddy.uid !== uid || uid === this.identity.selfUid) throw new Error('好友备注资料目标无效');
     const targetUin = String(buddy.uin);
-    const summary = await readFriendSummaryCard(this.nt, pid, targetUin);
-    this.assertCurrentPid(pid);
+    let id: Uint8Array | null = null;
+    try {
+      const summary = await readFriendSummaryCard(this.nt, pid, targetUin);
+      this.assertCurrentPid(pid);
+      if (summary) id = parseFriendNoteCard(summary, targetUin).id;
+    } catch (error) {
+      this.assertCurrentPid(pid);
+      if (!(error instanceof FriendSummaryCardError) || error.result !== 151) throw error;
+      id = await readListedFriendNoteId(this.nt, pid, targetUin);
+      this.assertCurrentPid(pid);
+      if (!id) throw error;
+    }
     let raw: Uint8Array | null = null;
-    if (summary) {
-      const { id } = parseFriendNoteCard(summary, targetUin);
+    if (id) {
       raw = await readFriendNoteDetail(this.nt, pid, id, targetUin);
       this.assertCurrentPid(pid);
     }

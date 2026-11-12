@@ -26,13 +26,24 @@ function fixture() {
   let summary = summaryV3Hex;
   let card = Buffer.from(cardHex, 'hex');
   let failWrite = false;
+  let listedCards: Uint8Array[] = [];
   let afterRead = () => {};
   const writes: Buffer[] = [];
   const sendPacket = vi.fn(async (_pid: number, cmd: string, bytes: Buffer) => {
     if (cmd === 'SummaryCard.ReqSummaryCard') return Buffer.from(summary, 'hex');
     const request = decode(legacyOidbEnvelope, bytes);
     let response: Uint8Array;
-    if (cmd === 'OidbSvc.0x43c_5') {
+    if (cmd === 'OidbSvc.0x43c_4') {
+      response = encode(
+        message([
+          { name: 'seq', tag: 1, type: 'uint32' },
+          { name: 'next', tag: 2, type: 'uint32' },
+          { name: 'cards', tag: 3, type: 'bytes', repeated: true },
+        ]),
+        { seq: 96, next: 0xffffffff, cards: listedCards },
+      );
+      afterRead();
+    } else if (cmd === 'OidbSvc.0x43c_5') {
       response = encode(detail, { id: Buffer.from('id'), card });
       afterRead();
     } else {
@@ -80,6 +91,9 @@ function fixture() {
     failRead: () => {
       summary = failedSummaryHex;
     },
+    listCard: () => {
+      listedCards = [card];
+    },
     failWrite: () => {
       failWrite = true;
     },
@@ -92,6 +106,55 @@ function fixture() {
 }
 
 describe('我的好友备注资料编排', () => {
+  it('SummaryCard 151 时用列表明确命中的 ID 读回详情，已有资料仍可正常保存', async () => {
+    const f = fixture();
+    f.failRead();
+    f.listCard();
+    const before = await f.service.getFriendNotes('u_peer');
+    expect(before).toMatchObject({
+      exists: true,
+      company: 'C',
+      phones: ['1', '2'],
+      descriptions: ['a'],
+    });
+    expect(f.sendPacket.mock.calls.map((call) => call[1])).toEqual([
+      'SummaryCard.ReqSummaryCard',
+      'OidbSvc.0x43c_4',
+      'OidbSvc.0x43c_5',
+    ]);
+    expect(await f.service.friendNotes('u_peer', before.revision, notes)).toEqual({
+      state: 'accepted',
+    });
+    expect(decode(legacyOidbEnvelope, f.writes[0]!).serviceType).toBe(3);
+  });
+  it('151 后列表未命中不当成空备注，列表读取期间切号不再发详情请求', async () => {
+    const f = fixture();
+    f.failRead();
+    await expect(f.service.getFriendNotes('u_peer')).rejects.toThrow('151');
+    expect(f.writes).toHaveLength(0);
+    const switched = fixture();
+    switched.failRead();
+    switched.listCard();
+    switched.switchDuringRead();
+    await expect(switched.service.getFriendNotes('u_peer')).rejects.toThrow('切换');
+    expect(switched.sendPacket.mock.calls.map((call) => call[1])).toEqual([
+      'SummaryCard.ReqSummaryCard',
+      'OidbSvc.0x43c_4',
+    ]);
+  });
+  it('备用路径和主路径生成同一修订；普通网络错误不触发列表请求', async () => {
+    const f = fixture();
+    const original = await f.service.getFriendNotes('u_peer');
+    f.failRead();
+    f.listCard();
+    expect((await f.service.getFriendNotes('u_peer')).revision).toBe(original.revision);
+    const failed = fixture();
+    failed.sendPacket.mockRejectedValueOnce(new Error('timeout'));
+    await expect(failed.service.getFriendNotes('u_peer')).rejects.toThrow('timeout');
+    expect(failed.sendPacket.mock.calls.map((call) => call[1])).toEqual([
+      'SummaryCard.ReqSummaryCard',
+    ]);
+  });
   it('读取关联名片及完整详情，返回私有备注视图、不泄出原始名片', async () => {
     const f = fixture();
     const result = await f.service.getFriendNotes('u_peer');

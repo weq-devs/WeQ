@@ -7,6 +7,7 @@ import {
   readFriendNoteDetail,
   writeFriendNoteCard,
   newFriendNoteCard,
+  readListedFriendNoteId,
 } from '../src/oidb/profile/friend-notes';
 import { legacyOidbEnvelope } from '../src/oidb/legacy';
 import {
@@ -26,6 +27,36 @@ const notes = {
 };
 
 describe('我为好友添加的备注资料协议', () => {
+  const listed = (body: Uint8Array) => ({
+    sendPacket: vi.fn(async () =>
+      Buffer.from(
+        encode(legacyOidbEnvelope, {
+          command: 0x43c,
+          serviceType: 4,
+          result: 0,
+          body,
+        }),
+      ),
+    ),
+  });
+  it('列表只能正向定位明确绑定的名片 ID，不依赖列表是否完整', async () => {
+    const nt = listed(Buffer.from(`086010ffffffff0f1a19${cardHex}`, 'hex'));
+    expect(await readListedFriendNoteId(nt, 7, '10002')).toEqual(new Uint8Array(Buffer.from('id')));
+    expect(nt.sendPacket.mock.calls).toHaveLength(1);
+    const empty = listed(Buffer.from('086010ffffffff0f', 'hex'));
+    expect(await readListedFriendNoteId(empty, 7, '10002')).toBeNull();
+    expect(await readListedFriendNoteId(nt, 7, '10003')).toBeNull();
+    const partial = listed(Buffer.from(`086010011a19${cardHex}`, 'hex'));
+    expect(await readListedFriendNoteId(partial, 7, '10002')).toEqual(
+      new Uint8Array(Buffer.from('id')),
+    );
+  });
+  it('列表里同一好友出现多条名片时拒绝选取，不用本人名片冒充好友名片', async () => {
+    const duplicate = listed(Buffer.from(`086010ffffffff0f1a19${cardHex}1a19${cardHex}`, 'hex'));
+    await expect(readListedFriendNoteId(duplicate, 7, '10002')).rejects.toThrow('多条');
+    const mine = listed(Buffer.from(`086010ffffffff0f2219${cardHex}`, 'hex'));
+    expect(await readListedFriendNoteId(mine, 7, '10002')).toBeNull();
+  });
   it('官方场景请求与独立 JCE 编码器黄金字节一致', () => {
     expect(Buffer.from(encodeFriendSummaryCard('10002')).toString('hex')).toBe(summaryRequestHex);
   });

@@ -164,10 +164,11 @@ export type { PttTransVoice, PttTransAck, PttTransPush } from './ptt-trans';
 export { ReportRead, type ReadReportParams } from './msg/report-read';
 export { SetFriendRemark, ClearFriendRemark } from './oidb/set-friend-remark';
 export type { SetFriendRemarkParams } from './oidb/set-friend-remark';
-export { readFriendSummaryCard } from './oidb/profile/summary-card';
+export { readFriendSummaryCard, FriendSummaryCardError } from './oidb/profile/summary-card';
 export {
   parseFriendNoteCard,
   readFriendNoteDetail,
+  readListedFriendNoteId,
   replaceFriendNotes,
   newFriendNoteCard,
   writeFriendNoteCard,
