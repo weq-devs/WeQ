@@ -10,12 +10,14 @@ export function ConversationMenuTarget({
   identity,
   kind,
   count,
+  containedCount,
 }: {
   name: string;
   avatarUrl?: string | null;
   identity: string;
   kind: 'direct' | 'group' | 'merged';
   count: number;
+  containedCount?: number;
 }) {
   const document = useRenderDocument();
   const [copied, setCopied] = useState(0);
@@ -39,7 +41,11 @@ export function ConversationMenuTarget({
           {count > 1 ? (
             `从 ${name} 打开`
           ) : kind === 'merged' ? (
-            '聚合会话'
+            containedCount === undefined ? (
+              '聚合会话'
+            ) : (
+              `内含 ${containedCount} 个会话`
+            )
           ) : (
             <>
               {kind === 'group' ? '群聊' : '私聊'} ·{' '}

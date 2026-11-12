@@ -965,6 +965,11 @@ export function ConversationList({
               identity={conversationSeed(actionMenu.conversation)}
               kind={actionMenu.conversation.type}
               count={actionMenu.ids.length}
+              containedCount={
+                groupAssistantMenu
+                  ? (directory?.groupAssistantIds?.size ?? assistantIds.length)
+                  : undefined
+              }
             />
           }
           onClose={() => setActionMenu(null)}

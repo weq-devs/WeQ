@@ -455,7 +455,8 @@ describe('群助手', () => {
                 ConversationDirectoryContext.Provider,
                 {
                   value: {
-                    real: [...assistantGroups, other, entry],
+                    // 两个群时只加载首个会话，入口数量仍以完整归属集合为准。
+                    real: [...assistantGroups.slice(0, 1), other, entry],
                     virtual: [],
                     groupAssistantIds: new Set(assistantGroups.map((row) => row.id)),
                     onVirtual: vi.fn(),
@@ -495,7 +496,7 @@ describe('群助手', () => {
           '群助手的会话操作',
         );
         expect(document.querySelector('.weq-conversation-actions-target')?.textContent).toBe(
-          '群助手聚合会话',
+          `群助手内含 ${groupCount} 个会话`,
         );
         expect(document.querySelector('.weq-conversation-actions-target .avatar')).toBeNull();
         expect(host.querySelectorAll('.is-context-target')).toHaveLength(1);

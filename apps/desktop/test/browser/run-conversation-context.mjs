@@ -115,6 +115,10 @@ try {
           await assistant.click({ button: 'right' });
           await menu.waitFor();
           assert.equal(await menu.getAttribute('aria-label'), '群助手的会话操作');
+          assert.equal(
+            await menu.locator('.weq-conversation-actions-target small').innerText(),
+            '内含 2 个会话',
+          );
           assert.equal(await menu.locator('.weq-conversation-actions-target .avatar').count(), 0);
           assert.deepEqual(await menu.getByRole('menuitem').allTextContents(), ['置顶']);
           assert.equal(await page.locator('.is-context-target').count(), 1);
