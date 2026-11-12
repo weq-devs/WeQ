@@ -37,19 +37,32 @@ function timingBoilerplate(line: string): boolean {
   );
 }
 
-/** 仅收起构建器已知的通用建议，其他警告和定位仍原样输出。 */
+/** 已知构建警告压成摘要，其他警告和定位仍原样输出。 */
 export function summarizeDevelopmentBuildWarning(text: string): string {
   const chunk = /Some chunks are larger than ([\d.]+\s*kB) after minification/.exec(text);
   if (chunk) return `部分构建块压缩后超过 ${chunk[1]}`;
-  if (!text.includes('[PLUGIN_TIMINGS]')) return text;
-  return text
-    .split(/\r?\n/)
-    .filter((line) => line.trim() && !timingBoilerplate(line))
-    .join('\n')
-    .replace(
-      /\[PLUGIN_TIMINGS\] JavaScript callbacks ran for ([\d.]+s) of this ([\d.]+s) build \(([^)]+)\)\./,
-      '[PLUGIN_TIMINGS] 插件回调累计 $1 / 构建 $2（$3）',
+  const timing =
+    /\[PLUGIN_TIMINGS\] JavaScript callbacks ran for ([\d.]+s) of this ([\d.]+s) build \(([^)]+)\)\./.exec(
+      text,
     );
+  if (!timing) return text;
+  const names: Record<string, string> = {
+    'weq-remote-web-assets': 'Web 资源',
+    'vite:esm-shim': 'ESM 兼容',
+  };
+  const callbacks: string[] = [];
+  const diagnostics: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed === timing[0] || timingBoilerplate(trimmed)) continue;
+    const callback = /^- plugin (.+) \S+ \([^,]+, ([\d.]+s), \d+ calls?\)$/.exec(trimmed);
+    if (callback) callbacks.push(`${names[callback[1]!] ?? callback[1]} ${callback[2]}`);
+    else diagnostics.push(line);
+  }
+  const summary = `构建 ${timing[2]}，插件 ${timing[1]}（${timing[3]}）`;
+  return [callbacks.length ? `${summary}：${callbacks.join('，')}` : summary, ...diagnostics].join(
+    '\n',
+  );
 }
 
 /** 仅处理开发子进程的行协议，不接管应用的 console 或结构化文件日志。 */

@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import {
   createDevelopmentOutput,
   developmentChildEnvironment,
+  summarizeDevelopmentBuildWarning,
   superviseDevelopmentChild,
   terminalColor,
 } from '../src/main/development_console';
@@ -278,7 +279,7 @@ describe('开发构建摘要', () => {
       { config: {}, plugins: [] },
     );
   });
-  it('默认压缩大包建议和插件计时说明，保留阈值、关键明细和其他告警', () => {
+  it('默认压缩大包建议，插件计时合并为单行，其他告警仍保留定位', () => {
     const sink = vi.fn();
     const logger = developmentViteLogging('main', { WEQ_DEV_CONSOLE: '1' }, sink).config
       .customLogger!;
@@ -289,13 +290,28 @@ describe('开发构建摘要', () => {
     expect(sink.mock.calls[0]![0]).toContain('部分构建块压缩后超过 500 kB');
     sink.mockClear();
     logger.warn(
-      '[PLUGIN_TIMINGS] JavaScript callbacks ran for 6.5s of this 7.3s build (88%).\nThe slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):\n- plugin weq-remote-web-assets buildStart (66%, 4.8s, 1 call)\nAdditional callback time came from callbacks under 1s.\nSee https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.',
+      '[PLUGIN_TIMINGS] JavaScript callbacks ran for 6.3s of this 7.1s build (90%).\n\nThe slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):\n\n- plugin weq-remote-web-assets buildStart (69%, 4.9s, 1 call)\n\n- plugin vite:esm-shim renderChunk (17%, 1.2s, 48 calls)\nAdditional callback time came from callbacks under 1s.\nSee https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.',
     );
-    expect(sink.mock.calls).toHaveLength(2);
+    expect(sink.mock.calls).toHaveLength(1);
     expect(sink.mock.calls[0]![0]).toContain('WARN  vite-main');
-    expect(sink.mock.calls[0]![0]).toContain('插件回调累计 6.5s / 构建 7.3s（88%）');
-    expect(sink.mock.calls[1]![0]).toContain('         - plugin weq-remote-web-assets');
+    expect(sink.mock.calls[0]![0]).toContain(
+      '构建 7.1s，插件 6.3s（90%）：Web 资源 4.9s，ESM 兼容 1.2s\n',
+    );
+    const lines: string[] = [];
+    const output = createDevelopmentOutput((line) => lines.push(line), false);
+    output.write(sink.mock.calls[0]![0]);
+    output.end();
+    expect(lines).toEqual([sink.mock.calls[0]![0]]);
     logger.warn('unrelated warning\nfixture.ts:3');
     expect(sink.mock.calls.at(-1)![0]).toContain('fixture.ts:3');
+  });
+  it('未知插件保留名称和耗时，未识别的计时格式与额外诊断不丢失', () => {
+    expect(
+      summarizeDevelopmentBuildWarning(
+        '[PLUGIN_TIMINGS] JavaScript callbacks ran for 1.5s of this 2.0s build (75%).\n- plugin custom:assets transform (60%, 1.2s, 3 calls)\nfixture.ts:3',
+      ),
+    ).toBe('构建 2.0s，插件 1.5s（75%）：custom:assets 1.2s\nfixture.ts:3');
+    const unknown = '[PLUGIN_TIMINGS] unknown timing format\nfixture.ts:4';
+    expect(summarizeDevelopmentBuildWarning(unknown)).toBe(unknown);
   });
 });
