@@ -10,6 +10,8 @@
  */
 
 import { join, relative, isAbsolute, dirname } from 'node:path';
+import { realpath, rm } from 'node:fs/promises';
+import { compositionMediaSource } from '../../composition_media';
 import { z } from 'zod';
 import {
   MergeForwardArchiveStore,
@@ -184,17 +186,38 @@ export const mergeForwardRouter = router({
         savePolicy: policy,
         run: async (context) => {
           check();
-          return writeCompositionBundle(snapshot, context, async (path) => {
-            check();
-            const rel = relative(join(root, 'media'), path);
-            return (
-              (rel !== '..' &&
+          const downloaded = join(context.directory, '.source-media');
+          const inside = async (base: string, path: string) => {
+            try {
+              const rel = relative(await realpath(base), await realpath(path));
+              return (
+                rel !== '..' &&
                 !rel.startsWith('../') &&
                 !rel.startsWith('..\\') &&
-                !isAbsolute(rel)) ||
-              Boolean(await services.fileResource.resolveLocalFile(path))
+                !isAbsolute(rel)
+              );
+            } catch {
+              return false;
+            }
+          };
+          try {
+            return await writeCompositionBundle(
+              snapshot,
+              context,
+              async (path) => {
+                check();
+                return (
+                  (await inside(join(root, 'media'), path)) ||
+                  (await inside(downloaded, path)) ||
+                  Boolean(await services.fileResource.resolveLocalFile(path))
+                );
+              },
+              (segment, node, signal) =>
+                compositionMediaSource(segment, node, downloaded, signal, check),
             );
-          });
+          } finally {
+            await rm(downloaded, { recursive: true, force: true });
+          }
         },
       });
       return { canceled: false as const, taskId };

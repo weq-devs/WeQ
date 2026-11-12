@@ -53,3 +53,48 @@ it('合成资源包保留嵌套结构，媒体按内容去重，缺失项不影�
     await rm(root, { recursive: true, force: true });
   }
 });
+it('无缓存图片及原样媒体先补全，再写包内引用，不修改原来的预览和草稿', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-composition-online-'));
+  try {
+    const source = join(root, 'downloaded.jpg');
+    await writeFile(source, 'image-bytes');
+    const preview = { type: 'pic', data: { fileToken: 'stable-token', originalUrl: '/original' } };
+    const input = {
+      id: 'draft-online',
+      nodes: [
+        {
+          id: 'n',
+          sender: { uid: '', uin: '10001', name: '合成人物' },
+          time: 100,
+          sourceMsgId: '23',
+          segs: [
+            { t: 'image', id: 'image', path: '', preview },
+            { t: 'opaque', id: 'original', element: preview },
+          ],
+        },
+      ],
+    };
+    const before = structuredClone(input),
+      resolve = vi.fn(async () => source);
+    const directory = join(root, 'bundle');
+    const result = await writeCompositionBundle(
+      input,
+      { directory, signal: new AbortController().signal, progress() {} },
+      async () => true,
+      resolve,
+    );
+    expect(result.failed).toEqual([]);
+    const output = JSON.parse(await readFile(join(directory, 'composition.json'), 'utf8'));
+    expect(output.resources).toHaveLength(1);
+    expect(output.draft.nodes[0].segs[0].path).toBe(output.draft.nodes[0].segs[1].exportPath);
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ sourceMsgId: '23', time: 100 }),
+      expect.any(AbortSignal),
+    );
+    expect(input).toEqual(before);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

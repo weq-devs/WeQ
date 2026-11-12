@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { link, mkdir, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -12,18 +12,56 @@ export async function writeCompositionBundle(
   input: MergeForwardDraftInput,
   context: ResourceExportRunContext,
   authorize: (path: string) => Promise<boolean>,
+  resolveMedia?: (
+    segment: Record<string, unknown>,
+    node: { time: number; sourceMsgId?: string },
+    signal: AbortSignal,
+  ) => Promise<string | null>,
 ): Promise<ResourceExportSummary> {
   const draft = normalizeMergeForwardDraft(structuredClone(input), input.id);
   if (!draft) throw new Error('合成记录无效');
   const references: Array<{ object: Record<string, unknown>; key: string; path: string }> = [];
   const failed: ResourceExportSummary['failed'] = [];
-  function visit(segs: unknown[], depth = 0) {
+  async function visit(
+    segs: unknown[],
+    node: { time: number; sourceMsgId?: string },
+    depth = 0,
+  ): Promise<void> {
     if (depth > 16) throw new Error('合成嵌套过深');
     for (const raw of segs) {
+      context.signal.throwIfAborted();
       if (!raw || typeof raw !== 'object') continue;
       const seg = raw as Record<string, unknown>;
-      if (seg.t === 'node' && Array.isArray(seg.segs)) visit(seg.segs, depth + 1);
+      if (seg.t === 'node' && Array.isArray(seg.segs))
+        await visit(
+          seg.segs,
+          {
+            ...node,
+            time: typeof seg.time === 'number' && Number.isFinite(seg.time) ? seg.time : node.time,
+          },
+          depth + 1,
+        );
       if (['image', 'record', 'video', 'file'].includes(String(seg.t))) {
+        const available =
+          typeof seg.path === 'string' &&
+          (await authorize(seg.path)) &&
+          (await stat(seg.path).then(
+            (info) => info.isFile(),
+            () => false,
+          ));
+        if (!available && resolveMedia) {
+          try {
+            const path = await resolveMedia(seg, node, context.signal);
+            if (path) seg.path = path;
+          } catch (error) {
+            context.signal.throwIfAborted();
+            failed.push({
+              fileName: String(seg.fileName || seg.id || '媒体'),
+              error: error instanceof Error ? error.message : '媒体补全失败',
+            });
+            continue;
+          }
+        }
         if (!seg.path)
           failed.push({
             fileName: String(seg.fileName || seg.id || '媒体'),
@@ -39,11 +77,23 @@ export async function writeCompositionBundle(
         typeof seg.element === 'object' &&
         'type' in seg.element &&
         ['pic', 'ptt', 'video', 'file'].includes(String(seg.element.type))
-      )
-        failed.push({ fileName: String(seg.id || '媒体'), error: '原始媒体尚未取得本地文件' });
+      ) {
+        let path: string | null = null;
+        try {
+          path = (await resolveMedia?.(seg, node, context.signal)) ?? null;
+        } catch {
+          context.signal.throwIfAborted();
+        }
+        if (path) references.push({ object: seg, key: 'exportPath', path });
+        else
+          failed.push({
+            fileName: String(seg.id || '媒体'),
+            error: '原始媒体补全失败或缺少可解析身份',
+          });
+      }
     }
   }
-  for (const node of draft.nodes) visit(node.segs);
+  for (const node of draft.nodes) await visit(node.segs, node);
   const resources: Array<{ path: string; sha256: string }> = [];
   const copied = new Map<string, string>();
   const hashes = new Map<string, string>();
