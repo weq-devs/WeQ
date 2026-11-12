@@ -16,7 +16,10 @@ const server = await createServer({
   cacheDir: resolve(root, 'node_modules/.vite-task-cleanup'),
   resolve: {
     alias: [
-      { find: /^.*\/trpc\/client$/, replacement: resolve(root, 'test/browser/trpc.stub.ts') },
+      {
+        find: /^.*\/trpc\/client$/,
+        replacement: resolve(root, 'test/browser/completed-task-cleanup.stub.ts'),
+      },
       { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
       { find: '@resources', replacement: resolve(root, '../../resources') },
       { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
@@ -149,9 +152,28 @@ try {
       await page.mouse.click(4, 400);
       await dialog.waitFor({ state: 'detached' });
     }
+    await cleanupButton.click();
+    await page.getByRole('button', { name: '清除 3 项', exact: true }).click();
+    const banner = page.getByRole('status').filter({ hasText: '已清除 3 项任务。' });
+    await banner.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+      const banner = document.querySelector('.weq-toast.show');
+      return banner && getComputedStyle(banner).transform === 'matrix(1, 0, 0, 1, 0, 0)';
+    });
+    assert.equal(await page.getByRole('dialog').count(), 0, '清理成功不再弹窗');
+    const bounds = await banner.boundingBox();
+    assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1, '完成横幅不溢出');
+    if (output)
+      await page.screenshot({
+        path: resolve(output, `task-cleanup-success-${dark ? 'dark' : 'light'}-${width}.png`),
+      });
+    await page.mouse.move(0, 0);
+    await banner.waitFor({ state: 'detached', timeout: 15000 });
   }
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('任务清除：4 组深浅主题、主题色、桌面/窄屏确认框及信息/错误提示居中与关闭检查通过');
+  console.log(
+    '任务清除：4 组深浅主题、主题色、桌面/窄屏确认框、错误提示及成功横幅自动消失检查通过',
+  );
 } finally {
   await browser?.close();
   await server.close();

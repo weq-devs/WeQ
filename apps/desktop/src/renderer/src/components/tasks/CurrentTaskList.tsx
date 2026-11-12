@@ -26,6 +26,7 @@ import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
+import { useToast } from '../Toast';
 import { RoamingBackfillPanel } from '../RoamingBackfillPanel';
 import { formatSize } from '../../lib/groupFile';
 import {
@@ -756,7 +757,7 @@ export function CurrentTaskList({
         const summary = `已清除 ${removed} 项任务。${finished.length - removed > 0 ? `其余 ${finished.length - removed} 项未清除，请查看最新任务状态。` : ''}`;
         if (result.errors.length)
           showError('部分任务未清除', `${summary}\n${result.errors.join('\n')}`);
-        else showInfo('清除完成', summary);
+        else useToast.getState().push({ tone: 'success', title: summary });
       }
     } catch (error) {
       if (current()) showError('清除失败', error instanceof Error ? error.message : String(error));

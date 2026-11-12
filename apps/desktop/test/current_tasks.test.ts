@@ -15,6 +15,7 @@ import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agent
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 import type { BackgroundTask } from '../src/shared/background_task';
 import { TaskQuickActions } from '../src/renderer/src/components/tasks/TaskQuickActions';
+import { useToast } from '../src/renderer/src/components/Toast';
 
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
@@ -173,6 +174,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 
 afterEach(() => {
+  useToast.setState({ toasts: [], leaving: [] });
   for (const task of localBackgroundTasks.snapshot()) {
     localBackgroundTasks.finish(task.id, 'cancelled');
     localBackgroundTasks.remove(task.id);
@@ -744,7 +746,10 @@ describe('统一当前任务', () => {
       );
       expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
       expect(localBackgroundTasks.snapshot().some((task) => task.id === other)).toBe(true);
-      expect(fixture.info).toHaveBeenCalledWith('清除完成', '已清除 1 项任务。');
+      expect(fixture.info).not.toHaveBeenCalled();
+      expect(useToast.getState().toasts).toEqual([
+        expect.objectContaining({ tone: 'success', title: '已清除 1 项任务。' }),
+      ]);
     } finally {
       act(() => root.unmount());
     }
@@ -794,7 +799,12 @@ describe('统一当前任务', () => {
       fixture.clear.mockResolvedValueOnce({ removed: 0, skipped: 0, errors: [] });
       await act(async () => button().click());
       expect(dismissCloneTask).toHaveBeenCalledWith('same-id');
-      expect(fixture.info).toHaveBeenCalledWith('清除完成', '已清除 1 项任务。');
+      expect(fixture.info).not.toHaveBeenCalled();
+      expect(useToast.getState().toasts[0]).toMatchObject({
+        tone: 'success',
+        title: '已清除 1 项任务。',
+        durationKind: 'success',
+      });
       getCloneTasks()[0]!.status = 'running';
       act(() => root.render(h(CurrentTaskList, props)));
       expect(button().disabled).toBe(true);
@@ -861,7 +871,11 @@ describe('统一当前任务', () => {
         flash: ['same-id'],
       });
       expect(fixture.invalidate).toHaveBeenCalledTimes(4);
-      expect(fixture.info).toHaveBeenCalledWith('清除完成', '已清除 6 项任务。');
+      expect(fixture.info).not.toHaveBeenCalled();
+      expect(useToast.getState().toasts[0]).toMatchObject({
+        tone: 'success',
+        title: '已清除 6 项任务。',
+      });
       let resolve = (_ok: boolean) => {};
       fixture.confirm.mockImplementationOnce(
         () =>
@@ -930,7 +944,11 @@ describe('统一当前任务', () => {
         roaming: ['same-id'],
         flash: ['same-id'],
       });
-      expect(fixture.info).toHaveBeenCalledWith('清除完成', '已清除 4 项任务。');
+      expect(fixture.info).not.toHaveBeenCalled();
+      expect(useToast.getState().toasts[0]).toMatchObject({
+        tone: 'success',
+        title: '已清除 4 项任务。',
+      });
     } finally {
       act(() => root.unmount());
     }

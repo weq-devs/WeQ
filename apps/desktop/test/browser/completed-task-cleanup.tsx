@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { CurrentTaskList } from '../../src/renderer/src/components/tasks/CurrentTaskList';
 import { DialogHost, Modal, useDialog } from '../../src/renderer/src/components/Dialog';
+import { ToastHost } from '../../src/renderer/src/components/Toast';
 import { OverlayAnchorProvider } from '../../src/renderer/src/lib/overlayAnchor';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
 import type { UiTask } from '../../src/renderer/src/views/export/TaskList';
@@ -72,7 +73,7 @@ createRoot(document.getElementById('root')!).render(
       />
     </main>
     <aside style={{ position: 'fixed', right: 16, bottom: 16 }}>
-      <button onClick={() => useDialog.getState().showInfo('清除完成', '已清除 2 项任务。')}>
+      <button onClick={() => useDialog.getState().showInfo('信息提示', '合成信息内容。')}>
         信息提示
       </button>
       <button onClick={() => useDialog.getState().showError('清除失败', '请查看最新任务状态。')}>
@@ -80,5 +81,6 @@ createRoot(document.getElementById('root')!).render(
       </button>
     </aside>
     <DialogHost />
+    <ToastHost />
   </OverlayAnchorProvider>,
 );
