@@ -29,6 +29,7 @@ import { SearchSectionSkeleton } from './SearchSkeleton';
 import {
   isQzoneSearchCategory,
   qzoneSearchCoverage,
+  contentSourcesCoverage,
   rankContentSearchHits,
   rankFileSearchHits,
 } from '@weq/service/search-policy';
@@ -70,6 +71,12 @@ const scopeIcons: Record<SearchCategory, LucideIcon> = {
   groupFile: FolderOpen,
   mailMessage: Mail,
   guildMessage: Hash,
+  groupBulletin: MessagesSquare,
+  groupEssence: MessagesSquare,
+  flashFile: FolderOpen,
+  qzoneComment: Globe,
+  otherQzoneComment: Globe,
+  qzonePublicComment: Globe,
   cloneMessage: MessagesSquare,
   assistantMessage: Bot,
   marketEmoji: Smile,
@@ -197,6 +204,7 @@ export function SearchDropdown({
         ? rankFileSearchHits(keyword, [
             ...slow.files,
             ...(contentByCategory.get('groupFile') ?? []),
+            ...(contentByCategory.get('flashFile') ?? []),
           ]).slice(0, 3)
         : null,
       loading: slowLoading && !slow,
@@ -252,10 +260,19 @@ export function SearchDropdown({
         (category === 'chatRecord' &&
           Boolean(
             slow?.failedCategories?.some(
-              (source) => source === 'guildMessage' || source === 'cloneMessage',
+              (source) =>
+                source === 'guildMessage' ||
+                source === 'cloneMessage' ||
+                source === 'groupBulletin' ||
+                source === 'groupEssence',
             ),
           )) ||
-        (category === 'file' && Boolean(slow?.failedCategories?.includes('groupFile'))) ||
+        (category === 'file' &&
+          Boolean(
+            slow?.failedCategories?.some(
+              (source) => source === 'groupFile' || source === 'flashFile',
+            ),
+          )) ||
         (category === 'qzone' && Boolean(slow?.failedCategories?.some(isQzoneSearchCategory)))
       : (categoryStates?.[category]?.error ?? quickError);
   const appSectionEnabled = appSearchEnabled && Boolean(onSelectAppEntry);
@@ -383,7 +400,10 @@ export function SearchDropdown({
                 category === 'chatRecord'
                   ? slow?.messageCoverage
                   : category === 'file'
-                    ? slow?.contentCoverage?.groupFile
+                    ? contentSourcesCoverage(slow?.contentCoverage ?? {}, [
+                        'groupFile',
+                        'flashFile',
+                      ])
                     : category === 'qzone'
                       ? qzoneSearchCoverage(slow?.contentCoverage ?? {})
                       : isContentSearchCategory(category)

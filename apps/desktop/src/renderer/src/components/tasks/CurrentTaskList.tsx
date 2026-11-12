@@ -606,6 +606,12 @@ export function CurrentTaskList({
           <FolderOpen size={14} />
         ),
       run: async () => {
+        if (action.id === 'view-report' && task.reportId) {
+          window.dispatchEvent(
+            new CustomEvent('weq:open-saved-analysis', { detail: task.reportId }),
+          );
+          return;
+        }
         if (entry.source === 'window') await localBackgroundTasks.act(task.id, action.id);
         else
           await client.backgroundTasks.act.mutate({

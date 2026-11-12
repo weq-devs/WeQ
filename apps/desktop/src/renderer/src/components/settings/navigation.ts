@@ -424,6 +424,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ...(
     [
       ['message-unread-badge', '在消息图标上显示红点', '显示消息汇总红点'],
+      ['message-system-notifications', '新消息系统通知', '消息弹窗提醒'],
+      ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge'],
       ['contact-unread-count', '在联系人界面显示未读消息数'],
       ['group-assistant-count', '群助手显示总消息数'],
       ['read-first-unread', '从第一条新消息开始阅读'],

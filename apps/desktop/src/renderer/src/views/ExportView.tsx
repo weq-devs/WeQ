@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useMultiSelection } from '../hooks/useMultiSelection';
+import { ReferenceExportTool } from './export/ReferenceExportTool';
 import {
   Bookmark,
   Bot,
@@ -354,7 +355,18 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
   };
 }
 
-export function ExportTool({
+export function ExportTool(props: Parameters<typeof ExportToolBody>[0]): ReactElement {
+  const selection = props.initialSelection;
+  if (
+    props.surface !== 'tasks' &&
+    selection?.scope.type === 'references' &&
+    (selection.owner.kind === 'qzone-albums' || selection.owner.kind === 'group-albums')
+  )
+    return <ReferenceExportTool initial={selection.scope.items} onClose={props.onClose} />;
+  return <ExportToolBody {...props} />;
+}
+
+function ExportToolBody({
   surface = 'export',
   initialSelection,
   initialMode,
@@ -490,7 +502,14 @@ export function ExportTool({
   const [qzoneInitial] = useState(() => initialQzoneScope(initialSelection));
   const [spaceSelection, setSpaceSelection] = usePageState<Set<string>>(
     'export:spaces',
-    () => new Set(qzoneInitial.uin ? [qzoneInitial.uin] : []),
+    () =>
+      new Set(
+        qzoneInitial.targets
+          ? Object.keys(qzoneInitial.targets)
+          : qzoneInitial.uin
+            ? [qzoneInitial.uin]
+            : [],
+      ),
     pageValue.stringSet,
     true,
     !initialSelection,
@@ -498,9 +517,11 @@ export function ExportTool({
   const [postSelections, setPostSelections] = usePageState<Record<string, string[]>>(
     'export:posts',
     () =>
-      qzoneInitial.uin && qzoneInitial.tids !== undefined
-        ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
-        : {},
+      qzoneInitial.targets
+        ? structuredClone(qzoneInitial.targets)
+        : qzoneInitial.uin && qzoneInitial.tids !== undefined
+          ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
+          : {},
     pageValue.stringLists,
     true,
     !initialSelection,
@@ -871,8 +892,24 @@ export function ExportTool({
         kind: 'c2c',
         meta: '当前空间 · 说说',
       });
+    for (const uin of Object.keys(qzoneInitial.targets ?? {}))
+      if (!items.some((item) => item.id === uin))
+        items.push({
+          id: uin,
+          uin,
+          name: `空间 ${uin}`,
+          avatarUrl: convAvatarUrl('c2c', '', uin),
+          kind: 'c2c',
+          meta: '精确选中的说说',
+        });
     return items;
-  }, [conversations.data, selfProfile.data, qzoneInitial.uin, extraQzoneTargets]);
+  }, [
+    conversations.data,
+    selfProfile.data,
+    qzoneInitial.uin,
+    qzoneInitial.targets,
+    extraQzoneTargets,
+  ]);
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({

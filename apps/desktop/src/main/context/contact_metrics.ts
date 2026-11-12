@@ -3,6 +3,7 @@ import {
   ContactMetricsService,
   ContactHistoryService,
   installContactHistoryCapture,
+  installContentSearchCapture,
   ContactMetricsOfflineError,
   DirectoryTimeReader,
   type ContactMetric,
@@ -82,6 +83,7 @@ export class ContactDirectoryRuntime {
   readonly cache: ContactMetricsService;
   readonly history: ContactHistoryService;
   private readonly stopHistoryCapture: () => void;
+  private readonly stopSearchCapture: () => void;
   taskId?: string;
   private target: 'metrics' | 'groupMembers' = 'metrics';
   private relationGraphRevision = 0;
@@ -152,6 +154,9 @@ export class ContactDirectoryRuntime {
       session.context.uin,
       () => this.isCurrent(),
       () => this.online(),
+    );
+    this.stopSearchCapture = installContentSearchCapture(services, services.contentSearch, () =>
+      this.isCurrent(),
     );
     this.cache = new ContactMetricsService(
       join(cacheDir, 'metrics.json'),
@@ -1121,6 +1126,7 @@ export class ContactDirectoryRuntime {
   }
 
   async dispose() {
+    this.stopSearchCapture();
     this.stopHistoryCapture();
     this.stopProfileWatch?.();
     this.services.groupInfo.disposeGroupProfiles();

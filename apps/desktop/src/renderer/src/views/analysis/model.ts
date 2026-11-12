@@ -1,4 +1,5 @@
 import { beijingDay, daySeconds } from '../../lib/messageCalendar';
+import type { SavedAnalysisRequest } from '@weq/service';
 
 export interface AnalysisScope {
   expectedAccountUin: string;
@@ -27,6 +28,23 @@ export type AnalysisReportRequest = RequestBase &
       }
   );
 export type AnalysisKind = AnalysisReportRequest['kind'];
+export function restoredAnalysisRequest(
+  request: SavedAnalysisRequest,
+): AnalysisReportRequest | null {
+  if (request.kind === 'buddy' && request.peerUid)
+    return { ...request, kind: 'buddy', peerUid: request.peerUid };
+  if (request.kind === 'group' && request.groupCode)
+    return { ...request, kind: 'group', groupCode: request.groupCode };
+  if (request.kind === 'member' && request.groupCode && (request.memberUid || request.memberUin))
+    return {
+      ...request,
+      kind: 'member',
+      groupCode: request.groupCode,
+      groupName: request.groupName ?? request.groupCode,
+      memberUid: request.memberUid ?? '',
+    };
+  return null;
+}
 /** 分析工具里可选的种类：不含年度报告（它有独立入口）。 */
 export type AnalysisToolKind = Exclude<AnalysisKind, 'annual'>;
 export type AnalysisTarget =

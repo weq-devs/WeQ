@@ -158,3 +158,9 @@
 .weq-qzn-public-dialog footer {
   justify-content: flex-end;
 }
+.weq-qzn-public-search {
+  max-height: 75dvh;
+  overflow: auto;
+  min-width: 0;
+  padding: 12px;
+}

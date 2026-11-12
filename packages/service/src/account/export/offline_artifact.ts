@@ -366,6 +366,7 @@ export async function localizeArtifact(options: {
     base: string;
   };
   const nodes = new Map<string, Resource>();
+  const binaryPaths = new Map<string, string>();
   const queue: Resource[] = [];
   function enqueue(url: string) {
     const existing = nodes.get(url);
@@ -400,11 +401,12 @@ export async function localizeArtifact(options: {
             finalUrl: string;
             sha256: string;
           };
-          if ((await fileDigest(node.file)).sha256 !== meta.sha256)
+          if ((await fileDigest(node.file, options.signal)).sha256 !== meta.sha256)
             throw new Error('依赖缓存校验失败');
           contentType = meta.contentType;
           node.base = meta.finalUrl;
         } catch {
+          options.signal.throwIfAborted();
           await rm(node.file, { force: true });
           await rm(`${node.file}.json`, { force: true });
           const url = new URL(node.url);
@@ -427,16 +429,19 @@ export async function localizeArtifact(options: {
             JSON.stringify({
               contentType,
               finalUrl: node.base,
-              sha256: (await fileDigest(node.file)).sha256,
+              sha256: (await fileDigest(node.file, options.signal)).sha256,
             }),
           );
         }
-        const digest = await fileDigest(node.file);
+        const digest = await fileDigest(node.file, options.signal);
         const kind = documentKind(node.base, contentType);
         const suffix =
           extname(new URL(node.base).pathname).match(/^\.[\da-z]{1,8}$/i)?.[0] ??
           (kind ? `.${kind === 'markdown' ? 'md' : kind}` : '.bin');
-        node.path = `assets/${kind ? key : digest.sha256}${suffix}`;
+        node.path = kind
+          ? `assets/${key}${suffix}`
+          : (binaryPaths.get(digest.sha256) ?? `assets/${digest.sha256}${suffix}`);
+        if (!kind) binaryPaths.set(digest.sha256, node.path);
       }
       node.report.path = node.path;
       const kind = documentKind(node.base, contentType);
@@ -502,7 +507,7 @@ export async function localizeArtifact(options: {
     }
     if (node.doc) await writeFile(output, node.doc.render());
     else await copyFile(node.file, output);
-    node.report.sha256 = (await fileDigest(output)).sha256;
+    node.report.sha256 = (await fileDigest(output, options.signal)).sha256;
   }
   return manifest;
 }

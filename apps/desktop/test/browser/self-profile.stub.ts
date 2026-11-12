@@ -40,6 +40,8 @@ const extra = {
   profession: 1,
   hometown: ['1', '2', '3', '0'],
   school: '合成学校',
+  company: '合成公司',
+  personalDescription: '第一行个人说明\n第二行个人说明',
   errors: {},
 };
 const options = {

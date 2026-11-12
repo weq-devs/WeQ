@@ -4,6 +4,8 @@ import {
   createToolDraft,
   freezeToolTarget,
   reduceContentSelection,
+  contentReferenceKey,
+  groupAlbumReferences,
   type ContentSelection,
 } from '../src/shared/content_selection';
 import {
@@ -25,6 +27,51 @@ import type {
 } from '../src/renderer/src/im-template/template/types';
 
 describe('content_selection', () => {
+  it('跨作者同 tid 与跨相册同媒体名保持独立，冻结引用不受后续编辑影响', () => {
+    const source: ContentSelection = {
+      owner: { kind: 'qzone-posts', container: 'feed' },
+      scope: {
+        type: 'references',
+        items: [
+          { kind: 'qzone-post', uin: '10001', tid: 'same' },
+          { kind: 'qzone-post', uin: '10002', tid: 'same' },
+        ],
+      },
+    };
+    const frozen = freezeToolTarget('account', createToolDraft('account', source));
+    expect(initialQzoneScope(frozen.selection)).toEqual({
+      targets: { '10001': ['same'], '10002': ['same'] },
+    });
+    if (source.scope.type !== 'references') throw new Error('引用类型错误');
+    source.scope.items.splice(0, 1);
+    expect(
+      frozen.selection.scope.type === 'references' && frozen.selection.scope.items.length,
+    ).toBe(2);
+    expect(
+      contentReferenceKey({ kind: 'group-photo', groupCode: '1', albumId: 'a', mediaKey: 'same' }),
+    ).not.toBe(
+      contentReferenceKey({ kind: 'group-photo', groupCode: '1', albumId: 'b', mediaKey: 'same' }),
+    );
+  });
+  it('精确照片按相册分组去重，明确选中整本才允许扩大为整本', () => {
+    expect(
+      groupAlbumReferences([
+        { kind: 'group-photo', groupCode: '1', albumId: 'a', mediaKey: 'x' },
+        { kind: 'group-photo', groupCode: '1', albumId: 'a', mediaKey: 'x' },
+        { kind: 'group-photo', groupCode: '1', albumId: 'b', mediaKey: 'y' },
+      ]),
+    ).toEqual([
+      { provider: 'group', owner: '1', albumId: 'a', mediaKeys: ['x'] },
+      { provider: 'group', owner: '1', albumId: 'b', mediaKeys: ['y'] },
+    ]);
+    expect(
+      groupAlbumReferences([
+        { kind: 'qzone-photo', uin: '1', albumId: 'a', mediaKey: 'x' },
+        { kind: 'qzone-album', uin: '1', albumId: 'a', name: '完整相册' },
+        { kind: 'qzone-photo', uin: '1', albumId: 'a', mediaKey: 'y' },
+      ]),
+    ).toEqual([{ provider: 'qzone', owner: '1', albumId: 'a', title: '完整相册' }]);
+  });
   const chat = { kind: 'messages', container: 'group:fixture' } as const;
 
   const otherChat = { kind: 'messages', container: 'c2c:fixture' } as const;

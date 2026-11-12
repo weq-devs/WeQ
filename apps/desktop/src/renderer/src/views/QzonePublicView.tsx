@@ -29,7 +29,11 @@ import {
   ThumbsUp,
   UserPlus,
   UserCheck,
+  X,
 } from 'lucide-react';
+import { Modal } from '../components/Dialog';
+import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
+import type { ContentSearchTarget } from '../components/search/types';
 import { client } from '../trpc/client';
 import { normalizeQzonePublicRefreshCooldown } from '@weq/service/qzone-public-settings';
 import { PageDataCache } from '../lib/pageDataCache';
@@ -55,6 +59,106 @@ import {
 } from '../lib/qzonePublic';
 import { LoadingStatus, QzoneMediaGrid, QzonePageContext, State, timeText } from './qzoneShared';
 import '../styles/qzone-public.css';
+import '../styles/qzone.css';
+
+type PublicCommentFocus = { commentId: string; parentCommentId?: string };
+
+export function QzonePublicSearchResult({
+  selfUin,
+  target,
+  onClose,
+}: {
+  selfUin: string;
+  target: Extract<ContentSearchTarget, { kind: 'qzonePublicComment' }>;
+  onClose: () => void;
+}) {
+  const requests = useQzoneRequests('qzonePublic');
+  const capabilitiesRequests = useQzoneRequests('qzonePublic');
+  const { identity, refresh } = useSelfIdentity(selfUin, true);
+  const [capabilities, setCapabilities] = useState(() => publicCapabilities(null));
+  const [view, setView] = useState<PublicFeedView | null>(null);
+  const [detail, setDetail] = useState<PublicJson | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const [expanded, setExpanded] = useState(true);
+  useEffect(() => {
+    let active = true;
+    setError('');
+    void requests
+      .run((requestId) =>
+        client.account.qzonePublic.detail.query({ selfUin, requestId, feed: target.feed }),
+      )
+      .then((data) => {
+        if (!active) return;
+        const actual = (data as { feed?: { feed?: unknown } }).feed?.feed;
+        const next = projectPublicFeed(actual);
+        if (!next) throw new Error('对应动态已移除或当前无法读取');
+        setView(next);
+        setDetail(data);
+      })
+      .catch((reason: unknown) => {
+        if (active) setError(errorText(reason));
+      });
+    return () => {
+      active = false;
+      requests.cancel();
+    };
+  }, [requests, selfUin, target.feed, retry]);
+  useEffect(() => {
+    let active = true;
+    void capabilitiesRequests
+      .run((requestId) => client.account.qzonePublic.capabilities.query({ selfUin, requestId }))
+      .then((data) => {
+        if (active) setCapabilities(publicCapabilities(data));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      capabilitiesRequests.cancel();
+    };
+  }, [capabilitiesRequests, selfUin]);
+  return (
+    <Modal onClose={onClose} labelledBy="weq-public-comment-search-title" width={720}>
+      <header className="weq-tools-header">
+        <h2 id="weq-public-comment-search-title">空友评论</h2>
+        <button
+          type="button"
+          className="weq-set-iconbtn"
+          title="关闭"
+          aria-label="关闭空友评论"
+          onClick={onClose}
+        >
+          <X size={18} />
+        </button>
+      </header>
+      <div className="weq-qzn-public-search">
+        {view && detail ? (
+          <PublicFeedCard
+            selfUin={selfUin}
+            view={view}
+            capabilities={capabilities}
+            identity={identity}
+            onPatch={(_key, patch) =>
+              setView((current) => (current ? { ...current, ...patch } : current))
+            }
+            onWrote={refresh}
+            expanded={expanded}
+            onToggle={() => setExpanded((value) => !value)}
+            initialDetail={detail}
+            focusComment={target}
+          />
+        ) : (
+          <State
+            loading={!error}
+            error={error}
+            empty=""
+            retry={() => setRetry((value) => value + 1)}
+          />
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
@@ -478,6 +582,8 @@ function PublicFeedCard({
   onWrote,
   expanded,
   onToggle,
+  initialDetail,
+  focusComment,
 }: {
   selfUin: string;
   view: PublicFeedView;
@@ -488,6 +594,8 @@ function PublicFeedCard({
   onWrote: () => void;
   expanded: boolean;
   onToggle: () => void;
+  initialDetail?: PublicJson;
+  focusComment?: PublicCommentFocus;
 }): ReactElement {
   const [pending, setPending] = useState<'like' | 'upvote' | 'follow' | null>(null);
   const [error, setError] = useState('');
@@ -651,6 +759,8 @@ function PublicFeedCard({
       ) : null}
       {expanded && view.actionable ? (
         <PublicFeedDetail
+          initialData={initialDetail}
+          focusComment={focusComment}
           selfUin={selfUin}
           view={view}
           identity={identity}
@@ -697,6 +807,8 @@ function PublicFeedDetail({
   canComment,
   onCommentCount,
   onWrote,
+  initialData,
+  focusComment,
 }: {
   selfUin: string;
   view: PublicFeedView;
@@ -705,7 +817,11 @@ function PublicFeedDetail({
   onCommentCount: (count: number) => void;
   /** 写成功回调：主进程这时才从回执里学到公共域 uid，需要重读身份。 */
   onWrote: () => void;
+  initialData?: PublicJson;
+  focusComment?: PublicCommentFocus;
 }): ReactElement {
+  const root = useRef<HTMLElement>(null);
+  const searchedCursors = useRef(new Set<string>());
   const { active } = useContext(QzonePageContext);
   const { run, cancel } = useQzoneRequests('qzonePublic');
   const [comments, setComments] = useState<PublicCommentView[] | null>(null);
@@ -732,6 +848,14 @@ function PublicFeedDetail({
     let live = true;
     setError('');
     setLoading(true);
+    if (initialData && retry === 0) {
+      const page = projectPublicDetail(initialData);
+      setComments(page.comments);
+      setCursor(page.cursor);
+      setHasMore(page.hasMore);
+      setLoading(false);
+      return;
+    }
     void run((requestId) =>
       client.account.qzonePublic.detail.query({ selfUin, requestId, feed: view.feed }),
     )
@@ -752,7 +876,7 @@ function PublicFeedDetail({
       live = false;
       cancel();
     };
-  }, [active, selfUin, view.feed, retry, run, cancel]);
+  }, [active, selfUin, view.feed, retry, run, cancel, initialData]);
 
   const loadMore = useCallback(() => {
     if (!cursor || loading) return;
@@ -770,11 +894,38 @@ function PublicFeedDetail({
         const page = projectPublicCommentsPage(data);
         setComments((current) => mergePublicComments(current ?? [], page.comments));
         setCursor(page.cursor);
-        setHasMore(page.hasMore);
+        setHasMore(page.hasMore && page.cursor !== cursor);
       })
       .catch((reason: unknown) => setError(errorText(reason)))
       .finally(() => setLoading(false));
   }, [cursor, loading, run, selfUin, view.feed]);
+  const focusParent = focusComment?.parentCommentId || focusComment?.commentId;
+  const focusFound = comments?.some((comment) => comment.id === focusParent) ?? false;
+  useEffect(() => {
+    if (
+      !active ||
+      !focusParent ||
+      !comments ||
+      focusFound ||
+      loading ||
+      error ||
+      !hasMore ||
+      !cursor ||
+      searchedCursors.current.has(cursor)
+    )
+      return;
+    searchedCursors.current.add(cursor);
+    loadMore();
+  }, [active, focusParent, comments, focusFound, loading, error, hasMore, cursor, loadMore]);
+  useSearchTargetFocus(
+    root,
+    'data-public-comment-key',
+    focusComment
+      ? JSON.stringify([focusComment.parentCommentId ?? '', focusComment.commentId])
+      : undefined,
+    comments !== null,
+    comments?.reduce((sum, comment) => sum + 1 + comment.replies.length, 0),
+  );
 
   async function send(): Promise<void> {
     const content = draft.trim();
@@ -899,7 +1050,14 @@ function PublicFeedDetail({
   ) : null;
 
   return (
-    <section className="weq-qzn-interaction weq-qzn-public-detail" aria-label="空友动态评论">
+    <section
+      ref={root}
+      className="weq-qzn-interaction weq-qzn-public-detail"
+      aria-label="空友动态评论"
+    >
+      {focusParent && comments && !focusFound && !loading && !hasMore ? (
+        <p role="alert">未找到搜索中的评论，可能已移除；原搜索结果仍保留</p>
+      ) : null}
       {comments === null && loading ? <LoadingStatus text="正在加载评论…" /> : null}
       {error ? (
         <p className="weq-qzn-error" role="alert">
@@ -915,7 +1073,11 @@ function PublicFeedDetail({
             {view.commentCount === null ? '' : `共 ${countText(view.commentCount)} 条评论`}
           </p>
           {comments.map((comment) => (
-            <div key={comment.id || comment.time} className="weq-qzn-public-comment">
+            <div
+              key={comment.id || comment.time}
+              data-public-comment-key={JSON.stringify(['', comment.id])}
+              className="weq-qzn-public-comment"
+            >
               <div className="weq-qzn-comment">
                 <QqAvatar uin={null} url={comment.author.portrait} size={26} />
                 <div>
@@ -947,11 +1109,12 @@ function PublicFeedDetail({
                     : null}
                 </div>
               </div>
-              {comment.replies.length ? (
+              {comment.replies.length || focusComment?.parentCommentId === comment.id ? (
                 <div className="weq-qzn-public-replies">
                   {comment.replies.map((reply) => (
                     <div
                       key={reply.id || `${comment.id}:${reply.time}`}
+                      data-public-comment-key={JSON.stringify([comment.id, reply.id])}
                       className="weq-qzn-comment is-reply"
                     >
                       <QqAvatar uin={null} url={reply.author.portrait} size={22} />
@@ -991,6 +1154,11 @@ function PublicFeedDetail({
                     </div>
                   ))}
                   <ReplyMore
+                    focusReplyId={
+                      focusComment?.parentCommentId === comment.id
+                        ? focusComment.commentId
+                        : undefined
+                    }
                     selfUin={selfUin}
                     feed={view.feed}
                     comment={comment}
@@ -999,7 +1167,7 @@ function PublicFeedDetail({
                         (current) =>
                           current?.map((entry) =>
                             entry.id === comment.id
-                              ? { ...entry, replies: [...entry.replies, ...replies] }
+                              ? { ...entry, replies: mergePublicComments(entry.replies, replies) }
                               : entry,
                           ) ?? current,
                       )
@@ -1085,18 +1253,27 @@ function ReplyMore({
   feed,
   comment,
   onLoaded,
+  focusReplyId,
 }: {
   selfUin: string;
   feed: PublicJson;
   comment: PublicCommentView;
   onLoaded: (replies: PublicCommentView[]) => void;
+  focusReplyId?: string;
 }) {
   const [cursor, setCursor] = useState(comment.replyCursor);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const remaining = comment.replyCount - comment.replies.length;
-  if (remaining <= 0) return null;
+  const searched = useRef(new Set<string>());
+  const loadRef = useRef<() => Promise<void>>(async () => undefined);
+  const found = comment.replies.some((reply) => reply.id === focusReplyId);
+  useEffect(() => {
+    if (!focusReplyId || found || busy || done || error || searched.current.has(cursor)) return;
+    searched.current.add(cursor);
+    void loadRef.current();
+  }, [focusReplyId, found, busy, done, error, cursor]);
   async function load(): Promise<void> {
     if (busy) return;
     setBusy(true);
@@ -1112,15 +1289,20 @@ function ReplyMore({
       const page = projectPublicRepliesPage(data, comment.id);
       onLoaded(page.replies);
       setCursor(page.cursor);
-      if (!page.hasMore || page.replies.length === 0) setDone(true);
+      if (!page.hasMore || page.replies.length === 0 || page.cursor === cursor) setDone(true);
     } catch (reason) {
       setError(errorText(reason));
     } finally {
       setBusy(false);
     }
   }
+  loadRef.current = load;
+  if (remaining <= 0 && (!focusReplyId || found)) return null;
   return (
     <>
+      {focusReplyId && done && !found ? (
+        <p role="alert">未找到搜索中的回复，可能已移除；原搜索结果仍保留</p>
+      ) : null}
       {error ? <p className="weq-qzn-error">{error}</p> : null}
       {!done ? (
         <button

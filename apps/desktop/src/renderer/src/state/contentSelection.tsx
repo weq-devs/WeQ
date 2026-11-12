@@ -16,6 +16,8 @@ import {
   type ContentOwner,
   type ContentSelection,
   copyContentScope,
+  contentReferenceKey,
+  type ContentReference,
 } from '../../../shared/content_selection';
 import type { AnalysisTarget, AnalysisToolRequest } from '../views/analysis/model';
 import type { Message } from '../im-template/template/types';
@@ -197,7 +199,11 @@ export function useContentSelectionScope(source: string) {
   }, [source, context?.reset]);
 }
 
-export function useContentMultiSelect(owner: ContentOwner, activePage = true) {
+export function useContentMultiSelect(
+  owner: ContentOwner,
+  activePage = true,
+  references?: ReadonlyMap<string, ContentReference>,
+) {
   const context = useContext(SelectionContext);
   const [local, setLocal] = useState<Registry>({});
   const localMemories = useRef(new Map<string, SelectionMemory>());
@@ -239,15 +245,40 @@ export function useContentMultiSelect(owner: ContentOwner, activePage = true) {
   }, [context?.activate, kind, container, tabActive, activePage]);
   const active = Boolean(selection);
   const selectedIds = useMemo(
-    () => new Set(active && selection?.scope.type === 'items' ? selection.scope.ids : []),
+    () =>
+      new Set(
+        active && selection?.scope.type === 'items'
+          ? selection.scope.ids
+          : selection?.scope.type === 'references'
+            ? selection.scope.items.map(contentReferenceKey)
+            : [],
+      ),
     [active, selection],
   );
   memory.selectedIdsRef.current = selectedIds;
   const setSelectedIds = useCallback<Dispatch<SetStateAction<Set<string>>>>(
     (value) => {
       update((previous) => {
-        const current = previous?.scope.type === 'items' ? previous.scope.ids : [];
+        const previousReferences =
+          previous?.scope.type === 'references' ? previous.scope.items : [];
+        const current =
+          previous?.scope.type === 'items'
+            ? previous.scope.ids
+            : previousReferences.map(contentReferenceKey);
         const ids = typeof value === 'function' ? value(new Set(current)) : value;
+        if (references) {
+          const known = new Map(
+            previousReferences.map((item) => [contentReferenceKey(item), item]),
+          );
+          for (const [id, item] of references) known.set(id, item);
+          return {
+            owner: { kind, container },
+            scope: {
+              type: 'references',
+              items: [...ids].flatMap((id) => (known.has(id) ? [{ ...known.get(id)! }] : [])),
+            },
+          };
+        }
         return reduceContentSelection(previous, {
           type: 'select',
           owner: { kind, container },
@@ -255,7 +286,7 @@ export function useContentMultiSelect(owner: ContentOwner, activePage = true) {
         });
       });
     },
-    [update, kind, container],
+    [update, kind, container, references],
   );
   const setSelectionMode = useCallback(
     (enabled: boolean) => {
@@ -267,6 +298,8 @@ export function useContentMultiSelect(owner: ContentOwner, activePage = true) {
         if (!enabled)
           return reduceContentSelection(previous, { type: 'clear', owner: { kind, container } });
         if (previous) return previous;
+        if (references)
+          return { owner: { kind, container }, scope: { type: 'references', items: [] } };
         return reduceContentSelection(previous, {
           type: 'select',
           owner: { kind, container },
@@ -274,7 +307,7 @@ export function useContentMultiSelect(owner: ContentOwner, activePage = true) {
         });
       });
     },
-    [update, kind, container, memory],
+    [update, kind, container, memory, references],
   );
   const removeSelectedIds = useCallback(
     (ids: readonly string[]) => {
@@ -294,6 +327,7 @@ export function useContentMultiSelect(owner: ContentOwner, activePage = true) {
     [update, kind, container],
   );
   return {
+    references: selection?.scope.type === 'references' ? selection.scope.items : [],
     selectionMode: active,
     selectedIds,
     setSelectedIds,

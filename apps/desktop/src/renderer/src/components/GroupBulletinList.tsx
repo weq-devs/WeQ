@@ -1,4 +1,5 @@
-import type { ReactNode, MouseEvent } from 'react';
+import { useRef, type ReactNode, type MouseEvent } from 'react';
+import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import { Avatar } from '../im-template/template/primitives';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import type { GroupNoticeEntry } from '../lib/groupNotices';
@@ -10,20 +11,25 @@ export function GroupBulletinList({
   groupName,
   tools,
   onContextMenu,
+  initialNoticeId,
 }: {
   entries: GroupNoticeEntry[];
   groupCode: string;
   groupName: string;
   tools: (entry: GroupNoticeEntry) => ReactNode;
   onContextMenu: (event: MouseEvent, entry: GroupNoticeEntry) => void;
+  initialNoticeId?: string;
 }) {
+  const root = useRef<HTMLDivElement>(null);
+  useSearchTargetFocus(root, 'data-notice-id', initialNoticeId, entries.length > 0);
   return (
-    <div className="group-bulletins-list">
+    <div ref={root} className="group-bulletins-list">
       {entries.map((entry) => (
         <article
           key={entry.key}
           className="group-bulletin-item"
           data-notice-key={entry.key}
+          data-notice-id={entry.noticeId}
           onContextMenu={(event) => onContextMenu(event, entry)}
         >
           <div className="group-bulletin-layout">

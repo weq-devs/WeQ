@@ -257,19 +257,29 @@ export function SearchResultCard({
     case 'groupFile':
     case 'mailMessage':
     case 'marketEmoji':
-    case 'guildMessage': {
+    case 'guildMessage':
+    case 'groupBulletin':
+    case 'groupEssence':
+    case 'flashFile':
+    case 'qzoneComment':
+    case 'otherQzoneComment':
+    case 'qzonePublicComment': {
       const Icon =
         hit.category === 'mailMessage'
           ? Mail
-          : hit.category === 'groupFile'
+          : hit.category === 'groupFile' || hit.category === 'flashFile'
             ? File
             : hit.category === 'guildMessage'
               ? Hash
               : hit.category === 'marketEmoji'
                 ? Smile
-                : hit.target.kind === 'qzonePost'
-                  ? Globe
-                  : Images;
+                : hit.category === 'groupBulletin' || hit.category === 'groupEssence'
+                  ? MessagesSquare
+                  : hit.target.kind === 'qzonePost' ||
+                      hit.target.kind === 'qzoneComment' ||
+                      hit.target.kind === 'qzonePublicComment'
+                    ? Globe
+                    : Images;
       media = (
         <span className="weq-search-avatar weq-search-source-icon">
           <Icon size={22} />

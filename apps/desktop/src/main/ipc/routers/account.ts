@@ -13,6 +13,7 @@
 
 import { z } from 'zod';
 import { setReactionWithRecent } from '../../recent_reactions';
+import { deduplicateAlbumResources } from '../../album_resource_dedup';
 import {
   resourceSourceInput,
   requireResourceSource,
@@ -97,6 +98,11 @@ import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { createQQWriteRouter } from './qq_write';
 import { createProfileExtrasRouter } from './profile_extras';
+import { createAnalysisReportsRouter } from './analysis_reports';
+import { createSearchTargetsRouter } from './search_targets';
+import { createMessageNotificationsRouter } from './message_notifications';
+import { groupAlbumMediaKey, qzoneAlbumMediaKey } from '../../../shared/album_media_identity';
+import { groupAlbumReferences } from '../../../shared/content_selection';
 import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
@@ -423,6 +429,9 @@ const activeCollectionDetailSyncs = new Map<string, AbortController>();
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
   messages: ChatMsgWire[];
+  observedAt?: number;
+  accountUin?: string;
+  configId?: string;
 }
 
 type ChatKind = 'c2c' | 'group';
@@ -605,7 +614,26 @@ const groupAlbumFeedInput = z.object({
 const albumSelectionInput = z.object({
   id: z.string().min(1),
   title: z.string().optional(),
+  mediaKeys: z.array(z.string().min(1)).optional(),
 });
+const albumReferenceInput = z
+  .union([
+    z.object({
+      kind: z.enum(['group-album', 'group-photo']),
+      groupCode: z.string().regex(/^[1-9]\d*$/),
+      albumId: z.string().min(1),
+      mediaKey: z.string().min(1).optional(),
+      name: z.string().optional(),
+    }),
+    z.object({
+      kind: z.enum(['qzone-album', 'qzone-photo']),
+      uin: z.string().regex(/^[1-9]\d*$/),
+      albumId: z.string().min(1),
+      mediaKey: z.string().min(1).optional(),
+      name: z.string().optional(),
+    }),
+  ])
+  .refine((item) => item.kind.endsWith('-album') || Boolean(item.mediaKey), '照片身份不能为空');
 
 const exportGroupAlbumsInput = groupAlbumInput.extend({
   outputDir: z.string().min(1),
@@ -1245,11 +1273,7 @@ function mediaToWire(media: AlbumMedia): AlbumMediaWire {
 }
 
 function albumMediaKey(media: AlbumMediaWire): string {
-  const image = media.image;
-  if (image?.lloc) return `img:${image.lloc}`;
-  const video = media.video;
-  if (video?.id) return `vid:${video.id}`;
-  return `url:${media.originalUrl || media.previewUrl}`;
+  return groupAlbumMediaKey(media);
 }
 
 /**
@@ -1413,6 +1437,7 @@ async function exportGroupAlbums(
 ): Promise<AlbumExportResult> {
   requireFreshClientKeyForAlbum(services);
   const work: AlbumDownloadWork[] = [];
+  const failed: AlbumExportResult['failed'] = [];
   const albumNames = new Set<string>();
   for (const album of input.albums) {
     context?.signal.throwIfAborted();
@@ -1420,7 +1445,19 @@ async function exportGroupAlbums(
     const albumDir = join(input.outputDir, albumTitle);
     const used = new Set<string>();
     const media = await collectAlbumMedia(services, input.groupCode, album.id, context?.signal);
+    const selected = album.mediaKeys === undefined ? null : new Set(album.mediaKeys);
+    const found = new Set(media.map(albumMediaKey));
+    for (const key of selected ?? [])
+      if (!found.has(key))
+        failed.push({
+          albumId: album.id,
+          albumTitle,
+          fileName: key,
+          url: '',
+          error: '未找到选中的媒体，未扩大为整本相册',
+        });
     media.forEach((item, index) => {
+      if (selected && !selected.has(albumMediaKey(item))) return;
       const url = pickAlbumDownloadUrl(item);
       if (!url) return;
       const fileName = uniqueFilename(
@@ -1437,7 +1474,7 @@ async function exportGroupAlbums(
     });
   }
 
-  const failed: AlbumExportResult['failed'] = [];
+  const missing = failed.length;
   let ok = 0;
   await mkdir(input.outputDir, { recursive: true });
   await runWithConcurrency(
@@ -1458,12 +1495,12 @@ async function exportGroupAlbums(
           error: e instanceof Error ? e.message : String(e),
         });
       }
-      context?.progress(ok, work.length);
+      context?.progress(ok + failed.length, work.length + missing);
     },
     context?.signal,
   );
 
-  return { outputDir: input.outputDir, total: work.length, ok, failed };
+  return { outputDir: input.outputDir, total: work.length + missing, ok, failed };
 }
 
 /**
@@ -1562,9 +1599,13 @@ async function resolveQzoneAlbumDownload(
 }
 
 /** 迁移既有整本相册分页导出，选择范围仍是用户明确勾选的相册。 */
-async function exportSelectedQzoneAlbums(
+export async function exportSelectedQzoneAlbums(
   services: AccountServices,
-  input: { hostUin: string; albums: Array<{ id: string; title?: string }>; outputDir: string },
+  input: {
+    hostUin: string;
+    albums: Array<{ id: string; title?: string; mediaKeys?: string[] }>;
+    outputDir: string;
+  },
   context: { signal: AbortSignal; check(): void; progress(current: number, total: number): void },
 ) {
   const failed: Array<{ fileName: string; error: string }> = [];
@@ -1572,6 +1613,9 @@ async function exportSelectedQzoneAlbums(
   let total = 0,
     ok = 0;
   for (const album of input.albums) {
+    const selected = album.mediaKeys === undefined ? null : new Set(album.mediaKeys);
+    const matched = new Set<string>();
+    let readError = '';
     context.signal.throwIfAborted();
     context.check();
     const folder = uniqueFilename(
@@ -1608,23 +1652,30 @@ async function exportSelectedQzoneAlbums(
           return true;
         });
         if (!fresh.length) throw new Error('相册分页重复，已停止，避免重复下载。');
-        const items = fresh.flatMap((photo) => {
-          sequence++;
-          if (!photo.url && !photo.thumbUrl) {
-            total++;
-            failed.push({ fileName: `${folder}/媒体-${sequence}`, error: '媒体缺少下载地址。' });
-            return [];
-          }
-          return [
-            {
-              id: photo.id || String(sequence),
-              name: `${String(sequence).padStart(6, '0')}_${photo.name || '媒体'}`,
-              url: photo.url || photo.thumbUrl,
-              isVideo: photo.isVideo,
-              picKey: photo.picKey,
-            },
-          ];
-        });
+        const items = fresh
+          .filter((photo) => {
+            const key = qzoneAlbumMediaKey(photo);
+            if (selected && !selected.has(key)) return false;
+            matched.add(key);
+            return true;
+          })
+          .flatMap((photo) => {
+            sequence++;
+            if (!photo.url && !photo.thumbUrl) {
+              total++;
+              failed.push({ fileName: `${folder}/媒体-${sequence}`, error: '媒体缺少下载地址。' });
+              return [];
+            }
+            return [
+              {
+                id: photo.id || String(sequence),
+                name: `${String(sequence).padStart(6, '0')}_${photo.name || '媒体'}`,
+                url: photo.url || photo.thumbUrl,
+                isVideo: photo.isVideo,
+                picKey: photo.picKey,
+              },
+            ];
+          });
         if (items.length) {
           const result = await exportQzoneAlbumMedia(
             services,
@@ -1648,18 +1699,30 @@ async function exportSelectedQzoneAlbums(
         }
         context.progress(ok + failed.length, total);
         start += photos.length;
+        if (selected && matched.size === selected.size) break;
         const size = Number(page?.totalInAlbum ?? 0);
         if (size > 0 ? start >= size : photos.length < QZONE_ALBUM_PAGE_SIZE) break;
       }
     } catch (error) {
       context.signal.throwIfAborted();
       context.check();
-      total++;
-      failed.push({
-        fileName: `${folder}/相册读取`,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      readError = error instanceof Error ? error.message : String(error);
+      if (!selected) {
+        total++;
+        failed.push({
+          fileName: `${folder}/相册读取`,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
+    for (const key of selected ?? [])
+      if (!matched.has(key)) {
+        total++;
+        failed.push({
+          fileName: `${folder}/${key}`,
+          error: readError || '未找到选中的媒体，未扩大为整本相册',
+        });
+      }
   }
   return { total, ok, failed };
 }
@@ -1962,6 +2025,15 @@ export const accountRouter = router({
       return services;
     },
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+  ),
+  analysisReports: createAnalysisReportsRouter((input) =>
+    requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+  ),
+  searchTargets: createSearchTargetsRouter((input) =>
+    requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+  ),
+  messageNotifications: createMessageNotificationsRouter((input) =>
+    requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
   ),
   profileExtras: createProfileExtrasRouter((input) => {
     const services = requireExpectedAccount(
@@ -5539,7 +5611,13 @@ export const accountRouter = router({
             groupMsgToWire({ ...m, elements: toRenderElements(m.elements) }),
           ),
         ];
-        emit.next({ messages });
+        const context = getAppContext();
+        emit.next({
+          messages,
+          observedAt: change.file.at,
+          accountUin: context.account?.context.uin,
+          configId: context.services?.accountConfig.getRecord()?.configId,
+        });
       };
       dbEventBus.on('new', handler);
       return () => {
@@ -7103,6 +7181,116 @@ export const accountRouter = router({
             failed: result.failed,
             ...(resolved ? { fileName: resolved.fileName } : {}),
           };
+        },
+      });
+    }),
+
+  startAlbumReferenceExport: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        items: z.array(albumReferenceInput).min(1),
+        name: z.string().min(1),
+        savePolicy: exportSavePolicyInput,
+        includeIntegrityReport: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const frozen = structuredClone(input);
+      const selected = groupAlbumReferences(frozen.items);
+      const check = () => {
+        if (
+          requireExpectedAccount(frozen.expectedAccountUin, frozen.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号已切换');
+      };
+      const policy = await prepareExportDestination(
+        frozen.savePolicy,
+        getAppContext().bootstrap?.userConfig.getSettings().defaultExportDir,
+        getHost(),
+        { kind: 'directory' },
+        check,
+      );
+      if (!policy) return null;
+      check();
+      return services.exportManager.startResourceExport({
+        kind: selected.every((item) => item.provider === 'qzone') ? 'qzone-albums' : 'group-albums',
+        name: frozen.name,
+        savePolicy: policy,
+        includeIntegrityReport: frozen.includeIntegrityReport,
+        run: async (context) => {
+          const failed: Array<{ fileName: string; error: string }> = [];
+          let total = 0,
+            ok = 0;
+          for (const album of selected) {
+            context.signal.throwIfAborted();
+            check();
+            const outputDir = join(
+              context.directory,
+              `${album.provider}-${album.owner}`,
+              sanitizePathSegment(album.albumId, 'album'),
+            );
+            try {
+              const progress = (current: number, size: number) =>
+                context.progress(ok + failed.length + current, total + size);
+              const result =
+                album.provider === 'group'
+                  ? await exportGroupAlbums(
+                      services,
+                      {
+                        groupCode: album.owner,
+                        outputDir,
+                        albums: [
+                          { id: album.albumId, title: album.title, mediaKeys: album.mediaKeys },
+                        ],
+                      },
+                      { signal: context.signal, progress },
+                    )
+                  : await exportSelectedQzoneAlbums(
+                      services,
+                      {
+                        hostUin: album.owner,
+                        outputDir,
+                        albums: [
+                          { id: album.albumId, title: album.title, mediaKeys: album.mediaKeys },
+                        ],
+                      },
+                      { signal: context.signal, check, progress },
+                    );
+              total += result.total;
+              ok += result.ok;
+              failed.push(
+                ...result.failed.map((item) => ({
+                  fileName: `${album.owner}/${album.albumId}/${item.fileName}`,
+                  error: item.error,
+                })),
+              );
+            } catch (error) {
+              context.signal.throwIfAborted();
+              check();
+              const keys = album.mediaKeys ?? [album.albumId];
+              total += keys.length;
+              failed.push(
+                ...keys.map((key) => ({
+                  fileName: `${album.owner}/${album.albumId}/${key}`,
+                  error: error instanceof Error ? error.message : '相册读取失败',
+                })),
+              );
+            }
+            context.progress(ok + failed.length, total);
+          }
+          context.signal.throwIfAborted();
+          check();
+          await deduplicateAlbumResources(context.directory, context.signal);
+          await writeFile(
+            join(context.directory, 'selected-items.json'),
+            JSON.stringify({ items: frozen.items, total, ok, failed }, null, 2),
+          );
+          return { total, ok, failed };
         },
       });
     }),

@@ -61,8 +61,68 @@ export function generatedContentIdentity(
 }
 
 export type ContentFilterValue = string | number | boolean | null;
+export type ContentReference =
+  | { kind: 'qzone-post'; uin: string; tid: string; name?: string }
+  | {
+      kind: 'qzone-album' | 'qzone-photo';
+      uin: string;
+      albumId: string;
+      mediaKey?: string;
+      name?: string;
+    }
+  | {
+      kind: 'group-album' | 'group-photo';
+      groupCode: string;
+      albumId: string;
+      mediaKey?: string;
+      name?: string;
+    };
+
+export function contentReferenceKey(item: ContentReference) {
+  if (item.kind === 'qzone-post') return JSON.stringify([item.kind, item.uin, item.tid]);
+  return JSON.stringify([
+    item.kind,
+    'uin' in item ? item.uin : item.groupCode,
+    item.albumId,
+    item.mediaKey ?? '',
+  ]);
+}
+export function groupAlbumReferences(items: ContentReference[]) {
+  const groups = new Map<
+    string,
+    {
+      provider: 'qzone' | 'group';
+      owner: string;
+      albumId: string;
+      title?: string;
+      mediaKeys?: string[];
+    }
+  >();
+  for (const item of items) {
+    if (item.kind === 'qzone-post') continue;
+    const provider = 'uin' in item ? ('qzone' as const) : ('group' as const);
+    const owner = 'uin' in item ? item.uin : item.groupCode;
+    const key = JSON.stringify([provider, owner, item.albumId]);
+    const whole = item.kind.endsWith('-album');
+    const previous = groups.get(key);
+    if (!previous)
+      groups.set(key, {
+        provider,
+        owner,
+        albumId: item.albumId,
+        ...(whole ? { title: item.name } : { mediaKeys: item.mediaKey ? [item.mediaKey] : [] }),
+      });
+    else if (whole) {
+      delete previous.mediaKeys;
+      previous.title = item.name;
+    } else if (previous.mediaKeys && item.mediaKey && !previous.mediaKeys.includes(item.mediaKey))
+      previous.mediaKeys.push(item.mediaKey);
+  }
+  return [...groups.values()];
+}
 
 export type ContentScope =
+  | { type: 'references'; items: ContentReference[] }
   | { type: 'items'; ids: string[] }
   | { type: 'filter'; conditions: Record<string, ContentFilterValue> }
   | { type: 'all' };
@@ -83,6 +143,13 @@ export function sameContentOwner(left: ContentOwner, right: ContentOwner): boole
 
 export function copyContentScope(scope: ContentScope): ContentScope {
   switch (scope.type) {
+    case 'references':
+      return {
+        type: 'references',
+        items: [
+          ...new Map(scope.items.map((item) => [contentReferenceKey(item), { ...item }])).values(),
+        ],
+      };
     case 'items':
       return { type: 'items', ids: [...new Set(scope.ids)] };
     case 'filter':

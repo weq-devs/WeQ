@@ -83,6 +83,8 @@ import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
+import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
+import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
 import { QzoneRelatedRound } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
@@ -400,7 +402,7 @@ export function QzoneView({
   }, []);
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
   const [postRequests, setPostRequests] = useState<
-    Record<string, { tid: string; revision: string }>
+    Record<string, { tid: string; revision: string; focusComment?: RelatedComment }>
   >({});
   const rememberSpaceName = useCallback((uin: string, name: string) => {
     const value = name.trim();
@@ -494,9 +496,27 @@ export function QzoneView({
       }));
     if (spaceRequest.target?.kind === 'post') {
       const tid = spaceRequest.target.tid;
+      const target = spaceRequest.target;
       setPostRequests((current) => ({
         ...current,
-        [spaceRequest.uin]: { tid, revision: spaceRequest.revision },
+        [spaceRequest.uin]: {
+          tid,
+          revision: spaceRequest.revision,
+          ...(target.commentId
+            ? {
+                focusComment: {
+                  id: target.commentId,
+                  uin: '',
+                  content: target.commentText ?? '',
+                  images: [],
+                  parentCommentId: target.parentCommentId,
+                  replyId: target.replyId,
+                  isReply: Boolean(target.parentCommentId),
+                  source: 'search' as const,
+                },
+              }
+            : {}),
+        },
       }));
     }
   }, [active, selfUin, spaceRequest, openSpace, handledRequest, setHandledRequest]);
@@ -784,7 +804,7 @@ function SpaceContent({
   nickname: string;
   ownerNickname?: string;
   albumRequest?: QzoneAlbumRequest;
-  postRequest?: { tid: string; revision: string };
+  postRequest?: { tid: string; revision: string; focusComment?: RelatedComment };
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
@@ -857,6 +877,7 @@ function SpaceContent({
               selfUin={selfUin}
               hostUin={hostUin}
               tid={postRequest.tid}
+              focusComment={postRequest.focusComment}
               nickname={ownerNickname || nickname}
               onSpace={onSpace}
             />
@@ -890,12 +911,14 @@ function LinkedPost({
   tid,
   nickname,
   onSpace,
+  focusComment,
 }: {
   selfUin: string;
   hostUin: string;
   tid: string;
   nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
+  focusComment?: RelatedComment;
 }) {
   const { run, cancel } = useQzoneRequests();
   const { active } = useContext(QzonePageContext);
@@ -936,6 +959,7 @@ function LinkedPost({
           hostUin={hostUin}
           nickname={nickname}
           post={post}
+          focusComment={focusComment}
           onSpace={onSpace}
         />
       ) : error ? (
@@ -2303,7 +2327,10 @@ function Interaction({
       {focusComment && !focusedComment ? (
         <div ref={focusRef} className="weq-qzn-comment is-notification-target">
           <div>
-            <p className="weq-qzn-status">通知中的评论 · 未在本次评论列表中找到</p>
+            <p className="weq-qzn-status">
+              {focusComment.source === 'search' ? '搜索中的评论' : '通知中的评论'} ·
+              未在本次评论列表中找到
+            </p>
             <QzoneText content={focusComment.content} onSpace={onSpace} />
             <Pictures images={focusComment.images} />
           </div>
@@ -2791,8 +2818,47 @@ function FeedTimeline({
     [kind, feeds, filter, currentProjector],
   );
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
+  const feedReferences = useMemo(
+    () =>
+      new Map<string, ContentReference>(
+        (shown ?? []).flatMap(({ feed, body }) => {
+          const tid = body.tid || (/^[a-f0-9]{6,128}$/i.test(feed.key) ? feed.key : null);
+          if (feed.appid !== 311 || !tid) return [];
+          const item: ContentReference = {
+            kind: 'qzone-post',
+            uin: String(feed.uin),
+            tid,
+            name: `${feed.nickname}：${body.text.slice(0, 60)}`,
+          };
+          return [[contentReferenceKey(item), item]];
+        }),
+      ),
+    [shown],
+  );
+  const feedOwner = { kind: 'qzone-posts' as const, container: `feeds:${selfUin}:${kind}` };
+  const feedSelection = useContentMultiSelect(
+    feedOwner,
+    active && kind === 'friends',
+    feedReferences,
+  );
+  const feedMulti = useMultiSelection({
+    ids: [...feedReferences.keys()],
+    selected: feedSelection.selectedIds,
+    onChange: feedSelection.setSelectedIds,
+    enabled: feedSelection.selectionMode,
+    onStart: () => feedSelection.setSelectionMode(true),
+    onExit: () => feedSelection.setSelectionMode(false),
+    anchorRef: feedSelection.anchorRef,
+  });
   return (
-    <div className="weq-qzn-timeline">
+    <div {...feedMulti.rootProps} className="weq-qzn-timeline">
+      {kind === 'friends' && feedReferences.size > 0 ? (
+        <ContentReferenceToolbar
+          owner={feedOwner}
+          selection={feedSelection}
+          loaded={[...feedReferences.keys()]}
+        />
+      ) : null}
       <div className="weq-qzn-section-title">
         <h2>{title}</h2>
         {kind === 'friends' ? (
@@ -2909,16 +2975,28 @@ function FeedTimeline({
           retry={() => setRetry((value) => value + 1)}
         />
       ) : null}
-      {shown?.map(({ feed, body }) => (
-        <FeedCard
-          key={`${feed.uin}:${feed.appid}:${feed.key || feed.time}`}
-          feed={feed}
-          body={body}
-          selfUin={selfUin}
-          onSpace={onSpace}
-          lookup={lookupPost}
-        />
-      ))}
+      {shown?.map(({ feed, body }) => {
+        const tid = body.tid || (/^[a-f0-9]{6,128}$/i.test(feed.key) ? feed.key : null);
+        const id = tid
+          ? contentReferenceKey({ kind: 'qzone-post', uin: String(feed.uin), tid })
+          : '';
+        const selectable = feedReferences.has(id);
+        return (
+          <div
+            key={`${feed.uin}:${feed.appid}:${feed.key || feed.time}`}
+            {...(selectable ? feedMulti.itemProps(id) : {})}
+            className={`weq-reference-item${feedSelection.selectedIds.has(id) ? ' is-selected' : ''}`}
+          >
+            <FeedCard
+              feed={feed}
+              body={body}
+              selfUin={selfUin}
+              onSpace={onSpace}
+              lookup={lookupPost}
+            />
+          </div>
+        );
+      })}
       <div ref={moreRef} className="weq-qzn-page-sentinel">
         {feeds && error ? (
           <State

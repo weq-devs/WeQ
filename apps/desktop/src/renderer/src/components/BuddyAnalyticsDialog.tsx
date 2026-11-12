@@ -138,6 +138,7 @@ export function BuddyAnalyticsDialog({
   embedded = false,
   scope,
   periodLabel,
+  onRangeChange,
 }: {
   peerUid: string;
   peerName: string;
@@ -149,6 +150,7 @@ export function BuddyAnalyticsDialog({
   embedded?: boolean;
   scope?: AnalysisScope;
   periodLabel?: string;
+  onRangeChange?: (range: { start: number; end: number }) => void;
 }) {
   const [data, setData] = useState<BuddyAnalyticsData | null>(
     (initialData as BuddyAnalyticsData) ?? null,
@@ -292,7 +294,10 @@ export function BuddyAnalyticsDialog({
             firstTime={data.timeline.firstMessageTime}
             lastTime={data.timeline.lastMessageTime}
             range={range}
-            onChange={setRange}
+            onChange={(next) => {
+              setRange(next);
+              onRangeChange?.(next);
+            }}
           />
         </section>
       ) : null}

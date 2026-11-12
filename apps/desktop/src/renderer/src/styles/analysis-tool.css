@@ -460,6 +460,38 @@
   min-height: 0;
   overflow: hidden;
 }
+.weq-saved-analysis {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.weq-saved-analysis-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--weq-fg-secondary);
+}
+.weq-saved-analysis-status button {
+  margin-left: auto;
+}
+.weq-analysis-history {
+  max-height: 220px;
+  overflow: auto;
+  flex-shrink: 0;
+}
+.weq-analysis-history .weq-saved-analysis-status {
+  flex-wrap: wrap;
+}
+.weq-analysis-history .weq-set-btn {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-saved-analysis > .group-album-dialog {
+  flex: 1;
+  min-height: 0;
+}
 .weq-analysis-result .group-album-dialog {
   width: 100%;
   max-width: none;

@@ -80,6 +80,22 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
   add('web-notifications', 'enabled', '网页通知', preferenceValue('webNotifications'), false, () =>
     resetPreference('webNotifications'),
   );
+  add(
+    'unread',
+    'message-notifications',
+    '新消息系统通知',
+    preferenceValue('messageNotifications'),
+    false,
+    () => resetPreference('messageNotifications'),
+  );
+  add(
+    'unread',
+    'application-badge',
+    '应用图标未读角标',
+    preferenceValue('applicationBadge'),
+    true,
+    () => resetPreference('applicationBadge'),
+  );
   return all.filter((entry) => cards.has(entry.card));
 }
 const differs = (item: SettingsResetItem) =>

@@ -71,6 +71,7 @@ import {
   rememberClientRetry,
   forgetClientRetry,
   useClientPreferences,
+  accountBinding as sharedAccountBinding,
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { useUpdateStore } from '../state/update';
@@ -322,6 +323,8 @@ import type { ConversationScope } from '@weq/service/search-policy';
 import { useSearchReturn } from '../hooks/useSearchReturn';
 import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
+import { restoredAnalysisRequest } from './analysis/model';
+import { useMessageNotifications } from '../hooks/useMessageNotifications';
 import type { RoamingTarget, MessageBubbleSkin } from '@weq/service';
 import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
@@ -458,6 +461,19 @@ import {
 const AnalysisReportPage = lazy(() =>
   import('./analysis/AnalysisReportPage').then((module) => ({
     default: module.AnalysisReportPage,
+  })),
+);
+const SearchGroupContentResult = lazy(() =>
+  import('../components/search/SearchGroupContentResult').then((module) => ({
+    default: module.SearchGroupContentResult,
+  })),
+);
+const QzonePublicSearchResult = lazy(() =>
+  import('./QzonePublicView').then((module) => ({ default: module.QzonePublicSearchResult })),
+);
+const SearchFlashTransferViewer = lazy(() =>
+  import('../components/FlashTransferViewer').then((module) => ({
+    default: module.FlashTransferViewer,
   })),
 );
 const RelationGraphView = lazy(() =>
@@ -3362,6 +3378,27 @@ function MainWorkspace(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [searchGroupContent, setSearchGroupContent] = useState<
+    | (Extract<ContentSearchTarget, { kind: 'groupBulletin' | 'groupEssence' }> & {
+        expectedAccountUin: string;
+        expectedAccountConfigId: string;
+      })
+    | null
+  >(null);
+  const [searchFlashFile, setSearchFlashFile] = useState<
+    | (Extract<ContentSearchTarget, { kind: 'flashFile' }> & {
+        expectedAccountUin: string;
+        expectedAccountConfigId: string;
+      })
+    | null
+  >(null);
+  const [searchPublicComment, setSearchPublicComment] = useState<
+    | (Extract<ContentSearchTarget, { kind: 'qzonePublicComment' }> & {
+        expectedAccountUin: string;
+        expectedAccountConfigId: string;
+      })
+    | null
+  >(null);
   const [groupSignDialog, setGroupSignDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -4086,6 +4123,34 @@ function MainWorkspace(): ReactElement {
   const loadingNewerRef = useRef(false);
 
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
+  useEffect(() => {
+    const open = (event: Event) => {
+      const id: unknown = (event as CustomEvent<unknown>).detail;
+      if (typeof id !== 'string') return;
+      const expected = useViewState.getState().openedUin;
+      void client.account.getAccountConfig
+        .query()
+        .then(async (config) => {
+          if (!config || config.uin !== expected || expected !== useViewState.getState().openedUin)
+            return;
+          const saved = await client.account.analysisReports.get.query({
+            id,
+            expectedAccountUin: config.uin,
+            expectedAccountConfigId: config.configId,
+          });
+          if (expected !== useViewState.getState().openedUin) return;
+          const request = restoredAnalysisRequest(saved.request);
+          if (request)
+            setAnalysisReports((previous) => [
+              ...previous.filter((report) => report.id !== request.id),
+              request,
+            ]);
+        })
+        .catch((error: unknown) => console.error('[analysis-reports] 无法打开报告', error));
+    };
+    window.addEventListener('weq:open-saved-analysis', open);
+    return () => window.removeEventListener('weq:open-saved-analysis', open);
+  }, []);
   const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);
   const [roamingRequest, setRoamingRequest] = useState<{
     targets: RoamingTarget[];
@@ -5161,6 +5226,16 @@ function MainWorkspace(): ReactElement {
   const selectedUidRef = useRef(selectedUid);
   selectedUidRef.current = selectedUid;
   const messagesTabActive = shell.view === 'messages' && !arkFeedState;
+  useMessageNotifications({
+    selfUin: user.identityValue,
+    selfUid: user.uid,
+    conversations,
+    preferences: conversationPrefs,
+    groupAssistantIds,
+    badgeCount: shell.messageUnreadCount,
+    foregroundConversation:
+      messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,
+  });
   const messagesTabActiveRef = useRef(messagesTabActive);
   messagesTabActiveRef.current = messagesTabActive;
   const isGroup = selectedConversation?.type === 'group';
@@ -8258,16 +8333,42 @@ function MainWorkspace(): ReactElement {
         switch (target.kind) {
           case 'qzonePost':
           case 'qzoneAlbum':
+          case 'qzoneComment':
             setQzoneSpaceRequest({
               accountUin: user.identityValue,
               uin: target.uin,
               revision,
               target:
-                target.kind === 'qzonePost'
-                  ? { kind: 'post', uin: target.uin, tid: target.tid }
+                target.kind === 'qzonePost' || target.kind === 'qzoneComment'
+                  ? {
+                      kind: 'post',
+                      uin: target.uin,
+                      tid: target.tid,
+                      ...(target.kind === 'qzoneComment'
+                        ? {
+                            commentId: target.commentId,
+                            parentCommentId: target.parentCommentId,
+                            replyId: target.replyId,
+                            commentText: hit.content,
+                          }
+                        : {}),
+                    }
                   : { kind: 'album', uin: target.uin, topicId: target.albumId },
             });
             shell.switchView('qzone');
+            break;
+          case 'groupBulletin':
+          case 'groupEssence':
+            if (sharedAccountBinding())
+              setSearchGroupContent({ ...target, ...sharedAccountBinding()! });
+            break;
+          case 'flashFile':
+            if (sharedAccountBinding())
+              setSearchFlashFile({ ...target, ...sharedAccountBinding()! });
+            break;
+          case 'qzonePublicComment':
+            if (sharedAccountBinding())
+              setSearchPublicComment({ ...target, ...sharedAccountBinding()! });
             break;
           case 'mailMessage':
             setMailSearchTarget({ ...target, revision });
@@ -8454,7 +8555,6 @@ function MainWorkspace(): ReactElement {
   }, [jumpToConvSeq]);
 
   useEffect(() => {
-    if (!IS_WEB) return;
     const open = (event: Event) => {
       const notice = (event as CustomEvent<WebNotice>).detail;
       if (
@@ -12103,6 +12203,42 @@ function MainWorkspace(): ReactElement {
               groupCode={groupSignDialog.groupCode}
               groupName={groupSignDialog.groupName}
               onClose={() => setGroupSignDialog(null)}
+            />
+          ) : null}
+          {searchGroupContent &&
+          sharedAccountBinding()?.expectedAccountConfigId ===
+            searchGroupContent.expectedAccountConfigId &&
+          user.identityValue === searchGroupContent.expectedAccountUin ? (
+            <SearchGroupContentResult
+              target={searchGroupContent}
+              onClose={() => setSearchGroupContent(null)}
+              onJump={(group, seq) => {
+                setSearchGroupContent(null);
+                jumpToConvSeq('group', group, String(seq), true);
+              }}
+            />
+          ) : null}
+          {searchFlashFile &&
+          sharedAccountBinding()?.expectedAccountConfigId ===
+            searchFlashFile.expectedAccountConfigId &&
+          user.identityValue === searchFlashFile.expectedAccountUin ? (
+            <SearchFlashTransferViewer
+              key={JSON.stringify(searchFlashFile)}
+              filesetId={searchFlashFile.filesetId}
+              title="闪传搜索结果"
+              initialTarget={searchFlashFile}
+              onClose={() => setSearchFlashFile(null)}
+            />
+          ) : null}
+          {searchPublicComment &&
+          sharedAccountBinding()?.expectedAccountConfigId ===
+            searchPublicComment.expectedAccountConfigId &&
+          user.identityValue === searchPublicComment.expectedAccountUin ? (
+            <QzonePublicSearchResult
+              key={JSON.stringify(searchPublicComment)}
+              selfUin={user.identityValue}
+              target={searchPublicComment}
+              onClose={() => setSearchPublicComment(null)}
             />
           ) : null}
           {announcementsDialog ? (

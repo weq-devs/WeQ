@@ -54,7 +54,7 @@ import {
   registerMediaProtocol,
 } from './protocol_register';
 import { registerUdpCaptureStorage } from './udp_capture_register';
-import { getAppContext } from './context/app_context';
+import { getAppContext, accountEventBus } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
@@ -787,6 +787,7 @@ void app.whenReady().then(async () => {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
+  accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
   await migrateLegacyAutostart().catch((error: unknown) => {
     logger.warn('legacy daemon migration failed', {
       event: 'legacy-daemon-migration-failed',

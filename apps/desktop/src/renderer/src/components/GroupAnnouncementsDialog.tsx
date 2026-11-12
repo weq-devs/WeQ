@@ -13,6 +13,7 @@ interface GroupAnnouncementsProps {
   groupName: string;
   currentAnnouncement?: string | null;
   bulletins?: GroupBulletinWire[];
+  initialNoticeId?: string;
   onClose: () => void;
 }
 const ScopedGroupAnnouncements = withQQAccountScope(GroupAnnouncementsBody);
@@ -25,6 +26,7 @@ function GroupAnnouncementsBody({
   groupName,
   currentAnnouncement,
   bulletins,
+  initialNoticeId,
   onClose,
 }: GroupAnnouncementsProps): ReactElement {
   const closing = useDraftClose(onClose, null);
@@ -65,6 +67,7 @@ function GroupAnnouncementsBody({
               groupName={groupName}
               currentAnnouncement={currentAnnouncement}
               bulletins={bulletins}
+              initialNoticeId={initialNoticeId}
             />
           </div>
         </section>

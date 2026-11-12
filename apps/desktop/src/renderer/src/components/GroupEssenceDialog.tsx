@@ -1,4 +1,5 @@
-import type { ReactElement } from 'react';
+import { useRef, type ReactElement } from 'react';
+import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import { RefreshCw, X } from 'lucide-react';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ProfileDetailSurface } from './ProfileDetailSurface';
@@ -45,6 +46,7 @@ export function GroupEssenceDialog({
   onlineError,
   onClose,
   onJumpToMessage,
+  initialMsgSeq,
 }: {
   embedded?: boolean;
   groupCode: string;
@@ -55,7 +57,9 @@ export function GroupEssenceDialog({
   onlineError?: boolean;
   onClose: () => void;
   onJumpToMessage?: (seq: number) => void;
+  initialMsgSeq?: number;
 }): ReactElement {
+  const root = useRef<HTMLElement>(null);
   const session = useQQWriteSession(`essence-list:${groupCode}`);
   const permissions = useQQGroupPermissions(Number(groupCode), session);
   const receipts = useQQEssence((state) => state.receipts);
@@ -82,6 +86,12 @@ export function GroupEssenceDialog({
         active: true,
       });
   }
+  useSearchTargetFocus(
+    root,
+    'data-essence-seq',
+    initialMsgSeq === undefined ? undefined : String(initialMsgSeq),
+    visible.length > 0,
+  );
   return (
     <ProfileDetailSurface
       embedded={embedded}
@@ -91,6 +101,7 @@ export function GroupEssenceDialog({
       onClose={onClose}
     >
       <section
+        ref={root}
         className="group-essence-dialog"
         role={embedded ? 'region' : 'dialog'}
         onMouseDown={(e) => e.stopPropagation()}
@@ -125,6 +136,7 @@ export function GroupEssenceDialog({
                 return (
                   <article
                     key={item.id}
+                    data-essence-seq={item.msgSeq}
                     className={`group-essence-item${canJump ? ' is-clickable' : ''}`}
                   >
                     <button

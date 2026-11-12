@@ -11,7 +11,13 @@
 
 import { join, relative, isAbsolute, dirname } from 'node:path';
 import { z } from 'zod';
-import { MergeForwardArchiveStore, MergeForwardDraftStore } from '@weq/service';
+import {
+  MergeForwardArchiveStore,
+  MergeForwardDraftStore,
+  writeCompositionBundle,
+  getHost,
+} from '@weq/service';
+import { exportSavePolicyInput, prepareExportDestination } from './export_save';
 import { getAppContext, requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { boundClientState } from './client_state';
@@ -152,6 +158,47 @@ function trustDraftMedia(nodes: readonly unknown[]): void {
 }
 
 export const mergeForwardRouter = router({
+  exportWorkspace: procedure
+    .input(
+      accountBinding.extend({ draft: draftInput, savePolicy: exportSavePolicyInput.optional() }),
+    )
+    .mutation(async ({ input }) => {
+      const { services, root } = boundArchive(input);
+      const snapshot = structuredClone(input.draft);
+      const check = () => {
+        if (boundArchive(input).services !== services) throw new Error('账号已切换');
+      };
+      const settings = requireBootstrap().userConfig.getSettings();
+      const policy = await prepareExportDestination(
+        input.savePolicy ?? { mode: settings.exportSaveMode },
+        settings.defaultExportDir,
+        getHost(),
+        { kind: 'directory' },
+        check,
+      );
+      if (!policy) return { canceled: true as const };
+      check();
+      const taskId = await services.exportManager.startResourceExport({
+        kind: 'composition',
+        name: snapshot.title || '合成记录',
+        savePolicy: policy,
+        run: async (context) => {
+          check();
+          return writeCompositionBundle(snapshot, context, async (path) => {
+            check();
+            const rel = relative(join(root, 'media'), path);
+            return (
+              (rel !== '..' &&
+                !rel.startsWith('../') &&
+                !rel.startsWith('..\\') &&
+                !isAbsolute(rel)) ||
+              Boolean(await services.fileResource.resolveLocalFile(path))
+            );
+          });
+        },
+      });
+      return { canceled: false as const, taskId };
+    }),
   workspaceDrafts: procedure.input(accountBinding).query(({ input }) => {
     const { root } = boundArchive(input);
     const current = workspaceDraftStore(root).list();

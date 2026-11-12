@@ -4,6 +4,7 @@
  * 左侧一级分类，右侧二级页；旧页面与条目入口统一解析到规范位置。
  */
 
+import { MessageNotificationRows } from './settings/MessageNotificationRows';
 import {
   useCallback,
   useEffect,
@@ -1049,6 +1050,7 @@ function AppearanceSection({
         <>
           {category === 'reading' && (
             <Card title="未读提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
+              <MessageNotificationRows />
               <Row
                 settingId="message-unread-badge"
                 label="在消息图标上显示红点"

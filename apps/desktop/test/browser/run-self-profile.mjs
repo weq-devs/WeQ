@@ -105,6 +105,17 @@ try {
   await page.getByRole('textbox', { name: 'QQ 昵称', exact: true }).fill('已保存合成昵称');
   await page.getByRole('button', { name: '保存QQ 昵称', exact: true }).click();
   await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
+  await page.getByRole('button', { name: '编辑公司', exact: true }).click();
+  await page.getByRole('textbox', { name: '公司', exact: true }).fill('');
+  await page.getByRole('button', { name: '保存公司', exact: true }).click();
+  await page.getByRole('button', { name: '编辑公司', exact: true }).waitFor();
+  await page.getByRole('button', { name: '编辑个人说明', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: '个人说明', exact: true })
+    .fill('多行个人说明\n保留换行后的第二行');
+  await page.getByRole('button', { name: '保存个人说明', exact: true }).click();
+  await page.getByRole('button', { name: '编辑个人说明', exact: true }).waitFor();
+  await page.getByText('多行个人说明', { exact: false }).waitFor();
   const results = [];
   for (const width of [1180, 390, 320])
     for (const theme of ['light', 'dark']) {

@@ -32,6 +32,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     client: { account: { getAccountConfig: { query: fixture.config } } },
     trpc: {
       account: {
+        getAccountConfig: { useQuery: () => result({ uin: '10001', configId: 'synthetic' }) },
+        analysisReports: {
+          list: { useQuery: () => result([]) },
+          onChange: { useSubscription() {} },
+        },
         getProfile: {
           useQuery: () => ({
             ...result(

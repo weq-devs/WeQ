@@ -56,14 +56,14 @@ export async function writeCompositionBundle(
       let output = copied.get(ref.path);
       if (!output) {
         if (!(await authorize(ref.path))) throw new Error('媒体文件不可读取');
-        const digest = await fileDigest(ref.path);
+        const digest = await fileDigest(ref.path, context.signal);
         context.signal.throwIfAborted();
         output = `media/${digest.sha256}${extname(ref.path).match(/^\.[\da-z]{1,12}$/i)?.[0] ?? ''}`;
         if (!hashes.has(digest.sha256)) {
           const target = join(context.directory, output);
           let existing: Awaited<ReturnType<typeof fileDigest>> | undefined;
           try {
-            existing = await fileDigest(target);
+            existing = await fileDigest(target, context.signal);
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
           }
@@ -75,7 +75,7 @@ export async function writeCompositionBundle(
               { signal: context.signal },
             );
           }
-          const saved = existing ?? (await fileDigest(partial!));
+          const saved = existing ?? (await fileDigest(partial!, context.signal));
           if (saved.sha256 !== digest.sha256 || saved.size !== digest.size)
             throw new Error('媒体在复制期间发生变化');
           if (partial) {

@@ -36,11 +36,13 @@ function GroupNoticeActionsBody({
   groupName = '',
   currentAnnouncement,
   bulletins = [],
+  initialNoticeId,
 }: {
   groupId: number;
   groupName?: string;
   currentAnnouncement?: string | null;
   bulletins?: GroupBulletinWire[];
+  initialNoticeId?: string;
 }) {
   const a = useQQAction(`notice:${groupId}`);
   const permissions = useQQGroupPermissions(groupId, a);
@@ -269,6 +271,7 @@ function GroupNoticeActionsBody({
         </section>
       )}
       <GroupBulletinList
+        initialNoticeId={initialNoticeId}
         entries={entries}
         groupCode={String(groupId)}
         groupName={groupName}

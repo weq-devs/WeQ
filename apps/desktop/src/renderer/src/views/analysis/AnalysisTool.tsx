@@ -5,6 +5,7 @@ import { useTabActive } from '../../components/RetainedTabs';
 import { WindowedList } from '../../components/WindowedList';
 import { QqAvatar } from '../../components/QqAvatar';
 import { useViewState } from '../../state/view';
+import { AnalysisHistory } from './AnalysisHistory';
 import { createMediaId } from '../../im-template/template/composerMedia';
 import { MessageCalendar } from '../../components/MessageCalendar';
 import { beijingDay } from '../../lib/messageCalendar';
@@ -505,6 +506,7 @@ function AnalysisToolForm({
           </span>
         </header>
       ) : null}
+      <AnalysisHistory enabled={active} />
       <fieldset disabled={busy} className="weq-analysis-fields">
         <aside className="weq-analysis-config">
           {messageIds !== undefined ? (

@@ -8,7 +8,8 @@
  * 布局：紧凑文件列表，单次下载操作作为一个任务进入常规任务列表。
  */
 import { formatBytes as formatSize } from '../lib/format';
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import {
   ArrowLeft,
   ChevronRight,
@@ -125,11 +126,15 @@ export function FlashTransferViewer({
   filesetId,
   title,
   onClose,
+  initialTarget,
 }: {
   filesetId: string;
   title: string;
   onClose: () => void;
+  initialTarget?: { parentId: string; zipFileId: string; fileId: string };
 }): ReactElement | null {
+  const searchRoot = useRef<HTMLDivElement>(null);
+  const searchHandled = useRef(false);
   const pushToast = useToast((s) => s.push);
   const [crumbs, setCrumbs] = useState<Crumb[]>([
     { name: title || '闪传文件', id: '', zipFileId: '' },
@@ -179,6 +184,16 @@ export function FlashTransferViewer({
           } as FlashEntry;
         });
         setEntries(list);
+        if (
+          initialTarget &&
+          !searchHandled.current &&
+          parentId === initialTarget.parentId &&
+          zipFileId === initialTarget.zipFileId
+        ) {
+          if (list.some((item) => item.fileId === initialTarget.fileId))
+            searchHandled.current = true;
+          else setError('未找到搜索中的文件，可能已移动或过期；原搜索结果仍保留');
+        }
       } catch (e) {
         setEntries([]);
         setError(e instanceof Error ? e.message : String(e));
@@ -186,13 +201,26 @@ export function FlashTransferViewer({
         setLoading(false);
       }
     },
-    [filesetId],
+    [filesetId, initialTarget],
   );
 
   // 初始加载根目录。
   useEffect(() => {
-    void fetchList([{ name: title || '闪传文件', id: '', zipFileId: '' }], '', '');
-  }, [fetchList, title]);
+    const root = { name: title || '闪传文件', id: '', zipFileId: '' };
+    const parentId = initialTarget?.parentId ?? '',
+      zipFileId = initialTarget?.zipFileId ?? '';
+    const crumbs =
+      parentId || zipFileId ? [root, { name: '所在目录', id: parentId, zipFileId }] : [root];
+    setCrumbs(crumbs);
+    searchHandled.current = false;
+    void fetchList(crumbs, parentId, zipFileId);
+  }, [fetchList, title, initialTarget]);
+  useSearchTargetFocus(
+    searchRoot,
+    'data-flash-file-id',
+    initialTarget?.fileId,
+    !loading && entries.length > 0,
+  );
 
   const navTo = (targetIndex: number): void => {
     const next = crumbs.slice(0, targetIndex + 1);
@@ -361,7 +389,14 @@ export function FlashTransferViewer({
   return (
     <>
       <Modal presentation="floating" onClose={onClose} width={520} title="闪传文件">
-        <div className="weq-ft" {...multi.rootProps}>
+        <div
+          className="weq-ft"
+          {...multi.rootProps}
+          ref={(element) => {
+            searchRoot.current = element;
+            multi.rootProps.ref(element);
+          }}
+        >
           <header className="weq-ft-head" data-window-drag-handle>
             <span className="weq-ft-title" title={crumbs[0]?.name}>
               {crumbs[0]?.name || 'QQ闪传'}
@@ -487,6 +522,7 @@ export function FlashTransferViewer({
                   return (
                     <div
                       key={key}
+                      data-flash-file-id={file.fileId}
                       role="button"
                       {...multi.itemProps(key, !ready && !file.isDir)}
                       className={`weq-ft-card${!ready && !file.isDir ? ' weq-ft-card-muted' : ''}${checked ? ' weq-ft-card-checked' : ''}`}

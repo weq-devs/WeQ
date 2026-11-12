@@ -1,4 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type HTMLAttributes,
+} from 'react';
+import { useContentMultiSelect } from '../state/contentSelection';
+import { useMultiSelection } from '../hooks/useMultiSelection';
+import { ContentReferenceToolbar } from './ContentReferenceToolbar';
+import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
+import { groupAlbumMediaKey } from '../../../shared/album_media_identity';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import {
   ArrowLeft,
@@ -267,6 +279,7 @@ function GroupAlbumDialogBody({
             />
           ) : (
             <AlbumListView
+              groupCode={groupCode}
               albums={albums}
               loading={loadingAlbums}
               error={albumError}
@@ -295,6 +308,7 @@ function GroupAlbumDialogBody({
 }
 
 function AlbumListView({
+  groupCode,
   albums,
   loading,
   error,
@@ -309,6 +323,7 @@ function AlbumListView({
   visibleCount,
   onMore,
 }: {
+  groupCode: string;
   albums: GroupAlbumWire[];
   loading: boolean;
   error: string | null;
@@ -333,8 +348,39 @@ function AlbumListView({
     else if (sort === 'count') result.sort((a, b) => b.photoCount - a.photoCount);
     return result;
   }, [albums, search, sort]);
+  const owner = { kind: 'group-albums' as const, container: groupCode };
+  const references = useMemo(
+    () =>
+      new Map<string, ContentReference>(
+        filtered.map((album) => {
+          const item: ContentReference = {
+            kind: 'group-album',
+            groupCode,
+            albumId: album.id,
+            name: album.title,
+          };
+          return [contentReferenceKey(item), item];
+        }),
+      ),
+    [filtered, groupCode],
+  );
+  const selection = useContentMultiSelect(owner, true, references);
+  const multi = useMultiSelection({
+    ids: [...references.keys()],
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+    anchorRef: selection.anchorRef,
+  });
   return (
     <>
+      <ContentReferenceToolbar
+        owner={owner}
+        selection={selection}
+        loaded={[...references.keys()]}
+      />
       <div className="group-album-browse-tools">
         <label className="group-album-search">
           <Search size={15} />
@@ -395,11 +441,14 @@ function AlbumListView({
                 : '还没有群相册。'}
         </ContactEmptyState>
       ) : (
-        <div className="group-album-grid">
+        <div {...multi.rootProps} className="group-album-grid">
           {filtered.slice(0, visibleCount).map((album) => (
             <button
               key={album.id}
-              className="group-album-card"
+              {...multi.itemProps(
+                contentReferenceKey({ kind: 'group-album', groupCode, albumId: album.id }),
+              )}
+              className={`group-album-card${selection.selectedIds.has(contentReferenceKey({ kind: 'group-album', groupCode, albumId: album.id })) ? ' is-selected' : ''}`}
               type="button"
               disabled={disabled}
               onClick={() => onOpenAlbum(album)}
@@ -474,6 +523,34 @@ function AlbumMediaView({
         `${item.fileName} ${item.uploader}`.toLocaleLowerCase().includes(query),
     );
   }, [items, search, kind]);
+  const owner = { kind: 'group-albums' as const, container: groupCode };
+  const references = useMemo(
+    () =>
+      new Map<string, ContentReference>(
+        filtered.flatMap((media) => {
+          if (!state.album) return [];
+          const item: ContentReference = {
+            kind: 'group-photo',
+            groupCode,
+            albumId: state.album.id,
+            mediaKey: mediaKey(media),
+            name: media.fileName || state.album.title,
+          };
+          return [[contentReferenceKey(item), item]];
+        }),
+      ),
+    [filtered, groupCode, state.album],
+  );
+  const selection = useContentMultiSelect(owner, true, references);
+  const multi = useMultiSelection({
+    ids: [...references.keys()],
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+    anchorRef: selection.anchorRef,
+  });
   const previews = useMemo<QzonePreviewMedia[]>(
     () =>
       (preview?.items ?? []).map((item) => {
@@ -508,7 +585,12 @@ function AlbumMediaView({
     return `${photos} 张 · ${videos} 个视频`;
   }, [items]);
   return (
-    <div className="group-album-media-view">
+    <div {...multi.rootProps} className="group-album-media-view">
+      <ContentReferenceToolbar
+        owner={owner}
+        selection={selection}
+        loaded={[...references.keys()]}
+      />
       <div className="group-album-toolbar">
         <button
           type="button"
@@ -623,6 +705,22 @@ function AlbumMediaView({
             <MediaThumbnail
               key={mediaKey(item)}
               item={item}
+              selectionProps={multi.itemProps(
+                contentReferenceKey({
+                  kind: 'group-photo',
+                  groupCode,
+                  albumId: state.album!.id,
+                  mediaKey: mediaKey(item),
+                }),
+              )}
+              selected={selection.selectedIds.has(
+                contentReferenceKey({
+                  kind: 'group-photo',
+                  groupCode,
+                  albumId: state.album!.id,
+                  mediaKey: mediaKey(item),
+                }),
+              )}
               onOpen={() => setPreview({ key: mediaKey(item), items: filtered })}
             />
           ))}
@@ -701,15 +799,19 @@ function AlbumMediaView({
 }
 
 function mediaKey(item: AlbumMediaWire): string {
-  return `${item.kind}:${(item.kind === 'video' ? item.video?.id : item.image?.lloc) || item.originalUrl || item.previewUrl}`;
+  return groupAlbumMediaKey(item);
 }
 
 function MediaThumbnail({
   item,
   onOpen,
+  selectionProps,
+  selected,
 }: {
   item: AlbumMediaWire;
   onOpen: () => void;
+  selectionProps?: HTMLAttributes<HTMLButtonElement>;
+  selected?: boolean;
 }): ReactElement {
   const [broken, setBroken] = useState(false);
   const src = item.previewUrl || (item.kind === 'image' ? item.originalUrl : '');
@@ -717,7 +819,8 @@ function MediaThumbnail({
   return (
     <button
       type="button"
-      className={`group-album-media-card${item.kind === 'video' ? ' is-video' : ''}`}
+      {...selectionProps}
+      className={`group-album-media-card${item.kind === 'video' ? ' is-video' : ''}${selected ? ' is-selected' : ''}`}
       onClick={onOpen}
       aria-label={`预览 ${item.fileName || (item.kind === 'video' ? '视频' : '图片')}`}
       title={item.fileName || '未命名媒体'}

@@ -31,6 +31,8 @@ import { MergeForwardTargets } from './MergeForwardTargets';
 import { SequentialForwardDialog } from '../SequentialForwardDialog';
 import { Modal } from '../Dialog';
 import { useToast } from '../Toast';
+import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
+import { ServerSavePrompt } from '../ServerSavePrompt';
 import { HoverTooltip } from '../HoverTooltip';
 import { COMPOSITION_DISPOSE_EVENT } from '../../hooks/useCompositionWindow';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
@@ -106,6 +108,8 @@ export function CompositionWorkspace({
   onOpenTarget: (target: MfTarget) => void;
 }) {
   const mobile = useMobileWebLayout();
+  const exportSave = useExportSavePolicy();
+  const exportingComposition = useRef(false);
   const locked = useAppLock((state) => state.locked);
   const visible = Boolean(popup || fallback) && !locked;
   useEffect(() => {
@@ -397,32 +401,31 @@ export function CompositionWorkspace({
       throw new Error('剪贴板不可用');
     setStatus('已复制文本');
   };
-  const download = (value: MfDraft) => {
-    const url = URL.createObjectURL(
-      new Blob(
-        [
-          JSON.stringify(
-            {
-              format: 'weq-composition',
-              version: 1,
-              origin: 'local-composition',
-              media: 'local-path-references',
-              draft: value,
-            },
-            null,
-            2,
-          ),
-        ],
-        { type: 'application/json' },
-      ),
-    );
-    const anchor = ownerDocument.createElement('a');
-    anchor.href = url;
-    anchor.download = `${(value.title || draftTitle(value.nodes)).replace(/[\\/:*?"<>|]/g, '_') || '合成记录'}.json`;
-    ownerDocument.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const download = async (value: MfDraft) => {
+    if (!binding || exportingComposition.current) return;
+    exportingComposition.current = true;
+    try {
+      const snapshot = structuredClone(value);
+      const policy = await exportSave.prepareSave(undefined, {
+        kind: 'bundle',
+        name: value.title || draftTitle(value.nodes),
+      });
+      if (!policy || !exportSave.isCurrent()) return;
+      const result = await client.mergeForward.exportWorkspace.mutate({
+        ...binding,
+        draft: snapshot,
+        savePolicy: policy,
+      });
+      if (!result.canceled) setStatus('合成记录导出已加入任务列表');
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '合成记录导出失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      exportingComposition.current = false;
+    }
   };
   const requestSend = async (value: MfDraft, mode: SendRequest['mode']) => {
     const problem = validateDraft(value);
@@ -497,6 +500,12 @@ export function CompositionWorkspace({
   if (!visible) return null;
   const content = (
     <RenderDocumentContext.Provider value={ownerDocument}>
+      {exportSave.serverLocation ? (
+        <ServerSavePrompt
+          name={exportSave.serverLocation.name}
+          onChoose={exportSave.chooseServerLocation}
+        />
+      ) : null}
       {ownerDocument !== document ? <HoverTooltip /> : null}
       <section
         className={`weq-composition-workspace${fallback ? ' is-fallback' : ''}`}
@@ -718,9 +727,9 @@ export function CompositionWorkspace({
                           </CompositionButton>
                           <CompositionButton
                             type="button"
-                            title="导出 JSON（媒体引用本机文件）"
-                            aria-label="导出 JSON"
-                            onClick={() => download(entry)}
+                            title="导出记录与媒体资源包"
+                            aria-label="导出资源包"
+                            onClick={() => void download(entry)}
                           >
                             <Download size={16} />
                           </CompositionButton>
@@ -924,9 +933,9 @@ export function CompositionWorkspace({
                 </CompositionButton>
                 <CompositionButton
                   type="button"
-                  title="导出 JSON（媒体引用本机文件）"
-                  aria-label="导出当前合成 JSON"
-                  onClick={() => download(working)}
+                  title="导出记录与媒体资源包"
+                  aria-label="导出当前合成资源包"
+                  onClick={() => void download(working)}
                 >
                   <Download size={17} />
                 </CompositionButton>

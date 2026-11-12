@@ -16,7 +16,19 @@
  * 下载工具函数）。加载态用 skeleton + shimmer 占位。
  */
 
-import { useCallback, useMemo, useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type SetStateAction,
+} from 'react';
+import { useContentMultiSelect } from '../state/contentSelection';
+import { ContentReferenceToolbar } from './ContentReferenceToolbar';
+import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
+import { qzoneAlbumMediaKey } from '../../../shared/album_media_identity';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { Check, Download, Images, Inbox, Loader2, Play, X } from 'lucide-react';
 import { Modal, useDialog } from './Dialog';
@@ -65,9 +77,7 @@ interface QzoneAlbumPhotoWire {
 
 /** Native placeholder IDs are not unique; keep selections tied to the actual media. */
 function photoKey(photo: QzoneAlbumPhotoWire): string {
-  return (
-    photo.picKey || photo.url || photo.thumbUrl || `${photo.id}:${photo.uploadTime}:${photo.name}`
-  );
+  return qzoneAlbumMediaKey(photo);
 }
 
 /** Use stable keys as the range anchor so prepended/removed media cannot shift it. */
@@ -868,18 +878,84 @@ export function MediaView({
   const save = useExportSavePolicy();
   const downloadLock = useRef(false);
 
+  const photoReferences = useMemo(
+    () =>
+      new Map<string, ContentReference>(
+        photos.map((photo) => {
+          const ref: ContentReference = {
+            kind: 'qzone-photo',
+            uin: hostUin,
+            albumId: topicId,
+            mediaKey: photoKey(photo),
+            name: photo.name || albumName,
+          };
+          return [contentReferenceKey(ref), ref];
+        }),
+      ),
+    [photos, hostUin, topicId, albumName],
+  );
+  const photoOwner = { kind: 'qzone-albums' as const, container: hostUin };
+  const sharedSelection = useContentMultiSelect(photoOwner, active, photoReferences);
+  const localToReference = useMemo(
+    () =>
+      new Map(
+        photos.map((photo) => [
+          photoKey(photo),
+          contentReferenceKey({
+            kind: 'qzone-photo',
+            uin: hostUin,
+            albumId: topicId,
+            mediaKey: photoKey(photo),
+          }),
+        ]),
+      ),
+    [photos, hostUin, topicId],
+  );
+  const selected = useMemo(
+    () =>
+      new Set(
+        [...localToReference]
+          .filter(([, id]) => sharedSelection.selectedIds.has(id))
+          .map(([key]) => key),
+      ),
+    [localToReference, sharedSelection.selectedIds],
+  );
+  const setSelected = useCallback(
+    (value: SetStateAction<Set<string>>) => {
+      sharedSelection.setSelectedIds((previous) => {
+        const current = new Set(
+          [...localToReference].filter(([, id]) => previous.has(id)).map(([key]) => key),
+        );
+        const next = typeof value === 'function' ? value(current) : value;
+        const result = new Set(previous);
+        for (const [key, id] of localToReference) {
+          if (next.has(key)) result.add(id);
+          else result.delete(id);
+        }
+        return result;
+      });
+    },
+    [sharedSelection.setSelectedIds, localToReference],
+  );
+  const photoMulti = useMultiSelection({
+    ids: [...localToReference.keys()],
+    selected,
+    onChange: setSelected,
+    enabled: sharedSelection.selectionMode,
+    disabled: downloading,
+    normalClick: 'passthrough',
+    onStart: () => sharedSelection.setSelectionMode(true),
+    onExit: () => sharedSelection.setSelectionMode(false),
+  });
+
   /** 勾选的媒体行键集合（全选作用于已加载的条目）。
    *
    * 注意不能用裸 `photo.id` 当键：cgi 返回的 id 全是占位 4294967295（真正的定位键
    * 是 lloc/sloc），同一相册所有行共享同一个 id，拿它做选择键会「点一个=全选」。
    * 这里与 React key 一致，使用媒体定位信息，刷新插入新照片后也不会错选。 */
-  const {
-    selected,
-    setSelected,
-    toggle: toggleSelect,
-    handlers,
-    rootProps,
-  } = useAlbumSelection(photos.map(photoKey), downloading);
+  const toggleSelect = (key: string) => photoMulti.toggle(key);
+  const handlers = photoMulti.itemProps;
+  const rootProps = photoMulti.rootProps;
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
   const [preview, setPreview] = useState<number | null>(null);
@@ -944,15 +1020,6 @@ export function MediaView({
 
   /** 行内唯一选择键（与渲染 React key 一致）。 */
   const rowKey = (index: number): string => photoKey(photos[index]!);
-
-  const allSelected = photos.length > 0 && photos.every((_, i) => selected.has(rowKey(i)));
-  const sourceIdentity = `${save.binding?.expectedAccountUin}:${save.binding?.expectedAccountConfigId}:${selfUin}:${hostUin}:${topicId}`;
-  useEffect(() => {
-    setSelected(new Set());
-  }, [sourceIdentity, setSelected]);
-  const toggleSelectAll = (): void => {
-    setSelected(allSelected ? new Set() : new Set(photos.map((_, i) => rowKey(i))));
-  };
 
   const previewItems = useMemo<QzonePreviewMedia[]>(
     () =>
@@ -1069,20 +1136,14 @@ export function MediaView({
           {total > photos.length ? ` · 共 ${total} 项` : ''}
         </span>
       </div>
+      <ContentReferenceToolbar
+        owner={photoOwner}
+        selection={sharedSelection}
+        loaded={[...photoReferences.keys()]}
+      />
       {photos.length > 0 ? (
         <div className="weq-qzal-selectbar">
-          <button
-            type="button"
-            className={`weq-qzal-select-all${allSelected ? ' is-on' : ''}`}
-            onClick={toggleSelectAll}
-            disabled={downloading}
-          >
-            <span className="weq-qzal-check" aria-hidden>
-              {allSelected ? <Check size={12} strokeWidth={2.6} /> : null}
-            </span>
-            {allSelected ? '取消全选' : '全选'}
-          </button>
-          <span className="weq-qzal-select-count">已选 {selected.size} 项</span>
+          <span className="weq-qzal-select-count">本相册已选 {selected.size} 项</span>
           <button
             type="button"
             className="weq-qzal-download"

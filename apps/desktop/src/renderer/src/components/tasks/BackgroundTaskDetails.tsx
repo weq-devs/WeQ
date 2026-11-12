@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  BarChart3,
   ArchiveRestore,
   Database,
   Download,
@@ -28,6 +29,7 @@ import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
 
 export const BACKGROUND_TASK_LABELS = {
+  analysis: '分析报告',
   calendar: '会话日历',
   contacts: '好友/群信息缓存',
   model: '模型下载',
@@ -41,6 +43,7 @@ export const BACKGROUND_TASK_LABELS = {
 };
 
 export const BACKGROUND_TASK_ICONS = {
+  analysis: BarChart3,
   calendar: CalendarDays,
   contacts: Users,
   model: Download,

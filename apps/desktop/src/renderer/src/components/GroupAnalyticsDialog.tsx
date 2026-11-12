@@ -122,6 +122,7 @@ export function GroupAnalyticsDialog({
   onClose,
   exportMode = false,
   initialData,
+  onRangeChange,
   embedded = false,
   scope,
   periodLabel,
@@ -140,6 +141,7 @@ export function GroupAnalyticsDialog({
   exportMode?: boolean;
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍群历史。 */
   initialData?: { report?: unknown; batches?: unknown; graph?: unknown };
+  onRangeChange?: (range: { start: number; end: number }) => void;
   embedded?: boolean;
   scope?: AnalysisScope;
   periodLabel?: string;
@@ -395,7 +397,10 @@ export function GroupAnalyticsDialog({
             firstTime={report.timeline.firstMessageTime}
             lastTime={report.timeline.lastMessageTime}
             range={range}
-            onChange={setRange}
+            onChange={(next) => {
+              setRange(next);
+              onRangeChange?.(next);
+            }}
           />
         </section>
       ) : null}

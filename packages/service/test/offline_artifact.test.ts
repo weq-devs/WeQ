@@ -79,6 +79,25 @@ it('本地化 HTML、srcset、CSS 字体与循环模块，不改变原件，移�
   }
   const allAssets = await readdir(join(f.root, 'moved/assets'));
   expect(allAssets.length).toBeLessThan(manifest.resources.length - 1);
+  const binary = manifest.resources.filter((resource) =>
+    /(?:\.png|\.woff2)$/.test(resource.source),
+  );
+  expect(new Set(binary.map((resource) => resource.path)).size).toBe(1);
+});
+it('同名不同内容使用不同包内路径，不按 URL 文件名覆盖', async () => {
+  const f = await fixture(
+    '<img src="https://assets.test/one/photo.png"><img src="https://assets.test/two/photo.png">',
+  );
+  f.files.set('https://assets.test/one/photo.png', { text: 'one', type: 'image/png' });
+  f.files.set('https://assets.test/two/photo.png', { text: 'two', type: 'image/png' });
+  const result = await f.run();
+  const resources = result.resources.filter((resource) => resource.source.endsWith('.png'));
+  expect(result.complete).toBe(true);
+  expect(resources[0]?.path).not.toBe(resources[1]?.path);
+  for (const resource of resources)
+    expect(await readFile(join(f.root, 'output', resource.path!), 'utf8')).toBe(
+      resource.source.includes('/one/') ? 'one' : 'two',
+    );
 });
 it('失败保留其他资源，重试只请求缺项，Markdown 普通超链接不下载', async () => {
   const f = await fixture(

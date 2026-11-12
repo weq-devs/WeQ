@@ -173,6 +173,12 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
   mailMessage: { label: '邮件', plural: '邮件' },
   marketEmoji: { label: '商城表情', plural: '商城表情' },
   guildMessage: { label: '频道私聊', plural: '频道私聊' },
+  groupBulletin: { label: '群公告', plural: '群公告' },
+  groupEssence: { label: '群精华', plural: '群精华' },
+  flashFile: { label: '闪传文件', plural: '闪传文件' },
+  qzoneComment: { label: '空间评论', plural: '空间评论与回复' },
+  otherQzoneComment: { label: '他人空间评论', plural: '他人空间评论与回复' },
+  qzonePublicComment: { label: '空友评论', plural: '空友评论与回复' },
 };
 
 export const CONTENT_CATEGORY_ORDER: ContentSearchCategory[] = [
@@ -185,6 +191,12 @@ export const CONTENT_CATEGORY_ORDER: ContentSearchCategory[] = [
   'mailMessage',
   'marketEmoji',
   'guildMessage',
+  'groupBulletin',
+  'groupEssence',
+  'flashFile',
+  'qzoneComment',
+  'otherQzoneComment',
+  'qzonePublicComment',
 ];
 
 export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [...DEFAULT_SEARCH_CATEGORIES];
@@ -247,6 +259,12 @@ export function searchHitKey(hit: SearchHit): string {
     case 'mailMessage':
     case 'marketEmoji':
     case 'guildMessage':
+    case 'groupBulletin':
+    case 'groupEssence':
+    case 'flashFile':
+    case 'qzoneComment':
+    case 'otherQzoneComment':
+    case 'qzonePublicComment':
       return hit.id;
   }
 }
