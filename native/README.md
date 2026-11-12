@@ -22,10 +22,11 @@ NineBird 注入链与 `packages/ninebird` 已移除，不再构建或同步 `nin
 账号登录取密钥使用现有纯协议路径，在线实例能力另走 attach。长期授权助手的管理、
 开发通道与发布边界见[长期授权集成](../docs/develop/long-term-authorization.md)。
 
-`nt_helper.node` 会从自己所在目录往上找 `../../../resources/dress/<bubble|widget|font>.dat`，
-也可以被 `NT_HELPER_DRESS_DIR` 覆盖（见 nt_helper 的 `src/dress.rs`）。
+`nt_helper.node` 保留从自己所在目录往上找 `../../../resources/dress/<bubble|widget|font>.dat` 的旧布局，
+也支持 `NT_HELPER_DRESS_DIR` 覆盖（见 nt_helper 的 `src/dress/mod.rs`）。当前应用由共享装扮服务管理按需下载的索引，
+查询时指向宿主缓存；本地源码开发仍使用构建生成的配套资源。
 
-## 为什么 nt_helper.node 和*.dat 必须从同一个版本取
+## 为什么仍须匹配 native 密钥来源
 
 装扮资源 `.dat` 是用 AES 加密的，密钥由构建 commit 派生（`DRESS_KEY_SEED`）并**烘焙进
 `.node`**。跨版本混用 → 装扮离线查询直接返回 `null`（退化到在线协议兜底，离线环境就没了）。
@@ -59,5 +60,6 @@ CI 构建的 `.node` 带 `BUILD_TIMESTAMP`，**超出有效期后失效**（`get
 历史拉取已统一为单次最多 30 个 seq 的 SSO 小窗，不再提供 SDK 或独立的 `sso500` 聚合通道。
 较大的 SSO 响应可能压缩；上游已将支持解压的构建纳入 `native/pinned.json`。统一路径不依赖
 额外实验能力导出，不把缺少该导出误当作不能收发 SSO。
-源码更新不代表本机组件已替换；更新仍须成对取 native 与装扮资源，并完整重启 WeQ。
+源码更新不代表本机组件已替换；升级 native 后须完整重启 WeQ，并确认固定索引清单与其密钥来源一致。
+三类索引由应用按需获取，不再要求手动成对下载，也不随安装包携带。
 任务兼容、缓存和验收边界见 [SSO 路径统一](../docs/develop/unified-sso-history-20261017.md)。

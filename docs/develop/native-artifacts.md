@@ -66,7 +66,8 @@ native 内容校验靠该 tag 的 `manifest.json`；`commit` 还用于检查装�
 pnpm native:fetch --version <tag> --require-fresh --require-authorization --verify
 # 跑与 native 升级直接相关的回归；确认后写锚点。
 pnpm native:fetch --version <tag> --require-fresh --require-authorization --verify --write-pin
-# 只提交 native/pinned.json 和必要源码变更，不提交下载的二进制或装扮包。
+# 同步验证并更新 resources/dress/index-manifest.json，再提交两份版本锚与必要源码变更。
+# 不提交下载的二进制或装扮包。
 ```
 
 `--latest` 可用于发现或试用新构建，不应在验证和写锚点两步间重新解析不同的 latest。
@@ -125,32 +126,40 @@ QQ 在线协议与后台索引下载互不阻塞；QQ 不在线时，可通过�
 原生文件及安装记录在暂存区验证后成套替换；中途写入失败恢复旧内容，验证失败不改版本锚。
 发布工作流清理前实际核查 Release 的 draft 状态，不因后续索引推送失败删除正式版本。
 
-## 发布链路
+## 当前发布链路
 
 ```
-weq-devs/nt_helper (私有)                    weq-devs/nt_helper_release (公开)
-  Rust-Release-Build (workflow_dispatch)
-    build × 5 平台  ─────────────────────►  GitHub Release: nt-helper-<yyyymmdd>-<sha7>
-      nt_helper.node × 5                       ├ nt_helper-win32-x64.node
-      resources/dress/*.dat                    ├ nt_helper-linux-x64.node
-    publish-release job                        ├ nt_helper-linux-arm64.node
-      （stage → manifest → Release）           ├ nt_helper-darwin-x64.node
-                                               ├ nt_helper-darwin-arm64.node
-                                               ├ dress-{bubble,widget,font}.dat
-                                               ├ manifest.json
-                                               └ SHA256SUMS
-                                              main 分支: README.md + latest.json
-                                               ↑ 与 Release 里的 manifest 同源
+weq-devs/nt_helper (私有源码)
+  Release：将指定 ref 转发到公开构建仓
+    -> weq-devs/nt_helper_release / Release
+       固定源码 commit，五平台构建和验证
+       -> nt_helper-<日期>-<短 SHA> Release
+          .node × 5、权限助手 × 5、装扮 .dat × 3、manifest.json、SHA256SUMS
+
+weq-devs/dress-resources / Release dress indexes
+  读取明确 native tag 的公开清单和三份 .dat，验证后原样分发
+    -> dress-<短 SHA> Release
+       .dat × 3、index-manifest.json、SHA256SUMS
+
+WeQ 构建
+  native/pinned.json -> 下载本平台 native 及所需助手
+  resources/dress/index-manifest.json -> 随包保留，不预下载索引
+  两份清单的 native commit 必须匹配；运行时按类别获取 .dat
 ```
 
-稳定入口（不需要 API、不需要 token）：
+当前阶段独立的是分发，资源生成仍沿用 native 构建与原加密格式；不表示资源已能脱离 native commit 任意更新。
+资源仓仅保存发布工具、格式契约和测试，大索引只放 Release，不进入 Git 历史。
+
+明确版本的下载入口（不需要 API 或 token）：
 
 ```
-https://github.com/weq-devs/nt_helper_release/releases/latest/download/manifest.json
 https://github.com/weq-devs/nt_helper_release/releases/download/<tag>/<asset>
+https://github.com/weq-devs/dress-resources/releases/download/<资源 tag>/index-manifest.json
+https://github.com/weq-devs/dress-resources/releases/download/<资源 tag>/dress-<类别>.dat
 ```
 
-`manifest.json` 结构：
+native 仓的 `latest/download/manifest.json` 可用于发现新构建，不是 WeQ 默认获取来源。
+native `manifest.json` 结构：
 
 ```json
 {
@@ -167,9 +176,22 @@ https://github.com/weq-devs/nt_helper_release/releases/download/<tag>/<asset>
 }
 ```
 
-发布需要 GitHub App 在 `nt_helper_release` 上有 `contents: write`（安装时把这个仓库勾上）。
-发布仓里的提交由 App 自己的 bot 身份署名（`ninebird-bot[bot]`，workflow 里用安装令牌调
-`/user` 动态取，不要写死用户名 —— 否则会撞上同名的真实 GitHub 账号）。
+native 发布仓使用 `GITHUB_TOKEN` 发布资产及提交 `latest.json`，工作流需要 `contents: write`；
+`latest.json` 提交使用 `github-actions[bot]` 身份。私有源码的 ref 解析和拉取使用 `NT_HELPER_TOKEN`，
+私仓分发入口使用 `RELEASE_DISPATCH_TOKEN` 触发公开构建仓。
+独立资源仓只读取已发布的公开资产，使用自己的 `GITHUB_TOKEN` 发布，不需要拉取私有源码。
+
+### 升级独立索引
+
+1. 选择已验证的明确 native tag，在资源仓运行 `Release dress indexes`，填写 `native_tag`。
+2. 资源工作流默认 `preflight_only=true`，仅获取和校验；关闭该选项才发布。两种模式都不会重爬或重新加密索引。
+3. 资源发布后，使用同一 Release 的 `index-manifest.json` 更新 WeQ 固定清单，核对 `nativeCommit` 与 native 锚点一致。
+4. 运行本地清单检查，再使用对应正式 addon 做真实下载和离线复用验收；后一个命令会联网，不接入普通离线单测。
+
+```bash
+node --input-type=module -e 'import { checkDressManifest } from "./scripts/dress-artifacts.mjs"; checkDressManifest(process.cwd());'
+pnpm exec tsx scripts/check-dress-index.ts --addon /absolute/path/to/nt_helper.node
+```
 
 ## WeQ 的 release 流水线
 

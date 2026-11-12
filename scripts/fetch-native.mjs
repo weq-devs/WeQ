@@ -4,8 +4,8 @@
  * 这两类文件**不再入库**：仓库里只留加载器与布局约定，二进制由 native 私仓
  * `weq-devs/nt_helper` 构建后发布到公开仓 `weq-devs/nt_helper_release`，这里按需取回。
  *
- * 为什么必须「成对取」：装扮资源 `.dat` 的 AES key 由构建 commit 派生
- * （nt_helper 的 `build.rs`，CI 传 `DRESS_KEY_SEED=github.sha`）并烘焙进 `.node`，
+ * 为什么仍须配套：装扮资源 `.dat` 的 AES key 由构建 commit 派生
+ * （nt_helper 的 `build.rs`，CI 将源码 commit 作为 `DRESS_KEY_SEED`）并烘焙进 `.node`，
  * 跨版本混用会直接解不开。显式补旧配套索引时仍从同一个 release tag 取 `.node` 与 `.dat`。
  * 应用安装包不携带三份大索引，运行时按 resources/dress/index-manifest.json 独立获取。
  *
@@ -16,11 +16,11 @@
  *
  * 为什么还要 latest：CI 构建出的 `.node` 自带有效期（`BUILD_TIMESTAMP`，
  * `getInitStatus()` 判定），拿过期包打出来的安装包起不来。所以发布时间到了就得换一份
- * 新的：升级流程 = `--latest --verify` 验证新构建 → `--latest --write-pin` 写回锚点 →
- * 提交锚文件。`--check` 会提醒锚点已经落后于上游，`--require-fresh` 则在 CI 上把过期
+ * 新的：先确定明确 tag，对同一 `--version <tag>` 验证再 `--write-pin`，并同步兼容的
+ * resources/dress/index-manifest.json。`--check` 会提醒锚点已经落后于上游，`--require-fresh` 则在 CI 上把过期
  * 构建直接挡在打包之前。
  *
- * **有效期不在这里定义**：脚本装完 `require` 一次刚取到的 `.node`，用它自报的
+ * **有效期不在这里定义**：脚本在安装前的隔离子进程加载候选 `.node`，用它自报的
  * `getBuildInfo()`（`buildTime` / `expireTime` / `validitySecs`）算出「还剩多久」，
  * 再按**剩余比例**判断新鲜度。天数只在 nt_helper 的 Rust 里定义一处，未来改成 45 天
  * 这里无需跟着改。
@@ -32,14 +32,14 @@
  *   pnpm native:fetch --platform linux-arm64
  *   pnpm native:fetch --latest             # 忽略锚点，取上游最新（试用新构建用）
  *   pnpm native:fetch --version nt-helper-20260916-86cb5a4
- *   pnpm native:fetch --latest --write-pin # 把这次取到的 tag 写回锚文件（升级锚点）
+ *   pnpm native:fetch --version <tag> --verify --write-pin # 对已验证的同一 tag 写回版本锚
  *   pnpm native:fetch --dress-only         # 只补装扮资源
- *   pnpm native:fetch --no-dress           # 只要 .node
+ *   pnpm native:fetch --no-dress           # 不取索引（当前默认行为）
  *   pnpm native:fetch --check              # 只比对，不改文件（缺失 / 落后 / 过期 → 退出码 1）
  *   pnpm native:fetch --require-fresh      # CI 用：剩余有效期不足 1/5 直接失败
  *   pnpm native:fetch --require-authorization # 桌面 release：必须包含有效的原生权限助手
  *   pnpm native:fetch --no-authorization   # Web：不下载仅供桌面使用的权限助手
- *   pnpm native:fetch --verify             # 装完在宿主机 require 一次并跑 getInitStatus()
+ *   pnpm native:fetch --verify             # 安装前隔离加载候选并检查 getInitStatus()
  *   pnpm native:fetch --from-dir ./dist    # 从本地目录装（需含 manifest.json + 各资产；离线 / 镜像）
  *   pnpm native:fetch --dry-run            # 只打印将要写入的文件
  *
@@ -79,7 +79,7 @@ import { RETRYABLE_HTTP_STATUS, RetryableHttpError, withRetry } from './retry.mj
 
 /** 默认发布仓：私仓构建后把产物推到这里，WeQ（公开）与 dev 都从这里取。 */
 const DEFAULT_REPO = 'weq-devs/nt_helper_release';
-/** 每个平台的目标目录与资产名，与 nt_helper 的 rust-release.yml 约定一致。 */
+/** 每个平台的目标目录与资产名，与 nt_helper_release 的 Release 工作流一致。 */
 const PLATFORMS = {
   'win32-x64': { dir: 'native/win32/x64', asset: 'nt_helper-win32-x64.node' },
   'linux-x64': { dir: 'native/linux/x64', asset: 'nt_helper-linux-x64.node' },
@@ -95,14 +95,14 @@ const MARKER = join('native', '.installed.json');
 /**
  * **入库的版本锚**：这个仓库认哪一份 native 构建。
  *
- * 只有 `tag`（外加一份给人看的 `commit` / `note`）—— 校验靠那个 tag 的 `manifest.json`
- * 里的 sha256，不在这里抄一份哈希（抄了就会和发布仓的实际内容打架）。
+ * `tag` 决定下载版本，`commit` 另用于核对装扮密钥来源，`note` 为人工说明。
+ * 内容校验靠该 tag 的 manifest 里的 sha256，不在这里重复维护二进制哈希。
  */
 const PIN = join('native', 'pinned.json');
 /** `.installed.json` / `pinned.json` 都缺 `note` 时的默认说明。 */
 const DEFAULT_PIN_NOTE =
-  'WeQ 的代码锚定在这份 native 构建上。升级：pnpm native:fetch --latest --verify → ' +
-  'pnpm native:fetch --latest --write-pin → 提交本文件。';
+  'WeQ 的代码锚定在这份 native 构建上。升级：对同一明确 tag 使用 --version 验证并 --write-pin，' +
+  '同步兼容的 resources/dress/index-manifest.json，提交两份版本锚。';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 

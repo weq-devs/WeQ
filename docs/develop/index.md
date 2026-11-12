@@ -5,11 +5,10 @@
 ## 快速开始
 
 ```bash
-pnpm i
 pnpm dev           # 自动补齐依赖、native 和必要构建后启动
 ```
 
-仅使用根 `package.json` 的 `packageManager` 所锁定的 pnpm；环境与门禁按[贡献指南](https://github.com/weq-devs/WeQ/blob/dev/CONTRIBUTING.md)。以下按主题查阅，不必先读全部专题。
+仅使用根 `package.json` 的 `packageManager` 所锁定的 pnpm；环境与门禁按[贡献指南](https://github.com/weq-devs/WeQ/blob/dev/CONTRIBUTING.md)。发布版模式不预下载大装扮索引，应用按需获取；本地源码模式准备自己的配套资源。配置见[一行命令开发启动](dev-startup.md)。以下按主题查阅，不必先读全部专题。
 
 本文按当前分支提供导航，不将待办或历史测试回执当成当前发布状态。用户操作路径以
 [使用手册](../guide/index.md)和[设置总览](../guide/settings.md)为准。

@@ -24,7 +24,8 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 
 > 仓库里**不带** `native/**/nt_helper.node`（历史太大，已拆到
 > [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发）。
-> dev 克隆先跑 `pnpm native:fetch` 取最新构建，细节见
+> 新克隆运行 `pnpm dev` 自动准备锚定的发布版；独立维护时用 `pnpm native:fetch`，默认也取固定 tag，不是 latest。
+> 装扮索引另由应用按需获取，本地 native 源码模式仍使用自己的配套资源。细节见
 > [原生二进制与装扮资源的分发](native-artifacts.md)。
 
 所有功能函数在真正干活前都会内部调用 `logger::init_logger()` 与**环境校验**（有效期检查）。务必按下面的顺序初始化：
@@ -52,7 +53,11 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | `convertFont(inputPath, outputPath, options?)` | 俩字符串路径 + 可选 `ConvertFontOptions` | `string` | FTF → 标准 TTF 转换（**同步**版）；本来就是 TTF 则直接拷贝。耗时场景用 `convertFontAsync`（语义、返回值相同，丢到阻塞线程池）。默认还会把 `brsh`/`cglf` 编译成彩色字体（`COLR` v1 + `CPAL` v0）、把 `eimg` 炫彩帧导到 `<输出名>_assets/`（`frame_<槽位>.png`）、并用本机 `ots-sanitize` 预检产物。返回说明消息，如 `converted FTF to TTF; exported 109 eimg frame(s) (350x141) to …; OTS ok`。 |
 | `getFontPipelineVersion()` | — | `number` | native 侧字体转换链的版本号（`font::FONT_PIPELINE_VERSION`）：改 `src/font/**` 的产物字节就 +1。宿主把产出 `fonts/<id>.ttf` 时的这个号写进 sidecar，读缓存时对不上就地重解 —— 这样「native 修了字体的表处理」不必再等宿主手改版本号（`hdmx`/`LTSH` 那次就是漏在这里）。 |
 | `getMarketFaceKey(packetId)` | `packetId: string` | `Promise<MarketFaceKey \| null>` | 恢复商城表情包 QQTEA 密钥（自包含：抓 android.json 提示 → xydata 快路径 → 采样爆破）。返回 `null` 表示拿不到。 |
-| `queryDressResourceUrl(dtype, itemId, name)` | 三个字符串 | `DressResourceUrl \| null` | 纯本地查装扮资源下载 URL（font/bubble/widget × 部件名），不联网、不依赖协议。`null` = 本地包缺失或未命中（此时交给协议兜底）。 |
+| `queryDressResourceUrl(dtype, itemId, name)` | 三个字符串 | `DressResourceUrl \| null` | 纯本地查装扮资源下载 URL（font/bubble/widget × 部件名），不联网、不依赖协议。`null` = 本地索引缺失、密钥不匹配或未命中；索引下载与在线协议补全由共享服务层编排。 |
+
+装扮业务复用 `@weq/service` 的 `DressSharedCache` 与索引管理器，不应在各调用方重复实现下载。
+native 的上述同步函数自身不会自动取索引；共享服务按固定清单下载、校验和迁移旧索引，在线 QQ 协议不等待后台下载。
+发布版和本地源码构建的资源来源区别见[分发说明](native-artifacts.md#装扮索引按需获取)。
 
 **携带数据的封箱类型**
 
