@@ -26,6 +26,25 @@ export const accountBinding = () => ({
   expectedAccountConfigId: 'fixture',
 });
 export const qa = { exports: [] as unknown[], remote: false };
+export const savedReport = {
+  request: {
+    id: 'report-a',
+    kind: 'buddy' as const,
+    peerUid: 'peer',
+    name: '合成联系人',
+    period: '全部消息',
+    scope: { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' },
+  },
+  status: 'completed',
+  results: {},
+  pending: {},
+  completed: ['report'],
+  logs: [],
+  revision: 2,
+  resultRevision: 2,
+  position: 0,
+  updatedAt: 1794441600000,
+};
 Object.assign(window, { requirementsQa: qa });
 export function useExportSavePolicy() {
   const [serverLocation, setServerLocation] = useState<{ name: string } | null>(null);
@@ -56,7 +75,31 @@ const proxy = (path = ''): unknown =>
       const next = `${path}.${String(key)}`;
       if (key === 'useQuery')
         return () => ({
-          data: undefined,
+          data: path.endsWith('.getAccountConfig')
+            ? { uin: '10001', configId: 'fixture' }
+            : path.endsWith('.analysisReports.get')
+              ? savedReport
+              : path.endsWith('.analysisReports.list')
+                ? [
+                    savedReport,
+                    {
+                      ...savedReport,
+                      request: {
+                        ...savedReport.request,
+                        id: 'report-b',
+                        name: '合成群聊',
+                        kind: 'group',
+                        groupCode: '10003',
+                      },
+                      status: 'paused',
+                      completed: ['report'],
+                    },
+                  ]
+                : path.endsWith('.analysisReports.versions')
+                  ? [savedReport, { ...savedReport, resultRevision: 1 }]
+                  : path.endsWith('.analysisReports.version')
+                    ? { ...savedReport, resultRevision: 1 }
+                    : undefined,
           isLoading: false,
           refetch: async () => ({ data: undefined }),
         });
@@ -66,6 +109,8 @@ const proxy = (path = ''): unknown =>
           return 'task-fixture';
         };
       if (key === 'subscribe') return () => ({ unsubscribe() {} });
+      if (key === 'useSubscription') return () => undefined;
+      if (key === 'query') return async () => null;
       return proxy(next);
     },
   });

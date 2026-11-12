@@ -1,4 +1,5 @@
-import { Download, ListChecks, ListX, X } from 'lucide-react';
+import { Download, ListChecks, CheckCheck, FlipHorizontal2, X } from 'lucide-react';
+import { MessageSelectionBar } from './MessageSelectionBar';
 import type { ReactNode } from 'react';
 import '../styles/content-reference-selection.css';
 import { useRequestContentExport, type useContentMultiSelect } from '../state/contentSelection';
@@ -18,7 +19,7 @@ export function ContentReferenceToolbar({
   const button = (label: string, icon: ReactNode, run: () => void, disabled = false) => (
     <button
       type="button"
-      className="weq-set-iconbtn"
+      className="selection-action"
       title={label}
       aria-label={label}
       disabled={disabled}
@@ -32,9 +33,8 @@ export function ContentReferenceToolbar({
       {!selection.selectionMode ? (
         button('多选', <ListChecks size={17} />, () => selection.setSelectionMode(true))
       ) : (
-        <>
-          <span role="status">已选 {selection.selectedIds.size} 项</span>
-          {button(all ? '取消全选已加载项' : '全选已加载项', <ListChecks size={17} />, () =>
+        <MessageSelectionBar count={selection.selectedIds.size} unit="项" subject="内容">
+          {button(all ? '取消全选已加载项' : '全选已加载项', <CheckCheck size={17} />, () =>
             selection.setSelectedIds((previous) => {
               const next = new Set(previous);
               for (const id of loaded) {
@@ -44,7 +44,7 @@ export function ContentReferenceToolbar({
               return next;
             }),
           )}
-          {button('反选已加载项', <ListX size={17} />, () =>
+          {button('反选已加载项', <FlipHorizontal2 size={17} />, () =>
             selection.setSelectedIds((previous) => {
               const next = new Set(previous);
               for (const id of loaded) {
@@ -68,7 +68,7 @@ export function ContentReferenceToolbar({
             !selection.references.length || !request,
           )}
           {button('退出多选', <X size={17} />, () => selection.setSelectionMode(false))}
-        </>
+        </MessageSelectionBar>
       )}
     </div>
   );

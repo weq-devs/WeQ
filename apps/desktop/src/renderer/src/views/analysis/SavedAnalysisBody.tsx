@@ -48,9 +48,10 @@ export function SavedAnalysisBody({
   });
   const historical = trpc.account.analysisReports.version.useQuery(
     { ...input, version: version || 1 },
-    { enabled: ready && version > 0, refetchOnWindowFocus: false },
+    { enabled: ready && version > 0, refetchOnWindowFocus: false, keepPreviousData: true },
   );
-  const resultRevision = version || saved?.resultRevision;
+  const resultRevision =
+    (version ? historical.data?.resultRevision : undefined) ?? saved?.resultRevision;
   const displayedRequest =
     historical.data && version ? historical.data.request : (saved?.request ?? request);
   useEffect(() => {
@@ -96,6 +97,7 @@ export function SavedAnalysisBody({
   async function act(action: 'resume' | 'cancel' | 'refresh') {
     try {
       setError('');
+      if (action === 'refresh') setVersion(0);
       if (action === 'cancel') await client.account.analysisReports.cancel.mutate(input);
       else
         await client.account.analysisReports.resume.mutate({
@@ -108,13 +110,15 @@ export function SavedAnalysisBody({
     }
   }
   const range = (next: { start: number; end: number }) => {
+    setVersion(0);
     void client.account.analysisReports.revise
       .mutate({ ...input, startTime: next.start, endTime: next.end })
       .then(() => query.refetch())
       .catch((reason: unknown) => setError(String(reason)));
   };
   const running = saved?.status === 'running';
-  const data = version ? historical.data?.results : saved?.results;
+  const data = (version ? historical.data?.results : undefined) ?? saved?.results;
+  const historyError = version > 0 ? historical.error : undefined;
   return (
     <div
       ref={root}
@@ -127,11 +131,21 @@ export function SavedAnalysisBody({
           position.current = event.target.scrollTop;
       }}
     >
-      <div className="weq-saved-analysis-status" role="status">
-        {!saved || running ? (
-          <Loader2 size={16} className="weq-spin" aria-label="正在计算" />
+      <div className="weq-saved-analysis-status">
+        {!saved || running || (version > 0 && historical.isFetching) ? (
+          <Loader2
+            size={16}
+            className="weq-spin"
+            aria-label={
+              version > 0 && historical.isFetching
+                ? '正在读取历史版本'
+                : running
+                  ? '正在分析'
+                  : '正在读取报告'
+            }
+          />
         ) : null}
-        <span>
+        <span role="status">
           {saved
             ? {
                 running: '正在分析',
@@ -142,23 +156,26 @@ export function SavedAnalysisBody({
               }[saved.status]
             : '正在读取报告'}
         </span>
-        {saved && (
+        {saved && saved.status !== 'completed' && (
           <span>
             {saved.completed.length} / {request.kind === 'group' ? 3 : 1}
           </span>
         )}
-        {(versions.data?.length ?? 0) > 0 ? (
+        {saved && (versions.data?.length ?? 0) > 1 ? (
           <select
+            className="weq-saved-analysis-version"
             aria-label="报告结果版本"
             value={version}
             onChange={(event) => setVersion(Number(event.target.value))}
           >
-            <option value={0}>当前结果</option>
-            {versions.data?.map((item) => (
-              <option key={item.resultRevision} value={item.resultRevision}>
-                版本 {item.resultRevision}
-              </option>
-            ))}
+            <option value={0}>当前结果 · 版本 {saved?.resultRevision}</option>
+            {versions.data
+              ?.filter((item) => item.resultRevision !== saved?.resultRevision)
+              .map((item) => (
+                <option key={item.resultRevision} value={item.resultRevision}>
+                  版本 {item.resultRevision}
+                </option>
+              ))}
           </select>
         ) : null}
         {saved && (
@@ -183,8 +200,10 @@ export function SavedAnalysisBody({
           </button>
         )}
       </div>
-      {error || query.error || saved?.error || positionError ? (
-        <p role="alert">{error || query.error?.message || saved?.error || positionError}</p>
+      {error || query.error || historyError || saved?.error || positionError ? (
+        <p role="alert">
+          {error || query.error?.message || historyError?.message || saved?.error || positionError}
+        </p>
       ) : null}
       {data?.report !== undefined ? (
         request.kind === 'buddy' ? (

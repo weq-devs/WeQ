@@ -5,10 +5,12 @@ export function SaveResultLocation({
   name,
   onChoose,
   onCancel,
+  headingId,
 }: {
   name: string;
   onChoose: (subdirectory: string) => void;
   onCancel: () => void;
+  headingId?: string;
 }) {
   const [directory, setDirectory] = useState('');
   return (
@@ -19,7 +21,7 @@ export function SaveResultLocation({
         onChoose(directory);
       }}
     >
-      <h3>保存「{name}」到服务器</h3>
+      <h3 id={headingId}>保存「{name}」到服务器</h3>
       <label>
         服务器导出目录内的子文件夹
         <input
