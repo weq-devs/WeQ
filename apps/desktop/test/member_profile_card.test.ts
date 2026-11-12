@@ -215,6 +215,28 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('放大按钮进入同一联系人的完整资料页并先关闭名片', async () => {
+    const close = vi.fn();
+    await mountCard(close, undefined, { ...MEMBER, nick: '放大查看的联系人' });
+    const expand = layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]');
+    expect(expand?.title).toBe('打开完整资料页');
+    expect(expand?.querySelector('svg')).not.toBeNull();
+    await act(async () => expand!.click());
+    expect(expandContact).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: 'person',
+        contact: expect.objectContaining({ id: MEMBER.id, nick: '放大查看的联系人' }),
+      }),
+    );
+    expect(close).toHaveBeenCalledOnce();
+    expect(close.mock.invocationCallOrder[0]).toBeLessThan(
+      expandContact.mock.invocationCallOrder[0],
+    );
+  });
+  it('本地合成会话不展示没有目标资料页的放大按钮', async () => {
+    await mountCard(() => {}, undefined, { ...MEMBER, clone: true });
+    expect(layer().querySelector('[aria-label="打开完整资料页"]')).toBeNull();
+  });
   it('点击签名正文进入同一联系人的签名历史章节，并关闭名片', async () => {
     const close = vi.fn();
     await mountCard(close, undefined, { ...MEMBER, signature: '可以点击的合成签名' });

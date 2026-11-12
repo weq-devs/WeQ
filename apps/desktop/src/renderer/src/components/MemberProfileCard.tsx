@@ -1,5 +1,5 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { Maximize2, X } from 'lucide-react';
 import type { User } from '../im-template/template/types';
 import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
 import type { AnalysisTarget } from '../views/analysis/model';
@@ -61,6 +61,13 @@ export function MemberProfileCard({
         }
       : profile;
   const open = useContext(ContactWorkspaceNavigationContext);
+  const openProfile =
+    !localClone && open
+      ? () => {
+          onClose();
+          open({ kind: 'person', contact: { createdAt: '', ...person } });
+        }
+      : undefined;
   const card = useRef<HTMLElement>(null);
   const [position, setPosition] = useState({ left: 10, top: 10 });
   // 关闭后把焦点还给打开名片的那个元素，键盘用户不会「丢了位置」。
@@ -106,6 +113,17 @@ export function MemberProfileCard({
         aria-label="用户资料"
         style={{ position: 'fixed', ...position }}
       >
+        {openProfile ? (
+          <button
+            type="button"
+            className="weq-profile-expand"
+            title="打开完整资料页"
+            aria-label="打开完整资料页"
+            onClick={openProfile}
+          >
+            <Maximize2 size={16} />
+          </button>
+        ) : null}
         <button
           type="button"
           className="weq-profile-close"
@@ -140,14 +158,7 @@ export function MemberProfileCard({
                   : undefined
               }
               pendant={settings.ready && settings.visible.pendant}
-              onOpen={
-                !localClone && open
-                  ? () => {
-                      onClose();
-                      open({ kind: 'person', contact: { createdAt: '', ...person } });
-                    }
-                  : undefined
-              }
+              onOpen={openProfile}
             />
             {!localClone ? (
               <ContactContent

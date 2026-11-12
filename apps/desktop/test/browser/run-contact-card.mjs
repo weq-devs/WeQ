@@ -351,6 +351,17 @@ try {
           assert.deepEqual(item.appearance, layout[0].appearance, '所有操作按钮样式应一致');
         const bounds = await card.boundingBox();
         assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
+        const expandBounds = await card
+          .getByRole('button', { name: '打开完整资料页', exact: true })
+          .boundingBox();
+        const closeBounds = await card
+          .getByRole('button', { name: '关闭', exact: true })
+          .boundingBox();
+        assert.ok(expandBounds.x + expandBounds.width <= closeBounds.x);
+        assert.ok(
+          expandBounds.x >= bounds.x &&
+            closeBounds.x + closeBounds.width <= bounds.x + bounds.width,
+        );
         if (output)
           await page.screenshot({ path: resolve(output, `fixed-card-${theme}-${width}.png`) });
         await card.getByTitle('复制 QQ 号码', { exact: true }).click();
@@ -469,7 +480,7 @@ try {
     await page.getByText('暂无照片', { exact: true }).waitFor();
     assert.equal(await page.locator('.weq-extras-dialog').count(), 0);
     await page.getByRole('button', { name: '关闭标签相册', exact: true }).click();
-    await page.locator('.weq-profile-name').click();
+    await card.getByRole('button', { name: '打开完整资料页', exact: true }).press('Enter');
     await page.locator('.weq-contact-workspace-v2').waitFor();
     const expanded = await page.evaluate(() => window.contactCardQa.calls);
     assert.equal(expanded.filter((call) => call.path === 'account.getProfile').length, 1);

@@ -29,7 +29,13 @@
   padding-inline-end: 28px;
 }
 
-.weq-contact-card .weq-profile-close {
+.weq-contact-card:has(> .weq-profile-expand) .weq-profile-hero {
+  padding-inline-end: 72px;
+}
+
+.weq-contact-card .weq-profile-close,
+.weq-contact-card .weq-profile-expand {
+  position: absolute;
   top: 6px;
   right: 6px;
   display: inline-flex;
@@ -44,20 +50,27 @@
   cursor: pointer;
 }
 
+.weq-contact-card .weq-profile-expand {
+  right: 50px;
+}
+
 /* 视觉 28px，热区 44px：触控设备不靠放大图标也点得到。 */
-.weq-contact-card .weq-profile-close::after {
+.weq-contact-card .weq-profile-close::after,
+.weq-contact-card .weq-profile-expand::after {
   content: '';
   position: absolute;
   inset: -8px;
   border-radius: 10px;
 }
 
-.weq-contact-card .weq-profile-close:hover {
+.weq-contact-card .weq-profile-close:hover,
+.weq-contact-card .weq-profile-expand:hover {
   background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
   color: var(--weq-fg-primary);
 }
 
-.weq-contact-card .weq-profile-close:focus-visible {
+.weq-contact-card .weq-profile-close:focus-visible,
+.weq-contact-card .weq-profile-expand:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
@@ -590,9 +603,14 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
     height: 44px;
   }
 
-  .weq-contact-card .weq-profile-close {
+  .weq-contact-card .weq-profile-close,
+  .weq-contact-card .weq-profile-expand {
     width: 36px;
     height: 36px;
+  }
+
+  .weq-contact-card .weq-profile-expand {
+    right: 58px;
   }
 
   .weq-contact-actions .weq-contact-primary,
