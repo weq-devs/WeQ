@@ -82,7 +82,7 @@ export class AccountMonitorService {
     return ssoWorkState(this.nt, pid);
   }
 
-  private queueSso(pid: number, task: () => Promise<void>): Promise<void> {
+  private queueSso<T>(pid: number, task: () => Promise<T>): Promise<T> {
     return queueSsoWork(this.nt, pid, task);
   }
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -500,11 +500,13 @@ export class AccountMonitorService {
     // 复用判据要求 secToken 也在：老物料缺它时下面会重扫一次，否则升级后
     // 需要签名的命令会一直带着空 token 发出去。
     if (stored?.pid === pid && canReuseSessionMaterial(stored)) {
-      await this.storeSsoSession(pid, stored, generation);
-      this.logger.info('registered the native sso session from stored material', {
-        event: 'sso-session-reused',
-        pid,
-      });
+      const registered = await this.storeSsoSession(pid, stored, generation);
+      if (registered) {
+        this.logger.info('registered the native sso session from stored material', {
+          event: 'sso-session-reused',
+          pid,
+        });
+      }
       return;
     }
     // 物料缺失 / pid 对不上（QQ 重启过）→ 回退到读内存（可能触发提权）。
@@ -565,7 +567,7 @@ export class AccountMonitorService {
     pid: number,
     material: SessionMaterial,
     generation: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     return this.queueSso(pid, () => this.registerCurrentSession(pid, material, generation));
   }
 
@@ -573,7 +575,7 @@ export class AccountMonitorService {
     pid: number,
     material: SessionMaterial,
     generation: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.assertCurrent(generation, pid);
     const record = this.accountConfig.getRecord();
     const identity = {
@@ -602,7 +604,7 @@ export class AccountMonitorService {
       this.ssoState(pid).owner === this.ssoOwners.get(pid) &&
       (await this.nt.hasSsoSession(pid))
     )
-      return;
+      return false;
     this.assertCurrent(generation, pid);
     const registered = await registerSsoSessionInTurn(
       this.nt,
@@ -620,6 +622,7 @@ export class AccountMonitorService {
     this.ssoState(pid).owner = owner;
     this.ssoRegistrations.set(pid, fingerprint);
     this.onCredentialsReady?.();
+    return true;
   }
 
   /** 丢掉 `pid` 的会话物料（QQ 重启 / 账号下线），顺带关掉可能存在的连接。 */

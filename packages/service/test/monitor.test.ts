@@ -6,6 +6,7 @@ import { createCachedAttachHook, type AttachHook } from '../src/bootstrap/attach
 import { AccountMonitorService } from '../src/account/monitor';
 import { CredentialRepairRequiredError } from '../src/common/credential_repair';
 import { registerSsoSession } from '../src/account/sso_session';
+import { getLogger } from '../src/common/logger';
 
 const tickets = vi.hoisted(() => ({ rkeys: vi.fn(), clientKey: vi.fn(), dress: vi.fn() }));
 vi.mock('../src/account/online_ticket', () => ({
@@ -117,6 +118,49 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it.each([true, false])('重复检查已登记的凭据不重复记录复用日志：stored=%s', async (stored) => {
+    const logger = getLogger().child({});
+    const info = vi.spyOn(logger, 'info');
+    const child = vi.spyOn(getLogger(), 'child').mockReturnValueOnce(logger);
+    const f = fixture(stored);
+    child.mockRestore();
+    const reuseLogs = () =>
+      info.mock.calls.filter(([, context]) => context?.event === 'sso-session-reused');
+
+    await f.monitor.ensureCredentialsReady(42);
+    expect(reuseLogs()).toHaveLength(stored ? 1 : 0);
+    await f.monitor.ensureCredentialsReady(42);
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    expect(f.hook.ensure).toHaveBeenCalledTimes(stored ? 0 : 1);
+    expect(reuseLogs()).toHaveLength(stored ? 1 : 0);
+
+    f.record.session = { ...material, d2: 'dd', pid: 42 };
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(reuseLogs()).toHaveLength(stored ? 2 : 1);
+    f.monitor.stop();
+  });
+
+  it('复用登记失败不记录成功，重试成功后只记录一次', async () => {
+    const logger = getLogger().child({});
+    const info = vi.spyOn(logger, 'info');
+    const child = vi.spyOn(getLogger(), 'child').mockReturnValueOnce(logger);
+    const f = fixture(true);
+    child.mockRestore();
+    const reuseLogs = () =>
+      info.mock.calls.filter(([, context]) => context?.event === 'sso-session-reused');
+    f.nt.setSsoSession.mockRejectedValueOnce(new Error('登记失败'));
+
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('登记失败');
+    expect(reuseLogs()).toHaveLength(0);
+    await f.monitor.ensureCredentialsReady(42);
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(reuseLogs()).toHaveLength(1);
+    f.monitor.stop();
+  });
+
   it('按需等待 SSO 登记，不等待或重复获取 rkey 等网络票据', async () => {
     const f = fixture(true);
     const registration = deferred<void>();
