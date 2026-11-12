@@ -10,8 +10,7 @@ import { albumMediaUrl } from '../lib/resourceUrl';
 import { mergeGroupAlbumFeedPages } from '../lib/groupAlbumFeedState';
 import { client } from '../trpc/client';
 import { readWithRetry } from '../lib/autoRead';
-import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
-import { MediaSourceSave } from './MediaSaveControls';
+import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { OverlayLayer } from './OverlayLayer';
 import { QzoneEmoji } from './QzoneEmoji';
 import '../styles/group-album-browser.css';
@@ -92,7 +91,7 @@ function Comment({
     </li>
   );
 }
-function MediaThumb({ item, video = false }: { item: QzonePreviewMedia; video?: boolean }) {
+function MediaThumb({ item, video = false }: { item: PreviewMedia; video?: boolean }) {
   const isVideo = video || item.kind === 'video';
   const source = item.poster || (item.kind === 'image' ? item.src : '');
   const [failed, setFailed] = useState(false);
@@ -204,13 +203,14 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
       controller.abort();
     };
   }, [input, cursor, revision, activity.enabled, activity.revision]);
-  const previews = useMemo<QzonePreviewMedia[]>(
+  const previews = useMemo<PreviewMedia[]>(
     () =>
       (page?.media ?? [])
         .filter((item) => item.url || item.previewUrl)
         .map((item) => ({
           key: item.id,
           kind: item.kind === 'video' && item.url ? 'video' : 'image',
+          saveLabel: item.kind === 'video' && !item.url ? '保存视频封面' : undefined,
           src: albumMediaUrl(item.url || item.previewUrl),
           poster: item.previewUrl ? albumMediaUrl(item.previewUrl) : undefined,
           title:
@@ -344,7 +344,7 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
               <div className="group-feed-media">
                 {page.media.slice(0, visibleMedia).map((media) => {
                   const preview = previewById.get(media.id);
-                  const item: QzonePreviewMedia = preview ?? {
+                  const item: PreviewMedia = preview ?? {
                     key: media.id,
                     kind: media.kind,
                     src: '',
@@ -421,7 +421,7 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
           ) : null}
         </div>
         {previewId && previews.some((item) => item.key === previewId) ? (
-          <QzoneMediaPreview
+          <MediaPreview
             key={previewId}
             items={previews}
             initialIndex={previews.findIndex((item) => item.key === previewId)}
@@ -435,21 +435,6 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
                   {coverOnly ? (
                     <p className="group-feed-muted">视频本体未返回，仅显示封面。</p>
                   ) : null}
-                  <MediaSourceSave
-                    className="group-album-preview-save"
-                    source={{
-                      kind: 'url',
-                      url: item.src,
-                      name: coverOnly
-                        ? '群相册视频封面'
-                        : item.kind === 'video'
-                          ? '群相册视频'
-                          : '群相册图片',
-                    }}
-                    label={
-                      coverOnly ? '保存视频封面' : item.kind === 'video' ? '保存视频' : '保存图片'
-                    }
-                  />
                 </div>
               );
             }}

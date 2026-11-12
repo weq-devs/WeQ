@@ -8,6 +8,13 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(async () => ({ cancelled: true })),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    account: {
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
+      ocrChatImage: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+    },
+  },
   client: {
     account: {
       qzone: {
@@ -16,6 +23,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
   },
+}));
+vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
+  useExportSavePolicy: () => ({
+    binding: null,
+    settings: { isLoading: false },
+    isCurrent: () => true,
+  }),
 }));
 vi.mock('../src/renderer/src/lib/resourceUrl', () => ({ albumMediaUrl: (url: string) => url }));
 import {
@@ -93,13 +107,11 @@ describe('空间实况展示', () => {
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!.click(),
     );
-    expect(document.querySelector('.weq-qz-preview-stage video')!.hasAttribute('controls')).toBe(
+    expect(document.querySelector('.weq-lightbox-stage video')!.hasAttribute('controls')).toBe(
       true,
     );
-    expect(document.querySelector<HTMLVideoElement>('.weq-qz-preview-stage video')!.loop).toBe(
-      false,
-    );
-    expect(document.querySelector('.weq-qz-preview-toolbar')?.textContent).toContain('实况');
+    expect(document.querySelector<HTMLVideoElement>('.weq-lightbox-stage video')!.loop).toBe(false);
+    expect(document.querySelector('.weq-preview-header')?.textContent).toContain('实况');
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[aria-label="关闭预览"]')!.click(),
     );
@@ -167,7 +179,7 @@ describe('空间实况展示', () => {
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!.click(),
     );
-    expect(document.querySelector('.weq-qz-preview-toolbar')?.textContent).toContain('1 / 2');
+    expect(document.querySelector('.weq-preview-header')?.textContent).toContain('1 / 2');
   });
   it('页面收到视频上的 Esc 时，即使冒泡被截断也能关闭最上层预览', async () => {
     mocks.query.mockResolvedValue([{ videoId: 'normal', isLivePhoto: false }]);
@@ -189,13 +201,13 @@ describe('空间实况展示', () => {
     player.tabIndex = 0;
     vi.spyOn(player, 'matches').mockReturnValue(false);
     await act(async () => player.focus());
-    expect(document.activeElement).toBe(document.querySelector('.weq-qz-preview'));
+    expect(document.activeElement).toBe(document.querySelector('.weq-unified-preview'));
     await act(async () =>
       document.activeElement!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       ),
     );
-    expect(document.querySelector('.weq-qz-preview')).toBeNull();
+    expect(document.querySelector('.weq-unified-preview')).toBeNull();
   });
   it('键盘进入播放器时保留原生控件焦点', async () => {
     await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos: [videos[1]!] })));
@@ -264,7 +276,7 @@ describe('空间实况展示', () => {
       await act(async () =>
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
       );
-      expect(document.querySelector('.weq-qz-preview')).not.toBeNull();
+      expect(document.querySelector('.weq-unified-preview')).not.toBeNull();
     } finally {
       top.remove();
     }

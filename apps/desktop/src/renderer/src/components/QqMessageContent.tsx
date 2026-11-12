@@ -28,6 +28,11 @@ import type { UrlVerifyInfo } from '@weq/service';
 import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
+import {
+  MediaItemKeyContext,
+  MediaItemIndexContext,
+  MediaMessageKeyContext,
+} from './ChatMediaGallery';
 import { messageMediaKey } from '../lib/messageMediaTarget';
 import { QqMarkdown } from './QqMarkdown';
 import {
@@ -249,10 +254,15 @@ function FaceNode({
 
 /** Render a media element to its dedicated component, or null if unsupported. */
 function MediaNode(props: Parameters<typeof MediaBody>[0]): ReactNode {
+  const messageKey = useContext(MediaMessageKeyContext) || props.msgId;
+  const mediaIndex = useContext(MediaItemIndexContext);
+  const mediaKey = `${messageKey}:${mediaIndex}`;
   return (
-    <span style={{ display: 'contents' }} data-message-media-key={messageMediaKey(props.element)}>
-      <MediaBody {...props} />
-    </span>
+    <MediaItemKeyContext.Provider value={mediaKey}>
+      <span style={{ display: 'contents' }} data-message-media-key={messageMediaKey(props.element)}>
+        <MediaBody {...props} />
+      </span>
+    </MediaItemKeyContext.Provider>
   );
 }
 
@@ -561,7 +571,10 @@ function renderElementNodes(
     );
   };
 
+  let mediaIndex = 0;
   elements.forEach((element, index) => {
+    const mediaPosition = mediaIndex;
+    if (element.type === 'pic' || element.type === 'video') mediaIndex++;
     if (isTextLike(element)) {
       if (runStart === -1) runStart = index;
       runItems.push(element);
@@ -585,7 +598,9 @@ function renderElementNodes(
       block ? (
         // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         <div key={`blk-${index}`} className="qq-media-line">
-          {node}
+          <MediaItemIndexContext.Provider value={mediaPosition}>
+            {node}
+          </MediaItemIndexContext.Provider>
         </div>
       ) : (
         node
@@ -821,16 +836,23 @@ function TextMarkdownDisplay({
 
 export function QqMessageContent(props: Parameters<typeof QqMessageContentBody>[0]) {
   const body = textMarkdownBody(props.elements);
-  if (body === null || !props.textMarkdownDisplayKey) return <QqMessageContentBody {...props} />;
+  const content =
+    body === null || !props.textMarkdownDisplayKey ? (
+      <QqMessageContentBody {...props} />
+    ) : (
+      <TextMarkdownDisplay
+        displayKey={props.textMarkdownDisplayKey}
+        text={body}
+        renderDefault={() => <QqMessageContentBody {...props} />}
+        renderRaw={() =>
+          renderElementNodes(props.elements, props.sendTimeMs, props.msgId, props.isSender)
+        }
+      />
+    );
   return (
-    <TextMarkdownDisplay
-      displayKey={props.textMarkdownDisplayKey}
-      text={body}
-      renderDefault={() => <QqMessageContentBody {...props} />}
-      renderRaw={() =>
-        renderElementNodes(props.elements, props.sendTimeMs, props.msgId, props.isSender)
-      }
-    />
+    <MediaMessageKeyContext.Provider value={props.galleryKey ?? props.msgId}>
+      {content}
+    </MediaMessageKeyContext.Provider>
   );
 }
 
@@ -846,6 +868,7 @@ function QqMessageContentBody({
   sendTimeMs: number;
   msgId: string;
   msgSeq?: string;
+  galleryKey?: string;
   isSender?: boolean;
   textMarkdownDisplayKey?: string;
   /**
@@ -1271,6 +1294,7 @@ export const qqMessageRenderer: MessageRenderer = {
         elements={elements}
         sendTimeMs={sendTimeMs}
         msgId={msgId}
+        galleryKey={message.id}
         msgSeq={m.msgSeq}
         isSender={mine}
         conversation={conversation}

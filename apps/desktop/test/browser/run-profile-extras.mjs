@@ -284,12 +284,12 @@ try {
     );
     await page.getByRole('button', { name: '查看第 1 张照片' }).click();
     await page.waitForFunction(() => {
-      const img = document.querySelector('.weq-qz-preview img');
+      const img = document.querySelector('.weq-unified-preview img');
       return img?.complete && img.naturalWidth > 1;
     });
-    const firstSource = await page.locator('.weq-qz-preview img').evaluate((img) => img.src);
+    const firstSource = await page.locator('.weq-unified-preview img').evaluate((img) => img.src);
     const pixelColors = await page.evaluate(() => {
-      const img = document.querySelector('.weq-qz-preview img');
+      const img = document.querySelector('.weq-unified-preview img');
       const canvas = document.createElement('canvas');
       canvas.width = 16;
       canvas.height = 16;
@@ -306,12 +306,12 @@ try {
     assert.ok(pixelColors > 4, 'live image must contain nonblank pixels');
     await page.keyboard.press('ArrowRight');
     await page.waitForFunction((src) => {
-      const img = document.querySelector('.weq-qz-preview img');
+      const img = document.querySelector('.weq-unified-preview img');
       return img?.src !== src && img?.complete && img.naturalWidth > 1;
     }, firstSource);
     if (output) await page.screenshot({ path: resolve(output, 'live-photo-preview.png') });
     await page.keyboard.press('Escape');
-    await page.locator('.weq-qz-preview').waitFor({ state: 'detached' });
+    await page.locator('.weq-unified-preview').waitFor({ state: 'detached' });
     assert.equal(await page.getByRole('button', { name: '关闭资料详情' }).count(), 1);
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: '关闭资料详情' }).waitFor({ state: 'detached' });

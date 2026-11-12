@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QzoneMediaPreview } from '../../src/renderer/src/components/QzoneMediaPreview';
+import { MediaPreview } from '../../src/renderer/src/components/MediaPreview';
+import '../../src/renderer/src/styles/index.css';
 
 async function createClip(): Promise<string> {
   const canvas = document.createElement('canvas');
@@ -8,7 +9,14 @@ async function createClip(): Promise<string> {
   canvas.height = 240;
   const context = canvas.getContext('2d')!;
   const stream = canvas.captureStream(20);
-  const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
+  const audio = new AudioContext();
+  const destination = audio.createMediaStreamDestination();
+  const oscillator = audio.createOscillator();
+  oscillator.connect(destination);
+  oscillator.start();
+  await audio.resume();
+  for (const track of destination.stream.getAudioTracks()) stream.addTrack(track);
+  const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (event) => chunks.push(event.data);
   const stopped = new Promise<void>((resolve) => {
@@ -28,6 +36,8 @@ async function createClip(): Promise<string> {
     return URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
   } finally {
     for (const track of stream.getTracks()) track.stop();
+    oscillator.stop();
+    await audio.close();
   }
 }
 
@@ -42,7 +52,7 @@ function Scene({ src }: { src: string }) {
         打开视频
       </button>
       {live !== null ? (
-        <QzoneMediaPreview
+        <MediaPreview
           items={[{ key: 'fixture', kind: 'video', src, isLivePhoto: live }]}
           initialIndex={0}
           onClose={() => setLive(null)}

@@ -119,6 +119,7 @@ import {
   useState,
 } from 'react';
 import { ReplyJumpContext } from '../../components/QqMessageContent';
+import { ChatMediaGallery } from '../../components/ChatMediaGallery';
 import { openLightbox } from '../../components/ImageLightbox';
 import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
@@ -1152,6 +1153,19 @@ export function ChatPane({
           !hiddenMessageIds.has(message.id) && !hiddenDeletedKeys.has(deletionIdentity(message.id)),
       ),
     [messages, hiddenMessageIds, hiddenDeletedKeys],
+  );
+  const mediaGalleryMessages = useMemo(
+    () =>
+      visibleMessages.map((message) => ({
+        msgId: message.msgId || message.id,
+        key: message.id,
+        source: message.source,
+        sourceFormat: message.sourceFormat,
+        msgSeq: message.msgSeq,
+        sendTime: (Date.parse(message.createdAt) || 0) / 1000,
+        elements: message.qqElements ?? [],
+      })),
+    [visibleMessages],
   );
   const reactionFeedback = useReactionFeedback(
     `${user.id}:${conversation?.id ?? ''}`,
@@ -7213,7 +7227,29 @@ export function ChatPane({
       ) : null}
     </section>
   );
-  return <ReplyJumpContext.Provider value={jumpToSeq}>{pane}</ReplyJumpContext.Provider>;
+  return (
+    <ChatMediaGallery
+      key={conversation?.id}
+      scopeKey={conversation?.id}
+      conv={
+        conversation?.type === 'group'
+          ? conversation.group.identityValue
+          : conversation?.type === 'direct'
+            ? conversation.otherUser.id
+            : ''
+      }
+      kind={conversation?.type === 'group' ? 'group' : 'c2c'}
+      paged={Boolean(
+        conversation &&
+          conversation.type !== 'merged' &&
+          !conversation.id.startsWith('dataline:') &&
+          conversation.id !== 'weq-assistant',
+      )}
+      messages={mediaGalleryMessages}
+    >
+      <ReplyJumpContext.Provider value={jumpToSeq}>{pane}</ReplyJumpContext.Provider>
+    </ChatMediaGallery>
+  );
 }
 
 function ConfirmDialog({

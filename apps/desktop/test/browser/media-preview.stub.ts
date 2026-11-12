@@ -5,7 +5,16 @@ const proxy = (path = ''): unknown =>
         return () => ({
           data: path.endsWith('getGroupAlbumAccessState')
             ? { ocrLocalModelId: 'fixture' }
-            : undefined,
+            : path.endsWith('getPackDetail')
+              ? {
+                  name: '合成表情包',
+                  feeType: 'free',
+                  count: 1,
+                  items: [{ hash: 'fixture', name: '合成表情' }],
+                }
+              : path.endsWith('getPackKey')
+                ? { key: 'fixture-key' }
+                : undefined,
           isLoading: false,
           isFetching: false,
         });

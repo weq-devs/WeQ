@@ -3441,6 +3441,71 @@ export const accountRouter = router({
       };
     }),
 
+  mediaPreviewPage: procedure
+    .input(
+      convInput.merge(exportAccountBindingInput).extend({
+        filter: z.object({
+          start: z.number().int().nonnegative().optional(),
+          end: z.number().int().nonnegative().optional(),
+          sender: z.string().max(128).optional(),
+          keyword: z.string().max(512).optional(),
+          category: z
+            .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
+            .optional(),
+        }),
+        direction: z.enum(['older', 'newer']),
+        anchorMsgId: z.string().regex(/^-?\d+$/),
+        anchorTime: z.number().int().nonnegative().optional(),
+        anchorSeq: z.string().regex(/^\d+$/).optional(),
+        cursor: z
+          .object({
+            msgSeq: z.string().regex(/^\d+$/),
+            sendTime: z.string().regex(/^\d+$/),
+            msgId: z.string().regex(/^-?\d+$/),
+          })
+          .optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      if (
+        input.filter.start !== undefined &&
+        input.filter.end !== undefined &&
+        input.filter.start > input.filter.end
+      )
+        throw new Error('开始日期不能晚于结束日期。');
+      const result = await services.msgs.mediaPage(
+        input.kind,
+        input.conv,
+        input.filter,
+        input.direction,
+        input.anchorMsgId,
+        input.cursor,
+        input.anchorTime,
+        input.anchorSeq,
+        (cursor, descending) =>
+          services.gapHistory.hasCalendarCache()
+            ? services.gapHistory.cachedTimeline(
+                input.kind,
+                input.conv,
+                1,
+                Number.MAX_SAFE_INTEGER,
+                300,
+                descending,
+                cursor,
+              )
+            : Promise.resolve([]),
+      );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return result;
+    }),
+
   readSelectionRange: procedure
     .input(
       convInput.merge(exportAccountBindingInput).extend({

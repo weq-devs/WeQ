@@ -10,7 +10,14 @@ import {
 } from '../src/renderer/src/components/QqMessageContent';
 
 const lightbox = vi.hoisted(() => vi.fn());
+const gallery = vi.hoisted(() =>
+  vi.fn((_options: unknown) => ({ close: vi.fn(), update: vi.fn() })),
+);
 vi.mock('../src/renderer/src/components/ImageLightbox', () => ({ openLightbox: lightbox }));
+vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
+  openMediaPreview: gallery,
+  MediaPreviewHost: () => null,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
@@ -31,6 +38,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   lightbox.mockClear();
+  gallery.mockClear();
 });
 
 function mount({ media = 'pic', quoted = true, seq = 42, previewElements = [media] } = {}) {
@@ -176,9 +184,11 @@ it('无有效引用序号时不伪造跳转，也不退出贴底', () => {
   expect(f.scroll.scrollTop).toBe(800);
 });
 
-it('普通正文图片仍打开灯箱，不触发引用跳转', () => {
+it('普通正文图片打开连续预览，不触发引用跳转', () => {
   const f = mount({ quoted: false });
   act(() => f.host.querySelector<HTMLElement>('.qq-media-image')!.click());
-  expect(lightbox).toHaveBeenCalledOnce();
+  expect(gallery).toHaveBeenCalledOnce();
+  expect(gallery.mock.calls[0]?.[0]).toMatchObject({ initialKey: 'quote:0' });
+  expect(lightbox).not.toHaveBeenCalled();
   expect(f.jump).not.toHaveBeenCalled();
 });

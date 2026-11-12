@@ -53,6 +53,7 @@ import type { ResolvedWidget, MessageBubbleSkin } from '@weq/service';
 import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { ProfileAvatar } from './ProfileAvatar';
 import { visibleViewport } from '../lib/visibleViewport';
+import { ChatMediaGallery } from './ChatMediaGallery';
 
 // ---- types & store -------------------------------------------------------
 
@@ -480,6 +481,14 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
     (): { msgId: string; kind: 'c2c' | 'group' } => ({ msgId: win.rootMsgId, kind: win.kind }),
     [win.rootMsgId, win.kind],
   );
+  const galleryMessages = useMemo(
+    () =>
+      (win.records ?? []).map((record) => ({
+        ...record,
+        sendTime: record.sendTime ?? '0',
+      })),
+    [win.records],
+  );
 
   return (
     <section
@@ -516,7 +525,15 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
           <ConvContext.Provider value={win.conv}>
             <ForwardCarrierContext.Provider value={carrier}>
               <ForwardSubRecordsProvider records={win.records ?? []}>
-                <ForwardScroll win={win} />
+                <ChatMediaGallery
+                  scopeKey={String(win.id)}
+                  conv={win.conv}
+                  kind={win.kind}
+                  carrier={carrier}
+                  messages={galleryMessages}
+                >
+                  <ForwardScroll win={win} />
+                </ChatMediaGallery>
               </ForwardSubRecordsProvider>
             </ForwardCarrierContext.Provider>
           </ConvContext.Provider>

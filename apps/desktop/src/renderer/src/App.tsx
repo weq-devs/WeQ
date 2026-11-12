@@ -39,8 +39,7 @@ import { RestrictedModeHost } from './components/RestrictedMode';
 import { DesktopOnly, IS_WEB } from './lib/target';
 import { WebNotifications } from './components/WebNotifications';
 import { WebConnectionStatus } from './components/WebConnectionStatus';
-import { ImageLightbox } from './components/ImageLightbox';
-import { VideoLightbox } from './components/VideoLightbox';
+import { MediaPreviewHost } from './components/mediaPreviewStore';
 import { RedBagDetailHost } from './components/RedBagDetailDialog';
 import { RedBagQrcodeHost } from './components/RedBagQrcodeDialog';
 import { MarketFaceLightbox } from './components/MarketFaceLightbox';
@@ -277,8 +276,7 @@ export default function App(): ReactElement {
             <DesktopOnly>
               <AppLockOverlay />
             </DesktopOnly>
-            <ImageLightbox />
-            <VideoLightbox />
+            <MediaPreviewHost />
             <RedBagDetailHost />
             <RedBagQrcodeHost />
             <MarketFaceLightbox />

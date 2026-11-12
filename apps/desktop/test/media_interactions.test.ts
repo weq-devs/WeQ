@@ -213,7 +213,7 @@ it('上层表面存在时 Escape 不关闭下层预览', () => {
   }
 });
 
-it('已打开预览迁移到子窗口后，焦点和 Escape 跟随所属文档', () => {
+it('不同文档的预览独立，焦点和 Escape 跟随所属文档', () => {
   const child = new HappyWindow();
   act(() => root.render(h(Fragment, null, h('button', null, '主窗入口'), h(ImageLightbox))));
   const trigger = button('主窗入口');
@@ -226,7 +226,9 @@ it('已打开预览迁移到子窗口后，焦点和 Escape 跟随所属文档',
     act(() =>
       openLightbox('data:image/png;base64,child', '', null, child.document as unknown as Document),
     );
-    expect(document.activeElement).toBe(trigger);
+    expect(document.querySelector('.weq-lightbox-layer')?.contains(document.activeElement)).toBe(
+      true,
+    );
     expect(
       child.document.querySelector('.weq-lightbox-layer')?.contains(child.document.activeElement),
     ).toBe(true);

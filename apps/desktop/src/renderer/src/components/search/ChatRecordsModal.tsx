@@ -14,6 +14,7 @@ import { preflightExportEstimate } from '../../views/export/preflight';
 import { useExportReportDialog } from '../../views/export/ExportReportControl';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
+import { ChatMediaGallery } from '../ChatMediaGallery';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
@@ -643,108 +644,123 @@ export function ChatRecordsModal({
           <div className="weq-chatrecords-msgs" ref={msgScrollRef} onScroll={onMsgScroll}>
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
-                <ReplyJumpContext.Provider value={noop}>
-                  {msgLoading ? (
-                    <SearchListSkeleton rows={4} />
-                  ) : messages.length === 0 ? (
-                    <div className="weq-search-empty">
-                      {fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
-                    </div>
-                  ) : (
-                    <>
-                      {messages.map((msg) => {
-                        // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
-                        if (msg.elements?.length && conversation) {
-                          const message =
-                            localSource?.messages.find((message) => message.id === msg.msgId) ??
-                            messageFromHit(msg, conversation);
-                          const sender = message.sender ?? senderUserFromHit(msg);
+                <ChatMediaGallery
+                  key={`${selected?.targetUid}:${JSON.stringify(filter)}`}
+                  scopeKey={selected?.targetUid}
+                  conv={selected?.targetUid ?? ''}
+                  kind={isGroup ? 'group' : 'c2c'}
+                  filter={filter}
+                  paged={!localSource}
+                  messages={messages.map((message) => ({
+                    msgId: message.msgId,
+                    msgSeq: message.msgSeq,
+                    sendTime: message.sendTime,
+                    elements: message.elements ?? [],
+                  }))}
+                >
+                  <ReplyJumpContext.Provider value={noop}>
+                    {msgLoading ? (
+                      <SearchListSkeleton rows={4} />
+                    ) : messages.length === 0 ? (
+                      <div className="weq-search-empty">
+                        {fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
+                      </div>
+                    ) : (
+                      <>
+                        {messages.map((msg) => {
+                          // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
+                          if (msg.elements?.length && conversation) {
+                            const message =
+                              localSource?.messages.find((message) => message.id === msg.msgId) ??
+                              messageFromHit(msg, conversation);
+                            const sender = message.sender ?? senderUserFromHit(msg);
+                            return (
+                              <div
+                                key={msg.msgId}
+                                className="weq-chatrecords-msg is-bubble"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => jumpTo(msg)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    jumpTo(msg);
+                                  }
+                                }}
+                                title="点击跳转到该消息"
+                              >
+                                <MessageBubble
+                                  message={message}
+                                  conversation={conversation}
+                                  sender={sender}
+                                  mine={false}
+                                  senderName={displayUserName(sender)}
+                                  senderAvatarUrl={sender.avatarUrl}
+                                  senderSeed={sender.identityValue}
+                                  senderKind={sender.kind}
+                                  showSenderName
+                                  active={false}
+                                  renderers={renderers}
+                                  onContextMenu={noop}
+                                  onLongPress={noop}
+                                />
+                              </div>
+                            );
+                          }
                           return (
-                            <div
+                            <button
+                              type="button"
                               key={msg.msgId}
-                              className="weq-chatrecords-msg is-bubble"
-                              role="button"
-                              tabIndex={0}
+                              className="weq-chatrecords-msg"
                               onClick={() => jumpTo(msg)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  jumpTo(msg);
-                                }
-                              }}
-                              title="点击跳转到该消息"
                             >
-                              <MessageBubble
-                                message={message}
-                                conversation={conversation}
-                                sender={sender}
-                                mine={false}
-                                senderName={displayUserName(sender)}
-                                senderAvatarUrl={sender.avatarUrl}
-                                senderSeed={sender.identityValue}
-                                senderKind={sender.kind}
-                                showSenderName
-                                active={false}
-                                renderers={renderers}
-                                onContextMenu={noop}
-                                onLongPress={noop}
+                              <img
+                                className="weq-chatrecords-msg-avatar"
+                                src={
+                                  msg.senderUin && msg.senderUin !== '0'
+                                    ? (c2cAvatarSrc(msg.senderUin) ?? undefined)
+                                    : isGroup
+                                      ? (groupAvatarSrc(selected?.targetUid ?? '') ?? undefined)
+                                      : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
+                                }
+                                alt=""
+                                loading="lazy"
                               />
-                            </div>
+                              <span className="weq-chatrecords-msg-text">
+                                <span className="weq-chatrecords-msg-meta">
+                                  {msg.senderName ? (
+                                    <>
+                                      <span data-privacy-sensitive>{msg.senderName}</span>
+                                      {' · '}
+                                    </>
+                                  ) : null}
+                                  {formatTime(msg.sendTime)} · seq {msg.msgSeq}
+                                </span>
+                                <span className="weq-chatrecords-msg-content">
+                                  {highlightText(msg.content, keyword.trim())}
+                                </span>
+                              </span>
+                            </button>
                           );
-                        }
-                        return (
-                          <button
-                            type="button"
-                            key={msg.msgId}
-                            className="weq-chatrecords-msg"
-                            onClick={() => jumpTo(msg)}
-                          >
-                            <img
-                              className="weq-chatrecords-msg-avatar"
-                              src={
-                                msg.senderUin && msg.senderUin !== '0'
-                                  ? (c2cAvatarSrc(msg.senderUin) ?? undefined)
-                                  : isGroup
-                                    ? (groupAvatarSrc(selected?.targetUid ?? '') ?? undefined)
-                                    : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
-                              }
-                              alt=""
-                              loading="lazy"
-                            />
-                            <span className="weq-chatrecords-msg-text">
-                              <span className="weq-chatrecords-msg-meta">
-                                {msg.senderName ? (
-                                  <>
-                                    <span data-privacy-sensitive>{msg.senderName}</span>
-                                    {' · '}
-                                  </>
-                                ) : null}
-                                {formatTime(msg.sendTime)} · seq {msg.msgSeq}
-                              </span>
-                              <span className="weq-chatrecords-msg-content">
-                                {highlightText(msg.content, keyword.trim())}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                      {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
-                      {(fixed ? !browseHasMore : messages.length >= msgTotal) &&
-                      messages.length > 0 ? (
-                        <div className="weq-search-more-end">没有更多了</div>
-                      ) : null}
-                    </>
-                  )}
-                  {fixed && browseHasMore ? (
-                    <button
-                      className="weq-action-soft"
-                      disabled={msgLoading || msgLoadingMore}
-                      onClick={() => void loadMoreMessages()}
-                    >
-                      {msgLoadingMore ? '加载中...' : '继续加载'}
-                    </button>
-                  ) : null}
-                </ReplyJumpContext.Provider>
+                        })}
+                        {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
+                        {(fixed ? !browseHasMore : messages.length >= msgTotal) &&
+                        messages.length > 0 ? (
+                          <div className="weq-search-more-end">没有更多了</div>
+                        ) : null}
+                      </>
+                    )}
+                    {fixed && browseHasMore ? (
+                      <button
+                        className="weq-action-soft"
+                        disabled={msgLoading || msgLoadingMore}
+                        onClick={() => void loadMoreMessages()}
+                      >
+                        {msgLoadingMore ? '加载中...' : '继续加载'}
+                      </button>
+                    ) : null}
+                  </ReplyJumpContext.Provider>
+                </ChatMediaGallery>
               </ConvContext.Provider>
             </ForwardKindContext.Provider>
           </div>

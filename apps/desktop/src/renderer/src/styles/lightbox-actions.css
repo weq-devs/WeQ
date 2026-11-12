@@ -6,12 +6,6 @@
  * `html[data-theme="dark"]` 覆盖。
  */
 
-.weq-lightbox-stage-wrap {
-  display: grid;
-  place-items: center;
-  gap: 1.1rem;
-}
-
 /* ── 操作条 ───────────────────────────────────────────────── */
 
 .weq-lightbox-actions {

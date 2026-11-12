@@ -17,7 +17,7 @@ import {
   type RefObject,
 } from 'react';
 import { CircleDot, Loader2, Pause, Play, VideoOff } from 'lucide-react';
-import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
+import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { qzoneMediaSource } from '../lib/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
@@ -363,7 +363,7 @@ export function QzoneMediaGrid({
       { kind: 'video', video },
     );
   }
-  const items: QzonePreviewMedia[] = media.map((entry) => {
+  const items: PreviewMedia[] = media.map((entry) => {
     if (entry.kind === 'image')
       return { key: entry.url, kind: 'image', src: albumMediaUrl(entry.url) };
     const video = entry.video;
@@ -401,7 +401,7 @@ export function QzoneMediaGrid({
         )}
       </div>
       {preview !== null ? (
-        <QzoneMediaPreview
+        <MediaPreview
           items={items}
           initialIndex={preview}
           onClose={() => {

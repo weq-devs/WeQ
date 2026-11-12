@@ -41,6 +41,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { dressup: { peerStats: { useQuery: () => ({ data: undefined }) } } } },
 }));
 vi.mock('../src/renderer/src/hooks/useAvatarUrl', () => ({ useAvatarUrl: () => null }));
+vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
+  useExportSavePolicy: () => ({
+    binding: null,
+    settings: { isLoading: false },
+    isCurrent: () => true,
+  }),
+}));
 vi.mock('../src/renderer/src/hooks/useMsgDecoration', () => ({ useMsgDecoration: () => ({}) }));
 vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
   useActiveWidget: () => ({ widget: null }),

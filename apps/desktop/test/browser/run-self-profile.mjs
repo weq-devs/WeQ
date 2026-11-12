@@ -157,12 +157,12 @@ try {
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-history.png`) });
       await page.locator('.weq-avatar-history-image').first().click();
       await page.waitForFunction(() => {
-        const img = document.querySelector('.weq-qz-preview img');
+        const img = document.querySelector('.weq-unified-preview img');
         return img?.complete && img.naturalWidth > 1;
       });
       await page.keyboard.press('ArrowRight');
       await page.keyboard.press('Escape');
-      await page.locator('.weq-qz-preview').waitFor({ state: 'detached' });
+      await page.locator('.weq-unified-preview').waitFor({ state: 'detached' });
       assert.equal(await page.getByRole('button', { name: '关闭历史头像' }).count(), 1);
       await page.getByRole('button', { name: '关闭历史头像' }).click();
       results.push({

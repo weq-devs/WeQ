@@ -35,7 +35,7 @@ import { Modal } from './Dialog';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
+import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -927,7 +927,7 @@ export function MediaView({
   /** 行内唯一选择键（与渲染 React key 一致）。 */
   const rowKey = (index: number): string => photoKey(photos[index]!);
 
-  const previewItems = useMemo<QzonePreviewMedia[]>(
+  const previewItems = useMemo<PreviewMedia[]>(
     () =>
       photos.map((photo) => ({
         key: photoKey(photo),
@@ -978,7 +978,7 @@ export function MediaView({
   return (
     <div className="weq-qzal-media-view">
       {preview !== null ? (
-        <QzoneMediaPreview
+        <MediaPreview
           items={previewItems}
           initialIndex={preview}
           onClose={() => {

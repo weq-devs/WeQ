@@ -113,7 +113,7 @@ export function useSurfaceEscape(
         if (!modal) return;
         const controls = [
           ...element.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
+            'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], video[controls]:not([tabindex="-1"]), audio[controls]:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
           ),
         ].filter(
           (item) =>

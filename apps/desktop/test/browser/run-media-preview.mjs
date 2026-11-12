@@ -211,9 +211,63 @@ try {
           .evaluate((el) => document.activeElement === el),
         true,
       );
+      await page.getByRole('button', { name: '打开混排', exact: true }).click();
+      await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '1 / 2');
+      const viewport = await page.locator('.weq-preview-viewport').boundingBox();
+      await page.mouse.click(viewport.x + 5, viewport.y + 10);
+      assert.equal(await page.getByRole('dialog').count(), 1);
+      await page.mouse.click(viewport.x + viewport.width - 5, viewport.y + 10);
+      await page.waitForFunction(
+        () => document.querySelector('.weq-unified-preview video')?.readyState >= 2,
+      );
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 2');
+      const comment = page.getByRole('textbox', { name: '媒体评论' });
+      await comment.focus();
+      await page.keyboard.press('ArrowLeft');
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 2');
+      await page.getByRole('button', { name: '追加合成媒体', exact: true }).click();
+      await page.waitForFunction(
+        () => document.querySelector('.weq-preview-count')?.textContent === '2 / 3',
+      );
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 3');
+      await fits();
+      if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-mixed.png`) });
+      await page.getByRole('button', { name: '下一项媒体', exact: true }).click();
+      await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '3 / 3');
+      await close();
+      await page.getByRole('button', { name: '打开表情包', exact: true }).click();
+      await page.locator('.weq-mface-lb-cell').click();
+      await page.locator('.weq-mface-detail').waitFor();
+      await page.keyboard.press('Escape');
+      await page.locator('.weq-mface-lb-grid').waitFor();
+      await close();
       cases++;
     }
   }
+  await page.getByRole('button', { name: '打开渐进图片', exact: true }).click();
+  await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+  assert.ok(
+    await page
+      .locator('.weq-unified-preview img')
+      .evaluate(
+        (image) => image.complete && image.naturalWidth === 640 && image.src.includes('v=thumb'),
+      ),
+  );
+  const thumbnailPixels = await sharp(
+    await page.locator('.weq-unified-preview img').screenshot(),
+  ).stats();
+  assert.ok(thumbnailPixels.channels[1].mean > 80);
+  assert.equal(requests.filter((value) => value.includes('token=progressiveFull')).length, 0);
+  await page.getByRole('button', { name: '放大', exact: true }).click();
+  await page.evaluate(() => window.releasePreviewDetail());
+  await page.waitForFunction(() =>
+    document.querySelector('.weq-unified-preview img')?.src.includes('token=progressiveFull'),
+  );
+  await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+  assert.match(await page.locator('.weq-lightbox-frame').getAttribute('style'), /scale\(1\.25\)/);
+  await close();
   // 在真实 Chromium 事件循环中合成单指拖动和取消，验证可继续下一次手势。
   await page.getByRole('button', { name: '打开图片', exact: true }).click();
   await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();

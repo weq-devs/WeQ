@@ -9,6 +9,7 @@
 import { formatBytes as formatSize } from '../lib/format';
 import {
   useEffect,
+  useContext,
   useRef,
   useState,
   type CSSProperties,
@@ -17,6 +18,7 @@ import {
 } from 'react';
 import {
   Cloud,
+  Maximize,
   FileText,
   ImageOff,
   Loader2,
@@ -32,6 +34,8 @@ import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@rendere
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
 import { openLightbox } from './ImageLightbox';
+import { openVideoLightbox } from './VideoLightbox';
+import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { openMarketFaceLightbox } from './MarketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
@@ -187,6 +191,8 @@ export function QqImage({
   conv?: string;
   interactive?: boolean;
 }) {
+  const galleryOpen = useChatMediaOpen();
+  const previewKey = useContext(MediaItemKeyContext);
   const [broken, setBroken] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const actionRef = useRef<HTMLElement | null>(null);
@@ -334,6 +340,14 @@ export function QqImage({
       onClick={
         openable
           ? (event) => {
+              if (
+                galleryOpen?.(previewKey, event.currentTarget.ownerDocument, {
+                  src: source === proxySrc ? originalProxySrc : source,
+                  ocr: ocrContext,
+                  fallbackSources: [originalProxySrc, proxySrc],
+                })
+              )
+                return;
               openLightbox(
                 source === proxySrc ? originalProxySrc : source,
                 name || '[图片]',
@@ -397,6 +411,8 @@ export function QqVideo({
   templateName?: string;
   interactive?: boolean;
 }) {
+  const galleryOpen = useChatMediaOpen();
+  const previewKey = useContext(MediaItemKeyContext);
   const [posterBroken, setPosterBroken] = useState(false);
   const ownerDocument = useRenderDocument();
   const [playing, setPlaying] = useState(bubble);
@@ -506,68 +522,91 @@ export function QqVideo({
     );
   }
 
+  function expand() {
+    playerRef.current?.pause();
+    if (!galleryOpen?.(previewKey, ownerDocument))
+      openVideoLightbox(videoSrc, coverSrc, name, ownerDocument);
+  }
+  const expandButton = interactive ? (
+    <button
+      type="button"
+      className="weq-video-expand"
+      aria-label="放大预览视频"
+      title="放大预览视频"
+      onClick={expand}
+    >
+      <Maximize size={17} />
+    </button>
+  ) : null;
+
   // Click → play inline. The media protocol locates the original on disk or
   // completes it via OIDB (msgId + conv let the host resolve the download URL);
   // a spinner covers the gap until the <video> can render its first frame.
   if (playing) {
     return (
-      <div className="qq-media-video" style={style} onKeyDown={mediaKeyDown}>
-        <video
-          ref={playerRef}
-          tabIndex={0}
-          className="qq-media-video-player"
-          src={videoSrc}
-          controls
-          autoPlay
-          onCanPlay={() => setLoading(false)}
-          onError={() => {
-            setVideoBroken(true);
-            setPlaying(false);
-          }}
-        />
-        {loading ? <span className="qq-media-spinner" aria-hidden /> : null}
+      <div className="weq-video-preview-wrap">
+        <div className="qq-media-video" style={style} onKeyDown={mediaKeyDown}>
+          <video
+            ref={playerRef}
+            tabIndex={0}
+            className="qq-media-video-player"
+            src={videoSrc}
+            controls
+            autoPlay
+            onCanPlay={() => setLoading(false)}
+            onError={() => {
+              setVideoBroken(true);
+              setPlaying(false);
+            }}
+          />
+          {loading ? <span className="qq-media-spinner" aria-hidden /> : null}
+        </div>
+        {expandButton}
       </div>
     );
   }
 
   const VideoControl = interactive ? 'button' : 'div';
   return (
-    <VideoControl
-      type={interactive ? 'button' : undefined}
-      className="qq-media-video qq-media-action"
-      style={style}
-      aria-label={interactive ? (name ? `播放视频：${name}` : '播放视频') : undefined}
-      onKeyDown={interactive ? mediaKeyDown : undefined}
-      title={interactive ? '播放' : '视频'}
-      onClick={
-        interactive
-          ? () => {
-              focusPlayer.current = true;
-              setLoading(true);
-              setPlaying(true);
-            }
-          : undefined
-      }
-    >
-      {posterBroken ? (
-        <div className="qq-media-video-noposter" />
-      ) : (
-        <ShimmerImage
-          className="qq-media-video-poster"
-          src={coverSrc}
-          alt={name || '[视频]'}
-          draggable={false}
-          onError={() => {
-            if (coverSrc === coverCdn) setCoverCdnFailed(true);
-            else setPosterBroken(true);
-          }}
-        />
-      )}
-      <span className="qq-media-video-play" aria-hidden />
-      {duration > 0 ? (
-        <span className="qq-media-video-duration">{formatDuration(duration)}</span>
-      ) : null}
-    </VideoControl>
+    <div className="weq-video-preview-wrap">
+      <VideoControl
+        type={interactive ? 'button' : undefined}
+        className="qq-media-video qq-media-action"
+        style={style}
+        aria-label={interactive ? (name ? `播放视频：${name}` : '播放视频') : undefined}
+        onKeyDown={interactive ? mediaKeyDown : undefined}
+        title={interactive ? '播放' : '视频'}
+        onClick={
+          interactive
+            ? () => {
+                focusPlayer.current = true;
+                setLoading(true);
+                setPlaying(true);
+              }
+            : undefined
+        }
+      >
+        {posterBroken ? (
+          <div className="qq-media-video-noposter" />
+        ) : (
+          <ShimmerImage
+            className="qq-media-video-poster"
+            src={coverSrc}
+            alt={name || '[视频]'}
+            draggable={false}
+            onError={() => {
+              if (coverSrc === coverCdn) setCoverCdnFailed(true);
+              else setPosterBroken(true);
+            }}
+          />
+        )}
+        <span className="qq-media-video-play" aria-hidden />
+        {duration > 0 ? (
+          <span className="qq-media-video-duration">{formatDuration(duration)}</span>
+        ) : null}
+      </VideoControl>
+      {expandButton}
+    </div>
   );
 }
 

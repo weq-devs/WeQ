@@ -9,7 +9,7 @@ import {
 import { useViewState } from '../src/renderer/src/state/view';
 import { albumMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import { makeSolidPng } from '@weq/protocol';
-import { QzoneMediaPreview } from '../src/renderer/src/components/QzoneMediaPreview';
+import { MediaPreview } from '../src/renderer/src/components/MediaPreview';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
@@ -62,6 +62,9 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
+      ocrChatImage: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
     },
   },
@@ -107,6 +110,7 @@ function picture(id: string, kind: 'image' | 'video' = 'image') {
 let dispose: (() => void) | undefined;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
   useViewState.setState({ openedUin: '10001' });
   state.configId = 'source-a';
@@ -282,7 +286,7 @@ it('连续预览只挂载当前媒体操作和公共保存，视频传本体而�
     savePolicy: { mode: 'before', directory: '/fixture/export' },
   });
   await act(async () => button('下一项媒体').click());
-  expect(document.querySelector('.weq-qz-preview-stage video')?.getAttribute('src')).toBe(
+  expect(document.querySelector('.weq-lightbox-stage video')?.getAttribute('src')).toBe(
     albumMediaUrl('https://example.invalid/video-b.mp4'),
   );
   expect(button('下一项媒体').disabled).toBe(true);
@@ -314,7 +318,7 @@ it('只有视频封面时按图片预览和保存，不把 jpg 传给 video', as
   await mount();
   await openFirst();
   await act(async () => button('预览 cover-only.mp4').click());
-  expect(document.querySelector('.weq-qz-preview-stage video')).toBeNull();
+  expect(document.querySelector('.weq-lightbox-stage video')).toBeNull();
   expect(document.querySelector('.group-album-preview-meta')?.textContent).toContain('仅显示封面');
   await act(async () => button('保存视频封面').click());
   expect(state.save.mock.calls[0]![0]).toMatchObject({
@@ -401,13 +405,17 @@ it('原图失败保留预览图并可重试，保存仍定位原图', async () =
   await mount();
   await openFirst();
   await act(async () => button('预览 raw-photo.jpg').click());
-  const image = document.querySelector<HTMLImageElement>('.weq-qz-preview-stage img')!;
+  const image = document.querySelector<HTMLImageElement>('.weq-lightbox-stage img')!;
   expect(image.src).toBe(albumMediaUrl(item.originalUrl));
   act(() => image.dispatchEvent(new Event('error')));
-  expect(image.src).toBe(albumMediaUrl(item.previewUrl));
+  expect(document.querySelector<HTMLImageElement>('.weq-lightbox-stage img')!.src).toBe(
+    albumMediaUrl(item.previewUrl),
+  );
   expect(button('重试读取原图')).not.toBeNull();
   await act(async () => button('重试读取原图').click());
-  expect(image.src).toBe(albumMediaUrl(item.originalUrl));
+  const retried = new URL(document.querySelector<HTMLImageElement>('.weq-lightbox-stage img')!.src);
+  expect(retried.searchParams.get('src')).toBe(item.originalUrl);
+  expect(retried.searchParams.get('_weq_retry')).toBe('1');
   await act(async () => button('保存图片').click());
   expect(state.save.mock.calls[0]![0]).toMatchObject({
     source: { url: albumMediaUrl(item.originalUrl) },
@@ -454,7 +462,7 @@ it('相册、媒体、上传及预览控件合成布局', async () => {
   await act(async () => button('预览 合成照片与视频-0.jpg').click());
   capture('preview');
 });
-it('原空间预览不传操作区时保持原布局、方向键与关闭行为', async () => {
+it('无业务操作时仍提供统一工具栏、方向键与关闭行为', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host),
@@ -465,7 +473,7 @@ it('原空间预览不传操作区时保持原布局、方向键与关闭行为'
   };
   await act(async () =>
     root.render(
-      h(QzoneMediaPreview, {
+      h(MediaPreview, {
         items: [
           { key: 'a', kind: 'image', src: 'https://example.invalid/a.jpg' },
           { key: 'b', kind: 'image', src: 'https://example.invalid/b.jpg' },
@@ -475,9 +483,9 @@ it('原空间预览不传操作区时保持原布局、方向键与关闭行为'
       }),
     ),
   );
-  const preview = document.querySelector<HTMLElement>('[aria-label="空间媒体预览"]')!;
-  expect(preview.classList.contains('has-actions')).toBe(false);
-  expect(preview.querySelector('footer')).toBeNull();
+  const preview = document.querySelector<HTMLElement>('.weq-unified-preview')!;
+  expect(preview.querySelector('.weq-preview-header')).not.toBeNull();
+  expect(preview.querySelector('footer')).not.toBeNull();
   act(() =>
     preview.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
   );

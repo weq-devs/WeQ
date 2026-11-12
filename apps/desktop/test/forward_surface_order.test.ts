@@ -5,6 +5,13 @@ import { ForwardWindowHost, openForwardWindow } from '../src/renderer/src/compon
 import { Modal } from '../src/renderer/src/components/Dialog';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: { account: {} }, trpc: {} }));
+vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
+  useExportSavePolicy: () => ({
+    binding: null,
+    settings: { isLoading: false },
+    isCurrent: () => true,
+  }),
+}));
 
 it('复用转发宿主仍提升到新父窗上方，聚焦父记录不遮住子记录，并在入口附近避让窄屏', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

@@ -11,7 +11,7 @@
 
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Window as HappyWindow } from 'happy-dom';
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
@@ -41,6 +41,12 @@ declare global {
 
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
+afterEach(() => {
+  act(() => root?.unmount());
+  host?.remove();
+  root = null;
+  host = null;
+});
 
 function mount(): void {
   host = document.createElement('div');

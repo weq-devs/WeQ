@@ -19,13 +19,12 @@
  */
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { createPortal } from 'react-dom';
+import { MediaPreviewShell } from './MediaPreviewShell';
 import { create } from 'zustand';
-import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc } from '@renderer/trpc/client';
 import { mediaUrl } from '@renderer/lib/resourceUrl';
-import { useOverlayLayer } from '@renderer/lib/overlayStack';
 import { useToast } from './Toast';
 import { MarketImageSave } from './MarketImageSave';
 
@@ -79,31 +78,20 @@ export function MarketFaceLightbox(): ReactElement | null {
   const close = useMarketFaceLightbox((s) => s.close);
   /** 单张详情的 hash；空串 = 停在网格。 */
   const [detailHash, setDetailHash] = useState('');
-  const layer = useOverlayLayer(packId !== null);
 
   useEffect(() => {
     setDetailHash('');
   }, [packId]);
 
-  useEffect(() => {
-    if (!packId) return;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') {
-        if (detailHash) setDetailHash('');
-        else close();
-      }
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [packId, close, detailHash]);
-
   if (typeof document === 'undefined' || !packId) return null;
 
-  return createPortal(
-    <div className="weq-lightbox-layer weq-anim-fade" style={{ zIndex: layer }} onMouseDown={close}>
-      <button className="weq-lightbox-close" type="button" onClick={close} aria-label="关闭">
-        <X size={22} />
-      </button>
+  return (
+    <MediaPreviewShell
+      title="商城表情"
+      onClose={close}
+      onEscape={() => (detailHash ? setDetailHash('') : close())}
+      onBackdrop={() => close()}
+    >
       <div
         className="weq-lightbox-stage weq-anim-pop weq-mface-lightbox"
         onMouseDown={(event) => event.stopPropagation()}
@@ -116,8 +104,7 @@ export function MarketFaceLightbox(): ReactElement | null {
           embedded={false}
         />
       </div>
-    </div>,
-    document.body,
+    </MediaPreviewShell>
   );
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, History, RotateCcw, X } from 'lucide-react';
 import type { HistoricalAvatar } from '@weq/protocol';
 import { Modal } from './Dialog';
-import { QzoneMediaPreview } from './QzoneMediaPreview';
+import { MediaPreview } from './MediaPreview';
 import { SegmentedControl } from './SegmentedControl';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -173,7 +173,7 @@ export function AvatarHistoryDialog({
         </div>
       </div>
       {preview ? (
-        <QzoneMediaPreview
+        <MediaPreview
           label="历史头像预览"
           items={preview.items.map((item) => ({
             key: item.id,

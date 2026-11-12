@@ -28,8 +28,7 @@ import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
-import { MediaSourceSave } from './MediaSaveControls';
+import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { ContactEmptyState } from './contactProfile/ContactRow';
 import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
@@ -551,14 +550,23 @@ function AlbumMediaView({
     onExit: () => selection.setSelectionMode(false),
     anchorRef: selection.anchorRef,
   });
-  const previews = useMemo<QzonePreviewMedia[]>(
+  const previews = useMemo<PreviewMedia[]>(
     () =>
       (preview?.items ?? []).map((item) => {
         const full = item.originalUrl || item.previewUrl;
         return {
           key: mediaKey(item),
           kind: item.kind === 'video' && item.originalUrl ? 'video' : 'image',
+          saveLabel: item.kind === 'video' && !item.originalUrl ? '保存视频封面' : undefined,
           src: full ? albumMediaUrl(full) : '',
+          saveSource: {
+            kind: 'url',
+            url: albumMediaUrl(full),
+            name:
+              item.kind === 'video' && !item.originalUrl
+                ? `${item.fileName || '视频'}-封面`
+                : item.fileName,
+          },
           poster: item.previewUrl ? albumMediaUrl(item.previewUrl) : undefined,
           title: item.fileName || (item.kind === 'video' ? '群相册视频' : '群相册图片'),
           ...(item.kind === 'image' &&
@@ -742,7 +750,7 @@ function AlbumMediaView({
         </button>
       )}
       {preview && (
-        <QzoneMediaPreview
+        <MediaPreview
           key={preview.key}
           label="群相册媒体预览"
           items={previews}
@@ -763,16 +771,6 @@ function AlbumMediaView({
                     {item.uploader || '未知'}
                   </span>
                 </div>
-                <MediaSourceSave
-                  key={`save:${current.key}`}
-                  source={{
-                    kind: 'url',
-                    url: albumMediaUrl(item.originalUrl || item.previewUrl),
-                    name: onlyCover ? `${item.fileName || '视频'}-封面` : item.fileName,
-                  }}
-                  label={onlyCover ? '保存视频封面' : isVideo ? '保存视频' : '保存图片'}
-                  className="group-album-preview-save"
-                />
                 {state.album && mediaId && /^\d+$/.test(item.batchId) && (
                   <GroupAlbumMediaActions
                     key={`actions:${current.key}`}

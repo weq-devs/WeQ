@@ -4,12 +4,11 @@
  * 图片不走这里 —— 图片像表情一样内联进输入框（见 chatPane 的 insertInlineImage）。
  */
 
-import { useLayoutEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useState } from 'react';
 import { useTabActive } from '../../components/RetainedTabs';
 import { FolderOpen, X } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
-import { useOverlayLayer } from '../../lib/overlayStack';
+import { MediaPreview } from '../../components/MediaPreview';
 import { cn } from './classNames';
 import {
   attachmentKindText,
@@ -186,46 +185,15 @@ function AttachmentLightbox({
   onClose: () => void;
 }) {
   const tabActive = useTabActive();
-  const layer = useOverlayLayer(tabActive);
-
-  useLayoutEffect(() => {
-    if (!tabActive) return undefined;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, onClose]);
-
-  return createPortal(
-    <div
-      className={cn('composer-media-lb-layer')}
-      hidden={!tabActive}
-      style={{ zIndex: layer, display: tabActive ? undefined : 'none' }}
-      onMouseDown={onClose}
-    >
-      <div className={cn('composer-media-lb')} onMouseDown={(event) => event.stopPropagation()}>
-        <header className={cn('composer-media-lb-head')}>
-          <span className={cn('composer-media-lb-title')}>
-            {attachment.kind === 'video' ? <FolderOpen size={15} /> : null}
-            {attachment.name}
-          </span>
-          <em>{attachmentMetaText(attachment)}</em>
-          <button
-            type="button"
-            className={cn('composer-media-lb-close')}
-            onClick={onClose}
-            aria-label="关闭"
-          >
-            <X size={18} />
-          </button>
-        </header>
-        <div className={cn('composer-media-lb-body')}>
-          {attachment.url ? <video src={attachment.url} controls autoPlay /> : null}
-        </div>
-      </div>
-    </div>,
-    document.body,
+  return (
+    <MediaPreview
+      active={tabActive}
+      onClose={onClose}
+      items={[
+        { key: attachment.id, kind: 'video', src: attachment.url || '', title: attachment.name },
+      ]}
+      renderActions={() => <span>{attachmentMetaText(attachment)}</span>}
+    />
   );
 }
 

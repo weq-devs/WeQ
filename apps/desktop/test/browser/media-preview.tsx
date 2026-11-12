@@ -1,4 +1,10 @@
 import { createRoot } from 'react-dom/client';
+import { useState } from 'react';
+import { MediaPreview, type PreviewMedia } from '../../src/renderer/src/components/MediaPreview';
+import {
+  MarketFaceLightbox,
+  openMarketFaceLightbox,
+} from '../../src/renderer/src/components/MarketFaceLightbox';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ImageLightbox, openLightbox } from '../../src/renderer/src/components/ImageLightbox';
 import { VideoLightbox, openVideoLightbox } from '../../src/renderer/src/components/VideoLightbox';
@@ -10,8 +16,45 @@ import '../../src/renderer/src/lib/inputModality';
 ensureThemeInitialized();
 Object.assign(window, { mediaTheme: useThemeStore });
 function View() {
+  const [gallery, setGallery] = useState<PreviewMedia[] | null>(null);
   return (
     <main style={{ padding: 20, display: 'grid', gap: 20, justifyItems: 'start' }}>
+      <button
+        type="button"
+        onClick={() =>
+          setGallery([
+            { key: 'first', kind: 'image', src: '/_media/pic?token=good', title: '混排图片' },
+            { key: 'second', kind: 'video', src: '/_media/video?token=good', title: '混排视频' },
+          ])
+        }
+      >
+        打开混排
+      </button>
+      <button type="button" onClick={() => openMarketFaceLightbox('123')}>
+        打开表情包
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          setGallery([
+            {
+              key: 'progressive',
+              kind: 'image',
+              src: '/_media/pic?token=good&v=thumb',
+              title: '渐进图片',
+              load: () =>
+                new Promise((resolve) =>
+                  Object.assign(window, {
+                    releasePreviewDetail: () =>
+                      resolve({ src: '/_media/pic?token=progressiveFull', kind: 'image' }),
+                  }),
+                ),
+            },
+          ])
+        }
+      >
+        打开渐进图片
+      </button>
       <button
         type="button"
         onClick={() =>
@@ -66,6 +109,38 @@ function View() {
       <button type="button">背景按钮</button>
       <ImageLightbox />
       <VideoLightbox />
+      <MarketFaceLightbox />
+      {gallery ? (
+        <MediaPreview
+          items={gallery}
+          onClose={() => setGallery(null)}
+          renderActions={() => (
+            <>
+              <input aria-label="媒体评论" />
+              <button
+                type="button"
+                onClick={() =>
+                  setGallery((previous) =>
+                    previous
+                      ? [
+                          ...previous,
+                          {
+                            key: `extra-${previous.length}`,
+                            kind: 'image',
+                            src: '/_media/pic?token=good',
+                            title: '追加图片',
+                          },
+                        ]
+                      : previous,
+                  )
+                }
+              >
+                追加合成媒体
+              </button>
+            </>
+          )}
+        />
+      ) : null}
     </main>
   );
 }
