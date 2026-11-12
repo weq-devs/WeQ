@@ -57,6 +57,8 @@ try {
     [820, 1180, true],
     [1280, 874, false],
     [640, 320, false],
+    [390, 844, false],
+    [640, 960, false],
   ]) {
     const page = await browser.newPage({
       viewport: { width, height },
@@ -83,7 +85,7 @@ try {
       const editor = page.locator('.composer > .composer-editor');
       await editor.waitFor();
       await page.evaluate(() => new Promise(requestAnimationFrame));
-      const automatic = !remote && width > 760;
+      const automatic = !remote;
       assert.equal(
         await page.evaluate(() => window.composerAutoFocusEvents.length > 0),
         automatic,
@@ -102,6 +104,7 @@ try {
         await page.keyboard.type('manual input');
         assert(await editor.evaluate((node) => document.activeElement === node));
         assert.equal(await editor.textContent(), 'manual input');
+        await editor.evaluate((node) => node.blur());
         await page.evaluate(() => window.timelineTest.reenter());
         await page.waitForFunction(
           () => document.querySelector('.composer > .composer-editor').textContent === '',

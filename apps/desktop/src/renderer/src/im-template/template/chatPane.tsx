@@ -1732,7 +1732,7 @@ export function ChatPane({
 
   useLayoutEffect(() => {
     const mobileComposer = isMobileWebComposer();
-    if (isMobileClient() || mobileComposer) composerEditorRef.current?.blur();
+    if (isMobileClient()) composerEditorRef.current?.blur();
     if (!mobileComposer) return;
     setComposerCollapsed(false);
     setMobileComposerExpanded(false);
@@ -1743,7 +1743,7 @@ export function ChatPane({
   }, [conversation?.id, tabActive, compactHeader]);
 
   useEffect(() => {
-    if (!tabActive || isMobileClient() || isMobileWebComposer()) return;
+    if (!tabActive || isMobileClient()) return;
     const editor = composerEditorRef.current;
     if (editor?.contentEditable !== 'true') return;
     focusComposerEnd(editor);
