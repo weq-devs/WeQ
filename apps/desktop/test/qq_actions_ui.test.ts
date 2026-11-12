@@ -196,6 +196,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
       }),
       account: {
+        dressup: { peerStats: { useQuery: () => ({ data: { likeCount: 100 } }) } },
         contactMetrics: {
           snapshot: { useQuery: () => ({ data: { rows: {} } }) },
           changed: { useSubscription: () => undefined },

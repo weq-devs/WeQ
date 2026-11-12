@@ -35,6 +35,7 @@ import { OnlineStatus } from '../OnlineStatus';
 import { ContactBirthdayRow } from '../ContactBirthdayRow';
 import { CommonRelationships } from '../qq-actions/CommonRelationships';
 import { FriendClue } from '../qq-actions/FriendClue';
+import { ProfileLikeAction } from '../qq-actions/ProfileLikeAction';
 import { QQProfileField } from '../QQProfileField';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { QQGroupMemberControls } from '../QQGroupMemberControls';
@@ -294,15 +295,28 @@ function QqShowRow({ person }: { person: ProfilePerson }) {
   );
 }
 
-function ContactStats({ person, field }: { person: ProfilePerson; field: 'level' | 'likeCount' }) {
+function ContactStats({
+  person,
+  field,
+  preview = false,
+}: {
+  person: ProfilePerson;
+  field: 'level' | 'likeCount';
+  preview?: boolean;
+}) {
   const uid = person.uid || person.id;
   const query = useContactStats(person.identityValue, uid, field);
   const value = query.data?.[field];
   return typeof value === 'number' ? (
-    <ContactRow
-      label={field === 'level' ? 'QQ 等级' : '累计获赞'}
-      value={value.toLocaleString('zh-CN')}
-    />
+    <ContactRow label={field === 'level' ? 'QQ 等级' : '累计获赞'}>
+      {field === 'likeCount' && !preview ? (
+        <ProfileLikeAction uid={uid} uin={person.identityValue} name={displayUserName(person)}>
+          {value.toLocaleString('zh-CN')}
+        </ProfileLikeAction>
+      ) : (
+        value.toLocaleString('zh-CN')
+      )}
+    </ContactRow>
   ) : null;
 }
 
@@ -810,7 +824,7 @@ export function ContactContent({
       hasQQ && !person.clone && person.kind !== 'bot' ? (
         <ContactStats person={person} field="level" />
       ) : null,
-    likes: personal ? <ContactStats person={person} field="likeCount" /> : null,
+    likes: personal ? <ContactStats person={person} field="likeCount" preview={preview} /> : null,
     energy: personal ? <EnergyRow person={person} /> : null,
     uid: (
       <ContactRow

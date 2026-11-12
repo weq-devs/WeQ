@@ -44,7 +44,7 @@ export function useOverlayAnchor(
   active: boolean,
   enabled: boolean,
   explicit?: HTMLElement | null,
-  preferred: 'above' | 'below' = 'below',
+  preferred: 'above' | 'below' | 'side' = 'below',
 ) {
   const document = useRenderDocument();
   const parent = useContext(OverlayAnchorContext);
@@ -82,17 +82,27 @@ export function useOverlayAnchor(
       const rect = card.getBoundingClientRect();
       const cardWidth = card.offsetWidth || rect.width;
       const cardHeight = card.offsetHeight || rect.height;
-      const x = Math.max(left + 8, Math.min(target.left, left + width - cardWidth - 8));
+      const beside =
+        preferred === 'side'
+          ? target.right + cardWidth + 16 <= left + width
+            ? target.right + 8
+            : target.left - cardWidth - 8 >= left + 8
+              ? target.left - cardWidth - 8
+              : null
+          : null;
+      const x = Math.max(left + 8, Math.min(beside ?? target.left, left + width - cardWidth - 8));
       const below = target.bottom + 8;
       const above = target.top - cardHeight - 8;
       const y = Math.max(
         top + 8,
         Math.min(
-          preferred === 'above' && above >= top + 8
-            ? above
-            : below + cardHeight <= top + height - 8
-              ? below
-              : above,
+          beside !== null
+            ? target.top
+            : preferred === 'above' && above >= top + 8
+              ? above
+              : below + cardHeight <= top + height - 8
+                ? below
+                : above,
           top + height - cardHeight - 8,
         ),
       );

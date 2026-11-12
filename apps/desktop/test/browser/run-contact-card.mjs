@@ -294,6 +294,71 @@ try {
       qa.configure({ ...qa.settings, visible: { ...qa.settings.visible, likes: true } });
     });
     await page.getByText('累计获赞', { exact: true }).waitFor();
+    for (const width of [1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.setProperty(
+            '--weq-accent-effective',
+            theme === 'dark' ? '#47bc97' : '#c64556',
+          );
+        }, theme);
+        await card.getByRole('button', { name: '查看资料卡点赞', exact: true }).click();
+        const dialog = page
+          .getByRole('dialog')
+          .filter({ has: page.locator('.weq-profile-like-dialog') });
+        await dialog.waitFor();
+        await dialog.evaluate((node) =>
+          Promise.all(node.getAnimations().map((animation) => animation.finished)),
+        );
+        const presentation = await dialog.evaluate((node) => {
+          const layer = node.closest('.weq-dialog-layer');
+          const total = node.querySelector('.weq-profile-like-total strong');
+          const bounds = node.getBoundingClientRect();
+          const number = total.getBoundingClientRect();
+          return {
+            modal: node.getAttribute('aria-modal'),
+            backdrop: getComputedStyle(layer).backgroundColor,
+            pointerEvents: getComputedStyle(layer).pointerEvents,
+            text: total.textContent,
+            fontSize: Number.parseFloat(getComputedStyle(total).fontSize),
+            centered:
+              Math.abs(number.left + number.width / 2 - (bounds.left + bounds.width / 2)) < 1,
+          };
+        });
+        assert.equal(presentation.modal, null);
+        assert.equal(presentation.backdrop, 'rgba(0, 0, 0, 0)');
+        assert.equal(presentation.pointerEvents, 'none');
+        assert.equal(presentation.text, '128');
+        assert.equal(presentation.fontSize, 40);
+        assert.ok(presentation.centered);
+        const panel = await dialog.boundingBox();
+        assert.ok(
+          panel.x >= 8 && panel.x + panel.width <= width - 8,
+          JSON.stringify({ width, theme, panel }),
+        );
+        assert.ok(panel.y >= 8 && panel.y + panel.height <= 892);
+        if (width === 1280) {
+          const source = await card.boundingBox();
+          assert.ok(panel.x >= source.x + source.width || panel.x + panel.width <= source.x);
+        }
+        if (output)
+          await page.screenshot({ path: resolve(output, `profile-like-${theme}-${width}.png`) });
+        await dialog.getByRole('button', { name: '自定义点赞次数', exact: true }).click();
+        await dialog.getByRole('spinbutton', { name: '资料卡点赞次数', exact: true }).fill('7');
+        assert.equal(
+          await dialog.getByRole('button', { name: '确认点赞', exact: true }).isEnabled(),
+          true,
+        );
+        await dialog.getByRole('button', { name: '取消自定义点赞', exact: true }).click();
+        await dialog.getByRole('button', { name: '关闭资料卡点赞', exact: true }).click();
+        await dialog.waitFor({ state: 'detached' });
+        assert.equal(await card.count(), 1);
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    report.push({ kind: 'profile-like-side-panel', calls: [] });
     // 点赞与空间预览收进操作行的「更多操作」，展开后仍然只有一个入口。
     await page.locator('.weq-contact-overflow > summary').click();
     await page.getByRole('button', { name: '赞资料卡', exact: true }).waitFor();

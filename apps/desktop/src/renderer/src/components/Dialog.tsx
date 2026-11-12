@@ -149,6 +149,7 @@ export function Modal({
   presentation = 'modal',
   title,
   anchor,
+  anchorPlacement,
   centered = false,
   dismissOnOutside = true,
   portalTarget,
@@ -167,6 +168,7 @@ export function Modal({
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating' | 'anchored';
   title?: string;
   anchor?: HTMLElement | null;
+  anchorPlacement?: 'above' | 'below' | 'side';
   /** 强制居中遮罩，不沿用最近的触发点。 */
   centered?: boolean;
   /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
@@ -189,6 +191,7 @@ export function Modal({
     active && !windowed,
     presentation === 'popover' && !centered,
     anchor,
+    anchorPlacement,
   );
   useSurfaceEscape(
     ref,
