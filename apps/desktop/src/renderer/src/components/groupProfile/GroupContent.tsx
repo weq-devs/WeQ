@@ -10,6 +10,7 @@ import { displayUserName } from '../../im-template/template/user';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import type { useGroupProfile } from '../../hooks/useGroupProfile';
 import { ContactRow } from '../contactProfile/ContactRow';
+import { mergeGroupPreviewMembers } from '../../lib/groupPreviewMembers';
 
 const createdDate = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -220,13 +221,11 @@ export function GroupMemberPreview({
   onOpen: (member: GroupMember, anchor: { x: number; y: number }) => void;
 }) {
   const directory = useContext(RelationshipDirectoryContext);
-  const unique = [
-    ...new Map(
-      members
-        .filter((member) => member.memberFlag !== 1 && member.id && member.identityValue !== '0')
-        .map((member) => [member.id, member]),
-    ).values(),
-  ];
+  const unique = mergeGroupPreviewMembers(
+    members.filter(
+      (member) => member.memberFlag !== 1 && member.id && member.identityValue !== '0',
+    ),
+  );
   const friend = (member: GroupMember) =>
     directory?.friends.has(member.id) || directory?.friends.has(member.identityValue) ? 1 : 0;
   const visible = unique.sort((a, b) => friend(b) - friend(a)).slice(0, 8);

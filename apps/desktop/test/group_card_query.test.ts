@@ -131,6 +131,53 @@ it('本地生成群不向真实群资料或成员接口查询', async () => {
   expect(mock.preview).not.toHaveBeenCalled();
   expect(mock.names).not.toHaveBeenCalled();
 });
+it.each([undefined, 'u_self'])(
+  '本人占位与成员预览按 QQ 号合并，保留真实群成员资料（uid=%s）',
+  async (uid) => {
+    const { host, render } = fixture({
+      ...group,
+      members: [
+        {
+          id: 'self:10001',
+          uid,
+          username: 'uin-10001',
+          displayName: '本人昵称',
+          identityLabel: 'UIN',
+          identityValue: '10001',
+          avatarUrl: null,
+          role: 'member',
+          joinedAt: '',
+        },
+      ],
+    });
+    mock.preview.mockResolvedValue({
+      members: [
+        {
+          uid: 'u_self',
+          uin: '10001',
+          nick: '本人昵称',
+          card: '本人群名片',
+          joinTime: 0,
+          lastSpeakTime: 0,
+          muteUntil: 0,
+          adminFlag: 1,
+          memberFlag: 0,
+          customTitle: '',
+          memberLevel: 0,
+        },
+      ],
+      source: 'local',
+      partial: true,
+      error: null,
+    });
+    render();
+    expect(host.textContent).toContain('本人昵称');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    expect(host.textContent?.split(':').at(-1)).toBe('本人群名片');
+  },
+);
 it('同号切换数据源后不显示旧成员或接收迟到响应', async () => {
   const { host, render } = fixture();
   let finish: (value: unknown) => void = () => {};

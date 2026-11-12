@@ -5,6 +5,7 @@ import { useTabActive } from '../components/RetainedTabs';
 import type { GroupConversation, GroupMember } from '../im-template/template/types';
 import { avatarFromUin } from '../lib/avatarResolver';
 import { PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';
+import { mergeGroupPreviewMembers } from '../lib/groupPreviewMembers';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 
@@ -116,14 +117,10 @@ export function useGroupProfile(conversation: GroupConversation) {
     ownerUid: local?.ownerUid,
     binding,
     scope: key,
-    members: [
-      ...new Map(
-        [
-          ...(preview.data?.members ?? []).map((row) => previewMemberView(row, local?.ownerUid)),
-          ...conversation.members.slice(0, 32),
-        ].map((member) => [member.id, member]),
-      ).values(),
-    ],
+    members: mergeGroupPreviewMembers([
+      ...(preview.data?.members ?? []).map((row) => previewMemberView(row, local?.ownerUid)),
+      ...conversation.members.slice(0, 32),
+    ]),
     metrics: enabled ? metrics.data?.rows[`group:${conversation.id}`] : undefined,
     previewLoading: preview.isFetching,
     profileRefreshing: detail.isFetching || cloudName.isFetching,
