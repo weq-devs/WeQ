@@ -439,7 +439,7 @@
   outline-offset: 2px;
 }
 
-/* 「更多」菜单：只放空间预览、点赞这类低频操作。 */
+/* 「更多」菜单承接未常驻的空间、群发言、分析及点赞入口。 */
 .weq-contact-overflow {
   position: relative;
 }

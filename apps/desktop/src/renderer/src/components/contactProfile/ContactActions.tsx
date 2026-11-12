@@ -15,8 +15,8 @@ import { displayUserName } from '../../im-template/template/user';
 const SpacePreview = lazy(() => import('./ContactSpacePreview'));
 
 /**
- * 名片操作区：一个主操作（filled）+ 至多四个次要操作（ghost，带图标）+ 「更多」菜单。
- * 之前这里是平铺的八条同权重文字链，用户看不出该点哪个（审计 B5）。
+ * 名片操作区：一个主操作 + 至多一个常驻次操作，其余入口收进「更多」。
+ * 同一张名片在窄窗口内也保持一行，不缩小文字或依赖按钮换行。
  */
 export function ContactActions({
   person,
@@ -76,8 +76,45 @@ export function ContactActions({
     else run();
   }
   const primary = onOpenChat || openChat;
-  const overflow: Array<{ key: string; label: string; icon: React.ReactNode; run: () => void }> =
+  const secondary: Array<{ key: string; label: string; icon: React.ReactNode; run: () => void }> =
     [];
+  if ((exists || person.clone) && onPreviewChat)
+    secondary.push({
+      key: 'chat-preview',
+      label: '预览消息',
+      icon: <Eye size={14} />,
+      run: () => navigate(onPreviewChat, false),
+    });
+  if (group)
+    secondary.push({
+      key: 'group-speech',
+      label: '本群发言',
+      icon: <MessageSquare size={14} />,
+      run: () => setGroupView('speech'),
+    });
+  if (qq && openSpace)
+    secondary.push({
+      key: 'space',
+      label: '查看空间',
+      icon: <Star size={14} />,
+      run: () => navigate(() => openSpace(person.identityValue, person.nick || person.displayName)),
+    });
+  const [visibleSecondary, ...overflow] = secondary;
+  if (group)
+    overflow.push({
+      key: 'group-analysis',
+      label: '聊天分析',
+      icon: <BarChart3 size={14} />,
+      run: () =>
+        onAnalyze
+          ? onAnalyze({
+              kind: 'member',
+              groupCode: group.groupCode,
+              memberUid: uid,
+              memberUin: person.identityValue,
+            })
+          : setGroupView('analysis'),
+    });
   if (qq && openSpace)
     overflow.push({
       key: 'space-preview',
@@ -103,79 +140,41 @@ export function ContactActions({
             {person.clone || exists ? '查看消息' : resolved ? '发起会话' : '打开会话'}
           </button>
         ) : null}
-        {(exists || person.clone) && onPreviewChat ? (
-          <button
-            type="button"
-            className="weq-contact-secondary"
-            onClick={() => navigate(onPreviewChat, false)}
-          >
-            <Eye size={14} />
-            预览消息
+        {visibleSecondary ? (
+          <button type="button" className="weq-contact-secondary" onClick={visibleSecondary.run}>
+            {visibleSecondary.icon}
+            {visibleSecondary.label}
           </button>
         ) : null}
-        {qq && openSpace ? (
-          <button
-            type="button"
-            className="weq-contact-secondary"
-            onClick={() =>
-              navigate(() => {
-                openSpace(person.identityValue, person.nick || person.displayName);
-              })
-            }
-          >
-            <Star size={14} />
-            查看空间
-          </button>
+        {overflow.length || canLike ? (
+          <details className="weq-contact-overflow">
+            <summary aria-label="更多操作" title="更多操作">
+              <MoreHorizontal size={16} />
+            </summary>
+            <div className="weq-contact-overflow-menu">
+              {overflow.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                    item.run();
+                  }}
+                >
+                  {item.icon}
+                  {item.label}
+                </button>
+              ))}
+              {canLike ? (
+                <ProfileLikeAction
+                  uid={person.uid || person.id}
+                  uin={person.identityValue}
+                  name={displayUserName(person)}
+                />
+              ) : null}
+            </div>
+          </details>
         ) : null}
-        {group ? (
-          <button
-            type="button"
-            className="weq-contact-secondary"
-            onClick={() => setGroupView('speech')}
-          >
-            <MessageSquare size={14} />
-            本群发言
-          </button>
-        ) : null}
-        {group ? (
-          <button
-            type="button"
-            className="weq-contact-secondary"
-            onClick={() =>
-              onAnalyze
-                ? onAnalyze({
-                    kind: 'member',
-                    groupCode: group.groupCode,
-                    memberUid: uid,
-                    memberUin: person.identityValue,
-                  })
-                : setGroupView('analysis')
-            }
-          >
-            <BarChart3 size={14} />
-            聊天分析
-          </button>
-        ) : null}
-        <details className="weq-contact-overflow">
-          <summary aria-label="更多操作" title="更多操作">
-            <MoreHorizontal size={16} />
-          </summary>
-          <div className="weq-contact-overflow-menu">
-            {overflow.map((item) => (
-              <button key={item.key} type="button" onClick={item.run}>
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
-            {canLike ? (
-              <ProfileLikeAction
-                uid={person.uid || person.id}
-                uin={person.identityValue}
-                name={displayUserName(person)}
-              />
-            ) : null}
-          </div>
-        </details>
       </div>
       {previewSpace && qq ? (
         <Suspense fallback={<p role="status">正在加载空间预览…</p>}>
