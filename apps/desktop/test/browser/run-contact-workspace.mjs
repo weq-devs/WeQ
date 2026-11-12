@@ -293,6 +293,27 @@ try {
       if (output)
         await page.screenshot({ path: resolve(output, `${width}-${theme}-field-history.png`) });
       await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: '显示头像历史', exact: true }).click();
+      const avatarHistory = await popover('头像历史');
+      await avatarHistory.locator('img').first().waitFor();
+      await page.waitForFunction(() => {
+        const images = [...document.querySelectorAll('.weq-field-history-body img')];
+        return (
+          images.length === 2 && images.every((image) => image.complete && image.naturalWidth > 0)
+        );
+      });
+      if (output)
+        await page.screenshot({ path: resolve(output, `${width}-${theme}-avatar-history.png`) });
+      await avatarHistory
+        .getByRole('button', { name: '查看历史头像', exact: true })
+        .first()
+        .click();
+      const avatarPreview = page.getByRole('dialog', { name: '历史头像预览', exact: true });
+      await avatarPreview.waitFor();
+      await page.keyboard.press('Escape');
+      await avatarPreview.waitFor({ state: 'hidden' });
+      await avatarHistory.waitFor();
+      await page.keyboard.press('Escape');
       await select('个性展示');
       await page.getByRole('button', { name: '查看 QQ 秀展柜', exact: true }).click();
       await popover('QQ 秀展柜');

@@ -118,7 +118,7 @@ function value(path: string, input: Record<string, unknown>) {
     return {
       fields: input.memberUid
         ? ['card', 'customTitle']
-        : ['nick', 'company', 'school', 'commonGroups', 'marks', 'labels'],
+        : ['nick', 'company', 'school', 'commonGroups', 'marks', 'labels', 'avatar'],
       pending: false,
     };
   if (path === 'account.contactMetrics.history.fieldVersions')
@@ -128,13 +128,23 @@ function value(path: string, input: Record<string, unknown>) {
           id: 2,
           first_at: 1794390000000,
           last_at: 1794390000000,
-          value: input.field === 'company' ? '示例工作室' : '当前项目值',
+          value:
+            input.field === 'avatar'
+              ? 'http://qh.qlogo.cn/g?b=qq&ek=history-new&s='
+              : input.field === 'company'
+                ? '示例工作室'
+                : '当前项目值',
         },
         {
           id: 1,
           first_at: 1794300000000,
           last_at: 1794300000000,
-          value: input.field === 'company' ? '以前的工作室' : '之前的项目值',
+          value:
+            input.field === 'avatar'
+              ? 'https://thirdqq.qlogo.cn/g?b=sdk&nk=10002&s=0'
+              : input.field === 'company'
+                ? '以前的工作室'
+                : '之前的项目值',
         },
       ],
       nextBefore: null,

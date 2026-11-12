@@ -13,6 +13,9 @@ const rpc = vi.hoisted(() => ({
     nextBefore: null,
   })),
 }));
+vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
+  MediaSourceSave: () => null,
+}));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source' },
@@ -110,6 +113,65 @@ it('当前项目为空但确有历史时保留该项目和历史按钮，不复�
   expect(host.querySelector('[aria-label="显示公司历史"]')).not.toBeNull();
   expect(host.textContent).not.toContain('邮箱');
   expect(host.querySelectorAll('button')).toHaveLength(1);
+});
+it('头像历史显示缓存图片，保留历史地址并修复空尺寸，点击可放大', async () => {
+  rpc.summary.mockResolvedValueOnce({ fields: ['avatar'], pending: false });
+  rpc.versions.mockResolvedValueOnce({
+    rows: [
+      { id: 2, first_at: 200, last_at: 200, value: 'http://qh.qlogo.cn/g?b=qq&ek=old&s=' },
+      {
+        id: 1,
+        first_at: 100,
+        last_at: 100,
+        value: 'https://thirdqq.qlogo.cn/g?b=sdk&nk=10002&s=0',
+      },
+    ],
+    nextBefore: null,
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  opened.push({ root, cache });
+  await act(async () => {
+    root.render(
+      h(
+        QueryClientProvider,
+        { client: cache },
+        h(
+          ContactFieldHistoryProvider,
+          { entity: 'friend:u_avatar' },
+          h(ContactRow, { label: '头像', value: '当前头像' }),
+        ),
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[aria-label="显示头像历史"]')!.click();
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  const images = [...document.querySelectorAll<HTMLImageElement>('.weq-field-history-body img')];
+  expect(images).toHaveLength(2);
+  expect(images.map((image) => new URL(image.src).searchParams.get('src'))).toEqual([
+    'http://qh.qlogo.cn/g?b=qq&ek=old&s=0',
+    'https://thirdqq.qlogo.cn/g?b=sdk&nk=10002&s=0',
+  ]);
+  expect(images.every((image) => image.alt === '历史头像')).toBe(true);
+  await act(async () => {
+    images[0]!.closest('button')!.click();
+  });
+  expect(document.querySelector('[aria-label="历史头像预览"]')).not.toBeNull();
+  await act(async () => {
+    images[1]!.dispatchEvent(new Event('error'));
+  });
+  expect(document.querySelector('.weq-field-history-body')?.textContent).toContain('图片暂不可用');
 });
 it.each(['modal', 'overlay'] as const)('嵌套 %s 中的其他对象不继承宿主历史按钮', async (kind) => {
   const host = document.createElement('div');

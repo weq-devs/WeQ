@@ -1,0 +1,32 @@
+.weq-history-avatar {
+  display: block;
+  width: 96px;
+  height: 96px;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  cursor: zoom-in;
+}
+
+.weq-history-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.weq-history-avatar:hover {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-history-avatar:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-history-avatar-unavailable {
+  color: var(--weq-fg-secondary);
+}

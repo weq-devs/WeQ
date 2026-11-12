@@ -6,6 +6,7 @@ import { client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Modal } from '../Dialog';
 import { HistoryValue } from '../ContactHistory';
+import { ContactHistoryAvatar } from './ContactHistoryAvatar';
 import { ContactFieldHistoryContext as Context } from '../../lib/contactFieldHistoryContext';
 
 export const contactHistoryFieldForLabel: Record<string, string> = {
@@ -215,7 +216,11 @@ function FieldHistoryDialog({
                     观察于{' '}
                     {new Date(row.first_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
                   </time>
-                  <HistoryValue value={row.value} />
+                  {field === 'avatar' ? (
+                    <ContactHistoryAvatar value={row.value} />
+                  ) : (
+                    <HistoryValue value={row.value} />
+                  )}
                 </li>
               ))}
           </ol>
