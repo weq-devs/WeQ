@@ -230,7 +230,9 @@ try {
     const signature = card.locator('.weq-contact-signature');
     await signature.getByRole('button', { name: '展开' }).click();
     assert.equal(
-      await signature.locator('p').evaluate((node) => node.scrollHeight > node.clientHeight + 1),
+      await signature
+        .locator('.weq-contact-signature-text')
+        .evaluate((node) => node.scrollHeight > node.clientHeight + 1),
       false,
     );
     await signature.getByRole('button', { name: '收起' }).click();
@@ -368,8 +370,11 @@ try {
           await page.screenshot({ path: resolve(output, `${theme}-${width}-settings.png`) });
       }
     await page.goto(`${url}?short-signature=1`);
-    await page.locator('.weq-contact-signature p').waitFor();
-    assert.equal(await page.locator('.weq-contact-signature button').count(), 0);
+    await page.locator('.weq-contact-signature-text').waitFor();
+    assert.equal(
+      await page.locator('.weq-contact-signature button:not(.weq-contact-signature-text)').count(),
+      0,
+    );
     await page.evaluate(() => {
       const qa = window.contactCardQa;
       qa.configure({
@@ -380,6 +385,10 @@ try {
     assert.equal(await page.getByRole('button', { name: '复制 QID', exact: true }).count(), 0);
     assert.doesNotMatch(await page.locator('.weq-contact-title-line').innerText(), /正在听音乐/);
     report.push({ kind: 'short-signature-and-identity-settings', calls: [] });
+    await page.locator('.weq-contact-signature-text').click();
+    await page.locator('.weq-contact-workspace-v2').waitFor();
+    assert.equal(await page.locator('[aria-current="page"]').textContent(), '签名历史');
+    report.push({ kind: 'signature-history-navigation', calls: [] });
     await page.goto(`${url}?minimal=1&preferences-loading=1`);
     await page.locator('.weq-member-pop').waitFor();
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));

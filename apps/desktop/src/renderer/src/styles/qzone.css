@@ -1,3 +1,5 @@
+@import './qzone-interactions.css';
+
 .weq-qzn {
   display: flex;
   flex-direction: column;
@@ -283,56 +285,6 @@
   padding: 12px;
   font-size: 12px;
   color: var(--muted-foreground);
-}
-.weq-qzn-actions {
-  display: flex;
-  gap: 18px;
-  padding-top: 8px;
-  color: var(--muted-foreground);
-}
-.weq-qzn-actions button[aria-expanded='true'] {
-  color: var(--primary);
-}
-.weq-qzn-interaction {
-  margin-top: 12px;
-  padding: 14px;
-  background: var(--muted);
-  border-radius: 6px;
-}
-.weq-qzn-comment {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 12px 0;
-  font-size: 12px;
-}
-.weq-qzn-comment > div {
-  min-width: 0;
-  flex: 1;
-}
-.weq-qzn-comment p {
-  margin: 4px 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.7;
-}
-.weq-qzn-comment.is-reply {
-  margin-left: 34px;
-}
-.weq-qzn-comment .weq-qzn-pictures {
-  max-width: 210px;
-}
-.weq-qzn-like-users {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-.weq-qzn-like-users > span,
-.weq-qzn-like-users > button {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 12px;
 }
 .weq-qzn-status {
   font-size: 12px;
@@ -640,20 +592,6 @@
   margin: 8px 0;
 }
 
-.weq-qzn-comment-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--muted-foreground);
-}
-.weq-qzn-comment-meta .weq-qzn-comment-likes {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  font-size: 11px;
-}
-
 .weq-qzn-feed-link {
   display: flex;
   flex-direction: column;
@@ -713,14 +651,6 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-}
-.weq-qzn-actions {
-  align-items: center;
-}
-.weq-qzn-actions {
-  flex-wrap: wrap;
-  column-gap: 12px;
-  row-gap: 0;
 }
 .weq-qzn-space-stats {
   display: flex;

@@ -127,6 +127,49 @@ it('签名入口按需打开详情，保留时间地点并支持翻页', async (
   await click('加载更多');
   expect(state.next).toHaveBeenCalledTimes(1);
 });
+it('签名互动复用空间操作栏和评论排版，点赞名单通过悬浮面板展示', async () => {
+  state.signatures.mockReturnValue(
+    result({
+      pages: [
+        {
+          ...page,
+          items: [
+            {
+              ...page.items[0],
+              likes: '2',
+              likeUsers: [{ id: '10003', uin: '10003', name: '合成点赞人' }],
+              commentItems: [
+                {
+                  id: 'c1',
+                  fromUin: '10003',
+                  fromName: '合成评论者',
+                  text: '合成评论正文',
+                  time: 100,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  await render('signature');
+  await click('历史签名');
+  expect(document.querySelector('.weq-signature-interactions .weq-qzn-actions')).not.toBeNull();
+  expect(document.querySelector('.weq-qzn-actions')?.textContent).toContain('评论');
+  expect(document.body.textContent).not.toContain('点赞人');
+  const like = document.querySelector<HTMLButtonElement>('[aria-label="点赞签名"]')!;
+  await act(async () => like.focus());
+  expect(
+    document.querySelector('.weq-qzn-like-popover .weq-qzn-like-users')?.textContent,
+  ).toContain('合成点赞人');
+  await click('评论');
+  expect(document.querySelector('.weq-qzn-interaction .weq-qzn-comment p')?.textContent).toBe(
+    '合成评论正文',
+  );
+  expect(document.querySelector('.weq-qzn-comment-meta time')).not.toBeNull();
+  expect(document.querySelector('.weq-qzn-comment-composer .weq-set-iconbtn')).not.toBeNull();
+});
 it('切账号或切目标关闭旧详情，不带入旧分页', async () => {
   await render('signature');
   await click('历史签名');

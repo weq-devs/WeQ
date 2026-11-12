@@ -200,6 +200,31 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('点击签名正文进入同一联系人的签名历史章节，并关闭名片', async () => {
+    const close = vi.fn();
+    await mountCard(close, undefined, { ...MEMBER, signature: '可以点击的合成签名' });
+    const signature = layer().querySelector<HTMLButtonElement>('.weq-contact-signature-text');
+    expect(signature?.textContent).toBe('可以点击的合成签名');
+    const selection = document.getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(signature!);
+    selection.addRange(range);
+    await act(async () => signature!.click());
+    expect(expandContact).not.toHaveBeenCalled();
+    selection.removeAllRanges();
+    await act(async () => signature!.click());
+    expect(expandContact).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: 'person',
+        contact: expect.objectContaining({ identityValue: MEMBER.identityValue }),
+        tab: 'signatures',
+      }),
+    );
+    expect(close).toHaveBeenCalledOnce();
+    expect(close.mock.invocationCallOrder[0]).toBeLessThan(
+      expandContact.mock.invocationCallOrder[0],
+    );
+  });
   it('没有备注时添加备注仍位于备注行，不再查询或展示扩展备注资料', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, isFriend: true });
     const remarks = layer().querySelector('.weq-contact-remarks')!;

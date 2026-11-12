@@ -20,11 +20,14 @@ import type {
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { client, trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
+import { QqAvatar } from './QqAvatar';
+import { QzoneLikesPopover } from './QzoneLikesPopover';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import { chooseBrowserFiles, stageAccountFile } from '../lib/accountFilePicker';
 import { profileLikeSummary } from '../lib/profileInteractionPresentation';
 import { mergeExtrasPages, nextExtrasCursor } from '../lib/profileExtrasPages';
 import '../styles/profile-interactions.css';
+import '../styles/qzone-interactions.css';
 
 type Target = QQWriteBinding & { uin: string };
 const options = { staleTime: 60_000, retry: false as const, refetchOnWindowFocus: false };
@@ -83,29 +86,28 @@ function CommentRows({
   reply,
   remove,
   canRemove,
+  qzone = false,
 }: {
   items: ProfileComment[];
   reply?: (item: ProfileComment) => void;
   remove?: (item: ProfileComment) => void;
   canRemove?: (item: ProfileComment) => boolean;
+  qzone?: boolean;
 }) {
   const name = useNames();
   return (
-    <ul className="weq-profile-comments">
-      {items.map((item) => (
-        <li key={item.id}>
-          <div>
-            <strong>{name(item.fromUin, item.fromName)}</strong>
-            {item.replyId && item.toUin ? (
-              <>
-                {' '}
-                回复 <strong>{name(item.toUin, item.toName)}</strong>
-              </>
-            ) : null}
-            <span>：{item.text}</span>
-          </div>
-          {reply || remove ? (
-            <div className="weq-profile-comment-tools">
+    <ul className={qzone ? 'weq-signature-comments' : 'weq-profile-comments'}>
+      {items.map((item) => {
+        const tools =
+          qzone || reply || remove ? (
+            <div className={qzone ? 'weq-qzn-comment-meta' : 'weq-profile-comment-tools'}>
+              {qzone && item.time ? (
+                <time>
+                  {new Date(item.time * 1000).toLocaleString('zh-CN', {
+                    timeZone: 'Asia/Shanghai',
+                  })}
+                </time>
+              ) : null}
               {reply ? (
                 <button
                   type="button"
@@ -127,9 +129,33 @@ function CommentRows({
                 </button>
               ) : null}
             </div>
-          ) : null}
-        </li>
-      ))}
+          ) : null;
+        return (
+          <li
+            key={item.id}
+            className={qzone ? `weq-qzn-comment${item.replyId ? ' is-reply' : ''}` : undefined}
+          >
+            {qzone ? <QqAvatar uin={item.fromUin} size={26} /> : null}
+            <div>
+              <strong className={qzone ? 'weq-qzn-person' : undefined}>
+                {name(item.fromUin, item.fromName)}
+              </strong>
+              {item.replyId && item.toUin ? (
+                <>
+                  {' '}
+                  回复{' '}
+                  <strong className={qzone ? 'weq-qzn-person' : undefined}>
+                    {name(item.toUin, item.toName)}
+                  </strong>
+                </>
+              ) : null}
+              {qzone ? <p>{item.text}</p> : <span>：{item.text}</span>}
+              {qzone ? tools : null}
+            </div>
+            {!qzone ? tools : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -174,56 +200,77 @@ export function SignatureInteractions({
     }
   }
   return (
-    <div className="weq-profile-interactions">
-      <div className="weq-profile-interaction-bar">
-        <button
-          type="button"
-          aria-label={liked ? '取消签名点赞' : '点赞签名'}
-          title={liked ? '取消签名点赞' : '点赞签名'}
-          aria-pressed={liked}
-          disabled={!online || op.pending}
-          onClick={() =>
-            void op.run(async () => {
-              await client.account.qqActions.signatureLike.mutate({ ...args, liked: !liked });
-              if (op.mounted.current) setLiked(!liked);
-              await reload();
-            })
-          }
-        >
-          <ThumbsUp size={15} fill={liked ? 'currentColor' : 'none'} />
-          {item.likes ?? ''}
-        </button>
-        <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-          <MessageCircle size={15} />
-          评论
-        </button>
-        {likeUsers.length || (item.likes && item.likes !== '0') ? (
-          <button type="button" aria-expanded={showLikes} onClick={() => setShowLikes(!showLikes)}>
-            点赞人
-          </button>
-        ) : null}
-      </div>
-      <ProfileLikeSummary users={likeUsers} total={item.likes} />
-      {showLikes ? (
-        <div className="weq-profile-like-list">
-          {likeUsers.map((user) => (
-            <span key={user.id}>{name(user.uin, user.name)}</span>
-          ))}
-          {likes.hasNextPage && !likes.error ? (
+    <div className="weq-signature-interactions">
+      <div className="weq-qzn-actions">
+        <QzoneLikesPopover
+          trigger={
             <button
               type="button"
-              disabled={likes.isFetching}
-              onClick={() => void likes.fetchNextPage()}
+              aria-label={liked ? '取消签名点赞' : '点赞签名'}
+              title={liked ? '取消签名点赞' : '点赞签名'}
+              aria-pressed={liked}
+              onMouseEnter={() => setShowLikes(true)}
+              onFocus={() => setShowLikes(true)}
+              disabled={!online || op.pending}
+              onClick={() =>
+                void op.run(async () => {
+                  await client.account.qqActions.signatureLike.mutate({ ...args, liked: !liked });
+                  if (op.mounted.current) setLiked(!liked);
+                  await reload();
+                })
+              }
             >
-              <ArrowDown size={14} />
-              加载更多
+              <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />赞 {item.likes ?? '?'}
             </button>
-          ) : null}
-        </div>
-      ) : null}
+          }
+        >
+          <div className="weq-qzn-interaction">
+            <div className="weq-qzn-like-users">
+              {likeUsers.map((user) => (
+                <span key={user.id}>
+                  <QqAvatar uin={user.uin} size={20} />
+                  <span>{name(user.uin, user.name)}</span>
+                </span>
+              ))}
+            </div>
+            <ProfileLikeSummary users={likeUsers} total={item.likes} />
+            {likes.isFetching ? (
+              <p className="weq-profile-like-summary" role="status">
+                读取中…
+              </p>
+            ) : null}
+            {likes.error ? (
+              <button type="button" onClick={() => void likes.refetch()}>
+                重试读取点赞人
+              </button>
+            ) : null}
+            {likes.hasNextPage && !likes.error ? (
+              <button
+                type="button"
+                disabled={likes.isFetching}
+                onClick={() => void likes.fetchNextPage()}
+              >
+                <ArrowDown size={14} />
+                加载更多
+              </button>
+            ) : null}
+          </div>
+        </QzoneLikesPopover>
+        <button
+          type="button"
+          title="评论"
+          aria-label="评论"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <MessageCircle size={16} />
+          评论
+        </button>
+      </div>
       {expanded ? (
-        <>
+        <div className="weq-qzn-interaction">
           <CommentRows
+            qzone
             items={comments}
             reply={online && !op.pending ? setReply : undefined}
             canRemove={(comment) =>
@@ -261,7 +308,7 @@ export function SignatureInteractions({
             </div>
           ) : null}
           <form
-            className="weq-profile-comment-form"
+            className="weq-profile-comment-form weq-qzn-comment-composer"
             onSubmit={(event) => {
               event.preventDefault();
               const text = content.trim();
@@ -306,6 +353,7 @@ export function SignatureInteractions({
             />
             <button
               type="submit"
+              className="weq-set-iconbtn"
               title="发送评论"
               aria-label="发送评论"
               disabled={!online || op.pending || !content.trim()}
@@ -313,7 +361,7 @@ export function SignatureInteractions({
               <Send size={16} />
             </button>
           </form>
-        </>
+        </div>
       ) : null}
       {op.error ? <p role="status">{op.error}</p> : null}
     </div>

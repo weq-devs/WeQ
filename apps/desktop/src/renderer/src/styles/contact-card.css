@@ -285,7 +285,8 @@
   gap: 2px;
 }
 
-.weq-contact-signature > p {
+.weq-contact-signature > p,
+.weq-contact-signature > .weq-contact-signature-text {
   /* 截断用高度而不是 line-clamp：避免「…」和「展开」同时出现。 */
   max-height: calc(3 * 1.6em);
   margin: 0;
@@ -295,11 +296,12 @@
   line-height: 1.6;
 }
 
-.weq-contact-signature.is-open > p {
+.weq-contact-signature.is-open > p,
+.weq-contact-signature.is-open > .weq-contact-signature-text {
   max-height: none;
 }
 
-.weq-contact-signature > button {
+.weq-contact-signature > button:not(.weq-contact-signature-text) {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -311,6 +313,29 @@
   color: var(--weq-accent-effective);
   font-size: 12px;
   cursor: pointer;
+}
+
+.weq-contact-signature > .weq-contact-signature-text {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-contact-signature > .weq-contact-signature-text:hover {
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-signature > .weq-contact-signature-text:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
 }
 
 .weq-contact-signature > button svg {

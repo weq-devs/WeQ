@@ -481,10 +481,10 @@ function BotFeaturesRow({ person }: { person: ProfilePerson }) {
   );
 }
 
-function SignatureRow({ text }: { text: string }) {
+function SignatureRow({ text, onHistory }: { text: string; onHistory?: () => void }) {
   const [open, setOpen] = useState(false);
   const [overflow, setOverflow] = useState(false);
-  const content = useRef<HTMLParagraphElement>(null);
+  const content = useRef<HTMLParagraphElement | HTMLButtonElement>(null);
   useLayoutEffect(() => {
     const element = content.current;
     if (!element) return;
@@ -500,7 +500,31 @@ function SignatureRow({ text }: { text: string }) {
   return (
     <ContactRow label="个性签名">
       <div className={`weq-contact-signature${open ? ' is-open' : ''}`}>
-        <p ref={content}>{text}</p>
+        {onHistory ? (
+          <button
+            ref={(element) => {
+              content.current = element;
+            }}
+            type="button"
+            className="weq-contact-signature-text"
+            title="查看历史个性签名"
+            onClick={(event) => {
+              const selection = event.currentTarget.ownerDocument.getSelection();
+              if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
+                onHistory();
+            }}
+          >
+            {text}
+          </button>
+        ) : (
+          <p
+            ref={(element) => {
+              content.current = element;
+            }}
+          >
+            {text}
+          </p>
+        )}
         {overflow ? (
           <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? '收起' : '展开'}
@@ -639,7 +663,26 @@ export function ContactContent({
   }
   const rows: Partial<Record<ContactCardContent, ReactNode>> = {
     qqShow: hasQQ && !person.clone && person.kind !== 'bot' ? <QqShowRow person={person} /> : null,
-    signature: person.signature ? <SignatureRow text={person.signature} /> : null,
+    signature: person.signature ? (
+      <SignatureRow
+        text={person.signature}
+        onHistory={
+          personal && !preview
+            ? () => {
+                if (onSection) onSection('signatures');
+                else if (navigate) {
+                  onNavigate?.();
+                  navigate({
+                    kind: 'person',
+                    contact: { createdAt: '', ...person } as Contact,
+                    tab: 'signatures',
+                  });
+                } else open('signatures');
+              }
+            : undefined
+        }
+      />
+    ) : null,
     signatureUpdated: (
       <ContactRow
         label="签名更新"
