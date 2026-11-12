@@ -115,6 +115,7 @@ import { getSpecialCare } from './special_care';
 import { fetchVipInfo } from './vip_info';
 import type { VipInfo } from '../vip';
 import { QzoneMediaTypesService } from '../qzone_media_types';
+import { QzoneLegacyService, resolveQzoneReplyTarget } from '../qzone_legacy';
 import type { TrpcNative } from '@weq/protocol';
 import { uploadGroupAlbumVideo, type GroupAlbumVideoUpload } from './group_album_video';
 import {
@@ -158,6 +159,7 @@ const TI_DOMAIN = 'ti.qq.com';
 export class WebQueryService {
   private readonly creds: WebCredentialProvider;
   private readonly mediaTypes?: QzoneMediaTypesService;
+  private readonly legacyQzone?: QzoneLegacyService;
   private readonly qzoneNameCache = new Map<string, { name: string; at: number }>();
 
   /**
@@ -174,11 +176,17 @@ export class WebQueryService {
     onSeedInvalidated?: (domain: string) => void,
   ) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid, onSeedInvalidated);
-    if (nt.sendPacket)
+    if (nt.sendPacket) {
       this.mediaTypes = new QzoneMediaTypesService(
         { sendPacket: nt.sendPacket.bind(nt) },
         resolvePid,
       );
+      this.legacyQzone = new QzoneLegacyService(
+        { sendPacket: nt.sendPacket.bind(nt) },
+        resolvePid,
+        String(session.context.uin),
+      );
+    }
     if (loginPskey) this.creds.seedPskey(loginPskey);
   }
 
@@ -537,6 +545,40 @@ export class WebQueryService {
   async getQzoneMediaTypes(ownerUin: string, tid: string, time: number, signal?: AbortSignal) {
     if (!this.mediaTypes) throw new Error('当前会话不支持空间媒体类型读取。');
     return this.mediaTypes.read({ ownerUin, tid, time }, signal);
+  }
+  async getQzoneNativeDetail(ownerUin: string, tid: string, time: number, signal?: AbortSignal) {
+    if (!this.mediaTypes) throw new Error('当前会话不支持空间原生详情。');
+    return this.mediaTypes.readDetail({ ownerUin, tid, time }, signal, true);
+  }
+  async getQzoneTailOptions() {
+    if (!this.legacyQzone) throw new Error('当前会话不支持手机尾巴读取。');
+    return this.legacyQzone.tails();
+  }
+  async setQzoneTail(id: string, beforeSend: () => void) {
+    if (!this.legacyQzone) throw new Error('当前会话不支持手机尾巴设置。');
+    return this.legacyQzone.setTail(id, beforeSend);
+  }
+  async replyQzone(
+    owner: string,
+    tid: string,
+    targetId: string,
+    content: string,
+    beforeSend: () => void,
+  ) {
+    if (!this.legacyQzone) throw new Error('当前会话不支持说说定向回复。');
+    const snapshot = await this.getQzoneStructuredComments(owner, tid);
+    return this.legacyQzone.reply(
+      owner,
+      tid,
+      content,
+      resolveQzoneReplyTarget(snapshot.comments, targetId),
+      beforeSend,
+    );
+  }
+  async forwardQzone(owner: string, tid: string, reason: string, beforeSend: () => void) {
+    if (!this.legacyQzone) throw new Error('当前会话不支持说说转发。');
+    await this.getQzonePostDetail(owner, tid);
+    return this.legacyQzone.forward(owner, tid, reason, beforeSend);
   }
 
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */

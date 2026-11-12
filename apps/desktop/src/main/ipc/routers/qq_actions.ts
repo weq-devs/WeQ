@@ -984,12 +984,27 @@ export function createQQActionsRouter(
     tags: procedure
       .input(binding.extend({ category: z.number().int().min(0).max(0xffffffff) }))
       .query(({ input: i }) => read(i, (s) => s.groupModeration.getCategoryTags(i.category))),
+    qzoneForward: procedure
+      .input(
+        binding.extend({
+          hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
+          tid: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+          reason: z.string().max(4096),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, (s, current) => s.webQuery.forwardQzone(i.hostUin, i.tid, i.reason, current)),
+      ),
+    qzoneTail: procedure
+      .input(binding.extend({ id: z.string().max(1024) }))
+      .mutation(({ input: i }) => write(i, (s, current) => s.webQuery.setQzoneTail(i.id, current))),
     qzone: procedure
       .input(
         binding.extend({
           hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
           tid: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-          action: z.enum(['like', 'unlike', 'comment']),
+          action: z.enum(['like', 'unlike', 'comment', 'reply']),
+          targetCommentId: z.string().min(1).max(1024).optional(),
           content: text.optional(),
           time: z.number().int().nonnegative().safe().default(0),
           imagePath: id.optional(),
@@ -997,6 +1012,11 @@ export function createQQActionsRouter(
       )
       .mutation(({ input: i }) =>
         write(i, async (s, current) => {
+          if (i.action === 'reply') {
+            if (!i.content || !i.targetCommentId) throw new Error('回复内容或目标缺失。');
+            if (i.imagePath) throw new Error('定向回复暂不支持附图，请移除图片后发送。');
+            return s.webQuery.replyQzone(i.hostUin, i.tid, i.targetCommentId, i.content, current);
+          }
           if (i.action !== 'comment')
             return s.webQuery.setQzoneLike(i.hostUin, i.tid, i.action === 'like', i.time, current);
           if (!i.content) throw new Error('评论不能为空');

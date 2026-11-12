@@ -47,6 +47,16 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
+  nativeDetail: procedure
+    .input(post.extend({ time: z.number().int().positive() }))
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneNativeDetail(input.hostUin, input.tid, input.time, signal),
+      ),
+    ),
+  tails: procedure
+    .input(read)
+    .query(({ input }) => request(input, (services) => services.webQuery.getQzoneTailOptions())),
   mediaTypes: procedure
     .input(post.extend({ time: z.number().int().positive() }))
     .query(({ input }) =>

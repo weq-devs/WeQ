@@ -570,6 +570,8 @@ function AlbumMediaView({
         return {
           key: mediaKey(item),
           kind: item.kind === 'video' && item.originalUrl ? 'video' : 'image',
+          isLivePhoto:
+            item.isLivePhoto === true && item.kind === 'video' && Boolean(item.originalUrl),
           saveLabel: item.kind === 'video' && !item.originalUrl ? '保存视频封面' : undefined,
           src: full ? albumMediaUrl(full) : '',
           saveSource: {
@@ -851,11 +853,13 @@ function MediaThumbnail({
           <small>{broken ? '预览加载失败' : '暂无封面'}</small>
         </span>
       )}
-      {item.kind === 'video' && (
+      {item.kind === 'video' && item.isLivePhoto === true ? (
+        <span className="group-album-media-play">实况</span>
+      ) : item.kind === 'video' ? (
         <span className="group-album-media-play" aria-hidden>
           <Play size={18} />
         </span>
-      )}
+      ) : null}
       <span className="group-album-media-name">{item.fileName || '未命名媒体'}</span>
     </button>
   );

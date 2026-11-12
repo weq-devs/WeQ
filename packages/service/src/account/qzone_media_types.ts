@@ -1,8 +1,13 @@
-import { GetQzoneFeedMediaDetail, type QzoneMediaType, type TrpcNative } from '@weq/protocol';
+import {
+  GetQzoneFeedMediaDetail,
+  type QzoneNativeDetail,
+  type QzoneMediaType,
+  type TrpcNative,
+} from '@weq/protocol';
 
 export class QzoneMediaTypesService {
-  private readonly cache = new Map<string, { expires: number; values: QzoneMediaType[] | null }>();
-  private readonly pending = new Map<string, Promise<QzoneMediaType[]>>();
+  private readonly cache = new Map<string, { expires: number; values: QzoneNativeDetail | null }>();
+  private readonly pending = new Map<string, Promise<QzoneNativeDetail>>();
 
   constructor(
     private readonly nt: TrpcNative,
@@ -13,18 +18,26 @@ export class QzoneMediaTypesService {
     params: GetQzoneFeedMediaDetail.Params,
     signal?: AbortSignal,
   ): Promise<QzoneMediaType[]> {
+    return (await this.readDetail(params, signal)).mediaTypes;
+  }
+  async readDetail(
+    params: GetQzoneFeedMediaDetail.Params,
+    signal?: AbortSignal,
+    refresh = false,
+  ): Promise<QzoneNativeDetail> {
     signal?.throwIfAborted();
     const pid = this.resolvePid();
     const key = JSON.stringify([pid, params.ownerUin, params.tid, params.time]);
+    if (refresh) this.cache.delete(key);
     const cached = this.cache.get(key);
     if (cached && cached.expires > Date.now()) {
       if (!cached.values) throw new Error('空间媒体类型暂时不可用。');
-      return cached.values.map((value) => ({ ...value }));
+      return this.copy(cached.values);
     }
     let task = this.pending.get(key);
     if (!task) {
       if (this.pending.size >= 2) throw new Error('空间媒体类型正在读取。');
-      task = GetQzoneFeedMediaDetail.invoke(this.nt, pid, params)
+      task = GetQzoneFeedMediaDetail.invokeDetail(this.nt, pid, params)
         .then((values) => {
           if (this.resolvePid() !== pid) throw new Error('QQ 会话已切换。');
           this.remember(key, values, 5 * 60_000);
@@ -40,10 +53,12 @@ export class QzoneMediaTypesService {
     const values = await task;
     signal?.throwIfAborted();
     if (this.resolvePid() !== pid) throw new Error('QQ 会话已切换。');
-    return values.map((value) => ({ ...value }));
+    return this.copy(values);
   }
-
-  private remember(key: string, values: QzoneMediaType[] | null, ttl: number) {
+  private copy(value: QzoneNativeDetail): QzoneNativeDetail {
+    return { ...value, mediaTypes: value.mediaTypes.map((media) => ({ ...media })) };
+  }
+  private remember(key: string, values: QzoneNativeDetail | null, ttl: number) {
     this.cache.delete(key);
     this.cache.set(key, { values, expires: Date.now() + ttl });
     while (this.cache.size > 128) this.cache.delete(this.cache.keys().next().value!);

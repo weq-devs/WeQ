@@ -1,0 +1,20 @@
+.weq-qzn-tail-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.weq-qzn-tail-control select {
+  min-width: 0;
+  max-width: 240px;
+  width: 100%;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+html[data-theme='dark'] .weq-qzn-tail-control select {
+  border-color: var(--weq-border-strong);
+}

@@ -568,7 +568,13 @@ export function qzoneTextParts(content: string): QzoneTextPart[] {
       parts.push({ kind: 'text', text: content.slice(cursor, index), offset: cursor });
     if (match[3]) parts.push({ kind: 'emoji', code: match[3], offset: index });
     else {
-      const nickname = match[2]!.replace(/,(?:who|type|uin):.*$/, '');
+      const rawNickname = match[2]!.replace(/,(?:who|type|uin):.*$/, '');
+      let nickname = rawNickname;
+      try {
+        nickname = decodeURIComponent(rawNickname);
+      } catch {
+        /* 旧正文中的普通百分号保留。 */
+      }
       parts.push({
         kind: 'mention',
         uin: match[1]!,

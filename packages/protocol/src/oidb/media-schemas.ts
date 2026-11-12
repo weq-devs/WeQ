@@ -325,6 +325,7 @@ const ALBUM_MEDIA_INFO = message([
   { name: 'uploader', tag: 6, type: 'string' },
   { name: 'batchId', tag: 7, type: 'uint64' },
   { name: 'uploadTime', tag: 8, type: 'uint64' },
+  { name: 'isLivePhoto', tag: 18, type: 'bool' },
 ]);
 
 const ALBUM_INFO = message([

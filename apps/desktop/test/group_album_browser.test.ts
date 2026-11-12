@@ -189,7 +189,7 @@ function capture(name: string) {
     'group-album-browser',
     'qq-actions',
     'qq-write',
-    'qzone-preview',
+    'unified-media-preview',
     'export-save-actions',
     'media-save',
     'conversation-actions',
@@ -252,6 +252,24 @@ it('图片视频筛选和文件名搜索只筛本次结果，网格不挂载逐�
   expect(state.media).toHaveBeenCalledOnce();
   act(() => button('上传图片').click());
   expect(document.querySelector('[aria-label="上传到群相册"]')).not.toBeNull();
+});
+it('只有显式实况位显示标识，预览静音；普通视频与缺失字段不猜测', async () => {
+  state.media.mockResolvedValue([
+    { ...picture('live', 'video'), isLivePhoto: true },
+    { ...picture('normal', 'video'), isLivePhoto: false },
+    picture('unknown', 'video'),
+  ]);
+  await mount();
+  await openFirst();
+  expect(
+    [...document.querySelectorAll('.group-album-media-play')]
+      .map((node) => node.textContent)
+      .filter((text) => text === '实况'),
+  ).toHaveLength(1);
+  capture('live-flag');
+  await act(async () => button('预览 live.mp4').click());
+  expect(document.querySelector('video')?.muted).toBe(true);
+  expect(document.body.textContent).toContain('实况');
 });
 it('大相册分批展示但连续预览可导航到当前批次外，不冒充网络分页', async () => {
   state.media.mockResolvedValueOnce(

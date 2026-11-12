@@ -10,12 +10,14 @@ export function QzoneForwardDialog({
   children,
   onClose,
   submit,
+  disabled = false,
   unavailableReason = '常规说说转发接口尚未接入，文案可编辑，暂不能发送。',
 }: {
   previousContent: string;
   children: ReactNode;
   onClose: () => void;
   submit?: (reason: string) => Promise<void>;
+  disabled?: boolean;
   unavailableReason?: string;
 }) {
   const titleId = useId();
@@ -49,7 +51,7 @@ export function QzoneForwardDialog({
     input.current?.setSelectionRange(0, 0);
   }, [ready]);
   async function send() {
-    if (!submit || submitting.current || !ready) return;
+    if (!submit || disabled || submitting.current || !ready) return;
     submitting.current = true;
     setBusy(true);
     setError('');
@@ -99,7 +101,7 @@ export function QzoneForwardDialog({
           <button
             type="button"
             className="weq-qzn-primary"
-            disabled={!submit || busy || !ready}
+            disabled={!submit || disabled || busy || !ready}
             onClick={() => void send()}
           >
             {busy ? <Loader2 size={15} className="weq-spin" /> : <Repeat2 size={15} />}转发

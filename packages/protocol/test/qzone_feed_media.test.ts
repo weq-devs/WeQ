@@ -12,6 +12,19 @@ const ids = message([
   { name: 'text', tag: 3, type: 'string' },
   { name: 'uin', tag: 4, type: 'uint64' },
 ]);
+const text = message([
+  {
+    name: 'parts',
+    tag: 1,
+    repeated: true,
+    type: message([
+      { name: 'kind', tag: 1, type: 'int32' },
+      { name: 'text', tag: 2, type: 'string' },
+      { name: 'nickname', tag: 4, type: 'string' },
+      { name: 'uin', tag: 7, type: 'string' },
+    ]),
+  },
+]);
 const fixture = message([
   {
     name: 'body',
@@ -25,6 +38,18 @@ const fixture = message([
             name: 'feed',
             tag: 1,
             type: message([
+              { name: 'title', tag: 3, type: text },
+              { name: 'text', tag: 4, type: text },
+              {
+                name: 'comments',
+                tag: 7,
+                type: message([{ name: 'count', tag: 1, type: 'uint32', force: true }]),
+              },
+              {
+                name: 'likes',
+                tag: 8,
+                type: message([{ name: 'count', tag: 1, type: 'uint32', force: true }]),
+              },
               {
                 name: 'comm',
                 tag: 1,
@@ -68,6 +93,7 @@ const response = (
   owner = '10001',
   tid = 'fixture-post',
   appid = 311n,
+  extra: Record<string, unknown> = {},
 ) =>
   encode(fixture, {
     body: {
@@ -83,12 +109,41 @@ const response = (
             },
           },
           media: { items },
+          ...extra,
         },
       },
     },
   });
 
 describe('空间 V4 媒体详情', () => {
+  it('正文来自 tag 4 而非另一文本 cell，保留 @ 和真实零计数', () => {
+    expect(
+      GetQzoneFeedMediaDetail.parseDetail(
+        response([], '10001', 'fixture-post', 311n, {
+          title: { parts: [{ text: 'not body' }] },
+          text: { parts: [{ text: '正文 ' }, { kind: 1, uin: '10002', nickname: '昵称,{}' }] },
+          comments: { count: 0 },
+          likes: { count: 12 },
+        }),
+        params,
+      ),
+    ).toMatchObject({
+      content: '正文 @{uin:10002,nick:昵称%2C%7B%7D}',
+      commentCount: 0,
+      likeCount: 12,
+    });
+  });
+  it('未知富文本不拼成残缺正文，缺失计数不补零', () => {
+    const result = GetQzoneFeedMediaDetail.parseDetail(
+      response([], '10001', 'fixture-post', 311n, {
+        text: { parts: [{ text: '部分' }, { kind: 99 }] },
+      }),
+      params,
+    );
+    expect(result.content).toBeUndefined();
+    expect(result.commentCount).toBeUndefined();
+    expect(result.likeCount).toBeUndefined();
+  });
   it('保留相同 type 下的 true、false 与缺失，不以数组位置分类', () => {
     expect(
       GetQzoneFeedMediaDetail.parse(

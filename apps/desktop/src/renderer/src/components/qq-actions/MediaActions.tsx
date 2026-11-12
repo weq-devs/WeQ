@@ -329,6 +329,8 @@ function QzoneWriteActionsBody({
   onCancelReply,
   draftContent,
   onDraftContentChange,
+  draftPicture,
+  onDraftPictureChange,
 }: {
   hostUin: string;
   tid: string;
@@ -340,17 +342,24 @@ function QzoneWriteActionsBody({
   onCommentAccepted?: () => void;
   mode?: 'like' | 'comment';
   likeCount?: number | null;
-  replyTarget?: { id: string; nickname: string } | null;
+  replyTarget?: { id: string; nickname: string; rootId: string } | null;
   onCancelReply?: () => void;
   draftContent?: string;
   onDraftContentChange?: (content: string) => void;
+  draftPicture?: { path: string; fileName: string } | null;
+  onDraftPictureChange?: (picture: { path: string; fileName: string } | null) => void;
 }) {
   const a = useQQAction(`qzone:${hostUin}:${tid}`),
     [localContent, setLocalContent] = useState('');
   const content = draftContent ?? localContent;
   const setContent = onDraftContentChange ?? setLocalContent;
   const draftRevision = useRef(0);
-  const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
+  useEffect(() => {
+    draftRevision.current++;
+  }, [replyTarget?.id]);
+  const [localPicture, setLocalPicture] = useState<{ path: string; fileName: string } | null>(null);
+  const picture = draftPicture === undefined ? localPicture : draftPicture;
+  const setPicture = onDraftPictureChange ?? setLocalPicture;
   const [commentPending, setCommentPending] = useState(false);
   const commentRunning = useRef(false),
     mounted = useRef(true);
@@ -361,12 +370,13 @@ function QzoneWriteActionsBody({
     };
   }, []);
   async function sendComment() {
-    if (replyTarget || commentRunning.current || a.disabled || !content.trim()) return;
+    if (commentRunning.current || a.disabled || !content.trim() || (replyTarget && picture)) return;
     commentRunning.current = true;
     setCommentPending(true);
     const submittedContent = content;
     const submittedPicture = picture;
     const submittedRevision = draftRevision.current;
+    const submittedTarget = replyTarget;
     const sentAt = Math.floor(Date.now() / 1000);
     let accepted = false;
     try {
@@ -377,7 +387,8 @@ function QzoneWriteActionsBody({
             hostUin,
             tid,
             time,
-            action: 'comment',
+            action: submittedTarget ? 'reply' : 'comment',
+            targetCommentId: submittedTarget?.id,
             content: submittedContent,
             imagePath: submittedPicture?.path,
           });
@@ -409,7 +420,12 @@ function QzoneWriteActionsBody({
             return result.comments.some(
               (entry) =>
                 entry.uin === a.binding!.expectedAccountUin &&
-                entry.content === submittedContent &&
+                (submittedTarget
+                  ? entry.isReply && entry.parentCommentId === submittedTarget.rootId
+                  : !entry.isReply) &&
+                (entry.content === submittedContent ||
+                  (submittedTarget &&
+                    entry.content.replace(/^@\{[^}]*\}\s*/, '') === submittedContent)) &&
                 entry.time >= sentAt - 5,
             );
           },
@@ -461,10 +477,9 @@ function QzoneWriteActionsBody({
       {replyTarget ? (
         <p className="weq-qzn-status">
           回复 {replyTarget.nickname}{' '}
-          <button type="button" onClick={onCancelReply}>
+          <button type="button" disabled={commentPending} onClick={onCancelReply}>
             取消
-          </button>{' '}
-          · 定向回复接口尚未接入，暂不能发送。
+          </button>
         </p>
       ) : null}
       {picture && (
@@ -499,7 +514,7 @@ function QzoneWriteActionsBody({
           }}
         />
         <ImageAction
-          disabled={a.disabled}
+          disabled={a.disabled || Boolean(replyTarget)}
           onClick={() =>
             void a.pickImage().then((f) => {
               if (f) {
@@ -510,8 +525,10 @@ function QzoneWriteActionsBody({
           }
         />
         <ActionIcon
-          label="发送说说评论"
-          disabled={Boolean(replyTarget) || a.disabled || commentPending || !content.trim()}
+          label={replyTarget ? '发送说说回复' : '发送说说评论'}
+          disabled={
+            Boolean(replyTarget && picture) || a.disabled || commentPending || !content.trim()
+          }
           onClick={() => void sendComment()}
         >
           {commentPending ? (
