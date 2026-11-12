@@ -280,6 +280,10 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   color: var(--weq-fg-secondary);
 }
 
+.weq-profile-data-row:has(> .weq-profile-data-value > .weq-profile-privileges) {
+  align-items: center;
+}
+
 .weq-profile-data-value > .weq-profile-privileges {
   justify-content: flex-start;
   margin-top: 0;

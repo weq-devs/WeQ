@@ -106,6 +106,13 @@ async function checkPrivileges(scope) {
     return { left: bounds.left - value.left, top: bounds.top - value.top };
   });
   assert.deepEqual(alignment, { left: 0, top: 0 }, '特权图标应与其他字段值左对齐且无顶部偏移');
+  const centerOffset = await icons.first().evaluate((image) => {
+    const row = image.closest('.weq-profile-data-row');
+    const label = row.querySelector('.weq-profile-data-label').getBoundingClientRect();
+    const privileges = image.parentElement.getBoundingClientRect();
+    return Math.abs(label.top + label.height / 2 - (privileges.top + privileges.height / 2));
+  });
+  assert.ok(centerOffset < 0.5, `特权图标应与字段名垂直居中，实际偏移 ${centerOffset}px`);
 }
 try {
   await server.listen();
