@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   ContactProfileDialog,
   GroupProfileDialog,
@@ -54,26 +55,28 @@ const openPreview = () => qa.previews++;
 const noop = () => {};
 
 createRoot(document.getElementById('root')!).render(
-  <ChatNavigationContext.Provider value={openChat}>
-    <GroupMessagePreviewContext.Provider
-      value={{ open: openPreview, close: noop, conversationId: null, content: null }}
-    >
-      <style>{`
+  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <ChatNavigationContext.Provider value={openChat}>
+      <GroupMessagePreviewContext.Provider
+        value={{ open: openPreview, close: noop, conversationId: null, content: null }}
+      >
+        <style>{`
         html,body,#root{height:100%;margin:0;overflow:hidden}
         .profile-identity-fixture{height:100%;max-width:1180px;margin:auto}
       `}</style>
-      <main className="profile-identity-fixture">
-        {params.has('friend') ? (
-          <ContactProfileDialog
-            contact={person}
-            embedded={embedded}
-            onClose={noop}
-            onPreviewChat={openPreview}
-          />
-        ) : (
-          <GroupProfileDialog conversation={group} embedded={embedded} onClose={noop} />
-        )}
-      </main>
-    </GroupMessagePreviewContext.Provider>
-  </ChatNavigationContext.Provider>,
+        <main className="profile-identity-fixture">
+          {params.has('friend') ? (
+            <ContactProfileDialog
+              contact={person}
+              embedded={embedded}
+              onClose={noop}
+              onPreviewChat={openPreview}
+            />
+          ) : (
+            <GroupProfileDialog conversation={group} embedded={embedded} onClose={noop} />
+          )}
+        </main>
+      </GroupMessagePreviewContext.Provider>
+    </ChatNavigationContext.Provider>
+  </QueryClientProvider>,
 );

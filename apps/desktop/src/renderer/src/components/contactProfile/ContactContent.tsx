@@ -73,13 +73,11 @@ const automaticFields: readonly ContactCardContent[] = [
 /** 标题、副标题、编号与关系：名片和资料页共用同一份身份区。 */
 export function ContactIdentity({
   person,
-  onOpen,
   pendant = false,
   settings,
   cardBody = false,
 }: {
   person: ProfilePerson;
-  onOpen?: () => void;
   pendant?: boolean;
   settings?: ContactCardSettings;
   /** 名片与联系人资料页共用分行身份正文。 */
@@ -150,20 +148,14 @@ export function ContactIdentity({
         </button>
         <div className="weq-profile-heading">
           <div className="weq-contact-title-line">
-            <button
-              type="button"
+            <CopyButton
+              text={title}
               className="weq-profile-name weq-contact-name"
-              aria-label={onOpen ? '联系人详情' : undefined}
-              title={onOpen ? '联系人详情' : undefined}
-              disabled={!onOpen}
-              onClick={(event) => {
-                const selection = window.getSelection();
-                if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
-                  onOpen?.();
-              }}
+              aria-label="复制昵称"
+              title="复制昵称"
             >
               {title}
-            </button>
+            </CopyButton>
             {!person.clone && settings?.visible.status !== false ? (
               /^u_/.test(person.uid || person.id) ? (
                 <OnlineStatus

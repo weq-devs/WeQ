@@ -141,7 +141,6 @@ export function MemberProfileCard({
               settings={settings}
               cardBody
               pendant={settings.ready && settings.visible.pendant}
-              onOpen={openProfile}
             />
             {!localClone ? (
               <ContactContent

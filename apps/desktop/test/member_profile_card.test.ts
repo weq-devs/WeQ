@@ -569,7 +569,7 @@ describe('群成员资料卡浮层', () => {
     );
     expect(layer().querySelector('.weq-profile-name')?.textContent).toBe('真实昵称');
     expect(layer().textContent).toContain('好友备注');
-    act(() => layer().querySelector<HTMLButtonElement>('.weq-profile-name')!.click());
+    act(() => layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]')!.click());
     expect(expandContact).toHaveBeenLastCalledWith(
       expect.objectContaining({ contact: expect.objectContaining({ nick: '真实昵称' }) }),
     );
@@ -705,7 +705,19 @@ describe('群成员资料卡浮层', () => {
     );
   });
 
-  it.each(['联系人详情', '聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
+  it('点击昵称复制当前显示名称，不进入详情；展开按钮仍可进入详情', async () => {
+    await mountCard(() => {}, undefined, { ...MEMBER, nick: '合成昵称' });
+    const title = layer().querySelector<HTMLButtonElement>('.weq-profile-name')!;
+    await act(async () => title.click());
+    const { copyTextToClipboard } = await import('@renderer/im-template/template/clipboard');
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith('合成昵称', document);
+    expect(title.getAttribute('aria-label')).toBe('复制昵称');
+    expect(title.textContent).toContain('已复制');
+    expect(expandContact).not.toHaveBeenCalled();
+    act(() => layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]')!.click());
+    expect(expandContact).toHaveBeenCalledOnce();
+  });
+  it.each(['打开完整资料页', '聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: 'u_peer',
       uin: '10009',
@@ -722,7 +734,7 @@ describe('群成员资料卡浮层', () => {
     expect(button).toBeDefined();
     act(() => button!.click());
     const avatarUrl = avatarFromUin('10009');
-    if (entry === '联系人详情') {
+    if (entry === '打开完整资料页') {
       expect(expandContact).toHaveBeenLastCalledWith(
         expect.objectContaining({
           kind: 'person',

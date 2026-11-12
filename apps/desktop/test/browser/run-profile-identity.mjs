@@ -43,12 +43,15 @@ try {
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
   );
   if (output) await mkdir(output, { recursive: true });
+  const surfaces = process.env.WEQ_PROFILE_IDENTITY_POPOVER_ONLY
+    ? ['popover']
+    : ['embedded', 'popover'];
   let cases = 0;
   for (const width of [320, 390, 760, 800, 1180]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark', 'system']) {
       await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
-      for (const surface of ['embedded', 'popover']) {
+      for (const surface of surfaces) {
         for (const name of ['long', 'unbroken', 'short']) {
           const layouts = [];
           for (const kind of ['group', 'friend']) {
@@ -66,31 +69,34 @@ try {
               store.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
               store.setBackground(theme === 'light' ? 'plain' : 'grid');
             }, theme);
-            const result = await page.locator('.weq-profile-dialog').evaluate((dialog) => {
-              const title = dialog.querySelector('.weq-profile-name');
-              const avatar = dialog.querySelector('.weq-profile-avatar');
-              const identity = dialog.querySelector('.weq-contact-identity');
-              const hero = dialog.querySelector('.weq-profile-hero');
-              const actions = identity?.querySelector('.weq-contact-identity-actions');
-              const bounds = (element) => element.getBoundingClientRect();
-              return {
-                clipped:
-                  title.scrollWidth > title.clientWidth + 1 ||
-                  title.scrollHeight > title.clientHeight + 1,
-                nowrap: getComputedStyle(title).whiteSpace === 'nowrap',
-                pageOverflow: document.documentElement.scrollWidth > innerWidth + 1,
-                dialogOverflow: dialog.scrollWidth > dialog.clientWidth + 1,
-                avatarX: bounds(avatar).x - bounds(dialog).x,
-                titleX: bounds(title).x - bounds(dialog).x,
-                heroWidth: bounds(hero).width,
-                actions: Boolean(actions),
-                actionsBelow: actions ? bounds(actions).top >= bounds(hero).bottom : null,
-                actionsOverlap: actions
-                  ? bounds(actions).left < bounds(hero).right - 1 &&
-                    bounds(actions).top < bounds(hero).bottom - 1
-                  : false,
-              };
-            });
+            const result = await page
+              .locator('.weq-profile-dialog, .weq-group-card, .weq-contact-card')
+              .first()
+              .evaluate((dialog) => {
+                const title = dialog.querySelector('.weq-profile-name');
+                const avatar = dialog.querySelector('.weq-profile-avatar');
+                const identity = dialog.querySelector('.weq-contact-identity');
+                const hero = dialog.querySelector('.weq-profile-hero');
+                const actions = identity?.querySelector('.weq-contact-identity-actions');
+                const bounds = (element) => element.getBoundingClientRect();
+                return {
+                  clipped:
+                    title.scrollWidth > title.clientWidth + 1 ||
+                    title.scrollHeight > title.clientHeight + 1,
+                  nowrap: getComputedStyle(title).whiteSpace === 'nowrap',
+                  pageOverflow: document.documentElement.scrollWidth > innerWidth + 1,
+                  dialogOverflow: dialog.scrollWidth > dialog.clientWidth + 1,
+                  avatarX: bounds(avatar).x - bounds(dialog).x,
+                  titleX: bounds(title).x - bounds(dialog).x,
+                  heroWidth: bounds(hero).width,
+                  actions: Boolean(actions),
+                  actionsBelow: actions ? bounds(actions).top >= bounds(hero).bottom : null,
+                  actionsOverlap: actions
+                    ? bounds(actions).left < bounds(hero).right - 1 &&
+                      bounds(actions).top < bounds(hero).bottom - 1
+                    : false,
+                };
+              });
             const label = `${width}/${theme}/${surface}/${name}/${kind}`;
             assert.equal(result.clipped, false, `${label}: 名称被截断`);
             assert.equal(result.nowrap, false, `${label}: 名称不能换行`);
@@ -102,6 +108,16 @@ try {
               assert.equal(result.actionsBelow, width <= 760, `${label}: 操作区换行错误`);
             }
             layouts.push(result);
+            if (kind === 'friend' || surface === 'popover') {
+              const title = page.getByRole('button', {
+                name: kind === 'friend' ? '复制昵称' : '复制群名',
+                exact: true,
+              });
+              await title.click();
+              await title.getByRole('status').waitFor();
+              assert.equal(await title.getByRole('status').textContent(), '已复制');
+              assert.equal(await page.getByRole('dialog').count(), surface === 'popover' ? 1 : 0);
+            }
             await page
               .getByRole('button', {
                 name: kind === 'group' ? '查看消息' : '打开会话',

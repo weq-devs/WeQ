@@ -173,11 +173,7 @@ function GroupProfileBody({
             >
               <X size={16} />
             </button>
-            <GroupCardIdentity
-              conversation={conversation}
-              metrics={data.metrics}
-              onOpen={openFullProfile}
-            />
+            <GroupCardIdentity conversation={conversation} metrics={data.metrics} />
           </>
         )}
         {data.profileError ? (

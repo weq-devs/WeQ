@@ -7,6 +7,7 @@ import type { useGroupProfile } from '../../hooks/useGroupProfile';
 import { ContactRow, ContactSection } from '../contactProfile/ContactRow';
 import { GroupRelationshipStatus } from '../RelationshipStatus';
 import { QQProfileField } from '../QQProfileField';
+import { CopyButton } from '../CopyButton';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { openMediaPreview } from '../mediaPreviewStore';
 import { GroupFreezeNotice, GroupTags, groupCreationDate } from './GroupContent';
@@ -18,11 +19,9 @@ type ProfileData = ReturnType<typeof useGroupProfile>;
 export function GroupCardIdentity({
   conversation,
   metrics,
-  onOpen,
 }: {
   conversation: GroupConversation;
   metrics: ProfileData['metrics'];
-  onOpen?: () => void;
 }) {
   const { group, generated } = conversation;
   const directory = useContext(RelationshipDirectoryContext);
@@ -59,19 +58,14 @@ export function GroupCardIdentity({
               <Pencil size={12} aria-hidden />
             </div>
           ) : (
-            <button
-              type="button"
+            <CopyButton
+              text={name}
               className="weq-profile-name weq-contact-name"
-              title={onOpen ? '打开完整群资料' : undefined}
-              disabled={!onOpen}
-              onClick={(event) => {
-                const selection = window.getSelection();
-                if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))
-                  onOpen?.();
-              }}
+              title="复制群名"
+              aria-label="复制群名"
             >
               {name}
-            </button>
+            </CopyButton>
           )}
           {!generated ? <GroupRelationshipStatus group={group} /> : null}
           <GroupFreezeNotice metrics={metrics} />
