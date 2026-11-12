@@ -642,18 +642,6 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
   gap: 8px;
 }
 
-.weq-contact-settings-section {
-  padding-block: 16px 8px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.weq-contact-settings-section h4 {
-  margin: 0 0 8px;
-  color: var(--weq-fg-secondary);
-  font-size: 13px;
-  font-weight: 600;
-}
-
 .weq-contact-card-settings > .weq-autosave:has(> .weq-autosave-status:empty) {
   display: none;
 }

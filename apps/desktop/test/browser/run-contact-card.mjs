@@ -518,13 +518,14 @@ try {
         await page.getByRole('button', { name: '名片设置', exact: true }).click();
         await page.getByRole('switch', { name: 'QQ 能量值', exact: true }).waitFor();
         const settings = page.locator('[data-setting-id="contact-card"]');
-        assert.equal(await settings.locator('.weq-set-head + .weq-set-card').count(), 1);
+        assert.equal(await settings.locator(':scope > .weq-set-card').count(), 7);
+        assert.equal(await settings.locator('.weq-set-card .weq-set-card').count(), 0);
         assert.equal(
           await settings.getByText('可点击顶部头像预览效果', { exact: true }).count(),
           1,
         );
         assert.equal(await settings.locator('[data-setting-id="contact-card-preview"]').count(), 0);
-        assert.deepEqual(await settings.locator('h4').allTextContents(), [
+        assert.deepEqual(await settings.locator('.weq-set-card-title').allTextContents(), [
           '身份区',
           '群内资料',
           '个人资料',

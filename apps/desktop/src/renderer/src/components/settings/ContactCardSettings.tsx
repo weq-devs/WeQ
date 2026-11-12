@@ -1,5 +1,5 @@
 import { Fragment, useContext, useState } from 'react';
-import { LayoutList, UserRound } from 'lucide-react';
+import { UserRound } from 'lucide-react';
 import {
   CONTACT_CARD_FIELDS,
   CONTACT_GROUP_FIELDS,
@@ -63,113 +63,98 @@ export function ContactCardSettings() {
           icon={<UserRound size={16} strokeWidth={1.8} />}
           desc="可点击顶部头像预览效果"
         />
-        <Card
-          title="名片资料"
-          icon={<LayoutList size={15} strokeWidth={1.8} />}
-          settingId="contact-card-fields"
-        >
-          <Row
-            settingId="contact-card-all"
-            label="全部字段"
-            desc={`共 ${allFields.length} 个字段，已显示 ${visibleCount} 个。`}
-            control={
-              <span className="weq-contact-toggle-all">
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  disabled={disabled || visibleCount === allFields.length}
-                  onClick={() =>
-                    void save({
-                      ...value,
-                      visible: Object.fromEntries(
-                        Object.keys(value.visible).map((key) => [key, true]),
-                      ) as Preferences['visible'],
-                    })
-                  }
-                >
-                  全部显示
-                </button>
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  disabled={disabled || visibleCount === 0}
-                  onClick={() =>
-                    void save({
-                      ...value,
-                      visible: Object.fromEntries(
-                        Object.keys(value.visible).map((key) => [key, false]),
-                      ) as Preferences['visible'],
-                    })
-                  }
-                >
-                  全部隐藏
-                </button>
-              </span>
-            }
-          />
-          {CONTACT_CARD_SECTIONS.map((section) => (
-            <Fragment key={section.key}>
-              <section
-                className="weq-contact-settings-section"
-                aria-labelledby={`contact-card-${section.key}-title`}
+        <Row
+          settingId="contact-card-all"
+          label="全部字段"
+          desc={`共 ${allFields.length} 个字段，已显示 ${visibleCount} 个。`}
+          control={
+            <span className="weq-contact-toggle-all">
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={disabled || visibleCount === allFields.length}
+                onClick={() =>
+                  void save({
+                    ...value,
+                    visible: Object.fromEntries(
+                      Object.keys(value.visible).map((key) => [key, true]),
+                    ) as Preferences['visible'],
+                  })
+                }
               >
-                <h4 id={`contact-card-${section.key}-title`}>{section.title}</h4>
+                全部显示
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={disabled || visibleCount === 0}
+                onClick={() =>
+                  void save({
+                    ...value,
+                    visible: Object.fromEntries(
+                      Object.keys(value.visible).map((key) => [key, false]),
+                    ) as Preferences['visible'],
+                  })
+                }
+              >
+                全部隐藏
+              </button>
+            </span>
+          }
+        />
+        {CONTACT_CARD_SECTIONS.map((section) => (
+          <Fragment key={section.key}>
+            <Card title={section.title} settingId={`contact-card-${section.key}-fields`}>
+              <ContactFieldSort
+                id={`contact-card-${section.key}-sort`}
+                title={section.title}
+                keys={value.order.filter((key) => contactCardFieldGroup(key) === section.key)}
+                labels={(key: ContactCardField) => cardLabels.get(key) ?? key}
+                disabled={disabled}
+                sortable={section.key !== 'identity'}
+                control={(key) => (
+                  <Toggle
+                    checked={Boolean(value.visible[key])}
+                    disabled={disabled}
+                    label={cardLabels.get(key) ?? key}
+                    onChange={(next) => setVisible(key, next)}
+                  />
+                )}
+                onMove={(key: ContactCardField, offset: number) =>
+                  void save({
+                    ...value,
+                    order: moveContactCardSectionField(value.order, key, offset),
+                  })
+                }
+              />
+            </Card>
+            {section.key === 'identity' ? (
+              <Card title="群内资料" settingId="contact-card-group-fields">
                 <ContactFieldSort
-                  id={`contact-card-${section.key}-sort`}
-                  title={section.title}
-                  keys={value.order.filter((key) => contactCardFieldGroup(key) === section.key)}
-                  labels={(key: ContactCardField) => cardLabels.get(key) ?? key}
+                  id="contact-card-group-sort"
+                  title="群内资料"
+                  keys={value.groupOrder}
+                  labels={(key: ContactGroupField) => groupLabels.get(key) ?? key}
                   disabled={disabled}
-                  sortable={section.key !== 'identity'}
                   control={(key) => (
                     <Toggle
                       checked={Boolean(value.visible[key])}
                       disabled={disabled}
-                      label={cardLabels.get(key) ?? key}
+                      label={groupLabels.get(key) ?? key}
                       onChange={(next) => setVisible(key, next)}
                     />
                   )}
-                  onMove={(key: ContactCardField, offset: number) =>
+                  onMove={(key: ContactGroupField, offset: number) =>
                     void save({
                       ...value,
-                      order: moveContactCardSectionField(value.order, key, offset),
+                      groupOrder: moveContactCardField(value.groupOrder, key, offset),
                     })
                   }
                 />
-              </section>
-              {section.key === 'identity' ? (
-                <section
-                  className="weq-contact-settings-section"
-                  data-setting-id="contact-card-group-fields"
-                  aria-labelledby="contact-card-group-title"
-                >
-                  <h4 id="contact-card-group-title">群内资料</h4>
-                  <ContactFieldSort
-                    id="contact-card-group-sort"
-                    title="群内资料"
-                    keys={value.groupOrder}
-                    labels={(key: ContactGroupField) => groupLabels.get(key) ?? key}
-                    disabled={disabled}
-                    control={(key) => (
-                      <Toggle
-                        checked={Boolean(value.visible[key])}
-                        disabled={disabled}
-                        label={groupLabels.get(key) ?? key}
-                        onChange={(next) => setVisible(key, next)}
-                      />
-                    )}
-                    onMove={(key: ContactGroupField, offset: number) =>
-                      void save({
-                        ...value,
-                        groupOrder: moveContactCardField(value.groupOrder, key, offset),
-                      })
-                    }
-                  />
-                </section>
-              ) : null}
-            </Fragment>
-          ))}
-        </Card>
+              </Card>
+            ) : null}
+          </Fragment>
+        ))}
         <AutoSave
           value={value}
           saved={saved}
