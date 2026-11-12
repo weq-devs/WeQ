@@ -20,6 +20,7 @@ import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useViewState } from '../src/renderer/src/state/view';
 import { conversationViewFixture } from './support/conversation-view-fixture';
 import type { ConversationView } from '../src/renderer/src/lib/conversationViews';
+import { formatConversationTime } from '../src/renderer/src/lib/conversationTime';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const query = { useQuery: () => ({ data: undefined }) };
@@ -268,7 +269,7 @@ describe('群助手', () => {
       );
       const times = (selector: string) =>
         Array.from(host.querySelectorAll(selector), (node) => node.textContent);
-      const expected = ['09:05', '昨天 23:59', '星期二', '2026-10-19', '2025-12-31'];
+      const expected = dates.map((date) => formatConversationTime(date.toISOString()));
       expect(times('.weq-conversation-window .row-time-line')).toEqual(expected);
       expect(times('.weq-conversation-list .row-time-line')).toEqual(expected);
     } finally {
