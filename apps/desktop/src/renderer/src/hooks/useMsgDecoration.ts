@@ -11,7 +11,12 @@ import { useContext, useInsertionEffect, useLayoutEffect, useState, type RefObje
 import type { ResolvedWidget, MessageBubbleSkin } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { MsgDecorationEnabledContext } from '../components/QqMessageContent';
-import { injectBubbleCss, injectFontCss, injectWidgetCss } from '../lib/msgDecorationStyle';
+import {
+  injectBubbleCss,
+  injectFontCss,
+  injectWidgetCss,
+  isMessageFontLoaded,
+} from '../lib/msgDecorationStyle';
 import { toFontFxSkin, type FontFxSkin } from '../lib/dressSkin';
 import { useTabActive } from '../components/RetainedTabs';
 import { messageBubble } from '../lib/messageBubbles';
@@ -103,6 +108,9 @@ export function useMsgDecoration(
     ? (localBubble ?? bubbleQuery.data?.bubble ?? null)
     : null;
   const font = fontId ? (fontQuery.data?.font ?? null) : null;
+  // 同款已解码时首轮渲染直接使用；不可见性回调只控制冷加载，不能让缓存字体闪回默认。
+  const reusableFont = Boolean(font && isMessageFontLoaded(fontId, font));
+  const prepareFont = visible || reusableFont;
   const widget = widgetId ? (widgetQuery.data?.widget ?? null) : null;
 
   const [failedBubble, setFailedBubble] = useState<typeof bubble>(null);
@@ -126,8 +134,8 @@ export function useMsgDecoration(
     return injectBubbleCss(bubble);
   }, [bubble, visible, tabActive]);
   useLayoutEffect(() => {
-    if (!visible || !tabActive || !font || !fontId) return;
-    const lease = injectFontCss(fontId, font);
+    if (!prepareFont || !tabActive || !font || !fontId) return;
+    const lease = injectFontCss(fontId, font, true);
     let disposed = false;
     void lease.ready.then((ok) => {
       if (!disposed && ok) setPreparedFont({ font, id: fontId });
@@ -137,6 +145,9 @@ export function useMsgDecoration(
       setPreparedFont(null);
       lease();
     };
+  }, [font, fontId, prepareFont, tabActive]);
+  useLayoutEffect(() => {
+    if (visible && tabActive && font?.fx && fontId) return injectFontCss(fontId, font);
   }, [font, fontId, visible, tabActive]);
   useLayoutEffect(() => {
     if (visible && tabActive && widget) return injectWidgetCss(widget);
@@ -144,11 +155,9 @@ export function useMsgDecoration(
 
   const bubbleReady = Boolean(bubble && failedBubble !== bubble);
   const fontReady = Boolean(
-    visible &&
-      tabActive &&
+    tabActive &&
       font &&
-      preparedFont?.font === font &&
-      preparedFont?.id === fontId &&
+      (reusableFont || (preparedFont?.font === font && preparedFont?.id === fontId)) &&
       (!bubbleId || bubbleReady),
   );
   return {

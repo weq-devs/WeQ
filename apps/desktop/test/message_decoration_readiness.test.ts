@@ -1,6 +1,7 @@
-import { act, createElement } from 'react';
+import { act, createElement, useLayoutEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { FontFx } from '@weq/service';
 import { useMsgDecoration } from '../src/renderer/src/hooks/useMsgDecoration';
 import { MsgDecorationEnabledContext } from '../src/renderer/src/components/QqMessageContent';
 import { decorationImageCache } from '../src/renderer/src/lib/decodedImageCache';
@@ -13,7 +14,7 @@ const fixture = vi.hoisted(() => ({
     imageSize: { w: 40, h: 40 },
     textColor: '#516196',
   },
-  font: { deriveVersion: 1, fx: null },
+  font: { itemId: 31009, deriveVersion: 1, fx: null as FontFx | null },
   bubbleAvailable: true,
   fontAvailable: true,
 }));
@@ -51,6 +52,7 @@ beforeEach(() => {
     value: { add: vi.fn(), delete: vi.fn() },
   });
   fixture.bubbleAvailable = fixture.fontAvailable = true;
+  fixture.font.fx = null;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal(
     'Image',
@@ -84,23 +86,34 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  fontFaces.clearIdle();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(document, 'fonts');
 });
 
-function probe() {
+function probe(observe = false) {
   const host = document.createElement('div');
   const root = createRoot(host);
   let closed = false;
+  const commits: number[] = [];
   function Message({ bubbleId, fontId }: { bubbleId: number; fontId: number }) {
-    const decoration = useMsgDecoration({ bubbleId, fontId, widgetId: 0 });
+    const ref = useRef<HTMLDivElement | null>(null);
+    const decoration = useMsgDecoration(
+      { bubbleId, fontId, widgetId: 0 },
+      observe ? ref : undefined,
+    );
+    useLayoutEffect(() => {
+      commits.push(decoration.fontId);
+    });
     return createElement('div', {
+      ref,
       'data-bubble': decoration.bubbleId,
       'data-font': decoration.fontId,
       'data-fontfx': decoration.fontFx ? 'active' : '',
     });
   }
   return {
+    commits,
     render: (
       bubbleId = 21009,
       fontId = 31009,
@@ -232,4 +245,121 @@ it('同款消息共享预热，一条卸载不撤销其他消息，全部卸载�
   }
   expect(decorationImageCache.stats().pinnedImages).toBe(0);
   expect(fontFaces.count()).toBe(0);
+});
+
+it('同款历史行首次提交即复用已就绪字体，不等待可见性通知', async () => {
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const first = probe();
+  const history = probe(true);
+  try {
+    await first.render(0, 31019);
+    await act(async () => fontReady());
+    await history.render(0, 31019);
+    expect(history.commits[0]).toBe(31019);
+    history.expectIds(0, 31019);
+    expect(fontLoads).toBe(1);
+  } finally {
+    await first.close();
+    await history.close();
+  }
+});
+
+it('虚拟行全部卸载后返回同步复用解码结果，资源版本变化仍重新加载', async () => {
+  const first = probe();
+  const history = probe();
+  try {
+    await first.render(0, 31029);
+    await act(async () => fontReady());
+    await first.close();
+    expect(fontFaces.count()).toBe(0);
+    await history.render(0, 31029);
+    expect(history.commits[0]).toBe(31029);
+    expect(fontLoads).toBe(1);
+    fixture.font = { ...fixture.font, deriveVersion: 2 };
+    await history.render(0, 31029);
+    history.expectIds(0, 0);
+    expect(fontLoads).toBe(2);
+    await act(async () => fontReady());
+    history.expectIds(0, 31029);
+  } finally {
+    fixture.font = { ...fixture.font, deriveVersion: 1 };
+    await first.close();
+    await history.close();
+  }
+});
+
+it('不可见冷字体不加载；进入后加载，离开再返回不撤销字体或闪回默认', async () => {
+  let visibility: (entries: { isIntersecting: boolean }[]) => void = () => {};
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(callback: typeof visibility) {
+        visibility = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const view = probe(true);
+  try {
+    await view.render(0, 31039);
+    expect(fontLoads).toBe(0);
+    view.expectIds(0, 0);
+    await act(async () => visibility([{ isIntersecting: true }]));
+    expect(fontLoads).toBe(1);
+    await act(async () => fontReady());
+    const start = view.commits.length;
+    await act(async () => visibility([{ isIntersecting: false }]));
+    await act(async () => visibility([{ isIntersecting: true }]));
+    expect(view.commits.slice(start)).not.toContain(0);
+    expect(fontLoads).toBe(1);
+    expect(document.fonts.delete).not.toHaveBeenCalled();
+  } finally {
+    await view.close();
+  }
+});
+
+it('缓存字体离屏仍显示，但炫彩帧及时释放，关闭字体设置会移除全部样式', async () => {
+  let visibility: (entries: { isIntersecting: boolean }[]) => void = () => {};
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(callback: typeof visibility) {
+        visibility = callback;
+      }
+      observe() {
+        visibility([{ isIntersecting: true }]);
+      }
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    queueMicrotask(() => callback(0));
+    return 0;
+  });
+  fixture.font.fx = { variants: [{ width: 40, height: 40, frames: [1] }] };
+  const view = probe(true);
+  try {
+    await view.render(0, 31009);
+    await act(async () => {
+      fontReady();
+      imageReady();
+    });
+    expect(decorationImageCache.stats().pinnedImages).toBe(1);
+    await act(async () => visibility([{ isIntersecting: false }]));
+    view.expectIds(0, 31009);
+    expect(decorationImageCache.stats().pinnedImages).toBe(0);
+    await view.render(0, 31009, { bubble: true, font: false, widget: true });
+    view.expectIds(0, 0);
+    expect(fontFaces.count()).toBe(0);
+    expect(document.querySelector('[data-weq-msg-decoration]')).toBeNull();
+  } finally {
+    await view.close();
+  }
 });

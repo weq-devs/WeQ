@@ -5,6 +5,7 @@
 
 import type { MessageBubbleSkin, FontDerived, ResolvedWidget } from '@weq/service';
 import { acquireDecorationStyle, validDecorationFrames } from './decorationResources';
+import { fontFaces } from './fontFaces';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
@@ -352,15 +353,20 @@ export function messageFontFamily(fontId: number, deriveVersion: number): string
   return `weq-message-dress-${fontId}-${deriveVersion}`;
 }
 
+export function isMessageFontLoaded(fontId: number, font: FontDerived): boolean {
+  const version = font.deriveVersion ?? 0;
+  return fontFaces.isLoaded(messageFontFamily(fontId, version), dressFontUrl(fontId, version));
+}
+
 /**
  * 逐条消息字体的 CSS（字体 + 它的炫彩帧）。已注入过的（同款同派生版本）直接返回。
- *
- * 炫彩规则同样等整批预热成功后才注入；尺寸属性由 useBubbleFontFx 决定。
+ * staticOnly 保持字体与可见性无关，炫彩帧另按可见范围取得并释放。
+ * 炫彩规则等整批预热成功后才注入；尺寸属性由 useBubbleFontFx 决定。
  */
-export function injectFontCss(fontId: number, font: FontDerived | null) {
+export function injectFontCss(fontId: number, font: FontDerived | null, staticOnly = false) {
   const deriveVersion = font?.deriveVersion ?? 0;
   const key = `${fontId}:${deriveVersion}`;
-  return acquireDecorationStyle(`font:${key}`, (resource) => {
+  return acquireDecorationStyle(`font:${key}${staticOnly ? ':static' : ''}`, (resource) => {
     const url = dressFontUrl(fontId, deriveVersion);
     const family = messageFontFamily(fontId, deriveVersion);
 
@@ -376,7 +382,7 @@ export function injectFontCss(fontId: number, font: FontDerived | null) {
     ];
     resource.append(rules.filter(Boolean).join('\n'));
 
-    if (fxSkin) {
+    if (fxSkin && !staticOnly) {
       // 先解码再等属性挂上（属性是量完尺寸才挂的，帧解完码差不多刚好）——
       // 第一圈逐帧解码会肉眼看得出闪，与气泡动效同一个坑。
       const total = fxSkin.fx.variants.reduce((n, v) => n + v.frames.length, 0);
