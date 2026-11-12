@@ -24,8 +24,17 @@ import { IS_WEB } from '../lib/target';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
 import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
 import { WebBusinessCache } from '../components/WebBusinessCache';
+import {
+  RECENT_HEAD_SIZE,
+  recentContactHeadOptions,
+  useRecentContactQueries,
+} from '../hooks/useRecentContactQueries';
 import { resolvedProfilesKey } from '../lib/webBusinessCache';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
+import {
+  selectProfileContacts,
+  conversationProfileTargets,
+} from '../lib/visibleConversationProfiles';
 import {
   nextStartupQueryStage,
   scheduleStartupQueryBatch,
@@ -100,12 +109,7 @@ import {
 } from '../lib/outgoingAcknowledgment';
 import { avatarFromGroupCode, avatarFromUin, resolveAvatar } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import {
-  previewNodes,
-  previewNodesToText,
-  previewIdentityIds,
-  groupTipText,
-} from '../lib/conversationPreview';
+import { previewNodes, previewNodesToText, groupTipText } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
 import {
@@ -1472,7 +1476,10 @@ function contactToConversation(
       otherUser: null,
       group: {
         id: c.targetUid,
-        name: title,
+        name:
+          !c.targetDisplayName && !c.targetRemark
+            ? groupNameByCode.get(c.targetUid) || title
+            : title,
         identityLabel: 'Group',
         identityValue: c.targetUid,
         avatarUrl: avatarSrc(c),
@@ -2372,6 +2379,7 @@ function isMobileShell(): boolean {
 }
 
 export function MainView(): ReactElement {
+  const queryClient = useQueryClient();
   const uin = useViewState((state) => state.openedUin);
   const startupPage = useViewState((state) => state.startupPage);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
@@ -2379,6 +2387,13 @@ export function MainView(): ReactElement {
     config.data?.uin === uin && config.data.configId
       ? JSON.stringify([uin, config.data.configId])
       : null;
+  const configId = config.data?.configId;
+  useEffect(() => {
+    if (!IS_WEB || !scope || !uin || !configId) return;
+    void queryClient.prefetchQuery(
+      recentContactHeadOptions({ expectedAccountUin: uin, expectedAccountConfigId: configId }),
+    );
+  }, [queryClient, scope, uin, configId]);
   if (config.isLoading) return <WorkspaceStartupLoading />;
   const workspace = (
     <PageSnapshots scope={scope} resetOnMount={startupPage !== null}>
@@ -2472,31 +2487,9 @@ function MainWorkspace(): ReactElement {
   // 群成员管理（改群昵称 / 踢人）：弹窗挂在本层（与群公告 / 群精华同层），发包也在这里。
   const renameGroupMember = trpc.account.setGroupMemberCard.useMutation();
   const kickGroupMember = trpc.account.kickGroupMember.useMutation();
-  const contacts = trpc.account.listRecentContacts.useInfiniteQuery(
-    { limit: 500, ...pinSession.binding },
-    {
-      enabled: Boolean(pinSession.binding),
-      getNextPageParam: (lastPage) => (lastPage.items.length ? lastPage.nextCursor : undefined),
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      // 恢复的完整目录先展示；最新页单独刷新，不串行重读所有已缓存分页。
-      refetchOnMount: false,
-    },
-  );
-  // 前台保持最新页查询活跃，恢复窗口和主动失效都能刷新；不串行重读整个目录。
-  const recentHead = trpc.account.listRecentContacts.useQuery(
-    { limit: 500, cursor: 0, ...pinSession.binding },
-    {
-      enabled:
-        Boolean(pinSession.binding) &&
-        Boolean(contacts.data) &&
-        messageActivity.enabled &&
-        secondaryReady,
-      keepPreviousData: false,
-      staleTime: 0,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-    },
+  const { contacts, head: recentHead } = useRecentContactQueries(
+    pinSession.binding,
+    messageActivity.enabled,
   );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
   const headRefetchRef = useRef(recentHead.refetch);
@@ -2543,7 +2536,7 @@ function MainWorkspace(): ReactElement {
     const source = messageScope;
     return scheduleStartupQueryBatch(
       () => {
-        const headInput = { limit: 500, cursor: 0, ...binding };
+        const headInput = { limit: RECENT_HEAD_SIZE, cursor: 0, ...binding };
         const previousHead = utils.account.listRecentContacts.getData(headInput);
         void contacts.refetch().then((result) => {
           if (result.isError || !result.data || messageScopeRef.current !== source) return;
@@ -2937,8 +2930,15 @@ function MainWorkspace(): ReactElement {
     });
   }, [messageScope, conversationWindows]);
   useEffect(() => () => firstPages.dispose(), [firstPages]);
+  const [visibleConversationIds, setVisibleConversationIds] = useState<readonly string[]>([]);
   const prefetchVisible = useCallback(
     (rows: readonly Conversation[]) => {
+      const ids = rows.map((row) => row.id);
+      setVisibleConversationIds((previous) =>
+        previous.length === ids.length && previous.every((id, index) => id === ids[index])
+          ? previous
+          : ids,
+      );
       firstPages.setVisible(
         rows.flatMap((row) => {
           const target = prefetchTarget(row);
@@ -4355,10 +4355,14 @@ function MainWorkspace(): ReactElement {
   }, [topContacts.data, groupAssistantEntry]);
   // 群号 → 群名。隐藏会话面板（MergedSessionPanel）解析群聊显示名也要用它，
   // 提到 conversations useMemo 外面，避免闭包内重复构建两份。
+  const [visibleGroupNames, setVisibleGroupNames] = useState<Record<string, string>>({});
+  const attemptedGroupNames = useRef(new Set<string>());
   const groupNameByCode = useMemo(() => {
     const groups = (allGroups.data ?? []) as GroupDetailWire[];
-    return new Map(groups.map((g) => [g.groupCode, g.groupName]));
-  }, [allGroups.data]);
+    const names = new Map(Object.entries(visibleGroupNames));
+    for (const group of groups) if (group.groupName) names.set(group.groupCode, group.groupName);
+    return names;
+  }, [allGroups.data, visibleGroupNames]);
   // 隐藏会话 uid 集合：hidden_session_storage_table_v1 里有记录的 targetUid/群号。
   // 提到 conversations useMemo 外面，因为 hiddenConversationsById（供 shell 解析
   // 隐藏会话详情用）也要复用它。
@@ -6658,40 +6662,90 @@ function MainWorkspace(): ReactElement {
     resolveProfiles,
   ]);
 
-  // Resolve display profiles for everyone we render a name/avatar for: buddies,
-  // buddy requests, and the operated user in each group notify. resolveProfiles
-  // dedupes against the primed set + in-flight requests, so handing it the whole
-  // batch every render issues at most one query per never-seen uid.
+  // Web 只补当前可见行；完整资料目录另行分批读取，不扫描所有会话的预览发送者。
   useEffect(() => {
     let disposed = false;
     let cancel: (() => void) | undefined;
     let offset = 0;
+    const rows = selectProfileContacts(
+      recentContactsData,
+      IS_WEB ? visibleConversationIds : undefined,
+    );
     const resolveBatch = () => {
       if (disposed) return;
       if (initialMessagesPendingRef.current || document.visibilityState === 'hidden') {
         cancel = scheduleBackgroundLoad(resolveBatch, 500);
         return;
       }
-      const batch = recentContactsData.slice(offset, offset + 30);
-      const uids: string[] = [];
-      for (const contact of batch) {
-        const ids = previewIdentityIds(contact.preview, contact.senderUid).filter((id) =>
-          id.startsWith('u_'),
-        );
-        uids.push(...ids);
-        if (chatTypeKind(contact.chatType) === 'group' && /^\d+$/.test(contact.targetUid))
-          resolvePreviewMembers(contact.targetUid, ids, new Set(), () => !disposed);
-      }
+      const batch = rows.slice(offset, offset + 30);
+      const { uids, groups } = conversationProfileTargets(batch);
+      for (const [code, ids] of groups)
+        resolvePreviewMembers(code, ids, new Set(), () => !disposed);
       resolveProfiles(uids);
       offset += batch.length;
-      if (offset < recentContactsData.length) cancel = scheduleBackgroundLoad(resolveBatch);
+      if (offset < rows.length) cancel = scheduleBackgroundLoad(resolveBatch);
     };
     cancel = scheduleBackgroundLoad(resolveBatch, 100);
     return () => {
       disposed = true;
       cancel?.();
     };
-  }, [recentContactsData, groupInfoRevision, resolvePreviewMembers, resolveProfiles]);
+  }, [
+    recentContactsData,
+    visibleConversationIds,
+    groupInfoRevision,
+    resolvePreviewMembers,
+    resolveProfiles,
+  ]);
+
+  useEffect(() => {
+    const binding = messageBindingRef.current;
+    if (!IS_WEB || !binding) return;
+    const source = messageScope;
+    const visible = new Set(visibleConversationIds);
+    const missing = recentContactsData.filter(
+      (contact) =>
+        visible.has(contact.targetUid) &&
+        chatTypeKind(contact.chatType) === 'group' &&
+        /^\d+$/.test(contact.targetUid) &&
+        !contact.targetDisplayName &&
+        !contact.targetRemark &&
+        !groupNameByCode.get(contact.targetUid),
+    );
+    let disposed = false;
+    let cancel: () => void;
+    const resolveNames = () => {
+      if (disposed || messageScopeRef.current !== source) return;
+      if (initialMessagesPendingRef.current || document.visibilityState === 'hidden') {
+        cancel = scheduleBackgroundLoad(resolveNames, 500);
+        return;
+      }
+      void (async () => {
+        for (const contact of missing) {
+          if (disposed || messageScopeRef.current !== source) return;
+          const code = contact.targetUid;
+          if (attemptedGroupNames.current.has(code)) continue;
+          attemptedGroupNames.current.add(code);
+          try {
+            const detail = await utils.account.getGroupDetail.fetch(
+              { ...binding, groupCode: code },
+              { staleTime: 60_000 },
+            );
+            if (messageScopeRef.current !== source) return;
+            if (detail?.groupName)
+              setVisibleGroupNames((previous) => ({ ...previous, [code]: detail.groupName }));
+          } catch {
+            attemptedGroupNames.current.delete(code);
+          }
+        }
+      })();
+    };
+    cancel = scheduleBackgroundLoad(resolveNames, 100);
+    return () => {
+      disposed = true;
+      cancel();
+    };
+  }, [visibleConversationIds, recentContactsData, groupNameByCode, messageScope, utils]);
 
   useEffect(() => {
     if (!profiles.isFetched) return;
