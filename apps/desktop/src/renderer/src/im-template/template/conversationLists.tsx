@@ -504,18 +504,6 @@ export function ConversationList({
     >
       <DirectoryToolbar
         noun="会话"
-        searchActions={
-          directory?.onCalendar ? (
-            <button
-              type="button"
-              title="会话日历"
-              aria-label="会话日历"
-              onClick={() => directory.onCalendar(keyword)}
-            >
-              <CalendarDays size={16} />
-            </button>
-          ) : null
-        }
         query={keyword}
         onQuery={setKeyword}
         selecting={selectionMode}
