@@ -88,6 +88,7 @@ import { inspectDestination } from './storage_preflight';
 import {
   copyExportSavePolicy,
   saveExportOutput,
+  inventoryExportOutput,
   type ExportSavePolicy,
   type ExportSaveState,
 } from './save_output';
@@ -996,10 +997,10 @@ export class ExportTaskManager extends EventEmitter {
                 generatedResources: {
                   total: task.generatedResourceReport.entries.length,
                   copied: task.generatedResourceReport.entries.filter(
-                    (entry) => entry.status === 'copied',
+                    (entry) => entry.status === 'copied' && entry.offline?.complete !== false,
                   ).length,
                   missing: task.generatedResourceReport.entries.filter(
-                    (entry) => entry.status === 'missing',
+                    (entry) => entry.status === 'missing' || entry.offline?.complete === false,
                   ).length,
                 },
               }
@@ -4293,7 +4294,11 @@ export class ExportTaskManager extends EventEmitter {
     try {
       bundle = createAtomicExportBundle(
         this.cacheDir,
-        task.domainUpdate ? `${id}-${task.scanId}` : id,
+        task.domainUpdate
+          ? `${id}-${task.scanId}`
+          : task.bundleDir
+            ? `${id}-retry-${randomUUID()}`
+            : id,
       );
       if (!task.generatedResourceCache)
         task.generatedResourceCache = discoverGeneratedResources(task.generated).map(
@@ -4340,7 +4345,7 @@ export class ExportTaskManager extends EventEmitter {
         JSON.stringify(resources.manifest, null, 2),
       );
       const missingResources = resources.manifest.entries.filter(
-        (entry) => entry.status === 'missing',
+        (entry) => entry.status === 'missing' || entry.offline?.complete === false,
       ).length;
       if (resourceCache.length)
         this.touchStage(
@@ -4352,13 +4357,24 @@ export class ExportTaskManager extends EventEmitter {
             total: resourceCache.length,
             failed: missingResources,
             failures: resources.manifest.entries
-              .filter((entry) => entry.status === 'missing')
-              .slice(0, 200)
-              .map((entry) => ({
-                stage: 'media',
-                fileName: entry.name,
-                error: entry.error ?? '本地资源缺失',
-              })),
+              .flatMap((entry) =>
+                entry.status === 'missing'
+                  ? [
+                      {
+                        stage: 'media' as const,
+                        fileName: entry.name,
+                        error: entry.error ?? '本地资源缺失',
+                      },
+                    ]
+                  : (entry.offline?.resources ?? [])
+                      .filter((resource) => resource.error)
+                      .map((resource) => ({
+                        stage: 'media' as const,
+                        fileName: `${entry.name} / ${resource.source}`,
+                        error: resource.error!,
+                      })),
+              )
+              .slice(0, 200),
             note: `${resourceCache.length - missingResources} 项已保存，${missingResources} 项缺失`,
           },
           { persist: true },
@@ -4392,13 +4408,22 @@ export class ExportTaskManager extends EventEmitter {
         task.filePath = join(bundle.finalDir, `${stem}.${formats[0]}`);
       }
       task.current = task.generated.messages.length;
-      task.status = 'completed';
-      task.progress = 100;
       for (const item of resourceCache) {
         const relative = resources.published.get(item.reference.key);
-        if (!updated && item.snapshot && relative)
+        if (!updated && resources.manifest.complete && item.snapshot && relative) {
           item.snapshot.directory = join(bundle.finalDir, relative);
+          item.snapshot.inventory = [
+            ...(await inventoryExportOutput(item.snapshot.directory, abort.signal)),
+          ];
+          if (
+            item.snapshot.entry &&
+            resources.manifest.entries.find((entry) => entry.key === item.reference.key)?.offline
+          )
+            item.snapshot.sourcePath = join(item.snapshot.directory, item.snapshot.entry);
+        }
       }
+      task.status = 'completed';
+      task.progress = 100;
       this.touchStage(task, 'message', {
         status: 'completed',
         current: task.current,
@@ -4407,6 +4432,7 @@ export class ExportTaskManager extends EventEmitter {
       });
       if (
         this.saveTasks() &&
+        resources.manifest.complete &&
         !updated &&
         resourceCache.every((item) => !item.snapshot || resources.published.has(item.reference.key))
       ) {
@@ -5727,6 +5753,12 @@ export class ExportTaskManager extends EventEmitter {
 
   private canResume(task: ExportTask): boolean {
     if (this.finalizing.has(task.id) || this.outputSaves.has(task.id)) return false;
+    if (
+      task.generated &&
+      task.status === 'completed' &&
+      task.generatedResourceReport?.complete === false
+    )
+      return !this.abortControllers.has(task.id);
     if (task.contacts || task.generated || task.qzone || task.collection)
       return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
     return (
@@ -5872,6 +5904,13 @@ export class ExportTaskManager extends EventEmitter {
         !this.canResume(task))
     )
       return false;
+    if (
+      task.generated &&
+      task.status === 'completed' &&
+      task.generatedResourceReport?.complete === false &&
+      task.save
+    )
+      task.save.status = 'pending';
     const retrySkipped =
       task.status === 'completed' &&
       task.stages.some((stage) => this.canRetrySkippedStage(task, stage));
