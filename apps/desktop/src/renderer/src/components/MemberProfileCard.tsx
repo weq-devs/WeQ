@@ -138,7 +138,7 @@ export function MemberProfileCard({
                 settings={settings}
                 onNavigate={onClose}
                 localOnly={!settings.ready}
-                trailing={<ContactGroupContent person={person} settings={settings} />}
+                leading={<ContactGroupContent person={person} settings={settings} />}
               />
             ) : null}
             <ContactActions

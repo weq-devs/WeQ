@@ -252,6 +252,8 @@ describe('群成员资料卡浮层', () => {
     const container = heading.closest('section')?.parentElement;
     expect(container?.classList.contains('weq-contact-sections')).toBe(true);
     expect(container?.querySelector('[data-profile-field="company"]')).not.toBeNull();
+    expect(container?.firstElementChild).toBe(heading.closest('section'));
+    expect(container?.children[1]?.querySelector('h3')?.textContent).toBe('基本信息');
   });
   it('QID 与 QQ 号并列、状态位于昵称旁，生日无装饰图标，等级归基本信息', async () => {
     await mountCard(() => {}, undefined, {

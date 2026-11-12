@@ -598,7 +598,7 @@ export function ContactContent({
   onSection,
   onNavigate,
   localOnly = false,
-  trailing,
+  leading,
   preview = false,
 }: {
   person: ProfilePerson;
@@ -608,8 +608,8 @@ export function ContactContent({
   onSection?: (section: ContactWorkspaceTab) => void;
   onNavigate?: () => void;
   localOnly?: boolean;
-  /** 名片宿主可以把「群内资料」等分区插在正文与「更多资料」之间，保持分区顺序一致。 */
-  trailing?: ReactNode;
+  /** 名片宿主可以把「群内资料」等分区放在基本信息之前。 */
+  leading?: ReactNode;
   /** 设置页预览：只渲染内容，不提供跳转与「更多资料」。 */
   preview?: boolean;
 }) {
@@ -841,8 +841,9 @@ export function ContactContent({
           {person.clone ? '这个本地会话还没有可显示的资料。' : '没有可显示的公开资料。'}
         </ContactEmptyState>
       ) : null}
-      {titled.length || trailing ? (
+      {titled.length || leading ? (
         <div className="weq-profile-data weq-contact-sections">
+          {leading}
           {titled.map((block) =>
             sectioned ? (
               <ContactSection key={block.key} title={block.title} fields>
@@ -859,7 +860,6 @@ export function ContactContent({
           ) : techBlock ? (
             <ContactTechnicalDetails>{techBlock.rows}</ContactTechnicalDetails>
           ) : null}
-          {trailing}
         </div>
       ) : null}
       {personal && showMore ? (
