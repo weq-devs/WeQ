@@ -1,5 +1,17 @@
 # Live Photo 分类证据
 
+## 当前接入（2026-11-12）
+
+说说及好友动态的可见视频媒体已增加 V4 详情类型补全，Web 列表与分页不变。命令为 `QzoneV4Service.trpc.qzone.feeds_reader.FeedsReader.GetFeedDetail`，复用现有原生 SSO 发包及中央签名策略；当前真实验证平台为 macOS QQ，会话不可用时不影响 Web 内容。
+
+请求采用 QWeb 包装（业务体 tag 4、`fc-appid=101`），将作者、appid=311、发布时间和说说 ID 写入 CommonUnionID 的已核扩展项。响应必须匹配作者、业务及说说 ID，再沿 `QWeb.body@4 → detail@2 → feed@1 → media@5 → items@1` 解出媒体 `isLivePhoto@18`。普通视频与实况都可能是 `type=1`，缺失标记不补成 false；关联只使用精确视频 ID，重复冲突保留未知。
+
+协议实现为 `packages/protocol/src/qzone/feed-media-detail.ts`；服务在 `account/qzone_media_types.ts` 中保留五分钟、最多 128 帖的账号实例缓存及在途去重，最多两条原生查询并行，失败冷却 30 秒。界面接近视口才调用 `account.qzone.mediaTypes`，隐藏、暂停或卸载后不接收迟到结果；纯图片与无定位信息的内容不发补全请求。
+
+实测通过已知普通视频的显式 false、12 张实况全部为 true，以及缓存去重；另发现 Web 顶层 `video[]` 同样可能是实况。原历史三项混合帖、可靠短普通视频负样本和图片文件级配对仍未补齐；这次不接相册独立分类、原件合成或修改导出文件形式。
+
+## 历史 Web 调查（2026-10-15）
+
 结论：2026-10-15 的已知样本能区分静态媒体与携带视频的媒体，**不能可靠区分普通视频和 Live Photo**。没有新增自动 Live Photo 分类。
 
 ## 反例

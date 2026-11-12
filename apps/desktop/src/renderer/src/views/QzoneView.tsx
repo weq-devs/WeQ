@@ -1512,6 +1512,7 @@ function Post({
       <QzoneMediaGrid
         images={images.filter((url) => !links.some((link) => link.cover === url))}
         videos={videos}
+        target={{ selfUin, hostUin, tid: post.tid, time: post.time }}
       />
       <FeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
       {post.repost ? (
@@ -1587,7 +1588,11 @@ function Repost({
         </p>
       ) : null}
       {completion ? <CompletionStatus {...completion} original /> : null}
-      <QzoneMediaGrid images={original.images} videos={original.videos} />
+      <QzoneMediaGrid
+        images={original.images}
+        videos={original.videos}
+        target={{ selfUin, hostUin: original.uin, tid: original.tid, time: original.time ?? 0 }}
+      />
       {validUin && /^[a-zA-Z0-9_-]{1,128}$/.test(original.tid) ? (
         <PostActions
           key={`${original.uin}:${original.tid}`}

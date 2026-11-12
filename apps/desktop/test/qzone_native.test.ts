@@ -32,6 +32,7 @@ beforeEach(() => {
       getQzoneFeeds: vi.fn(async () => ({ feeds: [], hasMore: false })),
       getQzonePostDetail: vi.fn(async () => ({ content: 'full', contentComplete: true })),
       getQzonePostImages: vi.fn(async () => ['https://a.qpic.cn/full']),
+      getQzoneMediaTypes: vi.fn(async () => [{ videoId: 'fixture', isLivePhoto: true }]),
       getQzoneStructuredComments: vi.fn(async () => ({
         comments: [],
         likes: [],
@@ -66,6 +67,25 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('按当前账号与准确帖定位读取原生媒体类型，不替换 Web 列表', async () => {
+    const input = {
+      selfUin,
+      hostUin,
+      tid: 'fixture',
+      time: 1700000000,
+      requestId: query.requestId,
+    };
+    expect(await api.mediaTypes(input)).toEqual([{ videoId: 'fixture', isLivePhoto: true }]);
+    expect(services.webQuery.getQzoneMediaTypes).toHaveBeenCalledWith(
+      hostUin,
+      'fixture',
+      input.time,
+      expect.any(AbortSignal),
+    );
+    expect(services.webQuery.getQzoneMsgList).not.toHaveBeenCalled();
+    await expect(api.mediaTypes({ ...input, selfUin: '10003' })).rejects.toThrow('账号已切换');
+    await expect(api.mediaTypes({ ...input, time: 0 })).rejects.toThrow();
+  });
   it('routes structured reply reads directly without scanning homepage HTML', async () => {
     const input = {
       selfUin,

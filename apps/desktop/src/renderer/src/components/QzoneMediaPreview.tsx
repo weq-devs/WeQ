@@ -12,6 +12,7 @@ export interface QzonePreviewMedia {
   src: string;
   poster?: string;
   title?: string;
+  isLivePhoto?: boolean;
   load?: () => Promise<{ src: string; kind: 'image' | 'video' }>;
 }
 
@@ -148,6 +149,7 @@ export function QzoneMediaPreview({
       <header className="weq-qz-preview-toolbar">
         <span aria-live="polite">
           {index + 1} / {items.length}
+          {item.isLivePhoto === true ? ' · 实况' : ''}
         </span>
         <div>
           {detailError ? (
@@ -247,6 +249,9 @@ export function QzoneMediaPreview({
               poster={item.poster}
               controls
               autoPlay
+              loop={item.isLivePhoto === true}
+              muted={item.isLivePhoto === true}
+              playsInline
               onError={() => setError('视频暂时无法播放')}
             />
           )}

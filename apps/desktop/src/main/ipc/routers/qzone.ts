@@ -47,6 +47,13 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
+  mediaTypes: procedure
+    .input(post.extend({ time: z.number().int().positive() }))
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneMediaTypes(input.hostUin, input.tid, input.time, signal),
+      ),
+    ),
   detail: procedure.input(post).query(({ input }) =>
     request(input, async (services, signal) => {
       const detail = await services.webQuery.getQzonePostDetail(input.hostUin, input.tid, signal);

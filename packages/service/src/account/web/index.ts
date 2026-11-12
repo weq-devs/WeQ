@@ -114,6 +114,8 @@ import { fetchQzoneRelated, fetchQzoneMemories } from './qzone_recall';
 import { getSpecialCare } from './special_care';
 import { fetchVipInfo } from './vip_info';
 import type { VipInfo } from '../vip';
+import { QzoneMediaTypesService } from '../qzone_media_types';
+import type { TrpcNative } from '@weq/protocol';
 import { uploadGroupAlbumVideo, type GroupAlbumVideoUpload } from './group_album_video';
 import {
   getQzonePermissionList,
@@ -155,6 +157,7 @@ const TI_DOMAIN = 'ti.qq.com';
 
 export class WebQueryService {
   private readonly creds: WebCredentialProvider;
+  private readonly mediaTypes?: QzoneMediaTypesService;
   private readonly qzoneNameCache = new Map<string, { name: string; at: number }>();
 
   /**
@@ -164,13 +167,18 @@ export class WebQueryService {
    * @param onSeedInvalidated seed 的票据被判失效时调用（落盘那份一起删掉）。
    */
   constructor(
-    nt: WebNative,
+    nt: WebNative & Partial<TrpcNative>,
     session: AccountSession,
     resolvePid: () => number,
     loginPskey?: Record<string, string>,
     onSeedInvalidated?: (domain: string) => void,
   ) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid, onSeedInvalidated);
+    if (nt.sendPacket)
+      this.mediaTypes = new QzoneMediaTypesService(
+        { sendPacket: nt.sendPacket.bind(nt) },
+        resolvePid,
+      );
     if (loginPskey) this.creds.seedPskey(loginPskey);
   }
 
@@ -523,6 +531,12 @@ export class WebQueryService {
     const cred = await this.creds.forDomain(QZONE_DOMAIN);
     beforeSend?.();
     return forwardQzonePublicFeed(cred, feed, reason);
+  }
+
+  /** 可见媒体的原生类型补全，不影响 Web 列表与正文读取。 */
+  async getQzoneMediaTypes(ownerUin: string, tid: string, time: number, signal?: AbortSignal) {
+    if (!this.mediaTypes) throw new Error('当前会话不支持空间媒体类型读取。');
+    return this.mediaTypes.read({ ownerUin, tid, time }, signal);
   }
 
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */

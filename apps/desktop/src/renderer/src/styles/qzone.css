@@ -209,6 +209,21 @@
   max-height: 420px;
   object-fit: contain;
 }
+.weq-qzn-live-label {
+  position: absolute;
+  inset-inline-start: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--weq-overlay);
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  line-height: 18px;
+  pointer-events: none;
+}
 .weq-qzn-video {
   position: relative;
   background: var(--muted);

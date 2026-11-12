@@ -11,14 +11,18 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactElement,
   type RefObject,
 } from 'react';
-import { Loader2, Play, VideoOff } from 'lucide-react';
+import { CircleDot, Loader2, Play, VideoOff } from 'lucide-react';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { qzoneMediaSource } from '../lib/qzone';
+import { useQzoneRequests } from '../hooks/useQzoneRequests';
+import { client } from '../trpc/client';
+import { applyQzoneVideoTypes, type QzoneVideoType } from '../lib/qzoneMediaTypes';
 
 /** 当前页是否可见 + 刷新代数（供子组件决定是否继续读）。 */
 export const QzonePageContext = createContext({ active: true, refresh: 0 });
@@ -26,11 +30,15 @@ export const QzonePageContext = createContext({ active: true, refresh: 0 });
 export const QzoneReadPauseContext = createContext(false);
 
 /** 元素是否进入（或接近）滚动容器视口；`once` 只触发一次。 */
-export function useNearViewport(ref: RefObject<HTMLElement | null>, once = false): boolean {
+export function useNearViewport(
+  ref: RefObject<HTMLElement | null>,
+  once = false,
+  enabled = true,
+): boolean {
   const [near, setNear] = useState(false);
   const { active } = useContext(QzonePageContext);
   useEffect(() => {
-    if (!active) {
+    if (!active || !enabled) {
       setNear(false);
       return undefined;
     }
@@ -46,8 +54,8 @@ export function useNearViewport(ref: RefObject<HTMLElement | null>, once = false
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [ref, once, active]);
-  return active && near;
+  }, [ref, once, active, enabled]);
+  return active && enabled && near;
 }
 
 export function timeText(time: number): string {
@@ -105,6 +113,7 @@ export interface QzoneMediaVideo {
   videoUrl: string;
   videoId: string;
   duration: number;
+  isLivePhoto?: boolean;
 }
 
 export function QzoneVideo({
@@ -124,25 +133,43 @@ export function QzoneVideo({
       type="button"
       className="weq-qzn-video"
       disabled={!src}
-      aria-label={src ? `播放空间视频 ${index + 1}` : `空间视频 ${index + 1} 暂无播放地址`}
-      title={src ? '播放视频' : '此视频暂时没有可播放地址'}
+      aria-label={
+        src
+          ? `播放空间${video.isLivePhoto === true ? '实况照片' : '视频'} ${index + 1}`
+          : `空间${video.isLivePhoto === true ? '实况照片' : '视频'} ${index + 1} 暂无播放地址`
+      }
+      title={
+        src
+          ? video.isLivePhoto === true
+            ? '播放实况照片'
+            : '播放视频'
+          : '此媒体暂时没有可播放地址'
+      }
       onClick={onOpen}
     >
       {cover && !coverFailed ? (
         <img
           src={albumMediaUrl(cover)}
-          alt={`视频封面 ${index + 1}`}
+          alt={`${video.isLivePhoto === true ? '实况照片' : '视频封面'} ${index + 1}`}
           loading="lazy"
           onError={() => setCoverFailed(true)}
         />
       ) : (
         <span className="weq-qzn-video-placeholder">
-          {coverFailed ? '视频封面暂时无法加载' : '视频'}
+          {coverFailed ? '封面暂时无法加载' : video.isLivePhoto === true ? '实况照片' : '视频'}
         </span>
       )}
-      <span className="weq-qzn-video-play">
-        {src ? <Play size={20} /> : <VideoOff size={20} />}
-      </span>
+      {video.isLivePhoto !== true ? (
+        <span className="weq-qzn-video-play">
+          {src ? <Play size={20} /> : <VideoOff size={20} />}
+        </span>
+      ) : null}
+      {video.isLivePhoto === true ? (
+        <span className="weq-qzn-live-label">
+          <CircleDot size={13} />
+          实况
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -172,12 +199,74 @@ function Picture({ url, index, onOpen }: { url: string; index: number; onOpen: (
 export function QzoneMediaGrid({
   images,
   videos = [],
+  target,
 }: {
   images: string[];
   videos?: QzoneMediaVideo[];
+  target?: { selfUin: string; hostUin: string; tid: string; time: number };
 }): ReactElement | null {
+  const grid = useRef<HTMLDivElement>(null);
+  const near = useNearViewport(
+    grid,
+    false,
+    Boolean(target && target.time > 0 && videos.some((video) => video.videoId)),
+  );
   const [preview, setPreview] = useState<number | null>(null);
   const { active, refresh } = useContext(QzonePageContext);
+  const paused = useContext(QzoneReadPauseContext);
+  const { run, cancel } = useQzoneRequests();
+  const [types, setTypes] = useState<{ key: string; values: QzoneVideoType[] } | null>(null);
+  const attempted = useRef('');
+  const selfUin = target?.selfUin ?? '';
+  const hostUin = target?.hostUin ?? '';
+  const tid = target?.tid ?? '';
+  const time = target?.time ?? 0;
+  const ids = JSON.stringify(
+    videos
+      .map((video) => video.videoId)
+      .filter(Boolean)
+      .sort(),
+  );
+  const typeKey = JSON.stringify([selfUin, hostUin, tid, time, ids, refresh]);
+  useEffect(() => {
+    if (
+      !active ||
+      paused ||
+      !near ||
+      ids === '[]' ||
+      !/^[1-9]\d{4,19}$/.test(selfUin) ||
+      !/^[1-9]\d{4,19}$/.test(hostUin) ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(tid) ||
+      tid === '0' ||
+      !Number.isSafeInteger(time) ||
+      time <= 0 ||
+      attempted.current === typeKey
+    )
+      return undefined;
+    attempted.current = typeKey;
+    let live = true;
+    let settled = false;
+    void run(
+      (requestId) =>
+        client.account.qzone.mediaTypes.query({ selfUin, hostUin, tid, time, requestId }),
+      true,
+    )
+      .then((values) => {
+        if (live) setTypes({ key: typeKey, values });
+      })
+      .catch(() => {
+        /* 补全失败不阻塞或替换现有 Web 媒体。 */
+      })
+      .finally(() => {
+        settled = true;
+      });
+    return () => {
+      live = false;
+      if (!settled) attempted.current = '';
+      cancel();
+    };
+  }, [active, paused, near, selfUin, hostUin, tid, time, ids, typeKey, run, cancel]);
+  const typedVideos = types?.key === typeKey ? applyQzoneVideoTypes(videos, types.values) : videos;
   useEffect(() => {
     setPreview(null);
   }, [refresh]);
@@ -187,7 +276,7 @@ export function QzoneMediaGrid({
     }
   }, [active]);
   const seenVideos = new Set<string>();
-  const uniqueVideos = videos.filter((video) => {
+  const uniqueVideos = typedVideos.filter((video) => {
     const key = video.videoId || video.videoUrl || video.coverUrl;
     if (!key || seenVideos.has(key)) return false;
     seenVideos.add(key);
@@ -207,11 +296,12 @@ export function QzoneMediaGrid({
       kind: 'video' as const,
       src: albumMediaUrl(video.videoUrl),
       poster: video.coverUrl ? albumMediaUrl(video.coverUrl) : undefined,
+      isLivePhoto: video.isLivePhoto,
     })),
   ];
   return count ? (
     <>
-      <div className="weq-qzn-pictures" data-media-count={count}>
+      <div ref={grid} className="weq-qzn-pictures" data-media-count={count}>
         {urls.map((url, index) => (
           <Picture key={url} url={url} index={index} onOpen={() => setPreview(index)} />
         ))}
