@@ -2,7 +2,7 @@ import { useContext, useEffect, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
 import { ExternalLink } from 'lucide-react';
-import type { Contact } from '../../im-template/template/types';
+import type { Contact, GroupConversation } from '../../im-template/template/types';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
@@ -12,7 +12,7 @@ import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import { ContactGroupContent } from './ContactContent';
 import { ContactActions } from './ContactActions';
 import { ContactEmptyState, ContactInlineError } from './ContactRow';
-import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
+import { GroupProfileSurface } from '../groupProfile/GroupProfileSurface';
 import { sharedGroupConversation } from '../ark/groupShareCard';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { ContactFieldHistoryProvider } from './ContactFieldHistory';
@@ -36,7 +36,11 @@ function GroupWorkspace({
 }) {
   const active = useTabActive();
   const directory = useContext(ConversationDirectoryContext);
-  const navigate = useContext(ContactWorkspaceNavigationContext);
+  const [groupCard, setGroupCard] = useState<{
+    conversation: GroupConversation;
+    anchor: HTMLButtonElement;
+    known: boolean;
+  } | null>(null);
   const drafts = useContext(DraftCloseContext);
   const closing = useDraftClose(() => {}, null);
   useEffect(() => {
@@ -136,6 +140,7 @@ function GroupWorkspace({
                 onChange={(event) => {
                   const next = event.target.value;
                   void closing.confirmLeave(() => {
+                    setGroupCard(null);
                     setSelected(next);
                     rememberedGroups.delete(scope);
                     rememberedGroups.set(scope, next);
@@ -155,13 +160,13 @@ function GroupWorkspace({
                   ))
                 )}
               </select>
-              {code && navigate ? (
+              {code ? (
                 <button
                   type="button"
                   className="weq-profile-group-link"
-                  title="查看所选群资料"
-                  aria-label="查看所选群资料"
-                  onClick={() => {
+                  title="查看群名片"
+                  aria-label="查看群名片"
+                  onClick={(event) => {
                     const known = directory?.real?.find(
                       (item) => item.type === 'group' && item.id === code,
                     );
@@ -173,7 +178,11 @@ function GroupWorkspace({
                             name: name(code),
                             avatar: avatarFromGroupCode(code) ?? '',
                           });
-                    void closing.confirmLeave(() => navigate({ kind: 'group', conversation }));
+                    setGroupCard({
+                      conversation,
+                      anchor: event.currentTarget,
+                      known: known?.type === 'group',
+                    });
                   }}
                 >
                   <ExternalLink size={16} />
@@ -218,6 +227,14 @@ function GroupWorkspace({
             </div>
           ) : !groups.isFetching && !groups.error ? (
             <ContactEmptyState>没有可显示的群内资料。</ContactEmptyState>
+          ) : null}
+          {groupCard && groupCard.conversation.id === code ? (
+            <GroupProfileSurface
+              conversation={groupCard.conversation}
+              anchor={groupCard.anchor}
+              detailsKnown={groupCard.known}
+              onClose={() => setGroupCard(null)}
+            />
           ) : null}
         </div>
       </ContactFieldHistoryProvider>

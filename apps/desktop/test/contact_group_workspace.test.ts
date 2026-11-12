@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ContactGroupWorkspace } from '../src/renderer/src/components/contactProfile/ContactGroupWorkspace';
 import { useDraftProtection } from '../src/renderer/src/lib/draftClose';
 import type { Contact } from '../src/renderer/src/im-template/template/types';
+import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import type { GroupProfileSurfaceProps } from '../src/renderer/src/components/groupProfile/GroupProfileSurface';
 
 const rpc = vi.hoisted(() => ({
   config: 'source-a',
@@ -35,6 +37,15 @@ vi.mock('../src/renderer/src/components/contactProfile/ContactContent', () => ({
 vi.mock('../src/renderer/src/components/contactProfile/ContactActions', () => ({
   ContactActions: ({ person }: { person: Contact }) =>
     h('p', { 'data-actions': true }, person.profileContext?.groupCode),
+}));
+vi.mock('../src/renderer/src/components/groupProfile/GroupProfileSurface', () => ({
+  GroupProfileSurface: ({ conversation, anchor, embedded, onClose }: GroupProfileSurfaceProps) =>
+    h('button', {
+      'data-group-card': conversation?.id,
+      'data-anchored': anchor?.getAttribute('aria-label'),
+      'data-embedded': Boolean(embedded),
+      onClick: onClose,
+    }),
 }));
 const contact: Contact = {
   id: 'u_group_test',
@@ -69,7 +80,7 @@ afterEach(() => {
   roots.length = 0;
   document.body.innerHTML = '';
 });
-function fixture() {
+function fixture(navigate = vi.fn()) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -80,12 +91,44 @@ function fixture() {
   roots.push({ root, cache });
   const render = async () => {
     await act(async () => {
-      root.render(h(QueryClientProvider, { client: cache }, h(ContactGroupWorkspace, { contact })));
+      root.render(
+        h(
+          QueryClientProvider,
+          { client: cache },
+          h(
+            ContactWorkspaceNavigationContext.Provider,
+            { value: navigate },
+            h(ContactGroupWorkspace, { contact }),
+          ),
+        ),
+      );
       await new Promise((resolve) => setTimeout(resolve, 15));
     });
   };
   return { host, render };
 }
+it('查看群名片在按钮旁打开所选群的快速名片，不跳转完整资料页', async () => {
+  const navigate = vi.fn();
+  const { host, render } = fixture(navigate);
+  await render();
+  await render();
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="查看群名片"]')!.click(),
+  );
+  expect(host.querySelector('[data-group-card="99999"]')).not.toBeNull();
+  await select(host, '10003');
+  expect(host.querySelector('[data-group-card]')).toBeNull();
+  const button = host.querySelector<HTMLButtonElement>('[aria-label="查看群名片"]');
+  expect(button).not.toBeNull();
+  await act(async () => button!.click());
+  const card = host.querySelector<HTMLButtonElement>('[data-group-card="10003"]');
+  expect(card?.dataset.anchored).toBe('查看群名片');
+  expect(card?.dataset.embedded).toBe('false');
+  expect(navigate).not.toHaveBeenCalled();
+  expect(host.querySelector('select')?.value).toBe('10003');
+  await act(async () => card!.click());
+  expect(host.querySelector('[data-group-card]')).toBeNull();
+});
 async function select(host: HTMLElement, value: string) {
   await act(async () => {
     const input = host.querySelector('select')!;
