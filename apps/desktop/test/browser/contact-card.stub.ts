@@ -133,7 +133,10 @@ function value(path: string, input: Record<string, unknown>) {
   if (path === 'account.conversationBoundary')
     return qa.noConversation ? null : { msgId: '1', msgSeq: '1', sendTime: 1794390000 };
   if (path === 'account.dressup.peerQqShow') return { hasShow: false, url: '' };
-  if (path === 'account.dressup.peerHome') return {};
+  if (path === 'account.dressup.peerHome')
+    return new URLSearchParams(location.search).has('pendant')
+      ? { widgetUrl: 'https://fixture.invalid/contact-pendant.png' }
+      : {};
   if (path === 'account.dressup.peerStats') return { level: 32, likeCount: 128 };
   if (path === 'account.profileExtras.energy') return { targetUin: uin, score: 831, level: 987 };
   if (path === 'account.profileExtras.details')

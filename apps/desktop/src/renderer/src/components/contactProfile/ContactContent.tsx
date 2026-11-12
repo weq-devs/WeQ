@@ -285,7 +285,16 @@ function IdentityNumber({ label, value }: { label: string; value: string }) {
 function ContactPendant({ person }: { person: ProfilePerson }) {
   const result = useContactDress(person.identityValue, person.kind !== 'bot');
   const url = result.data?.widgetUrl;
-  return url ? <img className="weq-contact-pendant" src={dressUrl(url)} alt="头像挂件" /> : null;
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  return url && failedUrl !== url ? (
+    <img
+      className="weq-contact-pendant"
+      src={dressUrl(url)}
+      alt="头像挂件"
+      draggable={false}
+      onError={() => setFailedUrl(url)}
+    />
+  ) : null;
 }
 
 function QqShowRow({ person }: { person: ProfilePerson }) {

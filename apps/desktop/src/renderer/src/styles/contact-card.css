@@ -231,11 +231,34 @@
 
 .weq-contact-pendant {
   position: absolute;
-  inset: -15%;
-  width: 130%;
-  height: 130%;
+  top: 50%;
+  left: 50%;
+  width: 152%;
+  height: 152%;
+  max-width: none;
+  max-height: none;
+  transform: translate(-50%, -50%);
   object-fit: contain;
   pointer-events: none;
+}
+
+/* 与个性主页使用同一素材比例：头像占舞台 58%，挂件占 152%，两者同心。 */
+.weq-contact-identity .weq-profile-avatar:has(.weq-contact-pendant) {
+  display: inline-grid;
+  place-items: center;
+  overflow: visible;
+  margin-inline: calc(64px * 0.26);
+  border-radius: 50%;
+}
+
+.weq-contact-identity .weq-profile-avatar:has(.weq-contact-pendant) .avatar {
+  width: 58%;
+  height: 58%;
+  border-radius: 50%;
+}
+
+.weq-contact-identity .weq-profile-avatar:has(.weq-contact-pendant) .avatar img {
+  border-radius: 50%;
 }
 
 /* 名片里分区之间用一条 hairline 分隔；资料页正文不画行线，只靠间距。 */
