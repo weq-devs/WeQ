@@ -7,7 +7,7 @@ export function reportGestureTarget(target: EventTarget | null): target is HTMLE
   return (
     target instanceof Element &&
     !target.closest(
-      'button, a, input, textarea, select, [contenteditable="true"], [role="slider"], canvas, svg, [data-no-report-swipe]',
+      'button, a, input, textarea, select, [contenteditable="true"], [role="slider"], canvas, svg',
     )
   );
 }

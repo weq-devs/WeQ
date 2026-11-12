@@ -411,29 +411,27 @@ html[data-density='compact'] body table :is(th, td) {
     min-height: 44px;
   }
 }
-@media all {
-  html:where([data-weq-layout='single'])[data-density='compact'] .app-shell-root.weq-web-shell {
-    --weq-conversation-row-height: 64px;
-  }
-  html:where([data-weq-layout='single'])[data-density='compact']
-    body
-    :is(.weq-web-shell .app-shell, .weq-conversation-list)
-    :is(.conversation-row, .contact-row) {
-    height: var(--weq-conversation-row-height);
-    min-height: var(--weq-conversation-row-height);
-    padding: 5px 12px;
-    gap: 8px;
-    grid-template-columns: 40px minmax(0, 1fr) 48px;
-  }
-  html:where([data-weq-layout='single'])[data-density='compact']
-    body
-    :is(.weq-web-shell .app-shell, .weq-conversation-list)
-    :is(.conversation-row, .contact-row)
-    .avatar {
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-  }
+html:where([data-weq-layout='single'])[data-density='compact'] .app-shell-root.weq-web-shell {
+  --weq-conversation-row-height: 64px;
+}
+html:where([data-weq-layout='single'])[data-density='compact']
+  body
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :is(.conversation-row, .contact-row) {
+  height: var(--weq-conversation-row-height);
+  min-height: var(--weq-conversation-row-height);
+  padding: 5px 12px;
+  gap: 8px;
+  grid-template-columns: 40px minmax(0, 1fr) 48px;
+}
+html:where([data-weq-layout='single'])[data-density='compact']
+  body
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :is(.conversation-row, .contact-row)
+  .avatar {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
 }
 
 .weq-style-options {

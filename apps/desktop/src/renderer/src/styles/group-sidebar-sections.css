@@ -99,16 +99,14 @@ html[data-theme='dark'] .weq-group-sections {
   color: var(--weq-fg-primary);
   border-color: var(--weq-border-strong);
 }
-@media all {
-  :where(html[data-weq-layout='single'])
-    .chat-pane:not(.is-mobile-group-info-open)
-    > .group-info-panel.weq-group-sections {
-    display: none;
-  }
-  :where(html[data-weq-layout='single'])
-    .chat-pane.is-mobile-group-info-open
-    > .group-info-panel.weq-group-sections {
-    display: flex;
-    overflow: hidden;
-  }
+:where(html[data-weq-layout='single'])
+  .chat-pane:not(.is-mobile-group-info-open)
+  > .group-info-panel.weq-group-sections {
+  display: none;
+}
+:where(html[data-weq-layout='single'])
+  .chat-pane.is-mobile-group-info-open
+  > .group-info-panel.weq-group-sections {
+  display: flex;
+  overflow: hidden;
 }

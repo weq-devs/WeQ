@@ -115,15 +115,13 @@ html[data-theme='dark'] .sidebar .contact-notice-row > .weq-contact-notice-entry
   }
 }
 
-@media all {
-  html:where([data-weq-layout='single'])[data-theme]
-    .sidebar
-    .contact-notice-row
-    > .weq-contact-notice-entry {
-    min-height: 36px;
-    padding-inline: 10px;
-    font-size: 13px;
-  }
+html:where([data-weq-layout='single'])[data-theme]
+  .sidebar
+  .contact-notice-row
+  > .weq-contact-notice-entry {
+  min-height: 36px;
+  padding-inline: 10px;
+  font-size: 13px;
 }
 
 @media (prefers-reduced-motion: reduce) {

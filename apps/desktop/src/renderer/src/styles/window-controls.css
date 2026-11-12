@@ -3,16 +3,14 @@
   padding-left: 84px;
 }
 
-@media all {
-  :where(html[data-weq-layout='single']) .app-shell-root.is-desktop-shell.weq-web-shell {
-    --weq-mobile-window-chrome-height: 40px;
-  }
+:where(html[data-weq-layout='single']) .app-shell-root.is-desktop-shell.weq-web-shell {
+  --weq-mobile-window-chrome-height: 40px;
+}
 
-  :where(html[data-weq-layout='single'])
-    .app-shell-root.is-desktop-shell.weq-web-shell
-    > .app-title-bar {
-    display: flex;
-  }
+:where(html[data-weq-layout='single'])
+  .app-shell-root.is-desktop-shell.weq-web-shell
+  > .app-title-bar {
+  display: flex;
 }
 
 .weq-native-window-header {

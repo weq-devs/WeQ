@@ -58,12 +58,10 @@
 .chat-pane.with-group-info:not(.group-info-collapsed) .new-message-pill {
   right: calc(var(--group-info-panel-width) + 16px);
 }
-@media all {
-  :where(html[data-weq-layout='single'])
-    .chat-pane.with-group-info:not(.group-info-collapsed)
-    .new-message-pill {
-    right: 24px;
-  }
+:where(html[data-weq-layout='single'])
+  .chat-pane.with-group-info:not(.group-info-collapsed)
+  .new-message-pill {
+  right: 24px;
 }
 html[data-theme='dark'] .new-message-pill {
   background: var(--weq-bg-surface);

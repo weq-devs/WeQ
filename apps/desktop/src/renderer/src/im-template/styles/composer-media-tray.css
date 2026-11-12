@@ -73,42 +73,40 @@ html[data-theme='dark'] .composer-media-tray > .composer-single-card {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
 
-@media all {
-  :where(html[data-weq-layout='single']) .chat-pane:has(.composer.has-media-attachments) {
-    --composer-height: calc(
-      var(--mobile-composer-editor-height, 42px) +
-      138px +
-      var(--mobile-composer-safe-bottom)
-    ) !important;
-  }
+:where(html[data-weq-layout='single']) .chat-pane:has(.composer.has-media-attachments) {
+  --composer-height: calc(
+    var(--mobile-composer-editor-height, 42px) +
+    138px +
+    var(--mobile-composer-safe-bottom)
+  ) !important;
+}
 
-  :where(html[data-weq-layout='single']) .composer.has-media-attachments {
-    grid-template-rows: 76px var(--mobile-composer-editor-height, 42px) 48px;
-  }
+:where(html[data-weq-layout='single']) .composer.has-media-attachments {
+  grid-template-rows: 76px var(--mobile-composer-editor-height, 42px) 48px;
+}
 
-  :where(html[data-weq-layout='single']) .composer.has-media-attachments > .composer-media-tray {
-    grid-row: 1;
-    padding-right: 0;
-  }
+:where(html[data-weq-layout='single']) .composer.has-media-attachments > .composer-media-tray {
+  grid-row: 1;
+  padding-right: 0;
+}
 
-  :where(html[data-weq-layout='single'])
-    .composer.has-media-attachments
-    > :is(.composer-editor, .composer-send, .mobile-composer-expand-button) {
-    grid-row: 2;
-  }
+:where(html[data-weq-layout='single'])
+  .composer.has-media-attachments
+  > :is(.composer-editor, .composer-send, .mobile-composer-expand-button) {
+  grid-row: 2;
+}
 
-  :where(html[data-weq-layout='single']) .composer.has-media-attachments > .composer-tools {
-    grid-row: 3;
-  }
+:where(html[data-weq-layout='single']) .composer.has-media-attachments > .composer-tools {
+  grid-row: 3;
+}
 
-  :where(html[data-weq-layout='single']) .composer-media-tray > .composer-single-card {
-    padding-right: 36px;
-  }
+:where(html[data-weq-layout='single']) .composer-media-tray > .composer-single-card {
+  padding-right: 36px;
+}
 
-  :where(html[data-weq-layout='single']) .composer-media-tray .composer-single-remove {
-    top: 7px;
-    right: 0;
-    width: 32px;
-    height: 38px;
-  }
+:where(html[data-weq-layout='single']) .composer-media-tray .composer-single-remove {
+  top: 7px;
+  right: 0;
+  width: 32px;
+  height: 38px;
 }

@@ -7,18 +7,16 @@
   color: var(--weq-fg-primary);
   background: var(--weq-bg-surface);
 }
-@media all {
-  :where(html[data-weq-layout='single'])
-    .weq-web-dialog-layer
-    .weq-friend-directory-editor
-    :is(input, select, textarea) {
-    font-size: 16px;
-    min-height: 44px;
-  }
-  :where(html[data-weq-layout='single']) .weq-web-dialog-layer .weq-friend-directory-editor button {
-    min-width: 44px;
-    min-height: 44px;
-  }
+:where(html[data-weq-layout='single'])
+  .weq-web-dialog-layer
+  .weq-friend-directory-editor
+  :is(input, select, textarea) {
+  font-size: 16px;
+  min-height: 44px;
+}
+:where(html[data-weq-layout='single']) .weq-web-dialog-layer .weq-friend-directory-editor button {
+  min-width: 44px;
+  min-height: 44px;
 }
 .weq-friend-directory-editor header,
 .weq-friend-directory-editor footer {

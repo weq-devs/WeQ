@@ -184,36 +184,34 @@ html[data-theme]
   }
 }
 
-@media all {
-  html:where([data-weq-layout='single'])[data-theme] .contact-row.active .row-main span {
-    color: var(--weq-fg-primary);
-  }
-  html:where([data-weq-layout='single'])[data-theme] :is(.conversation-row, .contact-row).active {
-    box-shadow: none;
-  }
-  html:where([data-weq-layout='single'])[data-theme]
-    :is(.conversation-row, .contact-row).active
-    :is(
-      .row-preview-line,
-      .row-meta,
-      .row-muted,
-      .row-pinned,
-      .row-hidden,
-      .row-draft svg,
-      .contact-card-status,
-      .contact-card-signature
-    ) {
-    color: var(--weq-fg-secondary);
-  }
+html:where([data-weq-layout='single'])[data-theme] .contact-row.active .row-main span {
+  color: var(--weq-fg-primary);
 }
 
-@media all {
-  html:where(:not([data-weq-layout='single']))[data-theme]
-    :is(.conversation-row, .contact-row).active
-    .row-main
-    strong {
-    color: var(--weq-fg-primary);
-  }
+html:where([data-weq-layout='single'])[data-theme] :is(.conversation-row, .contact-row).active {
+  box-shadow: none;
+}
+
+html:where([data-weq-layout='single'])[data-theme]
+  :is(.conversation-row, .contact-row).active
+  :is(
+    .row-preview-line,
+    .row-meta,
+    .row-muted,
+    .row-pinned,
+    .row-hidden,
+    .row-draft svg,
+    .contact-card-status,
+    .contact-card-signature
+  ) {
+  color: var(--weq-fg-secondary);
+}
+
+html:where(:not([data-weq-layout='single']))[data-theme]
+  :is(.conversation-row, .contact-row).active
+  .row-main
+  strong {
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme] .contact-row.active .row-main .contact-card-nickname,

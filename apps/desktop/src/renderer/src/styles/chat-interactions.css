@@ -51,24 +51,22 @@ html[data-theme='dark'] .weq-message-sending {
   padding: 0;
   justify-content: center;
 }
-@media all {
-  :where(html[data-weq-layout='single']) .selection-bar {
-    gap: 8px;
-  }
-  :where(html[data-weq-layout='single']) .selection-bar-label,
-  :where(html[data-weq-layout='single']) .selection-bar-actions .selection-action > span {
-    display: none;
-  }
-  :where(html[data-weq-layout='single']) .selection-bar-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  :where(html[data-weq-layout='single']) .selection-bar-actions .selection-action {
-    width: 32px;
-    padding: 0;
-    justify-content: center;
-  }
+:where(html[data-weq-layout='single']) .selection-bar {
+  gap: 8px;
+}
+:where(html[data-weq-layout='single']) .selection-bar-label,
+:where(html[data-weq-layout='single']) .selection-bar-actions .selection-action > span {
+  display: none;
+}
+:where(html[data-weq-layout='single']) .selection-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+:where(html[data-weq-layout='single']) .selection-bar-actions .selection-action {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
 }
 @media (prefers-reduced-motion: reduce) {
   .weq-message-sending svg {

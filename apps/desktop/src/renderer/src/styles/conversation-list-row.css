@@ -44,11 +44,9 @@
   right: 13px;
   bottom: 10px;
 }
-@media all {
-  :where(html[data-weq-layout='single']) .weq-conversation-list {
-    --weq-conversation-row-height: 76px;
-  }
-  html:where([data-weq-layout='single'])[data-density='compact'] .weq-conversation-list {
-    --weq-conversation-row-height: 64px;
-  }
+:where(html[data-weq-layout='single']) .weq-conversation-list {
+  --weq-conversation-row-height: 76px;
+}
+html:where([data-weq-layout='single'])[data-density='compact'] .weq-conversation-list {
+  --weq-conversation-row-height: 64px;
 }

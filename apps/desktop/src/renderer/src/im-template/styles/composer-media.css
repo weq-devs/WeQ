@@ -1295,88 +1295,89 @@ html[data-theme='dark'] .link-card-preview-card {
  * 声纹环就直接坐在输入框自己的磨砂底上，看着是输入框的一部分，而不是另一个面板。
  */
 
-@media all {
-  :where(html:not([data-weq-layout='single'])) .composer > .voice-panel {
-    position: relative;
-    z-index: 6;
-    inset: auto;
-    bottom: auto;
-    left: auto;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-    grid-column: 1 / -1;
-    grid-row: 2;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-  }
+:where(html:not([data-weq-layout='single'])) .composer > .voice-panel {
+  position: relative;
+  z-index: 6;
+  inset: auto;
+  bottom: auto;
+  left: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
 
-  /* 没有 ✕ 也没有分隔线：头部只剩「语音」+ 页签（配了 TTS 才有）。 */
-  :where(html:not([data-weq-layout='single'])) .composer > .voice-panel .voice-panel-head {
-    padding: 0 4px 2px;
-    border-bottom: 0;
-  }
+/* 没有 ✕ 也没有分隔线：头部只剩「语音」+ 页签（配了 TTS 才有）。 */
 
-  :where(html:not([data-weq-layout='single'])) .voice-panel-body {
-    padding: 2px 4px 0;
-    overflow: auto;
-    scrollbar-width: thin;
-    /* 录音行吃掉剩余高度、脚注贴底，声纹环就在这一行里居中 —— 去掉外框后整块
+:where(html:not([data-weq-layout='single'])) .composer > .voice-panel .voice-panel-head {
+  padding: 0 4px 2px;
+  border-bottom: 0;
+}
+
+:where(html:not([data-weq-layout='single'])) .voice-panel-body {
+  padding: 2px 4px 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  /* 录音行吃掉剩余高度、脚注贴底，声纹环就在这一行里居中 —— 去掉外框后整块
        内容是坐在输入框里，而不是顶在上边。 */
-    grid-template-rows: minmax(0, 1fr) auto;
-  }
+  grid-template-rows: minmax(0, 1fr) auto;
+}
 
-  :where(html:not([data-weq-layout='single'])) .voice-panel-body > .voice-stage {
-    align-self: center;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel-body > .voice-stage {
+  align-self: center;
+}
 
-  :where(html:not([data-weq-layout='single'])) .voice-panel-body:has(> .voice-tts) {
-    display: block;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel-body:has(> .voice-tts) {
+  display: block;
+}
 
-  :where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 32%);
-    gap: 6px 12px;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 32%);
+  gap: 6px 12px;
+}
 
-  :where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-note,
-  :where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts > .voice-error {
-    grid-column: 1 / -1;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-note,
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts > .voice-error {
+  grid-column: 1 / -1;
+}
 
-  :where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-input {
-    grid-column: 1;
-    grid-row: 2 / span 3;
-    height: 100%;
-    min-height: 80px;
-    resize: none;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-input {
+  grid-column: 1;
+  grid-row: 2 / span 3;
+  height: 100%;
+  min-height: 80px;
+  resize: none;
+}
 
-  :where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-row,
-  :where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts > .voice-review-actions {
-    grid-column: 2;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-row,
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts > .voice-review-actions {
+  grid-column: 2;
+}
 
-  /* 引用条占正文上面那一行：正文让出一行，整条输入区高度不变（不推挤消息列表）。 */
-  :where(html:not([data-weq-layout='single'])) .composer.has-quote {
-    grid-template-rows: 42px auto minmax(0, 1fr);
-  }
+/* 引用条占正文上面那一行：正文让出一行，整条输入区高度不变（不推挤消息列表）。 */
 
-  :where(html:not([data-weq-layout='single'])) .composer.has-quote > .composer-quote {
-    grid-row: 2;
-  }
+:where(html:not([data-weq-layout='single'])) .composer.has-quote {
+  grid-template-rows: 42px auto minmax(0, 1fr);
+}
 
-  :where(html:not([data-weq-layout='single'])) .composer.has-quote > .composer-editor {
-    grid-row: 3;
-  }
+:where(html:not([data-weq-layout='single'])) .composer.has-quote > .composer-quote {
+  grid-row: 2;
+}
 
-  /* 语音条本来就顶掉正文那一行：有引用时它跟着到第三行，引用条留在上面。 */
-  :where(html:not([data-weq-layout='single'])) .composer.has-quote.voice-open > .voice-panel {
-    grid-row: 3;
-  }
+:where(html:not([data-weq-layout='single'])) .composer.has-quote > .composer-editor {
+  grid-row: 3;
+}
+
+/* 语音条本来就顶掉正文那一行：有引用时它跟着到第三行，引用条留在上面。 */
+
+:where(html:not([data-weq-layout='single'])) .composer.has-quote.voice-open > .voice-panel {
+  grid-row: 3;
 }
 
 /* ── 小屏：「只能单独发」的卡片挤进输入框第一行 ────────────────────────────────
@@ -1386,103 +1387,107 @@ html[data-theme='dark'] .link-card-preview-card {
  * 压过那条规则。
  */
 
-@media all {
-  :where(html[data-weq-layout='single']) .chat-pane:has(.composer.has-single-send) {
-    --composer-height: calc(186px + var(--mobile-composer-safe-bottom)) !important;
-  }
+:where(html[data-weq-layout='single']) .chat-pane:has(.composer.has-single-send) {
+  --composer-height: calc(186px + var(--mobile-composer-safe-bottom)) !important;
+}
 
-  :where(html[data-weq-layout='single']) .composer.has-single-send {
-    grid-template-rows: 124px 48px;
-  }
+:where(html[data-weq-layout='single']) .composer.has-single-send {
+  grid-template-rows: 124px 48px;
+}
 
-  :where(html[data-weq-layout='single']) .composer-single-stage {
-    grid-row: 1;
-    padding: 0 8px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-stage {
+  grid-row: 1;
+  padding: 0 8px;
+}
 
-  :where(html[data-weq-layout='single']) .composer-single-card {
-    gap: 3px;
-    padding: 8px 14px 6px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-card {
+  gap: 3px;
+  padding: 8px 14px 6px;
+}
 
-  :where(html[data-weq-layout='single']) .composer-single-thumb {
-    width: 58px;
-    height: 58px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-thumb {
+  width: 58px;
+  height: 58px;
+}
 
-  :where(html[data-weq-layout='single']) .composer-single-info {
-    max-width: 200px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-info {
+  max-width: 200px;
+}
 
-  :where(html[data-weq-layout='single']) .composer-single-info strong {
-    font-size: 12.5px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-info strong {
+  font-size: 12.5px;
+}
 
-  :where(html[data-weq-layout='single']) .composer-single-note {
-    font-size: 10.5px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-note {
+  font-size: 10.5px;
+}
 
-  :where(html[data-weq-layout='single']) .voice-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-  } /* 小屏面板是浮层，舞台可以放宽裕一点；录音键不放大 —— 环的内圈就那么宽。 */
-  :where(html[data-weq-layout='single']) .voice-stage {
-    height: 150px;
-  }
+:where(html[data-weq-layout='single']) .voice-panel {
+  left: 8px;
+  width: calc(100% - 16px);
+}
 
-  /* 引用条：小屏依旧放在正文上面，正文整体下移一行（下面那格要留给表情 / 更多面板）。
+/* 小屏面板是浮层，舞台可以放宽裕一点；录音键不放大 —— 环的内圈就那么宽。 */
+
+:where(html[data-weq-layout='single']) .voice-stage {
+  height: 150px;
+}
+
+/* 引用条：小屏依旧放在正文上面，正文整体下移一行（下面那格要留给表情 / 更多面板）。
      这一整套只在面板没开时生效（下面 :not 链），所以不会把面板那三行布局搞乱。 */
-  :where(html[data-weq-layout='single'])
-    .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel)) {
-    grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
-  }
 
-  :where(html[data-weq-layout='single'])
-    .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-    > .composer-quote {
-    grid-row: 1;
-    margin: 0 0 6px;
-  }
+:where(html[data-weq-layout='single'])
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel)) {
+  grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
+}
 
-  :where(html[data-weq-layout='single'])
-    .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-    > .composer-editor {
-    grid-row: 2;
-  }
+:where(html[data-weq-layout='single'])
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+  > .composer-quote {
+  grid-row: 1;
+  margin: 0 0 6px;
+}
 
-  :where(html[data-weq-layout='single'])
-    .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-    > :is(.composer-send, .mobile-composer-expand-button) {
-    grid-row: 2;
-  }
+:where(html[data-weq-layout='single'])
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+  > .composer-editor {
+  grid-row: 2;
+}
 
-  :where(html[data-weq-layout='single'])
-    .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-    > .composer-tools {
-    grid-row: 3;
-  }
+:where(html[data-weq-layout='single'])
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+  > :is(.composer-send, .mobile-composer-expand-button) {
+  grid-row: 2;
+}
 
-  /* 面板打开时引用条让位（display:none）：待发送的引用还在，发送时依旧带上，
+:where(html[data-weq-layout='single'])
+  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+  > .composer-tools {
+  grid-row: 3;
+}
+
+/* 面板打开时引用条让位（display:none）：待发送的引用还在，发送时依旧带上，
      只是不跟面板挤同一格。 */
-  :where(html[data-weq-layout='single']) .composer.has-quote:has(> .emoji-panel) > .composer-quote,
-  :where(html[data-weq-layout='single'])
-    .composer.has-quote:has(> .composer-plus-panel)
-    > .composer-quote {
-    display: none;
-  }
 
-  /* 引用条那一行要从输入区高度里要回来，而且只在它真看得见时才加。 */
-  :where(html[data-weq-layout='single'])
-    .chat-pane:has(.composer.has-quote):not(:has(.composer > .emoji-panel)):not(
-      :has(.composer > .composer-plus-panel)
-    ) {
-    --composer-height: calc(
-      var(--mobile-composer-editor-height, 42px) +
-      62px +
-      40px +
-      var(--mobile-composer-safe-bottom)
-    ) !important;
-  }
+:where(html[data-weq-layout='single']) .composer.has-quote:has(> .emoji-panel) > .composer-quote,
+:where(html[data-weq-layout='single'])
+  .composer.has-quote:has(> .composer-plus-panel)
+  > .composer-quote {
+  display: none;
+}
+
+/* 引用条那一行要从输入区高度里要回来，而且只在它真看得见时才加。 */
+
+:where(html[data-weq-layout='single'])
+  .chat-pane:has(.composer.has-quote):not(:has(.composer > .emoji-panel)):not(
+    :has(.composer > .composer-plus-panel)
+  ) {
+  --composer-height: calc(
+    var(--mobile-composer-editor-height, 42px) +
+    62px +
+    40px +
+    var(--mobile-composer-safe-bottom)
+  ) !important;
 }
 
 /* ── AI 声聊面板（输入框工具栏「AI 声聊」按钮）──────────────────────────────
@@ -1908,22 +1913,20 @@ html[data-theme='dark'] .ai-voice-chip {
 
 /* ── 小屏：面板收窄、声线区矮一点，别把整屏顶满 ─────────────────────────── */
 
-@media all {
-  :where(html[data-weq-layout='single']) .ai-voice-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-    max-height: min(
-      462px,
-      max(
-        236px,
-        calc(100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) - 56px)
-      )
-    );
-  }
+:where(html[data-weq-layout='single']) .ai-voice-panel {
+  left: 8px;
+  width: calc(100% - 16px);
+  max-height: min(
+    462px,
+    max(
+      236px,
+      calc(100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) - 56px)
+    )
+  );
+}
 
-  :where(html[data-weq-layout='single']) .ai-voice-voices-list {
-    max-height: 188px;
-  }
+:where(html[data-weq-layout='single']) .ai-voice-voices-list {
+  max-height: 188px;
 }
 
 /* ── 弹射表情（emojiBounce / FACEBUBBLE）─────────────────────────────────────
@@ -2444,34 +2447,32 @@ html[data-theme='dark'] .bounce-search {
 
 /* ── 小屏：面板收窄、网格矮一点，别把整屏顶满 ────────────────────────────── */
 
-@media all {
-  :where(html[data-weq-layout='single']) .bounce-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-    max-height: min(452px, calc(100dvh - 150px));
-  }
+:where(html[data-weq-layout='single']) .bounce-panel {
+  left: 8px;
+  width: calc(100% - 16px);
+  max-height: min(452px, calc(100dvh - 150px));
+}
 
-  :where(html[data-weq-layout='single']) .bounce-stage {
-    grid-template-columns: 76px minmax(0, 1fr);
-    gap: 9px;
-  }
+:where(html[data-weq-layout='single']) .bounce-stage {
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 9px;
+}
 
-  :where(html[data-weq-layout='single']) .bounce-preview {
-    min-height: 76px;
-  }
+:where(html[data-weq-layout='single']) .bounce-preview {
+  min-height: 76px;
+}
 
-  :where(html[data-weq-layout='single']) .bounce-preview-face {
-    width: 52px;
-    height: 52px;
-  }
+:where(html[data-weq-layout='single']) .bounce-preview-face {
+  width: 52px;
+  height: 52px;
+}
 
-  :where(html[data-weq-layout='single']) .bounce-preview-count {
-    font-size: 12px;
-  }
+:where(html[data-weq-layout='single']) .bounce-preview-count {
+  font-size: 12px;
+}
 
-  :where(html[data-weq-layout='single']) .bounce-picker {
-    max-height: 168px;
-  }
+:where(html[data-weq-layout='single']) .bounce-picker {
+  max-height: 168px;
 }
 
 /* ── 戳一戳互动表情（pokeEmoji）────────────────────────────────────────────
@@ -2881,21 +2882,19 @@ html[data-theme='dark'] .poke-combo-btn {
 
 /* ── 小屏：面板收窄，预览缩一点 ──────────────────────────────────────────── */
 
-@media all {
-  :where(html[data-weq-layout='single']) .poke-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-    max-height: min(452px, calc(100dvh - 150px));
-  }
+:where(html[data-weq-layout='single']) .poke-panel {
+  left: 8px;
+  width: calc(100% - 16px);
+  max-height: min(452px, calc(100dvh - 150px));
+}
 
-  :where(html[data-weq-layout='single']) .poke-stage {
-    grid-template-columns: 128px minmax(0, 1fr);
-    gap: 9px;
-  }
+:where(html[data-weq-layout='single']) .poke-stage {
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 9px;
+}
 
-  :where(html[data-weq-layout='single']) .poke-preview {
-    min-height: 128px;
-  }
+:where(html[data-weq-layout='single']) .poke-preview {
+  min-height: 128px;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -3502,11 +3501,9 @@ html[data-theme='dark'] .redpacket-step {
 
 /* ── 小屏：面板收窄 ──────────────────────────────────────────────────────── */
 
-@media all {
-  :where(html[data-weq-layout='single']) .redpacket-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-  }
+:where(html[data-weq-layout='single']) .redpacket-panel {
+  left: 8px;
+  width: calc(100% - 16px);
 }
 
 /* 面板窄到放不下左右两栏时折成上下：左栏在上，封面缩成一小块贴右。 */

@@ -1,98 +1,85 @@
-@media all {
-  :where(html[data-weq-layout='single']) .weq-mobile-transition {
-    position: absolute;
-    inset: var(--weq-mobile-content-top, var(--weq-mobile-header-height)) 0
-      var(--weq-mobile-tabs-height);
-    z-index: 39;
-    overflow: hidden;
-    pointer-events: none;
-    background: var(--weq-bg-surface);
-    contain: layout paint;
-  }
-
-  :where(html[data-weq-layout='single']) .weq-mobile-transition > [data-mobile-transition-page] {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    background: var(--weq-bg-surface);
-    will-change: transform, opacity;
-  }
-
-  :where(html[data-weq-layout='single'])
-    .weq-web-shell
-    .weq-mobile-transition
-    :is(.sidebar, .chat-main, .weq-mobile-more) {
-    display: flex;
-    position: relative;
-    inset: auto;
-    width: 100%;
-    height: 100%;
-    visibility: visible;
-    transform: none;
-    flex-direction: column;
-    pointer-events: none;
-  }
-
-  :where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-transition .weq-mobile-more {
-    display: block;
-  }
-
-  :where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton {
-    flex: 1;
-    padding: 0 16px;
-    overflow: hidden;
-  }
-
-  :where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton > div {
-    display: grid;
-    grid-template-columns: 36px 1fr;
-    gap: 12px;
-    padding: 24px 0;
-    border-bottom: 1px solid var(--weq-border-subtle);
-  }
-
-  :where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton :is(i, span) {
-    display: block;
-    border-radius: 4px;
-    background: var(--muted);
-  }
-
-  :where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton i {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-  }
-  :where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton span {
-    height: 14px;
-    align-self: center;
-  }
-  :where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton span:last-child {
-    grid-column: 2;
-    width: 75%;
-  }
-
-  :where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-swiping] {
-    overflow: hidden;
-    user-select: none;
-  }
-
-  :where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-animating] > .app-shell,
-  :where(html[data-weq-layout='single'])
-    .weq-web-shell[data-mobile-animating]
-    > .weq-mobile-navigation
-    > .weq-mobile-more {
-    pointer-events: none;
-  }
-
-  :where(html[data-weq-layout='single'])
-    .weq-web-shell[data-mobile-swiping][data-mobile-detail]
-    .sidebar {
-    visibility: visible;
-  }
-
-  :where(html[data-weq-layout='single'])
-    .weq-web-shell[data-mobile-swiping][data-mobile-detail]
-    .weq-mobile-navigation[aria-hidden='true'] {
-    visibility: visible;
-  }
+:where(html[data-weq-layout='single']) .weq-mobile-transition {
+  position: absolute;
+  inset: var(--weq-mobile-content-top, var(--weq-mobile-header-height)) 0
+    var(--weq-mobile-tabs-height);
+  z-index: 39;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--weq-bg-surface);
+  contain: layout paint;
+}
+:where(html[data-weq-layout='single']) .weq-mobile-transition > [data-mobile-transition-page] {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--weq-bg-surface);
+  will-change: transform, opacity;
+}
+:where(html[data-weq-layout='single'])
+  .weq-web-shell
+  .weq-mobile-transition
+  :is(.sidebar, .chat-main, .weq-mobile-more) {
+  display: flex;
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  visibility: visible;
+  transform: none;
+  flex-direction: column;
+  pointer-events: none;
+}
+:where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-transition .weq-mobile-more {
+  display: block;
+}
+:where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton {
+  flex: 1;
+  padding: 0 16px;
+  overflow: hidden;
+}
+:where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton > div {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 12px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+:where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton :is(i, span) {
+  display: block;
+  border-radius: 4px;
+  background: var(--muted);
+}
+:where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton i {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+:where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton span {
+  height: 14px;
+  align-self: center;
+}
+:where(html[data-weq-layout='single']) .weq-mobile-qzone-skeleton span:last-child {
+  grid-column: 2;
+  width: 75%;
+}
+:where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-swiping] {
+  overflow: hidden;
+  user-select: none;
+}
+:where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-animating] > .app-shell,
+:where(html[data-weq-layout='single'])
+  .weq-web-shell[data-mobile-animating]
+  > .weq-mobile-navigation
+  > .weq-mobile-more {
+  pointer-events: none;
+}
+:where(html[data-weq-layout='single'])
+  .weq-web-shell[data-mobile-swiping][data-mobile-detail]
+  .sidebar {
+  visibility: visible;
+}
+:where(html[data-weq-layout='single'])
+  .weq-web-shell[data-mobile-swiping][data-mobile-detail]
+  .weq-mobile-navigation[aria-hidden='true'] {
+  visibility: visible;
 }
