@@ -14,12 +14,15 @@ import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agentlab/cloneTaskStore';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 import type { BackgroundTask } from '../src/shared/background_task';
+import { TaskQuickActions } from '../src/renderer/src/components/tasks/TaskQuickActions';
 
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
   roamingStatus: 'partial',
   plannedSeqs: 100,
   flashStatus: 'pending',
+  flashCount: 1,
+  web: false,
   confirm: vi.fn(async () => false),
   clear: vi.fn(async () => ({ removed: 3, skipped: 0, errors: [] as string[] })),
   invalidate: vi.fn(),
@@ -34,7 +37,13 @@ const fixture = vi.hoisted(() => ({
   startRoaming: vi.fn(async () => true),
   removeRoaming: vi.fn(async () => true),
   cancelFlash: vi.fn(async () => true),
+  openFlash: vi.fn(async () => ({ ok: true })),
   activeRoaming: null as string | null,
+}));
+vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return fixture.web;
+  },
 }));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: (select: (state: { openedUin: string }) => unknown) =>
@@ -83,6 +92,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         remove: { mutate: fixture.removeRoaming },
       },
       flashCancelDownloadTask: { mutate: fixture.cancelFlash },
+      flashOpenDownloadOutput: { mutate: fixture.openFlash },
     },
   },
   trpc: {
@@ -141,6 +151,17 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               filesetName: '合成集合',
               relativePath: 'fixture.txt',
               targetPath: '/fixture',
+              files:
+                fixture.flashCount > 1
+                  ? Array.from({ length: fixture.flashCount }, (_, index) => ({
+                      id: `file-${index}`,
+                      relativePath: `file-${index}.txt`,
+                      targetPath: `/fixture/file-${index}.txt`,
+                      status: fixture.flashStatus,
+                      fileSize: 100,
+                      downloadedBytes: 100,
+                    }))
+                  : undefined,
             },
           ],
         }),
@@ -161,6 +182,8 @@ afterEach(() => {
   fixture.roamingStatus = 'partial';
   fixture.plannedSeqs = 100;
   fixture.flashStatus = 'pending';
+  fixture.flashCount = 1;
+  fixture.web = false;
   fixture.activeRoaming = null;
   getCloneTasks()[0]!.status = 'running';
   vi.clearAllMocks();
@@ -168,7 +191,182 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function quickButton(row: Element, label: string): HTMLButtonElement | null {
+  const direct = row.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
+  if (direct) return direct;
+  const find = () =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (button) => button.textContent === label,
+    ) ?? null;
+  if (find()) return find();
+  const more = row.querySelector<HTMLButtonElement>('[aria-label="更多操作"]');
+  if (more) act(() => more.click());
+  return find();
+}
+
+async function clickQuick(row: Element, label: string) {
+  const button = quickButton(row, label)!;
+  await act(async () => button.click());
+}
+
 describe('统一当前任务', () => {
+  it('更多菜单执行中禁止重复提交，错误反馈后可重试，移除组件关闭浮层', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    let reject!: (error: Error) => void;
+    const run = vi.fn(
+      () =>
+        new Promise<void>((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    try {
+      act(() =>
+        root.render(
+          h(TaskQuickActions, { actions: [{ id: 'remove', label: '移除任务', icon: null, run }] }),
+        ),
+      );
+      expect(host.querySelectorAll('button')).toHaveLength(1);
+      const item = quickButton(host, '移除任务')!;
+      await act(async () => {
+        item.click();
+        item.click();
+      });
+      expect(run).toHaveBeenCalledOnce();
+      expect(host.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.disabled).toBe(true);
+      await act(async () => reject(new Error('合成操作失败')));
+      expect(fixture.error).toHaveBeenCalledWith('任务操作失败', '合成操作失败');
+      expect(host.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.disabled).toBe(
+        false,
+      );
+      quickButton(host, '移除任务');
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      host.remove();
+    }
+  });
+  it('完成结果可在小菜单打开、定位、保存和查看报告，多文件闪传只打开目录', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.flashStatus = 'done';
+    getCloneTasks()[0]!.status = 'done';
+    const actions = {
+      pause: vi.fn(),
+      resume: vi.fn(),
+      cancel: vi.fn(),
+      remove: vi.fn(),
+      save: vi.fn(),
+      openSaved: vi.fn(),
+      report: vi.fn(),
+      browserDownload: vi.fn(),
+    };
+    const binding = {
+      expectedAccountUin: fixture.accountId,
+      expectedAccountConfigId: 'fixture-config',
+    };
+    const task: UiTask = {
+      id: 'output',
+      name: '结果导出',
+      kind: 'c2c',
+      format: 'json',
+      status: 'completed',
+      current: 1,
+      total: 1,
+      progress: 100,
+      save: { status: 'saved', path: '/saved' },
+      reportPath: '/report',
+    };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const clone = vi.fn();
+    const expand = vi.fn();
+    const render = (exportTask = task, config = 'fixture-config') =>
+      act(() =>
+        root.render(
+          h(CurrentTaskList, {
+            layout: 'compact',
+            exports: [exportTask],
+            exportActions: actions,
+            renderExport: () => null,
+            onSaveAll: vi.fn(),
+            onOpenClone: clone,
+            onOpenDetail: expand,
+            cleanupBinding: { ...binding, expectedAccountConfigId: config },
+          }),
+        ),
+      );
+    const row = (name: string) =>
+      [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
+        item.textContent?.includes(name),
+      )!;
+    const click = async (name: string, label: string) => {
+      const button = quickButton(row(name), label)!;
+      await act(async () => button.click());
+    };
+    try {
+      render();
+      expect(row(task.name).querySelectorAll('.weq-task-quick-actions > button')).toHaveLength(3);
+      await click(task.name, '打开保存结果');
+      expect(actions.openSaved).toHaveBeenLastCalledWith(task, false);
+      await click(task.name, '在文件夹中显示');
+      expect(actions.openSaved).toHaveBeenLastCalledWith(task, true);
+      await click(task.name, '保存');
+      expect(actions.save).toHaveBeenCalledWith(task);
+      await click(task.name, '完整性报告');
+      expect(actions.report).toHaveBeenCalledWith(task);
+      await click('合成闪传', '打开文件');
+      expect(fixture.openFlash).toHaveBeenLastCalledWith({
+        ...binding,
+        taskId: 'same-id',
+        mode: 'file',
+      });
+      await click('合成闪传', '在文件夹中显示');
+      expect(fixture.openFlash).toHaveBeenLastCalledWith({
+        ...binding,
+        taskId: 'same-id',
+        mode: 'reveal',
+      });
+      await click('合成克隆', '查看克隆体');
+      expect(clone).toHaveBeenCalledWith('same-id');
+      fixture.flashCount = 2;
+      render();
+      expect(row('合成闪传').querySelector('[aria-label="打开文件"]')).toBeNull();
+      await click('合成闪传', '打开下载目录');
+      expect(fixture.openFlash).toHaveBeenLastCalledWith({
+        ...binding,
+        taskId: 'same-id',
+        mode: 'directory',
+      });
+      act(() =>
+        row(task.name).querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click(),
+      );
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+      render(task, 'new-config');
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      render({
+        ...task,
+        status: 'paused',
+        canResume: true,
+        partialReady: true,
+        filePath: '/partial',
+        save: undefined,
+      });
+      await click(task.name, '保存现有进度');
+      fixture.web = true;
+      render();
+      expect(row('合成闪传').querySelector('[aria-label="打开下载目录"]')).toBeNull();
+      await click(task.name, '下载到浏览器');
+      expect(actions.browserDownload).toHaveBeenCalledWith(task);
+      expect(expand).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
   it('联系人任务保留总进度、百分比和汇总计数', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     localBackgroundTasks.start({
@@ -240,9 +438,7 @@ describe('统一当前任务', () => {
       const row = [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
         item.textContent?.includes(`快捷类别 ${kind}`),
       )!;
-      await act(async () =>
-        row.querySelector<HTMLButtonElement>('[aria-label="移除任务"]')!.click(),
-      );
+      await clickQuick(row, '移除任务');
       expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
     } finally {
       act(() => root.unmount());
@@ -250,7 +446,13 @@ describe('统一当前任务', () => {
   });
   it('小菜单按导出状态显示控制，保存与收尾时禁止删除，调用同一组导出处理器', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    const actions = { pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), remove: vi.fn() };
+    const actions = {
+      pause: vi.fn(),
+      resume: vi.fn(),
+      cancel: vi.fn(),
+      remove: vi.fn(),
+      save: vi.fn(),
+    };
     const base: UiTask = {
       id: 'quick',
       name: '快捷导出',
@@ -281,8 +483,7 @@ describe('统一当前任务', () => {
       [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
         item.textContent?.includes(base.name),
       )!;
-    const button = (label: string) =>
-      row().querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
+    const button = (label: string) => quickButton(row(), label);
     try {
       render(base);
       expect(button('删除导出缓存')).toBeNull();
@@ -305,6 +506,7 @@ describe('统一当前任务', () => {
       expect(button('删除导出缓存')?.disabled).toBe(true);
       render({ ...base, status: 'completed', save: { status: 'saving' } });
       expect(button('删除导出缓存')?.disabled).toBe(true);
+      expect(button('保存')?.disabled).toBe(true);
       expect(button('取消')).toBeNull();
       expect(expand).not.toHaveBeenCalled();
     } finally {
@@ -338,9 +540,7 @@ describe('统一当前任务', () => {
         item.textContent?.includes(name),
       )!;
     const click = async (name: string, label: string) => {
-      await act(async () =>
-        row(name).querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click(),
-      );
+      await clickQuick(row(name), label);
     };
     try {
       fixture.roamingStatus = 'running';
@@ -348,9 +548,7 @@ describe('统一当前任务', () => {
       render();
       await click('合成漫游', '暂停');
       expect(fixture.pauseRoaming).toHaveBeenCalledWith({ id: 'same-id' });
-      expect(
-        row('合成漫游').querySelector<HTMLButtonElement>('[aria-label="移除补全任务"]')?.disabled,
-      ).toBe(true);
+      expect(quickButton(row('合成漫游'), '移除补全任务')?.disabled).toBe(true);
       await click('合成漫游', '取消');
       expect(fixture.cancelRoaming).toHaveBeenCalledWith({ id: 'same-id' });
       fixture.roamingStatus = 'pausing';
@@ -474,9 +672,7 @@ describe('统一当前任务', () => {
       const row = [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
         item.textContent?.includes('快捷转发'),
       )!;
-      await act(async () =>
-        row.querySelector<HTMLButtonElement>('[aria-label="移除任务"]')!.click(),
-      );
+      await clickQuick(row, '移除任务');
       expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
       expect(expand).not.toHaveBeenCalled();
     } finally {

@@ -23,7 +23,7 @@ import { withDatabaseRequest } from '@weq/db';
 import { clearFinishedTasks } from './clear_finished_tasks';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
-import { startFlashDownloads } from './flash_save';
+import { openFlashDownloadOutput, startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
 import { pickedBrowserFiles } from '../../browser_files';
 import { saveAnalyticsFromWeb } from '../../analytics_save';
@@ -6776,6 +6776,30 @@ export const accountRouter = router({
   flashClearDownloadTasks: procedure.mutation(async () => {
     return requireServices().flashTransferFiles.downloads.clearFinished();
   }),
+
+  /** 打开当前账号下载任务的文件或目录。 */
+  flashOpenDownloadOutput: procedure
+    .input(
+      z.object({
+        taskId: z.string().min(1),
+        mode: z.enum(['file', 'directory', 'reveal']),
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      return openFlashDownloadOutput(
+        input,
+        services.flashTransferFiles.downloads,
+        getHost(),
+        () => {
+          if (current() !== services) throw new Error('账号已切换，已停止操作');
+        },
+      );
+    }),
 
   /** 在系统文件管理器里打开闪传下载根目录。 */
   flashRevealDownloadDir: procedure

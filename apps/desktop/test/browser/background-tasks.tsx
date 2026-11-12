@@ -81,6 +81,18 @@ function Fixture() {
             current: 35,
             total: 100,
           },
+          {
+            id: 'export-saved',
+            name: '合成已保存结果',
+            kind: 'c2c',
+            format: 'json',
+            status: 'completed',
+            progress: 100,
+            current: 1,
+            total: 1,
+            save: { status: 'saved', path: '/synthetic/saved.json' },
+            reportPath: '/synthetic/report',
+          },
         ]
       : [],
   );
@@ -98,6 +110,18 @@ function Fixture() {
             resume: (task) => update(task, { status: 'running', canResume: false }),
             cancel: (task) => update(task, { status: 'cancelled', canResume: false }),
             remove: (task) => setTasks((items) => items.filter((item) => item.id !== task.id)),
+            save: (task) => {
+              window.taskQuickCalls?.push({ action: 'save', input: task.id });
+            },
+            openSaved: (task, reveal) => {
+              window.taskQuickCalls?.push({
+                action: 'openSaved',
+                input: { taskId: task.id, reveal },
+              });
+            },
+            report: (task) => {
+              window.taskQuickCalls?.push({ action: 'report', input: task.id });
+            },
           }}
           onOpenDetail={() => {
             throw new Error('快捷操作不应展开完整面板');

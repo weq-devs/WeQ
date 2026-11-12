@@ -1929,6 +1929,31 @@ export function ExportTool({
                   : '导出群成员列表'
               : '导出聊天记录';
 
+  const onOpenSaved = !IS_WEB
+    ? async (task: UiTask, reveal: boolean) => {
+        const account = exportAccount.data;
+        if (!account?.uin || !account.configId) return;
+        try {
+          await client.account.openSavedExportOutput.mutate({
+            taskId: task.id,
+            reveal,
+            expectedAccountUin: account.uin,
+            expectedAccountConfigId: account.configId,
+          });
+        } catch (error) {
+          dialog.error('打开保存结果失败', error instanceof Error ? error.message : String(error));
+        }
+      }
+    : undefined;
+  const onReport = async (task: UiTask) => {
+    try {
+      const result = await client.account.revealExportReport.mutate({ taskId: task.id });
+      presentClientDocument(result, '导出完整性报告');
+    } catch (error) {
+      dialog.error('打开报告失败', String(error));
+    }
+  };
+
   return (
     <div className={`weq-exp weq-export-tool is-${surface}`}>
       {report.dialog}
@@ -2585,6 +2610,10 @@ export function ExportTool({
                   resume: onResume,
                   cancel: onCancel,
                   remove: onDelete,
+                  save: onDownload,
+                  openSaved: onOpenSaved,
+                  report: onReport,
+                  browserDownload: IS_WEB ? downloadInBrowser : undefined,
                 }}
                 layout={taskLayout}
                 onOpenDetail={() => {
@@ -2632,35 +2661,10 @@ export function ExportTool({
                         .catch((e) => dialog.error('跳过失败', String(e)));
                     }}
                     onResume={onResume}
-                    onReport={(t) => {
-                      void client.account.revealExportReport
-                        .mutate({ taskId: t.id })
-                        .then((result) => presentClientDocument(result, '导出完整性报告'))
-                        .catch((e) => dialog.error('打开报告失败', String(e)));
-                    }}
+                    onReport={onReport}
                     onCancel={onCancel}
                     onDownload={(t) => void onDownload(t)}
-                    onOpenSaved={
-                      !IS_WEB
-                        ? (t, reveal) => {
-                            const account = exportAccount.data;
-                            if (!account?.uin || !account.configId) return;
-                            void client.account.openSavedExportOutput
-                              .mutate({
-                                taskId: t.id,
-                                reveal,
-                                expectedAccountUin: account.uin,
-                                expectedAccountConfigId: account.configId,
-                              })
-                              .catch((error) =>
-                                dialog.error(
-                                  '打开保存结果失败',
-                                  error instanceof Error ? error.message : String(error),
-                                ),
-                              );
-                          }
-                        : undefined
-                    }
+                    onOpenSaved={onOpenSaved}
                     onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
                     onDelete={onDelete}
                     onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
