@@ -412,6 +412,10 @@ try {
           previousEnergy,
         );
         assert.equal(await page.getByText('能量等级', { exact: false }).count(), 0);
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+          false,
+        );
         await page.evaluate(() => {
           document.scrollingElement.scrollTop = 0;
           document.querySelector('.fixture-body').scrollTop = 0;
@@ -477,10 +481,6 @@ try {
       qa.notify();
     });
     await page.getByText('非好友', { exact: true }).waitFor();
-        assert.equal(
-          await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
-          false,
-        );
     await page.evaluate(() => {
       const qa = window.contactCardQa;
       qa.mode = 'bot';
