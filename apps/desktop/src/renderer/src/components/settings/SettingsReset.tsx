@@ -89,7 +89,7 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
     () => resetPreference('keepConversationPositionOnHover'),
   );
   add(
-    'unread',
+    'message-notifications',
     'message-notifications',
     '新消息系统通知',
     preferenceValue('messageNotifications'),
@@ -97,7 +97,7 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
     () => resetPreference('messageNotifications'),
   );
   add(
-    'unread',
+    'message-notifications',
     'application-badge',
     '应用图标未读角标',
     preferenceValue('applicationBadge'),

@@ -44,6 +44,9 @@ it.each(['darwin', 'linux', 'win32'])(
     const root = createRoot(host);
     try {
       await act(async () => root.render(createElement(GlobalSettingsSection)));
+      for (const label of ['新消息系统通知', '应用图标未读角标']) {
+        expect(host.querySelector(`[role="switch"][aria-label="${label}"]`)).not.toBeNull();
+      }
       const toggle = host.querySelector<HTMLButtonElement>(
         '[role="switch"][aria-label="使用仿 Windows 窗口按钮"]',
       );

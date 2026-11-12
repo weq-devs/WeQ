@@ -320,10 +320,10 @@ describe('设置归位后的实际页面', () => {
         '阅读与未读',
       );
       expect(
-        [...f.body().querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
+        [...f.body().querySelectorAll('.weq-set-row-label')]
+          .filter((node) => !node.closest('[data-setting-id^="all-conversations-"]'))
+          .map((node) => node.textContent),
       ).toEqual([
-        '新消息系统通知',
-        '应用图标未读角标',
         '在消息图标上显示红点',
         '在联系人界面显示未读消息数',
         '群助手显示总消息数',
@@ -337,7 +337,9 @@ describe('设置归位后的实际页面', () => {
       const readReportRow = f.body().querySelector('[data-setting-id="read-sync"]');
       expect(
         readReportRow?.closest('.weq-set-card')?.querySelector('.weq-set-card-title')?.textContent,
-      ).toBe('未读提醒');
+      ).toBe('未读显示');
+      expect(f.body().querySelector('[data-setting-id="message-system-notifications"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="application-unread-badge"]')).toBeNull();
       expect(f.body().querySelectorAll('[data-setting-id="read-sync"]')).toHaveLength(1);
       expect(f.body().querySelector('.weq-set-card .weq-set-card')).toBeNull();
       expect(f.body().querySelector('.weq-settings-appearance-card')).toBeNull();

@@ -15,6 +15,7 @@
 
 import { useContext, useEffect, useState, type ReactElement } from 'react';
 import {
+  Bell,
   Cloud,
   ChevronRight,
   FolderOpen,
@@ -39,6 +40,7 @@ import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
+import { MessageNotificationRows } from './MessageNotificationRows';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
 import { supportsWindowsStyleControls } from '../../../../shared/window_controls';
@@ -409,6 +411,9 @@ export function GlobalSettingsSection({
       {/* Window close behavior */}
       {section === 'general' && (
         <>
+          <Card title="消息提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
+            <MessageNotificationRows />
+          </Card>
           <ToastSettingsCard />
           <DesktopOnly>
             <Card

@@ -113,6 +113,10 @@ describe('分级恢复默认', () => {
     expect(state.calls.some(([method]) => method === 'setReadFromFirstUnread')).toBe(false);
   });
   it('稳定卡片 ID 唯一，跨页面卡片与任意配置键拒绝', async () => {
+    expect(resetCards({ page: 'global' }).map(([, id]) => id)).toContain('message-notifications');
+    expect(resetCards({ page: 'chat-messages' }).map(([, id]) => id)).not.toContain(
+      'message-notifications',
+    );
     expect(new Set(SETTINGS_RESET_CARDS.map(([, id]) => id)).size).toBe(
       SETTINGS_RESET_CARDS.length,
     );

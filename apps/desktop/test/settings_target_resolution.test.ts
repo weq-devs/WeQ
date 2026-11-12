@@ -9,6 +9,25 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置重构的规范目标与旧入口分流', () => {
+  it.each(['global', 'chat-messages', 'message-display', 'chat-interaction'] as const)(
+    '%s 的消息提醒入口统一定位到提醒与窗口',
+    (section) => {
+      for (const [settingId, item] of [
+        ['message-system-notifications', '新消息系统通知'],
+        ['application-unread-badge', '应用图标未读角标'],
+      ]) {
+        expect(resolveSettingsTarget({ section, item })).toMatchObject({
+          section: 'global',
+          settingId,
+        });
+        expect(resolveSettingsTarget({ section, settingId })).toMatchObject({
+          section: 'global',
+          settingId,
+        });
+      }
+    },
+  );
+
   it('七组页面各归其位，主页并入启动，聊天拆成三个二级页面', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
