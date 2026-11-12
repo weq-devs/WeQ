@@ -154,6 +154,7 @@ function mount() {
  * 不再走 AppSettings 的 per-setting mutation。下面两组分别断言各自的通道。
  */
 const sharedToggles = [
+  ['鼠标停留时保持会话位置', 'keepConversationPositionOnHover', false],
   ['消息气泡', 'showMessageBubble', true],
   ['消息字体', 'showMessageFont', true],
   ['聊天头像挂件', 'showAvatarPendant', true],

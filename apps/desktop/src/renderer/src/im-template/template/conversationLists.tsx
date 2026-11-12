@@ -68,6 +68,9 @@ import { conversationListSearchText } from '../../lib/conversationListSearchText
 import { formatConversationTime } from '../../lib/conversationTime';
 export { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
+import { useConversationHoverOrder } from '../../hooks/useConversationHoverOrder';
+import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
+import { useViewState } from '../../state/view';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
@@ -243,7 +246,17 @@ export function ConversationList({
   const density = useThemeStore((state) => state.density);
   const componentStyle = useThemeStore((state) => state.componentStyle);
   const menuRef = useRef<HTMLDivElement>(null);
-  const filtered = useMemo(() => {
+  useClientPreferences((state) => state.tick);
+  const keepPosition = preferenceValue('keepConversationPositionOnHover');
+  const account = useViewState((state) => state.openedUin);
+  const [pointerInside, setPointerInside] = useState(false);
+  useEffect(() => {
+    const clear = () => setPointerInside(false);
+    window.addEventListener('blur', clear);
+    return () => window.removeEventListener('blur', clear);
+  }, []);
+  useEffect(() => setActionMenu(null), [account, scope, keyword]);
+  const sorted = useMemo(() => {
     // 置顶会话排最前；其余按「最后一条消息时间」和真实会话混排。
     // 虚拟会话（克隆体 / 克隆群）以前是直接追加到末尾，看起来像永远不活跃的
     // 死会话 —— 现在按最近聊天时间插回正确位置。
@@ -277,6 +290,22 @@ export function ConversationList({
     keyword,
     scope,
   ]);
+  const orderedRows = useConversationHoverOrder(
+    sorted.rows,
+    keepPosition && (pointerInside || Boolean(actionMenu)),
+    `${account}:${scope}:${keyword}`,
+  );
+  const filtered = useMemo(
+    () => ({ rows: orderedRows, ids: orderedRows.map((row) => row.id) }),
+    [orderedRows],
+  );
+  useEffect(() => {
+    if (actionMenu && !sorted.ids.includes(actionMenu.conversation.id)) setActionMenu(null);
+  }, [actionMenu, sorted.ids]);
+  const contextTargetIds = useMemo(
+    () => new Set(actionMenu ? [actionMenu.conversation.id, ...actionMenu.ids] : []),
+    [actionMenu],
+  );
   const selectConversation = (id: string, event: React.MouseEvent) => {
     if (!filtered.ids.includes(id)) return;
     const virtual = directory?.virtual.find((item) => item.id === id);
@@ -450,7 +479,18 @@ export function ConversationList({
   }, [createOpen]);
 
   return (
-    <div className="list-stack weq-conversation-directory" {...multi.rootProps}>
+    <div
+      className="list-stack weq-conversation-directory"
+      {...multi.rootProps}
+      onPointerOverCapture={(event) => {
+        if (event.pointerType === 'mouse')
+          setPointerInside(event.currentTarget.contains(event.target));
+      }}
+      onPointerOutCapture={(event) => {
+        if (event.pointerType === 'mouse' && !event.currentTarget.contains(event.relatedTarget))
+          setPointerInside(false);
+      }}
+    >
       <DirectoryToolbar
         noun="会话"
         searchActions={
@@ -713,6 +753,7 @@ export function ConversationList({
                   pinned && 'pinned',
                   locateHighlight?.id === conversation.id && 'is-locate-target',
                   selectionMode && rowSelectedIds.has(conversation.id) && 'is-multiselected',
+                  contextTargetIds.has(conversation.id) && 'is-context-target',
                 )}
                 aria-pressed={selectionMode ? rowSelectedIds.has(conversation.id) : undefined}
                 {...multi.itemProps(conversation.id)}
@@ -904,6 +945,35 @@ export function ConversationList({
           }
           x={actionMenu.x}
           y={actionMenu.y}
+          label={
+            actionMenu.ids.length > 1
+              ? `已选 ${actionMenu.ids.length} 个会话的操作`
+              : `${conversationTitle(actionMenu.conversation)}的会话操作`
+          }
+          target={
+            <>
+              <Avatar
+                resolution="small"
+                name={conversationTitle(actionMenu.conversation)}
+                avatarUrl={conversationAvatarUrl(actionMenu.conversation)}
+                seed={conversationSeed(actionMenu.conversation)}
+              />
+              <span>
+                <strong title={conversationTitle(actionMenu.conversation)}>
+                  {actionMenu.ids.length > 1
+                    ? `已选 ${actionMenu.ids.length} 个会话`
+                    : conversationTitle(actionMenu.conversation)}
+                </strong>
+                <small>
+                  {actionMenu.ids.length > 1
+                    ? `从 ${conversationTitle(actionMenu.conversation)} 打开`
+                    : actionMenu.conversation.type === 'merged'
+                      ? '聚合会话'
+                      : `${actionMenu.conversation.type === 'group' ? '群聊' : '私聊'} · ${conversationSeed(actionMenu.conversation)}`}
+                </small>
+              </span>
+            </>
+          }
           onClose={() => setActionMenu(null)}
           actions={(() => {
             return [

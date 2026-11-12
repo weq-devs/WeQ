@@ -1123,6 +1123,20 @@ function AppearanceSection({
                 )
               }
             >
+              {category === 'reading' ? (
+                <Row
+                  settingId="keep-conversation-position-on-hover"
+                  label="鼠标停留时保持会话位置"
+                  desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
+                  control={
+                    <SharedDisplayToggle
+                      name="keepConversationPositionOnHover"
+                      label="鼠标停留时保持会话位置"
+                      fallback={false}
+                    />
+                  }
+                />
+              ) : null}
               {[
                 {
                   key: 'readFromFirstUnread' as const,

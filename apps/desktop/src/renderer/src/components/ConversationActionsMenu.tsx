@@ -12,6 +12,7 @@ export function ConversationActionsMenu({
   label = '会话操作',
   portalTarget,
   dropdown = false,
+  target,
 }: {
   x: number;
   y: number;
@@ -29,6 +30,8 @@ export function ConversationActionsMenu({
   portalTarget?: Element | null;
   /** 右对齐在触发器下方，短屏时滚动菜单而不覆盖标题栏。 */
   dropdown?: boolean;
+  /** 仅在需要明确操作对象的菜单中展示，不占用键盘操作项。 */
+  target?: ReactNode;
 }) {
   const document = useRenderDocument();
   const window = document.defaultView ?? globalThis.window;
@@ -86,6 +89,7 @@ export function ConversationActionsMenu({
           } else if (event.key === 'Tab') onClose();
         }}
       >
+        {target ? <div className="weq-conversation-actions-target">{target}</div> : null}
         {actions.map((item) => (
           <button
             key={item.label}

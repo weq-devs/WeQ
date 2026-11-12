@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ClientStateStore } from '../src/bootstrap/client_state';
+import { preferenceDefaults } from '../src/common/client_preferences';
 
 const roots: string[] = [];
 function store() {
@@ -14,6 +15,15 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it('悬停保持会话位置默认关闭，保存后跨端持久共享且只接受布尔值', () => {
+    const state = store();
+    expect(preferenceDefaults.keepConversationPositionOnHover).toBe(false);
+    state.patch({ keepConversationPositionOnHover: true });
+    expect(new ClientStateStore(state.path).snapshot().values.keepConversationPositionOnHover).toBe(
+      true,
+    );
+    expect(() => state.patch({ keepConversationPositionOnHover: 'true' })).toThrow();
+  });
   it('联系人更新范围与排序共用账号状态，只接受实际提供的范围值', () => {
     const state = store();
     state.records('order', { refreshRange: 'all' });

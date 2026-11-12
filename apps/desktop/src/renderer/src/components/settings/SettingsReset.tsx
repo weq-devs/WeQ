@@ -81,6 +81,14 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
     resetPreference('webNotifications'),
   );
   add(
+    'reading',
+    'keepConversationPositionOnHover',
+    '鼠标停留时保持会话位置',
+    preferenceValue('keepConversationPositionOnHover'),
+    preferenceDefaults.keepConversationPositionOnHover,
+    () => resetPreference('keepConversationPositionOnHover'),
+  );
+  add(
     'unread',
     'message-notifications',
     '新消息系统通知',

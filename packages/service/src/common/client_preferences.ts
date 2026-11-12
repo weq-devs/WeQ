@@ -19,6 +19,7 @@ export const preferenceDefaults = {
   showMessageTime: false,
   showMessageDate: false,
   showMessageSeq: false,
+  keepConversationPositionOnHover: false,
   search: {
     categories: [...DEFAULT_SEARCH_CATEGORIES],
     appEnabled: true,

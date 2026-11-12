@@ -18,7 +18,8 @@ export function SharedDisplayToggle({
     | 'showChatQqShow'
     | 'showMessageTime'
     | 'showMessageDate'
-    | 'showMessageSeq';
+    | 'showMessageSeq'
+    | 'keepConversationPositionOnHover';
   label: string;
   fallback: boolean;
   disabled?: boolean;

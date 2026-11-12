@@ -9,13 +9,23 @@ import {
   ContentSelectionProvider,
   useCurrentContentSelection,
 } from '../src/renderer/src/state/contentSelection';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import { useViewState } from '../src/renderer/src/state/view';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: {}, trpc: {} }));
 afterEach(() => vi.unstubAllGlobals());
+let preferenceEpoch = 0;
+let preferenceRevision = 0;
 
 function fixture() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  preferenceEpoch += 1;
+  preferenceRevision = 0;
+  acceptPreferences(
+    { epoch: `conversation-order-${preferenceEpoch}`, revision: 0, values: {}, records: {} },
+    false,
+  );
   const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
   const row = (id: string, day: number): Conversation => ({
     ...base,
@@ -66,6 +76,173 @@ function fixture() {
     },
   };
 }
+
+function freezeOrder(enabled: boolean) {
+  act(() =>
+    acceptPreferences(
+      {
+        epoch: `conversation-order-${preferenceEpoch}`,
+        revision: ++preferenceRevision,
+        values: { keepConversationPositionOnHover: enabled },
+        records: {},
+      },
+      false,
+    ),
+  );
+}
+
+it('开启后从悬停起保持位置，摘要和未读继续更新，移出后恢复最新排序', () => {
+  const f = fixture();
+  try {
+    freezeOrder(true);
+    f.render([f.row('a', 2), f.row('b', 1)]);
+    pointer(f.rows()[0]!, 'pointerover');
+    f.render([f.row('a', 2), { ...f.row('b', 3), unreadCount: 9 }]);
+    expect(f.ids()).toEqual(['a', 'b']);
+    expect(f.rows()[1]!.textContent).toContain('9');
+    pointer(f.rows()[0]!, 'pointerout', { relatedTarget: document.body });
+    expect(f.ids()).toEqual(['b', 'a']);
+  } finally {
+    f.dispose();
+  }
+});
+
+it('菜单标识原会话并持续高亮，鼠标移出后仍保持位置，关闭后恢复排序', () => {
+  const f = fixture();
+  try {
+    freezeOrder(true);
+    f.render([f.row('a', 2), f.row('b', 1)]);
+    pointer(f.rows()[0]!, 'pointerover');
+    act(() => f.rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    const menu = document.querySelector('[role="menu"]')!;
+    expect(menu.querySelector('.weq-conversation-actions-target')?.textContent).toContain('a');
+    expect(f.rows()[0]!.classList.contains('is-context-target')).toBe(true);
+    expect(f.onSelect).not.toHaveBeenCalled();
+    pointer(f.rows()[0]!, 'pointerout', { relatedTarget: menu });
+    f.render([f.row('a', 2), f.row('b', 3)]);
+    expect(f.ids()).toEqual(['a', 'b']);
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(f.ids()).toEqual(['b', 'a']);
+    expect(f.host.querySelector('.is-context-target')).toBeNull();
+  } finally {
+    f.dispose();
+  }
+});
+
+it('触摸经过不冻结排序，停留时关闭设置立即恢复排序', () => {
+  const f = fixture();
+  try {
+    freezeOrder(true);
+    f.render([f.row('a', 2), f.row('b', 1)]);
+    pointer(f.rows()[0]!, 'pointerover', { pointerType: 'touch' });
+    f.render([f.row('a', 2), f.row('b', 3)]);
+    expect(f.ids()).toEqual(['b', 'a']);
+    pointer(f.rows()[0]!, 'pointerover');
+    f.render([f.row('a', 4), f.row('b', 3)]);
+    expect(f.ids()).toEqual(['b', 'a']);
+    freezeOrder(false);
+    expect(f.ids()).toEqual(['a', 'b']);
+  } finally {
+    f.dispose();
+  }
+});
+
+it('保持期间新会话追加且不插队，删除目标后不保留旧行，失焦恢复排序', () => {
+  const f = fixture();
+  try {
+    freezeOrder(true);
+    f.render([f.row('a', 2), f.row('b', 1)]);
+    pointer(f.rows()[0]!, 'pointerover');
+    f.render([f.row('c', 4), f.row('a', 2), f.row('b', 3)]);
+    expect(f.ids()).toEqual(['a', 'b', 'c']);
+    f.render([f.row('c', 5), f.row('b', 3)]);
+    expect(f.ids()).toEqual(['b', 'c']);
+    act(() => window.dispatchEvent(new Event('blur')));
+    expect(f.ids()).toEqual(['c', 'b']);
+  } finally {
+    f.dispose();
+  }
+});
+
+it('默认不开启保持时菜单仍标识原对象，重排后高亮跟随稳定身份', () => {
+  const f = fixture();
+  try {
+    f.render([f.row('a', 2), f.row('b', 1)]);
+    act(() =>
+      f.rows()[0]!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'F10',
+          shiftKey: true,
+          bubbles: true,
+        }),
+      ),
+    );
+    f.render([f.row('a', 2), f.row('b', 3)]);
+    expect(f.ids()).toEqual(['b', 'a']);
+    expect(f.rows()[1]!.classList.contains('is-context-target')).toBe(true);
+    expect(f.rows()[0]!.classList.contains('is-context-target')).toBe(false);
+    expect(document.querySelector('[role="menu"]')?.getAttribute('aria-label')).toContain(
+      '会话操作',
+    );
+    expect(f.onSelect).not.toHaveBeenCalled();
+  } finally {
+    f.dispose();
+  }
+});
+
+it('多选菜单显示数量并高亮全部目标，不改变既有选择', () => {
+  const f = fixture();
+  try {
+    f.render([f.row('a', 2), f.row('b', 1)]);
+    click(f.rows()[0]!, { ctrlKey: true });
+    click(f.rows()[1]!, { ctrlKey: true });
+    act(() => f.rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    expect(document.querySelector('.weq-conversation-actions-target')?.textContent).toContain(
+      '已选 2 个会话',
+    );
+    expect(f.host.querySelectorAll('.is-context-target')).toHaveLength(2);
+    expect(f.selected()).toEqual(['a', 'b']);
+    expect(f.onSelect).not.toHaveBeenCalled();
+  } finally {
+    f.dispose();
+  }
+});
+
+it('切换账号不沿用旧会话顺序，并关闭旧账号菜单', () => {
+  const f = fixture();
+  const previous = useViewState.getState().openedUin;
+  try {
+    freezeOrder(true);
+    f.render([f.row('a', 2), f.row('b', 1)]);
+    pointer(f.rows()[0]!, 'pointerover');
+    act(() => f.rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    f.render([f.row('a', 2), f.row('b', 3)]);
+    expect(f.ids()).toEqual(['a', 'b']);
+    act(() => useViewState.getState().setOpenedUin('order-other-account'));
+    expect(f.ids()).toEqual(['b', 'a']);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  } finally {
+    f.dispose();
+    useViewState.getState().setOpenedUin(previous);
+  }
+});
+
+it('菜单目标被移除时关闭菜单，不转向相同位置的新会话', () => {
+  const f = fixture();
+  try {
+    f.render([f.row('a', 2), f.row('b', 1)]);
+    act(() => f.rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    f.render([f.row('b', 3)]);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(f.host.querySelector('.is-context-target')).toBeNull();
+    expect(f.onSelect).not.toHaveBeenCalled();
+  } finally {
+    f.dispose();
+  }
+});
 
 function pointer(target: Element, type: string, options: PointerEventInit = {}) {
   act(() =>
