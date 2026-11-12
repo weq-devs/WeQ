@@ -2,6 +2,17 @@ import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationSettingsDialog } from '../src/renderer/src/components/ConversationSettingsDialog';
+import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+
+const intent = vi.hoisted(() => ({
+  data: {
+    enabled: false,
+    engine: 'api',
+    apiConfigured: true,
+    conversationOverrides: {} as Record<string, boolean>,
+  },
+  mutate: vi.fn(async () => intent.data),
+}));
 
 vi.mock('../src/renderer/src/components/WindowSurface', () => ({
   WindowSurface: ({ children }: { children: ReactNode }) => children,
@@ -18,7 +29,7 @@ vi.mock('../src/renderer/src/components/QQConversationControls', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({}),
+    useUtils: () => ({ account: { intentSense: { getStatus: { setData: vi.fn() } } } }),
     account: {
       antiRecall: {
         getStatus: { useQuery: () => ({ data: {} }) },
@@ -27,17 +38,111 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         setNotify: { useMutation: () => ({}) },
       },
       intentSense: {
-        getStatus: { useQuery: () => ({ data: { enabled: false } }) },
-        setConversationOverride: { useMutation: () => ({}) },
+        getStatus: { useQuery: () => ({ data: intent.data }) },
+        setConversationOverride: { useMutation: () => ({ mutateAsync: intent.mutate }) },
       },
     },
   },
 }));
 const cleanups: Array<() => void> = [];
-beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  intent.data = { enabled: false, engine: 'api', apiConfigured: true, conversationOverrides: {} };
+  intent.mutate.mockClear();
+});
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
+});
+
+it.each(['c2c', 'group', 'dataline'] as const)(
+  '%s 仅联系人提供完整资料跳转，关闭设置后导航',
+  (kind) => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const calls: string[] = [];
+    const navigate = vi.fn(() => {
+      calls.push('navigate');
+    });
+    cleanups.push(() => {
+      act(() => root.unmount());
+      host.remove();
+    });
+    act(() =>
+      root.render(
+        h(
+          ContactWorkspaceNavigationContext.Provider,
+          { value: navigate },
+          h(ConversationSettingsDialog, {
+            kind,
+            conv: 'u_friend',
+            title: '联系人',
+            onClose: () => calls.push('close'),
+          }),
+        ),
+      ),
+    );
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="查看联系人资料"]');
+    expect(Boolean(button)).toBe(kind === 'c2c');
+    if (button) {
+      act(() => button.click());
+      expect(calls).toEqual(['close', 'navigate']);
+      expect(navigate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'person',
+          tab: 'profile',
+          contact: expect.objectContaining({ id: 'u_friend' }),
+        }),
+      );
+    }
+  },
+);
+
+it.each([
+  { enabled: false, ready: true, override: undefined, checked: 'true', text: '应用意图感知已关闭' },
+  { enabled: true, ready: false, override: undefined, checked: 'true', text: '引擎未就绪' },
+  { enabled: true, ready: true, override: false, checked: 'false', text: '已在此会话关闭' },
+  { enabled: true, ready: true, override: undefined, checked: 'true', text: '已在此会话生效' },
+])('意图感知区分会话选择与生效状态 $text', async ({ enabled, ready, override, checked, text }) => {
+  intent.data.enabled = enabled;
+  intent.data.apiConfigured = ready;
+  if (override === false) intent.data.conversationOverrides['c2c:u_friend'] = false;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  act(() =>
+    root.render(
+      h(ConversationSettingsDialog, {
+        kind: 'c2c',
+        conv: 'u_friend',
+        title: '联系人',
+        onClose: vi.fn(),
+      }),
+    ),
+  );
+  act(() =>
+    [...host.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
+      .find((button) => button.textContent === '意图感知')!
+      .click(),
+  );
+  const toggle = host.querySelector<HTMLButtonElement>(
+    '[aria-label="本会话意图感知跟随应用设置"]',
+  )!;
+  expect(toggle.getAttribute('aria-checked')).toBe(checked);
+  expect(host.textContent).toContain(text);
+  await act(async () => toggle.click());
+  expect(intent.mutate).toHaveBeenCalledWith(
+    expect.objectContaining({
+      kind: 'c2c',
+      id: 'u_friend',
+      enabled: checked === 'true' ? false : null,
+    }),
+  );
 });
 
 describe('会话设置默认页面', () => {

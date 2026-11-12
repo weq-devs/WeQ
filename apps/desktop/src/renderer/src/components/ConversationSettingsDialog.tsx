@@ -11,8 +11,9 @@
  * 启用范围 / 通知总开关仍在「更多 → 防撤回」面板里，这里只做单会话的粒度。
  */
 
-import { useMemo, useRef, useState, type ReactElement } from 'react';
+import { useContext, useMemo, useRef, useState, type ReactElement } from 'react';
 import { accountBinding } from '../lib/clientPreferences';
+import { ContactWorkspaceNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
@@ -54,6 +55,8 @@ export function ConversationSettingsDialog({
   anchor?: HTMLElement;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const openWorkspace = useContext(ContactWorkspaceNavigationContext);
+  const profileUser = kind === 'c2c' ? profileTargetUser({ identity: conv, name: title }) : null;
   const utils = trpc.useUtils();
   const source = useRef(accountBinding());
   const [section, setSection] = useState<SectionId>(kind === 'dataline' ? 'antirecall' : 'qq');
@@ -83,7 +86,6 @@ export function ConversationSettingsDialog({
   const intentOverride = intentData?.conversationOverrides?.[`${intentKind}:${conv}`];
   const intentEngineOk =
     intentData?.engine === 'local' ? !!intentData.localReady : !!intentData?.apiConfigured;
-  const intentOnHere = !!intentData?.enabled && intentOverride !== false && intentEngineOk;
 
   const scope = status.data ? (status.data.enabled ? status.data.mode : 'off') : 'off';
   const enabled = scope !== 'off';
@@ -154,6 +156,18 @@ export function ConversationSettingsDialog({
       subtitle={title}
       anchor={anchor}
       onClose={onClose}
+      onOpenProfile={
+        openWorkspace && profileUser
+          ? () => {
+              onClose();
+              openWorkspace({
+                kind: 'person',
+                contact: { ...profileUser, createdAt: '' },
+                tab: 'profile',
+              });
+            }
+          : undefined
+      }
       value={section}
       onValueChange={setSection}
       sections={[
@@ -190,7 +204,7 @@ export function ConversationSettingsDialog({
                 ? '群名称、群头像与成员管理'
                 : kind === 'group'
                   ? '备注、置顶、消息接收与本群身份'
-                  : '备注、置顶、免打扰与好友分组'}
+                  : '置顶、免打扰与特别关心'}
             </span>
           </div>
           <div className="weq-cvs-body-scroll">
@@ -213,31 +227,37 @@ export function ConversationSettingsDialog({
           </div>
           <div className="weq-cvs-body-scroll">
             <Card title="本会话" icon={<BrainCircuit size={15} strokeWidth={1.9} />}>
-              {!intentStatus.data?.enabled ? (
-                <p className="weq-set-note">
-                  意图感知总开关关着 —— 先去「设置 → 模型与识别 → 意图感知」打开它。
-                </p>
-              ) : null}
               <Row
                 label={
                   <span className="weq-set-row-icon">
                     <BrainCircuit size={14} strokeWidth={1.8} aria-hidden />
-                    在本会话启用
+                    跟随应用设置
                   </span>
                 }
                 desc={
-                  intentOverride === false
-                    ? '此会话已被单独关闭（不跟随全局）。'
-                    : intentEngineOk
-                      ? '在最新对方消息下显示胶囊；悬停任意消息查看；私聊右上角显示好感度。'
-                      : '引擎未就绪 —— 到「设置 → 模型与识别 → 意图感知」完成引擎配置。'
+                  intentStatus.error
+                    ? '读取失败，重新打开此窗格可重试。'
+                    : !intentData
+                      ? '正在读取…'
+                      : intentOverride === false
+                        ? '已在此会话关闭'
+                        : !intentData.enabled
+                          ? '未生效：应用意图感知已关闭'
+                          : !intentEngineOk
+                            ? '未生效：引擎未就绪'
+                            : '已在此会话生效'
                 }
                 control={
                   <Toggle
-                    checked={intentOnHere}
-                    disabled={intentStatus.isLoading || setIntentOverride.isLoading}
+                    checked={intentOverride !== false}
+                    disabled={
+                      intentStatus.isLoading ||
+                      !intentData ||
+                      Boolean(intentStatus.error) ||
+                      setIntentOverride.isLoading
+                    }
                     onChange={(next) => void onToggleIntent(next)}
-                    label="在本会话启用意图感知"
+                    label="本会话意图感知跟随应用设置"
                   />
                 }
               />

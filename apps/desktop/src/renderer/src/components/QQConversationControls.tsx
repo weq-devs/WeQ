@@ -7,7 +7,7 @@ import {
   Pin,
   Sparkles,
   RefreshCw,
-  Tag,
+  Star,
   UserPen,
   UserRound,
   UserRoundCog,
@@ -93,27 +93,10 @@ export function QQConversationControls({
       refetchOnWindowFocus: false,
     },
   );
-  const categories = trpc.account.listCategories.useQuery(undefined, { enabled: kind === 'c2c' });
-  const cloudRoster = trpc.account.qqWrite.friendRoster.useQuery(session.binding!, {
-    enabled: kind === 'c2c' && session.available && Boolean(snapshot.data?.friend),
-    staleTime: 10000,
-    refetchOnWindowFocus: false,
-  });
-  const remark = trpc.account.qqWrite.friendRemark.useMutation();
-  const friendRemarkState = trpc.account.qqWrite.friendRemarkState.useQuery(
-    { ...session.binding!, uid: conv },
-    {
-      enabled: kind === 'c2c' && session.available && Boolean(snapshot.data?.friend),
-      staleTime: 10000,
-      refetchOnWindowFocus: false,
-      retry: false,
-    },
-  );
   const groupRemark = trpc.account.qqWrite.groupRemark.useMutation();
   const pin = trpc.account.qqWrite.pin.useMutation();
   const disturb = trpc.account.qqWrite.friendDisturb.useMutation();
   const policy = trpc.account.qqWrite.groupMessagePolicy.useMutation();
-  const category = trpc.account.qqWrite.friendCategory.useMutation();
   const groupName = trpc.account.qqWrite.groupName.useMutation();
   const card = trpc.account.qqWrite.groupMemberCard.useMutation();
   const title = trpc.account.qqWrite.groupSpecialTitle.useMutation();
@@ -282,43 +265,33 @@ export function QQConversationControls({
               title={kind === 'group' ? '群会话' : '好友会话'}
               icon={<MessageSquareText size={15} strokeWidth={1.9} />}
             >
-              <QQWriteTextRow
-                label={kind === 'group' ? '群备注' : '好友备注'}
-                icon={<UserPen size={14} strokeWidth={1.8} />}
-                initial={kind === 'c2c' ? (friendRemarkState.data?.remark ?? null) : state.remark}
-                disabled={
-                  kind === 'c2c'
-                    ? friendDisabled || !friendRemarkState.data || Boolean(friendRemarkState.error)
-                    : disabled
-                }
-                onSave={(value) =>
-                  session.run(
-                    (binding) =>
-                      kind === 'c2c'
-                        ? remark.mutateAsync({ ...binding, uid: conv, remark: value })
-                        : groupRemark.mutateAsync({
-                            ...binding,
-                            groupId: Number(conv),
-                            remark: value,
-                          }),
-                    undefined,
-                    {
-                      profileUid: kind === 'c2c' ? conv : undefined,
-                      readbackSuccessText: value ? '备注已保存' : '备注已清空',
-                      readback: async () => {
-                        if (kind === 'c2c') {
-                          const updated = await friendRemarkState.refetch();
+              {kind === 'group' && (
+                <QQWriteTextRow
+                  label="群备注"
+                  icon={<UserPen size={14} strokeWidth={1.8} />}
+                  initial={state.remark}
+                  disabled={disabled}
+                  onSave={(value) =>
+                    session.run(
+                      (binding) =>
+                        groupRemark.mutateAsync({
+                          ...binding,
+                          groupId: Number(conv),
+                          remark: value,
+                        }),
+                      undefined,
+                      {
+                        readbackSuccessText: value ? '备注已保存' : '备注已清空',
+                        readback: async () => {
+                          const updated = await snapshot.refetch();
                           if (updated.error) throw updated.error;
                           return updated.data?.remark === value;
-                        }
-                        const updated = await snapshot.refetch();
-                        if (updated.error) throw updated.error;
-                        return updated.data?.remark === value;
+                        },
                       },
-                    },
-                  )
-                }
-              />
+                    )
+                  }
+                />
+              )}
               <QQWriteToggleRow
                 label="置顶会话"
                 icon={<Pin size={14} strokeWidth={1.8} />}
@@ -348,46 +321,6 @@ export function QQConversationControls({
                     disabled={friendDisabled || specialCare.disabled}
                     onSave={specialCare.change}
                   />
-                  {state.friendUin && <QzoneFriendPermissions targetUin={state.friendUin} />}
-                  <QQWriteSelectRow
-                    label="好友分组"
-                    autoSave
-                    icon={<Tag size={14} strokeWidth={1.8} />}
-                    initial={
-                      cloudRoster.data?.friends.find((row) => row.uid === conv)?.categoryId ??
-                      state.categoryId
-                    }
-                    disabled={friendDisabled || categories.isLoading}
-                    options={[
-                      { value: 0, label: '默认分组' },
-                      ...(cloudRoster.data?.categories ?? categories.data ?? [])
-                        .filter((item) => item.id !== 0)
-                        .map((item) => ({ value: item.id, label: item.name })),
-                    ]}
-                    onSave={(categoryId) =>
-                      session.run(
-                        (binding) => category.mutateAsync({ ...binding, uid: conv, categoryId }),
-                        async () => {
-                          const updated = await categories.refetch();
-                          if (updated.error) throw updated.error;
-                          await cloudRoster.refetch();
-                        },
-                        {
-                          profileUid: conv,
-                          readbackSuccessText: '已移入所选好友分组',
-                          readback: async () => {
-                            const updated = await cloudRoster.refetch();
-                            if (updated.error) throw updated.error;
-                            return (
-                              updated.data?.friends.some(
-                                (row) => row.uid === conv && row.categoryId === categoryId,
-                              ) ?? false
-                            );
-                          },
-                        },
-                      )
-                    }
-                  />
                 </>
               ) : (
                 <QQWriteSelectRow
@@ -401,6 +334,11 @@ export function QQConversationControls({
                   onSave={changePolicy}
                 />
               )}
+            </Card>
+          )}
+          {kind === 'c2c' && state.friend && state.friendUin && (
+            <Card title="空间" icon={<Star size={15} strokeWidth={1.9} />}>
+              <QzoneFriendPermissions targetUin={state.friendUin} />
             </Card>
           )}
           {kind === 'group' && !management && (
