@@ -15,9 +15,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GroupInfoPanel } from '@renderer/im-template/template/groupInfoPanel';
 import { TabActivity } from '@renderer/components/RetainedTabs';
+import { formatShortDate } from '@renderer/im-template/template/format';
 
 const rankQuery = vi.hoisted(() => vi.fn());
 const avatarRender = vi.hoisted(() => vi.fn());
+const metricsRender = vi.hoisted(() => vi.fn());
+vi.mock('../src/renderer/src/components/GroupProfileMetrics', () => ({
+  GroupProfileMetrics: ({ children }: { children: (rows: []) => unknown }) => {
+    metricsRender();
+    return children([]);
+  },
+}));
 vi.mock('../src/renderer/src/im-template/template/primitives', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../src/renderer/src/im-template/template/primitives')>();
@@ -108,6 +116,7 @@ describe('群资料面板', () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     rankQuery.mockReset().mockResolvedValue([]);
     avatarRender.mockClear();
+    metricsRender.mockClear();
   });
 
   afterEach(() => {
@@ -117,8 +126,8 @@ describe('群资料面板', () => {
     hosts.length = 0;
   });
 
-  it('渲染群资料行，创建时间格式化成 年/月/日', () => {
-    mountPanel(undefined, undefined, { onOpenDetail: () => undefined });
+  it('完整资料保留群容量与统一的创建时间显示', () => {
+    mountPanel(undefined, undefined, { layout: 'profile', onOpenDetail: () => undefined });
 
     // 侧栏不再把群简介压成一行省略号，改为标题行上的「查看完整资料 ›」入口；其余日常字段照旧。
     expect(metaRow('群简介')).toBeUndefined();
@@ -126,13 +135,21 @@ describe('群资料面板', () => {
     expect(metaRow('群容量')?.querySelector('strong')?.textContent).toBe('12/200');
 
     const created = metaRow('创建时间')?.querySelector('strong')?.textContent ?? '';
-    // 不写死具体日期：格式化用的是本地时区，断言形状即可。
-    expect(created).toMatch(/^\d{4}\/\d{2}\/\d{2}$/);
+    expect(created).toBe(formatShortDate(CONVERSATION.group.createTime));
   });
 
   it('渲染群成员列表', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
+  });
+  it('侧栏移除资料区与指标读取，只保留紧凑摘要和成员', () => {
+    mountPanel(vi.fn(), vi.fn());
+    expect(document.querySelector('.group-info-overview')).toBeNull();
+    expect(document.querySelector('.group-info-meta-list')).toBeNull();
+    expect(metricsRender).not.toHaveBeenCalled();
+    expect(document.querySelector('.group-info-panel')?.getAttribute('aria-label')).toBe(
+      '群聊侧栏',
+    );
   });
   it('成员行不随未读和回调变化重画，真实资料只更新目标行且事件调用最新实现', () => {
     const members = Array.from({ length: 200 }, (_, index) => ({
@@ -210,18 +227,21 @@ describe('群资料面板', () => {
     expect(metaRow('群内好友数')).toBeUndefined();
     expect(document.querySelector('.group-info-panel')?.textContent).not.toContain('未知');
   });
-  it('已退群与等级排行是并列图标按钮，已退群保留原回调', () => {
+  it('已退群与等级排行收进更多菜单，已退群保留原回调', () => {
     const open = vi.fn();
     mountPanel(undefined, undefined, { onOpenLeftMembers: open });
     const actions = document.querySelector('.group-info-member-actions')!;
     const buttons = [...actions.querySelectorAll<HTMLButtonElement>('button')];
-    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
-      '查看已退群的成员',
-      '群成员等级排行',
-    ]);
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['更多成员操作']);
     expect(buttons.every((button) => !button.textContent?.trim())).toBe(true);
     expect(rankQuery).not.toHaveBeenCalled();
     act(() => buttons[0].click());
+    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(2);
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>('[role="menuitem"][title="查看已退群的成员"]')!
+        .click(),
+    );
     expect(open).toHaveBeenCalledOnce();
   });
   it('等级排行直接查询当前群，点击未加载的成员仍能打开资料', async () => {
@@ -230,8 +250,11 @@ describe('群资料面板', () => {
     ]);
     const open = vi.fn();
     mountPanel(undefined, undefined, { onOpenMember: open });
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="更多成员操作"]')!.click());
     await act(async () => {
-      document.querySelector<HTMLButtonElement>('[aria-label="群成员等级排行"]')!.click();
+      document
+        .querySelector<HTMLButtonElement>('[role="menuitem"][title="群成员等级排行"]')!
+        .click();
     });
     expect(rankQuery).toHaveBeenCalledOnce();
     expect(rankQuery).toHaveBeenCalledWith({ groupCode: 'g1', limit: 50, offset: 0 });
@@ -270,8 +293,7 @@ describe('群资料面板', () => {
     mountPanel(vi.fn(), vi.fn());
     const sidebar = document.querySelector('.group-info-panel:not(.weq-group-profile-details)')!;
     expect([...sidebar.children].map((element) => element.className)).toEqual([
-      'group-info-section group-info-overview',
-      'weq-group-announcement',
+      'weq-group-summary',
       'weq-group-content-actions',
       'group-info-section member-list-section',
     ]);
@@ -312,10 +334,11 @@ describe('群资料面板', () => {
   it('公告区域保留独立入口，复用原打开回调', () => {
     const open = vi.fn();
     mountPanel(open);
-    const entry = document.querySelector<HTMLButtonElement>('[title="查看群公告"]')!;
-    expect(entry.textContent).toBe('群公告');
+    const entry = document.querySelector<HTMLButtonElement>('[aria-label="查看群公告"]')!;
+    expect(entry.textContent).toContain('群公告');
     act(() => entry.click());
     expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenLastCalledWith(entry);
   });
   it('群资料栏直接展示打卡入口，点击只打开页面，不直接写入', () => {
     const open = vi.fn();
@@ -324,5 +347,6 @@ describe('群资料面板', () => {
     expect(entry.textContent).toBe('打卡');
     act(() => entry.click());
     expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenLastCalledWith(entry);
   });
 });

@@ -1,8 +1,8 @@
 import { useRef, type ReactElement } from 'react';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
-import { RefreshCw, X } from 'lucide-react';
+import { FileText, RefreshCw, X } from 'lucide-react';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { ProfileDetailSurface } from './ProfileDetailSurface';
+import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useQQGroupPermissions } from './qq-actions/shared';
 import {
@@ -39,6 +39,8 @@ export interface GroupEssenceWire {
 
 export function GroupEssenceDialog({
   embedded,
+  anchor,
+  presentation,
   groupCode,
   groupName,
   essenceMessages,
@@ -49,6 +51,8 @@ export function GroupEssenceDialog({
   initialMsgSeq,
 }: {
   embedded?: boolean;
+  anchor?: HTMLElement | null;
+  presentation?: GroupFeaturePresentation;
   groupCode: string;
   groupName: string;
   essenceMessages?: GroupEssenceWire[];
@@ -93,9 +97,10 @@ export function GroupEssenceDialog({
     visible.length > 0,
   );
   return (
-    <ProfileDetailSurface
+    <GroupFeatureSurface
       embedded={embedded}
-      presentation="sidecar"
+      presentation={presentation}
+      anchor={anchor}
       title="群精华"
       className="modal-scrim group-essence-scrim"
       onClose={onClose}
@@ -111,7 +116,13 @@ export function GroupEssenceDialog({
             <strong>群精华</strong>
             <span>{groupName}</span>
           </div>
-          <button className="icon-button" type="button" title="关闭" onClick={onClose}>
+          <button
+            className="icon-button"
+            type="button"
+            title="关闭群精华"
+            aria-label="关闭群精华"
+            onClick={onClose}
+          >
             <X size={18} />
           </button>
         </header>
@@ -178,7 +189,7 @@ export function GroupEssenceDialog({
                                   />
                                 ) : element.type === 5 && element.fileName ? (
                                   <div className="essence-file">
-                                    📎 {element.fileName}
+                                    <FileText size={14} aria-hidden /> {element.fileName}
                                     {element.fileSize
                                       ? ` (${formatFileSize(element.fileSize)})`
                                       : ''}
@@ -224,7 +235,7 @@ export function GroupEssenceDialog({
           )}
         </div>
       </section>
-    </ProfileDetailSurface>
+    </GroupFeatureSurface>
   );
 }
 

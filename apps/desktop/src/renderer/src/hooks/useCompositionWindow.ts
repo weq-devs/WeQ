@@ -3,10 +3,31 @@ import { USER_ACTIVITY_EVENT } from '../lib/renderDocument';
 import { IS_WEB } from '../lib/target';
 import { isRemoteClient } from '../lib/remoteClient';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
+import type { GroupResourceWindowName } from '../../../shared/group_resource_window';
 export const COMPOSITION_DISPOSE_EVENT = 'weq:composition-dispose';
 
 export function prefersInlineToolWindow() {
   return IS_WEB && (isRemoteClient() || isSingleColumnLayout());
+}
+
+export type ToolWindowName =
+  | 'weq-compose'
+  | 'weq-db-repair'
+  | 'weq-call'
+  | 'weq-capture'
+  | GroupResourceWindowName;
+
+/** 在触发点击中先创建空白窗口，避免浏览器把后续 React effect 当成弹窗拦截。 */
+export function openToolPopup(name: ToolWindowName, width: number, height: number) {
+  if (prefersInlineToolWindow()) return null;
+  const popup = window.open('about:blank', name, `popup,width=${width},height=${height}`);
+  if (!popup) return null;
+  popup.document.open();
+  popup.document.write(
+    '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>',
+  );
+  popup.document.close();
+  return popup;
 }
 
 function disposeCompositionWindow(
@@ -82,17 +103,19 @@ export function useToolWindow({
   height,
   bodyClass,
   disposeEvent = null,
+  initialWindow,
 }: {
-  name: 'weq-compose' | 'weq-db-repair' | 'weq-call' | 'weq-capture';
+  name: ToolWindowName;
   title: string;
   width: number;
   height: number;
   bodyClass: string;
   disposeEvent?: string | null;
+  initialWindow?: Window | null;
 }) {
-  const owned = useRef<Window | null>(null);
-  const [popup, setPopup] = useState<Window | null>(null);
-  const [fallback, setFallback] = useState(false);
+  const owned = useRef<Window | null>(initialWindow ?? null);
+  const [popup, setPopup] = useState<Window | null>(initialWindow ?? null);
+  const [fallback, setFallback] = useState(initialWindow === null);
   const open = useCallback(() => {
     if (prefersInlineToolWindow()) {
       setFallback(true);
@@ -104,16 +127,11 @@ export function useToolWindow({
       setPopup(existing);
       return existing;
     }
-    const next = window.open('about:blank', name, `popup,width=${width},height=${height}`);
+    const next = openToolPopup(name, width, height);
     if (!next) {
       setFallback(true);
       return null;
     }
-    next.document.open();
-    next.document.write(
-      '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>',
-    );
-    next.document.close();
     owned.current = next;
     setPopup(next);
     setFallback(false);

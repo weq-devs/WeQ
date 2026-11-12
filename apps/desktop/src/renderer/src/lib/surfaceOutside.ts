@@ -28,7 +28,11 @@ export function useSurfaceOutside(
   ref: RefObject<HTMLElement | null>,
   onClose: (() => void) | undefined,
   active: boolean,
-  { scrim = false, anchor }: { scrim?: boolean; anchor?: HTMLElement | null } = {},
+  {
+    scrim = false,
+    anchor,
+    consume = true,
+  }: { scrim?: boolean; anchor?: HTMLElement | null; consume?: boolean } = {},
 ) {
   useEffect(() => {
     const element = ref.current;
@@ -41,10 +45,10 @@ export function useSurfaceOutside(
       const target = event.target as Node | null;
       if (!target || anchor?.contains(target)) return;
       if (element.contains(target) && (!scrim || target !== element)) return;
-      consumeOutsidePress(document, event);
+      if (consume) consumeOutsidePress(document, event);
       onClose();
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
-  }, [ref, onClose, active, scrim, anchor]);
+  }, [ref, onClose, active, scrim, anchor, consume]);
 }

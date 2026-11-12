@@ -38,6 +38,7 @@ import { withQQAccountScope } from './qq-actions/shared';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
+import { resourceForRenderDocument, useRenderDocument } from '../lib/renderDocument';
 import '../styles/group-album-browser.css';
 
 type AccountOutput = inferRouterOutputs<AppRouter>['account'];
@@ -51,6 +52,7 @@ type MediaState =
 
 interface GroupAlbumDialogProps {
   embedded?: boolean;
+  standalone?: boolean;
   groupCode: string;
   groupName: string;
   initialAlbums?: GroupAlbumWire[];
@@ -64,6 +66,7 @@ export function GroupAlbumDialog(props: GroupAlbumDialogProps): ReactElement {
 }
 function GroupAlbumDialogBody({
   embedded,
+  standalone,
   groupCode,
   groupName,
   initialAlbums,
@@ -71,6 +74,9 @@ function GroupAlbumDialogBody({
   binding,
   onClose,
 }: GroupAlbumDialogProps): ReactElement {
+  const document = useRenderDocument();
+  const view = document.defaultView ?? window;
+  const detached = document !== globalThis.document;
   const activity = useQQReadActivity(true);
   const alive = useRef(true);
   const run = useRef(0);
@@ -105,7 +111,7 @@ function GroupAlbumDialogBody({
     mediaController.current?.abort();
     const albumId = mediaState.album?.id;
     setMediaState({ status: 'idle', album: null, items: [], error: null });
-    requestAnimationFrame(() => {
+    view.requestAnimationFrame(() => {
       if (alive.current && revision === run.current && body.current) {
         body.current.scrollTop = listPosition.current;
         [...body.current.querySelectorAll<HTMLButtonElement>('[data-album-id]')]
@@ -114,7 +120,7 @@ function GroupAlbumDialogBody({
       }
     });
   };
-  useMobileBack(Boolean(mediaState.album), backToAlbums, 30, () => body.current);
+  useMobileBack(Boolean(mediaState.album) && !detached, backToAlbums, 30, () => body.current);
 
   useEffect(() => {
     if (!activity.enabled) {
@@ -223,6 +229,17 @@ function GroupAlbumDialogBody({
     } else setAlbumError('指定相册不存在或当前账号不可访问。');
   }, [initialAlbumId, albums, loadingAlbums, albumError, activity.enabled, hasAlbumSnapshot]);
 
+  const management = (
+    <GroupAlbumManagement
+      key={`${groupCode}:${mediaState.album?.id ?? 'new'}`}
+      groupCode={groupCode}
+      album={mediaState.album}
+      onChanged={() => {
+        setAlbumRevision((value) => value + 1);
+        setMediaState({ status: 'idle', album: null, items: [], error: null });
+      }}
+    />
+  );
   return (
     <ProfileDetailSurface
       embedded={embedded}
@@ -232,7 +249,7 @@ function GroupAlbumDialogBody({
       onClose={onClose}
     >
       <section
-        className="group-album-dialog group-album-browser"
+        className={`group-album-dialog group-album-browser${standalone ? ' is-standalone' : ''}`}
         role="region"
         aria-label={`${groupName}的群相册`}
         onMouseDown={(e) => e.stopPropagation()}
@@ -242,6 +259,9 @@ function GroupAlbumDialogBody({
             <strong>{bodyTitle}</strong>
             <span>{groupName}</span>
           </div>
+          {standalone ? (
+            <div className="weq-group-resource-header-actions">{management}</div>
+          ) : null}
           <button
             className="icon-button"
             type="button"
@@ -254,15 +274,7 @@ function GroupAlbumDialogBody({
         </header>
 
         <div className="group-album-body" ref={body}>
-          <GroupAlbumManagement
-            key={`${groupCode}:${mediaState.album?.id ?? 'new'}`}
-            groupCode={groupCode}
-            album={mediaState.album}
-            onChanged={() => {
-              setAlbumRevision((value) => value + 1);
-              setMediaState({ status: 'idle', album: null, items: [], error: null });
-            }}
-          />
+          {!standalone ? management : null}
           {mediaState.album ? (
             <AlbumMediaView
               key={mediaState.album.id}
@@ -273,7 +285,7 @@ function GroupAlbumDialogBody({
                 if (mediaState.album) void openAlbum(mediaState.album);
               }}
               onBack={() => {
-                if (!mobileBack()) backToAlbums();
+                if (detached || !mobileBack()) backToAlbums();
               }}
             />
           ) : (
@@ -375,12 +387,12 @@ function AlbumListView({
   });
   return (
     <>
-      <ContentReferenceToolbar
-        owner={owner}
-        selection={selection}
-        loaded={[...references.keys()]}
-      />
       <div className="group-album-browse-tools">
+        <ContentReferenceToolbar
+          owner={owner}
+          selection={selection}
+          loaded={[...references.keys()]}
+        />
         <label className="group-album-search">
           <Search size={15} />
           <input
@@ -474,6 +486,7 @@ function AlbumListView({
 }
 
 function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
+  const document = useRenderDocument();
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [album.coverUrl]);
   if (!album.coverUrl || broken) {
@@ -486,7 +499,7 @@ function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
   return (
     <span className="group-album-cover">
       <img
-        src={album.coverUrl}
+        src={resourceForRenderDocument(album.coverUrl, document)}
         alt=""
         loading="lazy"
         referrerPolicy="no-referrer"
@@ -811,6 +824,7 @@ function MediaThumbnail({
   selectionProps?: HTMLAttributes<HTMLButtonElement>;
   selected?: boolean;
 }): ReactElement {
+  const document = useRenderDocument();
   const [broken, setBroken] = useState(false);
   const src = item.previewUrl || (item.kind === 'image' ? item.originalUrl : '');
   useEffect(() => setBroken(false), [src]);
@@ -825,7 +839,7 @@ function MediaThumbnail({
     >
       {src && !broken ? (
         <img
-          src={albumMediaUrl(src)}
+          src={resourceForRenderDocument(albumMediaUrl(src), document)}
           alt=""
           loading="lazy"
           referrerPolicy="no-referrer"

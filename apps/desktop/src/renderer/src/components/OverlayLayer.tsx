@@ -64,6 +64,8 @@ export type OverlayLayerProps = {
   /** 点遮罩空白处 / 按 Esc 时调用。不传则两种关闭都不响应。 */
   onClose?: () => void;
   dismissOnOutside?: boolean;
+  /** 轻浮窗可在关闭时继续执行背后控件的同次点击，其余浮层默认消费。 */
+  consumeOutsidePress?: boolean;
   /** 调用方自己的浮层类名（scrim 观感）。会与 `.weq-overlay-layer` 合并。 */
   className?: string;
   /**
@@ -123,6 +125,7 @@ function OpenOverlayLayer({
   anchor,
   anchorPlacement,
   dismissOnOutside = true,
+  consumeOutsidePress = true,
   portalTarget,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
@@ -143,6 +146,7 @@ function OpenOverlayLayer({
   useSurfaceOutside(ref, onClose ? requestClose : undefined, dismissOnOutside, {
     scrim: true,
     anchor: placement.anchor?.element,
+    consume: consumeOutsidePress,
   });
 
   const handleScrimMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {

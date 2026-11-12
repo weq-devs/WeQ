@@ -17,6 +17,7 @@ import { useExportReportDialog } from '../views/export/ExportReportControl';
 
 interface Props {
   embedded?: boolean;
+  standalone?: boolean;
   groupCode: string;
   groupName: string;
   initialFolderId?: string;
@@ -32,6 +33,7 @@ interface Crumb {
 const ROOT: Crumb = { id: '/', name: '全部文件' };
 function GroupFileDialogBody({
   embedded,
+  standalone,
   groupCode,
   groupName,
   initialFolderId,
@@ -161,8 +163,8 @@ function GroupFileDialogBody({
         {save.serverLocation && (
           <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
         )}
-        <header hidden={embedded && !mediaSave.downloading}>
-          <div hidden={embedded}>
+        <header hidden={embedded && !standalone && !mediaSave.downloading}>
+          <div hidden={embedded && !standalone}>
             <strong>群文件</strong>
             <span>{groupName}</span>
           </div>
@@ -178,7 +180,7 @@ function GroupFileDialogBody({
             </button>
           )}
           <button
-            hidden={embedded}
+            hidden={embedded && !standalone}
             className="icon-button"
             type="button"
             title="关闭"
@@ -189,7 +191,7 @@ function GroupFileDialogBody({
           </button>
         </header>
         <div className="group-album-body">
-          {embedded && crumbs.length < 2 ? null : (
+          {embedded && !standalone && crumbs.length < 2 ? null : (
             <nav className="group-file-toolbar" aria-label="群文件目录">
               <div className="group-file-crumbs">
                 <button

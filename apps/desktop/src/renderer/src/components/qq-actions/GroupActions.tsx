@@ -12,7 +12,7 @@ import {
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { Card, Row } from '../settings/controls';
 import { ContactEmptyState } from '../contactProfile/ContactRow';
-import { OverlayLayer } from '../OverlayLayer';
+import { GroupFeatureSurface } from '../GroupFeatureSurface';
 import {
   groupTodoHistoryKey,
   groupTodoKey,
@@ -243,14 +243,26 @@ function GroupTodosBody({
   groupName,
   embedded = false,
   onJumpToMessage,
+  popoverOpen,
+  onPopoverOpenChange,
 }: {
   groupId: number;
   groupName?: string;
   embedded?: boolean;
   onJumpToMessage?: (sequence: string) => void;
+  popoverOpen?: boolean;
+  onPopoverOpenChange?: (open: boolean, anchor: HTMLElement | null) => void;
 }) {
   const a = useQQAction(`todos:${groupId}`);
   const [opened, setOpened] = useState(false);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const visible = popoverOpen ?? opened;
+  const changeOpen = (next: boolean, element: HTMLElement | null = anchor) => {
+    setAnchor(element);
+    setOpened(next);
+    onPopoverOpenChange?.(next, element);
+    if (!next) setMenu(null);
+  };
   const [menu, setMenu] = useState<{ x: number; y: number; sequence: string } | null>(null);
   const key = a.binding
     ? groupTodoHistoryKey(a.binding.expectedAccountUin, a.binding.expectedAccountConfigId, groupId)
@@ -395,7 +407,7 @@ function GroupTodosBody({
                     label="定位原消息"
                     disabled={!/^[1-9]\d*$/.test(t.sequence)}
                     onClick={() => {
-                      setOpened(false);
+                      changeOpen(false);
                       setMenu(null);
                       onJumpToMessage(t.sequence);
                     }}
@@ -491,48 +503,36 @@ function GroupTodosBody({
   if (!embedded) return content;
   const latest = entries.find((todo) => !todo.completed) ?? entries[0];
   const close = () => {
-    setOpened(false);
+    changeOpen(false);
     setMenu(null);
   };
   return (
     <>
-      <section className="weq-group-announcement weq-group-todos" aria-label="群待办">
+      <section className="weq-group-summary weq-group-todos" aria-label="群待办">
         <button
           type="button"
-          onClick={() => setOpened(true)}
+          onClick={(event) => changeOpen(!visible, event.currentTarget)}
           title="查看群待办"
           aria-label="查看群待办"
+          aria-expanded={visible}
         >
-          <span>
-            <strong>群待办</strong>
-            <ChevronRight size={14} />
+          <strong>待办</strong>
+          <span className="weq-todo-summary" aria-label="待办内容">
+            {latest
+              ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
+              : reading
+                ? '读取中…'
+                : readError
+                  ? '读取失败'
+                  : localTodos.data === undefined
+                    ? '尚未读取'
+                    : '暂无待办'}
           </span>
+          <ChevronRight size={14} aria-hidden />
         </button>
-        <button
-          type="button"
-          className="weq-todo-summary"
-          aria-label="待办内容"
-          onClick={() => setOpened(true)}
-        >
-          {latest
-            ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
-            : reading
-              ? '读取待办中…'
-              : readError
-                ? '待办读取失败'
-                : localTodos.data === undefined
-                  ? '待办尚未读取'
-                  : '暂无群待办'}
-        </button>
-        {historyError && <p role="alert">{historyError}</p>}
       </section>
-      {opened && (
-        <OverlayLayer
-          presentation="sidecar"
-          title="群待办"
-          className="modal-scrim group-announcements-scrim"
-          onClose={close}
-        >
+      {visible && (
+        <GroupFeatureSurface presentation="popover" anchor={anchor} title="群待办" onClose={close}>
           <section
             className="group-announcements-dialog"
             role="region"
@@ -555,7 +555,7 @@ function GroupTodosBody({
             </header>
             <div className="group-announcements-body">{content}</div>
           </section>
-        </OverlayLayer>
+        </GroupFeatureSurface>
       )}
     </>
   );

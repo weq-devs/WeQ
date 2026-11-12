@@ -274,7 +274,7 @@ import {
   useQQEssence,
 } from '../state/qqEssence';
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
-import type { GroupInfoDetail } from '../im-template/template/groupInfoPanel';
+import type { GroupInfoDetail, GroupSidebarFeature } from '../im-template/template/groupInfoPanel';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
@@ -303,6 +303,7 @@ import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialo
 import { CompositionWorkspace } from '../components/mergeForward/CompositionWorkspace';
 import type { CompositionBinding } from '../components/mergeForward/workspaceModel';
 import { useCompositionWindow } from '../hooks/useCompositionWindow';
+import { useGroupResourceWindows } from '../hooks/useGroupResourceWindows';
 import {
   cleanNtPath,
   codecElementsToSegs,
@@ -3413,18 +3414,35 @@ function MainWorkspace(): ReactElement {
     initialFileId?: string;
     searchRevision?: string;
   } | null>(null);
-  const [announcementsDialog, setAnnouncementsDialog] = useState<{
+  const [groupSidebarPopover, setGroupSidebarPopover] = useState<{
+    kind: GroupSidebarFeature;
     groupCode: string;
     groupName: string;
+    anchor: HTMLElement;
+    ownerKey: string;
   } | null>(null);
-  const [groupSignDialog, setGroupSignDialog] = useState<{
-    groupCode: string;
-    groupName: string;
-  } | null>(null);
-  const [essenceDialog, setEssenceDialog] = useState<{
-    groupCode: string;
-    groupName: string;
-  } | null>(null);
+  const toggleGroupSidebarPopover = useCallback(
+    (
+      kind: GroupSidebarFeature,
+      conversation: Extract<Conversation, { type: 'group' }>,
+      anchor: HTMLElement,
+    ) => {
+      setGroupSidebarPopover((current) =>
+        current?.kind === kind &&
+        current.groupCode === conversation.id &&
+        current.ownerKey === messageScope
+          ? null
+          : {
+              kind,
+              groupCode: conversation.id,
+              groupName: conversation.group.name,
+              anchor,
+              ownerKey: messageScope,
+            },
+      );
+    },
+    [messageScope],
+  );
   const [groupWorkspaceLocation, setGroupWorkspaceLocation] = useState<{
     code: string;
     section?: import('../lib/profileNavigation').GroupWorkspaceTab;
@@ -3492,6 +3510,9 @@ function MainWorkspace(): ReactElement {
     members: MfPerson[];
   } | null>(null);
   const compositionWindow = useCompositionWindow();
+  const { open: openGroupResourceWindow, windows: groupResourceWindows } = useGroupResourceWindows({
+    ownerKey: messageScope,
+  });
   // 发出去但还没被 QQ 同步回来的合并转发（乐观渲染；不写库、不落缓存文件）。
   const [optimisticForwards, setOptimisticForwards] = useState<OptimisticForward[]>([]);
   const consumedForwardMessages = useRef(new Map<string, string>());
@@ -3698,48 +3719,34 @@ function MainWorkspace(): ReactElement {
 
   const handleOpenGroupAlbums = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setAlbumDialog({
+      setGroupSidebarPopover(null);
+      openGroupResourceWindow({
+        kind: 'albums',
         groupCode: conversation.id,
         groupName: conversation.group.name,
       });
     },
-    [],
-  );
-
-  const handleOpenGroupFiles = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setGroupFileDialog({
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
-      });
-    },
-    [],
+    [openGroupResourceWindow],
   );
 
   const handleOpenGroupAnnouncements = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setAnnouncementsDialog({
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
-      });
+    (conversation: Extract<Conversation, { type: 'group' }>, anchor: HTMLElement) => {
+      toggleGroupSidebarPopover('announcements', conversation, anchor);
     },
-    [],
+    [toggleGroupSidebarPopover],
   );
   const handleOpenGroupSign = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setGroupSignDialog({ groupCode: conversation.id, groupName: conversation.group.name });
+    (conversation: Extract<Conversation, { type: 'group' }>, anchor: HTMLElement) => {
+      toggleGroupSidebarPopover('sign', conversation, anchor);
     },
-    [],
+    [toggleGroupSidebarPopover],
   );
 
   const handleOpenGroupEssence = useCallback(
-    (conversation: Extract<Conversation, { type: 'group' }>) => {
-      setEssenceDialog({
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
-      });
+    (conversation: Extract<Conversation, { type: 'group' }>, anchor: HTMLElement) => {
+      toggleGroupSidebarPopover('essence', conversation, anchor);
     },
-    [],
+    [toggleGroupSidebarPopover],
   );
 
   // 群管理「修改群昵称」：从聊天页的头像菜单上报过来，弹窗 + 发包都在本层。
@@ -5246,6 +5253,26 @@ function MainWorkspace(): ReactElement {
   const selectedUidRef = useRef(selectedUid);
   selectedUidRef.current = selectedUid;
   const messagesTabActive = shell.view === 'messages' && !arkFeedState && !specialChat;
+  useEffect(() => {
+    setGroupSidebarPopover((current) =>
+      current &&
+      (current.groupCode !== selectedUid || current.ownerKey !== messageScope || !messagesTabActive)
+        ? null
+        : current,
+    );
+  }, [selectedUid, messageScope, messagesTabActive]);
+  const activeGroupSidebarPopover =
+    groupSidebarPopover?.groupCode === selectedUid &&
+    groupSidebarPopover.ownerKey === messageScope &&
+    messagesTabActive
+      ? groupSidebarPopover
+      : null;
+  const announcementsDialog =
+    activeGroupSidebarPopover?.kind === 'announcements' ? activeGroupSidebarPopover : null;
+  const groupSignDialog =
+    activeGroupSidebarPopover?.kind === 'sign' ? activeGroupSidebarPopover : null;
+  const essenceDialog =
+    activeGroupSidebarPopover?.kind === 'essence' ? activeGroupSidebarPopover : null;
   useMessageNotifications({
     selfUin: user.identityValue,
     selfUid: user.uid,
@@ -8334,6 +8361,20 @@ function MainWorkspace(): ReactElement {
       shell.selectConversation(conv);
     },
     [centerWindowOnSeq, pushToast, shell, locateConversationInView],
+  );
+
+  const handleOpenGroupFiles = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setGroupSidebarPopover(null);
+      openGroupResourceWindow({
+        kind: 'files',
+        groupCode: conversation.id,
+        groupName: conversation.group.name,
+        onJumpToMessage: (sequence, messageId) =>
+          jumpToConvSeq('group', conversation.id, sequence, false, undefined, messageId),
+      });
+    },
+    [openGroupResourceWindow, jumpToConvSeq],
   );
 
   // Click a search hit: resolve conversation key + kind,
@@ -12435,6 +12476,7 @@ function MainWorkspace(): ReactElement {
                           onOpenGroupAlbums={handleOpenGroupAlbums}
                           onOpenGroupFiles={handleOpenGroupFiles}
                           onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                          groupSidebarFeature={activeGroupSidebarPopover?.kind}
                           groupTodos={
                             selectedConversation?.type === 'group' ? (
                               <GroupTodos
@@ -12444,6 +12486,19 @@ function MainWorkspace(): ReactElement {
                                 onJumpToMessage={(sequence) =>
                                   jumpToConvSeq('group', selectedConversation.id, sequence)
                                 }
+                                popoverOpen={activeGroupSidebarPopover?.kind === 'todos'}
+                                onPopoverOpenChange={(open, anchor) => {
+                                  if (open && anchor)
+                                    toggleGroupSidebarPopover(
+                                      'todos',
+                                      selectedConversation,
+                                      anchor,
+                                    );
+                                  else
+                                    setGroupSidebarPopover((current) =>
+                                      current?.kind === 'todos' ? null : current,
+                                    );
+                                }}
                                 embedded
                               />
                             ) : undefined
@@ -12628,6 +12683,7 @@ function MainWorkspace(): ReactElement {
               </CalendarNavigationContext.Provider>
             )}
           </RailAccountFooter>
+          {groupResourceWindows}
           <QzoneAlbumDialog
             selfUin={user.identityValue}
             open={qzoneAlbumOpen}
@@ -12693,13 +12749,17 @@ function MainWorkspace(): ReactElement {
           ) : null}
           {groupSignDialog ? (
             <GroupSignDialog
+              presentation="popover"
+              anchor={groupSignDialog.anchor}
               groupCode={groupSignDialog.groupCode}
               groupName={groupSignDialog.groupName}
-              onClose={() => setGroupSignDialog(null)}
+              onClose={() => setGroupSidebarPopover(null)}
             />
           ) : null}
           {announcementsDialog ? (
             <GroupAnnouncementsDialog
+              presentation="popover"
+              anchor={announcementsDialog.anchor}
               groupCode={announcementsDialog.groupCode}
               groupName={announcementsDialog.groupName}
               currentAnnouncement={
@@ -12722,7 +12782,7 @@ function MainWorkspace(): ReactElement {
                   };
                 },
               )}
-              onClose={() => setAnnouncementsDialog(null)}
+              onClose={() => setGroupSidebarPopover(null)}
             />
           ) : null}
           {convSettings ? (
@@ -12793,6 +12853,8 @@ function MainWorkspace(): ReactElement {
           ) : null}
           {essenceDialog ? (
             <GroupEssenceDialog
+              presentation="popover"
+              anchor={essenceDialog.anchor}
               groupCode={essenceDialog.groupCode}
               groupName={essenceDialog.groupName}
               essenceMessages={(() => {
@@ -12805,9 +12867,9 @@ function MainWorkspace(): ReactElement {
               })()}
               loading={groupEssence.isLoading || groupEssenceWeb.isLoading}
               onlineError={groupEssenceWeb.isError}
-              onClose={() => setEssenceDialog(null)}
+              onClose={() => setGroupSidebarPopover(null)}
               onJumpToMessage={(seq) => {
-                setEssenceDialog(null);
+                setGroupSidebarPopover(null);
                 if (seq == null) {
                   console.warn('[essence-jump] missing msgSeq, cannot jump', seq);
                   return;

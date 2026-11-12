@@ -15,6 +15,8 @@ import { useRenderDocument } from '../lib/renderDocument';
 import '../styles/multi-selection.css';
 
 let keyboardOwner: HTMLElement | null = null;
+const KEYBOARD_SURFACE =
+  '[role="dialog"], [role="tabpanel"], [role="menu"], [role="listbox"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, [data-weq-surface]';
 type SelectionCommand = Pick<
   KeyboardEvent<HTMLElement>,
   'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'preventDefault' | 'stopPropagation'
@@ -265,8 +267,8 @@ export function useMultiSelection<K extends string | number>({
         target.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"])')
       )
         return;
-      const surfaceSelector = '[role="dialog"], [role="tabpanel"]';
-      if (target.closest(surfaceSelector) !== element.closest(surfaceSelector)) return;
+      // Portal 的焦点事件会冒泡到所属列表，但菜单的快捷键仍只属于菜单自身。
+      if (target.closest(KEYBOARD_SURFACE) !== element.closest(KEYBOARD_SURFACE)) return;
       latestCommand.current(event);
     };
     document.addEventListener('keydown', listener);

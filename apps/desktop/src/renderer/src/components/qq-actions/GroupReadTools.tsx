@@ -30,15 +30,30 @@ export function GroupReadTools({
     { ...a.binding!, groupId, day: day.replaceAll('-', ''), offset },
     autoRefresh,
   );
+  const signedToday =
+    day === today &&
+    query.data?.signed.some((entry) => String(entry.userId) === a.binding?.expectedAccountUin);
+  const dateInput = (
+    <input
+      aria-label="打卡日期"
+      type="date"
+      value={day}
+      onChange={(event) => {
+        setDay(event.target.value);
+        setOffset(0);
+      }}
+    />
+  );
   const content = (
     <>
       {signing && (
-        <div className="weq-qq-action-bar">
+        <div className="weq-qq-action-bar weq-group-sign-tools">
+          {dateInput}
           <button
             type="button"
             className="weq-set-btn"
             aria-label="今日打卡"
-            disabled={a.disabled}
+            disabled={a.disabled || signedToday}
             onClick={() =>
               void a.perform(
                 (binding) =>
@@ -70,23 +85,13 @@ export function GroupReadTools({
             }
           >
             <CalendarCheck size={16} />
-            今日打卡
+            {signedToday ? '今日已打卡' : '今日打卡'}
           </button>
         </div>
       )}
       <ActionFeedback action={a} />
-      <div className="weq-qq-action-form">
-        <div className="weq-qq-action-bar">
-          <input
-            aria-label="打卡日期"
-            type="date"
-            value={day}
-            onChange={(e) => {
-              setDay(e.target.value);
-              setOffset(0);
-            }}
-          />
-        </div>
+      <div className="weq-qq-action-form weq-group-sign-records">
+        {!signing && <div className="weq-qq-action-bar">{dateInput}</div>}
         {query.isFetching && <p role="status">读取中…</p>}
         {query.error && <p role="alert">{query.error.message}</p>}
         {query.data && (
@@ -117,7 +122,9 @@ export function GroupReadTools({
             {query.data.signed.length === 0 && (
               <ContactEmptyState>
                 {offset === 0
-                  ? '今天还没有人打卡。发起打卡后，记录会显示在这里。'
+                  ? day === today
+                    ? '今天还没有人打卡。'
+                    : '这一天没有打卡记录。'
                   : '这一页没有更多打卡记录了。'}
               </ContactEmptyState>
             )}
@@ -144,7 +151,7 @@ export function GroupReadTools({
     </>
   );
   return signing ? (
-    <section className="weq-qq-actions" aria-label="群打卡记录">
+    <section className="weq-qq-actions weq-group-sign-record-page" aria-label="群打卡记录">
       {content}
     </section>
   ) : (

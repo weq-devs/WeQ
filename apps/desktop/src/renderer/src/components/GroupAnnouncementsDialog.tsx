@@ -1,6 +1,6 @@
 import { useContext, type ReactElement } from 'react';
 import { X } from 'lucide-react';
-import { ProfileDetailSurface } from './ProfileDetailSurface';
+import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { GroupNoticeActions } from './qq-actions/GroupNoticeActions';
 import { withQQAccountScope } from './qq-actions/shared';
 import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
@@ -9,6 +9,8 @@ export type { GroupBulletinWire, GroupBulletinImage } from '../lib/groupNotices'
 
 interface GroupAnnouncementsProps {
   embedded?: boolean;
+  anchor?: HTMLElement | null;
+  presentation?: GroupFeaturePresentation;
   groupCode: string;
   groupName: string;
   currentAnnouncement?: string | null;
@@ -22,6 +24,8 @@ export function GroupAnnouncementsDialog(props: GroupAnnouncementsProps): ReactE
 }
 function GroupAnnouncementsBody({
   embedded,
+  anchor,
+  presentation,
   groupCode,
   groupName,
   currentAnnouncement,
@@ -33,9 +37,10 @@ function GroupAnnouncementsBody({
   const parentDrafts = useContext(DraftCloseContext);
   return (
     <DraftCloseContext.Provider value={embedded && parentDrafts ? parentDrafts : closing.drafts}>
-      <ProfileDetailSurface
+      <GroupFeatureSurface
         embedded={embedded}
-        presentation="sidecar"
+        presentation={presentation}
+        anchor={anchor}
         title="群公告"
         className="modal-scrim group-announcements-scrim"
         onClose={closing.requestClose}
@@ -68,10 +73,11 @@ function GroupAnnouncementsBody({
               currentAnnouncement={currentAnnouncement}
               bulletins={bulletins}
               initialNoticeId={initialNoticeId}
+              preserveDraft={presentation === 'popover'}
             />
           </div>
         </section>
-      </ProfileDetailSurface>
+      </GroupFeatureSurface>
     </DraftCloseContext.Provider>
   );
 }

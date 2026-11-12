@@ -1,24 +1,29 @@
 import { X } from 'lucide-react';
-import { ProfileDetailSurface } from './ProfileDetailSurface';
+import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { GroupReadTools } from './qq-actions/GroupReadTools';
 import { withQQAccountScope } from './qq-actions/shared';
 import '../styles/group-sign.css';
 
 function GroupSignDialogBody({
   embedded,
+  anchor,
+  presentation,
   groupCode,
   groupName,
   onClose,
 }: {
   embedded?: boolean;
+  anchor?: HTMLElement | null;
+  presentation?: GroupFeaturePresentation;
   groupCode: string;
   groupName: string;
   onClose: () => void;
 }) {
   return (
-    <ProfileDetailSurface
+    <GroupFeatureSurface
       embedded={embedded}
-      presentation="sidecar"
+      presentation={presentation}
+      anchor={anchor}
       title="群打卡"
       onClose={onClose}
     >
@@ -42,7 +47,7 @@ function GroupSignDialogBody({
           <GroupReadTools key={groupCode} groupId={Number(groupCode)} signing />
         </div>
       </section>
-    </ProfileDetailSurface>
+    </GroupFeatureSurface>
   );
 }
 

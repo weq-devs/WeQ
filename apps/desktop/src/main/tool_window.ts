@@ -2,12 +2,31 @@ import type { BrowserWindowConstructorOptions } from 'electron';
 import { compositionPopupOptions } from './composition_window';
 import { floatingWindowTypeOption } from './linux_window_backend';
 import { windowDecorationOptions } from './window_controls_events';
+import { readGroupResourceWindowName } from '../shared/group_resource_window';
 
 /** 仅放行明确登记的本地空白工具窗，不给子窗口增加 preload 或 Node 权限。 */
 export function applicationToolPopupOptions(
   url: string,
   frameName: string,
 ): BrowserWindowConstructorOptions | null {
+  const resource = url === 'about:blank' ? readGroupResourceWindowName(frameName) : null;
+  if (resource)
+    return {
+      title: `WeQ · 群${resource.kind === 'albums' ? '相册' : '文件'}`,
+      width: 1060,
+      height: 780,
+      minWidth: 640,
+      minHeight: 480,
+      frame: true,
+      ...windowDecorationOptions(),
+      autoHideMenuBar: true,
+      webPreferences: {
+        preload: undefined,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    };
   if (url === 'about:blank' && frameName === 'weq-call')
     return {
       title: 'WeQ · 语音通话',

@@ -1,5 +1,6 @@
 import { act, createElement as h, createRef, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -125,6 +126,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         qzone: { likes: { query: vi.fn(async () => ({ likes: [], coverage: 'complete' })) } },
         dressup: { peerStats: { query: async () => ({ likeCount: 100 }) } },
         listAllGroups: { query: async () => [] },
+        getGroupMembersByUids: { query: async () => [] },
+        getGroupMembersByUins: { query: async () => [] },
+        getProfilesByUids: { query: async () => [] },
+        getProfileByUin: { query: async () => null },
         listGroupAlbumMedia: { query: async () => [] },
         pickSendFile: { mutate: state.picker },
         sendFile: {
@@ -261,10 +266,13 @@ function fixture(render: () => ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const update = () => act(() => root.render(render()));
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const update = () =>
+    act(() => root.render(h(QueryClientProvider, { client: queryClient }, render())));
   update();
   cleanups.push(() => {
     act(() => root.unmount());
+    queryClient.clear();
     host.remove();
   });
   const button = (label: string) =>
@@ -331,6 +339,71 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('公告轻浮窗关闭后自动恢复草稿，账号与数据源不串稿', async () => {
+    let visible = true;
+    const close = vi.fn(() => {
+      visible = false;
+    });
+    const f = fixture(() =>
+      visible
+        ? h(GroupAnnouncementsDialog, {
+            groupCode: '123',
+            groupName: '草稿恢复合成群',
+            presentation: 'popover',
+            onClose: close,
+          })
+        : null,
+    );
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '关闭浮窗后仍保留的公告草稿');
+    await act(async () => f.button('选择图片').click());
+    await act(async () => f.button('关闭群公告').click());
+    expect(close).toHaveBeenCalledOnce();
+    expect(state.confirm).not.toHaveBeenCalled();
+    f.update();
+    visible = true;
+    f.update();
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="新公告内容"]')?.value).toBe(
+      '关闭浮窗后仍保留的公告草稿',
+    );
+    expect(f.host.querySelector('.weq-qq-action-image img')?.getAttribute('alt')).toBe('image.png');
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.querySelector('textarea')).toBeNull();
+    state.configId = 'source-a';
+    f.update();
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="新公告内容"]')?.value).toBe(
+      '关闭浮窗后仍保留的公告草稿',
+    );
+  });
+  it('公告轻浮窗发布受理后清空草稿，再次关闭不弹放弃确认', async () => {
+    let visible = true;
+    const close = vi.fn(() => {
+      visible = false;
+    });
+    const f = fixture(() =>
+      visible
+        ? h(GroupAnnouncementsDialog, {
+            groupCode: '123',
+            groupName: '已发布公告合成群',
+            presentation: 'popover',
+            onClose: close,
+          })
+        : null,
+    );
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '已受理的公告');
+    await act(async () => f.button('发布公告').click());
+    expect(f.host.querySelector('textarea')).toBeNull();
+    const confirmations = state.confirm.mock.calls.length;
+    await act(async () => f.button('关闭群公告').click());
+    expect(close).toHaveBeenCalledOnce();
+    expect(state.confirm).toHaveBeenCalledTimes(confirmations);
+    f.update();
+    visible = true;
+    f.update();
+    expect(f.host.querySelector('textarea')).toBeNull();
+  });
   it('在线列表为空时保留本地待办，点击摘要正文也能打开详情', async () => {
     state.data.todoLocalList = [
       { sequence: '321', sourceId: '321_9', text: '本地已有待办', completed: false },
@@ -537,7 +610,7 @@ describe('QQ 主动操作的实际界面', () => {
     f.update();
     expect(f.button('今日打卡').disabled).toBe(true);
   });
-  it('资料、公告、待办同一侧栏独立竖排，原待办操作与权限不变', async () => {
+  it('侧栏只留公告和待办单行摘要，原待办操作与权限不变', async () => {
     state.data.todoList = [{ sequence: '123', text: '统一入口的待办' }];
     const management = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(management.host.textContent).not.toContain('群待办');
@@ -562,12 +635,12 @@ describe('QQ 主动操作的实际界面', () => {
     );
     const sections = [...f.host.querySelectorAll('aside > section[aria-label]')];
     expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual([
-      '群资料',
       '群公告',
       '群待办',
     ]);
-    expect(sections[1].textContent).toContain('公告摘要');
-    const panel = sections[2];
+    expect(f.host.querySelector('.group-info-overview')).toBeNull();
+    expect(sections[0].textContent).toContain('公告摘要');
+    const panel = sections[1];
     expect(panel.textContent).toContain('统一入口的待办');
     expect(panel.querySelector('summary')).toBeNull();
     expect(panel.textContent).not.toContain('公告正文');
@@ -1029,7 +1102,7 @@ describe('QQ 主动操作的实际界面', () => {
     await act(async () => f.button('删除所选项目').click());
     expect(state.mutate).toHaveBeenCalledTimes(2);
     expect(f.host.querySelector('.weq-file-receipts')).toBeNull();
-    expect(f.button('删除所选项目').disabled).toBe(true);
+    expect(f.button('删除所选项目')).toBeNull();
     expect(f.host.textContent).not.toContain('结果待核对');
   });
   it('普通点击建立锚点，Shift 点击按当前排序选择连续区间', () => {

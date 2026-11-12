@@ -88,6 +88,7 @@ export function ChatMainContent({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   groupTodos,
+  groupSidebarFeature,
   onOpenGroupSign,
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
@@ -162,6 +163,7 @@ export function ChatMainContent({
   | 'onOpenGroupFiles'
   | 'onOpenGroupAnnouncements'
   | 'groupTodos'
+  | 'groupSidebarFeature'
   | 'onOpenGroupSign'
   | 'onOpenGroupEssence'
   | 'onOpenGroupInfoDetail'
@@ -331,6 +333,7 @@ export function ChatMainContent({
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
       groupTodos={groupTodos}
+      groupSidebarFeature={groupSidebarFeature}
       onOpenGroupSign={onOpenGroupSign}
       onOpenGroupEssence={onOpenGroupEssence}
       onOpenGroupInfoDetail={onOpenGroupInfoDetail}

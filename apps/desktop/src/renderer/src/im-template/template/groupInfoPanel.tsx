@@ -6,6 +6,7 @@ import {
   ChevronRight,
   FolderOpen,
   Images,
+  MoreHorizontal,
   Search,
   Sparkles,
   UserMinus,
@@ -33,10 +34,12 @@ import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { useTabActive } from '../../components/RetainedTabs';
 import { RankingModal } from '../../components/relationGraph/RankingModal';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import '../../styles/conversation-actions.css';
 import '../../styles/group-sidebar-sections.css';
 
 export type GroupInfoDetail = 'profile' | 'albums';
+export type GroupSidebarFeature = 'announcements' | 'todos' | 'sign' | 'essence';
 
 type GroupMember = GroupConversationView['members'][number];
 type GroupMemberEvents = {
@@ -152,6 +155,7 @@ export function GroupInfoPanel({
   onOpenAlbums,
   onOpenFiles,
   onOpenSign,
+  activeFeature,
   onClose,
 }: {
   membersOnly?: boolean;
@@ -188,17 +192,22 @@ export function GroupInfoPanel({
     event: ReactMouseEvent,
     member: GroupConversationView['members'][number],
   ) => void;
-  onOpenAnnouncements?: () => void;
+  onOpenAnnouncements?: (anchor: HTMLElement) => void;
   groupTodos?: ReactNode;
-  onOpenEssence?: () => void;
-  onOpenAlbums?: () => void;
-  onOpenFiles?: () => void;
-  onOpenSign?: () => void;
+  onOpenEssence?: (anchor: HTMLElement) => void;
+  onOpenAlbums?: (anchor: HTMLElement) => void;
+  onOpenFiles?: (anchor: HTMLElement) => void;
+  onOpenSign?: (anchor: HTMLElement) => void;
+  activeFeature?: GroupSidebarFeature;
   onClose?: () => void;
 }) {
   const active = useTabActive();
   const [rankingGroup, setRankingGroup] = useState<string | null>(null);
-  useEffect(() => setRankingGroup(null), [conversation.id]);
+  const [memberMenu, setMemberMenu] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    setRankingGroup(null);
+    setMemberMenu(null);
+  }, [conversation.id, hidden, active]);
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
   const announcement =
@@ -343,45 +352,87 @@ export function GroupInfoPanel({
     </section>
   );
   const announcementSection = onOpenAnnouncements ? (
-    <section className="weq-group-announcement" aria-label="群公告">
-      <button type="button" onClick={onOpenAnnouncements} title="查看群公告">
-        <span>
-          <strong>群公告</strong>
-          <ChevronRight size={14} />
-        </span>
-      </button>
-      <p
-        tabIndex={0}
-        aria-label="公告内容"
-        data-privacy-sensitive={Boolean(announcement) || undefined}
+    <section
+      className={layout === 'sidebar' ? 'weq-group-summary' : 'weq-group-announcement'}
+      aria-label="群公告"
+    >
+      <button
+        type="button"
+        onClick={(event) => onOpenAnnouncements(event.currentTarget)}
+        title={announcement || '查看群公告'}
+        aria-label="查看群公告"
+        aria-expanded={activeFeature === 'announcements'}
       >
-        {announcement || '暂无群公告'}
-      </p>
+        {layout === 'sidebar' ? (
+          <>
+            <strong>群公告</strong>
+            <span
+              className="weq-group-summary-text"
+              data-privacy-sensitive={Boolean(announcement) || undefined}
+            >
+              {announcement || '暂无群公告'}
+            </span>
+            <ChevronRight size={14} />
+          </>
+        ) : (
+          <span>
+            <strong>群公告</strong>
+            <ChevronRight size={14} />
+          </span>
+        )}
+      </button>
+      {layout === 'profile' ? (
+        <p
+          tabIndex={0}
+          aria-label="公告内容"
+          data-privacy-sensitive={Boolean(announcement) || undefined}
+        >
+          {announcement || '暂无群公告'}
+        </p>
+      ) : null}
     </section>
   ) : null;
   const contentActions =
     onOpenEssence || onOpenAlbums || onOpenFiles || onOpenSign ? (
       <nav className="weq-group-content-actions" aria-label="群内容">
         {onOpenSign ? (
-          <button type="button" onClick={onOpenSign}>
+          <button
+            type="button"
+            onClick={(event) => onOpenSign(event.currentTarget)}
+            aria-expanded={activeFeature === 'sign'}
+            title="群打卡"
+          >
             <CalendarCheck size={17} />
             <span>打卡</span>
           </button>
         ) : null}
         {onOpenEssence ? (
-          <button type="button" onClick={onOpenEssence}>
+          <button
+            type="button"
+            onClick={(event) => onOpenEssence(event.currentTarget)}
+            aria-expanded={activeFeature === 'essence'}
+            title="群精华"
+          >
             <Sparkles size={17} />
             <span>精华</span>
           </button>
         ) : null}
         {onOpenAlbums ? (
-          <button type="button" onClick={onOpenAlbums}>
+          <button
+            type="button"
+            onClick={(event) => onOpenAlbums(event.currentTarget)}
+            title="群相册"
+          >
             <Images size={17} />
             <span>相册</span>
           </button>
         ) : null}
         {onOpenFiles ? (
-          <button type="button" onClick={onOpenFiles}>
+          <button
+            type="button"
+            onClick={(event) => onOpenFiles(event.currentTarget)}
+            title="群文件"
+          >
             <FolderOpen size={17} />
             <span>文件</span>
           </button>
@@ -409,29 +460,36 @@ export function GroupInfoPanel({
           </button>
         ) : null}
         <div className="group-info-member-actions">
-          {onOpenLeftMembers ? (
+          {onOpenLeftMembers || !conversation.generated ? (
             <button
               className="icon-button"
               type="button"
-              title="查看已退群的成员"
-              aria-label="查看已退群的成员"
-              onClick={onOpenLeftMembers}
+              title="更多成员操作"
+              aria-label="更多成员操作"
+              aria-haspopup="menu"
+              aria-expanded={Boolean(memberMenu)}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setMemberMenu((current) =>
+                  current ? null : { x: rect.right, y: rect.bottom + 4 },
+                );
+              }}
             >
-              <UserMinus size={16} />
-            </button>
-          ) : null}
-          {!conversation.generated ? (
-            <button
-              className="icon-button"
-              type="button"
-              title="群成员等级排行"
-              aria-label="群成员等级排行"
-              onClick={() => setRankingGroup(conversation.id)}
-            >
-              <Award size={16} />
+              <MoreHorizontal size={16} />
             </button>
           ) : null}
         </div>
+        {layout === 'sidebar' && onClose ? (
+          <button
+            type="button"
+            className="weq-group-sidebar-close icon-button"
+            title="关闭群聊侧栏"
+            aria-label="关闭群聊侧栏"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        ) : null}
       </header>
       <div className={cn('group-info-member-search')}>
         <Search size={13} />
@@ -498,17 +556,46 @@ export function GroupInfoPanel({
       hidden={hidden}
       className={cn(
         'group-info-panel',
-        groupTodos && 'weq-group-sections',
+        layout === 'sidebar' && 'weq-group-sections',
         layout === 'profile' && 'weq-group-profile-details',
       )}
-      aria-label="群聊资料"
+      aria-label={layout === 'sidebar' ? '群聊侧栏' : '群聊资料'}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && onClose) {
+        if (event.key === 'Escape' && onClose && !activeFeature && !memberMenu && !rankingGroup) {
           event.stopPropagation();
           onClose();
         }
       }}
     >
+      {memberMenu && active && !hidden ? (
+        <ConversationActionsMenu
+          x={memberMenu.x}
+          y={memberMenu.y}
+          dropdown
+          label="成员操作"
+          onClose={() => setMemberMenu(null)}
+          actions={[
+            ...(onOpenLeftMembers
+              ? [
+                  {
+                    label: '查看已退群的成员',
+                    icon: <UserMinus size={15} />,
+                    action: onOpenLeftMembers,
+                  },
+                ]
+              : []),
+            ...(!conversation.generated
+              ? [
+                  {
+                    label: '群成员等级排行',
+                    icon: <Award size={15} />,
+                    action: () => setRankingGroup(conversation.id),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
       {rankingGroup === conversation.id && active && !hidden ? (
         <RankingModal
           key={conversation.id}
@@ -557,7 +644,6 @@ export function GroupInfoPanel({
         </>
       ) : (
         <>
-          {overview}
           {announcementSection}
           {groupTodos ?? null}
           {contentActions}

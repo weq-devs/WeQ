@@ -263,7 +263,7 @@ import {
   type ComposerActionRegistry,
   type ComposerButtonAction,
 } from './composerActions';
-import { GroupInfoPanel, type GroupInfoDetail } from './groupInfoPanel';
+import { GroupInfoPanel, type GroupInfoDetail, type GroupSidebarFeature } from './groupInfoPanel';
 import { EmojiPanel } from './emojiPanel';
 import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
@@ -573,10 +573,20 @@ export type ChatPaneProps = {
   onStartOutgoingMessage?: (message: Message) => void;
   onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
-  onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  onOpenGroupAnnouncements?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    anchor: HTMLElement,
+  ) => void;
   groupTodos?: React.ReactNode;
-  onOpenGroupSign?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
-  onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  groupSidebarFeature?: GroupSidebarFeature;
+  onOpenGroupSign?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    anchor: HTMLElement,
+  ) => void;
+  onOpenGroupEssence?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    anchor: HTMLElement,
+  ) => void;
   /** 群资料面板「群资料」入口：卡片本体在应用层（components/groupProfile/GroupProfileSurface）。 */
   onOpenGroupInfoDetail?: (
     conversation: Extract<Conversation, { type: 'group' }>,
@@ -707,6 +717,7 @@ export function ChatPane({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   groupTodos,
+  groupSidebarFeature,
   onOpenGroupSign,
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
@@ -5609,7 +5620,7 @@ export function ChatPane({
                         ...(conversation.type === 'group' && !sidecarOpen
                           ? [
                               {
-                                label: '群资料',
+                                label: '群聊侧栏',
                                 icon: <UsersRound size={16} />,
                                 action: () => setMobileGroupInfoOpen((previous) => !previous),
                               },
@@ -5651,8 +5662,8 @@ export function ChatPane({
                     className="icon-button group-header-info-action weq-mobile-group-info-trigger"
                     type="button"
                     ref={groupInfoTriggerRef}
-                    title="群资料"
-                    aria-label="群资料"
+                    title="群聊侧栏"
+                    aria-label="群聊侧栏"
                     aria-expanded={mobileGroupInfoOpen}
                     onClick={() => setMobileGroupInfoOpen((previous) => !previous)}
                   >
@@ -6115,8 +6126,8 @@ export function ChatPane({
             <button
               className={cn('group-info-toggle')}
               type="button"
-              title={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
-              aria-label={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
+              title={groupInfoCollapsed ? '展开群聊侧栏' : '收起群聊侧栏'}
+              aria-label={groupInfoCollapsed ? '展开群聊侧栏' : '收起群聊侧栏'}
               aria-expanded={!groupInfoCollapsed}
               onClick={toggleGroupInfoCollapsed}
             >
@@ -6142,12 +6153,19 @@ export function ChatPane({
               conversation={conversation}
               onOpenDetail={handleOpenGroupInfoDetail}
               onOpenAnnouncements={
-                onOpenGroupAnnouncements ? () => onOpenGroupAnnouncements(conversation) : undefined
+                onOpenGroupAnnouncements
+                  ? (anchor) => onOpenGroupAnnouncements(conversation, anchor)
+                  : undefined
               }
               groupTodos={groupTodos}
-              onOpenSign={onOpenGroupSign ? () => onOpenGroupSign(conversation) : undefined}
+              activeFeature={groupSidebarFeature}
+              onOpenSign={
+                onOpenGroupSign ? (anchor) => onOpenGroupSign(conversation, anchor) : undefined
+              }
               onOpenEssence={
-                onOpenGroupEssence ? () => onOpenGroupEssence(conversation) : undefined
+                onOpenGroupEssence
+                  ? (anchor) => onOpenGroupEssence(conversation, anchor)
+                  : undefined
               }
               onOpenAlbums={onOpenGroupAlbums ? () => onOpenGroupAlbums(conversation) : undefined}
               onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
