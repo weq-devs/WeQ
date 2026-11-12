@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import type { RemoteObservation } from './device';
+import type { RemoteDeviceInfo, RemoteConnectionInfo } from '../../shared/remote_device';
 
 export const INVITATION_TTL = 120_000;
 export const CLAIM_TTL = 120_000;
@@ -35,6 +37,8 @@ export interface Claim {
   approvedAt: number | null;
   lastSeenAt: number | null;
   scope: 'status:read' | 'web:access';
+  deviceInfo?: RemoteDeviceInfo;
+  lastConnection?: RemoteConnectionInfo;
 }
 
 /** 只保存批准后的凭据哈希；邀请和未批准请求不会写入磁盘。 */
@@ -42,6 +46,8 @@ export class RemotePairing {
   private invitation: { secret: string; expiresAt: number } | null = null;
   private claims = new Map<string, Claim>();
   private watchers = new Map<string, Set<() => void>>();
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private activityDirty = false;
 
   constructor(private readonly now: () => number = Date.now) {}
   onRequest: (() => void) | undefined;
@@ -59,6 +65,30 @@ export class RemotePairing {
         (claim): claim is Claim & { approvedAt: number } => claim.approvedAt !== null,
       ),
     );
+    this.activityDirty = false;
+  }
+
+  private touch(claim: Claim, observation?: RemoteObservation): void {
+    claim.lastSeenAt = this.now();
+    if (observation?.deviceInfo) claim.deviceInfo = observation.deviceInfo;
+    if (observation?.lastConnection) claim.lastConnection = observation.lastConnection;
+    this.activityDirty = true;
+    if (!this.saveTimer) {
+      this.saveTimer = setTimeout(() => {
+        this.saveTimer = null;
+        this.flushActivity();
+      }, 30_000);
+      this.saveTimer.unref();
+    }
+  }
+
+  private flushActivity(): void {
+    if (!this.activityDirty) return;
+    try {
+      this.persist();
+    } catch {
+      /* 活跃记录写入失败不阻断连接，下次访问重试。 */
+    }
   }
 
   private prune(): void {
@@ -80,7 +110,7 @@ export class RemotePairing {
     return { ...this.invitation };
   }
 
-  claim(input: z.input<typeof claimSchema>) {
+  claim(input: z.input<typeof claimSchema>, observation?: RemoteObservation) {
     const parsed = claimSchema.parse(input);
     this.prune();
     if (
@@ -108,6 +138,7 @@ export class RemotePairing {
       approvedAt: null,
       lastSeenAt: null,
       scope: parsed.scope,
+      ...(observation?.deviceInfo ? { deviceInfo: observation.deviceInfo } : {}),
     };
     this.claims.set(id, claim);
     this.onRequest?.();
@@ -154,25 +185,27 @@ export class RemotePairing {
     };
   }
 
-  authenticate(token: string): boolean {
+  authenticate(token: string, observation?: RemoteObservation): boolean {
     const hash = tokenHash(token);
     for (const claim of this.claims.values()) {
       if (claim.approvedAt !== null && equalHash(claim.tokenHash, hash)) {
-        claim.lastSeenAt = this.now();
+        this.touch(claim, observation);
         return true;
       }
     }
     return false;
   }
 
-  canAccessWeb(token: string): boolean {
+  canAccessWeb(token: string, observation?: RemoteObservation): boolean {
     const hash = tokenHash(token);
-    return [...this.claims.values()].some(
+    const claim = [...this.claims.values()].find(
       (claim) =>
         claim.approvedAt !== null &&
         claim.scope === 'web:access' &&
         equalHash(claim.tokenHash, hash),
     );
+    if (claim && observation) this.touch(claim, observation);
+    return !!claim;
   }
 
   watchWeb(token: string, onRevoke: () => void): () => void {
@@ -203,12 +236,14 @@ export class RemotePairing {
         .map(({ id, name, code, expiresAt, scope }) => ({ id, name, code, expiresAt, scope })),
       devices: [...this.claims.values()]
         .filter((c) => c.approvedAt !== null)
-        .map(({ id, name, approvedAt, lastSeenAt, scope }) => ({
+        .map(({ id, name, approvedAt, lastSeenAt, scope, deviceInfo, lastConnection }) => ({
           id,
           name,
           approvedAt,
           lastSeenAt,
           scope,
+          deviceInfo,
+          lastConnection,
         })),
     };
   }
@@ -219,6 +254,9 @@ export class RemotePairing {
   }
 
   clear(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.flushActivity();
     this.cancelInvitation();
     for (const listeners of this.watchers.values()) for (const notify of listeners) notify();
     this.watchers.clear();

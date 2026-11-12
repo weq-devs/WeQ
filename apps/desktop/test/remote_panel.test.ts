@@ -5,6 +5,7 @@ import {
   RemotePanel,
   type RemoteStatus,
 } from '../src/renderer/src/components/settings/RemotePanel';
+import { REMOTE_ACTIVITY_WINDOW } from '../src/shared/remote_device';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -104,6 +105,56 @@ describe('电脑端远程连接面板', () => {
     expect(container.textContent).toContain('配对码已失效');
     await render(base, { qr });
     expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('展示配对与最近访问时间、完整设备资料，活跃状态自动过期并兼容旧设备', async () => {
+    vi.useFakeTimers();
+    const now = Date.parse('2026-11-13T04:00:00Z');
+    vi.setSystemTime(now);
+    const device = {
+      id: 'device-detail',
+      name: '测试手机',
+      approvedAt: now - 86_400_000,
+      lastSeenAt: now,
+      scope: 'web:access',
+      deviceInfo: {
+        platform: 'ios' as const,
+        model: 'iPhone17,1',
+        osVersion: '26.1',
+        appVersion: '1.0.0b3',
+        appBuild: '11',
+      },
+      lastConnection: { ip: '100.64.0.7', route: 'tailscale' as const },
+    };
+    await render({ ...base, devices: [device] });
+    expect(container.textContent).toContain('近期活跃');
+    expect(container.textContent).toContain('2026/11/12 12:00:00');
+    expect(container.textContent).toContain('刚刚');
+    const details = container.querySelector('details')!;
+    expect(details.open).toBe(false);
+    await act(async () => container.querySelector('summary')?.click());
+    expect(details.open).toBe(true);
+    for (const value of [
+      'iPhone17,1',
+      '26.1',
+      '1.0.0b3 (11)',
+      '100.64.0.7',
+      'Tailscale',
+      'device-detail',
+    ])
+      expect(details.textContent).toContain(value);
+    await act(async () => vi.advanceTimersByTime(REMOTE_ACTIVITY_WINDOW + 1000));
+    expect(container.textContent).toContain('未活跃');
+    expect(container.textContent).not.toContain('近期活跃');
+    await render({
+      ...base,
+      devices: [{ id: 'old', name: '旧手机', approvedAt: 1, lastSeenAt: null }],
+    });
+    expect(container.textContent).toContain('尚未访问');
+    expect(container.textContent).toContain('未上报');
+    expect(container.textContent).toContain('暂无记录');
+    await render({ ...base, enabled: false, devices: [device] });
+    expect(container.textContent).toContain('服务已关闭');
   });
 
   it('只有有效邀请才展示复制配对链接入口', async () => {

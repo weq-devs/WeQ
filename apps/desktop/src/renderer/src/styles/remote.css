@@ -220,6 +220,69 @@
 .weq-remote-device-main strong {
   font-size: 13px;
 }
+.weq-remote-device {
+  align-items: flex-start;
+}
+.weq-remote-device > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.weq-remote-device-title,
+.weq-remote-device-times {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.weq-remote-device-times,
+.weq-remote-activity,
+.weq-remote-device-details {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--weq-fg-secondary);
+}
+.weq-remote-activity[data-active='true'] {
+  color: var(--weq-accent-effective);
+}
+.weq-remote-device-details summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  cursor: pointer;
+  list-style: none;
+  padding: 3px 0;
+}
+.weq-remote-device-details summary::-webkit-details-marker {
+  display: none;
+}
+.weq-remote-device-details summary:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.weq-remote-device-details[open] summary > svg {
+  transform: rotate(90deg);
+}
+.weq-remote-device-details dl {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+}
+.weq-remote-device-details dl > div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+}
+.weq-remote-device-details dd {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+html[data-theme='dark'] .weq-remote-device-details dd {
+  color: var(--weq-fg-primary);
+}
 .weq-remote-code {
   font-size: 22px;
   font-variant-numeric: tabular-nums;

@@ -38,6 +38,16 @@ it('重启与关闭连接保留设备，删除后重启仍拒绝旧凭据；磁�
     });
     expect(new RemoteStore(dir).claims()).toEqual([]);
     first.decide(claim.id, true);
+    first.authenticate(token, {
+      deviceInfo: {
+        platform: 'android',
+        model: 'Test Phone',
+        osVersion: '16',
+        appVersion: '1.0.0b3',
+        appBuild: '9',
+      },
+      lastConnection: { ip: '100.64.0.2', route: 'tailscale' },
+    });
     first.clear();
     const disk = readFileSync(join(dir, 'devices.json'), 'utf8');
     expect(disk).not.toContain(token);
@@ -46,6 +56,11 @@ it('重启与关闭连接保留设备，删除后重启仍拒绝旧凭据；磁�
     const second = new RemotePairing();
     second.restore(reload.claims(), (claims) => reload.save({ claims }));
     expect(second.canAccessWeb(token)).toBe(true);
+    expect(second.snapshot().devices[0]).toMatchObject({
+      deviceInfo: { model: 'Test Phone', appBuild: '9' },
+      lastConnection: { ip: '100.64.0.2', route: 'tailscale' },
+      lastSeenAt: expect.any(Number),
+    });
     second.revoke(claim.id);
     expect(new RemoteStore(dir).claims()).toEqual([]);
     expect(second.authenticate(token)).toBe(false);

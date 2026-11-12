@@ -86,6 +86,41 @@ describe('远程原型的最小 HTTP 面', () => {
     ).toBe(413);
   });
 
+  it('旧配对正文保持不变，设备资料随请求头补齐；无效请求头不影响已有授权', async () => {
+    const info = {
+      platform: 'android',
+      model: 'Test Phone',
+      osVersion: '16',
+      appVersion: '1.0.0b3',
+      appBuild: '9',
+    };
+    const metadata = { 'X-WeQ-Device': Buffer.from(JSON.stringify(info)).toString('base64') };
+    const response = await fetch(`${base}/v1/pair`, {
+      method: 'POST',
+      headers: { ...metadata, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        invitation: pairing.invite().secret,
+        name: '测试',
+        tokenHash: tokenHash(token),
+      }),
+    });
+    expect(response.status).toBe(201);
+    const claim = (await response.json()) as { id: string };
+    pairing.decide(claim.id, true);
+    expect(pairing.snapshot().devices[0]?.deviceInfo).toEqual(info);
+    await fetch(`${base}/v1/status`, {
+      headers: { ...headers, ...metadata, 'X-Forwarded-For': '8.8.8.8, 100.64.0.9' },
+    });
+    expect(pairing.snapshot().devices[0]).toMatchObject({
+      deviceInfo: info,
+      lastConnection: { ip: '100.64.0.9', route: 'tailscale' },
+    });
+    expect(
+      (await fetch(`${base}/v1/status`, { headers: { ...headers, 'X-WeQ-Device': 'bad' } })).status,
+    ).toBe(200);
+    expect(pairing.snapshot().devices[0]?.deviceInfo).toEqual(info);
+  });
+
   it('未授权请求耗尽自己的配额后，合法设备仍能使用 Remote', async () => {
     const claim = pairing.claim({
       invitation: pairing.invite().secret,

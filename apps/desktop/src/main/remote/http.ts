@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { type RemotePairing, claimSchema, tokenHash } from './pairing';
 import type { RemoteWebGateway } from './web_gateway';
+import { observeRemoteRequest } from './device';
 
 function bearer(req: IncomingMessage): string {
   const value = req.headers.authorization ?? '';
@@ -34,7 +35,8 @@ export function createRemoteServer(
       requests.clear();
     }
     const token = bearer(req);
-    const authorized = !!token && pairing.authenticate(token);
+    const observation = observeRemoteRequest(req);
+    const authorized = !!token && pairing.authenticate(token, observation);
     const quota = authorized
       ? `device:${tokenHash(token)}`
       : `peer:${req.socket.remoteAddress ?? 'unknown'}`;
@@ -67,7 +69,7 @@ export function createRemoteServer(
           chunks.push(bytes);
         }
         const input = claimSchema.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-        return send(201, pairing.claim(input));
+        return send(201, pairing.claim(input, observation));
       }
       if (!token) return send(401, { error: '需要设备凭据。' });
       const match = /^\/v1\/pair\/([a-f0-9-]{36})$/.exec(path);

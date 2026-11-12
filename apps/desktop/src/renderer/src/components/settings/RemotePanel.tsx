@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTabActive } from '../RetainedTabs';
 import {
   Check,
+  ChevronRight,
   Copy,
   ExternalLink,
   MonitorSmartphone,
@@ -22,6 +23,44 @@ import {
   remoteDirectAddresses,
   type RemoteConnectionMode,
 } from '../../../../shared/remote_bootstrap';
+import {
+  REMOTE_ACTIVITY_WINDOW,
+  type RemoteDeviceInfo,
+  type RemoteConnectionInfo,
+} from '../../../../shared/remote_device';
+
+const deviceTime = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+function DeviceTime({ value, now }: { value: number | null; now?: number }) {
+  if (value === null || !Number.isFinite(value) || Math.abs(value) > 8.64e15)
+    return <span>暂无记录</span>;
+  const full = deviceTime.format(value);
+  const elapsed = now === undefined ? null : Math.max(0, now - value);
+  const text =
+    elapsed === null
+      ? full
+      : elapsed < 60_000
+        ? '刚刚'
+        : elapsed < 3_600_000
+          ? `${Math.floor(elapsed / 60_000)} 分钟前`
+          : elapsed < 86_400_000
+            ? `${Math.floor(elapsed / 3_600_000)} 小时前`
+            : full;
+  return (
+    <time dateTime={new Date(value).toISOString()} title={`${full}（北京时间）`}>
+      {text}
+    </time>
+  );
+}
 
 const TAILSCALE_KEY_HINT = [
   '通过 Tailscale 跨网络连接',
@@ -50,6 +89,8 @@ export interface RemoteStatus {
     approvedAt: number | null;
     lastSeenAt: number | null;
     scope?: string;
+    deviceInfo?: RemoteDeviceInfo;
+    lastConnection?: RemoteConnectionInfo;
   }[];
 }
 
@@ -387,8 +428,87 @@ export function RemotePanel({
               <div className="weq-remote-device" key={device.id}>
                 <Smartphone size={22} />
                 <div className="weq-remote-device-main">
-                  <strong>{device.name}</strong>
+                  <div className="weq-remote-device-title">
+                    <strong>{device.name}</strong>
+                    <span
+                      className="weq-remote-activity"
+                      data-active={
+                        !!data.enabled &&
+                        device.lastSeenAt !== null &&
+                        now - device.lastSeenAt < REMOTE_ACTIVITY_WINDOW
+                      }
+                      title="根据最近 45 秒内的授权访问判断活跃状态"
+                    >
+                      {!data.enabled
+                        ? '服务已关闭'
+                        : device.lastSeenAt === null
+                          ? '尚未访问'
+                          : now - device.lastSeenAt < REMOTE_ACTIVITY_WINDOW
+                            ? '近期活跃'
+                            : '未活跃'}
+                    </span>
+                  </div>
                   <span>{device.scope === 'web:access' ? 'WeQ Web 访问' : '仅在线状态'}</span>
+                  <div className="weq-remote-device-times">
+                    <span>
+                      最近访问 <DeviceTime value={device.lastSeenAt} now={now} />
+                    </span>
+                    <span>
+                      配对时间 <DeviceTime value={device.approvedAt} />
+                    </span>
+                  </div>
+                  <details className="weq-remote-device-details">
+                    <summary>
+                      <ChevronRight size={14} />
+                      设备详情
+                    </summary>
+                    <dl>
+                      <div>
+                        <dt>设备型号</dt>
+                        <dd>{device.deviceInfo?.model ?? '未上报'}</dd>
+                      </div>
+                      <div>
+                        <dt>系统版本</dt>
+                        <dd>
+                          {device.deviceInfo
+                            ? `${device.deviceInfo.platform === 'ios' ? 'iOS / iPadOS' : 'Android'} ${device.deviceInfo.osVersion}`
+                            : '未上报'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Remote 版本</dt>
+                        <dd>
+                          {device.deviceInfo
+                            ? `${device.deviceInfo.appVersion} (${device.deviceInfo.appBuild})`
+                            : '未上报'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>最近连接 IP</dt>
+                        <dd>{device.lastConnection?.ip ?? '暂无记录'}</dd>
+                      </div>
+                      <div>
+                        <dt>连接方式</dt>
+                        <dd>
+                          {device.lastConnection
+                            ? { lan: '局域网', tailscale: 'Tailscale', unknown: '未知网络' }[
+                                device.lastConnection.route
+                              ]
+                            : '暂无记录'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>最近访问</dt>
+                        <dd>
+                          <DeviceTime value={device.lastSeenAt} />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>设备标识</dt>
+                        <dd>{device.id}</dd>
+                      </div>
+                    </dl>
+                  </details>
                 </div>
                 <button
                   type="button"

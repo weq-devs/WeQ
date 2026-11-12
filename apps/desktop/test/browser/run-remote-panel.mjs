@@ -41,6 +41,12 @@ try {
   );
   const consent = page.locator('.weq-remote-consent');
   await consent.waitFor();
+  await page.locator('.weq-remote-device-details summary').first().click();
+  await page.locator('.weq-remote-device-details summary').nth(1).click();
+  assert.ok(await page.getByText('iPhone17,1', { exact: true }).isVisible());
+  assert.ok(await page.getByText('1.0.0b3 (11)', { exact: true }).isVisible());
+  assert.ok(await page.getByText('100.64.0.7', { exact: true }).isVisible());
+  assert.ok(await page.getByText('局域网', { exact: true }).isVisible());
   const output = process.env.WEQ_REMOTE_PANEL_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   for (const width of [1280, 620, 390]) {
@@ -51,6 +57,10 @@ try {
         store.setPreference(theme);
         store.setAccent(theme === 'light' ? '#075c30' : '#fff3a1');
       }, theme);
+      await consent.scrollIntoViewIfNeeded();
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
       await page.mouse.move(0, 0);
       await page.keyboard.press('Escape');
       assert.equal(await page.getByRole('tooltip').count(), 0);
@@ -68,6 +78,18 @@ try {
       assert.ok(layout.checkbox <= 1, JSON.stringify(layout));
       assert.ok(layout.button <= 1, JSON.stringify(layout));
       assert.equal(layout.overflow, false);
+      const overlap = await page.locator('.weq-remote-device').evaluateAll((devices) =>
+        devices.some((device) => {
+          const content = device.querySelector('.weq-remote-device-main').getBoundingClientRect();
+          const revoke = device.querySelector('button').getBoundingClientRect();
+          return (
+            content.right > revoke.left &&
+            content.bottom > revoke.top &&
+            content.top < revoke.bottom
+          );
+        }),
+      );
+      assert.equal(overlap, false);
       await consent.hover();
       const tooltip = page.getByRole('tooltip');
       await tooltip.waitFor();

@@ -3,12 +3,33 @@ package main
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestBackendProxyReportsActualPeerAfterUntrustedForwardedHeader(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, r.Header.Get("X-Forwarded-For"))
+	}))
+	defer backend.Close()
+	target, _ := url.Parse(backend.URL)
+	proxy := newBackendProxy(target)
+	defer proxy.Transport.(*http.Transport).CloseIdleConnections()
+	request := httptest.NewRequest(http.MethodGet, "http://192.168.1.8:7691/v1/status", nil)
+	request.RemoteAddr = net.JoinHostPort("100.64.0.7", "12345")
+	request.Header.Set("X-Forwarded-For", "8.8.8.8")
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(response, request)
+	parts := strings.Split(response.Body.String(), ",")
+	if response.Code != http.StatusOK || strings.TrimSpace(parts[len(parts)-1]) != "100.64.0.7" {
+		t.Fatalf("actual peer missing from proxy chain: %s", response.Body.String())
+	}
+}
 
 func TestBackendProxyCancelsSlowRequestWhenClientLeaves(t *testing.T) {
 	started := make(chan struct{})
