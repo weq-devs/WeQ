@@ -9,6 +9,7 @@ const rpc = vi.hoisted(() => ({
   preview: vi.fn(),
   detail: vi.fn(),
   userGroups: vi.fn(),
+  profiles: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
@@ -19,6 +20,7 @@ vi.mock('../src/main/context/app_context', () => {
       getGroupDetail: rpc.detail,
       listUserGroups: rpc.userGroups,
     },
+    profile: { profilesByUids: rpc.profiles },
   };
   return {
     accountEventBus: new EventEmitter(),
@@ -148,4 +150,24 @@ it('联系人所在群分页沿用旧调用，并校验账号及数据源', asyn
     return [];
   });
   await expect(api.listUserGroups({ ...input, uid: 'u_fixture' })).rejects.toThrow('数据源已切换');
+});
+it('群名片批量资料读取兼容旧调用，拒绝旧数据源及切换后的迟到响应', async () => {
+  const api = accountRouter.createCaller({});
+  rpc.profiles.mockResolvedValue([]);
+  await expect(api.getProfilesByUids({ uids: ['u_fixture'] })).resolves.toEqual([]);
+  await expect(
+    api.getProfilesByUids({
+      ...input,
+      expectedAccountConfigId: 'source-b',
+      uids: ['u_fixture'],
+    }),
+  ).rejects.toThrow('数据源已切换');
+  expect(rpc.profiles).toHaveBeenCalledTimes(1);
+  rpc.profiles.mockImplementationOnce(async () => {
+    rpc.configId = 'source-b';
+    return [];
+  });
+  await expect(api.getProfilesByUids({ ...input, uids: ['u_fixture'] })).rejects.toThrow(
+    '数据源已切换',
+  );
 });

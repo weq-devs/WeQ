@@ -51,21 +51,35 @@ export function GroupCardMemberList({
     ...PROFILE_QUERY_OPTIONS,
     enabled: active && Boolean(binding) && !generated && friendsReady && !pendingSearch,
     queryFn: async ({ pageParam = 0 }) => {
-      if (needle)
-        return client.account.searchGroupMembers.query({
-          ...binding!,
-          groupCode: conversation.id,
-          keyword: needle,
-          limit: 100,
-          offset: pageParam,
-        });
+      const page = needle
+        ? await client.account.searchGroupMembers.query({
+            ...binding!,
+            groupCode: conversation.id,
+            keyword: needle,
+            limit: 100,
+            offset: pageParam,
+          })
+        : {
+            members: await client.account.listGroupMembers.query({
+              ...binding!,
+              groupCode: conversation.id,
+              limit: 100,
+              offset: pageParam,
+            }),
+          };
+      const uids = [...new Set(page.members.map((row) => row.uid).filter(Boolean))];
+      const profiles = new Map(
+        (uids.length
+          ? await client.account.getProfilesByUids.query({ ...binding!, uids })
+          : []
+        ).map((profile) => [profile.uid, profile]),
+      );
       return {
-        members: await client.account.listGroupMembers.query({
-          ...binding!,
-          groupCode: conversation.id,
-          limit: 100,
-          offset: pageParam,
-        }),
+        members: page.members.map((row) => ({
+          ...row,
+          remark: profiles.get(row.uid)?.remark ?? undefined,
+          nick: row.nick?.trim() || profiles.get(row.uid)?.nick?.trim() || '',
+        })),
       };
     },
     // 游标按原始页推进，不能按好友过滤后的数量计算。
@@ -77,9 +91,11 @@ export function GroupCardMemberList({
   const rows = mergeGroupPreviewMembers(
     generated
       ? conversation.members
-      : (query.data?.pages.flatMap((page) => page.members) ?? []).map((row) =>
-          previewMemberView(row, ownerUid),
-        ),
+      : (query.data?.pages.flatMap((page) => page.members) ?? []).map((row) => ({
+          ...previewMemberView(row, ownerUid),
+          remark: row.remark,
+          displayName: row.remark?.trim() || row.nick || row.uin || row.uid,
+        })),
   )
     .filter(
       (member) =>

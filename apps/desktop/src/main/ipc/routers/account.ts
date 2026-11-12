@@ -4166,9 +4166,15 @@ export const accountRouter = router({
    * one query per uid.
    */
   getProfilesByUids: procedure
-    .input(z.object({ uids: z.array(z.string().min(1)).min(1).max(200) }))
+    .input(
+      z
+        .object({ uids: z.array(z.string().min(1)).min(1).max(200) })
+        .merge(exportAccountBindingInput),
+    )
     .query(async ({ input }) => {
-      const profiles = await requireServices().profile.profilesByUids(input.uids);
+      const profiles = await scopedGroupRead(input, (services) =>
+        services.profile.profilesByUids(input.uids),
+      );
       return profiles.map(userProfileToWire);
     }),
 
