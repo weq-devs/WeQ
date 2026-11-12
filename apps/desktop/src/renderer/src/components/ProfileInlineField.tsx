@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/group-member-edit.css';
@@ -35,11 +35,30 @@ export function ProfileInlineField({
   const [draft, setDraft] = useState(initial);
   const [saving, setSaving] = useState(false);
   const running = useRef(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
   const locked = disabled || saving;
+  useLayoutEffect(() => {
+    if (!editing && restoreFocus.current) {
+      restoreFocus.current = false;
+      trigger.current?.focus();
+    }
+  }, [editing]);
+  function cancel() {
+    restoreFocus.current = true;
+    setEditing(false);
+    onCancel?.();
+  }
   return editing && editable ? (
     <form
       className="weq-member-inline-field"
       data-qq-action
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!running.current) cancel();
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         if (locked || running.current || (!allowEmpty && !draft.trim())) return;
@@ -107,10 +126,7 @@ export function ProfileInlineField({
         aria-label={`取消编辑${label}`}
         title="取消编辑"
         disabled={locked}
-        onClick={() => {
-          setEditing(false);
-          onCancel?.();
-        }}
+        onClick={cancel}
       >
         <X size={14} />
       </button>
@@ -119,6 +135,7 @@ export function ProfileInlineField({
     <ContactRow label={label} valueClassName={valueClassName}>
       {editable ? (
         <button
+          ref={trigger}
           type="button"
           className="weq-contact-value"
           aria-label={`编辑${label}`}

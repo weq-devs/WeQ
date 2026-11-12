@@ -58,9 +58,15 @@ try {
     ),
     false,
   );
+  const originalRemark = await button('编辑备注').textContent();
   await button('编辑备注').click();
   await page.getByRole('textbox', { name: '备注', exact: true }).fill('取消的备注');
-  await button('取消编辑备注').click();
+  await page.keyboard.press('Escape');
+  assert.equal(await button('编辑备注').textContent(), originalRemark);
+  assert.equal(await page.getByRole('dialog').count(), 1);
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  await page.goto(url);
   assert.equal(
     (await page.evaluate(() => window.contactCardQa.calls)).some((call) =>
       call.path.endsWith('friendRemark'),
@@ -129,7 +135,8 @@ try {
   assert.equal(await button('编辑好友分组').textContent(), '同学');
   await button('编辑好友分组').click();
   await page.getByRole('combobox', { name: '好友分组' }).selectOption('1');
-  await button('取消编辑好友分组').click();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog').count(), 1);
   assert.equal(await button('编辑好友分组').textContent(), '同学');
   await page.evaluate(() => {
     window.contactCardQa.online = false;
@@ -188,6 +195,10 @@ try {
   await button('取消编辑备注').click();
   await page.goto(`${url}?group=1`);
   await button('编辑群名称').click();
+  await page.getByRole('textbox', { name: '群名称' }).fill('取消的群名称');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog').count(), 1);
+  await button('编辑群名称').click();
   await page.getByRole('textbox', { name: '群名称' }).fill('新群名称');
   await button('保存群名称').click();
   assert.equal(await button('编辑群名称').textContent(), '新群名称');
@@ -217,6 +228,7 @@ try {
       checks: [
         'lazy-read',
         'cancel',
+        'escape-edit-before-card',
         'save-and-clear',
         'category-select',
         'failed-draft',

@@ -315,3 +315,27 @@ it('群成员共用编辑器拒绝重复提交，失败保留文本', async () =
   await act(async () => finish(false));
   expect(host.querySelector('input')?.value).toBe('新昵称');
 });
+
+it.each([false, true])('备注编辑及读取失败状态（%s）按 Esc 取消且不传给名片', async (readError) => {
+  mock.readError = readError;
+  render();
+  await click('编辑备注');
+  const close = vi.fn();
+  document.addEventListener('keydown', close);
+  try {
+    const target = host.querySelector('input') ?? host.querySelector('[data-qq-action]')!;
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => target.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(button('编辑备注').textContent).toBe('旧备注');
+    expect(host.querySelector('[data-qq-action]')).toBeNull();
+    expect(mock.writes).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+  } finally {
+    document.removeEventListener('keydown', close);
+  }
+});

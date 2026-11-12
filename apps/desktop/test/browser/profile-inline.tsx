@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   ContactIdentity,
@@ -7,6 +8,7 @@ import {
 import { GroupIdentity } from '../../src/renderer/src/components/groupProfile/GroupContent';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { qa, useFixture } from './contact-card.stub';
+import { useSurfaceEscape } from '../../src/renderer/src/lib/surfaceEscape';
 import type {
   GroupConversation,
   GroupMemberRole,
@@ -19,6 +21,9 @@ const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 Object.assign(window, { contactCardQa: qa });
 function Fixture() {
   useFixture();
+  const card = useRef<HTMLElement>(null);
+  const [closed, setClosed] = useState(false);
+  useSurfaceEscape(card, () => setClosed(true), !closed, false);
   const person = {
     id: 'u_sample',
     uid: 'u_sample',
@@ -53,6 +58,7 @@ function Fixture() {
       role: qa.role as GroupMemberRole,
     },
   };
+  if (closed) return null;
   return (
     <QueryClientProvider client={cache}>
       <RelationshipDirectoryContext.Provider
@@ -65,6 +71,9 @@ function Fixture() {
         }}
       >
         <main
+          ref={card}
+          role="dialog"
+          tabIndex={-1}
           className="weq-contact-card weq-member-pop"
           style={{
             position: 'relative',

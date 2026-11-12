@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Pencil, X } from 'lucide-react';
 import '../styles/self-profile-card.css';
 
@@ -26,6 +34,7 @@ export function SelfProfileField({
   const mounted = useRef(true);
   const running = useRef(false);
   const edit = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
   const editor = useRef<HTMLDivElement>(null);
   useEffect(() => {
     mounted.current = true;
@@ -37,9 +46,15 @@ export function SelfProfileField({
     if (editing)
       editor.current?.querySelector<HTMLElement>('input, textarea, select, button')?.focus();
   }, [editing]);
+  useLayoutEffect(() => {
+    if (!editing && restoreFocus.current) {
+      restoreFocus.current = false;
+      edit.current?.focus();
+    }
+  }, [editing]);
   function close() {
+    restoreFocus.current = true;
     setEditing(false);
-    requestAnimationFrame(() => edit.current?.focus());
   }
   const save: Save = async (action) => {
     if (running.current || !mounted.current) return false;
@@ -80,10 +95,13 @@ export function SelfProfileField({
           ref={editor}
           className="weq-self-field-editor"
           onKeyDown={(event) => {
-            if (event.key === 'Escape' && !pending && !event.defaultPrevented) {
+            if (event.key === 'Escape' && !event.defaultPrevented) {
+              event.preventDefault();
               event.stopPropagation();
-              onCancel?.();
-              close();
+              if (!running.current) {
+                onCancel?.();
+                close();
+              }
             }
           }}
         >

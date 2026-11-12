@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
@@ -26,6 +26,14 @@ export function QQProfileField(props: Props) {
   const session = useQQWriteSession(`profile-field:${field}:${target}`, true);
   const scope = `${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${field}:${target}`;
   const [editing, setEditing] = useState<string | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (editing === null && restoreFocus.current) {
+      restoreFocus.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [editing]);
   const [saved, setSaved] = useState<{ scope: string; value: string; previous: string } | null>(
     null,
   );
@@ -36,7 +44,10 @@ export function QQProfileField(props: Props) {
         key={scope}
         {...props}
         label={label}
-        onClose={() => setEditing(null)}
+        onClose={() => {
+          restoreFocus.current = true;
+          setEditing(null);
+        }}
         onSaved={(next) => {
           setSaved({ scope, value: next, previous: initial });
           setEditing(null);
@@ -45,6 +56,7 @@ export function QQProfileField(props: Props) {
     );
   const trigger = (
     <button
+      ref={triggerRef}
       type="button"
       className="weq-contact-value"
       aria-label={`编辑${label}`}
@@ -155,7 +167,16 @@ function QQProfileFieldEditor({
     ]);
   };
   return (
-    <div data-qq-action className={inline ? 'weq-profile-field-inline' : undefined}>
+    <div
+      data-qq-action
+      className={inline ? 'weq-profile-field-inline' : undefined}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!session.busy) onClose();
+      }}
+    >
       {ready && allowed ? (
         <ProfileInlineField
           label={label}
