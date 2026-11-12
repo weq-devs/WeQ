@@ -70,12 +70,7 @@ export function MailSettingsSection() {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<Mail size={16} strokeWidth={1.8} />}
-        title="QQ 邮箱"
-        badge="自动保存"
-        desc="设置会立即保存，并同步给你连接同一台电脑的其它 WeQ 界面。"
-      />
+      <SectionHeader icon={<Mail size={16} strokeWidth={1.8} />} title="QQ 邮箱" />
       <Card title="邮箱同步与提醒" resetId="mail">
         <AutoSave
           value={minutes.trim() ? interval : ''}
