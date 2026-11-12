@@ -123,6 +123,7 @@ const proxy = (path: string[] = []): unknown =>
         return async () => {
           throw new Error('离线合成资料不查询云端名称');
         };
+      if (key === 'query' && path.join('.') === 'account.dressup.peerHome') return async () => ({});
       if (key === 'invalidate' || key === 'query' || key === 'fetch') return async () => undefined;
       return proxy([...path, String(key)]);
     },

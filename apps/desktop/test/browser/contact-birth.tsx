@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ContactList } from '../../src/renderer/src/im-template/template/conversationLists';
 import { ContactProfileDialog } from '../../src/renderer/src/im-template/template/profilePanes';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
@@ -31,6 +32,7 @@ const contacts: Contact[] = [
   },
 ].map((row, i) => ({
   username: row.id,
+  uid: row.id,
   identityLabel: 'QQ',
   identityValue: String(10001 + i),
   avatarUrl: null,
@@ -52,36 +54,39 @@ const profiles = Object.fromEntries(
 );
 Object.assign(window, { contactBirthQa: { profiles, store: useThemeStore } });
 const member = new URLSearchParams(location.search).has('member');
+const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 createRoot(document.getElementById('root')!).render(
-  <ContentSelectionProvider>
-    <RelationshipDirectoryContext.Provider
-      value={{
-        selfUid: 'self',
-        selfUin: '99999',
-        friendsComplete: true,
-        friends: new Map(contacts.map((contact) => [contact.id, { categoryName: '我的好友' }])),
-        groups: new Map(),
-      }}
-    >
-      <style>{`html,body,#root{min-height:100%;height:auto;margin:0;overflow:auto}.birth-fixture{padding:16px;min-height:100vh;background:var(--weq-chat-bg);color:var(--weq-fg-primary);display:grid;grid-template-columns:280px minmax(0,440px);gap:24px}.birth-fixture>section{min-width:0}.birth-fixture .weq-contact-directory{height:580px}.birth-fixture h2{font-size:16px;margin:12px 0}@media(max-width:700px){.birth-fixture{grid-template-columns:minmax(0,1fr);padding:8px}.birth-fixture .weq-contact-directory{height:480px}}`}</style>
-      <main className="birth-fixture">
-        <section data-kind="directory">
-          <h2>联系人</h2>
-          <ContactDirectoryContext.Provider
-            value={{ query: '', onQuery: () => {}, ids: contacts.map((contact) => contact.id) }}
-          >
-            <ContactList contacts={contacts} activeContactId={null} onSelect={() => {}} />
-          </ContactDirectoryContext.Provider>
-        </section>
-        <section data-kind="profile">
-          <h2>联系人资料</h2>
-          <ContactProfileDialog contact={selected} embedded onClose={() => {}} />
-        </section>
-        {member ? (
-          <MemberProfileCard member={selected} anchor={{ x: 10, y: 10 }} onClose={() => {}} />
-        ) : null}
-      </main>
-    </RelationshipDirectoryContext.Provider>
-  </ContentSelectionProvider>,
+  <QueryClientProvider client={cache}>
+    <ContentSelectionProvider>
+      <RelationshipDirectoryContext.Provider
+        value={{
+          selfUid: 'self',
+          selfUin: '99999',
+          friendsComplete: true,
+          friends: new Map(contacts.map((contact) => [contact.id, { categoryName: '我的好友' }])),
+          groups: new Map(),
+        }}
+      >
+        <style>{`html,body,#root{min-height:100%;height:auto;margin:0;overflow:auto}.birth-fixture{padding:16px;min-height:100vh;background:var(--weq-chat-bg);color:var(--weq-fg-primary);display:grid;grid-template-columns:280px minmax(0,440px);gap:24px}.birth-fixture>section{min-width:0}.birth-fixture .weq-contact-directory{height:580px}.birth-fixture h2{font-size:16px;margin:12px 0}@media(max-width:700px){.birth-fixture{grid-template-columns:minmax(0,1fr);padding:8px}.birth-fixture .weq-contact-directory{height:480px}}`}</style>
+        <main className="birth-fixture">
+          <section data-kind="directory">
+            <h2>联系人</h2>
+            <ContactDirectoryContext.Provider
+              value={{ query: '', onQuery: () => {}, ids: contacts.map((contact) => contact.id) }}
+            >
+              <ContactList contacts={contacts} activeContactId={null} onSelect={() => {}} />
+            </ContactDirectoryContext.Provider>
+          </section>
+          <section data-kind="profile">
+            <h2>联系人资料</h2>
+            <ContactProfileDialog contact={selected} embedded onClose={() => {}} />
+          </section>
+          {member ? (
+            <MemberProfileCard member={selected} anchor={{ x: 10, y: 10 }} onClose={() => {}} />
+          ) : null}
+        </main>
+      </RelationshipDirectoryContext.Provider>
+    </ContentSelectionProvider>
+  </QueryClientProvider>,
 );

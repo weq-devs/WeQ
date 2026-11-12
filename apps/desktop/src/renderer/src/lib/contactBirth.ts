@@ -180,7 +180,7 @@ function monthDayText(value: number) {
 export function birthRangeText(birth: ContactBirth) {
   if (birth.inference === 'conflict') return '星座与现有生日或年龄资料不一致，未采用推断结果';
   if (!birth.ranges.length) return null;
-  return `${birth.inference === 'exact' ? '推断生日' : '候选生日'}：${birth.ranges
+  return `推断生日：${birth.ranges
     .map((range) => {
       const prefix = range.year === null ? '' : `${range.year} 年 `;
       return `${prefix}${monthDayText(range.start)}${range.start === range.end ? '' : `至${monthDayText(range.end)}`}`;
@@ -196,7 +196,6 @@ export function contactBirthdayText(birth: ContactBirth) {
   return [
     year ? `${year} 年${birth.inferredYear !== null ? '（推断）' : ''}` : null,
     birth.constellation.name,
-    '月日未记录',
   ]
     .filter(Boolean)
     .join(' · ');

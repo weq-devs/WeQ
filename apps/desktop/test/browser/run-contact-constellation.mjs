@@ -59,7 +59,8 @@ try {
   assert.deepEqual(await names(), ['跨年摩羯座', '前一天', '缓存水瓶座', '准确生日', '后一天']);
   const range = directory.locator('.contact-row').filter({ hasText: '缓存水瓶座' });
   assert.ok((await range.textContent()).includes('2010 年（推断）'));
-  const hover = await range.locator('[title*="候选生日"]').getAttribute('title');
+  assert.ok(!(await range.textContent()).includes('月日未记录'));
+  const hover = await range.locator('[title*="推断生日"]').getAttribute('title');
   assert.ok(hover.includes('1 月 20 日至2 月 18 日'));
   await directory.getByRole('button', { name: '改为降序', exact: true }).click();
   assert.deepEqual(await names(), ['后一天', '缓存水瓶座', '准确生日', '前一天', '跨年摩羯座']);
@@ -89,7 +90,8 @@ try {
       const detail = page.locator('[data-kind="profile"] details.weq-birth-details');
       if (!(await detail.evaluate((element) => element.open)))
         await detail.locator('summary').tap();
-      assert.ok((await detail.locator('p').textContent()).includes('候选生日：2010 年'));
+      assert.equal(await detail.locator('summary').textContent(), '2010 年（推断） · 水瓶座');
+      assert.ok((await detail.locator('p').textContent()).includes('推断生日：2010 年'));
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
@@ -108,6 +110,8 @@ try {
   await summary.waitFor();
   await summary.tap();
   assert.ok((await member.textContent()).includes('2010 年（推断）'));
+  assert.ok(!(await member.textContent()).includes('月日未记录'));
+  assert.ok(!(await member.textContent()).includes('候选生日'));
   assert.ok(
     (await member.locator('.weq-birth-details p').textContent()).includes('1 月 20 日至2 月 18 日'),
   );
