@@ -169,9 +169,15 @@ try {
     const card = page.locator('.weq-contact-card');
     assert.match(await card.locator('.weq-contact-title-line').innerText(), /正在听音乐/);
     assert.match(
-      await card.locator('.weq-contact-meta').last().innerText(),
+      await card.locator('.weq-contact-identity-body').innerText(),
       /QQ\s+10002.*QID\s+sample-person/s,
     );
+    assert.deepEqual(
+      await card.locator('.weq-contact-identity-body .weq-profile-data-label').allTextContents(),
+      ['备注', 'QQ', 'QID', '个性签名'],
+    );
+    assert.equal(await card.locator('.weq-contact-meta .weq-contact-number').count(), 0);
+    assert.equal(await card.locator('.weq-contact-signature').count(), 1);
     assert.equal(
       await card.locator('[data-profile-field="qid"], [data-profile-field="status"]').count(),
       0,
@@ -184,9 +190,38 @@ try {
     const levelSection = card
       .locator('.weq-profile-section-block')
       .filter({ has: page.getByText('QQ 等级', { exact: true }) });
-    assert.equal(await levelSection.locator('h3').innerText(), '基本信息');
+    assert.equal(await levelSection.locator('h3').innerText(), 'QQ 账号');
+    for (const [field, section] of [
+      ['company', '个人资料'],
+      ['labels', '个性展示'],
+      ['privileges', 'QQ 账号'],
+      ['common', '与我的关系'],
+    ]) {
+      assert.equal(
+        await card
+          .locator('.weq-profile-section-block')
+          .filter({ has: page.locator(`[data-profile-field="${field}"]`) })
+          .locator('h3')
+          .innerText(),
+        section,
+      );
+    }
+    assert.equal(
+      await card.locator('[data-profile-field="common"] .weq-profile-data-row').count(),
+      2,
+    );
+    const identityRows = card.locator('.weq-contact-identity-body .weq-profile-data-row');
+    const accountRows = levelSection.locator('.weq-profile-data-row');
+    const rowFormat = (node) => {
+      const style = getComputedStyle(node);
+      return [style.gridTemplateColumns, style.fontSize, style.minHeight, style.paddingBlock];
+    };
+    assert.deepEqual(
+      await identityRows.first().evaluate(rowFormat),
+      await accountRows.first().evaluate(rowFormat),
+    );
     await page.context().grantPermissions(['clipboard-write', 'clipboard-read']);
-    await card.getByRole('button', { name: '复制 QQ 号码', exact: true }).click();
+    await card.getByTitle('复制 QQ 号码', { exact: true }).click();
     await card.locator('.weq-copy-feedback').waitFor();
     assert.equal(
       await card
@@ -222,10 +257,20 @@ try {
       qa.configure({ ...previous, visible: { ...previous.visible, uid: true } });
       return previous;
     });
-    await card.getByRole('button', { name: /^复制 (?:NT )?UID$/ }).click();
+    await card.getByTitle('复制 UID', { exact: true }).click();
+    assert.deepEqual(
+      await card.locator('.weq-contact-identity-body .weq-profile-data-label').allTextContents(),
+      ['备注', 'QQ', 'QID', 'UID', '个性签名'],
+    );
     await card.locator('.weq-copy-feedback').waitFor();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'u_sample');
     await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
+    if (output) {
+      await card.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+      await page.screenshot({ path: resolve(output, 'identity-five-rows.png') });
+    }
     await page.evaluate((settings) => window.contactCardQa.configure(settings), previousSettings);
     const signature = card.locator('.weq-contact-signature');
     await signature.getByRole('button', { name: '展开' }).click();
@@ -236,12 +281,30 @@ try {
       false,
     );
     await signature.getByRole('button', { name: '收起' }).click();
+    const signatureSettings = await page.evaluate(() => {
+      const previous = window.contactCardQa.settings;
+      window.contactCardQa.configure({
+        ...previous,
+        visible: { ...previous.visible, signature: false, signatureUpdated: true },
+      });
+      return previous;
+    });
+    await signature.locator('.weq-contact-signature-time').waitFor();
+    assert.equal(await signature.locator('button').count(), 0);
+    assert.equal(await card.locator('[data-profile-field="signatureUpdated"]').count(), 0);
+    await page.evaluate((settings) => window.contactCardQa.configure(settings), signatureSettings);
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       for (const theme of ['light', 'dark']) {
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
+        if (output) {
+          await card.evaluate((node) => {
+            node.scrollTop = 0;
+          });
+          await page.screenshot({ path: resolve(output, `${theme}-${width}-identity.png`) });
+        }
         assert.equal(await card.getByRole('navigation', { name: '更多资料' }).count(), 0);
         assert.equal(await card.locator('.weq-contact-more').count(), 0);
         assert.equal(await card.locator('.weq-contact-overflow').count(), 0);
@@ -290,7 +353,7 @@ try {
         assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
         if (output)
           await page.screenshot({ path: resolve(output, `fixed-card-${theme}-${width}.png`) });
-        await card.getByRole('button', { name: '复制 QQ 号码', exact: true }).click();
+        await card.getByTitle('复制 QQ 号码', { exact: true }).click();
         const feedback = card.locator('.weq-copy-feedback');
         await feedback.waitFor();
         const feedbackBounds = await feedback.boundingBox();
@@ -302,7 +365,7 @@ try {
       }
     }
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await card.getByRole('button', { name: '复制 QQ 号码', exact: true }).click();
+    await card.getByTitle('复制 QQ 号码', { exact: true }).click();
     await card.locator('.weq-copy-feedback').waitFor();
     assert.equal(
       await card
@@ -527,7 +590,7 @@ try {
         visible: { ...qa.settings.visible, qid: false, status: false },
       });
     });
-    assert.equal(await page.getByRole('button', { name: '复制 QID', exact: true }).count(), 0);
+    assert.equal(await page.getByTitle('复制 QID', { exact: true }).count(), 0);
     assert.doesNotMatch(await page.locator('.weq-contact-title-line').innerText(), /正在听音乐/);
     report.push({ kind: 'short-signature-and-identity-settings', calls: [] });
     await page.locator('.weq-contact-signature-text').click();

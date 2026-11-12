@@ -19,6 +19,7 @@ const preferences = vi.hoisted(() => ({
   friendClue: false,
   extraDetails: false,
   uid: false,
+  occupation: false,
 }));
 
 // 卡片会拉 tRPC 补全陌生人资料 —— 单测不建 ipc 链接，给个死数据桩。
@@ -49,7 +50,13 @@ vi.mock('@renderer/trpc/client', () => ({
       getSettings: {
         useQuery: () => ({
           data: {
-            contactCard: { visible: { friendClue: preferences.friendClue, uid: preferences.uid } },
+            contactCard: {
+              visible: {
+                friendClue: preferences.friendClue,
+                uid: preferences.uid,
+                occupation: preferences.occupation,
+              },
+            },
           },
         }),
       },
@@ -129,7 +136,12 @@ import {
   profileTargetUser,
 } from '@renderer/lib/profileNavigation';
 import { client } from '@renderer/trpc/client';
-import { contactCardFieldGroup } from '@renderer/components/contactProfile/ContactContent';
+import {
+  contactCardFieldGroup,
+  ContactContent,
+  ContactIdentity,
+} from '@renderer/components/contactProfile/ContactContent';
+import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
 import {
   RelationshipDirectoryContext,
   type RelationshipDirectory,
@@ -238,7 +250,9 @@ describe('群成员资料卡浮层', () => {
     ).toEqual(['备注']);
     expect(layer().textContent).not.toContain('我的备注资料');
     expect(layer().textContent).not.toContain('不是好友公开资料');
-    expect(remarks.nextElementSibling?.classList.contains('weq-contact-sections')).toBe(true);
+    expect(
+      remarks.parentElement?.nextElementSibling?.classList.contains('weq-contact-sections'),
+    ).toBe(true);
   });
   it('已有好友备注仍独立展示，不附带扩展备注字段', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, isFriend: true, remark: '好友备注' });
@@ -248,7 +262,7 @@ describe('群成员资料卡浮层', () => {
     ).toEqual(['备注']);
     expect(remarks.textContent).toBe('备注好友备注');
   });
-  it('公司、个人说明和邮箱直接展示在基本信息，不再保留详细资料跳转', async () => {
+  it('公司、个人说明和邮箱直接展示在个人资料，不再保留详细资料跳转', async () => {
     preferences.extraDetails = true;
     await mountCard(() => {});
     for (const [field, text] of [
@@ -258,7 +272,7 @@ describe('群成员资料卡浮层', () => {
     ]) {
       const row = layer().querySelector(`[data-profile-field="${field}"]`)!;
       expect(row.textContent).toContain(text);
-      expect(row.closest('section')?.querySelector('h3')?.textContent).toBe('基本信息');
+      expect(row.closest('section')?.querySelector('h3')?.textContent).toBe('个人资料');
     }
     expect(layer().querySelector('[data-profile-field="company"] button')).toBeNull();
     expect(layer().querySelector('[data-profile-field="description"] button')).toBeNull();
@@ -266,6 +280,22 @@ describe('群成员资料卡浮层', () => {
     expect(
       [...layer().querySelectorAll('button')].some((el) => el.textContent === '详细资料'),
     ).toBe(false);
+  });
+  it('职业与公司各占一行，不合并为单个字段', async () => {
+    preferences.occupation = true;
+    preferences.extraDetails = true;
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      extInfo: { occupation: 1, interests: [], privileges: [], interactMarks: [], album: [] },
+    });
+    const occupation = layer().querySelector(
+      '[data-profile-field="occupation"] .weq-profile-data-row',
+    )!;
+    const company = layer().querySelector('[data-profile-field="company"] .weq-profile-data-row')!;
+    expect(occupation.querySelector('.weq-profile-data-label')?.textContent).toBe('职业');
+    expect(company.querySelector('.weq-profile-data-label')?.textContent).toBe('公司');
+    expect(occupation).not.toBe(company);
+    expect(occupation.closest('section')).toBe(company.closest('section'));
   });
   it('群名紧随群内资料标题，群内分区与基本信息使用同一个分区容器', async () => {
     await mountCard(() => {}, undefined, {
@@ -281,26 +311,97 @@ describe('群成员资料卡浮层', () => {
     expect(container?.classList.contains('weq-contact-sections')).toBe(true);
     expect(container?.querySelector('[data-profile-field="company"]')).not.toBeNull();
     expect(container?.firstElementChild).toBe(heading.closest('section'));
-    expect(container?.children[1]?.querySelector('h3')?.textContent).toBe('基本信息');
+    expect(container?.children[1]?.querySelector('h3')?.textContent).toBe('个人资料');
   });
-  it('QID 与 QQ 号并列、状态位于昵称旁，生日无装饰图标，等级归基本信息', async () => {
+  it('身份正文按备注、QQ、QID、UID、签名分行，状态仍位于昵称旁', async () => {
+    preferences.uid = true;
     await mountCard(() => {}, undefined, {
       ...MEMBER,
+      remark: '合成备注',
       qid: 'synthetic-qid',
+      signature: '合成签名',
       customStatus: '正在听音乐',
       birthMonth: 5,
       birthDay: 12,
     });
-    const numbers = layer().querySelector('.weq-contact-meta:has(.weq-contact-number)');
-    expect(numbers?.textContent).toContain('synthetic-qid');
-    expect(numbers?.textContent).toContain('10001');
+    const body = layer().querySelector('.weq-contact-identity-body')!;
+    expect(
+      [...body.querySelectorAll('.weq-profile-data-label')].map((el) => el.textContent),
+    ).toEqual(['备注', 'QQ', 'QID', 'UID', '个性签名']);
+    expect(body.textContent).toContain('synthetic-qid');
+    expect(body.textContent).toContain('10001');
+    expect(layer().querySelector('.weq-contact-meta:has(.weq-contact-number)')).toBeNull();
+    expect(layer().querySelectorAll('.weq-contact-signature')).toHaveLength(1);
     expect(layer().querySelector('.weq-contact-title-line')?.textContent).toContain('正在听音乐');
     expect(layer().querySelector('[data-profile-field="status"]')).toBeNull();
     expect(layer().querySelector('[data-profile-field="qid"]')).toBeNull();
     expect(
       layer().querySelector('[data-profile-field="birthday"] .weq-profile-data-label svg'),
     ).toBeNull();
-    expect(contactCardFieldGroup('level')).toBe('basic');
+    expect(contactCardFieldGroup('level')).toBe('account');
+  });
+  it.each([
+    ['signature', 'identity'],
+    ['signatureUpdated', 'identity'],
+    ['qid', 'identity'],
+    ['uid', 'identity'],
+    ['occupation', 'basic'],
+    ['company', 'basic'],
+    ['common', 'social'],
+    ['friendClue', 'social'],
+    ['qqShow', 'display'],
+    ['labels', 'display'],
+    ['photos', 'display'],
+    ['level', 'account'],
+    ['likes', 'account'],
+    ['privileges', 'account'],
+    ['energy', 'account'],
+    ['botFeatures', 'bot'],
+  ] as const)('名片字段 %s 归入 %s', (field, group) => {
+    expect(contactCardFieldGroup(field)).toBe(group);
+  });
+  it('浮层重新分区不改变完整资料页的身份区、正文与原分区', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    roots.push(root);
+    hosts.push(host);
+    const person = {
+      ...MEMBER,
+      qid: 'page-qid',
+      signature: '资料页原签名',
+      gender: 1 as const,
+      intimacy: 12,
+    };
+    await act(async () =>
+      root.render(
+        createElement(
+          QueryClientProvider,
+          {
+            client: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+          },
+          createElement(ContactIdentity, { person }),
+          createElement(ContactContent, {
+            person,
+            settings: DEFAULT_CONTACT_CARD,
+            full: true,
+            fields: ['signature', 'gender', 'intimacy', 'uid'],
+          }),
+        ),
+      ),
+    );
+    expect(host.querySelector('.weq-contact-identity-body')).toBeNull();
+    expect(host.querySelector('.weq-contact-meta:has(.weq-contact-number)')?.textContent).toContain(
+      'page-qid',
+    );
+    expect(host.querySelector('[data-profile-field="signature"]')?.textContent).toContain(
+      '资料页原签名',
+    );
+    expect([...host.querySelectorAll('h3')].map((node) => node.textContent)).toEqual([
+      '基本信息',
+      '互动与关系',
+    ]);
+    expect(host.querySelector('.weq-profile-tech')?.textContent).toContain(MEMBER.id);
   });
   it.each(['u_fixture', 'phone:10002'])(
     '名片状态回退仍并列展示传统与自定义状态：%s',
@@ -330,7 +431,7 @@ describe('群成员资料卡浮层', () => {
     await mountCard(() => {});
     vi.useFakeTimers();
     try {
-      const copy = layer().querySelector<HTMLButtonElement>('.weq-contact-number')!;
+      const copy = layer().querySelector<HTMLButtonElement>('[title="复制 QQ 号码"]')!;
       await act(async () => copy.click());
       expect(layer().textContent).toContain('已复制');
       await act(async () => vi.advanceTimersByTime(1200));
@@ -343,13 +444,13 @@ describe('群成员资料卡浮层', () => {
       vi.useRealTimers();
     }
   });
-  it('UID 开启时与 QQ 号、QID 并列且可复制，正文不再重复', async () => {
+  it('UID 开启时独立成行且可复制，其他分区不重复', async () => {
     preferences.uid = true;
     await mountCard(() => {}, undefined, { ...MEMBER, qid: 'synthetic-qid' });
-    const numbers = layer().querySelector('.weq-contact-meta:has(.weq-contact-number)');
+    const numbers = layer().querySelector('.weq-contact-identity-body');
     expect(numbers?.textContent).toContain('10001');
     expect(numbers?.textContent).toContain('synthetic-qid');
-    const uid = numbers?.querySelector<HTMLButtonElement>('[aria-label="复制 UID"]');
+    const uid = numbers?.querySelector<HTMLButtonElement>('[title="复制 UID"]');
     expect(uid?.textContent).toContain(MEMBER.id);
     expect(layer().querySelector('[data-profile-field="uid"]')).toBeNull();
     await act(async () => uid!.click());
@@ -359,7 +460,7 @@ describe('群成员资料卡浮层', () => {
   });
   it('UID 默认隐藏，非 NT 身份开启后也不显示', async () => {
     await mountCard(() => {});
-    expect(layer().querySelector('[aria-label="复制 UID"]')).toBeNull();
+    expect(layer().querySelector('[title="复制 UID"]')).toBeNull();
     act(() => roots.pop()!.unmount());
     preferences.uid = true;
     await mountCard(() => {}, undefined, {
@@ -368,7 +469,7 @@ describe('群成员资料卡浮层', () => {
       identityLabel: '设备',
       identityValue: '10002',
     });
-    expect(layer().querySelector('[aria-label="复制 UID"]')).toBeNull();
+    expect(layer().querySelector('[title="复制 UID"]')).toBeNull();
   });
   it('数字设备身份不作为 QQ 号请求名片名称、QQ 秀和资料', async () => {
     const show = vi.spyOn(client.account.dressup.peerQqShow, 'query');
@@ -606,6 +707,7 @@ describe('群成员资料卡浮层', () => {
     preferences.friendClue = false;
     preferences.extraDetails = false;
     preferences.uid = false;
+    preferences.occupation = false;
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
   });

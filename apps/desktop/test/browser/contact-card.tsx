@@ -34,6 +34,7 @@ const sample: Contact = {
   signature: new URLSearchParams(location.search).has('short-signature')
     ? '认真记录每一天的小事。'
     : '认真记录每一天的小事。\n第二行原文。\n第三行原文。\n第四行原文。',
+  sigUpdateTime: 1794390000,
   gender: 2,
   age: 23,
   birthYear: 2003,

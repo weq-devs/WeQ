@@ -226,7 +226,11 @@
 }
 
 /* 名片里分区之间用一条 hairline 分隔；资料页正文不画行线，只靠间距。 */
-.weq-contact-card .weq-contact-remarks + .weq-contact-sections:has(.weq-profile-data-row) {
+.weq-contact-card .weq-contact-identity-body {
+  margin-top: 12px;
+}
+
+.weq-contact-card .weq-contact-identity-body + .weq-contact-sections:has(.weq-profile-data-row) {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--weq-border-subtle);

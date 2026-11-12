@@ -51,32 +51,6 @@ import {
 } from './ContactRow';
 import '../../styles/contact-card.css';
 
-/**
- * 名片正文的分区归属。顺序仍由用户设置在 `settings.order` 里决定，
- * 这里只负责把同一类字段归到同一小节，避免一长串没有层级的数据行。
- */
-const _BASIC_FIELDS: readonly ContactCardContent[] = [
-  'qqShow',
-  'pendant',
-  'signature',
-  'signatureUpdated',
-  'gender',
-  'age',
-  'birthday',
-  'constellation',
-  'zodiac',
-  'bloodType',
-  'occupation',
-  'region',
-  'school',
-  'labels',
-  'photos',
-  'status',
-  'company',
-  'description',
-  'email',
-  'energy',
-];
 const SOCIAL_FIELDS: readonly ContactCardContent[] = [
   'common',
   'category',
@@ -106,14 +80,26 @@ const automaticFields: readonly ContactCardContent[] = [
   'botFeatures',
 ];
 
-export type ContactCardGroup = 'basic' | 'social' | 'bot' | 'tech';
+type ContactProfileGroup = 'basic' | 'social' | 'bot' | 'tech';
+export type ContactCardGroup = ContactProfileGroup | 'identity' | 'display' | 'account';
 
-/** 名片正文分区：名片、设置页字段分组、资料页都按同一份归属走。 */
-export function contactCardFieldGroup(key: ContactCardContent): ContactCardGroup {
+/** 完整资料页沿用原分区，不随浮层名片的整理改变。 */
+function contactProfileFieldGroup(key: ContactCardContent): ContactProfileGroup {
   if (TECH_FIELDS.includes(key)) return 'tech';
   if (BOT_FIELDS.includes(key)) return 'bot';
   if (SOCIAL_FIELDS.includes(key)) return 'social';
   return 'basic';
+}
+
+/** 名片按内容归类，分区内仍保留用户保存的字段顺序。 */
+export function contactCardFieldGroup(key: ContactCardContent): ContactCardGroup {
+  if (
+    ['qid', 'uid', 'signature', 'signatureUpdated', 'status', 'category', 'pendant'].includes(key)
+  )
+    return 'identity';
+  if (['qqShow', 'labels', 'photos'].includes(key)) return 'display';
+  if (['level', 'likes', 'privileges', 'energy'].includes(key)) return 'account';
+  return contactProfileFieldGroup(key);
 }
 
 /** 标题、副标题、编号与关系：名片和资料页共用同一份身份区。 */
@@ -122,11 +108,16 @@ export function ContactIdentity({
   onOpen,
   pendant = false,
   settings,
+  cardBody = false,
+  onSignatureHistory,
 }: {
   person: ProfilePerson;
   onOpen?: () => void;
   pendant?: boolean;
   settings?: ContactCardSettings;
+  /** 仅浮层名片使用五行身份正文，资料页保持原样。 */
+  cardBody?: boolean;
+  onSignatureHistory?: () => void;
 }) {
   const relationship = usePersonRelationship(person);
   const names = useCardDisplayNames(
@@ -149,6 +140,25 @@ export function ContactIdentity({
     onlineStatus && customStatus && !onlineStatus.includes(customStatus)
       ? `${onlineStatus} · ${customStatus}`
       : onlineStatus || customStatus;
+  const remarks =
+    remark || editableRemark ? (
+      <div className="weq-contact-remarks">
+        {editableRemark ? (
+          <QQProfileField
+            field="friendRemark"
+            target={person.uid || person.id}
+            nameTarget={person.identityValue}
+            initial={remark || ''}
+            valueClassName="weq-profile-identity-remark"
+          />
+        ) : (
+          <ContactRow label="备注" value={remark} valueClassName="weq-profile-identity-remark" />
+        )}
+      </div>
+    ) : null;
+  const signatureTime = settings?.visible.signatureUpdated
+    ? profileTimeText(person.sigUpdateTime)
+    : null;
   return (
     <>
       <div className="weq-profile-hero weq-contact-identity" data-privacy-sensitive>
@@ -215,32 +225,55 @@ export function ContactIdentity({
               </span>
             ) : null}
           </div>
-          <div className="weq-contact-meta">
-            <IdentityNumber label={identityLabel} value={identity} />
-            {!person.clone && person.qid && settings?.visible.qid !== false ? (
-              <IdentityNumber label="QID" value={person.qid} />
-            ) : null}
-            {!person.clone && settings?.visible.uid && /^u_/.test(person.uid || person.id) ? (
-              <IdentityNumber label="UID" value={person.uid || person.id} />
-            ) : null}
-          </div>
+          {!cardBody ? (
+            <div className="weq-contact-meta">
+              <IdentityNumber label={identityLabel} value={identity} />
+              {!person.clone && person.qid && settings?.visible.qid !== false ? (
+                <IdentityNumber label="QID" value={person.qid} />
+              ) : null}
+              {!person.clone && settings?.visible.uid && /^u_/.test(person.uid || person.id) ? (
+                <IdentityNumber label="UID" value={person.uid || person.id} />
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
-      {remark || editableRemark ? (
-        <div className="weq-contact-remarks">
-          {editableRemark ? (
-            <QQProfileField
-              field="friendRemark"
-              target={person.uid || person.id}
-              nameTarget={person.identityValue}
-              initial={remark || ''}
-              valueClassName="weq-profile-identity-remark"
+      {cardBody ? (
+        <div className="weq-contact-identity-body weq-profile-data">
+          {remarks}
+          <ContactRow
+            label={identityLabel}
+            value={identity}
+            copyValue={identity}
+            activateTitle={`复制 ${identityLabel}${['ID', 'QID', 'UID'].includes(identityLabel) ? '' : ' 号码'}`}
+          />
+          {!person.clone && settings?.visible.qid !== false ? (
+            <ContactRow
+              label="QID"
+              value={person.qid}
+              copyValue={person.qid ?? undefined}
+              activateTitle="复制 QID"
             />
-          ) : (
-            <ContactRow label="备注" value={remark} valueClassName="weq-profile-identity-remark" />
-          )}
+          ) : null}
+          {!person.clone && settings?.visible.uid && /^u_/.test(person.uid || person.id) ? (
+            <ContactRow
+              label="UID"
+              value={person.uid || person.id}
+              copyValue={person.uid || person.id}
+              activateTitle="复制 UID"
+            />
+          ) : null}
+          {!person.clone && (settings?.visible.signature !== false || signatureTime) ? (
+            <SignatureRow
+              text={settings?.visible.signature !== false ? person.signature || '' : ''}
+              updated={signatureTime}
+              onHistory={onSignatureHistory}
+            />
+          ) : null}
         </div>
-      ) : null}
+      ) : (
+        remarks
+      )}
     </>
   );
 }
@@ -498,13 +531,24 @@ function BotFeaturesRow({ person }: { person: ProfilePerson }) {
   );
 }
 
-function SignatureRow({ text, onHistory }: { text: string; onHistory?: () => void }) {
+function SignatureRow({
+  text,
+  onHistory,
+  updated,
+}: {
+  text: string;
+  onHistory?: () => void;
+  updated?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const [overflow, setOverflow] = useState(false);
   const content = useRef<HTMLParagraphElement | HTMLButtonElement>(null);
   useLayoutEffect(() => {
     const element = content.current;
-    if (!element) return;
+    if (!element) {
+      setOverflow(false);
+      return;
+    }
     const measure = () => {
       const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
       setOverflow(element.scrollHeight > lineHeight * 3 + 1);
@@ -514,10 +558,11 @@ function SignatureRow({ text, onHistory }: { text: string; onHistory?: () => voi
     observer?.observe(element);
     return () => observer?.disconnect();
   }, [text]);
+  if (!text && !updated) return null;
   return (
     <ContactRow label="个性签名">
       <div className={`weq-contact-signature${open ? ' is-open' : ''}`}>
-        {onHistory ? (
+        {!text ? null : onHistory ? (
           <button
             ref={(element) => {
               content.current = element;
@@ -542,6 +587,7 @@ function SignatureRow({ text, onHistory }: { text: string; onHistory?: () => voi
             {text}
           </p>
         )}
+        {updated ? <span className="weq-contact-signature-time">更新于 {updated}</span> : null}
         {overflow ? (
           <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? '收起' : '展开'}
@@ -834,27 +880,31 @@ export function ContactContent({
     botDescription: person.kind === 'bot' ? <BotDescription person={person} /> : null,
     botFeatures: person.kind === 'bot' ? <BotFeaturesRow person={person} /> : null,
   };
+  const fieldGroup = full ? contactProfileFieldGroup : contactCardFieldGroup;
   const ordered = settings.order.filter(
     (key) =>
       key !== 'qid' &&
       key !== 'uid' &&
       key !== 'status' &&
+      (full || fieldGroup(key) !== 'identity') &&
       enabled(key) &&
       (!localOnly || !automaticFields.includes(key)),
   );
   // 编号与当前状态已由身份区承载，正文不重复。
   const buckets = {
-    basic: ordered.filter((key) => contactCardFieldGroup(key) === 'basic'),
-    social: ordered.filter((key) => contactCardFieldGroup(key) === 'social'),
-    bot: full
-      ? ordered.filter((key) => contactCardFieldGroup(key) === 'bot')
-      : ordered.filter((key) => ['bot', 'tech'].includes(contactCardFieldGroup(key))),
-    tech: full ? ordered.filter((key) => contactCardFieldGroup(key) === 'tech') : [],
+    basic: ordered.filter((key) => fieldGroup(key) === 'basic'),
+    social: ordered.filter((key) => fieldGroup(key) === 'social'),
+    display: ordered.filter((key) => fieldGroup(key) === 'display'),
+    account: ordered.filter((key) => fieldGroup(key) === 'account'),
+    bot: ordered.filter((key) => fieldGroup(key) === 'bot'),
+    tech: full ? ordered.filter((key) => fieldGroup(key) === 'tech') : [],
   };
   const blocks: Array<{ key: keyof typeof buckets; title: string; rows: ReactNode[] }> = [
-    { key: 'basic', title: '基本信息', rows: [] },
-    { key: 'social', title: '互动与关系', rows: [] },
-    { key: 'bot', title: '其他与机器人', rows: [] },
+    { key: 'basic', title: full ? '基本信息' : '个人资料', rows: [] },
+    { key: 'social', title: full ? '互动与关系' : '与我的关系', rows: [] },
+    { key: 'display', title: '个性展示', rows: [] },
+    { key: 'account', title: 'QQ 账号', rows: [] },
+    { key: 'bot', title: full ? '其他与机器人' : '机器人信息', rows: [] },
     { key: 'tech', title: '技术详情', rows: [] },
   ];
   for (const block of blocks)
