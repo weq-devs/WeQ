@@ -23,6 +23,7 @@ const labels: Record<string, string> = {
   jsQueueWaitMs: '排队',
   nativePromiseAwaitMs: '原生等待',
   count: '共',
+  artifactCount: '产物数',
   groupCount: '群数',
   failed: '失败',
   size: '大小',
@@ -172,7 +173,7 @@ export function formatConsoleRecord(
             ? levelColors[level]
             : key === 'failed' && value !== 0
               ? 31
-              : key === 'count' || key === 'version'
+              : key === 'count' || key === 'artifactCount' || key === 'version'
                 ? 32
                 : 36;
       parts.push(`${paint(37, label)} ${paint(tone, text)}`);

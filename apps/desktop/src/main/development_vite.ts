@@ -1,6 +1,6 @@
 import type { Logger, Plugin } from 'vite';
 import { stripVTControlCharacters } from 'node:util';
-import { developmentRecord } from './development_console';
+import { developmentRecord, summarizeDevelopmentBuildWarning } from './development_console';
 
 export function developmentViteLogging(
   target: 'main' | 'preload' | 'web' | 'renderer',
@@ -44,7 +44,7 @@ export function developmentViteLogging(
     },
     warn(text) {
       logger.hasWarned = true;
-      write('warn', text);
+      write('warn', summarizeDevelopmentBuildWarning(stripVTControlCharacters(text)));
     },
     warnOnce(text) {
       if (!warned.has(text)) {
@@ -75,7 +75,7 @@ export function developmentViteLogging(
         developmentRecord('info', `${title}完成`, {
           scope,
           durationMs: Math.round(now() - started),
-          count: Object.keys(bundle).length,
+          artifactCount: Object.keys(bundle).length,
         }),
       );
     },

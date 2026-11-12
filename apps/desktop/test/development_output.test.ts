@@ -60,6 +60,42 @@ describe('开发进程输出', () => {
     output.write('\x1b[32m12:34:56 INFO  startup  ready\x1b[0m\n');
     expect(sink).toHaveBeenCalledWith('12:34:56 INFO  startup  ready\n');
   });
+  it('插件计时的独立输出行接续原告警，不变成 INFO，且不吞掉后续消息', () => {
+    vi.stubEnv('WEQ_LOG_LEVEL', 'info');
+    onTestFinished(() => vi.unstubAllEnvs());
+    const lines: string[] = [];
+    const output = createDevelopmentOutput((line) => lines.push(line), false);
+    output.write(
+      '12:34:56 WARN  vite-main  [PLUGIN_TIMINGS] 插件回调累计 6.5s / 构建 7.3s（88%）\n',
+    );
+    output.write('The slowest callbacks, timed inside each callback:\n');
+    output.write('- plugin weq-remote-web-assets buildStart (66%, 4.8s, 1 call)\n');
+    output.write('Additional callback time came from callbacks under 1s.\n');
+    output.write(
+      'See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.\n',
+    );
+    output.write('unrelated warning\n');
+    output.end();
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toBe(
+      '         - plugin weq-remote-web-assets buildStart (66%, 4.8s, 1 call)\n',
+    );
+    expect(lines[2]).toContain('WARN  dev-process');
+  });
+  it('DEBUG 保留插件计时原文，明细仍接续原告警', () => {
+    vi.stubEnv('WEQ_LOG_LEVEL', 'debug');
+    onTestFinished(() => vi.unstubAllEnvs());
+    const lines: string[] = [];
+    const output = createDevelopmentOutput((line) => lines.push(line), false);
+    output.write('[PLUGIN_TIMINGS] JavaScript callbacks ran for 6.5s of this 7.3s build (88%).\n');
+    output.write('Additional callback time came from callbacks under 1s.\n');
+    output.write('- plugin vite:esm-shim renderChunk (19%, 1.4s, 48 calls)\n');
+    output.end();
+    expect(lines.join('')).toContain('JavaScript callbacks ran for 6.5s');
+    expect(lines[1]).toBe('         Additional callback time came from callbacks under 1s.\n');
+    expect(lines[2]).toContain('         - plugin vite:esm-shim');
+    expect(lines.join('')).not.toContain('INFO');
+  });
   it('子进程真实失败与无法启动均返回非零，退出刷新尾行', async () => {
     const sink = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const errors = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -126,6 +162,35 @@ function hook(
   return Reflect.apply(fn, {}, args);
 }
 describe('开发构建摘要', () => {
+  it('真实 Vite 大包告警只显示阈值摘要，不输出通用建议', async () => {
+    const { build } = await import('vite');
+    const directory = await mkdtemp(join(tmpdir(), 'weq-console-warning-'));
+    const sink = vi.fn();
+    const logging = developmentViteLogging('web', { WEQ_DEV_CONSOLE: '1' }, sink);
+    try {
+      await writeFile(
+        join(directory, 'entry.js'),
+        `console.log(${JSON.stringify('fixture'.repeat(300))});`,
+      );
+      await build({
+        configFile: false,
+        root: directory,
+        ...logging.config,
+        plugins: logging.plugins,
+        build: {
+          outDir: 'dist',
+          chunkSizeWarningLimit: 1,
+          rollupOptions: { input: join(directory, 'entry.js') },
+        },
+      });
+      const output = sink.mock.calls.flat().join('');
+      expect(output).toContain('WARN  vite-web  部分构建块压缩后超过 1 kB');
+      expect(output).not.toContain('Consider:');
+      expect(output).not.toContain('code-split');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('真实 Vite 构建通过生命周期摘要收起产物清单，语法错误不误报成功', async () => {
     const { build } = await import('vite');
     const directory = await mkdtemp(join(tmpdir(), 'weq-console-build-'));
@@ -155,7 +220,7 @@ describe('开发构建摘要', () => {
       expect(sink.mock.calls).toHaveLength(2);
       expect(sink.mock.calls[0]![0]).toContain('内置 Web 构建开始');
       expect(sink.mock.calls[1]![0]).toContain('内置 Web 构建完成');
-      expect(sink.mock.calls[1]![0]).toContain('共 121');
+      expect(sink.mock.calls[1]![0]).toContain('产物数 121');
       expect(sink.mock.calls.flat().join('')).not.toContain('fixture-');
       sink.mockClear();
       await writeFile(join(directory, 'entry.js'), 'export const = ;');
@@ -185,7 +250,7 @@ describe('开发构建摘要', () => {
     );
     hook(plugin, 'closeBundle');
     expect(sink.mock.calls).toHaveLength(6);
-    expect(sink.mock.calls.flat().join('')).toContain('耗时 2.4s  共 1000');
+    expect(sink.mock.calls.flat().join('')).toContain('耗时 2.4s  产物数 1000');
     expect(sink.mock.calls.flat().join('')).toContain('位置 fixture.ts:3');
   });
   it('构建失败不产生完成摘要，热更新去重但保留每次记录及不同路径', () => {
@@ -208,5 +273,25 @@ describe('开发构建摘要', () => {
     expect(developmentViteLogging('web', { WEQ_DEV_CONSOLE: '1', WEQ_LOG_LEVEL: 'debug' })).toEqual(
       { config: {}, plugins: [] },
     );
+  });
+  it('默认压缩大包建议和插件计时说明，保留阈值、关键明细和其他告警', () => {
+    const sink = vi.fn();
+    const logger = developmentViteLogging('main', { WEQ_DEV_CONSOLE: '1' }, sink).config
+      .customLogger!;
+    logger.warn(
+      '[plugin builtin:vite-reporter]\n\n(!) Some chunks are larger than 500 kB after minification. Consider:\n- Using dynamic import() to code-split the application\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.',
+    );
+    expect(sink.mock.calls).toHaveLength(1);
+    expect(sink.mock.calls[0]![0]).toContain('部分构建块压缩后超过 500 kB');
+    sink.mockClear();
+    logger.warn(
+      '[PLUGIN_TIMINGS] JavaScript callbacks ran for 6.5s of this 7.3s build (88%).\nThe slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):\n- plugin weq-remote-web-assets buildStart (66%, 4.8s, 1 call)\nAdditional callback time came from callbacks under 1s.\nSee https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.',
+    );
+    expect(sink.mock.calls).toHaveLength(2);
+    expect(sink.mock.calls[0]![0]).toContain('WARN  vite-main');
+    expect(sink.mock.calls[0]![0]).toContain('插件回调累计 6.5s / 构建 7.3s（88%）');
+    expect(sink.mock.calls[1]![0]).toContain('         - plugin weq-remote-web-assets');
+    logger.warn('unrelated warning\nfixture.ts:3');
+    expect(sink.mock.calls.at(-1)![0]).toContain('fixture.ts:3');
   });
 });

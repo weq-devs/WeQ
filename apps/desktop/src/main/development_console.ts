@@ -31,6 +31,27 @@ export function developmentRecord(
   });
 }
 
+function timingBoilerplate(line: string): boolean {
+  return /^(?:The slowest callbacks,|Additional callback time came from callbacks under |See https:\/\/rolldown\.rs\/reference\/InputOptions\.checks#bundlertimings)/.test(
+    line.trim(),
+  );
+}
+
+/** 仅收起构建器已知的通用建议，其他警告和定位仍原样输出。 */
+export function summarizeDevelopmentBuildWarning(text: string): string {
+  const chunk = /Some chunks are larger than ([\d.]+\s*kB) after minification/.exec(text);
+  if (chunk) return `部分构建块压缩后超过 ${chunk[1]}`;
+  if (!text.includes('[PLUGIN_TIMINGS]')) return text;
+  return text
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !timingBoilerplate(line))
+    .join('\n')
+    .replace(
+      /\[PLUGIN_TIMINGS\] JavaScript callbacks ran for ([\d.]+s) of this ([\d.]+s) build \(([^)]+)\)\./,
+      '[PLUGIN_TIMINGS] 插件回调累计 $1 / 构建 $2（$3）',
+    );
+}
+
 /** 仅处理开发子进程的行协议，不接管应用的 console 或结构化文件日志。 */
 export function createDevelopmentOutput(
   sink: (line: string) => void,
@@ -41,9 +62,16 @@ export function createDevelopmentOutput(
   let pending = '';
   let afterCR = false;
   let continuation = false;
+  let timingReport = false;
   const emit = (line: string) => {
     const text = stripVTControlCharacters(line);
     if (!text.trim()) return;
+    const debug = process.env.WEQ_LOG_LEVEL === 'debug';
+    if (timingReport && (timingBoilerplate(text) || /^\s*- plugin /.test(text))) {
+      if (debug || !timingBoilerplate(text)) sink(`         ${text.trim()}\n`);
+      return;
+    }
+    if (!/^ {9}\S/.test(text)) timingReport = text.includes('[PLUGIN_TIMINGS]');
     if (
       process.env.WEQ_LOG_LEVEL !== 'debug' &&
       /^(?:-----|electron (?:main process|preload scripts) (?:re)?built successfully)$/.test(
@@ -72,10 +100,17 @@ export function createDevelopmentOutput(
     else {
       const level = /\b(?:error|fatal|failed)\b/i.test(message)
         ? 'error'
-        : /\bwarn(?:ing)?\b/i.test(message)
+        : timingReport || /\bwarn(?:ing)?\b/i.test(message)
           ? 'warn'
           : 'info';
-      sink(developmentRecord(level, message, { scope }, color));
+      sink(
+        developmentRecord(
+          level,
+          debug ? message : summarizeDevelopmentBuildWarning(message),
+          { scope },
+          color,
+        ),
+      );
     }
   };
   const consume = (text: string) => {
