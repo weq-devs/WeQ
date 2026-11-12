@@ -25,7 +25,7 @@ export const CONTACT_CARD_FIELDS = [
   ['likes', '累计获赞', false],
   ['energy', 'QQ 能量值', false],
   ['qid', 'QID', true],
-  ['uid', 'NT UID', false],
+  ['uid', 'UID', false],
   ['description', '个人说明', true],
   ['company', '公司', true],
   ['email', '邮箱', true],

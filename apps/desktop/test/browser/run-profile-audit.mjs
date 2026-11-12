@@ -203,7 +203,7 @@ try {
     await page.close();
   }
 
-  // ---------- QID 身份区 / NT UID 正文可选项与资料页技术详情 ----------
+  // ---------- QID、UID 身份区可选项与资料页技术详情 ----------
   for (const theme of ['light', 'dark']) {
     const { page } = await open('view=card&state=default', { theme });
     await page.locator('.weq-member-pop').waitFor();
@@ -212,11 +212,11 @@ try {
     const initial = await read();
     assert.ok(initial.includes('QID'), 'QID 默认开，应在名片身份区');
     assert.match(await page.locator('.weq-contact-meta').last().innerText(), /QID/);
-    assert.ok(!initial.includes('NT UID'), 'NT UID 默认关，不应在名片正文');
+    assert.ok(!initial.includes('UID'), 'UID 默认关，不应在名片正文');
     await page.screenshot({
       path: resolve(output, `card-qid-on-1280-${theme}.png`),
     });
-    // 关 QID、开 NT UID
+    // 关 QID、开 UID
     await page.evaluate(() => {
       const qa = window.profileAuditQa;
       qa.configure({ ...qa.settings, visible: { ...qa.settings.visible, qid: false, uid: true } });
@@ -224,14 +224,31 @@ try {
     await page.waitForTimeout(300);
     const toggled = await read();
     assert.ok(!toggled.includes('QID'), '关闭 QID 后名片不应出现');
-    assert.ok(toggled.includes('NT UID'), '开启 NT UID 后正文应出现');
+    assert.ok(toggled.includes('UID'), '开启 UID 后身份区应出现');
+    assert.match(await page.locator('.weq-contact-meta').last().innerText(), /UID/);
+    assert.equal(await page.locator('[data-profile-field="uid"]').count(), 0);
     await page.screenshot({
       path: resolve(output, `card-qid-off-1280-${theme}.png`),
     });
     report[`qidToggle:${theme}`] = {
-      initial: { qid: initial.includes('QID'), uid: initial.includes('NT UID') },
-      toggled: { qid: toggled.includes('QID'), uid: toggled.includes('NT UID') },
+      initial: { qid: initial.includes('QID'), uid: initial.includes('UID') },
+      toggled: { qid: toggled.includes('QID'), uid: toggled.includes('UID') },
     };
+    await page.evaluate(() => {
+      const qa = window.profileAuditQa;
+      qa.configure({ ...qa.settings, visible: { ...qa.settings.visible, qid: true, uid: true } });
+    });
+    for (const width of [1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      const numbers = page.locator('.weq-contact-meta').last();
+      await numbers.getByRole('button', { name: '复制 UID', exact: true }).waitFor();
+      assert.match(await numbers.innerText(), /QQ.*QID.*UID/s);
+      assert.ok(
+        await numbers.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+        '编号区窄屏不溢出',
+      );
+      await page.screenshot({ path: resolve(output, `card-all-ids-${width}-${theme}.png`) });
+    }
     // 资料页技术详情不随开关变化
     await page.evaluate(() => {
       const qa = window.profileAuditQa;
@@ -245,7 +262,7 @@ try {
     const tech = await page.evaluate(
       () => document.querySelector('.weq-profile-tech')?.innerText ?? '',
     );
-    assert.ok(!tech.includes('QID') && tech.includes('NT UID'), '技术详情只保留 NT UID');
+    assert.ok(!tech.includes('QID') && tech.includes('UID'), '技术详情只保留 UID');
     assert.match(await page.locator('.weq-contact-meta').last().innerText(), /QID/);
     report[`qidTechnical:${theme}`] = tech.replace(/\s+/g, ' ').slice(0, 80);
     await page.close();
@@ -311,7 +328,7 @@ try {
       const card = document.querySelector('.weq-member-pop');
       return {
         hasQid: card.textContent.includes('QID'),
-        hasUid: card.textContent.includes('NT UID'),
+        hasUid: card.textContent.includes('UID'),
         groupHeadingLevels: [...card.querySelectorAll('h1,h2,h3,h4')].map(
           (node) => node.tagName + ':' + node.textContent.trim().slice(0, 20),
         ),
@@ -414,7 +431,7 @@ try {
         })(),
       };
     });
-    // 预览：必须本人资料，不能出现任何示例假数据
+    // 设置页不再重复渲染名片，预览由顶部头像进入。
     report.preview = await page.evaluate(() => {
       const preview = document.querySelector('.weq-contact-card-preview');
       const text = preview?.textContent ?? '';
@@ -426,16 +443,15 @@ try {
         sample: text.replace(/\s+/g, ' ').slice(0, 120),
       };
     });
-    // 开关联动预览
+    // 开关与排序共用同一行。
     const toggle = page.getByRole('switch', { name: 'QQ 等级' }).first();
-    const rowsBefore = await page
-      .locator('.weq-contact-card-preview .weq-profile-data-row')
-      .count();
+    const checkedBefore = await toggle.getAttribute('aria-checked');
     await toggle.click();
     await page.waitForTimeout(300);
-    report.previewToggle = {
-      before: rowsBefore,
-      after: await page.locator('.weq-contact-card-preview .weq-profile-data-row').count(),
+    report.fieldToggle = {
+      before: checkedBefore,
+      after: await toggle.getAttribute('aria-checked'),
+      inSortRow: await toggle.evaluate((node) => Boolean(node.closest('.weq-contact-sort-item'))),
     };
     // 自动保存态
     report.autoSave = await page.evaluate(() => {
@@ -469,13 +485,9 @@ try {
     await page.locator('.weq-contact-sort-item').first().waitFor();
     report.narrowSettings = await page.evaluate(() => {
       const previewCard = document.querySelector('[data-setting-id="contact-card-preview"]');
-      const firstCard = document.querySelector('[data-setting-id^="contact-card-fields"]');
       const item = document.querySelector('.weq-contact-sort-item');
       return {
-        // 窄屏必须先设置、后预览
-        previewAfterFields:
-          Boolean(previewCard && firstCard) &&
-          previewCard.getBoundingClientRect().top > firstCard.getBoundingClientRect().top,
+        previewRemoved: !previewCard,
         cards: document.querySelectorAll('[data-setting-id="contact-card"] .weq-set-card').length,
         sortRowOverflow: item ? item.scrollWidth > item.clientWidth : null,
         docOverflow: document.documentElement.scrollWidth > innerWidth,

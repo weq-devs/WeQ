@@ -76,6 +76,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { windowControlsStyle, type WindowControlsStyle } from '../shared/window_controls';
+import { installWindowChrome, publishWindowChrome, registerWindowChromeIpc } from './window_chrome';
 import {
   registerWindowControlsRefresh,
   registerWindowControlsPreference,
@@ -193,6 +194,7 @@ function updateMainWindowControls(win: BrowserWindow, layout: WindowLayout): voi
   win.setWindowButtonVisibility(style === 'native');
   windowStyles.set(win, style);
   win.webContents.send('window:controls-changed', style);
+  publishWindowChrome(win, style);
 }
 
 registerWindowControlsRefresh(() => {
@@ -253,6 +255,7 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
+  registerWindowChromeIpc((win) => windowStyles.get(win) ?? 'windows');
   ipcMain.handle('window:get-controls', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return win ? (windowStyles.get(win) ?? 'windows') : 'windows';
@@ -613,6 +616,8 @@ function createWindow(
   windowLayouts.set(win, layout);
   windowStyles.set(win, controls);
   updateMainWindowControls(win, layout);
+
+  installWindowChrome(win, () => windowStyles.get(win) ?? 'windows');
 
   const recovery = createRendererRecovery({
     automatic: true,

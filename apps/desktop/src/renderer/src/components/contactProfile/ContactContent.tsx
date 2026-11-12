@@ -87,7 +87,7 @@ const SOCIAL_FIELDS: readonly ContactCardContent[] = [
   'friendClue',
 ];
 const BOT_FIELDS: readonly ContactCardContent[] = ['botDescription', 'botFeatures'];
-/** QID 随身份区展示；NT UID 在名片可选、资料页技术详情中展示。 */
+/** QID、UID 随名片身份区展示；资料页技术详情保留 UID。 */
 const TECH_FIELDS: readonly ContactCardContent[] = ['qid', 'uid'];
 const automaticFields: readonly ContactCardContent[] = [
   'qqShow',
@@ -219,6 +219,9 @@ export function ContactIdentity({
             {!person.clone && person.qid && settings?.visible.qid !== false ? (
               <IdentityNumber label="QID" value={person.qid} />
             ) : null}
+            {!person.clone && settings?.visible.uid && /^u_/.test(person.uid || person.id) ? (
+              <IdentityNumber label="UID" value={person.uid || person.id} />
+            ) : null}
           </div>
         </div>
       </div>
@@ -247,7 +250,7 @@ function IdentityNumber({ label, value }: { label: string; value: string }) {
       text={value}
       className="weq-contact-number"
       title={`复制 ${label}`}
-      aria-label={label === 'ID' || label === 'QID' ? `复制 ${label}` : `复制 ${label} 号码`}
+      aria-label={['ID', 'QID', 'UID'].includes(label) ? `复制 ${label}` : `复制 ${label} 号码`}
     >
       {label} <span className="weq-number">{value}</span>
     </CopyButton>
@@ -811,7 +814,7 @@ export function ContactContent({
     energy: personal ? <EnergyRow person={person} /> : null,
     uid: (
       <ContactRow
-        label="NT UID"
+        label="UID"
         value={/^u_/.test(person.uid || person.id) ? person.uid || person.id : null}
         mono
         copyValue={person.uid || person.id}
@@ -829,11 +832,12 @@ export function ContactContent({
   const ordered = settings.order.filter(
     (key) =>
       key !== 'qid' &&
+      key !== 'uid' &&
       key !== 'status' &&
       enabled(key) &&
       (!localOnly || !automaticFields.includes(key)),
   );
-  // QID 与当前状态已由身份区承载，正文不重复；NT UID 仍按设置展示。
+  // 编号与当前状态已由身份区承载，正文不重复。
   const buckets = {
     basic: ordered.filter((key) => contactCardFieldGroup(key) === 'basic'),
     social: ordered.filter((key) => contactCardFieldGroup(key) === 'social'),
@@ -861,7 +865,7 @@ export function ContactContent({
       .filter(Boolean) as ReactNode[];
   const techBlockRaw = blocks.find((block) => block.key === 'tech');
   if (!technical && techBlockRaw) techBlockRaw.rows = [];
-  // 资料页技术详情：NT UID 始终在，不受名片开关影响。
+  // 资料页技术详情：UID 始终在，不受名片开关影响。
   const techRows = technical
     ? ([['uid', rows.uid]] as const)
         .filter(([, node]) => Boolean(node))

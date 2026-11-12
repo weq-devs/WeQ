@@ -1,5 +1,5 @@
 import { useContext, useState } from 'react';
-import { Eye, LayoutList, ArrowUpDown, UserRound, Users } from 'lucide-react';
+import { LayoutList, UserRound, Users } from 'lucide-react';
 import {
   CONTACT_CARD_FIELDS,
   CONTACT_GROUP_FIELDS,
@@ -11,12 +11,10 @@ import {
   type ContactCardSettings as Preferences,
 } from '@weq/service/contact-card';
 import { useContactCardSettings } from '../../hooks/useContactCard';
-import { contactCardFieldGroup, type ContactCardGroup } from '../contactProfile/ContactContent';
 import { trpc } from '../../trpc/client';
 import { AutoSave } from './AutoSave';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
-import { ContactCardPreview } from './contactCard/ContactCardPreview';
 import { ContactFieldSort } from './contactCard/ContactFieldSort';
 import '../../styles/contact-card.css';
 
@@ -28,8 +26,7 @@ const groupLabels = new Map<string, string>(
 /**
  * 设置 → 基础功能 → 联系人名片。
  *
- * 与其它设置页同一套语言：SectionHeader（含页面级「恢复本页默认」）+ Card + Row + Toggle；
- * 排序单独成区（把手 + 上移/下移 + 方向键），预览渲染的是**本人的真实名片**。
+ * 每个字段在同一行拖拽排序与切换显示；预览复用顶部头像的真实名片。
  */
 export function ContactCardSettings() {
   const source = useContactCardSettings();
@@ -54,126 +51,72 @@ export function ContactCardSettings() {
   }
   return (
     <SettingsResetCardContext.Provider value={reset?.saves('contact-card') ?? null}>
-      <div className="weq-set" data-setting-id="contact-card">
+      <div className="weq-set weq-contact-card-settings" data-setting-id="contact-card">
         <SectionHeader
           title="联系人名片"
           icon={<UserRound size={16} strokeWidth={1.8} />}
-          desc="名片与资料页展示哪些资料。改动自动保存。"
+          desc="可点击顶部头像预览效果"
         />
-        <AutoSave
-          value={value}
-          saved={saved}
-          ready={source.ready}
-          save={persist}
-          reset={() => setOptimistic(null)}
-          resetKeys={['contactCard']}
-        />
-        {(
-          [
-            ['basic', '基础资料'],
-            ['social', '互动与关系'],
-            ['bot', '其他与机器人'],
-          ] as Array<[ContactCardGroup, string]>
-        ).map(([group, title]) => {
-          const keys = value.order.filter((key) => {
-            const owner = contactCardFieldGroup(key);
-            // QID / NT UID 不进名片正文，但仍可在设置里开关（资料页技术详情用）。
-            return group === 'bot' ? owner === 'bot' || owner === 'tech' : owner === group;
-          });
-          if (!keys.length) return null;
-          return (
-            <Card
-              key={group}
-              title={title}
-              icon={<LayoutList size={15} strokeWidth={1.8} />}
-              settingId={`contact-card-fields-${group}`}
-            >
-              {keys.map((key) => (
-                <Row
-                  key={key}
-                  settingId={`contact-card-${key}`}
-                  label={cardLabels.get(key) ?? key}
-                  control={
-                    <Toggle
-                      checked={Boolean(value.visible[key])}
-                      disabled={disabled}
-                      label={cardLabels.get(key) ?? key}
-                      onChange={(next) => setVisible(key, next)}
-                    />
-                  }
-                />
-              ))}
-              {group === 'basic' ? (
-                <Row
-                  settingId="contact-card-all"
-                  label="全部字段"
-                  desc={`共 ${value.order.length} 个字段，已显示 ${visibleCount} 个。`}
-                  control={
-                    <span className="weq-contact-toggle-all">
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-soft"
-                        disabled={disabled || visibleCount === value.order.length}
-                        onClick={() =>
-                          void save({
-                            ...value,
-                            visible: Object.fromEntries(
-                              Object.keys(value.visible).map((key) => [key, true]),
-                            ) as Preferences['visible'],
-                          })
-                        }
-                      >
-                        全部显示
-                      </button>
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-soft"
-                        disabled={disabled || visibleCount === 0}
-                        onClick={() =>
-                          void save({
-                            ...value,
-                            visible: Object.fromEntries(
-                              Object.keys(value.visible).map((key) => [key, false]),
-                            ) as Preferences['visible'],
-                          })
-                        }
-                      >
-                        全部隐藏
-                      </button>
-                    </span>
-                  }
-                />
-              ) : null}
-            </Card>
-          );
-        })}
         <Card
-          title="字段顺序"
-          icon={<ArrowUpDown size={15} strokeWidth={1.8} />}
-          settingId="contact-card-order"
+          title="名片资料"
+          icon={<LayoutList size={15} strokeWidth={1.8} />}
+          settingId="contact-card-fields"
         >
           <ContactFieldSort
             id="contact-card-sort"
-            title="名片正文"
-            description="拖动把手，或用上移/下移按钮；把手获得焦点后也可用方向键。"
+            title="名片资料"
             keys={value.order}
             labels={(key: ContactCardField) => cardLabels.get(key) ?? key}
             disabled={disabled}
+            control={(key) => (
+              <Toggle
+                checked={Boolean(value.visible[key])}
+                disabled={disabled}
+                label={cardLabels.get(key) ?? key}
+                onChange={(next) => setVisible(key, next)}
+              />
+            )}
             onMove={(key: ContactCardField, offset: number) =>
               void save({ ...value, order: moveContactCardField(value.order, key, offset) })
             }
           />
-          <ContactFieldSort
-            id="contact-card-group-sort"
-            title="群内资料"
-            keys={value.groupOrder}
-            labels={(key: ContactGroupField) => groupLabels.get(key) ?? key}
-            disabled={disabled}
-            onMove={(key: ContactGroupField, offset: number) =>
-              void save({
-                ...value,
-                groupOrder: moveContactCardField(value.groupOrder, key, offset),
-              })
+          <Row
+            settingId="contact-card-all"
+            label="全部字段"
+            desc={`共 ${value.order.length} 个字段，已显示 ${visibleCount} 个。`}
+            control={
+              <span className="weq-contact-toggle-all">
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={disabled || visibleCount === value.order.length}
+                  onClick={() =>
+                    void save({
+                      ...value,
+                      visible: Object.fromEntries(
+                        Object.keys(value.visible).map((key) => [key, true]),
+                      ) as Preferences['visible'],
+                    })
+                  }
+                >
+                  全部显示
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={disabled || visibleCount === 0}
+                  onClick={() =>
+                    void save({
+                      ...value,
+                      visible: Object.fromEntries(
+                        Object.keys(value.visible).map((key) => [key, false]),
+                      ) as Preferences['visible'],
+                    })
+                  }
+                >
+                  全部隐藏
+                </button>
+              </span>
             }
           />
         </Card>
@@ -183,32 +126,36 @@ export function ContactCardSettings() {
           settingId="contact-card-group-fields"
           action={<span className="weq-set-row-desc">只在有群上下文时显示</span>}
         >
-          {value.groupOrder.map((key) => (
-            <Row
-              key={key}
-              settingId={`contact-card-group-${key}`}
-              label={groupLabels.get(key) ?? key}
-              control={
-                <Toggle
-                  checked={Boolean(value.visible[key])}
-                  disabled={disabled}
-                  label={groupLabels.get(key) ?? key}
-                  onChange={(next) => setVisible(key, next)}
-                />
-              }
-            />
-          ))}
+          <ContactFieldSort
+            id="contact-card-group-sort"
+            title="群内资料"
+            keys={value.groupOrder}
+            labels={(key: ContactGroupField) => groupLabels.get(key) ?? key}
+            disabled={disabled}
+            control={(key) => (
+              <Toggle
+                checked={Boolean(value.visible[key])}
+                disabled={disabled}
+                label={groupLabels.get(key) ?? key}
+                onChange={(next) => setVisible(key, next)}
+              />
+            )}
+            onMove={(key: ContactGroupField, offset: number) =>
+              void save({
+                ...value,
+                groupOrder: moveContactCardField(value.groupOrder, key, offset),
+              })
+            }
+          />
         </Card>
-        <Card
-          title="预览"
-          icon={<Eye size={15} strokeWidth={1.8} />}
-          settingId="contact-card-preview"
-          action={<span className="weq-set-row-desc">使用我的资料实时渲染</span>}
-        >
-          <div className="weq-contact-preview-slot">
-            <ContactCardPreview settings={value} />
-          </div>
-        </Card>
+        <AutoSave
+          value={value}
+          saved={saved}
+          ready={source.ready}
+          save={persist}
+          reset={() => setOptimistic(null)}
+          resetKeys={['contactCard']}
+        />
       </div>
     </SettingsResetCardContext.Provider>
   );

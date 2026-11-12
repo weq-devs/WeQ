@@ -121,7 +121,7 @@ export function ContactSection({
   );
 }
 
-/** 协议字段（QID / NT UID / 原始编码）只在这里出现，默认折叠。 */
+/** 协议字段（QID / UID / 原始编码）只在这里出现，默认折叠。 */
 export function ContactTechnicalDetails({ children }: { children: ReactNode }) {
   const id = useId();
   return (

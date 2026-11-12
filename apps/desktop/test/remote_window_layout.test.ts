@@ -18,6 +18,45 @@ afterEach(() => {
   delete window.weqRemoteWindowLayout;
   document.body.replaceChildren();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it('桌面原生快照复用同一计算器，偏好切换清理旧占位，卸载退订', () => {
+  const root = document.createElement('div');
+  root.className = 'weq-web-shell';
+  const header = document.createElement('header');
+  header.className = 'weq-mobile-header';
+  root.append(header);
+  document.body.append(root);
+  vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1000);
+  vi.spyOn(header, 'getBoundingClientRect').mockReturnValue({
+    ...wide,
+    width: 1000,
+    height: 56,
+  } as DOMRect);
+  let changed: (value: import('../src/shared/window_chrome').NativeWindowChrome) => void = () => {};
+  const unsubscribe = vi.fn();
+  vi.stubGlobal('weq', {
+    windowChrome: {
+      getSnapshot: () => ({ controls: 'native', inline: true, layout }),
+      onChange: (listener: typeof changed) => {
+        changed = listener;
+        return unsubscribe;
+      },
+    },
+  });
+  const stop = observeRemoteWindowLayout(document);
+  expect(document.documentElement.hasAttribute('data-weq-inline-native-controls')).toBe(true);
+  expect(header.style.getPropertyValue('--weq-window-chrome-left')).toBe('108px');
+  changed({
+    controls: 'windows',
+    inline: false,
+    layout: { ...layout, topLeft: { width: 0, height: 0 } },
+  });
+  expect(document.documentElement.hasAttribute('data-weq-inline-native-controls')).toBe(false);
+  expect(header.hasAttribute('data-weq-window-chrome')).toBe(false);
+  stop();
+  expect(unsubscribe).toHaveBeenCalledOnce();
 });
 
 it('宽标题只在相交处横向避让，其他栏与下方标题不移动', () => {

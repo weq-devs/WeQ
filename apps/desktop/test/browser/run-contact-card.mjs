@@ -222,7 +222,7 @@ try {
       qa.configure({ ...previous, visible: { ...previous.visible, uid: true } });
       return previous;
     });
-    await card.getByTitle('复制 UID', { exact: true }).click();
+    await card.getByRole('button', { name: /^复制 (?:NT )?UID$/ }).click();
     await card.locator('.weq-copy-feedback').waitFor();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'u_sample');
     await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
@@ -331,7 +331,7 @@ try {
       ).length,
       0,
     );
-    for (const width of [1280, 390])
+    for (const width of [1280, 390, 320])
       for (const theme of ['light', 'dark']) {
         await page.setViewportSize({ width, height: 900 });
         await page.evaluate((theme) => {
@@ -352,17 +352,65 @@ try {
         if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-page.png`) });
         await page.getByRole('button', { name: '名片设置', exact: true }).click();
         await page.getByRole('switch', { name: 'QQ 能量值', exact: true }).waitFor();
-        await checkPrivileges(page.locator('.weq-contact-card-preview'));
-        // 预览必须用本人资料，不能出现任何虚构联系人
-        const previewText = await page.locator('.weq-contact-card-preview').innerText();
+        const settings = page.locator('[data-setting-id="contact-card"]');
+        assert.equal(await settings.locator('.weq-set-head + .weq-set-card').count(), 1);
         assert.equal(
-          /示例联系人|示例大学|示例公司|sample-person|sample@example/.test(previewText),
-          false,
+          await settings.getByText('可点击顶部头像预览效果', { exact: true }).count(),
+          1,
         );
-        // 预览内容来自本人（self）资料，不是任何合成好友
-        assert.match(previewText, /自己的公司/);
-        await page.getByRole('switch', { name: 'QQ 能量值', exact: true }).click();
-        await page.getByRole('switch', { name: 'QQ 能量值', exact: true }).click();
+        assert.equal(await settings.locator('[data-setting-id="contact-card-preview"]').count(), 0);
+        assert.equal(await settings.getByRole('button', { name: /^(上移|下移)/ }).count(), 0);
+        assert.equal(
+          await settings.locator('.weq-contact-sort-item').count(),
+          await settings.getByRole('switch').count(),
+        );
+        assert.equal(
+          await settings
+            .locator('.weq-autosave')
+            .evaluate((node) => node.getBoundingClientRect().height),
+          0,
+        );
+        for (const [id, orderKey] of [
+          ['contact-card-sort', 'order'],
+          ['contact-card-group-sort', 'groupOrder'],
+        ]) {
+          const list = page.locator(`#${id}`);
+          const before = await list
+            .locator('li')
+            .evaluateAll((rows) => rows.map((row) => row.dataset.field));
+          await list.locator('.weq-contact-sort-handle').first().dragTo(list.locator('li').nth(1));
+          const expected = [before[1], before[0], ...before.slice(2)];
+          assert.deepEqual(
+            await list.locator('li').evaluateAll((rows) => rows.map((row) => row.dataset.field)),
+            expected,
+          );
+          await page.waitForFunction(
+            ({ orderKey, expected }) =>
+              JSON.stringify(window.contactCardQa.settings[orderKey]) === JSON.stringify(expected),
+            { orderKey, expected },
+          );
+          // 拖拽不会改变开关；键盘用户仍能在把手上调整顺序。
+          const handle = list.locator('.weq-contact-sort-handle').nth(1);
+          await handle.focus();
+          await handle.press('ArrowUp');
+          await page.waitForFunction(
+            ({ orderKey, before }) =>
+              JSON.stringify(window.contactCardQa.settings[orderKey]) === JSON.stringify(before),
+            { orderKey, before },
+          );
+        }
+        const energy = page.getByRole('switch', { name: 'QQ 能量值', exact: true });
+        const previousEnergy = (await energy.getAttribute('aria-checked')) === 'true';
+        await energy.click();
+        await page.waitForFunction(
+          (previous) => window.contactCardQa.settings.visible.energy !== previous,
+          previousEnergy,
+        );
+        await energy.click();
+        await page.waitForFunction(
+          (previous) => window.contactCardQa.settings.visible.energy === previous,
+          previousEnergy,
+        );
         assert.equal(await page.getByText('能量等级', { exact: false }).count(), 0);
         await page.evaluate(() => {
           document.scrollingElement.scrollTop = 0;
@@ -429,6 +477,10 @@ try {
       qa.notify();
     });
     await page.getByText('非好友', { exact: true }).waitFor();
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+          false,
+        );
     await page.evaluate(() => {
       const qa = window.contactCardQa;
       qa.mode = 'bot';

@@ -1,10 +1,6 @@
-export type WindowCorner = { width: number; height: number };
-export type RemoteWindowLayout = {
-  width: number;
-  height: number;
-  topLeft: WindowCorner;
-  topRight: WindowCorner;
-};
+import type { WindowCornerLayout } from '../../../shared/window_chrome';
+export type WindowCorner = WindowCornerLayout['topLeft'];
+export type RemoteWindowLayout = WindowCornerLayout;
 type Rect = { left: number; top: number; right: number; bottom: number };
 
 declare global {
@@ -94,6 +90,8 @@ const chromeSelector = [
 export function observeRemoteWindowLayout(doc: Document): () => void {
   const win = doc.defaultView;
   if (!win) return () => {};
+  const nativeBridge = win.weq?.windowChrome;
+  let nativeChrome = nativeBridge?.getSnapshot();
   let frame = 0;
   let stopped = false;
   const targets = new Set<HTMLElement>();
@@ -109,9 +107,13 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
   const update = () => {
     frame = 0;
     if (stopped) return;
+    doc.documentElement.toggleAttribute(
+      'data-weq-inline-native-controls',
+      nativeChrome?.inline === true,
+    );
     const viewport = win.visualViewport;
     const corners = windowCornerRects(
-      win.weqRemoteWindowLayout,
+      nativeChrome?.layout ?? win.weqRemoteWindowLayout,
       viewport?.width || doc.documentElement.clientWidth,
     ).map((rect) => ({
       left: rect.left + (viewport?.offsetLeft || 0),
@@ -195,6 +197,10 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
     if (relevant) schedule();
   });
   win.addEventListener('weq-remote-window-layout', update);
+  const unsubscribeNative = nativeBridge?.onChange((value) => {
+    nativeChrome = value;
+    update();
+  });
   win.addEventListener('resize', schedule);
   win.visualViewport?.addEventListener('resize', schedule);
   win.visualViewport?.addEventListener('scroll', schedule);
@@ -202,6 +208,7 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
   update();
   return () => {
     stopped = true;
+    unsubscribeNative?.();
     win.cancelAnimationFrame(frame);
     resize?.disconnect();
     mutation.disconnect();
@@ -211,5 +218,6 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
     win.visualViewport?.removeEventListener('scroll', schedule);
     for (const node of targets) clear(node);
     doc.documentElement.style.removeProperty('--weq-window-header-top');
+    doc.documentElement.removeAttribute('data-weq-inline-native-controls');
   };
 }

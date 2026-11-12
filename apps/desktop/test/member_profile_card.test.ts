@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const preferences = vi.hoisted(() => ({
   friendClue: false,
   extraDetails: false,
+  uid: false,
 }));
 
 // 卡片会拉 tRPC 补全陌生人资料 —— 单测不建 ipc 链接，给个死数据桩。
@@ -47,7 +48,9 @@ vi.mock('@renderer/trpc/client', () => ({
     bootstrap: {
       getSettings: {
         useQuery: () => ({
-          data: { contactCard: { visible: { friendClue: preferences.friendClue } } },
+          data: {
+            contactCard: { visible: { friendClue: preferences.friendClue, uid: preferences.uid } },
+          },
         }),
       },
     },
@@ -340,6 +343,33 @@ describe('群成员资料卡浮层', () => {
       vi.useRealTimers();
     }
   });
+  it('UID 开启时与 QQ 号、QID 并列且可复制，正文不再重复', async () => {
+    preferences.uid = true;
+    await mountCard(() => {}, undefined, { ...MEMBER, qid: 'synthetic-qid' });
+    const numbers = layer().querySelector('.weq-contact-meta:has(.weq-contact-number)');
+    expect(numbers?.textContent).toContain('10001');
+    expect(numbers?.textContent).toContain('synthetic-qid');
+    const uid = numbers?.querySelector<HTMLButtonElement>('[aria-label="复制 UID"]');
+    expect(uid?.textContent).toContain(MEMBER.id);
+    expect(layer().querySelector('[data-profile-field="uid"]')).toBeNull();
+    await act(async () => uid!.click());
+    const { copyTextToClipboard } = await import('@renderer/im-template/template/clipboard');
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith(MEMBER.id, document);
+    expect(uid?.textContent).toContain('已复制');
+  });
+  it('UID 默认隐藏，非 NT 身份开启后也不显示', async () => {
+    await mountCard(() => {});
+    expect(layer().querySelector('[aria-label="复制 UID"]')).toBeNull();
+    act(() => roots.pop()!.unmount());
+    preferences.uid = true;
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      id: 'phone:10002',
+      identityLabel: '设备',
+      identityValue: '10002',
+    });
+    expect(layer().querySelector('[aria-label="复制 UID"]')).toBeNull();
+  });
   it('数字设备身份不作为 QQ 号请求名片名称、QQ 秀和资料', async () => {
     const show = vi.spyOn(client.account.dressup.peerQqShow, 'query');
     const dress = vi.spyOn(client.account.dressup.peerHome, 'query');
@@ -575,6 +605,7 @@ describe('群成员资料卡浮层', () => {
   beforeEach(() => {
     preferences.friendClue = false;
     preferences.extraDetails = false;
+    preferences.uid = false;
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
   });
