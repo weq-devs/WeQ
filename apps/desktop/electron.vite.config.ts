@@ -17,6 +17,7 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/db',
   '@weq/native',
   '@weq/native/authorization.mjs',
+  '@weq/native/qq-sync.mjs',
   '@weq/platform',
   '@weq/protocol',
   '@weq/service',

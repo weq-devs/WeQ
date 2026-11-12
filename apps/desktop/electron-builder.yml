@@ -4,7 +4,7 @@ copyright: Copyright © 2026 weQ contributors
 directories:
   output: release/${version}
   buildResources: build
-beforePack: ../../scripts/package-remote-network.mjs
+beforePack: ../../scripts/package-qq-sync.mjs
 afterPack: ../../scripts/trim-desktop-package.mjs
 afterSign: ../../scripts/verify-desktop-authorization.mjs
 files:
@@ -130,6 +130,8 @@ win:
   # 本地 OCR 的推理引擎：只带本次构建的架构那一份（见顶部 extraResources 的说明）。
   # `script/` 只在 postinstall 用得上，不带。
   extraResources:
+    - from: ../../native/qq-sync
+      to: qq-sync
     - from: node_modules/onnxruntime-node
       to: node_modules/onnxruntime-node
       filter:

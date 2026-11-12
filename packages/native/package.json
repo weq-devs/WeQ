@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./authorization.mjs": "./authorization.mjs",
+    "./qq-sync.mjs": "./qq-sync.mjs",
     "./validity.mjs": "./validity.mjs"
   },
   "scripts": {

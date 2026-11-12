@@ -13,6 +13,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { StorageRoot, StorageUsageItem } from '../bootstrap/storage_usage';
 import type { StorageCleanupResult } from '../bootstrap/storage_cleanup';
+import type { PrivateTextSentReceipt } from '../account/message_send';
 
 /** Where a "save as" request should land, plus how to hand it to the user. */
 export interface SaveTarget {
@@ -35,6 +36,10 @@ export interface AppAutostartStatus {
 }
 
 export interface HostBridge {
+  syncPrivateTextSent?(
+    receipt: PrivateTextSentReceipt,
+    isCurrent: () => boolean,
+  ): void | Promise<void>;
   /** 宿主额外拥有的目录，显式标记运行数据或受保护的安装资源。 */
   storageRoots?(): StorageRoot[];
   clearStorageAfterExit?(targets: StorageUsageItem[]): Promise<void>;

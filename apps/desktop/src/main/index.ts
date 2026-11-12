@@ -122,6 +122,7 @@ import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
 import { guardStorageCleanupStartup } from './storage_cleanup';
+import { startDesktopQqSync, stopDesktopQqSync } from './qq_sync';
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 guardStorageCleanupStartup();
 
@@ -767,6 +768,7 @@ void app.whenReady().then(async () => {
     const icon = resolveWindowIcon();
     if (icon) app.dock?.setIcon(icon);
   }
+  await startDesktopQqSync();
   const autostart =
     app.isPackaged &&
     isAutostartLaunch(
@@ -837,6 +839,7 @@ void app.whenReady().then(async () => {
         : join(app.getAppPath(), '../web/dist/public'),
       exportDir: join(app.getPath('userData'), 'web-exports'),
       renderer: electronHost,
+      syncPrivateTextSent: electronHost.syncPrivateTextSent,
       version: app.getVersion(),
       router: appRouter,
     });
@@ -1021,6 +1024,7 @@ if (hasSingleInstanceLock) {
         databaseCheckups.cancelAll(),
         assistantResourceServer.shutdown(),
         getAppContext().services?.unreadInfo.dispose(),
+        stopDesktopQqSync(),
       ]);
     },
     (error) => {

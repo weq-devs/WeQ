@@ -16,6 +16,7 @@ export interface WebCoreConfig {
   version: string;
   router: AnyRouter;
   renderer?: Pick<HostBridge, 'renderHtmlToPdf' | 'renderHtmlToSlidesPng' | 'renderHtmlToLongPng'>;
+  syncPrivateTextSent?: HostBridge['syncPrivateTextSent'];
 }
 
 /** 共用业务路由和宿主；各入口只持有自己的认证、请求与订阅。 */

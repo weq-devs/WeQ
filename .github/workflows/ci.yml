@@ -162,7 +162,7 @@ jobs:
 
       - name: Check CI orchestration and reports
         if: matrix.suite == 'core'
-        run: node --test scripts/test-ci.test.mjs scripts/release-notes.test.mjs scripts/publish-aur.test.mjs
+        run: node --test scripts/test-ci.test.mjs scripts/qq-sync-package.test.mjs scripts/release-notes.test.mjs scripts/publish-aur.test.mjs
 
       - name: Summarize test results
         if: always() && matrix.suite != 'core'

@@ -36,6 +36,7 @@
  *   pnpm native:fetch --check              # 只比对，不改文件（缺失 / 落后 / 过期 → 退出码 1）
  *   pnpm native:fetch --require-fresh      # CI 用：剩余有效期不足 1/5 直接失败
  *   pnpm native:fetch --require-authorization # 桌面 release：必须包含有效的原生权限助手
+ *   pnpm native:fetch --require-qq-sync    # Windows release：必须包含配套 QQ 同步组件
  *   pnpm native:fetch --no-authorization   # Web：不下载仅供桌面使用的权限助手
  *   pnpm native:fetch --verify             # 装完在宿主机 require 一次并跑 getInitStatus()
  *   pnpm native:fetch --from-dir ./dist    # 从本地目录装（需含 manifest.json + 各资产；离线 / 镜像）
@@ -81,6 +82,7 @@ import {
 } from '../packages/native/authorization.mjs';
 import { verifyAuthorizationHelper } from './check-authorization-helper.mjs';
 import { RETRYABLE_HTTP_STATUS, RetryableHttpError, withRetry } from './retry.mjs';
+import { qqSyncArtifacts } from '../packages/native/qq-sync.mjs';
 
 // ─────────────────────────── 常量 ───────────────────────────
 
@@ -143,6 +145,7 @@ const dressOnly = has('--dress-only');
 const withDress = !has('--no-dress');
 const requireFresh = has('--require-fresh');
 const requireAuthorization = has('--require-authorization');
+const requireQqSync = has('--require-qq-sync');
 const withAuthorization = !has('--no-authorization');
 const wantLatest = has('--latest');
 const writePin = has('--write-pin');
@@ -595,6 +598,7 @@ function planFiles(manifest, platforms) {
       ? authorizationArtifact(manifest, name, spec.dir, { required: requireAuthorization })
       : null;
     if (authorization) files.push(authorization);
+    files.push(...qqSyncArtifacts(manifest, name, { required: requireQqSync }));
   }
   if (withDress) {
     for (const part of DRESS_PARTS) {

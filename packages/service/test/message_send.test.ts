@@ -14,7 +14,7 @@ import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { gunzipSync, inflateSync } from 'node:zlib';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   decode,
   encode,
@@ -167,6 +167,145 @@ describe('设备文件发送', () => {
       }),
     ).rejects.toThrow(/真实 UID/);
     expect(native.calls).toHaveLength(0);
+  });
+});
+
+describe('普通好友文字的宿主回执', () => {
+  const settled = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const service = (
+    native: ReturnType<typeof fakeNative>,
+    hook: NonNullable<ConstructorParameters<typeof MessageSendService>[8]>,
+    pid = () => 42,
+  ) =>
+    new MessageSendService(
+      native as never,
+      fakeSession({ selfUid: 'u_fixture_self' }),
+      pid,
+      undefined,
+      undefined,
+      undefined,
+      () => false,
+      undefined,
+      hook,
+    );
+
+  it('发送成功后向宿主提供本次请求的客户端序号和服务端回执', async () => {
+    const native = fakeNative();
+    const hook = vi.fn();
+    const resolvePid = vi.fn(() => 42);
+    const svc = service(native, hook, resolvePid);
+    const outcome = await svc.sendText({ peerType: 'c2c', targetId: '20002', text: 'fixture' });
+    await settled();
+    expect(outcome.ok).toBe(true);
+    expect(native.calls).toHaveLength(1);
+    const request = decode(SEND_MESSAGE_REQUEST, native.calls[0].body) as Record<string, unknown>;
+    expect(hook).toHaveBeenCalledWith(
+      {
+        pid: 42,
+        selfUid: 'u_fixture_self',
+        peerUid: 'u_friend',
+        clientSequence: request.clientSequence,
+        timestamp: 1700000000,
+        privateSequence: 43,
+        msgRandom: request.random,
+      },
+      expect.any(Function),
+    );
+    expect(resolvePid).toHaveBeenCalledTimes(2);
+    expect(hook.mock.calls[0][1]()).toBe(true);
+  });
+
+  it('宿主回调抛错或迟迟不返回，发送仍只投递一次并返回成功', async () => {
+    for (const hook of [
+      () => {
+        throw new Error('bridge offline');
+      },
+      () => new Promise<void>(() => {}),
+    ]) {
+      const native = fakeNative();
+      const outcome = await service(native, hook).sendText({
+        peerType: 'c2c',
+        targetId: '20002',
+        text: 'fixture',
+      });
+      await settled();
+      expect(outcome.ok).toBe(true);
+      expect(native.calls).toHaveLength(1);
+    }
+  });
+
+  it('私聊回执缺少序号时保留上游发送结果并跳过同步', async () => {
+    const native = fakeNative();
+    const send = native.sendPacket;
+    native.sendPacket = async (...args) => {
+      await send(...args);
+      return Buffer.from(
+        encode(SEND_MESSAGE_RESPONSE, {
+          result: 0,
+          errMsg: 'fixture-detail',
+          timestamp1: 1700000000,
+        }),
+      );
+    };
+    const hook = vi.fn();
+    const outcome = await service(native, hook).sendText({
+      peerType: 'c2c',
+      targetId: '20002',
+      text: 'fixture',
+    });
+    await settled();
+    expect(outcome.privateSequence).toBe(0);
+    expect(outcome.errMsg).toBe('fixture-detail');
+    expect(outcome.hint).toBeUndefined();
+    expect(native.calls).toHaveLength(1);
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it('服务器拒绝、回执缺少时间、群聊和账号切换均不触发补取', async () => {
+    for (const scenario of ['rejected', 'missing-time', 'group', 'switched'] as const) {
+      const native = fakeNative();
+      const hook = vi.fn();
+      let pid = 42;
+      const send = native.sendPacket;
+      native.sendPacket = async (...args) => {
+        const response = await send(...args);
+        if (scenario === 'switched') pid = 43;
+        if (scenario === 'rejected' || scenario === 'missing-time')
+          return Buffer.from(
+            encode(SEND_MESSAGE_RESPONSE, {
+              result: scenario === 'rejected' ? 1 : 0,
+              privateSequence: 43,
+              timestamp1: scenario === 'missing-time' ? 0 : 1700000000,
+            }),
+          );
+        return response;
+      };
+      await service(native, hook, () => pid).sendText({
+        peerType: scenario === 'group' ? 'group' : 'c2c',
+        targetId: '20002',
+        text: 'fixture',
+      });
+      await settled();
+      expect(hook).not.toHaveBeenCalled();
+      expect(native.calls).toHaveLength(1);
+    }
+  });
+
+  it.each([
+    { targetId: 'u_Wcc5rknRRqRO8y5gxMD6sA' },
+    { targetId: '20002', tempGroupCode: '12345' },
+  ])('设备或群临时会话 $targetId 发送成功后跳过普通私聊补取', async (target) => {
+    const native = fakeNative();
+    const hook = vi.fn();
+    const outcome = await service(native, hook).sendText({
+      peerType: 'c2c',
+      ...target,
+      text: 'hi',
+    });
+    await settled();
+    expect(outcome.ok).toBe(true);
+    expect(native.calls).toHaveLength(1);
+    expect(hook).not.toHaveBeenCalled();
   });
 });
 
