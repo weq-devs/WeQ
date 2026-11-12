@@ -98,6 +98,40 @@ it('不同批次和兼容轻量请求共用初始化快照，后续读取不发 
   for (let i = 0; i < 20; i++) expect((await f.query())[0]).toBe(a[0]);
   expect(f.all).toHaveBeenCalledOnce();
 });
+it.each([1, 2])('类型 %s 的跨端自发消息在 QQ 减项到达前后都不增加未读', async (chatType) => {
+  const f = fixture();
+  await f.query();
+  const identity = { chatType, uid: target.uid, peer: `${chatType}_${target.uid}` };
+  const query = () => f.service.getUnreadInfos([identity]);
+  f.update([row({ ...identity, msgSeq: 100, latestSenderUid: 'u_peer' })]);
+  expect((await query())[0]?.unreadCount).toBe(0);
+  f.update([row({ ...identity, msgSeq: 100, latestSeq: '101', latestSenderUid: 'u_self' })]);
+  expect((await query())[0]?.unreadCount).toBe(0);
+  f.update([row({ ...identity, msgSeq: 100, latestSeq: '102', latestSenderUid: 'u_peer' })]);
+  expect((await query())[0]?.unreadCount).toBe(1);
+  f.update([
+    row({
+      ...identity,
+      msgSeq: 100,
+      latestSeq: '102',
+      latestSenderUid: 'u_peer',
+      decreasedSeqs: ['101'],
+    }),
+  ]);
+  expect((await query())[0]?.unreadCount).toBe(1);
+  f.update([
+    row({
+      ...identity,
+      msgSeq: 100,
+      latestSeq: '103',
+      latestSenderUid: 'u_self',
+      decreasedSeqs: ['101'],
+    }),
+  ]);
+  expect((await query())[0]?.unreadCount).toBe(1);
+  expect(f.markRead).not.toHaveBeenCalled();
+  expect(f.setReadState).not.toHaveBeenCalled();
+});
 it('共享初始化不继承单个页面取消，账号关闭才取消底层读取', async () => {
   const f = fixture();
   await f.query();

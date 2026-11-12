@@ -19,7 +19,7 @@ function fixture() {
     nt = createSqliteStub(),
     sql = fixtureDb(path);
   sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
-    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER);
+    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT);
     CREATE INDEX recent_uid ON recent_contact_v3_table("40021");`);
   const query = vi.spyOn(nt, 'executeSql');
   const db = new UnreadInfoDb(nt, { dbPath: path });
@@ -27,7 +27,9 @@ function fixture() {
 }
 it('1300 会话共享快照单条 SQL，不受未读区间长度或发送方向影响', async () => {
   const f = fixture();
-  const insert = f.sql.prepare('INSERT INTO recent_contact_v3_table VALUES (?,?,?)');
+  const insert = f.sql.prepare(
+    'INSERT INTO recent_contact_v3_table ("40021","40003","40010") VALUES (?,?,?)',
+  );
   const unread = f.sql.prepare('INSERT INTO msg_unread_info_table VALUES (?,?)');
   const proto = new ProtoMsg(UnreadInfo);
   f.sql.exec('BEGIN');
@@ -77,14 +79,18 @@ it('缺最近会话行、缺水位、设备和纯标记均可读取，不触发�
 });
 it('无关会话写入和同水位内容修正只重读小表，不存在消息历史扫描', async () => {
   const f = fixture();
-  f.sql.exec(`INSERT INTO recent_contact_v3_table VALUES ('70001',100,2)`);
+  f.sql.exec(
+    `INSERT INTO recent_contact_v3_table ("40021","40003","40010") VALUES ('70001',100,2)`,
+  );
   const proto = new ProtoMsg(UnreadInfo);
   f.sql
     .prepare('INSERT INTO msg_unread_info_table VALUES (?,?)')
     .run('2_70001', proto.encode({ info: { msgSeq: 90 } }));
   try {
     await f.db.getAllUnreadInfos();
-    f.sql.exec(`INSERT INTO recent_contact_v3_table VALUES ('70002',100,2)`);
+    f.sql.exec(
+      `INSERT INTO recent_contact_v3_table ("40021","40003","40010") VALUES ('70002',100,2)`,
+    );
     await f.db.getAllUnreadInfos();
     f.sql
       .prepare('UPDATE msg_unread_info_table SET "48902"=?')

@@ -93,7 +93,7 @@ export class UnreadInfoService {
     private readonly localOptions?: { statePath: string; readOnly?: boolean },
     private readonly countSource?: UnreadCountSource,
   ) {
-    this.local = new LocalUnreadStore(localOptions?.statePath);
+    this.local = new LocalUnreadStore(localOptions?.statePath, session.selfUid);
     if (typeof session.unreadInfo.getAllUnreadInfos === 'function')
       void this.refreshSnapshots().catch(() => {});
   }

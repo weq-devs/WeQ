@@ -19,6 +19,61 @@ function snapshot(extra: Partial<UnreadInfoSnapshot> = {}): UnreadInfoSnapshot {
 }
 
 describe('QQ 小表直接投影', () => {
+  it('自发减项补齐时去重，后续入站和已有未读不被当作已读', () => {
+    const store = new LocalUnreadStore(undefined, 'u_self');
+    const own = snapshot({ latestSenderUid: 'u_self' });
+    expect(store.resolve(own)).toMatchObject({ readSeq: '90', unreadCount: 19 });
+    expect(store.resolve({ ...own, decreasedSeqs: ['110', '110'] }).unreadCount).toBe(19);
+    expect(
+      store.resolve(
+        snapshot({ latestSeq: '111', latestSenderUid: 'u_peer', decreasedSeqs: ['110'] }),
+      ).unreadCount,
+    ).toBe(20);
+    expect(store.resolve({ ...own, markUnread: true, msgSeq: 109 }).unreadCount).toBe(1);
+  });
+  it('连续跨端自发和紧接着的回复在减项延迟时保持稳定，阅读后不影响新消息', () => {
+    const store = new LocalUnreadStore(undefined, 'u_self');
+    expect(store.resolve(snapshot({ msgSeq: 109, latestSenderUid: 'u_self' })).unreadCount).toBe(0);
+    expect(
+      store.resolve(snapshot({ msgSeq: 109, latestSeq: '111', latestSenderUid: 'u_self' }))
+        .unreadCount,
+    ).toBe(0);
+    expect(
+      store.resolve(snapshot({ msgSeq: 109, latestSeq: '112', latestSenderUid: 'u_peer' }))
+        .unreadCount,
+    ).toBe(1);
+    expect(
+      store.resolve(
+        snapshot({
+          msgSeq: 109,
+          latestSeq: '112',
+          latestSenderUid: 'u_peer',
+          decreasedSeqs: ['110', '111'],
+        }),
+      ).unreadCount,
+    ).toBe(1);
+    store.markRead(2, '70001', '112');
+    expect(
+      store.resolve(snapshot({ latestSeq: '113', latestSenderUid: 'u_peer' })).unreadCount,
+    ).toBe(1);
+  });
+  it('缺发送者、缺自身身份、不同会话及设备计数均不误扣', () => {
+    const store = new LocalUnreadStore(undefined, 'u_self');
+    expect(store.resolve(snapshot({ latestSenderUid: 'u_self' })).unreadCount).toBe(19);
+    expect(store.resolve(snapshot({ chatType: 1, peer: '1_70001' })).unreadCount).toBe(20);
+    expect(
+      store.resolve(snapshot({ uid: 'other', peer: '2_other', latestSenderUid: '' })).unreadCount,
+    ).toBe(20);
+    expect(new LocalUnreadStore().resolve(snapshot({ latestSenderUid: '' })).unreadCount).toBe(20);
+    expect(
+      new LocalUnreadStore().resolve(snapshot({ latestSenderUid: 'u_self' })).unreadCount,
+    ).toBe(20);
+    expect(
+      store.resolve(
+        snapshot({ chatType: 8, peer: '8_70001', latestSenderUid: 'u_self', localUnreadCount: 3 }),
+      ).unreadCount,
+    ).toBe(3);
+  });
   it('阅读下限取 QQ 服务端、本地和显式操作的最大值，减项去重且只扣区间内项', () => {
     const store = new LocalUnreadStore();
     const row = snapshot({

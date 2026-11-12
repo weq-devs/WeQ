@@ -17,10 +17,10 @@ it('未读水位按 UID 定位，仅将类型作为剩余筛选，不重复扫�
   const path = join(root, 'msg.db');
   const sql = fixtureDb(path);
   sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
-    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40027" INTEGER);
+    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40027" INTEGER,"40020" TEXT);
     CREATE INDEX contacts_uid ON recent_contact_v3_table("40021");
     CREATE INDEX contacts_type_partition ON recent_contact_v3_table("40010","40027");
-    INSERT INTO recent_contact_v3_table VALUES ('u_peer',12,1,42),('u_peer',99,2,43)`);
+    INSERT INTO recent_contact_v3_table VALUES ('u_peer',12,1,42,'u_self'),('u_peer',99,2,43,'u_peer')`);
   const nt = createSqliteStub();
   const execute = vi.spyOn(nt, 'executeSql');
   const db = new UnreadInfoDb(nt, { dbPath: path });
@@ -30,6 +30,7 @@ it('未读水位按 UID 定位，仅将类型作为剩余筛选，不重复扫�
     { chatType: 1, uid: 'u_absent' },
   ]);
   expect(rows.map((row) => row.latestSeq)).toEqual(['12', '99', null]);
+  expect(rows.map((row) => row.latestSenderUid)).toEqual(['u_self', 'u_peer', undefined]);
   const [, query, params] = execute.mock.calls.find(([, query]) => query.includes('WITH targets'))!;
   const plan = sql
     .prepare(`EXPLAIN QUERY PLAN ${query}`)

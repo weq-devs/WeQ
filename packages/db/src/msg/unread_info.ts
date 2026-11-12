@@ -98,6 +98,8 @@ export interface UnreadInfoTarget {
 
 export interface UnreadInfoSnapshot extends UnreadInfoResult {
   latestSeq: string | null;
+  /** 最近会话小表 40020，与 latestSeq 同一行的发送者。 */
+  latestSenderUid?: string;
 
   readError?: true;
 }
@@ -170,7 +172,7 @@ export class UnreadInfoDb {
       const batch = unique.slice(offset, offset + 256);
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
-         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003"
+         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003", r."40020"
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
          LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND CAST(r."40010" AS INTEGER) = t.chatType`,
@@ -184,11 +186,11 @@ export class UnreadInfoDb {
   /** 账号共享快照只读两张小表，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
     const rows = await this.qq.query(
-      `SELECT r."40010", r."40021", CAST(r."40010" AS TEXT) || '_' || r."40021", NULL, r."40003"
+      `SELECT r."40010", r."40021", CAST(r."40010" AS TEXT) || '_' || r."40021", NULL, r."40003", r."40020"
        FROM recent_contact_v3_table r
        WHERE CAST(r."40010" AS INTEGER) IN (1,2,8,134)
        UNION ALL
-       SELECT NULL,NULL,u."48901",u."48902",NULL FROM msg_unread_info_table u`,
+       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL FROM msg_unread_info_table u`,
     );
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
     const merged = new Map<string, unknown[]>();
@@ -234,6 +236,7 @@ export class UnreadInfoDb {
         uid: row[1] == null ? peer.slice(split + 1) : String(row[1]),
         peer,
         latestSeq: row[4] == null ? null : String(row[4]),
+        latestSenderUid: row[5] == null ? undefined : String(row[5]),
       };
       try {
         const decoded = row[3] instanceof Uint8Array ? this.proto.decode(row[3]) : {};

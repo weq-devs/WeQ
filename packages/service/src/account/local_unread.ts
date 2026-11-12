@@ -38,11 +38,15 @@ export async function waitForUnreadWrites(): Promise<void> {
 /** 只保存显式操作。QQ 小表直接提供计数基准，不再落盘消息集合或观察水位。 */
 export class LocalUnreadStore {
   private readonly positions = new Map<string, ReadPosition>();
+  private readonly pendingOutgoing = new Map<string, Set<string>>();
   private revision = 0;
   private savedRevision = 0;
   private writing?: Promise<void>;
 
-  constructor(private readonly path?: string) {
+  constructor(
+    private readonly path?: string,
+    private readonly selfUid?: string,
+  ) {
     const raw = path ? readJsonFile(path) : null;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
     for (const [key, value] of Object.entries(raw)) {
@@ -177,6 +181,28 @@ export class LocalUnreadStore {
     const highlights = snapshot.highlights?.filter((hit) => BigInt(hit.msgSeq) > floor);
     const device = classifyChatType(snapshot.chatType) === 'dataline';
     const decreased = new Set(snapshot.decreasedSeqs ?? []);
+    // QQ 可能先更新最新消息，再补减项。仅暂存小表已确认的自发序号，不抬高阅读水位。
+    if (!device) {
+      const outgoing = this.pendingOutgoing.get(snapshot.peer) ?? new Set<string>();
+      for (const seq of outgoing)
+        if (BigInt(seq) <= floor || decreased.has(seq)) outgoing.delete(seq);
+      if (
+        this.selfUid &&
+        snapshot.latestSenderUid === this.selfUid &&
+        latest !== null &&
+        latest > floor &&
+        !decreased.has(snapshot.latestSeq!)
+      )
+        outgoing.add(snapshot.latestSeq!);
+      // 短暂补偿有界且不落盘；QQ 小表接纳后即释放。
+      while (outgoing.size > 64) outgoing.delete(outgoing.values().next().value!);
+      if (outgoing.size) {
+        this.pendingOutgoing.set(snapshot.peer, outgoing);
+        while (this.pendingOutgoing.size > 1024)
+          this.pendingOutgoing.delete(this.pendingOutgoing.keys().next().value!);
+        for (const seq of outgoing) decreased.add(seq);
+      } else this.pendingOutgoing.delete(snapshot.peer);
+    }
     const deductions = [...decreased].filter(
       (seq) => BigInt(seq) > floor && latest !== null && BigInt(seq) <= latest,
     ).length;
