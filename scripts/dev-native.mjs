@@ -16,6 +16,7 @@ import {
   writeJson,
 } from './dev-prepare.mjs';
 import { runCommand, startupLog } from './dev-process.mjs';
+import { prepareDress } from './dev-dress.mjs';
 
 const kinds = ['font', 'bubble', 'widget'];
 const inputs = [
@@ -23,7 +24,7 @@ const inputs = [
   'Cargo.lock',
   'build.rs',
   'build_support',
-  'dress-packer/Cargo.toml',
+  'dress-packer',
   'rust-toolchain',
   'rust-toolchain.toml',
   '.cargo',
@@ -71,7 +72,7 @@ export async function nativeSourceFingerprint(
     ]),
   ].sort();
   const hash = createHash('sha256').update(
-    `weq-dev-native-v2\0${resolve(source)}\0${platform.target}\0`,
+    `weq-dev-native-v3\0${resolve(source)}\0${platform.target}\0`,
   );
   for (const name of [
     'RUSTFLAGS',
@@ -284,8 +285,7 @@ export async function prepareNative(
     await unused(root, options);
     const buildEnv = {
       ...env,
-      DRESS_KEY_SEED: 'weq-development-v2',
-      NT_HELPER_PACK_DRESS: '1',
+      NT_HELPER_PACK_DRESS: '0',
       CARGO_TERM_COLOR: 'never',
     };
     delete buildEnv.BUILD_TIMESTAMP;
@@ -300,18 +300,20 @@ export async function prepareNative(
     const target = metadata.target_directory;
     await mkdir(target, { recursive: true });
     const lock = join(target, '.weq-dev-build-lock');
-    // 同一 native 源码的资源打包目录跨 WeQ checkout 共用，不允许两次打包交错。
+    // 同一 native 源码的装扮缓存和编译目录跨 WeQ checkout 共用。
     const release = await acquireProcessLock(lock);
     let staging;
     try {
       const commit = (
         await run('git', ['rev-parse', 'HEAD'], { cwd: source, capture: true })
       ).trim();
-      log(
-        `正在编译本地 native（${commit.slice(0, 7)}；首次装扮打包可能需要数分钟）`,
-        'info',
-        'native',
-      );
+      const dress = await prepareDress(source, target, commit, config.jobs, {
+        run,
+        env: buildEnv,
+        log,
+      });
+      buildEnv.DRESS_KEY_SEED = dress.seed;
+      log(`正在编译本地 native（${commit.slice(0, 7)}；装扮资源已独立准备）`, 'info', 'native');
       await run(
         'cargo',
         [
@@ -337,7 +339,7 @@ export async function prepareNative(
       );
       for (const kind of kinds)
         await copy(
-          join(source, `resources/dress/${kind}.dat`),
+          join(dress.directory, `${kind}.dat`),
           join(staging, `resources/dress/${kind}.dat`),
         );
       const localBuild = {
@@ -346,6 +348,8 @@ export async function prepareNative(
         commit,
         platform: platform.key,
         pairedDress: true,
+        dressFingerprint: dress.fingerprint,
+        dressSeed: dress.seed,
         isDev: true,
         installedAt: new Date().toISOString(),
       };

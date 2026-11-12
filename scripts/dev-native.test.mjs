@@ -14,6 +14,7 @@ import {
 } from './dev-native.mjs';
 import { exists, hashFile, readJson, writeJson } from './dev-prepare.mjs';
 import { runCommand } from './dev-process.mjs';
+import { prepareDress } from './dev-dress.mjs';
 
 const silent = () => {};
 const noop = async () => {};
@@ -49,6 +50,8 @@ async function sourceFixture(t) {
   const source = join(options.directory, 'native source');
   await mkdir(join(source, 'src'), { recursive: true });
   await mkdir(join(source, 'build_support'), { recursive: true });
+  await mkdir(join(source, 'dress-packer/src'), { recursive: true });
+  await writeFile(join(source, 'dress-packer/src/main.rs'), 'fixture packer');
   await writeFile(join(source, 'build_support/dress.rs'), 'fixture dress packer');
   await writeFile(join(source, 'Cargo.toml'), '[package]\nname="nt-helper"');
   await writeFile(join(source, 'src/lib.rs'), 'fixture source');
@@ -61,6 +64,24 @@ async function sourceFixture(t) {
   git('add', '.');
   git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'fixture');
   return { ...options, source };
+}
+
+async function fakeDressPack(args, options) {
+  assert.equal(args[args.indexOf('-p') + 1], 'nt-helper-dress-pack');
+  assert(args.includes('--release'));
+  const output = args.at(-1);
+  await mkdir(output);
+  const files = {};
+  for (const kind of ['font', 'bubble', 'widget']) {
+    const path = join(output, `${kind}.dat`);
+    await writeFile(path, `packed-${kind}-${options.env.DRESS_KEY_SEED}`);
+    files[kind] = { sha256: await hashFile(path) };
+  }
+  await writeJson(join(output, 'dress-build.json'), {
+    format: 1,
+    commit: options.env.DRESS_KEY_SEED,
+    files,
+  });
 }
 
 test('五个平台按 Rust 目标和实际 cdylib 文件名选择产物，不沿用 macOS 路径', () => {
@@ -274,20 +295,26 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
   const { root, source, directory, platform } = await sourceFixture(t);
   const target = join(directory, 'target');
   let builds = 0;
+  let packs = 0;
+  let packedSeed;
   let verifications = 0;
   const run = async (command, args, options) => {
     if (command === 'git') return runCommand(command, args, options);
     assert.equal(command, 'cargo');
     assert.equal(options.env.BUILD_TIMESTAMP, undefined);
     assert.equal(options.env.CARGO_BUILD_TARGET, undefined);
-    assert.equal(options.env.NT_HELPER_PACK_DRESS, '1');
+    assert.equal(options.env.NT_HELPER_PACK_DRESS, '0');
     if (args[0] === 'metadata') return JSON.stringify({ target_directory: target });
+    if (args[0] === 'run') {
+      packs++;
+      packedSeed = options.env.DRESS_KEY_SEED;
+      return fakeDressPack(args, options);
+    }
     builds++;
+    assert.equal(options.env.DRESS_KEY_SEED, packedSeed, 'native 使用缓存装扮的同一密钥');
     assert.equal(args[args.indexOf('--target') + 1], platform.target);
     await mkdir(join(target, platform.target, 'release'), { recursive: true });
     await writeFile(join(target, platform.target, 'release', platform.library), `native-${builds}`);
-    for (const kind of ['font', 'bubble', 'widget'])
-      await writeFile(join(source, `resources/dress/${kind}.dat`), `dat-${builds}-${kind}`);
   };
   const options = {
     run,
@@ -303,13 +330,30 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
   await prepareNative(root, config, options);
   await prepareNative(root, config, options);
   assert.equal(builds, 1);
+  assert.equal(packs, 1);
   assert.equal(verifications, 2);
   await writeFile(join(source, 'src/lib.rs'), 'changed');
   await prepareNative(root, config, options);
   assert.equal(builds, 2);
+  assert.equal(packs, 1, '只改 native 源码不重新打包');
   await writeFile(join(root, nativeFiles(platform)[0]), 'broken');
   await prepareNative(root, config, options);
   assert.equal(builds, 3);
+  assert.equal(packs, 1, 'native 损坏不重新打包');
+  execFileSync(
+    'git',
+    ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-am', 'change'],
+    { cwd: source },
+  );
+  await writeFile(join(source, 'src/lib.rs'), 'another change');
+  await prepareNative(root, config, options);
+  assert.equal(packs, 1, '源码提交变化不重新打包或更换缓存密钥');
+  await writeFile(join(source, 'resources/dress/font_resources'), 'changed raw');
+  await prepareNative(root, config, options);
+  assert.equal(packs, 2, '原始资源变化才重新打包');
+  await writeFile(join(source, 'dress-packer/src/main.rs'), 'changed packer');
+  await prepareNative(root, config, options);
+  assert.equal(packs, 3, '打包工具变化重新打包');
   assert.equal(await exists(join(target, '.weq-dev-build-lock')), false);
 });
 
@@ -324,6 +368,7 @@ test('local 编译失败和编译期间源码变化不替换、不取发布版�
       if (command === 'git') return runCommand(command, args, options);
       assert.equal(command, 'cargo');
       if (args[0] === 'metadata') return JSON.stringify({ target_directory: target });
+      if (args[0] === 'run') return fakeDressPack(args, options);
       if (changed) await writeFile(join(source, 'src/lib.rs'), 'changed during build');
       else throw new Error('compile failed');
     };
@@ -334,5 +379,54 @@ test('local 编译失败和编译期间源码变化不替换、不取发布版�
     assert.equal(await bundleMatches(root, old, platform), true);
     assert.deepEqual(await readJson(join(root, 'native/.installed.json')), old);
     assert.equal(await exists(join(target, '.weq-dev-build-lock')), false);
+  }
+});
+
+test('独立装扮缓存校验哈希、来源与缺件；失败不替换旧缓存或污染源码资源', async (t) => {
+  const { source, directory } = await sourceFixture(t);
+  const target = join(directory, 'target');
+  await mkdir(target);
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: source,
+    encoding: 'utf8',
+  }).trim();
+  let packs = 0;
+  let failure;
+  const options = {
+    env: { ...process.env, NT_HELPER_PACK_DRESS: '0' },
+    log: silent,
+    run: async (command, args, flags) => {
+      if (command === 'git') return runCommand(command, args, flags);
+      packs++;
+      await fakeDressPack(args, flags);
+      if (failure === 'throw') throw new Error('pack failed');
+      if (failure === 'missing') await rm(join(args.at(-1), 'widget.dat'));
+      if (failure === 'changed')
+        await writeFile(join(source, 'resources/dress/widget_resources'), 'changed during pack');
+    },
+  };
+  const prepare = () => prepareDress(source, target, commit, 2, options);
+  const first = await prepare();
+  for (const kind of ['font', 'bubble', 'widget'])
+    assert.equal(await exists(join(source, `resources/dress/${kind}.dat`)), false);
+  await prepare();
+  assert.equal(packs, 1);
+  await writeFile(join(first.directory, 'font.dat'), 'corrupt');
+  await prepare();
+  assert.equal(packs, 2);
+  await rm(join(first.directory, 'bubble.dat'));
+  await prepare();
+  assert.equal(packs, 3);
+  const manifestPath = join(first.directory, 'dress-build.json');
+  const manifest = await readJson(manifestPath);
+  await writeJson(manifestPath, { ...manifest, commit: 'b'.repeat(40) });
+  await prepare();
+  assert.equal(packs, 4);
+  const old = await readFile(join(first.directory, 'font.dat'));
+  await writeFile(join(source, 'resources/dress/font_resources'), 'changed input');
+  for (failure of ['throw', 'missing', 'changed']) {
+    await assert.rejects(prepare(), /pack failed|来源哈希不完整|输入发生变化/);
+    assert.deepEqual(await readFile(join(first.directory, 'font.dat')), old);
+    assert.deepEqual(await readdir(target), ['.weq-dev-dress']);
   }
 });
