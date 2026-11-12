@@ -93,6 +93,7 @@ import {
   OfficialAccountService,
   ServiceAccountService,
   UnreadInfoService,
+  createQqUnreadCountSource,
   AccountConfigService,
   AccountMonitorService,
   MediaDownloadService,
@@ -1754,6 +1755,11 @@ export function initAppContext(fileRoot?: string): AppContext {
               'unread.json',
             ),
           },
+          createQqUnreadCountSource(platform.native.ntHelper, session.msgDbPath, () => {
+            if (this.account !== session || this.accountIsStatic) return null;
+            const record = accountConfig.getRecord();
+            return record?.qqOnline ? (record.qqPid ?? null) : null;
+          }),
         ),
         accountConfig,
         annualReport: new AnnualReportService(session, {

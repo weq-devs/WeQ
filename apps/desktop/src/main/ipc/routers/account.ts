@@ -5495,7 +5495,7 @@ export const accountRouter = router({
     const uin = String(getAppContext().account?.context.uin ?? '');
     const configId = services.accountConfig.getRecord()?.configId;
     return observable<Array<{ chatType: number; uid: string }>>((emit) => {
-      const handler = (change: NewMessages): void => {
+      const publish = (targets: Array<{ chatType: number; uid: string }>): void => {
         const ctx = getAppContext();
         if (
           ctx.services !== services ||
@@ -5503,19 +5503,25 @@ export const accountRouter = router({
           services.accountConfig.getRecord()?.configId !== configId
         )
           return;
-        const targets = [
-          ...change.c2c.map((msg) => ({ chatType: 1, uid: msg.targetUid })),
-          ...change.group.map((msg) => ({ chatType: 2, uid: msg.targetGroupCode })),
-          ...(change.dataline ?? []).map((msg) => ({ chatType: msg.chatType, uid: msg.targetUid })),
-        ];
         emit.next([
           ...new Map(
             targets.map((target) => [`${target.chatType}:${target.uid}`, target]),
           ).values(),
         ]);
       };
+      const handler = (change: NewMessages): void => {
+        publish([
+          ...change.c2c.map((msg) => ({ chatType: 1, uid: msg.targetUid })),
+          ...change.group.map((msg) => ({ chatType: 2, uid: msg.targetGroupCode })),
+          ...(change.dataline ?? []).map((msg) => ({ chatType: msg.chatType, uid: msg.targetUid })),
+        ]);
+      };
+      const stopCounts = services.unreadInfo.onCountsChanged(publish);
       dbEventBus.on('new', handler);
-      return () => dbEventBus.off('new', handler);
+      return () => {
+        stopCounts();
+        dbEventBus.off('new', handler);
+      };
     });
   }),
 

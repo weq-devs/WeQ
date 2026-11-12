@@ -717,7 +717,39 @@ export interface CaptureSupport {
   hint: string;
 }
 
+export interface QqUnreadCapability {
+  supported: boolean;
+  readOnly: boolean;
+  layouts: string[];
+  coverage: string;
+}
+
+export interface QqUnreadReadOptions {
+  pid: number;
+  databasePath: string;
+  targets?: Array<{ chatType: number; uid: string }>;
+  timeoutMs?: number;
+}
+
+export interface QqUnreadSnapshot {
+  success: boolean;
+  code: string;
+  message: string;
+  rows: Array<{ chatType: number; uid: string; unreadCount: number }>;
+  missingTargets: Array<{ chatType: number; uid: string }>;
+  coverage: string;
+  generation?: string;
+  layout?: string;
+  fromCache: boolean;
+  locateMs: number;
+  elapsedMs: number;
+}
+
 export interface NtHelperBinding {
+  /** 可选：旧产物缺少导出时继续使用数据库未读。 */
+  getQqUnreadCapability?(): QqUnreadCapability;
+  readQqUnreadCounts?(options: QqUnreadReadOptions): Promise<QqUnreadSnapshot>;
+  clearQqUnreadCache?(pid?: number): number;
   // --- init / health ---
   getInitStatus(): InitStatus;
   /**

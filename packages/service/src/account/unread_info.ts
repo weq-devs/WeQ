@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import type { ManualReadChange } from './local_unread';
 import { datalineDevice, isDatalineUid, classifyChatType } from '@weq/codec';
 import { SendType } from '@weq/codec/proto/msg/40900';
+import { UnreadCountCache, type UnreadCountSource } from './unread_count_source';
 
 export type ReadReportState =
   | 'disabled'
@@ -64,13 +65,31 @@ export class UnreadInfoService {
   >();
   private lastReport: ReadReportStatus = { state: 'disabled' };
   private readonly readHistory = new Map<string, ManualReadEntry[]>();
+  private readonly counts?: UnreadCountCache;
+  private readonly countOnlySnapshots = new WeakSet<UnreadInfoSnapshot>();
+  private readonly countListeners = new Set<(targets: UnreadInfoTarget[]) => void>();
+  private manualRevision = 0;
 
   constructor(
     private readonly session: AccountSession,
     private readonly report?: ReadReportOptions,
     private readonly localOptions?: { statePath: string; readOnly?: boolean },
+    countSource?: UnreadCountSource,
   ) {
     this.local = new LocalUnreadStore(localOptions?.statePath);
+    if (countSource && !localOptions?.readOnly)
+      this.counts = new UnreadCountCache(
+        countSource,
+        (targets) => this.readSnapshots(targets, undefined, true, true),
+        (targets) => {
+          for (const listener of this.countListeners) listener(targets);
+        },
+      );
+  }
+
+  onCountsChanged(listener: (targets: UnreadInfoTarget[]) => void): () => void {
+    this.countListeners.add(listener);
+    return () => this.countListeners.delete(listener);
   }
 
   /** 仅接数据库实时差分；漫游缓存事件不走这里，旧消息导入不增加未读。 */
@@ -115,6 +134,8 @@ export class UnreadInfoService {
 
   async dispose(): Promise<void> {
     this.disposed = true;
+    this.counts?.dispose();
+    this.countListeners.clear();
     this.reads.abort();
     this.cancelReports();
     this.readHistory.clear();
@@ -145,34 +166,36 @@ export class UnreadInfoService {
         readError: true,
       }));
     const began = performance.now();
+    const manualRevision = this.manualRevision;
+    if (targets.length) this.counts?.start();
     const readSeqs = new Map<string, string>();
     for (const target of targets) {
       const floor = this.local.countFloor(target.chatType, target.uid);
       if (floor !== undefined) readSeqs.set(`${target.chatType}_${target.uid}`, floor);
     }
-    const key = JSON.stringify([watermarksOnly, targets, [...readSeqs]]);
+    const key = JSON.stringify([manualRevision, watermarksOnly, targets, [...readSeqs]]);
     // 带独立取消信号的调用不共享在途任务，避免一个调用取消其他页面的统计。
     const share = databaseRequestSignal() === undefined;
     let reading = share ? this.badgeReads.get(key) : undefined;
     if (!reading) {
-      reading = this.readSnapshots(targets, readSeqs, watermarksOnly).finally(() => {
+      reading = this.readBadgeSnapshots(targets, readSeqs, watermarksOnly).finally(() => {
         if (share) this.badgeReads.delete(key);
       });
       if (share) this.badgeReads.set(key, reading);
     }
     const snapshots = await reading;
     recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
-    if (this.disposed) return snapshots.map((row) => ({ ...row, readError: true }));
+    if (this.disposed || manualRevision !== this.manualRevision)
+      return snapshots.map((row) => ({ ...row, readError: true }));
     const rows = snapshots.map((row): ResolvedUnreadInfo => {
+      const count = this.local.canUseCount(row) ? this.counts?.get(row) : undefined;
+      if (count !== undefined) return this.local.resolve(row, count);
+      // 统计期间来源失效或发生本地操作，轻量行不能冒充已完成精确统计。
+      if (this.countOnlySnapshots.has(row)) return { ...row, readError: true };
       const currentFloor = this.local.countFloor(row.chatType, row.uid) ?? '0';
       const scannedFrom = readSeqs.get(row.peer);
       // 撤销手动阅读可能降低下限；此前跳过的区间不能冒充已完成统计。
-      if (
-        !watermarksOnly &&
-        scannedFrom !== undefined &&
-        BigInt(scannedFrom) > BigInt(currentFloor) &&
-        BigInt(scannedFrom) > BigInt(row.msgSeq ?? 0)
-      )
+      if (scannedFrom !== undefined && BigInt(scannedFrom) > BigInt(currentFloor))
         return { ...row, readError: true };
       if (
         watermarksOnly &&
@@ -190,18 +213,43 @@ export class UnreadInfoService {
     const saving = performance.now();
     await this.local.flush();
     recordMessageWork(this.session.msgDbPath, 'unreadPersistence', performance.now() - saving);
+    if (this.disposed || manualRevision !== this.manualRevision)
+      return rows.map((row) => ({ ...row, readError: true }));
     return rows;
+  }
+
+  private async readBadgeSnapshots(
+    targets: UnreadInfoTarget[],
+    readSeqs: ReadonlyMap<string, string>,
+    watermarksOnly: boolean,
+  ): Promise<UnreadInfoSnapshot[]> {
+    if (watermarksOnly || !this.counts?.ready)
+      return this.readSnapshots(targets, readSeqs, watermarksOnly);
+    const light = await this.readSnapshots(targets, undefined, true);
+    if (this.disposed) return light;
+    const fallback = light.filter(
+      (row) => !this.local.canUseCount(row) || this.counts?.get(row) === undefined,
+    );
+    const exact = fallback.length ? await this.readSnapshots(fallback, readSeqs) : [];
+    const byPeer = new Map(exact.map((row) => [row.peer, row]));
+    return light.map((row) => {
+      const full = byPeer.get(row.peer);
+      if (full) return full;
+      this.countOnlySnapshots.add(row);
+      return row;
+    });
   }
 
   private readSnapshots(
     targets: UnreadInfoTarget[],
     readSeqs?: ReadonlyMap<string, string>,
     watermarksOnly = false,
+    background = false,
   ): Promise<UnreadInfoSnapshot[]> {
-    const inherited = databaseRequestSignal();
+    const inherited = background ? undefined : databaseRequestSignal();
     const signal = inherited ? AbortSignal.any([inherited, this.reads.signal]) : this.reads.signal;
     return withDatabasePriority(
-      watermarksOnly ? 'interactive' : 'background',
+      watermarksOnly && !background ? 'interactive' : 'background',
       () => {
         signal.throwIfAborted();
         if (watermarksOnly) return this.session.unreadInfo.getUnreadInfos(targets);
@@ -245,6 +293,7 @@ export class UnreadInfoService {
       snapshots.some((row) => row.readError)
     )
       throw new Error('未读状态读取失败，请稍后重试');
+    this.manualRevision++;
     const changes: ManualReadEntry[] = snapshots.map((snapshot) => ({
       chatType: snapshot.chatType,
       uid: snapshot.uid,
@@ -305,6 +354,7 @@ export class UnreadInfoService {
       throw new Error('未读状态读取失败，请稍后重试');
     this.cancelReports();
     const restored: typeof changes = [];
+    this.manualRevision++;
     const rowsByPeer = new Map(snapshots.map((row) => [`${row.chatType}_${row.uid}`, row]));
     for (const row of changes) {
       if (!this.local.hasManualRead(row.chatType, row.uid, row.change)) continue;
@@ -392,9 +442,14 @@ export class UnreadInfoService {
    * recent-contact watermark when omitted.
    */
   async markRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
-    const local = await this.markLocalRead(chatType, uid, latestSeq);
+    const snapshot =
+      latestSeq === undefined ? (await this.getUnreadInfos([{ chatType, uid }]))[0] : undefined;
+    const sequence = latestSeq ?? snapshot?.latestSeq;
+    if (this.disposed || snapshot?.readError || sequence === undefined || sequence === null)
+      return false;
+    const local = await this.markLocalRead(chatType, uid, sequence);
     if (this.disposed || this.localOptions?.readOnly) return local;
-    const changed = await this.session.unreadInfo.markRead(chatType, uid, latestSeq);
+    const changed = await this.session.unreadInfo.markRead(chatType, uid, sequence);
     return changed || local;
   }
 

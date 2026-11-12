@@ -5,6 +5,10 @@ import { classifyChatType } from '@weq/codec';
 
 interface ReadPosition {
   latestSeq: string;
+  /** 版本缺失的旧记录保守视为含有 WeQ 阅读，不能凭写库后的水位消除。 */
+  sourceVersion?: 1;
+  localReadSeq?: string;
+  operation?: number;
   baselineSeq?: string;
   readSeq?: string;
   pending: string[];
@@ -13,16 +17,17 @@ interface ReadPosition {
 
 interface ManualReadState {
   latestSeq: string;
-  unreadCount: number;
+  unread: boolean;
   readSeq?: string;
-  highlights?: UnreadInfoSnapshot['highlights'];
 }
 
 export interface ManualReadChange {
   previous?: ManualReadState;
   applied: ManualReadState;
-  previousPosition: Pick<ReadPosition, 'readSeq' | 'baselineSeq' | 'pending'>;
-  restoredPosition?: Pick<ReadPosition, 'readSeq' | 'baselineSeq' | 'pending'>;
+  previousPosition: Pick<ReadPosition, 'readSeq' | 'localReadSeq' | 'baselineSeq' | 'pending'>;
+  restoredPosition?: Pick<ReadPosition, 'readSeq' | 'localReadSeq' | 'baselineSeq' | 'pending'>;
+  operation: number;
+  previousOperation?: number;
 }
 
 export interface ResolvedUnreadInfo extends UnreadInfoSnapshot {
@@ -59,34 +64,31 @@ export class LocalUnreadStore {
       if (!sequence(row.latestSeq) || (row.readSeq !== undefined && !sequence(row.readSeq)))
         continue;
       if (row.baselineSeq !== undefined && !sequence(row.baselineSeq)) continue;
+      if (row.localReadSeq !== undefined && !sequence(row.localReadSeq)) continue;
       if (!Array.isArray(row.pending) || !row.pending.every(sequence)) continue;
+      const manual = row.manual as
+        | (Partial<ManualReadState> & { unreadCount?: number })
+        | undefined;
       this.positions.set(key, {
         latestSeq: row.latestSeq,
+        sourceVersion: 1,
+        localReadSeq: row.sourceVersion === 1 ? row.localReadSeq : row.readSeq,
         baselineSeq: row.baselineSeq,
         readSeq: row.readSeq,
         pending: [...new Set(row.pending)].filter(
           (seq) => BigInt(seq) > BigInt(row.readSeq ?? '0'),
         ),
         manual:
-          row.manual &&
-          sequence(row.manual.latestSeq) &&
-          Number.isSafeInteger(row.manual.unreadCount) &&
-          row.manual.unreadCount >= 0 &&
-          (row.manual.readSeq === undefined || sequence(row.manual.readSeq)) &&
-          (row.manual.highlights === undefined ||
-            (Array.isArray(row.manual.highlights) &&
-              row.manual.highlights.every(
-                (hit) =>
-                  hit &&
-                  Number.isSafeInteger(hit.msgSeq) &&
-                  hit.msgSeq >= 0 &&
-                  typeof hit.kind === 'string' &&
-                  Number.isSafeInteger(hit.rawKind) &&
-                  typeof hit.senderUid === 'string' &&
-                  Number.isSafeInteger(hit.sendTime) &&
-                  typeof hit.text === 'string',
-              )))
-            ? row.manual
+          manual &&
+          sequence(manual.latestSeq) &&
+          (typeof manual.unread === 'boolean' ||
+            (Number.isSafeInteger(manual.unreadCount) && manual.unreadCount! >= 0)) &&
+          (manual.readSeq === undefined || sequence(manual.readSeq))
+            ? {
+                latestSeq: manual.latestSeq,
+                unread: manual.unread ?? manual.unreadCount! > 0,
+                readSeq: manual.readSeq,
+              }
             : undefined,
       });
     }
@@ -96,7 +98,7 @@ export class LocalUnreadStore {
     const key = `${chatType}_${uid}`;
     let row = this.positions.get(key);
     if (!row) {
-      row = { latestSeq, pending: [] };
+      row = { latestSeq, sourceVersion: 1, pending: [] };
       this.positions.set(key, row);
       this.revision++;
     }
@@ -114,12 +116,18 @@ export class LocalUnreadStore {
   markRead(chatType: number, uid: string, seq: string): boolean {
     if (!sequence(seq)) return false;
     const row = this.position(chatType, uid, seq);
+    const localChanged = row.localReadSeq === undefined || BigInt(seq) > BigInt(row.localReadSeq);
+    if (localChanged) {
+      row.localReadSeq = seq;
+    }
+    if (localChanged || row.manual) row.operation = ++this.revision;
     const cleared = row.manual !== undefined && BigInt(seq) >= BigInt(row.manual.latestSeq);
     if (cleared) {
       delete row.manual;
       this.revision++;
     }
-    if (row.readSeq !== undefined && BigInt(row.readSeq) >= BigInt(seq)) return cleared;
+    if (row.readSeq !== undefined && BigInt(row.readSeq) >= BigInt(seq))
+      return cleared || localChanged;
     row.readSeq = seq;
     row.pending = row.pending.filter((pending) => BigInt(pending) > BigInt(seq));
     this.revision++;
@@ -129,30 +137,45 @@ export class LocalUnreadStore {
   setManualRead(snapshot: ResolvedUnreadInfo, unread: boolean): ManualReadChange {
     const row = this.position(snapshot.chatType, snapshot.uid);
     const latest = [
-      ...row.pending,
+      ...(snapshot.latestSeq === null ? row.pending : []),
       ...(snapshot.highlights ?? []).map((hit) => String(hit.msgSeq)),
     ].reduce((max, seq) => (BigInt(seq) > BigInt(max) ? seq : max), snapshot.latestSeq ?? '0');
     const applied: ManualReadState = {
       latestSeq: latest,
-      unreadCount: unread ? Math.max(1, snapshot.unreadCount ?? 0) : 0,
+      unread,
       readSeq:
         unread && (snapshot.unreadCount ?? 0) > 0
           ? snapshot.readSeq
           : unread && BigInt(latest) > 0n
             ? (BigInt(latest) - 1n).toString()
             : latest,
-      highlights: unread ? snapshot.highlights : undefined,
     };
     const change = {
       previous: row.manual,
       applied,
       previousPosition: {
         readSeq: row.readSeq,
+        localReadSeq: row.localReadSeq,
         baselineSeq: row.baselineSeq,
         pending: [...row.pending],
       },
+      previousOperation: row.operation,
+      operation: ++this.revision,
     };
+    // 再标未读不撤销先前阅读；只撤销对应操作时才恢复阅读范围。
+    const through = unread
+      ? row.manual?.unread === false
+        ? row.manual.latestSeq
+        : undefined
+      : latest;
+    if (through !== undefined) {
+      if (row.localReadSeq === undefined || BigInt(through) > BigInt(row.localReadSeq))
+        row.localReadSeq = through;
+      if (row.readSeq === undefined || BigInt(through) > BigInt(row.readSeq)) row.readSeq = through;
+      row.pending = row.pending.filter((seq) => BigInt(seq) > BigInt(through));
+    }
     row.manual = applied;
+    row.operation = change.operation;
     this.revision++;
     return change;
   }
@@ -164,10 +187,15 @@ export class LocalUnreadStore {
     reverse = false,
   ): boolean {
     const row = this.position(chatType, uid);
-    if (row.manual !== (reverse ? change.previous : change.applied)) return false;
+    if (
+      row.manual !== (reverse ? change.previous : change.applied) ||
+      (!reverse && row.operation !== change.operation)
+    )
+      return false;
     if (!reverse)
       change.restoredPosition = {
         readSeq: row.readSeq,
+        localReadSeq: row.localReadSeq,
         baselineSeq: row.baselineSeq,
         pending: [...row.pending],
       };
@@ -175,30 +203,48 @@ export class LocalUnreadStore {
     if (position) {
       const newer = row.pending.filter((seq) => BigInt(seq) > BigInt(change.applied.latestSeq));
       row.readSeq = position.readSeq;
+      row.localReadSeq = position.localReadSeq;
       row.baselineSeq = position.baselineSeq;
       row.pending = [...new Set([...position.pending, ...newer])];
     }
     row.manual = reverse ? change.applied : change.previous;
+    row.operation = reverse ? change.operation : change.previousOperation;
     this.revision++;
     return true;
   }
 
   hasManualRead(chatType: number, uid: string, change: ManualReadChange): boolean {
-    return this.position(chatType, uid).manual === change.applied;
+    const row = this.position(chatType, uid);
+    return row.manual === change.applied && row.operation === change.operation;
   }
 
   /** 统计只需排除有效阅读位置之后的自己发言；不替换 QQ 的原始水位。 */
   countFloor(chatType: number, uid: string): string | undefined {
     const row = this.positions.get(`${chatType}_${uid}`);
     if (!row) return undefined;
-    const values = [row.readSeq, row.baselineSeq, row.manual?.latestSeq].filter(sequence);
+    const values = [
+      row.readSeq,
+      row.baselineSeq,
+      row.manual && !row.manual.unread ? row.manual.latestSeq : undefined,
+    ].filter(sequence);
     return values.reduce<string | undefined>(
       (max, value) => (max === undefined || BigInt(value) > BigInt(max) ? value : max),
       undefined,
     );
   }
 
-  resolve(snapshot: UnreadInfoSnapshot): ResolvedUnreadInfo {
+  /** 计数型来源没有阅读边界，存在本地阅读时必须精确回退，不能猜固定差值。 */
+  canUseCount(snapshot: UnreadInfoSnapshot): boolean {
+    if (snapshot.readError || !sequence(snapshot.latestSeq)) return false;
+    const row = this.positions.get(snapshot.peer);
+    return (
+      !row?.localReadSeq &&
+      row?.manual?.unread !== false &&
+      !(row?.pending ?? []).some((seq) => BigInt(seq) > BigInt(snapshot.latestSeq ?? '0'))
+    );
+  }
+
+  resolve(snapshot: UnreadInfoSnapshot, qqCount?: number): ResolvedUnreadInfo {
     if (snapshot.readError) return snapshot;
     const latest = sequence(snapshot.latestSeq) ? snapshot.latestSeq : '0';
     const row = this.position(snapshot.chatType, snapshot.uid, latest);
@@ -222,11 +268,13 @@ export class LocalUnreadStore {
       row.pending = row.pending.filter((seq) => BigInt(seq) > BigInt(snapshot.msgSeq!));
       this.revision++;
     }
-    const read = BigInt(row.readSeq ?? '0');
-    const highlights = snapshot.highlights?.filter(
-      (hit) => row.readSeq === undefined || BigInt(hit.msgSeq) > read,
+    const read = BigInt(
+      row.manual && !row.manual.unread && BigInt(row.manual.latestSeq) > BigInt(row.readSeq ?? '0')
+        ? row.manual.latestSeq
+        : (row.readSeq ?? '0'),
     );
-    const pending = new Set(row.pending);
+    const highlights = snapshot.highlights?.filter((hit) => BigInt(hit.msgSeq) > read);
+    const pending = new Set(row.pending.filter((seq) => BigInt(seq) > read));
     for (const hit of highlights ?? []) pending.add(String(hit.msgSeq));
     const first = [...pending].reduce<bigint | null>(
       (min, seq) => (min === null || BigInt(seq) < min ? BigInt(seq) : min),
@@ -245,7 +293,7 @@ export class LocalUnreadStore {
       return Math.max(0, Number(end - after) - sent.length);
     };
     const firstRead = first !== null && first > 0n ? first - 1n : null;
-    const resolved = {
+    const resolved: ResolvedUnreadInfo = {
       ...snapshot,
       highlights: highlights?.length ? highlights : undefined,
       unreadCount: countSequenceGap ? Math.max(sequenceGap(floor), pending.size) : pending.size,
@@ -255,20 +303,19 @@ export class LocalUnreadStore {
           ? (first > 0n ? first - 1n : 0n).toString()
           : (row.readSeq ?? row.latestSeq),
     };
-    if (!row.manual) return resolved;
-    const manual = row.manual;
-    const anchor = BigInt(manual.latestSeq);
-    const newHighlights = snapshot.highlights?.filter((hit) => BigInt(hit.msgSeq) > anchor);
-    const newer = new Set(row.pending.filter((seq) => BigInt(seq) > anchor));
-    for (const hit of newHighlights ?? []) newer.add(String(hit.msgSeq));
-    const newFloor = floor > anchor ? floor : anchor;
-    const manualHighlights = [...(manual.highlights ?? []), ...(newHighlights ?? [])];
-    return {
-      ...resolved,
-      unreadCount: manual.unreadCount + Math.max(sequenceGap(newFloor), newer.size),
-      readSeq: manual.readSeq,
-      highlights: manualHighlights.length ? manualHighlights : undefined,
-    };
+    if (
+      qqCount !== undefined &&
+      Number.isSafeInteger(qqCount) &&
+      qqCount >= 0 &&
+      this.canUseCount(snapshot)
+    ) {
+      // 没有消息边界时不伪造跳转位置；相同数量也不是 QQ 确认本地阅读的证据。
+      if (qqCount !== resolved.unreadCount) resolved.readSeq = undefined;
+      resolved.unreadCount = qqCount;
+    }
+    if (row.manual?.unread && resolved.unreadCount === 0)
+      return { ...resolved, unreadCount: 1, readSeq: row.manual.readSeq };
+    return resolved;
   }
 
   async flush(): Promise<void> {

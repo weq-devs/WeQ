@@ -12,6 +12,10 @@ const fixture = vi.hoisted(() => ({
   markLocalRead: vi.fn(),
   setReadState: vi.fn(),
   undoReadState: vi.fn(),
+  countsChanged: undefined as
+    | ((targets: Array<{ chatType: number; uid: string }>) => void)
+    | undefined,
+  stopCounts: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', async () => {
   const { EventEmitter } = await import('node:events');
@@ -23,6 +27,10 @@ vi.mock('../src/main/context/app_context', async () => {
       markLocalRead: fixture.markLocalRead,
       setReadState: fixture.setReadState,
       undoReadState: fixture.undoReadState,
+      onCountsChanged: (listener: typeof fixture.countsChanged) => {
+        fixture.countsChanged = listener;
+        return fixture.stopCounts;
+      },
     },
   };
   return {
@@ -42,6 +50,7 @@ beforeEach(() => {
   fixture.uin = '10001';
   fixture.staticAccount = false;
   fixture.configId = 'source-a';
+  fixture.countsChanged = undefined;
   fixture.getUnreadInfos.mockResolvedValue([
     {
       ...targets[0],
@@ -59,6 +68,19 @@ beforeEach(() => {
 });
 
 describe('未读 IPC', () => {
+  it('内存就绪和同数字边界变化通知只发目标，切号和退订后不回灌', async () => {
+    const stream = await accountRouter.createCaller({}).onUnreadChanged({});
+    const next = vi.fn();
+    const subscription = stream.subscribe({ next });
+    fixture.countsChanged?.(targets);
+    expect(next).toHaveBeenCalledWith(targets);
+    fixture.configId = 'source-b';
+    fixture.countsChanged?.(targets);
+    expect(next).toHaveBeenCalledTimes(1);
+    subscription.unsubscribe();
+    expect(fixture.stopCounts).toHaveBeenCalledOnce();
+  });
+
   it('未指定绑定字段时仍锁定订阅建立时的账号，切号不再推送', async () => {
     const stream = await accountRouter.createCaller({}).onUnreadChanged({});
     const next = vi.fn();

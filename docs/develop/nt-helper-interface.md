@@ -90,6 +90,11 @@ QQ 进程实际持有该账号的 `nt_msg.db`，不以进程存在或端口信�
 持续不可用则转离线，防止永久复用旧凭据。失败记录 `online-probe-failed`，下线记录
 `reason`（`no-db-holder` 或 `probe-unavailable`），便于区分真正未发现与探测故障。
 
+QQ 运行态未读计数另有三个可选导出：`getQqUnreadCapability()`、
+`readQqUnreadCounts({ pid, databasePath, targets?, timeoutMs? })`、`clearQqUnreadCache(pid?)`。
+当前仅支持已验证的 macOS arm64／QQNT `7.0.3-54395` 布局，缺失目标不等于零，快照没有 QQ 有效阅读位置。
+WeQ 后台就绪、WeQ 阅读记录与精确回退规则见[未读计数来源](./unread-count-sources.md)。
+
 ### 3.1 纯协议登录（装号 / 取密钥）
 
 登录已与 QQ 进程解耦：**不读内存、不注入、不提权**，直接把 `login.db` 里缓存的 a1（扫码路径不需要）

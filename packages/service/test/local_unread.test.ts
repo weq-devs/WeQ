@@ -17,6 +17,25 @@ afterEach(() => {
 });
 
 describe('未读服务事件与阅读', () => {
+  it.each([false, true])('撤销后的旧写库水位不能回灌，watermarksOnly=%s', async (fast) => {
+    const f = setup(true);
+    const target = [{ chatType: 1, uid: 'u_fixture' }];
+    f.getUnreadInfos.mockResolvedValue([snapshot('100', 90)]);
+    const change = await f.service.setReadState(target, false);
+    let finish!: (rows: UnreadInfoSnapshot[]) => void;
+    f.getUnreadInfos.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = f.service.getUnreadInfos(target, fast);
+    await f.service.undoReadState(change.undoToken);
+    finish([snapshot('100', 100)]);
+    expect((await pending)[0]?.readError).toBe(true);
+    expect((await f.service.getUnreadInfos(target))[0]?.unreadCount).toBe(10);
+  });
+
   it('撤销手动阅读降低下限时，迟到的缩短扫描不交付错误计数', async () => {
     const f = setup(true);
     const target = [{ chatType: 1, uid: 'u_fixture' }];
@@ -329,6 +348,84 @@ const highlight = {
 };
 
 describe('本地未读基线', () => {
+  it('已读后再标未读只留下最小标记，不重开旧范围，连续撤销仍恢复原状态', () => {
+    const store = new LocalUnreadStore();
+    const row = snapshot('100', 90);
+    const read = store.setManualRead(store.resolve(row), false);
+    const unread = store.setManualRead(store.resolve(row), true);
+    expect(store.resolve(row).unreadCount).toBe(1);
+    expect(store.resolve(snapshot('101', 90)).unreadCount).toBe(1);
+    expect(store.restoreManualRead(1, 'u_fixture', unread)).toBe(true);
+    expect(store.resolve(row).unreadCount).toBe(0);
+    expect(store.restoreManualRead(1, 'u_fixture', read)).toBe(true);
+    expect(store.resolve(row).unreadCount).toBe(10);
+  });
+
+  it('重启迁移旧版手动未读只保留标记，旧 WeQ 阅读记录不能被内存计数覆盖', async () => {
+    const { path } = fixture();
+    writeFileSync(
+      path,
+      JSON.stringify({
+        '1_u_fixture': {
+          latestSeq: '100',
+          readSeq: '90',
+          pending: [],
+          manual: { latestSeq: '100', readSeq: '90', unreadCount: 10 },
+        },
+      }),
+    );
+    const store = new LocalUnreadStore(path);
+    expect(store.resolve(snapshot('100', 95), 10).unreadCount).toBe(5);
+    await store.flush();
+    expect(new LocalUnreadStore(path).resolve(snapshot('100', 95), 10).unreadCount).toBe(5);
+  });
+
+  it('重启区分单纯数据库观察与 WeQ 阅读，不以 WeQ 写库后的水位确认 QQ', async () => {
+    const { store, path } = fixture();
+    store.resolve(snapshot('100', 90));
+    await store.flush();
+    const reopened = new LocalUnreadStore(path);
+    expect(reopened.resolve(snapshot('100', 90), 7).unreadCount).toBe(7);
+    reopened.markRead(1, 'u_fixture', '96');
+    reopened.resolve(snapshot('100', 96));
+    await reopened.flush();
+    const afterWrite = new LocalUnreadStore(path);
+    expect(afterWrite.canUseCount(snapshot('100', 96))).toBe(false);
+    expect(afterWrite.resolve(snapshot('102', 96), 10).unreadCount).toBe(6);
+  });
+
+  it('手动未读保留标记但不冻结数字，QQ 阅读和新消息继续改变实际剩余', () => {
+    const store = new LocalUnreadStore();
+    store.setManualRead(store.resolve(snapshot('100', 90)), true);
+    expect(store.resolve(snapshot('100', 95)).unreadCount).toBe(5);
+    expect(store.resolve(snapshot('102', 95)).unreadCount).toBe(7);
+    expect(store.resolve(snapshot('102', 102)).unreadCount).toBe(1);
+    expect(store.resolve(snapshot('103', 102)).unreadCount).toBe(1);
+  });
+
+  it('手动未读不跳过原未读区间内的自己发言，也不复制旧高亮', () => {
+    const store = new LocalUnreadStore();
+    store.setManualRead(
+      store.resolve({ ...snapshot('100', 90), highlights: [{ ...highlight, msgSeq: 99 }] }),
+      true,
+    );
+    expect(store.countFloor(1, 'u_fixture')).toBe('90');
+    expect(store.resolve({ ...snapshot('100', 95), outgoingSeqs: ['96', '99'] }).unreadCount).toBe(
+      3,
+    );
+    expect(store.resolve(snapshot('100', 100)).highlights).toBeUndefined();
+  });
+
+  it('固定水位阅读不会在等待期间清掉后来消息，后续阅读使旧撤销失效', () => {
+    const store = new LocalUnreadStore();
+    const change = store.setManualRead(store.resolve(snapshot('100', 90)), true);
+    store.markRead(1, 'u_fixture', '96');
+    expect(store.restoreManualRead(1, 'u_fixture', change)).toBe(false);
+    const read = store.setManualRead(store.resolve(snapshot('100', 90)), false);
+    store.markRead(1, 'u_fixture', '95');
+    expect(store.restoreManualRead(1, 'u_fixture', read)).toBe(false);
+  });
+
   it('扫描下限取有效阅读位置，手动未读锚点撤销后不残留且按会话类型隔离', () => {
     const store = new LocalUnreadStore();
     expect(store.countFloor(1, 'u_fixture')).toBeUndefined();
@@ -337,7 +434,7 @@ describe('本地未读基线', () => {
     store.markRead(1, 'u_fixture', '20');
     expect(store.countFloor(1, 'u_fixture')).toBe('20');
     const change = store.setManualRead(row, true);
-    expect(store.countFloor(1, 'u_fixture')).toBe('100');
+    expect(store.countFloor(1, 'u_fixture')).toBe('20');
     expect(store.countFloor(2, 'u_fixture')).toBeUndefined();
     store.restoreManualRead(1, 'u_fixture', change);
     expect(store.countFloor(1, 'u_fixture')).toBe('20');
@@ -364,7 +461,7 @@ describe('本地未读基线', () => {
     expect(
       store.resolve({ ...snapshot('5006', 5000), outgoingSeqs: [...mixed.outgoingSeqs, '5005'] })
         .unreadCount,
-    ).toBe(2);
+    ).toBe(1);
   });
 
   it('手动已读即时覆盖旧快照，撤销恢复原未读且不吞掉期间的新消息', async () => {
