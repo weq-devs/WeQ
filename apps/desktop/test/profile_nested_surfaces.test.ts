@@ -15,6 +15,7 @@ import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupIn
 import {
   ChatNavigationContext,
   GroupMessagePreviewContext,
+  GroupSpeechPreviewContext,
 } from '../src/renderer/src/lib/chatNavigation';
 import { QzoneNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
@@ -641,19 +642,24 @@ it('联系人好友操作可在原位预览消息并返回资料，不触发聊�
   const open = vi.fn();
   const close = vi.fn();
   const preview = vi.fn();
+  const previewClose = vi.fn();
   const render = (previewContent?: ReturnType<typeof h>) =>
     act(() =>
       root.render(
         h(
           ChatNavigationContext.Provider,
           { value: open },
-          h(ContactProfileDialog, {
-            contact: contactFixture,
-            embedded: true,
-            onClose: close,
-            onPreviewChat: preview,
-            previewContent,
-          }),
+          h(
+            GroupSpeechPreviewContext.Provider,
+            { value: { open: vi.fn(), close: previewClose } },
+            h(ContactProfileDialog, {
+              contact: contactFixture,
+              embedded: true,
+              onClose: close,
+              onPreviewChat: preview,
+              previewContent,
+            }),
+          ),
         ),
       ),
     );
@@ -673,8 +679,16 @@ it('联系人好友操作可在原位预览消息并返回资料，不触发聊�
     render(h('section', { 'aria-label': '合成私聊预览' }, '合成消息'));
     expect(host.querySelector('[aria-label="合成私聊预览"]')).not.toBeNull();
     expect(host.querySelector('.weq-contact-profile-content.is-previewing-chat')).not.toBeNull();
+    expect(host.querySelector('.weq-profile-page-header')).toBeNull();
     expect(host.querySelector('.weq-contact-workspace')).toBeNull();
     expect(document.querySelector('.weq-overlay-layer')).toBeNull();
+    act(() =>
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(previewClose).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
     render();
     expect(host.querySelector('.weq-contact-profile-content.is-previewing-chat')).toBeNull();
     expect(host.querySelector('.weq-contact-workspace')).not.toBeNull();

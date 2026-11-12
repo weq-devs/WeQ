@@ -243,42 +243,44 @@ function DeviceProfile({
         aria-label="设备信息"
         aria-modal={embedded ? undefined : 'true'}
       >
-        <header className="weq-contact-identity">
-          <div className="weq-profile-hero">
-            <span className="weq-profile-avatar">
-              <Avatar name={name} avatarUrl={deviceAvatarDataUri(contact.id)} seed={contact.id} />
-            </span>
-            <div className="weq-profile-heading">
-              <strong className="weq-profile-name">{name}</strong>
-              <span className="weq-profile-nick">我的设备</span>
+        {embedded && previewContent ? null : (
+          <header className="weq-contact-identity">
+            <div className="weq-profile-hero">
+              <span className="weq-profile-avatar">
+                <Avatar name={name} avatarUrl={deviceAvatarDataUri(contact.id)} seed={contact.id} />
+              </span>
+              <div className="weq-profile-heading">
+                <strong className="weq-profile-name">{name}</strong>
+                <span className="weq-profile-nick">我的设备</span>
+              </div>
             </div>
-          </div>
-          <nav className="weq-contact-identity-actions" aria-label="设备操作">
-            {openChat ? (
-              <button
-                className="weq-profile-perhome"
-                type="button"
-                onClick={() => {
-                  if (!embedded) onClose();
-                  openChat({ kind: 'direct', user: contact });
-                }}
-              >
-                <MessageSquare size={13} />
-                查看消息
-              </button>
-            ) : null}
-            {onPreviewChat ? (
-              <button
-                className="weq-profile-perhome"
-                type="button"
-                onClick={() => onPreviewChat(contact)}
-              >
-                <Eye size={13} />
-                预览消息
-              </button>
-            ) : null}
-          </nav>
-        </header>
+            <nav className="weq-contact-identity-actions" aria-label="设备操作">
+              {openChat ? (
+                <button
+                  className="weq-profile-perhome"
+                  type="button"
+                  onClick={() => {
+                    if (!embedded) onClose();
+                    openChat({ kind: 'direct', user: contact });
+                  }}
+                >
+                  <MessageSquare size={13} />
+                  查看消息
+                </button>
+              ) : null}
+              {onPreviewChat ? (
+                <button
+                  className="weq-profile-perhome"
+                  type="button"
+                  onClick={() => onPreviewChat(contact)}
+                >
+                  <Eye size={13} />
+                  预览消息
+                </button>
+              ) : null}
+            </nav>
+          </header>
+        )}
         {previewContent ? <div className="weq-contact-chat-preview">{previewContent}</div> : null}
       </section>
     </ProfileSurface>

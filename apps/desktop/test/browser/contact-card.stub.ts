@@ -310,6 +310,7 @@ function value(path: string, input: Record<string, unknown>) {
       sourceGroupCode: null,
       verificationMessage: '',
     };
+  if (path === 'account.listLatest') return [{ msgId: '12', sendTime: '1794390000', elements: [] }];
   if (path === 'account.browseConversation')
     return {
       items: [{ msgId: '11', sendTime: '1794390000', content: '合成本群发言' }],

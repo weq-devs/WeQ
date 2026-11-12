@@ -1,6 +1,13 @@
 .weq-private-preview-scroll {
   overflow-anchor: none;
 }
+.weq-group-page.is-previewing-chat {
+  overflow: hidden;
+  padding: 0;
+}
+.weq-group-page.is-previewing-chat > .weq-contact-chat-preview {
+  padding: 0;
+}
 .weq-preview-message-note {
   margin: 4px 16px 12px;
   color: var(--weq-fg-secondary);

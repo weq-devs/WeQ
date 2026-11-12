@@ -3,6 +3,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ContactActions } from '../src/renderer/src/components/contactProfile/ContactActions';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { QzoneNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
+import {
+  GroupSpeechPreviewContext,
+  ProfilePreviewSourceContext,
+} from '../src/renderer/src/lib/chatNavigation';
 import type { ProfilePerson } from '../src/renderer/src/hooks/useContactCard';
 import { createQueryRoot } from './support/query_root';
 
@@ -25,6 +29,43 @@ const person: ProfilePerson = {
   avatarUrl: null,
   profileContext: { groupCode: '10003', groupName: '合成群', member: { uid: 'u_fixture' } },
 };
+
+it.each(['member', 'contact'] as const)(
+  '本群发言通过共用预览入口打开，保留 %s 来源',
+  async (source) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createQueryRoot(host);
+    const open = vi.fn();
+    const close = vi.fn();
+    try {
+      await act(async () =>
+        root.render(
+          h(
+            GroupSpeechPreviewContext.Provider,
+            { value: { open, close } },
+            h(
+              ProfilePreviewSourceContext.Provider,
+              { value: source },
+              h(ContactActions, { person, groupOnly: true, onClose: close }),
+            ),
+          ),
+        ),
+      );
+      act(() =>
+        [...host.querySelectorAll('button')]
+          .find((button) => button.textContent === '本群发言')!
+          .click(),
+      );
+      expect(open).toHaveBeenCalledWith(person, source);
+      expect(close).not.toHaveBeenCalled();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(host.querySelector('.weq-contact-speech')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  },
+);
 
 it('全部适用操作直接常驻，打开会话、预览、空间和分析仍使用当前对象', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

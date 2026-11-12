@@ -251,11 +251,13 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-profile > .weq-contact-profile-content.is-previewing-chat {
   overflow: hidden;
+  padding: 0;
   scrollbar-gutter: auto;
 }
 
 .weq-contact-profile-content.is-previewing-chat > .weq-contact-chat-preview {
   flex-shrink: 1;
+  padding: 0;
 }
 
 .weq-profile-heading {

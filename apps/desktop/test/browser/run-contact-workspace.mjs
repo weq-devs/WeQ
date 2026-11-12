@@ -175,6 +175,9 @@ try {
   await page.getByRole('button', { name: '关闭历史', exact: true }).click();
   await page.getByRole('button', { name: '本群发言', exact: true }).click();
   await page.getByText('合成本群发言', { exact: true }).waitFor();
+  assert.equal(await page.locator('.weq-contact-speech').count(), 0);
+  assert.equal(await page.locator('.weq-profile-page-header').count(), 0);
+  assert.equal(await page.locator('.weq-private-preview-inline .message-avatar-button').count(), 1);
   assert.equal(
     (
       await page.evaluate(() =>
@@ -253,6 +256,28 @@ try {
         if (output)
           await page.screenshot({ path: resolve(output, `${width}-${theme}-${title}.png`) });
         report.push({ width, theme, title, overflow });
+      }
+      for (const speech of [false, true]) {
+        await select(speech ? '群内资料' : '个人资料');
+        await page
+          .getByRole('button', { name: speech ? '本群发言' : '预览消息', exact: true })
+          .click();
+        await page.getByRole('button', { name: '返回资料', exact: true }).waitFor();
+        const pageBounds = await page.locator('.weq-contact-profile-content').boundingBox();
+        const previewBounds = await page.locator('.weq-contact-chat-preview').boundingBox();
+        assert.ok(
+          Math.abs(pageBounds.y - previewBounds.y) <= 1 &&
+            Math.abs(pageBounds.height - previewBounds.height) <= 1 &&
+            Math.abs(pageBounds.width - previewBounds.width) <= 1,
+          JSON.stringify({ pageBounds, previewBounds }),
+        );
+        assert.equal(await page.locator('.weq-profile-page-header').count(), 0);
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `${width}-${theme}-${speech ? 'speech' : 'preview'}.png`),
+          });
+        await page.getByRole('button', { name: '返回资料', exact: true }).click();
+        await page.locator('.weq-profile-page-header').waitFor();
       }
       await select('个人资料');
       await page.getByTitle('查看教育经历', { exact: true }).click();

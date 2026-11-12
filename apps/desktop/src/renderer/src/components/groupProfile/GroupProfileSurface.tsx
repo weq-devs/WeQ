@@ -149,7 +149,7 @@ function GroupProfileBody({
         role={embedded ? 'region' : 'dialog'}
         aria-label="群资料"
       >
-        {embedded ? (
+        {embedded && previewContent ? null : embedded ? (
           <ProfilePageHeader
             title="群资料"
             closeLabel="关闭群资料"
@@ -168,7 +168,7 @@ function GroupProfileBody({
             <GroupCardIdentity conversation={conversation} metrics={data.metrics} />
           </>
         )}
-        {data.profileError ? (
+        {data.profileError && !previewContent ? (
           <ContactInlineError
             message={data.profileError}
             retrying={data.profileRefreshing}

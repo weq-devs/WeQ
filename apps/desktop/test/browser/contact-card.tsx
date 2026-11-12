@@ -9,11 +9,21 @@ import {
   type ContactWorkspaceTab,
 } from '../../src/renderer/src/lib/profileNavigation';
 import { ConversationDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
-import { ChatNavigationContext } from '../../src/renderer/src/lib/chatNavigation';
+import {
+  ChatNavigationContext,
+  GroupSpeechPreviewContext,
+} from '../../src/renderer/src/lib/chatNavigation';
+import { GapMessagesModal } from '../../src/renderer/src/components/compose/GapMessagesModal';
+import { sharedGroupConversation } from '../../src/renderer/src/components/ark/groupShareCard';
+import { readProfilePreviewPage } from '../../src/renderer/src/lib/profileMessagePreview';
 import { QzoneNavigationContext } from '../../src/renderer/src/lib/qzoneNavigation';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { useViewState } from '../../src/renderer/src/state/view';
-import type { Contact } from '../../src/renderer/src/im-template/template/types';
+import type {
+  Contact,
+  Conversation,
+  Message,
+} from '../../src/renderer/src/im-template/template/types';
 import { fixturePrivileges, qa, useFixture } from './contact-card.stub';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/contact-profile.css';
@@ -77,6 +87,69 @@ function Fixture() {
   const [view, setView] = useState('card');
   const [person, setPerson] = useState(sample);
   const [tab, setTab] = useState<ContactWorkspaceTab>('profile');
+  const [preview, setPreview] = useState<{
+    conversation: Conversation;
+    messages: Message[];
+    speech: boolean;
+  } | null>(null);
+  async function openPreview(person: Contact, speech = false) {
+    const group = person.profileContext;
+    const conversation: Conversation =
+      speech && group
+        ? {
+            ...sharedGroupConversation({
+              code: group.groupCode,
+              name: group.groupName || '',
+              avatar: '',
+            }),
+            members: [{ ...person, role: 'member', joinedAt: '' }],
+          }
+        : {
+            id: person.id,
+            type: 'direct',
+            otherUser: person,
+            group: null,
+            members: [],
+            updatedAt: '',
+            lastMessage: null,
+            unreadCount: 0,
+            preference: { pinned: false, muted: false, blocked: false },
+          };
+    const page = await readProfilePreviewPage({
+      kind: speech ? 'group' : 'c2c',
+      conv: conversation.id,
+      sender: speech ? person.uid || person.id : undefined,
+    });
+    setPreview({
+      conversation,
+      speech,
+      messages: page.rows.map((row) => ({
+        id: row.msgId,
+        conversationId: conversation.id,
+        senderId: person.id,
+        body: 'content' in row ? String(row.content) : '合成私聊消息',
+        createdAt: new Date(Number(row.sendTime) * 1000).toISOString(),
+      })),
+    });
+  }
+  const previewContent = preview ? (
+    <GapMessagesModal
+      preview
+      embedded
+      conversation={preview.conversation}
+      user={{ ...sample, id: 'u_self', identityValue: '10001', displayName: '我' }}
+      messages={preview.messages}
+      title={preview.speech ? '本群发言' : undefined}
+      loading={false}
+      loadingMore={false}
+      error={null}
+      hasMore={false}
+      moreFailed={false}
+      totalCount={preview.messages.length}
+      onLoadMore={() => {}}
+      onClose={() => setPreview(null)}
+    />
+  ) : null;
   const target: Contact =
     qa.mode === 'clone'
       ? {
@@ -148,42 +221,52 @@ function Fixture() {
                 }}
               >
                 <style>{`html,body,#root{height:100%;margin:0}.contact-fixture{height:100%;max-width:1120px;margin:auto;background:var(--weq-bg-surface);color:var(--weq-fg-primary);display:flex;flex-direction:column}.fixture-tools{display:flex;gap:12px;padding:8px;flex-shrink:0}.fixture-tools button{border:1px solid var(--weq-border-subtle);border-radius:4px;padding:4px 8px}.fixture-body{min-height:0;flex:1;overflow:auto}`}</style>
-                <main className="contact-fixture">
-                  <nav className="fixture-tools">
-                    <button type="button" onClick={() => setView('card')}>
-                      打开名片
-                    </button>
-                    <button type="button" onClick={() => setView('page')}>
-                      资料页
-                    </button>
-                    <button type="button" onClick={() => setView('settings')}>
-                      名片设置
-                    </button>
-                  </nav>
-                  <div className="fixture-body">
-                    {view === 'card' ? (
-                      <MemberProfileCard
-                        member={target}
-                        anchor={{ x: 16, y: 58 }}
-                        groupCode={target.profileContext?.groupCode}
-                        groupName={target.profileContext?.groupName}
-                        onClose={() => setView('closed')}
-                        onOpenChat={() => {}}
-                        onPreviewChat={() => {}}
-                      />
-                    ) : view === 'page' ? (
-                      <ContactProfileDialog
-                        contact={target}
-                        embedded
-                        tab={tab}
-                        onTabChange={setTab}
-                        onClose={() => setView('closed')}
-                      />
-                    ) : view === 'settings' ? (
-                      <ContactCardSettings />
-                    ) : null}
-                  </div>
-                </main>
+                <GroupSpeechPreviewContext.Provider
+                  value={{
+                    open: (person) => void openPreview({ createdAt: '', ...person }, true),
+                    close: () => setPreview(null),
+                  }}
+                >
+                  <main className="contact-fixture">
+                    <nav className="fixture-tools">
+                      <button type="button" onClick={() => setView('card')}>
+                        打开名片
+                      </button>
+                      <button type="button" onClick={() => setView('page')}>
+                        资料页
+                      </button>
+                      <button type="button" onClick={() => setView('settings')}>
+                        名片设置
+                      </button>
+                    </nav>
+                    <div className="fixture-body">
+                      {view === 'card' ? (
+                        <MemberProfileCard
+                          member={target}
+                          anchor={{ x: 16, y: 58 }}
+                          groupCode={target.profileContext?.groupCode}
+                          groupName={target.profileContext?.groupName}
+                          onClose={() => setView('closed')}
+                          onOpenChat={() => {}}
+                          onPreviewChat={() => void openPreview(target)}
+                          previewContent={previewContent}
+                        />
+                      ) : view === 'page' ? (
+                        <ContactProfileDialog
+                          contact={target}
+                          embedded
+                          tab={tab}
+                          onTabChange={setTab}
+                          onClose={() => setView('closed')}
+                          onPreviewChat={(person) => void openPreview(person)}
+                          previewContent={previewContent}
+                        />
+                      ) : view === 'settings' ? (
+                        <ContactCardSettings />
+                      ) : null}
+                    </div>
+                  </main>
+                </GroupSpeechPreviewContext.Provider>
               </ContactWorkspaceNavigationContext.Provider>
             </QzoneNavigationContext.Provider>
           </ChatNavigationContext.Provider>

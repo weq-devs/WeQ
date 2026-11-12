@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react';
+import { useContext, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useSurfaceEscape } from '../../lib/surfaceEscape';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import type { Contact } from '../../im-template/template/types';
@@ -11,6 +11,7 @@ import { ContactActions } from './ContactActions';
 import { ProfilePageHeader } from './ProfilePageHeader';
 import { toPersonalityProfile } from '../../im-template/template/profilePanes';
 import { ContactFieldHistoryProvider } from './ContactFieldHistory';
+import { GroupSpeechPreviewContext, ProfilePreviewSourceContext } from '../../lib/chatNavigation';
 
 export function ContactProfileSurface({
   contact,
@@ -60,67 +61,83 @@ function ContactProfilePage({
   const { profile, scope } = useContactProfile(contact);
   const settings = useContactCardSettings();
   const closing = useDraftClose(onClose, null);
+  const preview = useContext(GroupSpeechPreviewContext);
   const page = useRef<HTMLElement>(null);
-  useSurfaceEscape(page, closing.requestClose, true, false);
+  const previewing = Boolean(previewContent);
+  useLayoutEffect(() => {
+    const element = page.current;
+    if (previewing && element && !element.contains(element.ownerDocument.activeElement))
+      element.focus({ preventScroll: true });
+  }, [previewing]);
+  useSurfaceEscape(
+    page,
+    previewContent && preview ? preview.close : closing.requestClose,
+    true,
+    false,
+  );
   const person: Contact = { createdAt: '', ...profile };
   return (
-    <DraftCloseContext.Provider value={closing.drafts}>
-      <ContactFieldHistoryProvider
-        key={JSON.stringify(scope)}
-        entity={`friend:${person.uid || (/^u_/.test(person.id) ? person.id : person.identityValue)}`}
-      >
-        <section
-          ref={page}
-          tabIndex={-1}
-          className={`weq-profile-dialog weq-contact-profile-content weq-contact-profile-v2${previewContent ? ' is-previewing-chat' : ''}`}
-          role="region"
-          aria-label="联系人资料"
+    <ProfilePreviewSourceContext.Provider value="contact">
+      <DraftCloseContext.Provider value={closing.drafts}>
+        <ContactFieldHistoryProvider
+          key={JSON.stringify(scope)}
+          entity={`friend:${person.uid || (/^u_/.test(person.id) ? person.id : person.identityValue)}`}
         >
-          <ProfilePageHeader
-            title="联系人资料"
-            onClose={closing.requestClose}
-            layout="split"
-            identity={
-              <ContactIdentity
-                person={person}
-                settings={settings}
-                cardBody
-                pendant={settings.ready && settings.visible.pendant}
+          <section
+            ref={page}
+            tabIndex={-1}
+            className={`weq-profile-dialog weq-contact-profile-content weq-contact-profile-v2${previewContent ? ' is-previewing-chat' : ''}`}
+            role="region"
+            aria-label="联系人资料"
+          >
+            {!previewContent ? (
+              <ProfilePageHeader
+                title="联系人资料"
+                onClose={closing.requestClose}
+                layout="split"
+                identity={
+                  <ContactIdentity
+                    person={person}
+                    settings={settings}
+                    cardBody
+                    pendant={settings.ready && settings.visible.pendant}
+                  />
+                }
+                actions={
+                  <ContactActions
+                    hideGroup
+                    key={JSON.stringify([...scope, person.id, person.identityValue])}
+                    onNavigate={(action) => {
+                      void closing.confirmLeave(action);
+                    }}
+                    person={person}
+                    onPreviewChat={onPreviewChat ? () => onPreviewChat(person) : undefined}
+                  />
+                }
               />
-            }
-            actions={
-              <ContactActions
-                hideGroup
-                key={JSON.stringify([...scope, person.id, person.identityValue])}
-                onNavigate={(action) => {
-                  void closing.confirmLeave(action);
-                }}
-                person={person}
-                onPreviewChat={onPreviewChat ? () => onPreviewChat(person) : undefined}
+            ) : null}
+            {previewContent ? (
+              <div className="weq-contact-chat-preview">{previewContent}</div>
+            ) : (
+              <ContactWorkspace
+                key={JSON.stringify([...scope, person.id, person.profileContext?.groupCode])}
+                contact={person}
+                tab={tab}
+                onTabChange={onTabChange}
+                onNavigateAway={onClose}
+                personalityProfile={toPersonalityProfile(
+                  {
+                    name: person.displayName,
+                    avatarUrl: person.avatarUrl,
+                    signature: person.signature,
+                  },
+                  person.extInfo,
+                )}
               />
-            }
-          />
-          {previewContent ? (
-            <div className="weq-contact-chat-preview">{previewContent}</div>
-          ) : (
-            <ContactWorkspace
-              key={JSON.stringify([...scope, person.id, person.profileContext?.groupCode])}
-              contact={person}
-              tab={tab}
-              onTabChange={onTabChange}
-              onNavigateAway={onClose}
-              personalityProfile={toPersonalityProfile(
-                {
-                  name: person.displayName,
-                  avatarUrl: person.avatarUrl,
-                  signature: person.signature,
-                },
-                person.extInfo,
-              )}
-            />
-          )}
-        </section>
-      </ContactFieldHistoryProvider>
-    </DraftCloseContext.Provider>
+            )}
+          </section>
+        </ContactFieldHistoryProvider>
+      </DraftCloseContext.Provider>
+    </ProfilePreviewSourceContext.Provider>
   );
 }

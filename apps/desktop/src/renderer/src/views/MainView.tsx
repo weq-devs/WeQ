@@ -388,8 +388,10 @@ import { displayGroupMemberName } from '../im-template/template/user';
 import {
   ChatNavigationContext,
   GroupMessagePreviewContext,
+  GroupSpeechPreviewContext,
   type ProfileChatTarget,
 } from '../lib/chatNavigation';
+import { readProfilePreviewPage, type ProfilePreviewCursor } from '../lib/profileMessagePreview';
 import { MailWorkspace } from './MailView';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
 import { PageSnapshots, usePageState } from '../components/PageSnapshots';
@@ -11288,9 +11290,11 @@ function MainWorkspace(): ReactElement {
 
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
-    source: 'member' | 'latest' | 'contact' | 'group-profile';
+    source: 'member' | 'latest' | 'contact' | 'group-profile' | 'speech';
     contactScope: string | null;
     conversation: Conversation;
+    sender?: string;
+    cursor?: ProfilePreviewCursor;
     rows: MessageWire[];
     loading: boolean;
     loadingMore: boolean;
@@ -11344,7 +11348,8 @@ function MainWorkspace(): ReactElement {
   }
   async function previewConversation(
     conversation: Conversation,
-    source: 'member' | 'latest' | 'contact' | 'group-profile',
+    source: 'member' | 'latest' | 'contact' | 'group-profile' | 'speech',
+    sender?: string,
   ) {
     const account = user.identityValue;
     const contactScope =
@@ -11355,6 +11360,7 @@ function MainWorkspace(): ReactElement {
       source,
       contactScope,
       conversation,
+      sender,
       rows: [],
       loading: true,
       loadingMore: false,
@@ -11387,10 +11393,10 @@ function MainWorkspace(): ReactElement {
       }
       if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
         return;
-      const rows = await client.account.listLatest.query({
+      const page = await readProfilePreviewPage({
         kind: conversation.type === 'group' ? 'group' : 'c2c',
         conv: conversation.id,
-        limit: 50,
+        sender,
       });
       if (request !== previewRequest.current || useViewState.getState().openedUin !== account)
         return;
@@ -11399,11 +11405,13 @@ function MainWorkspace(): ReactElement {
         source,
         contactScope,
         conversation,
-        rows: rows.map(toMessageWire).reverse(),
+        sender,
+        cursor: page.cursor,
+        rows: page.rows.map(toMessageWire),
         loading: false,
         loadingMore: false,
         error: null,
-        hasMore: rows.length === 50,
+        hasMore: page.hasMore,
       });
     } catch (error) {
       if (request === previewRequest.current)
@@ -11424,14 +11432,15 @@ function MainWorkspace(): ReactElement {
     if (!snapshot || snapshot.loadingMore || !snapshot.hasMore) return;
     const request = previewRequest.current;
     const first = snapshot.rows[0];
-    if (!first) return;
+    if (!first && !snapshot.sender) return;
     setPrivatePreview({ ...snapshot, loadingMore: true, error: null });
     try {
-      const rows = await client.account.listBefore.query({
+      const page = await readProfilePreviewPage({
         kind: snapshot.conversation.type === 'group' ? 'group' : 'c2c',
         conv: snapshot.conversation.id,
-        beforeSeq: first.msgSeq,
-        limit: 50,
+        beforeSeq: first?.msgSeq,
+        sender: snapshot.sender,
+        cursor: snapshot.cursor,
       });
       if (
         request !== previewRequest.current ||
@@ -11440,9 +11449,10 @@ function MainWorkspace(): ReactElement {
         return;
       setPrivatePreview({
         ...snapshot,
-        rows: [...rows.map(toMessageWire).reverse(), ...snapshot.rows],
+        rows: [...page.rows.map(toMessageWire), ...snapshot.rows],
+        cursor: page.cursor,
         loadingMore: false,
-        hasMore: rows.length === 50,
+        hasMore: page.hasMore,
       });
     } catch (error) {
       if (request === previewRequest.current)
@@ -11553,8 +11563,14 @@ function MainWorkspace(): ReactElement {
     privatePreview.account === user.identityValue ? (
       <GapMessagesModal
         preview
-        embedded={privatePreview.source !== 'latest'}
-        title={privatePreview.source === 'latest' ? '预览新消息' : undefined}
+        embedded={privatePreview.source !== 'latest' && privatePreview.source !== 'speech'}
+        title={
+          privatePreview.sender
+            ? '本群发言'
+            : privatePreview.source === 'latest'
+              ? '预览新消息'
+              : undefined
+        }
         conversation={resolvedPreviewConversation}
         user={user}
         messages={previewTemplateMessages}
@@ -11566,7 +11582,13 @@ function MainWorkspace(): ReactElement {
         moreFailed={Boolean(privatePreview.error)}
         totalCount={privatePreview.rows.length}
         onLoadMore={() => void loadPrivatePreview()}
-        onRetry={() => void previewConversation(privatePreview.conversation, privatePreview.source)}
+        onRetry={() =>
+          void previewConversation(
+            privatePreview.conversation,
+            privatePreview.source,
+            privatePreview.sender,
+          )
+        }
         onClose={() => {
           previewRequest.current++;
           setPrivatePreview(null);
@@ -12903,7 +12925,9 @@ function MainWorkspace(): ReactElement {
             />
           ) : null}
           {recalls.origin !== 'settings' ? recalledView : null}
-          {privatePreview?.source === 'latest' ? conversationPreviewContent : null}
+          {privatePreview?.source === 'latest' || privatePreview?.source === 'speech'
+            ? conversationPreviewContent
+            : null}
           {unplacedRoaming ? (
             <GapMessagesModal
               conversation={unplacedRoaming.conversation}
@@ -13311,7 +13335,54 @@ function MainWorkspace(): ReactElement {
                                       : null,
                                 })}
                               >
-                                {chatContent}
+                                <GroupSpeechPreviewContext.Provider
+                                  value={useEventContextValue<
+                                    NonNullable<React.ContextType<typeof GroupSpeechPreviewContext>>
+                                  >({
+                                    open: (person, source) => {
+                                      const group = person.profileContext;
+                                      if (!group) return;
+                                      const known = conversations.find(
+                                        (item) =>
+                                          item.type === 'group' && item.id === group.groupCode,
+                                      );
+                                      const conversation =
+                                        known?.type === 'group'
+                                          ? known
+                                          : sharedGroupConversation({
+                                              code: group.groupCode,
+                                              name: group.groupName || group.groupCode,
+                                              avatar: avatarFromGroupCode(group.groupCode) ?? '',
+                                            });
+                                      void previewConversation(
+                                        {
+                                          ...conversation,
+                                          members: [
+                                            ...conversation.members.filter(
+                                              (member) => member.id !== person.id,
+                                            ),
+                                            {
+                                              ...person,
+                                              nick: person.nick ?? undefined,
+                                              remark: person.remark ?? undefined,
+                                              role: group.member?.role ?? 'member',
+                                              joinedAt: group.member?.joinedAt ?? '',
+                                              card: group.member?.card,
+                                            },
+                                          ],
+                                        },
+                                        source === 'contact' ? 'contact' : 'speech',
+                                        person.uid || person.id,
+                                      );
+                                    },
+                                    close: () => {
+                                      previewRequest.current++;
+                                      setPrivatePreview(null);
+                                    },
+                                  })}
+                                >
+                                  {chatContent}
+                                </GroupSpeechPreviewContext.Provider>
                               </GroupMessagePreviewContext.Provider>
                             </RelationshipDirectoryContext.Provider>
                           </GroupAlbumCardNavigationProvider>
