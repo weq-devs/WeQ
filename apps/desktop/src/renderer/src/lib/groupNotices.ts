@@ -1,5 +1,6 @@
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
+import { resolveAvatar } from './avatarResolver';
 
 export interface GroupBulletinImage {
   id: string;
@@ -22,6 +23,7 @@ export interface GroupNoticeEntry {
   key: string;
   noticeId?: string;
   publisherUid: string;
+  publisherUin?: string;
   publisherName?: string;
   publisherAvatar?: string;
   text: string;
@@ -66,9 +68,10 @@ export function mergeGroupNotices(
       key: item.noticeId ? `notice:${item.noticeId}` : `remote:${index}`,
       noticeId: item.noticeId || undefined,
       publisherUid: original?.publisherUid || String(item.senderId || ''),
+      publisherUin: item.senderId > 0 ? String(item.senderId) : undefined,
       publisherName: original?.publisherName,
       publisherAvatar: original?.publisherAvatar,
-      text: item.text,
+      text: decodeGroupBulletinText(item.text),
       date:
         Number.isFinite(item.publishTime) && item.publishTime > 0
           ? dateText(item.publishTime * 1000)
@@ -94,4 +97,59 @@ export function mergeGroupNotices(
     });
   }
   return rows;
+}
+
+interface NoticeMember {
+  uid: string;
+  uin: string;
+  card: string;
+  nick: string;
+}
+interface NoticeProfile {
+  uid: string;
+  uin: string;
+  nick: string;
+  remark: string;
+  avatarUrl: string;
+}
+export function resolveGroupNoticePublishers(
+  entries: GroupNoticeEntry[],
+  members: NoticeMember[],
+  profiles: NoticeProfile[],
+): GroupNoticeEntry[] {
+  const memberByIdentity = new Map<string, NoticeMember>();
+  const profileByIdentity = new Map<string, NoticeProfile>();
+  for (const member of members) {
+    memberByIdentity.set(member.uid, member);
+    if (member.uin !== '0') memberByIdentity.set(member.uin, member);
+  }
+  for (const profile of profiles) {
+    profileByIdentity.set(profile.uid, profile);
+    if (profile.uin !== '0') profileByIdentity.set(profile.uin, profile);
+  }
+  return entries.map((entry) => {
+    const member =
+      memberByIdentity.get(entry.publisherUid) || memberByIdentity.get(entry.publisherUin || '');
+    const profile =
+      profileByIdentity.get(member?.uid || entry.publisherUid) ||
+      profileByIdentity.get(entry.publisherUin || '');
+    const uin = [member?.uin, profile?.uin, entry.publisherUin, entry.publisherUid].find(
+      (value) => value && /^[1-9]\d{4,19}$/.test(value),
+    );
+    return {
+      ...entry,
+      publisherUin: uin,
+      publisherName:
+        entry.publisherName?.trim() ||
+        profile?.remark?.trim() ||
+        member?.card?.trim() ||
+        member?.nick?.trim() ||
+        profile?.nick?.trim() ||
+        undefined,
+      publisherAvatar:
+        entry.publisherAvatar ||
+        resolveAvatar({ uin, profileAvatarUrl: profile?.avatarUrl, size: 100 }) ||
+        undefined,
+    };
+  });
 }

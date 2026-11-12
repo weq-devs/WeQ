@@ -1,5 +1,6 @@
 import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -116,9 +117,19 @@ function fixture(element: ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() => root.render(h(ProfileNavigationContext.Provider, { value: open }, element)));
+  const queryClient = new QueryClient();
+  act(() =>
+    root.render(
+      h(
+        QueryClientProvider,
+        { client: queryClient },
+        h(ProfileNavigationContext.Provider, { value: open }, element),
+      ),
+    ),
+  );
   cleanups.push(() => {
     act(() => root.unmount());
+    queryClient.clear();
     host.remove();
   });
   return { host, open };

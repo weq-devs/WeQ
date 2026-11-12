@@ -37,6 +37,7 @@ export function GroupBulletinList({
               className="weq-identity-link group-bulletin-author"
               target={{
                 identity: entry.publisherUid,
+                uin: entry.publisherUin,
                 name: entry.publisherName || entry.publisherUid,
                 avatarUrl: entry.publisherAvatar,
                 group: { code: groupCode, name: groupName },

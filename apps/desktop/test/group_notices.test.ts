@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest';
-import { mergeGroupNotices, type GroupBulletinWire } from '../src/renderer/src/lib/groupNotices';
+import {
+  mergeGroupNotices,
+  resolveGroupNoticePublishers,
+  type GroupBulletinWire,
+} from '../src/renderer/src/lib/groupNotices';
 const local: GroupBulletinWire = {
   fid: 'notice-a',
   publisherUid: 'uid-a',
@@ -56,4 +60,85 @@ it('远端秒级时间用北京时间，本地无时区日期保留原值，异�
   ).toBe('2026/10/20');
   expect(mergeGroupNotices([local])[0]!.date).toBe('2026/10/20');
   expect(mergeGroupNotices([], [{ ...online, publishTime: Number.MAX_VALUE }])[0]!.date).toBe('');
+});
+it('在线与本地正文都解码换行和空格，不把正文作为 HTML 渲染或反复解码', () => {
+  const text = '第一行&#10;第二行&nbsp;@合成成员&nbsp;&amp; &lt;b&gt;正文&lt;/b&gt; &amp;#10;';
+  const expected = '第一行\n第二行\u00a0@合成成员\u00a0& <b>正文</b> &#10;';
+  expect(mergeGroupNotices([], [{ ...online, text }])[0]!.text).toBe(expected);
+  expect(mergeGroupNotices([{ ...local, textContent: text }])[0]!.text).toBe(expected);
+});
+it('公告发布者独立按 UID 或 QQ 号补全，沿用本地备注优先，已退群时回落本地个人资料', () => {
+  const entries = mergeGroupNotices(
+    [
+      { ...local, publisherUid: 'u_member', publisherName: undefined, publisherAvatar: undefined },
+      {
+        ...local,
+        fid: 'left',
+        publisherUid: 'u_left',
+        publisherName: undefined,
+        publisherAvatar: undefined,
+      },
+    ],
+    [{ ...online, noticeId: 'uin', senderId: 10002 }],
+  );
+  const rows = resolveGroupNoticePublishers(
+    entries,
+    [{ uid: 'u_member', uin: '10002', card: '群名片', nick: '群内昵称' }],
+    [
+      { uid: 'u_member', uin: '10002', nick: '本地昵称', remark: '本地备注', avatarUrl: '' },
+      { uid: 'u_left', uin: '10003', nick: '已退群昵称', remark: '', avatarUrl: '' },
+    ],
+  );
+  expect(rows.map((row) => row.publisherName)).toEqual(['本地备注', '本地备注', '已退群昵称']);
+  expect(rows.map((row) => row.publisherUin)).toEqual(['10002', '10002', '10003']);
+  expect(rows.every((row) => row.publisherAvatar?.includes('qlogo.cn'))).toBe(true);
+  expect(entries[0]!.publisherName).toBeUndefined();
+});
+it('保留已有本地显示资料；只有 QQ 号也能生成头像，未知 UID 不伪造 QQ 头像', () => {
+  const [known] = resolveGroupNoticePublishers(mergeGroupNotices([local]), [], []);
+  expect(known).toMatchObject({
+    publisherName: local.publisherName,
+    publisherAvatar: local.publisherAvatar,
+  });
+  const [numeric] = resolveGroupNoticePublishers(mergeGroupNotices([], [online]), [], []);
+  expect(numeric!.publisherUin).toBe('10001');
+  expect(numeric!.publisherAvatar).toContain('nk=10001');
+  const [unknown] = resolveGroupNoticePublishers(
+    mergeGroupNotices([{ ...local, publisherAvatar: undefined }]),
+    [],
+    [],
+  );
+  expect(unknown!.publisherAvatar).toBeUndefined();
+});
+it('同一公告保留本地 UID，同时使用在线返回的 QQ 号补全资料', () => {
+  const entries = mergeGroupNotices(
+    [
+      {
+        ...local,
+        publisherUid: 'u_uncached',
+        publisherName: undefined,
+        publisherAvatar: undefined,
+      },
+    ],
+    [online],
+  );
+  const [row] = resolveGroupNoticePublishers(
+    entries,
+    [],
+    [
+      {
+        uid: 'u_profile',
+        uin: String(online.senderId),
+        nick: '按 QQ 号找到的昵称',
+        remark: '',
+        avatarUrl: '',
+      },
+    ],
+  );
+  expect(row).toMatchObject({
+    publisherUid: 'u_uncached',
+    publisherUin: String(online.senderId),
+    publisherName: '按 QQ 号找到的昵称',
+  });
+  expect(row!.publisherAvatar).toContain(`nk=${online.senderId}`);
 });

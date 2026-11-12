@@ -4446,15 +4446,14 @@ export const accountRouter = router({
    */
   getGroupMembersByUids: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         groupCode: z.string().min(1),
         uids: z.array(z.string().min(1)).min(1).max(200),
       }),
     )
     .query(async ({ input }) => {
-      const members = await requireServices().groupInfo.getMembersByUids(
-        BigInt(input.groupCode),
-        input.uids,
+      const members = await scopedGroupRead(input, (services) =>
+        services.groupInfo.getMembersByUids(BigInt(input.groupCode), input.uids),
       );
       return members.map(groupMemberToWire);
     }),
@@ -4462,15 +4461,17 @@ export const accountRouter = router({
   /** Batch-resolve group members by uin (QQ number). Used for group-receipt payer lookup. */
   getGroupMembersByUins: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         groupCode: z.string().min(1),
         uins: z.array(z.string().min(1)).min(1).max(200),
       }),
     )
     .query(async ({ input }) => {
-      const members = await requireServices().groupInfo.getMembersByUins(
-        BigInt(input.groupCode),
-        input.uins.map((u) => BigInt(u)),
+      const members = await scopedGroupRead(input, (services) =>
+        services.groupInfo.getMembersByUins(
+          BigInt(input.groupCode),
+          input.uins.map((u) => BigInt(u)),
+        ),
       );
       return members.map(groupMemberToWire);
     }),

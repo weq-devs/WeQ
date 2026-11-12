@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MoreHorizontal, Plus, Send, Trash2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { useGroupNoticePublishers } from '../../hooks/useGroupNoticePublishers';
 import { localFileUrl } from '../../lib/resourceUrl';
 import {
   mergeGroupNotices,
@@ -90,10 +91,11 @@ function GroupNoticeActionsBody({
     busy,
   );
   const notices = trpc.account.qqActions.notices.useQuery({ ...a.binding!, groupId }, autoRefresh);
-  const entries = useMemo(
+  const mergedEntries = useMemo(
     () => mergeGroupNotices(bulletins, canManage ? notices.data : undefined),
     [bulletins, canManage, notices.data],
   );
+  const entries = useGroupNoticePublishers(String(groupId), mergedEntries);
   async function refresh() {
     const result = await notices.refetch();
     if (result.error) throw result.error;
