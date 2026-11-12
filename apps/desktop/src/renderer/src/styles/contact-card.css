@@ -35,8 +35,9 @@
 
 .weq-profile-card-controls {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  /* 给按钮外扩的 8px 点击热区留足空间，避免撑出名片滚动范围。 */
+  top: 8px;
+  right: 8px;
   display: flex;
   align-items: center;
   gap: 16px;
