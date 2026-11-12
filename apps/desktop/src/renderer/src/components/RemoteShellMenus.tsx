@@ -4,7 +4,7 @@ import '../styles/remote-shell.css';
 
 declare global {
   interface Window {
-    weqRemoteShell?: { openMenu: () => void };
+    weqRemoteShell?: { openMenu: () => void; connectionFailed?: () => void };
     weqMobileNavigation?: { back: () => boolean };
   }
 }
