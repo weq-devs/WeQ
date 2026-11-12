@@ -2,6 +2,13 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { tsImport } from 'tsx/esm/api';
+
+const developmentViteLogging: typeof import('../desktop/src/main/development_vite').developmentViteLogging =
+  process.env.WEQ_DEV_CONSOLE === '1' && process.env.WEQ_LOG_LEVEL !== 'debug'
+    ? (await tsImport('../desktop/src/main/development_vite.ts', import.meta.url))
+        .developmentViteLogging
+    : () => ({ config: {}, plugins: [] });
 
 /**
  * The browser build reuses the desktop renderer verbatim. Only two things
@@ -13,11 +20,13 @@ import tailwindcss from '@tailwindcss/vite';
  */
 
 const RENDERER = resolve(__dirname, '../desktop/src/renderer');
+const logging = developmentViteLogging('web');
 
 export default defineConfig({
+  ...logging.config,
   clearScreen: false,
   root: RENDERER,
-  plugins: [react(), tailwindcss()],
+  plugins: [...logging.plugins, react(), tailwindcss()],
   define: {
     'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web'),
   },

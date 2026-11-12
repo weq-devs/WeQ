@@ -4,6 +4,13 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { ozonePlatformArgs } from './src/main/linux_window_backend';
+import { tsImport } from 'tsx/esm/api';
+
+// 配置加载器会外置裸包导入；仅开发摘要需要通过现有 TS 加载器读取工作区源码。
+const developmentViteLogging: typeof import('./src/main/development_vite').developmentViteLogging =
+  process.env.WEQ_DEV_CONSOLE === '1' && process.env.WEQ_LOG_LEVEL !== 'debug'
+    ? (await tsImport('./src/main/development_vite.ts', import.meta.url)).developmentViteLogging
+    : () => ({ config: {}, plugins: [] });
 
 /**
  * Workspace packages export TS source directly (no build step). They must
@@ -34,6 +41,9 @@ const EXCLUDE_FROM_EXTERNAL = [
 ];
 
 let remoteWebBuilt = false;
+const mainLogging = developmentViteLogging('main');
+const preloadLogging = developmentViteLogging('preload');
+const rendererLogging = developmentViteLogging('renderer');
 
 // Wayland 会话默认让 Electron 走 XWayland（平铺合成器会把 `type: 'toolbar'` 平铺掉）。
 // 这个开关**必须出现在 Electron 启动参数里**，`app.commandLine.appendSwitch` 在 ready
@@ -49,8 +59,10 @@ process.env.ELECTRON_CLI_ARGS = JSON.stringify([
 
 export default defineConfig({
   main: {
+    ...mainLogging.config,
     clearScreen: false,
     plugins: [
+      ...mainLogging.plugins,
       {
         name: 'weq-remote-web-assets',
         buildStart() {
@@ -136,13 +148,15 @@ export default defineConfig({
     },
   },
   preload: {
+    ...preloadLogging.config,
     clearScreen: false,
-    plugins: [externalizeDepsPlugin()],
+    plugins: [...preloadLogging.plugins, externalizeDepsPlugin()],
   },
   renderer: {
+    ...rendererLogging.config,
     clearScreen: false,
     root: resolve(__dirname, 'src/renderer'),
-    plugins: [react(), tailwindcss()],
+    plugins: [...rendererLogging.plugins, react(), tailwindcss()],
     resolve: {
       alias: {
         '@renderer': resolve(__dirname, 'src/renderer/src'),

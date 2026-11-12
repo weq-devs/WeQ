@@ -40,8 +40,25 @@ export function prepareRemoteNetwork({
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    console.log('正在准备远程网络辅助程序（只编译，不启动网络节点）。');
-    console.log(`辅助程序已就绪：${prepareRemoteNetwork()}`);
+    if (process.argv.includes('--summary')) {
+      const { tsImport } = await import('tsx/esm/api');
+      const { developmentRecord } = await tsImport(
+        '../apps/desktop/src/main/development_console.ts',
+        import.meta.url,
+      );
+      const helper = prepareRemoteNetwork();
+      process.stdout.write(
+        developmentRecord(
+          'info',
+          '网络辅助程序已就绪',
+          { scope: 'startup', path: helper },
+          Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined,
+        ),
+      );
+    } else {
+      console.log('正在准备远程网络辅助程序（只编译，不启动网络节点）。');
+      console.log(`辅助程序已就绪：${prepareRemoteNetwork()}`);
+    }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

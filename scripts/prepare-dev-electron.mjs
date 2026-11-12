@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -198,22 +198,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     else {
       const env = { ...process.env, ELECTRON_EXEC_PATH: executable };
       delete env.ELECTRON_RUN_AS_NODE;
-      const child = spawn(
+      const { tsImport } = await import('tsx/esm/api');
+      const { launchDevelopment } = await tsImport(
+        '../apps/desktop/src/main/development_console.ts',
+        import.meta.url,
+      );
+      process.exitCode = await launchDevelopment(
         process.execPath,
         [await resolveBin('electron-vite', 'electron-vite'), 'dev', ...process.argv.slice(3)],
-        {
-          cwd: desktop,
-          env,
-          stdio: 'inherit',
-        },
+        desktop,
+        env,
       );
-      child.on('error', (error) => {
-        console.error(error.message);
-        process.exitCode = 1;
-      });
-      child.on('exit', (code) => {
-        process.exitCode = code ?? 1;
-      });
     }
   } catch (error) {
     console.error(error.message);

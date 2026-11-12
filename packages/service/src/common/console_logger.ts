@@ -105,7 +105,12 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
       .map((v) => v.trim())
       .filter(Boolean),
   );
-  const color = (options.color ?? process.stderr.isTTY) && env.NO_COLOR === undefined;
+  const color =
+    (options.color ??
+      (env.WEQ_DEV_STDERR_TTY === undefined
+        ? process.stderr.isTTY
+        : env.WEQ_DEV_STDERR_TTY === '1')) &&
+    env.NO_COLOR === undefined;
   const pending = new Map<
     string,
     { at: number; count: number; level: LogLevel; message: string; context: LoggerContext }

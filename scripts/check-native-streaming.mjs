@@ -84,18 +84,36 @@ try {
   const actual = createHash('sha256');
   for await (const chunk of createReadStream(output)) actual.update(chunk);
   assert.equal(actual.digest('hex'), expected.digest('hex'), '解密内容不匹配');
-  console.log(
-    JSON.stringify({
-      addon,
-      bytes: pages * pageSize,
-      peakIncreaseKB: increaseKB,
-      bytesMatch: true,
-    }),
-  );
   assert.ok(
     increaseKB < 48 * 1024,
     `原生模块仍疑似整库缓冲（额外峰值 ${increaseKB} KiB），不能用于大库修复。请更新实际加载的 nt_helper.node，不能只更新 WeQ 源码。`,
   );
+  if (process.env.WEQ_NATIVE_CHECK_SUMMARY === '1') {
+    const { tsImport } = await import('tsx/esm/api');
+    const { developmentRecord } = await tsImport(
+      '../apps/desktop/src/main/development_console.ts',
+      import.meta.url,
+    );
+    process.stdout.write(
+      developmentRecord(
+        'info',
+        '原生流式解密检查通过',
+        {
+          scope: 'startup',
+          size: pages * pageSize,
+        },
+        Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined,
+      ),
+    );
+  } else
+    console.log(
+      JSON.stringify({
+        addon,
+        bytes: pages * pageSize,
+        peakIncreaseKB: increaseKB,
+        bytesMatch: true,
+      }),
+    );
 } finally {
   try {
     nt.closeAllDb();

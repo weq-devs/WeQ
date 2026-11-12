@@ -6,6 +6,57 @@ import type { LoggerContext } from '../src/common/logger';
 
 const options = { now: Date.UTC(2026, 0, 1, 16, 0, 0, 123), color: false, details: false };
 describe('终端可读排版', () => {
+  it('生命周期摘要按模块和事件翻译，不改变未知消息，重复路径和端口不再展示', () => {
+    expect(
+      formatConsoleRecord(
+        'info',
+        'logger initialized',
+        {
+          scope: 'logger',
+          event: 'init',
+          logDir: '/fixture/logs',
+        },
+        options,
+      ),
+    ).toContain('日志已就绪  日志 /fixture/logs');
+    const context = { scope: 'app-context', event: 'init-app-context', logDir: '/fixture/logs' };
+    expect(formatConsoleRecord('info', 'initializing app context', context, options)).not.toContain(
+      '/fixture/logs',
+    );
+    expect(context.logDir).toBe('/fixture/logs');
+    expect(
+      formatConsoleRecord(
+        'info',
+        'started',
+        {
+          scope: 'mcp-server',
+          event: 'mcp-start',
+          address: 'http://127.0.0.1:48766/',
+          port: 48766,
+        },
+        options,
+      ),
+    ).toContain('MCP 服务已启动  地址 http://127.0.0.1:48766/');
+    expect(
+      formatConsoleRecord(
+        'info',
+        'started',
+        {
+          scope: 'mcp-server',
+          event: 'mcp-start',
+          address: 'http://127.0.0.1:48766/',
+          port: 48766,
+        },
+        options,
+      ),
+    ).not.toContain('端口');
+    expect(
+      formatConsoleRecord('info', 'original message', { scope: 'other', event: 'init' }, options),
+    ).toContain('original message');
+    expect(
+      formatConsoleRecord('info', 'started', { address: 'socket', port: 48766 }, options),
+    ).toContain('端口 48766');
+  });
   it('慢请求只显示时间、模块、方法和耗时，不输出 JSON 或内部元数据', () => {
     const line = formatConsoleRecord(
       'warn',
