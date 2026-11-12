@@ -123,6 +123,9 @@ export const SIGN_RULES = {
 
   // ─── 显式不签名（沿用原有协议策略，不改变线上参数） ──────────────────
   // 既有实测声明、抓包说明与间接依据分级见 docs/develop/sign-policy-20261109.md。
+  // 共同群：2026-10-22 已有不签名查询成功记录；其余平台沿用原参数，非三端实测结论。
+  // 登记依据与未验证范围见 docs/develop/sign-policy-inventory-20261110.md 的后续登记。
+  'OidbSvc.0xcf4': { sign: 'none' },
   'OidbSvcTrpcTcp.0x5d6_6': { sign: 'none' },
   'OidbSvcTrpcTcp.0x5d6_19': { sign: 'none' },
   'OidbSvcTrpcTcp.0x6d6_4': { sign: 'none' },
@@ -226,7 +229,6 @@ export const UNCONFIRMED_SIGN_COMMANDS: Readonly<Record<string, string>> = {
   'OidbSvcTrpcTcp.0x912e_0': '设置好友备注：现有入口未给出签名结论',
   'OidbSvcTrpcTcp.0x912f_0': '清除好友备注：现有入口未给出签名结论',
   'OidbSvc.0x4ff_9_IMCore': '旧资料写入：现有入口未给出签名结论',
-  'OidbSvc.0xcf4': '共同群查询：现有入口未给出签名结论',
   'pttTrans.TransGroupPttReq': '群语音转写：包体样本不能代替 SecInfo 签名证据',
   'pttTrans.TransC2CPttReq': '私聊语音转写：包体样本不能代替 SecInfo 签名证据',
   'trpc.qqrtc.av_appsvr.AvAppsvr.SsoAcceptInvite': '仅命令常量，现有三条私聊信令实测声明未覆盖它',
