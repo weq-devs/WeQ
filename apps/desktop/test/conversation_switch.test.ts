@@ -1262,7 +1262,7 @@ it('未确认 NT 序号的私聊漫游仅更新预览，不混入正文时间线
   }
 });
 
-it('全目录先查水位，持续库通知不重算稳定会话，零红点同水位修正仍定期校准', async () => {
+it('全目录一次获取共享结果，不在前端轮询精算，服务快照通知定向刷新', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -1281,7 +1281,7 @@ it('全目录先查水位，持续库通知不重算稳定会话，零红点同�
       ),
     );
     await advance(200);
-    expect(f.unreadReads[0]?.watermarksOnly).toBe(true);
+    expect(f.unreadReads[0]?.watermarksOnly).toBeUndefined();
     expect(precise()).toHaveLength(1);
     expect(precise()[0]?.targets).toHaveLength(f.recent.length);
     for (let change = 0; change < 3; change++) {
@@ -1289,13 +1289,13 @@ it('全目录先查水位，持续库通知不重算稳定会话，零红点同�
       await advance(15000);
       expect(precise()).toHaveLength(1);
     }
-    // 已经没有新的库通知，也没有红点供 1.5 秒轮询选择，仍需独立推进到期补算。
+    // 无前端精算或周期补扫；纯水位变化由服务端小表快照主动通知。
     await advance(31000);
-    expect(precise()).toHaveLength(2);
+    expect(precise()).toHaveLength(1);
     // 定向消息不等待下一轮低频校准。
     await act(async () => f.unreadChanged?.([{ chatType: 2, uid: '10001' }]));
     await advance(10);
-    expect(precise()).toHaveLength(3);
+    expect(precise()).toHaveLength(2);
     expect(precise().at(-1)?.targets).toEqual([{ chatType: 2, uid: '10001' }]);
   } finally {
     act(() => root.unmount());

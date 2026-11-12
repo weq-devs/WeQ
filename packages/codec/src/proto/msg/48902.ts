@@ -68,6 +68,18 @@ const UnreadInfoInner = {
   peerUid: ProtoField(40021, ScalarType.STRING, { optional: true }),
   /** 最新读到的消息序号 */
   msgSeq: ProtoField(41002, ScalarType.UINT32, { optional: true }),
+  /** QQ 本机阅读位置，与服务端阅读位置共同作为下限。 */
+  localReadSeq: ProtoField(41032, ScalarType.UINT32, { optional: true }),
+  /** QQ 已维护的减计数项；包含自己发言等不应增加未读的序号。 */
+  decreases: ProtoField(
+    41024,
+    () => ({ msgSeq: ProtoField(40003, ScalarType.UINT32, { optional: true }) }),
+    { optional: true, repeat: true },
+  ),
+  markUnread: ProtoField(41027, ScalarType.UINT32, { optional: true }),
+  /** 设备／特殊会话的独立计数，不作为普通私聊、群聊计数。 */
+  unreadCount: ProtoField(41022, ScalarType.UINT32, { optional: true }),
+  localUnreadCount: ProtoField(41037, ScalarType.UINT32, { optional: true }),
   /** 会话扩展（特别关心等提醒高亮）。 */
   ext: ProtoField(50005, () => UnreadExt, { optional: true }),
 };

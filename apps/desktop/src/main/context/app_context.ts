@@ -505,7 +505,11 @@ function mountDbWatch(session: AccountSession): void {
   dbChangeNotification = notification;
   dbWatchHandle = dbWatch.mount(
     createNtMsgDbHook(session, {
-      onDbChanged: notification.request,
+      onDbChanged: (file) => {
+        if (getAppContext().account !== session) return;
+        getAppContext().services?.unreadInfo.invalidate();
+        notification.request(file);
+      },
       onNewMessages: async (change: NewMessages) => {
         const ctx = getAppContext();
         if (ctx.account !== session) return;

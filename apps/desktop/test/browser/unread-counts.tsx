@@ -20,13 +20,25 @@ const initial = {
   otherUser: { ...seed.otherUser!, avatarUrl: avatar, displayName: '未读回归会话' },
 };
 function App() {
-  const [conversation, setConversation] = useState(initial);
+  const [conversations, setConversations] = useState([
+    initial,
+    { ...initial, id: '70001', otherUser: { ...initial.otherUser, displayName: '批量回显会话' } },
+  ]);
   useEffect(() => {
     const refresh = async () => {
-      const [row] = await fetch('/__unread').then((response) => response.json());
-      if (row.readError || row.countPending) throw new Error('未读尚未完成');
-      setConversation((current) => ({ ...current, unreadCount: row.unreadCount }));
-      return row.unreadCount;
+      const rows = (await fetch('/__unread').then((response) => response.json())) as Array<{
+        uid: string;
+        readError?: boolean;
+        unreadCount: number;
+      }>;
+      if (rows.some((row) => row.readError)) throw new Error('未读读取失败');
+      setConversations((current) =>
+        current.map((conversation) => ({
+          ...conversation,
+          unreadCount: rows.find((row) => row.uid === conversation.id)!.unreadCount,
+        })),
+      );
+      return rows[0]!.unreadCount;
     };
     Object.assign(window, { unreadQa: { refresh } });
     void refresh();
@@ -38,7 +50,7 @@ function App() {
         <div className="app-shell">
           <aside className="sidebar">
             <ConversationList
-              conversations={[conversation]}
+              conversations={conversations}
               activeConversationId={null}
               preferences={{}}
               drafts={{}}

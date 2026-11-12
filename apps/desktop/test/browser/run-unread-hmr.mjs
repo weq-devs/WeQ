@@ -73,7 +73,10 @@ const server = await createServer({
 let browser;
 try {
   await server.listen();
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.WEQ_BROWSER_EXECUTABLE,
+  });
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));

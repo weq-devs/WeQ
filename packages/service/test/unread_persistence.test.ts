@@ -15,11 +15,11 @@ it('同一状态文件只有一个写者，旧版本完成不提前确认新版�
     active--;
   });
   const store = new LocalUnreadStore('/synthetic-unread-fixture/state.json');
-  store.recordLive(1, 'u_fixture', '10');
+  store.markRead(1, 'u_fixture', '10');
   const first = store.flush();
   await Promise.resolve();
   expect(writes).toHaveLength(1);
-  store.recordLive(1, 'u_fixture', '11');
+  store.markRead(1, 'u_fixture', '11');
   const second = store.flush();
   let saved = false;
   void second.then(() => {
@@ -31,7 +31,7 @@ it('同一状态文件只有一个写者，旧版本完成不提前确认新版�
   expect(saved).toBe(false);
   expect(writes).toHaveLength(2);
   const closing = waitForUnreadWrites();
-  expect(JSON.parse(writes[1]!.data)['1_u_fixture'].pending).toEqual(['10', '11']);
+  expect(JSON.parse(writes[1]!.data)['1_u_fixture'].readSeq).toBe('11');
   writes[1]!.finish();
   await second;
   await closing;
@@ -45,19 +45,15 @@ it('写失败不清除未保存版本，下一次 flush 可重试，突发修改
     .mockRejectedValueOnce(new Error('磁盘不可写'))
     .mockResolvedValue(undefined);
   const store = new LocalUnreadStore('/synthetic-unread-fixture/state.json');
-  store.recordLive(1, 'u_fixture', '10');
+  store.markRead(1, 'u_fixture', '10');
   await expect(store.flush()).rejects.toThrow('磁盘不可写');
-  store.recordLive(1, 'u_fixture', '11');
+  store.markRead(1, 'u_fixture', '11');
   const tasks = [store.flush()];
-  store.recordLive(1, 'u_fixture', '12');
+  store.markRead(1, 'u_fixture', '12');
   tasks.push(store.flush());
   await Promise.all(tasks);
   expect(write).toHaveBeenCalledTimes(2);
-  expect(JSON.parse(String(write.mock.calls[1]![1]))['1_u_fixture'].pending).toEqual([
-    '10',
-    '11',
-    '12',
-  ]);
+  expect(JSON.parse(String(write.mock.calls[1]![1]))['1_u_fixture'].readSeq).toBe('12');
   await store.flush();
   expect(write).toHaveBeenCalledTimes(2);
 });

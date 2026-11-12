@@ -1828,7 +1828,6 @@ function unreadInfoToWire(
     unreadCount: row.unreadCount,
     readSeq: row.readSeq,
     readError: row.readError ?? false,
-    countPending: row.countPending ?? false,
     msgSeq: row.msgSeq?.toString(),
     highlights: row.highlights?.map((h) => ({
       kind: h.kind,
@@ -5581,18 +5580,9 @@ export const accountRouter = router({
           ).values(),
         ]);
       };
-      const handler = (change: NewMessages): void => {
-        publish([
-          ...change.c2c.map((msg) => ({ chatType: 1, uid: msg.targetUid })),
-          ...change.group.map((msg) => ({ chatType: 2, uid: msg.targetGroupCode })),
-          ...(change.dataline ?? []).map((msg) => ({ chatType: msg.chatType, uid: msg.targetUid })),
-        ]);
-      };
       const stopCounts = services.unreadInfo.onCountsChanged(publish);
-      dbEventBus.on('new', handler);
       return () => {
         stopCounts();
-        dbEventBus.off('new', handler);
       };
     });
   }),

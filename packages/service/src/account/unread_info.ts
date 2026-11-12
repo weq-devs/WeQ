@@ -1,10 +1,10 @@
 import type { AccountSession } from '@weq/account';
-import { databaseRequestSignal, recordMessageWork, withDatabasePriority } from '@weq/db';
+import { recordMessageWork, withDatabasePriority } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { ReportRead, type ReadReportParams } from '@weq/protocol';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
 import { LocalUnreadStore, type ResolvedUnreadInfo } from './local_unread';
-import { NEW_CONV_FRESH_SEC, type NewMessages } from './nt_msg_hook';
+import type { NewMessages } from './nt_msg_hook';
 import type {
   UnreadHighlightInput,
   UnreadInfoResult,
@@ -14,9 +14,7 @@ import type {
 } from '@weq/db';
 import { randomUUID } from 'node:crypto';
 import type { ManualReadChange } from './local_unread';
-import { datalineDevice, isDatalineUid, classifyChatType } from '@weq/codec';
-import { SendType } from '@weq/codec/proto/msg/40900';
-import { UnreadCountCache, type UnreadCountSource } from './unread_count_source';
+import type { UnreadCountSource } from './unread_count_source';
 
 export type ReadReportState =
   | 'disabled'
@@ -49,14 +47,35 @@ interface ManualReadEntry extends UnreadInfoTarget {
   change: ManualReadChange;
   snapshot: UnreadInfoSnapshot;
   database?: UnreadReadChange;
+  version?: number;
 }
 
 export class UnreadInfoService {
   private readonly local: LocalUnreadStore;
-  private readonly openedAt = Date.now() / 1000;
   private disposed = false;
   private readonly reads = new AbortController();
-  private readonly badgeReads = new Map<string, Promise<UnreadInfoSnapshot[]>>();
+  private readonly snapshots = new Map<string, UnreadInfoSnapshot>();
+  private readonly results = new Map<string, ResolvedUnreadInfo>();
+  private readonly targets = new Map<string, UnreadInfoTarget>();
+  private loading?: Promise<void>;
+  private updatedAt = 0;
+  private dirty = true;
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private changeTimer?: ReturnType<typeof setTimeout>;
+  private retryTimer?: ReturnType<typeof setTimeout>;
+  private readonly writes = new Map<
+    string,
+    {
+      target: UnreadInfoTarget;
+      readSeq: string;
+      throughSeq: string;
+      unread: boolean;
+      version: number;
+      undo?: ManualReadEntry;
+    }
+  >();
+  private readonly writeTasks = new Map<string, Promise<unknown>>();
+  private readonly targetVersions = new Map<string, number>();
   private generation = 0;
   private readonly pending = new Map<string, PendingReport>();
   private readonly confirmed = new Map<
@@ -65,8 +84,6 @@ export class UnreadInfoService {
   >();
   private lastReport: ReadReportStatus = { state: 'disabled' };
   private readonly readHistory = new Map<string, ManualReadEntry[]>();
-  private readonly counts?: UnreadCountCache;
-  private readonly countOnlySnapshots = new WeakSet<UnreadInfoSnapshot>();
   private readonly countListeners = new Set<(targets: UnreadInfoTarget[]) => void>();
   private manualRevision = 0;
 
@@ -74,56 +91,60 @@ export class UnreadInfoService {
     private readonly session: AccountSession,
     private readonly report?: ReadReportOptions,
     private readonly localOptions?: { statePath: string; readOnly?: boolean },
-    countSource?: UnreadCountSource,
+    private readonly countSource?: UnreadCountSource,
   ) {
     this.local = new LocalUnreadStore(localOptions?.statePath);
-    if (countSource && !localOptions?.readOnly)
-      this.counts = new UnreadCountCache(
-        countSource,
-        (targets) => this.readSnapshots(targets, undefined, true, true),
-        (targets) => {
-          for (const listener of this.countListeners) listener(targets);
-        },
-      );
+    if (typeof session.unreadInfo.getAllUnreadInfos === 'function')
+      void this.refreshSnapshots().catch(() => {});
   }
 
   onCountsChanged(listener: (targets: UnreadInfoTarget[]) => void): () => void {
     this.countListeners.add(listener);
-    return () => this.countListeners.delete(listener);
+    if (!this.refreshTimer && !this.disposed) {
+      this.refreshTimer = setInterval(() => {
+        void this.refreshSnapshots().catch(() => {});
+      }, 1500);
+      this.refreshTimer.unref?.();
+      this.invalidate();
+    }
+    return () => {
+      this.countListeners.delete(listener);
+      if (!this.countListeners.size) {
+        if (this.refreshTimer) clearInterval(this.refreshTimer);
+        if (this.changeTimer) clearTimeout(this.changeTimer);
+        this.refreshTimer = undefined;
+        this.changeTimer = undefined;
+      }
+    };
   }
 
-  /** 仅接数据库实时差分；漫游缓存事件不走这里，旧消息导入不增加未读。 */
-  async observeNewMessages(change: NewMessages): Promise<void> {
-    if (this.disposed || this.localOptions?.readOnly) return;
-    const observedAt = change.file.at / 1000;
-    const live = (time: bigint) =>
-      Number(time) >= Math.max(this.openedAt, observedAt) - NEW_CONV_FRESH_SEC &&
-      Number(time) <= observedAt + NEW_CONV_FRESH_SEC;
-    for (const msg of change.c2c) {
-      if (live(msg.sendTime) && msg.senderUid === msg.targetUid)
-        this.local.recordLive(1, msg.targetUid, String(msg.msgSeq));
-    }
-    for (const msg of change.group) {
-      if (
-        live(msg.sendTime) &&
-        msg.senderUid !== this.session.selfUid &&
-        String(msg.senderUin) !== this.session.context.uin
-      )
-        this.local.recordLive(2, msg.targetGroupCode, String(msg.msgSeq));
-    }
-    for (const msg of change.dataline ?? []) {
-      const device = datalineDevice(msg.senderUid);
-      if (
-        live(msg.sendTime) &&
-        isDatalineUid(msg.targetUid) &&
-        classifyChatType(msg.chatType) === 'dataline' &&
-        (device === 'phone' || device === 'pad') &&
-        (msg.sendType === BigInt(SendType.RECEIVED) ||
-          msg.sendType === BigInt(SendType.OTHER_CLIENT))
-      )
-        this.local.recordLive(msg.chatType, msg.targetUid, String(msg.msgSeq));
-    }
-    await this.local.flush();
+  /** 文件通知仅请求小表快照，不累加消息、不使历史区间失效。 */
+  invalidate(): void {
+    if (this.disposed) return;
+    this.dirty = true;
+    if (!this.countListeners.size || this.changeTimer) return;
+    this.changeTimer = setTimeout(() => {
+      this.changeTimer = undefined;
+      void this.refreshSnapshots().catch(() => {});
+    }, 50);
+    this.changeTimer.unref?.();
+  }
+
+  async observeNewMessages(_change: NewMessages): Promise<void> {
+    this.invalidate();
+  }
+
+  /** 诊断显式调用，不作为显示来源或启动前置。 */
+  async compareQqCounts() {
+    await this.refreshSnapshots();
+    const sample = await this.countSource?.read();
+    return sample?.rows.map((target) => {
+      const row = this.snapshots.get(`${target.chatType}_${target.uid}`);
+      return {
+        ...target,
+        databaseCount: row ? this.results.get(row.peer)?.unreadCount : undefined,
+      };
+    });
   }
 
   getReadReportStatus(): ReadReportStatus {
@@ -134,7 +155,11 @@ export class UnreadInfoService {
 
   async dispose(): Promise<void> {
     this.disposed = true;
-    this.counts?.dispose();
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    if (this.changeTimer) clearTimeout(this.changeTimer);
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.writes.clear();
+    this.countSource?.clear();
     this.countListeners.clear();
     this.reads.abort();
     this.cancelReports();
@@ -155,279 +180,315 @@ export class UnreadInfoService {
 
   async getUnreadInfos(
     targets: UnreadInfoTarget[],
-    watermarksOnly = false,
+    _watermarksOnly = false,
   ): Promise<ResolvedUnreadInfo[]> {
-    if (this.disposed)
-      return targets.map(({ chatType, uid }) => ({
-        chatType,
-        uid,
-        peer: `${chatType}_${uid}`,
-        latestSeq: null,
-        readError: true,
-      }));
-    const began = performance.now();
-    const manualRevision = this.manualRevision;
-    if (targets.length) this.counts?.start();
-    const readSeqs = new Map<string, string>();
+    if (this.disposed) return targets.map((target) => this.missing(target));
+    for (const target of targets) this.targets.set(this.key(target), target);
+    const missing = targets.some((target) => !this.snapshots.has(this.key(target)));
+    if (
+      missing ||
+      (!this.countListeners.size && (this.dirty || Date.now() - this.updatedAt >= 1500))
+    ) {
+      try {
+        await this.refreshSnapshots();
+      } catch {
+        // 暂时不可用保留已有结果，不用失败快照将角标清零。
+      }
+    }
+    return targets.map((target) => {
+      const row = this.results.get(this.key(target));
+      return this.disposed || !row ? this.missing(target) : row;
+    });
+  }
+
+  private key(target: UnreadInfoTarget): string {
+    return `${target.chatType}_${target.uid}`;
+  }
+  private missing(target: UnreadInfoTarget): UnreadInfoSnapshot {
+    return { ...target, peer: this.key(target), latestSeq: null, readError: true };
+  }
+  private publish(targets: UnreadInfoTarget[]): void {
+    if (this.disposed || !targets.length) return;
+    const changed = targets.map(({ chatType, uid }) => ({ chatType, uid }));
+    for (const listener of this.countListeners) listener(changed);
+  }
+
+  private project(targets: UnreadInfoTarget[]): void {
     for (const target of targets) {
-      const floor = this.local.countFloor(target.chatType, target.uid);
-      if (floor !== undefined) readSeqs.set(`${target.chatType}_${target.uid}`, floor);
+      const row = this.snapshots.get(this.key(target));
+      if (row && !row.readError) this.results.set(row.peer, this.local.resolve(row));
     }
-    const key = JSON.stringify([manualRevision, watermarksOnly, targets, [...readSeqs]]);
-    // 带独立取消信号的调用不共享在途任务，避免一个调用取消其他页面的统计。
-    const share = databaseRequestSignal() === undefined;
-    let reading = share ? this.badgeReads.get(key) : undefined;
-    if (!reading) {
-      reading = this.readBadgeSnapshots(targets, readSeqs, watermarksOnly).finally(() => {
-        if (share) this.badgeReads.delete(key);
-      });
-      if (share) this.badgeReads.set(key, reading);
-    }
-    const snapshots = await reading;
-    recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
-    if (this.disposed || manualRevision !== this.manualRevision)
-      return snapshots.map((row) => ({ ...row, readError: true }));
-    const rows = snapshots.map((row): ResolvedUnreadInfo => {
-      const canUseCount = this.local.canUseCount(row);
-      const count = canUseCount ? this.counts?.get(row) : undefined;
-      if (count !== undefined) return this.local.resolve(row, count);
-      // 数据库水位并非同批 QQ 阅读位置；来源失效或无法对齐时不能把回退零发布为已读。
-      if (canUseCount && this.countNeedsConfirmation(row)) return { ...row, countPending: true };
-      // 统计期间来源失效或发生本地操作，轻量行不能冒充已完成精确统计。
-      if (this.countOnlySnapshots.has(row)) return { ...row, readError: true };
-      const currentFloor = this.local.countFloor(row.chatType, row.uid) ?? '0';
-      const scannedFrom = readSeqs.get(row.peer);
-      // 撤销手动阅读可能降低下限；此前跳过的区间不能冒充已完成统计。
-      if (scannedFrom !== undefined && BigInt(scannedFrom) > BigInt(currentFloor))
-        return { ...row, readError: true };
-      if (
-        watermarksOnly &&
-        !row.readError &&
-        row.msgSeq !== undefined &&
-        row.latestSeq !== null &&
-        /^\d+$/.test(row.latestSeq) &&
-        BigInt(row.latestSeq) > BigInt(row.msgSeq) &&
-        BigInt(row.latestSeq) > BigInt(currentFloor) &&
-        classifyChatType(row.chatType) !== 'dataline'
-      )
-        return { ...row, countPending: true };
-      return this.local.resolve(row);
-    });
-    const saving = performance.now();
-    await this.local.flush();
-    recordMessageWork(this.session.msgDbPath, 'unreadPersistence', performance.now() - saving);
-    if (this.disposed || manualRevision !== this.manualRevision)
-      return rows.map((row) => ({ ...row, readError: true }));
-    return rows;
   }
 
-  private async readBadgeSnapshots(
-    targets: UnreadInfoTarget[],
-    readSeqs: ReadonlyMap<string, string>,
-    watermarksOnly: boolean,
-  ): Promise<UnreadInfoSnapshot[]> {
-    if (watermarksOnly || !this.counts?.ready)
-      return this.readSnapshots(targets, readSeqs, watermarksOnly);
-    const light = await this.readSnapshots(targets, undefined, true);
-    if (this.disposed) return light;
-    const fallback = light.filter(
-      (row) =>
-        !this.local.canUseCount(row) ||
-        (this.counts?.get(row) === undefined && !this.countNeedsConfirmation(row)),
-    );
-    const exact = fallback.length ? await this.readSnapshots(fallback, readSeqs) : [];
-    const byPeer = new Map(exact.map((row) => [row.peer, row]));
-    return light.map((row) => {
-      const full = byPeer.get(row.peer);
-      if (full) return full;
-      this.countOnlySnapshots.add(row);
-      return row;
-    });
-  }
-
-  private countNeedsConfirmation(snapshot: UnreadInfoSnapshot): boolean {
-    // 手动未读只维持标记，来源失效时仍精确统计，不能冻结其数量。
-    return (
-      !this.local.hasManualUnread(snapshot.chatType, snapshot.uid) &&
-      this.counts?.requiresConfirmation(snapshot) === true
-    );
-  }
-
-  private readSnapshots(
-    targets: UnreadInfoTarget[],
-    readSeqs?: ReadonlyMap<string, string>,
-    watermarksOnly = false,
-    background = false,
-  ): Promise<UnreadInfoSnapshot[]> {
-    const inherited = background ? undefined : databaseRequestSignal();
-    const signal = inherited ? AbortSignal.any([inherited, this.reads.signal]) : this.reads.signal;
-    return withDatabasePriority(
-      watermarksOnly && !background ? 'interactive' : 'background',
+  private async refreshSnapshots(): Promise<void> {
+    if (this.disposed) return;
+    if (this.loading) return this.loading;
+    const revision = this.manualRevision;
+    const began = performance.now();
+    this.dirty = false;
+    const reading = withDatabasePriority(
+      'interactive',
       () => {
-        signal.throwIfAborted();
-        if (watermarksOnly) return this.session.unreadInfo.getUnreadInfos(targets);
-        const self = {
-          selfUid: this.session.selfUid,
-          selfUin: this.session.context.uin,
-        };
-        return this.session.unreadInfo.getUnreadInfos(
-          targets,
-          self,
-          readSeqs?.size ? readSeqs : undefined,
-          { reuseOutgoing: true },
-        );
+        this.reads.signal.throwIfAborted();
+        return typeof this.session.unreadInfo.getAllUnreadInfos === 'function'
+          ? this.session.unreadInfo.getAllUnreadInfos()
+          : this.session.unreadInfo.getUnreadInfos([...this.targets.values()]);
       },
-      signal,
+      this.reads.signal,
     );
+    this.loading = (async () => {
+      try {
+        const rows = await reading;
+        if (this.disposed) return;
+        if (revision !== this.manualRevision) {
+          this.invalidate();
+          return;
+        }
+        const changed: UnreadInfoTarget[] = [];
+        const present = new Set(rows.map((row) => row.peer));
+        // 两张小表均无行也是有效快照；目录中缺行的目标不能让每次读取都重查全库。
+        for (const [peer, target] of this.targets)
+          if (!present.has(peer)) rows.push({ ...target, peer, latestSeq: null });
+        for (const row of rows) {
+          if (row.readError) continue;
+          const before = this.snapshots.get(row.peer);
+          if (JSON.stringify(before) === JSON.stringify(row)) continue;
+          changed.push(row);
+          this.snapshots.set(row.peer, row);
+          this.results.set(row.peer, this.local.resolve(row));
+        }
+        this.updatedAt = Date.now();
+        this.publish(changed);
+        void this.local.flush().catch((error) => console.error('[unread] 操作保存失败', error));
+      } catch (error) {
+        this.dirty = true;
+        throw error;
+      } finally {
+        recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
+        this.loading = undefined;
+      }
+    })();
+    return this.loading;
+  }
+
+  private async readSnapshots(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
+    for (const target of targets) this.targets.set(this.key(target), target);
+    await this.refreshSnapshots();
+    return targets.map((target) => this.snapshots.get(this.key(target)) ?? this.missing(target));
+  }
+
+  private bumpTarget(target: UnreadInfoTarget): number {
+    const key = this.key(target),
+      version = (this.targetVersions.get(key) ?? 0) + 1;
+    this.targetVersions.set(key, version);
+    this.writes.delete(key);
+    return version;
+  }
+
+  private async writeTarget<T>(
+    target: UnreadInfoTarget,
+    version: number,
+    run: () => Promise<T>,
+  ): Promise<T | undefined> {
+    const key = this.key(target);
+    const previous = this.writeTasks.get(key);
+    const task = (async () => {
+      await previous?.catch(() => {});
+      if (this.disposed || version !== this.targetVersions.get(key)) return undefined;
+      return run();
+    })();
+    this.writeTasks.set(key, task);
+    try {
+      return await task;
+    } finally {
+      if (this.writeTasks.get(key) === task) this.writeTasks.delete(key);
+    }
+  }
+
+  private queueWrite(
+    target: UnreadInfoTarget,
+    readSeq: string,
+    throughSeq: string,
+    unread: boolean,
+    version = this.targetVersions.get(this.key(target)) ?? 0,
+  ): void {
+    if (this.localOptions?.readOnly || this.disposed) return;
+    if (version !== this.targetVersions.get(this.key(target))) return;
+    this.writes.set(this.key(target), { target, readSeq, throughSeq, unread, version });
+    if (this.retryTimer) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      void this.retryWrites();
+    }, 1000);
+    this.retryTimer.unref?.();
+  }
+  private async retryWrites(): Promise<void> {
+    for (const [key, entry] of this.writes) {
+      if (this.disposed) return;
+      try {
+        if (entry.undo) {
+          const row = entry.undo;
+          const restored = await this.writeTarget(row, entry.version, () =>
+            this.session.unreadInfo.undoReadState(row.database!),
+          );
+          if (restored) {
+            this.local.restoreManualRead(row.chatType, row.uid, row.change);
+            this.manualRevision++;
+            this.project([row]);
+            await this.local.flush();
+            this.publish([row]);
+          }
+        } else
+          await this.writeTarget(entry.target, entry.version, () =>
+            this.session.unreadInfo.setReadState(
+              entry.target.chatType,
+              entry.target.uid,
+              entry.readSeq,
+              entry.throughSeq,
+              entry.unread,
+            ),
+          );
+        if (this.writes.get(key) === entry) this.writes.delete(key);
+        this.invalidate();
+      } catch {
+        /* 下一轮合并重试，只保存每会话最新操作。 */
+      }
+    }
+    if (this.writes.size && !this.disposed && !this.retryTimer) {
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = undefined;
+        void this.retryWrites();
+      }, 5000);
+      this.retryTimer.unref?.();
+    }
   }
 
   async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
     const snapshot =
       latestSeq === undefined ? (await this.getUnreadInfos([{ chatType, uid }]))[0] : undefined;
-    if (this.disposed || snapshot?.readError) return false;
     const sequence = latestSeq ?? snapshot?.latestSeq;
-    if (sequence === undefined || sequence === null) return false;
+    if (this.disposed || sequence == null || snapshot?.readError) return false;
     const changed = this.local.markRead(chatType, uid, sequence);
-    await this.local.flush();
+    if (changed) {
+      this.manualRevision++;
+      this.bumpTarget({ chatType, uid });
+      this.project([{ chatType, uid }]);
+      this.publish([{ chatType, uid }]);
+      await this.local.flush();
+    }
     return changed;
   }
 
-  /** 可写目录同步修改 QQ 库；手动上报由独立开关控制，默认关闭。 */
   async setReadState(targets: UnreadInfoTarget[], unread: boolean) {
-    const unique = [
-      ...new Map(targets.map((target) => [`${target.chatType}_${target.uid}`, target])).values(),
-    ];
-    const snapshots: UnreadInfoSnapshot[] = [];
-    for (let index = 0; index < unique.length; index += 256)
-      snapshots.push(...(await this.readSnapshots(unique.slice(index, index + 256))));
-    if (
-      this.disposed ||
-      snapshots.length !== unique.length ||
-      snapshots.some((row) => row.readError)
-    )
+    const unique = [...new Map(targets.map((target) => [this.key(target), target])).values()];
+    const snapshots = await this.readSnapshots(unique);
+    if (this.disposed || snapshots.some((row) => row.readError))
       throw new Error('未读状态读取失败，请稍后重试');
     this.manualRevision++;
+    this.cancelReports();
     const changes: ManualReadEntry[] = snapshots.map((snapshot) => ({
       chatType: snapshot.chatType,
       uid: snapshot.uid,
       change: this.local.setManualRead(this.local.resolve(snapshot), unread),
       snapshot,
+      version: this.bumpTarget(snapshot),
     }));
-    this.cancelReports();
-    try {
-      if (!this.localOptions?.readOnly) {
-        for (const row of changes) {
-          if (this.disposed) throw new Error('账号已关闭');
-          row.database = await this.session.unreadInfo.setReadState(
+    this.project(unique);
+    this.publish(unique);
+    await this.local.flush();
+    for (const row of changes) {
+      if (this.disposed || this.localOptions?.readOnly) continue;
+      try {
+        row.database = await this.writeTarget(row, row.version!, () =>
+          this.session.unreadInfo.setReadState(
             row.chatType,
             row.uid,
             row.change.applied.readSeq ?? '0',
             row.change.applied.latestSeq,
             unread,
-          );
-        }
+          ),
+        );
+      } catch {
+        this.queueWrite(
+          row,
+          row.change.applied.readSeq ?? '0',
+          row.change.applied.latestSeq,
+          unread,
+          row.version,
+        );
       }
-      await this.local.flush();
-    } catch (error) {
-      let rollbackFailed = false;
-      for (const row of [...changes].reverse()) {
-        try {
-          if (row.database && !(await this.session.unreadInfo.undoReadState(row.database)))
-            rollbackFailed = true;
-        } catch {
-          rollbackFailed = true;
-        }
-        this.local.restoreManualRead(row.chatType, row.uid, row.change);
-      }
-      if (rollbackFailed)
-        throw new Error('批量标记失败，部分会话因并发变化未回滚，请刷新后查看实际状态', {
-          cause: error,
-        });
-      throw error;
     }
     if (this.readHistory.size >= 20) this.readHistory.delete(this.readHistory.keys().next().value!);
     const undoToken = randomUUID();
     this.readHistory.set(undoToken, changes);
     if (!unread) this.scheduleManualReports(changes);
-    return {
-      undoToken,
-      rows: snapshots.map((snapshot) => this.local.resolve(snapshot, this.counts?.get(snapshot))),
-    };
+    this.invalidate();
+    return { undoToken, rows: snapshots.map((snapshot) => this.local.resolve(snapshot)) };
   }
 
   async undoReadState(undoToken: string) {
     const changes = this.readHistory.get(undoToken);
     if (!changes || this.disposed) throw new Error('撤销记录已失效');
-    // 先取快照；读取失败不消耗撤销机会，也不留下部分恢复。
-    const snapshots: UnreadInfoSnapshot[] = [];
-    for (let index = 0; index < changes.length; index += 256)
-      snapshots.push(...(await this.readSnapshots(changes.slice(index, index + 256))));
-    if (
-      this.disposed ||
-      snapshots.length !== changes.length ||
-      snapshots.some((row) => row.readError)
-    )
-      throw new Error('未读状态读取失败，请稍后重试');
-    this.cancelReports();
-    const restored: typeof changes = [];
+    const snapshots = await this.readSnapshots(changes);
     this.manualRevision++;
-    const rowsByPeer = new Map(snapshots.map((row) => [`${row.chatType}_${row.uid}`, row]));
+    this.cancelReports();
+    const restored: ManualReadEntry[] = [];
     for (const row of changes) {
       if (!this.local.hasManualRead(row.chatType, row.uid, row.change)) continue;
-      if (this.disposed) throw new Error('账号已关闭');
-      if (row.database && !(await this.session.unreadInfo.undoReadState(row.database))) continue;
-      if (this.local.restoreManualRead(row.chatType, row.uid, row.change)) {
-        restored.push(row);
-        const key = `${row.chatType}_${row.uid}`;
-        const current = rowsByPeer.get(key)!;
-        rowsByPeer.set(key, {
-          ...current,
-          msgSeq: row.database
-            ? row.database.beforeReadSeq === undefined
-              ? undefined
-              : Number(row.database.beforeReadSeq)
-            : row.snapshot.msgSeq,
-          highlights: [
-            ...new Map(
-              [
-                ...(row.snapshot.highlights ?? []),
-                ...(current.highlights ?? []).filter(
-                  (hit) => BigInt(hit.msgSeq) > BigInt(row.change.applied.latestSeq),
-                ),
-              ].map((hit) => [hit.rawKind, hit]),
-            ).values(),
-          ],
-        });
+      const version = this.bumpTarget(row);
+      if (row.database) {
+        try {
+          if (
+            !(await this.writeTarget(row, version, () =>
+              this.session.unreadInfo.undoReadState(row.database!),
+            ))
+          )
+            continue;
+        } catch {
+          this.queueWrite(
+            row,
+            row.snapshot.msgSeq?.toString() ?? '0',
+            row.change.applied.latestSeq,
+            row.snapshot.markUnread ?? false,
+            version,
+          );
+          const pending = this.writes.get(this.key(row));
+          if (pending?.version === version) pending.undo = row;
+          continue;
+        }
       }
+      if (this.local.restoreManualRead(row.chatType, row.uid, row.change)) restored.push(row);
     }
-    try {
-      await this.local.flush();
-    } catch (error) {
-      if (restored.some((row) => row.database)) {
-        this.readHistory.delete(undoToken);
-        throw new Error('撤销已写入数据库，但本地阅读状态保存失败，请刷新后查看实际状态', {
-          cause: error,
-        });
-      }
-      for (const row of restored)
-        this.local.restoreManualRead(row.chatType, row.uid, row.change, true);
-      throw error;
-    }
+    await this.local.flush();
     this.readHistory.delete(undoToken);
     this.scheduleManualReports(restored, true);
-    return {
-      restored: restored.length,
-      rows: [...rowsByPeer.values()].map((snapshot): ResolvedUnreadInfo => {
-        const count = this.counts?.get(snapshot);
-        if (
-          count === undefined &&
-          this.local.canUseCount(snapshot) &&
-          this.countNeedsConfirmation(snapshot)
-        )
-          return { ...snapshot, countPending: true };
-        return this.local.resolve(snapshot, count);
-      }),
-    };
+    // 固定本次撤销的原始阅读字段；后来到达的最新位置仍来自当前小表。
+    const byPeer = new Map(restored.map((row) => [this.key(row), row]));
+    const rows = snapshots.map((snapshot) => {
+      const prior = byPeer.get(snapshot.peer);
+      if (!prior) return this.local.resolve(snapshot);
+      const merged = {
+        ...snapshot,
+        msgSeq: prior.snapshot.msgSeq,
+        localReadSeq: prior.snapshot.localReadSeq,
+        markUnread: prior.snapshot.markUnread,
+        highlights: [
+          ...new Map(
+            [...(prior.snapshot.highlights ?? []), ...(snapshot.highlights ?? [])].map((hit) => [
+              hit.rawKind,
+              hit,
+            ]),
+          ).values(),
+        ],
+      };
+      this.snapshots.set(snapshot.peer, merged);
+      const result = this.local.resolve(merged);
+      this.results.set(snapshot.peer, result);
+      return result;
+    });
+    this.publish(restored);
+    this.invalidate();
+    return { restored: restored.length, rows };
   }
 
   private reportEnabled(manual: boolean): boolean {
@@ -472,10 +533,21 @@ export class UnreadInfoService {
     const sequence = latestSeq ?? snapshot?.latestSeq;
     if (this.disposed || snapshot?.readError || sequence === undefined || sequence === null)
       return false;
-    const local = await this.markLocalRead(chatType, uid, sequence);
+    const target = { chatType, uid };
+    const saving = this.markLocalRead(chatType, uid, sequence);
+    const version = this.targetVersions.get(this.key(target)) ?? 0;
+    const local = await saving;
     if (this.disposed || this.localOptions?.readOnly) return local;
-    const changed = await this.session.unreadInfo.markRead(chatType, uid, sequence);
-    return changed || local;
+    try {
+      const changed = await this.writeTarget(target, version, () =>
+        this.session.unreadInfo.markRead(chatType, uid, sequence),
+      );
+      this.invalidate();
+      return changed || local;
+    } catch {
+      this.queueWrite(target, sequence, sequence, false, version);
+      return local;
+    }
   }
 
   async markReadAndReport(

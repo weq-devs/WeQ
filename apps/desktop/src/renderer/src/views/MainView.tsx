@@ -145,10 +145,8 @@ import {
   createUnreadTargetRefresh,
   createUnreadUpdateGuard,
   retryConversationRead,
-  unreadBadgeTargets,
   sameUnreadHighlights,
-  UNREAD_COUNT_BATCH_SIZE,
-  UNREAD_WATERMARK_BATCH_SIZE,
+  UNREAD_BATCH_SIZE,
   createUnreadRefreshState,
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
@@ -3033,7 +3031,6 @@ function MainWorkspace(): ReactElement {
     if (messageActivity.enabled && messageActivity.revision > 0) void refreshWindow();
   }, [messageActivity.enabled, messageActivity.revision, refreshWindow]);
 
-  const [unreadRevision, setUnreadRevision] = useState(0);
   const [calendarDataRevision, setCalendarDataRevision] = useState(0);
   const calendarOpenRef = useRef(false);
 
@@ -3102,7 +3099,6 @@ function MainWorkspace(): ReactElement {
         dbRevisionRef.current += 1;
         conversationWindows.markDirty();
         // Read watermarks can change while recent contacts remain identical.
-        setUnreadRevision((revision) => revision + 1);
         unknownRefresh.request();
         metadataRefresh.request();
       },
@@ -4080,8 +4076,6 @@ function MainWorkspace(): ReactElement {
   const [highlightsByConv, setHighlightsByConv] = useState<Record<string, ConversationHighlight[]>>(
     {},
   );
-  const unreadBadgesRef = useRef({ counts: unreadByConv, highlights: highlightsByConv });
-  unreadBadgesRef.current = { counts: unreadByConv, highlights: highlightsByConv };
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   // 分页失效时仅保留发言人的展示快照，不将历史成员重新加入当前名单。
   const [senderMemberPages, setSenderMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
@@ -5723,10 +5717,10 @@ function MainWorkspace(): ReactElement {
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
-  const requestUnreadReadSyncRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     let disposed = false;
-    let scannedDbRevision = -1;
+    let initialized = false;
+    const startupTargets = new Map<string, { chatType: number; uid: string }>();
     const binding = messageBindingRef.current;
     const source = messageScope;
     const isCurrent = () =>
@@ -5734,7 +5728,7 @@ function MainWorkspace(): ReactElement {
       Boolean(binding) &&
       messageScopeRef.current === source &&
       useViewState.getState().openedUin === openedUin;
-    const { guard, countCache, changed } = unreadRefreshStateRef.current.bind(source);
+    const { guard, changed } = unreadRefreshStateRef.current.bind(source);
     unreadUpdateGuardRef.current = guard;
     if (changed) {
       setReadUndo(null);
@@ -5743,82 +5737,48 @@ function MainWorkspace(): ReactElement {
     }
 
     async function loadUnread(): Promise<boolean> {
-      if (!isCurrent() || !openedUin) return true;
-      const databaseRevision = dbRevisionRef.current;
+      if (!isCurrent() || !binding || !openedUin) return true;
       const startedAt = guard.revision();
-      const list = unreadContactsRef.current;
-      let failed = false;
-      const targets = list.flatMap((contact) => {
-        const type = unreadChatType(contact.chatType);
-        return type === null ? [] : [{ chatType: type, uid: contact.targetUid }];
+      const targets = unreadContactsRef.current.flatMap((contact) => {
+        const chatType = unreadChatType(contact.chatType);
+        return chatType === null ? [] : [{ chatType, uid: contact.targetUid }];
       });
-      countCache.retain(targets);
-      const batchSize = UNREAD_WATERMARK_BATCH_SIZE;
-      for (let index = 0; index < targets.length && isCurrent(); index += batchSize) {
-        // Give opening a conversation priority over background badge reads.
-        while (isCurrent() && initialMessagesPendingRef.current) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 100));
-        }
-        if (!isCurrent() || document.visibilityState === 'hidden') return true;
-        try {
-          // 全目录仅快查水位，精确统计由独立小批队列按需补齐。
-          const result = await readTargets(targets.slice(index, index + batchSize), true);
-          if (!isCurrent()) return true;
-          if (Array.isArray(result) && result.length) failed = true;
-        } catch {
-          failed = true;
-        }
-        // Yield between batches so IPC and user input can be handled.
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      }
+      const batches = Array.from(
+        { length: Math.ceil(targets.length / UNREAD_BATCH_SIZE) },
+        (_, index) => targets.slice(index * UNREAD_BATCH_SIZE, (index + 1) * UNREAD_BATCH_SIZE),
+      );
+      // 共享服务快照一次准备；所有批次返回后只提交一帧角标，不逐会话回填。
+      const rows = (
+        await Promise.all(
+          batches.map((batch) =>
+            client.account.getUnreadInfos.query({ ...binding, targets: batch }),
+          ),
+        )
+      ).flat();
       if (!isCurrent()) return true;
-      const ids = new Set(unreadContactsRef.current.map((contact) => contact.targetUid));
-      setUnreadByConv((current) => {
-        const next: Record<string, number> = {};
-        const keep = new Set([
-          ...ids,
-          ...Object.keys(current).filter((id) => !guard.accepts(id, startedAt)),
-        ]);
-        for (const id of keep) {
-          const value = current[id];
-          if (value !== undefined) next[id] = value;
-        }
-        return Object.keys(next).length === Object.keys(current).length &&
-          Object.keys(next).every((id) => next[id] === current[id])
-          ? current
-          : next;
-      });
-      setHighlightsByConv((current) => {
-        const next: Record<string, ConversationHighlight[]> = {};
-        const keep = new Set([
-          ...ids,
-          ...Object.keys(current).filter((id) => !guard.accepts(id, startedAt)),
-        ]);
-        for (const id of keep) {
-          const value = current[id];
-          if (value?.length) next[id] = value;
-        }
-        return Object.keys(next).length === Object.keys(current).length &&
-          Object.keys(next).every((id) => sameUnreadHighlights(next[id], current[id]))
-          ? current
-          : next;
-      });
-      if (!failed) scannedDbRevision = databaseRevision;
-      return !failed;
+      applyLive(rows, startedAt);
+      initialized = true;
+      if (startupTargets.size) {
+        liveRefresh.request(
+          [...startupTargets.values()].flatMap((target) => {
+            const chatType = unreadChatType(target.chatType);
+            return chatType === null ? [] : [{ ...target, chatType }];
+          }),
+        );
+        startupTargets.clear();
+      }
+      return !rows.some((row) => row.readError);
     }
 
     const refresh = createUnreadRefresh(loadUnread);
     type Target = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
     type Rows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
-    const applyLive = (rows: Rows, startedAt: number, databaseRevision: number) => {
-      const accepted = rows.filter(
-        (row) => !row.readError && !row.countPending && guard.accepts(row.uid, startedAt),
-      );
+    const applyLive = (rows: Rows, startedAt: number) => {
+      const accepted = rows.filter((row) => !row.readError && guard.accepts(row.uid, startedAt));
       if (!accepted.length) return;
       // 实时结果也推进版本，不能被更早启动的全量扫描回灌。
       const finish = guard.begin(accepted.map((row) => row.uid));
       finish();
-      for (const row of accepted) countCache.remember(row, databaseRevision, guard.revision());
       setUnreadByConv((current) => {
         const next = { ...current };
         let changed = false;
@@ -5849,51 +5809,30 @@ function MainWorkspace(): ReactElement {
         return changed ? next : current;
       });
     };
-    const readTargets = async (targets: Target[], watermarksOnly = false) => {
+    const readTargets = async (targets: Target[]) => {
       if (!isCurrent() || !binding) return true;
       const startedAt = guard.revision();
-      const databaseRevision = dbRevisionRef.current;
-      const rows = await client.account.getUnreadInfos.query({
-        ...binding,
-        targets,
-        watermarksOnly,
-      });
+      const rows = await client.account.getUnreadInfos.query({ ...binding, targets });
       if (!isCurrent()) return true;
-      applyLive(rows, startedAt, databaseRevision);
-      if (watermarksOnly)
-        liveRefresh.request(
-          rows
-            .filter(
-              (row) =>
-                row.countPending && countCache.needsCount(row, databaseRevision, guard.accepts),
-            )
-            .map((row) => ({
-              chatType: row.chatType as Target['chatType'],
-              uid: row.uid,
-            })),
-          false,
-        );
-      // 返回遗漏和失败的目标，不让单个坏会话拖住健康会话。
-      const succeeded = new Set(
-        rows.filter((row) => !row.readError).map((row) => `${row.chatType}:${row.uid}`),
-      );
-      return targets.filter((target) => !succeeded.has(`${target.chatType}:${target.uid}`));
+      applyLive(rows, startedAt);
+      return rows
+        .filter((row) => row.readError)
+        .map((row) => ({ chatType: row.chatType as Target['chatType'], uid: row.uid }));
     };
     const liveRefresh = createUnreadTargetRefresh<Target>(
       readTargets,
       refresh.request,
-      UNREAD_COUNT_BATCH_SIZE,
-    );
-    const readSync = createUnreadTargetRefresh<Target>(
-      (targets) => readTargets(targets, true),
-      refresh.request,
-      UNREAD_WATERMARK_BATCH_SIZE,
-      1500,
+      UNREAD_BATCH_SIZE,
     );
     const liveSub = binding
       ? client.account.onUnreadChanged.subscribe(binding, {
           onData(targets) {
             if (!isCurrent()) return;
+            if (!initialized) {
+              for (const target of targets)
+                startupTargets.set(`${target.chatType}:${target.uid}`, target);
+              return;
+            }
             const selection = selectionRef.current;
             for (const target of targets) {
               const kind = target.chatType === 2 ? 'group' : 'c2c';
@@ -5918,44 +5857,20 @@ function MainWorkspace(): ReactElement {
         })
       : null;
     requestUnreadRefreshRef.current = refresh.request;
-    const requestReadSync = () => {
-      if (!isCurrent()) return;
-      const { counts, highlights } = unreadBadgesRef.current;
-      readSync.request(unreadBadgeTargets(unreadContactsRef.current, counts, highlights), false);
-    };
-    requestUnreadReadSyncRef.current = requestReadSync;
     const onVisible = () => {
-      if (document.visibilityState !== 'hidden') {
-        requestReadSync();
-        refresh.request();
-      }
+      if (document.visibilityState !== 'hidden') refresh.request();
     };
     window.addEventListener('focus', onVisible);
     document.addEventListener('visibilitychange', onVisible);
-    const readTimer = setInterval(() => {
-      if (document.visibilityState !== 'hidden') requestReadSync();
-    }, 1500);
-    const scanTimer = setInterval(() => {
-      if (
-        document.visibilityState !== 'hidden' &&
-        (scannedDbRevision !== dbRevisionRef.current ||
-          countCache.needsReconcile(dbRevisionRef.current))
-      )
-        refresh.request();
-    }, 15000);
     refresh.request();
     return () => {
       disposed = true;
       liveSub?.unsubscribe();
       liveRefresh.dispose();
-      readSync.dispose();
       refresh.dispose();
-      clearInterval(readTimer);
-      clearInterval(scanTimer);
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
-      requestUnreadReadSyncRef.current = null;
     };
   }, [openedUin, messageScope, conversationWindows, refreshRecentHead, refreshWindow]);
   useEffect(() => {
@@ -5979,9 +5894,6 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     requestUnreadRefreshRef.current?.();
   }, [unreadDirectoryKey]);
-  useEffect(() => {
-    requestUnreadReadSyncRef.current?.();
-  }, [unreadRevision]);
 
   // Reset paging *synchronously* when the open conversation changes. Doing this
   // during render (instead of in an effect) means React discards this render
@@ -7568,14 +7480,13 @@ function MainWorkspace(): ReactElement {
     (rows: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>) => {
       setUnreadByConv((current) => {
         const next = { ...current };
-        for (const row of rows)
-          if (!row.readError && !row.countPending) next[row.uid] = row.unreadCount ?? 0;
+        for (const row of rows) if (!row.readError) next[row.uid] = row.unreadCount ?? 0;
         return next;
       });
       setHighlightsByConv((current) => {
         const next = { ...current };
         for (const row of rows) {
-          if (row.readError || row.countPending) continue;
+          if (row.readError) continue;
           if (row.highlights?.length) next[row.uid] = row.highlights as ConversationHighlight[];
           else delete next[row.uid];
         }
@@ -7662,7 +7573,7 @@ function MainWorkspace(): ReactElement {
           } finally {
             finishUpdate();
             if (useViewState.getState().openedUin === openedUin)
-              setUnreadRevision((revision) => revision + 1);
+              requestUnreadRefreshRef.current?.();
           }
         } while (entry.again && isCurrent());
       })().finally(() => {
@@ -7765,7 +7676,7 @@ function MainWorkspace(): ReactElement {
       for (const id of ids) manualReadPendingRef.current.delete(id);
       readStateBusyRef.current = false;
       setReadStateBusy(false);
-      setUnreadRevision((revision) => revision + 1);
+      requestUnreadRefreshRef.current?.();
     }
   }
 
@@ -7811,7 +7722,7 @@ function MainWorkspace(): ReactElement {
       for (const id of undo.ids) manualReadPendingRef.current.delete(id);
       readStateBusyRef.current = false;
       setReadStateBusy(false);
-      setUnreadRevision((revision) => revision + 1);
+      requestUnreadRefreshRef.current?.();
     }
   }
   useReadStateUndo(

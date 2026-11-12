@@ -7,71 +7,25 @@ import tailwind from '@tailwindcss/vite';
 import { createServer } from 'vite';
 import type { AccountSession } from '@weq/account';
 import { UnreadInfoService } from '../../../../packages/service/src/account/unread_info';
-import {
-  QQ_UNREAD_COVERAGE,
-  VERIFIED_QQ_UNREAD_LAYOUT,
-} from '../../../../packages/service/src/account/unread_count_source';
-import type { QqUnreadSnapshot } from '@weq/native';
-
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const target = { chatType: 1, uid: 'u_fixture' };
+const other = { chatType: 2, uid: '70001' };
 let latest = '100',
-  readSeq = 90,
-  count = 10;
-let cold: ((snapshot: QqUnreadSnapshot) => void) | undefined;
-let first = true;
-const memory = (): QqUnreadSnapshot => ({
-  success: true,
-  code: 'ok',
-  message: '',
-  rows: [{ ...target, unreadCount: count }],
-  missingTargets: [],
-  generation: 'fixture',
-  coverage: QQ_UNREAD_COVERAGE,
-  layout: VERIFIED_QQ_UNREAD_LAYOUT,
-  fromCache: !first,
-  locateMs: 0,
-  elapsedMs: 17,
-});
+  readSeq = 90;
 function createService() {
   latest = '100';
   readSeq = 90;
-  count = 10;
-  first = true;
-  cold = undefined;
-  return new UnreadInfoService(
-    {
-      selfUid: 'u_self',
-      context: { uin: '10001' },
-      msgDbPath: '/synthetic/unread.db',
-      unreadInfo: {
-        getUnreadInfos: async (targets: (typeof target)[], self?: object) =>
-          targets.map((t) => ({
-            ...t,
-            peer: `${t.chatType}_${t.uid}`,
-            latestSeq: latest,
-            msgSeq: readSeq,
-            ...(self ? { outgoingSeqs: [] } : {}),
-          })),
-      },
-    } as unknown as AccountSession,
-    undefined,
-    undefined,
-    {
-      identity: () => 'synthetic',
-      clear() {},
-      read: async () => {
-        if (first) {
-          first = false;
-          return new Promise((done) => {
-            cold = done;
-          });
-        }
-        return memory();
-      },
+  return new UnreadInfoService({
+    context: { uin: '10001' },
+    msgDbPath: '/synthetic/unread.db',
+    unreadInfo: {
+      getAllUnreadInfos: async () => [
+        { ...target, peer: '1_u_fixture', latestSeq: latest, msgSeq: readSeq },
+        { ...other, peer: '2_70001', latestSeq: '110', msgSeq: 90 },
+      ],
     },
-  );
+  } as unknown as AccountSession);
 }
 let service = createService();
 const output = process.env.WEQ_UNREAD_ARTIFACTS;
@@ -88,7 +42,8 @@ const server = await createServer({
       name: 'unread-fixture',
       configureServer(server) {
         server.middlewares.use('/__unread', (_request, response, next) => {
-          void service.getUnreadInfos([target]).then((rows) => {
+          service.invalidate();
+          void service.getUnreadInfos([target, other]).then((rows) => {
             response.setHeader('content-type', 'application/json');
             response.end(JSON.stringify(rows));
           }, next);
@@ -115,8 +70,17 @@ const server = await createServer({
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
   await server.listen();
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.WEQ_BROWSER_EXECUTABLE,
+  });
   const page = await browser.newPage();
+  await page.addInitScript(`window.unreadFrames = [];
+    function sampleUnreadFrame() {
+      window.unreadFrames.push([...document.querySelectorAll('.row-unread')].map(function(node) { return Number(node.textContent); }));
+      requestAnimationFrame(sampleUnreadFrame);
+    }
+    requestAnimationFrame(sampleUnreadFrame);`);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) =>
@@ -132,7 +96,7 @@ try {
       await service.dispose();
       service = createService();
       await page.goto(`http://127.0.0.1:${address.port}/test/browser/unread-counts.html`);
-      await page.locator('.conversation-row').waitFor();
+      await page.locator('.conversation-row').first().waitFor();
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
@@ -146,7 +110,6 @@ try {
       ]) {
         latest = step.latest;
         readSeq = step.read;
-        count = step.count;
         if (step.local) await service.markLocalRead(1, target.uid, step.local);
         const value = await page.evaluate(async () => {
           const qa = (window as unknown as { unreadQa: { refresh(): Promise<number> } }).unreadQa;
@@ -154,10 +117,14 @@ try {
         });
         assert.equal(value, step.expected);
         await page.waitForFunction(
-          (expected) => document.querySelector('.row-unread')?.textContent === String(expected),
+          (expected) =>
+            document.querySelector('[data-conversation-id="u_fixture"] .row-unread')
+              ?.textContent === String(expected),
           step.expected,
         );
-        const bounds = await page.locator('.row-unread').boundingBox();
+        const bounds = await page
+          .locator('[data-conversation-id="u_fixture"] .row-unread')
+          .boundingBox();
         assert(bounds && bounds.width > 0 && bounds.height > 0);
         assert(
           bounds.width < 40,
@@ -182,11 +149,20 @@ try {
           )}`,
         );
         assert(bounds.x >= 0 && bounds.x + bounds.width <= width);
-        results.push({ width, theme, step: step.name, count: value });
         if (step.name === 'cold') {
-          cold?.(memory());
-          cold = undefined;
+          const frames = await page.evaluate(
+            () => (window as unknown as { unreadFrames: number[][] }).unreadFrames,
+          );
+          assert(
+            frames.every(
+              (frame) =>
+                frame.length === 0 ||
+                (frame.length === 2 && frame.includes(10) && frame.includes(20)),
+            ),
+            JSON.stringify(frames),
+          );
         }
+        results.push({ width, theme, step: step.name, count: value });
       }
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
     }
