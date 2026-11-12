@@ -22,7 +22,12 @@ import { pickedBrowserFiles } from '../../browser_files';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { observable } from '@trpc/server/observable';
-import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
+import {
+  describeExportOutput,
+  exportOutputFileName,
+  getHost,
+  subscribeDressIndexResources,
+} from '@weq/service';
 import { z } from 'zod';
 import {
   DressAppId,
@@ -166,8 +171,12 @@ export const dressupRouter = router({
         emit.next(e);
       };
       accountEventBus.on('dressChanged', handler);
+      const unsubscribeIndex = subscribeDressIndexResources(({ state }) => {
+        if (state.status === 'ready') emit.next({ at: Date.now() });
+      });
       return () => {
         accountEventBus.off('dressChanged', handler);
+        unsubscribeIndex();
       };
     });
   }),
@@ -179,6 +188,7 @@ export const dressupRouter = router({
     return {
       qqOnline: qqOnline(services),
       manifest,
+      indexResources: services.dressInstall.indexResources(),
       cachedBubbles: [
         ...new Set([manifest.activeBubble, record?.homeDress?.bubbleId ?? 0]),
       ].flatMap((id) => {
@@ -206,6 +216,15 @@ export const dressupRouter = router({
       },
     };
   }),
+
+  retryIndex: procedure
+    .input(z.object({ kind: z.enum(['bubble', 'font', 'widget']) }))
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      const ok = await services.dressInstall.retryIndex(input.kind);
+      if (!ok) throw new Error('装扮离线索引下载失败，请查看任务列表后重试');
+      return services.dressInstall.indexResources();
+    }),
 
   /**
    * 排行榜。在线走接口,离线回退静态资源;`source` 告诉前端这批是哪来的,

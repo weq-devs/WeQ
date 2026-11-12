@@ -4,7 +4,7 @@
 
 | 路径 | 是否入库 | 从哪来 | 怎么更新 |
 | --- | --- | --- | --- |
-| `<platform>/<arch>/nt_helper.node` | **不入库** | 私仓 `weq-devs/nt_helper`（Rust/napi-rs）构建后发布到公开仓 [`weq-devs/nt_helper_release`](https://github.com/weq-devs/nt_helper_release) | `pnpm native:fetch`（取 `pinned.json` 锚定的 tag；dev）/ release 流水线打包前自动取 |
+| `<platform>/<arch>/nt_helper.node` | **不入库** | 私仓 `weq-devs/nt_helper`（Rust/napi-rs）构建后发布到公开仓 [`weq-devs/nt_helper_release`](https://github.com/weq-devs/nt_helper_release) | `pnpm native:fetch`（默认只取 native）/ release 流水线打包前自动取 |
 | `<platform>/<arch>/weq-authorization-helper[.exe]` | **不入库** | 同一私有 native 仓构建，沿用 native release 清单分发 | 清单包含助手时由 `pnpm native:fetch` 获取；桌面 release 强制校验，Web 包排除 |
 | `pinned.json` | 入库 | 已验证 native release 的版本锚 | 对同一明确 tag 验证后使用 `--write-pin` 更新 |
 | `.installed.json` | **不入库** | fetch 脚本记录本机安装的 tag 与资产校验信息 | fetch 自动维护 |
@@ -29,8 +29,10 @@ NineBird 注入链与 `packages/ninebird` 已移除，不再构建或同步 `nin
 
 装扮资源 `.dat` 是用 AES 加密的，密钥由构建 commit 派生（`DRESS_KEY_SEED`）并**烘焙进
 `.node`**。跨版本混用 → 装扮离线查询直接返回 `null`（退化到在线协议兜底，离线环境就没了）。
-所以 `pnpm native:fetch` 永远从同一个 release tag 里成对取 `.node` 和 `.dat`，
-`native/.installed.json` 记着当前装的是哪一份，`pnpm native:check` 用来比对。
+现阶段仍必须匹配密钥来源，但不再默认一起下载或打包。
+应用按 `resources/dress/index-manifest.json` 从独立资源仓的明确 Release 按类别下载索引到全局缓存；
+清单的 `nativeCommit` 与 `pinned.json` 一致。`pnpm native:fetch --with-dress` 可显式取旧配套资源。
+`native/.installed.json` 记录安装文件，默认 `native:check` 不检查已改为可选的旧索引。
 
 ## 版本锚（`native/pinned.json`）
 

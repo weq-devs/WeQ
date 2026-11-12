@@ -189,7 +189,7 @@ test('release 首次补全后离线复用，损坏文件、切换发布仓和 lo
   await prepareNative(root, { mode: 'release' }, options);
   assert.equal(fetches, 1);
   assert.equal(verifies, 2);
-  await writeFile(join(root, nativeFiles(platform)[1]), 'broken');
+  await writeFile(join(root, nativeFiles(platform)[0]), 'broken');
   await prepareNative(root, { mode: 'release' }, options);
   assert.equal(fetches, 2);
   await prepareNative(
@@ -204,6 +204,34 @@ test('release 首次补全后离线复用，损坏文件、切换发布仓和 lo
   await prepareNative(root, { mode: 'release' }, options);
   assert.equal(fetches, 4);
   assert.equal((await readJson(join(root, 'native/.installed.json'))).localBuild, undefined);
+});
+
+test('release 开发启动不下载装扮索引，缺少三份 dat 仍可离线复用 native', async (t) => {
+  const { root, platform } = await fixture(t);
+  await writeJson(join(root, 'native/pinned.json'), { tag: 'fixture-tag' });
+  let fetches = 0;
+  const options = {
+    log: silent,
+    unused: noop,
+    verify: noop,
+    run: async (_command, args) => {
+      assert(args.includes('--no-dress'));
+      fetches++;
+      const staging = args[args.indexOf('--root') + 1];
+      const path = `${platform.directory}/nt_helper.node`;
+      await mkdir(dirname(join(staging, path)), { recursive: true });
+      await writeFile(join(staging, path), 'release-native');
+      await writeJson(join(staging, 'native/.installed.json'), {
+        tag: 'fixture-tag',
+        files: [{ path, sha256: await hashFile(join(staging, path)) }],
+      });
+    },
+  };
+  await prepareNative(root, { mode: 'release' }, options);
+  await prepareNative(root, { mode: 'release' }, options);
+  assert.equal(fetches, 1);
+  for (const kind of ['font', 'bubble', 'widget'])
+    assert.equal(await exists(join(root, `resources/dress/${kind}.dat`)), false);
 });
 
 test('release 不暗选 latest、过期不重复下载，失败验证不安装或切换来源', async (t) => {

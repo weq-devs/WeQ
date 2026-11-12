@@ -17,6 +17,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTarget, LABELS, nativeRel } from './platform.mjs';
 import { readRuntimeSource, runtimeManifest } from './runtime-deps.mjs';
+import {
+  checkDressManifest,
+  includeSharedResource,
+  verifyPackagedDressResources,
+} from '../../../scripts/dress-artifacts.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -112,11 +117,13 @@ cpSync(nativeSrc, join(dist, 'native', nativeRelPath), { recursive: true });
 
 // resources/ — brand assets etc. read at runtime.
 if (existsSync(RESOURCES_SRC)) {
+  checkDressManifest(repoRoot);
   rmSync(join(dist, 'resources'), { recursive: true, force: true });
   cpSync(RESOURCES_SRC, join(dist, 'resources'), {
     recursive: true,
-    filter: (source) => source !== join(RESOURCES_SRC, 'daemon'),
+    filter: (source) => includeSharedResource(source, RESOURCES_SRC),
   });
+  verifyPackagedDressResources(join(dist, 'resources'));
 }
 
 // A manifest so `node server.mjs` resolves `ws` without a full install.

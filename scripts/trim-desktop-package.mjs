@@ -14,6 +14,7 @@ import {
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { verifyPackagedRemoteNetwork } from './package-remote-network.mjs';
+import { verifyPackagedDressResources } from './dress-artifacts.mjs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import {
   installedNativeManifest,
@@ -160,6 +161,7 @@ export function trimDesktopPackage(context) {
         )
       : join(context.appOutDir, 'resources');
   verifyPackagedRemoteNetwork(context, resources);
+  verifyPackagedDressResources(join(resources, 'resources'));
   for (const candidate of ['arm64', 'x64']) {
     if (platform === 'darwin' && (candidate === arch || arch === 'universal')) continue;
     rmSync(

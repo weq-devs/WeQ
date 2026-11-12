@@ -9,6 +9,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
@@ -265,6 +266,12 @@ describe('桌面发行包瘦身', () => {
         ];
         try {
           for (const name of candidates) mkdirSync(join(modules, name), { recursive: true });
+          const dress = join(resources, 'resources/dress');
+          mkdirSync(dress, { recursive: true });
+          writeFileSync(
+            join(dress, 'index-manifest.json'),
+            readFileSync(join(desktop, '../../resources/dress/index-manifest.json')),
+          );
           trimDesktopPackage({
             appOutDir: directory,
             electronPlatformName:

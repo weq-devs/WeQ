@@ -93,16 +93,21 @@ export async function nativeSourceFingerprint(
   return hash.digest('hex');
 }
 
-export function nativeFiles(platform = nativePlatform()) {
+export function nativeFiles(platform = nativePlatform(), { withDress = true } = {}) {
   return [
     `${platform.directory}/nt_helper.node`,
-    ...kinds.map((kind) => `resources/dress/${kind}.dat`),
+    ...(withDress ? kinds.map((kind) => `resources/dress/${kind}.dat`) : []),
   ];
 }
 
-export async function bundleMatches(root, marker, platform = nativePlatform()) {
+export async function bundleMatches(
+  root,
+  marker,
+  platform = nativePlatform(),
+  { withDress = true } = {},
+) {
   if (!marker || !Array.isArray(marker.files)) return false;
-  for (const path of nativeFiles(platform)) {
+  for (const path of nativeFiles(platform, { withDress })) {
     const expected = marker.files.find((entry) => entry.path === path)?.sha256;
     if (
       !/^[a-f0-9]{64}$/.test(expected ?? '') ||
@@ -132,7 +137,7 @@ export async function verifyNativeBundle(
     const nt = require(process.argv[1]);
     assert.equal(nt.getInitStatus(), 0, 'native 初始化失败或构建已过期');
     assert.equal(nt.getBuildInfo().isDev, process.argv[3] === 'local', 'native 来源模式不一致');
-    for (const kind of ['font', 'bubble', 'widget']) {
+    for (const kind of process.argv[3] === 'local' ? ['font', 'bubble', 'widget'] : []) {
       const { response: { items } } = JSON.parse(fs.readFileSync(path.join(process.argv[2], 'resources/dress', 'ranking-' + kind + '.json')));
       assert(items.slice(0, 20).some(({ item }) => ['config.json', 'main', 'fzfont', 'aio_50.png'].some(part =>
         nt.queryDressResourceUrl(kind, String(item.itemId), part))), kind + ' 装扮资源不匹配');
@@ -189,6 +194,7 @@ export async function installNativeBundle({
   unused = assertNativeUnused,
   replace = rename,
   local = false,
+  withDress = true,
 }) {
   const native = join(root, 'native');
   await mkdir(native, { recursive: true });
@@ -196,7 +202,7 @@ export async function installNativeBundle({
   const changed = [];
   let retained = false;
   try {
-    const paths = nativeFiles(platform);
+    const paths = nativeFiles(platform, { withDress });
     const helper = `${platform.directory}/${platform.helper}`;
     if (await exists(join(bundle, helper))) paths.push(helper);
     await verify(bundle, root, { local, platform });
@@ -375,7 +381,7 @@ export async function prepareNative(
     !marker?.localBuild &&
     marker?.tag === tag &&
     sameOrigin &&
-    (await bundleMatches(root, marker, platform))
+    (await bundleMatches(root, marker, platform, { withDress: false }))
   ) {
     if (manifestValidity(marker).expired)
       throw new Error(
@@ -392,14 +398,22 @@ export async function prepareNative(
     log(`正在获取发布版 native（${origin.repository}@${tag}）`, 'info', 'native');
     await run(
       process.execPath,
-      [join(root, 'scripts/fetch-native.mjs'), '--root', staging, '--version', tag, '--verify'],
+      [
+        join(root, 'scripts/fetch-native.mjs'),
+        '--root',
+        staging,
+        '--version',
+        tag,
+        '--no-dress',
+        '--verify',
+      ],
       { cwd: root, env, log, scope: 'native' },
     );
     const downloaded = await readJson(join(staging, 'native/.installed.json'));
     if (
       !downloaded ||
       downloaded.tag !== tag ||
-      !(await bundleMatches(staging, downloaded, platform))
+      !(await bundleMatches(staging, downloaded, platform, { withDress: false }))
     )
       throw new Error('下载后的 native 来源或文件清单不完整');
     await install({
@@ -407,6 +421,7 @@ export async function prepareNative(
       root,
       marker: { ...downloaded, devSource: origin },
       platform,
+      withDress: false,
       verify: (bundle, root, flags) => verify(bundle, root, { ...options, ...flags }),
       unused,
     });

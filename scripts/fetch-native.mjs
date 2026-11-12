@@ -1,12 +1,13 @@
 /**
- * 拉取 / 校验 nt_helper 原生产物（5 个平台的 `nt_helper.node` + 装扮离线资源 `*.dat`）。
+ * 拉取 / 校验 nt_helper 原生产物（5 个平台的 `nt_helper.node` 与权限助手）。
  *
  * 这两类文件**不再入库**：仓库里只留加载器与布局约定，二进制由 native 私仓
  * `weq-devs/nt_helper` 构建后发布到公开仓 `weq-devs/nt_helper_release`，这里按需取回。
  *
  * 为什么必须「成对取」：装扮资源 `.dat` 的 AES key 由构建 commit 派生
  * （nt_helper 的 `build.rs`，CI 传 `DRESS_KEY_SEED=github.sha`）并烘焙进 `.node`，
- * 跨版本混用会直接解不开。脚本因此永远从同一个 release tag 里取 `.node` 与 `.dat`。
+ * 跨版本混用会直接解不开。显式补旧配套索引时仍从同一个 release tag 取 `.node` 与 `.dat`。
+ * 应用安装包不携带三份大索引，运行时按 resources/dress/index-manifest.json 独立获取。
  *
  * **默认不是 latest，而是 `native/pinned.json` 里锚定的那个 tag**：WeQ 的代码是照着
  * 某一份 native 构建写的（类型、能力、装扮资源的密钥都由它决定），跟着 latest 漂会
@@ -25,8 +26,9 @@
  * 这里无需跟着改。
  *
  * 用法：
- *   pnpm native:fetch                      # 本机平台 + 装扮资源（锚定的 tag）
- *   pnpm native:fetch --all                # 五个平台全量 + 装扮资源
+ *   pnpm native:fetch                      # 本机平台 native（锚定的 tag）
+ *   pnpm native:fetch --all                # 五个平台 native
+ *   pnpm native:fetch --with-dress         # 显式补齐旧配套索引；应用默认按需下载
  *   pnpm native:fetch --platform linux-arm64
  *   pnpm native:fetch --latest             # 忽略锚点，取上游最新（试用新构建用）
  *   pnpm native:fetch --version nt-helper-20260916-86cb5a4
@@ -52,21 +54,11 @@
  */
 
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Transform } from 'node:stream';
@@ -80,6 +72,7 @@ import {
   validateNativeBuildInfo,
 } from '../packages/native/authorization.mjs';
 import { verifyAuthorizationHelper } from './check-authorization-helper.mjs';
+import { installNativeFiles } from './native-install.mjs';
 import { RETRYABLE_HTTP_STATUS, RetryableHttpError, withRetry } from './retry.mjs';
 
 // ─────────────────────────── 常量 ───────────────────────────
@@ -140,7 +133,7 @@ const checkOnly = has('--check');
 const dryRun = has('--dry-run');
 const doVerify = has('--verify');
 const dressOnly = has('--dress-only');
-const withDress = !has('--no-dress');
+const withDress = !has('--no-dress') && (dressOnly || has('--with-dress'));
 const requireFresh = has('--require-fresh');
 const requireAuthorization = has('--require-authorization');
 const withAuthorization = !has('--no-authorization');
@@ -656,26 +649,44 @@ async function install(manifest, files, localDir) {
       }
     }
 
-    for (const entry of files) {
-      if (dryRun) continue;
-      const staged = join(staging, entry.asset);
-      // 先在同目录落到临时名再 rename：中途失败不会留下半个二进制。
-      const dest = join(root, entry.path);
-      await mkdir(dirname(dest), { recursive: true });
-      const incoming = `${dest}.incoming-${process.pid}`;
-      await copyFile(staged, incoming);
-      await chmod(incoming, entry.executable ? 0o755 : 0o644);
-      await rename(incoming, dest);
+    if (dryRun) return undefined;
+    const hostFile = files.find(
+      (entry) => entry.path === join(PLATFORMS[hostTag]?.dir ?? '', 'nt_helper.node'),
+    );
+    const buildInfo = hostFile
+      ? readAddon(join(staging, hostFile.asset), false).buildInfo
+      : undefined;
+    const markerFile = join(staging, '.installed.json');
+    await writeFile(
+      markerFile,
+      `${JSON.stringify(await createMarker(manifest, files, buildInfo), null, 2)}\n`,
+    );
+    await installNativeFiles({
+      root,
+      files: [
+        ...files.map((entry) => ({
+          source: join(staging, entry.asset),
+          path: entry.path,
+          mode: entry.executable ? 0o755 : 0o644,
+        })),
+        { source: markerFile, path: MARKER },
+      ],
+      verify: doVerify
+        ? async (directory) => {
+            const verified = await verifyHost(files, manifest, directory);
+            if (verified.code !== 0) throw new Error('候选 native 验证失败；本地文件未改动');
+          }
+        : undefined,
+    });
+    for (const entry of files)
       log(`  ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
-    }
-
-    if (!dryRun) await writeMarker(manifest, files);
+    return buildInfo;
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
 }
 
-async function writeMarker(manifest, files) {
+async function createMarker(manifest, files, buildInfo) {
   // 同 tag 的多次 fetch（比如后来只补了 --dress-only）要合并，不能把之前的条目冲掉，
   // 否则 --check 会漏检这批文件。换 tag 说明整份换新，旧的条目直接丢掉。
   const previous = await readMarker();
@@ -687,8 +698,8 @@ async function writeMarker(manifest, files) {
     merged.set(entry.path, { path: entry.path, sha256: entry.sha256 });
   }
 
-  const validity = manifestValidity(manifest, readHostBuildInfo());
-  const marker = {
+  const validity = manifestValidity(manifest, buildInfo);
+  return {
     tag: manifest.tag,
     commit: manifest.commit,
     builtAt: validity.buildAt ?? manifest.builtAt,
@@ -698,9 +709,6 @@ async function writeMarker(manifest, files) {
     fetchedAt: new Date().toISOString(),
     files: [...merged.values()],
   };
-  const dest = join(root, MARKER);
-  await mkdir(dirname(dest), { recursive: true });
-  await writeFile(dest, `${JSON.stringify(marker, null, 2)}\n`);
 }
 
 async function readMarker() {
@@ -746,7 +754,7 @@ async function check(manifest, pin, files) {
   if (hostAddon && !(marker.files ?? []).some((entry) => entry.path === hostAddon)) {
     problems.push(`本机平台的 .node 没装：${hostAddon}（跑 pnpm native:fetch）`);
   }
-  for (const entry of marker.files ?? []) {
+  for (const entry of files) {
     const file = join(root, entry.path);
     if (!existsSync(file)) {
       problems.push(`缺文件：${entry.path}`);
@@ -779,54 +787,50 @@ async function check(manifest, pin, files) {
 /**
  * require 一份已落盘的 `.node`，把 `getBuildInfo()` / `getInitStatus()` 一次读出来。
  *
- * 返回值里 `addon` 是模块本体（可能 undefined，require 失败时），`buildInfo` 是二进制
- * 自报的构建信息（老 `.node` 没有这个函数时 undefined）。require 失败不抛，交给调用方决定。
+ * 只返回可序列化的构建信息与初始化结果，不在安装进程持有原生模块。
+ * require 失败不抛，交给调用方决定。
  */
-function readAddon(addonPath) {
-  const require = createRequire(import.meta.url);
+function readAddon(addonPath, withStatus = true) {
   try {
-    const mod = require(addonPath);
-    return {
-      addon: mod,
-      buildInfo: typeof mod.getBuildInfo === 'function' ? mod.getBuildInfo() : undefined,
-      status: typeof mod.getInitStatus === 'function' ? mod.getInitStatus() : undefined,
-      error: undefined,
-    };
+    // 验证子进程退出后再替换文件，避免 Windows 的已加载 DLL 锁定候选或旧产物。
+    return JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          '-e',
+          `
+      const addon = require(process.argv[1]);
+      const buildInfo = typeof addon.getBuildInfo === 'function' ? addon.getBuildInfo() : undefined;
+      const status = process.argv[2] === '1' && typeof addon.getInitStatus === 'function'
+        ? addon.getInitStatus() : undefined;
+      process.stdout.write(JSON.stringify({ buildInfo, status }));
+    `,
+          addonPath,
+          withStatus ? '1' : '0',
+        ],
+        {
+          encoding: 'utf8',
+          timeout: 15000,
+          maxBuffer: 65536,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      ),
+    );
   } catch (err) {
-    return { addon: undefined, buildInfo: undefined, status: undefined, error: err };
+    return { buildInfo: undefined, status: undefined, error: err };
   }
 }
 
 /**
- * 宿主平台 `.node` 的路径（没装过就是 null）。
- */
-function hostAddonPath() {
-  const spec = PLATFORMS[hostTag];
-  return spec ? join(root, spec.dir, 'nt_helper.node') : null;
-}
-
-/**
- * 读当前已落盘的宿主 `.node` 自报的构建信息（`getBuildInfo()`）。
- *
- * 用于写 marker / 锚文件：文件不在、require 失败、或老二进制没这个函数时一律返回
- * undefined，调用方回落到 manifest 字段。**刻意不跑 `getInitStatus()`** —— 写 marker
- * 不该因为构建过期而失败。
- */
-function readHostBuildInfo() {
-  const addonPath = hostAddonPath();
-  if (!addonPath || !existsSync(addonPath)) return undefined;
-  return readAddon(addonPath).buildInfo;
-}
-
-/**
- * 在宿主机 require 一次刚装好的 .node，跑 `getInitStatus()`，顺带取回
+ * 在宿主机的隔离子进程 require 候选 .node，跑 `getInitStatus()`，顺带取回
  * `getBuildInfo()` 供写进锚文件 / marker。
  *
  * 这是唯一能提前发现「二进制装上了但用不了」（构建过期 / LICENSE 不匹配 /
  * 平台错配）的检查，release 流程拿它当门禁。返回值 `{ code, buildInfo }`：
  * `code` 非 0 即失败（与退出码语义一致）。
  */
-async function verifyHost(files, manifest) {
+async function verifyHost(files, manifest, directory = root) {
   const spec = PLATFORMS[hostTag];
   if (
     !spec ||
@@ -835,7 +839,7 @@ async function verifyHost(files, manifest) {
     log(`跳过 --verify：本次没装宿主平台（${hostTag}）的 .node`);
     return { code: 0, buildInfo: undefined };
   }
-  const addonPath = join(root, spec.dir, 'nt_helper.node');
+  const addonPath = join(directory, spec.dir, 'nt_helper.node');
   const { buildInfo, status, error } = readAddon(addonPath);
   if (error) {
     console.error(`✘ require/调用失败：${error instanceof Error ? error.message : error}`);
@@ -860,7 +864,7 @@ async function verifyHost(files, manifest) {
   log(`--verify ✔ ${spec.dir}/nt_helper.node 可用（getInitStatus() = 0${tail}）`);
   const helper = files.find((entry) => entry.label === `authorization/${hostTag}`);
   if (helper) {
-    const helperInfo = verifyAuthorizationHelper(join(root, helper.path), hostTag, {
+    const helperInfo = verifyAuthorizationHelper(join(directory, helper.path), hostTag, {
       production: requireAuthorization || requireFresh,
       expected: manifest.authorization[hostTag],
     });
@@ -917,15 +921,11 @@ async function main() {
   }
   log(`来源：${localDir ?? `${releaseRepo}@${manifest.tag}`}`);
   log(`写入：${root}`);
-  await install(manifest, files, localDir);
+  const installedBuildInfo = await install(manifest, files, localDir);
 
-  // 装完从刚落到本地的 .node 里问出构建信息，再写锚文件（日期以二进制为准）。
-  const hostBuildInfo = dryRun ? undefined : readHostBuildInfo();
+  // 日期取自候选二进制，验证与安装成功后才允许更新版本锚。
+  const hostBuildInfo = dryRun ? undefined : installedBuildInfo;
   const validity = manifestValidity(manifest, hostBuildInfo);
-  if (doVerify && !dryRun) {
-    const verified = await verifyHost(files, manifest);
-    if (verified.code !== 0) return verified.code;
-  }
   if (writePin && !dryRun) await writePinFile(manifest, pin, hostBuildInfo);
 
   if (!dryRun && isStale(validity)) {

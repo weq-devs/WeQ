@@ -217,6 +217,17 @@ export {
   fontFamilyFor,
 } from './account/dress_shared_cache';
 export { migrateDressData } from './account/dress_migrate';
+export {
+  configureDressIndexResources,
+  subscribeDressIndexResources,
+  parseDressIndexManifest,
+  DRESS_INDEX_KINDS,
+} from './account/dress_index';
+export type {
+  DressIndexKind,
+  DressIndexManifest,
+  DressIndexState,
+} from './account/dress_index';
 export type {
   DressManifest,
   InstalledFont,

@@ -14,6 +14,7 @@ import type { PreferencePersistence } from '../common/shared_preferences';
 import { DressSharedCache, type FontDerived, type FontFx } from './dress_shared_cache';
 import type { TrpcNative } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
+import type { DressIndexKind } from './dress_index';
 
 /** 已装的一款字体（兼容旧接口）。 */
 export interface InstalledFont {
@@ -285,6 +286,15 @@ export class DressService {
   }
   messageBubble(itemId: number) {
     return this.cache.messageBubble(itemId);
+  }
+  indexResources() {
+    return this.cache.indexResources();
+  }
+  indexRevision() {
+    return this.cache.indexRevision();
+  }
+  retryIndex(kind: DressIndexKind) {
+    return this.cache.retryIndex(kind);
   }
   localPendant(itemId: number) {
     return this.cache.getPendantSidecar(itemId);

@@ -20,6 +20,27 @@ const response = (bytes: Uint8Array | string, type = 'image/png') =>
   new Response(bytes, { headers: { 'content-type': type } });
 
 describe('verified media publication', () => {
+  it('uses the host network stack and reports verified-stream progress', async () => {
+    const fetcher = vi.fn(async () => response(png));
+    const progress = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        throw new Error('must use host fetch');
+      }),
+    );
+    expect(
+      await downloadUrlToFile('https://fixture.invalid/index', join(directory, 'index.dat'), {
+        fetcher,
+        onProgress: progress,
+        expectedSize: png.length,
+        attempts: 1,
+      }),
+    ).toMatchObject({ ok: true, bytes: png.length });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(progress).toHaveBeenLastCalledWith(png.length, png.length);
+  });
   it('only explicit static-artifact downloads allow HTML while ordinary media keeps rejecting it', async () => {
     vi.stubGlobal(
       'fetch',

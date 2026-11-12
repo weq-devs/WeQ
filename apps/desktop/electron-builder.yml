@@ -76,6 +76,9 @@ extraResources:
       - "!assistant/fonts/**"
       - "!brand/banner.png"
       - "!daemon/**"
+      - "!dress/*.dat"
+      - "!dress/*_resources"
+      - "!dress/fetch-state.json"
 
   - from: out/main/transcribeWorker.mjs
     to: out/main/transcribeWorker.mjs

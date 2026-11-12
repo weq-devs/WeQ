@@ -61,6 +61,7 @@ import {
 } from '../common/zip';
 import { buildLocalBubbleSkin, type BubbleSkin, type MessageBubbleSkin } from './bubble_skin';
 import { downloadUrlToFile } from './media_url';
+import { getDressIndexStore, type DressIndexKind, type DressIndexStore } from './dress_index';
 
 /**
  * 派生资源的版本号 —— **转换链变了就 +1**。
@@ -169,6 +170,7 @@ export class DressSharedCache {
   private readonly messageBubbles = new Map<number, MessageBubbleSkin>();
   private readonly messageBubblesReady: Promise<void>;
   private messageBubbleBytes = 0;
+  private readonly index: DressIndexStore | null;
 
   constructor(
     private readonly nt: TrpcNative,
@@ -179,6 +181,7 @@ export class DressSharedCache {
     private readonly resolvePid: () => number,
   ) {
     this.logger = getLogger().child({ scope: 'dress-shared' });
+    this.index = getDressIndexStore(sharedDir, ntHelper);
     this.bubblesDir = join(sharedDir, 'bubbles');
     this.fontsDir = join(sharedDir, 'fonts');
     this.pendantsDir = join(sharedDir, 'pendants');
@@ -244,6 +247,32 @@ export class DressSharedCache {
     return this.messageBubbles.get(itemId);
   }
 
+  indexResources() {
+    return this.index?.snapshot() ?? [];
+  }
+
+  indexRevision() {
+    return this.index?.getRevision() ?? 0;
+  }
+
+  retryIndex(kind: DressIndexKind): Promise<boolean> {
+    return this.index?.ensure(kind, true) ?? Promise.resolve(false);
+  }
+
+  private resourceUrl(kind: DressIndexKind, itemId: number, part: string) {
+    let online = false;
+    try {
+      online = this.resolvePid() > 0;
+    } catch {
+      // 正式宿主离线或未开启完整功能时会抛错，静态索引仍可独立获取。
+    }
+    return this.index
+      ? this.index.resolve(this.ntHelper, kind, String(itemId), part, {
+          background: online,
+        })
+      : Promise.resolve(this.ntHelper.queryDressResourceUrl(kind, String(itemId), part));
+  }
+
   /**
    * 安装一款气泡 —— 唯一一条下载链：本地离线 bundle(zip) → 在线 protocol(zip)，
    * 产物永远是本地九宫格 PNG（+ 可选 bubbleframe 帧动画）。不再有 CDN static-all
@@ -307,14 +336,12 @@ export class DressSharedCache {
     itemId: number,
   ): Promise<{ staticZipUrl: string; configUrl?: string; otherZipUrl?: string } | null> {
     // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
-    const staticZip = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'static.zip');
+    const staticZip = await this.resourceUrl('bubble', itemId, 'static.zip');
     if (staticZip) {
       return {
         staticZipUrl: staticZip.url,
-        configUrl: this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json')
-          ?.url,
-        otherZipUrl: this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'other.zip')
-          ?.url,
+        configUrl: (await this.resourceUrl('bubble', itemId, 'config.json'))?.url,
+        otherZipUrl: (await this.resourceUrl('bubble', itemId, 'other.zip'))?.url,
       };
     }
 
@@ -652,7 +679,7 @@ export class DressSharedCache {
 
     // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
     for (const part of ['main', 'fzfont']) {
-      const local = this.ntHelper.queryDressResourceUrl('font', String(itemId), part);
+      const local = await this.resourceUrl('font', itemId, part);
       if (!local) continue;
       try {
         return await this.installFontFromZip(itemId, local.url);
@@ -770,9 +797,9 @@ export class DressSharedCache {
 
     // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
     try {
-      const local = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'other.zip');
+      const local = await this.resourceUrl('widget', itemId, 'other.zip');
       if (local) {
-        const xydata = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'xydata.js');
+        const xydata = await this.resourceUrl('widget', itemId, 'xydata.js');
         const installed = await this.installPendantFrames(itemId, local.url, xydata?.url);
         if (installed) return installed;
         this.logger.warn('local pendant bundle install failed, fall back to protocol', {
@@ -999,7 +1026,7 @@ export class DressSharedCache {
     const cached = join(this.bubblesDir, `${itemId}-config.json`);
     if (existsSync(cached)) return readFileSync(cached);
     if (localOnly) return null;
-    const local = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json');
+    const local = await this.resourceUrl('bubble', itemId, 'config.json');
     let url = local?.url ?? null;
     if (!url) {
       const pid = this.resolvePid();
@@ -1035,7 +1062,7 @@ export class DressSharedCache {
     if (existsSync(dest)) return dest;
     if (localOnly) return null;
 
-    const local = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'aio_50.png');
+    const local = await this.resourceUrl('widget', itemId, 'aio_50.png');
     let url = local?.url ?? null;
     if (!url) {
       const pid = this.resolvePid();
