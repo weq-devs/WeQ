@@ -192,7 +192,7 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
 
 @media (prefers-reduced-motion: reduce) {
   .weq-long-task.is-running .weq-long-task-state svg {
-    animation: none;
+    animation-duration: 1800ms;
   }
 }
 

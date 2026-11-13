@@ -4,11 +4,13 @@ import { ModelRequestLog } from '../../src/renderer/src/components/ModelRequestL
 import { suggestionLogBlocks } from '../../src/renderer/src/lib/modelRequestLog';
 import { CloneTaskLog } from '../../src/renderer/src/views/agentlab/CloneTaskLog';
 import { LongTaskRow } from '../../src/renderer/src/components/tasks/LongTaskRow';
+import { TaskList } from '../../src/renderer/src/views/export/TaskList';
 import { TaskLogConsole, type TaskLogLine } from '../../src/renderer/src/components/TaskLogConsole';
 import { TaskLogDisclosure } from '../../src/renderer/src/components/TaskLogDisclosure';
 import { appendCloneOutput } from '../../src/renderer/src/views/agentlab/cloneTaskOutput';
 import type { CloneTask } from '../../src/renderer/src/views/agentlab/cloneTaskStore';
 import '../../src/renderer/src/styles/index.css';
+import '../../src/renderer/src/styles/export.css';
 import { accentColors } from '../../src/shared/theme_colors';
 
 Object.assign(window, {
@@ -157,6 +159,31 @@ createRoot(document.getElementById('root')!).render(
       boxSizing: 'border-box',
     }}
   >
+    <TaskList
+      tasks={[
+        {
+          id: 'finalizing',
+          name: '合成导出收尾',
+          kind: 'c2c',
+          format: 'json',
+          status: 'paused',
+          progress: 50,
+          current: 50,
+          total: 100,
+          canResume: true,
+          canFinalize: true,
+          isFinalizing: true,
+        },
+      ]}
+      detailOnly
+      onPause={() => {}}
+      onResume={() => {}}
+      onCancel={() => {}}
+      onDownload={() => {}}
+      onDelete={() => {}}
+      onShowFailures={() => {}}
+      onFinalize={() => {}}
+    />
     <LongTaskRow
       active
       onSelect={() => {}}

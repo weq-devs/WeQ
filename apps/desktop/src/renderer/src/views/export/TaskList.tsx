@@ -536,7 +536,11 @@ function TaskDetail({
               disabled={!t.canResume || t.isFinalizing || t.partialReady}
               onClick={() => onFinalize(t)}
             >
-              {t.isFinalizing ? <Loader2 size={15} /> : <Check size={15} />}
+              {t.isFinalizing ? (
+                <Loader2 size={15} className="weq-exp-spin" />
+              ) : (
+                <Check size={15} />
+              )}
             </button>
           ) : null}
           {t.status === 'completed' && (t.canIncremental || t.journalPath) && onIncremental ? (
