@@ -12,7 +12,6 @@ import { openMediaPreview } from '../mediaPreviewStore';
 import { GroupFreezeNotice, GroupTags, groupCreationDate } from './GroupContent';
 import { GroupCardMemberList } from './GroupCardMemberList';
 import { groupJoinedDate } from '../../lib/groupProfileRows';
-import { GroupLabelSources } from '../GroupLabelSources';
 import { ContactFieldHistoryButton } from '../contactProfile/ContactFieldHistory';
 import { useTabActive } from '../RetainedTabs';
 import { GroupProfileAvatarEditor } from './GroupProfileAvatarEditor';
@@ -164,7 +163,9 @@ export function GroupCardContent({
   const created = groupCreationDate(group.createTime);
   const joined = !generated ? groupJoinedDate(joinedAt) : null;
   const hasTags = Boolean(
-    group.labels?.trim() || group.customLabels?.some((label) => label.trim()),
+    group.labels?.trim() ||
+      group.customLabels?.some((label) => label.trim()) ||
+      group.customLabelRecords?.some((record) => record.content?.trim()),
   );
   const count =
     group.memberCount > 0 || generated || memberCountKnown ? `${group.memberCount} 人` : null;
@@ -181,7 +182,7 @@ export function GroupCardContent({
           ) : null}
           {full || hasTags ? (
             <ContactRow label="标签" empty={!hasTags}>
-              <GroupTags group={group} />
+              <GroupTags group={group} members={conversation.members} />
             </ContactRow>
           ) : null}
           <ContactRow label="创建时间" value={created || null} />
@@ -190,7 +191,6 @@ export function GroupCardContent({
             <>
               <ContactRow label="群地点" value={group.addressName} />
               <ContactRow label="入群问题" value={group.entranceQ} />
-              <GroupLabelSources group={group} members={conversation.members} />
             </>
           ) : null}
         </ContactSection>

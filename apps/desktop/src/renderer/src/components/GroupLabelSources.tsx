@@ -1,16 +1,15 @@
 import type { GroupConversation } from '../im-template/template/types';
+import { Avatar } from '../im-template/template/primitives';
 import { displayUserName } from '../im-template/template/user';
 import { ProfileAvatar } from './ProfileAvatar';
 import { profileTimeText } from '@weq/protocol/profile-values';
-import { ContactRow } from './contactProfile/ContactRow';
-import '../styles/profile-cache.css';
+import { HoverPopover } from './HoverPopover';
+import { useGroupLabelSetter } from '../hooks/useGroupLabelSetter';
+import { avatarFromUin } from '../lib/avatarResolver';
+import '../styles/group-label-sources.css';
 
 /**
- * 群标签来源（谁在什么时候打的标签）。
- *
- * 以前这里把每条标签渲染成 `<details>` 折叠块，在名片与概览里显示成「▶ 音乐」「▶ 拼车」
- * 一排三角，展开后往往只有「设置者：未记录」。现在标签值本身走 chip（`GroupTags`），
- * 这里只在详细资料里以数据行列出「标签 → 设置者 · 时间」，没有可信来源的行直接不渲染。
+ * 标签只展示一次，设置来源跟随标签悬停或聚焦展开。
  */
 export function GroupLabelSources({
   group,
@@ -19,61 +18,127 @@ export function GroupLabelSources({
   group: GroupConversation['group'];
   members?: GroupConversation['members'];
 }) {
-  const records: GroupConversation['group']['customLabelRecords'] =
-    group.customLabelRecords ?? group.customLabels?.map((content) => ({ content }));
+  const records = group.customLabelRecords ?? [];
+  const labels = [
+    ...new Set(
+      [
+        ...(group.labels ? group.labels.split(/[,，、;；\s]+/) : []),
+        ...(group.customLabels ?? []),
+        ...records.map((record) => record.content),
+      ]
+        .map((label) => label?.trim())
+        .filter((label): label is string => Boolean(label)),
+    ),
+  ];
   const byUid = new Map(members.map((member) => [member.uid || member.id, member]));
-  const rows = (records ?? [])
-    .filter((record) => record.setterUid || record.setTimestamp)
-    .map((record, index) => {
-      const member = record.setterUid ? byUid.get(record.setterUid) : undefined;
-      const name = member
-        ? member.remark?.trim() ||
-          member.card?.trim() ||
-          member.nick?.trim() ||
-          displayUserName(member)
-        : record.setterUid;
-      const time =
-        record.setTimestamp && /^\d+$/.test(record.setTimestamp)
-          ? profileTimeText(Number(record.setTimestamp))
-          : null;
-      return {
-        key: `${record.labelId ?? index}:${record.content}`,
-        label: record.content || '未命名标签',
-        setter:
-          record.setterUid && name ? (
-            <ProfileAvatar
-              target={{
-                identity: record.setterUid,
-                uin: member?.uin,
-                name,
-                avatarUrl: member?.avatarUrl,
-                group: { code: group.id, name: group.name },
-              }}
-            >
-              {name}
-            </ProfileAvatar>
-          ) : null,
-        time,
-      };
-    });
-  if (!rows.length) return null;
+  if (!labels.length) return null;
   return (
-    <section className="weq-group-label-sources" aria-label="标签来源">
-      {rows.map((row) => (
-        <ContactRow
-          key={row.key}
-          label={row.label}
-          value={
-            row.setter || row.time ? (
-              <>
-                {row.setter}
-                {row.setter && row.time ? ' · ' : null}
-                {row.time ? `${row.time}（北京时间）` : null}
-              </>
-            ) : null
-          }
-        />
-      ))}
-    </section>
+    <div className="weq-group-tags" aria-label="群标签" data-privacy-sensitive>
+      {labels.map((label) => {
+        const sources = records.filter(
+          (record) =>
+            record.content?.trim() === label &&
+            (record.setterUid ||
+              (record.setTimestamp &&
+                /^\d+$/.test(record.setTimestamp) &&
+                profileTimeText(Number(record.setTimestamp)))),
+        );
+        if (!sources.length)
+          return (
+            <span className="weq-profile-tag" key={label}>
+              {label}
+            </span>
+          );
+        return (
+          <HoverPopover
+            key={label}
+            label={`${label}的来源`}
+            classPrefix="weq-group-label"
+            trigger={(open) => (
+              <button
+                type="button"
+                className="weq-profile-tag weq-group-label-trigger"
+                aria-expanded={open}
+                aria-label={`${label}，标签来源`}
+              >
+                {label}
+              </button>
+            )}
+          >
+            <div className="weq-group-label-sources" data-privacy-sensitive>
+              {sources.map((record, index) => {
+                const member = record.setterUid ? byUid.get(record.setterUid) : undefined;
+                const time =
+                  record.setTimestamp && /^\d+$/.test(record.setTimestamp)
+                    ? profileTimeText(Number(record.setTimestamp))
+                    : null;
+                return (
+                  <div
+                    className="weq-group-label-source"
+                    key={`${record.labelId ?? index}:${record.setterUid ?? ''}`}
+                  >
+                    {record.setterUid ? (
+                      <GroupLabelSetter group={group} uid={record.setterUid} member={member} />
+                    ) : null}
+                    {time ? (
+                      <span className="weq-group-label-time">设置时间：{time}（北京时间）</span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </HoverPopover>
+        );
+      })}
+    </div>
+  );
+}
+
+function GroupLabelSetter({
+  group,
+  uid,
+  member,
+}: {
+  group: GroupConversation['group'];
+  uid: string;
+  member?: GroupConversation['members'][number];
+}) {
+  const localName = member?.remark?.trim() || member?.card?.trim() || member?.nick?.trim();
+  const localUin = member?.uin && /^[1-9]\d{4,19}$/.test(member.uin) ? member.uin : undefined;
+  const query = useGroupLabelSetter(group.id, uid, !localName || !(member?.avatarUrl || localUin));
+  const resolved = query.data;
+  const name =
+    localName ||
+    resolved?.remark ||
+    resolved?.card ||
+    resolved?.nick ||
+    (member ? displayUserName(member) : uid);
+  const uin = localUin || resolved?.uin;
+  const avatarUrl = member?.avatarUrl || resolved?.avatarUrl || avatarFromUin(uin);
+  return (
+    <>
+      <div className="weq-group-label-setter-row">
+        <span className="weq-group-label-caption">设置者</span>
+        <ProfileAvatar
+          className="weq-group-label-setter weq-identity-link"
+          target={{
+            identity: uid,
+            uin,
+            name,
+            avatarUrl,
+            group: { code: group.id, name: group.name },
+            member,
+          }}
+        >
+          <Avatar name={name} avatarUrl={avatarUrl} seed={uid} />
+          <span>{name}</span>
+        </ProfileAvatar>
+      </div>
+      {query.isError || resolved?.error ? (
+        <span className="weq-group-label-time" role="status">
+          设置者资料暂未补全
+        </span>
+      ) : null}
+    </>
   );
 }

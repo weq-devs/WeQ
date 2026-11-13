@@ -14,6 +14,9 @@ import {
   SetSelfLongNick,
   setSelfAvatar,
   type SetSelfAvatarParams,
+  getCloudProfile,
+  decode,
+  message,
 } from '@weq/protocol';
 
 /** 在线写操作需要的最小原生面（离线账号只读 DB 时可以不传）。 */
@@ -81,6 +84,58 @@ export class ProfileService {
    */
   async getProfile(uid: string): Promise<UserProfile | null> {
     return this.session.profileInfo.getProfile(uid);
+  }
+
+  /** 来源人物先读本地群成员与资料，缺昵称或头像身份时才在线补全。 */
+  async getIdentity(
+    uid: string,
+    options: {
+      online: boolean;
+      member?: { uin: bigint; card: string; nick: string } | null;
+    },
+  ) {
+    const local = await this.getProfile(uid);
+    const uin =
+      local?.uin && local.uin > 0n
+        ? String(local.uin)
+        : options.member?.uin && options.member.uin > 0n
+          ? String(options.member.uin)
+          : '';
+    const identity = {
+      uid,
+      uin,
+      nick: options.member?.nick?.trim() || local?.nick?.trim() || '',
+      card: options.member?.card?.trim() || '',
+      remark: local?.remark?.trim() || '',
+      avatarUrl: local?.avatarUrl || '',
+      error: null as string | null,
+    };
+    if (
+      !options.online ||
+      ((identity.nick || identity.card || identity.remark) && (uin || identity.avatarUrl))
+    )
+      return identity;
+    try {
+      const { nt, resolvePid } = this.requireOnline();
+      const pid = resolvePid();
+      const cloud = await getCloudProfile(nt, pid, uid, [101, 20002]);
+      if (resolvePid() !== pid) throw new Error('QQ 运行时已切换');
+      const nick = cloud.bytes.get(20002);
+      const avatar = cloud.bytes.get(101);
+      const avatarUrl = avatar
+        ? decode(message([{ name: 'url', tag: 5, type: 'string' }]), avatar).url
+        : null;
+      return {
+        ...identity,
+        uin: uin || cloud.uin || '',
+        nick: identity.nick || (nick ? new TextDecoder('utf-8', { fatal: true }).decode(nick) : ''),
+        avatarUrl:
+          identity.avatarUrl ||
+          (typeof avatarUrl === 'string' && /^https?:\/\//.test(avatarUrl) ? avatarUrl : ''),
+      };
+    } catch (error) {
+      return { ...identity, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /**

@@ -10,6 +10,8 @@ const rpc = vi.hoisted(() => ({
   detail: vi.fn(),
   userGroups: vi.fn(),
   profiles: vi.fn(),
+  member: vi.fn(),
+  identity: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
@@ -19,8 +21,9 @@ vi.mock('../src/main/context/app_context', () => {
       getMemberPreview: rpc.preview,
       getGroupDetail: rpc.detail,
       listUserGroups: rpc.userGroups,
+      getMemberInfo: rpc.member,
     },
-    profile: { profilesByUids: rpc.profiles },
+    profile: { profilesByUids: rpc.profiles, getIdentity: rpc.identity },
   };
   const bootstrap = () => ({
     ocrModels: { listByKind: () => [] },
@@ -59,6 +62,30 @@ it('默认仅查询缓存，刷新选项显式转交服务', async () => {
   expect(rpc.read).toHaveBeenLastCalledWith(123, false, false);
   await api.getGroupExtendedProfile({ ...input, refresh: true, force: true });
   expect(rpc.read).toHaveBeenLastCalledWith(123, true, true);
+});
+it('标签设置者只读取指定成员，保留绑定并转交离线资料读取', async () => {
+  const member = { uid: 'u_peer', uin: 10002n, card: '群名片', nick: '昵称' };
+  rpc.member.mockResolvedValueOnce(member);
+  rpc.identity.mockResolvedValueOnce({ uid: 'u_peer', nick: '昵称' });
+  const target = {
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    groupCode: '12345',
+    uid: 'u_peer',
+    online: false,
+  };
+  const api = accountRouter.createCaller({});
+  expect(await api.getGroupLabelSetter(target)).toEqual({ uid: 'u_peer', nick: '昵称' });
+  expect(rpc.member).toHaveBeenLastCalledWith(12345n, 'u_peer');
+  expect(rpc.identity).toHaveBeenLastCalledWith('u_peer', { online: false, member });
+  await expect(
+    api.getGroupLabelSetter({ groupCode: '12345', uid: 'u_peer', online: false } as never),
+  ).rejects.toThrow();
+  rpc.identity.mockImplementationOnce(async () => {
+    rpc.configId = 'source-b';
+    return { uid: 'u_peer' };
+  });
+  await expect(api.getGroupLabelSetter(target)).rejects.toThrow('数据源已切换');
 });
 it('拒绝缺来源、旧账号、同号旧数据源及非法群号', async () => {
   const api = accountRouter.createCaller({});

@@ -13,6 +13,7 @@ import { ContactRow } from '../contactProfile/ContactRow';
 import { mergeGroupPreviewMembers } from '../../lib/groupPreviewMembers';
 import { QQProfileField } from '../QQProfileField';
 import { groupJoinedDate } from '../../lib/groupProfileRows';
+import { GroupLabelSources } from '../GroupLabelSources';
 
 export function groupCreationDate(value?: string | null) {
   const date = timeDate(value);
@@ -20,24 +21,14 @@ export function groupCreationDate(value?: string | null) {
 }
 
 /** 群标签：普通标签与自定义标签合并成一行 chip，与联系人名片的标签同一视觉。 */
-export function GroupTags({ group }: { group: GroupConversation['group'] }) {
-  const labels = [
-    ...new Set(
-      [...(group.labels ? group.labels.split(/[,，、;；\s]+/) : []), ...(group.customLabels ?? [])]
-        .map((label) => label?.trim())
-        .filter((label): label is string => Boolean(label)),
-    ),
-  ];
-  if (!labels.length) return null;
-  return (
-    <div className="weq-group-tags" aria-label="群标签" data-privacy-sensitive>
-      {labels.map((label) => (
-        <span className="weq-profile-tag" key={label}>
-          {label}
-        </span>
-      ))}
-    </div>
-  );
+export function GroupTags({
+  group,
+  members,
+}: {
+  group: GroupConversation['group'];
+  members?: GroupConversation['members'];
+}) {
+  return <GroupLabelSources group={group} members={members} />;
 }
 
 export function GroupIdentity({

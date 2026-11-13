@@ -4485,6 +4485,30 @@ export const accountRouter = router({
       };
     }),
 
+  /** 标签设置者只补全指定人物，不为一个来源读取整群成员。 */
+  getGroupLabelSetter: procedure
+    .input(
+      z
+        .object({
+          uid: z.string().regex(/^u_[A-Za-z0-9_-]+$/),
+          groupCode: z.string().regex(/^[1-9]\d{0,9}$/),
+          online: z.boolean(),
+        })
+        .merge(exportAccountBindingInput.required()),
+    )
+    .query(async ({ input }) => {
+      const { services, check } = groupAlbumReadScope(input);
+      const member = await services.groupInfo.getMemberInfo(BigInt(input.groupCode), input.uid);
+      check();
+      const access = input.online ? albumAccessState(services) : null;
+      const identity = await services.profile.getIdentity(input.uid, {
+        online: Boolean(access?.qqOnline && access.attachEnabled),
+        member,
+      });
+      check();
+      return identity;
+    }),
+
   /** Get detailed profile by NT uid. */
   getProfile: procedure
     .input(z.object({ uid: z.string().min(1) }).merge(exportAccountBindingInput))
