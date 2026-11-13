@@ -422,7 +422,7 @@ it('文件卡片保留本地打开，显式保存仍走公共策略，不把控�
   expect(view.host.querySelector('.qq-media-file-open button')).toBeNull();
   expect(view.host.querySelector('.qq-media-file-name')?.getAttribute('title')).toBe('report.txt');
 });
-it('语音保存复用播放的精确转发定位，不自动播放、转写或调用模型', async () => {
+it('语音消息不显示保存按钮，也不自动保存、播放或转写', async () => {
   const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   const view = await mount(
     h(QqVoice, {
@@ -434,12 +434,9 @@ it('语音保存复用播放的精确转发定位，不自动播放、转写或�
       fwd: { fwdMsgId: '42', fwdKind: 'group' },
     }),
   );
-  await click(view.host, '保存语音');
-  const input = state.save.mock.calls[0]![0] as { source: { url: string; name: string } };
-  const url = new URL(input.source.url);
-  expect(url.searchParams.get('msgId')).toBe('41');
-  expect(url.searchParams.get('fwdMsgId')).toBe('42');
-  expect(url.searchParams.get('fwdKind')).toBe('group');
+  expect(view.host.querySelector('[aria-label="保存语音"]')).toBeNull();
+  expect(view.host.querySelector('[aria-label="播放语音"]')).not.toBeNull();
+  expect(state.save).not.toHaveBeenCalled();
   expect(play).not.toHaveBeenCalled();
   expect(state.transcribe).not.toHaveBeenCalled();
 });
@@ -717,7 +714,7 @@ it.each([false, true])('保存控件合成布局，Web=%s', async (web) => {
     ),
   );
   capture(chat.host, web ? 'media-chat-web.html' : 'media-chat-desktop.html');
-  expect(chat.host.querySelectorAll('.weq-media-save-controls')).toHaveLength(2);
+  expect(chat.host.querySelectorAll('.weq-media-save-controls')).toHaveLength(1);
   state.files.mockResolvedValueOnce({
     targetDirectory: '/',
     folders: [],

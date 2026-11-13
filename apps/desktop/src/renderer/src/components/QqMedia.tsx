@@ -1018,15 +1018,6 @@ export function QqVoice({
           </span>
           {seconds > 0 ? <span className="qq-media-voice-time">{seconds}″</span> : null}
         </button>
-        {!localPreviewUrl ? (
-          <MediaSourceSave
-            key={voiceSource}
-            source={{ kind: 'url', url: voiceSource, name }}
-            className="qq-voice-transcribe-btn"
-            label="保存语音"
-            iconOnly
-          />
-        ) : null}
         {canTranscribe && (shownTranscript === null || transcribeError) ? (
           <button
             type="button"
