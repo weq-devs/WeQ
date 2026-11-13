@@ -15,6 +15,11 @@ import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { resolveChildWorkerPath } from '../worker_path';
+import {
+  enhancementEngineAvailable,
+  enhancementEngineEnvironment,
+  withEnhancementEngine,
+} from '../enhancements/engine_environment';
 import type { VoiceTagDisplay } from './tags';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -59,6 +64,16 @@ export function transcribeWav(
   paths: TranscribeModelPaths,
   options: { engine?: string; languages?: string[]; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<TranscribeResult> {
+  if (!enhancementEngineAvailable('sherpa'))
+    return Promise.resolve({ success: false, error: '请先在「增强包」准备本地语音转写' });
+  return withEnhancementEngine('sherpa', () => executeTranscribeWav(wav, paths, options));
+}
+
+function executeTranscribeWav(
+  wav: Buffer,
+  paths: TranscribeModelPaths,
+  options: { engine?: string; languages?: string[]; timeoutMs?: number; signal?: AbortSignal },
+): Promise<TranscribeResult> {
   return new Promise((resolve) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -81,6 +96,7 @@ export function transcribeWav(
       worker = fork(workerPath, [], {
         stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         serialization: 'advanced',
+        env: enhancementEngineEnvironment('sherpa'),
       });
     } catch (e) {
       done({ success: false, error: String(e) });

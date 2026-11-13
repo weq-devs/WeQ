@@ -71,6 +71,7 @@ export function useCallCamera(options: {
     openStream,
     unsupportedMessage: '当前环境不支持摄像头采集',
     onEnded,
+    nativeCamera: true,
   });
 }
 

@@ -1,0 +1,150 @@
+.weq-reference-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  color: var(--weq-fg-secondary);
+}
+.weq-reference-toolbar .selection-bar {
+  width: 100%;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.weq-reference-toolbar .selection-bar-info {
+  flex: none;
+  white-space: nowrap;
+}
+.weq-reference-toolbar .selection-bar-count {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+.weq-reference-toolbar .selection-bar-actions {
+  gap: 6px;
+}
+.weq-reference-toolbar .selection-action {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  padding: 0;
+  justify-content: center;
+  border-radius: 6px;
+}
+.weq-reference-toolbar .selection-action:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-reference-export {
+  padding: 16px;
+  min-width: 0;
+}
+.weq-reference-export h3 {
+  margin: 0 auto 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.weq-reference-export .weq-reference-export-head {
+  margin: 0 0 12px;
+  flex-wrap: wrap;
+}
+.weq-reference-export-head .weq-exp-tool {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+}
+.weq-reference-export .weq-exp-dialog-foot {
+  justify-content: flex-end;
+  padding: 12px 0 0;
+  background: transparent;
+}
+.weq-reference-export-list {
+  max-height: 55dvh;
+  overflow: auto;
+  min-width: 0;
+  overscroll-behavior: contain;
+}
+.weq-reference-export .weq-reference-export-row {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border-radius: 8px;
+  color: var(--weq-fg-primary);
+}
+.weq-reference-export-checkbox {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  opacity: 0;
+  z-index: 1;
+  cursor: pointer;
+}
+html[data-theme] .weq-reference-export .weq-exp-btn.is-primary:not(:disabled) {
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  color: var(--weq-accent-solid-foreground);
+  box-shadow: none;
+}
+html[data-theme] .weq-reference-export .weq-exp-btn.is-primary:hover:not(:disabled) {
+  filter: none;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.weq-reference-export-row:focus-within {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+.weq-reference-export-row:has(input:disabled) {
+  cursor: wait;
+}
+.weq-reference-export .weq-reference-export-row .weq-exp-row-meta strong {
+  color: var(--weq-fg-primary);
+}
+.weq-reference-export .weq-reference-export-row .weq-exp-row-meta small {
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-reference-export .weq-reference-export-row.is-on .weq-exp-row-check {
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  color: var(--weq-accent-solid-foreground);
+}
+html[data-theme='dark'] .weq-reference-export-head .weq-exp-tool {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+}
+.weq-reference-item.is-selected,
+.group-album-card.is-selected,
+.group-album-media-card.is-selected {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
+}
+html[data-theme='dark'] .weq-reference-item.is-selected,
+html[data-theme='dark'] .group-album-card.is-selected,
+html[data-theme='dark'] .group-album-media-card.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, var(--weq-bg-surface));
+}
+@media (pointer: coarse) {
+  .weq-reference-toolbar .selection-action,
+  .weq-reference-export-head .weq-exp-tool,
+  .weq-reference-export .weq-exp-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-reference-toolbar .selection-action,
+  .weq-reference-export :is(.weq-exp-btn, .weq-exp-tool, .weq-exp-row, .weq-exp-row-check) {
+    transition: none;
+  }
+}

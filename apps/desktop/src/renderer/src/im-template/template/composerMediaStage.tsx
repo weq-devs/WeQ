@@ -1,20 +1,14 @@
 // @ts-nocheck
 /**
- * 输入框里的「只能单独发」卡片（媒体舞台 / 超级表情）、拖拽落点提示与预览灯箱。
- *
- * 视频、文件和超级表情都只能**单独**发，所以它们不排成托盘挂在输入框上面，而是直接
- * 占掉正文编辑区那一行：一张居中的大卡片 —— 大图标 / 缩略图在上，名称与元信息在下，
- * 右上角叉号。这一行出现时正文编辑区被隐藏，发送键只发这一个，不带走文字。
- *
+ * 待发送文件 / 视频托盘、超级表情卡片、拖拽落点与预览灯箱。
  * 图片不走这里 —— 图片像表情一样内联进输入框（见 chatPane 的 insertInlineImage）。
  */
 
-import { useLayoutEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useState } from 'react';
 import { useTabActive } from '../../components/RetainedTabs';
 import { FolderOpen, X } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
-import { useOverlayLayer } from '../../lib/overlayStack';
+import { MediaPreview } from '../../components/MediaPreview';
 import { cn } from './classNames';
 import {
   attachmentKindText,
@@ -23,27 +17,52 @@ import {
   type ComposerAttachment,
 } from './composerMedia';
 import type { EmojiItem } from './emojiPacks';
+import '../styles/composer-media-tray.css';
 
 export function ComposerMediaStage({
-  attachment,
+  attachments,
   onRemove,
   panelRef,
 }: {
-  attachment: ComposerAttachment;
-  onRemove: () => void;
+  attachments: ComposerAttachment[];
+  onRemove: (id: string) => void;
   panelRef?: RefObject<HTMLDivElement | null>;
 }) {
+  return (
+    <div
+      className={cn('composer-media-tray')}
+      ref={panelRef}
+      aria-label={`待发送附件 ${attachments.length} 项`}
+    >
+      {attachments.map((attachment) => (
+        <ComposerMediaItem
+          key={attachment.id}
+          attachment={attachment}
+          onRemove={() => onRemove(attachment.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ComposerMediaItem({
+  attachment,
+  onRemove,
+}: {
+  attachment: ComposerAttachment;
+  onRemove: () => void;
+}) {
   const [preview, setPreview] = useState(false);
+  const tabActive = useTabActive();
   const kindLabel = attachmentKindText(attachment.kind);
   const playable = attachment.kind === 'video' && Boolean(attachment.url);
 
   return (
-    <div className={cn('composer-single-stage')} ref={panelRef} aria-label="待发送的视频或文件">
+    <>
       <ComposerSingleCard
         kind={attachment.kind}
         name={attachment.name}
         meta={attachmentMetaText(attachment)}
-        note={`${kindLabel}只能单独发送，不会带上输入框里的文字`}
         thumbTitle={playable ? `预览${kindLabel} ${attachment.name}` : kindLabel}
         onThumbClick={playable ? () => setPreview(true) : undefined}
         onRemove={onRemove}
@@ -64,9 +83,16 @@ export function ComposerMediaStage({
         }
       />
       {preview && attachment.url ? (
-        <AttachmentLightbox attachment={attachment} onClose={() => setPreview(false)} />
+        <MediaPreview
+          active={tabActive}
+          onClose={() => setPreview(false)}
+          items={[
+            { key: attachment.id, kind: 'video', src: attachment.url, title: attachment.name },
+          ]}
+          renderActions={() => <span>{attachmentMetaText(attachment)}</span>}
+        />
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -123,7 +149,7 @@ function ComposerSingleCard({
   thumb: ReactNode;
   name: string;
   meta: string;
-  note: string;
+  note?: string;
   thumbTitle: string;
   /** 缩略图可点开灯箱时给（目前只有视频）；文件类图标不可点。 */
   onThumbClick?: () => void;
@@ -144,7 +170,7 @@ function ComposerSingleCard({
       <div className={cn('composer-single-info')}>
         <strong title={name}>{name}</strong>
         <em>{meta}</em>
-        <span className={cn('composer-single-note')}>{note}</span>
+        {note ? <span className={cn('composer-single-note')}>{note}</span> : null}
       </div>
       <button
         type="button"
@@ -156,57 +182,6 @@ function ComposerSingleCard({
         <X size={14} strokeWidth={2.6} />
       </button>
     </div>
-  );
-}
-
-function AttachmentLightbox({
-  attachment,
-  onClose,
-}: {
-  attachment: ComposerAttachment;
-  onClose: () => void;
-}) {
-  const tabActive = useTabActive();
-  const layer = useOverlayLayer(tabActive);
-
-  useLayoutEffect(() => {
-    if (!tabActive) return undefined;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, onClose]);
-
-  return createPortal(
-    <div
-      className={cn('composer-media-lb-layer')}
-      hidden={!tabActive}
-      style={{ zIndex: layer, display: tabActive ? undefined : 'none' }}
-      onMouseDown={onClose}
-    >
-      <div className={cn('composer-media-lb')} onMouseDown={(event) => event.stopPropagation()}>
-        <header className={cn('composer-media-lb-head')}>
-          <span className={cn('composer-media-lb-title')}>
-            {attachment.kind === 'video' ? <FolderOpen size={15} /> : null}
-            {attachment.name}
-          </span>
-          <em>{attachmentMetaText(attachment)}</em>
-          <button
-            type="button"
-            className={cn('composer-media-lb-close')}
-            onClick={onClose}
-            aria-label="关闭"
-          >
-            <X size={18} />
-          </button>
-        </header>
-        <div className={cn('composer-media-lb-body')}>
-          {attachment.url ? <video src={attachment.url} controls autoPlay /> : null}
-        </div>
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -223,7 +198,7 @@ export function ComposerDropVeil({ visible }: { visible: boolean }) {
       <div className={cn('composer-drop-veil-inner')}>
         <FolderOpen size={26} strokeWidth={1.6} />
         <strong>松开即可添加</strong>
-        <span>图片会插进输入框；视频 / 文件单独发送</span>
+        <span>图片、视频和文件</span>
       </div>
     </div>
   );

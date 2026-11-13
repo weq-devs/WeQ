@@ -1,13 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AgentLabUsage } from '@weq/agentlab';
 import type { Platform } from '@weq/platform';
 import { AgentLabConfigService } from '../src/bootstrap/agentlab_config';
 import { UserConfigService } from '../src/bootstrap/user_config';
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.unstubAllGlobals();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
@@ -22,6 +24,115 @@ function fixture() {
   };
 }
 describe('多 provider 持久化与调用隔离', () => {
+  it('元数据读取不发推理，原始控制、默认值与手改标记跨重启保留', async () => {
+    const f = fixture();
+    const raw = {
+      id: 'alias',
+      kind: 'chat',
+      chat: {
+        modalities: { input: ['text', 'image'] },
+        reasoning: { effort: { supported: ['low', 'custom'], default: 'custom' } },
+      },
+    };
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ data: [raw] })));
+    vi.stubGlobal('fetch', fetch);
+    const input = {
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic',
+      vendor: 'openai-compatible',
+    };
+    const models = await f.service.fetchModels({ ...input, modelIds: ['alias'] });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      `${input.baseUrl}/models`,
+      expect.objectContaining({ method: 'GET' }),
+    );
+    f.service.saveProvider({
+      ...input,
+      id: 'p',
+      name: 'p',
+      models: models.map((model) => ({
+        ...model,
+        reasoningEfforts: ['manual'],
+        overrides: { reasoning: true },
+      })),
+    });
+    const saved = f.reload().getProvider('p')!.models[0]!;
+    expect(saved).toMatchObject({
+      reasoningEfforts: ['manual'],
+      overrides: { reasoning: true },
+      metadata: {
+        raw,
+        reasoning: { controls: [{ default: 'custom', values: ['low', 'custom'] }] },
+      },
+    });
+    expect(
+      f.reload().resolveEndpoint({ providerId: 'p', model: 'alias' }).reasoningEfforts,
+    ).toEqual(['manual']);
+  });
+
+  it('缺失能力和思考按调用清单探测，空能力清单不触发额外请求', async () => {
+    const f = fixture();
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: { message: "reasoning_effort allowed values: ['low', 'custom']" },
+          }),
+          { status: 400 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const result = await f.service.detectCapabilities({
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic',
+      model: 'alias',
+      capabilities: [],
+      reasoning: true,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      capabilities: [],
+      reasoning: { status: 'supported', reasoning: { controls: [{ values: ['low', 'custom'] }] } },
+    });
+    expect(f.service.listProviders()).toEqual([]);
+  });
+
+  it('连接测试和能力检测保留草稿的配置身份，未保存配置也可记账', async () => {
+    const f = fixture();
+    const updates: AgentLabUsage[] = [];
+    const service = new AgentLabConfigService(f.config, (usage) => updates.push(usage));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: 'OK' } }],
+              usage: { total_tokens: 2 },
+            }),
+          ),
+      ),
+    );
+    const input = {
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic',
+      model: 'synthetic',
+      providerId: 'draft-id',
+      providerName: '草稿服务',
+    };
+    await service.testEndpoint(input);
+    await service.detectCapabilities(input);
+    expect(updates.length).toBeGreaterThan(0);
+    expect(
+      updates.every(
+        (u) => u.providerId === input.providerId && u.providerName === input.providerName,
+      ),
+    ).toBe(true);
+    expect(updates.some((u) => u.feature === 'connection-test')).toBe(true);
+    expect(updates.some((u) => u.feature === 'capability-test')).toBe(true);
+    expect(f.service.listProviders()).toHaveLength(0);
+  });
   it('慢模型期限跨重启生效，旧客户端编辑不清除，非法期限不覆盖配置', () => {
     const f = fixture();
     const provider = {
@@ -42,6 +153,63 @@ describe('多 provider 持久化与调用隔离', () => {
       expect(f.reload().resolveEndpoint(ref).timeoutMs).toBe(600_000);
     }
   });
+  it('聊天、视觉、向量默认独立解析，纯向量模型无需聊天能力且跨重启保留', () => {
+    const f = fixture();
+    f.service.saveProvider({
+      id: 'separate',
+      name: '合成服务',
+      vendor: 'custom',
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic',
+      models: [
+        { id: 'chat', capabilities: ['chat'] },
+        { id: 'vision', capabilities: ['vision'] },
+        { id: 'embedding', capabilities: ['embedding'] },
+      ],
+    });
+    const chat = { providerId: 'separate', model: 'chat' };
+    const vision = { providerId: 'separate', model: 'vision' };
+    const embedding = { providerId: 'separate', model: 'embedding' };
+    f.service.setDefaultModel(chat);
+    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'embedding')).toThrow(
+      '未设置默认向量模型',
+    );
+    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'vision')).toThrow(
+      '未设置默认视觉模型',
+    );
+    expect(f.service.setDefaultEmbeddingModel(embedding)).toEqual({
+      ref: embedding,
+      available: true,
+      error: null,
+    });
+    f.service.setDefaultVisionModel(vision);
+    expect(
+      f.reload().resolveModels({
+        chat: { useDefault: true },
+        vision: { useDefault: true },
+        embedding: { useDefault: true },
+      }),
+    ).toEqual({ chat, vision, embedding });
+    expect(f.reload().resolveEndpoint({ useDefault: true }, 'embedding').model).toBe('embedding');
+    expect(() => f.service.setDefaultEmbeddingModel(chat)).toThrow('向量');
+    expect(f.reload().getDefaultEmbeddingModelStatus().ref).toEqual(embedding);
+    f.service.saveProvider({
+      ...f.service.getProvider('separate')!,
+      models: [{ id: 'chat', capabilities: ['chat'] }],
+    });
+    expect(f.reload().getDefaultEmbeddingModelStatus()).toMatchObject({
+      ref: embedding,
+      available: false,
+    });
+    expect(f.service.setDefaultEmbeddingModel(null)).toEqual({
+      ref: null,
+      available: false,
+      error: null,
+    });
+    expect(f.reload().getDefaultEmbeddingModelStatus().ref).toBeNull();
+    expect(f.reload().getDefaultModel()).toEqual(chat);
+  });
+
   it('显式默认按调用时的全局选择解析，旧显式模型不跟随修改', () => {
     const f = fixture();
     f.service.saveProvider({
@@ -57,6 +225,8 @@ describe('多 provider 持久化与调用隔离', () => {
     });
     const first = { providerId: 'synthetic', model: 'first' };
     f.service.setDefaultModel(first);
+    f.service.setDefaultVisionModel(first);
+    f.service.setDefaultEmbeddingModel(first);
     expect(f.service.resolveEndpoint({ useDefault: true }, 'embedding').model).toBe('first');
     expect(f.service.resolveEndpoint({ useDefault: true }, 'vision').model).toBe('first');
     const exportSnapshot = f.service.resolveModels({
@@ -73,13 +243,13 @@ describe('多 provider 持久化与调用隔离', () => {
       model: 'second',
     });
     expect(f.service.resolveEndpoint(first).model).toBe('first');
-    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'embedding')).toThrow('支持');
-    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'vision')).toThrow('支持');
+    expect(f.service.resolveEndpoint({ useDefault: true }, 'embedding').model).toBe('first');
+    expect(f.service.resolveEndpoint({ useDefault: true }, 'vision').model).toBe('first');
     f.service.setDefaultModel(null);
-    expect(() => f.service.resolveEndpoint({ useDefault: true })).toThrow('未设置默认模型');
+    expect(() => f.service.resolveEndpoint({ useDefault: true })).toThrow('未设置默认聊天模型');
     expect(f.service.resolveEndpoint(first).model).toBe('first');
   });
-  it('默认模型显式保存，跨重启和 provider 编辑保留；清空不自动选择其他模型', () => {
+  it('默认聊天模型显式保存，跨重启和 provider 编辑保留；清空不自动选择其他模型', () => {
     const f = fixture();
     expect(f.service.getDefaultModelStatus()).toEqual({ ref: null, available: false, error: null });
     const provider = {
@@ -108,7 +278,7 @@ describe('多 provider 持久化与调用隔离', () => {
       available: false,
       error: null,
     });
-    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('未设置默认模型');
+    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('未设置默认聊天模型');
   });
 
   it('拒绝无效默认选择；已选模型被删除时保留引用并明确不可用，不扩大为其他端点', () => {
@@ -140,7 +310,7 @@ describe('多 provider 持久化与调用隔离', () => {
     expect(() => f.reload().resolveDefaultEndpoint()).toThrow('模型');
     f.service.deleteProvider(provider.id);
     expect(f.reload().getDefaultModelStatus()).toMatchObject({ ref, available: false });
-    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('provider');
+    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('服务商');
     expect(f.service.setDefaultModel(null).ref).toBeNull();
   });
   it('同名、同厂商、同模型的不同端点和密钥重启后仍按 providerId 分别解析', () => {

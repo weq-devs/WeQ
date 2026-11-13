@@ -9,6 +9,11 @@
   display: none;
 }
 
+.message-line.mine .weq-message-heading {
+  justify-content: flex-end;
+  text-align: right;
+}
+
 .weq-message-heading > .weq-message-provenance {
   display: inline-flex;
   margin: 0;
@@ -44,6 +49,11 @@ html[data-theme='dark'] .weq-message-heading > .weq-message-provenance {
   min-width: 0;
   padding-block: 0;
   overflow-wrap: anywhere;
+}
+.weq-system-message-content:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 .weq-system-message-content > .weq-message-provenance {
   display: inline-flex;

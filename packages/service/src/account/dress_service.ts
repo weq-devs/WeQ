@@ -9,9 +9,12 @@
 
 import type { BubbleSkin } from './bubble_skin';
 import { DressConfigService, type DressScope, type DressBackgroundSource } from './dress_config';
+import type { DressConfig } from './dress_config';
+import type { PreferencePersistence } from '../common/shared_preferences';
 import { DressSharedCache, type FontDerived, type FontFx } from './dress_shared_cache';
 import type { TrpcNative } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
+import type { DressIndexKind } from './dress_index';
 
 /** 已装的一款字体（兼容旧接口）。 */
 export interface InstalledFont {
@@ -284,6 +287,15 @@ export class DressService {
   messageBubble(itemId: number) {
     return this.cache.messageBubble(itemId);
   }
+  indexResources() {
+    return this.cache.indexResources();
+  }
+  indexRevision() {
+    return this.cache.indexRevision();
+  }
+  retryIndex(kind: DressIndexKind) {
+    return this.cache.retryIndex(kind);
+  }
   localPendant(itemId: number) {
     return this.cache.getPendantSidecar(itemId);
   }
@@ -433,7 +445,7 @@ export class DressService {
  *
  * @param nt TrpcNative 实例（发 OIDB 包）。
  * @param ntHelper NtHelperBinding 实例（字体转换 / 离线 bundle 索引）。
- * @param configDir 账号配置目录（如 `config/accounts/{configId}/`）。
+ * @param configDir 背景资源目录（宿主使用 `config/appearance/`）。
  * @param sharedCacheDir 全局共享缓存目录（如 `cache/dress_shared/`）。
  * @param resolvePid 获取在线 QQ pid 的函数。
  */
@@ -443,8 +455,9 @@ export function createDressService(
   configDir: string,
   sharedCacheDir: string,
   resolvePid: () => number,
+  preferences?: PreferencePersistence<DressConfig>,
 ): DressService {
-  const config = new DressConfigService(configDir);
+  const config = new DressConfigService(configDir, preferences);
   const cache = new DressSharedCache(nt, ntHelper, sharedCacheDir, resolvePid);
   return new DressService(config, cache);
 }

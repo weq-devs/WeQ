@@ -1,8 +1,26 @@
-html.weq-touch-context-menu {
+html.weq-touch-context-menu,
+html.weq-touch-context-menu * {
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html.weq-touch-context-menu
-  :is(input, textarea, select, [contenteditable]:not([contenteditable='false'])) {
+  :is(input, textarea, select, [contenteditable]:not([contenteditable='false'])),
+html.weq-touch-context-menu [contenteditable]:not([contenteditable='false']) * {
   -webkit-touch-callout: default;
+}
+
+/* 在触摸开始前禁止正文选择，避免系统选择手势抢先取消自定义长按。 */
+@media (any-pointer: coarse) {
+  html.weq-touch-context-menu * {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html.weq-touch-context-menu
+    :is(input, textarea, select, [contenteditable]:not([contenteditable='false'])),
+  html.weq-touch-context-menu [contenteditable]:not([contenteditable='false']) * {
+    user-select: text;
+    -webkit-user-select: text;
+  }
 }

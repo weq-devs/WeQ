@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { MsgService } from '../src/account/msg';
+import { updateTransferPolicy, updateClientNetwork } from '../src/common/transfer_policy';
+import { networkCost, UNKNOWN_NETWORK } from '../src/common/data_saver';
+import { networkScope } from '../src/common/network_scope';
 
 const roots: string[] = [];
 function fixture() {
@@ -13,9 +16,72 @@ function fixture() {
   return { root, cache, manager: new ExportTaskManager({} as MsgService, cache) };
 }
 afterEach(() => {
+  updateTransferPolicy('auto', UNKNOWN_NETWORK);
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it('继续一个策略暂停任务只放行其执行上下文，小附件不按批量下载暂停', async () => {
+    const f = fixture();
+    updateClientNetwork('manual-phone', networkCost(false, true, 'phone'));
+    const run = vi.fn(async () => {
+      expect(networkScope.getStore()?.override).toBe(true);
+      return { total: 0, ok: 0, failed: [] };
+    });
+    const id = await networkScope.run(
+      { clientId: 'manual-phone', restricted: true, intent: 'interactive' },
+      () =>
+        f.manager.startResourceExport({
+          name: '手动继续',
+          kind: 'group-files',
+          run,
+          savePolicy: { mode: 'before', directory: f.root },
+        }),
+    );
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.networkPaused).toBe(true));
+    expect(f.manager.resumeTask(id)).toBe(true);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    const small = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
+    await networkScope.run(
+      { clientId: 'manual-phone', restricted: true, intent: 'interactive' },
+      () =>
+        f.manager.startResourceExport({
+          name: '小附件',
+          kind: 'mail-attachment',
+          networkTransfer: { bytes: 100 },
+          run: small,
+          savePolicy: { mode: 'before', directory: f.root },
+        }),
+    );
+    await vi.waitFor(() => expect(small).toHaveBeenCalledOnce());
+  });
+  it('受限手机创建的联网任务先暂停，其他端和本地任务继续，恢复后只启动策略暂停任务', async () => {
+    const f = fixture();
+    updateClientNetwork('export-phone', networkCost(false, true, 'phone'));
+    const run = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
+    const id = await networkScope.run(
+      { clientId: 'export-phone', restricted: true, intent: 'interactive' },
+      () =>
+        f.manager.startResourceExport({
+          name: '受限批量下载',
+          kind: 'group-files',
+          run,
+          savePolicy: { mode: 'before', directory: f.root },
+        }),
+    );
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.networkPaused).toBe(true));
+    expect(run).not.toHaveBeenCalled();
+    const localRun = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
+    await f.manager.startResourceExport({
+      name: '本地报告',
+      kind: 'annual-report',
+      run: localRun,
+      savePolicy: { mode: 'before', directory: f.root },
+    });
+    await vi.waitFor(() => expect(localRun).toHaveBeenCalledOnce());
+    updateClientNetwork('export-phone', networkCost(false, false, 'phone'));
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('completed'));
+  });
   it('资源附加数据选择贯穿任务参数，不被归档默认选项覆盖', async () => {
     const f = fixture();
     const id = await f.manager.startResourceExport({

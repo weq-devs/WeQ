@@ -14,6 +14,7 @@ export function ContactDirectoryOrder({
         <label>
           分组依据
           <select
+            className="weq-set-select"
             value={order.preferences.grouping}
             onChange={(event) => order.change({ grouping: event.target.value })}
           >
@@ -27,7 +28,9 @@ export function ContactDirectoryOrder({
         <label>
           排序依据
           <select
+            className="weq-set-select"
             value={order.preferences.sort}
+            title={order.sortOptions[order.preferences.sort as keyof typeof order.sortOptions]}
             onChange={(event) => order.change({ sort: event.target.value })}
           >
             {Object.entries(order.sortOptions).map(([id, name]) => (
@@ -59,7 +62,13 @@ export function ContactDirectoryOrder({
           <small role="status">好友/群信息缓存更新已暂停，等待 QQ 在线</small>
         ) : null}
       </div>
-      {order.refreshRequest && <ContactCacheRefreshDialog stale onClose={order.closeRefresh} />}
+      {order.refreshRequest && (
+        <ContactCacheRefreshDialog
+          stale
+          fields={order.refreshRequest.fields}
+          onClose={order.closeRefresh}
+        />
+      )}
     </>
   );
 }

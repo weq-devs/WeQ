@@ -62,10 +62,23 @@ function useProfileLookup(
   };
 }
 
-export function useNumberLookup(keyword: string) {
+export function useNumberLookup(
+  keyword: string,
+  kinds: readonly ('user' | 'group')[] = ['user', 'group'],
+) {
   const session = useQQWriteSession('global-number-lookup');
   const target = keyword;
-  const user = useProfileLookup('user', target, session.binding, session.available);
-  const group = useProfileLookup('group', target, session.binding, session.available);
+  const user = useProfileLookup(
+    'user',
+    target,
+    session.binding,
+    session.available && kinds.includes('user'),
+  );
+  const group = useProfileLookup(
+    'group',
+    target,
+    session.binding,
+    session.available && kinds.includes('group'),
+  );
   return { available: session.available, user, group };
 }

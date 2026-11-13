@@ -3,6 +3,11 @@ import { message } from '../../protobuf';
 import { invokeOidb } from '../invoke';
 import { requireUint32 } from '../write-validation';
 import type { OidbNative } from '../../transport';
+import {
+  GROUP_PROFILE_FIELDS,
+  parseGroupProfileExtras,
+  type GroupProfileExtras,
+} from './group-profile';
 
 /** 来源：Lagrange.Core 20c2ba0 的 D88DGroupInfo 与 FetchStrangerGroupInfoService。 */
 const INFO = message([
@@ -13,6 +18,7 @@ const INFO = message([
   { name: 'name', tag: 15, type: 'string', force: true },
   { name: 'categoryName', tag: 18, type: 'string', force: true },
   { name: 'question', tag: 24, type: 'string', force: true },
+  ...GROUP_PROFILE_FIELDS.fields,
 ]);
 export interface GroupJoinInfo {
   groupId: number;
@@ -24,6 +30,7 @@ export interface GroupJoinInfo {
   option: number | null;
   question: string | null;
   questionState: 'available' | 'not-required' | 'unavailable';
+  extensions?: GroupProfileExtras;
 }
 export namespace GetGroupJoinInfo {
   export const command = 0x88d;
@@ -54,7 +61,13 @@ export namespace GetGroupJoinInfo {
     },
     { name: 'error', tag: 2, type: 'string' },
   ]);
-  export const serialize = ({ groupId }: { groupId: number }): Record<string, unknown> => {
+  export const serialize = ({
+    groupId,
+    includeExtensions = false,
+  }: {
+    groupId: number;
+    includeExtensions?: boolean;
+  }): Record<string, unknown> => {
     const groupCode = requireUint32(groupId, 'groupId');
     if (groupCode === 0) throw new Error('群号必须为正整数');
     return {
@@ -70,6 +83,17 @@ export namespace GetGroupJoinInfo {
             name: '',
             categoryName: '',
             question: '',
+            ...(includeExtensions
+              ? {
+                  grade: 0,
+                  activeMemberCount: 0,
+                  portraitSequence: 0,
+                  portrait: {},
+                  joinedAt: 0,
+                  freezeState: 0,
+                  freezeReason: 0,
+                }
+              : {}),
           },
         },
       ],
@@ -79,7 +103,8 @@ export namespace GetGroupJoinInfo {
     if (!Array.isArray(body.groups) || body.groups.length === 0)
       throw new Error('服务端未返回群资料');
     return body.groups.map((row: Record<string, unknown>) => {
-      if (row.result !== undefined && row.result !== 0) throw new Error('服务端拒绝读取群资料');
+      if (row.result !== undefined && row.result !== 0)
+        throw Object.assign(new Error('服务端拒绝读取群资料'), { code: 'REMOTE_REJECTED' });
       const info = row.info as Record<string, unknown> | undefined;
       if (!info) throw new Error('服务端未返回群资料');
       const groupId = Number(row.groupCode);
@@ -105,13 +130,14 @@ export namespace GetGroupJoinInfo {
           : option === 1 || option === 2
             ? 'not-required'
             : 'unavailable',
+        extensions: parseGroupProfileExtras(info),
       };
     });
   }
   export async function invoke(
     nt: OidbNative,
     pid: number,
-    params: { groupId: number },
+    params: { groupId: number; includeExtensions?: boolean },
   ): Promise<GroupJoinInfo> {
     if (params.groupId <= 0) throw new Error('群号必须为正整数');
     const rows = await invokeOidb(nt, pid, GetGroupJoinInfo, params);

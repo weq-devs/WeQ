@@ -28,6 +28,9 @@
  * this list is the ONLY place to maintain them.
  */
 
+import semver from 'semver';
+import { resolveUpdateRelease } from './releases';
+
 export const REPO = { owner: 'weq-devs', repo: 'WeQ' } as const;
 
 /** GitHub "latest release download" directory, proxied through each mirror. */
@@ -118,6 +121,7 @@ interface MirrorProbe {
 }
 
 export interface BestMirror {
+  channel?: string;
   /** Fastest healthy release base (by measured bandwidth when available). */
   base: string;
   /** Version parsed from that mirror's latest.yml. */
@@ -173,14 +177,18 @@ const SPEED_PROBE_BYTES = 1_000_000;
 const SPEED_TIMEOUT_MS = 6000;
 
 /** Fetch + validate one mirror's latest.yml, timing it. Rejects on any failure. */
-async function probe(prefix: string, timeoutMs: number): Promise<MirrorProbe> {
-  const base = releaseBase(prefix);
+async function probe(
+  prefix: string,
+  timeoutMs: number,
+  release: Awaited<ReturnType<typeof resolveUpdateRelease>>,
+): Promise<MirrorProbe> {
+  const base = `${prefix}https://github.com/${REPO.owner}/${REPO.repo}/releases/download/${encodeURIComponent(release.tag)}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const t0 = performance.now();
   try {
     // undici (Node fetch) keeps no HTTP cache, so no `cache: 'no-store'` needed.
-    const res = await fetch(`${base}/${MANIFEST}`, {
+    const res = await fetch(`${base}/${release.manifest}`, {
       signal: ctrl.signal,
       redirect: 'follow',
       headers: { 'cache-control': 'no-cache' },
@@ -190,6 +198,8 @@ async function probe(prefix: string, timeoutMs: number): Promise<MirrorProbe> {
     const m = VERSION_RE.exec(text);
     const version = m?.[1]?.trim();
     if (!version) throw new Error('manifest has no version');
+    if (!semver.valid(version) || !semver.eq(version, release.version))
+      throw new Error('更新清单与已选择发布的版本不一致');
     const p = PATH_RE.exec(text);
     const fileName = p?.[1]?.trim();
     if (!fileName) throw new Error('manifest has no path');
@@ -245,16 +255,25 @@ async function measureBandwidth(base: string, fileName: string): Promise<number 
  * Two-phase mirror selection: screen `latest.yml` everywhere, then rank the
  * fastest few by real download bandwidth. Throws if no mirror is reachable.
  */
-export async function resolveBestMirror(timeoutMs = SCREEN_TIMEOUT_MS): Promise<BestMirror> {
+export async function resolveBestMirror(
+  timeoutMs = SCREEN_TIMEOUT_MS,
+  includePrerelease = false,
+  sample = true,
+): Promise<BestMirror> {
+  const release = await resolveUpdateRelease(includePrerelease, MANIFEST);
   // Phase 1: screen every mirror. Most of the wall-clock cost is the slow tail
   // (dead mirrors burning the full timeout), so we start Phase 2 as soon as the
   // first SPEED_PROBE_COUNT mirrors have answered — bandwidth probing then
   // overlaps with the stragglers instead of queuing behind them.
-  const probes = FILE_MIRRORS.map((p) => probe(p, timeoutMs));
+  const probes = FILE_MIRRORS.map((p) => probe(p, timeoutMs, release));
   const earlyOk = (await firstNFulfilled(probes, SPEED_PROBE_COUNT)).sort((a, b) => a.ms - b.ms);
   // Kick off bandwidth probes now; they keep running while the tail settles.
   const earlyCandidates = earlyOk.slice(0, SPEED_PROBE_COUNT);
-  const earlySpeeds = Promise.all(earlyCandidates.map((c) => measureBandwidth(c.base, c.fileName)));
+  const earlySpeeds = Promise.all(
+    earlyCandidates.map((c) =>
+      sample ? measureBandwidth(c.base, c.fileName) : Promise.resolve(null),
+    ),
+  );
 
   // Now wait for the rest of Phase 1 so the fallback list stays complete.
   const settled = await Promise.allSettled(probes);
@@ -272,7 +291,7 @@ export async function resolveBestMirror(timeoutMs = SCREEN_TIMEOUT_MS): Promise<
   const earlyBps = await earlySpeeds;
   const speeds = candidates.map((c) => {
     const i = earlyCandidates.findIndex((e) => e.base === c.base);
-    if (i === -1) return measureBandwidth(c.base, c.fileName);
+    if (i === -1) return sample ? measureBandwidth(c.base, c.fileName) : Promise.resolve(null);
     return Promise.resolve(earlyBps[i] ?? null);
   });
   const measuredSpeeds = await Promise.all(speeds);
@@ -301,5 +320,10 @@ export async function resolveBestMirror(timeoutMs = SCREEN_TIMEOUT_MS): Promise<
 
   // `ranked` always contains every healthy base, and `ok` is non-empty here, so
   // the fallback only exists to satisfy the type checker.
-  return { base: ranked[0] ?? winner.base, version: winner.version, ranked };
+  return {
+    base: ranked[0] ?? winner.base,
+    version: release.version,
+    ranked,
+    channel: release.channel,
+  };
 }

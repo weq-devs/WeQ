@@ -16,7 +16,7 @@
 
 - <details> <summary>数据库密钥获取</summary> 本地保存凭据解密发包获取，离线计算（Android）等方式获取数据库密钥<br> 期间无需重启QQ，也无需预先登录，本项目会根据凭据有效期，<strong>动态选择方案获取密钥，用户无需任何操作</strong> </details>
 - <details> <summary>离线查看和修改聊天记录</summary> 本项目基于Electron，实现了高仿QQ聊天的界面，<strong>体验原汁原味的聊天记录查看</strong> <br> 本项目支持<strong>私聊，群聊，官方账号，频道私聊等</strong>几乎所有聊天记录的解析 </details>
-- <details> <summary>QQ装扮查看</summary> 仅使用电脑端的数据，即可解析出<strong>完整的消息装扮</strong> 包括气泡，字体，挂件<br> 本项目支持下载和解析装扮资源，<strong>在PC端查看和手机端同样的渲染效果</strong><br><br>本项目同时支持导出装扮资源在外部使用  </details>
+- <details> <summary>QQ装扮查看</summary> 仅使用电脑端的数据，即可解析出<strong>完整的消息装扮</strong> 包括气泡，字体，挂件<br> 本项目支持下载和解析装扮资源，<strong>在PC端查看和手机端同样的渲染效果</strong><br>离线索引按类别自动获取，任务列表可查看进度和重试；已有装扮素材直接复用，不阻塞消息显示。索引不包含完整素材，完全断网时使用本机已有缓存。<br><br>本项目同时支持导出装扮资源在外部使用  </details>
 - <details> <summary>聊天记录导出</summary> 支持导出聊天记录为<strong>各种格式</strong>，json txt xlsx等等等<br> 同时支持导出联系人，我的收藏，QQ空间等等等附带资源 </details>
 - **年度报告**和单聊会话分析
 - 好友克隆和克隆好友群聊（<del>赛博斗蛐蛐</del>）
@@ -38,7 +38,7 @@
 | ![image-20260911060130806](./docs/images/image-20260911060130806.png) | ![image-20260911060406735](./docs/images/image-20260911060406735.png) |
 
 
-> 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](./docs/README.md)
+> 完整功能请查看[使用手册](./docs/guide/index.md)，更多内容见 [文档中心](./docs/index.md)
 
 ## 使用方法
 
@@ -90,18 +90,16 @@ git clone https://github.com/weq-devs/WeQ   # 克隆仓库代码
 cd WeQ
 git switch dev             # 开发基于 dev，main 为发布分支
 
-pnpm i                     # 安装依赖（electron可能需要单独处理）
-pnpm native:fetch          # 取 nt_helper 原生产物（nt_helper.node + 装扮资源，不入库）
-pnpm run build:bot         # 构建机器人运行时（使用机器人功能时需要）
-
-pnpm dev                   # 启动开发服务器
+pnpm dev                   # 自动补齐依赖、native 和必要构建，启动开发服务器
 ```
 
-源码开发需要 Node.js ≥ 22.12.0，并使用根 `package.json` 锁定的 `pnpm@12.8.1`。
+源码开发需要 Node.js ≥ 22.12.0，并使用根 `package.json` 锁定的 `pnpm@12.8.1`；首次构建远程网络辅助程序需要 Go。默认无需 Rust，本地 native 模式才需要其编译工具链。来源配置与缓存行为见[一行命令开发启动](./docs/develop/dev-startup.md)。
 
-> `native/**/nt_helper.node` 与 `resources/dress/*.dat` 不在仓库里（历史太大），
-> 由 [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发，
-> 默认取 `native/pinned.json` 锚定的版本；锚点过期时需验证并升级锚点，反复获取同一 tag 不会延长有效期。细节见
+> native 由 [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发，
+> `pnpm dev` 默认准备 `native/pinned.json` 锚定的发布版，不预下载大装扮索引；本地源码模式仍准备自己的配套资源。
+> 装扮索引由 [dress-resources](https://github.com/weq-devs/dress-resources) 独立分发，桌面与 Web 安装包不再携带三份 `.dat`，
+> 应用按 `resources/dress/index-manifest.json` 的明确版本按需获取，并在宿主共享缓存中复用。
+> native 锚点过期时需验证并升级，同时更新兼容的索引清单；反复获取同一 tag 不会延长有效期。细节见
 > [原生二进制与装扮资源的分发](./docs/develop/native-artifacts.md)。
 
 打包发布：

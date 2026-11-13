@@ -1,21 +1,45 @@
 import {
   useEffect,
+  useCallback,
   useLayoutEffect,
   useRef,
-  type KeyboardEvent as ReactKeyboardEvent,
+  useState,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { QqIcon } from '../../lib/qqIcons';
+import {
+  BookmarkPlus,
+  Copy,
+  Download,
+  Forward,
+  ListChecks,
+  Palette,
+  Pencil,
+  Repeat2,
+  Reply,
+  SmilePlus,
+  Trash2,
+  Undo2,
+} from 'lucide-react';
+import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
+import { MessageMenuButton, MessageMenuContext } from '../../components/MessageMenuButton';
 import type { Message } from './types';
 import { cn } from './classNames';
-import { FaceEmoji } from '../../components/FaceEmoji';
 import { canRepeatMessage } from '../../lib/messageRepeat';
+import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import { useTabActive } from '../../components/RetainedTabs';
 import { IS_WEB } from '../../lib/target';
-import type { ExportSavePolicy } from '@weq/service';
 import { VoiceTranscribeMenuAction } from '../../components/VoiceTranscribeMenuAction';
 import { TextMarkdownMenuAction } from '../../components/TextMarkdownMenuAction';
+import type { MessageMediaTarget } from '../../../../shared/message_media';
+import {
+  DEFAULT_REACTIONS,
+  quickReactionCapacity,
+  type ReactionItem,
+} from '../../lib/reactionItems';
+import type { ForwardExportTarget } from '../../lib/messageForwardTarget';
+import '../../styles/message-context-menu.css';
 
 export type MessageContextMenuState = {
   message: Message;
@@ -23,346 +47,416 @@ export type MessageContextMenuState = {
   y: number;
   downloadUrl?: string;
   imageUrl?: string;
-  /** 打开右键菜单前保存的选区或引用内容，不依赖菜单夺焦点后的原生选区。 */
+  favoriteEmojiUrl?: string;
+  mediaTarget?: MessageMediaTarget;
+  forwardTarget?: ForwardExportTarget;
   clipboard?: { text: string; html: string };
   variant?: 'desktop' | 'mobile';
-  /**
-   * Click point offset within the anchored message row at open time. Used to
-   * keep the desktop menu glued to its message while the list scrolls.
-   */
   anchorOffsetX?: number;
   anchorOffsetY?: number;
-  /** 打开菜单时聚焦的那条消息（键盘打开 / Esc 关闭后焦点归位）。 */
   originElement?: HTMLElement | null;
 };
 
-export function MessageContextMenu({
-  state,
-  onClose,
-  onCopy,
-  onExport,
-  exportLabel = '导出',
-  exportBlockedReason,
-  onForward,
-  onRepeat,
-  repeatBlockedReason,
-  onAddToComposition,
-  onDownloadImage,
-  downloadDisabled = false,
-  onDelete,
-  deleteLabel = '删除',
-  onEditRaw,
-  onViewDecoration,
-  onReply,
-  replyBlockedReason,
-  onMultiSelect,
-  onReact,
-  reactBlockedReason,
-  onRecall,
-  recallBlockedReason,
-  recallCount,
-  onRemoveReaction,
-  removeReactionBlockedReason,
-  extraActions,
-  unavailableReason,
-}: {
-  /** 数据源没有实现的能力保留按钮并置灰，不提供虚假的处理回调。 */
-  unavailableReason?: string;
+type Props = {
   state: MessageContextMenuState;
   onClose?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
-  onExport?: (message: Message) => void;
-  exportLabel?: string;
-  exportBlockedReason?: string;
   onForward?: (message: Message) => void;
+  onMultiSelect?: (message: Message) => void;
+  onReply?: (message: Message) => void;
+  replyBlockedReason?: string | null;
   onRepeat?: (message: Message) => void;
   repeatBlockedReason?: string | null;
+  onRecall?: (message: Message) => void;
+  recallBlockedReason?: string | null;
   onAddToComposition?: (message: Message) => void;
-  onDownloadImage?: (
-    url: string,
-    message: Message,
-    intent?: ExportSavePolicy,
-    browser?: boolean,
-  ) => void;
-  downloadDisabled?: boolean;
-  /** 原库消息保留可恢复遮罩；失败占位仅从本机移除，由宿主区分两条路径。 */
+  onExport?: (message: Message) => void;
+  exportBlockedReason?: string;
+  onViewDecoration?: (message: Message) => void;
+  onEditRaw?: (message: Message) => void;
   onDelete?: (message: Message) => void;
   deleteLabel?: string;
-  onEditRaw?: (message: Message) => void;
-  onViewDecoration?: (message: Message) => void;
-  /** 引用：把这条消息挂到输入框上方（引用条）。 */
-  onReply?: (message: Message) => void;
-  /** 非空 = 这条消息不能引用（系统消息 / 缺少会话内序号…），按钮置灰并显示原因。 */
-  replyBlockedReason?: string | null;
-  /** 进入多选：把这条消息加入选择集并切到多选模式。 */
-  onMultiSelect?: (message: Message) => void;
-  /** 贴表情：打开表情面板给这条群消息贴一个回应。 */
+  onDownloadImage?: (url: string, message: Message) => void;
+  onSaveMedia?: () => void;
+  downloadDisabled?: boolean;
   onReact?: (message: Message) => void;
-  /** 非空 = 这条消息不能贴表情（非群聊 / QQ 未在线 / 缺 seq），按钮置灰并显示原因。 */
+  showReactions?: boolean;
+  onSetReaction?: (message: Message, code: string, isSet: boolean) => void;
   reactBlockedReason?: string | null;
-  /**
-   * 撤回（SsoC2CRecallMsg / SsoGroupRecallMsg）。不传 = 这条消息不显示撤回项
-   * （不是自己的消息，且自己在群里也没有管理员权限）。
-   */
-  onRecall?: (message: Message) => void;
-  /** 非空 = 撤回按钮置灰（QQ 未在线 / 超过 2 分钟且无越级权限 / 缺 seq）。 */
-  recallBlockedReason?: string | null;
-  recallCount?: number;
-  onRemoveReaction?: (message: Message, code: string) => void;
-  removeReactionBlockedReason?: string | null;
-  extraActions?: ReactNode;
-}) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const active = useTabActive();
-  useSurfaceOutside(menuRef, onClose, active);
+  reactions?: readonly ReactionItem[];
+  essenceAction?: ReactNode;
+  todoAction?: ReactNode;
+  intentAction?: ReactNode;
+  favoriteEmojiAction?: ReactNode;
+  revealAction?: ReactNode;
+};
 
-  // 菜单打开后把焦点放进第一项，键盘/读屏用户才能继续操作；鼠标打开时
-  // :focus-visible 不会画环，所以不影响原有外观。
+interface MenuAction {
+  id: string;
+  label: string;
+  icon: ReactNode;
+  applicable: boolean;
+  reason?: string | null;
+  run?: () => void;
+  danger?: boolean;
+}
+
+export function MessageContextMenu(props: Props) {
+  const { state, onClose, onCopy, reactions = DEFAULT_REACTIONS } = props;
+  const message = state.message;
+  const originElement = state.originElement;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const focusedIndex = useRef(0);
+  const restoreFocus = useRef(true);
+  const [feedbackHost, setFeedbackHost] = useState<HTMLDivElement | null>(null);
+  const [reactionCapacity, setReactionCapacity] = useState(0);
+  const showReactions = (props.showReactions ?? true) && Boolean(props.onReact);
+  useSurfaceOutside(menuRef, onClose, useTabActive());
+
+  const buttons = useCallback(
+    () =>
+      [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])].filter(
+        (button) => getComputedStyle(button).display !== 'none',
+      ),
+    [],
+  );
+
   useEffect(() => {
+    restoreFocus.current = true;
     const menu = menuRef.current;
-    if (!menu) return;
-    const first = menu.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    const first =
+      menu?.querySelector<HTMLButtonElement>('.message-menu-main button') ?? buttons()[0];
     first?.focus({ preventScroll: true });
-  }, [state.message.id, state.x, state.y]);
+    const observer = new MutationObserver(() => {
+      if (document.activeElement === document.body && restoreFocus.current)
+        buttons()[Math.min(focusedIndex.current, buttons().length - 1)]?.focus({
+          preventScroll: true,
+        });
+    });
+    if (menu) observer.observe(menu, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      queueMicrotask(() => {
+        if (
+          restoreFocus.current &&
+          document.activeElement === document.body &&
+          originElement?.isConnected
+        )
+          originElement.focus({ preventScroll: true });
+      });
+    };
+  }, [message.id, originElement, buttons]);
 
-  function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
-    const menu = menuRef.current;
-    if (!menu) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      onClose?.();
-      state.originElement?.focus?.({ preventScroll: true });
-      return;
-    }
-    if (event.key === 'Tab') {
-      // 菜单是浮层，Tab 不把焦点带到背后的界面；关闭并把焦点还给消息行。
-      event.preventDefault();
-      onClose?.();
-      state.originElement?.focus?.({ preventScroll: true });
-      return;
-    }
-    const buttons = [...menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
-    if (!buttons.length) return;
-    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? buttons.length - 1
-          : event.key === 'ArrowDown'
-            ? (index + 1) % buttons.length
-            : event.key === 'ArrowUp'
-              ? (index - 1 + buttons.length) % buttons.length
-              : undefined;
-    if (next === undefined) return;
-    event.preventDefault();
-    buttons[next]?.focus();
-  }
-  const decoration = (
-    state.message as { decoration?: { fontId?: number; bubbleId?: number; widgetId?: number } }
-  ).decoration;
-  const hasDecoration =
-    decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
-
-  // 菜单是 fixed 定位，但打开时和滚动跟随只按估算尺寸钳制；这里用渲染后的
-  // 实际尺寸把菜单拉回窗口内，避免靠近窗口边缘（尤其底部）时被截断。
   useLayoutEffect(() => {
     const el = menuRef.current;
-    if (!el) {
+    if (!el) return;
+    const place = () => {
+      const rect = el.getBoundingClientRect();
+      const strip = el.querySelector<HTMLElement>('.message-reaction-strip');
+      const capacity = quickReactionCapacity(strip?.getBoundingClientRect().width ?? 0);
+      const focused = [
+        ...(strip?.querySelectorAll('button[role="menuitemcheckbox"]') ?? []),
+      ].indexOf(document.activeElement as HTMLButtonElement);
+      if (focused >= capacity && focused >= 0)
+        strip
+          ?.querySelector<HTMLButtonElement>('[aria-label="更多表情"]')
+          ?.focus({ preventScroll: true });
+      setReactionCapacity(capacity);
+      const left = state.variant === 'mobile' ? state.x - rect.width / 2 : state.x;
+      el.style.left = `${Math.max(8, Math.min(left, window.innerWidth - rect.width - 8))}px`;
+      el.style.top = `${Math.max(8, Math.min(state.y, window.innerHeight - rect.height - 8))}px`;
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(el);
+    window.addEventListener('resize', place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', place);
+    };
+  }, [state.x, state.y, state.variant, showReactions]);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      event.preventDefault();
+      event.stopPropagation();
+      restoreFocus.current = false;
+      let next = state.originElement;
+      if (event.key === 'Tab') {
+        const order = [
+          ...document.querySelectorAll<HTMLElement>(
+            'button, a[href], input, textarea, select, [tabindex]',
+          ),
+        ].filter(
+          (el) =>
+            el.tabIndex >= 0 &&
+            !el.matches(':disabled') &&
+            !menuRef.current?.contains(el) &&
+            el.getClientRects().length > 0,
+        );
+        const origin = next;
+        const direction = event.shiftKey
+          ? Node.DOCUMENT_POSITION_PRECEDING
+          : Node.DOCUMENT_POSITION_FOLLOWING;
+        next =
+          (event.shiftKey ? order.toReversed() : order).find(
+            (element) => origin && Boolean(origin.compareDocumentPosition(element) & direction),
+          ) ?? null;
+      }
+      onClose?.();
+      next?.focus({ preventScroll: true });
       return;
     }
-    const rect = el.getBoundingClientRect();
-    const margin = 8;
-    if (state.variant === 'mobile') {
-      const halfWidth = rect.width / 2;
-      el.style.left = `${Math.min(
-        Math.max(state.x, halfWidth + margin),
-        Math.max(halfWidth + margin, window.innerWidth - halfWidth - margin),
-      )}px`;
-    } else {
-      el.style.left = `${Math.min(
-        Math.max(state.x, margin),
-        Math.max(margin, window.innerWidth - rect.width - margin),
-      )}px`;
+    const all = buttons();
+    const current = document.activeElement as HTMLButtonElement;
+    const rows = [
+      ...(menuRef.current?.querySelectorAll('.message-reaction-strip, .message-menu-group') ?? []),
+    ].flatMap((group) => {
+      const items = [...group.querySelectorAll<HTMLButtonElement>('button')].filter((button) =>
+        all.includes(button),
+      );
+      if (group.classList.contains('message-reaction-strip')) return items.length ? [items] : [];
+      return items.flatMap((_, index) => (index % 2 === 0 ? [items.slice(index, index + 2)] : []));
+    });
+    const rowIndex = rows.findIndex((row) => row.includes(current));
+    const row = rows[rowIndex] ?? [];
+    const column = Math.max(0, row.indexOf(current));
+    let next: HTMLButtonElement | undefined;
+    if (event.key === 'Home') next = all[0];
+    if (event.key === 'End') next = all.at(-1);
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      next = row[(column + (event.key === 'ArrowRight' ? 1 : row.length - 1)) % row.length];
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const target =
+        rows[(rowIndex + (event.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length];
+      next = target?.[Math.min(column, target.length - 1)];
     }
-    el.style.top = `${Math.min(
-      Math.max(state.y, margin),
-      Math.max(margin, window.innerHeight - rect.height - margin),
-    )}px`;
-  }, [state.x, state.y, state.variant]);
+    if (next) {
+      event.preventDefault();
+      next.focus();
+    }
+  }
+
+  const icon = { size: 18, strokeWidth: 1.75, 'aria-hidden': true } as const;
+  const action = (
+    id: string,
+    label: string,
+    image: ReactNode,
+    run: (() => void) | undefined,
+    reason?: string | null,
+    applicable = Boolean(run),
+    danger = false,
+  ): MenuAction => ({ id, label, icon: image, run, reason, applicable, danger });
+  const call = (run: ((message: Message) => void) | undefined) => run && (() => run(message));
+  const render = (items: MenuAction[]) =>
+    items
+      .filter((item) => item.applicable)
+      .map((item) => (
+        <MessageMenuButton
+          key={item.id}
+          aria-label={item.label}
+          title={item.reason || item.label}
+          disabled={!item.run || Boolean(item.reason)}
+          data-danger={item.danger || undefined}
+          onClick={item.run}
+        >
+          {item.icon}
+          <span>{item.label}</span>
+        </MessageMenuButton>
+      ));
+  const save =
+    props.onSaveMedia ??
+    (state.downloadUrl && props.onDownloadImage
+      ? () => props.onDownloadImage?.(state.downloadUrl!, message)
+      : undefined);
+  const media = state.forwardTarget
+    ? undefined
+    : (state.mediaTarget ?? messageMediaTarget(message));
+  const decoration = message.decoration;
+  const hasDecoration = Boolean(
+    decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId),
+  );
 
   return (
-    <div
-      ref={menuRef}
-      role="menu"
-      className={cn(
-        'message-context-menu',
-        state.variant === 'mobile' && 'message-context-menu-mobile',
-        state.downloadUrl && 'message-context-menu-has-download',
-      )}
-      style={
-        state.variant === 'mobile'
-          ? { left: state.x, top: state.y, transform: 'translateX(-50%)' }
-          : { left: state.x, top: state.y }
-      }
-      onKeyDown={handleMenuKeyDown}
-      onMouseDown={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      onPointerDown={(event) => event.stopPropagation()}
-      onTouchStart={(event) => event.stopPropagation()}
-    >
-      {extraActions}
-      <VoiceTranscribeMenuAction message={state.message} onClose={onClose} />
-      <TextMarkdownMenuAction message={state.message} onClose={onClose} />
-      {onMultiSelect ? (
-        <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
-          <QqIcon name="multiSelect" size={17} />
-          <span>多选</span>
-        </button>
-      ) : null}
-      {onExport ? (
-        <button
-          type="button"
-          title={exportBlockedReason ?? exportLabel}
-          disabled={Boolean(exportBlockedReason)}
-          onClick={() => onExport(state.message)}
+    <MessageMenuContext.Provider value={true}>
+      <MessageMenuFeedbackContext.Provider value={feedbackHost}>
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label="消息操作"
+          data-hover-delay="0"
+          className={cn(
+            'message-context-menu',
+            'message-menu-v2',
+            state.variant === 'mobile' && 'message-menu-touch',
+          )}
+          style={{ left: state.x, top: state.y }}
+          onKeyDown={handleKeyDown}
+          onFocusCapture={(event) => {
+            if (event.target instanceof HTMLButtonElement)
+              focusedIndex.current = buttons().indexOf(event.target);
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
         >
-          <QqIcon name="exportFile" size={17} />
-          <span>{exportLabel}</span>
-        </button>
-      ) : null}
-      {onAddToComposition || unavailableReason ? (
-        <button
-          type="button"
-          title={!onAddToComposition ? unavailableReason : '添加到素材库'}
-          disabled={!onAddToComposition}
-          onClick={() => onAddToComposition?.(state.message)}
-        >
-          <QqIcon name="collection" size={17} />
-          <span>添加到素材库</span>
-        </button>
-      ) : null}
-      {onForward || unavailableReason ? (
-        <button
-          type="button"
-          title={!onForward ? unavailableReason : '转发'}
-          disabled={!onForward}
-          onClick={() => onForward?.(state.message)}
-        >
-          <QqIcon name="share" size={17} />
-          <span>转发</span>
-        </button>
-      ) : null}
-      {(onRepeat || unavailableReason) && canRepeatMessage(state.message) ? (
-        <button
-          type="button"
-          title={!onRepeat ? unavailableReason : repeatBlockedReason || '发送一条相同的消息'}
-          disabled={!onRepeat || Boolean(repeatBlockedReason)}
-          onClick={() => onRepeat?.(state.message)}
-        >
-          <QqIcon name="refresh" size={17} />
-          <span>+1</span>
-        </button>
-      ) : null}
-      {onReply || unavailableReason ? (
-        <button
-          type="button"
-          title={!onReply ? unavailableReason : (replyBlockedReason ?? '引用这条消息')}
-          disabled={!onReply || Boolean(replyBlockedReason)}
-          onClick={() => onReply?.(state.message)}
-        >
-          <QqIcon name="reply" size={17} />
-          <span>引用</span>
-        </button>
-      ) : null}
-      {onReact || unavailableReason ? (
-        <button
-          type="button"
-          title={!onReact ? unavailableReason : (reactBlockedReason ?? '给这条消息贴一个表情')}
-          disabled={!onReact || Boolean(reactBlockedReason)}
-          onClick={() => onReact?.(state.message)}
-        >
-          <QqIcon name="react" size={17} />
-          <span>贴表情</span>
-        </button>
-      ) : null}
-      {onRecall || unavailableReason ? (
-        <button
-          type="button"
-          title={
-            (!onRecall ? unavailableReason : recallBlockedReason) ??
-            (recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回这条消息')
-          }
-          disabled={!onRecall || Boolean(recallBlockedReason)}
-          onClick={() => onRecall?.(state.message)}
-        >
-          <QqIcon name="recall" size={17} />
-          <span>{recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回'}</span>
-        </button>
-      ) : null}
-      {onRemoveReaction
-        ? state.message.setEmojiList
-            ?.filter((item) => item.isSelfSet)
-            .map((item) => (
-              <button
-                type="button"
-                key={`remove-${item.emojiId}`}
-                aria-label={`撤回贴表情 ${item.emojiId}`}
-                title={removeReactionBlockedReason || `撤回自己的贴表情 ${item.emojiId}`}
-                disabled={Boolean(removeReactionBlockedReason)}
-                onClick={() => onRemoveReaction(state.message, item.emojiId)}
-              >
-                <FaceEmoji element={{ faceId: Number(item.emojiId) }} size={17} />
-                <span>撤回贴表情</span>
-              </button>
-            ))
-        : null}
-      <button type="button" onClick={() => void onCopy(state.message)}>
-        <QqIcon name="copy" size={17} />
-        <span>复制</span>
-      </button>
-      {onEditRaw || unavailableReason ? (
-        <button
-          type="button"
-          title={!onEditRaw ? unavailableReason : '修改本地记录'}
-          disabled={!onEditRaw}
-          onClick={() => onEditRaw?.(state.message)}
-        >
-          <QqIcon name="edit" size={17} />
-          <span>修改本地记录</span>
-        </button>
-      ) : null}
-      {hasDecoration && onViewDecoration ? (
-        <button type="button" onClick={() => onViewDecoration(state.message)}>
-          <QqIcon name="palette" size={17} />
-          <span>装扮</span>
-        </button>
-      ) : null}
-      {state.downloadUrl && onDownloadImage ? (
-        <button
-          type="button"
-          disabled={downloadDisabled}
-          onClick={() => onDownloadImage(state.downloadUrl ?? '', state.message)}
-        >
-          <QqIcon name="download" size={17} />
-          <span>{IS_WEB ? '保存到服务器' : '下载'}</span>
-        </button>
-      ) : null}
-      {onDelete || unavailableReason ? (
-        <button
-          type="button"
-          aria-label={deleteLabel}
-          title={!onDelete ? unavailableReason : deleteLabel}
-          disabled={!onDelete}
-          onClick={() => onDelete?.(state.message)}
-        >
-          <QqIcon name="trash" size={17} />
-          <span>{deleteLabel}</span>
-        </button>
-      ) : null}
-    </div>
+          <div className="message-menu-primary">
+            {showReactions && (
+              <div className="message-reaction-strip" role="group" aria-label="快捷贴表情">
+                {reactions.slice(0, reactionCapacity).map((reaction) => {
+                  const selected = Boolean(
+                    message.setEmojiList?.some(
+                      (item) => item.emojiId === reaction.code && item.isSelfSet,
+                    ),
+                  );
+                  const label = `${selected ? '取消贴表情' : '贴表情'}：${reaction.title}`;
+                  return (
+                    <MessageMenuButton
+                      key={reaction.code}
+                      role="menuitemcheckbox"
+                      aria-label={label}
+                      aria-checked={selected}
+                      aria-pressed={selected}
+                      title={props.reactBlockedReason || label}
+                      disabled={Boolean(props.reactBlockedReason) || !props.onSetReaction}
+                      onClick={() => props.onSetReaction?.(message, reaction.code, !selected)}
+                    >
+                      {reaction.item.glyph ? (
+                        <span>{reaction.item.glyph}</span>
+                      ) : (
+                        <img
+                          src={reaction.item.src ?? ''}
+                          alt=""
+                          draggable={false}
+                          width={24}
+                          height={24}
+                        />
+                      )}
+                    </MessageMenuButton>
+                  );
+                })}
+                <MessageMenuButton
+                  aria-label="更多表情"
+                  title={props.reactBlockedReason || '更多表情'}
+                  disabled={Boolean(props.reactBlockedReason)}
+                  onClick={() => props.onReact?.(message)}
+                >
+                  <SmilePlus {...icon} />
+                </MessageMenuButton>
+              </div>
+            )}
+            <div
+              className="message-menu-group message-menu-main"
+              role="group"
+              aria-label="基础操作"
+            >
+              {render([
+                action('copy', '复制', <Copy {...icon} />, () => void onCopy(message)),
+                action(
+                  'reply',
+                  '引用',
+                  <Reply {...icon} />,
+                  call(props.onReply),
+                  props.replyBlockedReason,
+                ),
+                action('forward', '转发', <Forward {...icon} />, call(props.onForward)),
+                action(
+                  'repeat',
+                  '+1',
+                  <Repeat2 {...icon} />,
+                  call(props.onRepeat),
+                  props.repeatBlockedReason,
+                  Boolean(props.onRepeat) && canRepeatMessage(message),
+                ),
+                action('select', '多选', <ListChecks {...icon} />, call(props.onMultiSelect)),
+                action(
+                  'collect',
+                  '添加到素材库',
+                  <BookmarkPlus {...icon} />,
+                  call(props.onAddToComposition),
+                ),
+              ])}
+            </div>
+            <div className="message-menu-group" role="group" aria-label="内容处理与保存">
+              <div className="message-menu-slot">
+                {media?.kind === 'ptt' ? (
+                  <VoiceTranscribeMenuAction message={message} target={media} onClose={onClose} />
+                ) : !media && !state.forwardTarget ? (
+                  <TextMarkdownMenuAction message={message} onClose={onClose} />
+                ) : null}
+              </div>
+              <div className="message-menu-slot">
+                {['pic', 'emoji', 'mface'].includes(media?.kind ?? '')
+                  ? props.favoriteEmojiAction
+                  : null}
+              </div>
+              <div className="message-save-action">
+                {render([
+                  state.forwardTarget
+                    ? action(
+                        'export',
+                        '导出',
+                        <Download {...icon} />,
+                        call(props.onExport),
+                        props.exportBlockedReason,
+                      )
+                    : action(
+                        'save',
+                        IS_WEB ? '保存到服务器' : '另存为',
+                        <Download {...icon} />,
+                        save,
+                        props.downloadDisabled ? '正在准备媒体保存，请稍候' : null,
+                      ),
+                ])}
+              </div>
+              <div className="message-reveal-action">{props.revealAction}</div>
+              {render([
+                action(
+                  'decoration',
+                  '查看装扮',
+                  <Palette {...icon} />,
+                  call(props.onViewDecoration),
+                  null,
+                  hasDecoration && Boolean(props.onViewDecoration),
+                ),
+              ])}
+              <div className="message-menu-slot">{props.intentAction}</div>
+            </div>
+            <div className="message-menu-group" role="group" aria-label="群操作">
+              <div className="message-menu-slot">{props.essenceAction}</div>
+              <div className="message-menu-slot">{props.todoAction}</div>
+            </div>
+            <div className="message-menu-group" role="group" aria-label="本地编辑">
+              {render([
+                action('edit', '修改本地记录', <Pencil {...icon} />, call(props.onEditRaw)),
+              ])}
+            </div>
+            <div className="message-menu-group" role="group" aria-label="撤回与删除">
+              {render([
+                action(
+                  'recall',
+                  '撤回',
+                  <Undo2 {...icon} />,
+                  call(props.onRecall),
+                  props.recallBlockedReason,
+                  Boolean(props.onRecall),
+                  true,
+                ),
+                action(
+                  'delete',
+                  props.deleteLabel ?? '本地删除',
+                  <Trash2 {...icon} />,
+                  call(props.onDelete),
+                  null,
+                  Boolean(props.onDelete),
+                  true,
+                ),
+              ])}
+            </div>
+          </div>
+          <div className="message-menu-feedback" ref={setFeedbackHost} />
+        </div>
+      </MessageMenuFeedbackContext.Provider>
+    </MessageMenuContext.Provider>
   );
 }

@@ -4,5 +4,5 @@
   "builtAt": "2026-11-09T17:49:43.000Z",
   "expiresAt": "2026-12-09T17:49:43.000Z",
   "pinnedAt": "2026-11-10",
-  "note": "WeQ 认这一份 native 构建（pnpm native:fetch 默认取它）。升级：pnpm native:fetch --latest --verify 先验证新构建，再 pnpm native:fetch --latest --write-pin 写回这里并提交。"
+  "note": "WeQ 认这一份 native 构建（pnpm native:fetch 默认取它）。升级时对同一明确 tag 使用 --version 验证并 --write-pin，同时更新兼容的 resources/dress/index-manifest.json，提交两份版本锚。"
 }

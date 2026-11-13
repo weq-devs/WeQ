@@ -79,7 +79,9 @@ try {
       });
     });
   const detailsBeside = (label) =>
-    page.getByLabel(label, { exact: true }).evaluate((anchor) => {
+    page.getByLabel(label, { exact: true }).evaluate(async (anchor) => {
+      // 窄屏重排后等待 ResizeObserver 的锚点定位完成，不读取中间帧。
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const card = document.querySelector('.weq-int-round-details');
       const rect = card.getBoundingClientRect();
       const trigger = anchor.getBoundingClientRect();
@@ -104,6 +106,55 @@ try {
   assert.equal(await page.locator('.weq-int-suggest-track').textContent(), '正在生成推荐回复');
   assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
   if (output) await page.screenshot({ path: resolve(output, 'loading.png'), fullPage: true });
+  const initialHistory = await page.evaluate(() => window.intentQa.getHistory());
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          theme === 'dark' ? '#fff3a1' : '#075c30',
+        );
+        document.documentElement.dataset.background = 'paper';
+      }, theme);
+      await page.getByLabel('查看当前推荐详情', { exact: true }).click();
+      const panel = page.locator('.weq-int-round-details');
+      await panel
+        .getByRole('status')
+        .filter({ hasText: /^等待模型返回$/ })
+        .waitFor();
+      assert.ok((await panel.getByRole('log').textContent()).includes('已发送推荐请求'));
+      assert.equal(
+        await detailsBeside('查看当前推荐详情'),
+        true,
+        `${width}/${theme}: 生成中详情不越界 ${JSON.stringify(await panel.evaluate((node) => ({ rect: node.getBoundingClientRect().toJSON(), viewport: [innerWidth, innerHeight] })))}`,
+      );
+      if (output && width !== 320)
+        await page.screenshot({
+          path: resolve(output, `recommendation-live-${width}-${theme}.png`),
+        });
+      await page.evaluate(() => window.intentQa.setMode('ready'));
+      await panel
+        .getByRole('status')
+        .filter({ hasText: /^生成完成$/ })
+        .waitFor();
+      assert.ok((await panel.getByRole('log').textContent()).includes('本轮生成完成'));
+      assert.ok(
+        (await panel.locator('.weq-int-round-summary').textContent()).includes('双方正在聊日常'),
+      );
+      await page.getByLabel('关闭推荐详情', { exact: true }).click();
+      await page.evaluate((entries) => {
+        window.intentQa.setHistory(entries);
+        window.intentQa.setMode('loading');
+      }, initialHistory);
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.background = 'plain';
+  });
   await page.evaluate(() => {
     window.intentQa.publishResult();
     window.intentQa.publishProgress({
@@ -140,10 +191,10 @@ try {
   );
   await page.getByRole('button', { name: '请求日志', exact: true }).click();
   assert.ok(
-    (await page.locator('.weq-int-round-log .weq-exp-log').textContent()).includes('User Prompt'),
+    (await page.locator('.weq-int-round-log .weq-model-log').textContent()).includes('User Prompt'),
   );
   assert.equal(
-    await page.locator('.weq-int-round-log .weq-exp-log').evaluate((node) => node.scrollTop),
+    await page.locator('.weq-int-round-log .weq-model-log').evaluate((node) => node.scrollTop),
     0,
   );
   if (output) await page.screenshot({ path: resolve(output, 'recommendation-details.png') });
@@ -382,6 +433,84 @@ try {
       }
     }
   }
+  await page.goto(`${url}?manual=1`);
+  await page.evaluate(() => {
+    window.intentQa.setHistory([
+      {
+        id: 'expired',
+        createdAt: Date.now() - ((365 + 12) * 86400 + 3 * 3600) * 1000,
+        target: { msgId: 'old', senderUin: '10000', sendTime: 1000 },
+        suggestions: [{ text: '已过期的推荐' }],
+      },
+    ]);
+    window.intentQa.setMode('empty');
+  });
+  await page.locator('.weq-int-suggest-empty').filter({ hasText: '1年12天前' }).waitFor();
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty(
+          '--weq-accent-effective',
+          theme === 'dark' ? '#fff3a1' : '#075c30',
+        );
+      }, theme);
+      assert.equal(await page.locator('.weq-int-suggest-pill').count(), 0);
+      const notice = page.locator('.weq-int-suggest-empty');
+      assert.equal(
+        await notice.getAttribute('title'),
+        '暂无推荐回复（距上次推荐 1年12天，已过期）',
+      );
+      assert.equal(
+        await notice.locator('.weq-int-suggest-expired-age').evaluate((node) => {
+          const track = node.closest('.weq-int-suggest-track').getBoundingClientRect();
+          const rect = node.getBoundingClientRect();
+          return (
+            node.scrollWidth <= node.clientWidth &&
+            rect.left >= track.left &&
+            rect.right <= track.right
+          );
+        }),
+        true,
+        `${width}/${theme}: 距上次推荐的时间应完整可见`,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        true,
+      );
+      if (output) await page.screenshot({ path: resolve(output, `expired-${width}-${theme}.png`) });
+      cases++;
+    }
+  }
+  await page.goto(`${url}?manual=1&animation-off=1`);
+  await page.evaluate(() => {
+    window.intentQa.setMode('ready');
+    window.intentQa.publishResult('message');
+    window.intentQa.setManualPendingMessages(['message']);
+  });
+  await page.waitForSelector('.weq-intent-chips[data-intent-state="pending"]');
+  assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      assert.equal(await page.locator('.weq-intent-pill.is-loading').count(), 2);
+      assert.equal(
+        await page.locator('.weq-intent-chips').evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth;
+        }),
+        true,
+      );
+      if (output)
+        await page.screenshot({ path: resolve(output, `manual-single-${width}-${theme}.png`) });
+    }
+  }
+  await page.evaluate(() => window.intentQa.setManualPendingMessages([]));
+  await page.waitForSelector('.weq-intent-chips[data-intent-state="ready"]');
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, minimumContrast, errors, geometry: ready, output }, null, 2));
 } finally {

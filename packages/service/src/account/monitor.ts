@@ -33,7 +33,16 @@ import { queueSsoWork, ssoWorkState, type SsoWorkState } from './sso_lifecycle';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
-import { canReuseSessionMaterial, isCompleteSessionMaterial } from '../common/session_material';
+import {
+  canReuseSessionMaterial,
+  isCompleteSessionMaterial,
+  secTokenExpiringSoon,
+} from '../common/session_material';
+import {
+  CredentialRepairRequiredError,
+  DebugReadUnavailableError,
+  type OnlineCredentialIssue,
+} from '../common/credential_repair';
 
 /** How often to poll for the account becoming logged in. */
 const LOGIN_POLL_MS = 5000;
@@ -78,7 +87,7 @@ export class AccountMonitorService {
     return ssoWorkState(this.nt, pid);
   }
 
-  private queueSso(pid: number, task: () => Promise<void>): Promise<void> {
+  private queueSso<T>(pid: number, task: () => Promise<T>): Promise<T> {
     return queueSsoWork(this.nt, pid, task);
   }
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -98,6 +107,8 @@ export class AccountMonitorService {
     cancelled: boolean;
     credentialsPending: boolean;
   } | null = null;
+  /** 需要用户处理的凭据问题（目前是长期授权助手需要修复）；不阻塞在线状态轮询。 */
+  private credentialIssueState: OnlineCredentialIssue | null = null;
   private readonly ssoRegistrations = new Map<number, string>();
   private readonly ssoInflight = new Map<number, Promise<void>>();
   private readonly logger;
@@ -136,10 +147,16 @@ export class AccountMonitorService {
     return (
       !this.stopped &&
       this.shouldAutoAttach() &&
+      this.credentialIssueState === null &&
       ((this.running && this.lastOnline === null) ||
         this.ssoInflight.size > 0 ||
         Boolean(this.harvestRetry?.credentialsPending && !this.harvestRetry.cancelled))
     );
+  }
+
+  /** 凭据因需要用户处理而暂停的原因；有值时界面不应继续显示“正在启用”。 */
+  get credentialIssue(): OnlineCredentialIssue | null {
+    return this.stopped ? null : this.credentialIssueState;
   }
 
   /** 业务查询只等待会话登记，与后台采集合并，不附带 rkey / clientKey 网络请求。 */
@@ -150,6 +167,7 @@ export class AccountMonitorService {
       throw new Error('已取消授权，未读取 QQ 进程内存。');
     try {
       await this.ensureAttached(pid, generation);
+      this.credentialIssueState = null;
     } catch (error) {
       if (this.isCurrent(generation, pid) && this.shouldAutoAttach()) this.deferHarvest(pid, error);
       throw error;
@@ -161,6 +179,7 @@ export class AccountMonitorService {
     if (this.running) return;
     this.running = true;
     this.stopped = false;
+    this.credentialIssueState = null;
     if (this.readAbort.signal.aborted) this.readAbort = new AbortController();
     this.generation += 1;
     this.logger.info('started account monitor', { event: 'monitor-start' });
@@ -218,6 +237,7 @@ export class AccountMonitorService {
     if (pid == null || !this.isCurrent(generation)) return false;
     // An explicit refresh is the user's request to retry, including after cancellation.
     this.harvestRetry = null;
+    this.credentialIssueState = null;
     let credentialsReady = false;
     try {
       await this.ensureAttached(pid, generation);
@@ -267,6 +287,7 @@ export class AccountMonitorService {
     this.missingPidPolls = 0;
     this.homeDressSynced = false;
     this.harvestRetry = null;
+    this.credentialIssueState = null;
     this.ssoRegistrations.clear();
     this.logger.info('stopped account monitor', { event: 'monitor-stop' });
   }
@@ -309,6 +330,7 @@ export class AccountMonitorService {
 
     this.attachedPid = pid;
     this.harvestRetry = null;
+    this.credentialIssueState = null;
     this.markOnline(pid);
     this.logger.info('account detected online', { event: 'account-online', pid });
     await this.harvest(pid, generation);
@@ -377,6 +399,7 @@ export class AccountMonitorService {
       });
       this.attachedPid = null;
       this.harvestRetry = null;
+      this.credentialIssueState = null;
       this.unconfirmedSince = null;
       this.missingPidPolls = 0;
       this.markOffline();
@@ -395,6 +418,7 @@ export class AccountMonitorService {
       this.forgetSsoSession(attached);
       this.attachedPid = pid;
       this.harvestRetry = null;
+      this.credentialIssueState = null;
       // 同步 config 里的 pid：发包那侧（`resolveOnlinePid`）就是读它拿 pid 的。
       // 不刷新的话它会一直用旧 pid 发包 → 原生 SSO 表里那个 pid 早被
       // `forgetSsoSession` 清掉了 → 报「pid X 还没有登记 SSO 会话」。
@@ -479,13 +503,16 @@ export class AccountMonitorService {
     }
     const stored = record.session;
     // 复用判据要求 secToken 也在：老物料缺它时下面会重扫一次，否则升级后
-    // 需要签名的命令会一直带着空 token 发出去。
-    if (stored?.pid === pid && canReuseSessionMaterial(stored)) {
-      await this.storeSsoSession(pid, stored, generation);
-      this.logger.info('registered the native sso session from stored material', {
-        event: 'sso-session-reused',
-        pid,
-      });
+    // 需要签名的命令会一直带着空 token 发出去。能读到过期时间时，快过期的
+    // token 同样不复用 —— 重扫一次比等 QQ 自己刷新更可控。
+    if (stored?.pid === pid && canReuseSessionMaterial(stored) && !secTokenExpiringSoon(stored)) {
+      const registered = await this.storeSsoSession(pid, stored, generation);
+      if (registered) {
+        this.logger.info('registered the native sso session from stored material', {
+          event: 'sso-session-reused',
+          pid,
+        });
+      }
       return;
     }
     // 物料缺失 / pid 对不上（QQ 重启过）→ 回退到读内存（可能触发提权）。
@@ -500,6 +527,7 @@ export class AccountMonitorService {
       d2: material.d2,
       d2Key: material.d2Key,
       secToken: material.secToken,
+      secTokenExpire: material.secTokenExpire,
       pid,
     });
     if (!isCompleteSessionMaterial(material))
@@ -524,6 +552,7 @@ export class AccountMonitorService {
         d2: session.d2,
         d2Key: session.d2Key,
         secToken: session.secToken,
+        secTokenExpire: session.secTokenExpire,
         pid: record.qqPid,
       });
     } catch {
@@ -546,7 +575,7 @@ export class AccountMonitorService {
     pid: number,
     material: SessionMaterial,
     generation: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     return this.queueSso(pid, () => this.registerCurrentSession(pid, material, generation));
   }
 
@@ -554,7 +583,7 @@ export class AccountMonitorService {
     pid: number,
     material: SessionMaterial,
     generation: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.assertCurrent(generation, pid);
     const record = this.accountConfig.getRecord();
     const identity = {
@@ -562,7 +591,8 @@ export class AccountMonitorService {
       uid: record?.uid ?? '',
       guid: record?.guid ?? '',
     };
-    const client = resolveSsoClientSnapshot(this.nt, this.platform, pid, identity);
+    const client = await resolveSsoClientSnapshot(this.nt, this.platform, pid, identity);
+    this.assertCurrent(generation, pid);
     // Only a registration confirmed by this monitor can establish the fingerprint.
     // hasSsoSession alone says nothing about whether new material has been installed.
     const fingerprint = createHash('sha256')
@@ -582,7 +612,7 @@ export class AccountMonitorService {
       this.ssoState(pid).owner === this.ssoOwners.get(pid) &&
       (await this.nt.hasSsoSession(pid))
     )
-      return;
+      return false;
     this.assertCurrent(generation, pid);
     const registered = await registerSsoSessionInTurn(
       this.nt,
@@ -600,6 +630,7 @@ export class AccountMonitorService {
     this.ssoState(pid).owner = owner;
     this.ssoRegistrations.set(pid, fingerprint);
     this.onCredentialsReady?.();
+    return true;
   }
 
   /** 丢掉 `pid` 的会话物料（QQ 重启 / 账号下线），顺带关掉可能存在的连接。 */
@@ -635,6 +666,7 @@ export class AccountMonitorService {
       await this.ensureAttached(pid, generation);
       this.assertCurrent(generation, pid);
       credentialsReady = true;
+      this.credentialIssueState = null;
       const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid, undefined, this.uin));
       this.assertCurrent(generation, pid);
       if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
@@ -702,6 +734,14 @@ export class AccountMonitorService {
 
   private deferHarvest(pid: number, error: unknown, credentialsPending = true): void {
     const failures = (this.harvestRetry?.pid === pid ? this.harvestRetry.failures : 0) + 1;
+    const repair = error instanceof CredentialRepairRequiredError;
+    if (error instanceof DebugReadUnavailableError) credentialsPending = false;
+    if (repair) {
+      // 助手存在但需要修复：保留后台重试（修复后能自动恢复），但不再把界面
+      // 挂在“正在启用完整功能”上，直接把可操作原因交给受限模式。
+      this.credentialIssueState = { title: '长期授权需要修复', message: error.message };
+      credentialsPending = false;
+    }
     const cancelled =
       error instanceof Error && error.message === '已取消授权，未读取 QQ 进程内存。';
     const delayMs = Math.min(
@@ -715,6 +755,16 @@ export class AccountMonitorService {
       cancelled,
       credentialsPending,
     };
+    if (repair) {
+      this.logger.warn('background harvest paused: long-term authorization needs repair', {
+        event: 'harvest-authorization-repair-required',
+        pid,
+        failures,
+        retryAt: this.harvestRetry.nextAt,
+        errorMessage: error.message,
+      });
+      return;
+    }
     this.logger.warn('background harvest deferred', {
       event: cancelled ? 'harvest-cancelled-until-explicit-retry' : 'harvest-retry-deferred',
       pid,
@@ -742,6 +792,7 @@ export class AccountMonitorService {
       if ((owner && this.ssoState(pid).owner === owner) || !(await this.nt.hasSsoSession(pid)))
         await this.storeSsoSession(pid, stored, generation);
       this.assertCurrent(generation, pid);
+      this.credentialIssueState = null;
     } catch (error) {
       if (this.isCurrent(generation, pid)) this.deferHarvest(pid, error);
       return;

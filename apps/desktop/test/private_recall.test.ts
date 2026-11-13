@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 import { isMineMessage } from '../src/renderer/src/lib/messageDirection';
 
@@ -138,7 +138,9 @@ describe('私聊撤回入口', () => {
     const f = mount(message, online);
     try {
       expect(f.button()).toBeDefined();
-      expect(f.button()!.disabled).toBe(true);
+      // 菜单里的禁用项保持可聚焦（便于读出不可用原因），所以不再带原生 disabled，
+      // 只标 aria-disabled。
+      expect(f.button()!.getAttribute('aria-disabled')).toBe('true');
       expect(f.button()!.title).toContain(reason);
       act(() => f.button()!.click());
       expect(recall).not.toHaveBeenCalled();
@@ -147,10 +149,12 @@ describe('私聊撤回入口', () => {
     }
   });
 
-  it('对方消息不显示撤回', () => {
+  it('对方消息没有撤回权限时整项不出现', () => {
     const f = mount({ senderId: 'u_peer' });
     try {
+      // 私聊里不是自己的消息、也没有群管理越级权限 → 「撤回」整项不渲染。
       expect(f.button()).toBeUndefined();
+      expect(recall).not.toHaveBeenCalled();
     } finally {
       f.close();
     }

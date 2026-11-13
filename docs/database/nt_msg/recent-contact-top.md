@@ -18,12 +18,12 @@ QQ 会话列表顶部那几个「钉在最前面」的会话就来自这里。
 关键认识：**这是一张「纯登记表」，只记「谁被置顶了、什么时候置的」，不带任何展示信息。**
 
 它没有会话名、没有头像、没有最后一条消息 —— 这些全在
-[recent_contact_v3_table](./recent-contact.md) 里。这与那张表刻意冗余展示信息的做法正好相反：
+[recent_contact_v3_table](recent-contact.md) 里。这与那张表刻意冗余展示信息的做法正好相反：
 置顶是一条「用户设置」，改动频率低、数据量小（实测就两三行），没有冗余的必要。
 
 所以使用方式是**两表 join**：读 `recent_contact_v3_table` 拿到会话，
 再用本表的会话标识去标记哪些会话置顶。**`41103` 是执行置顶的时间，不决定置顶组内的先后**；
-组内仍按消息／草稿活动时间倒序，与 [recent-contact 的 `41136`](./recent-contact.md#41136--真正的排序键) 口径一致。
+组内仍按消息／草稿活动时间倒序，与 [recent-contact 的 `41136`](recent-contact.md#41136--真正的排序键) 口径一致。
 
 ## 二、列结构
 
@@ -32,7 +32,7 @@ QQ 会话列表顶部那几个「钉在最前面」的会话就来自这里。
 | 列 | 字段名 | 类型 | 含义 | 置信度 |
 | -- | ------ | ---- | ---- | ------ |
 | 41145 | `id` | INTEGER | 行主键，一个 64 位大整数。**不是会话标识**，读取路径不关心 | 观测一致 |
-| 40010 | `chatType` | INTEGER | 会话类型，枚举同 [recent_contact · ChatType](./recent-contact.md#四chattype会话类型) | 已验证 |
+| 40010 | `chatType` | INTEGER | 会话类型，枚举同 [recent_contact · ChatType](recent-contact.md#四chattype会话类型) | 已验证 |
 | 41103 | `topTime` | INTEGER | **置顶时间**，unix 秒。记录执行置顶的时刻，不是活动排序键 | 已验证 |
 | 1000 | `peerUid` | TEXT | **私聊**会话的对端 uid。群聊行为 `NULL` | 已验证 |
 | 60001 | `groupCode` | INTEGER | **群聊**会话的群号。私聊行为 `NULL` | 已验证 |
@@ -93,4 +93,4 @@ ORDER BY "41103" DESC;
 
 ---
 
-[← 返回 nt_msg.db](./index.md)
+[← 返回 nt_msg.db](index.md)

@@ -1,3 +1,5 @@
+import { TimeLabel } from './TimeLabel';
+import { preciseClockFormatter } from '@weq/time';
 import { useLayoutEffect, useRef, type ReactElement } from 'react';
 import '../styles/task-log-console.css';
 export interface TaskLogLine {
@@ -8,14 +10,7 @@ export interface TaskLogLine {
   text: string;
 }
 
-const logTimeFormat = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  hourCycle: 'h23',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  fractionalSecondDigits: 3,
-});
+const logTimeFormat = preciseClockFormatter;
 function fmtLogTime(ts: number): string {
   return logTimeFormat.format(ts);
 }
@@ -75,7 +70,9 @@ export function TaskLogConsole({
       ) : (
         visible.map((l) => (
           <div key={l.seq} className={`weq-exp-log-line is-${l.level}`}>
-            <span className="weq-exp-log-time">{fmtLogTime(l.ts)}</span>
+            <TimeLabel className="weq-exp-log-time" value={l.ts} precision="millisecond">
+              {fmtLogTime(l.ts)}
+            </TimeLabel>
             <span className="weq-exp-log-text">{l.text}</span>
           </div>
         ))

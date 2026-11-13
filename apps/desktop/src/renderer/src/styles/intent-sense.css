@@ -728,6 +728,18 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.weq-int-suggest-expired {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.weq-int-suggest-expired-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-int-suggest-expired-age {
+  flex-shrink: 0;
+}
 .weq-int-history-slot {
   min-height: 0;
   overflow: hidden;
@@ -908,8 +920,8 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   padding: 5px 14px;
   border-radius: 999px;
   border: none;
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #12a8ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;

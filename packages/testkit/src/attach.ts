@@ -30,6 +30,8 @@ export interface AttachableNative {
     d2?: string;
     d2Key?: string;
     secToken?: string;
+    secTokenExpire?: number;
+    secTokenSource?: string;
   }>;
 }
 
@@ -74,7 +76,10 @@ export async function ensureAttached(
   // 只报「有没有」——物料本身就是凭据。
   say(
     `读取结果: a2=${material.a2 ? 'yes' : 'no'} d2=${material.d2 ? 'yes' : 'no'} ` +
-      `d2key=${material.d2Key ? 'yes' : 'no'} secToken=${material.secToken ? 'yes' : 'no'}`,
+      `d2key=${material.d2Key ? 'yes' : 'no'} secToken=${material.secToken ? 'yes' : 'no'}` +
+      (material.secTokenExpire
+        ? ` ttl=${material.secTokenExpire - Math.floor(Date.now() / 1000)}s`
+        : ''),
   );
   return material;
 }

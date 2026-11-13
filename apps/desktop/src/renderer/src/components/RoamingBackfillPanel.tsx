@@ -1,3 +1,5 @@
+import { TimeLabel } from './TimeLabel';
+import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarRange,
@@ -20,7 +22,6 @@ import {
   Radio,
   RefreshCw,
   RotateCcw,
-  Settings2,
   Search,
   Square,
   Trash2,
@@ -67,8 +68,7 @@ const jobGlyph = {
   cancelled: CircleSlash,
   failed: CircleAlert,
 } as const;
-const atBeijing = (at: number) =>
-  new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+const atBeijing = (at: number) => eventTimeFormatter.format(new Date(at));
 const dayBefore = (days: number) => beijingDay(new Date(Date.now() - days * 86_400_000));
 
 /** 快捷区间：0 = 不限；其余按北京时间「含今天」往前推。 */
@@ -322,15 +322,6 @@ export function RoamingBackfillPanel({
             </span>
           ) : null}
           <span className="weq-roaming-statusline-spacer" />
-          <button
-            type="button"
-            className="weq-roaming-iconbtn"
-            title="刷新任务状态"
-            aria-label="刷新任务状态"
-            onClick={refresh}
-          >
-            <RefreshCw size={14} />
-          </button>
         </div>
         {staleBackend ? (
           <p role="alert" className="weq-roaming-notice is-error">
@@ -342,6 +333,18 @@ export function RoamingBackfillPanel({
           <p role="alert" className="weq-roaming-notice is-error">
             <CircleAlert size={14} />
             {error ?? state.error?.message}
+            {state.error ? (
+              <button
+                type="button"
+                className="weq-roaming-iconbtn"
+                title="重试读取任务状态"
+                aria-label="重试读取任务状态"
+                disabled={!autoRefresh.enabled || state.isFetching}
+                onClick={refresh}
+              >
+                <RefreshCw size={14} />
+              </button>
+            ) : null}
           </p>
         ) : null}
         {!fixed && contacts.error ? (
@@ -589,30 +592,23 @@ export function RoamingBackfillPanel({
                     />
                     <span>尝试找回更早的聊天记录</span>
                   </label>
-                  <details className="weq-roaming-advanced">
-                    <summary>
-                      <Settings2 size={14} />
-                      高级设置
-                      <ChevronRight size={13} className="weq-roaming-disclosure" />
-                    </summary>
-                    <label className="weq-roaming-field">
-                      <span>
-                        <Clock3 size={13} />
-                        请求间隔
-                      </span>
-                      <span className="weq-roaming-field-input">
-                        <input
-                          type="number"
-                          min={500}
-                          max={60000}
-                          step={100}
-                          value={intervalMs}
-                          onChange={(e) => setIntervalMs(Number(e.target.value))}
-                        />
-                        <small>毫秒</small>
-                      </span>
-                    </label>
-                  </details>
+                  <label className="weq-roaming-field">
+                    <span>
+                      <Clock3 size={13} />
+                      请求间隔
+                    </span>
+                    <span className="weq-roaming-field-input">
+                      <input
+                        type="number"
+                        min={500}
+                        max={60000}
+                        step={100}
+                        value={intervalMs}
+                        onChange={(e) => setIntervalMs(Number(e.target.value))}
+                      />
+                      <small>毫秒</small>
+                    </span>
+                  </label>
                 </div>
                 <div className="weq-roaming-scope-calendar">
                   <MessageCalendar
@@ -702,7 +698,9 @@ export function RoamingBackfillPanel({
                         </strong>
                         <small>
                           <Clock3 size={12} />
-                          {atBeijing(job.createdAt)}
+                          <TimeLabel value={job.createdAt} precision="millisecond">
+                            {atBeijing(job.createdAt)}
+                          </TimeLabel>
                           <Users size={12} />
                           {job.targets.length} 个会话
                         </small>

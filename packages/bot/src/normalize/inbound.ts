@@ -6,8 +6,10 @@
  */
 import type { IncomingEvent, OneBotSegment } from '../adapter/types';
 import { faceIdToText } from './qq_faces';
+import type { AiImageRef } from '@weq/agentlab';
 
 export interface NormalizedMessage {
+  images?: AiImageRef[];
   chatType: 'private' | 'group';
   /** 会话对端 id：私聊=对方 QQ；群=群号。回消息时作为 SendTarget.peerId。 */
   peerId: string;
@@ -74,7 +76,16 @@ export function normalizeInbound(event: IncomingEvent, selfId: string): Normaliz
 
   let mentionsSelf = false;
   const parts: string[] = [];
+  const images: AiImageRef[] = [];
   for (const seg of toSegments(event.message, event.raw_message)) {
+    if (seg.type === 'image') {
+      const url =
+        typeof seg.data.url === 'string' && /^https?:\/\//.test(seg.data.url)
+          ? seg.data.url
+          : undefined;
+      const file = typeof seg.data.file === 'string' ? seg.data.file : undefined;
+      images.push({ id: `${event.message_id ?? 'incoming'}:${images.length}`, url, file });
+    }
     const { text, mentionsSelf: m } = segToText(seg, selfId);
     if (m) mentionsSelf = true;
     if (text) parts.push(text);
@@ -86,6 +97,7 @@ export function normalizeInbound(event: IncomingEvent, selfId: string): Normaliz
     senderId,
     senderName,
     text: parts.join('').trim(),
+    ...(images.length ? { images } : {}),
     mentionsSelf,
     messageId: event.message_id != null ? String(event.message_id) : undefined,
   };

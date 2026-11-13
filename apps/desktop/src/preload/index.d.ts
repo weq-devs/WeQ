@@ -7,6 +7,7 @@ declare global {
   interface Window {
     electron: ElectronAPI;
     weq: {
+      windowChrome?: import('../shared/window_chrome').WindowChromeBridge;
       authorization: LongTermAuthorizationBridge;
       editUndo: EditUndoBridge;
       openLogDir(): Promise<boolean>;

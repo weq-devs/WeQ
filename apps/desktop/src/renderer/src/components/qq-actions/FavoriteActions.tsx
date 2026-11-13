@@ -1,5 +1,15 @@
+import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
-import { ArrowUpToLine, MoreHorizontal, Pencil, Plus, RotateCw, Trash2, X } from 'lucide-react';
+import {
+  ArrowUpToLine,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RotateCw,
+  Trash2,
+  X,
+  Heart,
+} from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -136,7 +146,7 @@ function FavoriteActionsBody() {
             </ActionIcon>
           </div>
         )}
-        {list.data?.length === 0 && <p>暂无收藏表情</p>}
+        {list.data?.length === 0 && <EmptyState compact icon={<Heart />} title="暂无收藏表情" />}
         <ul className="weq-qq-action-list">
           {list.data?.map((f) => (
             <li key={f.emojiId}>

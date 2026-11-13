@@ -25,11 +25,16 @@ import type {
 import { getLogger } from '@weq/service';
 import { downloadLayaBundle, isLayaBundleReady, type BundleProgress } from './model_files';
 import { getAppContext } from '../context/app_context';
+import {
+  enhancementEngineAvailable,
+  enhancementEngineEnvironment,
+} from '../enhancements/engine_environment';
 
 const logger = getLogger().child({ scope: 'intent-sense' });
 
 /** 本地引擎对 app_context 暴露的控制面（electron 侧实现，web 恒为 null）。 */
 export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
+  validateModel(modelId: string): Promise<void>;
   listModels(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
   /** 模型 bundle 落盘目录（weq 用户数据目录下）。 */
   modelDir(): string;
@@ -41,6 +46,7 @@ export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
   }): Promise<void>;
   start(): Promise<void>;
   stop(): Promise<void>;
+  isBusy(): boolean;
 }
 
 /**
@@ -49,6 +55,8 @@ export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
  * service 层实际落盘的 weq 目录不是同一个，模型会被找丢）。
  */
 function weqAppDataRoot(): string {
+  const actual = getAppContext().platform?.appDataRoot();
+  if (actual) return actual;
   if (process.platform === 'win32') {
     const base = process.env.APPDATA;
     if (!base) throw new Error('%APPDATA% not set — cannot derive weq user data root');
@@ -146,6 +154,7 @@ class LocalEngineBridge implements IntentLocalEnginePort {
    * 对 service 层暴露的就绪态：worker 已就绪，或本地模型文件齐全且未发生启动失败（调用 analyze 时按需拉起 worker）。
    */
   get ready(): boolean {
+    if (!enhancementEngineAvailable('onnx')) return false;
     if (this.readyFlag && this.worker !== null) return true;
     if (this.startFailed) return false;
     return isAnyModelReady(this.modelDir);
@@ -155,7 +164,12 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     return this.readyFlag && this.worker !== null;
   }
 
+  isBusy(): boolean {
+    return this.pending.size > 0 || this.starting !== null;
+  }
+
   async start(modelDir: string): Promise<void> {
+    if (!enhancementEngineAvailable('onnx')) throw new Error('请先在「增强包」准备本地意图与画像');
     this.touch();
     if (this.workerRunning) return;
     if (this.starting) return this.starting;
@@ -213,6 +227,7 @@ class LocalEngineBridge implements IntentLocalEnginePort {
       // stderr 转发到主进程日志：worker 崩溃时能看到真实原因（此前 ignore 全盲）。
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       serialization: 'advanced',
+      env: enhancementEngineEnvironment('onnx'),
     });
     this.worker = worker;
     worker.stderr?.on('data', (chunk: Buffer) => {
@@ -271,8 +286,16 @@ class LocalEngineBridge implements IntentLocalEnginePort {
     this.readyFlag = false;
     this.failAll(new Error('本地引擎已停止'));
     if (worker) {
-      worker.send({ type: 'close' });
-      setTimeout(() => worker.kill(), 3_000).unref?.();
+      await new Promise<void>((resolve) => {
+        if (worker.exitCode !== null || worker.signalCode !== null) return resolve();
+        const timer = setTimeout(() => worker.kill(), 3_000);
+        worker.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        if (worker.connected) worker.send({ type: 'close' }, () => {});
+        else worker.kill();
+      });
     }
   }
 
@@ -506,6 +529,13 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
     },
     stop: async () => {
       await Promise.all([...bridges.values()].map((bridge) => bridge.stop()));
+    },
+    isBusy: () => [...bridges.values()].some((bridge) => bridge.isBusy()),
+    validateModel: async (modelId) => {
+      const dir = findAvailableModelDir(modelId);
+      const bridge = ensureBridge(dir);
+      await bridge.start(dir);
+      if (!(await bridge.analyze('你好'))) throw new Error('意图与画像模型实际推理失败');
     },
   };
 }

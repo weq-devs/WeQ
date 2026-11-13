@@ -11,7 +11,7 @@ import {
 } from '../src/account/export/contacts_export';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { MsgService } from '../src/account/msg';
-import { object, readArchive } from '../src/account/export/archive';
+import { object, readArchive, readArchiveFile } from '../src/account/export/archive';
 
 function exportedUids(path: string) {
   return readArchive(JSON.parse(readFileSync(path, 'utf8')))
@@ -66,35 +66,42 @@ function fixture() {
 }
 
 describe('联系人精确条目导出', () => {
-  it('名单增量复用用户重命名后的单文件，不重新另存一份名单', async () => {
-    const { deps } = fixture(),
-      cache = dirname(output());
-    const manager = new ExportTaskManager(
-      {} as MsgService,
-      cache,
-      withExportSaveDirectory(cache, { contacts: deps }),
-    );
-    const id = await manager.startTask({
-      kind: 'c2c',
-      conv: '',
-      name: '合成名单',
-      format: 'json',
-      total: 0,
-      contacts: { scope: 'friends' },
-    });
-    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
-    const path = join(cache, '用户名单.json');
-    await manager.saveTaskOutput(id, undefined, path);
-    const before = readArchive(JSON.parse(readFileSync(path, 'utf8')));
-    expect(manager.resumeTask(id, true)).toBe(true);
-    await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
-    expect(manager.getTask(id)?.error).toBeUndefined();
-    expect(manager.getTask(id)?.filePath).toBe(realpathSync(path));
-    const after = readArchive(JSON.parse(readFileSync(path, 'utf8')));
-    expect(after.archiveId).toBe(before.archiveId);
-    expect(after.records).toHaveLength(before.records.length);
-    expect(after.observations).toHaveLength(before.observations.length * 2);
-  });
+  it.each(['json', 'jsonl.gz'] as const)(
+    '名单 %s 增量复用用户重命名后的单文件，不重新另存一份名单',
+    async (format) => {
+      const { deps } = fixture(),
+        cache = dirname(output());
+      const manager = new ExportTaskManager(
+        {} as MsgService,
+        cache,
+        withExportSaveDirectory(cache, { contacts: deps }),
+      );
+      const id = await manager.startTask({
+        kind: 'c2c',
+        conv: '',
+        name: '合成名单',
+        format,
+        total: 0,
+        contacts: { scope: 'friends' },
+      });
+      await (manager as unknown as { queue: Promise<void> }).queue;
+      await manager.saveTaskOutput(id);
+      expect(manager.getTask(id)?.save?.status).toBe('saved');
+      const path = join(cache, `用户名单.${format}`);
+      await manager.saveTaskOutput(id, undefined, path);
+      const before = (await readArchiveFile(path, format)).archive;
+      expect(manager.resumeTask(id, true)).toBe(true);
+      await (manager as unknown as { queue: Promise<void> }).queue;
+      expect(manager.getTask(id)?.status).toBe('completed');
+      await manager.saveTaskOutput(id);
+      expect(manager.getTask(id)?.error).toBeUndefined();
+      expect(manager.getTask(id)?.filePath).toBe(realpathSync(path));
+      const after = (await readArchiveFile(path, format)).archive;
+      expect(after.archiveId).toBe(before.archiveId);
+      expect(after.records).toHaveLength(before.records.length);
+      expect(after.observations).toHaveLength(before.observations.length * 2);
+    },
+  );
   it('单文件任务另存后记录真实路径，后续另存失败保留已生成结果和上次保存位置', async () => {
     const { deps } = fixture(),
       cache = dirname(output());
@@ -111,17 +118,21 @@ describe('联系人精确条目导出', () => {
       total: 0,
       contacts: { scope: 'friends', uids: ['b'] },
     });
-    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    await (manager as unknown as { queue: Promise<void> }).queue;
+    await manager.saveTaskOutput(id);
+    expect(manager.getTask(id)?.save?.status).toBe('saved');
     const target = join(cache, '用户选择.json');
     expect(await manager.saveTaskOutput(id, undefined, target)).toBe(realpathSync(target));
     expect(manager.getTask(id)?.save).toMatchObject({
       status: 'saved',
       path: realpathSync(target),
+      savedAt: expect.any(Number),
     });
+    const savedAt = manager.getTask(id)?.save?.savedAt;
     await expect(manager.saveTaskOutput(id, join(cache, 'missing-directory'))).rejects.toThrow();
     const task = manager.getTask(id)!;
     expect(task.status).toBe('completed');
-    expect(task.save).toMatchObject({ status: 'failed', path: realpathSync(target) });
+    expect(task.save).toMatchObject({ status: 'failed', path: realpathSync(target), savedAt });
     expect(existsSync(task.filePath!)).toBe(true);
     expect(existsSync(target)).toBe(true);
   });

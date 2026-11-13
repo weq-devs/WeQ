@@ -12,9 +12,6 @@ import type { SenderResolveDeps } from './sender_resolve';
 import { bigintReplacer } from './serialize';
 import type { ExportResult, GroupExportOptions } from './types';
 
-/** @deprecated use {@link GroupExportOptions}. Kept for the existing barrel export. */
-export type JsonExportOptions = GroupExportOptions;
-
 /**
  * Export all messages of `groupCode` to `outputPath` as JSON.
  *

@@ -123,7 +123,7 @@ it('嵌入结果保留真实图片导出与时间口径，已有快照不重复�
 
 it('分析日期显示固定北京时间，异常时间不输出假日期', () => {
   vi.stubEnv('TZ', 'America/Los_Angeles');
-  expect(formatDate(Date.parse('2026-10-18T00:00:00+08:00') / 1000)).toBe('2026/10/18');
+  expect(formatDate(Date.parse('2026-10-18T00:00:00+08:00') / 1000)).toBe('2026-10-18 00:00:00');
   expect(formatDate(NaN)).toBe('-');
   expect(formatDate(Number.MAX_SAFE_INTEGER)).toBe('-');
 });
@@ -169,8 +169,8 @@ it('入群批次跨北京时间年界显示两侧正确年份和时刻', () => {
   const root = createRoot(host);
   try {
     act(() => root.render(createElement(GroupJoinBatches, { report })));
-    expect(host.textContent).toContain('2025/12/31 23:59');
-    expect(host.textContent).toContain('2026/01/01 00:01');
+    expect(host.textContent).toContain('2025-12-31 23:59:00');
+    expect(host.textContent).toContain('2026-01-01 00:01:00');
   } finally {
     act(() => root.unmount());
     host.remove();

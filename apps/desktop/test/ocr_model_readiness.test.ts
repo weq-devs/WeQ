@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, truncateSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
@@ -35,7 +35,12 @@ function fixture() {
     const model = ocrModels.listByKind(kind)[0]!;
     const dir = ocrModels.resolveModelDir(model.id);
     mkdirSync(dir, { recursive: true });
-    for (const file of model.files) writeFileSync(join(dir, file.name), 'offline fixture');
+    // 只验证落盘状态与路径，用稀疏文件满足大小契约，不下载或加载真实模型。
+    for (const file of model.files) {
+      const path = join(dir, file.name);
+      writeFileSync(path, '');
+      truncateSync(path, file.sizeBytes!);
+    }
     return model;
   }
   return { userConfig, ocrModels, install };
@@ -73,6 +78,14 @@ describe('本地 OCR 实际可用模型', () => {
     expect(resolveLocalOcrFilterModel()).toBeNull();
     list.mockRestore();
     state.blocker = '没有本地推理引擎';
+    expect(resolveLocalOcrFilterModel()).toBeNull();
+    expect(f.userConfig.getLocalModelId('filter')).toBe('');
+  });
+
+  it.each([0, 8])('零字节或截断的筛图文件（%i 字节）不自动写入模型引用', (bytes) => {
+    const f = fixture();
+    const model = f.install('filter');
+    truncateSync(f.ocrModels.resolveModelPaths(model.id).det!, bytes);
     expect(resolveLocalOcrFilterModel()).toBeNull();
     expect(f.userConfig.getLocalModelId('filter')).toBe('');
   });

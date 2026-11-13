@@ -6,8 +6,9 @@
  * {@link useMultiSelection}（方向键 / 空格 / Ctrl+A）。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
-import { Check, CheckCheck, Database, FlipHorizontal2, Search, X } from 'lucide-react';
+import { Check, CheckCheck, Database, FlipHorizontal2, Search, X, SearchX } from 'lucide-react';
 import { PickerListSkeleton } from './ExportSkeleton';
 import { fmtBytes } from './types';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -122,7 +123,11 @@ export function DatabasePicker({
       {loading ? (
         <PickerListSkeleton />
       ) : filtered.length === 0 ? (
-        <div className="weq-db-cards-state">{query ? '没有匹配的数据库' : '未发现数据库文件'}</div>
+        <EmptyState
+          compact
+          icon={query ? <SearchX /> : <Database />}
+          title={query ? '没有匹配的数据库' : '未发现数据库文件'}
+        />
       ) : (
         <div className="weq-db-cards-grid">
           {filtered.map((it) => {

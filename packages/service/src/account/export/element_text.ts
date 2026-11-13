@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 表格与 ChatLab 使用的紧凑正文摘要、媒体路径和表情收集工具。
  * TXT 的完整消息通过 messageToText 接入公共纯文本格式，不再使用紧凑摘要。
@@ -131,17 +132,13 @@ export function forwardToText(messages: ForwardMessage[] | undefined, depth: num
   return `[合并转发]\n${lines.join('\n')}`;
 }
 
-function pad2(n: number): string {
+function _pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
 
-/** Unix seconds → `YYYY-MM-DD HH:mm:ss` in local time. */
+/** Unix 秒按北京时间显示到秒。 */
 export function formatTime(unixSec: number): string {
-  const d = new Date(unixSec * 1000);
-  return (
-    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
-    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
-  );
+  return timeFormat.formatUnixTime(unixSec);
 }
 
 /** TXT 与多选复制共用消息格式；表格与 ChatLab 继续使用各自的正文契约。 */
@@ -152,6 +149,7 @@ export function messageToText(
 ): string {
   return plainMessageText({
     ...sender,
+    ...(m.senderName ? { name: m.senderName } : {}),
     uin: sender.uin || m.senderUin,
     time: new Date(m.sendTime * 1000),
     elements: m.elements,

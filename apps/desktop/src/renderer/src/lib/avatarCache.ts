@@ -7,7 +7,7 @@
 
 import { avatarFetchUrl, mediaUrl } from './resourceUrl';
 import { preferCdnEnabled } from './cdn';
-import { fixProfileAvatarUrl } from './avatarResolver';
+import { avatarFromUin, fixProfileAvatarUrl } from './avatarResolver';
 
 /**
  * Build the local-first avatar URL: the main process resolves the peer's cached
@@ -37,6 +37,35 @@ function smallAvatarSource(src: string): string {
   }
 }
 
+/** 已知 SDK 端点统一主机与参数顺序；带额外参数的地址可能有签名，不重写。 */
+function normalizedAvatarSource(src: string, variant: 'big' | 'small'): string {
+  if (!/^https?:\/\//i.test(src)) return src;
+  try {
+    const url = new URL(src);
+    const uin = url.searchParams.get('nk');
+    const size = variant === 'small' ? '100' : (url.searchParams.get('s') ?? '0');
+    if (
+      /^(thirdqq|q|q1|q2)\.qlogo\.cn$/i.test(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      !url.hash &&
+      url.pathname === '/g' &&
+      url.searchParams.get('b') === 'sdk' &&
+      uin &&
+      /^\d+$/.test(uin) &&
+      (size === '0' || size === '100') &&
+      [...url.searchParams.keys()].every(
+        (key) => ['b', 's', 'nk'].includes(key) && url.searchParams.getAll(key).length === 1,
+      )
+    )
+      return avatarFromUin(uin, size === '100' ? 100 : 0)!;
+  } catch {
+    // 非 HTTP 地址由调用方原样保留。
+  }
+  return variant === 'small' ? smallAvatarSource(src) : src;
+}
+
 /**
  * Wrap an upstream avatar URL so it's served from a disk cache. QQ avatars
  * (user / group) are routed local-first through `weq-media://avatar` — QQ
@@ -58,7 +87,7 @@ export function cachedAvatarUrl(
   // 头像全裂；补成 `s=0` 才好。放在这个 choke point 上，下面三条分支（本地优先的
   // `fb` 回退、集群头像、`weq-avatar://` 代理）以及「优先使用 CDN」直连都跟着受益。
   const repaired = fixProfileAvatarUrl(src) ?? src;
-  const fixed = variant === 'small' ? smallAvatarSource(repaired) : repaired;
+  const fixed = normalizedAvatarSource(repaired, variant);
   // Only remote http(s) avatars go through a cache; leave data:, blob:,
   // weq-asset:, and anything already wrapped alone.
   if (!/^https?:\/\//i.test(fixed)) {
@@ -66,7 +95,7 @@ export function cachedAvatarUrl(
       const url = new URL(fixed, 'https://weq.invalid');
       url.searchParams.set('v', 'small');
       const fb = url.searchParams.get('fb');
-      if (fb) url.searchParams.set('fb', smallAvatarSource(fb));
+      if (fb) url.searchParams.set('fb', normalizedAvatarSource(fb, variant));
       return fixed.startsWith('/') ? `${url.pathname}${url.search}` : url.href;
     }
     return fixed;

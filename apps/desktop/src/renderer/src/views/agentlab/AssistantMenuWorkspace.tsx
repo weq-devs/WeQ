@@ -26,6 +26,7 @@ export function AssistantMenuWorkspace({
   searchTarget?: GeneratedSearchHit | null;
 }) {
   const active = useTabActive();
+  const closeWorkspaceMenu = useWorkspaceMenu((state) => state.close);
   const { enabled: resultVisible } = useQQReadActivity(true, { onlineOnly: false });
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -55,6 +56,23 @@ export function AssistantMenuWorkspace({
     };
   }
   const readResults = readResultsRef.current.results;
+  useEffect(() => {
+    const refresh = () => {
+      const results = readWorkspaceResults(accountScope, 'assistant');
+      readResultsRef.current = { scope: accountScope, results };
+      setActivities((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).map(([key, value]) => {
+            const id =
+              key === currentSelection.current.key ? currentSelection.current.sessionId : undefined;
+            return [key, id && value.result === results[id] ? { ...value, unread: false } : value];
+          }),
+        ),
+      );
+    };
+    window.addEventListener('weq-shared-account-state', refresh);
+    return () => window.removeEventListener('weq-shared-account-state', refresh);
+  }, [accountScope]);
   const setAssistant = useWorkspaceMenu((state) => state.setAssistant);
   const activity = activities[selection.key]?.activity ?? 'idle';
   const unread = activities[selection.key]?.unread ?? false;
@@ -254,6 +272,7 @@ export function AssistantMenuWorkspace({
                 );
               }}
               onBack={newSession}
+              onBackToDirectory={closeWorkspaceMenu}
               onSessionCreated={(id) => {
                 keys.current.set(id, selection.key);
                 if (currentSelection.current.key !== selection.key) return;

@@ -64,7 +64,7 @@ export interface CallStageProps {
   /** 本端摄像头是否开着。 */
   selfVideoOn?: boolean;
   /** 本端采集到的视频元素（画进 selfCanvasRef）。 */
-  selfVideoElement?: HTMLVideoElement | null;
+  selfVideoElement?: HTMLVideoElement | HTMLCanvasElement | null;
   /**
    * 本端画面来源。
    *
@@ -250,7 +250,7 @@ function SelfVideoPainter({
   video,
 }: {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
-  video: HTMLVideoElement | null;
+  video: HTMLVideoElement | HTMLCanvasElement | null;
 }) {
   useEffect(() => {
     if (!video) return;
@@ -261,10 +261,16 @@ function SelfVideoPainter({
 
     let raf = 0;
     const draw = () => {
-      if (video.readyState >= 2) {
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
+      const sourceWidth = 'videoWidth' in video ? video.videoWidth : video.width;
+      const sourceHeight = 'videoHeight' in video ? video.videoHeight : video.height;
+      if (
+        (!('readyState' in video) || video.readyState >= 2) &&
+        sourceWidth > 0 &&
+        sourceHeight > 0
+      ) {
+        if (canvas.width !== sourceWidth || canvas.height !== sourceHeight) {
+          canvas.width = sourceWidth;
+          canvas.height = sourceHeight;
         }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         canvas.dataset.active = 'true';

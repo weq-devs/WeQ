@@ -119,9 +119,17 @@ try {
         assert.ok(samples.some((rows) => rows.some((row) => row.state === 'pending')));
         const commits = await page.evaluate(() => window.intentQa.frames);
         assert.ok(commits.every((frame) => frame.pills === 2 && frame.visible));
+        await page.evaluate(() =>
+          window.intentQa.setMessages([
+            ...Array.from({ length: 30 }, (_, i) => `history-${i}`),
+            'message',
+          ]),
+        );
+        await page.waitForFunction(
+          () => document.querySelectorAll('.intent-qa .message-bubble').length === 31,
+        );
         const anchorStable = await page.evaluate(async () => {
           const qa = window.intentQa;
-          qa.setMessages([...Array.from({ length: 30 }, (_, i) => `history-${i}`), 'message']);
           await new Promise(requestAnimationFrame);
           const scroll = document.querySelector('.intent-qa .message-scroll');
           scroll.scrollTop = scroll.scrollHeight;
@@ -152,6 +160,51 @@ try {
         if (output && reducedMotion === 'reduce' && width !== 320)
           await page.screenshot({ path: resolve(output, `first-frame-${width}-${theme}.png`) });
         await page.close();
+        cases++;
+        const hidden = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion });
+        hidden.on('pageerror', (error) => errors.push(error.message));
+        await hidden.goto(
+          `http://127.0.0.1:${server.httpServer.address().port}/test/browser/intent-loading.html?first-frame=1&animation-off=1`,
+        );
+        await hidden.locator('.intent-qa .message-text').waitFor();
+        await hidden.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        const first = await hidden.evaluate(() => window.intentQa.frames[0]);
+        assert.equal(first.pills, 0, '关闭动画时首次提交不挂载胶囊');
+        const painted = await hidden.evaluate(async () => {
+          const sample = async () => {
+            await new Promise(requestAnimationFrame);
+            const bubble = document.querySelector('.intent-qa .message-bubble');
+            return {
+              height: bubble.getBoundingClientRect().height,
+              chips: bubble.querySelectorAll('.weq-intent-chips').length,
+              textHeight: bubble.querySelector('.message-text').getBoundingClientRect().height,
+            };
+          };
+          const samples = [await sample()];
+          window.intentQa.releaseCache();
+          samples.push(await sample());
+          window.intentQa.publishProgress({
+            total: 1,
+            completed: 0,
+            failed: 0,
+            pendingIds: ['message'],
+          });
+          samples.push(await sample());
+          window.intentQa.publishResult();
+          const result = await sample();
+          return { samples, result };
+        });
+        assert.ok(
+          painted.samples.every((row) => row.chips === 0 && row.height === row.textHeight),
+          '等待阶段的真实绘制不占用空间',
+        );
+        assert.equal(painted.result.chips, 1);
+        assert.ok(painted.result.height > first.height);
+        if (output && reducedMotion === 'reduce' && width !== 320)
+          await hidden.screenshot({ path: resolve(output, `animation-off-${width}-${theme}.png`) });
+        await hidden.close();
         cases++;
       }
     }

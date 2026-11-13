@@ -1,5 +1,6 @@
 import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -116,9 +117,19 @@ function fixture(element: ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() => root.render(h(ProfileNavigationContext.Provider, { value: open }, element)));
+  const queryClient = new QueryClient();
+  act(() =>
+    root.render(
+      h(
+        QueryClientProvider,
+        { client: queryClient },
+        h(ProfileNavigationContext.Provider, { value: open }, element),
+      ),
+    ),
+  );
   cleanups.push(() => {
     act(() => root.unmount());
+    queryClient.clear();
     host.remove();
   });
   return { host, open };
@@ -126,8 +137,11 @@ function fixture(element: ReactNode) {
 function click(host: HTMLElement) {
   const button = host.querySelector<HTMLButtonElement>('.weq-profile-avatar-button')!;
   expect(button).not.toBeNull();
+  const target = button.classList.contains('weq-identity-link') ? button.lastElementChild! : button;
+  if (button.classList.contains('weq-identity-link'))
+    expect(button.textContent?.trim()).not.toBe('');
   act(() =>
-    button.dispatchEvent(
+    target.dispatchEvent(
       new MouseEvent('click', { bubbles: true, detail: 1, clientX: 40, clientY: 60 }),
     ),
   );
@@ -153,6 +167,7 @@ function captureLayout(host: HTMLElement, name: string) {
       'conversation-analytics.css',
       'collection-search.css',
       'profile-avatar.css',
+      'identity-links.css',
     ].map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8')),
   ].join('\n');
   writeFileSync(

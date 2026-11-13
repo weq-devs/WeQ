@@ -1,10 +1,9 @@
 import { useContext, useMemo } from 'react';
-import type { Conversation, GroupMember, Message, User } from '../im-template/template/types';
+import type { Conversation, Message, User } from '../im-template/template/types';
 import { DOMParser, type Node } from '@xmldom/xmldom';
-import { displayUserName } from '../im-template/template/user';
 import { FaceEmoji } from './FaceEmoji';
 import { GrayTipPerson } from './GrayTipPerson';
-import { createGrayTipPersonKey } from '../lib/grayTipProfile';
+import { createGrayTipNameResolver, createGrayTipPersonKey } from '../lib/grayTipProfile';
 import { ReplyJumpContext } from './QqMessageContent';
 import '../styles/gray-tip-message.css';
 
@@ -53,15 +52,7 @@ export function GrayTipXmlMessage({
     const gtip = doc.getElementsByTagName('gtip')[0];
     if (!gtip) return null;
 
-    const memberMap = new Map<string, GroupMember>();
-    if (conversation?.type === 'group') {
-      conversation.members.forEach((m) => {
-        memberMap.set(m.id, m);
-        if (m.identityValue) {
-          memberMap.set(m.identityValue, m);
-        }
-      });
-    }
+    const personName = createGrayTipNameResolver(conversation, message);
 
     const personKey = createGrayTipPersonKey();
     const messageLinks = new Map<string, number>();
@@ -70,10 +61,7 @@ export function GrayTipXmlMessage({
         const uin = getNodeValue(node, 'uin');
         const uid = getNodeValue(node, 'uid');
         const jp = getNodeValue(node, 'jp');
-        const member = memberMap.get(uin) || memberMap.get(uid) || memberMap.get(jp);
-        const name = member
-          ? displayUserName(member)
-          : getNodeValue(node, 'nm') || uin || uid || jp;
+        const name = personName([uin, uid, jp], [getNodeValue(node, 'nm'), uin, uid, jp]);
         return (
           <GrayTipPerson
             key={personKey([uin, uid, jp], name)}

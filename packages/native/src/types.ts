@@ -132,6 +132,13 @@ export interface SessionMaterial {
    * `SsoSecureInfo.sec_token`。扫不到就是 `undefined`。
    */
   secToken?: string;
+  /**
+   * `SecToken` 的过期时间（Unix 秒）。只有 Linux 从会话物料表里读得到；
+   * 其余来源 / 平台没有这一项，调用方应退回固定间隔重扫。
+   */
+  secTokenExpire?: number;
+  /** token 来源，诊断用：`session-map` / `token-field` / `uin` / `proto-identity` / `vote`。 */
+  secTokenSource?: string;
 }
 
 /** `signPacket` 的返回：三个字段都是大写十六进制（对齐 Lagrange 的 SsoSecureInfo）。 */
@@ -717,7 +724,45 @@ export interface CaptureSupport {
   hint: string;
 }
 
+export interface QqUnreadCapability {
+  supported: boolean;
+  readOnly: boolean;
+  layouts: string[];
+  coverage: string;
+}
+
+export interface QqUnreadReadOptions {
+  pid: number;
+  databasePath: string;
+  targets?: Array<{ chatType: number; uid: string }>;
+  timeoutMs?: number;
+}
+
+export interface QqUnreadSnapshot {
+  success: boolean;
+  code: string;
+  message: string;
+  rows: Array<{ chatType: number; uid: string; unreadCount: number }>;
+  missingTargets: Array<{ chatType: number; uid: string }>;
+  coverage: string;
+  generation?: string;
+  layout?: string;
+  fromCache: boolean;
+  locateMs: number;
+  elapsedMs: number;
+}
+
 export interface NtHelperBinding {
+  getNetworkCost?(): Promise<{
+    known: boolean;
+    constrained: boolean;
+    metered: boolean;
+    source: string;
+  }>;
+  /** 可选：旧产物缺少导出时继续使用数据库未读。 */
+  getQqUnreadCapability?(): QqUnreadCapability;
+  readQqUnreadCounts?(options: QqUnreadReadOptions): Promise<QqUnreadSnapshot>;
+  clearQqUnreadCache?(pid?: number): number;
   // --- init / health ---
   getInitStatus(): InitStatus;
   /**

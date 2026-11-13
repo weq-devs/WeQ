@@ -19,6 +19,19 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import {
+  ASSISTANT_PARAMETER_DEFAULTS,
+  validateAssistantParameters,
+  type AssistantParameters,
+} from './assistant_config';
+import {
+  AssistantQueue,
+  type AssistantQueueItem,
+  type AssistantSubmission,
+} from './assistant_queue';
+export { ASSISTANT_PARAMETER_DEFAULTS } from './assistant_config';
+export type { AssistantSendMode } from './assistant_config';
 import { basename, extname, join, resolve, sep } from 'node:path';
 import {
   fetchApi,
@@ -36,12 +49,31 @@ import {
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
 import { JsonStore } from '../common/json_store';
+import type { PreferencePersistence } from '../common/shared_preferences';
 import { assistantCapabilityGuidance } from './assistant_capabilities';
 
 export type EndpointResolver = (
   ref: AgentLabModelSelection,
   capability?: 'chat' | 'embedding' | 'vision',
 ) => AgentLabEndpoint;
+
+export interface AssistantTaskEvent {
+  sessionId: string;
+  runId: string;
+  messageId?: string;
+  taskId?: string;
+  step: AssistantStep;
+}
+interface AssistantMailbox {
+  runId: string;
+  currentMessageId: string;
+  taskId: string;
+  body: string;
+  pending: AssistantQueueItem[];
+  steps: AssistantStep[];
+  stepOffset: number;
+  request?: AbortController;
+}
 
 /** OpenAI function 规格（由应用层从 AI_TOOLS / 外部 MCP 转换后注入）。 */
 export interface AssistantToolSpec {
@@ -50,6 +82,8 @@ export interface AssistantToolSpec {
 }
 
 export interface AssistantTools {
+  withConfig?: <T>(config: AssistantConfig, run: () => Promise<T>) => Promise<T>;
+  images?: AiImagePort;
   /** 内置 + 外部 MCP 工具的合并规格（外部列举是异步的，故允许 Promise）。 */
   specs: (options?: {
     permissionMode?: 'sandbox' | 'unrestricted';
@@ -71,9 +105,9 @@ export interface AssistantTools {
 }
 
 /** 思考等级（reasoning effort）。映射为 OpenAI 兼容请求的 `reasoning_effort` 参数（`off` = 不带）。 */
-export type AssistantReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+export type AssistantReasoningEffort = string;
 
-export interface AssistantConfig {
+export interface AssistantConfig extends Partial<AssistantParameters> {
   permissionMode?: 'sandbox' | 'unrestricted';
   model?: AgentLabModelSelection;
   customPrompt?: string;
@@ -81,6 +115,48 @@ export interface AssistantConfig {
   reasoningEffort?: AssistantReasoningEffort;
   /** 外部 MCP 服务器配置（Claude Desktop JSON 或每行 `名字=url`）。 */
   mcpServers?: string;
+}
+
+export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
+  ...ASSISTANT_PARAMETER_DEFAULTS,
+  model: { useDefault: true },
+  permissionMode: 'sandbox',
+  customPrompt: '',
+  mcpServers: '',
+  reasoningEffort: 'off',
+};
+
+export function mergeAssistantConfig(
+  config: AssistantConfig,
+  patch: AssistantConfig & { confirmUnrestricted?: boolean },
+): AssistantConfig {
+  const current = { ...DEFAULT_ASSISTANT_CONFIG, ...config };
+  const parameters = { ...ASSISTANT_PARAMETER_DEFAULTS, ...current, ...patch };
+  validateAssistantParameters(parameters);
+  if (
+    patch.permissionMode === 'unrestricted' &&
+    current.permissionMode !== 'unrestricted' &&
+    patch.confirmUnrestricted !== true
+  )
+    throw new Error(
+      '开启任意权限前必须确认风险：助手可执行任意操作，包括删除 WeQ 目录之外的文件。',
+    );
+  return {
+    ...Object.fromEntries(
+      Object.keys(ASSISTANT_PARAMETER_DEFAULTS).map((key) => [
+        key,
+        parameters[key as keyof AssistantParameters],
+      ]),
+    ),
+    permissionMode: patch.permissionMode ?? current.permissionMode ?? 'sandbox',
+    model:
+      patch.model === undefined
+        ? (current.model ?? { useDefault: true })
+        : (normalizeModelSelection(patch.model) ?? undefined),
+    customPrompt: patch.customPrompt ?? current.customPrompt,
+    reasoningEffort: patch.reasoningEffort ?? current.reasoningEffort,
+    mcpServers: patch.mcpServers ?? current.mcpServers,
+  };
 }
 
 /**
@@ -175,6 +251,13 @@ export interface AssistantWorkspace {
  * - compaction：上下文压缩发生标记（含折叠摘要），长会话中早期历史被折叠时 emit。
  */
 export type AssistantStep =
+  | { kind: 'reset' }
+  | { kind: 'remove_turn'; id: string }
+  | { kind: 'turn'; turn: ConversationTurn }
+  | { kind: 'queue' }
+  | AssistantProcessStep;
+
+export type AssistantProcessStep =
   | { kind: 'thinking'; text: string }
   | { kind: 'text_delta'; text: string }
   | { kind: 'reasoning_delta'; text: string }
@@ -187,6 +270,18 @@ export type AssistantStep =
   | { kind: 'final'; text: string }
   | { kind: 'aborted' }
   | { kind: 'error'; message: string };
+
+const transientAssistantSteps = new Set<AssistantStep['kind']>([
+  'text_delta',
+  'reasoning_delta',
+  'turn',
+  'queue',
+  'reset',
+  'remove_turn',
+]);
+function isPersistedAssistantStep(step: AssistantStep): step is AssistantProcessStep {
+  return !transientAssistantSteps.has(step.kind);
+}
 
 /** report 文件类型 → 扩展名 / MIME。单一事实源，写盘与读取都走它。 */
 const ARTIFACT_KIND = {
@@ -300,6 +395,9 @@ const WORKSPACE_SPECS: AssistantToolSpec[] = [
 
 /** 一轮任务的运行时状态（内存态；断点快照是它的持久化投影）。 */
 type AssistantRunState = {
+  activeToolId?: string;
+  taskId?: string;
+  assistantMessageId?: string;
   question: string;
   basePrompt: string;
   messages: ApiMessage[];
@@ -385,6 +483,9 @@ const TOOL_RESULT_CAP = 8000;
 const STEP_PREVIEW_CAP = 4000;
 
 interface ApiMessage {
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
+  imageReport?: string;
   role: string;
   content?: unknown;
   tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
@@ -409,6 +510,12 @@ interface StreamChunk {
 }
 
 export class AssistantService {
+  private readonly taskConfig = new AsyncLocalStorage<AssistantConfig>();
+  private readonly taskEndpoint = new AsyncLocalStorage<{ endpoint?: AgentLabEndpoint }>();
+  private readonly queue: AssistantQueue;
+  private queueSink?: (event: AssistantTaskEvent) => void;
+  private controllerSink?: (runId: string, controller: AbortController | null) => void;
+  private readonly mailboxes = new Map<string, AssistantMailbox>();
   private readonly configPath: string;
   private readonly sessionsPath: string;
   /** 配置严格原子保存；会话列表保留既有宽容读取，但损坏原件不覆盖。 */
@@ -416,7 +523,7 @@ export class AssistantService {
   private readonly sessionsStore: JsonStore<AssistantSession[]>;
 
   private get config(): AssistantConfig {
-    return this.configStore.data;
+    return this.taskConfig.getStore() ?? this.configStore.data;
   }
 
   private get sessions(): AssistantSession[] {
@@ -428,7 +535,13 @@ export class AssistantService {
   }
   /** 按实际模型记住不支持 reasoning_effort 的端点，不影响切换后的其他模型。 */
   private readonly reasoningUnsupported = new Set<string>();
+  private readonly nonReplayErrors = new WeakSet<object>();
   private readonly permissionRuns = new Set<AbortController>();
+  private readonly sessionRuns = new Map<
+    string,
+    { controller: AbortController; done: Promise<unknown> }
+  >();
+  private readonly deletingSessions = new Set<string>();
 
   constructor(
     private readonly rootDir: string,
@@ -436,13 +549,15 @@ export class AssistantService {
     private readonly usage: TokenUsageStore,
     private readonly conversations: ConversationStore,
     private readonly tools?: AssistantTools,
+    preferences?: PreferencePersistence<AssistantConfig>,
   ) {
     this.configPath = join(rootDir, 'assistant.json');
     this.sessionsPath = join(rootDir, 'assistant_sessions.json');
     this.configStore = new JsonStore<AssistantConfig>(
       this.configPath,
-      () => ({ model: { useDefault: true } }),
+      () => structuredClone(DEFAULT_ASSISTANT_CONFIG),
       {
+        persistence: preferences,
         strict: true,
         pretty: true,
         normalize: (raw) => {
@@ -450,6 +565,7 @@ export class AssistantService {
             throw new Error('助手配置必须是 JSON 对象');
           const config = raw as AssistantConfig;
           return {
+            ...DEFAULT_ASSISTANT_CONFIG,
             ...config,
             permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
             model:
@@ -466,42 +582,50 @@ export class AssistantService {
           ? (raw as AssistantSession[]).filter((s) => s && typeof s.id === 'string')
           : [],
     });
+    this.queue = new AssistantQueue(join(rootDir, 'assistant_queue.json'), {
+      busy: (sessionId) => this.sessionRuns.has(sessionId),
+      execute: (item, signal, started) => this.executeQueued(item, signal, started),
+      supplement: (item) => {
+        const mailbox = this.mailboxes.get(item.sessionId);
+        if (!mailbox) return false;
+        mailbox.pending.push(item);
+        if (item.mode === 'interrupt') mailbox.request?.abort();
+        return true;
+      },
+      changed: (sessionId) =>
+        this.publish({
+          sessionId,
+          runId: this.mailboxes.get(sessionId)?.runId ?? '',
+          step: { kind: 'queue' },
+        }),
+    });
     this.migrateLegacyConversation();
     // 启动即把已存的外部 MCP 配置交给 Hub，连接在首次用到时惰性建立。
     this.tools?.syncExternalMcp?.(this.config.mcpServers);
   }
 
   getConfig(): AssistantConfig {
-    return { ...this.config, permissionMode: this.config.permissionMode ?? 'sandbox' };
+    return { ...DEFAULT_ASSISTANT_CONFIG, ...this.configStore.data };
+  }
+  getExecutionConfig(): AssistantConfig {
+    return { ...this.config };
+  }
+  private resolveTaskEndpoint(): AgentLabEndpoint {
+    const task = this.taskEndpoint.getStore();
+    if (task?.endpoint) return task.endpoint;
+    const ref = this.config.model;
+    if (!ref) throw new Error('请先在助手设置里选择聊天模型');
+    const resolved = this.resolveEndpoint(ref);
+    const endpoint = { ...resolved, reasoningEfforts: resolved.reasoningEfforts?.slice() };
+    if (task) task.endpoint = endpoint;
+    return endpoint;
   }
 
   setConfig(patch: AssistantConfig & { confirmUnrestricted?: boolean }): AssistantConfig {
-    if (
-      patch.permissionMode === 'unrestricted' &&
-      this.config.permissionMode !== 'unrestricted' &&
-      patch.confirmUnrestricted !== true
-    ) {
-      throw new Error(
-        '开启任意权限前必须确认风险：助手可执行任意操作，包括删除 WeQ 目录之外的文件。',
-      );
-    }
-    const next: AssistantConfig = {
-      permissionMode: patch.permissionMode ?? this.config.permissionMode ?? 'sandbox',
-      model:
-        patch.model === undefined
-          ? this.config.model
-          : (normalizeModelSelection(patch.model) ?? undefined),
-      customPrompt:
-        patch.customPrompt !== undefined ? patch.customPrompt : this.config.customPrompt,
-      reasoningEffort:
-        patch.reasoningEffort !== undefined ? patch.reasoningEffort : this.config.reasoningEffort,
-      mcpServers: patch.mcpServers !== undefined ? patch.mcpServers : this.config.mcpServers,
-    };
-    const modeChanged = next.permissionMode !== (this.config.permissionMode ?? 'sandbox');
+    const next = mergeAssistantConfig(this.configStore.data, patch);
     this.configStore.replace(next);
-    if (modeChanged) for (const controller of this.permissionRuns) controller.abort();
-    if (patch.mcpServers !== undefined) this.tools?.syncExternalMcp?.(this.config.mcpServers);
-    return this.config;
+    if (patch.mcpServers !== undefined) this.tools?.syncExternalMcp?.(next.mcpServers);
+    return next;
   }
 
   // ── 会话管理（多会话：每个会话独立上下文 + 独立持久化桶）──────────────────
@@ -512,8 +636,10 @@ export class AssistantService {
   }
 
   /** 会话列表，按最近活跃倒序（最新在前）。 */
-  listSessions(): AssistantSession[] {
-    return [...this.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+  listSessions(): Array<AssistantSession & { running: boolean }> {
+    return this.sessions
+      .map((session) => ({ ...session, running: this.sessionRuns.has(session.id) }))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   /** 新建一个空会话并返回（标题待首轮对话后自动总结）。 */
@@ -530,12 +656,52 @@ export class AssistantService {
     return session;
   }
 
-  /** 删除会话：移除元数据 + 清掉其对话桶 + 清理断点快照。 */
-  deleteSession(sessionId: string): void {
-    this.sessions = this.sessions.filter((s) => s.id !== sessionId);
-    this.conversations.clear(this.bucketId(sessionId));
-    this.clearRun(sessionId);
-    this.persistSessions();
+  /** 仅停止所选会话，待全部写入收尾后再永久移除元数据、历史和断点。 */
+  async deleteSessions(sessionIds: readonly string[]): Promise<void> {
+    const selected = new Set(sessionIds);
+    for (const id of selected) this.deletingSessions.add(id);
+    try {
+      const runs = [...selected]
+        .map((id) => this.sessionRuns.get(id))
+        .filter((run) => run !== undefined);
+      for (const run of runs) run.controller.abort();
+      await Promise.all([...selected].map((id) => this.queue.clear(id)));
+      await Promise.allSettled(runs.map((run) => run.done));
+      this.sessions = this.sessions.filter((session) => !selected.has(session.id));
+      for (const id of selected) {
+        this.conversations.clear(this.bucketId(id));
+        this.clearRun(id);
+      }
+      this.persistSessions();
+    } finally {
+      for (const id of selected) this.deletingSessions.delete(id);
+    }
+  }
+
+  deleteSession(sessionId: string): Promise<void> {
+    return this.deleteSessions([sessionId]);
+  }
+
+  private runForSession<T>(
+    sessionId: string,
+    signal: AbortSignal | undefined,
+    run: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    if (this.deletingSessions.has(sessionId))
+      return Promise.reject(new Error('会话正在永久删除。'));
+    if (this.sessionRuns.has(sessionId))
+      return Promise.reject(new Error('这段会话已有正在生成的回答。'));
+    const controller = new AbortController();
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+    const done = Promise.resolve().then(() => run(combinedSignal));
+    const current = { controller, done };
+    this.sessionRuns.set(sessionId, current);
+    return done.finally(() => {
+      if (this.sessionRuns.get(sessionId) === current) this.sessionRuns.delete(sessionId);
+      this.queue.kick(sessionId);
+    });
   }
 
   /** 重命名会话（空标题回退占位标题）。 */
@@ -548,7 +714,11 @@ export class AssistantService {
   }
 
   /** 清空某会话的对话内容（保留会话本身，标题复位待重新总结），并作废未完成的断点任务。 */
-  clearConversation(sessionId: string): void {
+  async clearConversation(sessionId: string): Promise<void> {
+    const active = this.sessionRuns.get(sessionId);
+    active?.controller.abort();
+    await this.queue.clear(sessionId);
+    await active?.done.catch(() => {});
     this.conversations.clear(this.bucketId(sessionId));
     this.clearRun(sessionId);
     const session = this.sessions.find((s) => s.id === sessionId);
@@ -557,10 +727,296 @@ export class AssistantService {
       session.updatedAt = Date.now();
       this.persistSessions();
     }
+    this.publish({ sessionId, runId: '', step: { kind: 'reset' } });
   }
 
   getConversation(sessionId: string): ConversationTurn[] {
-    return this.conversations.get(this.bucketId(sessionId));
+    const active = this.sessionRuns.has(sessionId) || this.queue.get(sessionId).running;
+    return this.conversations
+      .get(this.bucketId(sessionId))
+      .map((turn) =>
+        !active && turn.status === 'running' ? { ...turn, status: 'stopped' as const } : turn,
+      );
+  }
+
+  submitMessage(
+    input: Omit<AssistantSubmission, 'mode'> & { mode?: AssistantSubmission['mode'] },
+    sink?: (event: AssistantTaskEvent) => void,
+    controllerSink?: (runId: string, controller: AbortController | null) => void,
+  ) {
+    if (
+      !this.sessions.some((session) => session.id === input.sessionId) ||
+      this.deletingSessions.has(input.sessionId)
+    )
+      throw new Error('对话不存在');
+    if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
+    if (sink) this.bindRuntime(sink, controllerSink);
+    const acceptedMode = this.queue.submissionMode(input.sessionId, input.requestId);
+    if (acceptedMode !== undefined)
+      return this.queue.submit({ ...input, mode: input.mode ?? acceptedMode });
+    const previous = this.conversations
+      .get(this.bucketId(input.sessionId))
+      .find((turn) => turn.id === input.requestId);
+    const mode =
+      input.mode ??
+      this.queue.submissionMode(input.sessionId, input.requestId) ??
+      previous?.sendMode ??
+      this.getConfig().sendMode ??
+      'interrupt';
+    if (previous) {
+      if (
+        previous.text !== input.text ||
+        JSON.stringify(previous.images ?? []) !== JSON.stringify(input.images ?? []) ||
+        (previous.sendMode && previous.sendMode !== mode)
+      )
+        throw new Error('重复请求的消息内容不一致');
+      return { messageId: input.requestId, status: 'done' as const };
+    }
+    return this.queue.submit({ ...input, mode });
+  }
+  getQueue(sessionId: string) {
+    const queue = this.queue.get(sessionId);
+    return { ...queue, running: queue.running || this.sessionRuns.has(sessionId) };
+  }
+  bindRuntime(
+    sink: (event: AssistantTaskEvent) => void,
+    controllerSink?: (runId: string, controller: AbortController | null) => void,
+  ) {
+    this.queueSink = sink;
+    if (controllerSink) this.controllerSink = controllerSink;
+  }
+  private publish(event: AssistantTaskEvent) {
+    try {
+      this.queueSink?.(event);
+    } catch {
+      /* 断开的界面订阅不改变任务状态。 */
+    }
+  }
+  editQueue(
+    sessionId: string,
+    requestId: string,
+    patch: { text?: string; beforeId?: string; cancel?: boolean },
+  ) {
+    this.queue.edit(sessionId, requestId, patch);
+    return this.queue.get(sessionId);
+  }
+  stopSession(sessionId: string) {
+    this.queue.pause(sessionId);
+    this.sessionRuns.get(sessionId)?.controller.abort();
+  }
+  skipToNext(sessionId: string) {
+    if (this.sessionRuns.has(sessionId) || this.queue.get(sessionId).running)
+      throw new Error('请等待当前任务停止');
+    this.clearRun(sessionId);
+    this.queue.resume(sessionId);
+  }
+
+  continueSession(
+    sessionId: string,
+    sink?: (event: AssistantTaskEvent) => void,
+    controllerSink?: (runId: string, controller: AbortController | null) => void,
+  ) {
+    if (sink) this.bindRuntime(sink, controllerSink);
+    const snapshot = this.loadRun(sessionId);
+    if (!snapshot) throw new Error('没有可继续的任务');
+    const runId = randomUUID();
+    this.queue.recover(sessionId, async (signal) => {
+      const last = this.conversations.get(this.bucketId(sessionId)).at(-1);
+      const mailbox: AssistantMailbox = {
+        runId,
+        taskId: snapshot.taskId ?? runId,
+        currentMessageId: snapshot.assistantMessageId ?? last?.id ?? `${runId}:answer`,
+        pending: [],
+        body: '',
+        steps: [],
+        stepOffset: 0,
+      };
+      this.mailboxes.set(sessionId, mailbox);
+      mailbox.pending.push(
+        ...this.queue.get(sessionId).items.filter((item) => item.status === 'supplement'),
+      );
+      const { controller, dispose } = this.queueController(sessionId, signal);
+      this.controllerSink?.(runId, controller);
+      try {
+        await this.resumeAssistantRun(
+          sessionId,
+          this.mailboxEmitter(sessionId, mailbox),
+          controller.signal,
+        );
+      } finally {
+        this.mailboxes.delete(sessionId);
+        this.controllerSink?.(runId, null);
+        dispose();
+      }
+    });
+    return { runId };
+  }
+
+  private queueController(sessionId: string, signal: AbortSignal) {
+    const controller = new AbortController();
+    const relay = () => controller.abort();
+    const pause = () => {
+      if (!signal.aborted) {
+        try {
+          this.queue.pause(sessionId);
+        } catch {
+          /* 停止已生效；队列保留写入错误。 */
+        }
+      }
+    };
+    controller.signal.addEventListener('abort', pause, { once: true });
+    signal.addEventListener('abort', relay, { once: true });
+    if (signal.aborted) relay();
+    return {
+      controller,
+      dispose: () => {
+        signal.removeEventListener('abort', relay);
+        controller.signal.removeEventListener('abort', pause);
+      },
+    };
+  }
+  private async executeQueued(item: AssistantQueueItem, signal: AbortSignal, started: () => void) {
+    const mailbox: AssistantMailbox = {
+      runId: item.requestId,
+      currentMessageId: `${item.messageId}:answer`,
+      taskId: item.requestId,
+      body: '',
+      pending: [],
+      steps: [],
+      stepOffset: 0,
+    };
+    this.mailboxes.set(item.sessionId, mailbox);
+    mailbox.pending.push(
+      ...this.queue.get(item.sessionId).items.filter((row) => row.status === 'supplement'),
+    );
+    const { controller, dispose } = this.queueController(item.sessionId, signal);
+    this.controllerSink?.(mailbox.runId, controller);
+    try {
+      this.persistUser(item, mailbox);
+      started();
+      await this.chat(
+        item.sessionId,
+        item.text,
+        this.mailboxEmitter(item.sessionId, mailbox),
+        controller.signal,
+        item.images,
+      );
+    } catch (reason) {
+      const current = this.conversations
+        .get(this.bucketId(item.sessionId))
+        .find((turn) => turn.id === mailbox.currentMessageId);
+      if (current?.status !== 'failed' && current?.status !== 'stopped') {
+        const message = reason instanceof Error ? reason.message : String(reason);
+        mailbox.steps.push({ kind: 'error', message });
+        this.persistLiveSegment(
+          item.sessionId,
+          mailbox.body,
+          signal.aborted ? 'stopped' : 'failed',
+        );
+        this.mailboxEmitter(item.sessionId, mailbox)({ kind: 'error', message });
+      }
+      throw reason;
+    } finally {
+      dispose();
+      this.controllerSink?.(mailbox.runId, null);
+      this.mailboxes.delete(item.sessionId);
+    }
+  }
+  private mailboxEmitter(sessionId: string, mailbox: AssistantMailbox) {
+    return (step: AssistantStep) => {
+      if (step.kind === 'text_delta') mailbox.body += step.text;
+      else if (step.kind === 'tool_call') mailbox.body = '';
+      this.publish({
+        sessionId,
+        runId: mailbox.runId,
+        messageId: mailbox.currentMessageId,
+        taskId: mailbox.taskId,
+        step,
+      });
+    };
+  }
+  private persistUser(item: AssistantQueueItem, mailbox: AssistantMailbox) {
+    const turn: ConversationTurn & { id: string } = {
+      id: item.messageId,
+      role: 'user',
+      text: item.text,
+      images: item.images,
+      ts: Date.now(),
+      taskId: mailbox.taskId,
+      status: 'complete',
+      sendMode: item.mode,
+    };
+    this.conversations.upsert(this.bucketId(item.sessionId), turn);
+    const session = this.sessions.find((row) => row.id === item.sessionId);
+    if (session) {
+      session.updatedAt = turn.ts;
+      this.persistSessions();
+    }
+    this.publish({
+      sessionId: item.sessionId,
+      runId: mailbox.runId,
+      taskId: mailbox.taskId,
+      step: { kind: 'turn', turn },
+    });
+  }
+  private persistLiveSegment(sessionId: string, text: string, status: ConversationTurn['status']) {
+    const mailbox = this.mailboxes.get(sessionId);
+    if (!mailbox) return;
+    const turn: ConversationTurn & { id: string } = {
+      id: mailbox.currentMessageId,
+      taskId: mailbox.taskId,
+      role: 'assistant',
+      text,
+      status,
+      ts: Date.now(),
+      steps: mailbox.steps.slice(mailbox.stepOffset).filter(isPersistedAssistantStep),
+    };
+    this.conversations.upsert(this.bucketId(sessionId), turn);
+    this.publish({
+      sessionId,
+      runId: mailbox.runId,
+      taskId: mailbox.taskId,
+      messageId: turn.id,
+      step: { kind: 'turn', turn },
+    });
+  }
+  private consumeSupplements(sessionId: string, state: AssistantRunState) {
+    const mailbox = this.mailboxes.get(sessionId);
+    if (!mailbox) return false;
+    const pendingIds = new Set(mailbox.pending.splice(0).map((item) => item.requestId));
+    const pending = this.queue
+      .get(sessionId)
+      .items.filter((item) => pendingIds.has(item.requestId));
+    if (!pending.length) return false;
+    if (
+      mailbox.body.trim() ||
+      mailbox.steps.some(
+        (step, index) => index >= mailbox.stepOffset && !transientAssistantSteps.has(step.kind),
+      )
+    )
+      this.persistLiveSegment(sessionId, mailbox.body, 'complete');
+    else {
+      this.conversations.removeTurn(this.bucketId(sessionId), mailbox.currentMessageId);
+      this.publish({
+        sessionId,
+        runId: mailbox.runId,
+        step: { kind: 'remove_turn', id: mailbox.currentMessageId },
+      });
+    }
+    if (mailbox.body.trim() && state.messages.at(-1)?.role !== 'tool')
+      state.messages.push({ role: 'assistant', content: mailbox.body });
+    for (const item of pending) {
+      this.persistUser(item, mailbox);
+      state.messages.push({ role: 'user', content: item.text, images: item.images });
+      this.queue.delivered(sessionId, item.requestId);
+    }
+    mailbox.currentMessageId = `${pending.at(-1)!.messageId}:answer`;
+    state.assistantMessageId = mailbox.currentMessageId;
+    mailbox.body = '';
+    mailbox.stepOffset = mailbox.steps.length;
+    this.persistLiveSegment(sessionId, '', 'running');
+    this.persistRun(sessionId, state, 'running');
+    return true;
   }
 
   // ── 报告文件（write_report 内置工具 + 前端查看/另存为的取址）────────────────
@@ -621,17 +1077,39 @@ export class AssistantService {
    * 失败（包括异常）也会作为 `error` step 推出后再抛出，便于前端统一处理。
    * 若该会话存在未完成的断点快照（上次中断的任务），新消息会**取代**它（快照作废）。
    */
-  async chat(
+  chat(
     sessionId: string,
     text: string,
     onStep?: (step: AssistantStep) => void,
     signal?: AbortSignal,
+    images?: AiImageRef[],
+  ): Promise<{ text: string; steps: AssistantStep[] }> {
+    const config = structuredClone(this.getConfig());
+    const run = () =>
+      this.runForSession(sessionId, signal, (runSignal) =>
+        this.chatRun(sessionId, text, onStep, runSignal, images),
+      );
+    return this.taskConfig.run(config, () =>
+      this.taskEndpoint.run({}, () =>
+        this.tools?.withConfig ? this.tools.withConfig(config, run) : run(),
+      ),
+    );
+  }
+
+  private async chatRun(
+    sessionId: string,
+    text: string,
+    onStep?: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+    images?: AiImageRef[],
   ): Promise<{ text: string; steps: AssistantStep[] }> {
     if (!this.config.model) throw new Error('请先在助手设置里选择聊天模型。');
     const session = this.sessions.find((s) => s.id === sessionId);
     if (!session) throw new Error('对话不存在，请新建一个对话。');
 
     const steps: AssistantStep[] = [];
+    const mailbox = this.mailboxes.get(sessionId);
+    if (mailbox) mailbox.steps = steps;
     // 累积「当前可见正文」：用户点停止时用它作为已完成的部分答复持久化。
     // 一批工具调用开始（tool_call）意味着此前那段正文已转为「思考」，故清零重来。
     let streamed = '';
@@ -650,8 +1128,7 @@ export class AssistantService {
       steps.push(step);
     };
     // text_delta / reasoning_delta 是逐字碎片，不入库（会重复且臃肿）；落库只保留过程性 step。
-    const persistable = (): AssistantStep[] =>
-      steps.filter((s) => s.kind !== 'text_delta' && s.kind !== 'reasoning_delta');
+    const persistable = (): AssistantProcessStep[] => steps.filter(isPersistedAssistantStep);
     const collectToolsUsed = (): string[] => [
       ...new Set(
         steps
@@ -663,7 +1140,14 @@ export class AssistantService {
     // 新问题取代旧任务：丢弃该会话任何未完成的 run 快照（resume 只针对「同一任务」）。
     this.clearRun(sessionId);
     // 只取最近若干条历史（过长的历史由上下文压缩在 runLoop 内折叠，而不是硬切）。
-    const prior = this.conversations.get(this.bucketId(sessionId)).slice(-12);
+    const historyCount =
+      this.config.historyMessages ?? ASSISTANT_PARAMETER_DEFAULTS.historyMessages;
+    const prior = historyCount
+      ? this.conversations
+          .get(this.bucketId(sessionId))
+          .filter((turn) => !mailbox || turn.taskId !== mailbox.taskId)
+          .slice(-historyCount)
+      : [];
     // 证据追问：本轮像在质疑上一结论，且上一条助手回复确实用过工具时，才强制重新查证。
     // （像开场就问「真的假的」这种没有可查证对象，强制反而诱导模型编造，故要求 prior 用过工具。）
     const lastAssistant = [...prior].reverse().find((t) => t.role === 'assistant');
@@ -671,17 +1155,21 @@ export class AssistantService {
       EVIDENCE_FOLLOW_UP_PATTERN.test(text) && !!lastAssistant?.toolsUsed?.length;
     const basePrompt = this.systemPrompt(text, evidenceFollowUp);
     const state: AssistantRunState = {
+      taskId: mailbox?.taskId,
+      assistantMessageId: mailbox?.currentMessageId,
       question: text,
       basePrompt,
       messages: [
         { role: 'system', content: basePrompt },
-        ...prior.map((t) => ({ role: t.role, content: t.text })),
-        { role: 'user', content: text },
+        ...prior.map((t) => ({ role: t.role, content: t.text, images: t.images })),
+        { role: 'user', content: text, images },
       ],
       workspace: { notes: [] },
       summary: '',
       toolCallCount: 0,
     };
+    if (mailbox) this.persistLiveSegment(sessionId, '', 'running');
+    this.persistRun(sessionId, state, 'running');
 
     try {
       const reply = await this.runLoop(sessionId, state, emit, record, signal);
@@ -689,21 +1177,34 @@ export class AssistantService {
       this.clearRun(sessionId);
       const now = Date.now();
       const toolsUsed = collectToolsUsed();
-      this.conversations.append(this.bucketId(sessionId), [
-        { role: 'user', text, ts: now },
-        {
-          role: 'assistant',
-          text: reply,
-          ts: now,
-          steps: persistable(),
-          ...(toolsUsed.length ? { toolsUsed } : {}),
-        },
-      ]);
+      if (mailbox) this.persistLiveSegment(sessionId, reply, 'complete');
+      else
+        this.conversations.append(this.bucketId(sessionId), [
+          {
+            role: 'user',
+            text,
+            ts: now,
+            ...(images?.length
+              ? {
+                  images,
+                  imageOutcomes: state.messages.find((message) => message.images === images)
+                    ?.imageOutcomes,
+                }
+              : {}),
+          },
+          {
+            role: 'assistant',
+            text: reply,
+            ts: now,
+            steps: persistable(),
+            ...(toolsUsed.length ? { toolsUsed } : {}),
+          },
+        ]);
       // 标题：仍是占位标题（即本会话首轮）时，让模型简单总结对话内容生成标题。
       // 放在 emit(final) 之前完成，前端收到 final 后刷新会话列表即可拿到新标题（无竞态）。
       if (session.title === DEFAULT_SESSION_TITLE) {
         try {
-          const title = await this.generateTitle(text, reply);
+          const title = await this.generateTitle(text, reply, signal);
           if (title) session.title = title;
         } catch {
           /* 标题总结失败不影响对话本身 */
@@ -719,18 +1220,31 @@ export class AssistantService {
       const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
       if (aborted) {
         const now = Date.now();
-        const reply = streamed.trim() || '（已停止）';
+        const reply = (mailbox ? mailbox.body : streamed).trim() || '（已停止）';
         const toolsUsed = collectToolsUsed();
-        this.conversations.append(this.bucketId(sessionId), [
-          { role: 'user', text, ts: now },
-          {
-            role: 'assistant',
-            text: reply,
-            ts: now,
-            steps: persistable(),
-            ...(toolsUsed.length ? { toolsUsed } : {}),
-          },
-        ]);
+        if (mailbox) this.persistLiveSegment(sessionId, reply, 'stopped');
+        else
+          this.conversations.append(this.bucketId(sessionId), [
+            {
+              role: 'user',
+              text,
+              ts: now,
+              ...(images?.length
+                ? {
+                    images,
+                    imageOutcomes: state.messages.find((message) => message.images === images)
+                      ?.imageOutcomes,
+                  }
+                : {}),
+            },
+            {
+              role: 'assistant',
+              text: reply,
+              ts: now,
+              steps: persistable(),
+              ...(toolsUsed.length ? { toolsUsed } : {}),
+            },
+          ]);
         session.updatedAt = now;
         this.persistSessions();
         this.persistRun(sessionId, state, 'aborted');
@@ -741,6 +1255,7 @@ export class AssistantService {
       this.persistRun(sessionId, state, 'aborted');
       const message = error instanceof Error ? error.message : String(error);
       emit({ kind: 'error', message });
+      if (mailbox) this.persistLiveSegment(sessionId, mailbox.body, 'failed');
       throw error;
     }
   }
@@ -750,7 +1265,24 @@ export class AssistantService {
    * 已完成的工具调用与其结果原样保留，不重查。完成后把会话里那条半截 assistant
    * 回合替换成完整答复。无可用快照时抛可读错误。
    */
-  async resumeAssistantRun(
+  resumeAssistantRun(
+    sessionId: string,
+    onStep?: (step: AssistantStep) => void,
+    signal?: AbortSignal,
+  ): Promise<{ text: string; steps: AssistantStep[] }> {
+    const config = structuredClone(this.getConfig());
+    const run = () =>
+      this.runForSession(sessionId, signal, (runSignal) =>
+        this.resumeRun(sessionId, onStep, runSignal),
+      );
+    return this.taskConfig.run(config, () =>
+      this.taskEndpoint.run({}, () =>
+        this.tools?.withConfig ? this.tools.withConfig(config, run) : run(),
+      ),
+    );
+  }
+
+  private async resumeRun(
     sessionId: string,
     onStep?: (step: AssistantStep) => void,
     signal?: AbortSignal,
@@ -762,7 +1294,11 @@ export class AssistantService {
       throw new Error('没有可继续的任务。');
     }
 
-    const steps: AssistantStep[] = [];
+    const mailbox = this.mailboxes.get(sessionId);
+    const steps: AssistantStep[] = mailbox
+      ? [...(this.conversations.get(this.bucketId(sessionId)).at(-1)?.steps ?? [])]
+      : [];
+    if (mailbox) mailbox.steps = steps;
     let streamed = '';
     const emit = (step: AssistantStep): void => {
       if (step.kind === 'text_delta') streamed += step.text;
@@ -777,11 +1313,12 @@ export class AssistantService {
     const record = (step: AssistantStep): void => {
       steps.push(step);
     };
-    const persistable = (): AssistantStep[] =>
-      steps.filter((s) => s.kind !== 'text_delta' && s.kind !== 'reasoning_delta');
+    const persistable = (): AssistantProcessStep[] => steps.filter(isPersistedAssistantStep);
     const state: AssistantRunState = {
+      taskId: mailbox?.taskId ?? snapshot.taskId,
+      assistantMessageId: mailbox?.currentMessageId ?? snapshot.assistantMessageId,
       question: snapshot.question,
-      basePrompt: snapshot.basePrompt,
+      basePrompt: this.systemPrompt(snapshot.question, false),
       messages: snapshot.messages,
       workspace: snapshot.workspace,
       summary: snapshot.summary,
@@ -806,11 +1343,13 @@ export class AssistantService {
         ),
       ];
       // 替换最后一条（半截）assistant 回合为完整答复，而不是追加一条重复的。
-      this.conversations.patchLastAssistant(this.bucketId(sessionId), {
-        text: reply,
-        steps: persistable(),
-        ...(toolsUsed.length ? { toolsUsed } : {}),
-      });
+      if (mailbox) this.persistLiveSegment(sessionId, reply, 'complete');
+      else
+        this.conversations.patchLastAssistant(this.bucketId(sessionId), {
+          text: reply,
+          steps: persistable(),
+          ...(toolsUsed.length ? { toolsUsed } : {}),
+        });
       session.updatedAt = now;
       this.persistSessions();
       emit({ kind: 'final', text: reply });
@@ -818,11 +1357,13 @@ export class AssistantService {
     } catch (error) {
       const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
       if (aborted) {
-        const reply = streamed.trim() || '（已停止）';
-        this.conversations.patchLastAssistant(this.bucketId(sessionId), {
-          text: reply,
-          steps: persistable(),
-        });
+        const reply = (mailbox ? mailbox.body : streamed).trim() || '（已停止）';
+        if (mailbox) this.persistLiveSegment(sessionId, reply, 'stopped');
+        else
+          this.conversations.patchLastAssistant(this.bucketId(sessionId), {
+            text: reply,
+            steps: persistable(),
+          });
         session.updatedAt = Date.now();
         this.persistSessions();
         this.persistRun(sessionId, state, 'aborted');
@@ -832,6 +1373,7 @@ export class AssistantService {
       this.persistRun(sessionId, state, 'aborted');
       const message = error instanceof Error ? error.message : String(error);
       emit({ kind: 'error', message });
+      if (mailbox) this.persistLiveSegment(sessionId, mailbox.body, 'failed');
       throw error;
     }
   }
@@ -857,10 +1399,14 @@ export class AssistantService {
    * 让模型用一句短语概括对话主题，作为会话标题。轻量调用（无工具），
    * 失败/为空时返回 ''（上层保留占位标题）。
    */
-  private async generateTitle(userText: string, reply: string): Promise<string> {
+  private async generateTitle(
+    userText: string,
+    reply: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     if (!this.config.model) return '';
     const endpoint: AgentLabEndpoint = {
-      ...this.resolveEndpoint(this.config.model),
+      ...this.resolveTaskEndpoint(),
       kind: 'chat',
       feature: 'assistant-title',
       onUsage: (u) =>
@@ -878,6 +1424,7 @@ export class AssistantService {
         { role: 'user', content: `用户：${userText.slice(0, 600)}\n助手：${reply.slice(0, 600)}` },
       ],
       [],
+      { signal },
     );
     const raw = pickMessageText(data.choices?.[0]?.message);
     return cleanTitle(raw);
@@ -899,7 +1446,7 @@ export class AssistantService {
     signal?: AbortSignal,
   ): Promise<string> {
     const endpoint: AgentLabEndpoint = {
-      ...this.resolveEndpoint(this.config.model!),
+      ...this.resolveTaskEndpoint(),
       kind: 'chat',
       onUsage: (u: AgentLabUsage) =>
         this.usage.record({
@@ -926,15 +1473,20 @@ export class AssistantService {
       if (signal.aborted) ac.abort();
       else signal.addEventListener('abort', onExternalAbort);
     }
-    const runTimer = setTimeout(() => {
-      timedOut = true;
-      ac.abort();
-    }, RUN_TIMEOUT_MS);
+    const taskTimeout =
+      this.config.taskTimeoutMs === undefined ? RUN_TIMEOUT_MS : this.config.taskTimeoutMs;
+    const runTimer =
+      taskTimeout === null
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true;
+            ac.abort();
+          }, taskTimeout);
 
     try {
       const available = await withTimeout(
         Promise.resolve(this.tools?.specs({ permissionMode, signal: ac.signal })),
-        TOOL_TIMEOUT_MS,
+        this.config.toolTimeoutMs === undefined ? TOOL_TIMEOUT_MS : this.config.toolTimeoutMs,
         '工具列表载入',
         ac.signal,
       );
@@ -949,27 +1501,124 @@ export class AssistantService {
         specs.map((spec) => spec.function.name),
         permissionMode,
       );
-      for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
+      const maxRounds =
+        this.config.maxRounds === undefined ? TOOL_LOOP_LIMIT : this.config.maxRounds;
+      for (let loop = 0; maxRounds === null || loop < maxRounds; loop += 1) {
         throwIfAborted(ac.signal);
+        this.consumeSupplements(sessionId, state);
         // 每轮发送前先做上下文压缩（长会话/多工具循环的 token 预算管理）。
         await this.compressIfNeeded(state, endpoint, emit, ac.signal);
-        const roundMessages = this.buildRoundMessages(state, capabilityGuidance);
+        const sourceMessages = this.buildRoundMessages(state, capabilityGuidance);
+        const prepareMessages = async (forceOcr = false): Promise<ApiMessage[]> => {
+          const result: ApiMessage[] = [];
+          for (const message of sourceMessages) {
+            const {
+              images: refs,
+              imageOutcomes: _outcomes,
+              imageReport: _report,
+              ...plain
+            } = message;
+            if (!refs?.length || !this.tools?.images) {
+              result.push(plain);
+              continue;
+            }
+            const prepared = await this.tools.images.prepare({
+              feature: 'assistant',
+              text: String(message.content ?? ''),
+              images: refs,
+              endpoint,
+              direct: !forceOcr,
+              signal: ac.signal,
+              forceOcr,
+            });
+            if (forceOcr)
+              for (const outcome of prepared.outcomes)
+                outcome.notes.unshift('视觉请求失败，本次已回退 OCR。');
+            message.imageOutcomes = prepared.outcomes;
+            if ('taskId' in state && typeof state.taskId === 'string')
+              this.conversations.patchImageOutcomes(
+                this.bucketId(sessionId),
+                state.taskId,
+                String(message.content ?? ''),
+                refs,
+                prepared.outcomes,
+              );
+            result.push({ ...plain, content: prepared.content });
+            const notes = prepared.outcomes.flatMap((outcome) => outcome.notes);
+            const report = notes.join('\n');
+            if (report && message.imageReport !== report)
+              record({ kind: 'thinking', text: report });
+            message.imageReport = report;
+          }
+          return result;
+        };
+        let roundMessages = await prepareMessages();
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
-        const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
-        const { content, toolCalls } = await this.callApiStream(
-          endpoint,
-          roundMessages,
-          allowTools ? specs : [],
-          emit,
-          ac.signal,
-        );
+        const allowTools = specs.length > 0 && (maxRounds === null || loop < maxRounds - 1);
+        let emitted = false;
+        const mailbox = this.mailboxes.get(sessionId);
+        const requestController = new AbortController();
+        if (mailbox) mailbox.request = requestController;
+        const requestSignal = AbortSignal.any([ac.signal, requestController.signal]);
+        const stream = () =>
+          this.callApiStream(
+            endpoint,
+            roundMessages,
+            allowTools ? specs : [],
+            (step) => {
+              if (requestSignal.aborted) return;
+              if (step.kind === 'text_delta' || step.kind === 'reasoning_delta') emitted = true;
+              emit(step);
+            },
+            requestSignal,
+          );
+        let response: Awaited<ReturnType<typeof stream>>;
+        try {
+          response = await stream();
+        } catch (error) {
+          ac.signal.throwIfAborted();
+          if (requestController.signal.aborted && this.consumeSupplements(sessionId, state)) {
+            loop--;
+            continue;
+          }
+          const direct = roundMessages.some(
+            (message) =>
+              Array.isArray(message.content) &&
+              message.content.some((part: { type?: string }) => part.type === 'image_url'),
+          );
+          if (
+            emitted ||
+            !direct ||
+            (error !== null && typeof error === 'object' && this.nonReplayErrors.has(error))
+          )
+            throw error;
+          roundMessages = await prepareMessages(true);
+          response = await stream();
+        }
+        if (mailbox) mailbox.request = undefined;
+        const { content, toolCalls } = response;
 
         if (allowTools && toolCalls?.length) {
           // 模型在调用工具前给出的思路 → 已随 text_delta 流式到达前端；这里只补一条 thinking 落库。
           if (content) record({ kind: 'thinking', text: content });
           state.messages.push({ role: 'assistant', content, tool_calls: toolCalls });
           for (const call of toolCalls) {
+            if (
+              mailbox?.pending.some(
+                (item) =>
+                  item.mode === 'interrupt' && this.queue.pending(sessionId, item.requestId),
+              )
+            ) {
+              state.messages.push({
+                role: 'tool',
+                tool_call_id: call.id,
+                content: '{"skipped":"收到补充，此操作尚未执行"}',
+              });
+              continue;
+            }
             throwIfAborted(ac.signal);
+            state.activeToolId = call.id;
+            this.persistRun(sessionId, state, 'running');
             const args = this.parseArgs(call.function.arguments);
 
             // 调查过程记忆工具：更新 workspace + emit plan/notes step（前端渲染专用面板），
@@ -989,6 +1638,8 @@ export class AssistantService {
                 tool_call_id: call.id,
                 content: safeStringify(handled),
               });
+              state.activeToolId = undefined;
+              this.persistRun(sessionId, state, 'running');
               continue;
             }
 
@@ -1031,7 +1682,9 @@ export class AssistantService {
               // 单工具超时不能证明未执行；标明未知终态并停止本轮，不自动重复副作用。
               result = await withTimeout(
                 this.tools.run(call.function.name, args, { permissionMode, signal: ac.signal }),
-                TOOL_TIMEOUT_MS,
+                this.config.toolTimeoutMs === undefined
+                  ? TOOL_TIMEOUT_MS
+                  : this.config.toolTimeoutMs,
                 `工具 ${call.function.name} 执行`,
                 ac.signal,
               );
@@ -1065,7 +1718,10 @@ export class AssistantService {
               content: capToolResult(result),
             });
             state.toolCallCount += 1;
+            state.activeToolId = undefined;
+            this.persistRun(sessionId, state, 'running');
             if (outcomeUnknown) {
+              if (mailbox) this.queue.pause(sessionId);
               ac.abort();
               // 补齐同一批尚未执行的 tool 响应，恢复时不重放副作用。
               const index = toolCalls.indexOf(call);
@@ -1081,10 +1737,17 @@ export class AssistantService {
           }
           // 一批工具调用全部完成、消息数组处于一致状态 → 落盘断点快照。
           this.persistRun(sessionId, state, 'running');
+          if (mailbox) this.persistLiveSegment(sessionId, mailbox.body, 'running');
           continue;
         }
 
         // 没有工具调用 → 这就是最终答复（正文已随 text_delta 流式送达前端）。
+        if (mailbox?.pending.length) {
+          if (this.consumeSupplements(sessionId, state)) {
+            loop--;
+            continue;
+          }
+        }
         return content || '（没能得出结论，请换个问法或补充信息。）';
       }
       // 理论上到不了这里（最后一轮已关工具强制出文本）。
@@ -1093,7 +1756,9 @@ export class AssistantService {
       // 总超时：外部 signal 未被用户 abort，但内部 ac 因 runTimer 触发。转成普通 Error（name≠AbortError）
       // 让 chat() 走 error 分支给出清晰提示；用户主动停止则原样抛（AbortError）走 aborted 分支。
       if (timedOut && !signal?.aborted) {
-        throw new Error('任务运行超过 10 分钟总时限，已自动中止。可缩小时间范围、拆分问题后重试。');
+        throw new Error(
+          `任务运行超过 ${Math.round((taskTimeout ?? 0) / 1000)} 秒总时限，已自动中止。`,
+        );
       }
       throw error;
     } finally {
@@ -1131,13 +1796,18 @@ export class AssistantService {
   ): Promise<void> {
     const messages = state.messages;
     const totalTokens = estimateMessagesTokens(messages);
-    const triggerTokens = Math.floor(CONTEXT_WINDOW_DEFAULT * COMPRESS_TRIGGER_RATIO);
+    const contextTokens = this.config.contextTokens ?? CONTEXT_WINDOW_DEFAULT;
+    const triggerTokens = Math.floor(
+      contextTokens * (this.config.compressionTrigger ?? COMPRESS_TRIGGER_RATIO),
+    );
     if (totalTokens <= triggerTokens) return;
 
     const rounds = foldableRounds(messages);
     if (rounds.length <= MIN_RETAINED_ROUNDS) return; // 没有可折叠的历史（只剩最近一轮/本轮）。
     const foldableCount = rounds.length - MIN_RETAINED_ROUNDS;
-    const targetTokens = Math.floor(CONTEXT_WINDOW_DEFAULT * COMPRESS_TARGET_RATIO);
+    const targetTokens = Math.floor(
+      contextTokens * (this.config.compressionTarget ?? COMPRESS_TARGET_RATIO),
+    );
     const foldedRanges: Array<[number, number]> = [];
     let foldedTokens = 0;
     for (let i = 0; i < foldableCount; i += 1) {
@@ -1151,7 +1821,7 @@ export class AssistantService {
     const foldedText = renderFoldableMessages(
       messages,
       foldedRanges,
-      Math.min(120_000, Math.floor(CONTEXT_WINDOW_DEFAULT * 1.5)),
+      Math.min(120_000, Math.floor(contextTokens * 1.5)),
     );
     // 旧摘要一并喂给模型，让它综合（旧摘要 + 新折叠内容 → 一份新摘要）。
     const userContent = [
@@ -1169,7 +1839,7 @@ export class AssistantService {
           { role: 'user', content: userContent },
         ],
         [],
-        { maxTokens: MAX_SUMMARY_TOKENS },
+        { maxTokens: this.config.summaryTokens ?? MAX_SUMMARY_TOKENS, signal },
       );
       summary = pickMessageText(data.choices?.[0]?.message).trim().slice(0, 5_000);
     } catch {
@@ -1230,12 +1900,14 @@ export class AssistantService {
       const target = this.runSnapshotPath(sessionId);
       const previous = this.loadRun(sessionId);
       const snapshot: AssistantRunSnapshot = {
+        taskId: state.taskId,
+        assistantMessageId: state.assistantMessageId,
         schemaVersion: 1,
         sessionId,
         status,
         question: state.question,
         basePrompt: state.basePrompt,
-        messages: state.messages,
+        messages: checkpointMessages(state.messages, state.activeToolId),
         workspace: state.workspace,
         summary: state.summary,
         toolCallCount: state.toolCallCount,
@@ -1435,17 +2107,23 @@ export class AssistantService {
     endpoint: AgentLabEndpoint,
     messages: ApiMessage[],
     specs: AssistantToolSpec[],
-    options: { maxTokens?: number } = {},
+    options: { maxTokens?: number; signal?: AbortSignal } = {},
   ): Promise<{ choices?: Array<{ message?: ApiMessage }>; usage?: unknown }> {
+    const maxTokens = this.config.maxOutputTokens
+      ? Math.min(options.maxTokens ?? this.config.maxOutputTokens, this.config.maxOutputTokens)
+      : options.maxTokens;
     try {
       return await requestApiJson(endpoint, '/chat/completions', {
         method: 'POST',
+        signal: options.signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
           model: endpoint.model,
-          temperature: 0.3,
+          ...(this.config.temperature === null
+            ? {}
+            : { temperature: this.config.temperature ?? 0.3 }),
           messages,
-          ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
+          ...(maxTokens ? { max_tokens: maxTokens } : {}),
           ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
         }),
       });
@@ -1474,6 +2152,13 @@ export class AssistantService {
     signal?: AbortSignal,
   ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
     const effort = this.config.reasoningEffort;
+    if (
+      effort &&
+      effort !== 'off' &&
+      endpoint.reasoningEfforts &&
+      !endpoint.reasoningEfforts.includes(effort)
+    )
+      throw new Error(`当前模型未声明思考档位 ${effort}，请在助手设置中重新选择`);
     const modelIdentity =
       endpoint.modelIdentity ?? JSON.stringify([endpoint.baseUrl, endpoint.model]);
     const withReasoning =
@@ -1484,7 +2169,10 @@ export class AssistantService {
     const buildBody = (reasoning: boolean): string =>
       JSON.stringify({
         model: endpoint.model,
-        ...(temperatureOmitted ? {} : { temperature: 0.3 }),
+        ...(temperatureOmitted || this.config.temperature === null
+          ? {}
+          : { temperature: this.config.temperature ?? 0.3 }),
+        ...(this.config.maxOutputTokens ? { max_tokens: this.config.maxOutputTokens } : {}),
         stream: true,
         stream_options: { include_usage: true },
         messages,
@@ -1530,10 +2218,16 @@ export class AssistantService {
         let response = await post(reasoning);
         // provider 不识别 reasoning_effort → 400：去掉重试一次，并记住本进程内别再带。
         if (!response.ok && response.status === 400 && reasoning && !reasoningRetried) {
-          reasoningRetried = true;
-          this.reasoningUnsupported.add(modelIdentity);
-          await rejectResponse(response);
-          response = await post(false);
+          const detail = await response
+            .clone()
+            .text()
+            .catch(() => '');
+          if (unsupportedReasoningParameter(detail)) {
+            reasoningRetried = true;
+            this.reasoningUnsupported.add(modelIdentity);
+            await rejectResponse(response);
+            response = await post(false);
+          }
         }
         // 429 限流/额度：退避 ~1.5s（可被停止打断）后重试一次；仍失败则落到下面的分类报错。
         if (response.status === 429 && !rateRetried) {
@@ -1644,6 +2338,12 @@ export class AssistantService {
           await reader.cancel().catch(() => {});
           return true;
         }
+        if (
+          (content || reasoning || toolSlots.size > 0) &&
+          error !== null &&
+          typeof error === 'object'
+        )
+          this.nonReplayErrors.add(error);
         throw error;
       } finally {
         reader.releaseLock();
@@ -1814,6 +2514,35 @@ function throwIfAborted(signal?: AbortSignal): void {
  */
 class ToolOutcomeUnknownError extends Error {}
 
+/** 检查点补齐未完成的工具批次；恢复时保留已确认结果，不重发已开始的调用。 */
+function checkpointMessages(messages: ApiMessage[], activeToolId?: string): ApiMessage[] {
+  const result: ApiMessage[] = [];
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]!;
+    result.push(message);
+    if (message.role !== 'assistant' || !message.tool_calls?.length) continue;
+    const completed = new Map<string, ApiMessage>();
+    while (messages[index + 1]?.role === 'tool') {
+      const tool = messages[++index]!;
+      if (tool.tool_call_id) completed.set(tool.tool_call_id, tool);
+    }
+    for (const call of message.tool_calls)
+      result.push(
+        completed.get(call.id) ?? {
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify({
+            interrupted:
+              activeToolId === call.id
+                ? '上次执行结束前未确认结果，不要自动重放。请先核对实际结果。'
+                : '此调用尚未执行，恢复时依据当前任务重新判断。',
+          }),
+        },
+      );
+  }
+  return result;
+}
+
 function hasUnknownToolOutcome(result: unknown): boolean {
   if (!result || typeof result !== 'object' || !('calls' in result) || !Array.isArray(result.calls))
     return false;
@@ -1825,7 +2554,7 @@ function hasUnknownToolOutcome(result: unknown): boolean {
 
 function withTimeout<T>(
   p: Promise<T>,
-  ms: number,
+  ms: number | null,
   label: string,
   signal?: AbortSignal,
 ): Promise<T> {
@@ -1839,14 +2568,17 @@ function withTimeout<T>(
         ),
       );
     };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      reject(
-        new ToolOutcomeUnknownError(
-          `${label}超时（${Math.round(ms / 1000)}s），终态未知；已发出的操作可能仍会完成，不要自动重试。`,
-        ),
-      );
-    }, ms);
+    const timer =
+      ms === null
+        ? undefined
+        : setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            reject(
+              new ToolOutcomeUnknownError(
+                `${label}超时（${Math.round(ms / 1000)}s），终态未知；已发出的操作可能仍会完成，不要自动重试。`,
+              ),
+            );
+          }, ms);
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) onAbort();
     p.then(
@@ -2092,6 +2824,36 @@ function coerceString(value: unknown): string {
 }
 
 /** 把 HTTP 状态码翻译成对用户可读、可操作的错误文案（401/403 密钥、429 限流、5xx 服务、其余兜底）。 */
+function unsupportedReasoningParameter(detail: string): boolean {
+  let text = detail;
+  try {
+    const parsed: unknown = JSON.parse(detail);
+    if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+      const error = parsed.error;
+      if (error && typeof error === 'object') {
+        const fields = error as Record<string, unknown>;
+        if (fields.param !== undefined && fields.param !== 'reasoning_effort') return false;
+        if (fields.code === 'invalid_value' || fields.code === 'invalid_parameter_value')
+          return false;
+        if (
+          fields.param === 'reasoning_effort' &&
+          ['unsupported_parameter', 'unknown_parameter', 'parameter_not_supported'].includes(
+            String(fields.code),
+          )
+        )
+          return true;
+        if (typeof fields.message === 'string') text = fields.message;
+      } else if (typeof error === 'string') text = error;
+    }
+  } catch {
+    /* 文本错误也必须明确指出参数名。 */
+  }
+  if (/(?:unsupported|invalid)\s+value/i.test(text)) return false;
+  return /(?:unsupported|unknown|unrecognized|does\s+not\s+support|不支持).{0,80}reasoning_effort|reasoning_effort.{0,80}(?:unsupported|not\s+supported|不支持)/i.test(
+    text,
+  );
+}
+
 function httpErrorMessage(status: number, detail: string): string {
   const tail = detail ? ` — ${detail.slice(0, 300)}` : '';
   if (status === 401 || status === 403)
@@ -2101,3 +2863,4 @@ function httpErrorMessage(status: number, detail: string): string {
   if (status >= 500) return `模型服务暂时不可用（${status}），请稍后重试。${tail}`;
   return `WeQ 助手接口调用失败: HTTP ${status}${tail}`;
 }
+import type { AiImagePort, AiImageRef, AiImageOutcome } from '@weq/agentlab';

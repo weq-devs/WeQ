@@ -1,5 +1,6 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
 import { FriendClue } from '../src/renderer/src/components/qq-actions/FriendClue';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
@@ -34,7 +35,19 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     account: {
+      getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isLoading: false }) },
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      // 群名片改由 useGroupProfile 读取，入口夹具需要这几个只读查询的桩。
+      groupMemberPreview: {
+        useQuery: () => ({ data: undefined, isFetching: false, error: null, refetch: vi.fn() }),
+      },
+      contactMetrics: {
+        snapshot: { useQuery: () => ({ data: undefined }) },
+        changed: { useSubscription: () => {} },
+      },
       qqActions: {
         groupJoinSettings: {
           useQuery: (...args: unknown[]) => {
@@ -47,14 +60,23 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         friendClue: {
           useQuery: (...args: unknown[]) => {
             state.query(...args);
+            const enabled = (args[1] as { enabled?: boolean } | undefined)?.enabled !== false;
             return {
-              data: state.data,
+              // 真实 react-query 在 enabled=false 且无缓存时不会给数据；
+              // 夹具按 enabled 返回，否则「离线不展示旧结果」的用例会被自身桩数据误导。
+              data: enabled && !state.error ? state.data : null,
               error: state.error ? new Error('失败') : null,
               isFetching: state.fetching,
             };
           },
         },
       },
+    },
+  },
+  client: {
+    account: {
+      getGroupDetail: { query: async () => null },
+      getCardDisplayNames: { query: async () => null },
     },
   },
 }));
@@ -64,6 +86,7 @@ function render(known = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const conversation = sharedGroupConversation({ code: '12345', name: '旧缓存群名', avatar: '' });
   conversation.group.memberCount = 23;
   conversation.group.announcement = '真实群公告';
@@ -71,16 +94,20 @@ function render(known = false) {
     act(() =>
       root.render(
         h(
-          ConversationDirectoryContext.Provider,
-          {
-            value: {
-              real: known ? [conversation] : [],
-              virtual: [],
-              onVirtual: vi.fn(),
-              onCreate: vi.fn(),
+          QueryClientProvider,
+          { client: queryClient },
+          h(
+            ConversationDirectoryContext.Provider,
+            {
+              value: {
+                real: known ? [conversation] : [],
+                virtual: [],
+                onVirtual: vi.fn(),
+                onCreate: vi.fn(),
+              },
             },
-          },
-          h(FriendClue, { uid }),
+            h(FriendClue, { uid }),
+          ),
         ),
       ),
     );
@@ -124,7 +151,7 @@ it.each([true, false])(
     state.data = data();
     const f = render(known);
     try {
-      expect(f.host.textContent).toContain('添加时间2024/01/01 00:00:07');
+      expect(f.host.textContent).toContain('添加时间2024-01-01 00:00:07');
       expect(f.host.textContent).toContain('我添加对方');
       expect(f.host.textContent).toContain('线索接口返回的群名');
       expect(f.host.textContent).not.toContain('接口真实群名');
@@ -140,14 +167,12 @@ it.each([true, false])(
       expect(dialog.textContent).toContain('12345');
       expect(dialog.textContent).not.toContain('旧缓存群名');
       expect(source.textContent).toBe('线索接口返回的群名');
-      if (known) {
-        expect(dialog.textContent).toContain('真实群公告');
-        expect(dialog.textContent).toContain('23');
-      } else {
-        expect(dialog.querySelector('.weq-profile-members')?.textContent).toContain('23');
-        expect(dialog.querySelector('.weq-profile-list')).toBeNull();
-      }
-      act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+      // 群名与人数来自群资料（不是线索原文），名片不再另起一套成员列表。
+      expect(dialog.querySelector('[aria-label="查看群成员列表"]')?.textContent).toContain('23');
+      expect(dialog.querySelector('.weq-profile-list')).toBeNull();
+      // 清单 G04：公告正文不进入快速名片，只在完整资料页查看。
+      expect(dialog.textContent).not.toContain('真实群公告');
+      act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭群资料"]')!.click());
       expect(document.querySelector('[aria-label="群资料"]')).toBeNull();
       expect(f.host.textContent).toContain('你好\n问题1:名字');
       expect(f.host.querySelector('[aria-label="重新读取好友线索"]')).toBeNull();
@@ -163,12 +188,18 @@ it.each(['通过 QQ 号搜索', 'QQ空间', '其他来源'.repeat(40), null])(
     state.data = { ...data(), source, sourceGroupCode: null };
     const f = render();
     try {
-      const label = [...f.host.querySelectorAll('.weq-profile-row-label')].find(
+      const label = [...f.host.querySelectorAll('.weq-profile-data-label')].find(
         (item) => item.textContent === '添加来源',
-      )!;
-      expect(label.parentElement?.classList.contains('weq-profile-row--block')).toBe(false);
-      expect(label.nextElementSibling?.tagName).toBe('STRONG');
-      expect(label.nextElementSibling?.textContent).toBe(source || '未知');
+      );
+      if (!source) {
+        // 空内容行整行不渲染，不再用「未知」占位。
+        expect(label).toBeUndefined();
+        expect(f.host.textContent).not.toContain('未知');
+      } else {
+        const row = label!.parentElement!;
+        expect(row.classList.contains('weq-profile-data-row')).toBe(true);
+        expect(row.querySelector('.weq-profile-data-value')?.textContent).toBe(source);
+      }
       expect(state.groupQuery).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -219,8 +250,10 @@ it('未知不冒称被动添加，显式空验证显示无消息', () => {
   const f = render();
   try {
     expect(f.host.textContent).not.toContain('对方添加我');
-    expect(f.host.textContent).toContain('添加方向未知');
-    expect(f.host.textContent).toContain('无验证消息');
+    // 方向与验证消息都没有内容时整行不渲染，不冒称「未知」「无消息」。
+    expect(f.host.textContent).not.toContain('添加方向');
+    expect(f.host.textContent).not.toContain('验证消息');
+    expect(f.host.textContent).toContain('添加来源未知');
   } finally {
     f.close();
   }
@@ -270,7 +303,13 @@ it('导出真实资料行排版夹具用于深浅色及窄屏核验', () => {
   const output = process.env.WEQ_FRIEND_CLUE_QA;
   if (!output) return;
   mkdirSync(output, { recursive: true });
-  const styles = ['index.css', 'appearance.css', 'contact-profile.css', 'friend-clue.css']
+  const styles = [
+    'index.css',
+    'appearance.css',
+    'contact-profile.css',
+    'profile-workspace.css',
+    'friend-clue.css',
+  ]
     .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
     .join('\n');
   for (const mode of ['normal', 'long', 'unknown', 'error']) {

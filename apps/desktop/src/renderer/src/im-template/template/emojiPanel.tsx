@@ -17,10 +17,12 @@
  * 图片字节全部走协议（weq-asset / weq-media），不过 tRPC。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
+import { FavoritePickerTab } from '../../components/qq-actions/FavoritePickerTab';
 import {
   ArrowLeft,
   Clock,
@@ -37,6 +39,9 @@ import {
   Store,
   Type,
   X,
+  Images,
+  SearchX,
+  Sticker,
 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { trpc } from '../../trpc/client';
@@ -46,7 +51,6 @@ import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { PokeEmojiPanel, type PokeEmojiDraft, type RandomFaceDraft } from './pokeEmojiPanel';
 import { CustomEmojiTab, ShowEmojiTab } from './showEmojiTabs';
 import {
-  favEmojiItem,
   marketFaceItem,
   relatedEmojiItem,
   systemFaceItem,
@@ -280,11 +284,13 @@ export function EmojiPanel({
             onOpenSearch={() => setSearchOpen(true)}
           />
         ) : tab === 'fav' ? (
-          <FavTab
+          <FavoritePickerTab
             loading={overview.isLoading}
             favorites={favorites}
-            emptyText="还没有收藏的自定义表情"
             onSelect={onSelect}
+            onChanged={async () => {
+              await overview.refetch();
+            }}
           />
         ) : tab === 'custom' ? (
           <CustomEmojiTab
@@ -372,7 +378,7 @@ function FaceGrid({
     return <div className={cn('emoji-state')}>加载中…</div>;
   }
   if (empty || items.length === 0) {
-    return <div className={cn('emoji-state')}>{emptyText ?? '这里还没有表情'}</div>;
+    return <EmptyState compact icon={<Smile />} title={emptyText ?? '这里还没有表情'} />;
   }
   return (
     <div
@@ -509,7 +515,12 @@ function MarketTab({
       {packages.isLoading ? (
         <div className={cn('emoji-state')}>加载中…</div>
       ) : list.length === 0 ? (
-        <div className={cn('emoji-state')}>还没有添加商城表情包，点右上「添加」去搜索</div>
+        <EmptyState
+          compact
+          icon={<Sticker />}
+          title="还没有添加商城表情包"
+          body="点右上「添加」去搜索"
+        />
       ) : (
         <div className={cn('emoji-pack-list')}>
           {list.map((pkg) => (
@@ -581,56 +592,6 @@ function MarketPackDetail({
 
 // ── 收藏 ──────────────────────────────────────────────────────────────────────
 
-function FavTab({
-  favorites,
-  onSelect,
-  loading,
-  emptyText,
-}: {
-  favorites: Array<{
-    id: string;
-    hash: string;
-    scope: string;
-    bucket: string;
-    oriFile: string | null;
-    original?: { scope: string; bucket: string; file: string } | null;
-    thumbFile: string | null;
-    remoteUrl: string;
-  }>;
-  onSelect: (item: EmojiItem) => void;
-  loading?: boolean;
-  emptyText: string;
-}) {
-  if (loading && favorites.length === 0) return <div className={cn('emoji-state')}>加载中…</div>;
-  if (favorites.length === 0) return <div className={cn('emoji-state')}>{emptyText}</div>;
-  return (
-    <div className={cn('emoji-grid emoji-big-grid')}>
-      {favorites.map((fav) => {
-        const variant = fav.thumbFile ? 'thumb' : 'ori';
-        const file = fav.thumbFile ?? fav.oriFile;
-        if (!file) return null;
-        const preview = favEmojiItem(fav.scope, fav.bucket, variant, file, fav.hash);
-        const item = fav.original
-          ? favEmojiItem(
-              fav.original.scope,
-              fav.original.bucket,
-              'ori',
-              fav.original.file,
-              fav.hash,
-            )
-          : preview;
-        return (
-          <FaceCell
-            key={fav.id}
-            cell={{ key: fav.id, title: fav.hash, item, previewSrc: preview.src }}
-            onSelect={onSelect}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
 // ── GIF ───────────────────────────────────────────────────────────────────────
 
 function GifTab({
@@ -652,7 +613,7 @@ function GifTab({
   );
 
   if (loading && tags.length === 0) return <div className={cn('emoji-state')}>加载中…</div>;
-  if (tags.length === 0) return <div className={cn('emoji-state')}>还没有 GIF 表情</div>;
+  if (tags.length === 0) return <EmptyState compact icon={<Images />} title="还没有 GIF 表情" />;
 
   const list = gifs.data ?? [];
   return (
@@ -796,7 +757,7 @@ function EmojiCatalogLightbox({
           ) : catalog.isLoading ? (
             <div className={cn('emoji-state')}>搜索中…</div>
           ) : (catalog.data?.entries ?? []).length === 0 ? (
-            <div className={cn('emoji-state')}>没有找到匹配的表情包</div>
+            <EmptyState compact icon={<SearchX />} title="没有找到匹配的表情包" />
           ) : (
             <div className={cn('emoji-pack-list')}>
               {(catalog.data?.entries ?? []).map((entry) => (

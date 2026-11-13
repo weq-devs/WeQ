@@ -52,6 +52,13 @@ export type AnnualReportPreferences = {
   exportPageIds: string[];
 };
 
+export const DEFAULT_ANNUAL_REPORT_PREFERENCES: AnnualReportPreferences = {
+  mode: 'default',
+  enabledPageIds: [],
+  order: [],
+  exportPageIds: [],
+};
+
 export type ReportManifest = {
   /** The report's period. `ALL_TIME_YEAR` (0) = 「历史以来」. */
   year: number;

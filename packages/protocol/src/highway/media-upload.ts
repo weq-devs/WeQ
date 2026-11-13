@@ -31,6 +31,7 @@ import {
 import {
   finalizeMediaMsgInfo,
   makeClientRandomId,
+  MediaBytesRequiredError,
   type MediaNative,
   type MediaSubFileUpload,
   type Ntv2UploadInfoInput,
@@ -324,6 +325,8 @@ function hashVideoBytes(bytes: Uint8Array): VideoHashes {
 
 export interface UploadImageParams {
   source: MediaSource;
+  /** 仅在指纹秒传未命中时取回原图，不提前下载。 */
+  resolveSource?: () => Promise<MediaSource>;
   /** 收端显示的文件名；缺省 `<md5><探测到的扩展名>`。 */
   fileName?: string;
   /** 图片子类型：0 普通图 / 1 动画表情 …（服务端据此归类）。缺省 0。 */
@@ -376,6 +379,31 @@ export async function uploadImageMsgInfo(
   target: MediaUploadTarget,
   params: UploadImageParams,
   options: MediaUploadOptions = {},
+): Promise<MediaUploadResult> {
+  try {
+    return await uploadImageAttempt(nt, pid, target, params, options);
+  } catch (error) {
+    if (!(error instanceof MediaBytesRequiredError) || !params.fingerprint || !params.resolveSource)
+      throw error;
+    options.log?.('图片秒传未命中，取回原图后重新上传');
+    const source = await params.resolveSource();
+    // 下载结果可能与历史指纹不同，按实际字节重算哈希并重新申请，不能复用旧 uKey。
+    return uploadImageAttempt(
+      nt,
+      pid,
+      target,
+      { ...params, source, fingerprint: undefined, resolveSource: undefined },
+      options,
+    );
+  }
+}
+
+async function uploadImageAttempt(
+  nt: MediaNative,
+  pid: number,
+  target: MediaUploadTarget,
+  params: UploadImageParams,
+  options: MediaUploadOptions,
 ): Promise<MediaUploadResult> {
   const fp = params.fingerprint;
   // 有指纹就是「转发已有图片」：不读本地文件，直接把哈希报给服务端走 fast-upload。

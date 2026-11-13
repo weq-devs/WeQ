@@ -22,6 +22,7 @@ import type { DbObject, QueryResult } from '@weq/service';
 import { client } from '../../trpc/client';
 import { cellText, cellKind } from './cellFormat';
 import { BlobHexModal } from './BlobHexModal';
+import { useRemoteClient } from '../../lib/remoteClient';
 
 const READ_RE = /^\s*(select|with|pragma|explain)\b/i;
 
@@ -38,6 +39,7 @@ export function SqlConsole({
   /** 当前所选表的索引对象，从左树迁移到此处按表查看。 */
   indices?: DbObject[];
 }): ReactElement {
+  const remote = useRemoteClient();
   const [sql, setSql] = useState('');
   const [running, setRunning] = useState(false);
   useDraftProtection(sql, running);
@@ -45,14 +47,18 @@ export function SqlConsole({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const isRead = READ_RE.test(sql);
-  const blockedWrite = !isRead && sql.trim() !== '' && !editable;
+  const isRead = (remote ? /^\s*(select|with|explain)\b/i : READ_RE).test(sql);
+  const blockedWrite = !isRead && sql.trim() !== '' && (!editable || remote);
 
   async function run(): Promise<void> {
     const trimmed = sql.trim();
     if (!trimmed || running) return;
     if (blockedWrite) {
-      setError('这是写操作（非 SELECT）。请先在右上角开启「编辑模式」后再执行。');
+      setError(
+        remote
+          ? 'WeQ Remote 的 SQL 控制台只支持 SELECT / WITH / EXPLAIN 只读查询。'
+          : '这是写操作（非 SELECT）。请先在右上角开启「编辑模式」后再执行。',
+      );
       setResult(null);
       setNotice(null);
       return;

@@ -49,6 +49,86 @@ try {
   const output = process.env.WEQ_COMPOSER_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const results = [];
+  for (const [width, height, remote] of [
+    [390, 844, true],
+    [640, 320, true],
+    [844, 390, true],
+    [1024, 768, true],
+    [820, 1180, true],
+    [1280, 874, false],
+    [640, 320, false],
+    [390, 844, false],
+    [640, 960, false],
+  ]) {
+    const page = await browser.newPage({
+      viewport: { width, height },
+      hasTouch: remote,
+      isMobile: remote,
+      ...(remote ? { userAgent: 'WeQRemote/1.0' } : {}),
+      reducedMotion: 'reduce',
+    });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.route('**/*', (route) =>
+      new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+    );
+    try {
+      await page.addInitScript(() => {
+        window.composerAutoFocusEvents = [];
+        document.addEventListener('focusin', (event) => {
+          if (event.target.matches('.composer-editor')) window.composerAutoFocusEvents.push(true);
+        });
+      });
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?mobile-input&composer-actions&count=30`,
+      );
+      const editor = page.locator('.composer > .composer-editor');
+      await editor.waitFor();
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      const automatic = !remote;
+      assert.equal(
+        await page.evaluate(() => window.composerAutoFocusEvents.length > 0),
+        automatic,
+        `首次进入自动聚焦错误: ${width}×${height} / Remote ${remote}`,
+      );
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.setProperty(
+            '--weq-accent-effective',
+            theme === 'light' ? '#15764a' : '#ebbd51',
+          );
+        }, theme);
+        if (remote) await editor.tap();
+        else await editor.click();
+        await page.keyboard.type('manual input');
+        assert(await editor.evaluate((node) => document.activeElement === node));
+        assert.equal(await editor.textContent(), 'manual input');
+        await editor.evaluate((node) => node.blur());
+        await page.evaluate(() => window.timelineTest.reenter());
+        await page.waitForFunction(
+          () => document.querySelector('.composer > .composer-editor').textContent === '',
+        );
+        await page.waitForFunction(
+          (automatic) =>
+            (document.activeElement === document.querySelector('.composer > .composer-editor')) ===
+            automatic,
+          automatic,
+        );
+        if (output)
+          await page.screenshot({
+            path: resolve(
+              output,
+              `${theme}-${width}-${height}-${remote ? 'remote' : 'desktop'}-focus.png`,
+            ),
+          });
+        results.push({ focus: true, width, height, remote, theme });
+      }
+      assert.deepEqual(errors, []);
+    } finally {
+      await page.close();
+    }
+  }
   for (const width of [320, 402, 430, 1280]) {
     const page = await browser.newPage({
       viewport: { width, height: 874 },
@@ -81,8 +161,12 @@ try {
         .locator('.composer-tools button')
         .evaluateAll((buttons) => buttons.map((button) => button.title));
       assert.equal(await editor.getAttribute('enterkeyhint'), 'send');
-      assert(await send.isVisible());
+      assert.equal(await send.isVisible(), width > 760);
       assert(await send.isDisabled());
+      const sendCurrentMessage = async () => {
+        if (width <= 760) await editor.press('Enter');
+        else await send.tap();
+      };
       for (const theme of ['light', 'dark']) {
         await page.evaluate((theme) => {
           window.visualViewport.height = 874;
@@ -96,6 +180,42 @@ try {
         }, theme);
         await editor.fill('连续发送第一条');
         if (width <= 760) {
+          const field = await editor.evaluate((node) => {
+            const box = node.getBoundingClientRect();
+            const composer = node.closest('.composer');
+            const parent = composer.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const context = canvas.getContext('2d');
+            const brightness = (color) => {
+              context.fillStyle = color;
+              context.fillRect(0, 0, 1, 1);
+              const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
+              return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+            };
+            return {
+              left: box.left - parent.left,
+              right: parent.right - box.right,
+              paddingLeft: style.paddingLeft,
+              paddingRight: style.paddingRight,
+              radius: style.borderRadius,
+              brightnessDifference:
+                brightness(style.backgroundColor) -
+                brightness(getComputedStyle(composer).backgroundColor),
+              shadow: style.boxShadow,
+            };
+          });
+          assert.equal(await send.isVisible(), false, '竖屏不显示独立发送键');
+          assert.equal(field.left, field.right, JSON.stringify(field));
+          assert.equal(field.paddingLeft, field.paddingRight, '正文仍为发送键预留空白');
+          assert.equal(field.radius, '8px');
+          // 应用宝 QQ 官方安卓截图为浅灰底栏上的白色输入框，输入框应比底栏亮。
+          assert(
+            field.brightnessDifference >= 12,
+            `输入框与工具栏底色未拉开: ${JSON.stringify(field)}`,
+          );
+          assert.equal(field.shadow, 'none', '输入框应通过底色而不是描边区分');
           const beforePadding = await page
             .locator('.composer')
             .evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingBottom));
@@ -120,7 +240,7 @@ try {
           assert(Math.abs(geometry.bottom - 430) < 1, '输入区没有跟随键盘可视视口');
           assert(geometry.gap <= 6.1, '工具栏下方仍留有额外安全区空白');
         }
-        await send.tap();
+        await sendCurrentMessage();
         assert(
           await editor.evaluate((node) => document.activeElement === node),
           '发送导致输入框失焦',
@@ -176,23 +296,28 @@ try {
             window.visualViewport.height = 430;
             window.visualViewport.dispatchEvent(new Event('resize'));
           });
-          await send.tap();
+          await sendCurrentMessage();
           await editor.fill('中文选词');
           await editor.dispatchEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true });
           assert.equal(await editor.textContent(), '中文选词');
           await editor.fill('多行正文\n'.repeat(10));
           const expand = page.locator('.mobile-composer-expand-button');
           await expand.waitFor({ state: 'visible' });
-          const overlap = await page.evaluate(() => {
-            const send = document
-              .querySelector('.composer > .composer-send')
-              .getBoundingClientRect();
+          const expandFits = await page.evaluate(() => {
+            const editor = document.querySelector('.composer > .composer-editor');
+            const field = editor.getBoundingClientRect();
             const expand = document
               .querySelector('.mobile-composer-expand-button')
               .getBoundingClientRect();
-            return expand.right > send.left;
+            return (
+              expand.right <= field.right &&
+              expand.left >=
+                field.right - Number.parseFloat(getComputedStyle(editor).paddingRight) &&
+              expand.top >= field.top &&
+              expand.bottom <= field.bottom
+            );
           });
-          assert(!overlap, '长文展开按钮与发送按钮重叠');
+          assert(expandFits, '长文展开按钮超出输入框或遮挡正文');
           await expand.tap();
           const expanded = page.locator('.mobile-composer-expanded-editor');
           assert.equal(await expanded.getAttribute('enterkeyhint'), 'enter');
@@ -230,6 +355,15 @@ try {
             path: resolve(output, `${theme}-${width}-input.png`),
             clip: { x: 0, y: 0, width, height: width <= 760 ? 430 : 874 },
           });
+        if (width <= 760) {
+          // 超级表情预览隐藏正文、没有键盘，单独复核该布局的确认入口。
+          await page.locator('.composer').evaluate((node) => node.classList.add('has-single-send'));
+          assert(await send.isVisible(), '无正文键盘的超级表情预览缺少发送入口');
+          await page
+            .locator('.composer')
+            .evaluate((node) => node.classList.remove('has-single-send'));
+          assert.equal(await send.isVisible(), false);
+        }
         results.push({ width, theme });
       }
       assert.deepEqual(errors, []);

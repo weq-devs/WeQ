@@ -69,6 +69,17 @@ it('成功但无 usage 的实际请求仍记录一次未知用量', async () => 
   expect(f.updates.at(-1)).toMatchObject({ status: 'success', totalTokens: null });
 });
 
+it('请求开始时固定服务商身份与名称，不保存地址或认证信息', () => {
+  const f = fixture();
+  const endpoint = { ...f.endpoint, providerId: 'provider-a', providerName: '配置 A' };
+  const call = beginApiUsage(endpoint);
+  endpoint.providerName = '配置 B';
+  call.finish('success');
+  expect(f.updates.at(-1)).toMatchObject({ providerId: 'provider-a', providerName: '配置 A' });
+  expect(f.updates.at(-1)).not.toHaveProperty('apiKey');
+  expect(f.updates.at(-1)).not.toHaveProperty('baseUrl');
+});
+
 it.each(['http', 'network', 'cancel', 'timeout', 'provider'] as const)(
   '真实 %s 失败或取消保留未知账目',
   async (mode) => {
@@ -134,4 +145,19 @@ it('记账回调抛错不改变实际请求结果，不诱导重试', async () =
       {},
     ),
   ).resolves.toEqual({ ok: true });
+});
+it('无用量变化的流式帧不重复写账本，真实变化及结束仍上报', () => {
+  const onUsage = vi.fn();
+  const usage = beginApiUsage(
+    { baseUrl: 'https://fixture.invalid', apiKey: 'fixture', model: 'fixture', onUsage },
+    true,
+  );
+  for (let i = 0; i < 1000; i++) usage.report({ choices: [{ delta: { content: '字' } }] });
+  expect(onUsage).toHaveBeenCalledTimes(1);
+  usage.report({ usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+  usage.report({ usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+  expect(onUsage).toHaveBeenCalledTimes(2);
+  usage.finish('success');
+  expect(onUsage).toHaveBeenCalledTimes(3);
+  expect(onUsage.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'success', totalTokens: 15 });
 });

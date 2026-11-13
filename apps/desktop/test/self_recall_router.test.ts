@@ -31,20 +31,22 @@ vi.mock('../src/main/context/app_context', async () => {
     },
     msgs: { getRecalledMessages: fixture.nativeRecalls },
   };
+  const bootstrap = () => ({
+    ocrModels: { listByKind: () => [] },
+    userConfig: {
+      getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: false } }),
+      getLocalModelId: () => null,
+    },
+  });
   return {
     accountEventBus: new EventEmitter(),
     dbEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: fixture.switched ? null : account,
       services,
-      bootstrap: {
-        ocrModels: { listByKind: () => [] },
-        userConfig: {
-          getSettings: () => ({ autoAttachQq: true }),
-          getLocalModelId: () => null,
-        },
-      },
+      bootstrap: bootstrap(),
     }),
+    requireBootstrap: bootstrap,
   };
 });
 const params = {

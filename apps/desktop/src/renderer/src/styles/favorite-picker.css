@@ -1,0 +1,38 @@
+.weq-favorite-picker-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.weq-favorite-picker-editor {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  color: var(--weq-fg-primary);
+}
+.weq-favorite-picker-editor label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.weq-favorite-picker-editor input {
+  min-width: 0;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: inherit;
+  caret-color: var(--weq-accent-effective);
+}
+.weq-favorite-picker-editor input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-favorite-picker-editor > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

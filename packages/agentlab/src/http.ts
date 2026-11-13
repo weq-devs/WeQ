@@ -1,3 +1,4 @@
+import { calendarParts, formatClock } from '@weq/time';
 import type {
   AgentLabChatAction,
   AgentLabChatRequest,
@@ -193,12 +194,8 @@ function pickLengthLean(burst: number): string {
  * 没有它，模型会以为永远是训练语料里的那个时间，答非所问。
  */
 function describeNow(now: Date): string {
-  const y = now.getFullYear();
-  const mo = now.getMonth() + 1;
-  const d = now.getDate();
-  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getDay()];
-  const h = now.getHours();
-  const min = now.getMinutes();
+  const { year: y, month: mo, day: d, weekday, hour: h } = calendarParts(now)!;
+  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][weekday];
   const period =
     h < 5
       ? '凌晨'
@@ -215,9 +212,8 @@ function describeNow(now: Date): string {
                 : h < 23
                   ? '晚上'
                   : '深夜';
-  const hh = String(h).padStart(2, '0');
-  const mm = String(min).padStart(2, '0');
-  return `现在是 ${y}年${mo}月${d}日 ${week} ${period} ${hh}:${mm}。`;
+
+  return `现在是 ${y}年${mo}月${d}日 ${week} ${period} ${formatClock(now)}（北京时间）。`;
 }
 
 /** 每轮低概率挑一条备用表达风格（没有 / 没抽中就返回 undefined，保持平时语气）。 */
@@ -775,7 +771,7 @@ export async function runPersonaChat(
     !!req.voiceEnabled,
     req.relationNote,
   );
-  const messages = [
+  const messages: Array<{ role: string; content: string | AiContentPart[] }> = [
     { role: 'system', content: system },
     // 历史里的内部表情标记 [[sticker:md5]] 脱敏成 [表情]，否则模型会照着历史模仿、
     // 把这个内部格式（连带真实 md5）原样吐回来。
@@ -792,18 +788,29 @@ export async function runPersonaChat(
       content: `【你决定接这句话】原因：${replyReason}。就顺着这个念头自然地开口，别在回复里复述或解释这个原因。`,
     });
   }
-  messages.push({ role: 'user', content: req.input });
+  messages.push({ role: 'user', content: req.inputContent ?? req.input });
 
-  const data = await postJson<{
-    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-    usage?: OpenAiUsage;
-  }>(chat, '/chat/completions', {
-    model: chat.model,
-    // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
-    temperature: generation.temperature ?? 0.7 + willing.score * 0.2,
-    ...(generation.maxOutputTokens > 0 ? { max_tokens: generation.maxOutputTokens } : {}),
-    messages,
-  });
+  const request = () =>
+    postJson<{
+      choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      usage?: OpenAiUsage;
+    }>(chat, '/chat/completions', {
+      model: chat.model,
+      // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
+      temperature: generation.temperature ?? 0.7 + willing.score * 0.2,
+      ...(generation.maxOutputTokens > 0 ? { max_tokens: generation.maxOutputTokens } : {}),
+      messages,
+    });
+  let data: Awaited<ReturnType<typeof request>>;
+  try {
+    data = await request();
+  } catch (error) {
+    chat.signal?.throwIfAborted();
+    if (!req.fallbackImageInput || (error instanceof Error && error.name === 'AbortError'))
+      throw error;
+    messages[messages.length - 1] = { role: 'user', content: await req.fallbackImageInput() };
+    data = await request();
+  }
   const raw = pickMessageText(data.choices?.[0]?.message);
   if (!raw) {
     throw new Error('AgentLab chat 返回为空');
@@ -858,3 +865,4 @@ export async function runPersonaChat(
   };
 }
 import { normalizeCloneGeneration } from './generation';
+import type { AiContentPart } from './images';

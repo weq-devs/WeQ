@@ -135,9 +135,31 @@ try {
         unratedPillResponsive:
           css(`${pill} > span`).display === (innerWidth <= 720 ? 'none' : 'block') &&
           (innerWidth > 720 || css(pill).width === '36px'),
-        scoredPillUnchanged:
-          color('.weq-affinity-pill.tier-2') === '#ffffff' &&
-          css('.weq-affinity-pill.tier-2').backgroundImage.includes('linear-gradient'),
+        // 好感度胶囊改用五档语义 token（实心档位色 + --weq-int-on-tier 前景），
+        // 不再用白色渐变。这里按现行契约逐档检查：前景/背景取 token、无渐变、对比度达标。
+        scoredPillTiers: (() => {
+          const host = document.querySelector('.weq-affinity-pill.tier-2')?.parentElement;
+          if (!host) return false;
+          const root = getComputedStyle(document.documentElement);
+          const onTier = pixel(root.getPropertyValue('--weq-int-on-tier'));
+          return [0, 1, 2, 3, 4].every((tier) => {
+            const node = document.createElement('button');
+            node.type = 'button';
+            node.className = `weq-affinity-pill tier-${tier}`;
+            node.textContent = '60';
+            host.appendChild(node);
+            const computed = getComputedStyle(node);
+            const foreground = pixel(computed.color);
+            const background = pixel(computed.backgroundColor);
+            const ok =
+              foreground === onTier &&
+              background === pixel(root.getPropertyValue(`--weq-int-tier-${tier}`)) &&
+              computed.backgroundImage === 'none' &&
+              window.styleConsistency.contrastRatio(foreground, background) >= 4.5;
+            node.remove();
+            return ok;
+          });
+        })(),
         arkBody: pixel(getComputedStyle(detail).color) === token('--weq-fg-primary'),
         flashContrast:
           window.styleConsistency.contrastRatio(

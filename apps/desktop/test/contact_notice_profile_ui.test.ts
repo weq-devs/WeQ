@@ -39,7 +39,7 @@ const friend: ContactRequest = {
   direction: 'incoming',
   status: 'accepted',
   user,
-  createdAt: '2026-10-19T01:00:00Z',
+  createdAt: '2026-10-19T01:00:37Z',
   respondedAt: null,
   message: '你好',
 };
@@ -88,9 +88,9 @@ function fixture(element: ReactNode) {
 function click(host: HTMLElement, detail = 1) {
   const button = host.querySelector<HTMLButtonElement>('[aria-label="查看 申请人 的名片"]')!;
   act(() =>
-    button.dispatchEvent(
-      new MouseEvent('click', { bubbles: true, detail, clientX: 42, clientY: 64 }),
-    ),
+    button
+      .querySelector('.notice-who')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, detail, clientX: 42, clientY: 64 })),
   );
   return button;
 }
@@ -111,6 +111,19 @@ describe('通知头像名片入口', () => {
     (Dialog) => {
       const close = vi.fn();
       const host = fixture(h(Dialog, { open: true, requests: [], onClose: close }));
+      // eslint-disable-next-line no-console
+      console.log(
+        'SURFACES',
+        [
+          ...document.querySelectorAll(
+            '[aria-modal="true"], [role="dialog"], .weq-overlay-layer, .weq-dialog-layer',
+          ),
+        ]
+          .map((n) => n.className || n.tagName)
+          .join(' | '),
+        '| host:',
+        host.innerHTML.slice(0, 120),
+      );
       act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
       expect(close).toHaveBeenCalledOnce();
       const outside = document.createElement('button');
@@ -161,6 +174,74 @@ describe('通知头像名片入口', () => {
     );
     click(host);
     expect(open).toHaveBeenCalledWith(user, { x: 42, y: 64 }, { code: '123', name: '通知所属群' });
+  });
+  it('群名打开通知所属群的群名片，不关闭通知或打开申请人名片', () => {
+    const open = vi.fn(),
+      profile = vi.fn(),
+      close = vi.fn();
+    const host = fixture(
+      h(GroupNoticeDialog, {
+        open: true,
+        requests: [{ ...group, action: '退出了群聊' }],
+        onClose: close,
+        onOpenProfile: profile,
+        onOpenGroupProfile: open,
+      }),
+    );
+    const button = host.querySelector<HTMLButtonElement>('button.notice-group-name');
+    expect(button).not.toBeNull();
+    act(() => button!.click());
+    expect(open).toHaveBeenCalledWith({ code: '123', name: '通知所属群' }, button);
+    expect(close).not.toHaveBeenCalled();
+    expect(profile).not.toHaveBeenCalled();
+  });
+  it('好友和群通知显示北京时间日期与时分秒，群处理时间同样到秒', () => {
+    const friendHost = fixture(
+      h(ContactNoticeDialog, { open: true, requests: [friend], onClose: vi.fn() }),
+    );
+    const groupHost = fixture(
+      h(GroupNoticeDialog, {
+        open: true,
+        requests: [{ ...group, operator: user, respondedAt: '2026-10-19T02:03:49Z' }],
+        onClose: vi.fn(),
+      }),
+    );
+    for (const host of [friendHost, groupHost]) {
+      expect(host.querySelector('.notice-meta time')?.textContent).toBe('2026-10-19 09:00:37');
+      expect(host.querySelector('.notice-meta time')?.getAttribute('datetime')).toBe(
+        friend.createdAt,
+      );
+    }
+    expect(groupHost.querySelector('.notice-operator')?.textContent).toContain(
+      '2026-10-19 10:03:49',
+    );
+  });
+  it.each(['group', 'filteredGroup'] as const)('在线 %s 申请的群名也能打开群名片', (kind) => {
+    state.operations = [
+      {
+        kind,
+        token: 'opaque',
+        uid: user.id,
+        uin: '10002',
+        name: '申请人',
+        message: '你好',
+        groupId: '456',
+        groupName: '在线申请群',
+      },
+    ];
+    const open = vi.fn();
+    const host = fixture(
+      h(GroupNoticeDialog, {
+        open: true,
+        requests: [],
+        onClose: vi.fn(),
+        onOpenGroupProfile: open,
+      }),
+    );
+    const button = host.querySelector<HTMLButtonElement>('button.notice-group-name');
+    expect(button).not.toBeNull();
+    act(() => button!.click());
+    expect(open).toHaveBeenCalledWith({ code: '456', name: '在线申请群' }, button);
   });
   it.each(['friend', 'doubtFriend', 'group', 'filteredGroup'] as const)(
     '在线申请 %s 的头像也能查看名片，仅 QQ 号不伪造 UID',

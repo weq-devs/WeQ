@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * DeletedMessagesModal — the "删除列表": browse the messages WeQ deleted in one
  * conversation and bring any of them back.
@@ -21,6 +22,7 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { ConvContext, ForwardKindContext } from '../QqMessageContent';
@@ -42,11 +44,7 @@ type DeletedKind = 'weq' | 'qq';
 
 /** Format an ISO message timestamp as a short local date-time. */
 function formatMessageTime(iso: string | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return timeFormat.formatDateTime(iso);
 }
 
 /** A deleted message plus the labels/keys the header + filters need. */
@@ -242,7 +240,9 @@ export function DeletedMessagesModal({
           <ConvContext.Provider value={convKey}>
             <div className={cn('message-scroll', 'weq-deleted-scroll')}>
               {loading ? (
-                <div className="weq-deleted-empty">加载中…</div>
+                <div className="weq-deleted-empty" role="status">
+                  <LoadingIndicator />
+                </div>
               ) : rows.length === 0 ? (
                 <div className="weq-deleted-empty">
                   <Trash2 size={26} />

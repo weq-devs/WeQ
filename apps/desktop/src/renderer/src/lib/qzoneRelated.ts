@@ -9,6 +9,7 @@ export interface RelatedComment {
   isReply?: boolean;
   parentCommentId?: string;
   replyId?: string;
+  source?: 'search';
 }
 
 export function relatedActionLine(activity: RelatedActivity): string {

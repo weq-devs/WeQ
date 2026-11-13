@@ -68,19 +68,83 @@
   color: var(--weq-fg-secondary);
 }
 
-.weq-storage-group .weq-set-cache-item {
-  color: var(--weq-fg-primary);
-  border-color: var(--weq-border-subtle);
+.weq-storage-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+  min-width: 0;
+}
+
+.weq-storage-item + .weq-storage-item {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-storage-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 复用勾选行为与方框主题，列表标题不继承胶囊的外框和控件皮肤。 */
+html[data-theme] body .weq-storage-settings .weq-storage-item .weq-set-chk {
+  --weq-control-shadow: none;
+  --weq-control-radius: 0px;
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
 }
 
-.weq-storage-group .weq-set-cache-item:not(.is-readonly):hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
-  border-color: var(--weq-accent-effective);
+.weq-storage-item .weq-set-chk-label,
+.weq-storage-item-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.weq-storage-group .is-readonly {
-  cursor: default;
+.weq-storage-item-label {
+  flex: 1;
+  min-height: 32px;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.weq-storage-item-head svg {
+  flex: none;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-storage-item-head .weq-set-chk:hover:not(:disabled) .weq-set-chk-label {
+  color: var(--weq-accent-ink);
+}
+
+.weq-storage-item-head .weq-set-chk:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+html[data-theme] body .weq-storage-settings .weq-storage-item .weq-set-chk:disabled {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-storage-item > .weq-storage-detail {
+  padding-left: 44px;
+}
+
+.weq-storage-item-actions {
+  margin-top: 4px;
 }
 
 .weq-storage-detail {
@@ -93,17 +157,21 @@
 }
 
 .weq-storage-detail small,
-.weq-storage-group .weq-set-cache-size,
-.weq-storage-group .weq-set-cache-item svg {
-  color: var(--weq-fg-muted);
+.weq-storage-group .weq-set-cache-size {
+  color: var(--weq-fg-secondary);
 }
 
 .weq-storage-path {
   font-size: 11px;
   white-space: pre-line;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .weq-storage-group .weq-set-cache-size {
+  margin-left: auto;
   flex: none;
   white-space: nowrap;
 }
@@ -157,19 +225,8 @@ html[data-theme='dark'] .weq-storage-category summary:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
-html[data-theme='dark'] .weq-storage-group .weq-set-cache-item {
-  color: var(--weq-fg-primary);
-  border-color: var(--weq-border-subtle);
-  background: transparent;
-}
-
-html[data-theme='dark'] .weq-storage-group .weq-set-cache-item:not(.is-readonly):hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  border-color: var(--weq-accent-effective);
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .weq-storage-group .weq-set-cache-item {
+  .weq-storage-item .weq-set-chk {
     transition: none;
   }
 }

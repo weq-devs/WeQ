@@ -380,41 +380,62 @@ it('替换自动进入目标的账号配置时清除旧自动进入，不自动�
   expect(read(join(f.root, 'config.json')).autoEnter).toBeNull();
 });
 
-it.each(['skip', 'overwrite'] as const)(
-  '默认模型恢复兼容旧备份、明确清空及本机冲突（%s）',
-  (conflict) => {
-    const localRef = { providerId: 'local', model: 'local-chat' };
-    const importedRef = { providerId: 'imported', model: 'imported-chat' };
-    for (const local of [undefined, null, localRef]) {
-      for (const incoming of [undefined, null, importedRef]) {
-        const f = fixture();
-        write(join(f.root, 'config.json'), {
-          ...f.initial,
-          settings: {
-            ...f.initial.settings,
-            agentLab: { providers: [], ...(local !== undefined ? { defaultModel: local } : {}) },
+it.each([
+  ['skip', 'defaultModel'],
+  ['overwrite', 'defaultModel'],
+  ['skip', 'defaultVisionModel'],
+  ['overwrite', 'defaultVisionModel'],
+  ['skip', 'defaultEmbeddingModel'],
+  ['overwrite', 'defaultEmbeddingModel'],
+] as const)('默认模型恢复兼容旧备份、明确清空及本机冲突（%s/%s）', (conflict, field) => {
+  const localRef = { providerId: 'local', model: 'local-chat' };
+  const importedRef = { providerId: 'imported', model: 'imported-chat' };
+  for (const local of [undefined, null, localRef]) {
+    for (const incoming of [undefined, null, importedRef]) {
+      const f = fixture();
+      write(join(f.root, 'config.json'), {
+        ...f.initial,
+        settings: {
+          ...f.initial.settings,
+          agentLab: { providers: [], ...(local !== undefined ? { [field]: local } : {}) },
+        },
+      });
+      const archive = buildWeqBackup([
+        file('api/settings.json', {
+          agentLab: {
+            providers: [],
+            ...(incoming !== undefined ? { [field]: incoming } : {}),
           },
-        });
-        const archive = buildWeqBackup([
-          file('api/settings.json', {
-            agentLab: {
-              providers: [],
-              ...(incoming !== undefined ? { defaultModel: incoming } : {}),
-            },
-          }),
-        ]);
-        stageWeqBackupRestore(f.root, archive, { parts: ['api'], conflict });
-        expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
-        const config = read(join(f.root, 'config.json')) as {
-          settings: { agentLab: { defaultModel?: unknown } };
-        };
-        const expected =
-          incoming === undefined || (conflict === 'skip' && local !== undefined) ? local : incoming;
-        expect(config.settings.agentLab.defaultModel).toEqual(expected);
-      }
+        }),
+      ]);
+      stageWeqBackupRestore(f.root, archive, { parts: ['api'], conflict });
+      expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+      const config = read(join(f.root, 'config.json')) as {
+        settings: { agentLab: Record<string, unknown> };
+      };
+      const expected =
+        incoming === undefined || (conflict === 'skip' && local !== undefined) ? local : incoming;
+      expect(config.settings.agentLab[field]).toEqual(expected);
     }
-  },
-);
+  }
+});
+
+it.each([false, true])('旧退出提醒字段在真实备份恢复事务中被丢弃：%s', (quitConfirmSuppressed) => {
+  const f = fixture();
+  write(join(f.root, 'config.json'), {
+    ...f.initial,
+    settings: { ...f.initial.settings, quitConfirmSuppressed: true },
+  });
+  stageWeqBackupRestore(
+    f.root,
+    buildWeqBackup([file('settings/app.json', { quitConfirmSuppressed, showMessageTime: false })]),
+    { parts: ['settings'], conflict: 'overwrite' },
+  );
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const saved = read(join(f.root, 'config.json'));
+  expect(saved.settings).not.toHaveProperty('quitConfirmSuppressed');
+  expect(saved.settings).toHaveProperty('showMessageTime', false);
+});
 
 it.each(['skip', 'overwrite'] as const)(
   'API 按稳定 ID %s 合并，同名不同 ID 不覆盖，TTS 位于真实设置字段',
@@ -765,6 +786,7 @@ it('由真实存储服务写出的完整克隆／助手数据可往返，不复�
     'aborted',
   );
   const snapshot = snapshotWeqClones(sourceRoot);
+  expect(snapshot.files.some((file) => file.path.endsWith('/assistant.json'))).toBe(false);
   const original = snapshot.files.map((entry) => ({
     path: entry.path,
     data: Buffer.from(entry.data),
@@ -815,7 +837,13 @@ it('由真实存储服务写出的完整克隆／助手数据可往返，不复�
     restoredUsage,
     new ConversationStore(join(destination, 'conversations.json')),
   );
-  expect(restoredAssistant.getConfig()).toEqual(assistant.getConfig());
+  expect(restoredAssistant.getConfig()).toMatchObject({
+    permissionMode: 'sandbox',
+    model: { useDefault: true },
+  });
+  expect(JSON.parse(readFileSync(join(source, 'assistant.json'), 'utf8'))).toMatchObject({
+    customPrompt: '合成助手配置',
+  });
   expect(restoredAssistant.listSessions()[0]?.id).toBe(assistantSession.id);
   expect(readFileSync(join(destination, 'reports', report.id), 'utf8')).toBe(
     '<h1>合成报告内容</h1>',

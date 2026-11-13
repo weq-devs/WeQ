@@ -5,95 +5,49 @@ import {
   createUnreadTargetRefresh,
   createUnreadUpdateGuard,
   retryConversationRead,
-  unreadBadgeTargets,
-  UNREAD_COUNT_BATCH_SIZE,
-  UNREAD_WATERMARK_BATCH_SIZE,
-  createUnreadCountCache,
+  UNREAD_BATCH_SIZE,
+  createUnreadRefreshState,
 } from '../src/renderer/src/lib/unreadRefresh';
 
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
-  it('已完成统计不随无关库写入重算，同水位历史修正低频校准，阅读和水位变化立即校准', () => {
-    vi.useFakeTimers();
-    const cache = createUnreadCountCache();
-    const guard = createUnreadUpdateGuard();
-    const row = { chatType: 2, uid: '777', msgSeq: '1', latestSeq: '100' };
-    expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
-    cache.remember({ ...row, countPending: true }, 1, guard.revision());
-    cache.remember({ ...row, readError: true }, 1, guard.revision());
-    expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
-    cache.remember(row, 1, guard.revision());
-    for (let poll = 0; poll < 20; poll++) {
-      vi.advanceTimersByTime(1500);
-      expect(cache.needsCount(row, poll + 1, guard.accepts)).toBe(false);
-      expect(cache.needsReconcile(poll + 1)).toBe(false);
-    }
-    vi.advanceTimersByTime(30000);
-    expect(cache.needsCount(row, 2, guard.accepts)).toBe(true);
-    // 一次库变化后即使再无通知、也没有红点，周期检查仍能补齐同水位修正。
-    expect(cache.needsReconcile(2)).toBe(true);
-    expect(cache.needsReconcile(1)).toBe(false);
-    expect(cache.needsCount(row, 1, guard.accepts)).toBe(false);
-    expect(cache.needsCount({ ...row, msgSeq: '2' }, 1, guard.accepts)).toBe(true);
-    expect(cache.needsCount({ ...row, latestSeq: '101' }, 1, guard.accepts)).toBe(true);
-    expect(cache.needsCount({ ...row, chatType: 1 }, 1, guard.accepts)).toBe(true);
-    guard.begin([row.uid])();
-    expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
-    cache.remember(row, 1, guard.revision());
-    expect(cache.needsCount(row, 1, guard.accepts)).toBe(false);
+  it('操作回显直接使用小表数量，不再有待精算分支', () => {
+    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    expect(source).not.toContain('countPending');
+    expect(source).not.toContain('countCache');
   });
-  it('五千会话稳定水位只快查，不随其它会话持续写库反复补算', () => {
-    vi.useFakeTimers();
-    const cache = createUnreadCountCache();
-    const guard = createUnreadUpdateGuard();
-    const rows = Array.from({ length: 5000 }, (_, index) => ({
-      chatType: 2,
-      uid: String(index),
-      msgSeq: '1',
-      latestSeq: '100',
-      unreadCount: 0,
-    }));
-    for (const row of rows) cache.remember(row, 1, guard.revision());
-    expect(Math.ceil(rows.length / UNREAD_WATERMARK_BATCH_SIZE)).toBe(20);
-    for (let pass = 0; pass < 3; pass++) {
-      vi.advanceTimersByTime(15000);
-      expect(rows.filter((row) => cache.needsCount(row, pass + 2, guard.accepts))).toEqual([]);
-    }
-    const changed = { ...rows[100]!, latestSeq: '101' };
-    expect(cache.needsCount(changed, 4, guard.accepts)).toBe(true);
-    vi.advanceTimersByTime(15000);
-    expect(rows.filter((row) => cache.needsCount(row, 4, guard.accepts))).toHaveLength(5000);
+  it('同账号重建保留操作保护，换账号或同号换目录后隔离', () => {
+    const state = createUnreadRefreshState();
+    const first = state.bind('account:source-a');
+    const finish = first.guard.begin(['u_fixture']);
+    const same = state.bind('account:source-a');
+    expect(same.changed).toBe(false);
+    expect(same.guard).toBe(first.guard);
+    expect(same.guard.accepts('u_fixture', same.guard.revision())).toBe(false);
+    finish();
+    const other = state.bind('account:source-b');
+    expect(other.changed).toBe(true);
+    expect(other.guard).not.toBe(first.guard);
   });
-  it('水位相同但提醒变化时不复用旧统计，失败不延长校准期限', () => {
-    vi.useFakeTimers();
-    const cache = createUnreadCountCache();
-    const guard = createUnreadUpdateGuard();
-    const row = { chatType: 2, uid: '777', msgSeq: '1', latestSeq: '100' };
-    cache.remember(row, 1, guard.revision());
-    const highlighted = { ...row, highlights: [{ msgSeq: 90, text: 'reminder' }] };
-    expect(cache.needsCount(highlighted, 1, guard.accepts)).toBe(true);
-    cache.remember(highlighted, 1, guard.revision());
-    expect(cache.needsCount({ ...highlighted }, 2, guard.accepts)).toBe(false);
-    expect(cache.needsCount(row, 2, guard.accepts)).toBe(true);
-    vi.advanceTimersByTime(59000);
-    cache.remember({ ...highlighted, readError: true }, 2, guard.revision());
-    vi.advanceTimersByTime(1000);
-    expect(cache.needsCount(highlighted, 2, guard.accepts)).toBe(true);
+  it('启动批次并行读取并合并为一次回显，不等首屏消息、不逐会话统计', () => {
+    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    const effect = source.slice(
+      source.indexOf('const unreadContactsRef'),
+      source.indexOf('const unreadDirectoryKey'),
+    );
+    expect(source).toMatch(/Promise\.all\(\s*batches\.map\(/);
+    expect(effect).toContain('await readUnreadInfos({ ...binding, targets })');
+    expect(effect).not.toContain('initialized');
+    expect(effect).not.toContain('startupTargets');
+    expect(effect).toContain('applyLive(rows, startedAt)');
+    expect(effect).not.toContain('setInterval');
+    expect(effect).not.toContain('while (isCurrent() && initialMessagesPendingRef.current)');
+    expect(effect).not.toContain('watermarksOnly');
+    expect(effect).toMatch(
+      /if \([^)]*changed[^)]*\) \{\s*setReadUndo\(null\);\s*setUnreadByConv\(\{\}\);/,
+    );
   });
-  it('移出目录的旧会话不让到期检查持续触发空校准', () => {
-    vi.useFakeTimers();
-    const cache = createUnreadCountCache();
-    const guard = createUnreadUpdateGuard();
-    const row = { chatType: 2, uid: '777', msgSeq: '1', latestSeq: '100' };
-    cache.remember(row, 1, guard.revision());
-    vi.advanceTimersByTime(60000);
-    expect(cache.needsReconcile(2)).toBe(true);
-    cache.retain([{ chatType: 1, uid: '777' }]);
-    expect(cache.needsReconcile(2)).toBe(false);
-    expect(cache.needsCount(row, 1, guard.accepts)).toBe(true);
-  });
-
   it('慢水位轮询执行中不积压重复目标，定向新消息仍可补读一轮', async () => {
     vi.useFakeTimers();
     let release!: () => void;
@@ -121,7 +75,7 @@ describe('未读刷新调度', () => {
     vi.useFakeTimers();
     const target = { chatType: 2, uid: '777' };
     const load = vi.fn(async (_targets: (typeof target)[]) => true);
-    const sync = createUnreadTargetRefresh(load, undefined, UNREAD_WATERMARK_BATCH_SIZE, 1500);
+    const sync = createUnreadTargetRefresh(load, undefined, UNREAD_BATCH_SIZE, 1500);
     sync.request([target], false);
     await vi.advanceTimersByTimeAsync(0);
     for (let notice = 0; notice < 10; notice++) {
@@ -138,30 +92,6 @@ describe('未读刷新调度', () => {
     expect(load).toHaveBeenLastCalledWith([target]);
     sync.dispose();
   });
-  it('精确统计使用小批次，逐批交付且不改变水位快查的批次上限', async () => {
-    vi.useFakeTimers();
-    const targets = Array.from({ length: UNREAD_COUNT_BATCH_SIZE * 2 + 1 }, (_, index) => ({
-      chatType: 2,
-      uid: String(index),
-    }));
-    const load = vi.fn(async (_batch: typeof targets) => true);
-    const count = createUnreadTargetRefresh(load, undefined, UNREAD_COUNT_BATCH_SIZE);
-    count.request(targets);
-    await vi.advanceTimersByTimeAsync(100);
-    expect(load.mock.calls.map(([batch]) => batch.length)).toEqual([
-      UNREAD_COUNT_BATCH_SIZE,
-      UNREAD_COUNT_BATCH_SIZE,
-      1,
-    ]);
-    expect(load.mock.calls.flatMap(([batch]) => batch)).toEqual(targets);
-    count.dispose();
-    const fast = createUnreadTargetRefresh(load);
-    load.mockClear();
-    fast.request(targets);
-    await vi.advanceTimersByTimeAsync(100);
-    expect(load).toHaveBeenCalledOnce();
-    fast.dispose();
-  });
   it('五千会话分批完成，超容量明确请求补扫，不静默丢失', async () => {
     vi.useFakeTimers();
     const load = vi.fn(async (_targets: Array<{ chatType: number; uid: string }>) => true);
@@ -176,56 +106,6 @@ describe('未读刷新调度', () => {
     expect(fallback).toHaveBeenCalledOnce();
     queue.dispose();
   });
-  it('QQ 仅推进已读水位时优先校准现有红点，不等待全量扫描或新消息', async () => {
-    vi.useFakeTimers();
-    const background = createUnreadRefresh(() => new Promise<boolean>(() => {}));
-    background.request();
-    await vi.advanceTimersByTimeAsync(100);
-    const contacts = [
-      { chatType: 1, targetUid: 'u_friend' },
-      { chatType: 2, targetUid: '777' },
-      { chatType: 2, targetUid: '888' },
-      { chatType: 8, targetUid: 'device' },
-      { chatType: 999, targetUid: 'unsupported' },
-    ];
-    const counts: Record<string, number> = { u_friend: 3, device: 1, unsupported: 1 };
-    const highlights = { '777': [{}] };
-    const load = vi.fn(async (targets: Array<{ chatType: number; uid: string }>) => {
-      for (const target of targets) counts[target.uid] = 0;
-      return true;
-    });
-    const live = createUnreadTargetRefresh(load);
-    live.request(unreadBadgeTargets(contacts, counts, highlights));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(load).toHaveBeenCalledWith([
-      { chatType: 1, uid: 'u_friend' },
-      { chatType: 2, uid: '777' },
-      { chatType: 8, uid: 'device' },
-    ]);
-    expect(counts.u_friend).toBe(0);
-    expect(counts.device).toBe(0);
-    expect(unreadBadgeTargets(contacts, counts, {})).toEqual([]);
-    live.dispose();
-    background.dispose();
-  });
-
-  it('数据库通知与焦点恢复同时触发红点快速校准，卸载清理入口', () => {
-    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
-    expect(source.includes('requestUnreadReadSyncRef.current?.();\n  }, [unreadRevision]);')).toBe(
-      true,
-    );
-    expect(/const onVisible = \(\) => \{.*?requestReadSync\(\);/s.test(source)).toBe(true);
-    expect(source.includes('requestUnreadReadSyncRef.current = null;')).toBe(true);
-    const scan = source.slice(
-      source.indexOf('async function loadUnread()'),
-      source.indexOf('const refresh = createUnreadRefresh(loadUnread)'),
-    );
-    expect(scan).toContain('const batchSize = UNREAD_WATERMARK_BATCH_SIZE');
-    expect(scan).toContain('readTargets(targets.slice(index, index + batchSize), true)');
-    expect(scan).not.toContain('getUnreadInfos.query');
-    expect(source).toContain('countCache.needsReconcile(dbRevisionRef.current)');
-  });
-
   it('实时目标独立于慢速全量扫描刷新，合并去重且执行中收到的事件不丢失', async () => {
     vi.useFakeTimers();
     const backgroundLoad = vi.fn(() => new Promise<boolean>(() => {}));

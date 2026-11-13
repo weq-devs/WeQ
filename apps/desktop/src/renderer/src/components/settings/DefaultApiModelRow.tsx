@@ -1,46 +1,59 @@
 import { useState } from 'react';
+import type { AgentLabModelCapability } from '@weq/agentlab';
 import type { AgentLabModelRef } from '@weq/agentlab/model-selection';
 import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
-import { useTabActive } from '../RetainedTabs';
 import { ApiModelSelect } from './ApiModelSelect';
 import { QueryError, Row } from './controls';
+import { DEFAULT_API_MODEL_LABELS, useDefaultApiModel } from './useDefaultApiModel';
 
-export function DefaultApiModelRow() {
-  const active = useTabActive();
+export function DefaultApiModelRow({
+  capability = 'chat',
+}: {
+  capability?: AgentLabModelCapability;
+}) {
   const utils = trpc.useUtils();
-  const status = trpc.bootstrap.getAgentLabDefaultModel.useQuery(undefined, {
-    enabled: active,
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
-  const save = trpc.bootstrap.setAgentLabDefaultModel.useMutation();
+  const status = useDefaultApiModel(capability);
+  const mutation =
+    capability === 'chat'
+      ? trpc.bootstrap.setAgentLabDefaultModel
+      : capability === 'vision'
+        ? trpc.bootstrap.setDefaultVisionModel
+        : trpc.bootstrap.setDefaultEmbeddingModel;
+  const save = mutation.useMutation();
+  const label = DEFAULT_API_MODEL_LABELS[capability];
   const [error, setError] = useState<string | null>(null);
 
   async function onChange(ref: AgentLabModelRef | null) {
     setError(null);
     try {
       const next = await save.mutateAsync({ ref });
-      utils.bootstrap.getAgentLabDefaultModel.setData(undefined, next);
+      const cache =
+        capability === 'chat'
+          ? utils.bootstrap.getAgentLabDefaultModel
+          : capability === 'vision'
+            ? utils.bootstrap.getDefaultVisionModel
+            : utils.bootstrap.getDefaultEmbeddingModel;
+      cache.setData(undefined, next);
       await utils.bootstrap.getSettings.invalidate();
       await utils.account.intentSense.getStatus.invalidate();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '默认模型保存失败');
+      setError(cause instanceof Error ? cause.message : `${label}保存失败`);
     }
   }
 
   return (
     <>
       <Row
-        settingId="llm-default-model"
-        label="默认模型"
+        settingId={capability === 'chat' ? 'llm-default-model' : `llm-default-${capability}-model`}
+        label={label}
         control={
           <ApiModelSelect
             allowDefault={false}
-            label="LLM 默认模型"
+            capability={capability}
+            label={label}
             value={status.data?.ref ?? null}
-            emptyLabel="未设置默认模型"
+            emptyLabel={`未设置${label}`}
             disabled={!status.data || !!status.error || save.isLoading}
             onChange={(ref) => {
               if (!isDefaultModelSelection(ref)) void onChange(ref);
@@ -50,8 +63,8 @@ export function DefaultApiModelRow() {
       />
       {status.error ? (
         <QueryError
-          message={`默认模型读取失败：${status.error.message}`}
-          retryLabel="重新读取默认模型"
+          message={`${label}读取失败：${status.error.message}`}
+          retryLabel={`重新读取${label}`}
           retrying={status.isFetching}
           onRetry={() => void status.refetch()}
         />

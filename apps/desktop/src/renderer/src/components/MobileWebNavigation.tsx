@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
   Bookmark,
   ChevronRight,
@@ -20,6 +20,8 @@ import {
   FileStack,
 } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
+import { SelfProfileAvatar } from './SelfProfileAvatar';
+import type { ProfileGroup } from '../lib/profileNavigation';
 import type { MainView, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
@@ -32,10 +34,12 @@ import { preloadMobilePages } from '../lib/mobilePageLoading';
 import { mobilePageLoaders } from './lazyWorkspaces';
 import { registerMobileBack } from '../hooks/useMobileNavigation';
 import { mobileRootTab } from '../lib/mobileRootTransition';
+import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
 import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
   user,
+  selfProfileGroup,
   view,
   hidden,
   query,
@@ -50,9 +54,9 @@ export function MobileWebNavigation({
   onOpenSettings,
   onOpenDressUp,
   onOpenCollection,
-  onOpenProfile,
 }: {
   user: User;
+  selfProfileGroup?: ProfileGroup;
   view: MainView;
   hidden: boolean;
   query: string;
@@ -67,20 +71,22 @@ export function MobileWebNavigation({
   onOpenSettings: () => void;
   onOpenDressUp: () => void;
   onOpenCollection: () => void;
-  onOpenProfile?: () => void;
 }) {
   const mobilePage = useWorkspaceMobilePage();
   const mobile = useMobileWebLayout();
+  const viewChange = useRef(onViewChange);
+  viewChange.current = onViewChange;
   useEffect(() => {
     if (!mobile || mobileRootTab(view)) return;
+    // 父级数据刷新会更换回调，不能因此重登记并重复触发进出动画。
     return registerMobileBack({
       id: 'mobile-more-page',
       priority: 5,
       retained: true,
-      back: () => onViewChange('more'),
+      back: () => viewChange.current('more'),
       target: () => document.querySelector<HTMLElement>('.weq-web-shell .app-shell > .chat-main'),
     });
-  }, [mobile, view, onViewChange]);
+  }, [mobile, view]);
   useEffect(() => {
     if (mobile) return preloadMobilePages(mobilePageLoaders);
     return undefined;
@@ -89,12 +95,10 @@ export function MobileWebNavigation({
   const moreOpen = view === 'more' && !mobilePage;
   useEffect(() => {
     if (!moreOpen) return;
-    const mobile = window.matchMedia('(max-width: 760px)');
-    const leaveMobile = (event: MediaQueryListEvent) => {
-      if (!event.matches) onViewChange('messages');
+    const leaveMobile = () => {
+      if (!isSingleColumnLayout()) onViewChange('messages');
     };
-    mobile.addEventListener('change', leaveMobile);
-    return () => mobile.removeEventListener('change', leaveMobile);
+    return subscribeResponsiveLayout(leaveMobile);
   }, [moreOpen, onViewChange]);
   const primary = view === 'messages' || view === 'contacts' || view === 'qzone';
   const active = moreOpen || !primary ? 'more' : view;
@@ -140,30 +144,22 @@ export function MobileWebNavigation({
   return (
     <div className="weq-mobile-navigation" inert={hidden} aria-hidden={hidden}>
       <header className="weq-mobile-header">
-        <button
-          type="button"
-          className="weq-mobile-account"
-          aria-label={onOpenProfile ? '编辑 QQ 资料' : '打开设置'}
-          title={onOpenProfile ? 'QQ 资料与状态' : '设置'}
-          onClick={onOpenProfile ?? onOpenSettings}
-        >
-          <Avatar
-            name={displayUserName(user)}
-            avatarUrl={user.avatarUrl}
-            seed={user.identityValue}
-          />
-        </button>
-        <div className="weq-mobile-identity">
-          <strong title={displayUserName(user)}>{displayUserName(user)}</strong>
-          {user.uid && (
-            <OnlineStatus
-              key={user.uid}
-              uid={user.uid}
-              className="weq-mobile-online-status"
-              refetchInterval={15_000}
-              showBaseStatus
-            />
-          )}
+        <div className="weq-mobile-self-identity">
+          <SelfProfileAvatar user={user} group={selfProfileGroup} className="weq-mobile-account">
+            <strong title={displayUserName(user)}>{displayUserName(user)}</strong>
+          </SelfProfileAvatar>
+          <div className="weq-mobile-identity">
+            {user.uid && (
+              <OnlineStatus
+                key={user.uid}
+                uid={user.uid}
+                selfUin={user.identityValue}
+                className="weq-mobile-online-status"
+                refetchInterval={15_000}
+                showBaseStatus
+              />
+            )}
+          </div>
         </div>
         <TitleBarSearch
           query={query}

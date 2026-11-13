@@ -34,32 +34,6 @@
   flex-shrink: 0;
 }
 
-.weq-profile-expand {
-  position: absolute;
-  top: 10px;
-  right: 44px;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  cursor: pointer;
-}
-
-.weq-profile-expand:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-  color: var(--weq-fg-primary);
-}
-
-.weq-profile-expand:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-
 .weq-contact-workspace {
   min-width: 0;
 }
@@ -277,11 +251,29 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-profile > .weq-contact-profile-content.is-previewing-chat {
   overflow: hidden;
+  padding: 0;
   scrollbar-gutter: auto;
 }
 
 .weq-contact-profile-content.is-previewing-chat > .weq-contact-chat-preview {
   flex-shrink: 1;
+  padding: 0;
+}
+
+.weq-profile-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-profile-hero .weq-profile-name {
+  flex-shrink: 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .weq-contact-profile-content .weq-contact-identity {
@@ -296,7 +288,7 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-identity .weq-profile-hero {
   display: grid;
-  flex: 0 1 480px;
+  flex: 1 1 300px;
   grid-template-columns: 72px minmax(0, 1fr);
   align-items: center;
   justify-items: start;
@@ -307,8 +299,12 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-identity .weq-profile-avatar {
   grid-column: 1;
-  grid-row: 1 / span 5;
+  grid-row: 1;
   align-self: start;
+}
+
+.weq-contact-identity .weq-profile-heading {
+  align-items: flex-start;
 }
 
 .weq-contact-identity .weq-profile-hero > :not(.weq-profile-avatar) {
@@ -348,6 +344,7 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-identity-actions,
 .weq-contact-identity > .weq-profile-actions {
+  max-width: 100%;
   justify-content: flex-end;
   margin-inline-start: auto;
 }
@@ -422,25 +419,8 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
   background: transparent;
 }
 
-.weq-contact-profile-content .weq-profile-row {
-  gap: 16px;
-  padding-block: 11px;
-  border-color: var(--weq-border-subtle);
-}
-
-.weq-contact-profile-content .weq-profile-row-label,
 .weq-contact-profile-content .weq-profile-nick {
   color: var(--weq-fg-secondary);
-}
-
-.weq-contact-profile-content .weq-profile-row strong,
-.weq-contact-profile-content .weq-profile-row-text {
-  color: var(--weq-fg-primary);
-  overflow-wrap: anywhere;
-}
-
-.weq-contact-profile-content .weq-profile-row strong.is-accent {
-  color: var(--weq-accent-effective);
 }
 
 .weq-contact-profile-content .weq-profile-section {
@@ -616,6 +596,7 @@ html[data-theme='dark'] .weq-contact-profile-content .weq-profile-list {
 
   .weq-contact-identity-actions {
     width: 100%;
+    justify-content: flex-start;
   }
 }
 

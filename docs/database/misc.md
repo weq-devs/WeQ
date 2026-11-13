@@ -90,4 +90,4 @@ SELECT "48902" FROM online_status_kv_table WHERE "48901" = ?;
 
 ---
 
-[← 返回数据库分析](./index.md)
+[← 返回数据库分析](index.md)

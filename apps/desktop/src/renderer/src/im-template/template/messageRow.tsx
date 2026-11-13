@@ -34,7 +34,7 @@ import {
   GROUP_CALL_ENDED_SUBTYPES,
 } from '../../components/GroupCallEndedMessage';
 import { QqDynamic, qqDynamicElementProps } from '../../components/QqDynamic';
-import { MessageProvenance } from '../../components/MessageProvenance';
+import { SystemMessageContent } from '../../components/MessageProvenance';
 import type { ReactionInteraction } from '../../components/SetEmojiReactions';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
@@ -214,7 +214,11 @@ export const MessageRow = memo(function MessageRow({
   recallRevokerName?: string;
   onRestore?: (msgId: string) => Promise<void>;
   onContextMenu?: (event: ReactMouseEvent, message: Message) => void;
-  onLongPress?: (point: { x: number; y: number }, message: Message) => void;
+  onLongPress?: (
+    point: { x: number; y: number },
+    message: Message,
+    target?: EventTarget | null,
+  ) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onReedit?: (message: Message) => Promise<boolean>;
   /** 「可能未送达」占位的移除（见 MessageBubble 的同名 prop）。 */
@@ -287,10 +291,9 @@ export const MessageRow = memo(function MessageRow({
             {selected ? <Check size={13} /> : null}
           </span>
         ) : null}
-        <div className="weq-system-message-content">
+        <SystemMessageContent message={message}>
           <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
-          <MessageProvenance message={message} system />
-        </div>
+        </SystemMessageContent>
       </div>
     );
   }

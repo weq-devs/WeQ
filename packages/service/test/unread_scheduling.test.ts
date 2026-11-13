@@ -1,169 +1,308 @@
-import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
-import {
-  databasePerformance,
-  databaseRequestSignal,
-  scheduleDatabase,
-  withDatabasePriority,
-} from '@weq/db';
+import type { UnreadInfoSnapshot, UnreadReadChange } from '@weq/db';
+import { databaseRequestSignal, withDatabasePriority } from '@weq/db';
+import { afterEach, expect, it, vi } from 'vitest';
 import { UnreadInfoService } from '../src/account/unread_info';
 
-afterEach(() => vi.unstubAllEnvs());
-const target = [{ chatType: 2, uid: '70001' }];
-function fixture(path: string) {
-  const binding = {};
-  const queried = vi.fn(async () => []);
+const services: UnreadInfoService[] = [];
+afterEach(async () => {
+  for (const service of services.splice(0)) await service.dispose();
+  vi.useRealTimers();
+});
+const target = { chatType: 2, uid: '70001' };
+const row = (extra: Partial<UnreadInfoSnapshot> = {}): UnreadInfoSnapshot => ({
+  ...target,
+  peer: '2_70001',
+  msgSeq: 90,
+  latestSeq: '100',
+  ...extra,
+});
+function fixture(readOnly = false) {
+  let rows = [row()];
+  let original = row();
   const signals: Array<AbortSignal | undefined> = [];
-  const getUnreadInfos = vi.fn(async () => {
+  const all = vi.fn(async () => {
     signals.push(databaseRequestSignal());
-    await scheduleDatabase(path, queried, binding);
-    return [
-      { chatType: 2, uid: '70001', peer: '2_70001', msgSeq: 1, latestSeq: '2', outgoingSeqs: [] },
-    ];
+    return rows.map((r) => ({ ...r }));
   });
-  const service = new UnreadInfoService({
-    selfUid: 'u_self',
+  const setReadState = vi.fn(
+    async (
+      chatType: number,
+      uid: string,
+      readSeq: string,
+      _through: string,
+      unread: boolean,
+    ): Promise<UnreadReadChange> => {
+      original = rows[0]!;
+      rows = rows.map((r) =>
+        r.uid !== uid
+          ? r
+          : { ...r, msgSeq: unread ? r.msgSeq : Number(readSeq), markUnread: unread },
+      );
+      return {
+        chatType,
+        uid,
+        existed: true,
+        before: new Uint8Array([1]),
+        after: new Uint8Array([2]),
+        afterReadSeq: readSeq,
+      };
+    },
+  );
+  const undoReadState = vi.fn(async () => {
+    rows = [{ ...rows[0]!, msgSeq: original.msgSeq, markUnread: original.markUnread }];
+    return true;
+  });
+  const markRead = vi.fn(async (_chatType: number, _uid: string, sequence: string) => {
+    rows = [{ ...rows[0]!, msgSeq: Number(sequence), markUnread: false }];
+    return true;
+  });
+  const session = {
     context: { uin: '10001' },
-    msgDbPath: path,
-    unreadInfo: { getUnreadInfos },
-  } as unknown as AccountSession);
-  return { service, binding, queried, signals, getUnreadInfos };
+    selfUid: 'u_self',
+    msgDbPath: '/synthetic/small-unread.db',
+    unreadInfo: {
+      getAllUnreadInfos: all,
+      getUnreadInfos: vi.fn(),
+      setReadState,
+      undoReadState,
+      markRead,
+    },
+  } as unknown as AccountSession;
+  const service = new UnreadInfoService(
+    session,
+    undefined,
+    readOnly ? { statePath: '', readOnly: true } : undefined,
+  );
+  services.push(service);
+  return {
+    service,
+    all,
+    signals,
+    setReadState,
+    markRead,
+    undoReadState,
+    query: (fast = false) => service.getUnreadInfos([target], fast),
+    update: (next: UnreadInfoSnapshot[]) => {
+      rows = next;
+      service.invalidate();
+    },
+  };
 }
 
-it('完整未读补算后台执行，轻量水位仍走交互通道且不读取自己发言', async () => {
-  vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '1');
-  const path = '/synthetic/unread-priority.db',
-    f = fixture(path);
-  await f.service.getUnreadInfos(target);
-  await f.service.getUnreadInfos(target, true);
-  expect(f.getUnreadInfos.mock.calls[0]).toEqual([
-    target,
-    { selfUid: 'u_self', selfUin: '10001' },
-    undefined,
-    { reuseOutgoing: true },
+it('不同批次和兼容轻量请求共用初始化快照，后续读取不发 SQL', async () => {
+  const f = fixture();
+  const [a, b] = await Promise.all([f.query(), f.query(true)]);
+  expect(a).toEqual(b);
+  expect(a[0]?.unreadCount).toBe(10);
+  for (let i = 0; i < 20; i++) expect((await f.query())[0]).toBe(a[0]);
+  expect(f.all).toHaveBeenCalledOnce();
+});
+it.each([1, 2])('类型 %s 的跨端自发消息在 QQ 减项到达前后都不增加未读', async (chatType) => {
+  const f = fixture();
+  await f.query();
+  const identity = { chatType, uid: target.uid, peer: `${chatType}_${target.uid}` };
+  const query = () => f.service.getUnreadInfos([identity]);
+  f.update([row({ ...identity, msgSeq: 100, latestSenderUid: 'u_peer' })]);
+  expect((await query())[0]?.unreadCount).toBe(0);
+  f.update([row({ ...identity, msgSeq: 100, latestSeq: '101', latestSenderUid: 'u_self' })]);
+  expect((await query())[0]?.unreadCount).toBe(0);
+  f.update([row({ ...identity, msgSeq: 100, latestSeq: '102', latestSenderUid: 'u_peer' })]);
+  expect((await query())[0]?.unreadCount).toBe(1);
+  f.update([
+    row({
+      ...identity,
+      msgSeq: 100,
+      latestSeq: '102',
+      latestSenderUid: 'u_peer',
+      decreasedSeqs: ['101'],
+    }),
   ]);
-  expect(f.getUnreadInfos.mock.calls[1]).toEqual([target]);
-  expect(databasePerformance(path).diagnostics.queries.map((q) => q.priority)).toEqual([
-    'background',
-    'interactive',
+  expect((await query())[0]?.unreadCount).toBe(1);
+  f.update([
+    row({
+      ...identity,
+      msgSeq: 100,
+      latestSeq: '103',
+      latestSenderUid: 'u_self',
+      decreasedSeqs: ['101'],
+    }),
   ]);
-  await f.service.dispose();
+  expect((await query())[0]?.unreadCount).toBe(1);
+  expect(f.markRead).not.toHaveBeenCalled();
+  expect(f.setReadState).not.toHaveBeenCalled();
 });
-
-it('同一批统计并发只读取一次，水位快查不等待完整统计，结束后不复用旧快照', async () => {
-  const f = fixture('/synthetic/unread-coalesce.db');
-  let release!: () => void;
-  f.queried.mockImplementationOnce(
-    () =>
-      new Promise<never[]>((done) => {
-        release = () => done([]);
-      }),
-  );
-  const first = f.service.getUnreadInfos(target);
-  const second = f.service.getUnreadInfos(target);
-  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
-  expect(f.getUnreadInfos).toHaveBeenCalledTimes(1);
-  // 水位读取不合并到慢速统计。
-  const fast = f.service.getUnreadInfos(target, true);
-  expect(f.getUnreadInfos).toHaveBeenCalledTimes(2);
-  release();
-  await Promise.all([first, second, fast]);
-  await f.service.getUnreadInfos(target);
-  expect(f.getUnreadInfos).toHaveBeenCalledTimes(3);
-  await f.service.dispose();
-});
-
-it('本地已读领先 QQ 时快查直接确认，完整统计向数据库传递有效下限', async () => {
-  const f = fixture('/synthetic/unread-local-floor.db');
-  await f.service.markLocalRead(2, '70001', '2');
-  const fast = await f.service.getUnreadInfos(target, true);
-  expect(fast[0]?.unreadCount).toBe(0);
-  expect(fast[0]?.countPending).toBeUndefined();
-  await f.service.getUnreadInfos(target);
-  expect(f.getUnreadInfos.mock.calls.at(-1)).toEqual([
-    target,
-    { selfUid: 'u_self', selfUin: '10001' },
-    new Map([['2_70001', '2']]),
-    { reuseOutgoing: true },
-  ]);
-  await f.service.dispose();
-});
-
-it('合并统计失败后允许重试，不缓存失败或冒充零条未读', async () => {
-  const f = fixture('/synthetic/unread-coalesce-failed.db');
-  let reject!: (error: Error) => void;
-  f.queried.mockImplementationOnce(
-    () =>
-      new Promise<never[]>((_done, fail) => {
-        reject = fail;
-      }),
-  );
-  const first = f.service.getUnreadInfos(target);
-  const second = f.service.getUnreadInfos(target);
-  const failure = new Error('synthetic read failure');
-  const rejected = Promise.all([
-    expect(first).rejects.toBe(failure),
-    expect(second).rejects.toBe(failure),
-  ]);
-  await vi.waitFor(() => expect(reject).toBeTypeOf('function'));
-  reject(failure);
-  await rejected;
-  expect(f.getUnreadInfos).toHaveBeenCalledTimes(1);
-  expect((await f.service.getUnreadInfos(target))[0]?.unreadCount).toBe(1);
-  expect(f.getUnreadInfos).toHaveBeenCalledTimes(2);
-  await f.service.dispose();
-});
-
-it('账号关闭取消尚未执行的补算，不把取消伪装成零条未读', async () => {
-  const path = '/synthetic/unread-dispose.db',
-    f = fixture(path);
-  let release!: () => void;
-  const blocker = scheduleDatabase(
-    path,
-    () =>
-      new Promise<void>((done) => {
-        release = done;
-      }),
-    f.binding,
-  );
-  const read = f.service.getUnreadInfos(target);
-  const rejected = expect(read).rejects.toMatchObject({ name: 'AbortError' });
-  await f.service.dispose();
-  release();
-  await Promise.all([blocker, rejected]);
-  expect(f.queried).not.toHaveBeenCalled();
-  expect((await f.service.getUnreadInfos(target))[0]).toMatchObject({
-    readError: true,
-    latestSeq: null,
-  });
-  expect((await f.service.getUnreadInfos(target))[0]?.unreadCount).toBeUndefined();
-  expect(f.queried).not.toHaveBeenCalled();
-});
-
-it('继承调用方取消，但一个调用取消不影响服务后续读取', async () => {
-  const path = '/synthetic/unread-parent-cancel.db',
-    f = fixture(path);
-  let release!: () => void;
-  const blocker = scheduleDatabase(
-    path,
-    () =>
-      new Promise<void>((done) => {
-        release = done;
-      }),
-    f.binding,
-  );
+it('共享初始化不继承单个页面取消，账号关闭才取消底层读取', async () => {
+  const f = fixture();
+  await f.query();
   const controller = new AbortController();
-  const read = withDatabasePriority(
-    'interactive',
-    () => f.service.getUnreadInfos(target),
-    controller.signal,
-  );
-  const rejected = expect(read).rejects.toMatchObject({ name: 'AbortError' });
   controller.abort();
-  release();
-  await Promise.all([blocker, rejected]);
-  expect(f.signals[0]?.aborted).toBe(true);
-  expect((await f.service.getUnreadInfos(target))[0]?.readError).not.toBe(true);
-  expect(f.signals[1]?.aborted).toBe(false);
+  expect(
+    (await withDatabasePriority('interactive', () => f.query(), controller.signal))[0]?.unreadCount,
+  ).toBe(10);
+  expect(f.signals.every((signal) => signal && !signal.aborted)).toBe(true);
   await f.service.dispose();
+  expect((await f.query())[0]?.readError).toBe(true);
+});
+it('数据库读取失败或单行损坏保留已有角标，不交付假零；恢复后直接采用新值', async () => {
+  const f = fixture();
+  await f.query();
+  f.update([row({ readError: true })]);
+  expect((await f.query())[0]?.unreadCount).toBe(10);
+  f.all.mockRejectedValueOnce(new Error('busy'));
+  f.service.invalidate();
+  expect((await f.query())[0]?.unreadCount).toBe(10);
+  f.update([row({ latestSeq: '102' })]);
+  expect((await f.query())[0]?.unreadCount).toBe(12);
+});
+it('首次失败返回 readError，不把未获得的计数按零发布；后续可以恢复', async () => {
+  const f = fixture();
+  await f.query();
+  f.all.mockRejectedValueOnce(new Error('busy'));
+  const absent = { chatType: 1, uid: 'missing' };
+  expect((await f.service.getUnreadInfos([absent]))[0]).toMatchObject({ readError: true });
+  f.update([row({ ...absent, peer: '1_missing' })]);
+  expect((await f.service.getUnreadInfos([absent]))[0]?.unreadCount).toBe(10);
+});
+it('订阅者共享 1.5 秒补查，纯阅读变化通知；最后一个退出后停止', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  await f.query();
+  const a = vi.fn(),
+    b = vi.fn(),
+    stopA = f.service.onCountsChanged(a),
+    stopB = f.service.onCountsChanged(b);
+  await vi.advanceTimersByTimeAsync(50);
+  f.all.mockClear();
+  f.update([row({ msgSeq: 95 })]);
+  await vi.advanceTimersByTimeAsync(50);
+  expect(a).toHaveBeenCalledWith([expect.objectContaining(target)]);
+  expect(b).toHaveBeenCalledWith([expect.objectContaining(target)]);
+  expect((await f.query())[0]?.unreadCount).toBe(5);
+  f.all.mockClear();
+  stopA();
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(f.all).toHaveBeenCalledOnce();
+  f.all.mockClear();
+  stopB();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(f.all).not.toHaveBeenCalled();
+});
+it('密集文件通知只合并小表读取，未变会话不发布，变化会话单独通知', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  await f.query();
+  const changed = vi.fn();
+  f.service.onCountsChanged(changed);
+  await vi.advanceTimersByTimeAsync(50);
+  changed.mockClear();
+  f.all.mockClear();
+  for (let i = 0; i < 100; i++) f.service.invalidate();
+  await vi.advanceTimersByTimeAsync(50);
+  expect(f.all).toHaveBeenCalledOnce();
+  expect(changed).not.toHaveBeenCalled();
+  f.update([row({ decreasedSeqs: ['99'] })]);
+  await vi.advanceTimersByTimeAsync(50);
+  expect(changed).toHaveBeenCalledOnce();
+  expect((await f.query())[0]?.unreadCount).toBe(9);
+});
+it('只读账号阅读和撤销不写 QQ，后来的新消息仍显示', async () => {
+  const f = fixture(true);
+  await f.query();
+  const change = await f.service.setReadState([target], false);
+  expect(change.rows[0]?.unreadCount).toBe(0);
+  f.update([row({ latestSeq: '102' })]);
+  expect((await f.query())[0]?.unreadCount).toBe(2);
+  expect((await f.service.undoReadState(change.undoToken)).rows[0]?.unreadCount).toBe(12);
+  expect(f.setReadState).not.toHaveBeenCalled();
+});
+it('手动已读、未读和撤销均只操作字段，不降低阅读水位制造历史未读', async () => {
+  const f = fixture();
+  const read = await f.service.setReadState([target, target], false);
+  expect(read.rows[0]?.unreadCount).toBe(0);
+  expect(f.setReadState).toHaveBeenCalledTimes(1);
+  expect((await f.service.undoReadState(read.undoToken)).rows[0]?.unreadCount).toBe(10);
+  const unread = await f.service.setReadState([target], true);
+  expect(f.setReadState).toHaveBeenLastCalledWith(2, '70001', '90', '100', true);
+  expect(unread.rows[0]?.unreadCount).toBe(10);
+});
+it('写库失败仍即时保存阅读结果，自动重试失败操作且新操作取代旧重试', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  await f.query();
+  f.setReadState.mockRejectedValueOnce(new Error('busy'));
+  const result = await f.service.setReadState([target], false);
+  expect(result.rows[0]?.unreadCount).toBe(0);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.setReadState).toHaveBeenCalledTimes(2);
+  f.setReadState.mockRejectedValueOnce(new Error('busy'));
+  await f.service.setReadState([target], true);
+  await f.service.markRead(2, '70001', '100');
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(f.setReadState).toHaveBeenCalledTimes(3);
+});
+it('自动阅读失败保留本地结果，并按固定位置重试，不追随新消息', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  await f.query();
+  f.markRead.mockRejectedValueOnce(new Error('busy'));
+  expect(await f.service.markRead(2, '70001', '100')).toBe(true);
+  f.update([row({ latestSeq: '102' })]);
+  expect((await f.query())[0]?.unreadCount).toBe(2);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.setReadState).toHaveBeenLastCalledWith(2, '70001', '100', '100', false);
+});
+it('1300 会话一次加载，查询接口不逐会话统计', async () => {
+  const f = fixture();
+  await f.query();
+  const rows = Array.from({ length: 1300 }, (_, i) => row({ uid: String(i), peer: `2_${i}` }));
+  f.update(rows);
+  f.all.mockClear();
+  const result = await f.service.getUnreadInfos(rows);
+  expect(result).toHaveLength(1300);
+  expect(result.every((r) => r.unreadCount === 10)).toBe(true);
+  expect(f.all).toHaveBeenCalledOnce();
+});
+
+it('小表确认缺行后缓存空快照，目录缺行不导致每次读取都重查', async () => {
+  const f = fixture();
+  await f.query();
+  const absent = { chatType: 2, uid: 'not-in-either-table' };
+  expect((await f.service.getUnreadInfos([absent]))[0]).toMatchObject({ unreadCount: 0 });
+  f.all.mockClear();
+  for (let i = 0; i < 50; i++) await f.service.getUnreadInfos([absent, target], i % 2 === 0);
+  expect(f.all).not.toHaveBeenCalled();
+});
+
+it('同会话旧写入执行中收到新操作时串行写入，不让迟到已读覆盖新未读', async () => {
+  const f = fixture();
+  await f.query();
+  const original = f.setReadState.getMockImplementation()!;
+  let release!: () => void;
+  f.setReadState.mockImplementationOnce(async (...args) => {
+    await new Promise<void>((done) => {
+      release = done;
+    });
+    return original(...args);
+  });
+  const old = f.service.setReadState([target], false);
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  const next = f.service.setReadState([target], true);
+  await new Promise<void>((done) => setTimeout(done, 10));
+  expect(f.setReadState).toHaveBeenCalledOnce();
+  release();
+  await Promise.all([old, next]);
+  expect(f.setReadState).toHaveBeenLastCalledWith(2, '70001', '100', '100', true);
+  expect((await f.query())[0]?.unreadCount).toBe(1);
+});
+
+it('撤销写库暂时失败自动重试原撤销，不用普通已读写入冒充降低水位', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const change = await f.service.setReadState([target], false);
+  f.undoReadState.mockRejectedValueOnce(new Error('busy'));
+  expect((await f.service.undoReadState(change.undoToken)).restored).toBe(0);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.undoReadState).toHaveBeenCalledTimes(2);
+  expect((await f.query())[0]?.unreadCount).toBe(10);
 });

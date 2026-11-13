@@ -429,7 +429,14 @@ export async function exportArchiveConversation(
   const senders =
     opts.kind === 'group'
       ? await resolveGroupSenders(msgs, opts.conv, opts.range, deps, '', opts.roam)
-      : (await resolveC2cSenders(opts.conv, deps)).senders;
+      : (
+          await resolveC2cSenders(opts.conv, deps, {
+            msgs,
+            kind: opts.kind,
+            range: opts.range,
+            roam: opts.roam,
+          })
+        ).senders;
   let count = 0;
   const counted = new Set<string>();
   const participants = new Map<string, string>();
@@ -457,7 +464,10 @@ export async function exportArchiveConversation(
         row.elements.some((element) => element.type === 'multiMsg' || element.type === 'reply'),
       );
       const captured =
-        includeRecords && !opts.guild && typeof msgs.exportSourceRows === 'function'
+        includeRecords &&
+        !opts.guild &&
+        !msgs.exportFilter?.forwardTarget &&
+        typeof msgs.exportSourceRows === 'function'
           ? await withDatabasePriority('background', () =>
               msgs.exportSourceRows(
                 opts.kind,
@@ -580,13 +590,18 @@ export async function exportArchiveConversation(
         count++;
         continue;
       }
-      const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
+      const sender = exported.forwardSource
+        ? fallbackSender(exported)
+        : (senders.get(exported.senderUid) ?? fallbackSender(exported));
       const identity: Json[] = [
         account,
         object(header.scope).partition ?? null,
         kind,
         conversation.id,
         exported.msgId,
+        ...(exported.forwardSource
+          ? [exported.forwardSource.resId, exported.forwardSource.recordIndex]
+          : []),
       ];
       const resources: JsonObject[] = [],
         attributes: JsonObject[] = [],

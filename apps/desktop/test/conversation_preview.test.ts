@@ -263,9 +263,49 @@ test('JSON preview follows the same identity lookup and self handling', () => {
   );
   assert.equal(previewNodesToText(nodes), 'Alice戳了戳你');
 });
+test('JSON 预览的人物参数解析昵称及本人，普通链接不占人物序号', () => {
+  assert.equal(
+    previewNodesToText(
+      previewNodes(
+        {
+          kind: 'grayTipPoke',
+          tipJson: JSON.stringify({
+            items: [
+              { type: 'url', param: ['https://example.invalid'], txt: '链接' },
+              { type: 'url', param: ['u_alice'], txt: 'u_alice' },
+              { type: 'nor', txt: '戳了戳' },
+              { type: 'url', param: ['u_self'], txt: 'u_self' },
+            ],
+          }),
+        },
+        new Set(['u_self']),
+        new Map([['u_alice', 'Alice']]),
+      ),
+    ),
+    '链接Alice戳了戳你',
+  );
+});
 test('profile prefetch collects only identities from person nodes', () => {
   assert.deepEqual(previewIdentityIds(preview), ['u_alice', 'u_self']);
   assert.deepEqual(previewIdentityIds({ kind: 'text', textContent: 'u_not_a_person' }), []);
+});
+test('灰条预取补齐 XML 身份别名与 JSON 人物参数，不收集普通动作链接', () => {
+  assert.deepEqual(
+    previewIdentityIds({
+      kind: 'grayTipPoke',
+      grayTipXmlContent: "<gtip><qq uid='u_alice' jp='u_bob'/></gtip>",
+      tipJson: JSON.stringify({
+        items: [
+          { type: 'url', param: ['u_carol'] },
+          { type: 'qq', uid: 'u_dave', uin: '10009' },
+          { type: 'url', param: ['https://example.invalid'] },
+          { type: 'url', param: ['12345'] },
+          { type: 'nor', uid: 'u_not_a_person' },
+        ],
+      }),
+    }),
+    ['u_alice', 'u_bob', 'u_carol', 'u_dave', '10009'],
+  );
 });
 test('普通消息和空预览也补全发送者，灰条中的同一身份不重复补全', () => {
   assert.deepEqual(

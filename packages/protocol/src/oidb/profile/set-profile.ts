@@ -24,11 +24,11 @@ export const PROFILE_FIELD = {
 
 const PROFILE_STRING_ITEM = message([
   { name: 'fieldId', tag: 1, type: 'uint32' },
-  { name: 'value', tag: 2, type: 'string' },
+  { name: 'value', tag: 2, type: 'string', force: true },
 ]);
 const PROFILE_INT_ITEM = message([
   { name: 'fieldId', tag: 1, type: 'uint32' },
-  { name: 'value', tag: 2, type: 'uint64' },
+  { name: 'value', tag: 2, type: 'uint64', force: true },
 ]);
 
 const SET_PROFILE_REQ = message([
@@ -42,10 +42,18 @@ export interface SetProfileParams {
   /** 当前账号 uin。 */
   selfUin: number | string;
   nickname?: string;
-  /** 个性签名（长短昵称）。 */
-  personalNote?: string;
+  /** 个性签名（字段 102），不是详细资料中的个人说明（字段 20019）。 */
+  signature?: string;
   /** 性别：0 未知 / 1 男 / 2 女。 */
   sex?: number;
+}
+
+function rejectAmbiguousPersonalNote(params: object): void {
+  if ('personalNote' in params && params.personalNote !== undefined) {
+    throw new Error(
+      'personalNote 参数已停用：修改个性签名请使用 signature；详细资料的个人说明尚未接入，不能通过此入口修改。',
+    );
+  }
 }
 
 export namespace SetProfile {
@@ -58,6 +66,7 @@ export namespace SetProfile {
   export type Params = SetProfileParams;
 
   export const serialize = (p: Params): Record<string, unknown> => {
+    rejectAmbiguousPersonalNote(p);
     const uin = toInt(p.selfUin);
     if (uin <= 0) throw new Error('selfUin 必须是正整数');
     const stringProfiles: Record<string, unknown>[] = [];
@@ -65,8 +74,8 @@ export namespace SetProfile {
     if (p.nickname !== undefined) {
       stringProfiles.push({ fieldId: PROFILE_FIELD.nick, value: p.nickname });
     }
-    if (p.personalNote !== undefined) {
-      stringProfiles.push({ fieldId: PROFILE_FIELD.longNick, value: p.personalNote });
+    if (p.signature !== undefined) {
+      stringProfiles.push({ fieldId: PROFILE_FIELD.longNick, value: p.signature });
     }
     if (p.sex !== undefined) {
       intProfiles.push({ fieldId: PROFILE_FIELD.sex, value: p.sex });
@@ -80,14 +89,15 @@ export namespace SetProfile {
 
   export const deserialize = (_body: Record<string, unknown>): void => {};
 
-  export const invoke = (nt: OidbNative, pid: number, params: Params): Promise<void> => {
+  export const invoke = async (nt: OidbNative, pid: number, params: Params): Promise<void> => {
+    rejectAmbiguousPersonalNote(params);
     // 没有任何要写的字段 → 直接返回，避免一次白跑的服务端往返。
     if (
       params.nickname === undefined &&
-      params.personalNote === undefined &&
+      params.signature === undefined &&
       params.sex === undefined
     ) {
-      return Promise.resolve();
+      return;
     }
     return invokeOidb(nt, pid, SetProfile as OidbSpec<Params, void>, params);
   };
@@ -97,7 +107,7 @@ export namespace SetProfile {
 
 const SELF_LONG_NICK_PROFILE = message([
   { name: 'tag', tag: 1, type: 'uint32' },
-  { name: 'value', tag: 2, type: 'string' },
+  { name: 'value', tag: 2, type: 'string', force: true },
 ]);
 const SELF_LONG_NICK_REQ = message([
   { name: 'uin', tag: 1, type: 'uint64' },

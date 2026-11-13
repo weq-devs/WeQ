@@ -13,6 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { trpc, client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
 import { useTabActive } from '../components/RetainedTabs';
+import { useUpdateStore } from '../state/update';
+import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 
 export type UpdatePhase =
   | 'idle'
@@ -32,6 +34,13 @@ export interface UpdateProgress {
 }
 
 export interface AppUpdate {
+  intervalMinutes: number;
+  changingInterval: boolean;
+  intervalReady: boolean;
+  setIntervalMinutes(minutes: number): Promise<number>;
+  includePrerelease: boolean;
+  changingPrerelease: boolean;
+  setPrerelease(enabled: boolean): Promise<void>;
   phase: UpdatePhase;
   /** 最新版本号（发现更新后可用），否则 null。 */
   latest: string | null;
@@ -59,7 +68,8 @@ export function mirrorLabel(base: string | null): string {
   const stripped = base.replace('https://github.com/weq-devs/WeQ/releases/latest/download', '');
   if (!stripped) return 'github.com（直连）';
   try {
-    return new URL(stripped).host;
+    const host = new URL(stripped).host;
+    return host === 'github.com' ? 'github.com（直连）' : host;
   } catch {
     return stripped.replace(/^https?:\/\//, '').replace(/\/$/, '');
   }
@@ -70,6 +80,7 @@ function errMsg(e: unknown): string {
 }
 
 export function useAppUpdate(): AppUpdate {
+  const utils = trpc.useContext();
   const active = useTabActive();
   const showError = useDialog((s) => s.showError);
 
@@ -86,10 +97,34 @@ export function useAppUpdate(): AppUpdate {
   });
 
   const checkMut = trpc.update.check.useMutation();
+  const interval = trpc.update.getInterval.useQuery(undefined, {
+    enabled: active,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+  const intervalMut = trpc.update.setInterval.useMutation();
+  const setIntervalMinutes = useCallback(
+    async (minutes: number): Promise<number> => {
+      const saved = await intervalMut.mutateAsync({ minutes });
+      utils.update.getInterval.setData(undefined, saved);
+      return saved;
+    },
+    [intervalMut, utils],
+  );
+  const preferences = trpc.update.getPrerelease.useQuery(undefined, {
+    enabled: active,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+  const preferenceMut = trpc.update.setPrerelease.useMutation();
   const downloadMut = trpc.update.download.useMutation();
   const installMut = trpc.update.install.useMutation();
 
   const [phase, setPhase] = useState<UpdatePhase>('idle');
+  const [includePrerelease, setIncludePrerelease] = useState(false);
+  useEffect(() => {
+    setIncludePrerelease(preferences.data === true);
+  }, [preferences.data]);
   const [latest, setLatest] = useState<string | null>(null);
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [mirror, setMirror] = useState<string | null>(null);
@@ -131,6 +166,9 @@ export function useAppUpdate(): AppUpdate {
         if (e.kind === 'checking') {
           setMirrorCount(e.mirrors);
           setPhase((p) => (p === 'idle' ? 'checking' : p));
+        } else if (e.kind === 'check-failed') {
+          setMirrorCount(null);
+          setPhase((p) => (p === 'checking' ? 'idle' : p));
         } else if (e.kind === 'chosen') {
           setMirror(e.base);
           setLatest(e.latest);
@@ -181,6 +219,24 @@ export function useAppUpdate(): AppUpdate {
     }
   }, [checkMut, showError]);
 
+  const setPrerelease = useCallback(
+    async (enabled: boolean): Promise<void> => {
+      try {
+        const saved = await preferenceMut.mutateAsync({ enabled });
+        utils.update.getPrerelease.setData(undefined, saved);
+        utils.update.getState.setData(undefined, null);
+        setIncludePrerelease(saved);
+        setPhase('idle');
+        setLatest(null);
+        setMirror(null);
+        useUpdateStore.getState().clear();
+      } catch (error) {
+        showError('保存更新设置失败', errMsg(error));
+      }
+    },
+    [preferenceMut, showError, utils],
+  );
+
   const download = useCallback(async (): Promise<void> => {
     setMirrorCount(null);
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
@@ -210,6 +266,13 @@ export function useAppUpdate(): AppUpdate {
 
   return useMemo(
     () => ({
+      intervalMinutes: interval.data ?? DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+      changingInterval: interval.isLoading || interval.isError || intervalMut.isLoading,
+      intervalReady: !interval.isLoading && !interval.isError && interval.data !== undefined,
+      setIntervalMinutes,
+      includePrerelease,
+      changingPrerelease: preferenceMut.isLoading || preferences.isLoading,
+      setPrerelease,
       phase,
       latest,
       current,
@@ -223,7 +286,16 @@ export function useAppUpdate(): AppUpdate {
       install,
     }),
     [
+      interval.data,
+      interval.isLoading,
+      interval.isError,
+      intervalMut.isLoading,
+      setIntervalMinutes,
       phase,
+      includePrerelease,
+      preferenceMut.isLoading,
+      preferences.isLoading,
+      setPrerelease,
       latest,
       current,
       progress,

@@ -1,6 +1,6 @@
 {
   "name": "@weq/bot",
-  "version": "2.6.1",
+  "version": "2.7.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,11 +13,17 @@
   },
   "dependencies": {
     "@weq/agentlab": "workspace:*",
+    "@weq/service": "workspace:*",
+    "@weq/time": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",
     "@types/ws": "^8.5.13",
     "vitest": "^2.1.8"
+  },
+  "optionalDependencies": {
+    "onnxruntime-node": "1.30.0",
+    "sharp": "0.35.5"
   }
 }

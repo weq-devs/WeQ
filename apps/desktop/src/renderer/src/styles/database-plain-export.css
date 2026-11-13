@@ -383,14 +383,14 @@
 }
 
 .weq-db-export.is-fast {
-  border-color: var(--weq-accent-effective);
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  border-color: var(--weq-accent-solid);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-db-export.is-fast:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
-  color: var(--primary-foreground);
+  background: color-mix(in srgb, var(--weq-accent-solid) 88%, #000);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-db-export:disabled {

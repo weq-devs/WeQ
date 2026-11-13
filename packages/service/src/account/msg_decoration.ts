@@ -32,6 +32,7 @@ import type { DressService } from './dress_service';
 import type { BubbleSkin } from './bubble_skin';
 import type { FontDerived } from './dress_shared_cache';
 import { getLogger, logErrorContext } from '../common/logger';
+import { scopedNetworkAllowed } from '../common/network_scope';
 
 const WIDGET_BASE = 'https://tianquan.gtimg.cn/faceAddon/item';
 
@@ -65,6 +66,7 @@ export class MsgDecorationCacheService {
   private readonly fontPending = new Map<number, Promise<FontDerived | null>>();
   private readonly widgetResolved = new Map<number, ResolvedWidget>();
   private readonly widgetPending = new Map<number, Promise<ResolvedWidget>>();
+  private indexRevision = 0;
 
   constructor(private readonly dressInstall: DressService) {}
 
@@ -73,6 +75,14 @@ export class MsgDecorationCacheService {
     fontId: number;
     widgetId: number;
   }): Promise<ResolvedMsgDecoration> {
+    const revision = this.dressInstall.indexRevision?.() ?? 0;
+    if (revision !== this.indexRevision) {
+      this.indexRevision = revision;
+      for (const [id, value] of this.bubbleResolved) if (!value) this.bubbleResolved.delete(id);
+      for (const [id, value] of this.fontResolved) if (!value) this.fontResolved.delete(id);
+      for (const [id, value] of this.widgetResolved)
+        if (!value.animated) this.widgetResolved.delete(id);
+    }
     const [bubble, font, widget] = await Promise.all([
       ids.bubbleId > 0 ? this.resolveBubble(ids.bubbleId) : Promise.resolve(null),
       ids.fontId > 0 ? this.resolveFont(ids.fontId) : Promise.resolve(null),
@@ -118,7 +128,8 @@ export class MsgDecorationCacheService {
           }),
         )
         .then((final) => {
-          this.widgetResolved.set(widgetId, final);
+          if (final.animated || scopedNetworkAllowed('dress'))
+            this.widgetResolved.set(widgetId, final);
           this.widgetPending.delete(widgetId);
           return final;
         });
@@ -135,12 +146,12 @@ export class MsgDecorationCacheService {
       pending = this.dressInstall
         .fetchBubble(itemId)
         .then((skin) => {
-          this.bubbleResolved.set(itemId, skin);
+          if (skin || scopedNetworkAllowed('dress')) this.bubbleResolved.set(itemId, skin);
           this.bubblePending.delete(itemId);
           return skin;
         })
         .catch(() => {
-          this.bubbleResolved.set(itemId, null);
+          if (scopedNetworkAllowed('dress')) this.bubbleResolved.set(itemId, null);
           this.bubblePending.delete(itemId);
           return null;
         });
@@ -181,7 +192,7 @@ export class MsgDecorationCacheService {
           return entry;
         })
         .catch((e) => {
-          this.fontResolved.set(itemId, null);
+          if (scopedNetworkAllowed('dress')) this.fontResolved.set(itemId, null);
           this.fontPending.delete(itemId);
           this.logger.warn('msg font resolve failed', {
             event: 'msg-font-resolve-failed',

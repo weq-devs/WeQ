@@ -86,17 +86,10 @@
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 3px;
 }
-.weq-int-round-log .weq-exp-log.is-scrollable {
-  height: min(300px, 40dvh);
+.weq-int-round-log .weq-model-log {
+  max-height: min(300px, 40dvh);
   margin-top: 8px;
   border-radius: 4px;
-}
-.weq-int-round-log .weq-exp-log-time {
-  display: none;
-}
-.weq-int-round-log .weq-exp-log-text {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 .weq-int-round-error {
   display: flex;

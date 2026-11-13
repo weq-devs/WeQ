@@ -22,7 +22,18 @@
   padding: 14px 8px;
 }
 .weq-conversation-settings-pane .weq-cvs-nav-head {
+  position: relative;
   margin: 0 6px 10px;
+}
+.weq-conversation-settings-pane .weq-cvs-nav-head:has(.weq-cvs-profile-link) {
+  padding-right: 28px;
+}
+.weq-conversation-settings-pane .weq-cvs-profile-link {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 26px;
+  height: 26px;
 }
 .weq-conversation-settings-pane .weq-cvs-nav-item {
   padding: 6px 8px;

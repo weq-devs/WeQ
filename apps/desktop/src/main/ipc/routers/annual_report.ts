@@ -1,3 +1,4 @@
+import { OperationError } from '@weq/service';
 import { z } from 'zod';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -21,7 +22,10 @@ function requireServices(expected?: {
   const context = getAppContext();
   const services = context.services;
   if (!services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   if (
     expected?.expectedAccountUin &&

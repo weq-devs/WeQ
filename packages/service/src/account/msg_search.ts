@@ -80,9 +80,4 @@ export class MsgSearchService {
       .sort((a, b) => Number(b.sendTime - a.sendTime))
       .slice(0, limit);
   }
-
-  /** @deprecated Use searchBuddy or searchGroup instead. */
-  search(keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
-    return this.searchBuddy(keyword, limit);
-  }
 }

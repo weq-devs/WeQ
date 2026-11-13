@@ -1,3 +1,4 @@
+import { TimeLabel } from '../TimeLabel';
 import { formatConversationTime, formatConversationTimestamp } from '../../lib/conversationTime';
 import { conversationActivityTime } from '@weq/service/conversation-order';
 import {
@@ -15,6 +16,7 @@ import {
 import { useMemo, useEffect, useRef, useState, useContext } from 'react';
 import { classifyChatType } from '@weq/codec';
 import { Avatar } from '../../im-template/template/primitives';
+import { cn } from '../../im-template/template/classNames';
 import type { Conversation, MergedKind } from '../../im-template/template/types';
 import { trpc } from '../../trpc/client';
 import { resolveAvatar, avatarFromGroupCode } from '../../lib/avatarResolver';
@@ -32,6 +34,10 @@ import {
   invertSelectionIds,
 } from '../../lib/multiSelection';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
+import { ConversationMenuTarget } from '../ConversationMenuTarget';
+import { useConversationHoverOrder } from '../../hooks/useConversationHoverOrder';
+import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
+import { useViewState } from '../../state/view';
 import { ConversationBatchToolbar } from '../ConversationBatchToolbar';
 import { DirectoryToolbar } from '../DirectoryToolbar';
 import { useConversationBatchActions } from '../useConversationBatchActions';
@@ -160,6 +166,16 @@ export function MergedSessionPanel({
     x: number;
     y: number;
   } | null>(null);
+  useClientPreferences((state) => state.tick);
+  const keepPosition = preferenceValue('keepConversationPositionOnHover');
+  const account = useViewState((state) => state.openedUin);
+  const [pointerInside, setPointerInside] = useState(false);
+  useEffect(() => {
+    const clear = () => setPointerInside(false);
+    window.addEventListener('blur', clear);
+    return () => window.removeEventListener('blur', clear);
+  }, []);
+  useEffect(() => setActionMenu(null), [account, kind, groupSearch]);
 
   // 获取公众号/服务号原始数据
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery(undefined, {
@@ -533,7 +549,19 @@ export function MergedSessionPanel({
             : kind === 'service'
               ? 'QQ服务号'
               : 'QQ官方账号';
-  const ids = sortedThreads.map((row) => row.id);
+  const orderedThreads = useConversationHoverOrder(
+    sortedThreads,
+    kind === 'groupAssistant' && keepPosition && (pointerInside || Boolean(actionMenu)),
+    `${account}:${kind}:${groupSearch}`,
+  );
+  const ids = orderedThreads.map((row) => row.id);
+  useEffect(() => {
+    if (actionMenu && !sortedThreads.some((row) => row.id === actionMenu.conversation.id))
+      setActionMenu(null);
+  }, [actionMenu, sortedThreads]);
+  const contextTargetIds = new Set(
+    actionMenu ? [actionMenu.conversation.id, ...actionMenu.ids] : [],
+  );
   const invertFrom = useRef<Set<string> | null>(null);
   const allSelected = allSelectionIdsSelected(ids, selectedIds);
   const toggleAll = () => {
@@ -648,13 +676,27 @@ export function MergedSessionPanel({
         ) : null}
         <div
           className={`weq-merged-popover-body${kind === 'groupAssistant' ? ' weq-conversation-list' : ''}`}
+          onPointerOverCapture={(event) => {
+            if (event.pointerType === 'mouse' && event.target instanceof Node)
+              setPointerInside(event.currentTarget.contains(event.target));
+          }}
+          onPointerOutCapture={(event) => {
+            if (
+              event.pointerType === 'mouse' &&
+              !(
+                event.relatedTarget instanceof Node &&
+                event.currentTarget.contains(event.relatedTarget)
+              )
+            )
+              setPointerInside(false);
+          }}
         >
           {kind === 'groupAssistant' && groupAssistantError ? (
             <div className="weq-merged-popover-empty" role="status">
               群助手读取失败：{groupAssistantError}
             </div>
           ) : null}
-          {sortedThreads.map((conv) => {
+          {orderedThreads.map((conv) => {
             const preview = conv.lastMessage?.body ?? '';
             const unreadCount = conv.unreadCount ?? 0;
             const time =
@@ -674,9 +716,16 @@ export function MergedSessionPanel({
               >
                 <button
                   type="button"
+                  data-conversation-id={conv.id}
                   className={
                     kind === 'groupAssistant'
-                      ? `weq-merged-popover-item conversation-row${pinned ? ' pinned' : ''}${selectedIds.has(conv.id) ? ' is-multiselected' : ''}`
+                      ? cn(
+                          'weq-merged-popover-item conversation-row',
+                          pinned && 'pinned',
+                          selectedIds.has(conv.id) && 'is-multiselected',
+                          contextTargetIds.has(conv.id) && 'is-context-target',
+                          !selectionMode && contextTargetIds.has(conv.id) && 'active',
+                        )
                       : 'weq-merged-popover-item'
                   }
                   {...(kind === 'groupAssistant' ? multi.itemProps(conv.id) : {})}
@@ -731,7 +780,7 @@ export function MergedSessionPanel({
                           {pinned ? (
                             <Pin size={12} aria-label="置顶" className="row-pinned" />
                           ) : null}
-                          {time}
+                          <TimeLabel value={conv.updatedAt}>{time}</TimeLabel>
                         </span>
                         {unreadCount > 0 ? (
                           <span
@@ -747,7 +796,11 @@ export function MergedSessionPanel({
                     <div className="weq-merged-popover-item-main">
                       <div className="weq-merged-popover-item-top">
                         <div className="weq-merged-popover-item-name">{name}</div>
-                        {time && <div className="weq-merged-popover-item-time">{time}</div>}
+                        {time && (
+                          <div className="weq-merged-popover-item-time">
+                            <TimeLabel value={conv.updatedAt}>{time}</TimeLabel>
+                          </div>
+                        )}
                       </div>
                       {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
                     </div>
@@ -790,6 +843,28 @@ export function MergedSessionPanel({
         <ConversationActionsMenu
           x={actionMenu.x}
           y={actionMenu.y}
+          label={
+            actionMenu.ids.length > 1
+              ? `已选 ${actionMenu.ids.length} 个会话的操作`
+              : `${actionMenu.conversation.type === 'group' ? actionMenu.conversation.group.name : actionMenu.conversation.id}的会话操作`
+          }
+          target={
+            <ConversationMenuTarget
+              name={
+                actionMenu.conversation.type === 'group'
+                  ? actionMenu.conversation.group.name
+                  : actionMenu.conversation.id
+              }
+              avatarUrl={
+                actionMenu.conversation.type === 'group'
+                  ? actionMenu.conversation.group.avatarUrl
+                  : null
+              }
+              identity={actionMenu.conversation.id}
+              kind={actionMenu.conversation.type}
+              count={actionMenu.ids.length}
+            />
+          }
           onClose={() => setActionMenu(null)}
           actions={[
             ...(directory?.onReadState

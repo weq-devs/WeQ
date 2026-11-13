@@ -89,12 +89,16 @@ item   f1 = voiceId   （字符串，要原样发给 0x929b_0 的 voiceId）
 https://res.qpt.qq.com/qpilot/tts_sample/group/<样音文件名>.wav
 ```
 
-例如 <https://res.qpt.qq.com/qpilot/tts_sample/group/lucy-voice-suxinjiejie.wav>。
+例如 `https://res.qpt.qq.com/qpilot/tts_sample/group/lucy-voice-suxinjiejie.wav`。
 
-> ⚠️ **不要拿 `voiceId` 直接拼样音 URL。** 两者**通常**相同，但不保证：
-> `lucy-voice-lizeyan`（霸道总裁）的样音文件是 `lucy-voice-lizeyan-2.wav`。
-> 以目录响应里的 `item.f3` 为准（前端因此把样音文件名单独记了一份，见
-> `aiVoicePanel.tsx` 的 `AI_VOICE_CATALOG[].sample`）。
+::: warning
+
+**不要拿 `voiceId` 直接拼样音 URL。** 两者**通常**相同，但不保证：
+`lucy-voice-lizeyan`（霸道总裁）的样音文件是 `lucy-voice-lizeyan-2.wav`。
+以目录响应里的 `item.f3` 为准（前端因此把样音文件名单独记了一份，见
+`aiVoicePanel.tsx` 的 `AI_VOICE_CATALOG[].sample`）。
+
+:::
 
 - `GET`，返回 `audio/wav`（静态资源，`Server: tencent-cos`），可直接下载 / 试听；
 - 除 `lucy-voice-xueling` 是 **16 kHz** 外，其余都是 **32 kHz**、单声道、16-bit PCM；
@@ -110,4 +114,4 @@ https://res.qpt.qq.com/qpilot/tts_sample/group/<样音文件名>.wav
 
 ---
 
-[← 返回开发者入口](./index.md)
+[← 返回开发者入口](index.md)

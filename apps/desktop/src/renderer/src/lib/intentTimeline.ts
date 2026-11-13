@@ -13,12 +13,13 @@ export interface IntentTimelineMessage {
   deletedKind?: unknown;
 }
 
-/** 与服务端 text／face 分析范围一致，不把引用或媒体占位当成正文。 */
+/** 与服务端正文、表情和图片分析范围一致，不把引用或其他媒体预览当成正文。 */
 export function messageHasIntentText(
   message: Pick<IntentTimelineMessage, 'body' | 'qqElements'>,
 ): boolean {
   if (!Array.isArray(message.qqElements)) return Boolean(message.body?.trim());
   return message.qqElements.some((element) => {
+    if (element.type === 'pic' || element.type === 'mface') return true;
     const value =
       element.type === 'text'
         ? element.data?.textContent

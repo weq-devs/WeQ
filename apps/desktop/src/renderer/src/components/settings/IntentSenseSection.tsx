@@ -9,10 +9,12 @@ import { ApiModelRow } from './ApiModelSelect';
 import { IntentTuningPanel } from './IntentTuningPanel';
 import { AiFeatureSettingsLayout } from './AiFeatureSettingsLayout';
 import { useAiFeatureSettings } from './useAiFeatureSettings';
+import { useViewState } from '../../state/view';
 import '../../styles/intent-sense.css';
 
 export function IntentSenseSection() {
   const settings = useAiFeatureSettings('意图感知');
+  const hasAccount = Boolean(useViewState((state) => state.openedUin));
   const { active, status, disabled, patch, refreshResults } = settings;
   const s = status.data;
   const local = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
@@ -39,27 +41,45 @@ export function IntentSenseSection() {
 
   return (
     <AiFeatureSettingsLayout
+      imageFeature="intent"
       settings={settings}
       title="意图感知"
-      advancedId="intent-advanced"
       error={status.error}
       retrying={status.isFetching}
       onRetry={() => void status.refetch()}
       basic={
-        <Row
-          settingId="intent-enabled"
-          label="启用意图感知"
-          desc="分析聊天消息的意图与情绪。"
-          control={
-            <Toggle
-              label="启用意图感知"
-              checked={s?.enabled ?? false}
-              indeterminate={!s}
-              disabled={disabled}
-              onChange={(enabled) => void patch({ enabled })}
-            />
-          }
-        />
+        <>
+          <Row
+            settingId="intent-enabled"
+            label="启用意图感知"
+            desc="分析聊天消息的意图与情绪。"
+            control={
+              <Toggle
+                label="启用意图感知"
+                checked={s?.enabled ?? false}
+                indeterminate={!s}
+                disabled={disabled}
+                onChange={(enabled) => void patch({ enabled })}
+              />
+            }
+          />
+          <Row
+            settingId="intent-mode"
+            label="模式"
+            control={
+              <SegmentedControl
+                label="意图感知模式"
+                value={s ? (s.analysisMode ?? 'auto') : null}
+                disabled={disabled}
+                onChange={(analysisMode) => void patch({ analysisMode })}
+                options={[
+                  { value: 'auto', label: '自动' },
+                  { value: 'manual', label: '手动' },
+                ]}
+              />
+            }
+          />
+        </>
       }
       model={
         <>
@@ -67,16 +87,26 @@ export function IntentSenseSection() {
             settingId="intent-engine"
             label="运行方式"
             control={
-              <SegmentedControl
-                label="意图感知运行方式"
-                value={s?.engine ?? null}
-                disabled={disabled}
-                onChange={(engine) => void patch({ engine })}
-                options={[
-                  { value: 'api', label: 'API 模型' },
-                  { value: 'local', label: '本地模型', disabled: !local.data?.available },
-                ]}
-              />
+              <span
+                data-setting-fallback={
+                  s?.engine === 'local'
+                    ? 'intent-api-model'
+                    : s?.engine === 'api'
+                      ? 'intent-model-resources'
+                      : undefined
+                }
+              >
+                <SegmentedControl
+                  label="意图感知运行方式"
+                  value={s?.engine ?? null}
+                  disabled={disabled}
+                  onChange={(engine) => void patch({ engine })}
+                  options={[
+                    { value: 'api', label: 'API 模型' },
+                    { value: 'local', label: '本地模型', disabled: !local.data?.available },
+                  ]}
+                />
+              </span>
             }
           />
           {s?.engine === 'api' ? (
@@ -88,26 +118,31 @@ export function IntentSenseSection() {
               lastError={s.lastApiError}
               onChange={(providerRef) => void patch({ providerRef })}
             />
-          ) : (
-            <p className="weq-set-note" data-setting-id="intent-api-model">
-              API 模型：{s ? '当前使用本地模型。' : '运行方式待确认。'}
-            </p>
-          )}
+          ) : null}
+          {s?.engine === 'local' ? <IntentModelsSection /> : null}
         </>
-      }
-      resources={
-        s?.engine === 'local' ? (
-          <IntentModelsSection embedded />
-        ) : !s ? (
-          <p className="weq-set-note" data-setting-id="intent-model-resources">
-            尚未取得运行方式，本地模型资源状态待确认。
-          </p>
-        ) : null
       }
     >
       {(inactive) => (
         <>
-          <Card title="显示方式" icon={<Eye size={15} strokeWidth={1.8} />}>
+          <Card
+            title="显示方式"
+            settingId="intent-advanced"
+            icon={<Eye size={15} strokeWidth={1.8} />}
+          >
+            <Row
+              settingId="intent-loading-animation"
+              label="批量分析时显示胶囊动画"
+              control={
+                <Toggle
+                  label="批量分析时显示胶囊动画"
+                  checked={s?.loadingAnimation !== false}
+                  indeterminate={!s}
+                  disabled={disabled || inactive}
+                  onChange={(loadingAnimation) => void patch({ loadingAnimation })}
+                />
+              }
+            />
             <Row
               settingId="intent-persistent-display"
               label="常驻显示"
@@ -144,7 +179,7 @@ export function IntentSenseSection() {
                   label="自己发送后分析"
                   checked={s?.analyzeAfterSelf !== false}
                   indeterminate={!s}
-                  disabled={disabled || inactive}
+                  disabled={disabled || inactive || s?.analysisMode === 'manual'}
                   onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
                 />
               }
@@ -161,7 +196,7 @@ export function IntentSenseSection() {
                 <button
                   type="button"
                   className="weq-set-btn"
-                  disabled={disabled || inactive || clearCache.isLoading}
+                  disabled={disabled || inactive || !hasAccount || clearCache.isLoading}
                   onClick={() => void onClearCache()}
                 >
                   <RotateCcw size={14} />
@@ -170,7 +205,6 @@ export function IntentSenseSection() {
               }
             />
           </Card>
-          {s?.engine === 'api' ? <IntentModelsSection embedded /> : null}
         </>
       )}
     </AiFeatureSettingsLayout>

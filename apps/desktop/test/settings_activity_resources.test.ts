@@ -1,32 +1,26 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { VoiceTranscribeSection } from '../src/renderer/src/components/settings/VoiceTranscribeSection';
-import { OcrModelsSection } from '../src/renderer/src/components/settings/OcrModelsSection';
+import { RecognitionSettingsSection } from '../src/renderer/src/components/settings/RecognitionSettingsSection';
+import { EnhancementPacksSection } from '../src/renderer/src/components/settings/EnhancementPacksSection';
+import { SettingsNavigateContext } from '../src/renderer/src/components/settings/controls';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { useAppUpdate } from '../src/renderer/src/hooks/useAppUpdate';
 import { useDialog } from '../src/renderer/src/components/Dialog';
 
-type Progress = {
-  id?: string;
-  percent?: number;
-  downloadedBytes?: number;
-  totalBytes?: number;
-  speed?: number;
-  done?: boolean;
-  error?: string;
-  kind?: string;
-};
+type Progress = { kind?: string };
 const fixture = vi.hoisted(() => ({
   listeners: new Map<string, { path: string; onData: (value: Progress) => void }>(),
   enabled: new Map<string, boolean>(),
   refetch: vi.fn(),
   invalidate: vi.fn(),
-  mutate: vi.fn(async () => true),
-  downloaded: false,
-  downloading: true,
+  mutate: vi.fn(async (_input: unknown) => true),
+  confirm: vi.fn(async () => true),
+  ready: false,
+  busy: false,
+}));
+vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
+  useAppDialog: () => ({ confirm: fixture.confirm }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
@@ -37,30 +31,38 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return (_input: unknown, options: { enabled?: boolean }) => {
             const name = path.at(-1)!;
             fixture.enabled.set(name, options?.enabled !== false);
-            const model = {
-              name: '合成离线模型',
-              desc: '合成数据',
-              sizeLabel: '1 MB',
-              sizeOnDisk: 0,
-              recommended: false,
-              downloaded: fixture.downloaded,
-              downloading: fixture.downloading,
-            };
+            const packs = (['text', 'voice', 'intent', 'dress'] as const).map((id, index) => ({
+              id,
+              name: ['本地文字识别', '本地语音转写', '本地意图与画像', '装扮离线索引'][index],
+              description: '合成能力资源',
+              ready: fixture.ready,
+              downloaded: fixture.ready,
+              busy: fixture.busy,
+              pausable: id !== 'dress',
+              installed: fixture.ready,
+              blocker: null,
+              downloadBytes: fixture.ready ? 0 : 1048576,
+              sizeOnDisk: fixture.ready ? 1048576 : 0,
+              sharedBytes: 0,
+              deleteBytes: fixture.ready ? 1048576 : 0,
+              operation: fixture.busy
+                ? { phase: 'downloading', total: 1048576, received: 524288 }
+                : null,
+            }));
             return {
               data:
-                name === 'localModelResources'
-                  ? {
-                      selected: { voice: '', ocr: '', filter: '', intent: 'auto' },
-                      voice: [{ ...model, id: 'voice-fixture' }],
-                      ocr: [
-                        { ...model, id: 'ocr-fixture', kind: 'ocr' },
-                        { ...model, id: 'filter-fixture', kind: 'filter' },
-                      ],
-                      engineBlocker: null,
-                    }
-                  : name === 'getVersionInfo'
-                    ? { app: '1.0.0', isDev: false }
-                    : { current: '1.0.0', hasUpdate: true, latest: '2.0.0' },
+                name === 'enhancementPacks'
+                  ? { packs, all: { downloadBytes: 4194304, sizeOnDisk: 0 } }
+                  : name === 'enhancementPlan'
+                    ? { downloadBytes: 4194304, sizeOnDisk: 0 }
+                    : name === 'getVersionInfo'
+                      ? { app: '1.0.0', isDev: false }
+                      : name === 'getSettings'
+                        ? {
+                            ocr: { prefilterEnabled: true, onlineConcurrency: 5 },
+                            voiceTranscribe: { onlineConcurrency: 5 },
+                          }
+                        : { current: '1.0.0', hasUpdate: true, latest: '2.0.0' },
               isLoading: false,
               isFetching: false,
               refetch: fixture.refetch,
@@ -70,7 +72,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'invalidate') return () => fixture.invalidate(path.join('.'));
         if (key === 'subscribe')
           return (_input: unknown, options: { onData: (value: Progress) => void }) => {
-            const id = `${path.join('.')}:${fixture.listeners.size}`;
+            const id = path.join('.') + ':' + fixture.listeners.size;
             fixture.listeners.set(id, { path: path.join('.'), onData: options.onData });
             return { unsubscribe: () => fixture.listeners.delete(id) };
           };
@@ -86,8 +88,9 @@ beforeEach(() => {
   fixture.refetch.mockClear();
   fixture.invalidate.mockClear();
   fixture.mutate.mockClear();
-  fixture.downloaded = false;
-  fixture.downloading = true;
+  fixture.confirm.mockReset().mockResolvedValue(true);
+  fixture.ready = false;
+  fixture.busy = false;
 });
 afterEach(() => {
   useDialog.setState({ current: null });
@@ -108,98 +111,82 @@ function mount(content: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
     },
   };
 }
-describe('隐藏设置页的进度资源', () => {
-  it.each([
-    ['voice', VoiceTranscribeSection, 'QQ 在线转写', '本地语音识别'],
-    ['ocr', OcrModelsSection, 'QQ 在线识别', '本地图片识别'],
-  ] as const)('%s 设置将在线能力与本地模型分别置于完整卡片', (kind, Component, online, local) => {
-    const f = mount(h(Component));
+describe('增强设置与非活动页面资源', () => {
+  it('识别与转写仅保留两类并发及筛图偏好，不提供本地资源链接或下载管理', () => {
+    const navigate = vi.fn();
+    const f = mount(
+      h(SettingsNavigateContext.Provider, { value: navigate }, h(RecognitionSettingsSection)),
+    );
     try {
-      const cards = [...f.host.querySelectorAll('.weq-set > .weq-set-card')];
-      expect(cards).toHaveLength(2);
-      expect(cards[0]!.querySelector('.weq-set-card-title')?.textContent).toBe(online);
-      expect(cards[1]!.querySelector('.weq-set-card-title')?.textContent).toBe(local);
-      expect(cards[0]!.querySelector('input[type="number"]')).not.toBeNull();
-      expect(cards[0]!.querySelector('.weq-model')).toBeNull();
-      expect(cards[1]!.querySelector('.weq-model')).not.toBeNull();
-      expect(cards[1]!.querySelector('.weq-set-card')).toBeNull();
-      if (kind === 'ocr') expect(cards[1]!.querySelectorAll('section')).toHaveLength(2);
-      const output = process.env.WEQ_EXPORT_LAYOUT_DIR;
-      if (output) {
-        mkdirSync(output, { recursive: true });
-        const styles = ['index.css', 'settings-controls.css', 'recognition-settings.css']
-          .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
-          .join('\n');
-        writeFileSync(
-          resolve(output, `${kind}-settings.html`),
-          `<!doctype html><html lang="zh-CN" data-theme="light"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;padding:24px;font-family:system-ui;background:var(--background)}*,*::before,*::after{box-sizing:border-box}main{max-width:740px;margin:auto}</style><body><main>${f.host.innerHTML}</main></body></html>`,
-        );
-      }
+      expect(f.host.querySelectorAll('input[type="number"]')).toHaveLength(2);
+      expect(f.host.querySelector('[aria-label="OCR 前先筛图"]')).not.toBeNull();
+      expect(f.host.textContent).not.toContain('下载模型');
+      expect(
+        [...f.host.querySelectorAll('button')].some((node) => node.textContent === '增强包'),
+      ).toBe(false);
+      expect(navigate).not.toHaveBeenCalled();
     } finally {
       f.dispose();
     }
   });
-  it.each([VoiceTranscribeSection, OcrModelsSection])(
-    '已下载模型不再显示选用或取消按钮',
-    (Component) => {
-      fixture.downloaded = true;
-      fixture.downloading = false;
-      const f = mount(h(Component));
-      try {
-        expect(f.host.textContent).toContain('已下载');
-        expect(f.host.textContent).not.toContain('设为当前');
-        expect(f.host.textContent).not.toContain('取消选用');
-        expect(f.host.textContent).not.toContain('不选 =');
-        expect(f.host.querySelector('button[aria-label="删除模型"]')).not.toBeNull();
-      } finally {
-        f.dispose();
-      }
-    },
-  );
-  it.each([VoiceTranscribeSection, OcrModelsSection])('下载完成刷新模型和共享设置', (Component) => {
-    const f = mount(h(Component));
+  it('管理页复用四张设置卡片，只有下载全部和各卡片的独立操作', async () => {
+    const f = mount(h(EnhancementPacksSection));
     try {
-      act(() => [...fixture.listeners.values()][0]!.onData({ done: true }));
-      expect(fixture.refetch).toHaveBeenCalledOnce();
-      expect(fixture.invalidate).toHaveBeenCalledWith('bootstrap.getSettings');
-      expect(fixture.mutate).not.toHaveBeenCalled();
+      expect(f.host.querySelector('input[type="checkbox"]')).toBeNull();
+      expect(f.host.querySelector('[role="checkbox"]')).toBeNull();
+      expect(f.host.querySelectorAll('.weq-set-card')).toHaveLength(4);
+      const all = [...f.host.querySelectorAll('button')].find((node) =>
+        node.textContent?.startsWith('下载全部'),
+      )!;
+      await act(async () => all.click());
+      expect(fixture.mutate).toHaveBeenCalledWith({ ids: ['text', 'voice', 'intent', 'dress'] });
+      const chosen = f.host.querySelector<HTMLButtonElement>('[aria-label="下载本地文字识别"]')!;
+      await act(async () => chosen.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(f.host.querySelector('progress')).toBeNull();
     } finally {
       f.dispose();
     }
   });
-  it.each([
-    ['voice', VoiceTranscribeSection],
-    ['ocr', OcrModelsSection],
-  ] as const)(
-    '%s 模型在失活时退订，回来按真实下载状态恢复，不保留旧进度或伪造百分比',
-    (_kind, Component) => {
-      const f = mount(h(Component));
-      try {
-        expect(f.host.textContent).toContain('下载中');
-        expect(f.host.textContent).not.toContain('0%');
-        const listener = [...fixture.listeners.values()][0]!;
-        const id = _kind === 'voice' ? 'voice-fixture' : 'ocr-fixture';
-        act(() =>
-          listener.onData({ id, percent: 50, downloadedBytes: 5, totalBytes: 10, speed: 1 }),
-        );
-        expect(f.host.textContent).toContain('50%');
-        f.render(false);
-        expect(fixture.listeners.size).toBe(0);
-        act(() => listener.onData({ id, error: '已失活的旧错误' }));
-        expect(useDialog.getState().current).toBeNull();
-        expect(fixture.refetch).not.toHaveBeenCalled();
-        fixture.downloaded = true;
-        fixture.downloading = false;
-        f.render(true);
-        expect(f.host.textContent).toContain('已下载');
-        expect(f.host.textContent).not.toContain('50%');
-        expect(fixture.listeners.size).toBe(1);
-      } finally {
-        f.dispose();
-      }
+  it('非活动管理页停止轮询，回来从宿主状态恢复进度；不订阅遗留下载流', () => {
+    fixture.busy = true;
+    const f = mount(h(EnhancementPacksSection));
+    try {
+      expect(f.host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe(
+        '50',
+      );
       expect(fixture.listeners.size).toBe(0);
-    },
-  );
+      f.render(false);
+      expect(fixture.enabled.get('enhancementPacks')).toBe(false);
+      fixture.busy = false;
+      fixture.ready = true;
+      f.render(true);
+      expect(f.host.querySelector('[role="progressbar"]')).toBeNull();
+      expect(f.host.textContent).toContain('删除 1.00 MiB');
+      expect(f.host.querySelectorAll('button[aria-label^="删除"]')).toHaveLength(4);
+    } finally {
+      f.dispose();
+    }
+  });
+  it('删除增强包先确认，取消不删除，确认后仅移除选定能力', async () => {
+    fixture.ready = true;
+    const f = mount(h(EnhancementPacksSection));
+    try {
+      const remove = f.host.querySelector<HTMLButtonElement>('[aria-label="删除本地文字识别"]')!;
+      fixture.confirm.mockResolvedValueOnce(false);
+      await act(async () => remove.click());
+      expect(fixture.mutate).not.toHaveBeenCalled();
+      expect(fixture.confirm).toHaveBeenCalledWith(
+        '删除本地文字识别？',
+        expect.stringContaining('1.00 MiB'),
+        { okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
+      );
+      await act(async () => remove.click());
+      expect(fixture.mutate).toHaveBeenCalledWith({ id: 'text' });
+    } finally {
+      f.dispose();
+    }
+  });
   it('普通更新观察随页面暂停，但已启动下载持续接收终态，结束后释放订阅', async () => {
     let update!: ReturnType<typeof useAppUpdate>;
     function Reader() {
@@ -212,13 +199,18 @@ describe('隐藏设置页的进度资源', () => {
       expect(fixture.listeners.size).toBe(2);
       f.render(false);
       expect(fixture.listeners.size).toBe(0);
-      expect([...fixture.enabled.values()]).toEqual([false, false]);
+      expect(Object.fromEntries(fixture.enabled)).toEqual({
+        getVersionInfo: false,
+        getState: false,
+        getInterval: false,
+        getPrerelease: false,
+      });
       f.render(true);
       await act(async () => update.download());
       expect(update.phase).toBe('downloading');
       f.render(false);
       expect(fixture.listeners.size).toBe(2);
-      expect([...fixture.enabled.values()]).toEqual([false, false]);
+      expect([...fixture.enabled.values()]).toEqual([false, false, false, false]);
       const event = [...fixture.listeners.values()].find((listener) =>
         listener.path.endsWith('onEvent'),
       )!;

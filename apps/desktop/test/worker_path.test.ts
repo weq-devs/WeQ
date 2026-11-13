@@ -24,6 +24,7 @@ test.each([
   'backupProbeWorker.mjs',
   'transcribeWorker.mjs',
   'dbCheckupWorker.mjs',
+  'analysisReportsWorker.mjs',
 ])('packaged %s resolves the physical extraResource rather than asar', (name) => {
   fixture((root, add) => {
     const physical = join(root, 'out/main', name);

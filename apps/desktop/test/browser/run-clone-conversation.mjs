@@ -44,6 +44,23 @@ try {
   });
   const page = await browser.newPage();
   const errors = [];
+  async function openConversationActions() {
+    const compact = await page.getByRole('button', { name: '更多会话操作', exact: true }).count();
+    await page
+      .getByRole('button', { name: compact ? '更多会话操作' : '消息管理', exact: true })
+      .click();
+    const menu = page.getByRole('menu', { name: compact ? '会话操作' : '消息管理', exact: true });
+    await menu.waitFor();
+    return menu;
+  }
+  async function toggleGroupInfo() {
+    const trigger = page.locator('.weq-mobile-group-info-trigger');
+    if (await trigger.count()) await trigger.click();
+    else {
+      const menu = await openConversationActions();
+      await menu.getByRole('menuitem', { name: '群资料', exact: true }).click();
+    }
+  }
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) => {
     const url = new URL(route.request().url());
@@ -159,7 +176,7 @@ try {
             ),
           });
         if (!groupCard) {
-          await card.getByRole('button', { name: '查看消息', exact: true }).waitFor();
+          await card.getByRole('button', { name: '打开会话', exact: true }).waitFor();
           await card.getByRole('button', { name: '预览消息', exact: true }).click();
           await card.locator('.weq-private-preview-inline .message-line').first().waitFor();
           const previewFits = await card.evaluate((node) => {
@@ -180,10 +197,13 @@ try {
         } else {
           await card.getByRole('button', { name: '查看消息', exact: true }).waitFor();
         }
-        await card.getByRole('button', { name: '关闭', exact: true }).click();
+        await card
+          .getByRole('button', { name: groupCard ? '关闭群资料' : '关闭', exact: true })
+          .click();
+        await card.waitFor({ state: 'hidden' });
       }
       if (kind === 'group') {
-        if (width <= 760) await page.locator('.weq-mobile-group-info-trigger').click();
+        if (width <= 760) await toggleGroupInfo();
         await page.locator('.group-info-panel').waitFor({ state: 'visible' });
         const cloneRow = page.locator('.group-info-member-row').filter({ hasText: '合成好友' });
         if (
@@ -208,36 +228,21 @@ try {
           .getByRole('dialog', { name: '用户资料', exact: true })
           .getByRole('button', { name: '关闭', exact: true })
           .click();
-        if (width <= 760) await page.locator('.weq-mobile-group-info-trigger').click();
+        if (width <= 760) await toggleGroupInfo();
       }
       if (process.env.WEQ_PROFILE_ONLY) {
         results.push({ kind, theme, width, checks });
         continue;
       }
-      await page.getByRole('button', { name: '切换会话', exact: true }).click();
-      await page.getByRole('menu', { name: '会话列表' }).waitFor();
-      const sessionLayer = await page.getByRole('menu', { name: '会话列表' }).evaluate((menu) => {
-        const layer = menu.closest('.weq-overlay-layer');
-        const rect = menu.querySelector('button').getBoundingClientRect();
-        const cover = document.createElement('div');
-        cover.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;z-index:1000`;
-        document.body.append(cover);
-        const top = document.elementFromPoint(
-          rect.left + rect.width / 2,
-          rect.top + rect.height / 2,
-        );
-        const result = layer?.parentElement === document.body && menu.contains(top);
-        cover.remove();
-        return result;
-      });
-      if (!sessionLayer) throw new Error('会话选择仍被消息层遮挡');
+      if (await page.getByRole('button', { name: '切换会话', exact: true }).count())
+        throw new Error('克隆长期对话仍显示分会话切换入口');
+      if (await page.getByRole('button', { name: '新建会话', exact: true }).count())
+        throw new Error('克隆长期对话仍显示分会话新建入口');
       if (output)
         await page.screenshot({
-          path: resolve(output, `${kind}-${theme}-${width}-session-menu.png`),
+          path: resolve(output, `${kind}-${theme}-${width}-long-term.png`),
         });
-      await page.keyboard.press('Escape');
-      await page.getByRole('button', { name: '消息管理', exact: true }).click();
-      await page.getByRole('menu', { name: '消息管理' }).waitFor();
+      await openConversationActions();
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: '搜索聊天记录', exact: true }).click();
       await page.locator('.weq-search-more-input').fill('合成消息');
@@ -256,12 +261,13 @@ try {
           .getByRole('button', { name: '表情', exact: true })
           .click();
       await page.locator('.composer-editor').fill('');
-      await page
-        .getByRole('button', {
-          name: kind === 'group' ? '克隆群聊设置' : '克隆体设置',
-          exact: true,
-        })
-        .click();
+      const settingsName = kind === 'group' ? '克隆群聊设置' : '克隆体设置';
+      const settingsButton = page.getByRole('button', { name: settingsName, exact: true });
+      if (await settingsButton.count()) await settingsButton.click();
+      else {
+        const menu = await openConversationActions();
+        await menu.getByRole('menuitem', { name: settingsName, exact: true }).click();
+      }
       await page.locator('.weq-conversation-settings-pane .weq-cvs-nav').waitFor();
       await page
         .locator('.weq-cvs-nav-item')
@@ -393,10 +399,14 @@ try {
       }
       const selectionFit = await page.locator('.selection-bar').evaluate((node) => {
         const rect = node.getBoundingClientRect();
-        const pixel = (color) => {
+        const pixel = (colors) => {
           const ctx = document.createElement('canvas').getContext('2d');
-          ctx.fillStyle = color;
+          ctx.fillStyle = '#fff';
           ctx.fillRect(0, 0, 1, 1);
+          for (const color of Array.isArray(colors) ? colors : [colors]) {
+            ctx.fillStyle = color;
+            ctx.fillRect(0, 0, 1, 1);
+          }
           return `#${[...ctx.getImageData(0, 0, 1, 1).data]
             .slice(0, 3)
             .map((value) => value.toString(16).padStart(2, '0'))
@@ -406,18 +416,28 @@ try {
           document.querySelector('.message-line.is-selected .message-select-mark'),
         );
         const count = getComputedStyle(node.querySelector('.selection-bar-count'));
-        const composer = getComputedStyle(node.closest('.composer'));
-        return (
-          rect.bottom <= innerHeight &&
-          rect.right <= innerWidth &&
-          rect.height > 0 &&
-          window.cloneContrast(pixel(mark.color), pixel(mark.backgroundColor)) >= 4.5 &&
-          window.cloneContrast(pixel(count.color), pixel(composer.backgroundColor)) >= 4.5
-        );
+        const background = [];
+        for (let ancestor = node.closest('.composer'); ancestor; ancestor = ancestor.parentElement)
+          background.unshift(getComputedStyle(ancestor).backgroundColor);
+        return {
+          bounds: rect.bottom <= innerHeight && rect.right <= innerWidth && rect.height > 0,
+          markContrast: window.cloneContrast(pixel(mark.color), pixel(mark.backgroundColor)),
+          countContrast: window.cloneContrast(
+            pixel([...background, count.color]),
+            pixel(background),
+          ),
+        };
       });
-      if (!selectionFit) throw new Error('多选操作栏溢出');
       if (output)
         await page.screenshot({ path: resolve(output, `${kind}-${theme}-${width}-selection.png`) });
+      if (
+        !selectionFit.bounds ||
+        selectionFit.markContrast < 4.5 ||
+        selectionFit.countContrast < 4.5
+      )
+        throw new Error(
+          `多选操作栏检查失败：${JSON.stringify({ kind, theme, width, selectionFit })}`,
+        );
       await page.getByRole('button', { name: '退出多选', exact: true }).click();
       await page.locator('.composer-editor').waitFor({ state: 'visible' });
       if ((await page.locator('.composer-editor').textContent()) !== '未发送草稿')

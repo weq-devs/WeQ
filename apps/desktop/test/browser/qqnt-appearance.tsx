@@ -4,7 +4,7 @@ import { Moon, Sun } from 'lucide-react';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { AppRail } from '../../src/renderer/src/im-template/template/rail';
 import { ConversationList } from '../../src/renderer/src/im-template/template/conversationLists';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { MergedSessionPanel } from '../../src/renderer/src/components/sidebar/MergedSessionPanel';
@@ -86,6 +86,7 @@ const groups = names.map((name, index) => ({
   preference: { ...groupSeed.preference, muted: index === 1, pinned: index === 1 },
 }));
 function Fixture() {
+  const desktop = new URLSearchParams(location.search).has('desktop');
   const [draft, setDraft] = useState('');
   const [detail, setDetail] = useState(true);
   const [assistant, setAssistant] = useState(new URLSearchParams(location.search).has('assistant'));
@@ -95,7 +96,7 @@ function Fixture() {
   return (
     <ContentSelectionProvider>
       <div
-        className="app-shell-root weq-web-shell"
+        className={`app-shell-root${desktop ? '' : ' weq-web-shell'}`}
         data-mobile-detail={!contactsView && detail ? true : undefined}
         style={{ '--sidebar-width': '268px' } as CSSProperties}
       >
@@ -180,7 +181,7 @@ function Fixture() {
               />
             )}
           </aside>
-          <section className="chat-main">
+          <section className={`chat-main${detail ? ' chat-main-open' : ''}`}>
             <ChatPane
               user={user}
               conversation={conversation}

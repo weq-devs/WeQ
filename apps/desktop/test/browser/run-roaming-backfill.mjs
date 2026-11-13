@@ -74,11 +74,9 @@ try {
         .then((text) => text.includes('SSO'))
     )
       throw new Error('配置页泄漏技术参数');
-    await page.getByText('高级设置', { exact: true }).click();
     await page.getByRole('spinbutton').fill('800');
     await page.getByRole('checkbox', { name: '尝试找回更早的聊天记录' }).check();
     await page.getByRole('button', { name: '近 7 天', exact: true }).click();
-    await page.getByText('高级设置', { exact: true }).click();
     const overflow = await page.evaluate(() =>
       [...document.querySelectorAll('button,summary,input,select')].some((element) => {
         const rect = element.getBoundingClientRect();

@@ -4,8 +4,9 @@
  * uin (never the DB's stale avatar URL).
  */
 
+import { EmptyState } from '../EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
-import { Search } from 'lucide-react';
+import { Search, SearchX } from 'lucide-react';
 import { QqAvatar } from '../QqAvatar';
 
 export interface Person {
@@ -45,7 +46,7 @@ export function PeoplePicker({
       </div>
       <div className="weq-people-scroll">
         {filtered.length === 0 ? (
-          <div className="weq-face-empty">没有匹配的成员</div>
+          <EmptyState variant="inline" icon={<SearchX />} title="没有匹配的成员" />
         ) : (
           filtered.map((p) => (
             <button

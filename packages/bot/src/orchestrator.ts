@@ -192,6 +192,7 @@ export class BotOrchestrator {
         personaId: this.personaId,
         history,
         text: msg.text,
+        images: msg.images,
         privatePeerId: msg.peerId,
         signal: this.lifecycle.signal,
       });
@@ -226,7 +227,7 @@ export class BotOrchestrator {
 
     const next: AgentLabChatTurn[] = [
       ...history,
-      { role: 'user', text: msg.text },
+      { role: 'user', text: msg.text, images: result.imageRefs ?? msg.images },
       ...result.renderedTurns.map((text): AgentLabChatTurn => ({ role: 'assistant', text })),
     ];
     this.histories.set(historyKey, next.slice(-HISTORY_CAP));
@@ -253,6 +254,7 @@ export class BotOrchestrator {
         senderName: msg.senderName,
         groupId: msg.peerId,
         text: msg.text,
+        images: msg.images,
         mentionsSelf: msg.mentionsSelf,
         history,
         selfShareRecent,
@@ -278,7 +280,11 @@ export class BotOrchestrator {
     });
     this.log.content('group-decision', result.reason, meta);
 
-    history.push({ role: 'user', text: `「${msg.senderName}」：${msg.text}` });
+    history.push({
+      role: 'user',
+      text: `「${msg.senderName}」：${msg.text}`,
+      images: result.imageRefs ?? msg.images,
+    });
 
     if (!result.silent && result.renderedTurns.length > 0) {
       this.opts.stats?.onReplyGenerated();

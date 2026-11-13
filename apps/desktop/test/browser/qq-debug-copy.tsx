@@ -2,7 +2,13 @@ import { createRoot } from 'react-dom/client';
 import { QqDebugCopy } from '../../src/renderer/src/components/QqDebugCopy';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
-import { setFixture, setOnlineFixture } from './qq-debug-copy.stub';
+import {
+  pauseAction,
+  resumeAction,
+  setFixture,
+  setOnlineFixture,
+  setStatusPending,
+} from './qq-debug-copy.stub';
 import { SelectScreen } from '../../src/renderer/src/views/bootstrap/SelectScreen';
 import { useViewState } from '../../src/renderer/src/state/view';
 import {
@@ -19,6 +25,9 @@ Object.assign(window, {
     store: useThemeStore,
     setFixture,
     setOnlineFixture,
+    setStatusPending,
+    pauseAction,
+    resumeAction,
     restrictedStore: useRestrictedMode,
   },
 });

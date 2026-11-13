@@ -3,6 +3,7 @@ import { qqAvatarUrl } from '../../components/QqAvatar';
 import { parseMessageParts } from '../../im-template/template/emojiPacks';
 import { tokenToElement } from '../../im-template/template/draftElements';
 import type { GeneratedContentIdentity } from '../../../../shared/content_selection';
+import type { AiImageRef } from '@weq/agentlab';
 
 /** 只投影数据，不定义另一套聊天页面或伪造 QQ 消息序号。 */
 export function cloneChatUser(id: string, name: string, uin?: string, clone = false): User {
@@ -59,7 +60,7 @@ export function cloneChatConversation({
 }
 
 export function cloneChatMessages(
-  rows: readonly { id?: string; text: string; ts: number }[],
+  rows: readonly { id?: string; text: string; ts: number; images?: AiImageRef[] }[],
   conversationId: string,
   senderFor: (index: number) => User,
 ): Message[] {
@@ -72,7 +73,7 @@ export function cloneChatMessages(
       conversationId,
       senderId: sender.id,
       sender,
-      body: row.text,
+      body: row.text || (row.images?.length ? '[图片]' : ''),
       createdAt: Number.isFinite(date.getTime()) ? date.toISOString() : new Date(0).toISOString(),
     };
   });

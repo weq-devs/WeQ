@@ -33,6 +33,10 @@ const mocks = vi.hoisted(() => ({
   pic: null as unknown,
   /** 平台能力：本机有没有可用的本地识别引擎（null = 有）。 */
   localOcrBlocker: null as string | null,
+  prefilterEnabled: true,
+  filterModel: null as { modelId: string } | null,
+  runFilter: vi.fn(),
+  retrieveImage: vi.fn(),
 }));
 
 // 只换掉平台能力判定：真模块里的注册表 / 缓存照旧（下面还直接 import 了 OcrResultCache）。
@@ -51,7 +55,10 @@ vi.mock('../src/main/context/app_context', () => ({
     },
     bootstrap: {
       userConfig: {
-        getSettings: () => ({ autoAttachQq: mocks.autoAttachQq }),
+        getSettings: () => ({
+          autoAttachQq: mocks.autoAttachQq,
+          ocr: { prefilterEnabled: mocks.prefilterEnabled },
+        }),
         cacheDir: (category: string) => join(mocks.cacheRoot, category),
       },
     },
@@ -61,7 +68,10 @@ vi.mock('../src/main/context/app_context', () => ({
 vi.mock('../src/main/ocr/local', () => ({
   resolveLocalOcrModel: () => mocks.localModel,
   runLocalOcr: mocks.runLocalOcr,
+  resolveLocalOcrFilterModel: () => mocks.filterModel,
+  runLocalOcrFilterFile: mocks.runFilter,
 }));
+vi.mock('../src/main/media_protocol', () => ({ resolveChatImageFile: mocks.retrieveImage }));
 
 import { AI_TOOLS } from '../src/main/mcp/tools';
 import { OcrResultCache } from '@weq/service';
@@ -103,6 +113,10 @@ beforeEach(() => {
   mocks.autoAttachQq = true;
   mocks.localModel = null;
   mocks.localOcrBlocker = null;
+  mocks.prefilterEnabled = true;
+  mocks.filterModel = null;
+  mocks.runFilter.mockResolvedValue({ ok: true, hasText: false, modelId: 'filter' });
+  mocks.retrieveImage.mockResolvedValue({ path: null, variant: 'unknown' });
   mocks.pic = {
     type: 'pic',
     data: {
@@ -138,6 +152,71 @@ afterEach(() => {
 });
 
 describe('ocr_image_text', () => {
+  it('QQ 离线且本机无缓存时仍调用完整取图链路，再使用本地 OCR', async () => {
+    mocks.record = { ...readyRecord, qqOnline: false };
+    mocks.localModel = { modelId: 'ppocr-v5-mobile', paths: {} };
+    mocks.findFile.mockResolvedValue({ source: null, thumb: null });
+    mocks.retrieveImage.mockResolvedValueOnce({
+      path: '/synthetic/downloaded.png',
+      variant: 'downloaded',
+    });
+    const result = await ocr({ kind: 'group', conv: '123', msgId: '1' });
+    expect(result).toMatchObject({ ok: true, source: 'local', text: '本地结果' });
+    expect(mocks.retrieveImage).toHaveBeenCalledOnce();
+    expect(mocks.runLocalOcr).toHaveBeenCalledWith('/synthetic/downloaded.png', mocks.localModel);
+    expect(mocks.recognize).not.toHaveBeenCalled();
+  });
+  it('全局开启时先筛图，无文字不发起在线或本地 OCR', async () => {
+    mocks.pic = {
+      type: 'pic',
+      data: { md5: 'a'.repeat(32), fileName: 'a.jpg', fileToken: 'token' },
+    };
+    mocks.getGroupMessageById.mockResolvedValue({
+      sendTime: 1_700_000_000n,
+      elements: [mocks.pic],
+    });
+    mocks.filterModel = { modelId: 'filter' };
+    const result = await ocr({ kind: 'group', conv: '123', msgId: '1' });
+    expect(result).toMatchObject({ ok: true, skipped: true, source: 'filter', text: '' });
+    expect(mocks.runFilter).toHaveBeenCalledOnce();
+    expect(mocks.recognize).not.toHaveBeenCalled();
+    expect(mocks.runLocalOcr).not.toHaveBeenCalled();
+    const cached = await ocr({ kind: 'group', conv: '123', msgId: '1' });
+    expect(cached.skipped).toBe(true);
+    expect(mocks.runFilter).toHaveBeenCalledOnce();
+  });
+
+  it('全局关闭时绕过筛图和无文字筛图缓存，直接识别', async () => {
+    mocks.pic = {
+      type: 'pic',
+      data: { md5: 'a'.repeat(32), fileName: 'a.jpg', fileToken: 'token' },
+    };
+    mocks.getGroupMessageById.mockResolvedValue({
+      sendTime: 1_700_000_000n,
+      elements: [mocks.pic],
+    });
+    mocks.filterModel = { modelId: 'filter' };
+    await ocr({ kind: 'group', conv: '123', msgId: '1' });
+    mocks.prefilterEnabled = false;
+    expect(await ocr({ kind: 'group', conv: '123', msgId: '1' })).toMatchObject({
+      source: 'online',
+      text: '在线结果',
+    });
+    expect(mocks.runFilter).toHaveBeenCalledOnce();
+    expect(mocks.recognize).toHaveBeenCalledOnce();
+  });
+
+  it.each(['unavailable', 'failed', 'throws'])('筛图 %s 时记录原因并继续 OCR', async (failure) => {
+    mocks.filterModel = { modelId: 'filter' };
+    if (failure === 'unavailable') mocks.filterModel = null;
+    else if (failure === 'throws') mocks.runFilter.mockRejectedValueOnce(new Error('引擎异常'));
+    else mocks.runFilter.mockResolvedValueOnce({ ok: false, error: '筛图失败' });
+    const result = await ocr({ kind: 'group', conv: '123', msgId: '1' });
+    expect(result.source).toBe('online');
+    expect(result.notes).toEqual(expect.arrayContaining([expect.stringContaining('继续 OCR')]));
+    expect(mocks.recognize).toHaveBeenCalledOnce();
+  });
+
   it('在线可用时走在线，并标出来', async () => {
     const out = await ocr({ kind: 'group', conv: '123', msgId: '456' });
     expect(out.ok).toBe(true);

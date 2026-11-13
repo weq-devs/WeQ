@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { prepareRemoteNetwork } from './prepare-remote-network.mjs';
 
 test('编译本机架构并保留带空格路径，不启动节点或读取身份', () => {
@@ -10,9 +12,10 @@ test('编译本机架构并保留带空格路径，不启动节点或读取身�
     ['linux', 'x64', 'linux', 'amd64', 'weq-remote-network'],
     ['linux', 'arm64', 'linux', 'arm64', 'weq-remote-network'],
   ]) {
+    const repoDir = join(tmpdir(), 'fixture repo with spaces');
     let calls = 0;
     const helper = prepareRemoteNetwork({
-      repoDir: '/fixture/repo with spaces',
+      repoDir,
       platform,
       arch,
       build(command, args, options) {
@@ -25,10 +28,10 @@ test('编译本机架构并保留带空格路径，不启动节点或读取身�
           '-trimpath',
           '-ldflags=-s -w',
           '-o',
-          `/fixture/repo with spaces/tools/remote-network/${binary}`,
+          join(repoDir, 'tools/remote-network', binary),
           '.',
         ]);
-        assert.equal(options.cwd, '/fixture/repo with spaces/tools/remote-network');
+        assert.equal(options.cwd, join(repoDir, 'tools/remote-network'));
         assert.equal(options.env.GOOS, goos);
         assert.equal(options.env.GOARCH, goarch);
         assert.equal(options.env.CGO_ENABLED, '0');

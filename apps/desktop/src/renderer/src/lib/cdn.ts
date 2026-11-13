@@ -16,6 +16,7 @@
 
 import { createContext, useContext } from 'react';
 import { mediaUrl } from './resourceUrl';
+import { dataSaverActive, useDataSaver } from './dataSaver';
 
 /** 一条下载 rkey，形状同 service 的 `DownloadRkey`（经 tRPC 过来）。 */
 export interface CdnRkey {
@@ -48,7 +49,9 @@ const OFF: CdnState = { enabled: false, rkeys: [] };
 export const CdnContext = createContext<CdnState>(OFF);
 
 export function useCdn(): CdnState {
-  return useContext(CdnContext);
+  const state = useContext(CdnContext);
+  const limited = useDataSaver((value) => value.enabled);
+  return limited ? OFF : state;
 }
 
 /**
@@ -63,7 +66,7 @@ export function setPreferCdnFlag(enabled: boolean): void {
 }
 
 export function preferCdnEnabled(): boolean {
-  return preferCdnFlag;
+  return preferCdnFlag && !dataSaverActive();
 }
 
 /** 挑一条该场景下未过期的 rkey。 */

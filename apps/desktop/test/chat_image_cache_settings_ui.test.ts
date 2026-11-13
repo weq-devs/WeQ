@@ -48,12 +48,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it('预算控件支持保存零值、共享设置立即更新，失败可重试，非法值和在途时禁用保存', async () => {
+it('预算自动保存零值、共享设置立即更新，失败可重试，保存期间仍可编辑', async () => {
   const host = document.createElement('div');
   const root = createRoot(host);
   const render = () => act(() => root.render(h(ChatImageCacheSettings)));
   const input = () => host.querySelector('input')!;
-  const button = () => host.querySelector('button')!;
   const change = (value: string) =>
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
@@ -64,14 +63,12 @@ it('预算控件支持保存零值、共享设置立即更新，失败可重试�
     });
   const submit = () =>
     act(async () => {
-      host
-        .querySelector('form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
   try {
     render();
     expect(input().value).toBe(String(DEFAULT_CHAT_IMAGE_CACHE_MIB));
-    expect(button().disabled).toBe(true);
+    expect(host.querySelector('button')).toBeNull();
     change('0');
     await submit();
     expect(fixture.save).toHaveBeenLastCalledWith({ miB: 0 });
@@ -81,18 +78,20 @@ it('预算控件支持保存零值、共享设置立即更新，失败可重试�
     change('256');
     fixture.save.mockRejectedValueOnce(new Error('保存失败'));
     await submit();
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('保存失败');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('保存失败');
     expect(fixture.value).toBe(0);
     await submit();
     expect(fixture.value).toBe(256);
     for (const invalid of ['', '-1', '1.5', String(MAX_CHAT_IMAGE_CACHE_MIB + 1)]) {
       change(invalid);
-      expect(button().disabled).toBe(true);
+      const before = fixture.save.mock.calls.length;
+      await submit();
+      expect(fixture.save).toHaveBeenCalledTimes(before);
     }
     change('128');
     fixture.pending = true;
     render();
-    expect(input().disabled).toBe(true);
+    expect(input().disabled).toBe(false);
     fixture.pending = false;
     fixture.missing = true;
     render();

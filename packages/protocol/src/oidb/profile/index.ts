@@ -23,3 +23,5 @@ export { SetProfile, SetSelfLongNick, PROFILE_FIELD } from './set-profile';
 export type { SetProfileParams, SetSelfLongNickParams } from './set-profile';
 export { setSelfAvatar, SELF_AVATAR_HIGHWAY_CMD } from './set-avatar';
 export type { SetSelfAvatarParams } from './set-avatar';
+export * from './interactions';
+export * from './personality-upload';

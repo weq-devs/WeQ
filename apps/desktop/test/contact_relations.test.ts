@@ -7,7 +7,7 @@ vi.mock(
 );
 import { ContactList } from '../src/renderer/src/im-template/template/conversationLists';
 import type { Contact, Conversation } from '../src/renderer/src/im-template/template/types';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { intimateRelationOf, relationMeta } from '../src/renderer/src/lib/profileRelations';
 import {
   ContactDirectoryContext,

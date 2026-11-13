@@ -13,6 +13,7 @@ import { useEffect, type ReactElement } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { useAccountSwitch } from '../state/accountSwitch';
 import { useDialog } from './Dialog';
 import { switchAccount } from '../lib/switchAccount';
 
@@ -33,15 +34,37 @@ export function AccountSwitchRequestHost(): ReactElement | null {
 
   useEffect(() => {
     let cancelled = false;
+    let draining = false;
+    let requested = false;
+    let cancelWait: (() => void) | undefined;
+
+    const waitForIdle = (): Promise<void> => {
+      if (cancelled || !useAccountSwitch.getState().active) return Promise.resolve();
+      return new Promise((resolve) => {
+        const finish = () => {
+          unsubscribe();
+          cancelWait = undefined;
+          resolve();
+        };
+        const unsubscribe = useAccountSwitch.subscribe((state) => {
+          if (!state.active) finish();
+        });
+        cancelWait = finish;
+      });
+    };
 
     /** 领到空为止：一次信号可能对应多条积压请求。 */
-    const drain = async (): Promise<void> => {
-      for (;;) {
-        let request: AccountSwitchRequestWire | null = null;
-        try {
-          request = (await client.bootstrap.consumeAccountSwitchRequest.query()) ?? null;
-        } catch {
-          return;
+    const consumeRequests = async (): Promise<void> => {
+      let request: AccountSwitchRequestWire | null = null;
+      while (!cancelled) {
+        await waitForIdle();
+        if (cancelled) return;
+        if (!request) {
+          try {
+            request = (await client.bootstrap.consumeAccountSwitchRequest.query()) ?? null;
+          } catch {
+            return;
+          }
         }
         if (cancelled || !request) return;
 
@@ -68,12 +91,13 @@ export function AccountSwitchRequestHost(): ReactElement | null {
         if (cancelled) return;
         if (!target) {
           showError('切换账号失败', '目标账号记录已不存在（可能刚被删除）。');
+          request = null;
           continue;
         }
 
         const currentUin = useViewState.getState().openedUin ?? '';
         try {
-          await switchAccount({
+          const result = await switchAccount({
             queryClient,
             utils,
             target,
@@ -81,10 +105,28 @@ export function AccountSwitchRequestHost(): ReactElement | null {
             currentUin,
             onError: (e) => showError('切换账号失败', errMsg(e)),
           });
+          // 读取目标或确认期间，界面入口可能已开始切号；保留此目标，空闲后重新核资料。
+          if (result.reason !== 'busy') request = null;
         } catch (e) {
           showError('切换账号失败', errMsg(e));
+          request = null;
         }
         if (cancelled) return;
+      }
+    };
+
+    // 信号只唤醒一个消费者；领空响应在途时收到的新信号还需要再检查一次队列。
+    const drain = async (): Promise<void> => {
+      requested = true;
+      if (draining) return;
+      draining = true;
+      try {
+        do {
+          requested = false;
+          await consumeRequests();
+        } while (requested && !cancelled);
+      } finally {
+        draining = false;
       }
     };
 
@@ -100,6 +142,7 @@ export function AccountSwitchRequestHost(): ReactElement | null {
     void drain();
     return () => {
       cancelled = true;
+      cancelWait?.();
       sub.unsubscribe();
     };
   }, [queryClient, utils, showError]);

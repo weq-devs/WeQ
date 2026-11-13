@@ -1,11 +1,14 @@
 import { act, createElement as h } from 'react';
-import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { createQueryRoot as createRoot } from './support/query_root';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileCard';
 import { CloneMemberProfileCard } from '../src/renderer/src/views/agentlab/CloneMemberProfileCard';
+import { GapMessagesModal } from '../src/renderer/src/components/lazyMainPanels';
+
+beforeAll(() => GapMessagesModal.preload());
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { cloneQueries } from './browser/clone-conversation.stub';
 import {
@@ -95,18 +98,23 @@ for (const kind of ['persona', 'group'] as const) {
       expect(card.querySelector('.weq-profile-expand')).toBeNull();
       expect(card.textContent).not.toContain('virtual:');
       if (kind === 'group') {
-        expect(card.querySelectorAll('.weq-profile-member')).toHaveLength(2);
-        await act(async () =>
-          card.querySelectorAll<HTMLButtonElement>('.weq-profile-member')[1]!.click(),
-        );
-        expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).toBeNull();
+        // 群名片的成员入口改为「群成员数」行：先打开侧边成员列表，再点成员打开成员名片。
+        act(() => card.querySelector<HTMLButtonElement>('[aria-label="查看群成员列表"]')!.click());
+        const list = document.querySelector('.weq-group-card-member-list')!;
+        expect(list).not.toBeNull();
+        expect(list.querySelector('h3')?.textContent).toBe('群成员');
+        const rows = [...list.querySelectorAll<HTMLButtonElement>('[aria-label^="查看 "]')];
+        expect(rows).toHaveLength(2);
+        await act(async () => rows[1]!.click());
+        // 清单 G08：点成员打开成员名片，父群名片保留，关掉成员名片能回到原位置。
+        expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).not.toBeNull();
         expect(document.querySelector('[aria-label="用户资料"]')?.textContent).toContain(
           peer.displayName,
         );
       }
       const personCard = document.querySelector('[aria-label="用户资料"]')!;
       const openButton = [...personCard.querySelectorAll<HTMLButtonElement>('button')].find(
-        (item) => item.textContent === '查看消息',
+        (item) => item.textContent === '打开会话',
       )!;
       expect(openButton).not.toBeUndefined();
       act(() => openButton.click());
@@ -173,7 +181,7 @@ it('克隆名片不读取真实人的资料，即使残留源 UID、QQ号或机�
 });
 
 for (const kind of ['persona', 'group'] as const) {
-  it(`名片${kind}沿用查看消息、预览消息和复制 ID 按钮，不添加文字身份标签`, async () => {
+  it(`名片${kind}沿用打开会话、预览消息和复制 ID 按钮，不添加文字身份标签`, async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const user = cloneChatUser('self', '我', '10000');
     const member = cloneChatUser('p', '合成好友', '20001', true);
@@ -215,11 +223,11 @@ for (const kind of ['persona', 'group'] as const) {
         [...card.querySelectorAll<HTMLButtonElement>('button')].find(
           (item) => item.textContent === label,
         )!;
-      expect(button('查看消息')).not.toBeUndefined();
+      expect(button('打开会话')).not.toBeUndefined();
       await act(async () => button('预览消息').click());
       expect(card.textContent).toContain(kind === 'persona' ? '当前私聊消息' : '合成消息');
       act(() => card.querySelector<HTMLButtonElement>('[aria-label="返回资料"]')!.click());
-      act(() => button('查看消息').click());
+      act(() => button('打开会话').click());
       expect(open).toHaveBeenCalledOnce();
       expect(close).toHaveBeenCalledOnce();
     } finally {

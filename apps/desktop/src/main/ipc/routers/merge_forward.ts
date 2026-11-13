@@ -10,10 +10,19 @@
  */
 
 import { join, relative, isAbsolute, dirname } from 'node:path';
+import { realpath, rm } from 'node:fs/promises';
+import { compositionMediaSource } from '../../composition_media';
 import { z } from 'zod';
-import { MergeForwardArchiveStore, MergeForwardDraftStore } from '@weq/service';
+import {
+  MergeForwardArchiveStore,
+  MergeForwardDraftStore,
+  writeCompositionBundle,
+  getHost,
+} from '@weq/service';
+import { exportSavePolicyInput, prepareExportDestination } from './export_save';
 import { getAppContext, requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { boundClientState } from './client_state';
 
 /** 逐条消息装扮（列 40801）。0 = 未设置。raw 字段是字体两槽位的原始 wire 值。 */
 const decoration = z
@@ -50,6 +59,7 @@ const draftInput = z.object({
   title: z.string().optional(),
   createdAt: z.number().optional(),
   nodes: z.array(node),
+  expectedVersion: z.string().nullable().optional(),
 });
 
 /** 已实例化的 store，按落盘路径缓存（读盘只发生一次）。 */
@@ -90,10 +100,17 @@ function draftStore(): MergeForwardDraftStore {
   const path = join(dir, `${uin}.json`);
   let store = stores.get(path);
   if (!store) {
-    store = new MergeForwardDraftStore(path);
+    store = new MergeForwardDraftStore(path, { strict: true });
     stores.set(path, store);
   }
   return store;
+}
+function legacyState() {
+  const context = getAppContext();
+  const uin = context.account?.context.uin;
+  const configId = context.services?.accountConfig.getRecord()?.configId;
+  if (!uin || !configId) throw new Error('账号尚未就绪');
+  return boundClientState({ expectedAccountUin: uin, expectedAccountConfigId: configId });
 }
 
 function workspaceDraftStore(root: string): MergeForwardDraftStore {
@@ -143,6 +160,68 @@ function trustDraftMedia(nodes: readonly unknown[]): void {
 }
 
 export const mergeForwardRouter = router({
+  exportWorkspace: procedure
+    .input(
+      accountBinding.extend({ draft: draftInput, savePolicy: exportSavePolicyInput.optional() }),
+    )
+    .mutation(async ({ input }) => {
+      const { services, root } = boundArchive(input);
+      const snapshot = structuredClone(input.draft);
+      const check = () => {
+        if (boundArchive(input).services !== services) throw new Error('账号已切换');
+      };
+      const settings = requireBootstrap().userConfig.getSettings();
+      const policy = await prepareExportDestination(
+        input.savePolicy ?? { mode: settings.exportSaveMode },
+        settings.defaultExportDir,
+        getHost(),
+        { kind: 'directory' },
+        check,
+      );
+      if (!policy) return { canceled: true as const };
+      check();
+      const taskId = await services.exportManager.startResourceExport({
+        kind: 'composition',
+        name: snapshot.title || '合成记录',
+        savePolicy: policy,
+        run: async (context) => {
+          check();
+          const downloaded = join(context.directory, '.source-media');
+          const inside = async (base: string, path: string) => {
+            try {
+              const rel = relative(await realpath(base), await realpath(path));
+              return (
+                rel !== '..' &&
+                !rel.startsWith('../') &&
+                !rel.startsWith('..\\') &&
+                !isAbsolute(rel)
+              );
+            } catch {
+              return false;
+            }
+          };
+          try {
+            return await writeCompositionBundle(
+              snapshot,
+              context,
+              async (path) => {
+                check();
+                return (
+                  (await inside(join(root, 'media'), path)) ||
+                  (await inside(downloaded, path)) ||
+                  Boolean(await services.fileResource.resolveLocalFile(path))
+                );
+              },
+              (segment, node, signal) =>
+                compositionMediaSource(segment, node, downloaded, signal, check),
+            );
+          } finally {
+            await rm(downloaded, { recursive: true, force: true });
+          }
+        },
+      });
+      return { canceled: false as const, taskId };
+    }),
   workspaceDrafts: procedure.input(accountBinding).query(({ input }) => {
     const { root } = boundArchive(input);
     const current = workspaceDraftStore(root).list();
@@ -150,10 +229,22 @@ export const mergeForwardRouter = router({
       .list()
       .filter((draft) => !current.some((item) => item.id === draft.id));
     for (const draft of [...current, ...legacy]) trustDraftMedia(draft.nodes);
-    return { current, legacy };
+    const state = boundClientState(input);
+    const versions = Object.fromEntries(
+      current.map((draft) => [
+        draft.id,
+        state.observeDraft(`composition:${draft.id}`, draft).version,
+      ]),
+    );
+    return { current, legacy, versions };
   }),
   workspaceSave: procedure
-    .input(accountBinding.extend({ draft: draftInput }))
+    .input(
+      accountBinding.extend({
+        draft: draftInput,
+        expectedVersion: z.string().nullable().optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const { root, services } = boundArchive(input);
       for (const path of collectMediaPaths(input.draft.nodes)) {
@@ -164,17 +255,50 @@ export const mergeForwardRouter = router({
           throw new Error('媒体访问未授权');
       }
       boundArchive(input);
-      const result = workspaceDraftStore(root).save(structuredClone(input.draft));
-      trustDraftMedia(result.nodes);
-      return result;
+      const state = boundClientState(input);
+      const store = workspaceDraftStore(root);
+      return state.saveExternalDraft(
+        `composition:${input.draft.id}`,
+        input.draft,
+        input.expectedVersion ?? null,
+        async () => store.list().find((draft) => draft.id === input.draft.id) ?? null,
+        async () => {
+          const draft = store.save(structuredClone(input.draft));
+          trustDraftMedia(draft.nodes);
+        },
+      );
     }),
   workspaceRemove: procedure
-    .input(accountBinding.extend({ id: z.string().min(1) }))
-    .mutation(({ input }) => {
+    .input(
+      accountBinding.extend({
+        id: z.string().min(1),
+        expectedVersion: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
       const { root, store } = boundArchive(input);
-      workspaceDraftStore(root).remove(input.id);
-      draftStore().remove(input.id);
-      if (/^[a-zA-Z0-9-]+$/.test(input.id)) store.remove('history', input.id);
+      const drafts = workspaceDraftStore(root);
+      const state = boundClientState(input);
+      const key = `composition:${input.id}`;
+      const current = state.draft(key);
+      // 明确删除时不要求调用方先拿版本：未传 expectedVersion 就按当前版本删除；
+      // 传了仍做并发校验，避免删掉别的端刚更新过的内容。
+      if (input.expectedVersion != null && input.expectedVersion !== current.version)
+        return { ok: false as const, current };
+      // 归档/旧入口的清理必须先做：重复清空走幂等快速路径时不会再触发 write 回调。
+      const cleanup = () => {
+        drafts.remove(input.id);
+        draftStore().remove(input.id);
+        if (/^[a-zA-Z0-9-]+$/.test(input.id)) store.remove('history', input.id);
+      };
+      cleanup();
+      return state.saveExternalDraft(
+        key,
+        null,
+        current.version,
+        async () => drafts.list().find((draft) => draft.id === input.id) ?? null,
+        async () => cleanup(),
+      );
     }),
   archiveList: procedure.input(accountBinding.extend({ kind: archiveKind })).query(({ input }) => {
     const { store, services } = boundArchive(input);
@@ -196,30 +320,60 @@ export const mergeForwardRouter = router({
         );
       });
       for (const path of collectMediaPaths(result.nodes)) services.fileResource.trustPath(path);
+      boundClientState(input).announceDrafts();
       return result;
     }),
 
   archiveRemove: procedure
     .input(accountBinding.extend({ kind: archiveKind, id: z.string().min(1) }))
-    .mutation(({ input }) => boundArchive(input).store.remove(input.kind, input.id)),
+    .mutation(({ input }) => {
+      const removed = boundArchive(input).store.remove(input.kind, input.id);
+      boundClientState(input).announceDrafts();
+      // 调用方与既有测试都按「是否真的删掉了」使用返回值。
+      return removed !== false;
+    }),
 
   /** 当前账号的全部草稿，最近更新在前。 */
   list: procedure.query(() => {
     const drafts = draftStore().list();
     for (const draft of drafts) trustDraftMedia(draft.nodes);
-    return drafts;
+    const state = legacyState();
+    return drafts.map((draft) => ({
+      ...draft,
+      version: state.observeDraft(`legacy-composition:${draft.id}`, draft).version,
+    }));
   }),
 
   /** 新建 / 覆盖一份草稿。 */
   save: procedure.input(draftInput).mutation(({ input }) => {
     trustDraftMedia(input.nodes);
-    return draftStore().save(input);
+    const store = draftStore();
+    return legacyState().saveExternalDraft(
+      `legacy-composition:${input.id}`,
+      input,
+      input.expectedVersion ?? null,
+      async () => store.list().find((draft) => draft.id === input.id) ?? null,
+      async () => {
+        store.save(input);
+      },
+    );
   }),
 
   /** 删除一份草稿。 */
   remove: procedure
-    .input(z.object({ id: z.string().min(1) }))
-    .mutation(({ input }) => draftStore().remove(input.id)),
+    .input(z.object({ id: z.string().min(1), expectedVersion: z.string().nullable().optional() }))
+    .mutation(({ input }) => {
+      const store = draftStore();
+      return legacyState().saveExternalDraft(
+        `legacy-composition:${input.id}`,
+        null,
+        input.expectedVersion ?? null,
+        async () => store.list().find((draft) => draft.id === input.id) ?? null,
+        async () => {
+          store.remove(input.id);
+        },
+      );
+    }),
 });
 
 export type MergeForwardRouter = typeof mergeForwardRouter;

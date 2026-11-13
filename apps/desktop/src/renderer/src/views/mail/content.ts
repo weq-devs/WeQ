@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 import DOMPurify from 'dompurify';
 import { validMailAddress } from '@weq/service/mail-wire';
 import type { MailAddress, MailDetail } from '@weq/service/mail';
@@ -8,13 +9,9 @@ export function mailError(error: unknown): string {
 
 export function formatMailTime(time: number, short = false): string {
   if (!time) return '-';
-  return new Date(time * 1000).toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour12: false,
-    ...(short
-      ? { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }
-      : { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
-  });
+  return short
+    ? timeFormat.formatListTimestamp(timeFormat.unixDate(time))
+    : timeFormat.formatUnixTime(time);
 }
 
 export function formatMailSize(size: number): string {

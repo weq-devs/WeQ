@@ -6,6 +6,8 @@
  * 一样不预先按 qqOnline 短路 —— 一律先打一次，让服务端告诉我们行不行；
  * 失败统一转成「需要在线实例」的提示，底层票据错误不透给前端。
  */
+import { OperationError } from '@weq/service';
+
 import { z } from 'zod';
 import {
   getAppContext,
@@ -17,7 +19,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }
@@ -27,13 +32,33 @@ const MUTUAL_MARK_HINT =
 
 export const mutualMarkRouter = router({
   /** 查 `uin` 与你之间的互动标识（任务 / 惊喜 / 限定 / 幸运字符）。 */
-  get: procedure.input(z.object({ uin: z.string().regex(/^\d{5,}$/) })).query(async ({ input }) => {
-    requireAttachEnabled();
-    const services = requireServices();
-    try {
-      return await services.webQuery.getFriendMutualMark(input.uin);
-    } catch {
-      throw new Error(MUTUAL_MARK_HINT);
-    }
-  }),
+  get: procedure
+    .input(
+      z.object({
+        uin: z.string().regex(/^\d{5,}$/),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      requireAttachEnabled();
+      const services = requireServices();
+      const check = () => {
+        const ctx = getAppContext();
+        if (
+          ctx.services !== services ||
+          (input.expectedAccountUin &&
+            String(ctx.account?.context.uin) !== input.expectedAccountUin) ||
+          (input.expectedAccountConfigId &&
+            services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId)
+        )
+          throw new Error('账号已切换，请重新打开互动标识。');
+      };
+      check();
+      const result = await services.webQuery.getFriendMutualMark(input.uin).catch(() => {
+        throw new Error(MUTUAL_MARK_HINT);
+      });
+      check();
+      return result;
+    }),
 });

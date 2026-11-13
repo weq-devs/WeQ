@@ -5,21 +5,25 @@ import type { ExportSavePolicy } from '@weq/service';
 import { MediaSourceSave, useMediaSave } from '../src/renderer/src/components/MediaSaveControls';
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
-import { ImageLightbox, openLightbox } from '../src/renderer/src/components/ImageLightbox';
-import { VideoLightbox } from '../src/renderer/src/components/VideoLightbox';
+import {
+  MediaPreviewHost,
+  openMediaPreview,
+} from '../src/renderer/src/components/mediaPreviewStore';
+
 import {
   FlatMediaExplorer,
   MonthMediaExplorer,
 } from '../src/renderer/src/views/cache/MediaResourceExplorers';
 import { localMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { useViewState } from '../src/renderer/src/state/view';
 import { makeSolidPng } from '@weq/protocol';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const state = vi.hoisted(() => ({
   web: false,
+  remote: false,
   configId: 'source-a',
   model: '',
   prepare: vi.fn(
@@ -75,6 +79,10 @@ vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_ELECTRON() {
     return !state.web;
   },
+}));
+vi.mock('../src/renderer/src/lib/remoteClient', () => ({
+  useRemoteClient: () => state.remote,
+  isRemoteClient: () => state.remote,
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => {
@@ -171,6 +179,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   useViewState.setState({ openedUin: '10001' });
   state.web = false;
+  state.remote = false;
   state.configId = 'source-a';
   state.model = '';
   state.cacheEntries = [];
@@ -282,6 +291,40 @@ it('主动作沿用公共偏好，排队只提示受理，不直接写盘或打�
     title: '媒体保存任务已创建',
   });
 });
+it('Remote 原位保存默认下载到设备，不弹电脑目录或使用电脑预设', async () => {
+  state.web = true;
+  state.remote = true;
+  const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  const view = await mount();
+  await click(view.host, '保存图片');
+  expect(state.prepare).not.toHaveBeenCalled();
+  expect(state.download).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    taskId: 'media-task',
+  });
+  expect(anchor).toHaveBeenCalledOnce();
+});
+
+it('Remote 已有本地缓存文件卡仍交付设备下载，不调用电脑打开文件', async () => {
+  state.web = true;
+  state.remote = true;
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  const view = await mount(
+    h(QqFile, {
+      data: { fileName: 'report.txt', localPath: '/cached/report.txt' },
+      sendTimeMs: 1,
+      msgId: '',
+      conv: '123',
+    }),
+  );
+  await act(async () => view.host.querySelector<HTMLButtonElement>('.qq-media-file-open')!.click());
+  expect(state.open).not.toHaveBeenCalled();
+  expect(state.save.mock.calls[0]![0]).toMatchObject({
+    source: { kind: 'url', name: 'report.txt' },
+  });
+  expect(state.download).toHaveBeenCalledOnce();
+});
 it('单按钮保存取消，不修改偏好、不退出控件或清理原资源', async () => {
   const view = await mount();
   state.save.mockResolvedValueOnce(null);
@@ -379,7 +422,7 @@ it('文件卡片保留本地打开，显式保存仍走公共策略，不把控�
   expect(view.host.querySelector('.qq-media-file-open button')).toBeNull();
   expect(view.host.querySelector('.qq-media-file-name')?.getAttribute('title')).toBe('report.txt');
 });
-it('语音保存复用播放的精确转发定位，不自动播放、转写或调用模型', async () => {
+it('语音消息不显示保存按钮，也不自动保存、播放或转写', async () => {
   const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   const view = await mount(
     h(QqVoice, {
@@ -391,12 +434,9 @@ it('语音保存复用播放的精确转发定位，不自动播放、转写或�
       fwd: { fwdMsgId: '42', fwdKind: 'group' },
     }),
   );
-  await click(view.host, '保存语音');
-  const input = state.save.mock.calls[0]![0] as { source: { url: string; name: string } };
-  const url = new URL(input.source.url);
-  expect(url.searchParams.get('msgId')).toBe('41');
-  expect(url.searchParams.get('fwdMsgId')).toBe('42');
-  expect(url.searchParams.get('fwdKind')).toBe('group');
+  expect(view.host.querySelector('[aria-label="保存语音"]')).toBeNull();
+  expect(view.host.querySelector('[aria-label="播放语音"]')).not.toBeNull();
+  expect(state.save).not.toHaveBeenCalled();
   expect(play).not.toHaveBeenCalled();
   expect(state.transcribe).not.toHaveBeenCalled();
 });
@@ -431,7 +471,7 @@ it('独立 Web 窗口的同源绝对媒体地址还原成已有挂载路径', as
     source: { kind: 'url', url: '/_media/pic?name=photo.jpg' },
   });
 });
-it('图片右键只保留一个下载动作并保留消息身份', async () => {
+it('图片右键只保留一个另存为动作并保留消息身份', async () => {
   const message = createTemplateDemoData().messages[0]!,
     download = vi.fn();
   const view = await mount(
@@ -445,15 +485,26 @@ it('图片右键只保留一个下载动作并保留消息身份', async () => {
     [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === name,
     )!;
-  act(() => action('下载').click());
+  act(() => action('另存为').click());
   expect(action('另存到…')).toBeUndefined();
   expect(action('先生成，稍后保存')).toBeUndefined();
   expect(download.mock.calls).toEqual([['weq-media://pic?name=photo.jpg', message]]);
 });
 it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏览', async () => {
   state.save.mockResolvedValueOnce(null);
-  await mount(h(ImageLightbox));
-  act(() => openLightbox('weq-media://pic?name=photo.jpg', 'photo.jpg'));
+  await mount(h(MediaPreviewHost));
+  act(() =>
+    openMediaPreview({
+      items: [
+        {
+          key: 'weq-media://pic?name=photo.jpg',
+          kind: 'image',
+          src: 'weq-media://pic?name=photo.jpg',
+          title: 'photo.jpg',
+        },
+      ],
+    }),
+  );
   try {
     const frame = document.querySelector<HTMLElement>('.weq-lightbox-frame')!;
     act(() =>
@@ -476,7 +527,7 @@ it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏�
     expect(document.querySelector('.weq-lightbox-frame')).toBe(frame);
     expect(frame.style.transform).toBe(transform);
     expect(document.querySelector<HTMLImageElement>('.weq-lightbox-image')?.src).toBe(
-      'weq-media://pic?name=photo.jpg',
+      'weq-media://pic?name=photo.jpg&intent=interactive',
     );
     expect(state.toast).not.toHaveBeenCalled();
   } finally {
@@ -562,7 +613,7 @@ it('群文件与文件夹所选范围复用保存偏好，取消不创建任务�
 it.each(['photoWall', 'qzone'] as const)('%s 缓存原有灯箱保存复用公共策略', async (kind) => {
   state.cacheEntries = [{ rel: 'ab/photo', name: 'photo', size: 1024 }];
   const view = await mount(h(FlatMediaExplorer, { kind }));
-  await mount(h(ImageLightbox));
+  await mount(h(MediaPreviewHost));
   act(() => view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!.click());
   try {
     await click(document.body, '保存图片');
@@ -593,7 +644,7 @@ it.each([true, false])('图片缓存保存保留原图优先及缩略图回退�
     },
   ];
   const view = await mount(h(MonthMediaExplorer, { kind: 'pic' }));
-  await mount(h(ImageLightbox));
+  await mount(h(MediaPreviewHost));
   act(() => view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!.click());
   try {
     await click(document.body, '保存图片');
@@ -621,7 +672,7 @@ it.each([true, false])(
       },
     ];
     const view = await mount(h(MonthMediaExplorer, { kind: 'video' }));
-    await mount(h(VideoLightbox));
+    await mount(h(MediaPreviewHost));
     const button = view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!;
     expect(button.disabled).toBe(!hasOri);
     act(() => button.click());
@@ -663,7 +714,7 @@ it.each([false, true])('保存控件合成布局，Web=%s', async (web) => {
     ),
   );
   capture(chat.host, web ? 'media-chat-web.html' : 'media-chat-desktop.html');
-  expect(chat.host.querySelectorAll('.weq-media-save-controls')).toHaveLength(2);
+  expect(chat.host.querySelectorAll('.weq-media-save-controls')).toHaveLength(1);
   state.files.mockResolvedValueOnce({
     targetDirectory: '/',
     folders: [],
@@ -683,8 +734,19 @@ it.each([false, true])('保存控件合成布局，Web=%s', async (web) => {
   );
   capture(group.host, web ? 'media-group-web.html' : 'media-group-desktop.html');
   expect(group.host.querySelector('.weq-media-save-controls')).not.toBeNull();
-  await mount(h(ImageLightbox));
-  act(() => openLightbox('weq-media://pic?name=photo.png', '合成图片.png'));
+  await mount(h(MediaPreviewHost));
+  act(() =>
+    openMediaPreview({
+      items: [
+        {
+          key: 'weq-media://pic?name=photo.png',
+          kind: 'image',
+          src: 'weq-media://pic?name=photo.png',
+          title: '合成图片.png',
+        },
+      ],
+    }),
+  );
   try {
     capture(
       document.querySelector<HTMLElement>('.weq-lightbox-layer')!,

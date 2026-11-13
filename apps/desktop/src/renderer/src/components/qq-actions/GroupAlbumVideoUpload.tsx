@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Film, Upload, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { useDraftProtection } from '../../lib/draftClose';
 import { ActionIcon, useQQAction, withQQAccountScope } from './shared';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 
@@ -83,6 +84,7 @@ function GroupAlbumVideoUploadBody({
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  useDraftProtection(submitted ? null : draft, a.busy || preparing);
   const [progress, setProgress] = useState<number | null>(null);
   const generation = useRef(0);
   useEffect(

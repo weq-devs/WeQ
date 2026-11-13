@@ -23,34 +23,36 @@ it.skipIf(!process.env.WEQ_CC_CONNECT_SOURCE)(
     await writeFile(file, 'synthetic file');
     let deliver: (msg: BridgeMessage) => void = () => {};
     const sends: unknown[] = [];
-    const server = new OneBotServer(
-      {
-        status: () => ({ online: true, good: true }),
-        self: async () => ({ user_id: 99, nickname: 'Synthetic' }),
-        group: async () => ({ group_id: 42, group_name: 'Synthetic group' }),
-        typing: async () => {},
-        subscribe(handler) {
-          deliver = handler;
-          return () => {};
-        },
-        async send(target, segments, reply) {
-          sends.push({ target, segments, reply });
-          return {
-            ...target,
-            key: `sent:${sends.length}`,
-            sequence: 92,
-            senderUin: 99,
-            nickname: '',
-            time: Math.floor(Date.now() / 1000),
-            message: segments,
-          };
-        },
+    const server = new OneBotServer({
+      status: () => ({ online: true, good: true }),
+      self: async () => ({ user_id: 99, nickname: 'Synthetic' }),
+      group: async () => ({ group_id: 42, group_name: 'Synthetic group' }),
+      typing: async () => {},
+      subscribe(handler) {
+        deliver = handler;
+        return () => {};
       },
-      'synthetic-token',
-    );
+      async send(target, segments, reply) {
+        sends.push({ target, segments, reply });
+        return {
+          ...target,
+          key: `sent:${sends.length}`,
+          sequence: 92,
+          senderUin: 99,
+          nickname: '',
+          time: Math.floor(Date.now() / 1000),
+          message: segments,
+        };
+      },
+    });
     let child: ReturnType<typeof spawn> | undefined;
     try {
-      const port = await server.start(0);
+      const [status] = await server.startConfigured({
+        webSocketServers: [{ id: 'cc-connect', port: 0, token: 'synthetic-token' }],
+        httpServers: [],
+      });
+      expect(status).toMatchObject({ running: true });
+      const port = status!.port;
       child = spawn(
         'go',
         [

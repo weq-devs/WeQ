@@ -1,11 +1,16 @@
 {
   "name": "@weq/agentlab",
-  "version": "2.6.1",
+  "version": "2.7.0",
   "private": true,
   "type": "module",
   "exports": {
+    "./images": "./src/images.ts",
+    "./ocr/pipeline": "./src/ocr/pipeline.ts",
+    "./ocr/filter": "./src/ocr/filter.ts",
+    "./ocr/worker": "./src/ocr/worker.ts",
     ".": "./src/index.ts",
     "./generation": "./src/generation.ts",
+    "./model-metadata": "./src/model_metadata.ts",
     "./model-selection": "./src/model_selection.ts"
   },
   "scripts": {
@@ -16,5 +21,8 @@
   "devDependencies": {
     "@types/node": "^22.10.6",
     "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@weq/time": "workspace:*"
   }
 }

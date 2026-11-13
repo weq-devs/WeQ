@@ -7,7 +7,7 @@ import { backgroundTasks } from '../src/main/background_tasks';
 import type { AccountServices } from '../src/main/context/app_context';
 import type { AccountSession } from '@weq/account';
 import type { DbWatchService } from '@weq/service';
-import type { UserProfile } from '@weq/db';
+import { scheduleDatabase, type UserProfile } from '@weq/db';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -66,8 +66,13 @@ async function setup(online = true) {
       getQqLevel: vi.fn(async (_uin: string, _priority?: number) => 1),
       getLikeCount: vi.fn(async (_uid: string, _priority?: number) => 0),
     },
+    profileExtras: { energy: vi.fn(async () => ({})), educationHistory: vi.fn(async () => ({})) },
+    intentSense: { cachedProfileSummaries: vi.fn(() => []) },
     groupInfo: {
       setMemberRosterCache: vi.fn(),
+      setGroupProfileCache: vi.fn(),
+      disposeGroupProfiles: vi.fn(),
+      getExtendedProfile: vi.fn(async () => ({ error: null })),
       listGroupDirectory: vi.fn(async () => [{ groupCode: '10001', memberCount: 2 }]),
       listExportMembers: vi.fn(async (_groupCode?: bigint) => [
         { uid: 'u_friend' },
@@ -94,8 +99,15 @@ async function setup(online = true) {
   };
   const session = {
     context: { uin: '99999' },
+    selfUid: 'u_self',
+    c2cMsgs: { directoryTimePage: vi.fn(async () => ({ items: [], done: true })) },
+    groupMsgs: { directoryTimePage: vi.fn(async () => ({ items: [], done: true })) },
     profileInfo: { dbPath: '/synthetic/profile.db' },
-    groupMembers: { dbPath: '/synthetic/groups.db' },
+    groupMembers: {
+      dbPath: '/synthetic/groups.db',
+      getMember: vi.fn(async () => ({ memberFlag: 0, joinTime: 123 })),
+      selfJoinTimes: vi.fn(async () => ({ '10001': 123 })),
+    },
   };
   const callbacks: Array<() => void> = [];
   const watcher = {
@@ -126,11 +138,229 @@ async function setup(online = true) {
     summaries,
     buddies,
     profiles,
+    session,
     switchAccount: () => {
       current = false;
     },
   };
 }
+
+const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+it('新增好友字段复用现有范围，来源单独刷新不会被添加时间缺省误判失败', async () => {
+  const { runtime, services } = await setup();
+  await runtime.rebuild(false, ['energy', 'schools', 'source']);
+  await vi.waitFor(() => {
+    expect(runtime.cache.progress.done).toBe(1);
+    expect(runtime.cache.progress.status).toBe('completed');
+  });
+  expect(services.profileExtras.energy).toHaveBeenCalledWith('12345');
+  expect(services.profileExtras.educationHistory).toHaveBeenCalledWith('12345');
+  expect(services.accountWrite.friendClue).toHaveBeenCalledWith('u_friend', 1);
+  expect(services.groupInfo.getExtendedProfile).not.toHaveBeenCalled();
+});
+it('群扩展失败仍准备本人入群时间，群资料范围不触发好友查询', async () => {
+  const { runtime, services } = await setup();
+  services.groupInfo.getExtendedProfile.mockImplementationOnce(async () => {
+    await runtime.cache.project('group:10001', { joinedAt: 123 });
+    return { error: '读取失败' };
+  });
+  await runtime.rebuild(false, ['grade', 'freezeState', 'joinedAt']);
+  await vi.waitFor(() => {
+    expect(runtime.cache.progress.done).toBe(1);
+    expect(runtime.cache.progress.status).toBe('failed');
+  });
+  expect((await runtime.cache.row('group:10001')).joinedAt?.value).toBe(123);
+  expect(services.accountWrite.friendClue).not.toHaveBeenCalled();
+  expect(services.groupInfo.fetchOnlineMembers).not.toHaveBeenCalled();
+});
+it('只刷新本人入群时间也查询直接群资料，不为此拉全群成员', async () => {
+  const { runtime, services } = await setup();
+  await runtime.rebuild(false, ['joinedAt'], 'all');
+  await vi.waitFor(() =>
+    expect(services.groupInfo.getExtendedProfile).toHaveBeenCalledWith(10001, true, true),
+  );
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(services.groupInfo.fetchOnlineMembers).not.toHaveBeenCalled();
+});
+it('本地时间、入群和画像摘要在账号切换后拒绝旧读取', async () => {
+  const { runtime, services, switchAccount } = await setup();
+  expect(await runtime.localTimes('friends')).toEqual({ rows: {}, done: true });
+  expect(await runtime.localJoins()).toEqual({ '10001': 123 });
+  expect(runtime.cachedProfiles()).toEqual([]);
+  expect(services.intentSense.cachedProfileSummaries).toHaveBeenCalledOnce();
+  switchAccount();
+  await expect(runtime.localTimes('groups')).rejects.toThrow('切换');
+  await expect(runtime.localJoins()).rejects.toThrow('切换');
+  expect(() => runtime.cachedProfiles()).toThrow('切换');
+});
+it('账号关闭后在途本地时间页不能返回给旧目录', async () => {
+  const { runtime, session } = await setup();
+  const wait = deferred<void>();
+  session.groupMsgs.directoryTimePage.mockImplementationOnce(async () => {
+    await wait.promise;
+    return { items: [], done: true };
+  });
+  const pending = runtime.localTimes('groups');
+  const rejected = expect(pending).rejects.toThrow();
+  await runtime.dispose();
+  wait.resolve();
+  await rejected;
+});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((yes) => {
+    resolve = yes;
+  });
+  return { promise, resolve };
+}
+async function settled(f: Awaited<ReturnType<typeof setup>>) {
+  await vi.waitFor(async () =>
+    expect((await f.runtime.cache.row('group:10001')).friendCount?.value).toBe(1),
+  );
+  await turn();
+}
+
+it.each(['dispose', 'switch'] as const)('好友读取途中 %s 后不继续资料校准', async (mode) => {
+  const f = await setup();
+  await settled(f);
+  const gate = deferred<typeof f.buddies>();
+  f.services.profile.listBuddies.mockClear().mockImplementationOnce(() => gate.promise);
+  f.services.profile.profilesByUids.mockClear();
+  f.services.groupInfo.listGroupDirectory.mockClear();
+  f.callbacks[0]!();
+  await vi.waitFor(() => expect(f.services.profile.listBuddies).toHaveBeenCalledOnce());
+  if (mode === 'dispose') await f.runtime.dispose();
+  else f.switchAccount();
+  gate.resolve(f.buddies);
+  await turn();
+  await turn();
+  expect(f.services.profile.profilesByUids).not.toHaveBeenCalled();
+  expect(f.services.groupInfo.listGroupDirectory).not.toHaveBeenCalled();
+});
+
+it('群扩展整页返回前退出，不再请求后页或成员快照', async () => {
+  const f = await setup();
+  await settled(f);
+  const gate = deferred<Array<{ groupCode: bigint; activityScore: number }>>();
+  const pages = f.services.groupInfo.listAllGroupsExt;
+  pages
+    .mockClear()
+    .mockImplementationOnce(() => gate.promise)
+    .mockResolvedValue([]);
+  f.services.groupInfo.contactMembershipSnapshot.mockClear();
+  f.callbacks[1]!();
+  await vi.waitFor(() => expect(pages).toHaveBeenCalledOnce());
+  await f.runtime.dispose();
+  gate.resolve(
+    Array.from({ length: 500 }, (_, index) => ({ groupCode: BigInt(index + 1), activityScore: 0 })),
+  );
+  await turn();
+  await turn();
+  expect(pages).toHaveBeenCalledOnce();
+  expect(f.services.groupInfo.contactMembershipSnapshot).not.toHaveBeenCalled();
+});
+
+it('退出解除自己挂接的指标缓存与观察回调，迟到观察不再回填', async () => {
+  const f = await setup();
+  await settled(f);
+  const services = f.services as unknown as AccountServices;
+  const observe = services.groupInfo.contactMembersObserved!;
+  const gate = deferred<typeof f.buddies>();
+  f.services.profile.listBuddies.mockImplementationOnce(() => gate.promise);
+  const record = vi.spyOn(f.runtime.cache, 'record');
+  const pending = observe(10001, [{ uid: 'u_friend' }] as Parameters<typeof observe>[1]);
+  await f.runtime.dispose();
+  gate.resolve(f.buddies);
+  await pending;
+  expect(record).not.toHaveBeenCalled();
+  expect(services.groupInfo.contactMembersObserved).toBeUndefined();
+  expect(services.groupInfo.contactMetrics).toBeUndefined();
+  expect(services.accountWrite.contactMetrics).toBeUndefined();
+  expect(services.peerStats.contactMetrics).toBeUndefined();
+});
+
+it('退出不会解除之后由其他实例替换的观察回调', async () => {
+  const f = await setup();
+  await settled(f);
+  const services = f.services as unknown as AccountServices;
+  const replacement = vi.fn(async () => {});
+  services.groupInfo.contactMembersObserved = replacement;
+  await f.runtime.dispose();
+  expect(services.groupInfo.contactMembersObserved).toBe(replacement);
+});
+
+it('校准读取仍排队时退出，会从真实数据库调度器撤销旧工作', async () => {
+  const f = await setup();
+  await settled(f);
+  const binding = {};
+  const gate = deferred<[]>();
+  const blocking = scheduleDatabase('/synthetic/profile.db', () => gate.promise, binding);
+  const read = vi.fn(async () => f.buddies);
+  f.services.profile.listBuddies
+    .mockClear()
+    .mockImplementationOnce(() => scheduleDatabase('/synthetic/profile.db', read, binding));
+  try {
+    f.callbacks[0]!();
+    await vi.waitFor(() => expect(f.services.profile.listBuddies).toHaveBeenCalledOnce());
+    await f.runtime.dispose();
+    gate.resolve([]);
+    await blocking;
+    await turn();
+    await turn();
+    expect(read).not.toHaveBeenCalled();
+  } finally {
+    gate.resolve([]);
+    await blocking;
+  }
+});
+
+it('手动准备整页读取途中关闭账号，不续页或恢复旧重试动作', async () => {
+  const f = await setup();
+  await settled(f);
+  type Details = Awaited<ReturnType<typeof f.services.groupInfo.listAllGroups>>;
+  const gate = deferred<Details>();
+  const pages = f.services.groupInfo.listAllGroups;
+  pages
+    .mockClear()
+    .mockImplementationOnce(() => gate.promise)
+    .mockResolvedValue([]);
+  f.services.groupInfo.listAllGroupsExt.mockClear();
+  const id = await f.runtime.rebuild(false, ['friendCount']);
+  await vi.waitFor(() => expect(pages).toHaveBeenCalledOnce());
+  await f.runtime.dispose();
+  gate.resolve(
+    Array.from({ length: 500 }, (_, index) => ({
+      groupCode: BigInt(index + 1),
+      groupName: '合成群',
+      remark: '',
+      memberCount: 2,
+      maxMemberCount: 500,
+      createTime: 123,
+    })),
+  );
+  await turn();
+  await turn();
+  const task = backgroundTasks.snapshot().find((task) => task.id === id);
+  expect(task?.status).toBe('cancelled');
+  expect(task?.actions).toEqual([]);
+  expect(pages).toHaveBeenCalledOnce();
+  expect(f.services.groupInfo.listAllGroupsExt).not.toHaveBeenCalled();
+});
+
+it('好友在途字段返回后账号已关闭，不再继续同一好友的后续在线字段', async () => {
+  const f = await setup();
+  await settled(f);
+  const gate = deferred<number>();
+  f.services.peerStats.getQqLevel.mockImplementationOnce(() => gate.promise);
+  f.services.peerStats.getLikeCount.mockClear();
+  await f.runtime.rebuild(false, ['level', 'likeCount']);
+  await vi.waitFor(() => expect(f.services.peerStats.getQqLevel).toHaveBeenCalled());
+  await f.runtime.dispose();
+  gate.resolve(1);
+  await turn();
+  await turn();
+  expect(f.services.peerStats.getLikeCount).not.toHaveBeenCalled();
+});
 it('缓存更新覆盖非好友和临时会话但不查线索，群聊只更新当前群目录', async () => {
   const { runtime, services, profiles } = await setup();
   await vi.waitFor(() => expect(services.groupInfo.contactMembershipSnapshot).toHaveBeenCalled());
@@ -167,7 +397,7 @@ it('缓存更新覆盖非好友和临时会话但不查线索，群聊只更新�
     { uid: 'u_friend', uin: 12345, nickname: '好友' },
   ]);
   await runtime.rebuild();
-  await vi.waitFor(() => expect(runtime.cache.progress.total).toBe(6));
+  await vi.waitFor(() => expect(runtime.cache.progress.total).toBe(7));
   await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.recentContacts.getRecentContact).toHaveBeenCalledWith(-1);
   expect(services.peerStats.getQqLevel.mock.calls.map(([uin]) => uin).sort()).toEqual([
@@ -229,7 +459,7 @@ it('单个字段失败仍尝试其余指标，部分成功不判整个对象失�
     groupError: '合成共同群失败',
   });
   const id = await runtime.rebuild();
-  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(2));
+  await vi.waitFor(() => expect(runtime.cache.progress.done).toBe(3));
   await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.peerStats.getLikeCount).toHaveBeenCalledWith('u_friend', 1);
   expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith('12345', 1);

@@ -1,4 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type HTMLAttributes,
+} from 'react';
+import { useContentMultiSelect } from '../state/contentSelection';
+import { useMultiSelection } from '../hooks/useMultiSelection';
+import { ContentReferenceToolbar } from './ContentReferenceToolbar';
+import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
+import { groupAlbumMediaKey } from '../../../shared/album_media_identity';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import {
   ArrowLeft,
@@ -16,9 +28,9 @@ import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
-import { MediaSourceSave } from './MediaSaveControls';
-import { OverlayLayer } from './OverlayLayer';
+import { MediaPreview, type PreviewMedia } from './MediaPreview';
+import { ContactEmptyState } from './contactProfile/ContactRow';
+import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
 import { GroupAlbumManagement } from './qq-actions/GroupAlbumManagement';
 import { GroupAlbumVideoUpload } from './qq-actions/GroupAlbumVideoUpload';
@@ -26,6 +38,8 @@ import { withQQAccountScope } from './qq-actions/shared';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
+import { resourceForRenderDocument, useRenderDocument } from '../lib/renderDocument';
+import { GroupResourceNavigation } from './GroupResourceNavigation';
 import '../styles/group-album-browser.css';
 
 type AccountOutput = inferRouterOutputs<AppRouter>['account'];
@@ -37,7 +51,9 @@ type MediaState =
   | { status: 'loading'; album: GroupAlbumWire; items: AlbumMediaWire[]; error: string | null }
   | { status: 'ready'; album: GroupAlbumWire; items: AlbumMediaWire[]; error: string | null };
 
-interface GroupAlbumDialogProps {
+export interface GroupAlbumDialogProps {
+  embedded?: boolean;
+  standalone?: boolean;
   groupCode: string;
   groupName: string;
   initialAlbums?: GroupAlbumWire[];
@@ -50,6 +66,8 @@ export function GroupAlbumDialog(props: GroupAlbumDialogProps): ReactElement {
   return <ScopedGroupAlbumDialog key={props.groupCode} {...props} />;
 }
 function GroupAlbumDialogBody({
+  embedded,
+  standalone,
   groupCode,
   groupName,
   initialAlbums,
@@ -57,6 +75,9 @@ function GroupAlbumDialogBody({
   binding,
   onClose,
 }: GroupAlbumDialogProps): ReactElement {
+  const document = useRenderDocument();
+  const view = document.defaultView ?? window;
+  const detached = document !== globalThis.document;
   const activity = useQQReadActivity(true);
   const alive = useRef(true);
   const run = useRef(0);
@@ -91,7 +112,7 @@ function GroupAlbumDialogBody({
     mediaController.current?.abort();
     const albumId = mediaState.album?.id;
     setMediaState({ status: 'idle', album: null, items: [], error: null });
-    requestAnimationFrame(() => {
+    view.requestAnimationFrame(() => {
       if (alive.current && revision === run.current && body.current) {
         body.current.scrollTop = listPosition.current;
         [...body.current.querySelectorAll<HTMLButtonElement>('[data-album-id]')]
@@ -100,7 +121,12 @@ function GroupAlbumDialogBody({
       }
     });
   };
-  useMobileBack(Boolean(mediaState.album), backToAlbums, 30, () => body.current);
+  useMobileBack(
+    Boolean(mediaState.album) && !standalone && !detached,
+    backToAlbums,
+    30,
+    () => body.current,
+  );
 
   useEffect(() => {
     if (!activity.enabled) {
@@ -209,24 +235,39 @@ function GroupAlbumDialogBody({
     } else setAlbumError('指定相册不存在或当前账号不可访问。');
   }, [initialAlbumId, albums, loadingAlbums, albumError, activity.enabled, hasAlbumSnapshot]);
 
+  const management = (
+    <GroupAlbumManagement
+      key={`${groupCode}:${mediaState.album?.id ?? 'new'}`}
+      groupCode={groupCode}
+      album={mediaState.album}
+      onChanged={() => {
+        setAlbumRevision((value) => value + 1);
+        setMediaState({ status: 'idle', album: null, items: [], error: null });
+      }}
+    />
+  );
   return (
-    <OverlayLayer
+    <ProfileDetailSurface
+      embedded={embedded}
       presentation="sidecar"
       title="群相册"
       className="modal-scrim group-album-scrim"
       onClose={onClose}
     >
       <section
-        className="group-album-dialog group-album-browser"
+        className={`group-album-dialog group-album-browser${standalone ? ' is-standalone' : ''}`}
         role="region"
         aria-label={`${groupName}的群相册`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>
           <div>
-            <strong>{bodyTitle}</strong>
+            <strong>{standalone ? '群相册' : bodyTitle}</strong>
             <span>{groupName}</span>
           </div>
+          {standalone ? (
+            <div className="weq-group-resource-header-actions">{management}</div>
+          ) : null}
           <button
             className="icon-button"
             type="button"
@@ -239,30 +280,39 @@ function GroupAlbumDialogBody({
         </header>
 
         <div className="group-album-body" ref={body}>
-          <GroupAlbumManagement
-            key={`${groupCode}:${mediaState.album?.id ?? 'new'}`}
-            groupCode={groupCode}
-            album={mediaState.album}
-            onChanged={() => {
-              setAlbumRevision((value) => value + 1);
-              setMediaState({ status: 'idle', album: null, items: [], error: null });
-            }}
-          />
+          {standalone ? (
+            <GroupResourceNavigation
+              label="群相册目录"
+              items={[
+                { id: 'albums', name: '全部相册' },
+                ...(mediaState.album
+                  ? [{ id: mediaState.album.id, name: mediaState.album.title || '未命名相册' }]
+                  : []),
+              ]}
+              onBack={backToAlbums}
+              onSelect={(index) => {
+                if (index === 0 && mediaState.album) backToAlbums();
+              }}
+            />
+          ) : null}
+          {!standalone ? management : null}
           {mediaState.album ? (
             <AlbumMediaView
               key={mediaState.album.id}
               state={mediaState}
               groupCode={groupCode}
+              hideNavigation={standalone}
               onChanged={() => {
                 setAlbumRevision((value) => value + 1);
                 if (mediaState.album) void openAlbum(mediaState.album);
               }}
               onBack={() => {
-                if (!mobileBack()) backToAlbums();
+                if (standalone || detached || !mobileBack()) backToAlbums();
               }}
             />
           ) : (
             <AlbumListView
+              groupCode={groupCode}
               albums={albums}
               loading={loadingAlbums}
               error={albumError}
@@ -286,11 +336,12 @@ function GroupAlbumDialogBody({
           )}
         </div>
       </section>
-    </OverlayLayer>
+    </ProfileDetailSurface>
   );
 }
 
 function AlbumListView({
+  groupCode,
   albums,
   loading,
   error,
@@ -305,6 +356,7 @@ function AlbumListView({
   visibleCount,
   onMore,
 }: {
+  groupCode: string;
   albums: GroupAlbumWire[];
   loading: boolean;
   error: string | null;
@@ -329,9 +381,40 @@ function AlbumListView({
     else if (sort === 'count') result.sort((a, b) => b.photoCount - a.photoCount);
     return result;
   }, [albums, search, sort]);
+  const owner = { kind: 'group-albums' as const, container: groupCode };
+  const references = useMemo(
+    () =>
+      new Map<string, ContentReference>(
+        filtered.map((album) => {
+          const item: ContentReference = {
+            kind: 'group-album',
+            groupCode,
+            albumId: album.id,
+            name: album.title,
+          };
+          return [contentReferenceKey(item), item];
+        }),
+      ),
+    [filtered, groupCode],
+  );
+  const selection = useContentMultiSelect(owner, true, references);
+  const multi = useMultiSelection({
+    ids: [...references.keys()],
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+    anchorRef: selection.anchorRef,
+  });
   return (
     <>
       <div className="group-album-browse-tools">
+        <ContentReferenceToolbar
+          owner={owner}
+          selection={selection}
+          loaded={[...references.keys()]}
+        />
         <label className="group-album-search">
           <Search size={15} />
           <input
@@ -381,21 +464,24 @@ function AlbumListView({
           正在查询群相册
         </div>
       ) : !filtered.length ? (
-        <div className="group-album-state">
+        <ContactEmptyState>
           {paused
-            ? '读取已暂停'
+            ? '读取已暂停，切回本章节会继续。'
             : search.trim()
-              ? '没有匹配的相册'
+              ? '没有匹配的相册。'
               : error
-                ? '相册暂时无法读取'
-                : '暂无群相册'}
-        </div>
+                ? '群相册暂时无法读取，可稍后重试。'
+                : '还没有群相册。'}
+        </ContactEmptyState>
       ) : (
-        <div className="group-album-grid">
+        <div {...multi.rootProps} className="group-album-grid">
           {filtered.slice(0, visibleCount).map((album) => (
             <button
               key={album.id}
-              className="group-album-card"
+              {...multi.itemProps(
+                contentReferenceKey({ kind: 'group-album', groupCode, albumId: album.id }),
+              )}
+              className={`group-album-card${selection.selectedIds.has(contentReferenceKey({ kind: 'group-album', groupCode, albumId: album.id })) ? ' is-selected' : ''}`}
               type="button"
               disabled={disabled}
               onClick={() => onOpenAlbum(album)}
@@ -422,6 +508,7 @@ function AlbumListView({
 }
 
 function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
+  const document = useRenderDocument();
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [album.coverUrl]);
   if (!album.coverUrl || broken) {
@@ -434,7 +521,7 @@ function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
   return (
     <span className="group-album-cover">
       <img
-        src={album.coverUrl}
+        src={resourceForRenderDocument(album.coverUrl, document)}
         alt=""
         loading="lazy"
         referrerPolicy="no-referrer"
@@ -447,11 +534,13 @@ function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
 function AlbumMediaView({
   state,
   onBack,
+  hideNavigation = false,
   groupCode,
   onChanged,
 }: {
   state: MediaState;
   onBack: () => void;
+  hideNavigation?: boolean;
   groupCode: string;
   onChanged: () => void;
 }): ReactElement {
@@ -470,14 +559,53 @@ function AlbumMediaView({
         `${item.fileName} ${item.uploader}`.toLocaleLowerCase().includes(query),
     );
   }, [items, search, kind]);
-  const previews = useMemo<QzonePreviewMedia[]>(
+  const owner = { kind: 'group-albums' as const, container: groupCode };
+  const references = useMemo(
+    () =>
+      new Map<string, ContentReference>(
+        filtered.flatMap((media) => {
+          if (!state.album) return [];
+          const item: ContentReference = {
+            kind: 'group-photo',
+            groupCode,
+            albumId: state.album.id,
+            mediaKey: mediaKey(media),
+            name: media.fileName || state.album.title,
+          };
+          return [[contentReferenceKey(item), item]];
+        }),
+      ),
+    [filtered, groupCode, state.album],
+  );
+  const selection = useContentMultiSelect(owner, true, references);
+  const multi = useMultiSelection({
+    ids: [...references.keys()],
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+    anchorRef: selection.anchorRef,
+  });
+  const previews = useMemo<PreviewMedia[]>(
     () =>
       (preview?.items ?? []).map((item) => {
         const full = item.originalUrl || item.previewUrl;
         return {
           key: mediaKey(item),
           kind: item.kind === 'video' && item.originalUrl ? 'video' : 'image',
+          isLivePhoto:
+            item.isLivePhoto === true && item.kind === 'video' && Boolean(item.originalUrl),
+          saveLabel: item.kind === 'video' && !item.originalUrl ? '保存视频封面' : undefined,
           src: full ? albumMediaUrl(full) : '',
+          saveSource: {
+            kind: 'url',
+            url: albumMediaUrl(full),
+            name:
+              item.kind === 'video' && !item.originalUrl
+                ? `${item.fileName || '视频'}-封面`
+                : item.fileName,
+          },
           poster: item.previewUrl ? albumMediaUrl(item.previewUrl) : undefined,
           title: item.fileName || (item.kind === 'video' ? '群相册视频' : '群相册图片'),
           ...(item.kind === 'image' &&
@@ -504,18 +632,25 @@ function AlbumMediaView({
     return `${photos} 张 · ${videos} 个视频`;
   }, [items]);
   return (
-    <div className="group-album-media-view">
+    <div {...multi.rootProps} className="group-album-media-view">
+      <ContentReferenceToolbar
+        owner={owner}
+        selection={selection}
+        loaded={[...references.keys()]}
+      />
       <div className="group-album-toolbar">
-        <button
-          type="button"
-          className="group-album-back"
-          title="返回相册列表"
-          aria-label="返回相册列表"
-          onClick={onBack}
-        >
-          <ArrowLeft size={15} />
-          相册
-        </button>
+        {!hideNavigation ? (
+          <button
+            type="button"
+            className="group-album-back"
+            title="返回相册列表"
+            aria-label="返回相册列表"
+            onClick={onBack}
+          >
+            <ArrowLeft size={15} />
+            相册
+          </button>
+        ) : null}
         <span>{state.status === 'loading' && !items.length ? '正在读取' : countText}</span>
         <div className="group-album-toolbar-actions">
           <button
@@ -619,6 +754,22 @@ function AlbumMediaView({
             <MediaThumbnail
               key={mediaKey(item)}
               item={item}
+              selectionProps={multi.itemProps(
+                contentReferenceKey({
+                  kind: 'group-photo',
+                  groupCode,
+                  albumId: state.album!.id,
+                  mediaKey: mediaKey(item),
+                }),
+              )}
+              selected={selection.selectedIds.has(
+                contentReferenceKey({
+                  kind: 'group-photo',
+                  groupCode,
+                  albumId: state.album!.id,
+                  mediaKey: mediaKey(item),
+                }),
+              )}
               onOpen={() => setPreview({ key: mediaKey(item), items: filtered })}
             />
           ))}
@@ -640,7 +791,7 @@ function AlbumMediaView({
         </button>
       )}
       {preview && (
-        <QzoneMediaPreview
+        <MediaPreview
           key={preview.key}
           label="群相册媒体预览"
           items={previews}
@@ -661,16 +812,6 @@ function AlbumMediaView({
                     {item.uploader || '未知'}
                   </span>
                 </div>
-                <MediaSourceSave
-                  key={`save:${current.key}`}
-                  source={{
-                    kind: 'url',
-                    url: albumMediaUrl(item.originalUrl || item.previewUrl),
-                    name: onlyCover ? `${item.fileName || '视频'}-封面` : item.fileName,
-                  }}
-                  label={onlyCover ? '保存视频封面' : isVideo ? '保存视频' : '保存图片'}
-                  className="group-album-preview-save"
-                />
                 {state.album && mediaId && /^\d+$/.test(item.batchId) && (
                   <GroupAlbumMediaActions
                     key={`actions:${current.key}`}
@@ -697,30 +838,36 @@ function AlbumMediaView({
 }
 
 function mediaKey(item: AlbumMediaWire): string {
-  return `${item.kind}:${(item.kind === 'video' ? item.video?.id : item.image?.lloc) || item.originalUrl || item.previewUrl}`;
+  return groupAlbumMediaKey(item);
 }
 
 function MediaThumbnail({
   item,
   onOpen,
+  selectionProps,
+  selected,
 }: {
   item: AlbumMediaWire;
   onOpen: () => void;
+  selectionProps?: HTMLAttributes<HTMLButtonElement>;
+  selected?: boolean;
 }): ReactElement {
+  const document = useRenderDocument();
   const [broken, setBroken] = useState(false);
   const src = item.previewUrl || (item.kind === 'image' ? item.originalUrl : '');
   useEffect(() => setBroken(false), [src]);
   return (
     <button
       type="button"
-      className={`group-album-media-card${item.kind === 'video' ? ' is-video' : ''}`}
+      {...selectionProps}
+      className={`group-album-media-card${item.kind === 'video' ? ' is-video' : ''}${selected ? ' is-selected' : ''}`}
       onClick={onOpen}
       aria-label={`预览 ${item.fileName || (item.kind === 'video' ? '视频' : '图片')}`}
       title={item.fileName || '未命名媒体'}
     >
       {src && !broken ? (
         <img
-          src={albumMediaUrl(src)}
+          src={resourceForRenderDocument(albumMediaUrl(src), document)}
           alt=""
           loading="lazy"
           referrerPolicy="no-referrer"
@@ -732,11 +879,13 @@ function MediaThumbnail({
           <small>{broken ? '预览加载失败' : '暂无封面'}</small>
         </span>
       )}
-      {item.kind === 'video' && (
+      {item.kind === 'video' && item.isLivePhoto === true ? (
+        <span className="group-album-media-play">实况</span>
+      ) : item.kind === 'video' ? (
         <span className="group-album-media-play" aria-hidden>
           <Play size={18} />
         </span>
-      )}
+      ) : null}
       <span className="group-album-media-name">{item.fileName || '未命名媒体'}</span>
     </button>
   );

@@ -4,9 +4,32 @@ import {
   deletionIdentity,
   hiddenDeletionSequences,
   hiddenDeletionLookup,
+  shareDeletionIds,
 } from '../src/renderer/src/lib/messageDeletion';
 import { messageGapCount, isSeqBetween } from '../src/renderer/src/im-template/template/messageGap';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
+
+it('等值删除快照保留集合引用，忽略返回顺序与重复项且不修改输入', () => {
+  const previous = new Set(['9007199254740993002', 'roaming:protocol:2:77']);
+  const next = new Set(['roaming:protocol:2:77', '9007199254740993002', '9007199254740993002']);
+  expect(shareDeletionIds(previous, next)).toBe(previous);
+  expect([...previous]).toEqual(['9007199254740993002', 'roaming:protocol:2:77']);
+  expect([...next]).toEqual(['roaming:protocol:2:77', '9007199254740993002']);
+  const empty = new Set<string>();
+  expect(shareDeletionIds(empty, new Set())).toBe(empty);
+});
+
+it('真实增删和原始身份变化返回新集合，不按归一身份丢弃字段更新', () => {
+  const previous = new Set(['roaming:native:2:77']);
+  for (const next of [
+    new Set<string>(),
+    new Set(['roaming:protocol:2:77']),
+    new Set(['roaming:native:2:77', '78']),
+  ]) {
+    expect(shareDeletionIds(previous, next)).toBe(next);
+  }
+  expect([...previous]).toEqual(['roaming:native:2:77']);
+});
 
 it('隐藏漫游重开后无缓存行仍保留缺口序号，QQ 原库隐藏使用实际消息序号', () => {
   const base = createTemplateDemoData().messages[0]!;

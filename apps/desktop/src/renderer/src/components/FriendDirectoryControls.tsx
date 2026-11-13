@@ -175,6 +175,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                     : '删除分组'}
             </h3>
             <button
+              className="icon-button"
               type="button"
               title="关闭"
               aria-label="关闭"
@@ -269,10 +270,16 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
             )}
             {error && <p role="alert">{error}</p>}
             <footer>
-              <button type="button" disabled={busy} onClick={() => setEditor(null)}>
+              <button
+                className="weq-set-btn weq-set-btn-soft"
+                type="button"
+                disabled={busy}
+                onClick={() => setEditor(null)}
+              >
                 取消
               </button>
               <button
+                className={`weq-set-btn${activeEditor.type === 'delete' ? ' weq-set-btn-danger' : ''}`}
                 type="submit"
                 disabled={
                   busy ||

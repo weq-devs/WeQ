@@ -8,7 +8,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { trpc } from '../src/renderer/src/trpc/client';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { useToast } from '../src/renderer/src/components/Toast';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 

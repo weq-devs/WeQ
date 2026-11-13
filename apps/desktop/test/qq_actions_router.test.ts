@@ -86,6 +86,8 @@ function fixture() {
       uploadGroupAlbumImage: empty(),
       setQzoneLike: empty(),
       commentQzone: empty(),
+      replyQzone: empty(),
+      forwardQzone: empty(),
     },
     emoji: {
       fetchOnlineFavoriteIds: vi.fn(async () => [
@@ -94,7 +96,7 @@ function fixture() {
       listFavoriteEmojis: vi.fn(async () => []),
       fetchOnlineFavoriteDetails: vi.fn(async (): Promise<CustomFaceDetail[]> => []),
       listFavEmojiRows: vi.fn(async () => []),
-      addFavorite: empty(),
+      addFavorite: vi.fn(async (..._args: unknown[]): Promise<string> => ''),
       deleteFavorite: empty(),
       modifyFavoriteDesc: empty(),
       moveFavorite: empty(),
@@ -635,6 +637,53 @@ describe('主动操作的账号与参数边界', () => {
     failure.s.groupModeration.getAtAllRemain.mockRejectedValueOnce(new Error('quota unavailable'));
     await expect(failure.caller.atAllMention(group)).rejects.toThrow('quota unavailable');
   });
+  it('定向回复独立传递根身份和目标，禁止降为一级评论', async () => {
+    const f = fixture();
+    const input = { ...binding, hostUin: '10002', tid: 'current-post', content: '正文' };
+    const replyTarget = { rootId: '0', rootUin: '10003', uin: '10004', nickname: '目标' };
+    await expect(f.caller.qzone({ ...input, action: 'reply', replyTarget })).resolves.toEqual({
+      state: 'accepted',
+    });
+    expect(f.s.webQuery.replyQzone).toHaveBeenCalledWith(
+      '10002',
+      'current-post',
+      replyTarget,
+      '正文',
+      undefined,
+      expect.any(Function),
+    );
+    expect(f.s.webQuery.commentQzone).not.toHaveBeenCalled();
+    await expect(f.caller.qzone({ ...input, action: 'reply' })).rejects.toThrow('目标');
+    await expect(f.caller.qzone({ ...input, action: 'comment', replyTarget })).rejects.toThrow(
+      '一级评论',
+    );
+    expect(f.s.webQuery.replyQzone).toHaveBeenCalledOnce();
+  });
+  it('普通动态转发固定当前帖，拒绝旧账号和并发重复操作', async () => {
+    const f = fixture();
+    const input = { ...binding, hostUin: '10002', tid: 'current-post', reason: '' };
+    let finish!: () => void;
+    f.s.webQuery.forwardQzone.mockImplementationOnce(
+      async () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = f.caller.qzoneForward(input);
+    await vi.waitFor(() => expect(f.s.webQuery.forwardQzone).toHaveBeenCalledOnce());
+    await expect(f.caller.qzoneForward(input)).rejects.toThrow('等待');
+    finish();
+    await expect(pending).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.webQuery.forwardQzone).toHaveBeenCalledWith(
+      '10002',
+      'current-post',
+      '',
+      expect.any(Function),
+    );
+    f.switchAccount();
+    await expect(f.caller.qzoneForward(input)).rejects.toThrow('切换');
+    expect(f.s.webQuery.forwardQzone).toHaveBeenCalledOnce();
+  });
   it('带图评论使用上传直链而非说说 richval，上传期间切号不发送评论', async () => {
     const f = fixture();
     const dir = await mkdtemp(join(tmpdir(), 'weq-qzone-comment-test-'));
@@ -889,6 +938,25 @@ describe('主动操作的账号与参数边界', () => {
         '运行时',
       );
       expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+  it('图片导入返回实际收藏标识，缺失标识时明确提示核对而不冒称成功', async () => {
+    const f = fixture();
+    const dir = await mkdtemp(join(tmpdir(), 'weq-favorite-picker-'));
+    const path = join(dir, 'image.png');
+    try {
+      await writeFile(path, makeSolidPng(8, 8));
+      f.s.fileResource.resolveLocalFile.mockResolvedValue(path);
+      vi.spyOn(f.s.emoji, 'addFavorite').mockImplementationOnce(async () => 'imported-id');
+      expect(await f.caller.favorite({ ...binding, action: 'add', path })).toEqual({
+        state: 'accepted',
+        emojiId: 'imported-id',
+      });
+      await expect(f.caller.favorite({ ...binding, action: 'add', path })).rejects.toThrow(
+        '未取得表情标识',
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

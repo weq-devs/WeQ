@@ -13,6 +13,7 @@ import { ResourceCleanupDialog } from '../../views/cache/ResourceCleanupDialog';
 import { useResourceManagementScan } from '../../views/cache/useResourceManagementScan';
 import { RESOURCE_CATEGORIES, type ResourceSource } from '../../views/cache/resourceManagement';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
+import { useRemoteClient } from '../../lib/remoteClient';
 import '../../styles/cache.css';
 import '../../styles/settings-resources.css';
 
@@ -33,7 +34,7 @@ export function ResourceManagementSection() {
       : null;
   return (
     <div className="weq-set weq-resources-settings">
-      <SectionHeader title="资源目录管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
+      <SectionHeader title="QQ 资源管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
       {account.error ? (
         <QueryError
           message={account.error.message}
@@ -62,12 +63,14 @@ export function ResourceManagementSection() {
 }
 
 function ResourceManagementBody({ source }: { source: ResourceSource }) {
+  const remote = useRemoteClient();
   const activity = useQQReadActivity(true, { onlineOnly: false });
   const [view, setView] = usePageState<ResourceView>(
     'resources:view',
     'overview',
     z.enum(['overview', 'cleanup', 'browse']),
   );
+  const currentView = remote && view === 'cleanup' ? 'overview' : view;
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<{ category: string }>();
   const scan = useResourceManagementScan(source, activity.enabled);
@@ -81,11 +84,11 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
     <div className="weq-resource-management">
       <SegmentedControl<ResourceView>
         label="资源管理视图"
-        value={view}
+        value={currentView}
         onChange={setView}
         options={[
           {
-            value: 'overview',
+            value: 'overview' as const,
             label: (
               <span data-setting-id="qq-storage-analysis">
                 <BarChart3 size={15} />
@@ -94,7 +97,7 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
             ),
           },
           {
-            value: 'cleanup',
+            value: 'cleanup' as const,
             label: (
               <span data-setting-id="qq-storage-cleanup">
                 <Trash2 size={15} />
@@ -103,7 +106,7 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
             ),
           },
           {
-            value: 'browse',
+            value: 'browse' as const,
             label: (
               <span data-setting-id="resource-viewer">
                 <FolderOpen size={15} />
@@ -111,20 +114,20 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
               </span>
             ),
           },
-        ]}
+        ].filter((option) => !remote || option.value !== 'cleanup')}
       />
       {busy ? (
         <p className="weq-resource-status" role="status">
           QQ 资源清理正在执行
         </p>
-      ) : progress && view !== 'overview' ? (
+      ) : progress && currentView !== 'overview' ? (
         <p className="weq-resource-status" role="status">
           正在扫描{progress} · {scan.stats.length} / {RESOURCE_CATEGORIES.length + 1}
         </p>
       ) : null}
-      <RetainedTabs snapshotKey="resource-management" activeKey={view}>
-        <div key={view} className="weq-resource-panel" data-resource-panel={view}>
-          {view === 'overview' ? (
+      <RetainedTabs snapshotKey="resource-management" activeKey={currentView}>
+        <div key={currentView} className="weq-resource-panel" data-resource-panel={currentView}>
+          {currentView === 'overview' ? (
             <>
               <ResourceAnalyticsDialog open embedded snapshot={snapshot} onClose={() => {}} />
               <section className="weq-resource-mapping">
@@ -159,7 +162,7 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
                 </p>
               </section>
             </>
-          ) : view === 'cleanup' ? (
+          ) : currentView === 'cleanup' ? (
             <ResourceCleanupDialog
               open
               embedded

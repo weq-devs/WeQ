@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { ConversationActionsMenu } from '../src/renderer/src/components/ConversationActionsMenu';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   attachmentToElement,
   createAttachment,
@@ -51,6 +52,7 @@ async function mount(group = false, draft = '') {
         draft,
         loading: false,
         onDraftChange: vi.fn(),
+        onDraftClear: vi.fn(),
         onBack: vi.fn(),
         onSend: send,
         onStartCall: vi.fn(),
@@ -94,6 +96,47 @@ it('输入框工具栏共用桌面端按钮列表，位置只保留一个入口�
   expect(document.querySelector('[role="menu"][aria-label="位置"]')).not.toBeNull();
   clickTitle(toolbar, '位置');
   expect(document.querySelector('[role="menu"][aria-label="位置"]')).toBeNull();
+});
+
+it('表情选择器上方的右键菜单点击及 Escape 不会穿透关闭选择器', async () => {
+  const { host } = await mount();
+  clickTitle(host, '表情');
+  const menuHost = document.createElement('div');
+  document.body.append(menuHost);
+  const menuRoot = createRoot(menuHost);
+  cleanups.push(() => {
+    act(() => menuRoot.unmount());
+    menuHost.remove();
+  });
+  const action = vi.fn();
+  const open = () =>
+    act(() =>
+      menuRoot.render(
+        h(ConversationActionsMenu, {
+          x: 20,
+          y: 20,
+          label: '收藏表情操作',
+          onClose: () => menuRoot.render(null),
+          actions: [{ label: '保存', icon: h('span'), action }],
+        }),
+      ),
+    );
+  open();
+  const button = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+  act(() => {
+    button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    button.click();
+  });
+  expect(action).toHaveBeenCalledOnce();
+  expect(host.querySelector('[aria-label="表情面板"]')).not.toBeNull();
+  open();
+  act(() =>
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }),
+    ),
+  );
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(host.querySelector('[aria-label="表情面板"]')).not.toBeNull();
 });
 
 it.each([false, true])('私聊互动表情保留发送，不再提供窗口抖动；展开=%s', async (expanded) => {

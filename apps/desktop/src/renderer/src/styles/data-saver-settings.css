@@ -1,0 +1,33 @@
+.weq-data-saver-behavior {
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-data-saver-behavior h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+}
+.weq-data-saver-behavior p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-data-saver-group {
+  margin: 18px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-fg-secondary);
+}
+.weq-data-saver-limit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-data-saver-limit input {
+  width: 96px;
+  min-width: 0;
+}

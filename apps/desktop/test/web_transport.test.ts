@@ -30,6 +30,9 @@ it('传输层通过实际连接回调报告恢复，并限制 HTTP 批次 URL �
   expect(independent({ path: 'account.listRecentContacts' })).toBe(true);
   expect(independent({ path: 'account.listBuddies' })).toBe(false);
   for (const path of [
+    'account.getProfilesByUids',
+    'account.getGroupMembersByUids',
+    'account.getGroupDetail',
     'backgroundTasks.list',
     'backgroundTasks.details',
     'backgroundTasks.logs',

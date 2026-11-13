@@ -9,6 +9,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
@@ -24,6 +25,7 @@ vi.mock('../../../scripts/package-remote-network.mjs', async (importOriginal) =>
 }));
 
 import { trimDesktopPackage } from '../../../scripts/trim-desktop-package.mjs';
+import { releaseDesktopManifest } from '../../../scripts/prepare-electron-builder-manifest.mjs';
 
 const desktop = resolve(__dirname, '..');
 const manifest = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8'));
@@ -59,6 +61,7 @@ const { load } = appBuilderRequire('js-yaml') as { load: (source: string) => unk
 type BuildFiles = { files?: (string | { filter: string[] })[] };
 type Config = BuildFiles &
   Record<'mac' | 'win' | 'linux', BuildFiles> & {
+    electronLanguages: string[];
     asarUnpack: string[];
     extraResources: { from: string; to: string }[];
   };
@@ -86,7 +89,24 @@ const { getNodeModuleFileMatcher, getMainFileMatchers, getFileMatchers } = build
 const { Arch } = builderRequire('electron-builder') as { Arch: Record<string, number> };
 
 describe('桌面发行包瘦身', () => {
-  it('转写 JS 包与平台原生绑定共同解包，不再额外复制到不相邻的目录', () => {
+  it('本地打包复用精简发布 manifest，不修改源码版本或工作区依赖声明', () => {
+    const original = structuredClone(manifest);
+    const release = releaseDesktopManifest(manifest);
+    expect(release.version).toBe(manifest.version);
+    expect(Object.keys(release.dependencies).some((name) => name.startsWith('@weq/'))).toBe(false);
+    expect(release.dependencies).toHaveProperty('tar');
+    expect(manifest).toEqual(original);
+    expect(
+      config.extraResources.some((entry) =>
+        /node_modules\/(?:onnxruntime|@receptron\/laya|@huggingface\/tokenizers)/.test(entry.to),
+      ),
+    ).toBe(false);
+  });
+  it('仅保留中英文，macOS 使用实际的 lproj 名称', () => {
+    expect(config.electronLanguages).toEqual(['en-US', 'en-GB', 'zh-CN', 'zh-TW']);
+    expect(rawConfig.mac).toHaveProperty('electronLanguages', ['en', 'en_GB', 'zh_CN', 'zh_TW']);
+  });
+  it('转写引擎不再解包或内置，改由增强包准备', () => {
     const unpack = getFileMatchers(config, 'asarUnpack', '/fixture/package', {
       defaultSrc: desktop,
       customBuildOptions: {},
@@ -95,7 +115,7 @@ describe('桌面发行包瘦身', () => {
     })[0].createFilter();
     // 匹配器接收 pnpm 的真实源路径，而不是扁平化后的 ASAR 路径。
     const source = realpathSync(join(desktop, 'node_modules/sherpa-onnx-node/package.json'));
-    expect(unpack(source, statSync(source))).toBe(true);
+    expect(unpack(source, statSync(source))).toBe(false);
     expect(
       config.extraResources.some((entry) => entry.to === 'node_modules/sherpa-onnx-node'),
     ).toBe(false);
@@ -143,14 +163,19 @@ describe('桌面发行包瘦身', () => {
       'exceljs',
       'sharp',
       '@resvg/resvg-js',
+      'ws',
+    ]) {
+      expect(manifest.dependencies, name).toHaveProperty(name);
+    }
+    for (const name of [
       'onnxruntime-node',
       'onnxruntime-common',
       'sherpa-onnx-node',
       '@receptron/laya',
       '@huggingface/tokenizers',
-      'ws',
     ]) {
-      expect(manifest.dependencies, name).toHaveProperty(name);
+      expect(manifest.dependencies, name).not.toHaveProperty(name);
+      expect(manifest.devDependencies, name).toHaveProperty(name);
     }
   });
 
@@ -244,6 +269,15 @@ describe('桌面发行包瘦身', () => {
         expect(includes('node_modules/exceljs/LICENSE')).toBe(true);
         expect(includes('node_modules/exceljs/lib/doc/workbook.js.map')).toBe(false);
         expect(includes('node_modules/sharp/lib/index.js')).toBe(true);
+        for (const name of [
+          'onnxruntime-node',
+          'onnxruntime-common',
+          'sherpa-onnx-node',
+          `sherpa-onnx-${platform}-${arch}`,
+          '@receptron/laya',
+          '@huggingface/tokenizers',
+        ])
+          expect(includes(`node_modules/${name}/package.json`), name).toBe(false);
         expect(includes('node_modules/zod/index.d.cts')).toBe(false);
         expect(includes(`node_modules/@resvg/resvg-js-linux-${arch}-gnu/resvgjs.node`)).toBe(true);
         expect(includes('node_modules/@resvg/resvg-js-win32-x64-msvc/resvgjs.node')).toBe(true);
@@ -265,13 +299,38 @@ describe('桌面发行包瘦身', () => {
         ];
         try {
           for (const name of candidates) mkdirSync(join(modules, name), { recursive: true });
+          const frameworkResources = join(
+            resources,
+            '../Frameworks/Electron Framework.framework/Resources',
+          );
+          if (platform === 'mac') {
+            for (const language of ['en', 'en_GB', 'zh_CN', 'zh_TW', 'ja'])
+              mkdirSync(join(frameworkResources, `${language}.lproj`), { recursive: true });
+          }
+          const dress = join(resources, 'resources/dress');
+          mkdirSync(dress, { recursive: true });
+          writeFileSync(
+            join(dress, 'index-manifest.json'),
+            readFileSync(join(desktop, '../../resources/dress/index-manifest.json')),
+          );
           trimDesktopPackage({
             appOutDir: directory,
             electronPlatformName:
               platform === 'mac' ? 'darwin' : platform === 'win' ? 'win32' : 'linux',
             arch: Arch[arch],
-            packager: { appInfo: { productFilename: 'weQ' } },
+            packager: {
+              appInfo: { productFilename: 'weQ' },
+              config,
+              platformSpecificBuildOptions: rawConfig[platform],
+            },
           });
+          if (platform === 'mac')
+            expect(readdirSync(frameworkResources).sort()).toEqual([
+              'en.lproj',
+              'en_GB.lproj',
+              'zh_CN.lproj',
+              'zh_TW.lproj',
+            ]);
           for (const name of candidates) {
             const expected = name.includes('resvg-js-darwin-')
               ? platform === 'mac' && name.endsWith(`-${arch}`)

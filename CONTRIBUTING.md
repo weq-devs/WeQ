@@ -19,14 +19,15 @@
 
 - **Node.js** ≥ 22.12.0
 - **包管理器**：[pnpm](https://pnpm.io/)（本仓库锁定 `pnpm@12.8.1`，请勿使用 npm / yarn，以免破坏 `pnpm-lock.yaml`）
+- **Go**：用于首次或源码更新时构建远程网络辅助程序，版本要求见 `tools/remote-network/go.mod`。本地 native 源码模式另外需要其平台对应的 Rust/Cargo 和系统编译工具链。
 
 ```bash
-pnpm i             # 安装依赖
-pnpm native:fetch  # 取 nt_helper 原生产物（不入库，dev 克隆里没有；见 docs/develop/native-artifacts.md）
-pnpm dev           # 启动桌面端开发
+pnpm dev           # 自动补依赖、准备 native 与构建，然后启动桌面开发
+pnpm dev --prepare-only # 只准备开发环境，不启动应用
 ```
 
 更多背景见[开发者入口](./docs/develop/index.md)与[原理文档](./docs/principles/index.md)。
+默认使用锚定的发布版 native；参与 native 开发时在不入库的 `weq.dev.local.json` 中选择 `local` 并设置源码目录。配置、缓存、镜像与失败处理见[一行命令开发启动](./docs/develop/dev-startup.md)。
 
 ---
 
@@ -50,7 +51,7 @@ pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test 门禁
 - `pnpm ci:local --full` —— 额外跑 web 打包冒烟（≈ CI 的 `build-web` job）。
 - `pnpm ci:local --fail-fast` / `--list` —— 失败即停 / 只打印将跑的步骤。
 
-独立 daemon 已移除，本工程不再需要 Rust 工具链。
+独立 daemon 已移除；默认发布版 native 模式不需要 Rust 工具链，只有本地 native 源码编译需要。
 
 需要单独跑某一步时，等价命令是：
 
@@ -67,7 +68,9 @@ pnpm --filter @weq/web build
 ```
 
 Actions 将 desktop / service 全量测试分片并行，其余包及 Web 服务端断言独立运行，
-由 `test` 汇总全部结果。分片复现和报告说明见[测试约定](./docs/develop/testing.md#ci-分片)。
+由 `test` 汇总全部结果。类型检查分为桌面主进程、桌面渲染、Web 服务端和基础包四组，
+缓存增量编译信息但每次仍执行检查，由 `typecheck` 汇总结果。
+分片复现、成本报告和缓存说明见[测试约定](./docs/develop/testing.md#ci-分片)。
 
 > 桌面端打包（`electron-vite build` + `electron-builder`）不在 PR 门禁里，
 > 由 release 流水线兜底。改动打包链路时本地用

@@ -16,9 +16,11 @@ import type {
   AgentLabGroupStore,
 } from '@weq/agentlab';
 import { JsonStore } from '../common/json_store';
-
-/** 每个群最多保留的消息条数（超出丢最旧的，防无限增长）。 */
-const MAX_MESSAGES_PER_GROUP = 2000;
+import {
+  cloneHistoryOriginKey,
+  hasCloneMessageIdCollision,
+  uniqueCloneMessageIds,
+} from './clone_message_identity';
 
 interface GroupData {
   groups: Record<string, AgentLabGroup>;
@@ -93,10 +95,13 @@ export class JsonGroupStore implements AgentLabGroupStore {
   }
 
   deleteGroup(id: string): void {
-    delete this.data.groups[id];
-    delete this.data.members[id];
-    delete this.data.messages[id];
-    this.persist();
+    const groups = { ...this.data.groups };
+    const members = { ...this.data.members };
+    const messages = { ...this.data.messages };
+    delete groups[id];
+    delete members[id];
+    delete messages[id];
+    this.store.replace({ groups, members, messages }, true);
   }
 
   setMembers(groupId: string, members: AgentLabGroupMember[]): void {
@@ -127,10 +132,75 @@ export class JsonGroupStore implements AgentLabGroupStore {
   appendMessage(message: AgentLabGroupMessage): void {
     const cur = this.data.messages[message.groupId] ?? [];
     cur.push(message);
-    // 超容量丢最旧的（数组尾部是最新）。
-    this.data.messages[message.groupId] =
-      cur.length > MAX_MESSAGES_PER_GROUP ? cur.slice(cur.length - MAX_MESSAGES_PER_GROUP) : cur;
+    this.data.messages[message.groupId] = cur;
     this.persist();
+  }
+
+  patchImageAnalysis(
+    groupId: string,
+    messageId: string,
+    imageContext: string,
+    imageOutcomes: NonNullable<AgentLabGroupMessage['imageOutcomes']>,
+  ): void {
+    const messages = this.data.messages[groupId] ?? [];
+    const index = messages.findIndex((message) => message.id === messageId);
+    const current = messages[index];
+    if (!current) return;
+    const key = (outcomes: typeof imageOutcomes = []) =>
+      JSON.stringify(
+        outcomes.map(({ id, mode, status, text, notes }) => ({
+          id,
+          mode,
+          status,
+          text,
+          fallback: notes.some((note) => note.includes('回退 OCR')),
+        })),
+      );
+    if (current.imageContext === imageContext && key(current.imageOutcomes) === key(imageOutcomes))
+      return;
+    this.data.messages[groupId] = messages.map((message, offset) =>
+      offset === index ? { ...message, imageContext, imageOutcomes } : message,
+    );
+    this.persist();
+  }
+
+  /** 先保存合并结果，再由调用方移除旧分桶；重复迁移按稳定消息身份幂等。 */
+  mergeMessages(groupId: string, additions: AgentLabGroupMessage[]): void {
+    this.store.assertReadable();
+    if (!additions.length && !hasCloneMessageIdCollision(this.data.messages[groupId] ?? [])) return;
+    const current = (this.data.messages[groupId] ?? []).map((message) => ({
+      ...message,
+      sourceSessionId: message.sourceSessionId === undefined ? null : message.sourceSessionId,
+      sourceSessionTitle: message.sourceSessionTitle ?? '原始对话',
+    }));
+    const identities = new Map<string, number>();
+    for (const message of current) {
+      const key = cloneHistoryOriginKey(message);
+      identities.set(key, (identities.get(key) ?? 0) + 1);
+    }
+    const imported = new Map<string, number>();
+    const merged: AgentLabGroupMessage[] = [...current];
+    for (const message of additions) {
+      const identity = cloneHistoryOriginKey(message);
+      const occurrence = (imported.get(identity) ?? 0) + 1;
+      imported.set(identity, occurrence);
+      if (occurrence > (identities.get(identity) ?? 0)) {
+        merged.push(message);
+      }
+    }
+    this.store.replace(
+      {
+        ...this.data,
+        messages: {
+          ...this.data.messages,
+          [groupId]: uniqueCloneMessageIds(
+            groupId,
+            merged.sort((a, b) => a.ts - b.ts),
+          ),
+        },
+      },
+      true,
+    );
   }
 
   listMessages(groupId: string, limit?: number): AgentLabGroupMessage[] {

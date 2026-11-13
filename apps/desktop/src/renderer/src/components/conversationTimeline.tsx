@@ -19,6 +19,8 @@ import {
   type ReactElement,
 } from 'react';
 import { formatNumber } from './analyticsCharts';
+import { EmptyState } from './EmptyState';
+import { CalendarDays } from 'lucide-react';
 import { beijingDay, daySeconds } from '../lib/messageCalendar';
 import { ProfileAvatar } from './ProfileAvatar';
 import { Avatar } from '../im-template/template/primitives';
@@ -126,7 +128,7 @@ export function GitHubTimeline({
   const max = useMemo(() => Math.max(1, ...shown.map((w) => w.count)), [shown]);
 
   if (shown.length === 0) {
-    return <p className="ca-empty">暂无消息时间轴</p>;
+    return <EmptyState variant="inline" icon={<CalendarDays />} title="暂无消息时间轴" />;
   }
 
   return (
@@ -334,7 +336,7 @@ export function RangeTimeline({
   };
 
   if (points.length === 0) {
-    return <p className="ca-empty">暂无消息时间轴</p>;
+    return <EmptyState variant="inline" icon={<CalendarDays />} title="暂无消息时间轴" />;
   }
 
   const selLeft = active ? x(active.start) : 0;
@@ -474,17 +476,17 @@ export function PersonWeekCard({
       style={accent ? ({ '--ca-person-accent': accent } as CSSProperties) : undefined}
     >
       <div className="ca-person-head">
-        <span className="ca-person-avatar">
-          <ProfileAvatar target={profile}>
+        <ProfileAvatar target={profile} className="weq-identity-link">
+          <span className="ca-person-avatar">
             <Avatar
               name={name}
               avatarUrl={avatarUrl}
               seed={profile?.identity || profile?.uin || name}
             />
-          </ProfileAvatar>
-        </span>
-        <span className="ca-person-meta">
+          </span>
           <strong title={name}>{name}</strong>
+        </ProfileAvatar>
+        <span className="ca-person-meta">
           <em>{subtitle ?? `${formatNumber(count)} 条`}</em>
         </span>
         {rank !== undefined ? <span className="ca-person-rank">{rank}</span> : null}

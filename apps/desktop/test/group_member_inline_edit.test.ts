@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { QQGroupMemberControls } from '../src/renderer/src/components/QQGroupMemberControls';
+import { RelationshipDirectoryContext } from '../src/renderer/src/lib/contactRelationship';
 
 const rpc = vi.hoisted(() => ({
   role: 'owner',
@@ -56,6 +57,44 @@ afterEach(() => {
   rpc.isSelf = false;
 });
 
+it.each([
+  ['member', false, []],
+  ['member', true, ['群昵称']],
+  ['admin', false, ['群昵称']],
+  ['owner', false, ['群昵称', '专属头衔']],
+] as const)('空成员资料按实际权限显示：%s / 本人 %s', (role, isSelf, labels) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(
+          RelationshipDirectoryContext.Provider,
+          {
+            value: {
+              selfUid: isSelf ? 'u_peer' : 'u_self',
+              friends: new Map(),
+              friendsComplete: true,
+              groups: new Map([['123', { listed: true, role }]]),
+            },
+          },
+          h(QQGroupMemberControls, {
+            groupCode: '123',
+            uid: 'u_peer',
+            profile: { card: '', title: '', role: 'member' },
+          }),
+        ),
+      ),
+    );
+    expect(
+      [...host.querySelectorAll('.weq-profile-data-label')].map((node) => node.textContent),
+    ).toEqual(labels);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
 it('普通成员可在自己的资料卡原行编辑群昵称，但不能编辑专属头衔或他人昵称', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   rpc.role = 'member';
@@ -76,7 +115,7 @@ it('普通成员可在自己的资料卡原行编辑群昵称，但不能编辑�
   try {
     render();
     expect(host.querySelector('[aria-label="编辑专属头衔"]')).toBeNull();
-    const button = host.querySelector<HTMLButtonElement>('[aria-label="编辑群昵称"]');
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="查看群昵称"]');
     expect(button).not.toBeNull();
     act(() => button!.click());
     const input = host.querySelector<HTMLInputElement>('[aria-label="群昵称"]')!;
@@ -105,7 +144,7 @@ it('普通成员可在自己的资料卡原行编辑群昵称，但不能编辑�
 });
 
 it.each(['群昵称', '专属头衔'])(
-  '%s 原行展示，点铅笔才进入编辑，取消不写，确认保留账号与目标',
+  '%s 原行展示，点文字后读取权限并直接编辑，取消不写，确认保留账号与目标',
   async (label) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
@@ -125,7 +164,13 @@ it.each(['群昵称', '专属头衔'])(
       render();
       expect(host.querySelector('input')).toBeNull();
       const edit = () =>
-        act(() => host.querySelector<HTMLButtonElement>(`[aria-label="编辑${label}"]`)!.click());
+        act(() =>
+          host
+            .querySelector<HTMLButtonElement>(
+              `[aria-label="编辑${label}"],[aria-label="查看${label}"]`,
+            )!
+            .click(),
+        );
       edit();
       act(() => host.querySelector<HTMLButtonElement>(`[aria-label="取消编辑${label}"]`)!.click());
       expect(rpc.run).not.toHaveBeenCalled();

@@ -13,7 +13,15 @@
 
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+const preferences = vi.hoisted(() => ({
+  friendClue: false,
+  extraDetails: false,
+  uid: false,
+  occupation: false,
+  memberDetails: null as Record<string, unknown> | null,
+}));
 
 // 卡片会拉 tRPC 补全陌生人资料 —— 单测不建 ipc 链接，给个死数据桩。
 vi.mock('@renderer/trpc/client', () => ({
@@ -27,15 +35,81 @@ vi.mock('@renderer/trpc/client', () => ({
         }),
       },
       getBotProfile: { query: async () => null },
+      conversationBoundary: { query: async () => null },
       // 资料卡 hero 头像点开 QQ 秀展柜前，会先查一次「当前形象」用来标 #N。
       // 单测里给「没有 QQ 秀」；展柜本身不挂载，与本文件的断言无关。
-      dressup: { peerQqShow: { query: async () => ({ hasShow: false, url: '' }) } },
+      dressup: {
+        peerQqShow: { query: async () => ({ hasShow: false, url: '' }) },
+        peerHome: { query: async () => ({}) },
+      },
     },
   },
   // 卡片底部的「互动画像」入口会读意图感知状态；这里给一个「未开启」的桩，
   // 入口不渲染，也就不会把画像 Dialog 的依赖链拖进来。
   trpc: {
+    bootstrap: {
+      getSettings: {
+        useQuery: () => ({
+          data: {
+            contactCard: {
+              visible: {
+                friendClue: preferences.friendClue,
+                uid: preferences.uid,
+                occupation: preferences.occupation,
+              },
+            },
+          },
+        }),
+      },
+    },
+    useUtils: () => ({}),
     account: {
+      getOnlineStatus: { useQuery: () => ({ data: undefined }) },
+      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source' } }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      qqWrite: {
+        selfProfile: {
+          useMutation: () => ({ mutateAsync: vi.fn(async () => ({ state: 'confirmed' })) }),
+        },
+        selfState: { useQuery: () => ({ refetch: async () => ({ data: undefined }) }) },
+        memberDetails: { useQuery: () => ({ data: preferences.memberDetails }) },
+        groupMemberMute: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+      },
+      profileExtras: {
+        energy: { useQuery: () => ({ data: undefined }) },
+        signatureHistory: {
+          useInfiniteQuery: vi.fn((input: { uin: string }) => ({
+            data: {
+              pages: [
+                {
+                  targetUin: input.uin,
+                  items: [],
+                  hasMore: false,
+                  nextCursor: null,
+                  paginationError: null,
+                },
+              ],
+            },
+            isFetching: false,
+            error: null,
+            hasNextPage: false,
+          })),
+        },
+        details: {
+          useQuery: () => ({
+            data: preferences.extraDetails
+              ? {
+                  targetUin: '10001',
+                  company: '合成公司',
+                  personalDescription: '第一行说明\n第二行说明',
+                  email: 'fixture@example.invalid',
+                  errors: {},
+                }
+              : undefined,
+          }),
+        },
+        personalityLabels: { useQuery: () => ({ data: undefined }) },
+      },
       dressup: { peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) } },
       intentSense: {
         getProfile: {
@@ -47,6 +121,15 @@ vi.mock('@renderer/trpc/client', () => ({
       },
     },
   },
+}));
+vi.mock('@renderer/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    available: true,
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source' },
+  }),
+}));
+vi.mock('@renderer/im-template/template/clipboard', () => ({
+  copyTextToClipboard: vi.fn(async () => true),
 }));
 
 // 卡片底部的三个「从卡片里再打开」的灯箱与本次断言无关，换成空壳避免把
@@ -78,7 +161,14 @@ import {
   ContactWorkspaceNavigationContext,
   profileTargetUser,
 } from '@renderer/lib/profileNavigation';
-import { client } from '@renderer/trpc/client';
+import { client, trpc } from '@renderer/trpc/client';
+import { copyTextToClipboard } from '@renderer/im-template/template/clipboard';
+import {
+  contactCardFieldGroup,
+  ContactContent,
+  ContactIdentity,
+} from '@renderer/components/contactProfile/ContactContent';
+import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
 import {
   RelationshipDirectoryContext,
   type RelationshipDirectory,
@@ -97,7 +187,7 @@ const hosts: HTMLDivElement[] = [];
 const expandContact = vi.fn();
 
 const MEMBER = {
-  id: 'uid-1',
+  id: 'u_fixture',
   identityLabel: 'QQ',
   identityValue: '10001',
   username: 'tester',
@@ -118,20 +208,27 @@ async function mountCard(
   await act(async () => {
     root.render(
       createElement(
-        RelationshipDirectoryContext.Provider,
-        { value: directory },
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
         createElement(
-          ContactWorkspaceNavigationContext.Provider,
-          { value: expandContact },
-          createElement(MemberProfileCard, {
-            member,
-            anchor,
-            onClose,
-            groupCode,
-          }),
+          RelationshipDirectoryContext.Provider,
+          { value: directory },
+          createElement(
+            ContactWorkspaceNavigationContext.Provider,
+            { value: expandContact },
+            createElement(MemberProfileCard, {
+              member,
+              anchor,
+              onClose,
+              groupCode,
+            }),
+          ),
         ),
       ),
     );
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
   });
   roots.push(root);
   hosts.push(host);
@@ -145,6 +242,402 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('放大按钮进入同一联系人的完整资料页并先关闭名片', async () => {
+    const close = vi.fn();
+    await mountCard(close, undefined, { ...MEMBER, nick: '放大查看的联系人' });
+    const expand = layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]');
+    expect(expand?.title).toBe('打开完整资料页');
+    expect(expand?.querySelector('svg')).not.toBeNull();
+    await act(async () => expand!.click());
+    expect(expandContact).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: 'person',
+        contact: expect.objectContaining({ id: MEMBER.id, nick: '放大查看的联系人' }),
+      }),
+    );
+    expect(close).toHaveBeenCalledOnce();
+    expect(close.mock.invocationCallOrder[0]).toBeLessThan(
+      expandContact.mock.invocationCallOrder[0],
+    );
+  });
+  it('本地合成会话不展示没有目标资料页的放大按钮', async () => {
+    await mountCard(() => {}, undefined, { ...MEMBER, clone: true });
+    expect(layer().querySelector('[aria-label="打开完整资料页"]')).toBeNull();
+  });
+  it('签名正文在原名片旁打开无遮罩历史，选中文字不触发也不复制', async () => {
+    const close = vi.fn();
+    await mountCard(close, undefined, { ...MEMBER, signature: '可以点击的合成签名' });
+    const signature = layer().querySelector<HTMLButtonElement>('.weq-contact-signature-text');
+    expect(signature?.textContent).toBe('可以点击的合成签名');
+    const selection = document.getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(signature!);
+    selection.addRange(range);
+    await act(async () => signature!.click());
+    expect(expandContact).not.toHaveBeenCalled();
+    expect(document.querySelector('.weq-extras-dialog')).toBeNull();
+    selection.removeAllRanges();
+    await act(async () => signature!.click());
+    const historyTrigger = layer().querySelector<HTMLButtonElement>('[aria-label="查看个性签名"]')!;
+    expect(historyTrigger).toBe(signature);
+    expect(expandContact).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(layer().querySelector('.weq-member-pop')).not.toBeNull();
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+    const history = document.querySelector('.weq-extras-dialog')!;
+    expect(history.parentElement?.classList.contains('is-anchored-popover')).toBe(true);
+    expect(historyTrigger.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(historyTrigger.getAttribute('aria-expanded')).toBe('true');
+    expect(trpc.account.profileExtras.signatureHistory.useInfiniteQuery).toHaveBeenLastCalledWith(
+      expect.objectContaining({ uin: MEMBER.identityValue }),
+      expect.objectContaining({ enabled: true }),
+    );
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(document.querySelector('.weq-extras-dialog')).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    expect(historyTrigger.getAttribute('aria-expanded')).toBe('false');
+  });
+  it('没有备注时添加备注仍位于备注行，不再查询或展示扩展备注资料', async () => {
+    await mountCard(() => {}, undefined, { ...MEMBER, isFriend: true });
+    const remarks = layer().querySelector('.weq-contact-remarks')!;
+    expect(remarks.querySelector('.weq-profile-identity-remark')?.textContent).toBe('备注添加备注');
+    expect(layer().querySelector('.weq-contact-meta')?.textContent).not.toContain('添加备注');
+    expect(
+      [...remarks.querySelectorAll('.weq-profile-data-label')].map((el) => el.textContent),
+    ).toEqual(['备注']);
+    expect(layer().textContent).not.toContain('我的备注资料');
+    expect(layer().textContent).not.toContain('不是好友公开资料');
+    expect(
+      remarks.parentElement?.nextElementSibling?.classList.contains('weq-contact-sections'),
+    ).toBe(true);
+  });
+  it('已有好友备注仍独立展示，不附带扩展备注字段', async () => {
+    await mountCard(() => {}, undefined, { ...MEMBER, isFriend: true, remark: '好友备注' });
+    const remarks = layer().querySelector('.weq-contact-remarks')!;
+    expect(
+      [...remarks.querySelectorAll('.weq-profile-data-label')].map((el) => el.textContent),
+    ).toEqual(['备注']);
+    expect(remarks.textContent).toBe('备注好友备注');
+  });
+  it('公司、个人说明和邮箱直接展示在个人资料，不再保留详细资料跳转', async () => {
+    preferences.extraDetails = true;
+    await mountCard(() => {});
+    for (const [field, text] of [
+      ['company', '合成公司'],
+      ['description', '第一行说明\n第二行说明'],
+      ['email', 'fixture@example.invalid'],
+    ]) {
+      const row = layer().querySelector(`[data-profile-field="${field}"]`)!;
+      expect(row.textContent).toContain(text);
+      expect(row.closest('section')?.querySelector('h3')?.textContent).toBe('个人资料');
+    }
+    // 描述保持纯文本，邮箱显式提供点击复制，不新增图标。
+    for (const field of ['company', 'description', 'email']) {
+      const scope = layer().querySelector(`[data-profile-field="${field}"]`)!;
+      const actions = [...scope.querySelectorAll('button')];
+      expect(actions.some((el) => /查看|详细资料/.test(el.textContent ?? ''))).toBe(false);
+      expect(actions.some((el) => el.getAttribute('aria-label')?.startsWith('复制'))).toBe(
+        field === 'email',
+      );
+    }
+    expect(layer().querySelector('.weq-contact-clamp')).toBeNull();
+    expect(
+      [...layer().querySelectorAll('button')].some((el) => el.textContent === '详细资料'),
+    ).toBe(false);
+  });
+  it('职业与公司各占一行，不合并为单个字段', async () => {
+    preferences.occupation = true;
+    preferences.extraDetails = true;
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      extInfo: { occupation: 1, interests: [], privileges: [], interactMarks: [], album: [] },
+    });
+    const occupation = layer().querySelector(
+      '[data-profile-field="occupation"] .weq-profile-data-row',
+    )!;
+    const company = layer().querySelector('[data-profile-field="company"] .weq-profile-data-row')!;
+    expect(occupation.querySelector('.weq-profile-data-label')?.textContent).toBe('职业');
+    expect(company.querySelector('.weq-profile-data-label')?.textContent).toBe('公司');
+    expect(occupation).not.toBe(company);
+    expect(occupation.closest('section')).toBe(company.closest('section'));
+  });
+  it('群名紧随群内资料标题，群内分区与基本信息使用同一个分区容器', async () => {
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      profileContext: { groupCode: '20001', groupName: '合成群', member: { role: 'member' } },
+    } as User);
+    const heading = [...layer().querySelectorAll('h3')].find((el) =>
+      el.textContent?.startsWith('群内资料'),
+    )!;
+    expect(heading.textContent).toBe('群内资料 · 合成群');
+    expect(heading.parentElement?.querySelector('.weq-profile-section-note')).toBeNull();
+    const container = heading.closest('section')?.parentElement;
+    expect(container?.classList.contains('weq-contact-sections')).toBe(true);
+    expect(container?.querySelector('[data-profile-field="company"]')).not.toBeNull();
+    // 名片优先展示当前群内资料，不改变完整资料页的分页顺序。
+    const titles = [...(container?.querySelectorAll('.weq-profile-subtitle') ?? [])].map(
+      (node) => node.textContent,
+    );
+    expect(titles[0]).toBe('群内资料 · 合成群');
+    expect(titles.indexOf('个人资料')).toBeGreaterThan(0);
+  });
+  it('身份正文按备注、QQ、QID、UID、签名分行，状态仍位于昵称旁', async () => {
+    preferences.uid = true;
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      remark: '合成备注',
+      qid: 'synthetic-qid',
+      signature: '合成签名',
+      customStatus: '正在听音乐',
+      birthMonth: 5,
+      birthDay: 12,
+    });
+    const body = layer().querySelector('.weq-contact-identity-body')!;
+    expect(
+      [...body.querySelectorAll('.weq-profile-data-label')].map((el) => el.textContent),
+    ).toEqual(['备注', 'QQ', 'QID', 'UID', '个性签名']);
+    expect(body.textContent).toContain('synthetic-qid');
+    expect(body.textContent).toContain('10001');
+    expect(layer().querySelector('.weq-contact-meta:has(.weq-contact-number)')).toBeNull();
+    expect(layer().querySelectorAll('.weq-contact-signature')).toHaveLength(1);
+    expect(layer().querySelector('.weq-contact-title-line')?.textContent).toContain('正在听音乐');
+    expect(layer().querySelector('[data-profile-field="status"]')).toBeNull();
+    expect(layer().querySelector('[data-profile-field="qid"]')).toBeNull();
+    expect(
+      layer().querySelector('[data-profile-field="birthday"] .weq-profile-data-label svg'),
+    ).toBeNull();
+    expect(contactCardFieldGroup('level')).toBe('account');
+  });
+  it.each([
+    ['signature', 'identity'],
+    ['signatureUpdated', 'identity'],
+    ['qid', 'identity'],
+    ['uid', 'identity'],
+    ['occupation', 'basic'],
+    ['company', 'basic'],
+    ['common', 'social'],
+    ['friendClue', 'social'],
+    ['qqShow', 'display'],
+    ['labels', 'display'],
+    ['photos', 'display'],
+    ['level', 'account'],
+    ['likes', 'account'],
+    ['privileges', 'account'],
+    ['energy', 'account'],
+    ['botFeatures', 'bot'],
+  ] as const)('名片字段 %s 归入 %s', (field, group) => {
+    expect(contactCardFieldGroup(field)).toBe(group);
+  });
+  it.each([false, true])(
+    '昵称在名片正文 %s 中保持可阅读文本，不复制或打开编辑器',
+    async (cardBody) => {
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      roots.push(root);
+      hosts.push(host);
+      await act(async () =>
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+            createElement(ContactIdentity, {
+              person: { ...MEMBER, nick: '合成昵称', remark: '不应复制的备注' },
+              cardBody,
+            }),
+          ),
+        ),
+      );
+      const name = host.querySelector<HTMLElement>('.weq-profile-name');
+      expect(name).not.toBeNull();
+      expect(name?.tagName).toBe('SPAN');
+      expect(name?.textContent).toBe('合成昵称');
+      expect(name?.querySelector('svg, button')).toBeNull();
+      await act(async () => name!.click());
+      expect(copyTextToClipboard).not.toHaveBeenCalled();
+      expect(name?.querySelector('[role="status"]')).toBeNull();
+      expect(host.querySelector('input')).toBeNull();
+    },
+  );
+  it('浮层重新分区不改变完整资料页的身份区、正文与原分区', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    roots.push(root);
+    hosts.push(host);
+    const person = {
+      ...MEMBER,
+      qid: 'page-qid',
+      signature: '资料页原签名',
+      gender: 1 as const,
+      intimacy: 12,
+    };
+    const section = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(
+          QueryClientProvider,
+          {
+            client: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+          },
+          createElement(ContactIdentity, { person }),
+          createElement(ContactContent, {
+            person,
+            settings: DEFAULT_CONTACT_CARD,
+            full: true,
+            fields: ['signature', 'gender', 'intimacy', 'uid'],
+            onSection: section,
+          }),
+        ),
+      ),
+    );
+    expect(host.querySelector('.weq-contact-identity-body')).toBeNull();
+    expect(host.querySelector('.weq-contact-meta:has(.weq-contact-number)')?.textContent).toContain(
+      'page-qid',
+    );
+    expect(host.querySelector('[data-profile-field="signature"]')?.textContent).toContain(
+      '资料页原签名',
+    );
+    // 分区名与名片统一（此前资料页叫「基本信息 / 互动与关系」，同一份数据两个名字）。
+    expect([...host.querySelectorAll('h3')].map((node) => node.textContent)).toEqual([
+      '个人资料',
+      '与我的关系',
+    ]);
+    expect(host.querySelector('.weq-profile-tech')?.textContent).toContain(MEMBER.id);
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="查看个性签名"]')!.click(),
+    );
+    expect(document.querySelector('.weq-extras-dialog')?.parentElement?.classList).toContain(
+      'is-anchored-popover',
+    );
+    expect(section).not.toHaveBeenCalled();
+  });
+  it.each(['u_fixture', 'phone:10002'])(
+    '名片状态回退仍并列展示传统与自定义状态：%s',
+    async (id) => {
+      await mountCard(() => {}, undefined, {
+        ...MEMBER,
+        id,
+        onlineStatus: '忙碌',
+        customStatus: '正在听音乐',
+      });
+      expect(layer().querySelector('.weq-contact-title-line')?.textContent).toContain(
+        '忙碌 · 正在听音乐',
+      );
+    },
+  );
+  it('名片回退文案已包含自定义状态时不重复展示', async () => {
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      onlineStatus: '在线 - 正在听音乐',
+      customStatus: '正在听音乐',
+    });
+    const text = layer().querySelector('.weq-contact-title-line')?.textContent || '';
+    expect(text).toContain('在线 - 正在听音乐');
+    expect(text.match(/正在听音乐/g)).toHaveLength(1);
+  });
+  it('复制提示自动消失，重复复制重新计时', async () => {
+    await mountCard(() => {});
+    vi.useFakeTimers();
+    try {
+      const copy = layer().querySelector<HTMLButtonElement>('[title="复制 QQ 号码"]')!;
+      await act(async () => copy.click());
+      expect(layer().textContent).toContain('已复制');
+      await act(async () => vi.advanceTimersByTime(1200));
+      await act(async () => copy.click());
+      await act(async () => vi.advanceTimersByTime(700));
+      expect(layer().textContent).toContain('已复制');
+      await act(async () => vi.advanceTimersByTime(1100));
+      expect(layer().textContent).not.toContain('已复制');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('UID 开启时独立成行且可复制，其他分区不重复', async () => {
+    preferences.uid = true;
+    await mountCard(() => {}, undefined, { ...MEMBER, qid: 'synthetic-qid' });
+    const numbers = layer().querySelector('.weq-contact-identity-body');
+    expect(numbers?.textContent).toContain('10001');
+    expect(numbers?.textContent).toContain('synthetic-qid');
+    const uid = numbers?.querySelector<HTMLButtonElement>('[title="复制 UID"]');
+    expect(uid?.textContent).toContain(MEMBER.id);
+    expect(layer().querySelector('[data-profile-field="uid"]')).toBeNull();
+    await act(async () => uid!.click());
+    const { copyTextToClipboard } = await import('@renderer/im-template/template/clipboard');
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith(MEMBER.id, document);
+    expect(uid?.textContent).toContain('已复制');
+  });
+  it('UID 默认隐藏，非 NT 身份开启后也不显示', async () => {
+    await mountCard(() => {});
+    expect(layer().querySelector('[title="复制 UID"]')).toBeNull();
+    act(() => roots.pop()!.unmount());
+    preferences.uid = true;
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      id: 'phone:10002',
+      identityLabel: '设备',
+      identityValue: '10002',
+    });
+    expect(layer().querySelector('[title="复制 UID"]')).toBeNull();
+  });
+  it('数字设备身份不作为 QQ 号请求名片名称、QQ 秀和资料', async () => {
+    const show = vi.spyOn(client.account.dressup.peerQqShow, 'query');
+    const dress = vi.spyOn(client.account.dressup.peerHome, 'query');
+    const profile = vi.spyOn(client.account.getProfile, 'query');
+    const names = vi.spyOn(client.account.getCardDisplayNames, 'query');
+    await mountCard(() => {}, undefined, {
+      ...MEMBER,
+      id: 'phone:10002',
+      identityLabel: '设备',
+      identityValue: '10002',
+    });
+    expect(show).not.toHaveBeenCalled();
+    expect(dress).not.toHaveBeenCalled();
+    expect(profile).not.toHaveBeenCalled();
+    expect(names).not.toHaveBeenCalled();
+    expect(layer().querySelector('[aria-label="合成共同群跳转"]')).toBeNull();
+  });
+  it('群内未返回或无效时间不展示 epoch 与 Invalid Date 占位', async () => {
+    await mountCard(
+      () => {},
+      undefined,
+      { ...MEMBER, joinedAt: new Date(0).toISOString(), lastSpeakAt: 'invalid' } as User,
+      '20001',
+    );
+    expect(layer().textContent).not.toContain('1970');
+    expect(layer().textContent).not.toContain('Invalid Date');
+    expect(layer().textContent).not.toContain('入群时间');
+    expect(layer().textContent).not.toContain('最后群发言');
+  });
+  it('打开名片自动补全群内资料，禁言截止紧随最后群发言；普通成员也能查看', async () => {
+    preferences.memberDetails = {
+      uid: MEMBER.id,
+      uin: MEMBER.identityValue,
+      nick: '成员昵称',
+      card: '群昵称',
+      adminFlag: 0,
+      joinTime: 1725120000,
+      lastSpeakTime: 1725217445,
+      muteUntil: 1893427200,
+      memberLevel: 8,
+      customTitle: '合成头衔',
+    };
+    await mountCard(() => {}, undefined, MEMBER, '20001', {
+      friends: new Map(),
+      friendsComplete: true,
+      groups: new Map([['20001', { listed: true, role: 'member' }]]),
+    });
+    const section = [...layer().querySelectorAll('.weq-profile-section-block')].find((node) =>
+      node.querySelector('h3')?.textContent?.startsWith('群内资料'),
+    )!;
+    const labels = [...section.querySelectorAll('.weq-profile-data-label')].map(
+      (node) => node.textContent,
+    );
+    expect(labels).toContain('入群时间');
+    expect(section.textContent).toContain('Lv.8');
+    expect(labels.slice(-2)).toEqual(['最后群发言', '禁言截止']);
+    expect(section.querySelector('[title="解除禁言"]')).toBeNull();
+  });
   it('各入口补全资料后以真实昵称为主标题，不使用备注或群昵称', async () => {
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: MEMBER.id,
@@ -159,7 +652,7 @@ describe('群成员资料卡浮层', () => {
     );
     expect(layer().querySelector('.weq-profile-name')?.textContent).toBe('真实昵称');
     expect(layer().textContent).toContain('好友备注');
-    act(() => layer().querySelector<HTMLButtonElement>('.weq-profile-expand')!.click());
+    act(() => layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]')!.click());
     expect(expandContact).toHaveBeenLastCalledWith(
       expect.objectContaining({ contact: expect.objectContaining({ nick: '真实昵称' }) }),
     );
@@ -186,6 +679,7 @@ describe('群成员资料卡浮层', () => {
     expect(layer().querySelector('[data-member-editor]')).not.toBeNull();
   });
   it('群外保留历史群昵称和头衔，但不挂载成员编辑器；好友关系在资料失败时仍保留', async () => {
+    preferences.friendClue = true;
     vi.spyOn(client.account.getProfile, 'query').mockRejectedValueOnce(new Error('合成错误'));
     await mountCard(
       () => {},
@@ -207,6 +701,7 @@ describe('群成员资料卡浮层', () => {
     );
   });
   it.each([true, false])('资料补全后显示明确好友关系 %s', async (isFriend) => {
+    preferences.friendClue = true;
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: MEMBER.id,
       isFriend,
@@ -248,7 +743,14 @@ describe('群成员资料卡浮层', () => {
         Awaited<ReturnType<typeof client.account.getProfile.query>>
       >),
     );
-    expect(byUid).toHaveBeenCalledWith({ uid: member.id });
+    expect(byUid).toHaveBeenCalledWith({
+      uid: member.id,
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source',
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
     expect(layer().querySelector('.weq-profile-avatar img')?.getAttribute('src')).toBe(
       cachedAvatarUrl(avatarFromUin('10009')),
     );
@@ -286,7 +788,19 @@ describe('群成员资料卡浮层', () => {
     );
   });
 
-  it.each(['联系人详情', '聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
+  it('他人昵称点击不复制或进入详情；展开按钮仍可进入详情', async () => {
+    await mountCard(() => {}, undefined, { ...MEMBER, nick: '合成昵称' });
+    const title = layer().querySelector<HTMLElement>('.weq-profile-name')!;
+    await act(async () => title.click());
+    expect(copyTextToClipboard).not.toHaveBeenCalled();
+    expect(title.tagName).toBe('SPAN');
+    expect(title.textContent).toContain('合成昵称');
+    expect(title.querySelector('[role="status"]')).toBeNull();
+    expect(expandContact).not.toHaveBeenCalled();
+    act(() => layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]')!.click());
+    expect(expandContact).toHaveBeenCalledOnce();
+  });
+  it.each(['打开完整资料页', '聊天分析'])('从名片进入%s沿用补全后的头像', async (entry) => {
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: 'u_peer',
       uin: '10009',
@@ -303,7 +817,7 @@ describe('群成员资料卡浮层', () => {
     expect(button).toBeDefined();
     act(() => button!.click());
     const avatarUrl = avatarFromUin('10009');
-    if (entry === '联系人详情') {
+    if (entry === '打开完整资料页') {
       expect(expandContact).toHaveBeenLastCalledWith(
         expect.objectContaining({
           kind: 'person',
@@ -333,9 +847,18 @@ describe('群成员资料卡浮层', () => {
 
   it('自己的本地身份不是 QQ UID 时按 QQ 号补资料，不把 self 前缀发给 UID 查询', async () => {
     await mountCard(() => {}, { x: 120, y: 120 }, { ...MEMBER, id: 'self:10001' });
-    expect(client.account.getProfileByUin.query).toHaveBeenCalledWith({ uin: '10001' });
+    expect(client.account.getProfileByUin.query).toHaveBeenCalledWith({
+      uin: '10001',
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source',
+    });
   });
   beforeEach(() => {
+    preferences.friendClue = false;
+    preferences.extraDetails = false;
+    preferences.uid = false;
+    preferences.occupation = false;
+    preferences.memberDetails = null;
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
   });
@@ -381,7 +904,10 @@ describe('群成员资料卡浮层', () => {
     await mountCard(() => {}, undefined, member);
     expect(layer().querySelector('.weq-profile-name')?.textContent).toBe(member.nick);
     expect(layer().textContent).toContain(member.remark);
-    await act(async () => finish({ name: '云端昵称', remark: '' }));
+    await act(async () => {
+      finish({ name: '云端昵称', remark: '' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
     expect(layer().querySelector('.weq-profile-name')?.textContent).toBe('云端昵称');
     expect(layer().textContent).not.toContain('本地备注');
     expect(member.displayName).toBe('本地备注');
@@ -401,7 +927,11 @@ describe('群成员资料卡浮层', () => {
     const member = { ...MEMBER, id: 'self:10001', uid: 'u_self' };
     await mountCard(() => {}, { x: 120, y: 120 }, member);
     expect(byUid).toHaveBeenCalledOnce();
-    expect(byUid).toHaveBeenCalledWith({ uid: 'u_self' });
+    expect(byUid).toHaveBeenCalledWith({
+      uid: 'u_self',
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source',
+    });
     expect(byUin).not.toHaveBeenCalled();
     expect(layer().textContent).not.toContain('加载资料');
   });

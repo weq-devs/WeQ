@@ -9,7 +9,7 @@ import {
   ContentSelectionProvider,
   useContentExportRequest,
 } from '../src/renderer/src/state/contentSelection';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   fixedScopeSummary,
   initialExportMode,
@@ -165,9 +165,18 @@ it('频道会话多选支持范围、全选、导出，消息选区独立且只�
     expect(fixedScopeSummary(selection)).toContain('3 个会话');
     await click('[aria-label="退出会话多选"]');
     await click('.weq-guild-direct-item[data-weq-select-id="11"]');
-    await click('[aria-label="多选消息"]');
-    await click('.weq-guild-direct-msg[data-guild-msg-id="1"]');
-    expect(host.querySelector('.weq-guild-direct-msg.is-selected')).toBeNull();
+    expect(host.querySelector('.chat-pane.without-composer .chat-header')).not.toBeNull();
+    expect(host.querySelector('.weq-guild-direct-chat-head')).toBeNull();
+    expect(host.querySelector('.composer-editor')).toBeNull();
+    await act(async () =>
+      host
+        .querySelector('[data-message-id="1"] .message-bubble')!
+        .dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+        ),
+    );
+    await click('.message-context-menu [aria-label="多选"]');
+    expect(host.querySelector('.composer.selection-mode')).not.toBeNull();
     expect(host.querySelectorAll('.message-line.is-selected')).toHaveLength(1);
     await click('[aria-label="导出所选消息"]');
     expect(JSON.parse(host.querySelector('[data-export]')!.textContent!)).toMatchObject({

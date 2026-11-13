@@ -1,3 +1,23 @@
+import type { QzoneLikesResult } from '../views/qzone_types';
+
+/** 本人状态优先使用服务端标记，只有旧接口缺失标记时才从名单判断。 */
+export function qzoneSelfLiked(
+  result: Pick<QzoneLikesResult, 'likes' | 'coverage' | 'selfLiked'> | null | undefined,
+  selfUin: string,
+): boolean | null {
+  if (typeof result?.selfLiked === 'boolean') return result.selfLiked;
+  if (result?.likes.some((person) => person.uin === selfUin)) return true;
+  return result?.coverage === 'complete' ? false : null;
+}
+
+export interface QzoneReplyTarget {
+  id: string;
+  nickname: string;
+  uin: string;
+  rootId: string;
+  rootUin: string;
+}
+
 export function qzoneForwardDraft(quotePrevious: boolean, content: string): string {
   return quotePrevious && content.trim() ? `//：${content}` : '';
 }

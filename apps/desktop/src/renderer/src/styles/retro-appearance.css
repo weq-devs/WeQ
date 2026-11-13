@@ -232,7 +232,8 @@ html[data-component-style='retro'][data-theme]
   body
   :is(.message-context-menu, .weq-directory-scope-menu, .weq-rail-account-ctx-menu, .weq-select)
   :is(button, [role='option'], [role='menuitem']):is(:hover, [aria-selected='true']):not(
-    :disabled
+    :disabled,
+    [aria-disabled='true']
   ) {
   background: var(--weq-skin-selection);
   color: var(--weq-skin-selection-fg);

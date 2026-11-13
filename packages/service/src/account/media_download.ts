@@ -18,11 +18,15 @@
  */
 
 import { createHash } from 'node:crypto';
+import { readFile, mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
 import { getLogger, logErrorContext } from '../common/logger';
+import { scopedNetworkAllowed } from '../common/network_scope';
+import { ManagedDownload } from '../common/managed_download';
 
 const MEDIA_HOST = 'https://multimedia.nt.qq.com.cn';
 const DOWNLOAD_BASE = `${MEDIA_HOST}/download`;
@@ -93,6 +97,7 @@ export function flushMediaDownloadLogs(): void {
 process.once('exit', flushMediaDownloadLogs);
 
 export class MediaDownloadService {
+  private readonly downloading = new Map<string, Promise<string | null>>();
   private readonly logger = getLogger().child({ scope: 'media-download' });
 
   constructor(
@@ -102,11 +107,71 @@ export class MediaDownloadService {
     private readonly allowOnline: () => boolean = () => true,
   ) {}
 
+  cachedFile(fileToken: string, ext = ''): string | null {
+    if (!fileToken) return null;
+    const path = join(this.cacheDir, `${hashToken(fileToken)}${ext}`);
+    return existsSync(path) ? path : null;
+  }
+
+  /** 仅使用消息真实携带的小图地址，不将 spec=0 原图地址变造为缩图。 */
+  async thumbnail(raw: string, localOnly = false): Promise<string | null> {
+    if (localOnly) return this.fetchThumbnail(raw, true);
+    const key = `thumbnail:${raw}`;
+    const pending = this.downloading.get(key);
+    if (pending) return pending;
+    const work = this.fetchThumbnail(raw).finally(() => this.downloading.delete(key));
+    this.downloading.set(key, work);
+    return work;
+  }
+  private async fetchThumbnail(raw: string, localOnly = false): Promise<string | null> {
+    let url: URL;
+    try {
+      url = new URL(raw, MEDIA_HOST);
+    } catch {
+      return null;
+    }
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.port ||
+      !['multimedia.nt.qq.com.cn', 'gchat.qpic.cn', 'c2cpicdw.qpic.cn', 'offpic.qq.com'].includes(
+        url.hostname,
+      )
+    )
+      return null;
+    const path = join(this.cacheDir, `${hashToken(`thumbnail:${url.href}`)}.thumb`);
+    if (existsSync(path)) return path;
+    if (localOnly || !this.allowOnline()) return null;
+    mkdirSync(this.cacheDir, { recursive: true });
+    try {
+      await new ManagedDownload({
+        maxBytes: 512 * 1024,
+        validate: async (_path, response) => {
+          if (!(response.headers.get('content-type') ?? '').startsWith('image/'))
+            throw new Error('不是缩略图');
+        },
+      }).file(url.href, path);
+      return this.allowOnline() ? path : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Download `fileToken` to the cache and return its local path, or null if no
    * usable rkey is available or every attempt failed. Cached on success.
    */
   async download(fileToken: string, opts: DownloadOptions = {}): Promise<string | null> {
+    const key = `${fileToken}:${opts.ext ?? ''}`;
+    const existing = this.downloading.get(key);
+    if (existing) return existing;
+    const work = this.runDownload(fileToken, opts).finally(() => this.downloading.delete(key));
+    this.downloading.set(key, work);
+    return work;
+  }
+
+  private async runDownload(fileToken: string, opts: DownloadOptions): Promise<string | null> {
     if (!fileToken) return null;
     const began = performance.now();
     const mediaId = hashToken(fileToken).slice(0, 16);
@@ -115,7 +180,7 @@ export class MediaDownloadService {
       this.logger.debug('media cache hit', { event: 'media-cache-hit', mediaId });
       return cachePath;
     }
-    if (!this.allowOnline()) return null;
+    if (!this.allowOnline() || !scopedNetworkAllowed()) return null;
 
     const urls: Array<{ url: string; source: string }> = [];
     // Digit-only tokens are pre-rkey media: fetch the original directly, no rkey.
@@ -148,7 +213,7 @@ export class MediaDownloadService {
     };
     let source = 'unavailable';
     let externalCandidateCount = 0;
-    const local = await tryEach(urls, this.allowOnline, note);
+    const local = await tryEach(urls, this.allowOnline, note, cachePath);
     if (!urls.length) note('local-rkey')('no-candidates');
     let bytes = local?.bytes ?? null;
     if (local) source = local.source;
@@ -173,6 +238,7 @@ export class MediaDownloadService {
           composeMediaDownloadUrl(fileToken, rkey),
           this.allowOnline,
           note('external'),
+          cachePath,
         );
         if (bytes) break;
       }
@@ -252,10 +318,11 @@ async function tryEach(
   urls: Array<{ url: string; source: string }>,
   allowed: () => boolean,
   note: (stage: string) => (reason: string) => void,
+  cachePath?: string,
 ): Promise<{ bytes: Buffer; source: string } | null> {
   for (const { url, source } of urls) {
     if (!allowed()) return null;
-    const bytes = await tryFetch(url, allowed, note(source));
+    const bytes = await tryFetch(url, allowed, note(source), cachePath);
     if (bytes) return { bytes, source };
   }
   return null;
@@ -281,6 +348,7 @@ async function tryFetch(
   url: string,
   allowed: () => boolean,
   note: (reason: string) => void,
+  cachePath?: string,
 ): Promise<Buffer | null> {
   for (let attempt = 0; ; attempt += 1) {
     if (!allowed()) return null;
@@ -302,7 +370,32 @@ async function tryFetch(
         note('text-response');
         return null;
       }
-      const buf = Buffer.from(await res.arrayBuffer());
+      let buf: Buffer;
+      if (cachePath) {
+        if (!allowed()) {
+          await res.body?.cancel();
+          return null;
+        }
+        let first: Response | undefined = res;
+        await mkdir(dirname(cachePath), { recursive: true });
+        await new ManagedDownload({
+          name: '下载聊天媒体',
+          fetcher: async (input, init) => {
+            if (first) {
+              const response = first;
+              first = undefined;
+              return response;
+            }
+            return fetch(input, init);
+          },
+          validate: async () => {
+            if (!allowed()) throw new Error('账号来源已失活');
+          },
+        }).file(url, cachePath, {}, () => {
+          if (!allowed()) throw new Error('账号来源已失活');
+        });
+        buf = await readFile(cachePath);
+      } else buf = Buffer.from(await res.arrayBuffer());
       if (!buf.length) note('empty-response');
       return buf.length > 0 ? buf : null;
     } catch {

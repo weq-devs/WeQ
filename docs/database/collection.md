@@ -98,4 +98,4 @@ LIMIT ? OFFSET ?;
 
 ---
 
-[← 返回数据库分析](./index.md)
+[← 返回数据库分析](index.md)

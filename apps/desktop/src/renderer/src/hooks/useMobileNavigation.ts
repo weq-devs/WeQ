@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { IS_WEB } from '../lib/target';
 import { MobileBackStack, type MobileBackEntry } from '../lib/mobileNavigation';
+import { isMobileClient, isSingleColumnLayout } from '../lib/responsiveLayout';
+import { useRenderDocument } from '../lib/renderDocument';
 
 const stack = new MobileBackStack();
 let sequence = 0;
@@ -12,7 +13,7 @@ let attached = false;
 const marker = `weq-mobile-${Date.now()}`;
 
 export function isMobileNavigation() {
-  return IS_WEB && typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches;
+  return typeof window !== 'undefined' && (isSingleColumnLayout() || isMobileClient());
 }
 
 function signal(direction: 'forward' | 'back' | 'root') {
@@ -96,11 +97,13 @@ export function useMobileBack(
   priority = 20,
   target?: () => HTMLElement | null,
 ) {
+  const renderDocument = useRenderDocument();
   const id = useRef(`layer-${++sequence}`);
   const latest = useRef({ back, target });
   latest.current = { back, target };
   useEffect(() => {
-    if (!active) return;
+    // 系统工具窗有自己的目录导航，不向主窗口的浏览历史注册返回动作。
+    if (!active || renderDocument !== document) return;
     return registerMobileBack({
       id: id.current,
       priority,
@@ -108,7 +111,7 @@ export function useMobileBack(
       back: () => latest.current.back(),
       target: () => latest.current.target?.() ?? null,
     });
-  }, [active, priority]);
+  }, [active, priority, renderDocument]);
 }
 
 export function attachMobileHistory() {

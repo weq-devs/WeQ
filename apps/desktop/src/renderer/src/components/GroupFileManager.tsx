@@ -23,6 +23,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { ContactEmptyState } from './contactProfile/ContactRow';
 import { client, trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
 import { stageAccountFile } from '../lib/accountFilePicker';
@@ -41,7 +42,8 @@ import {
 import type { QQWriteBinding, QQWriteOutcome } from '../hooks/useQQWriteSession';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { cn } from '../lib/utils';
-import { useRenderDocument } from '../lib/renderDocument';
+import { resourceForRenderDocument, useRenderDocument } from '../lib/renderDocument';
+import { useDraftProtection } from '../lib/draftClose';
 import {
   fileExtIcon,
   formatFileTime,
@@ -145,6 +147,10 @@ function GroupFileManagerBody({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; keys: string[] } | null>(null);
   const [saving, setSaving] = useState(false);
+  useDraftProtection(
+    { editor, uploads: uploads.filter((item) => item.state !== 'accepted') },
+    a.pending || saving,
+  );
   const confirm = useDialog((s) => s.confirm);
   const mayLeave = useCallback(async () => {
     if (a.pending) {
@@ -152,9 +158,11 @@ function GroupFileManagerBody({
       return false;
     }
     if (editor || uploads.some((item) => item.state !== 'accepted'))
-      return confirm('离开当前目录', '未完成的文件操作和待上传列表将被清理，仍要离开？');
+      return confirm('离开当前目录', '未完成的文件操作和待上传列表将被清理，仍要离开？', {
+        ownerDocument: renderDocument,
+      });
     return true;
-  }, [a.pending, editor, uploads, confirm]);
+  }, [a.pending, editor, uploads, confirm, renderDocument]);
   useEffect(() => {
     onNavigationGuard?.(mayLeave);
     return () => onNavigationGuard?.(null);
@@ -235,7 +243,9 @@ function GroupFileManagerBody({
     if (
       editor &&
       (editor.name || editor.mode === 'move') &&
-      !(await confirm('放弃文件操作', '放弃当前未提交的文件操作？'))
+      !(await confirm('放弃文件操作', '放弃当前未提交的文件操作？', {
+        ownerDocument: renderDocument,
+      }))
     )
       return;
     setEditor(null);
@@ -247,7 +257,13 @@ function GroupFileManagerBody({
     folderName = '全部文件',
   ) {
     if (locked) return;
-    if (editor && !(await confirm('切换文件操作', '放弃当前未提交的文件操作？'))) return;
+    if (
+      editor &&
+      !(await confirm('切换文件操作', '放弃当前未提交的文件操作？', {
+        ownerDocument: renderDocument,
+      }))
+    )
+      return;
     if (!current()) return;
     const row = all.find((item) => item.key === keys[0]);
     setEditor({
@@ -652,36 +668,6 @@ function GroupFileManagerBody({
             <FolderPlus size={17} />
           </ActionIcon>
         )}
-        {onSaveSelected && (
-          <ActionIcon
-            label="保存所选项目"
-            disabled={loading || saving || !chosen.length}
-            onClick={() => void saveRows([...selected])}
-          >
-            <Download size={17} />
-          </ActionIcon>
-        )}
-        <ActionIcon
-          label="重命名所选项目"
-          disabled={locked || !selectedManageable || chosen.length !== 1}
-          onClick={() => void openEditor('rename', [...selected])}
-        >
-          <Pencil size={17} />
-        </ActionIcon>
-        <ActionIcon
-          label="移动所选文件"
-          disabled={locked || !selectedManageable || chosen.some((row) => row.kind !== 'file')}
-          onClick={() => void openEditor('move', [...selected])}
-        >
-          <FolderInput size={17} />
-        </ActionIcon>
-        <ActionIcon
-          label="删除所选项目"
-          disabled={locked || !selectedManageable}
-          onClick={() => void operate('delete', [...selected])}
-        >
-          <Trash2 size={17} />
-        </ActionIcon>
         {a.pending && (
           <ActionIcon
             label="停止后续操作"
@@ -733,16 +719,59 @@ function GroupFileManagerBody({
           }))}
         />
       </div>
+      {chosen.length > 0 && (
+        <div className="weq-file-selection-toolbar" role="toolbar" aria-label="群文件所选项目">
+          <span>已选 {chosen.length} 项</span>
+          {onSaveSelected && (
+            <ActionIcon
+              label="保存所选项目"
+              disabled={loading || saving}
+              onClick={() => void saveRows([...selected])}
+            >
+              <Download size={17} />
+            </ActionIcon>
+          )}
+          <ActionIcon
+            label="重命名所选项目"
+            disabled={locked || !selectedManageable || chosen.length !== 1}
+            onClick={() => void openEditor('rename', [...selected])}
+          >
+            <Pencil size={17} />
+          </ActionIcon>
+          <ActionIcon
+            label="移动所选文件"
+            disabled={locked || !selectedManageable || chosen.some((row) => row.kind !== 'file')}
+            onClick={() => void openEditor('move', [...selected])}
+          >
+            <FolderInput size={17} />
+          </ActionIcon>
+          <ActionIcon
+            label="删除所选项目"
+            disabled={locked || !selectedManageable}
+            onClick={() => void operate('delete', [...selected])}
+          >
+            <Trash2 size={17} />
+          </ActionIcon>
+          <ActionIcon label="清除文件选择" onClick={() => setSelected(new Set())}>
+            <X size={17} />
+          </ActionIcon>
+        </div>
+      )}
       <div className="weq-file-manager-status">
         <span>
           {chosen.length
             ? `已选 ${chosen.length} 项`
             : `${folders.length} 个文件夹 · ${files.length} 个文件`}
         </span>
-        {summary.data && (
+        {summary.data && Number.isFinite(summary.data.fileCount) && (
           <span>
-            {summary.data.fileCount} / {summary.data.maxCount} 个文件 ·{' '}
-            {formatSize(summary.data.usedSpace)} / {formatSize(summary.data.totalSpace)}
+            {summary.data.fileCount}
+            {Number.isFinite(summary.data.maxCount) ? ` / ${summary.data.maxCount}` : ''} 个文件
+            {summary.data.usedSpace != null
+              ? ` · ${formatSize(summary.data.usedSpace)}${
+                  summary.data.totalSpace != null ? ` / ${formatSize(summary.data.totalSpace)}` : ''
+                }`
+              : ''}
           </span>
         )}
       </div>
@@ -817,7 +846,11 @@ function GroupFileManagerBody({
                         })
                       }
                     >
-                      <img src={fileIconUrl('folder.png')} alt="" draggable={false} />
+                      <img
+                        src={resourceForRenderDocument(fileIconUrl('folder.png'), renderDocument)}
+                        alt=""
+                        draggable={false}
+                      />
                       {folder.folderName}
                     </button>
                   ))}
@@ -1025,8 +1058,9 @@ function GroupFileManagerBody({
                 <td>
                   <div className="weq-file-manager-name">
                     <img
-                      src={fileIconUrl(
-                        row.kind === 'folder' ? 'folder.png' : fileExtIcon(row.name),
+                      src={resourceForRenderDocument(
+                        fileIconUrl(row.kind === 'folder' ? 'folder.png' : fileExtIcon(row.name)),
+                        renderDocument,
                       )}
                       alt=""
                       draggable={false}
@@ -1106,7 +1140,9 @@ function GroupFileManagerBody({
         </table>
       </div>
       {!loading && !rows.length && (
-        <p role="status">{query ? '没有匹配的文件' : '这个目录还没有文件'}</p>
+        <ContactEmptyState>
+          {query ? '没有匹配的文件。' : '这个目录还没有文件。上传后会出现在这里。'}
+        </ContactEmptyState>
       )}
       <ActionFeedback action={a} />
       {menu && active && (

@@ -13,6 +13,9 @@ import {
   CloudDownload,
   Download,
   FolderOpen,
+  ExternalLink,
+  FileCheck,
+  ListTodo,
   Pause,
   Play,
   RotateCw,
@@ -24,6 +27,7 @@ import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
+import { useToast } from '../Toast';
 import { RoamingBackfillPanel } from '../RoamingBackfillPanel';
 import { formatSize } from '../../lib/groupFile';
 import {
@@ -31,7 +35,13 @@ import {
   getCloneTasks,
   subscribeCloneTasks,
 } from '../../views/agentlab/cloneTaskStore';
-import { taskIcon, taskPct, taskTypeLabel, type UiTask } from '../../views/export/TaskList';
+import {
+  taskIcon,
+  taskPct,
+  taskTypeLabel,
+  taskSaveActionLabel,
+  type UiTask,
+} from '../../views/export/TaskList';
 import { LongTaskRow, orderLongTasks, type LongTaskItem } from './LongTaskRow';
 import '../../styles/flash-transfer.css';
 import { CloneTaskLog } from '../../views/agentlab/CloneTaskLog';
@@ -47,12 +57,19 @@ import {
 } from './BackgroundTaskDetails';
 import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
+import { IS_WEB } from '../../lib/target';
+import { backgroundTaskNavigation } from './backgroundTaskNavigation';
+import { EmptyState } from '../EmptyState';
 
 export interface ExportTaskActions {
   pause: (task: UiTask) => unknown;
   resume: (task: UiTask) => unknown;
   cancel: (task: UiTask) => unknown;
   remove: (task: UiTask) => unknown;
+  save?: (task: UiTask) => unknown;
+  openSaved?: (task: UiTask, reveal: boolean) => unknown;
+  report?: (task: UiTask) => unknown;
+  browserDownload?: (task: UiTask) => unknown;
 }
 
 export function CurrentTaskList({
@@ -61,10 +78,10 @@ export function CurrentTaskList({
   loadingExports,
   renderExport,
   onOpenClone,
-  onSaveAll,
   autoSelectId,
   layout = 'inline',
   onOpenDetail,
+  toolbarAction,
   cleanupBinding,
   exportActions,
 }: {
@@ -73,10 +90,10 @@ export function CurrentTaskList({
   loadingExports?: boolean;
   renderExport: (task: UiTask) => ReactNode;
   onOpenClone?: (id: string) => void;
-  onSaveAll: () => void;
   autoSelectId?: string | null;
   layout?: 'inline' | 'compact' | 'split';
   onOpenDetail?: () => void;
+  toolbarAction?: ReactNode;
   cleanupBinding?: { expectedAccountUin: string; expectedAccountConfigId: string } | null;
   exportActions?: ExportTaskActions;
 }) {
@@ -88,6 +105,8 @@ export function CurrentTaskList({
   const confirm = useDialog((state) => state.confirm);
   const showInfo = useDialog((state) => state.showInfo);
   const [clearing, setClearing] = useState(false);
+  const [openingFlash, setOpeningFlash] = useState<string | null>(null);
+  const openingFlashRef = useRef<string | null>(null);
   const clearingRef = useRef(false);
   const bindingRef = useRef(cleanupBinding);
   bindingRef.current = cleanupBinding;
@@ -111,9 +130,6 @@ export function CurrentTaskList({
     onSuccess: () => void utils.account.flashListDownloadTasks.invalidate(),
     onError: (error) => showError('取消下载失败', error.message),
   });
-  const revealFlash = trpc.account.flashRevealDownloadDir.useMutation({
-    onError: (error) => showError('打开下载目录失败', error.message),
-  });
   const [selected, setSelected] = useState<string | null | undefined>(undefined);
   const taskFocusId = useWorkspaceMenu((state) => state.taskFocusId);
   const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
@@ -124,16 +140,57 @@ export function CurrentTaskList({
 
   const items: LongTaskItem[] = exports.map((task): LongTaskItem => {
     const saving = task.save?.status === 'saving';
+    const saveLabel = taskSaveActionLabel(task);
     const saveFailed =
       task.status === 'completed' &&
       (task.save?.status === 'failed' || task.save?.status === 'interrupted');
     const missing = (task.generatedResources?.missing ?? task.resource?.failed ?? 0) > 0;
     const actions: TaskQuickAction[] = [];
     if (exportActions) {
-      if (task.status === 'running')
+      if (task.save?.path && exportActions.openSaved) {
+        actions.push(
+          {
+            id: 'open',
+            label: '打开保存结果',
+            icon: <ExternalLink size={14} />,
+            run: () => exportActions.openSaved!(task, false),
+          },
+          {
+            id: 'reveal',
+            label: '在文件夹中显示',
+            icon: <FolderOpen size={14} />,
+            run: () => exportActions.openSaved!(task, true),
+          },
+        );
+      }
+      if (exportActions.save && saveLabel)
+        actions.push({
+          id: 'save',
+          label: saveLabel,
+          icon: <Download size={14} />,
+          disabled: saving,
+          secondary: Boolean(task.save?.path),
+          run: () => exportActions.save!(task),
+        });
+      if (task.status === 'completed' && exportActions.browserDownload)
+        actions.push({
+          id: 'download',
+          label: '下载到浏览器',
+          icon: <Download size={14} />,
+          run: () => exportActions.browserDownload!(task),
+        });
+      if (task.reportPath && exportActions.report)
+        actions.push({
+          id: 'report',
+          label: '完整性报告',
+          icon: <FileCheck size={14} />,
+          secondary: true,
+          run: () => exportActions.report!(task),
+        });
+      if (task.status === 'running' || task.networkPaused)
         actions.push({
           id: 'pause',
-          label: '暂停',
+          label: task.networkPaused ? '保持暂停' : '暂停',
           icon: <Pause size={14} />,
           run: () => exportActions.pause(task),
         });
@@ -166,23 +223,30 @@ export function CurrentTaskList({
           disabled: saving || task.isFinalizing,
           run: () => exportActions.remove(task),
         });
+      if (task.status !== 'completed') {
+        const control = (action: TaskQuickAction) =>
+          ['pause', 'resume', 'cancel'].includes(action.id);
+        actions.sort((a, b) => Number(control(b)) - Number(control(a)));
+      }
     }
     return {
       id: `export:${task.id}`,
       name: task.name,
       kind: taskTypeLabel(task),
       status: saving ? 'running' : saveFailed ? 'failed' : task.status,
-      statusLabel: saving
-        ? '保存中'
-        : saveFailed
-          ? '保存未完成'
-          : task.status === 'completed'
-            ? missing
-              ? '完成 · 资源缺失'
-              : task.save?.path
-                ? '已保存'
-                : '待保存'
-            : undefined,
+      statusLabel: task.networkPaused
+        ? '省流量模式已暂停'
+        : saving
+          ? '保存中'
+          : saveFailed
+            ? '保存未完成'
+            : task.status === 'completed'
+              ? missing
+                ? '完成 · 资源缺失'
+                : task.save?.path
+                  ? '已保存'
+                  : '待保存'
+              : undefined,
       progress: saving || saveFailed ? undefined : taskPct(task),
       note: task.error || task.save?.error,
       icon: taskIcon(task),
@@ -203,6 +267,16 @@ export function CurrentTaskList({
         task.status !== 'running' ? (
           <TaskQuickActions
             actions={[
+              ...(task.status === 'done' && onOpenClone
+                ? [
+                    {
+                      id: 'open',
+                      label: '查看克隆体',
+                      icon: <Users size={14} />,
+                      run: () => onOpenClone(task.personaId),
+                    },
+                  ]
+                : []),
               {
                 id: 'remove',
                 label: '移除任务',
@@ -352,6 +426,22 @@ export function CurrentTaskList({
   }
   for (const task of flash.data ?? []) {
     const running = task.status === 'resolving' || task.status === 'downloading';
+    const single = (task.files?.length ?? 1) === 1;
+    const openFlash = async (mode: 'file' | 'directory' | 'reveal') => {
+      if (!cleanupBinding || openingFlashRef.current) return;
+      openingFlashRef.current = task.id;
+      setOpeningFlash(task.id);
+      try {
+        await client.account.flashOpenDownloadOutput.mutate({
+          ...cleanupBinding,
+          taskId: task.id,
+          mode,
+        });
+      } finally {
+        openingFlashRef.current = null;
+        if (mounted.current) setOpeningFlash(null);
+      }
+    };
     const actions: TaskQuickAction[] =
       running || task.status === 'pending'
         ? [
@@ -386,6 +476,24 @@ export function CurrentTaskList({
               },
             },
           ];
+    if (!IS_WEB) {
+      if (single && task.status === 'done')
+        actions.unshift({
+          id: 'open',
+          label: '打开文件',
+          icon: <ExternalLink size={14} />,
+          disabled: !cleanupBinding || Boolean(openingFlash),
+          run: () => openFlash('file'),
+        });
+      actions.splice(single && task.status === 'done' ? 1 : 0, 0, {
+        id: 'reveal',
+        label: single ? '在文件夹中显示' : '打开下载目录',
+        icon: <FolderOpen size={14} />,
+        disabled: !cleanupBinding || Boolean(openingFlash),
+        secondary: running || task.status === 'pending',
+        run: () => openFlash(single ? 'reveal' : 'directory'),
+      });
+    }
     items.push({
       id: `flash:${task.id}`,
       name: task.name,
@@ -438,15 +546,42 @@ export function CurrentTaskList({
             ))}
           </ul>
           <div className="weq-long-task-actions">
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              disabled={revealFlash.isLoading}
-              onClick={() => revealFlash.mutate({ taskId: task.id })}
-            >
-              <FolderOpen size={14} />
-              打开下载目录
-            </button>
+            {!IS_WEB && single && task.status === 'done' ? (
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={!cleanupBinding || Boolean(openingFlash)}
+                onClick={() =>
+                  void openFlash('file').catch((error) =>
+                    showError(
+                      '打开文件失败',
+                      error instanceof Error ? error.message : String(error),
+                    ),
+                  )
+                }
+              >
+                <ExternalLink size={14} />
+                打开文件
+              </button>
+            ) : null}
+            {!IS_WEB ? (
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={!cleanupBinding || Boolean(openingFlash)}
+                onClick={() =>
+                  void openFlash(single ? 'reveal' : 'directory').catch((error) =>
+                    showError(
+                      '打开下载目录失败',
+                      error instanceof Error ? error.message : String(error),
+                    ),
+                  )
+                }
+              >
+                <FolderOpen size={14} />
+                打开下载目录
+              </button>
+            ) : null}
             {running || task.status === 'pending' ? (
               <button
                 type="button"
@@ -480,6 +615,12 @@ export function CurrentTaskList({
           <FolderOpen size={14} />
         ),
       run: async () => {
+        if (action.id === 'view-report' && task.reportId) {
+          window.dispatchEvent(
+            new CustomEvent('weq:open-saved-analysis', { detail: task.reportId }),
+          );
+          return;
+        }
         if (entry.source === 'window') await localBackgroundTasks.act(task.id, action.id);
         else
           await client.backgroundTasks.act.mutate({
@@ -490,6 +631,8 @@ export function CurrentTaskList({
         await background.query.refetch();
       },
     }));
+    const navigation = backgroundTaskNavigation(task);
+    if (navigation) actions.unshift(navigation);
     if (task.status !== 'running')
       actions.push({
         id: 'remove',
@@ -580,7 +723,7 @@ export function CurrentTaskList({
     );
     try {
       const ok = await confirm(
-        '清除已结束任务',
+        '清理已结束任务',
         `确定清除 ${finished.length} 项已结束任务？只移除任务记录和导出缓存，不删除已保存的文件、克隆体或聊天记录。${unsaved ? `其中 ${unsaved} 项导出尚未保存，清除后将无法从任务列表取回结果。` : ''}`,
         { okLabel: `清除 ${finished.length} 项`, cancelLabel: '保留' },
       );
@@ -623,7 +766,7 @@ export function CurrentTaskList({
         const summary = `已清除 ${removed} 项任务。${finished.length - removed > 0 ? `其余 ${finished.length - removed} 项未清除，请查看最新任务状态。` : ''}`;
         if (result.errors.length)
           showError('部分任务未清除', `${summary}\n${result.errors.join('\n')}`);
-        else showInfo('清除完成', summary);
+        else useToast.getState().push({ tone: 'success', title: summary });
       }
     } catch (error) {
       if (current()) showError('清除失败', error instanceof Error ? error.message : String(error));
@@ -633,32 +776,28 @@ export function CurrentTaskList({
     }
   };
   return (
-    <section className={`weq-current-tasks is-${layout}`} aria-label="当前任务列表">
+    <section
+      className={`weq-current-tasks is-${layout}${!items.length ? ' is-empty' : ''}`}
+      aria-label="当前任务列表"
+    >
       <header className="weq-current-tasks-head">
-        <span>
-          {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
-        </span>
+        <div className="weq-current-tasks-summary">
+          <span>
+            {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
+          </span>
+          {toolbarAction}
+        </div>
         <div className="weq-current-tasks-actions">
-          {exports.some((task) => task.status === 'completed') ? (
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              title="全部保存"
-              aria-label="全部保存"
-              onClick={onSaveAll}
-            >
-              <Download size={14} />
-            </button>
-          ) : null}
           <button
             type="button"
             className="weq-set-btn weq-set-btn-soft"
-            title="清除已结束任务"
-            aria-label="清除已结束任务"
+            title="清理已结束任务"
+            aria-label="清理已结束任务"
             disabled={clearing || loading || !cleanupBinding || !finished.length}
             onClick={() => void clearFinished()}
           >
             <Trash2 size={14} />
+            清理已结束任务
           </button>
         </div>
       </header>
@@ -683,35 +822,39 @@ export function CurrentTaskList({
         </p>
       ) : null}
       {!items.length && !hasError ? (
-        <p className="weq-current-tasks-empty">{loading ? '读取任务中…' : '暂无任务'}</p>
+        <EmptyState compact icon={<ListTodo />} title={loading ? '读取任务中…' : '暂无任务'} />
       ) : null}
-      <div className="weq-current-task-columns">
-        <div className="weq-current-task-list">
-          {ordered.map((task) => (
-            <Fragment key={task.id}>
-              <LongTaskRow
-                task={task}
-                active={task.id === selectedId}
-                showQuickActions={layout === 'compact'}
-                onSelect={() => {
-                  setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
-                  if (layout === 'compact') onOpenDetail?.();
-                }}
-              />
-              {layout === 'inline' && task.id === selectedId ? (
-                <div className="weq-long-task-detail">{task.detail}</div>
-              ) : null}
-            </Fragment>
-          ))}
-        </div>
-        {layout === 'split' ? (
-          <div className="weq-current-task-details" aria-label="任务步骤详情">
-            {ordered.find((task) => task.id === selectedId)?.detail ?? (
-              <p className="weq-workspace-empty">请选择任务</p>
-            )}
+      {items.length ? (
+        <div className="weq-current-task-columns">
+          <div className="weq-current-task-list">
+            {ordered.map((task) => (
+              <Fragment
+                key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
+              >
+                <LongTaskRow
+                  task={task}
+                  active={task.id === selectedId}
+                  showQuickActions={layout === 'compact'}
+                  onSelect={() => {
+                    setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
+                    if (layout === 'compact') onOpenDetail?.();
+                  }}
+                />
+                {layout === 'inline' && task.id === selectedId ? (
+                  <div className="weq-long-task-detail">{task.detail}</div>
+                ) : null}
+              </Fragment>
+            ))}
           </div>
-        ) : null}
-      </div>
+          {layout === 'split' ? (
+            <div className="weq-current-task-details" aria-label="任务步骤详情">
+              {ordered.find((task) => task.id === selectedId)?.detail ?? (
+                <EmptyState compact icon={<ListTodo />} title="请选择任务" />
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

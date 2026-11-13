@@ -68,6 +68,7 @@ try {
         'bubble-failure',
         'uncached-stalled-decode',
         'cached-stalled-decode',
+        'font-history-reuse',
       ]) {
         const context = await browser.newContext({
           viewport: { width, height: 700 },
@@ -77,6 +78,7 @@ try {
         const errors = [];
         const cached = scenario === 'cached-stalled-decode';
         const benchmark = scenario.endsWith('stalled-decode');
+        let fontLoads = 0;
         if (benchmark)
           await page.addInitScript(() => {
             HTMLImageElement.prototype.decode = () => new Promise(() => {});
@@ -107,6 +109,7 @@ try {
             });
           }
           if (url.pathname === '/_media/dressfont') {
+            fontLoads++;
             await fontGate;
             return route.fulfill({
               status: scenario === 'font-failure' ? 404 : 200,
@@ -129,10 +132,40 @@ try {
         });
         try {
           await page.goto(
-            `http://127.0.0.1:${server.httpServer.address().port}/test/browser/decoration-readiness.html?theme=${theme}${benchmark ? '&rows=48' : ''}${cached ? `&inline=${encodeURIComponent(`data:image/png;base64,${bubble.toString('base64')}`)}` : ''}`,
+            `http://127.0.0.1:${server.httpServer.address().port}/test/browser/decoration-readiness.html?theme=${theme}${benchmark ? '&rows=48' : ''}${scenario === 'font-history-reuse' ? '&fontHistory=1' : ''}${cached ? `&inline=${encodeURIComponent(`data:image/png;base64,${bubble.toString('base64')}`)}` : ''}`,
             { waitUntil: 'domcontentloaded' },
           );
           await page.locator('.message-content').first().waitFor({ state: 'attached' });
+          if (scenario === 'font-history-reuse') {
+            releaseFont();
+            await page.locator('[data-font="31009"]').waitFor();
+            const firstPaint = await page.locator('.message-content').screenshot();
+            await page.evaluate(() => window.showFontHistory('empty'));
+            await page.waitForFunction(() => !document.querySelector('.message-line'));
+            await page.evaluate(() => {
+              window.bubbleCommits = [];
+              window.showFontHistory('history');
+            });
+            await page.waitForFunction(() => window.bubbleCommits.length > 0);
+            assert.ok(
+              (await page.evaluate(() => window.bubbleCommits)).every(
+                (row) => row.fontId === 31009,
+              ),
+              '历史行首次提交不能闪回默认字体，即使尚未进入可见区域',
+            );
+            await page.locator('.message-content').scrollIntoViewIfNeeded();
+            const historyPaint = await page.locator('.message-content').screenshot();
+            const pixels = async (png) => sharp(png).ensureAlpha().raw().toBuffer();
+            assert.deepEqual(
+              await pixels(historyPaint),
+              await pixels(firstPaint),
+              '滚动返回的字体必须与已加载消息实际绘制一致',
+            );
+            assert.equal(fontLoads, 1, '历史消息不重复请求字体');
+            assert.deepEqual(errors, []);
+            console.log(JSON.stringify({ width, theme, scenario, fontLoads, passed: true }));
+            continue;
+          }
           if (benchmark) {
             const commits = await page.evaluate(() => window.bubbleCommits);
             assert.ok(commits.length >= 48);

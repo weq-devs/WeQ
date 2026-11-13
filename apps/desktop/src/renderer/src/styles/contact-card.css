@@ -1,0 +1,838 @@
+/*
+ * 联系人名片与资料页外壳的私有样式。
+ *
+ * 行模型、分区、技术详情、目录与工作区都在 styles/profile-workspace.css（唯一定义）；
+ * 这里只保留「名片壳 / 身份区 / 操作区 / 签名 / 群上下文 / 设置预览」这些宿主专属的部分。
+ */
+
+/* ---------- 名片壳 ---------- */
+
+/*
+ * 通用非模态层规则（`.weq-nonmodal-layer[tabindex] > :first-child`）会强行把第一层子元素
+ * 拉成 480px，这里用同等优先级的专属选择器把名片尺寸收回归属名片自己：桌面 390 / 圆角 14
+ * / 内距 22-16-14。窄屏用 max-width 收边，不会满宽。
+ */
+.weq-contact-card {
+  --weq-profile-card-control-size: 28px;
+  --weq-profile-card-controls-inset: var(--weq-profile-card-control-size);
+  --weq-contact-scrollbar-thumb: color-mix(in srgb, var(--weq-fg-primary) 22%, transparent);
+  --weq-contact-scrollbar-hover: color-mix(in srgb, var(--weq-fg-primary) 36%, transparent);
+}
+
+html[data-theme='dark'] .weq-contact-card {
+  --weq-contact-scrollbar-thumb: color-mix(in srgb, var(--weq-fg-primary) 30%, transparent);
+  --weq-contact-scrollbar-hover: color-mix(in srgb, var(--weq-fg-primary) 44%, transparent);
+}
+
+.weq-nonmodal-layer[tabindex] > .weq-member-pop.weq-contact-card,
+.weq-contact-card {
+  box-sizing: border-box;
+  width: min(390px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(calc(100dvh - 24px), 720px);
+  padding: 22px 16px 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+}
+
+.weq-contact-card .weq-profile-hero {
+  padding-inline-end: var(--weq-profile-card-controls-inset);
+}
+
+/* 群名片的操作区位于内容容器内，不一定是卡片的直接子元素。 */
+.weq-contact-card:has(.weq-profile-card-controls > button:nth-child(2)) {
+  --weq-profile-card-controls-inset: calc(var(--weq-profile-card-control-size) * 2 + 16px);
+}
+
+.weq-profile-card-controls {
+  position: absolute;
+  /* 给按钮外扩的 8px 点击热区留足空间，避免撑出名片滚动范围。 */
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.weq-profile-card-controls > button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--weq-profile-card-control-size);
+  height: var(--weq-profile-card-control-size);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-profile-card-controls > button > svg {
+  flex-shrink: 0;
+}
+
+/* 视觉 28px，热区 44px：触控设备不靠放大图标也点得到。 */
+.weq-profile-card-controls > button::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 10px;
+}
+
+.weq-profile-card-controls > button:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-card-controls > button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+/* ---------- 身份区 ---------- */
+
+.weq-profile-hero.weq-contact-identity,
+.weq-contact-identity {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  text-align: start;
+}
+
+.weq-profile-hero.weq-contact-identity .weq-profile-avatar,
+.weq-contact-identity .weq-profile-avatar {
+  position: relative;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-contact-identity .weq-profile-avatar:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-profile-hero.weq-contact-identity .weq-profile-heading,
+.weq-contact-identity .weq-profile-heading {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.weq-contact-name {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.weq-contact-name:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-name:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.weq-contact-name:disabled {
+  cursor: default;
+}
+
+.weq-contact-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-contact-title-line > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-status {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-contact-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.weq-contact-identity-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-contact-number {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-contact-number .weq-number {
+  min-width: 0;
+}
+
+.weq-contact-number .weq-number {
+  color: var(--weq-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-contact-number:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-number:hover:not(:disabled) .weq-number {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.weq-contact-number:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.weq-contact-number:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.weq-contact-pendant {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 152%;
+  height: 152%;
+  max-width: none;
+  max-height: none;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* 挂件预览与 QQ 装扮页一致：头像直径为挂件图片的 60%，两者同心。
+ * 挂件占按钮的 152%，头像也按这个尺寸换算，不能套用主页的特殊缩放。 */
+.weq-contact-identity .weq-profile-avatar:has(.weq-contact-pendant) {
+  display: inline-grid;
+  place-items: center;
+  overflow: visible;
+  margin-inline: calc(64px * 0.26);
+  border-radius: 50%;
+}
+
+.weq-contact-identity .weq-profile-avatar:has(.weq-contact-pendant) .avatar {
+  width: calc(152% * 0.6);
+  height: calc(152% * 0.6);
+  border-radius: 50%;
+}
+
+.weq-contact-identity .weq-profile-avatar:has(.weq-contact-pendant) .avatar img {
+  border-radius: 50%;
+}
+
+/* 名片里分区之间用一条 hairline 分隔；资料页正文不画行线，只靠间距。 */
+.weq-contact-card .weq-contact-identity-body {
+  margin-top: 12px;
+}
+
+.weq-contact-card .weq-contact-identity-body + .weq-contact-sections:has(.weq-profile-data-row) {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-contact-card .weq-contact-sections {
+  /* 吸底操作条会盖住滚动区末尾：给正文留出与操作条等高的余量，
+     最后一行能完整滚到条上方，而不是被切掉半行。 */
+  padding-bottom: 8px;
+}
+
+.weq-contact-card .weq-profile-section-head > .weq-profile-subtitle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-card
+  .weq-contact-sections
+  > .weq-profile-section-block:not(
+    .weq-profile-section-block--fields:not(:has(.weq-profile-row-slot > *))
+  )
+  ~ .weq-profile-section-block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+/* ---------- 正文内容 ---------- */
+
+.weq-profile-row-slot {
+  display: contents;
+}
+
+.weq-contact-qqshow {
+  display: block;
+  width: 100%;
+  height: 132px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-contact-qqshow img {
+  max-width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.weq-contact-description {
+  margin: 6px 0 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.weq-contact-signature {
+  display: grid;
+  gap: 2px;
+}
+
+.weq-contact-signature-value {
+  display: block;
+  /* 截断用高度而不是 line-clamp：避免「…」和「展开」同时出现。 */
+  max-height: calc(3 * 1.6em);
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.weq-contact-signature.is-open .weq-contact-signature-value {
+  max-height: none;
+}
+
+.weq-contact-signature > button:not(.weq-contact-signature-text) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: start;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-contact-signature > .weq-contact-signature-text {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-contact-signature > .weq-contact-signature-text:hover {
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-signature > .weq-contact-signature-text:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-contact-signature > button svg {
+  transition: transform 120ms ease;
+}
+
+.weq-contact-signature > button svg.is-open {
+  transform: rotate(180deg);
+}
+
+.weq-contact-signature-time {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-contact-command-list > summary {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-contact-command-list p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-contact-command-list code {
+  margin-inline-end: 6px;
+  font-size: 12px;
+}
+
+/* ---------- 操作区 ---------- */
+
+.weq-contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+/*
+ * 名片/群名片的操作条吸底：正文很长时「查看消息」始终可达，内容很短时自然贴在正文末尾。
+ * 联系人名片与群名片共用同一个类名，group 侧直接加 class 即可。
+ */
+.weq-profile-card-actions {
+  position: sticky;
+  /* 卡片底部内距是 14px：吸底条要盖住这段，否则滚动内容会从操作条下面漏出来。 */
+  bottom: -14px;
+  z-index: 1;
+  /* 操作条上方留 6px 余量：滚到底时最后一行不会贴着分隔线。 */
+  margin-top: 18px;
+  margin-inline: -16px;
+  margin-bottom: -14px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  border-radius: 0 0 14px 14px;
+}
+
+/*
+ * 快速名片（联系人 / 群）改为「正文滚动 + 操作条 footer」：
+ * 卡片本身不再滚动，操作条不浮在正文上，正文在它上方结束，滚到哪都不会露出半截字段行。
+ */
+.weq-member-pop.weq-contact-card:not(.weq-group-page) {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.weq-member-pop.weq-contact-card:not(.weq-group-page) > .weq-contact-card-body,
+.weq-member-pop.weq-contact-card:not(.weq-group-page)
+  > .weq-group-page-content
+  > .weq-contact-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 滚动条向卡片右内距借位，留槽之外再隔开正文，避免遮住标签和照片。 */
+  margin-inline-end: -8px;
+  padding: 0 8px 10px 0;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  /* 覆盖全局原生细滚动条，使用下方有明确槽宽的 Chromium 样式。 */
+  scrollbar-color: auto !important;
+}
+
+.weq-contact-card .weq-contact-card-body::-webkit-scrollbar {
+  width: 12px;
+}
+
+.weq-contact-card .weq-contact-card-body::-webkit-scrollbar-thumb {
+  border: 3px solid transparent !important;
+  box-shadow: inset 0 0 0 999px var(--weq-contact-scrollbar-thumb) !important;
+}
+
+.weq-contact-card .weq-contact-card-body::-webkit-scrollbar-thumb:hover,
+.weq-contact-card .weq-contact-card-body::-webkit-scrollbar-thumb:active {
+  box-shadow: inset 0 0 0 999px var(--weq-contact-scrollbar-hover) !important;
+}
+
+.weq-contact-card-body .weq-profile-album {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.weq-member-pop.weq-contact-card:not(.weq-group-page) > .weq-profile-card-actions,
+.weq-member-pop.weq-contact-card:not(.weq-group-page)
+  > .weq-group-page-content
+  > .weq-profile-card-actions {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0 -16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+  border-radius: 0 0 14px 14px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-contact-actions button {
+  font-size: 13px;
+}
+
+.weq-contact-actions .weq-contact-secondary {
+  flex: 0 0 auto;
+  width: auto;
+  display: inline-flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-contact-actions .weq-contact-secondary:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-contact-actions button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+/* ---------- 群上下文 ---------- */
+
+.weq-common-groups-list .weq-common-group-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  text-align: start;
+}
+
+/* ---------- 资料页外壳 ---------- */
+
+.weq-contact-profile-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-profile-dialog.weq-contact-profile-v2,
+html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 打开资料页/名片时焦点落在面板容器本身（不再落在右上角图标按钮）；
+   容器不需要焦点框，避免整页边缘出现一圈蓝框。内部按钮的焦点框保留。 */
+.weq-member-pop-scrim:focus-visible,
+.weq-profile-layer:focus-visible,
+.weq-member-pop:focus-visible,
+.weq-contact-profile-v2:focus-visible,
+.weq-group-page:focus-visible {
+  outline: none;
+}
+
+.weq-profile-page-toolbar,
+.weq-contact-page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 13px;
+}
+
+.weq-profile-page-toolbar > strong,
+.weq-contact-page-toolbar > strong {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.weq-profile-page-header,
+.weq-contact-page-header {
+  flex: 0 0 auto;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-profile-page-header .weq-profile-hero,
+.weq-contact-page-header .weq-profile-hero {
+  margin: 0;
+  padding: 0;
+}
+
+.weq-profile-page-header .weq-contact-actions,
+.weq-contact-page-header .weq-contact-actions {
+  margin: 10px 0 0;
+  padding: 0;
+  border-top: 0;
+}
+
+/* 页头设置按钮复用 header 图标按钮的尺寸，但颜色必须走语义 token：
+   group-header-info-action 自带 #444444，在深色主题下几乎看不见。 */
+.weq-profile-page-toolbar .weq-profile-page-settings {
+  flex: 0 0 auto;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-profile-page-toolbar .weq-profile-page-settings:hover {
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-page-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-profile-page-close:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-page-close:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-contact-speech {
+  min-width: 0;
+  max-height: 55dvh;
+  overflow: auto;
+  padding: 12px;
+}
+
+.weq-contact-speech article {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-speech time {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .weq-profile-page-toolbar,
+  .weq-contact-page-toolbar {
+    padding: 8px 14px;
+  }
+
+  .weq-profile-page-header,
+  .weq-contact-page-header {
+    padding: 12px 14px;
+  }
+
+  .weq-contact-card {
+    width: min(390px, calc(100vw - 20px));
+    max-width: calc(100vw - 20px);
+  }
+}
+
+@media (pointer: coarse) {
+  .weq-profile-page-close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .weq-contact-card {
+    --weq-profile-card-control-size: 36px;
+  }
+
+  .weq-contact-actions .weq-contact-secondary {
+    min-height: 44px;
+  }
+}
+
+/* ---------- 名片设置 ---------- */
+
+/*
+ * 名片设置的开关行直接作为 Card 子项，跟随 `.weq-set-card` 的 10px 节奏；
+ * 行本身给 44px 最小高度，保证与「消息显示」等页面同样的行距与触控热区。
+ */
+[data-setting-id^='contact-card'] .weq-set-card > .weq-set-row {
+  min-height: 44px;
+  padding-block: 4px;
+}
+
+@media (pointer: coarse) {
+  [data-setting-id^='contact-card'] .weq-set-card > .weq-set-row {
+    min-height: 48px;
+  }
+}
+
+.weq-contact-toggle-all {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weq-contact-card-settings > .weq-autosave:has(> .weq-autosave-status:empty) {
+  display: none;
+}
+
+.weq-contact-sort {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-contact-sort-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.weq-contact-sort-item:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+.weq-contact-sort-item.is-dragging {
+  opacity: 0.5;
+}
+
+.weq-contact-sort-item.is-target {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-contact-sort-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: grab;
+}
+
+.weq-contact-sort-handle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* 不可排序分区的占位块：只占宽度，不显示、不影响行高 */
+.weq-contact-sort-handle.is-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+  cursor: default;
+}
+
+.weq-contact-sort-item:hover .weq-contact-sort-handle,
+.weq-contact-sort-handle:focus-visible {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-contact-sort-handle:focus-visible,
+.weq-contact-toggle-all button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-contact-sort-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--weq-fg-primary);
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+@media (pointer: coarse) {
+  .weq-contact-sort-item {
+    min-height: 44px;
+  }
+
+  .weq-contact-sort-handle {
+    width: 44px;
+    height: 44px;
+  }
+}

@@ -16,6 +16,18 @@
  */
 
 import { app } from 'electron';
+import { TransferGate, shouldPauseTransfer } from '@weq/service/data-saver';
+import { transferBehavior } from '@weq/service/network-scope';
+import {
+  transferOwner,
+  transferRestricted,
+  transferCanResume,
+  watchTransferPolicy,
+} from '@weq/service/transfer-policy';
+import { refreshTransferPolicy, hostDataSaver } from '../data_saver';
+import { backgroundTasks } from '../background_tasks';
+import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
+import { UpdateCheckScheduler } from './scheduler';
 import { existsSync } from 'node:fs';
 import semver from 'semver';
 import electronUpdater from 'electron-updater';
@@ -40,9 +52,42 @@ import {
 } from './state';
 
 const { autoUpdater } = electronUpdater;
+let cancelDownload: (() => void) | undefined;
+let updateGate: TransferGate | undefined;
+let updateSizePolicy: ((bytes: number) => void) | undefined;
 
 let lastCheckedAt = 0;
 const CHECK_TTL_MS = 5 * 60_000;
+let preferences = { get: () => false, set: (_enabled: boolean): void => {} };
+let preferenceRevision = 0;
+const intervalPreferences = {
+  getInterval: () => DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+  setInterval: (_minutes: number): void => {},
+};
+const updateScheduler = new UpdateCheckScheduler(async () => {
+  if (downloading || downloaded || installing) return;
+  try {
+    await checkForUpdate(true);
+  } catch (error) {
+    updateBus.emit('event', { kind: 'check-failed' } satisfies UpdateEvent);
+    throw error;
+  }
+});
+
+export function startAutomaticUpdateChecks(): void {
+  if (!app.isPackaged) return;
+  updateScheduler.configure(intervalPreferences.getInterval(), true);
+  app.once('will-quit', () => updateScheduler.stop());
+}
+
+export function setCheckPrerelease(enabled: boolean): void {
+  if (downloading || installing) throw new Error('请等待当前更新完成后再切换测试版检查');
+  preferences.set(enabled);
+  preferenceRevision++;
+  setUpdateState(null);
+  downloaded = false;
+  macPlan = null;
+}
 
 function isDev(): boolean {
   return !app.isPackaged;
@@ -57,8 +102,8 @@ function packageManaged(): boolean {
 }
 
 function isNewer(latest: string, current: string): boolean {
-  const a = semver.coerce(latest);
-  const b = semver.coerce(current);
+  const a = semver.valid(latest);
+  const b = semver.valid(current);
   return a && b ? semver.gt(a, b) : false;
 }
 
@@ -69,16 +114,26 @@ function isNewer(latest: string, current: string): boolean {
 export async function checkForUpdate(force = false): Promise<UpdateState> {
   const current = app.getVersion();
   const cached = getUpdateState();
-  if (!force && cached && Date.now() - lastCheckedAt < CHECK_TTL_MS) {
+  const includePrerelease = preferences.get();
+  const revision = preferenceRevision;
+  if (
+    !force &&
+    cached &&
+    cached.includePrerelease === includePrerelease &&
+    Date.now() - lastCheckedAt < CHECK_TTL_MS
+  ) {
     return cached;
   }
 
   // Let the UI show "testing N mirrors…" instead of a blank 4–6s wait: this is
   // the slow phase (every dead mirror burns its full screen timeout).
   updateBus.emit('event', { kind: 'checking', mirrors: FILE_MIRRORS.length } satisfies UpdateEvent);
-  const best = await resolveBestMirror();
+  const best = await resolveBestMirror(undefined, includePrerelease, !(await hostDataSaver()));
+  if (revision !== preferenceRevision) throw new Error('更新检查选项已改变，请重新检查');
   const hasUpdate = isNewer(best.version, current);
   const state: UpdateState = {
+    includePrerelease,
+    channel: best.channel,
     current,
     latest: best.version,
     hasUpdate,
@@ -176,11 +231,24 @@ function attemptDownload(base: string): Promise<void> {
 
     autoUpdater.on('error', onError);
     autoUpdater.setFeedURL({ provider: 'generic', url: base });
+    autoUpdater.allowPrerelease = getUpdateState()?.includePrerelease === true;
+    autoUpdater.channel = getUpdateState()?.channel ?? 'latest';
+    autoUpdater.allowDowngrade = false;
     autoUpdater
       .checkForUpdates()
       .then((result) => {
         if (!result?.updateInfo) throw new Error('未获取到更新信息');
-        return autoUpdater.downloadUpdate();
+        const token = result.cancellationToken;
+        if (!token) throw new Error('更新器未提供可取消的下载任务');
+        cancelDownload = () => token.cancel();
+        const sizes = result.updateInfo.files?.map((file) => file.size ?? 0) ?? [];
+        const size = Math.max(0, ...sizes);
+        if (size > 0) updateSizePolicy?.(size);
+        if (updateGate?.paused) {
+          token.cancel();
+          throw new Error('省流量模式已暂停');
+        }
+        return autoUpdater.downloadUpdate(token);
       })
       .then(() => finish())
       .catch((e: unknown) => finish(e instanceof Error ? e : new Error(String(e))));
@@ -201,12 +269,84 @@ export async function startDownload(): Promise<void> {
   downloading = true;
   downloaded = false;
   try {
-    await downloadUpdate();
+    await refreshTransferPolicy();
   } catch (error) {
+    downloading = false;
+    throw error;
+  }
+  const owner = transferOwner();
+  const gate = new TransferGate();
+  updateGate = gate;
+  const taskId = backgroundTasks.start({ kind: 'update', name: '下载 WeQ 更新' });
+  let total = 0;
+  let received = 0;
+  let policyPaused = false;
+  const updatePolicy = () => {
+    const behavior = transferBehavior();
+    const restricted = transferRestricted(owner) || (policyPaused && !transferCanResume(owner));
+    policyPaused = restricted;
+    const blocked = shouldPauseTransfer(restricted, false, total, received, behavior);
+    if (!blocked && gate.pauseReasons.includes('network') && !behavior.dataSaverAutoResume)
+      gate.restrict('resume-required', true);
+    if (!blocked && behavior.dataSaverAutoResume) gate.restrict('resume-required', false);
+    gate.restrict('network', blocked);
+    if (gate.paused) {
+      cancelDownload?.();
+      backgroundTasks.finish(taskId, 'paused', {
+        statusLabel: gate.pauseReasons.includes('user') ? '已暂停' : '省流量模式已暂停',
+      });
+      backgroundTasks.setActions(taskId, [
+        {
+          id: 'continue',
+          label: '继续下载',
+          run: () => {
+            gate.continue();
+            updatePolicy();
+          },
+        },
+      ]);
+    } else {
+      backgroundTasks.resume(taskId);
+      backgroundTasks.setActions(taskId, [
+        {
+          id: 'pause',
+          label: '暂停',
+          run: () => {
+            gate.pause();
+            updatePolicy();
+          },
+        },
+      ]);
+    }
+  };
+  const progressPolicy = (progress: UpdateProgress) => {
+    total = progress.total;
+    received = progress.transferred;
+    updatePolicy();
+  };
+  updateSizePolicy = (bytes) => {
+    total = bytes;
+    updatePolicy();
+  };
+  updateBus.on('progress', progressPolicy);
+  const unwatch = watchTransferPolicy(updatePolicy);
+  updatePolicy();
+  try {
+    await downloadUpdate();
+    backgroundTasks.finish(taskId, 'completed');
+  } catch (error) {
+    backgroundTasks.resume(taskId);
+    backgroundTasks.finish(taskId, 'failed', { note: String(error) });
     const message = error instanceof Error ? error.message : String(error);
     updateBus.emit('event', { kind: 'error', message } satisfies UpdateEvent);
     throw error;
   } finally {
+    unwatch();
+    updateBus.off('progress', progressPolicy);
+    cancelDownload = undefined;
+    updateGate = undefined;
+    updateSizePolicy = undefined;
+    backgroundTasks.setActions(taskId, []);
     downloading = false;
   }
 }
@@ -239,7 +379,15 @@ async function downloadUpdate(): Promise<void> {
         latest: state?.latest ?? '',
         hasUpdate: true,
       } satisfies UpdateEvent);
-      await attemptDownload(base);
+      for (;;) {
+        await updateGate?.wait();
+        try {
+          await attemptDownload(base);
+          break;
+        } catch (error) {
+          if (!updateGate?.paused) throw error;
+        }
+      }
       success = true;
       break;
     } catch (e) {
@@ -252,7 +400,7 @@ async function downloadUpdate(): Promise<void> {
     // 下载事件只说明 ZIP 已落地；官方哈希与固定发布身份通过后才允许安装。
     const update = macDownload as { file: string; version: string } | null;
     if (!update?.file) throw new Error('未取得 macOS 更新包路径');
-    macPlan = await prepareMacUpdate(update.file, update.version);
+    macPlan = await prepareMacUpdate(update.file, update.version, state.includePrerelease === true);
     downloaded = true;
     updateBus.emit('event', { kind: 'downloaded', latest: update.version } satisfies UpdateEvent);
   }
@@ -282,7 +430,12 @@ export function quitAndInstall(): void {
 }
 
 /** Wire this Electron implementation into the shell-agnostic update router. */
-export function installUpdateActions(): void {
+export function installUpdateActions(
+  options?: typeof preferences & Partial<typeof intervalPreferences>,
+): void {
+  if (options) preferences = options;
+  if (options?.getInterval) intervalPreferences.getInterval = options.getInterval;
+  if (options?.setInterval) intervalPreferences.setInterval = options.setInterval;
   if (process.platform === 'darwin' && app.isPackaged) {
     // 等新版本真正完成首个页面加载，不能在原生初始化前就删除回退副本。
     app.once('browser-window-created', (_event, window) => {
@@ -292,6 +445,13 @@ export function installUpdateActions(): void {
     });
   }
   setUpdateActions({
+    getInterval: () => intervalPreferences.getInterval(),
+    setInterval: (minutes) => {
+      intervalPreferences.setInterval(minutes);
+      if (app.isPackaged) updateScheduler.configure(minutes);
+    },
+    getPrerelease: () => preferences.get(),
+    setPrerelease: setCheckPrerelease,
     supported: true,
     check: checkForUpdate,
     startDownload,

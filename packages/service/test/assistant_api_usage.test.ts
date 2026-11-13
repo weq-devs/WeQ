@@ -48,6 +48,26 @@ function fixture(resolve?: (ref: AgentLabModelSelection) => AgentLabEndpoint) {
 const usageEvent =
   'data: {"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}\n\n';
 
+it('输出参数的400错误不被误判为思考参数不兼容，也不污染后续请求', async () => {
+  const f = fixture();
+  const calls = vi
+    .fn<(_url: unknown, _input?: RequestInit) => Promise<Response>>()
+    .mockResolvedValueOnce(
+      new Response(
+        '{"error":{"param":"max_tokens","message":"max_tokens exceeds the model limit"}}',
+        { status: 400 },
+      ),
+    )
+    .mockResolvedValueOnce(new Response(usageEvent + 'data: [DONE]\n\n'));
+  vi.stubGlobal('fetch', calls);
+  await expect(f.api.callApiStream(f.endpoint, [], [], () => {})).rejects.toThrow('max_tokens');
+  await f.api.callApiStream(f.endpoint, [], [], () => {});
+  expect(calls).toHaveBeenCalledTimes(2);
+  expect(
+    calls.mock.calls.map((args) => JSON.parse(String(args[1]?.body)).reasoning_effort),
+  ).toEqual(['medium', 'medium']);
+});
+
 it('助手默认引用持久化并在调用时解析，模型变更无需重写账号配置', async () => {
   let model = 'first';
   const resolve = (ref: AgentLabModelSelection): AgentLabEndpoint => ({
@@ -101,7 +121,10 @@ it('助手不支持思考参数的记忆按实际模型隔离，切换默认模�
     vi.fn(async (_url: unknown, input?: RequestInit) => {
       bodies.push(JSON.parse(String(input?.body)));
       return bodies.length === 1
-        ? new Response('unsupported', { status: 400 })
+        ? new Response(
+            '{"error":{"param":"reasoning_effort","message":"unsupported reasoning_effort"}}',
+            { status: 400 },
+          )
         : new Response('data: [DONE]\n\n');
     }),
   );
@@ -123,7 +146,11 @@ it('助手流式重复 usage 不重复计数，400／429 的真实重试独立�
     'fetch',
     vi.fn(async () => {
       calls++;
-      if (calls === 1) return new Response('unsupported', { status: 400 });
+      if (calls === 1)
+        return new Response(
+          '{"error":{"param":"reasoning_effort","message":"unsupported reasoning_effort"}}',
+          { status: 400 },
+        );
       if (calls === 2)
         return new Response(
           JSON.stringify({ usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } }),

@@ -1,4 +1,4 @@
-import { Power } from 'lucide-react';
+import { PlayCircle, Power } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -77,7 +77,7 @@ export function StartupSection() {
   return (
     <div className="weq-set">
       <SectionHeader icon={<Power size={16} />} title="启动与主页" />
-      <Card title="开机启动" icon={<Power size={15} strokeWidth={1.8} />}>
+      <Card title="开机启动" icon={<Power size={15} strokeWidth={1.8} />} remoteUnsupported>
         <Row
           settingId="startup-enabled"
           label="开机自动启动"
@@ -132,10 +132,14 @@ export function StartupSection() {
           <p className="weq-set-note weq-set-note-warn">旧后台迁移未完成：{data.migrationError}</p>
         )}
       </Card>
-      <Card>
+      <Card
+        title="启动时进入"
+        icon={<PlayCircle size={15} strokeWidth={1.8} />}
+        resetId="startup-page"
+      >
         <Row
           settingId="startup-page"
-          label="启动时进入"
+          label="启动后打开"
           control={
             <SegmentedControl
               label="启动时进入"

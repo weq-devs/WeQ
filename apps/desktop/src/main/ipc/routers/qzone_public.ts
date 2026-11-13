@@ -9,6 +9,8 @@
  * 读走 `request()`（限流、超时、账号切换校验、可取消），写不套读重试，
  * 并且在真正发包前用 `current()` 复核账号与 QQ 进程没有变。
  */
+import { OperationError } from '@weq/service';
+
 import { z } from 'zod';
 import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -34,7 +36,8 @@ function online(selfUin: string): AccountServices {
   if (!services || String(ctx.account?.context.uin) !== selfUin)
     throw new Error('账号已切换，请重新打开空间。');
   const record = services.accountConfig.getRecord();
-  if (!record?.qqOnline || !record.qqPid) throw new Error('请先登录当前账号的 QQ。');
+  if (!record?.qqOnline || !record.qqPid)
+    throw new OperationError('请先登录当前账号的 QQ。', 'expected');
   return services;
 }
 

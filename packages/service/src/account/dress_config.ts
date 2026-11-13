@@ -1,8 +1,8 @@
 /**
- * 装扮配置管理 — 账号级配置（哪些已装、当前用哪款）。
+ * 装扮配置管理 — 宿主共享选择与安装清单，兼容读取旧账号配置。
  *
  * 职责：
- *  - 读写 `config/accounts/{configId}/dress.json`。
+ *  - 宿主通过 preferences 读写全局配置；未注入时兼容旧 dress.json。
  *  - 维护已装气泡/字体列表（itemId 数组）。
  *  - 维护当前激活的装扮选择（activeBubble/activeFont）。
  *  - 管理背景图片（自定义背景存在同目录下）。
@@ -12,9 +12,12 @@
  *  - Cache 类：管理全局共享的**资源文件**（PNG/TTF/ZIP）。
  */
 
-import { existsSync, readFileSync, copyFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, copyFileSync, mkdirSync, constants } from 'node:fs';
 import { join, basename } from 'node:path';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import type { PreferencePersistence } from '../common/shared_preferences';
+import { createHash } from 'node:crypto';
+import { extname } from 'node:path';
 
 /** 装扮作用范围。 */
 export type DressScope = 'mine' | 'all';
@@ -40,7 +43,7 @@ export interface WidgetMeta {
   previewUrl?: string;
 }
 
-/** 装扮配置（账号级）。 */
+/** 本地装扮配置，不包含各账号真实的 QQ 装扮。 */
 export interface DressConfig {
   /** 本地覆盖选择版本；旧版自动启用的装扮不沿用。 */
   localAppearanceVersion: number;
@@ -79,11 +82,37 @@ export interface DressConfig {
  *
  * 配置文件存储在 `config/accounts/{configId}/dress.json`。
  */
+export function normalizeDressConfig(raw: Partial<DressConfig>): DressConfig {
+  const explicitLocalAppearance = raw.localAppearanceVersion === 1;
+  return {
+    localAppearanceVersion: 1,
+    installedBubbles: Array.isArray(raw.installedBubbles) ? raw.installedBubbles : [],
+    installedFonts: Array.isArray(raw.installedFonts) ? raw.installedFonts : [],
+    installedWidgets: Array.isArray(raw.installedWidgets) ? raw.installedWidgets : [],
+    bubbleMeta: raw.bubbleMeta && typeof raw.bubbleMeta === 'object' ? raw.bubbleMeta : {},
+    fontMeta: raw.fontMeta && typeof raw.fontMeta === 'object' ? raw.fontMeta : {},
+    widgetMeta: raw.widgetMeta && typeof raw.widgetMeta === 'object' ? raw.widgetMeta : {},
+    activeBubble: explicitLocalAppearance ? Number(raw.activeBubble ?? 0) : 0,
+    activeFont: explicitLocalAppearance ? Number(raw.activeFont ?? 0) : 0,
+    activeWidget: explicitLocalAppearance ? Number(raw.activeWidget ?? 0) : 0,
+    scope: raw.scope === 'all' ? 'all' : 'mine',
+    background: ['none', 'qq', 'custom'].includes(raw.background as string)
+      ? (raw.background as DressBackgroundSource)
+      : 'none',
+    backgroundFile: typeof raw.backgroundFile === 'string' ? raw.backgroundFile : '',
+    widgetId: typeof raw.widgetId === 'string' ? raw.widgetId : '',
+    backgroundOpacity: typeof raw.backgroundOpacity === 'number' ? raw.backgroundOpacity : 1,
+  };
+}
+
 export class DressConfigService {
   private readonly configPath: string;
   private readonly configDir: string;
 
-  constructor(configDir: string) {
+  constructor(
+    configDir: string,
+    private readonly preferences?: PreferencePersistence<DressConfig>,
+  ) {
     this.configDir = configDir;
     this.configPath = join(configDir, 'dress.json');
     mkdirSync(configDir, { recursive: true });
@@ -95,32 +124,17 @@ export class DressConfigService {
    * 不存在时返回空配置（不抛错）。
    */
   read(): DressConfig {
-    if (!existsSync(this.configPath)) {
+    if (!this.preferences && !existsSync(this.configPath)) {
       return this.emptyConfig();
     }
 
     try {
-      const raw = JSON.parse(readFileSync(this.configPath, 'utf-8')) as Partial<DressConfig>;
-      const explicitLocalAppearance = raw.localAppearanceVersion === 1;
-      return {
-        localAppearanceVersion: 1,
-        installedBubbles: Array.isArray(raw.installedBubbles) ? raw.installedBubbles : [],
-        installedFonts: Array.isArray(raw.installedFonts) ? raw.installedFonts : [],
-        installedWidgets: Array.isArray(raw.installedWidgets) ? raw.installedWidgets : [],
-        bubbleMeta: raw.bubbleMeta && typeof raw.bubbleMeta === 'object' ? raw.bubbleMeta : {},
-        fontMeta: raw.fontMeta && typeof raw.fontMeta === 'object' ? raw.fontMeta : {},
-        widgetMeta: raw.widgetMeta && typeof raw.widgetMeta === 'object' ? raw.widgetMeta : {},
-        activeBubble: explicitLocalAppearance ? Number(raw.activeBubble ?? 0) : 0,
-        activeFont: explicitLocalAppearance ? Number(raw.activeFont ?? 0) : 0,
-        activeWidget: explicitLocalAppearance ? Number(raw.activeWidget ?? 0) : 0,
-        scope: raw.scope === 'all' ? 'all' : 'mine',
-        background: ['none', 'qq', 'custom'].includes(raw.background as string)
-          ? (raw.background as DressBackgroundSource)
-          : 'none',
-        backgroundFile: typeof raw.backgroundFile === 'string' ? raw.backgroundFile : '',
-        widgetId: typeof raw.widgetId === 'string' ? raw.widgetId : '',
-        backgroundOpacity: typeof raw.backgroundOpacity === 'number' ? raw.backgroundOpacity : 1,
-      };
+      const raw = (
+        this.preferences
+          ? this.preferences.read()
+          : JSON.parse(readFileSync(this.configPath, 'utf-8'))
+      ) as Partial<DressConfig>;
+      return normalizeDressConfig(raw);
     } catch {
       return this.emptyConfig();
     }
@@ -130,6 +144,10 @@ export class DressConfigService {
    * 写入配置文件（原子操作）。
    */
   write(config: DressConfig): void {
+    if (this.preferences) {
+      this.preferences.write(config);
+      return;
+    }
     writeFileAtomicSync(this.configPath, JSON.stringify(config, null, 2));
   }
 
@@ -206,9 +224,16 @@ export class DressConfigService {
    * 决定，渲染层按后缀选择 `<img>` 还是 `<video>`（见 isVideoBackground）。
    */
   setCustomBackground(sourcePath: string): void {
-    const fileName = basename(sourcePath);
+    const bytes = this.preferences ? readFileSync(sourcePath) : null;
+    const fileName = this.preferences
+      ? `bg-${createHash('sha256').update(bytes!).digest('hex')}${extname(sourcePath).toLowerCase()}`
+      : basename(sourcePath);
     const destPath = join(this.configDir, fileName);
-    copyFileSync(sourcePath, destPath);
+    if (bytes && existsSync(destPath)) {
+      if (!readFileSync(destPath).equals(bytes))
+        throw new Error('共享背景位置已有不同内容，已保留原件');
+    } else if (sourcePath !== destPath)
+      copyFileSync(sourcePath, destPath, this.preferences ? constants.COPYFILE_EXCL : 0);
 
     const cfg = this.read();
     cfg.background = 'custom';

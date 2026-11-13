@@ -81,14 +81,14 @@ try {
       if (kind === 'album') {
         const content = page.locator('fieldset[aria-label="空间导出内容"]');
         if (
-          JSON.stringify(await content.getByRole('tab').allTextContents()) !==
+          JSON.stringify(await content.getByRole('radio').allTextContents()) !==
           JSON.stringify(['空间', '都导出', '相册'])
         )
           throw new Error('空间内容分段顺序错误');
-        await content.getByRole('tab', { name: '相册', exact: true }).click();
+        await content.getByRole('radio', { name: '相册', exact: true }).click();
         if (!(await page.getByRole('switch', { name: '评论与点赞', exact: true }).isDisabled()))
           throw new Error('相册单独导出不应启用说说互动');
-        await content.getByRole('tab', { name: '都导出', exact: true }).click();
+        await content.getByRole('radio', { name: '都导出', exact: true }).click();
       }
       await page.waitForTimeout(150);
       const fitting = await page.evaluate(

@@ -10,6 +10,7 @@
  * listIssues 从 GitHub API 拉 open 的 issue/PR（带短缓存 + 超时）；拉不到时
  * 前端回落到手动输入标题 + 编号。
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
@@ -40,7 +41,11 @@ const ISSUES_CACHE_TTL_MS = 30_000;
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
-  if (!ctx.services) throw new Error('No account session open — call bootstrap.openAccount first.');
+  if (!ctx.services)
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   return ctx.services;
 }
 

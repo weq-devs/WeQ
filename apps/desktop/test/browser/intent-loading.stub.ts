@@ -86,6 +86,7 @@ let history: ReplySuggestionHistoryEntry[] = [
   },
 ];
 const readyRound = { ...history[0]!, target: { ...history[0]!.target, msgId: 'message' } };
+export const getHistory = () => history;
 export function setHistory(entries: ReplySuggestionHistoryEntry[]) {
   history = entries;
   for (const listener of listeners) listener();
@@ -127,7 +128,9 @@ export function setMode(next: Mode) {
 }
 const invalidate = async () => {};
 const utils = {
-  account: { intentSense: { getProfile: { invalidate }, getStatus: { invalidate } } },
+  account: {
+    intentSense: { getProfile: { invalidate, setData: () => {} }, getStatus: { invalidate } },
+  },
 };
 export const trpc = {
   useUtils: () => utils,
@@ -137,11 +140,15 @@ export const trpc = {
         useQuery: () => ({
           data: {
             enabled: true,
+            analysisMode: new URLSearchParams(location.search).has('manual') ? 'manual' : 'auto',
+            profileMode: new URLSearchParams(location.search).has('manual') ? 'manual' : 'auto',
+            suggestionMode: new URLSearchParams(location.search).has('manual') ? 'manual' : 'auto',
             engine: 'local',
             localReady: true,
             profileEnabled: true,
             suggestionsEnabled: true,
             persistentDisplay: true,
+            loadingAnimation: !new URLSearchParams(location.search).has('animation-off'),
             analysisRevision: 0,
           },
         }),
@@ -157,35 +164,103 @@ export const trpc = {
         },
       },
       getSuggestionDetails: {
-        useQuery: ({ id }: { id: string }) => ({
-          data: {
-            entry: id === readyRound.id ? readyRound : history.find((entry) => entry.id === id)!,
-            trace:
-              id === readyRound.id
-                ? {
-                    prompt: {
-                      system: '根据完整对话，先概括再生成候选。',
-                      user: JSON.stringify(
-                        {
-                          messages: Array.from({ length: 20 }, (_, i) => ({
-                            id: i,
-                            text: `合成聊天消息 ${i}`,
-                          })),
-                        },
-                        null,
-                        2,
-                      ),
+        useQuery: ({ id }: { id?: string }) => {
+          const current = useMode();
+          if (!id || id === 'pending-round') {
+            const running = current === 'loading';
+            return {
+              data: {
+                entry: {
+                  ...readyRound,
+                  id: 'pending-round',
+                  suggestions: running ? [] : readySuggestions,
+                  summary: running ? undefined : readyRound.summary,
+                },
+                progress: {
+                  id: 'pending-round',
+                  status: running
+                    ? 'running'
+                    : current === 'ready'
+                      ? 'completed'
+                      : current === 'error'
+                        ? 'failed'
+                        : 'stopped',
+                  stage: running
+                    ? '等待模型返回'
+                    : current === 'ready'
+                      ? '生成完成'
+                      : current === 'error'
+                        ? '生成失败'
+                        : '已停止',
+                  startedAt: Date.now() - 2000,
+                  updatedAt: Date.now(),
+                },
+                trace: {
+                  logs: [
+                    {
+                      seq: 1,
+                      ts: Date.now() - 2000,
+                      stage: '读取输入',
+                      level: 'info',
+                      text: '已读取 20 条输入消息。',
                     },
-                    response:
-                      '{"summary":"双方正在聊日常，最新消息适合轻松接话。","replies":[{"text":"有空一起聊聊"}]}',
-                  }
-                : null,
-          },
-          isLoading: false,
-          isFetching: false,
-          error: null,
-          refetch: invalidate,
-        }),
+                    {
+                      seq: 2,
+                      ts: Date.now() - 1000,
+                      stage: '等待模型返回',
+                      level: 'info',
+                      text: '已发送推荐请求，等待模型返回。',
+                    },
+                    ...(running
+                      ? []
+                      : [
+                          {
+                            seq: 3,
+                            ts: Date.now(),
+                            stage: '请求结束',
+                            level: 'info',
+                            text: current === 'ready' ? '本轮生成完成。' : '本轮请求已结束。',
+                          },
+                        ]),
+                  ],
+                },
+              },
+              isLoading: false,
+              isFetching: false,
+              error: null,
+              refetch: invalidate,
+            };
+          }
+          return {
+            data: {
+              entry: id === readyRound.id ? readyRound : history.find((entry) => entry.id === id)!,
+              trace:
+                id === readyRound.id
+                  ? {
+                      prompt: {
+                        system: '根据完整对话，先概括再生成候选。',
+                        user: JSON.stringify(
+                          {
+                            messages: Array.from({ length: 20 }, (_, i) => ({
+                              id: i,
+                              text: `合成聊天消息 ${i}`,
+                            })),
+                          },
+                          null,
+                          2,
+                        ),
+                      },
+                      response:
+                        '{"summary":"双方正在聊日常，最新消息适合轻松接话。","replies":[{"text":"有空一起聊聊"}]}',
+                    }
+                  : null,
+            },
+            isLoading: false,
+            isFetching: false,
+            error: null,
+            refetch: invalidate,
+          };
+        },
       },
       getSuggestionHistory: {
         useQuery: () => {

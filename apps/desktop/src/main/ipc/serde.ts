@@ -84,6 +84,10 @@ export interface UserProfileWire {
     country?: string;
     province?: string;
     city?: string;
+    constellation?: number;
+    occupation?: number;
+    bloodType?: number;
+    zodiac?: number;
     interests: string[];
     album: Array<{
       photoId?: string;

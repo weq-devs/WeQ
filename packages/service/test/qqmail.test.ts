@@ -172,14 +172,16 @@ describe('邮箱生命周期和提醒', () => {
       service.dispose();
     }
   });
-  it.each([undefined, 900, 3600])(
-    '有未读时不等待提醒建议间隔 %s 秒，后台一分钟内补查外部已读',
-    async (interval) => {
+  it.each(
+    [0, 2].flatMap((unread) => [undefined, 900, 3600].map((interval) => ({ unread, interval }))),
+  )(
+    '未读 $unread 条、服务端建议 $interval 秒时，默认仍每分钟查询',
+    async ({ unread, interval }) => {
       vi.useFakeTimers();
       const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
       const query = vi
         .spyOn(auth, 'notificationQuery')
-        .mockResolvedValueOnce({ unread: 2, next_sync_time_interval_sec: interval })
+        .mockResolvedValueOnce({ unread, next_sync_time_interval_sec: interval })
         .mockResolvedValue({ unread: 0 });
       const socket = Object.assign(new EventEmitter(), {
         send: vi.fn(),
@@ -195,7 +197,7 @@ describe('邮箱生命周期和提醒', () => {
       try {
         service.startBackground({ showUnread: true, notifications: false });
         await vi.advanceTimersByTimeAsync(0);
-        expect(service.status().unread).toBe(2);
+        expect(service.status().unread).toBe(unread);
         await vi.advanceTimersByTimeAsync(60_000);
         expect(query).toHaveBeenCalledTimes(2);
         expect(service.status().unread).toBe(0);

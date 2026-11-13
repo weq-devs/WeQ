@@ -498,8 +498,8 @@ html[data-theme='dark'] .weq-call-seg {
 
 html[data-theme='dark'] .weq-call-seg-item.is-on {
   /* 深色下强调色块上用深字太脏，改成亮字压在深色强调底上。 */
-  background: color-mix(in srgb, var(--weq-accent-effective) 78%, #000);
-  color: #fff;
+  background: color-mix(in srgb, var(--weq-accent-solid) 78%, #000);
+  color: var(--weq-accent-solid-foreground, #ffffff);
 }
 
 /* ── 减少动态效果 ── */

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatDateTime } from '@weq/time';
+import { TimeLabel } from '../../components/TimeLabel';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  preferenceValue,
+  changePreference,
+  useClientPreferences,
+} from '../../lib/clientPreferences';
+import { MailListResizeHandle } from './MailListResizeHandle';
 import { z } from 'zod';
 import { usePageState } from '../../components/PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
@@ -38,6 +46,7 @@ import type {
 } from '@weq/service/mail';
 import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
 import { useDialog } from '../../components/Dialog';
+import { CheckPill } from '../../components/settings/controls';
 import { useToast } from '../../components/Toast';
 import { usePrivacyStore } from '../../state/privacy';
 import type { MailApi } from './api';
@@ -58,6 +67,7 @@ import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { IS_WEB } from '../../lib/target';
+import { isRemoteClient } from '../../lib/remoteClient';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../../lib/autoRead';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -107,6 +117,27 @@ export function MailPage({
   const requestExport = useRequestContentExport();
   const activity = useQQReadActivity(active);
   const [status, setStatus] = useState(initialStatus);
+  useClientPreferences((state) => state.tick);
+  const savedWidth = preferenceValue('mailListWidth');
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const layout = useRef<HTMLDivElement>(null);
+  const [maxListWidth, setMaxListWidth] = useState(560);
+  useEffect(() => {
+    const element = layout.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const width = element.getBoundingClientRect().width;
+      const folders = element.querySelector('.weq-mail-folders')?.getBoundingClientRect();
+      const folderWidth = folders && folders.width < width - 10 ? folders.width : 0;
+      setMaxListWidth(Math.max(280, Math.min(560, width - folderWidth - 366)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [status.state]);
+  useEffect(() => setDragWidth(null), [savedWidth]);
+  const listWidth = Math.min(dragWidth ?? savedWidth, maxListWidth);
   const [folders, setFolders] = useState<MailFolder[]>([...SYSTEM_MAIL_FOLDERS]);
   const [folderId, setFolderId] = usePageState('folder', 1, pageValue.number),
     [pageNumber, setPageNumber] = usePageState('page', 0, pageValue.number);
@@ -187,13 +218,19 @@ export function MailPage({
   const [downloading, setDownloading] = useState<string | null>(null);
   const download = useRef<AbortController | null>(null),
     mounted = useRef(true),
-    visible = useRef(active),
     composeVisible = useRef(showCompose);
   const loadSequence = useRef(0),
     readSequence = useRef(0);
+  // 仅记录成功读取的请求；恢复窗口时复用内容，中断或失败的请求仍可重试。
+  const loadedList = useRef<{ api: MailApi; key: string } | null>(null);
+  const loadedFolders = useRef<{ api: MailApi; revision: number } | null>(null);
+  const loadedRead = useRef<{
+    api: MailApi;
+    id: string;
+    revision: number;
+  } | null>(null);
   const openRequested = useRef(onOpenRequested);
   openRequested.current = onOpenRequested;
-  visible.current = activity.enabled;
   composeVisible.current = showCompose;
   const ready = status.state === 'ready';
   const multi = useMultiSelection({
@@ -208,6 +245,7 @@ export function MailPage({
   const selection = checked.length ? checked : selectedId ? [selectedId] : [];
   const chooseFolder = useCallback(
     (id: number): void => {
+      loadedRead.current = null;
       setThreadRoot(null);
       setPage(emptyPage);
       setFolderId(id);
@@ -280,7 +318,7 @@ export function MailPage({
         }
       }
       if (event.type === 'status' && event.status) setStatus(event.status);
-      if (event.type !== 'status' && visible.current) setRevision((current) => current + 1);
+      if (event.type !== 'status') setRevision((current) => current + 1);
       if (event.type === 'new-mail' && event.notice)
         useToast.getState().push({
           tone: 'info',
@@ -313,7 +351,13 @@ export function MailPage({
   }, [onUnreadChange, status.unread]);
 
   useEffect(() => {
+    if (!ready) loadedList.current = null;
     if (!ready || !activity.enabled) return;
+    const key = JSON.stringify([folderId, pageNumber, unreadOnly, keyword, revision]);
+    if (loadedList.current?.api === api && loadedList.current.key === key) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController(),
       sequence = ++loadSequence.current;
     setLoading(true);
@@ -328,6 +372,7 @@ export function MailPage({
     )
       .then((value) => {
         if (!controller.signal.aborted && sequence === loadSequence.current) {
+          loadedList.current = { api, key };
           setPage(value);
           const ids = new Set(value.items.map((item) => item.id));
           setChecked((current) => current.filter((id) => ids.has(id)));
@@ -355,22 +400,35 @@ export function MailPage({
     revision,
   ]);
   useEffect(() => {
+    if (!ready) loadedFolders.current = null;
     if (!ready || !activity.enabled) return;
+    if (loadedFolders.current?.api === api && loadedFolders.current.revision === revision) return;
     const controller = new AbortController();
     void readWithRetry(() => api.folders(controller.signal), controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted) setFolders(value);
+        if (!controller.signal.aborted) {
+          loadedFolders.current = { api, revision };
+          setFolders(value);
+        }
       })
       .catch(() => {});
     return () => controller.abort();
   }, [api, ready, activity.enabled, activity.revision, revision]);
   useEffect(() => {
+    if (!selectedId || !ready) loadedRead.current = null;
     if (!selectedId || !ready || !activity.enabled) {
       setReading(false);
       return;
     }
+    if (
+      loadedRead.current?.api === api &&
+      loadedRead.current.id === selectedId &&
+      loadedRead.current.revision === searchReadRevision
+    )
+      return;
     const controller = new AbortController(),
       sequence = ++readSequence.current;
+    loadedRead.current = null;
     setReading(true);
     setDetail((current) => (current?.id === selectedId ? current : null));
     setError('');
@@ -378,6 +436,7 @@ export function MailPage({
       .read(selectedId, controller.signal)
       .then((value) => {
         if (controller.signal.aborted || sequence !== readSequence.current) return;
+        loadedRead.current = { api, id: selectedId, revision: searchReadRevision };
         setDetail(value);
         setPage((current) => ({
           ...current,
@@ -503,7 +562,7 @@ export function MailPage({
   async function saveAttachment(
     id: string,
     intent?: ExportSavePolicy,
-    browser = false,
+    browser = isRemoteClient(),
   ): Promise<void> {
     if (download.current || !save.binding) return;
     const attachment = detail?.attachments.find((item) => item.id === id);
@@ -541,6 +600,8 @@ export function MailPage({
     }
   }
   const allChecked = page.items.length > 0 && page.items.every((item) => checked.includes(item.id));
+  // 上次查询时间在宽屏放文件夹列底部，窄屏放顶栏，用户始终能判断「刚才查过」。
+  const syncText = status.lastSync ? `更新于 ${formatDateTime(status.lastSync)}` : '尚未同步';
   const snippets = useMemo(
     () => new Map(page.items.map((item) => [item.id, plainMailText(item.snippet)])),
     [page.items],
@@ -565,6 +626,15 @@ export function MailPage({
             <span className="weq-mail-sensitive">{selfEmail}</span>
           </div>
         </div>
+        <span className="weq-mail-sync-state weq-mail-sync-state-compact">
+          {status.lastSync ? (
+            <TimeLabel value={status.lastSync} precision="minute">
+              {syncText}
+            </TimeLabel>
+          ) : (
+            syncText
+          )}
+        </span>
         <div className="weq-mail-top-actions">
           <button
             type="button"
@@ -619,6 +689,7 @@ export function MailPage({
           <button
             type="button"
             className="weq-mail-primary"
+            aria-label={draft ? '继续写信' : '写邮件'}
             disabled={!ready}
             onClick={() => {
               if (!draft) setDraft(newMailDraft());
@@ -671,7 +742,11 @@ export function MailPage({
           </button>
         </div>
       ) : (
-        <div className="weq-mail-layout">
+        <div
+          className="weq-mail-layout"
+          ref={layout}
+          style={{ '--mail-list-width': `${listWidth}px` } as CSSProperties}
+        >
           <nav className="weq-mail-folders" aria-label="邮箱文件夹">
             {folders.map((folder) => {
               const Icon = folderIcon(folder.id);
@@ -693,9 +768,13 @@ export function MailPage({
               );
             })}
             <div className="weq-mail-sync-state">
-              {status.lastSync
-                ? `更新于 ${new Date(status.lastSync).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit' })}`
-                : '尚未同步'}
+              {status.lastSync ? (
+                <TimeLabel value={status.lastSync} precision="millisecond">
+                  {syncText}
+                </TimeLabel>
+              ) : (
+                syncText
+              )}
             </div>
           </nav>
           <section className="weq-mail-list" aria-label="邮件列表">
@@ -741,18 +820,16 @@ export function MailPage({
             <header className="weq-mail-list-heading">
               <h2>{keyword ? '搜索结果' : selectedFolder?.name || '邮件'}</h2>
               <span>{page.total}</span>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={unreadOnly}
-                  onChange={(event) => {
-                    setUnreadOnly(event.target.checked);
-                    setPageNumber(0);
-                    clearChecked();
-                  }}
-                />
-                未读
-              </label>
+              <CheckPill
+                checked={unreadOnly}
+                onChange={(next) => {
+                  setUnreadOnly(next);
+                  setPageNumber(0);
+                  clearChecked();
+                }}
+              >
+                仅看未读
+              </CheckPill>
             </header>
             <div className="weq-mail-list-tools">
               <input
@@ -822,9 +899,14 @@ export function MailPage({
                     >
                       <div>
                         <strong data-privacy-sensitive>
+                          {item.unread ? (
+                            <span className="weq-mail-unread-dot" aria-label="未读" role="img" />
+                          ) : null}
                           {item.sender.name || item.sender.email || '发件人'}
                         </strong>
-                        <time>{formatMailTime(item.time, true)}</time>
+                        <TimeLabel value={item.time * 1000}>
+                          {formatMailTime(item.time, true)}
+                        </TimeLabel>
                       </div>
                       <span className="weq-mail-row-subject">
                         {item.draft ? <FilePenLine size={13} /> : null}
@@ -883,6 +965,15 @@ export function MailPage({
               </button>
             </footer>
           </section>
+          <MailListResizeHandle
+            width={listWidth}
+            max={maxListWidth}
+            onChange={setDragWidth}
+            onCommit={(width) => {
+              setDragWidth(null);
+              void changePreference('mailListWidth', width);
+            }}
+          />
           <div ref={reader} className="weq-mail-reader-shell">
             {draft ? (
               <MailComposer
@@ -1000,7 +1091,7 @@ export function MailPage({
                       {detail.cc.length ? <p>抄送：{addressText(detail.cc)}</p> : null}
                       {detail.bcc.length ? <p>密送：{addressText(detail.bcc)}</p> : null}
                     </details>
-                    <time>{formatMailTime(detail.time)}</time>
+                    <TimeLabel value={detail.time * 1000} />
                   </header>
                   {detail.thread ? (
                     <div className="weq-mail-thread">
@@ -1018,7 +1109,7 @@ export function MailPage({
                             {item.sender.name || item.sender.email || '发件人'}
                           </strong>
                           <span data-privacy-sensitive>{item.subject || '无主题'}</span>
-                          <time>{formatMailTime(item.time)}</time>
+                          <TimeLabel value={item.time * 1000} />
                         </button>
                       ))}
                     </div>
@@ -1044,7 +1135,13 @@ export function MailPage({
                           </small>
                           <button
                             type="button"
-                            title={IS_WEB ? '保存附件到服务器' : '保存附件'}
+                            title={
+                              isRemoteClient()
+                                ? '下载附件到设备'
+                                : IS_WEB
+                                  ? '保存附件到服务器'
+                                  : '保存附件'
+                            }
                             aria-label={`保存附件 ${item.name}`}
                             disabled={
                               !item.available ||

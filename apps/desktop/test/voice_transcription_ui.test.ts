@@ -192,9 +192,11 @@ describe('语音消息转换入口', () => {
     expect(state.transcribe).toHaveBeenCalledOnce();
     expect(host.querySelector<HTMLButtonElement>('button[title="转文字"]')!.disabled).toBe(true);
     rightClick();
-    expect(host.querySelector<HTMLButtonElement>('.message-context-menu button')!.disabled).toBe(
-      true,
-    );
+    expect(
+      host
+        .querySelector<HTMLButtonElement>('.message-context-menu button[title="正在转写语音"]')!
+        .getAttribute('aria-disabled'),
+    ).toBe('true');
     await act(async () => finish({ success: true, text: '识别完成' }));
     await settle();
     expect(host.querySelector('.qq-voice-transcript')?.textContent).toBe('识别完成');
@@ -232,9 +234,10 @@ describe('语音消息转换入口', () => {
     render();
     rightClick();
     expect(
-      host.querySelector<HTMLButtonElement>('button[title="请先在设置中下载本地语音模型"]')!
-        .disabled,
-    ).toBe(true);
+      host
+        .querySelector<HTMLButtonElement>('button[title="请先在设置中下载本地语音模型"]')!
+        .getAttribute('aria-disabled'),
+    ).toBe('true');
   });
 
   it.each(['response', 'exception'])(

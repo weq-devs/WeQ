@@ -301,6 +301,7 @@ export const RESP_DATA_HIGHWAY_HEAD = message([
   f('msgBaseHead', 1, DATA_HIGHWAY_HEAD),
   f('msgSegHead', 2, SEG_HEAD),
   f('errorCode', 3, 'uint32'),
+  f('bytesRspExtendInfo', 7, 'bytes'),
 ]);
 
 // ───────────────────── highway 载荷（NTV2RichMediaHighwayExt） ─────────────────────

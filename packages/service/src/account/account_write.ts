@@ -1,5 +1,8 @@
+import { OperationError } from '../common/operation_error';
 import type { Buddy, Category } from '@weq/db';
 import type { ContactMetricsService } from './contact_metrics';
+import { SelfProfileDisplayService } from './profile_display';
+import { ProfileInteractionWrites } from './profile_interactions';
 import {
   ClearFriendRemark,
   SetFriendRemark,
@@ -39,7 +42,7 @@ export interface AccountWriteIdentity {
   selfUid: string;
   getBuddy: (uid: string) => Promise<Buddy | null>;
   listCategories: () => Promise<Category[]>;
-  clientVersion?: () => string;
+  clientVersion?: () => string | Promise<string>;
 }
 
 export interface AccountWriteOutcome {
@@ -50,6 +53,8 @@ export interface AccountWriteOutcome {
 /** 编排账号操作及配套读回；不写 QQ 原库、不自动重发写请求。 */
 export class AccountWriteService {
   contactMetrics?: ContactMetricsService;
+  private displaySettingsService?: SelfProfileDisplayService;
+  private interactionWrites?: ProfileInteractionWrites;
   constructor(
     private readonly nt: PacketNative,
     private readonly identity: AccountWriteIdentity,
@@ -58,6 +63,52 @@ export class AccountWriteService {
 
   selfIdentity(): { uin: string; uid: string } {
     return { uin: this.identity.uin, uid: this.identity.selfUid };
+  }
+  private get profileInteractions() {
+    this.interactionWrites ??= new ProfileInteractionWrites(
+      this.nt,
+      this.identity.uin,
+      this.resolvePid,
+    );
+    return this.interactionWrites;
+  }
+  signatureLike(uin: string, signature: import('@weq/protocol').SignatureTarget, liked: boolean) {
+    return this.profileInteractions.signatureLike(uin, signature, liked);
+  }
+  signatureComment(uin: string, feedId: string, text: string, replyId?: string) {
+    return this.profileInteractions.signatureComment(uin, feedId, text, replyId);
+  }
+  deleteSignatureComment(
+    uin: string,
+    signature: import('@weq/protocol').SignatureTarget,
+    commentId: string,
+  ) {
+    return this.profileInteractions.removeSignatureComment(uin, signature, commentId);
+  }
+  uploadPersonalityPhoto(
+    uin: string,
+    labelId: string,
+    source: Uint8Array,
+    batch?: { count: number; index: number; timestamp: number },
+  ) {
+    return this.profileInteractions.uploadPhoto(uin, labelId, source, batch);
+  }
+
+  private get profileDisplay() {
+    this.displaySettingsService ??= new SelfProfileDisplayService(
+      this.nt,
+      this.identity.uin,
+      this.resolvePid,
+    );
+    return this.displaySettingsService;
+  }
+
+  selfProfileDisplaySettings() {
+    return this.profileDisplay.read();
+  }
+
+  setSelfProfileDisplaySetting(field: import('@weq/protocol').ProfileDisplayField, value: number) {
+    return this.profileDisplay.set(field, value);
   }
 
   async exactProfile(kind: 'user' | 'group', target: string) {
@@ -92,6 +143,11 @@ export class AccountWriteService {
 
   async commonRelationships(target: string, priority = 0) {
     const pid = this.resolvePid();
+    const loadGroups = async () => {
+      const version = (await this.identity.clientVersion?.()) ?? '';
+      this.assertCurrentPid(pid);
+      return getCommonGroups(this.nt, pid, this.identity.uin, target, version);
+    };
     const [friends, groups] = await Promise.allSettled([
       this.contactMetrics
         ? this.contactMetrics.query(
@@ -106,26 +162,11 @@ export class AccountWriteService {
         ? this.contactMetrics.query(
             `friend:${target}`,
             ['commonGroups'],
-            () =>
-              getCommonGroups(
-                this.nt,
-                pid,
-                this.identity.uin,
-                target,
-                this.identity.clientVersion?.() ?? '',
-              ),
+            loadGroups,
             (value) => ({ commonGroups: value }),
             priority,
           )
-        : Promise.resolve().then(() =>
-            getCommonGroups(
-              this.nt,
-              pid,
-              this.identity.uin,
-              target,
-              this.identity.clientVersion?.() ?? '',
-            ),
-          ),
+        : loadGroups(),
     ]);
     this.assertCurrentPid(pid);
     return {
@@ -144,9 +185,14 @@ export class AccountWriteService {
     const result = this.contactMetrics
       ? await this.contactMetrics.query(
           `friend:${buddy.uin}`,
-          ['addedAt', 'direction'],
+          ['addedAt', 'direction', 'source', 'sourceGroup'],
           () => getFriendClue(this.nt, pid, String(buddy.uin)),
-          (value) => ({ addedAt: value.addedAt, direction: value.direction }),
+          (value) => ({
+            addedAt: value.addedAt,
+            direction: value.direction,
+            source: value.source ?? '',
+            sourceGroup: value.sourceGroupCode ?? '',
+          }),
           priority,
         )
       : await getFriendClue(this.nt, pid, String(buddy.uin));
@@ -356,7 +402,7 @@ export class AccountWriteService {
             rawCategories.some((entry) => entry.id === 0) ||
             (candidates.length !== 1 && !cloudConfirmed)
           )
-            throw new Error('分组目录缺少可确认的 ID，请刷新本地联系人后重试');
+            throw new OperationError('分组目录缺少可确认的 ID，请刷新本地联系人后重试', 'expected');
           return { ...row, sortOrder, id: 0, idPresent: false };
         });
         const normalizedFriends = friends.map((row) =>
@@ -420,7 +466,8 @@ export class AccountWriteService {
       const category = categories.find((row) => row.id === operation.id);
       if (!category) throw new Error('分组已不存在');
       const sort = category.sortOrder;
-      if (sort === null) throw new Error('分组目录缺少可确认的排序，请重新读取');
+      if (sort === null)
+        throw new OperationError('分组目录缺少可确认的排序，请重新读取', 'expected');
       await write(() =>
         UpdateFriendCategories.invoke(this.nt, pid, {
           categories: [{ id: operation.id, name: operation.name, sort }],

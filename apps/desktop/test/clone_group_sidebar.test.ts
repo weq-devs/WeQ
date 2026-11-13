@@ -71,7 +71,8 @@ it('克隆群复用普通群资料栏，支持折叠与本地成员搜索，不�
       search.dispatchEvent(new Event('input', { bubbles: true }));
     });
     expect(host.querySelectorAll('.group-info-member-row')).toHaveLength(0);
-    expect(host.querySelector('.group-info-member-empty')?.textContent).toBe('没有匹配的成员');
+    expect(host.querySelector('.weq-empty-state-title')?.textContent).toBe('没有匹配的成员');
+    expect(host.querySelectorAll('.weq-empty-state-icon svg')).toHaveLength(1);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="清除搜索"]')!.click());
     expect(host.querySelectorAll('.group-info-member-row')).toHaveLength(2);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="添加成员"]')!.click());
@@ -79,10 +80,10 @@ it('克隆群复用普通群资料栏，支持折叠与本地成员搜索，不�
     expect(picker.querySelector<HTMLInputElement>('[aria-label="合成好友"]')!.checked).toBe(true);
     expect(picker.querySelector<HTMLInputElement>('[aria-label="合成好友"]')!.disabled).toBe(true);
     act(() => picker.querySelector<HTMLButtonElement>('[aria-label="关闭添加成员"]')!.click());
-    act(() => host.querySelector<HTMLButtonElement>('[aria-label="收起群资料"]')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="收起群聊侧栏"]')!.click());
     expect(host.querySelector('.chat-pane.group-info-collapsed')).not.toBeNull();
     expect(host.querySelector('.group-info-panel')).toBeNull();
-    act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开群资料"]')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开群聊侧栏"]')!.click());
     expect(host.querySelector('.group-info-panel')).not.toBeNull();
   } finally {
     act(() => root.unmount());

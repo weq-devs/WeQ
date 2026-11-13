@@ -1,4 +1,5 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
+import { EmptyState } from '../components/EmptyState';
 import {
   useCallback,
   useLayoutEffect,
@@ -31,6 +32,7 @@ import {
   Settings,
   ThumbsUp,
   X,
+  Images,
 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { openExternalLink } from '../lib/openExternalLink';
@@ -39,7 +41,12 @@ import { PageSnapshotScope, usePageDataCache, usePageState } from '../components
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
 import { TabActivity, useTabActive } from '../components/RetainedTabs';
 import { pageValue } from '../lib/pageSnapshots';
-import { QzoneProfileAvatar, QzonePersonButton } from '../components/QzoneProfileAvatar';
+import {
+  QzonePersonIdentity,
+  QzonePersonButton,
+  QzonePersonHeader,
+  QzoneProfileAvatar,
+} from '../components/QzoneProfileAvatar';
 import {
   useContentMultiSelect,
   useCurrentContentSelection,
@@ -81,10 +88,12 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzonePublicPane } from './QzonePublicView';
-import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
+import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
+import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
+import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
-import { QzoneRelatedRound } from '../lib/qzoneActions';
+import { QzoneRelatedRound, qzoneSelfLiked, type QzoneReplyTarget } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
@@ -400,7 +409,7 @@ export function QzoneView({
   }, []);
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
   const [postRequests, setPostRequests] = useState<
-    Record<string, { tid: string; revision: string }>
+    Record<string, { tid: string; revision: string; focusComment?: RelatedComment }>
   >({});
   const rememberSpaceName = useCallback((uin: string, name: string) => {
     const value = name.trim();
@@ -494,9 +503,27 @@ export function QzoneView({
       }));
     if (spaceRequest.target?.kind === 'post') {
       const tid = spaceRequest.target.tid;
+      const target = spaceRequest.target;
       setPostRequests((current) => ({
         ...current,
-        [spaceRequest.uin]: { tid, revision: spaceRequest.revision },
+        [spaceRequest.uin]: {
+          tid,
+          revision: spaceRequest.revision,
+          ...(target.commentId
+            ? {
+                focusComment: {
+                  id: target.commentId,
+                  uin: '',
+                  content: target.commentText ?? '',
+                  images: [],
+                  parentCommentId: target.parentCommentId,
+                  replyId: target.replyId,
+                  isReply: Boolean(target.parentCommentId),
+                  source: 'search' as const,
+                },
+              }
+            : {}),
+        },
       }));
     }
   }, [active, selfUin, spaceRequest, openSpace, handledRequest, setHandledRequest]);
@@ -784,7 +811,7 @@ function SpaceContent({
   nickname: string;
   ownerNickname?: string;
   albumRequest?: QzoneAlbumRequest;
-  postRequest?: { tid: string; revision: string };
+  postRequest?: { tid: string; revision: string; focusComment?: RelatedComment };
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
@@ -842,10 +869,9 @@ function SpaceContent({
         </button>
         {openProfile ? (
           <div className="weq-qzn-owner-profile">
-            <QzoneProfileAvatar uin={hostUin} nickname={ownerLabel} size={24} />
-            <QzonePersonButton uin={hostUin} nickname={ownerLabel} onSpace={onSpace}>
+            <QzonePersonIdentity uin={hostUin} nickname={ownerLabel} onSpace={onSpace} size={24}>
               <QzoneName content={ownerLabel} uin={hostUin} freezeLabel />
-            </QzonePersonButton>
+            </QzonePersonIdentity>
           </div>
         ) : null}
       </nav>
@@ -857,6 +883,7 @@ function SpaceContent({
               selfUin={selfUin}
               hostUin={hostUin}
               tid={postRequest.tid}
+              focusComment={postRequest.focusComment}
               nickname={ownerNickname || nickname}
               onSpace={onSpace}
             />
@@ -890,12 +917,14 @@ function LinkedPost({
   tid,
   nickname,
   onSpace,
+  focusComment,
 }: {
   selfUin: string;
   hostUin: string;
   tid: string;
   nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
+  focusComment?: RelatedComment;
 }) {
   const { run, cancel } = useQzoneRequests();
   const { active } = useContext(QzonePageContext);
@@ -936,6 +965,7 @@ function LinkedPost({
           hostUin={hostUin}
           nickname={nickname}
           post={post}
+          focusComment={focusComment}
           onSpace={onSpace}
         />
       ) : error ? (
@@ -1369,7 +1399,15 @@ function Post({
         const result = await completeQzonePostText(
           next,
           () =>
-            run((requestId) => client.account.qzone.detail.query({ ...input, requestId }), true),
+            run(
+              (requestId) =>
+                client.account.qzone.detail.query({
+                  ...input,
+                  time: ownTextNeeded && sourcePost.time > 0 ? sourcePost.time : undefined,
+                  requestId,
+                }),
+              true,
+            ),
           (partial) => {
             if (!live) return;
             completedRef.current = { signature: sourceSignature, post: partial };
@@ -1464,16 +1502,20 @@ function Post({
       className={`weq-qzn-post${selected ? ' is-selected' : ''}`}
     >
       <div className="weq-qzn-post-head">
-        <QzoneProfileAvatar uin={hostUin} nickname={nickname} size={34} />
-        <div>
-          <QzonePersonButton uin={hostUin} nickname={nickname} onSpace={onSpace}>
-            <QzoneName content={nickname} uin={hostUin} />
-          </QzonePersonButton>
-          <time dateTime={new Date(post.time * 1000).toISOString()}>
-            {timeText(post.time)}
-            {post.isPrivate ? ' · 仅自己可见' : ''}
-          </time>
-        </div>
+        <QzonePersonHeader
+          uin={hostUin}
+          nickname={nickname}
+          onSpace={onSpace}
+          size={34}
+          time={
+            <time dateTime={new Date(post.time * 1000).toISOString()}>
+              {timeText(post.time)}
+              {post.isPrivate ? ' · 仅自己可见' : ''}
+            </time>
+          }
+        >
+          <QzoneName content={nickname} uin={hostUin} />
+        </QzonePersonHeader>
       </div>
       {post.content.trim() ? (
         <p className="weq-qzn-content">
@@ -1488,6 +1530,7 @@ function Post({
       <QzoneMediaGrid
         images={images.filter((url) => !links.some((link) => link.cover === url))}
         videos={videos}
+        target={{ selfUin, hostUin, tid: post.tid, time: post.time }}
       />
       <FeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
       {post.repost ? (
@@ -1534,28 +1577,24 @@ function Repost({
   return (
     <section className="weq-qzn-repost" aria-label="原帖">
       <div className="weq-qzn-repost-author">
-        {validUin ? (
-          <QzoneProfileAvatar
-            className="weq-qzn-person"
-            uin={original.uin}
-            nickname={original.nickname}
-            size={26}
+        <QzonePersonHeader
+          size={26}
+          uin={validUin ? original.uin : null}
+          nickname={original.nickname || original.uin || '原作者'}
+          onSpace={onSpace}
+          time={
+            original.time ? (
+              <time>{timeText(original.time)}</time>
+            ) : original.timeLabel ? (
+              <time>{original.timeLabel}</time>
+            ) : null
+          }
+        >
+          <QzoneName
+            content={original.nickname || original.uin || '原作者'}
+            uin={validUin ? original.uin : undefined}
           />
-        ) : null}
-        {validUin ? (
-          <QzonePersonButton
-            className="weq-qzn-person"
-            uin={original.uin}
-            nickname={original.nickname}
-            onSpace={onSpace}
-          >
-            <QzoneName content={original.nickname || original.uin} uin={original.uin} />
-          </QzonePersonButton>
-        ) : (
-          <strong>
-            <QzoneName content={original.nickname || '原作者'} />
-          </strong>
-        )}
+        </QzonePersonHeader>
       </div>
       {original.content.trim() ? (
         <p className="weq-qzn-content">
@@ -1563,7 +1602,11 @@ function Repost({
         </p>
       ) : null}
       {completion ? <CompletionStatus {...completion} original /> : null}
-      <QzoneMediaGrid images={original.images} videos={original.videos} />
+      <QzoneMediaGrid
+        images={original.images}
+        videos={original.videos}
+        target={{ selfUin, hostUin: original.uin, tid: original.tid, time: original.time ?? 0 }}
+      />
       {validUin && /^[a-zA-Z0-9_-]{1,128}$/.test(original.tid) ? (
         <PostActions
           key={`${original.uin}:${original.tid}`}
@@ -1634,8 +1677,11 @@ function PostActionsBody({
     focusComment ? 'comments' : null,
   );
   const [forwardOpen, setForwardOpen] = useState(false);
-  const [replyTarget, setReplyTarget] = useState<{ id: string; nickname: string } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<QzoneReplyTarget | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
+  const [commentPicture, setCommentPicture] = useState<{ path: string; fileName: string } | null>(
+    null,
+  );
   const focusId = focusComment?.id;
   const focusUin = focusComment?.uin;
   useEffect(() => {
@@ -1652,6 +1698,11 @@ function PostActionsBody({
   const summaryRefresh = useRef<number | null>(null);
   const summaryGeneration = useRef(0);
   const [writeRevision, setWriteRevision] = useState(0);
+  const [commentReadback, setCommentReadback] = useState<{
+    revision: number;
+    refresh: number;
+    page: QzoneInteraction;
+  } | null>(null);
   const [likeRevision, setLikeRevision] = useState(0);
   const [likeChange, setLikeChange] = useState<{
     write: QzoneLikeChange;
@@ -1735,9 +1786,16 @@ function PostActionsBody({
       time={post.time}
       draftContent={commentDraft}
       onDraftContentChange={setCommentDraft}
+      draftPicture={commentPicture}
+      onDraftPictureChange={setCommentPicture}
       replyTarget={replyTarget}
       onCancelReply={() => setReplyTarget(null)}
-      onCommentAccepted={() => setCommentCount((count) => (count === null ? null : count + 1))}
+      onCommentAccepted={() => {
+        if (!replyTarget) setCommentCount((count) => (count === null ? null : count + 1));
+      }}
+      onCommentsReadback={(page) =>
+        setCommentReadback({ revision: writeRevision + 1, refresh, page })
+      }
       onChanged={() => {
         summaryGeneration.current++;
         summaryRefresh.current = null;
@@ -1756,13 +1814,7 @@ function PostActionsBody({
               tid={post.tid}
               time={post.time}
               likeCount={likeCount}
-              initialLiked={
-                likes?.likes.some((person) => person.uin === selfUin)
-                  ? true
-                  : likes?.coverage === 'complete'
-                    ? false
-                    : null
-              }
+              initialLiked={qzoneSelfLiked(likes, selfUin)}
               likeRevision={likeRevision}
               onLikeChange={(change) => {
                 summaryGeneration.current++;
@@ -1807,7 +1859,15 @@ function PostActionsBody({
           <MessageCircle size={16} />
           评论 {commentCount ?? '?'}
         </button>
-        <QzoneForwardAction onClick={() => setForwardOpen(true)} />
+        <QzoneForwardAction
+          key={`${selfUin}:${hostUin}:${post.tid}:${refresh}`}
+          onClick={() => setForwardOpen(true)}
+          target={{ selfUin, hostUin, tid: post.tid }}
+          autoRead={visible}
+          onSpace={onSpace}
+          paused={readsPaused}
+          renderContent={(content) => <QzoneText content={content} onSpace={onSpace} />}
+        />
         <span title={likeError || '浏览量（非去重访客数）'}>
           <Eye size={16} />
           浏览量 {likes?.reportedViewCount ?? '?'}
@@ -1845,11 +1905,22 @@ function PostActionsBody({
           onCommentCount={setCommentCount}
           focusComment={focusComment}
           readComments={writeRevision > 0 ? undefined : readComments}
+          confirmedComments={
+            commentReadback?.revision === writeRevision && commentReadback.refresh === refresh
+              ? commentReadback.page
+              : undefined
+          }
           writeRevision={writeRevision}
           writePending={likePending}
           renderReply={(comment) => (replyTarget?.id === comment.id ? composer : null)}
-          onReply={(comment) => {
-            setReplyTarget({ id: comment.id, nickname: comment.nickname || comment.uin });
+          onReply={(comment, root) => {
+            setReplyTarget({
+              id: comment.id,
+              uin: comment.uin,
+              nickname: comment.nickname || comment.uin,
+              rootId: root.id,
+              rootUin: root.uin,
+            });
             requestAnimationFrame(() => {
               const input = ref.current?.querySelector<HTMLInputElement>('[aria-label="说说回复"]');
               input?.focus();
@@ -1859,32 +1930,47 @@ function PostActionsBody({
         />
       ) : null}
       {forwardOpen ? (
-        <QzoneForwardDialog
+        <QzonePostForwardDialog
+          selfUin={selfUin}
+          hostUin={hostUin}
+          tid={post.tid}
           previousContent={post.content ?? ''}
           onClose={() => setForwardOpen(false)}
         >
-          <strong>
+          <QzonePersonHeader
+            uin={hostUin}
+            nickname={hostUin}
+            size={34}
+            onSpace={onSpace}
+            time={post.time > 0 ? <time>{timeText(post.time)}</time> : null}
+          >
             <QzoneName content={hostUin} uin={hostUin} />
-          </strong>
+          </QzonePersonHeader>
           <p className="weq-qzn-content">
             <QzoneText content={post.content ?? ''} onSpace={onSpace} />
           </p>
           <QzoneMediaGrid images={post.images ?? []} videos={post.videos ?? []} />
           {post.repost ? (
             <section className="weq-qzn-repost">
-              <strong>
+              <QzonePersonHeader
+                uin={/^[1-9]\d{4,19}$/.test(post.repost.uin) ? post.repost.uin : null}
+                nickname={post.repost.nickname || post.repost.uin || '原作者'}
+                size={26}
+                onSpace={onSpace}
+                time={post.repost.timeLabel ? <time>{post.repost.timeLabel}</time> : null}
+              >
                 <QzoneName
                   content={post.repost.nickname || post.repost.uin}
                   uin={post.repost.uin}
                 />
-              </strong>
+              </QzonePersonHeader>
               <p className="weq-qzn-content">
                 <QzoneText content={post.repost.content} onSpace={onSpace} />
               </p>
               <QzoneMediaGrid images={post.repost.images} videos={post.repost.videos} />
             </section>
           ) : null}
-        </QzoneForwardDialog>
+        </QzonePostForwardDialog>
       ) : null}
     </div>
   );
@@ -2038,6 +2124,7 @@ function Interaction({
   onCommentCount,
   focusComment,
   readComments,
+  confirmedComments,
   writeRevision = 0,
   writePending = false,
   onReply,
@@ -2052,9 +2139,13 @@ function Interaction({
   onCommentCount: (count: number) => void;
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  confirmedComments?: QzoneInteraction;
   writeRevision?: number;
   writePending?: boolean;
-  onReply?: (comment: QzoneInteraction['comments'][number]) => void;
+  onReply?: (
+    comment: QzoneInteraction['comments'][number],
+    root: QzoneInteraction['comments'][number],
+  ) => void;
   renderReply?: (comment: QzoneInteraction['comments'][number]) => ReactNode;
 }) {
   const focusRef = useRef<HTMLDivElement>(null);
@@ -2085,10 +2176,51 @@ function Interaction({
     setLoading(true);
     const applyComments = (page: QzoneInteraction) => {
       if (!live) return;
-      setResult(page);
+      // 确认读回比信息流缓存更新；后续补图不能让刚确认的评论消失。
+      const comments = [...page.comments];
+      for (const confirmed of confirmedComments?.comments ?? []) {
+        const index = comments.findIndex(
+          (entry) =>
+            entry.uin === confirmed.uin &&
+            entry.isReply === confirmed.isReply &&
+            (entry.id === confirmed.id ||
+              (confirmed.isReply &&
+                confirmed.replyId !== undefined &&
+                entry.replyId === confirmed.replyId &&
+                entry.parentCommentId === confirmed.parentCommentId)),
+        );
+        if (index < 0) comments.push(confirmed);
+        else
+          comments[index] = { ...comments[index], ...confirmed, images: comments[index]!.images };
+      }
+      setResult((previous) => ({
+        ...page,
+        commentCountInclusive:
+          confirmedComments?.commentCountInclusive != null
+            ? Math.max(page.commentCountInclusive ?? 0, confirmedComments.commentCountInclusive)
+            : page.commentCountInclusive,
+        comments: comments.map((comment) => {
+          if (comment.images.length) return comment;
+          const observed = previous?.comments.find(
+            (entry) =>
+              entry.uin === comment.uin &&
+              entry.isReply === comment.isReply &&
+              (entry.id === comment.id ||
+                (comment.isReply &&
+                  comment.replyId !== undefined &&
+                  entry.replyId === comment.replyId &&
+                  entry.parentCommentId === comment.parentCommentId)) &&
+              qzoneReplyPresentation(entry).content === qzoneReplyPresentation(comment).content,
+          );
+          return observed?.images.length ? { ...comment, images: observed.images } : comment;
+        }),
+      }));
       if (page.fieldCoverage?.comments === 'complete')
-        onCommentCount(page.comments.filter((comment) => !comment.isReply).length);
+        onCommentCount(comments.filter((comment) => !comment.isReply).length);
     };
+    if (mode === 'comments' && confirmedComments && retry === 0) {
+      applyComments(confirmedComments);
+    }
     void (
       mode === 'comments' && readComments
         ? readComments().then(applyComments)
@@ -2171,6 +2303,7 @@ function Interaction({
     readyLikes,
     onCommentCount,
     readComments,
+    confirmedComments,
     writeRevision,
     writePending,
   ]);
@@ -2195,10 +2328,14 @@ function Interaction({
         <div className="weq-qzn-like-users">
           {likes.likes.map((like) => (
             <span key={like.uin} title={like.nickname || like.uin}>
-              <QzoneProfileAvatar uin={like.uin} nickname={like.nickname} size={20} />
-              <QzonePersonButton uin={like.uin} nickname={like.nickname} onSpace={onSpace}>
+              <QzonePersonIdentity
+                uin={like.uin}
+                nickname={like.nickname}
+                onSpace={onSpace}
+                size={20}
+              >
                 <QzoneName content={like.nickname || like.uin} uin={like.uin} preferNickname />
-              </QzonePersonButton>
+              </QzonePersonIdentity>
             </span>
           ))}
         </div>
@@ -2220,6 +2357,9 @@ function Interaction({
   );
   const focusedComment = focusComment ? relatedCommentTarget(focusComment, result!.comments) : null;
   const renderComment = (source: QzoneInteraction['comments'][number]) => {
+    const root = source.isReply
+      ? roots.find((entry) => entry.id === source.parentCommentId)
+      : source;
     const comment = qzoneReplyPresentation(
       source,
       roots.find((root) => root.id === source.parentCommentId)?.uin,
@@ -2231,55 +2371,52 @@ function Interaction({
         key={comment.id}
       >
         <QzoneProfileAvatar
-          className="weq-qzn-person"
+          size={26}
           uin={comment.uin}
           nickname={comment.nickname}
-          size={26}
+          onSpace={onSpace}
         />
         <div>
-          <QzonePersonButton
-            className="weq-qzn-person"
-            uin={comment.uin}
-            nickname={comment.nickname}
-            onSpace={onSpace}
-          >
-            <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
-          </QzonePersonButton>
-          {comment.isReply ? (
-            <span>
-              {' '}
-              回复{' '}
-              {comment.replyToUin ? (
-                <QzonePersonButton
-                  className="weq-qzn-person"
-                  uin={comment.replyToUin}
-                  nickname={comment.replyToNickname}
-                  onSpace={onSpace}
-                >
-                  <QzoneName
-                    content={comment.replyToNickname || comment.replyToUin}
+          <div className="weq-qzn-comment-line">
+            <QzonePersonButton uin={comment.uin} nickname={comment.nickname} onSpace={onSpace}>
+              <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
+            </QzonePersonButton>
+            {comment.isReply ? (
+              <span>
+                {' '}
+                回复{' '}
+                {comment.replyToUin ? (
+                  <QzonePersonButton
                     uin={comment.replyToUin}
-                  />
-                </QzonePersonButton>
-              ) : (
-                <QzoneName content={comment.replyToNickname || ''} uin={comment.replyToUin} />
-              )}
-              ：
-            </span>
-          ) : null}
-          {comment.isReply ? (
-            <span className="weq-qzn-reply-message">
-              <QzoneText content={comment.content} onSpace={onSpace} />
-            </span>
-          ) : (
+                    nickname={comment.replyToNickname}
+                    onSpace={onSpace}
+                  >
+                    <QzoneName
+                      content={comment.replyToNickname || comment.replyToUin}
+                      uin={comment.replyToUin}
+                    />
+                  </QzonePersonButton>
+                ) : (
+                  <QzoneName content={comment.replyToNickname || ''} uin={comment.replyToUin} />
+                )}
+                ：
+              </span>
+            ) : null}
+            {comment.isReply ? (
+              <span className="weq-qzn-reply-message">
+                <QzoneText content={comment.content} onSpace={onSpace} />
+              </span>
+            ) : null}
+          </div>
+          {!comment.isReply ? (
             <p>
               <QzoneText content={comment.content} onSpace={onSpace} />
             </p>
-          )}
+          ) : null}
           <Pictures images={comment.images} />
           <div className="weq-qzn-comment-meta">
             <time>{timeText(comment.time)}</time>
-            <button type="button" onClick={() => onReply?.(source)}>
+            <button type="button" disabled={!root} onClick={() => root && onReply?.(source, root)}>
               回复
             </button>
           </div>
@@ -2303,7 +2440,10 @@ function Interaction({
       {focusComment && !focusedComment ? (
         <div ref={focusRef} className="weq-qzn-comment is-notification-target">
           <div>
-            <p className="weq-qzn-status">通知中的评论 · 未在本次评论列表中找到</p>
+            <p className="weq-qzn-status">
+              {focusComment.source === 'search' ? '搜索中的评论' : '通知中的评论'} ·
+              未在本次评论列表中找到
+            </p>
             <QzoneText content={focusComment.content} onSpace={onSpace} />
             <Pictures images={focusComment.images} />
           </div>
@@ -2791,8 +2931,47 @@ function FeedTimeline({
     [kind, feeds, filter, currentProjector],
   );
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
+  const feedReferences = useMemo(
+    () =>
+      new Map<string, ContentReference>(
+        (shown ?? []).flatMap(({ feed, body }) => {
+          const tid = body.tid || (/^[a-f0-9]{6,128}$/i.test(feed.key) ? feed.key : null);
+          if (feed.appid !== 311 || !tid) return [];
+          const item: ContentReference = {
+            kind: 'qzone-post',
+            uin: String(feed.uin),
+            tid,
+            name: `${feed.nickname}：${body.text.slice(0, 60)}`,
+          };
+          return [[contentReferenceKey(item), item]];
+        }),
+      ),
+    [shown],
+  );
+  const feedOwner = { kind: 'qzone-posts' as const, container: `feeds:${selfUin}:${kind}` };
+  const feedSelection = useContentMultiSelect(
+    feedOwner,
+    active && kind === 'friends',
+    feedReferences,
+  );
+  const feedMulti = useMultiSelection({
+    ids: [...feedReferences.keys()],
+    selected: feedSelection.selectedIds,
+    onChange: feedSelection.setSelectedIds,
+    enabled: feedSelection.selectionMode,
+    onStart: () => feedSelection.setSelectionMode(true),
+    onExit: () => feedSelection.setSelectionMode(false),
+    anchorRef: feedSelection.anchorRef,
+  });
   return (
-    <div className="weq-qzn-timeline">
+    <div {...feedMulti.rootProps} className="weq-qzn-timeline">
+      {kind === 'friends' && feedReferences.size > 0 && feedSelection.selectionMode ? (
+        <ContentReferenceToolbar
+          owner={feedOwner}
+          selection={feedSelection}
+          loaded={[...feedReferences.keys()]}
+        />
+      ) : null}
       <div className="weq-qzn-section-title">
         <h2>{title}</h2>
         {kind === 'friends' ? (
@@ -2872,7 +3051,7 @@ function FeedTimeline({
               />
             ))}
             {feeds && !loading && !relatedShown?.length ? (
-              <p className="weq-qzn-status">暂无此类互动</p>
+              <EmptyState compact icon={<MessageCircle />} title="暂无此类互动" />
             ) : null}
           </div>
           {unclassified.length ? (
@@ -2909,16 +3088,28 @@ function FeedTimeline({
           retry={() => setRetry((value) => value + 1)}
         />
       ) : null}
-      {shown?.map(({ feed, body }) => (
-        <FeedCard
-          key={`${feed.uin}:${feed.appid}:${feed.key || feed.time}`}
-          feed={feed}
-          body={body}
-          selfUin={selfUin}
-          onSpace={onSpace}
-          lookup={lookupPost}
-        />
-      ))}
+      {shown?.map(({ feed, body }) => {
+        const tid = body.tid || (/^[a-f0-9]{6,128}$/i.test(feed.key) ? feed.key : null);
+        const id = tid
+          ? contentReferenceKey({ kind: 'qzone-post', uin: String(feed.uin), tid })
+          : '';
+        const selectable = feedReferences.has(id);
+        return (
+          <div
+            key={`${feed.uin}:${feed.appid}:${feed.key || feed.time}`}
+            {...(selectable ? feedMulti.itemProps(id) : {})}
+            className={`weq-reference-item${feedSelection.selectedIds.has(id) ? ' is-selected' : ''}`}
+          >
+            <FeedCard
+              feed={feed}
+              body={body}
+              selfUin={selfUin}
+              onSpace={onSpace}
+              lookup={lookupPost}
+            />
+          </div>
+        );
+      })}
       <div ref={moreRef} className="weq-qzn-page-sentinel">
         {feeds && error ? (
           <State
@@ -2952,6 +3143,12 @@ function FeedTimeline({
                 : '加载更多动态'}
               {pageCountLabel}
             </button>
+          ) : !incomplete && kind !== 'related' && !shown?.length ? (
+            <EmptyState
+              icon={<Images />}
+              title={filter !== '0' ? '暂无此类型动态' : '暂时没有可查看的动态'}
+              body={pageCountLabel}
+            />
           ) : (
             <p className="weq-qzn-status">
               {incomplete
@@ -3116,10 +3313,10 @@ function RelatedCard({
       <summary>
         {activity.actorUin ? (
           <QzoneProfileAvatar
-            className="weq-qzn-related-avatar"
+            size={34}
             uin={activity.actorUin}
             nickname={activity.actorName}
-            size={34}
+            onSpace={onSpace}
           />
         ) : (
           <Icon size={24} className="weq-qzn-related-icon" />
@@ -3133,7 +3330,7 @@ function RelatedCard({
                 nickname={activity.actorName}
                 onSpace={onSpace}
               >
-                {activity.actorName || activity.actorUin}
+                <span className="weq-qzn-name">{activity.actorName || activity.actorUin}</span>
               </QzonePersonButton>
             ) : null}
             <span title={relatedActionLine(activity)}>{relatedActionLine(activity)}</span>
@@ -3267,13 +3464,15 @@ function FeedCard({
   return (
     <article ref={ref} className="weq-qzn-post" key={`${feed.uin}:${feed.appid}:${feed.key}`}>
       <div className="weq-qzn-post-head">
-        <QzoneProfileAvatar uin={String(feed.uin)} nickname={feed.nickname} size={34} />
-        <div>
-          <QzonePersonButton uin={String(feed.uin)} nickname={feed.nickname} onSpace={onSpace}>
-            <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
-          </QzonePersonButton>
-          <time>{timeText(feed.time)}</time>
-        </div>
+        <QzonePersonHeader
+          uin={String(feed.uin)}
+          nickname={feed.nickname}
+          onSpace={onSpace}
+          size={34}
+          time={<time>{timeText(feed.time)}</time>}
+        >
+          <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
+        </QzonePersonHeader>
         <span className="weq-qzn-feed-kind">
           {(
             { 311: '说说', 2: '日志', 4: '相册', 202: '分享', 216: '动态' } as Record<

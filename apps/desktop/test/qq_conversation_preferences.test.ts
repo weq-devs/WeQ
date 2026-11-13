@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QQConversationControls } from '../src/renderer/src/components/QQConversationControls';
+import { trpc } from '../src/renderer/src/trpc/client';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 
 const mock = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ const mock = vi.hoisted(() => ({
   readFriendDisturb: null as boolean | null,
   readPinned: false,
   pinned: false,
+  friend: true,
   serverPolicy: 1 as number | null,
   mutate: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   refetch: vi.fn(async () => {}),
@@ -27,6 +29,10 @@ const mock = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/components/qq-actions/GroupActions', () => ({
   GroupActions: () => null,
+}));
+vi.mock('../src/renderer/src/components/qq-actions/QzoneFriendPermissions', () => ({
+  QzoneFriendPermissions: ({ targetUin }: { targetUin: string }) =>
+    h('div', { 'data-space-target': targetUin }, '不让 ta 看我的空间', '不看 ta 的空间'),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (state: { confirm: () => Promise<boolean> }) => unknown) =>
@@ -56,18 +62,18 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({ account: { specialCare: { invalidate: async () => {} } } }),
     account: {
       listCategories: {
-        useQuery: () => ({
+        useQuery: vi.fn(() => ({
           data: [{ id: 5, name: '测试分组' }],
           refetch: async () => {
             await mock.refetchCategories();
             return { error: null };
           },
-        }),
+        })),
       },
       pickSendFile: { useMutation: () => ({ mutateAsync: async () => null }) },
       qqWrite: {
         friendRoster: {
-          useQuery: () => ({
+          useQuery: vi.fn(() => ({
             data: {
               friends: [{ uid: 'u_friend', categoryId: 0 }],
               categories: [{ id: 5, name: '测试分组' }],
@@ -76,13 +82,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               await mock.refetchCloudRoster();
               return { data: { friends: [{ uid: 'u_friend', categoryId: mock.readCategory }] } };
             },
-          }),
+          })),
         },
         friendRemarkState: {
-          useQuery: () => ({
+          useQuery: vi.fn(() => ({
             data: { uid: 'u_peer', remark: '' },
             refetch: async () => ({ data: { uid: 'u_peer', remark: '' } }),
-          }),
+          })),
         },
         friendSpecialCareState: { useQuery: () => ({ data: undefined }) },
         friendSpecialCare: { useMutation: () => ({}) },
@@ -105,7 +111,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             data: {
               notifyLevel: mock.notifyLevel,
               friendDisturb: mock.cachedDisturb,
-              friend: true,
+              friend: mock.friend,
+              friendUin: '10002',
               remark: '',
               pinned: mock.pinned,
               categoryId: 0,
@@ -181,6 +188,7 @@ beforeEach(() => {
   mock.readFriendDisturb = null;
   mock.readPinned = false;
   mock.pinned = false;
+  mock.friend = true;
   mock.serverPolicy = 1;
   mock.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   mock.refetch.mockReset().mockResolvedValue(undefined);
@@ -351,22 +359,22 @@ it.each([
   expect(host.textContent).not.toContain(expected);
 });
 
-it.each([0, 5])('选择已有分组即提交并核对实际读回 %s，不将受理当作同步', async (readCategory) => {
-  mock.readCategory = readCategory;
+it('好友会话不再查询或编辑备注和分组，保留特别关心及独立空间分组', () => {
   const host = fixture('c2c');
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="好友分组"]')!;
-  await act(async () => {
-    select.value = '5';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  expect(host.querySelector('[aria-label="保存好友分组"]')).toBeNull();
-  expect(mock.mutate).toHaveBeenCalledWith({
-    expectedAccountUin: '10001',
-    expectedAccountConfigId: 'source-a',
-    uid: 'u_friend',
-    categoryId: 5,
-  });
-  expect(mock.readbacks).toEqual([readCategory === 5]);
-  expect(mock.refetchCategories).toHaveBeenCalledOnce();
-  expect(mock.refetchCloudRoster).toHaveBeenCalledTimes(2);
+  expect(host.textContent).not.toContain('好友备注');
+  expect(host.textContent).not.toContain('好友分组');
+  expect(host.querySelector('[aria-label="特别关心"]')).not.toBeNull();
+  const space = host.querySelector('[data-space-target="10002"]')!.closest('.weq-set-card')!;
+  expect(space.querySelector('h4')?.textContent ?? space.textContent).toContain('空间');
+  expect(space.querySelector('[aria-label="置顶会话"]')).toBeNull();
+  expect(trpc.account.listCategories.useQuery).not.toHaveBeenCalled();
+  expect(trpc.account.qqWrite.friendRoster.useQuery).not.toHaveBeenCalled();
+  expect(trpc.account.qqWrite.friendRemarkState.useQuery).not.toHaveBeenCalled();
+});
+
+it('非好友不展示好友空间设置', () => {
+  mock.friend = false;
+  const host = fixture('c2c');
+  expect(host.querySelector('[data-space-target]')).toBeNull();
+  expect(host.querySelector<HTMLButtonElement>('[aria-label="特别关心"]')?.disabled).toBe(true);
 });

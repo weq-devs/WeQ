@@ -8,9 +8,11 @@ import {
 import { IntentSuggestionBar } from '../../src/renderer/src/components/intentSense/IntentSuggestionBar';
 import { AffinityPill } from '../../src/renderer/src/components/intentSense/AffinityPill';
 import { IntentProfileDialog } from '../../src/renderer/src/components/intentSense/IntentProfileDialog';
+import { ContactWorkspaceNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
 import {
   setMode,
   setHistory,
+  getHistory,
   result,
   publishResult,
   publishProgress,
@@ -21,11 +23,14 @@ import '../../src/renderer/src/styles/index.css';
 const qa = {
   setMode,
   setHistory,
+  getHistory,
   publishResult,
   publishProgress,
   releaseCache,
   located: null as unknown,
+  portraitOpened: false,
   setMessages: (_ids: string[]) => {},
+  setManualPendingMessages: (_ids: string[]) => {},
   frames: [] as Array<{ id: string; pills: number; height: number; visible: boolean }>,
 };
 Object.assign(window, { intentQa: qa });
@@ -36,9 +41,9 @@ function Bubble({ msgId }: { msgId: string }) {
     const chips = bubble.querySelector<HTMLElement>('.weq-intent-chips')!;
     qa.frames.push({
       id: msgId,
-      pills: chips.querySelectorAll('.weq-intent-pill').length,
+      pills: chips?.querySelectorAll('.weq-intent-pill').length ?? 0,
       height: bubble.getBoundingClientRect().height,
-      visible: getComputedStyle(chips.firstElementChild!).opacity === '1',
+      visible: chips ? getComputedStyle(chips.firstElementChild!).opacity === '1' : false,
     });
   });
   return (
@@ -53,7 +58,11 @@ function Bubble({ msgId }: { msgId: string }) {
 function Fixture() {
   const [draft, setDraft] = useState('');
   const [ids, setIds] = useState(['message']);
+  const [manualPendingMessageIds, setManualPendingMessageIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   qa.setMessages = setIds;
+  qa.setManualPendingMessages = (ids) => setManualPendingMessageIds(new Set(ids));
   return (
     <>
       <style>{`
@@ -76,13 +85,23 @@ function Fixture() {
         <section className="chat-pane">
           <header className="chat-header">
             <span>合成会话</span>
-            <AffinityPill peerUid="fixture" />
+            <ContactWorkspaceNavigationContext.Provider
+              value={() => {
+                qa.portraitOpened = true;
+              }}
+            >
+              <AffinityPill peerUid="fixture" />
+            </ContactWorkspaceNavigationContext.Provider>
           </header>
           <IntentSenseProvider
             kind="c2c"
             conv="fixture"
             latestPeerMsgId={ids.at(-1)!}
             roamingMessageKey={ids.filter((id) => id.startsWith('roaming:')).join('|')}
+            manualPendingMessageIds={manualPendingMessageIds}
+            manualSingleMessageId={
+              manualPendingMessageIds.size === 1 ? [...manualPendingMessageIds][0] : undefined
+            }
           >
             <div className="message-scroll">
               {ids.map((msgId) => (

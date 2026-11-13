@@ -15,12 +15,11 @@
  *   - testSsePushServer    发一条 ping 事件探测连通性
  */
 
-import { useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
+import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { z } from 'zod';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
-import { pageValue } from '../../lib/pageSnapshots';
+import { usePageState } from '../PageSnapshots';
+import { useNumericSettingDraft } from './useNumericSettingDraft';
 import {
-  Check,
   ChevronRight,
   Eye,
   EyeOff,
@@ -37,6 +36,7 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
+import { AutoSave } from './AutoSave';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
@@ -91,49 +91,20 @@ export function SsePushSection(): ReactElement {
   const [draftId, setDraftId] = useState(() => crypto.randomUUID());
   const testKey = connectionTestKey('sse', form?.id || draftId);
   const testing = useConnectionTestTasks((state) => state.running.has(testKey));
-  const [debounceDraft, setDebounceDraft] = usePageState(
-    'sse:debounce',
-    '2000',
-    pageValue.string,
-    true,
-  );
-  const [thresholdDraft, setThresholdDraft] = usePageState(
-    'sse:threshold',
-    '50',
-    pageValue.string,
-    true,
-  );
-  const previousDebounce = useRef('2000');
-  const previousThreshold = useRef('50');
-
   const sse = settings.data?.ssePush;
-  usePageDraftConfirmation(
+  const [debounceDraft, setDebounceDraft] = useNumericSettingDraft(
     'sse:debounce',
-    sse?.debounceMs == null ? undefined : String(sse.debounceMs),
+    sse?.debounceMs,
+    2000,
   );
-  usePageDraftConfirmation(
+  const [thresholdDraft, setThresholdDraft] = useNumericSettingDraft(
     'sse:threshold',
-    sse?.massThreshold == null ? undefined : String(sse.massThreshold),
+    sse?.massThreshold,
+    50,
   );
   const servers = sse?.servers ?? [];
   const enabledServerId = sse?.enabledServerId ?? null;
   const busy = saveServer.isLoading || deleteServer.isLoading || setEnabled.isLoading;
-
-  // 普通重读不清空草稿，只同步发生变化的服务端数值。
-  useEffect(() => {
-    if (sse?.debounceMs == null) return;
-    const previous = previousDebounce.current;
-    const next = String(sse.debounceMs);
-    setDebounceDraft((draft) => (draft === previous ? next : draft));
-    previousDebounce.current = next;
-  }, [sse?.debounceMs, setDebounceDraft]);
-  useEffect(() => {
-    if (sse?.massThreshold == null) return;
-    const previous = previousThreshold.current;
-    const next = String(sse.massThreshold);
-    setThresholdDraft((draft) => (draft === previous ? next : draft));
-    previousThreshold.current = next;
-  }, [sse?.massThreshold, setThresholdDraft]);
 
   async function refetch(): Promise<void> {
     await settings.refetch();
@@ -206,26 +177,6 @@ export function SsePushSection(): ReactElement {
     }
   }
 
-  async function onSaveTuning(): Promise<void> {
-    const debounceMs = Number(debounceDraft);
-    const massThreshold = Number(thresholdDraft);
-    if (!Number.isFinite(debounceMs) || debounceMs < 100 || debounceMs > 60000) {
-      showError('防抖值无效', '防抖毫秒需在 100 – 60000 之间。');
-      return;
-    }
-    if (!Number.isFinite(massThreshold) || massThreshold < 1 || massThreshold > 10000) {
-      showError('阈值无效', '大量消息阈值需在 1 – 10000 之间。');
-      return;
-    }
-    try {
-      await setTuning.mutateAsync({ debounceMs, massThreshold });
-      await refetch();
-      pushToast({ tone: 'success', title: '推送调优已保存' });
-    } catch (err) {
-      showError('保存失败', errMsg(err));
-    }
-  }
-
   function onTest(): void {
     const pushUrl = form?.pushUrl.trim() ?? '';
     if (!pushUrl) {
@@ -251,6 +202,7 @@ export function SsePushSection(): ReactElement {
       <SectionHeader
         icon={<Radio size={18} strokeWidth={1.8} />}
         title="SSE 推送"
+        badge="自动保存"
         desc="把 QQ 新消息实时推送到你指定的地址（HTTP POST，可选 Bearer access_token）。监听实现与 tools:db-watch-listen 一致：防抖合并 + seq 跳变阈值，QQ 刚启动大量写表时只推一条 mass 事件预览最新一条。"
       />
 
@@ -435,61 +387,71 @@ export function SsePushSection(): ReactElement {
       </Card>
 
       <Card title="推送调优" icon={<SlidersHorizontal size={15} strokeWidth={1.8} />}>
-        <Row
-          label="防抖毫秒"
-          desc="收到新消息后等待这段空闲时间再合并推送，QQ 连续写表时能大幅减少推送次数。"
-          control={
-            <div className="weq-set-btn-group">
-              <input
-                className="weq-set-input weq-set-input-sm weq-number"
-                value={debounceDraft}
-                inputMode="numeric"
-                spellCheck={false}
-                disabled={setTuning.isLoading}
-                onChange={(e) => setDebounceDraft(e.target.value.replace(/[^0-9]/g, ''))}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void onSaveTuning();
-                }}
-                aria-label="防抖毫秒"
-              />
-            </div>
+        <AutoSave
+          value={{
+            debounceDraft: debounceDraft.trim() ? String(Number(debounceDraft)) : '',
+            thresholdDraft: thresholdDraft.trim() ? String(Number(thresholdDraft)) : '',
+          }}
+          saved={{
+            debounceDraft: String(sse?.debounceMs ?? 2000),
+            thresholdDraft: String(sse?.massThreshold ?? 50),
+          }}
+          ready={!!sse}
+          valid={
+            Number.isInteger(Number(debounceDraft)) &&
+            Number(debounceDraft) >= 100 &&
+            Number(debounceDraft) <= 60000 &&
+            Number.isInteger(Number(thresholdDraft)) &&
+            Number(thresholdDraft) >= 1 &&
+            Number(thresholdDraft) <= 10000
           }
-        />
-        <Row
-          label="大量消息阈值"
-          desc="某个会话的 seq 一次跳变超过该值时（如 2000 → 4000，典型是 QQ 刚启动写表），合并成一条 mass 事件并预览最新一条，不再逐条推送。"
-          control={
-            <div className="weq-set-btn-group">
-              <input
-                className="weq-set-input weq-set-input-sm weq-number"
-                value={thresholdDraft}
-                inputMode="numeric"
-                spellCheck={false}
-                disabled={setTuning.isLoading}
-                onChange={(e) => setThresholdDraft(e.target.value.replace(/[^0-9]/g, ''))}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void onSaveTuning();
-                }}
-                aria-label="大量消息阈值"
-              />
-            </div>
-          }
-        />
-        <div className="weq-set-server-form-actions">
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-sm"
-            disabled={setTuning.isLoading || !sse}
-            onClick={() => void onSaveTuning()}
-          >
-            {setTuning.isLoading ? (
-              <Loader2 size={13} className="weq-set-spin" />
-            ) : (
-              <Check size={13} />
-            )}
-            保存调优
-          </button>
-        </div>
+          reset={() => {
+            setDebounceDraft(String(sse?.debounceMs ?? 2000));
+            setThresholdDraft(String(sse?.massThreshold ?? 50));
+          }}
+          save={async (draft) => {
+            await setTuning.mutateAsync({
+              debounceMs: Number(draft.debounceDraft),
+              massThreshold: Number(draft.thresholdDraft),
+            });
+            await refetch();
+          }}
+        >
+          <Row
+            label="防抖毫秒"
+            desc="收到新消息后等待这段空闲时间再合并推送，QQ 连续写表时能大幅减少推送次数。"
+            control={
+              <div className="weq-set-btn-group">
+                <input
+                  className="weq-set-input weq-set-input-sm weq-number"
+                  value={debounceDraft}
+                  inputMode="numeric"
+                  spellCheck={false}
+                  disabled={!sse}
+                  onChange={(e) => setDebounceDraft(e.target.value.replace(/[^0-9]/g, ''))}
+                  aria-label="防抖毫秒"
+                />
+              </div>
+            }
+          />
+          <Row
+            label="大量消息阈值"
+            desc="某个会话的 seq 一次跳变超过该值时（如 2000 → 4000，典型是 QQ 刚启动写表），合并成一条 mass 事件并预览最新一条，不再逐条推送。"
+            control={
+              <div className="weq-set-btn-group">
+                <input
+                  className="weq-set-input weq-set-input-sm weq-number"
+                  value={thresholdDraft}
+                  inputMode="numeric"
+                  spellCheck={false}
+                  disabled={!sse}
+                  onChange={(e) => setThresholdDraft(e.target.value.replace(/[^0-9]/g, ''))}
+                  aria-label="大量消息阈值"
+                />
+              </div>
+            }
+          />
+        </AutoSave>
       </Card>
 
       <p className="weq-set-note">

@@ -134,19 +134,46 @@ it('按实际内容区切换阅读布局，滚轮和键盘留给正文滚动；�
   try {
     await act(async () =>
       root.render(
-        createElement(AnnualReportStage, { index: 0, count: 2, onIndexChange: move }, '正文'),
+        createElement(
+          AnnualReportStage,
+          { index: 0, count: 2, onIndexChange: move },
+          // 真实报告页是可滚动的 .weq-report-slide；给一个能滚的，才能验证
+          // 「滚动优先、到边再翻页」这条契约，而不是把文字直接挂在舞台上。
+          createElement(
+            'div',
+            { className: 'weq-report-slide is-active', style: { overflowY: 'auto' } },
+            createElement('p', null, '正文'),
+          ),
+        ),
       ),
     );
     const stage = host.querySelector<HTMLElement>('.weq-report-stage-host')!;
+    const slide = host.querySelector<HTMLElement>('.weq-report-slide')!;
+    Object.defineProperties(slide, { scrollHeight: { value: 1000 }, clientHeight: { value: 400 } });
+    slide.scrollTop = 0;
     expect(stage.dataset.layout).toBe('reading');
     expect(host.querySelector<HTMLElement>('.weq-report-stage')!.style.transform).toBe('');
+    // 内容还能往下滚：滚轮交给正文原生滚动（不 preventDefault、不翻页），
+    // 键盘继续由舞台代为滚动（要 preventDefault，但不翻页）。
     const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 150 });
-    act(() => stage.dispatchEvent(wheel));
+    act(() => slide.querySelector('p')!.dispatchEvent(wheel));
     const key = new KeyboardEvent('keydown', { key: 'PageDown', cancelable: true });
     act(() => window.dispatchEvent(key));
     expect(wheel.defaultPrevented).toBe(false);
-    expect(key.defaultPrevented).toBe(false);
+    expect(key.defaultPrevented).toBe(true);
+    expect(slide.scrollTop).toBeGreaterThan(0);
     expect(move).not.toHaveBeenCalled();
+    // 滚到底之后，下一次明确手势才翻页（滚轮的「同一甩」锁存要等手势结束）。
+    slide.scrollTop = slide.scrollHeight;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+    const edgeWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 150 });
+    act(() => slide.querySelector('p')!.dispatchEvent(edgeWheel));
+    expect(edgeWheel.defaultPrevented).toBe(true);
+    expect(move).toHaveBeenCalledWith(1);
+    move.mockClear();
+    // 扩宽回到演示布局：键盘翻页恢复。
     rect.mockReturnValue(new DOMRect(0, 0, 1000, 700));
     act(resize);
     expect(stage.dataset.layout).toBe('presentation');

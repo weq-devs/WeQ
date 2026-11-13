@@ -12,6 +12,7 @@
  */
 
 import { router } from './trpc';
+import { clientStateRouter } from './routers/client_state';
 import { bootstrapRouter } from './routers/bootstrap';
 import { accountRouter } from './routers/account';
 import { updateRouter } from './routers/update';
@@ -27,8 +28,15 @@ import { callRouter } from './routers/call';
 import { udpCaptureRouter } from './routers/udp_capture';
 import { backgroundTasksRouter } from './routers/background_tasks';
 import { startupRouter } from './routers/startup';
+import { settingsResetRouter } from './routers/settings_reset';
+import { sharedSettingsRouter } from './routers/shared_settings';
+import { performanceMonitorRouter } from './routers/performance_monitor';
 
 export const appRouter = router({
+  settings: sharedSettingsRouter,
+  clientState: clientStateRouter,
+  performanceMonitor: performanceMonitorRouter,
+  settingsReset: settingsResetRouter,
   startup: startupRouter,
   backgroundTasks: backgroundTasksRouter,
   exportViewer: exportViewerRouter,

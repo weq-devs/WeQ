@@ -1,5 +1,7 @@
+import * as timeFormat from '@weq/time';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
+import { resolveAvatar } from './avatarResolver';
 
 export interface GroupBulletinImage {
   id: string;
@@ -22,6 +24,7 @@ export interface GroupNoticeEntry {
   key: string;
   noticeId?: string;
   publisherUid: string;
+  publisherUin?: string;
   publisherName?: string;
   publisherAvatar?: string;
   text: string;
@@ -30,20 +33,10 @@ export interface GroupNoticeEntry {
   readNum?: number;
 }
 function localDate(value: string): string {
-  // 无时区的本地格式保留原日期，不猜成 UTC 再做时区平移。
-  const local = /^(\d{4})-(\d{2})-(\d{2})(?:[ T]|$)/.exec(value);
-  if (local && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)) return `${local[1]}/${local[2]}/${local[3]}`;
-  const time = Date.parse(value);
-  return Number.isFinite(time) && time > 0 ? dateText(time) : '';
+  return timeFormat.formatDateTime(value);
 }
 function dateText(time: number): string {
-  if (!Number.isFinite(time) || time <= 0 || time > 8.64e15) return '';
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(time));
+  return Number.isFinite(time) && time > 0 ? timeFormat.formatDateTime(time) : '';
 }
 export function decodeGroupBulletinText(text: string): string {
   const textarea = document.createElement('textarea');
@@ -66,9 +59,10 @@ export function mergeGroupNotices(
       key: item.noticeId ? `notice:${item.noticeId}` : `remote:${index}`,
       noticeId: item.noticeId || undefined,
       publisherUid: original?.publisherUid || String(item.senderId || ''),
+      publisherUin: item.senderId > 0 ? String(item.senderId) : undefined,
       publisherName: original?.publisherName,
       publisherAvatar: original?.publisherAvatar,
-      text: item.text,
+      text: decodeGroupBulletinText(item.text),
       date:
         Number.isFinite(item.publishTime) && item.publishTime > 0
           ? dateText(item.publishTime * 1000)
@@ -94,4 +88,59 @@ export function mergeGroupNotices(
     });
   }
   return rows;
+}
+
+interface NoticeMember {
+  uid: string;
+  uin: string;
+  card: string;
+  nick: string;
+}
+interface NoticeProfile {
+  uid: string;
+  uin: string;
+  nick: string;
+  remark: string;
+  avatarUrl: string;
+}
+export function resolveGroupNoticePublishers(
+  entries: GroupNoticeEntry[],
+  members: NoticeMember[],
+  profiles: NoticeProfile[],
+): GroupNoticeEntry[] {
+  const memberByIdentity = new Map<string, NoticeMember>();
+  const profileByIdentity = new Map<string, NoticeProfile>();
+  for (const member of members) {
+    memberByIdentity.set(member.uid, member);
+    if (member.uin !== '0') memberByIdentity.set(member.uin, member);
+  }
+  for (const profile of profiles) {
+    profileByIdentity.set(profile.uid, profile);
+    if (profile.uin !== '0') profileByIdentity.set(profile.uin, profile);
+  }
+  return entries.map((entry) => {
+    const member =
+      memberByIdentity.get(entry.publisherUid) || memberByIdentity.get(entry.publisherUin || '');
+    const profile =
+      profileByIdentity.get(member?.uid || entry.publisherUid) ||
+      profileByIdentity.get(entry.publisherUin || '');
+    const uin = [member?.uin, profile?.uin, entry.publisherUin, entry.publisherUid].find(
+      (value) => value && /^[1-9]\d{4,19}$/.test(value),
+    );
+    return {
+      ...entry,
+      publisherUin: uin,
+      publisherName:
+        entry.publisherName?.trim() ||
+        profile?.remark?.trim() ||
+        member?.card?.trim() ||
+        member?.nick?.trim() ||
+        profile?.nick?.trim() ||
+        undefined,
+      publisherAvatar:
+        entry.publisherAvatar ||
+        resolveAvatar({ uin, profileAvatarUrl: profile?.avatarUrl, size: 100 }) ||
+        undefined,
+    };
+  });
 }

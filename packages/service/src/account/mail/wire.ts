@@ -10,6 +10,17 @@ export type MailObject = Record<string, unknown>;
 export const MAIL_ORIGIN = 'https://wx.mail.qq.com';
 export const MAIL_PAGE_SIZE = 30;
 export const MAIL_PART_SIZE = 5 * 1024 * 1024;
+export const DEFAULT_MAIL_POLL_INTERVAL_MINUTES = 1;
+export const MAX_MAIL_POLL_INTERVAL_MINUTES = 60;
+
+export function mailPollIntervalMinutes(value: unknown): number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_MAIL_POLL_INTERVAL_MINUTES
+    ? value
+    : DEFAULT_MAIL_POLL_INTERVAL_MINUTES;
+}
 
 export function isMailThreadId(id: string): boolean {
   return id.startsWith('C') && !id.startsWith('CAD');

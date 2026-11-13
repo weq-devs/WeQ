@@ -6,6 +6,7 @@
  * the `weq-media://avatar` protocol, which resolves the file via the same
  * service. Read-only; a cleanup surface will come later.
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -14,7 +15,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

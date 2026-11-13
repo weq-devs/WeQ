@@ -1,7 +1,9 @@
+import { EmptyState } from '../../components/EmptyState';
 import { useId, useRef, useState } from 'react';
-import { Search, UserPlus, X } from 'lucide-react';
+import { Search, UserPlus, X, SearchX, UsersRound } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
+import { LoadingIndicator } from '../../components/LoadingIndicator';
 import type { GroupPersonaOption } from './NewGroupModal';
 import '../../styles/clone-group-members.css';
 
@@ -104,13 +106,20 @@ export function AddGroupMembersModal({
       </label>
       <div className="weq-clone-add-list" aria-label="选择群成员">
         {loading ? (
-          <p role="status">正在加载成员…</p>
+          <p role="status">
+            <LoadingIndicator>正在加载成员…</LoadingIndicator>
+          </p>
         ) : loadError ? (
           <p role="alert">{loadError}</p>
         ) : personas.length === 0 ? (
-          <p>还没有克隆体，请先创建好友克隆。</p>
+          <EmptyState
+            compact
+            icon={<UsersRound />}
+            title="还没有克隆体"
+            body="请先创建好友克隆。"
+          />
         ) : visible.length === 0 ? (
-          <p>没有匹配的克隆体。</p>
+          <EmptyState compact icon={<SearchX />} title="没有匹配的克隆体。" />
         ) : (
           visible.map((persona) => {
             const existing = locked.has(persona.id);

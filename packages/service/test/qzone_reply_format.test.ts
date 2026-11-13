@@ -116,6 +116,17 @@ describe('structured Qzone reply format', () => {
         .content,
     ).toBe('@{uin:10003,nick:其他用户} 看看');
   });
+  it('读取带 auto 标记的楼中楼目标，保留其与根作者的区别', () => {
+    expect(qzoneReplyBody('@{uin:10003,nick:目标%2C昵称,who:1,auto:1}正文', '10002')).toEqual({
+      content: '正文',
+      recipient: '10003',
+      recipientNickname: '目标,昵称',
+    });
+    expect(qzoneReplyBody('@{uin:10002,nick:根作者,who:1,auto:1}正文', '10002')).toEqual({
+      content: '正文',
+      recipient: '10002',
+    });
+  });
   it('keeps raw reply identity and reply relationship separate from text', () => {
     const prefix = '@{uin:10001,nick:测试用户,who:1} ';
     const result = parseQzoneCommentPage(

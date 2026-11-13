@@ -49,42 +49,45 @@ const targets: GeneratedContentTarget[] = [
   { kind: 'group', ownerId: 'group-fixture', sessionId: null },
   { kind: 'assistant', ownerId: 'assistant', sessionId: 's' },
 ];
-it('生成对话增量复用正式 JSONL 与确认快照，不重新读取模型或追加重复正文', async () => {
-  const f = fixture();
-  const root = mkdtempSync(join(tmpdir(), 'weq-generated-update-'));
-  roots.push(root);
-  const manager = new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root));
-  const snapshot = captureGeneratedContent(f.sources, {
-    kind: 'assistant',
-    ownerId: 'assistant',
-    sessionId: 's',
-  });
-  const id = await manager.startTask({
-    kind: 'c2c',
-    conv: 'generated',
-    name: '合成生成对话',
-    format: 'jsonl',
-    total: 3,
-    generated: snapshot,
-  });
-  await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
-  const saved = manager.getTask(id)!.save!.path!;
-  const path = join(saved, '合成生成对话.jsonl');
-  const prefix = readFileSync(path, 'utf8');
-  f.get.mockClear();
-  f.messages.length = 0;
-  expect(manager.resumeTask(id, true)).toBe(true);
-  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
-  expect(manager.getTask(id)?.error).toBeUndefined();
-  expect(manager.getTask(id)?.filePath).toBe(path);
-  expect(readFileSync(path, 'utf8').startsWith(prefix)).toBe(true);
-  const { readArchiveFile } = await import('../src/account/export/archive');
-  const { archive } = await readArchiveFile(path, 'jsonl');
-  expect(archive.records).toHaveLength(3);
-  expect(archive.observations).toHaveLength(6);
-  expect(f.get).not.toHaveBeenCalled();
-});
-it('表格区分 null 旧版身份与名称恰为 legacy 的真实会话', async () => {
+it.each(['jsonl', 'jsonl.gz'] as const)(
+  '生成对话增量复用正式 %s 与确认快照，不重新读取模型或追加重复正文',
+  async (format) => {
+    const f = fixture();
+    const root = mkdtempSync(join(tmpdir(), 'weq-generated-update-'));
+    roots.push(root);
+    const manager = new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root));
+    const snapshot = captureGeneratedContent(f.sources, {
+      kind: 'assistant',
+      ownerId: 'assistant',
+      sessionId: 's',
+    });
+    const id = await manager.startTask({
+      kind: 'c2c',
+      conv: 'generated',
+      name: '合成生成对话',
+      format,
+      total: 3,
+      generated: snapshot,
+    });
+    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    const saved = manager.getTask(id)!.save!.path!;
+    const path = join(saved, `合成生成对话.${format}`);
+    const prefix = readFileSync(path);
+    f.get.mockClear();
+    f.messages.length = 0;
+    expect(manager.resumeTask(id, true)).toBe(true);
+    await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+    expect(manager.getTask(id)?.error).toBeUndefined();
+    expect(manager.getTask(id)?.filePath).toBe(path);
+    expect(readFileSync(path).subarray(0, prefix.length)).toEqual(prefix);
+    const { readArchiveFile } = await import('../src/account/export/archive');
+    const { archive } = await readArchiveFile(path, format);
+    expect(archive.records).toHaveLength(3);
+    expect(archive.observations).toHaveLength(6);
+    expect(f.get).not.toHaveBeenCalled();
+  },
+);
+it('表格标识长期对话并保留合并前的会话来源', async () => {
   const f = fixture();
   const root = mkdtempSync(join(tmpdir(), 'weq-generated-identity-'));
   roots.push(root);
@@ -93,12 +96,20 @@ it('表格区分 null 旧版身份与名称恰为 legacy 的真实会话', async
     { kind: 'persona', ownerId: 'persona-fixture', sessionId: null },
     ['m1'],
   );
+  snapshot.messages[0]!.sourceSessionId = 'source-session';
+  snapshot.messages[0]!.sourceSessionTitle = '合并前标题';
+  snapshot.messages[0]!.sourceMessageId = 'original-conflicting-id';
   await writeGeneratedContent(snapshot, 'txt', join(root, 'old.txt'));
   snapshot.target.sessionId = 'legacy';
   await writeGeneratedContent(snapshot, 'txt', join(root, 'session.txt'));
-  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain('会话身份: \n旧版记录: true');
+  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain('会话身份: \n长期对话: true');
+  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain('原会话身份: source-session');
+  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain('原会话标题: 合并前标题');
+  expect(readFileSync(join(root, 'old.txt'), 'utf8')).toContain(
+    '原消息身份: original-conflicting-id',
+  );
   expect(readFileSync(join(root, 'session.txt'), 'utf8')).toContain(
-    '会话身份: legacy\n旧版记录: false',
+    '会话身份: legacy\n长期对话: false',
   );
 });
 it.each(targets)('生成内容 $kind/$sessionId 按对象与会话读取，精确快照不随原件修改', (target) => {
@@ -131,7 +142,23 @@ it('未持久化或删除的身份明确失败，空集合不变成整场对话'
   expect(() => captureGeneratedContent(f.sources, { ...target, ownerId: 'wrong' })).toThrow(
     '不存在',
   );
-  expect(listGeneratedConversations(f.sources)).toHaveLength(5);
+  expect(listGeneratedConversations(f.sources)).toHaveLength(3);
+});
+
+it('空克隆仍只有一行并可创建空的长期对话导出快照', () => {
+  const f = fixture();
+  f.messages.length = 0;
+  const cloneRows = listGeneratedConversations(f.sources).filter((row) => row.kind !== 'assistant');
+  expect(cloneRows).toHaveLength(2);
+  expect(cloneRows.every((row) => row.count === 0 && row.sessionId === null)).toBe(true);
+  const snapshot = captureGeneratedContent(f.sources, {
+    kind: 'persona',
+    ownerId: 'persona-fixture',
+    sessionId: 'old-session',
+  });
+  expect(snapshot.target.sessionId).toBeNull();
+  expect(snapshot.sessionTitle).toBe('长期对话');
+  expect(snapshot.messages).toEqual([]);
 });
 it('实际生成内容任务写多格式、自动保存和恢复快照，不读 QQ 消息或调用模型', async () => {
   const f = fixture();

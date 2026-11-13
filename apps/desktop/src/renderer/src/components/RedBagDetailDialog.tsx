@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { EmptyState } from './EmptyState';
+import * as timeFormat from '@weq/time';
 /**
  * 红包灯箱 —— 三态共用同一张卡片，尺寸固定不跳动：
  *
@@ -28,7 +30,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { Crown, RefreshCw, X } from 'lucide-react';
+import { Crown, RefreshCw, X, Gift } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
@@ -102,10 +104,7 @@ function isExpectedDetailMiss(message: string): boolean {
 }
 
 function formatTime(sec: number): string {
-  if (!sec) return '';
-  const d = new Date(sec * 1000);
-  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return sec > 0 ? timeFormat.formatUnixTime(sec) : '';
 }
 
 // ---- store ----------------------------------------------------------------
@@ -322,6 +321,7 @@ function RedBagDetailDialog({
                         className={`weq-redbag-detail-item${mine ? ' is-mine' : ''}`}
                       >
                         <ProfileAvatar
+                          className="weq-identity-link weq-redbag-claim-person"
                           target={{
                             identity: c.uin,
                             name: mine ? '我' : c.nickname || c.uin,
@@ -329,8 +329,6 @@ function RedBagDetailDialog({
                           }}
                         >
                           <QqAvatar uin={c.uin} size={36} />
-                        </ProfileAvatar>
-                        <div className="weq-redbag-detail-item-main">
                           <span className="weq-redbag-detail-item-name">
                             {mine ? '我' : c.nickname || c.uin}
                             {king ? (
@@ -342,6 +340,8 @@ function RedBagDetailDialog({
                               />
                             ) : null}
                           </span>
+                        </ProfileAvatar>
+                        <div className="weq-redbag-detail-item-main">
                           <span className="weq-redbag-detail-item-time">
                             {formatTime(c.claimTime)}
                           </span>
@@ -354,9 +354,7 @@ function RedBagDetailDialog({
                   })}
                 </ul>
               ) : (
-                <div className="weq-redbag-detail-empty">
-                  <span>还没有人领取</span>
-                </div>
+                <EmptyState compact icon={<Gift />} title="还没有人领取" />
               )}
             </div>
           </>

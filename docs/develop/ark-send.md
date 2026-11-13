@@ -92,4 +92,4 @@ appId，`rule type not match appid` 就是「这个 appId 不属于本平台的�
 
 ---
 
-[← 返回开发者入口](./index.md)
+[← 返回开发者入口](index.md)

@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 设置 → 诊断工具 → 「签名器」卡片。
  *
@@ -18,14 +19,7 @@ import '../../styles/signer-status.css';
 
 /** ISO → 「2026-10-16 08:39」本地时间；无效返回 null。 */
 function fmtDateTime(ms: number | null | undefined): string | null {
-  if (!ms) return null;
-  const at = new Date(ms);
-  if (Number.isNaN(at.getTime())) return null;
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return (
-    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ` +
-    `${pad(at.getHours())}:${pad(at.getMinutes())}`
-  );
+  return ms ? timeFormat.formatDateTime(ms) || null : null;
 }
 
 function fmtRva(rva: number | null | undefined): string {

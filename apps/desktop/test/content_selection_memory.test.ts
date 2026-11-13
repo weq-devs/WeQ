@@ -8,9 +8,64 @@ import {
   useCurrentContentSelection,
 } from '../src/renderer/src/state/contentSelection';
 import { useMultiSelection } from '../src/renderer/src/hooks/useMultiSelection';
-import type { ContentOwner } from '../src/shared/content_selection';
+import {
+  contentReferenceKey,
+  type ContentOwner,
+  type ContentReference,
+} from '../src/shared/content_selection';
 
 afterEach(() => vi.unstubAllGlobals());
+it('切换相册保留精确照片引用，退出只清当前工作区且不串账号来源', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function Panel({ album, source }: { album: string; source: string }) {
+    useContentSelectionScope(source);
+    const ref: ContentReference = {
+      kind: 'group-photo',
+      groupCode: '1',
+      albumId: album,
+      mediaKey: 'same-name',
+    };
+    const key = contentReferenceKey(ref);
+    const selection = useContentMultiSelect(
+      { kind: 'group-albums', container: '1' },
+      true,
+      new Map([[key, ref]]),
+    );
+    return h(
+      'section',
+      null,
+      h(
+        'button',
+        { onClick: () => selection.setSelectedIds((previous) => new Set([...previous, key])) },
+        '选中',
+      ),
+      h('output', null, JSON.stringify(selection.references)),
+    );
+  }
+  const render = (album: string, source = 'account-a') =>
+    act(() => root.render(h(ContentSelectionProvider, null, h(Panel, { album, source }))));
+  try {
+    render('a');
+    act(() => host.querySelector('button')!.click());
+    render('b');
+    act(() => host.querySelector('button')!.click());
+    expect(
+      JSON.parse(host.querySelector('output')!.textContent!).map(
+        (item: { albumId: string }) => item.albumId,
+      ),
+    ).toEqual(['a', 'b']);
+    render('a');
+    expect(JSON.parse(host.querySelector('output')!.textContent!)).toHaveLength(2);
+    render('a', 'account-b');
+    expect(JSON.parse(host.querySelector('output')!.textContent!)).toEqual([]);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 it('会话和页面分别保留模式、选区和 Shift 锚点，换来源整体清空', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

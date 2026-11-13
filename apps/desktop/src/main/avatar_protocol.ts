@@ -18,6 +18,9 @@
 
 import { getAppContext } from './context/app_context';
 import { imagePreview } from './image_preview';
+import { avatarResponse } from './avatar_response';
+import { networkScope } from '@weq/service/network-scope';
+import { hostDataSaver } from './data_saver';
 
 export const AVATAR_SCHEME = 'weq-avatar';
 
@@ -52,32 +55,27 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
     return new Response('native unavailable', { status: 503 });
   }
   const cache = ctx.bootstrap.avatarCache;
+  const restricted = url.searchParams.get('ds') === '1' || (await hostDataSaver());
+  const get = (ttl?: number) =>
+    networkScope.run(
+      {
+        restricted,
+        intent: url.searchParams.get('intent') === 'interactive' ? 'interactive' : 'prefetch',
+        resource: 'avatar',
+      },
+      () => cache.get(src, 'avatar', ttl),
+    );
 
   try {
     if (url.searchParams.get('preview') === '1') {
-      const data = await imagePreview(async () => (await cache.get(src, 'avatar')).data);
-      return new Response(new Uint8Array(data), {
-        headers: { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=300' },
-      });
+      const data = await imagePreview(async () => (await get()).data);
+      return avatarResponse({ data, contentType: 'image/webp' }, request);
     }
-    const blob = await ctx.bootstrap.avatarCache.get(
-      src,
-      'avatar',
-      url.searchParams.get('_weq_avatar_remote') === '1' ? 0 : undefined,
-    );
+    const blob = await get(url.searchParams.get('_weq_avatar_remote') === '1' ? 0 : undefined);
     if (blob.data.length === 0) {
       return new Response('avatar empty', { status: 502 });
     }
-    return new Response(new Uint8Array(blob.data), {
-      status: 200,
-      headers: {
-        'Content-Type': blob.contentType,
-        // Let the renderer / Chromium memory-cache it too; the on-disk cache is
-        // authoritative (and applies the TTL), so keep this short — a long
-        // max-age would outlive the disk entry and pin a stale avatar.
-        'Cache-Control': 'public, max-age=300',
-      },
-    });
+    return avatarResponse(blob, request);
   } catch {
     return new Response('avatar fetch failed', { status: 502 });
   }

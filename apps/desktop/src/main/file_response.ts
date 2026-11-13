@@ -15,6 +15,7 @@ import { open, stat } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { Readable } from 'node:stream';
 import { sniffImageExt } from '@weq/service';
+import { matchesIfNoneMatch } from './protocol_response';
 
 const MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -74,7 +75,7 @@ function parseRange(header: string | null, size: number): { start: number; end: 
  * Stream `path` as a `Response`, honoring the request's `Range` header.
  * Returns 404 when the file is missing, 206 for a partial response.
  *
- * `revalidate` opts the file into `Last-Modified` + `Cache-Control: no-cache`,
+ * `revalidate` opts the file into ETag + `Last-Modified` + `Cache-Control: no-cache`,
  * so Chromium re-asks with `If-Modified-Since` and we answer 304 when the file
  * hasn't changed. Use it for paths whose NAME is stable but whose CONTENT is
  * rewritten in place — QQ's `nt_data/avatar` files are keyed by a uid hash, so
@@ -128,12 +129,22 @@ export async function fileResponse(
   // otherwise a sub-second mtime always reads as "newer" and we never 304.
   const lastModified = new Date(Math.floor(mtimeMs / 1000) * 1000);
   const revalidateHeaders = opts.revalidate
-    ? { 'Last-Modified': lastModified.toUTCString(), 'Cache-Control': 'no-cache' }
+    ? {
+        'Last-Modified': lastModified.toUTCString(),
+        'Cache-Control': 'no-cache',
+        ETag: `W/"${size.toString(16)}-${mtimeMs.toString(16)}"`,
+      }
     : undefined;
 
   if (revalidateHeaders && !range) {
+    const tag = request?.headers.get('if-none-match') ?? null;
     const since = Date.parse(request?.headers.get('if-modified-since') ?? '');
-    if (Number.isFinite(since) && lastModified.getTime() <= since) {
+    // ETag 保留亚秒精度；存在时不能再用秒级时间误判同秒内的新头像。
+    if (
+      tag !== null
+        ? matchesIfNoneMatch(tag, revalidateHeaders.ETag)
+        : Number.isFinite(since) && lastModified.getTime() <= since
+    ) {
       return new Response(null, { status: 304, headers: revalidateHeaders });
     }
   }

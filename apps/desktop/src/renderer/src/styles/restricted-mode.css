@@ -119,6 +119,10 @@
   width: 100%;
   min-width: 0;
 }
+.weq-restricted-qq-primary {
+  width: 156px;
+  justify-content: center;
+}
 .weq-restricted-more {
   align-self: center;
   min-width: 0;

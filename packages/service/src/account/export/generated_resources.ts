@@ -3,6 +3,7 @@ import { basename, extname, join } from 'node:path';
 import type { GeneratedContentSnapshot } from '../generated_content';
 import { sanitizeSegment } from '../../common/path_sanitize';
 import { inventoryExportOutput, saveExportOutput } from './save_output';
+import { localizeArtifact, type OfflineArtifactManifest } from './offline_artifact';
 
 export interface GeneratedResourceReference {
   key: string;
@@ -25,11 +26,12 @@ export interface GeneratedResourceCache {
     entry?: string;
     capturedAt: number;
     inventory: Array<[string, string]>;
+    sourcePath?: string;
   };
 }
 export interface GeneratedResourceManifest {
   schema: 'weq-generated-resources/1';
-  /** 仅覆盖持久标记与附件句柄；文件正文保持原样，不隐式抓取 HTML/Markdown 外链。 */
+  /** 旧版范围名保留兼容；生成成果附带静态依赖本地化清单。 */
   scope: 'known-generated-assets';
   integrityEncoding: 'bytes:sha256';
   complete: boolean;
@@ -40,6 +42,7 @@ export interface GeneratedResourceManifest {
       capturedAt?: number;
       files?: Array<{ path: string; integrity: string }>;
       error?: string;
+      offline?: OfflineArtifactManifest;
     }
   >;
 }
@@ -172,6 +175,7 @@ export async function bundleGeneratedResources(options: {
           entry: source.bundleDir ? undefined : `${name}${extname(source.filePath!)}`,
           capturedAt: Date.now(),
           inventory: [...(await inventoryExportOutput(directory, options.signal))],
+          sourcePath: source.filePath,
         };
         options.checkpoint(index);
       }
@@ -189,12 +193,27 @@ export async function bundleGeneratedResources(options: {
         options.signal,
       );
       const relativeRoot = `resources/${basename(directory)}`;
+      const offline =
+        ref.kind === 'artifact' &&
+        (ref.artifactKind === 'html' || ref.artifactKind === 'markdown') &&
+        captured.entry
+          ? await localizeArtifact({
+              entry: join(captured.directory, captured.entry),
+              sourcePath: captured.sourcePath ?? join(captured.directory, captured.entry),
+              outputEntry: join(directory, captured.entry),
+              cacheDirectory: join(options.privateDirectory, `offline-${ref.key}`),
+              signal: options.signal,
+            })
+          : undefined;
+      if (offline && !offline.complete) manifest.complete = false;
+      const publishedInventory = await inventoryExportOutput(directory, options.signal);
       manifest.entries.push({
         ...ref,
         status: 'copied',
         capturedAt: captured.capturedAt,
         path: `${relativeRoot}${captured.entry ? `/${captured.entry}` : ''}`,
-        files: captured.inventory
+        offline,
+        files: [...publishedInventory]
           .filter(([, hash]) => hash !== 'directory')
           .map(([path, integrity]) => ({
             path: `${relativeRoot}/${path.replaceAll('\\', '/')}`,

@@ -5,11 +5,13 @@
  * uin → 形象 URL 的本地缓存多久后重新向 QQ 查询，个性主页共用同一份缓存。
  */
 
-import { useEffect, useState } from 'react';
-import { Save } from 'lucide-react';
+import { useState } from 'react';
+import { useNumericSettingDraft } from './useNumericSettingDraft';
+import { AutoSave } from './AutoSave';
 import { trpc } from '../../trpc/client';
 import { DEFAULT_CHAT_QQ_SHOW_MINUTES } from '../../lib/chatQqShow';
-import { Row, Toggle } from './controls';
+import { Row } from './controls';
+import { SharedDisplayToggle } from './SharedDisplayToggle';
 
 const MAX_MINUTES = 365 * 1440;
 
@@ -19,28 +21,27 @@ export function QqShowSettings() {
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const setShow = trpc.bootstrap.setShowChatQqShow.useMutation();
   const setMinutes = trpc.bootstrap.setQqShowCacheMinutes.useMutation();
   const utils = trpc.useUtils();
   const current = settings.data?.qqShowCacheMinutes ?? DEFAULT_CHAT_QQ_SHOW_MINUTES;
-  const [draft, setDraft] = useState(String(current));
+  const [draft, setDraft] = useNumericSettingDraft(
+    'qqshow:minutes',
+    settings.data?.qqShowCacheMinutes,
+    current,
+  );
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(String(current));
-  }, [current]);
 
   const value = draft.trim() === '' ? Number.NaN : Number(draft);
   const valid = Number.isInteger(value) && value >= 1 && value <= MAX_MINUTES;
 
-  async function applyMinutes() {
-    if (!valid || !settings.data || setMinutes.isLoading) return;
+  async function applyMinutes(text: string | number) {
     setError(null);
     try {
-      await setMinutes.mutateAsync({ minutes: value });
+      await setMinutes.mutateAsync({ minutes: Number(text) });
       await utils.bootstrap.getSettings.invalidate();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
     }
   }
 
@@ -51,19 +52,10 @@ export function QqShowSettings() {
         label="聊天 QQ 秀替换头像"
         desc="用成员的 QQ 秀全身像替换头像与挂件。"
         control={
-          <Toggle
-            checked={settings.data?.showChatQqShow ?? true}
-            disabled={!settings.data || setShow.isLoading}
-            onChange={(enabled) => {
-              setError(null);
-              setShow.mutate(
-                { enabled },
-                {
-                  onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                  onError: (reason) => setError(reason.message),
-                },
-              );
-            }}
+          <SharedDisplayToggle
+            name="showChatQqShow"
+            fallback={settings.data?.showChatQqShow ?? true}
+            disabled={!settings.data}
             label="聊天 QQ 秀替换头像"
           />
         }
@@ -73,37 +65,33 @@ export function QqShowSettings() {
         label="QQ 秀缓存有效期"
         desc="默认 5 分钟，聊天与个性主页共用。"
         control={
-          <form
-            className="weq-image-cache-setting"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void applyMinutes();
-            }}
+          <AutoSave
+            resetKeys={['qqShowCacheMinutes']}
+            value={draft.trim() ? Number(draft) : ''}
+            saved={current}
+            ready={!!settings.data}
+            valid={valid}
+            save={applyMinutes}
+            reset={() => setDraft(String(current))}
           >
-            <input
-              type="number"
-              min={1}
-              max={MAX_MINUTES}
-              step={1}
-              value={draft}
-              aria-label="QQ 秀缓存有效期（分钟）"
-              aria-invalid={!valid}
-              disabled={!settings.data || setMinutes.isLoading}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setError(null);
-              }}
-            />
-            <span>分钟</span>
-            <button
-              type="submit"
-              title="保存 QQ 秀缓存有效期"
-              aria-label="保存 QQ 秀缓存有效期"
-              disabled={!settings.data || setMinutes.isLoading || !valid || value === current}
-            >
-              <Save size={16} aria-hidden />
-            </button>
-          </form>
+            <div className="weq-image-cache-setting">
+              <input
+                type="number"
+                min={1}
+                max={MAX_MINUTES}
+                step={1}
+                value={draft}
+                aria-label="QQ 秀缓存有效期（分钟）"
+                aria-invalid={!valid}
+                disabled={!settings.data}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setError(null);
+                }}
+              />
+              <span>分钟</span>
+            </div>
+          </AutoSave>
         }
       />
       {error ? <p role="alert">{error}</p> : null}

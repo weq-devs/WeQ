@@ -55,6 +55,13 @@ function fixture(stable = false) {
     state: 'uploaded',
     size: 10,
   }));
+  for (const target of ['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'])
+    for (const kind of target === 'darwin-x64' ? ['sherpa'] : ['onnx', 'sherpa'])
+      assets.push({
+        name: `${kind}-fixture-${target}-0123456789abcdef.tar.gz`,
+        state: 'uploaded',
+        size: 10,
+      });
   return { plan, release, needs, assets };
 }
 

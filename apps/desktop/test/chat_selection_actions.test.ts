@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { ConversationSettingsDialog } from '../src/renderer/src/components/ConversationSettingsDialog';
 import {
   ContentSelectionProvider,

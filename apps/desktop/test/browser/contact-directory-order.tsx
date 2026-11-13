@@ -19,7 +19,14 @@ import '../../src/renderer/src/im-template/styles.css';
 ensureThemeInitialized();
 useViewState.setState({ openedUin: '99999' });
 Object.assign(window, { contactOrderQa: { store: useThemeStore, tasks: useWorkspaceMenu } });
-const contacts: Contact[] = ['阿明', '白雪', '张同学'].map((name, i) => ({
+const count = Math.max(
+  3,
+  Math.min(1000, Number(new URLSearchParams(location.search).get('count')) || 3),
+);
+const contacts: Contact[] = Array.from(
+  { length: count },
+  (_, i) => ['阿明', '白雪', '张同学'][i] ?? `联系人 ${i}`,
+).map((name, i) => ({
   id: `u_friend${i}`,
   username: name,
   displayName: name,

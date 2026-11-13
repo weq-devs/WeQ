@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -91,15 +91,15 @@ try {
     assert.equal(await friends.locator('.contact-row').count(), 3);
     await friends.getByLabel('排序依据').selectOption('age');
     assert.deepEqual(await friends.locator('.contact-row .row-title-text').allTextContents(), [
-      '张同学',
-      '白雪',
       '阿明',
+      '白雪',
+      '张同学',
     ]);
     await friends.getByRole('button', { name: '改为升序', exact: true }).click();
     assert.deepEqual(await friends.locator('.contact-row .row-title-text').allTextContents(), [
-      '阿明',
-      '白雪',
       '张同学',
+      '白雪',
+      '阿明',
     ]);
     await groups.getByLabel('分组依据').selectOption('capacity');
     assert.deepEqual(await groups.locator('.contact-cat-name').allTextContents(), [
@@ -109,14 +109,77 @@ try {
     await groups.getByLabel('分组依据').selectOption('none');
     assert.equal(await groups.locator('.contact-cat-header:not([hidden])').count(), 0);
     assert.equal(await groups.locator('.contact-row').count(), 3);
-    assert.equal(await page.locator('[data-kind="tasks"] .weq-exp-log').count(), 1);
-    assert.equal(await page.locator('[data-kind="tasks"] .weq-exp-detail-stage').count(), 0);
+    const dismissRefresh = async () => {
+      const dialog = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
+      if (await dialog.count())
+        await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    };
+    for (const sort of ['energy', 'affinity', 'lastMessageAt']) {
+      await friends.getByLabel('排序依据').selectOption(sort);
+      await dismissRefresh();
+      assert.deepEqual(await friends.locator('.contact-row .row-title-text').allTextContents(), [
+        '白雪',
+        '阿明',
+        '张同学',
+      ]);
+    }
+    await friends.getByLabel('分组依据').selectOption('school');
+    await dismissRefresh();
+    assert.deepEqual(new Set(await headers()), new Set(['厦门大学', '实验中学', '学校未知']));
+    const school = friends.locator('.contact-cat-header').filter({ hasText: '厦门大学' });
+    if ((await school.getAttribute('aria-expanded')) === 'false') await school.click();
+    assert.equal(await friends.locator('.contact-row').count(), 2);
+    await friends.getByLabel('分组依据').selectOption('source');
+    await dismissRefresh();
+    const source = friends.locator('.contact-cat-header').filter({ hasText: 'QQ 群' });
+    if ((await source.getAttribute('aria-expanded')) === 'false') await source.click();
+    assert.deepEqual(new Set(await headers()), new Set(['QQ 群', 'QQ 号搜索']));
+    const sourceLinks = friends.getByRole('button', { name: '查看来源群名片', exact: true });
+    assert.equal(await sourceLinks.count(), 2);
+    if (output)
+      await page.screenshot({ path: resolve(output, 'source-groups.png'), fullPage: true });
+    await sourceLinks.first().click();
+    const sourceDialog = page.getByRole('dialog', { name: '群资料', exact: true });
+    await sourceDialog.waitFor();
+    assert.ok((await sourceDialog.locator('.weq-profile-id').textContent()).includes('20001'));
+    await sourceDialog.getByRole('button', { name: '关闭', exact: true }).click();
+    await friends.getByLabel('分组依据').selectOption('type');
+    assert.deepEqual(await headers(), ['当前好友']);
+    for (const [basis, expected] of [
+      ['grade', ['群等级：0', '群等级：5', '群等级未知']],
+      ['freezeState', ['正常', '已冻结', '冻结状态未知']],
+    ]) {
+      await groups.getByLabel('分组依据').selectOption(basis);
+      await dismissRefresh();
+      assert.deepEqual(await groups.locator('.contact-cat-name').allTextContents(), expected);
+    }
+    await groups.getByLabel('分组依据').selectOption('none');
+    for (const sort of ['lastMessageAt', 'joinedAt']) {
+      await groups.getByLabel('排序依据').selectOption(sort);
+      await dismissRefresh();
+      assert.deepEqual(await groups.locator('.contact-row .row-title-text').allTextContents(), [
+        '朋友们',
+        '自习组',
+        '长名称群聊用于检查窄屏显示',
+      ]);
+    }
+    await groups.getByLabel('排序依据').selectOption('lastSpokeAt');
+    assert.equal(
+      await groups.locator('.contact-row .row-title-text').first().textContent(),
+      '自习组',
+    );
+    assert.equal(await page.locator('[data-kind="tasks"] .weq-exp-log').count(), 2);
+    assert.equal(await page.locator('[data-kind="tasks"] .weq-exp-detail-stage').count(), 2);
     assert.equal(await page.locator('[data-kind="tasks"] details').count(), 0);
     assert.ok(
       (await page.locator('[data-kind="tasks"] .weq-exp-log-text').first().textContent()).includes(
         '阿明',
       ),
     );
+    await friends.getByLabel('分组依据').selectOption('school');
+    await dismissRefresh();
+    await groups.getByLabel('分组依据').selectOption('grade');
+    await dismissRefresh();
     for (const width of [1180, 390, 320])
       for (const theme of ['light', 'dark']) {
         await page.setViewportSize({ width, height: 900 });
@@ -214,6 +277,68 @@ try {
         if (output)
           await page.screenshot({ path: resolve(output, `care-${state}-${width}-${theme}.png`) });
       }
+  }
+  if (!process.env.WEQ_SPECIAL_CARE_ONLY) {
+    const performanceRows = [];
+    for (const count of [200, 1000]) {
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-directory-order.html?count=${count}`,
+      );
+      await friends.getByLabel('分组依据').selectOption('none');
+      await page.waitForFunction(
+        (count) => document.querySelectorAll('[data-kind="friends"] .contact-row').length === count,
+        count,
+      );
+      const firstPaintMs = await page.evaluate(
+        () => performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null,
+      );
+      const measures = {};
+      for (const sort of ['remark', 'energy', 'affinity', 'lastMessageAt']) {
+        const samples = [];
+        for (let i = 0; i < 5; i++) {
+          const start = performance.now();
+          await friends.getByLabel('排序依据').selectOption(sort);
+          const refresh = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
+          if (await refresh.count())
+            await refresh.getByRole('button', { name: '取消', exact: true }).click();
+          await page.evaluate(
+            () =>
+              new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+          );
+          samples.push(performance.now() - start);
+          await friends.getByRole('button', { name: /改为[升降]序/ }).click();
+        }
+        measures[sort] = samples.sort((a, b) => a - b)[2];
+      }
+      const scroll = await friends
+        .locator('.weq-contact-directory-scroll')
+        .evaluate(async (element) => {
+          const frames = [];
+          let last = performance.now();
+          for (let i = 0; i < 30; i++) {
+            element.scrollTop += 80;
+            await new Promise(requestAnimationFrame);
+            const now = performance.now();
+            frames.push(now - last);
+            last = now;
+          }
+          frames.sort((a, b) => a - b);
+          return {
+            moved: element.scrollTop > 0,
+            p95FrameMs: frames[Math.floor(frames.length * 0.95)],
+          };
+        });
+      assert.equal(scroll.moved, true);
+      performanceRows.push({ count, firstPaintMs, sortMedianMs: measures, scroll });
+      if (output)
+        await page.screenshot({ path: resolve(output, `directory-${count}.png`), fullPage: true });
+    }
+    console.log(JSON.stringify({ directoryPerformance: performanceRows }));
+    if (output)
+      await writeFile(
+        resolve(output, 'performance.json'),
+        JSON.stringify(performanceRows, null, 2),
+      );
   }
   assert.deepEqual(errors, []);
   console.log(

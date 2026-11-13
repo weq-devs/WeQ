@@ -16,7 +16,7 @@
  * 样式走 annual-report.css 的报告令牌（--rp-*），深浅模式自动跟随。
  */
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { createPortal } from 'react-dom';
 import { Check, Earth, Lock, Users, X } from 'lucide-react';
@@ -26,6 +26,7 @@ import { useSelfFace } from './useSelfFace';
 import { useReportView } from './reportContext';
 import type { ExportSlide } from './exportHtml';
 import { useOverlayLayer } from '../../lib/overlayStack';
+import { useSurfaceEscape, useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';
 
 /** 说说一次最多带 9 张图（Qzone 服务端限制）。 */
 const QZONE_MAX_IMAGES = 9;
@@ -77,6 +78,9 @@ export function QzoneShareLightbox({
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const layer = useOverlayLayer(true);
+  const surface = useRef<HTMLDivElement>(null);
+  useSurfaceEscape(surface, onClose, true, true);
+  useSurfaceEscapeDismissal(surface, onClose, true);
   const updateToast = useToast((s) => s.update);
   const selfFace = useSelfFace();
   const { overlayHostRef } = useReportView();
@@ -106,15 +110,14 @@ export function QzoneShareLightbox({
     ids: slides.map((_, index) => index),
     selected,
     onChange: setSelected,
-    onExit: onClose,
+    escapeClearsSelection: false,
   });
 
   /**
    * 灯箱开着时挡掉报告的翻页手势：滚轮 / 触摸 / 键盘都会先被这里吃掉，底下的
    * 年度报告不再跟着灯箱一起滚。
    *
-   * Esc 就地处理而不是另挂一个冒泡监听：window 捕获阶段的 stopPropagation 会
-   * 让挂在 window 冒泡阶段的监听器根本收不到这次按键。
+   * Esc 由文档捕获阶段的共享关闭逻辑处理，不受卡片内的按键冒泡阻断影响。
    */
   useEffect(() => {
     const stop = (event: Event): void => event.stopPropagation();
@@ -198,6 +201,8 @@ export function QzoneShareLightbox({
 
   return createPortal(
     <div
+      ref={surface}
+      tabIndex={-1}
       className="weq-qzshare-scrim"
       style={{ zIndex: layer }}
       role="dialog"

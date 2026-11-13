@@ -8,6 +8,7 @@
  */
 
 import { useThemeStore } from '../state/theme';
+import { dataSaverActive, networkClientId, useDataSaver } from './dataSaver';
 
 const IS_WEB = import.meta.env.VITE_WEQ_TARGET === 'web';
 
@@ -42,8 +43,45 @@ export function fileIconUrl(iconBasename: string): string {
  */
 export function mediaUrl(kind: string, params: Record<string, string | number>): string {
   const q = new URLSearchParams();
+  if (
+    (kind === 'video' && params.v !== 'thumb') ||
+    ['file', 'ptt', 'flashpic', 'localfile'].includes(kind)
+  )
+    params = { intent: 'interactive', ...params };
+  if (dataSaverActive()) {
+    q.set('ds', '1');
+    const behavior = useDataSaver.getState().behavior;
+    if (kind === 'avatar') q.set('auto', behavior.dataSaverAvatars ? '1' : '0');
+    if (kind === 'video' && params.v === 'thumb')
+      q.set('auto', behavior.dataSaverVideoCovers ? '1' : '0');
+    if (kind === 'mface') q.set('auto', behavior.dataSaverEmoji ? '1' : '0');
+    if (kind === 'pic') {
+      const emoji = params.recv === 1 || params.recv === '1';
+      if (emoji ? !behavior.dataSaverEmoji : behavior.dataSaverImageLoading === 'none')
+        q.set('cacheOnly', '1');
+      if (!emoji && behavior.dataSaverImageLoading === 'original') q.set('quality', 'original');
+    }
+  }
+  if (IS_WEB) q.set('cid', networkClientId);
   for (const [k, v] of Object.entries(params)) q.set(k, String(v));
   return `${MEDIA_PREFIX}${kind}?${q.toString()}`;
+}
+
+/** 仅用户打开的预览升级为主动请求，不把列表候选源也标成主动下载。 */
+export function interactiveMediaUrl(src: string): string {
+  try {
+    const base = typeof location === 'undefined' ? 'https://weq.invalid' : location.href;
+    const url = new URL(src, base);
+    const localPath =
+      url.origin === new URL(base).origin &&
+      (url.pathname.startsWith('/_media/') || url.pathname.startsWith('/_avatar/'));
+    if (!['weq-media:', 'weq-avatar:'].includes(url.protocol) && !localPath) return src;
+    url.searchParams.set('intent', 'interactive');
+    if (IS_WEB) url.searchParams.set('cid', networkClientId);
+    return src.startsWith('/') ? `${url.pathname}${url.search}` : url.href;
+  } catch {
+    return src;
+  }
 }
 
 /** Proxy a remote QQ album image through the main process so Qzone referer is attached. */
@@ -71,7 +109,7 @@ export function redPackSkinUrl(
 
 /** `weq-avatar://fetch?src=…` — the disk-cached bridge for a remote image. */
 export function avatarFetchUrl(src: string): string {
-  return `${AVATAR_PREFIX}fetch?src=${encodeURIComponent(src)}`;
+  return `${AVATAR_PREFIX}fetch?src=${encodeURIComponent(src)}${dataSaverActive() ? `&ds=1&auto=${useDataSaver.getState().behavior.dataSaverAvatars ? '1' : '0'}` : ''}`;
 }
 
 /**

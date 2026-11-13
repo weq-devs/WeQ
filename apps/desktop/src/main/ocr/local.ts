@@ -30,6 +30,7 @@ import { handleMediaRequest } from '../media_protocol';
 import { runOcrEngine, type OcrEnginePaths } from './engine';
 import { judgeTextBoxes } from './filter';
 import { decodeImageBytes, decodeImageDataUrl } from './image';
+import { enhancementEngineAvailable } from '../enhancements/engine_environment';
 // 只引类型：管线本体由 worker 独享（带上运行时会让 rollup 多抽一个共享 chunk，
 // 见 `engine.ts` 顶部那段说明）。
 import type { RgbImage } from './pipeline';
@@ -64,7 +65,7 @@ export interface LocalOcrModel {
 export function resolveLocalOcrModel(): LocalOcrModel | null {
   // 先看这台机器有没有能跑的推理引擎（如 macOS Intel 就没有）：没有的话模型下好了
   // 也不算数 —— 否则用户会一路下完 21 MB，再在每次识别时撞 MODULE_NOT_FOUND。
-  if (localOcrBlocker()) return null;
+  if (localOcrBlocker() || !enhancementEngineAvailable('onnx')) return null;
   const boot = getAppContext().bootstrap;
   if (!boot) return null;
   const modelId = resolveDownloadedModelId('ocr');
@@ -102,7 +103,7 @@ export interface LocalOcrFilterModel {
  */
 export function resolveLocalOcrFilterModel(): LocalOcrFilterModel | null {
   // 同上：没有引擎就没有本地筛图（两侧共用同一个 worker）。
-  if (localOcrBlocker()) return null;
+  if (localOcrBlocker() || !enhancementEngineAvailable('onnx')) return null;
   const boot = getAppContext().bootstrap;
   if (!boot) return null;
   const modelId = resolveDownloadedModelId('filter');
@@ -210,7 +211,7 @@ export async function runLocalOcrFile(imagePath: string): Promise<OcrImageOutcom
   const blocker = localOcrBlocker();
   if (blocker) return { ok: false, error: blocker };
   const model = resolveLocalOcrModel();
-  if (!model) return { ok: false, error: '没有可用的本地识别模型（设置 → 模型与识别 → 图片识别）' };
+  if (!model) return { ok: false, error: '请先准备本地文字识别增强包（设置 → 增强功能 → 增强包）' };
   try {
     const r = await runLocalOcr(imagePath, model);
     return {

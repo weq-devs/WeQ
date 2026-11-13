@@ -16,6 +16,7 @@ import {
   Newspaper,
   UserRound,
   UsersRound,
+  Sparkles,
 } from 'lucide-react';
 import type { CalendarKind } from '@weq/service/conversation-calendar';
 import '../styles/search-scope.css';
@@ -32,6 +33,7 @@ const contentOptions = [
   { id: 'feeds', label: '公众号/服务号', kinds: ['official', 'service'], Icon: Newspaper },
   { id: 'guild', label: '频道私聊', kinds: ['guild'], Icon: MessagesSquare },
   { id: 'clones', label: '克隆会话', kinds: ['persona', 'cloneGroup'], Icon: Bot },
+  { id: 'assistant', label: 'WeQ 助手会话', kinds: ['assistant'], Icon: Sparkles },
 ] satisfies Array<{ id: string; label: string; kinds: CalendarKind[]; Icon: typeof Bot }>;
 const contentIds = contentOptions.map((option) => option.id);
 export function calendarReadLabel(snapshot?: CalendarSnapshot): string | undefined {

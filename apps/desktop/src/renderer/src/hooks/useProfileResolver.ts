@@ -12,6 +12,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { client } from '../trpc/client';
+import { reconcileResolvedRows } from '../lib/resolvedRows';
 
 /** getProfilesByUids 的单次 uid 上限（与 IPC 层 account.getProfilesByUids 一致）。 */
 const CHUNK = 200;
@@ -76,14 +77,14 @@ export function useProfileResolver<T extends { uid: string }>(
           try {
             const list = await client.account.getProfilesByUids.query({ uids: chunk });
             if (list.length > 0) {
-              setResolved((prev) => {
-                const next = { ...prev };
-                for (const profile of list as unknown as T[]) {
-                  if (captured.get(profile.uid) === (versions.current.get(profile.uid) ?? 0))
-                    next[profile.uid] = profile;
-                }
-                return next;
-              });
+              setResolved((prev) =>
+                reconcileResolvedRows(
+                  prev,
+                  list as unknown as T[],
+                  (profile) =>
+                    captured.get(profile.uid) === (versions.current.get(profile.uid) ?? 0),
+                ),
+              );
             }
           } catch (err) {
             console.error('[profiles] getProfilesByUids failed', err);
@@ -118,15 +119,13 @@ export function useProfileResolver<T extends { uid: string }>(
         if (current && !current()) return;
         setResolved((previous) => {
           if (current && !current()) return previous;
-          const next = { ...previous };
-          for (const profile of list as unknown as T[]) {
-            if (
+          return reconcileResolvedRows(
+            previous,
+            list as unknown as T[],
+            (profile) =>
               captured.has(profile.uid) &&
-              captured.get(profile.uid) === versions.current.get(profile.uid)
-            )
-              next[profile.uid] = profile;
-          }
-          return next;
+              captured.get(profile.uid) === versions.current.get(profile.uid),
+          );
         });
       }
     },

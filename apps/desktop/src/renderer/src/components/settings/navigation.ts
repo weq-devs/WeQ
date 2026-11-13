@@ -1,6 +1,8 @@
 // 这里只包含公开的目录与别名，不读取设置值、账号信息或凭据。
 import { AI_SETTING_ITEMS } from './aiSettingsCatalog';
+import { CONTACT_CARD_FIELDS, CONTACT_GROUP_FIELDS } from '@weq/service/contact-card';
 export const SETTINGS_PAGE_LABELS = {
+  'contact-card': '联系人名片',
   appearance: '主题与背景',
   global: '提醒与窗口',
   startup: '启动与主页',
@@ -16,17 +18,19 @@ export const SETTINGS_PAGE_LABELS = {
   'intent-sense': '意图感知',
   'interaction-profile': '互动画像',
   'reply-suggestions': '推荐回复',
-  voice: '语音识别',
-  ocr: '图片识别',
+  'enhancement-packs': '增强包',
+  recognition: '识别与转写',
   account: '监听与读取',
   credentials: '凭据管理',
   accounts: 'WeQ 账号管理',
-  'qq-accounts': 'QQ 账号管理',
-  diagnostics: '诊断工具',
+  'qq-accounts': 'QQ 登录记录管理',
+  diagnostics: 'QQ 协议工具',
+  'performance-monitor': '性能监视',
   'database-repair': '损坏与修复',
-  'database-tolerance': '数据库宽容',
+  'database-tolerance': '数据库容错',
   'database-management': '数据库管理',
-  'qq-storage': '资源目录管理',
+  'qq-storage': 'QQ 资源管理',
+  media: '媒体来源',
   'resource-loading': '资源加载',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
@@ -49,13 +53,14 @@ export type SectionId =
   | 'applock'
   | 'saving'
   | 'storage'
-  | 'media'
   | 'rkey'
   | 'database'
   | 'database-status'
   | 'maintenance'
   | 'local-models'
   | 'intent-models'
+  | 'voice'
+  | 'ocr'
   | 'tts'
   | 'help'
   | 'updates'
@@ -74,6 +79,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
       'chat-messages',
       'message-display',
       'chat-interaction',
+      'contact-card',
       'call-recording',
       'qzone',
       'mail',
@@ -81,15 +87,15 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   },
   {
     id: 'models',
-    label: 'AI 功能',
+    label: '增强功能',
     sections: [
+      'enhancement-packs',
+      'recognition',
       'agentlab',
       'model-usage',
       'reply-suggestions',
       'intent-sense',
       'interaction-profile',
-      'voice',
-      'ocr',
     ],
   },
   {
@@ -105,6 +111,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
       'database-tolerance',
       'database-management',
       'qq-storage',
+      'media',
       'resource-loading',
     ],
   },
@@ -113,7 +120,11 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     label: 'WeQ 服务',
     sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
   },
-  { id: 'help', label: '关于 WeQ', sections: ['version', 'backup', 'faq', 'logs', 'feedback'] },
+  {
+    id: 'help',
+    label: '关于 WeQ',
+    sections: ['version', 'backup', 'faq', 'logs', 'performance-monitor', 'feedback'],
+  },
 ];
 
 export interface SettingsScope {
@@ -122,18 +133,7 @@ export interface SettingsScope {
 }
 
 export function settingsScopeFor(section: SectionId): SettingsScope | null {
-  if (
-    [
-      'anti-recall',
-      'intent-sense',
-      'reply-suggestions',
-      'interaction-profile',
-      'model-usage',
-      'mail',
-      'database-tolerance',
-    ].includes(section)
-  )
-    return { label: '当前账号' };
+  if (['model-usage', 'database-tolerance'].includes(section)) return { label: '当前账号' };
   // 混合作用域的页面在具体分区标注，不用页头把全局项误标为当前账号。
   return null;
 }
@@ -183,6 +183,50 @@ interface ItemRedirect {
 }
 
 export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
+  ...(
+    [
+      ['enhancement-text', '本地文字识别', ['识别模型', '筛图模型', '图片识别模型', 'OCR 模型']],
+      ['enhancement-voice', '本地语音转写', ['本地语音模型', 'SenseVoice', 'ASR']],
+      ['enhancement-intent', '本地意图与画像', ['Laya 模型下载', '画像模型下载']],
+      ['enhancement-dress', '装扮离线索引', ['气泡索引', '字体索引', '挂件索引']],
+    ] as const
+  ).map(
+    ([id, label, aliases]): ItemRedirect => ({
+      id,
+      label,
+      aliases,
+      section: 'enhancement-packs',
+      from: ['enhancement-packs', 'voice', 'ocr', 'local-models', 'intent-models'],
+    }),
+  ),
+  ...(
+    [
+      ['ocr-online-concurrency', '识别并发'],
+      ['voice-online-concurrency', '转录并发'],
+    ] as const
+  ).map(
+    ([id, label]): ItemRedirect => ({
+      id,
+      label,
+      section: 'recognition',
+      from: ['recognition', 'voice', 'ocr'],
+    }),
+  ),
+  ...[...CONTACT_CARD_FIELDS, ...CONTACT_GROUP_FIELDS].map(
+    ([key, label]): ItemRedirect => ({
+      id: `contact-card-${key}`,
+      section: 'contact-card',
+      label,
+      from: ['contact-card'],
+    }),
+  ),
+  {
+    id: 'performance-monitor',
+    section: 'performance-monitor',
+    label: '性能监视',
+    aliases: ['性能记录', 'CPU', '内存历史'],
+    from: ['diagnostics', 'performance-monitor'],
+  },
   { id: 'component-style', section: 'appearance', label: '组件风格', from: ['appearance'] },
   { id: 'interface-density', section: 'appearance', label: '界面密度', from: ['appearance'] },
   ...AI_SETTING_ITEMS.map(
@@ -192,8 +236,56 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       aliasesFrom: [item.section],
     }),
   ),
-  { id: 'llm-providers', section: 'agentlab', label: '已保存的 provider', from: ['agentlab'] },
-  { id: 'llm-default-model', section: 'agentlab', label: '默认模型', from: ['agentlab'] },
+  {
+    id: 'ocr-prefilter-enabled',
+    section: 'recognition',
+    label: 'OCR 前先筛图',
+    aliases: ['筛图开关', '自动 OCR 筛图'],
+    from: ['ocr', 'recognition'],
+  },
+  {
+    id: 'llm-providers',
+    section: 'agentlab',
+    label: '已保存的服务商',
+    aliases: ['已保存的 provider'],
+    from: ['agentlab'],
+  },
+  { id: 'llm-default-model', section: 'agentlab', label: '默认聊天模型', from: ['agentlab'] },
+  {
+    id: 'llm-default-vision-model',
+    section: 'agentlab',
+    label: '默认视觉模型',
+    aliases: ['图片分析模型'],
+    from: ['agentlab'],
+  },
+  {
+    id: 'llm-default-embedding-model',
+    section: 'agentlab',
+    label: '默认向量模型',
+    aliases: ['嵌入模型', 'Embedding 模型'],
+    from: ['agentlab'],
+  },
+  {
+    id: 'ai-images-intent',
+    section: 'intent-sense',
+    label: '图片处理偏好',
+    aliases: ['意图感知图片', '意图 OCR'],
+    from: ['intent-sense'],
+  },
+  {
+    id: 'ai-images-suggestions',
+    section: 'reply-suggestions',
+    label: '图片处理偏好',
+    aliases: ['推荐回复图片', '推荐回复 OCR'],
+    from: ['reply-suggestions'],
+  },
+  {
+    id: 'ai-images-profile',
+    section: 'interaction-profile',
+    label: '图片处理偏好',
+    aliases: ['互动画像图片', '画像 OCR'],
+    from: ['interaction-profile'],
+  },
   { id: 'tts-providers', section: 'agentlab', label: 'TTS 语音合成', from: ['agentlab', 'tts'] },
   {
     id: 'home-settings',
@@ -205,6 +297,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ...(
     [
       ['home-tags', '个性标签'],
+      ['home-prefer-qqshow', '优先展示 QQ 秀'],
       ['home-greeting', '问候语'],
       ['home-hitokoto', '一言'],
       ['home-blocked-words', '一言屏蔽词'],
@@ -228,9 +321,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'weq-config-management',
-    section: 'backup',
-    label: '恢复默认设置',
+    section: 'startup',
+    label: '恢复本页默认设置',
     aliases: [
+      '恢复默认设置',
       '重置与清除配置',
       '配置与运行数据管理',
       '账号与应用配置',
@@ -238,7 +332,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       '清除账号与应用配置',
       '重置全局配置',
     ],
-    from: ['storage', 'weq-storage', 'backup'],
+    from: ['startup', 'storage', 'weq-storage', 'backup'],
   },
   { id: 'qzone-pagination', section: 'qzone', label: '在线翻页限速', from: ['qzone'] },
   {
@@ -281,8 +375,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['sse-targets', 'sse', '已配置的推送目标', '推送地址', 'SSE access_token', '添加推送目标'],
       ['assistant-resource', 'assistant', '资源服务', '公众号资源地址'],
       ['assistant-port', 'assistant', 'QQ 公众号推送端口', '公众号端口'],
-      ['qq-profile', 'qq-accounts', 'QQ 资料', 'QQ 昵称', '性别', '个性签名', '更换头像'],
-      ['qq-status', 'qq-accounts', 'QQ 状态', '在线状态', '自定义状态', '状态表情'],
       ['chat-image-cache', 'message-display', '图片预览内存预算', '图片与表情', '内存缓存'],
     ] as const
   ).map(
@@ -314,6 +406,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       desktopOnly: true,
     }),
   ),
+  {
+    id: 'mail-poll-interval',
+    section: 'mail',
+    label: '邮件查询间隔',
+    aliases: ['邮件查询间隔（分钟）', '邮箱同步频率', '邮件轮询', '自动收信'],
+    from: ['mail'],
+  },
   {
     id: 'mail-unread-badge',
     section: 'mail',
@@ -387,10 +486,30 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   ...(
     [
+      ['message-system-notifications', '新消息系统通知', '消息弹窗提醒'],
+      ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge'],
+    ] as const
+  ).map(
+    ([id, label, ...aliases]): ItemRedirect => ({
+      id,
+      label,
+      aliases,
+      section: 'global',
+      from: ['global', 'message-display', 'chat-messages', 'chat-interaction'],
+    }),
+  ),
+  ...(
+    [
       ['message-unread-badge', '在消息图标上显示红点', '显示消息汇总红点'],
       ['contact-unread-count', '在联系人界面显示未读消息数'],
       ['group-assistant-count', '群助手显示总消息数'],
+      ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
+      ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
       ['read-first-unread', '从第一条新消息开始阅读'],
+      ['auto-fetch-missing-messages', '查看时自动拉取缺失的消息', '自动补全消息', '漫游消息'],
+      ['auto-fetch-missing-context', '定位到缺失消息时自动拉取上下文'],
+      ['missing-message-context-count', '自动拉取上下文条数'],
+      ['keep-conversation-position-on-hover', '鼠标停留时保持会话位置', '会话排序', '悬停排序'],
       ['auto-follow-latest-messages', '自动跟随最新消息'],
       ['jump-latest-after-send', '发送消息后定位到最新消息'],
       ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],
@@ -447,8 +566,16 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'prefer-cdn',
     section: 'resource-loading',
-    label: '优先使用 CDN',
+    label: '优先直连 QQ 加载图片',
+    aliases: ['优先使用 CDN'],
     from: ['storage', 'remote', 'resource-loading'],
+  },
+  {
+    id: 'data-saver',
+    section: 'resource-loading',
+    label: '省流量模式',
+    aliases: ['低数据模式', '计费网络', '节省流量'],
+    from: ['resource-loading'],
   },
   {
     id: 'typing-status',
@@ -460,8 +587,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'read-sync',
     section: 'chat-messages',
-    label: '同步已读状态到 QQ',
-    aliases: ['手动标记时上报已读位置', '手动标记已读'],
+    label: '向 QQ 服务器上报已读位置',
+    aliases: ['同步已读状态到 QQ', '同步已读到 QQ', '手动标记时上报已读位置', '手动标记已读'],
     from: ['account', 'chat-messages'],
   },
   {
@@ -478,14 +605,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'linked-resources',
-    section: 'accounts',
+    section: 'media',
     label: '关联资源目录',
     aliases: ['关联本机媒体目录'],
     from: ['media', 'accounts'],
   },
   {
     id: 'external-chatpic',
-    section: 'accounts',
+    section: 'media',
     label: '外部安卓图片缓存',
     aliases: ['允许使用外部安卓图片缓存'],
     from: ['media', 'accounts'],
@@ -573,6 +700,22 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   { id: 'builtin-components', section: 'version', label: '内置组件', from: ['daemon', 'version'] },
   {
+    id: 'update-check-interval',
+    section: 'version',
+    label: '自动检查更新频率',
+    aliases: ['更新间隔', '更新分钟', '永不检查更新'],
+    from: ['version'],
+    desktopOnly: true,
+  },
+  {
+    id: 'update-prerelease',
+    section: 'version',
+    label: '检查测试版',
+    aliases: ['测试版更新', 'Beta 更新'],
+    from: ['version'],
+    desktopOnly: true,
+  },
+  {
     id: 'assistant-service',
     section: 'assistant',
     label: '启用 QQ 公众号推送',
@@ -589,13 +732,15 @@ const SECTION_REDIRECTS: Partial<
   saving: { section: 'global' },
   storage: { section: 'weq-storage' },
   'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
-  media: { section: 'accounts', settingId: 'linked-resources' },
+  media: { section: 'media', settingId: 'linked-resources' },
   rkey: { section: 'credentials', settingId: 'external-rkey' },
   database: { section: 'database-tolerance' },
   'database-status': { section: 'database-tolerance', settingId: 'tolerance-records' },
   maintenance: { section: 'database-management' },
-  'local-models': { section: 'voice' },
-  'intent-models': { section: 'intent-sense', settingId: 'intent-model-resources' },
+  'local-models': { section: 'enhancement-packs' },
+  'intent-models': { section: 'enhancement-packs', settingId: 'enhancement-intent' },
+  voice: { section: 'recognition' },
+  ocr: { section: 'recognition' },
   tts: { section: 'agentlab', settingId: 'tts-providers' },
   help: { section: 'faq' },
   updates: { section: 'version' },

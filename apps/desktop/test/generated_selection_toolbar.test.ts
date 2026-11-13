@@ -29,42 +29,41 @@ const messages = [
   { id: 'c', text: '未选消息' },
 ];
 
-it.each(['persona', 'group'] as const)('%s 多选保留普通会话的全部常规动作，未适配置灰', (kind) => {
-  const f = mount(kind);
-  try {
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="模拟消息右键多选"]')!.click());
-    act(() =>
-      f.host.querySelector<HTMLButtonElement>('.message-context-menu [title="多选"]')!.click(),
-    );
-    const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('.selection-bar button')];
-    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
-      '分析所选消息',
-      '导出所选消息',
-      '添加到素材库',
-      '转发',
-      '复制',
-      '撤回所选消息',
-      '删除',
-      '退出多选',
-    ]);
-    for (const button of buttons) {
-      const unsupported = ['分析所选消息', '添加到素材库', '转发', '撤回所选消息', '删除'].includes(
-        button.getAttribute('aria-label')!,
+it.each(['persona', 'group'] as const)(
+  '%s 多选隐藏不可用动作，保留导出、复制和禁用的删除',
+  (kind) => {
+    const f = mount(kind);
+    try {
+      act(() =>
+        f.host.querySelector<HTMLButtonElement>('[aria-label="模拟消息右键多选"]')!.click(),
       );
-      expect(button.disabled).toBe(unsupported);
-      if (unsupported) expect(button.title).toBe('克隆会话暂不支持此功能');
-    }
-    act(() => {
+      act(() =>
+        f.host.querySelector<HTMLButtonElement>('.message-context-menu [title="多选"]')!.click(),
+      );
+      const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('.selection-bar button')];
+      expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+        '导出所选消息',
+        '复制',
+        '删除',
+        '退出多选',
+      ]);
       for (const button of buttons) {
-        if (button.disabled) button.click();
+        const unsupported = button.getAttribute('aria-label') === '删除';
+        expect(button.disabled).toBe(unsupported);
+        if (unsupported) expect(button.title).toBe('克隆会话暂不支持此功能');
       }
-    });
-    expect(f.host.querySelector('[role="menu"]')).toBeNull();
-    expect(f.host.querySelector('output')!.textContent).toBe('null');
-  } finally {
-    f.close();
-  }
-});
+      act(() => {
+        for (const button of buttons) {
+          if (button.disabled) button.click();
+        }
+      });
+      expect(f.host.querySelector('[role="menu"]')).toBeNull();
+      expect(f.host.querySelector('output')!.textContent).toBe('null');
+    } finally {
+      f.close();
+    }
+  },
+);
 
 function mount(kind: 'persona' | 'group') {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

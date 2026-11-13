@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import {
   bindNoticeOperations,
+  formatNoticeTimestamp,
   groupNoticeId,
   type NoticeOperation,
 } from '../src/renderer/src/lib/contactNotice';
@@ -53,6 +54,15 @@ const group: GroupJoinRequest = {
   },
 };
 const cleanups: Array<() => void> = [];
+describe('通知秒级时间', () => {
+  it('按北京时间跨日显示，并保留午夜的零时与秒数', () => {
+    expect(formatNoticeTimestamp('2026-11-10T16:00:07Z')).toBe('2026-11-11 00:00:07');
+    expect(formatNoticeTimestamp('2026-11-10T23:59:58-05:00')).toBe('2026-11-11 12:59:58');
+  });
+  it.each(['', 'invalid', '1970-01-01T00:00:00Z'])('缺失或无效时间不伪造日期：%s', (value) => {
+    expect(formatNoticeTimestamp(value)).toBe('');
+  });
+});
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());

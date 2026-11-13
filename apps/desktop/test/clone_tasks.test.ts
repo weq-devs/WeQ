@@ -3,10 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useViewState } from '../src/renderer/src/state/view';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
-import { CloneTasksPane } from '../src/renderer/src/views/agentlab/CloneTasksPane';
+import { CurrentTaskList } from '../src/renderer/src/components/tasks/CurrentTaskList';
 import {
   dismissCloneTask,
   getCloneTasks,
+  subscribeCloneTasks,
   startCloneTask,
 } from '../src/renderer/src/views/agentlab/cloneTaskStore';
 import type { StartCloneArgs } from '../src/renderer/src/views/agentlab/NewCloneModal';
@@ -17,6 +18,15 @@ const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } },
+      flashListDownloadTasks: { useQuery: () => ({ data: [] }) },
+      flashCancelDownloadTask: { useMutation: () => ({}) },
+      flashRevealDownloadDir: { useMutation: () => ({}) },
+    },
+  },
   client: {
     account: {
       buildAgentLabFromC2c: { mutate: mocks.build },
@@ -29,6 +39,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
+vi.mock('../src/renderer/src/hooks/useBackgroundTasks', () => ({
+  useBackgroundTasks: () => ({ tasks: [], query: {} }),
+}));
+vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
+  useQQReadActivity: () => ({ enabled: true }),
+}));
 let dispose = () => {};
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -36,11 +52,42 @@ beforeEach(() => {
   useViewState.setState({ openedUin: 'fixture-a' });
 });
 afterEach(() => {
+  vi.useRealTimers();
   dispose();
   dispose = () => {};
   for (const task of getCloneTasks()) dismissCloneTask(task.personaId);
   useViewState.setState({ openedUin: null });
   vi.unstubAllGlobals();
+});
+it('密集语料进度合并刷新，保留最后计数，不反复驱动整页更新', async () => {
+  vi.useFakeTimers();
+  let finish!: () => void;
+  mocks.build.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = startCloneTask(args('progress-fixture'));
+  const changed = vi.fn();
+  const unsubscribe = subscribeCloneTasks(changed);
+  try {
+    const handler = mocks.subscribe.mock.calls[0]![1];
+    for (let index = 0; index < 1000; index++)
+      handler.onData({
+        personaId: 'progress-fixture',
+        phase: `整理语料 ${index}/1000`,
+        percent: 30,
+      });
+    expect(changed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(80);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(getCloneTasks()[0]?.phase).toBe('整理语料 999/1000');
+  } finally {
+    unsubscribe();
+    finish();
+    await pending;
+  }
 });
 function args(id: string): StartCloneArgs {
   return {
@@ -157,17 +204,28 @@ it('统一任务列表按账号展示克隆任务，完成后可打开克隆体�
     act(() => root.unmount());
     host.remove();
   };
-  act(() => root.render(h(CloneTasksPane, { onOpenPersona: open })));
+  act(() =>
+    root.render(
+      h(CurrentTaskList, {
+        exports: [],
+        renderExport: () => null,
+        onOpenClone: open,
+      }),
+    ),
+  );
   expect(host.textContent).toContain('克隆甲');
   expect(host.textContent).not.toContain('克隆乙');
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="查看克隆甲的克隆进度"]')!.click());
   act(() =>
     [...document.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent?.includes('查看克隆体'))!
       .click(),
   );
   expect(open).toHaveBeenCalledWith('克隆甲');
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="移除克隆甲的克隆任务"]')!.click());
-  expect(host.textContent).toContain('暂无克隆任务');
+  act(() =>
+    [...host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes('移除任务'))!
+      .click(),
+  );
+  expect(host.textContent).toContain('暂无任务');
   expect(getCloneTasks().map((task) => task.personaId)).toEqual(['克隆乙']);
 });

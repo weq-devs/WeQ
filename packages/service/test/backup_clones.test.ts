@@ -63,8 +63,9 @@ it('共享账号目录中的助手状态与报告一并快照，可直接打包�
   });
   writeFileSync(join(f.account, 'reports', '合成报告-synthetic.html'), '<h1>合成内容</h1>');
   const snapshot = snapshotWeqClones(f.agentlab);
-  expect(snapshot.files).toHaveLength(4);
-  expect(readWeqBackup(buildWeqBackup(snapshot.files)).files).toHaveLength(4);
+  expect(snapshot.files).toHaveLength(3);
+  expect(snapshot.files.some((file) => file.path.endsWith('/assistant.json'))).toBe(false);
+  expect(readWeqBackup(buildWeqBackup(snapshot.files)).files).toHaveLength(3);
   expect(readFileSync(join(f.account, 'reports', '合成报告-synthetic.html'), 'utf8')).toBe(
     '<h1>合成内容</h1>',
   );
@@ -91,6 +92,26 @@ it('外部 MP3 参考语音保留真实格式，不误写成 WAV', () => {
 });
 
 describe('克隆备份的真实文件与资产关系', () => {
+  it('图片附件与不透明引用一起备份，不写死原机器路径', () => {
+    const f = fixture();
+    const name = 'a'.repeat(64) + '.png';
+    mkdirSync(join(f.account, 'images'));
+    writeFileSync(join(f.account, 'images', name), png);
+    save(join(f.account, 'conversations.json'), {
+      assistant: [
+        { role: 'user', text: '', ts: 1, images: [{ id: name, path: `ai-image:${name}` }] },
+      ],
+    });
+    const snapshot = snapshotWeqClones(f.agentlab);
+    const restored = readWeqBackup(buildWeqBackup(snapshot.files));
+    expect(
+      restored.files.find((file) => file.path === `clones/${scope}/images/${name}`)?.data,
+    ).toEqual(png);
+    expect(
+      restored.files.find((file) => file.path.endsWith('/conversations.json'))?.data.toString(),
+    ).toContain(`ai-image:${name}`);
+    expect(snapshot.warnings).toEqual([]);
+  });
   it('保留会话、记忆和生成语音，外部表情／参考语音变为包内相对引用且原件不变', () => {
     const f = fixture();
     const image = join(f.root, 'external-image.png');

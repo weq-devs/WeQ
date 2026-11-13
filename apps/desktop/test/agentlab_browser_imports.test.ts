@@ -45,12 +45,12 @@ test('渲染层只能从 AgentLab 根入口导入类型，运行时工具使用�
   assert.deepEqual(invalid, []);
 });
 
-test('模型选择子入口能直接打包进浏览器，不依赖 Node 内置模块', async () => {
+test('模型选择与元数据子入口能直接打包进浏览器，不依赖 Node 内置模块', async () => {
   const result = await build({
     absWorkingDir: desktop,
     stdin: {
       contents:
-        "export { isDefaultModelSelection, modelSelectionKey } from '@weq/agentlab/model-selection';",
+        "export { isDefaultModelSelection, modelSelectionKey } from '@weq/agentlab/model-selection'; export { modelReasoningEfforts } from '@weq/agentlab/model-metadata';",
       resolveDir: desktop,
     },
     bundle: true,
@@ -61,4 +61,5 @@ test('模型选择子入口能直接打包进浏览器，不依赖 Node 内置�
   });
   assert.equal(result.outputFiles.length, 1);
   assert.match(result.outputFiles[0].text, /isDefaultModelSelection/);
+  assert.match(result.outputFiles[0].text, /modelReasoningEfforts/);
 });

@@ -1,4 +1,6 @@
 /** Native Qzone UI: only already implemented web capabilities are exposed. */
+import { OperationError } from '@weq/service';
+
 import { z } from 'zod';
 import { getHost, qzoneFeedSearchRecord } from '@weq/service';
 import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
@@ -20,7 +22,8 @@ function online(selfUin: string): AccountServices {
   if (!services || String(ctx.account?.context.uin) !== selfUin)
     throw new Error('账号已切换，请重新打开空间。');
   const record = services.accountConfig.getRecord();
-  if (!record?.qqOnline || !record.qqPid) throw new Error('请先登录当前账号的 QQ。');
+  if (!record?.qqOnline || !record.qqPid)
+    throw new OperationError('请先登录当前账号的 QQ。', 'expected');
   return services;
 }
 
@@ -47,20 +50,35 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
-  detail: procedure.input(post).query(({ input }) =>
-    request(input, async (services, signal) => {
-      const detail = await services.webQuery.getQzonePostDetail(input.hostUin, input.tid, signal);
-      if (detail.post)
-        rememberQzonePosts(
-          services.contentSearch,
+  mediaTypes: procedure
+    .input(post.extend({ time: z.number().int().positive() }))
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneMediaTypes(input.hostUin, input.tid, input.time, signal),
+      ),
+    ),
+  detail: procedure
+    .input(post.extend({ time: z.number().int().positive().optional() }))
+    .query(({ input }) =>
+      request(input, async (services, signal) => {
+        const detail = await services.webQuery.getQzonePostDetail(
           input.hostUin,
-          [{ ...detail.post, content: detail.content }],
-          '',
-          true,
+          input.tid,
+          signal,
+          undefined,
+          input.time,
         );
-      return detail;
-    }),
-  ),
+        if (detail.post)
+          rememberQzonePosts(
+            services.contentSearch,
+            input.hostUin,
+            [{ ...detail.post, content: detail.content }],
+            '',
+            true,
+          );
+        return detail;
+      }),
+    ),
   images: procedure
     .input(post)
     .query(({ input }) =>
@@ -188,10 +206,20 @@ export const qzoneRouter = router({
       ),
     ),
   forwards: procedure
-    .input(post.extend({ offset: z.number().int().min(0).max(100_000) }))
+    .input(
+      post.extend({
+        cursor: z
+          .object({
+            attachInfo: z.string().min(1).max(8192),
+            previousPageKey: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .nullable()
+          .default(null),
+      }),
+    )
     .query(({ input }) =>
       request(input, (services, signal) =>
-        services.webQuery.getQzoneForwardPage(input.hostUin, input.tid, input.offset, signal),
+        services.webQuery.getQzoneForwardPage(input.hostUin, input.tid, input.cursor, signal),
       ),
     ),
   feedCounts: procedure
@@ -253,7 +281,7 @@ export const qzoneRouter = router({
   ),
   cancel: procedure.input(z.object({ requestId: z.string().uuid() })).mutation(({ input }) => {
     const entry = pending.get(input.requestId);
-    entry?.controller.abort(new Error('空间加载已取消。'));
+    entry?.controller.abort(new DOMException('空间加载已取消。', 'AbortError'));
     return { cancelled: Boolean(entry) };
   }),
   uploadImage: procedure

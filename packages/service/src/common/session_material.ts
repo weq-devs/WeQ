@@ -40,3 +40,23 @@ export function canReuseSessionMaterial<T extends SessionMaterial>(
     material.secToken.length > 0
   );
 }
+
+/** 与 QQ 自己的 getter 一致的「快过期」阈值。 */
+export const SEC_TOKEN_REFRESH_SKEW_MS = 300_000;
+
+/**
+ * 缓存里的 token 是否已进入「不应再复用」的窗口。
+ *
+ * Linux 能读到 `expire` 时按剩余寿命判断；读不到（旧产物 / 其他平台）时
+ * 返回 `false`，继续沿用原有「pid 变了才重扫」策略 —— 不能因为缺字段就
+ * 每轮都重扫、每轮都提权。
+ */
+export function secTokenExpiringSoon(
+  material: SessionMaterial | null | undefined,
+  nowMs: number = Date.now(),
+  skewMs: number = SEC_TOKEN_REFRESH_SKEW_MS,
+): boolean {
+  const expire = material?.secTokenExpire;
+  if (typeof expire !== 'number' || !Number.isFinite(expire) || expire <= 0) return false;
+  return expire * 1000 - nowMs < skewMs;
+}

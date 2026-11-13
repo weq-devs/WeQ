@@ -296,7 +296,12 @@ export async function exportToChatlab(
     senders = await resolveGroupSenders(msgs, opts.conv, opts.range, deps, ownerUid, opts.roam);
     if (ownerUid) metaOwnerId = senders.get(ownerUid)?.platformId;
   } else {
-    const r = await resolveC2cSenders(opts.conv, deps);
+    const r = await resolveC2cSenders(opts.conv, deps, {
+      msgs,
+      kind: opts.kind,
+      range: opts.range,
+      roam: opts.roam,
+    });
     senders = r.senders;
     metaOwnerId = r.ownerId;
   }
@@ -336,7 +341,9 @@ export async function exportToChatlab(
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         audit.observe(exported.elements);
-        const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
+        const sender = exported.forwardSource
+          ? fallbackSender(exported)
+          : (senders.get(exported.senderUid) ?? fallbackSender(exported));
         await writer.write(`${JSON.stringify(toChatlabMessage(exported, sender))}\n`);
         count += 1;
         if (count % progressEvery === 0)
@@ -362,7 +369,9 @@ export async function exportToChatlab(
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         audit.observe(exported.elements);
-        const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
+        const sender = exported.forwardSource
+          ? fallbackSender(exported)
+          : (senders.get(exported.senderUid) ?? fallbackSender(exported));
         const { _type, ...rest } = toChatlabMessage(exported, sender);
         void _type;
         await writer.write((count === 0 ? '' : ',\n') + JSON.stringify(rest));

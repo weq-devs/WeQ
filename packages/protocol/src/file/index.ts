@@ -13,6 +13,15 @@ export {
   type PrivateFileSendResult,
 } from './file-send';
 
+export {
+  sendDatalineFile,
+  DATALINE_UPLOAD_CMD,
+  DATALINE_UPLOAD_REQUEST,
+  DATALINE_UPLOAD_RESPONSE,
+  type DatalineFileSendParams,
+  type DatalineFileSendResult,
+} from './dataline-file';
+
 // 四个命令的 schema（公开：调用方/测试要能离线拼包与解包）。
 export {
   OIDB_GROUP_FILE_UPLOAD_REQ,

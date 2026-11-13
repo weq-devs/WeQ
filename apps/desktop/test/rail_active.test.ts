@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { countVisibleUnreadConversations } from '../src/renderer/src/im-template/template/shellController';
 import { readFileSync } from 'node:fs';
 import { WorkspacePage, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';

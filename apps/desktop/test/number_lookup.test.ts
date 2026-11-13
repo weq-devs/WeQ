@@ -109,7 +109,7 @@ describe('号码查询', () => {
     const output = process.env.WEQ_ENTRY_LAYOUT_DIR;
     if (output) {
       mkdirSync(output, { recursive: true });
-      const styles = ['index.css', 'search-scope.css']
+      const styles = ['index.css', 'search-scope.css', 'identity-links.css']
         .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
         .join('\n');
       writeFileSync(
@@ -118,7 +118,7 @@ describe('号码查询', () => {
       );
     }
   });
-  it('头像和昵称分别打开对应资料，头像失败时保留文字占位及名片入口', async () => {
+  it('头像昵称共用一个资料入口，头像失败仍保留昵称和名片入口', async () => {
     const open = vi.fn();
     act(() => root.render(h(NumberLookupResults, { keyword: '10002', onOpenProfile: open })));
     await tick();
@@ -126,17 +126,18 @@ describe('号码查询', () => {
       ['user', '用户'],
       ['group', '群聊'],
     ] as const) {
-      const avatar = host.querySelector<HTMLButtonElement>(`[aria-label="查看${label}头像名片"]`)!;
-      const name = host.querySelector<HTMLButtonElement>(`[aria-label="查看${label}昵称名片"]`)!;
+      const avatar = host.querySelector<HTMLButtonElement>(`[aria-label="查看${label}名片"]`)!;
+      const name = avatar.querySelector<HTMLElement>('.weq-number-lookup-name')!;
       const image = avatar.querySelector('img')!;
       expect(image.getAttribute('src')).toContain(kind === 'user' ? 'uin=10002' : 'uid=10002');
-      act(() => avatar.click());
+      act(() => (image as HTMLElement).click());
       expect(open).toHaveBeenLastCalledWith(profile(kind), avatar);
       act(() => name.click());
-      expect(open).toHaveBeenLastCalledWith(profile(kind), name);
+      expect(open).toHaveBeenLastCalledWith(profile(kind), avatar);
       act(() => image.dispatchEvent(new Event('error')));
       expect(avatar.querySelector('img')).toBeNull();
-      expect(avatar.textContent).toBe('合');
+      expect(avatar.querySelector('.weq-search-avatar')?.textContent).toBe('合');
+      expect(name.textContent).toBe('合成资料');
       act(() => avatar.click());
       expect(open).toHaveBeenLastCalledWith(profile(kind), avatar);
     }
@@ -170,7 +171,7 @@ describe('号码查询', () => {
           keyword: '10002',
           numberLookupEnabled: true,
           onOpenNumberProfile: open,
-          categories: [],
+          categories: ['contact', 'group'],
           onCategoriesChange: vi.fn(),
           quick: null,
           quickLoading: false,
@@ -188,11 +189,9 @@ describe('号码查询', () => {
       ['user', '用户'],
       ['group', '群聊'],
     ] as const) {
-      for (const field of ['头像', '昵称']) {
-        const button = host.querySelector<HTMLButtonElement>(
-          `[aria-label="查看${label}${field}名片"]`,
-        )!;
-        act(() => button.click());
+      const button = host.querySelector<HTMLButtonElement>(`[aria-label="查看${label}名片"]`)!;
+      for (const field of ['.weq-search-avatar', '.weq-number-lookup-name']) {
+        act(() => button.querySelector<HTMLElement>(field)!.click());
         expect(open).toHaveBeenLastCalledWith(profile(kind), button);
       }
     }
@@ -270,7 +269,8 @@ describe('号码查询', () => {
       h(SearchDropdown, {
         keyword: keyword.trim(),
         numberLookupKeyword: keyword,
-        categories: [],
+        categories: ['contact', 'group'],
+        sources: enabled ? ['qq'] : [],
         onCategoriesChange: vi.fn(),
         quick: null,
         quickLoading: false,
@@ -278,8 +278,7 @@ describe('号码查询', () => {
         slowLoading: false,
         onSelect: vi.fn(),
         onMore: vi.fn(),
-        numberLookupEnabled: enabled,
-        onNumberLookupEnabledChange: vi.fn(),
+        numberLookupEnabled: true,
       });
     const search = (enabled: boolean, keyword = '10002') =>
       h(TitleBarSearch, {

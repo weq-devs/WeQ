@@ -1,5 +1,6 @@
 import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -41,6 +42,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { dressup: { peerStats: { useQuery: () => ({ data: undefined }) } } } },
 }));
 vi.mock('../src/renderer/src/hooks/useAvatarUrl', () => ({ useAvatarUrl: () => null }));
+vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
+  useExportSavePolicy: () => ({
+    binding: null,
+    settings: { isLoading: false },
+    isCurrent: () => true,
+  }),
+}));
 vi.mock('../src/renderer/src/hooks/useMsgDecoration', () => ({ useMsgDecoration: () => ({}) }));
 vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
   useActiveWidget: () => ({ widget: null }),
@@ -121,8 +129,16 @@ async function fixture(element: ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  // 关键词规则编辑器用 tanstack 无限查询加载成员候选，需要独立缓存。
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () =>
-    root.render(h(ProfileNavigationContext.Provider, { value: open }, element)),
+    root.render(
+      h(
+        QueryClientProvider,
+        { client: cache },
+        h(ProfileNavigationContext.Provider, { value: open }, element),
+      ),
+    ),
   );
   cleanups.push(() => {
     act(() => {
@@ -139,8 +155,11 @@ function buttons(scope: ParentNode = document) {
   return [...scope.querySelectorAll<HTMLButtonElement>('.weq-profile-avatar-button')];
 }
 function click(button: HTMLButtonElement) {
+  const target = button.classList.contains('weq-identity-link') ? button.lastElementChild! : button;
+  if (button.classList.contains('weq-identity-link'))
+    expect(button.textContent?.trim()).not.toBe('');
   act(() =>
-    button.dispatchEvent(
+    target.dispatchEvent(
       new MouseEvent('click', { bubbles: true, detail: 1, clientX: 40, clientY: 60 }),
     ),
   );
@@ -163,6 +182,7 @@ function capture(element: Element, name: string) {
   const css = [
     'styles/index.css',
     'styles/profile-avatar.css',
+    'styles/identity-links.css',
     'styles/conversation-analytics.css',
     'im-template/styles/base.css',
     'im-template/styles/chat.css',
@@ -213,7 +233,10 @@ it('群收款名单按成员 UID 打开并保留来源群', async () => {
   );
   await act(async () => f.host.querySelector<HTMLElement>('.weq-group-receipt-card')!.click());
   capture(document.querySelector('.weq-group-receipt-dialog')!, 'receipt');
-  click(buttons(document.querySelector('.weq-group-receipt-dialog')!)[0]!);
+  const person = buttons(document.querySelector('.weq-group-receipt-dialog')!)[0]!;
+  expect(person.textContent).toContain(member.name);
+  expect(person.querySelector('.weq-group-receipt-item-amount')).toBeNull();
+  click(person);
   expectTarget(f.open, member.uin, group);
   expect(f.open.mock.calls[0]![0].id).toBe(member.uid);
 });
@@ -229,6 +252,9 @@ it.each(['group', 'c2c'] as const)(
     click(avatars[0]!);
     expectTarget(f.open, '10002', kind === 'group' ? group : undefined);
     click(avatars[1]!);
+    expect(avatars[1]!.textContent).toContain('我');
+    expect(avatars[1]!.querySelector('.weq-redbag-detail-item-time')).toBeNull();
+    expect(avatars[1]!.querySelector('.weq-redbag-detail-item-amount')).toBeNull();
     expectTarget(f.open, '10001', kind === 'group' ? group : undefined);
     expect(rpc.grab).not.toHaveBeenCalled();
   },
@@ -275,7 +301,7 @@ it('红包上方存在名片浮层时 Escape 不关闭底层红包，关闭浮�
 
 it('转发发送者按记录身份查看，不套用外层群；缺少身份无按钮', async () => {
   const f = await fixture(h(ForwardWindowHost));
-  act(() =>
+  await act(async () =>
     openForwardWindow({
       title: '合成转发',
       kind: 'group',
@@ -293,6 +319,7 @@ it('转发发送者按记录身份查看，不套用外层群；缺少身份无�
       ],
     }),
   );
+  await act(async () => vi.dynamicImportSettled());
   const avatars = buttons(document.querySelector('.weq-forward-window')!);
   capture(document.querySelector('.weq-forward-window')!, 'forward');
   expect(avatars).toHaveLength(1);

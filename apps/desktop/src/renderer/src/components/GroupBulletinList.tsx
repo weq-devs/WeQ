@@ -1,4 +1,5 @@
-import type { ReactNode, MouseEvent } from 'react';
+import { useRef, type ReactNode, type MouseEvent } from 'react';
+import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import { Avatar } from '../im-template/template/primitives';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import type { GroupNoticeEntry } from '../lib/groupNotices';
@@ -10,26 +11,33 @@ export function GroupBulletinList({
   groupName,
   tools,
   onContextMenu,
+  initialNoticeId,
 }: {
   entries: GroupNoticeEntry[];
   groupCode: string;
   groupName: string;
   tools: (entry: GroupNoticeEntry) => ReactNode;
   onContextMenu: (event: MouseEvent, entry: GroupNoticeEntry) => void;
+  initialNoticeId?: string;
 }) {
+  const root = useRef<HTMLDivElement>(null);
+  useSearchTargetFocus(root, 'data-notice-id', initialNoticeId, entries.length > 0);
   return (
-    <div className="group-bulletins-list">
+    <div ref={root} className="group-bulletins-list">
       {entries.map((entry) => (
         <article
           key={entry.key}
           className="group-bulletin-item"
           data-notice-key={entry.key}
+          data-notice-id={entry.noticeId}
           onContextMenu={(event) => onContextMenu(event, entry)}
         >
           <div className="group-bulletin-layout">
             <ProfileAvatar
+              className="weq-identity-link group-bulletin-author"
               target={{
                 identity: entry.publisherUid,
+                uin: entry.publisherUin,
                 name: entry.publisherName || entry.publisherUid,
                 avatarUrl: entry.publisherAvatar,
                 group: { code: groupCode, name: groupName },
@@ -40,16 +48,16 @@ export function GroupBulletinList({
                 avatarUrl={entry.publisherAvatar}
                 seed={entry.publisherUid}
               />
+              <span className="group-bulletin-publisher-name">
+                {entry.publisherName || `用户 ${entry.publisherUid || '未知'}`}
+              </span>
             </ProfileAvatar>
             <div className="group-bulletin-main">
               <div className="group-bulletin-header">
-                <span className="group-bulletin-publisher-name">
-                  {entry.publisherName || `用户 ${entry.publisherUid || '未知'}`}
-                </span>
                 <span className="group-bulletin-date">
-                  {entry.date}
-                  {entry.readNum !== undefined && <> · {entry.readNum} 人已读</>}
-                  {!entry.noticeId && ' · 本地记录'}
+                  {entry.date && <span>{entry.date}</span>}
+                  {entry.readNum !== undefined && <span>{entry.readNum} 人已读</span>}
+                  {!entry.noticeId && <span>历史记录</span>}
                 </span>
                 {tools(entry)}
               </div>

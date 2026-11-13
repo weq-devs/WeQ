@@ -17,6 +17,55 @@ afterEach(() => {
   closeAllFixtureDbs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+it('助手日历仅扫描所选独立会话，锚点保留会话身份且不读取 QQ 数据库', async () => {
+  const time = Date.parse('2026-11-13T12:00:00+08:00');
+  const getConversation = vi.fn(() => [
+    { id: 'a-message', role: 'user' as const, text: '合成消息', ts: time },
+  ]);
+  const nt = createSqliteStub();
+  const read = vi.spyOn(nt, 'executeSql');
+  const targets: CalendarTarget[] = [
+    { kind: 'assistant', conv: 'selected-session', name: '独立助手', avatar: null, ancestors: [] },
+  ];
+  const sources = createCalendarSources(
+    {
+      session: {} as AccountSession,
+      services: {
+        assistant: { getConversation },
+        agentLab: {
+          listPersonaSessions: () => [],
+          listGroupSessions: () => [],
+          getConversation: () => [],
+          getPersonaSessionConversation: () => [],
+          getGroupMessages: () => [],
+          getGroupSessionConversation: () => [],
+        },
+        msgs: { getHiddenDeletedMsgIds: () => [] },
+        gapHistory: {
+          hasCalendarCache: () => false,
+          calendarConversations: async () => [],
+          calendarPage: async () => [],
+        },
+      },
+      targets,
+      readers: new Map(),
+    },
+    nt,
+    () => {},
+  );
+  const page = await sources[0]!.page(time / 1000 - 1, time / 1000 + 1, undefined, 256);
+  expect(getConversation).toHaveBeenCalledOnce();
+  expect(getConversation).toHaveBeenCalledWith('selected-session');
+  expect(page.done).toBe(true);
+  expect(page.rows).toEqual([
+    {
+      conv: 'selected-session',
+      time: time / 1000,
+      anchor: { id: 'a-message', seq: '', time: time / 1000, sessionId: 'selected-session' },
+    },
+  ]);
+  expect(read).not.toHaveBeenCalled();
+});
 it('全部八类来源只读取所属会话，卡片源沿用可展示性，克隆保持子会话锚点', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-calendar-sources-'));
   roots.push(root);

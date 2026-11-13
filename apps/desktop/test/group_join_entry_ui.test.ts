@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: {}, trpc: {} }));
 const cleanups: Array<() => void> = [];

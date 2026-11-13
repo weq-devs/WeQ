@@ -1,0 +1,126 @@
+.weq-search-more-results,
+.weq-search-detail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+:is(.weq-search-more-results, .weq-search-detail) .weq-search-more-head {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+:is(.weq-search-more-results, .weq-search-detail) .weq-search-more-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  letter-spacing: 0;
+  color: var(--weq-fg-primary);
+}
+
+.weq-search-more-back {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.weq-search-more-back:hover {
+  background: var(--weq-bg-surface);
+}
+
+.weq-search-more-back:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-search-more-results .weq-search-more-body {
+  min-height: 0;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  scrollbar-color: var(--weq-border-strong) transparent;
+}
+
+.weq-search-more-results .weq-search-more-total,
+.weq-search-more-results .weq-search-more-end {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-search-detail-body {
+  min-height: 0;
+  overflow: auto;
+  max-height: min(60vh, 560px);
+  scrollbar-color: var(--weq-border-strong) transparent;
+}
+
+.weq-search-detail .weq-chatrecords {
+  height: min(60vh, 560px);
+  background: transparent;
+}
+
+.weq-search-detail .weq-chatrecords-body {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.weq-search-detail .weq-record-calendar-actions {
+  padding: 8px 12px;
+}
+
+.weq-search-detail
+  :is(
+    .group-album-dialog,
+    .group-file-dialog,
+    .group-announcements-dialog,
+    .group-essence-dialog,
+    .weq-ft
+  ) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.weq-search-content-state {
+  padding: 12px;
+}
+
+html[data-theme='dark'] .weq-search-more-back:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
+}
+
+html[data-theme='dark'] .weq-search-detail .weq-chatrecords {
+  background: transparent;
+}
+
+.weq-search-detail :is(.weq-chatrecords-msg-text, .weq-chatrecords-msg-content) {
+  color: var(--weq-fg-primary);
+}
+
+.weq-search-detail .weq-chatrecords-msg-meta {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-search-detail .weq-chatrecords-msg {
+  border-radius: 6px;
+}
+
+.weq-search-detail .weq-chatrecords-msg:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}

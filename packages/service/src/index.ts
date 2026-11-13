@@ -18,6 +18,15 @@
  */
 
 // ---- bootstrap ----
+export { AnalysisReportsService } from './account/analysis_reports';
+export { installContentSearchCapture } from './account/content_search_capture';
+export { writeCompositionBundle } from './account/export/composition_export';
+export { fileDigest } from './account/export/archive_resource';
+export type {
+  SavedAnalysisRequest,
+  SavedAnalysisReport,
+  AnalysisReportSummary,
+} from './account/analysis_reports';
 export { Win32DetectService } from './bootstrap/win32_detect';
 export type { QqInstallInfo } from './bootstrap/win32_detect';
 
@@ -39,6 +48,11 @@ export type {
 } from './bootstrap/attach';
 export { runUnprivilegedAttach } from './bootstrap/attach_flow';
 export type { DirectAttachFailure, AttachFlowDeps } from './bootstrap/attach_flow';
+export {
+  CredentialRepairRequiredError,
+  DebugReadUnavailableError,
+} from './common/credential_repair';
+export type { OnlineCredentialIssue } from './common/credential_repair';
 
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
 export type {
@@ -206,6 +220,18 @@ export {
   fontFamilyFor,
 } from './account/dress_shared_cache';
 export { migrateDressData } from './account/dress_migrate';
+export {
+  configureDressIndexResources,
+  getDressIndexStore,
+  subscribeDressIndexResources,
+  parseDressIndexManifest,
+  DRESS_INDEX_KINDS,
+} from './account/dress_index';
+export type {
+  DressIndexKind,
+  DressIndexManifest,
+  DressIndexState,
+} from './account/dress_index';
 export type {
   DressManifest,
   InstalledFont,
@@ -238,6 +264,7 @@ export {
   registerSsoSession,
   registerSsoSessionFromStored,
   resolveDeviceGuid,
+  resolveSsoClientSnapshot,
   resolveSubAppId,
   PC_SUB_APP_ID,
 } from './account/sso_session';
@@ -393,7 +420,9 @@ export {
   WEQ_ASSISTANT_NICK,
 } from './account/weq_assistant';
 export type { WeqTweetCard } from './account/weq_assistant';
-export { AssistantService, ASSISTANT_AGENT_ID } from './account/assistant';
+export { AssistantService, ASSISTANT_AGENT_ID, mergeAssistantConfig } from './account/assistant';
+export { ASSISTANT_PARAMETER_DEFAULTS } from './account/assistant_config';
+export type { AssistantSendMode, AssistantParameters } from './account/assistant_config';
 export type {
   AssistantConfig,
   AssistantReasoningEffort,
@@ -401,6 +430,8 @@ export type {
   AssistantTools,
   AssistantToolSpec,
   AssistantStep,
+  AssistantProcessStep,
+  AssistantTaskEvent,
   AssistantArtifact,
   AssistantPlanStep,
   AssistantInvestigationPlan,
@@ -417,7 +448,13 @@ export type {
   RecallNotifyEvent,
 } from './account/anti_recall';
 export { notifyKey } from './account/anti_recall';
-export { IntentSenseService, INTENT_LABELS, EMOTION_LABELS } from './account/intent_sense';
+export {
+  IntentSenseService,
+  INTENT_LABELS,
+  EMOTION_LABELS,
+  DEFAULT_INTENT_SENSE_CONFIG,
+  normalizeIntentSenseConfig,
+} from './account/intent_sense';
 export type {
   IntentKind,
   EmotionKind,
@@ -509,6 +546,8 @@ export type {
   MoreSearchResult,
 } from './account/unified_search';
 export { UnreadInfoService } from './account/unread_info';
+export { createQqUnreadCountSource } from './account/unread_count_source';
+export type { UnreadCountSource } from './account/unread_count_source';
 export { waitForUnreadWrites } from './account/local_unread';
 export { DbDecryptService, isLoginDb, LOGIN_DB_KEY } from './account/db_decrypt';
 export { LoginAccountToolService, resolveLoginAccountDir } from './account/login_account_tool';
@@ -878,9 +917,11 @@ export type {
 } from './account/group_album_media';
 
 export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
+export { managedMediaDownload } from './account/managed_media_download';
 export { prepareFavoriteEmojiElements } from './account/favorite_emoji_send';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
+export { ProfileExtrasService } from './account/profile_extras';
 export {
   ChatQqShowService,
   DEFAULT_QQ_SHOW_CACHE_MINUTES,
@@ -1108,7 +1149,6 @@ export type {
   GroupExportOptions,
   IterateOptions,
   SalvageSourceOptions,
-  JsonExportOptions,
   ExportTask,
   TaskStatus,
   TaskProgress,
@@ -1198,6 +1238,7 @@ export { configureConsoleLogger, flushConsoleLogger } from './common/logger';
 export { withLogOperation, currentOperationId } from './common/operation_log';
 export { configureDevelopmentLogging } from './common/development_logging';
 export { logRequest, logTransportError } from './common/request_log';
+export { OperationError } from './common/operation_error';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost, withHost } from './common/host';
 export type { AppAutostartStatus, HostBridge, SaveTarget } from './common/host';
@@ -1299,6 +1340,7 @@ export {
 } from './bootstrap/storage_cleanup';
 export type { StorageCleanupPlan, StorageCleanupResult } from './bootstrap/storage_cleanup';
 export { ContactMetricsService, ContactMetricsOfflineError } from './account/contact_metrics';
+export { DirectoryTimeReader } from './account/directory_times';
 export type {
   ContactMetric,
   ContactMetricRows,
@@ -1306,3 +1348,18 @@ export type {
   ContactMetricsProgress,
   ContactMetricJob,
 } from './account/contact_metrics';
+export { RecentReactions } from './account/recent_reactions';
+export {
+  ContactHistoryService,
+  encodeContactValue,
+  decodeContactValue,
+} from './account/contact_history';
+export type {
+  ContactObservation,
+  ContactHistoryRow,
+  ContactHistoryVersion,
+} from './account/contact_history';
+export {
+  installContactHistoryCapture,
+  CONTACT_HISTORY_CAPTURE,
+} from './account/contact_history_capture';

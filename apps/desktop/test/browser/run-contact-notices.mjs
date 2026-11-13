@@ -54,6 +54,9 @@ try {
     );
     await page.evaluate((group) => window.noticeQa.render(group), group);
     await page.waitForSelector('.notice-card-request');
+    const time = page.locator('.notice-meta time').first();
+    if ((await time.textContent()) !== '2026-11-07 00:00:37')
+      throw new Error('通知时间未显示完整的北京时间与秒数');
     await page.evaluate((group) => window.noticeQa.mountActions(group), group);
     await page.waitForSelector('.notice-request-buttons');
     for (const width of [1280, 390, 320]) {
@@ -67,17 +70,46 @@ try {
         }, theme);
         const result = await page.evaluate(() => {
           const cards = [...document.querySelectorAll('.notice-card-request')];
+          const brokenIdentities = cards.filter((card) => {
+            const identity = card.querySelector('.notice-identity');
+            const avatar = identity.querySelector('.avatar').getBoundingClientRect();
+            const name = identity.querySelector('.notice-who').getBoundingClientRect();
+            const bounds = identity.getBoundingClientRect();
+            const copy = card.querySelector('.notice-copy').getBoundingClientRect();
+            const meta = card.querySelector('.notice-meta').getBoundingClientRect();
+            return (
+              bounds.width < avatar.width + 24 ||
+              name.height > avatar.height + 1 ||
+              name.left < avatar.right ||
+              name.right > bounds.right + 1 ||
+              bounds.right > meta.left + 1 ||
+              bounds.bottom > copy.top + 1
+            );
+          });
           const clipped = cards.filter((card) => {
             const rect = card.getBoundingClientRect();
-            return [...card.querySelectorAll('button, input, .notice-request-actions > p')].some(
-              (node) => {
-                const child = node.getBoundingClientRect();
-                return (
-                  child.bottom > rect.bottom + 1 ||
-                  child.right > rect.right + 1 ||
-                  child.left < rect.left - 1
-                );
-              },
+            const timeClipped = [...card.querySelectorAll('time')].some((time) => {
+              const range = document.createRange();
+              range.selectNodeContents(time);
+              return [...range.getClientRects()].some(
+                (line) =>
+                  line.right > rect.right + 1 ||
+                  line.left < rect.left - 1 ||
+                  line.bottom > rect.bottom + 1,
+              );
+            });
+            return (
+              timeClipped ||
+              [...card.querySelectorAll('button, input, .notice-request-actions > p')].some(
+                (node) => {
+                  const child = node.getBoundingClientRect();
+                  return (
+                    child.bottom > rect.bottom + 1 ||
+                    child.right > rect.right + 1 ||
+                    child.left < rect.left - 1
+                  );
+                },
+              )
             );
           });
           const list = document.querySelector('.weq-notice-scroll');
@@ -88,6 +120,7 @@ try {
           list.scrollTop = list.scrollHeight;
           const last = cards.at(-1).getBoundingClientRect();
           return {
+            brokenIdentities: brokenIdentities.length,
             clipped: clipped.length,
             count: cards.length,
             scrollable: list.scrollHeight > list.clientHeight,
@@ -107,6 +140,7 @@ try {
           };
         });
         if (
+          result.brokenIdentities ||
           result.clipped ||
           result.overflow ||
           result.count !== 12 ||
@@ -115,13 +149,33 @@ try {
           !result.inline ||
           !result.fitsWorkspace ||
           !result.sidebarVisible
-        )
+        ) {
+          if (output)
+            await page.screenshot({
+              path: resolve(output, `failure-${group ? 'group' : 'friend'}-${width}-${theme}.png`),
+            });
           throw new Error(
             `${group ? 'group' : 'friend'}/${width}/${theme}: ${JSON.stringify(result)}`,
           );
+        }
         await page.locator('.weq-notice-scroll').evaluate((node) => {
           node.scrollTop = 0;
         });
+        if (group) {
+          const name = page.locator('button.notice-group-name').first();
+          await name.focus();
+          await page.keyboard.press('Enter');
+          const card = page.getByRole('dialog', { name: '群资料', exact: true });
+          await card.waitFor({ state: 'visible' });
+          if (!(await card.textContent()).includes('20001'))
+            throw new Error('群名没有打开对应群名片');
+          await page.keyboard.press('Escape');
+          await card.waitFor({ state: 'detached' });
+        }
+        const person = page.locator('.notice-identity').first();
+        await person.locator('.notice-who').click();
+        if ((await page.evaluate(() => document.documentElement.dataset.noticeProfile)) !== '10001')
+          throw new Error('通知昵称没有打开同一申请人的名片');
         if (output)
           await page.screenshot({
             path: resolve(output, `${group ? 'group' : 'friend'}-${width}-${theme}.png`),

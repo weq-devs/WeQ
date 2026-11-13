@@ -92,6 +92,7 @@ import {
   type QzoneUgcRight,
 } from './qzone_publish';
 import { setQzoneLike, commentQzoneMsg, type QzoneCommentResult } from './qzone';
+import { replyQzoneMsg, forwardQzoneMsg, type QzoneReplyTarget } from './qzone_write_actions';
 import {
   collectQzoneInteractions,
   fetchQzoneLikes,
@@ -106,14 +107,20 @@ import {
   supplementQzoneComments,
   inclusiveQzoneCommentCount,
 } from './qzone_comments';
-import { fetchQzoneForwardPage } from './qzone_forwards';
+import { fetchQzoneForwardPage, type QzoneForwardCursor } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
 import { fetchQzoneContentCounts, fetchQzoneVisitorStats } from './qzone_stats';
-import { fetchQzonePostDetail, fetchQzonePostImages } from './qzone_detail';
+import {
+  fetchQzonePostDetail,
+  fetchQzonePostImages,
+  supplementQzonePostDetail,
+} from './qzone_detail';
 import { fetchQzoneRelated, fetchQzoneMemories } from './qzone_recall';
 import { getSpecialCare } from './special_care';
 import { fetchVipInfo } from './vip_info';
 import type { VipInfo } from '../vip';
+import { QzoneMediaTypesService } from '../qzone_media_types';
+import type { TrpcNative } from '@weq/protocol';
 import { uploadGroupAlbumVideo, type GroupAlbumVideoUpload } from './group_album_video';
 import {
   getQzonePermissionList,
@@ -155,6 +162,7 @@ const TI_DOMAIN = 'ti.qq.com';
 
 export class WebQueryService {
   private readonly creds: WebCredentialProvider;
+  private readonly mediaTypes?: QzoneMediaTypesService;
   private readonly qzoneNameCache = new Map<string, { name: string; at: number }>();
 
   /**
@@ -164,13 +172,19 @@ export class WebQueryService {
    * @param onSeedInvalidated seed 的票据被判失效时调用（落盘那份一起删掉）。
    */
   constructor(
-    nt: WebNative,
+    nt: WebNative & Partial<TrpcNative>,
     session: AccountSession,
     resolvePid: () => number,
     loginPskey?: Record<string, string>,
     onSeedInvalidated?: (domain: string) => void,
   ) {
     this.creds = new WebCredentialProvider(nt, session.context.uin, resolvePid, onSeedInvalidated);
+    if (nt.sendPacket) {
+      this.mediaTypes = new QzoneMediaTypesService(
+        { sendPacket: nt.sendPacket.bind(nt) },
+        resolvePid,
+      );
+    }
     if (loginPskey) this.creds.seedPskey(loginPskey);
   }
 
@@ -525,6 +539,16 @@ export class WebQueryService {
     return forwardQzonePublicFeed(cred, feed, reason);
   }
 
+  /** 可见媒体的原生类型补全，不影响 Web 列表与正文读取。 */
+  async getQzoneMediaTypes(ownerUin: string, tid: string, time: number, signal?: AbortSignal) {
+    if (!this.mediaTypes) throw new Error('当前会话不支持空间媒体类型读取。');
+    return this.mediaTypes.read({ ownerUin, tid, time }, signal);
+  }
+  async getQzoneNativeDetail(ownerUin: string, tid: string, time: number, signal?: AbortSignal) {
+    if (!this.mediaTypes) throw new Error('当前会话不支持空间原生详情。');
+    return this.mediaTypes.readDetail({ ownerUin, tid, time }, signal);
+  }
+
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */
   async getQzoneMsgList(
     targetUin: string,
@@ -552,15 +576,47 @@ export class WebQueryService {
     );
   }
 
+  getQzonePostDetail(
+    targetUin: string,
+    tid: string,
+    signal?: AbortSignal,
+    captureRaw?: (text: string) => Promise<void>,
+  ): ReturnType<typeof fetchQzonePostDetail>;
+  getQzonePostDetail(
+    targetUin: string,
+    tid: string,
+    signal: AbortSignal | undefined,
+    captureRaw: ((text: string) => Promise<void>) | undefined,
+    time: number | undefined,
+  ): Promise<NonNullable<ReturnType<typeof supplementQzonePostDetail>>>;
   async getQzonePostDetail(
     targetUin: string,
     tid: string,
     signal?: AbortSignal,
     captureRaw?: (text: string) => Promise<void>,
+    time?: number,
   ) {
-    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+    signal?.throwIfAborted();
+    if (time === undefined || !Number.isSafeInteger(time) || time <= 0)
+      return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+        fetchQzonePostDetail(cred, targetUin, tid, signal, captureRaw),
+      );
+    let webError: unknown;
+    const web = await withRetry(this.creds, QZONE_DOMAIN, (cred) =>
       fetchQzonePostDetail(cred, targetUin, tid, signal, captureRaw),
-    );
+    ).catch((error: unknown) => {
+      webError = error;
+      return null;
+    });
+    signal?.throwIfAborted();
+    if (web?.contentHasMore === false) return web;
+    const native = this.mediaTypes
+      ? await this.getQzoneNativeDetail(targetUin, tid, time, signal).catch(() => null)
+      : null;
+    signal?.throwIfAborted();
+    const result = supplementQzonePostDetail(web, native);
+    if (!result) throw webError ?? new Error('暂时无法读取说说详情。');
+    return result;
   }
 
   async getQzonePostImages(
@@ -704,9 +760,14 @@ export class WebQueryService {
     }
   }
 
-  async getQzoneForwardPage(targetUin: string, tid: string, offset = 0, signal?: AbortSignal) {
+  async getQzoneForwardPage(
+    targetUin: string,
+    tid: string,
+    cursor: QzoneForwardCursor | null = null,
+    signal?: AbortSignal,
+  ) {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
-      fetchQzoneForwardPage(cred, targetUin, tid, offset, signal),
+      fetchQzoneForwardPage(cred, targetUin, tid, cursor, signal),
     );
   }
 
@@ -883,6 +944,36 @@ export class WebQueryService {
       this.creds,
       QZONE_DOMAIN,
       (c) => setQzoneLike(c, targetUin, tid, like, abstime),
+      beforeSend,
+    );
+  }
+
+  async replyQzone(
+    hostUin: string,
+    tid: string,
+    target: QzoneReplyTarget,
+    content: string,
+    imageUrl?: string,
+    beforeSend?: () => void,
+  ): Promise<void> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (cred) => replyQzoneMsg(cred, hostUin, tid, target, content, imageUrl),
+      beforeSend,
+    );
+  }
+
+  async forwardQzone(
+    hostUin: string,
+    tid: string,
+    reason: string,
+    beforeSend?: () => void,
+  ): Promise<void> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (cred) => forwardQzoneMsg(cred, hostUin, tid, reason),
       beforeSend,
     );
   }

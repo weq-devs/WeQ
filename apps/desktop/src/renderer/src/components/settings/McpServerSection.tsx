@@ -39,6 +39,7 @@ import {
   Square,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useRemoteClient } from '../../lib/remoteClient';
 import { useTabActive } from '../RetainedTabs';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
@@ -61,6 +62,7 @@ interface AgentTarget {
 }
 
 export function McpServerSection(): ReactElement {
+  const remote = useRemoteClient();
   const active = useTabActive();
   const activity = useRef(active);
   activity.current = active;
@@ -88,7 +90,7 @@ export function McpServerSection(): ReactElement {
 
   const data = status.data;
   const agentTargets = trpc.bootstrap.listMcpAgentTargets.useQuery(undefined, {
-    enabled: active,
+    enabled: active && !remote,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -487,6 +489,7 @@ export function McpServerSection(): ReactElement {
       {/* Install into local agents */}
       <Card
         title="安装到本机 AI 客户端"
+        remoteUnsupported
         icon={<Download size={15} strokeWidth={1.8} />}
         action={
           <button

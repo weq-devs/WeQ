@@ -6,8 +6,8 @@ import type { ImageMetadata, ImageReply, ImageRequest, ImageResult } from './ima
 export { PREVIEW_MAX_SIDE } from './image_worker_protocol';
 
 /** sharp 与 QQ wrapper 的 libvips 必须分属不同进程，worker_threads 仍共享 ObjC 运行时。 */
-export function createImageProcessor(
-  options: { workerPath?: string; idleMs?: number; timeoutMs?: number } = {},
+export function createImageProcessor<Request extends object = ImageRequest>(
+  options: { workerPath?: string; workerName?: string; idleMs?: number; timeoutMs?: number } = {},
 ) {
   let worker: ChildProcess | undefined;
   let sequence = 0;
@@ -37,7 +37,10 @@ export function createImageProcessor(
     if (worker) return worker;
     const path =
       options.workerPath ??
-      resolveChildWorkerPath('imageWorker.mjs', dirname(fileURLToPath(import.meta.url)));
+      resolveChildWorkerPath(
+        options.workerName ?? 'imageWorker.mjs',
+        dirname(fileURLToPath(import.meta.url)),
+      );
     const child = fork(path, [], {
       execArgv: [],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -72,7 +75,7 @@ export function createImageProcessor(
     return child;
   }
 
-  function run(request: ImageRequest): Promise<ImageResult> {
+  function run(request: Request): Promise<ImageResult> {
     if (pending.size >= 128) return Promise.reject(new Error('preview capacity'));
     return new Promise((resolve, reject) => {
       try {

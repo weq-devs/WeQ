@@ -12,6 +12,7 @@
  * paths inside `File/Ori`. `download.*` reveals the db-recorded `localPath`
  * directly (the user's own download records — same trust as the chat file card).
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
@@ -22,7 +23,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

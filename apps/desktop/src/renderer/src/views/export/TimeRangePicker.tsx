@@ -51,8 +51,8 @@ function rangeForPreset(preset: RangePreset): TimeRange {
 const PRESET_HINTS: Record<RangePreset, { single: string; scheduled: string }> = {
   all: { single: '不限制时间', scheduled: '每次触发都导出全量消息' },
   today: {
-    single: '今天的 00:00 ~ 23:59',
-    scheduled: '每次触发 = 当天 00:00 ~ 23:59（按触发日滚动）',
+    single: '今天的 00:00:00 ~ 23:59:59（北京时间）',
+    scheduled: '每次触发 = 当天 00:00:00 ~ 23:59:59（北京时间）（按触发日滚动）',
   },
   '7d': {
     single: '今天往前 7 天（含今天）',
@@ -137,34 +137,34 @@ export function TimeRangePicker({
           「自定义」是固定区间，不会滚动。
         </p>
       ) : null}
-      <div className="weq-exp-range-presets">
-        {PRESETS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            className={`weq-exp-chip${value.preset === p.value ? ' is-on' : ''}`}
-            onClick={() => pickPreset(p.value)}
-            title={PRESET_HINTS[p.value][mode]}
-          >
-            {p.label}
-          </button>
+      {/* 预设区间与别处的单选一样走共享分段控件，不再另写一排胶囊按钮。 */}
+      <select
+        className="weq-set-input"
+        aria-label="时间范围"
+        value={value.preset}
+        onChange={(event) => pickPreset(event.target.value as RangePreset)}
+      >
+        {PRESETS.map((preset) => (
+          <option key={preset.value} value={preset.value} title={PRESET_HINTS[preset.value][mode]}>
+            {preset.label}
+          </option>
         ))}
-      </div>
+      </select>
 
-      <div className="weq-exp-range-summary">
-        <span className="weq-exp-range-summary-main">
-          <span>{fmtDay(value.start)}</span>
-          <span className="weq-exp-range-arrow">→</span>
-          <span>{fmtDay(value.end)}</span>
-        </span>
-        {value.preset !== 'all' ? (
+      {value.preset === 'all' ? (
+        <p className="weq-exp-range-note">全部时间：统计已保存的本地记录，不限起止日期。</p>
+      ) : (
+        <div className="weq-exp-range-summary">
+          <span className="weq-exp-range-summary-main">
+            <span>{fmtDay(value.start)}</span>
+            <span className="weq-exp-range-arrow">→</span>
+            <span>{fmtDay(value.end)}</span>
+          </span>
           <button type="button" className="weq-exp-range-clear" onClick={resetAll}>
-            不限
+            改为全部时间
           </button>
-        ) : (
-          <span className="weq-exp-range-tag">全部时间</span>
-        )}
-      </div>
+        </div>
+      )}
 
       <MessageCalendar
         days={calendar.data}

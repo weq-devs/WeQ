@@ -43,6 +43,7 @@ import { migrateStaticAccountIdentity } from './static_account_identity_migratio
 import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
+import { desktopStartupAccount, openStartupAccount, startupWindowLayout } from './startup_account';
 import { guardTrpcReply } from './ipc/reply_guard';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
@@ -54,11 +55,11 @@ import {
   registerMediaProtocol,
 } from './protocol_register';
 import { registerUdpCaptureStorage } from './udp_capture_register';
-import { getAppContext } from './context/app_context';
+import { getAppContext, accountEventBus } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
-import { checkForUpdate, installUpdateActions } from './update/updater';
+import { startAutomaticUpdateChecks, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
 import { RemoteWebGateway } from './remote/web_gateway';
@@ -75,6 +76,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { windowControlsStyle, type WindowControlsStyle } from '../shared/window_controls';
+import { installWindowChrome, publishWindowChrome, registerWindowChromeIpc } from './window_chrome';
 import {
   registerWindowControlsRefresh,
   registerWindowControlsPreference,
@@ -95,7 +97,9 @@ import {
 } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
-import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
+import { installPerformanceMonitor, type PerformanceMonitor } from '@weq/service/performance';
+import { createDesktopCollector } from './performance_monitor';
+import { performanceDatabaseDetails } from './performance_database';
 import { databaseCheckups } from './db_checkup';
 import { macApplicationMenu } from './application_menu';
 import { createSystemTray } from './system_tray';
@@ -168,7 +172,9 @@ let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / Cmd+Q / before-quit). */
 let isQuitting = false;
-let stopRendererDiagnostics: (() => void) | null = null;
+let performanceMonitor: PerformanceMonitor | undefined;
+let performanceQuitReady = false;
+let performanceQuitPending = false;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
 const windowLayouts = new WeakMap<BrowserWindow, WindowLayout>();
@@ -188,6 +194,7 @@ function updateMainWindowControls(win: BrowserWindow, layout: WindowLayout): voi
   win.setWindowButtonVisibility(style === 'native');
   windowStyles.set(win, style);
   win.webContents.send('window:controls-changed', style);
+  publishWindowChrome(win, style);
 }
 
 registerWindowControlsRefresh(() => {
@@ -248,6 +255,7 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
+  registerWindowChromeIpc((win) => windowStyles.get(win) ?? 'windows');
   ipcMain.handle('window:get-controls', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return win ? (windowStyles.get(win) ?? 'windows') : 'windows';
@@ -578,7 +586,11 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
 
 function createWindow(
   showInitially = true,
-  layout: WindowLayout = getAppContext().account ? 'chat' : 'home',
+  layout: WindowLayout = startupWindowLayout(
+    Boolean(getAppContext().account),
+    desktopStartupAccount.pending,
+    getAppContext().bootstrap?.userConfig,
+  ),
 ): BrowserWindow {
   const icon = resolveWindowIcon();
   const controls = requestedControls(layout);
@@ -589,7 +601,8 @@ function createWindow(
   // (or override to another value) so this can be disabled per-environment.
   const win = new BrowserWindow({
     ...WINDOW_LAYOUTS[layout],
-    show: showInitially,
+    useContentSize: true,
+    show: false,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
@@ -606,8 +619,11 @@ function createWindow(
     },
   });
   windowLayouts.set(win, layout);
+  applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   windowStyles.set(win, controls);
   updateMainWindowControls(win, layout);
+
+  installWindowChrome(win, () => windowStyles.get(win) ?? 'windows');
 
   const recovery = createRendererRecovery({
     automatic: true,
@@ -783,6 +799,7 @@ void app.whenReady().then(async () => {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
+  accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
   await migrateLegacyAutostart().catch((error: unknown) => {
     logger.warn('legacy daemon migration failed', {
       event: 'legacy-daemon-migration-failed',
@@ -790,10 +807,24 @@ void app.whenReady().then(async () => {
     });
   });
   if (isQuitting) return;
-  installUpdateActions();
   initAppContext();
+  void import('./data_saver')
+    .then(({ refreshTransferPolicy }) => refreshTransferPolicy())
+    .catch(() => undefined);
   const userConfig = getAppContext().bootstrap?.userConfig;
-  // 尽早消费正常退出标记；本轮即使尚未加载界面就崩溃，下次也恢复原现场。
+  installUpdateActions({
+    getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,
+    setInterval: (minutes) => {
+      if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');
+      userConfig.setSettings({ updateCheckIntervalMinutes: minutes });
+    },
+    get: () => userConfig?.getSettings().updateCheckPrerelease === true,
+    set: (enabled) => {
+      if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');
+      userConfig.setSettings({ updateCheckPrerelease: enabled });
+    },
+  });
+  // 固定本轮启动页，运行中修改偏好留到下次进程启动生效。
   userConfig?.getStartupPage();
   // 旧版安卓备份的 uin 是从资料库猜的，可能猜错；纠正它会连带改 configId，
   // 所以必须在账号打开之前、且在任何按 id 建目录的服务之前跑完。
@@ -863,15 +894,19 @@ void app.whenReady().then(async () => {
     }
   }
   const logDirectory = getLogDir();
-  if (logDirectory)
-    stopRendererDiagnostics = startRendererDiagnostics({
-      directory: logDirectory,
-      development: is.dev,
-      mainWebContentsId: () => {
-        const window = getMainWindow();
-        return window && !window.isDestroyed() ? window.webContents.id : undefined;
-      },
-    });
+  if (logDirectory) {
+    performanceMonitor = installPerformanceMonitor(
+      join(logDirectory, '..'),
+      createDesktopCollector(
+        () => {
+          const window = getMainWindow();
+          return window && !window.isDestroyed() ? window.webContents.id : undefined;
+        },
+        performanceDatabaseDetails,
+        (kind, reason) => performanceMonitor?.recordEvent(kind, reason),
+      ),
+    );
+  }
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
   getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
@@ -884,7 +919,6 @@ void app.whenReady().then(async () => {
   // 意图感知本地引擎（Laya ONNX worker）：bridge 认识 Electron（userData 路径、
   // fork），同样从这里注入控制面；web 端不注入，localAvailable 恒为 false。
   setIntentSenseLocalEngine(getIntentSenseLocalEngine());
-  logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();
   registerAvatarProtocol();
@@ -947,6 +981,15 @@ void app.whenReady().then(async () => {
     },
   });
   buildTray();
+  // 先安排后台任务，以同一启动目标确定窗口尺寸；不等待数据库打开。
+  if (userConfig && !getAppContext().nativeError && !isQuitting)
+    void desktopStartupAccount.start(() =>
+      openStartupAccount(
+        userConfig,
+        appRouter.createCaller({}).bootstrap,
+        process.platform === 'darwin',
+      ),
+    );
   mainWindowLifecycle.open({
     show: shouldShowStartupWindow({
       autostart,
@@ -972,9 +1015,7 @@ void app.whenReady().then(async () => {
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
   // dot. Deferred so it never competes with first paint; failures are ignored.
-  if (app.isPackaged) {
-    setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
-  }
+  startAutomaticUpdateChecks();
 
   app.on('activate', openMainWindow);
 });
@@ -1019,12 +1060,22 @@ if (hasSingleInstanceLock) {
 // 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
 app.on('will-quit', (event) => {
   if (event.defaultPrevented) return;
+  if (performanceMonitor && !performanceQuitReady) {
+    event.preventDefault();
+    if (!performanceQuitPending) {
+      performanceQuitPending = true;
+      void performanceMonitor.dispose().finally(() => {
+        performanceQuitReady = true;
+        app.quit();
+      });
+    }
+    return;
+  }
   void databaseCheckups.cancelAll();
   if (hasSingleInstanceLock) {
     try {
       const ctx = getAppContext();
       ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
-      ctx.bootstrap?.userConfig.markCleanExit();
     } catch (error) {
       logger.warn('failed to save login exit state', {
         event: 'login-exit-state-failed',
@@ -1032,8 +1083,6 @@ app.on('will-quit', (event) => {
       });
     }
   }
-  stopRendererDiagnostics?.();
-  stopRendererDiagnostics = null;
   try {
     getAppContext().services?.roamingBackfill.dispose();
   } catch (error) {

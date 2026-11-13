@@ -4,6 +4,7 @@ import { pageValue } from '../../lib/pageSnapshots';
 import { useTabActive } from '../RetainedTabs';
 import type { ResolvedSettingsTarget, SettingsPageId } from './navigation';
 import { revealSetting } from './searchTarget';
+import { SettingsResetProvider } from './SettingsReset';
 
 /** 页面由 RetainedTabs 保留；失活时不保留搜索观察器，再次进入不重复跳到旧命中。 */
 export function RetainedSettingsPage({
@@ -50,7 +51,7 @@ export function RetainedSettingsPage({
       data-settings-page={pageId}
       className={`weq-settings-page${active ? ' weq-settings-body' : ''}`}
     >
-      {children}
+      <SettingsResetProvider page={pageId}>{children}</SettingsResetProvider>
     </div>
   );
 }

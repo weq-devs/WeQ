@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { z } from 'zod';
 import { Loader2, MoreHorizontal, Plus, Send, Trash2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { useGroupNoticePublishers } from '../../hooks/useGroupNoticePublishers';
 import { localFileUrl } from '../../lib/resourceUrl';
 import {
   mergeGroupNotices,
@@ -20,6 +22,8 @@ import {
   withQQAccountScope,
 } from './shared';
 import '../../styles/group-content-management.css';
+import { ContactEmptyState } from '../contactProfile/ContactRow';
+import { PageSnapshotsFallback, usePageDraftConfirmation, usePageState } from '../PageSnapshots';
 
 const emptyDraft = {
   content: '',
@@ -30,23 +34,55 @@ const emptyDraft = {
   popup: false,
   editCardGuide: false,
 };
+const noticeDraftSchema = z.object({
+  content: z.string(),
+  picture: z.object({ path: z.string(), fileName: z.string() }).nullable(),
+  pinned: z.boolean(),
+  required: z.boolean(),
+  newMembers: z.boolean(),
+  popup: z.boolean(),
+  editCardGuide: z.boolean(),
+});
+const NOTICE_PUBLISHED_EVENT = 'weq:group-notice-published';
+type NoticePublishedReceipt = { key: string; draft: z.infer<typeof noticeDraftSchema> };
 function GroupNoticeActionsBody({
   groupId,
   groupName = '',
   currentAnnouncement,
   bulletins = [],
+  initialNoticeId,
+  preserveDraft = false,
 }: {
   groupId: number;
   groupName?: string;
   currentAnnouncement?: string | null;
   bulletins?: GroupBulletinWire[];
+  initialNoticeId?: string;
+  preserveDraft?: boolean;
 }) {
   const a = useQQAction(`notice:${groupId}`);
   const permissions = useQQGroupPermissions(groupId, a);
   const canManage = permissions.data?.canManage === true;
   const autoRefresh = useQQAutoRefresh(a.available && canManage);
-  const [editor, setEditor] = useState(false);
-  const [draft, setDraft] = useState(emptyDraft);
+  const draftKey = JSON.stringify([
+    'group-notice',
+    a.binding?.expectedAccountUin,
+    a.binding?.expectedAccountConfigId,
+    groupId,
+  ]);
+  const [draft, setDraft] = usePageState(
+    draftKey,
+    emptyDraft,
+    noticeDraftSchema,
+    true,
+    preserveDraft,
+  );
+  const confirmDraft = usePageDraftConfirmation(draftKey, emptyDraft);
+  const liveDraft = useRef(draft);
+  liveDraft.current = draft;
+  const [editor, setEditor] = useState(
+    () => preserveDraft && JSON.stringify(draft) !== JSON.stringify(emptyDraft),
+  );
   const revision = useRef(0);
   const mounted = useRef(true);
   const newButton = useRef<HTMLButtonElement>(null);
@@ -55,6 +91,24 @@ function GroupNoticeActionsBody({
   const [sending, setSending] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; entry: GroupNoticeEntry } | null>(null);
   const busy = a.busy || a.pending;
+  useEffect(() => {
+    if (!preserveDraft) return;
+    const published = (event: Event) => {
+      const receipt = (event as CustomEvent<NoticePublishedReceipt>).detail;
+      if (
+        receipt?.key !== draftKey ||
+        JSON.stringify(liveDraft.current) !== JSON.stringify(receipt.draft)
+      )
+        return;
+      confirmDraft(receipt.draft);
+      revision.current++;
+      setDraft(emptyDraft);
+      restoreFocus.current = true;
+      setEditor(false);
+    };
+    window.addEventListener(NOTICE_PUBLISHED_EVENT, published);
+    return () => window.removeEventListener(NOTICE_PUBLISHED_EVENT, published);
+  }, [preserveDraft, draftKey, confirmDraft, setDraft]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -76,21 +130,22 @@ function GroupNoticeActionsBody({
     restoreFocus.current = true;
     setEditor(false);
   }
-  const registered = useDraftProtection(draft, busy);
+  const registered = useDraftProtection(preserveDraft ? null : draft, !preserveDraft && busy);
   const closing = useDraftClose(
     () => {
-      registered.reset(emptyDraft);
-      closing.reset(emptyDraft);
+      registered.reset(preserveDraft ? null : emptyDraft);
+      closing.reset(preserveDraft ? null : emptyDraft);
       resetEditor();
     },
-    draft,
-    busy,
+    preserveDraft ? null : draft,
+    !preserveDraft && busy,
   );
   const notices = trpc.account.qqActions.notices.useQuery({ ...a.binding!, groupId }, autoRefresh);
-  const entries = useMemo(
+  const mergedEntries = useMemo(
     () => mergeGroupNotices(bulletins, canManage ? notices.data : undefined),
     [bulletins, canManage, notices.data],
   );
+  const entries = useGroupNoticePublishers(String(groupId), mergedEntries);
   async function refresh() {
     const result = await notices.refetch();
     if (result.error) throw result.error;
@@ -122,12 +177,20 @@ function GroupNoticeActionsBody({
             newMembers: selected.newMembers,
           });
           accepted = result.state === 'accepted' || result.state === 'confirmed';
+          if (accepted && preserveDraft) {
+            confirmDraft(selected);
+            window.dispatchEvent(
+              new CustomEvent<NoticePublishedReceipt>(NOTICE_PUBLISHED_EVENT, {
+                detail: { key: draftKey, draft: selected },
+              }),
+            );
+          }
           return result;
         },
         async () => {
           if (accepted && mounted.current && capturedRevision === revision.current) {
-            registered.reset(emptyDraft);
-            closing.reset(emptyDraft);
+            registered.reset(preserveDraft ? null : emptyDraft);
+            closing.reset(preserveDraft ? null : emptyDraft);
             resetEditor();
           }
           await refresh();
@@ -159,7 +222,7 @@ function GroupNoticeActionsBody({
   return (
     <section className="weq-notice-management" aria-label="群公告内容">
       <div className="weq-content-toolbar">
-        <span>{entries.length} 条已读取公告</span>
+        {entries.length ? <span>{entries.length} 条历史公告</span> : null}
         {canManage && (
           <div>
             <button
@@ -205,7 +268,18 @@ function GroupNoticeActionsBody({
         >
           <div className="weq-content-toolbar">
             <h3>发布新公告</h3>
-            <ActionIcon label="关闭公告编辑器" disabled={busy} onClick={closing.requestClose}>
+            <ActionIcon
+              label="关闭公告编辑器"
+              disabled={busy}
+              onClick={
+                preserveDraft
+                  ? () => {
+                      restoreFocus.current = true;
+                      setEditor(false);
+                    }
+                  : closing.requestClose
+              }
+            >
               <X size={16} />
             </ActionIcon>
           </div>
@@ -268,6 +342,7 @@ function GroupNoticeActionsBody({
         </section>
       )}
       <GroupBulletinList
+        initialNoticeId={initialNoticeId}
         entries={entries}
         groupCode={String(groupId)}
         groupName={groupName}
@@ -295,7 +370,9 @@ function GroupNoticeActionsBody({
         }}
       />
       {!entries.length && !currentAnnouncement?.trim() && !notices.isFetching && (
-        <p className="weq-content-status">暂无可显示的群公告</p>
+        <ContactEmptyState>
+          还没有可显示的群公告。有权限的成员发布后会出现在这里。
+        </ContactEmptyState>
       )}
       {menu && canManage && (
         <ConversationActionsMenu
@@ -341,5 +418,9 @@ function GroupNoticeActionsBody({
 }
 const ScopedGroupNoticeActions = withQQAccountScope(GroupNoticeActionsBody);
 export function GroupNoticeActions(props: Parameters<typeof GroupNoticeActionsBody>[0]) {
-  return <ScopedGroupNoticeActions key={props.groupId} {...props} />;
+  return (
+    <PageSnapshotsFallback scope="qq-group-notices">
+      <ScopedGroupNoticeActions key={props.groupId} {...props} />
+    </PageSnapshotsFallback>
+  );
 }

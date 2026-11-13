@@ -57,8 +57,8 @@ export function useQQReadActivity(
 }
 
 /** 只重试读取；隐藏或离线时停读，不添加后台轮询。 */
-export function useQQAutoRefresh(available: boolean) {
-  const { enabled } = useQQReadActivity(available);
+export function useQQAutoRefresh(available: boolean, options?: { onlineOnly?: boolean }) {
+  const { enabled } = useQQReadActivity(available, options);
   return {
     enabled,
     retry: 2,

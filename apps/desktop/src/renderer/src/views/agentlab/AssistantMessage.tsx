@@ -20,7 +20,7 @@
  * 桥接到 data-theme）。本组件只补场景定制（字号/间距/配色），见 `.weq-asst-md` 那一段。
  */
 
-import { memo, type ReactElement } from 'react';
+import { memo, useMemo, useRef, type ReactElement } from 'react';
 import { Streamdown, type Components, type AnimateOptions } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { shikiCodeHighlighter } from './shikiHighlighter';
@@ -35,7 +35,6 @@ const COMPONENTS: Components = {
 };
 
 const REMARK_PLUGINS = [remarkGfm];
-const PLUGINS = { code: shikiCodeHighlighter };
 /** 逐字淡入：按字符切分（默认的「词」对中文等于不生效），错峰小一点避免看起来在追帧。 */
 const ANIMATE: AnimateOptions = { sep: 'char', duration: 150, stagger: 6 };
 
@@ -50,13 +49,27 @@ export const AssistantMessage = memo(function AssistantMessage({
   text: string;
   streaming?: boolean;
 }): ReactElement {
+  const latest = useRef(text);
+  latest.current = text;
+  const plugins = useMemo(
+    () => ({
+      code: {
+        ...shikiCodeHighlighter,
+        highlight: ((options, callback) =>
+          shikiCodeHighlighter.highlight(options, (result) => {
+            if (latest.current === text) callback?.(result);
+          })) as typeof shikiCodeHighlighter.highlight,
+      },
+    }),
+    [text],
+  );
   return (
     <div className="weq-asst-md">
       <Streamdown
         mode={streaming ? 'streaming' : 'static'}
         remarkPlugins={REMARK_PLUGINS}
         components={COMPONENTS}
-        plugins={PLUGINS}
+        plugins={plugins}
         animated={ANIMATE}
         isAnimating={streaming}
         caret={streaming ? 'block' : undefined}

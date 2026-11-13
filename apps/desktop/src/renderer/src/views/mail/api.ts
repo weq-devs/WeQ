@@ -92,7 +92,7 @@ export function createMailApi(selfUin: string): MailApi {
     notifications: (enabled) =>
       request((requestId) => client.mail.notifications.mutate({ selfUin, requestId, enabled })),
     upload: async (signal) => {
-      const picked = IS_WEB ? await pickAccountFile('file') : undefined;
+      const picked = IS_WEB ? await pickAccountFile('file', undefined, signal) : undefined;
       if (IS_WEB && !picked) return null;
       signal?.throwIfAborted();
       return request(

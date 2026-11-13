@@ -11,6 +11,16 @@ export const legacyOidbEnvelope = message([
 ]);
 export interface LegacyOidbOptions {
   clientVersion?: string;
+  strict?: boolean;
+  /** 仅有外层结果码的保存 ACK 可以不携带业务体。默认仍要求业务体。 */
+  allowEmptyBody?: boolean;
+}
+
+export class LegacyOidbRejectedError extends Error {
+  constructor(readonly result: number) {
+    super(`旧 OIDB 请求未成功：${result}`);
+    this.name = 'LegacyOidbRejectedError';
+  }
 }
 
 export async function invokeLegacyOidb(
@@ -34,14 +44,17 @@ export async function invokeLegacyOidb(
     }),
   );
   if (!reply.length || reply.length > 1024 * 1024) throw new Error('旧 OIDB 响应为空或超限');
-  const response = decode(legacyOidbEnvelope, reply);
+  const response = decode(legacyOidbEnvelope, reply, { strict: options.strict });
   if (
     response.command !== command ||
     (response.serviceType !== undefined && response.serviceType !== serviceType)
   )
     throw new Error('旧 OIDB 响应命令不匹配');
+  if (typeof response.result === 'number' && response.result !== 0)
+    throw new LegacyOidbRejectedError(response.result);
   if (response.result !== 0)
     throw new Error(`旧 OIDB 请求未成功：${String(response.result ?? '未知')}`);
+  if (response.body === undefined && options.allowEmptyBody) return new Uint8Array();
   if (!(response.body instanceof Uint8Array)) throw new Error('旧 OIDB 响应缺少业务体');
   return response.body;
 }

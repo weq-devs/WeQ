@@ -1,26 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { client } from '../trpc/client';
-import { useViewState } from '../state/view';
+import { useQQWriteSession } from './useQQWriteSession';
+import { PROFILE_QUERY_OPTIONS } from './useContactCard';
 
-/** 名片先显示传入的本地资料；云端投影仅保留在名片生命周期内。 */
+/** 名片先显示本地资料；云端投影按账号缓存，不写入会话名称。 */
 export function useCardDisplayNames(kind: 'user' | 'group', target: string, enabled = true) {
-  const account = useViewState((state) => state.openedUin);
-  const key = JSON.stringify([account, kind, target, enabled]);
-  const [result, setResult] = useState<{ key: string; name: string; remark?: string }>();
-  useEffect(() => {
-    if (!enabled || !/^[1-9]\d{0,9}$/.test(target)) return;
-    let active = true;
-    void (async () => {
-      try {
-        const names = await client.account.getCardDisplayNames.query({ kind, target });
-        if (active) setResult({ key, ...names });
-      } catch {
-        // 读不到云端时保持本地首屏，不清空已有资料。
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [key, kind, target, enabled]);
-  return result?.key === key ? result : undefined;
+  const session = useQQWriteSession(`card-names:${kind}:${target}`, true);
+  const query = useQuery({
+    queryKey: ['contact-cloud-name', session.binding, kind, target],
+    queryFn: () => client.account.getCardDisplayNames.query({ kind, target, ...session.binding }),
+    enabled: enabled && session.available && /^[1-9]\d{0,9}$/.test(target),
+    ...PROFILE_QUERY_OPTIONS,
+  });
+  return query.data;
 }

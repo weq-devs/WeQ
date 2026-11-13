@@ -10,6 +10,8 @@ export interface OnlineAccess {
   needsMemoryRead?: boolean;
   ssoReady?: boolean;
   credentialsPending?: boolean;
+  /** 需要用户处理的凭据原因（当前是长期授权助手需要修复）。 */
+  credentialsIssue?: { title: string; message: string } | null;
 }
 
 export interface Restriction {
@@ -92,7 +94,13 @@ export function restrictionReasons(input: {
     access.hasA2 && access.hasD2 && access.hasD2Key && access.needsMemoryRead !== true;
   const ready =
     sessionReady && access.hasGuid && access.hasUid !== false && access.ssoReady !== false;
-  if (access.qqOnline && access.attachEnabled && !ready) {
+  if (access.qqOnline && access.attachEnabled && access.credentialsIssue)
+    reasons.push({
+      code: 'authorization',
+      title: access.credentialsIssue.title,
+      guidance: access.credentialsIssue.message,
+    });
+  else if (access.qqOnline && access.attachEnabled && !ready) {
     if (input.sipEnabled === true && !sessionReady && !access.credentialsPending)
       reasons.push({
         code: 'sip',

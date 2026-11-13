@@ -1,3 +1,4 @@
+import { TimeLabel } from '../../components/TimeLabel';
 /** 常驻账号列表；配置操作既能点按，也保留右键入口。 */
 
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
@@ -77,7 +78,14 @@ export function AccountSelector({
                     </span>
                   </span>
                   {acc.sourceDir && <span className="weq-account-path">{acc.sourceDir}</span>}
-                  {lastOpened && <span className="weq-account-time">上次打开 {lastOpened}</span>}
+                  {lastOpened && (
+                    <span className="weq-account-time">
+                      上次打开{' '}
+                      <TimeLabel value={openedAt} precision="millisecond">
+                        {lastOpened}
+                      </TimeLabel>
+                    </span>
+                  )}
                 </span>
                 {selected?.key === acc.key && (
                   <Check className="weq-account-check" size={16} aria-hidden />

@@ -12,7 +12,8 @@
 .weq-message-repeat {
   position: absolute;
   right: -38px;
-  bottom: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   display: grid;
   place-items: center;
   width: 32px;

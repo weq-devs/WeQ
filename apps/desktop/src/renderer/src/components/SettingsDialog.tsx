@@ -10,6 +10,8 @@ import {
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
@@ -31,11 +33,13 @@ import {
   DatabaseZap,
   Globe,
   HardDrive,
+  ImageIcon,
   HelpCircle,
   Lock,
   LockKeyhole,
   Mail,
   Monitor,
+  MessagesSquare,
   Moon,
   Package,
   Palette,
@@ -64,12 +68,15 @@ import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { ComponentAppearance } from './settings/ComponentAppearance';
+import { SegmentedControl } from './SegmentedControl';
+import { PanelLoading } from './LoadingIndicator';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
 import { ReplySuggestionsSection } from './settings/ReplySuggestionsSection';
-import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
-import { OcrModelsSection } from './settings/OcrModelsSection';
+import { TtsProvidersCard } from './settings/VoiceTranscribeSection';
+import { RecognitionSettingsSection } from './settings/RecognitionSettingsSection';
+import { EnhancementPacksSection } from './settings/EnhancementPacksSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { OneBotSection } from './settings/OneBotSection';
 import { RemoteSection } from './settings/RemoteSection';
@@ -83,6 +90,7 @@ import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMai
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
+import { MissingMessageSettings } from './settings/MissingMessageSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import {
@@ -100,7 +108,6 @@ import { WorkspacePage } from './WorkspacePages';
 import { LoginAccountPanel } from './LoginAccountPanel';
 import { ReverseTool } from './ReverseTool';
 import { SignerStatusCard } from './settings/SignerStatusCard';
-import { IS_WEB } from '../lib/target';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
@@ -121,18 +128,23 @@ import { Modal } from './Dialog';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
 import { z } from 'zod';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
+const PerformanceMonitor = lazy(() => import('./settings/PerformanceMonitor'));
 import { useAppLock } from '../state/lock';
 import {
   SETTINGS_GROUPS,
   resolveSettingsTarget,
-  settingsGroupFor,
   settingsScopeFor,
   type SectionId,
   type SettingsPageId,
 } from './settings/navigation';
 export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
+import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
 import { useUpdateStore } from '../state/update';
+import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
+import { ContactCardSettings } from './settings/ContactCardSettings';
+import { useRemoteClient } from '../lib/remoteClient';
+import { remoteSettingAvailable } from '../../../shared/remote_capabilities';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
@@ -143,6 +155,12 @@ interface SettingsSection {
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
+  {
+    id: 'contact-card',
+    label: '联系人名片',
+    icon: <User size={16} />,
+    render: () => <ContactCardSettings />,
+  },
   {
     id: 'backup',
     label: '配置备份与恢复',
@@ -183,20 +201,21 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'accounts',
     label: 'WeQ 账号管理',
     icon: <User size={16} />,
-    render: () => (
-      <>
-        <GlobalSettingsSection section="accounts" />
-        <AccountBasicsSection page="media" heading={false} />
-      </>
-    ),
+    render: () => <GlobalSettingsSection section="accounts" />,
+  },
+  {
+    id: 'media',
+    label: '媒体来源',
+    icon: <HardDrive size={16} />,
+    render: () => <AccountBasicsSection page="media" />,
   },
   {
     id: 'qq-accounts',
-    label: 'QQ 账号管理',
+    label: 'QQ 登录记录管理',
     icon: <Users size={16} />,
     render: () => (
       <div className="weq-set" data-setting-id="qq-accounts">
-        <SectionHeader title="QQ 账号管理" icon={<Users size={16} strokeWidth={1.8} />} />
+        <SectionHeader title="QQ 登录记录管理" icon={<Users size={16} strokeWidth={1.8} />} />
         <LoginAccountPanel />
       </div>
     ),
@@ -233,21 +252,21 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'database-tolerance',
-    label: '数据库宽容',
+    label: '数据库容错',
     icon: <DatabaseZap size={16} />,
     render: (onOpen) => <DatabaseSettingsSection page="tolerance" onOpen={onOpen} />,
   },
   {
     id: 'qq-storage',
-    label: '资源目录管理',
+    label: 'QQ 资源管理',
     icon: <HardDrive size={16} />,
     render: () => <ResourceManagementSection />,
   },
   {
-    id: 'voice',
-    label: '语音识别',
-    icon: <AudioLines size={16} strokeWidth={1.8} />,
-    render: () => <VoiceTranscribeSection />,
+    id: 'enhancement-packs',
+    label: '增强包',
+    icon: <Package size={16} strokeWidth={1.8} />,
+    render: () => <EnhancementPacksSection />,
   },
   {
     id: 'resource-loading',
@@ -256,12 +275,29 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <GlobalSettingsSection section="network" />,
   },
   {
+    id: 'performance-monitor',
+    label: '性能监视',
+    icon: <Activity size={16} />,
+    render: () => (
+      <Suspense
+        fallback={
+          <div className="weq-set">
+            <SectionHeader title="性能监视" icon={<Activity size={16} />} />
+            <PanelLoading />
+          </div>
+        }
+      >
+        <PerformanceMonitor />
+      </Suspense>
+    ),
+  },
+  {
     id: 'diagnostics',
-    label: '诊断工具',
+    label: 'QQ 协议工具',
     icon: <ScanSearch size={16} />,
     render: (onOpen) => (
       <div className="weq-set">
-        <SectionHeader title="诊断工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
+        <SectionHeader title="QQ 协议工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
         <div className="weq-maintenance-list">
           <button
             type="button"
@@ -292,10 +328,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <ModelUsageSection />,
   },
   {
-    id: 'ocr',
-    label: '图片识别',
+    id: 'recognition',
+    label: '识别与转写',
     icon: <ScanText size={16} strokeWidth={1.8} />,
-    render: () => <OcrModelsSection />,
+    render: () => <RecognitionSettingsSection />,
   },
   {
     id: 'agentlab',
@@ -374,12 +410,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'chat-messages',
     label: '阅读与未读',
     icon: <BookOpen size={16} />,
-    render: () => (
-      <>
-        <AppearanceSection page="messages" category="reading" />
-        <AccountBasicsSection page="read" heading={false} />
-      </>
-    ),
+    render: () => <AppearanceSection page="messages" category="reading" />,
   },
   {
     id: 'message-display',
@@ -491,6 +522,7 @@ function SettingsContent({
   isCurrentSource?: () => boolean;
   navigationGuard?: { current: SettingsNavigation | null };
 }): ReactElement | null {
+  const remote = useRemoteClient();
   const target = useMemo(
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
     [initialSection, searchTarget],
@@ -511,8 +543,12 @@ function SettingsContent({
     Boolean(initialSection || searchTarget),
   );
   const subnavRef = useRef<HTMLElement | null>(null);
-  const sections = SETTINGS_SECTIONS;
-  const group = settingsGroupFor(activeId);
+  const sections = SETTINGS_SECTIONS.filter((entry) => !remote || remoteSettingAvailable(entry.id));
+  const groups = SETTINGS_GROUPS.map((group) => ({
+    ...group,
+    sections: group.sections.filter((id) => sections.some((section) => section.id === id)),
+  })).filter((group) => group.sections.length > 0);
+  const group = groups.find((entry) => entry.sections.includes(activeId)) ?? groups[0]!;
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
   const snapshots = usePageSnapshotReset('workspace:main:设置');
   const activeKey = usePageSnapshotKey('settings:active');
@@ -527,6 +563,13 @@ function SettingsContent({
   const activeSnapshots = usePageSnapshotReset('workspace:main:设置', `settings:${activeId}`);
   const [closing, setClosing] = useState(false);
   const guard = useDraftClose(() => setClosing(true), null);
+  const alive = useRef(open);
+  useEffect(() => {
+    alive.current = open;
+    return () => {
+      alive.current = false;
+    };
+  }, [open]);
   const [pendingNavigation, setPendingNavigation] = useState<{ navigate: () => void } | null>(null);
   const snapshotDraft = useCallback(
     () => ({ dirty: snapshots.hasDrafts(), busy: false }),
@@ -534,23 +577,29 @@ function SettingsContent({
   );
   const requestNavigation = useCallback<SettingsNavigation>(
     (navigate) => {
-      const drafts = [...guard.drafts]
-        .filter((read) => read !== snapshotDraft)
-        .map((read) => read());
-      if (drafts.some((draft) => draft.busy)) return;
-      if (!activeSnapshots.hasDrafts() && !drafts.some((draft) => draft.dirty)) {
-        navigate();
-        return;
-      }
-      setPendingNavigation((current) => current ?? { navigate });
+      const check = () => {
+        if (!alive.current) return;
+        const drafts = [...guard.drafts]
+          .filter((read) => read !== snapshotDraft)
+          .map((read) => read());
+        if (drafts.some((draft) => draft.busy)) return;
+        if (!activeSnapshots.hasDrafts() && !drafts.some((draft) => draft.dirty)) {
+          navigate();
+          return;
+        }
+        setPendingNavigation((current) => current ?? { navigate });
+      };
+      if (hasPendingSettingsSaves()) void flushSettingsSaves().then(check);
+      else check();
     },
     [activeSnapshots, guard.drafts, snapshotDraft],
   );
   const switchSection = useCallback(
     (section: SettingsPageId) => {
+      if (remote && !remoteSettingAvailable(section)) section = 'startup';
       if (section !== activeId) requestNavigation(() => setActiveId(section));
     },
-    [activeId, requestNavigation, setActiveId],
+    [activeId, requestNavigation, setActiveId, remote],
   );
   const switchSectionRef = useRef(switchSection);
   switchSectionRef.current = switchSection;
@@ -610,47 +659,52 @@ function SettingsContent({
   if (!open || closing) return null;
 
   const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
+  const requestClose = () => {
+    if (hasPendingSettingsSaves())
+      void flushSettingsSaves().then(() => {
+        if (alive.current) guard.requestClose();
+      });
+    else guard.requestClose();
+  };
 
   return (
     <DraftCloseContext.Provider value={guard.drafts}>
       <WorkspacePage
         title="设置"
-        onClose={guard.requestClose}
+        onClose={requestClose}
         onNavigate={onClose}
         onBack={() => requestNavigation(onClose)}
         standalone
       >
         <section
-          className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
+          className="weq-settings-dialog weq-mobile-settings"
           data-mobile-category={mobileCategoryOpen || undefined}
           role="region"
           aria-labelledby="weq-settings-title"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {IS_WEB && (
-            <header className="weq-mobile-settings-header">
-              <button
-                type="button"
-                aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
-                title="返回"
-                onClick={() =>
-                  mobileBack() ||
-                  (mobileCategoryOpen
-                    ? requestNavigation(() => setMobileCategoryOpen(false))
-                    : requestNavigation(onClose))
-                }
-              >
-                <ArrowLeft size={22} />
-              </button>
-              <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
-            </header>
-          )}
+          <header className="weq-mobile-settings-header">
+            <button
+              type="button"
+              aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
+              title={mobileCategoryOpen ? '返回设置分类' : '返回'}
+              onClick={() =>
+                // 标题写着「返回设置分类」时只回到一级分类，不经过返回栈退出设置。
+                mobileCategoryOpen
+                  ? requestNavigation(() => setMobileCategoryOpen(false))
+                  : mobileBack() || requestNavigation(onClose)
+              }
+            >
+              <ArrowLeft size={22} />
+            </button>
+            <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
+          </header>
           <button
             className="weq-settings-close"
             type="button"
             title="关闭"
             aria-label="关闭"
-            onClick={guard.requestClose}
+            onClick={requestClose}
           >
             <X size={18} />
           </button>
@@ -659,7 +713,7 @@ function SettingsContent({
               设置
             </h2>
             <ul>
-              {SETTINGS_GROUPS.map((s) => (
+              {groups.map((s) => (
                 <li key={s.id}>
                   <button
                     type="button"
@@ -685,7 +739,7 @@ function SettingsContent({
                         <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
                       ) : null}
                     </span>
-                    {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
+                    <ChevronRight className="weq-mobile-settings-chevron" size={18} />
                   </button>
                 </li>
               ))}
@@ -727,7 +781,7 @@ function SettingsContent({
                           {active.id === 'chat-interaction' ? (
                             <>
                               {active.render(onOpenMaintenance)}
-                              <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                              <SettingsScopeContext.Provider value={null}>
                                 <AntiRecallDialog
                                   embedded
                                   onClose={() => {}}
@@ -815,17 +869,10 @@ function SettingsContent({
 }
 
 function ModelUsageSection(): ReactElement {
-  const active = useTabActive();
-  const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, { enabled: active });
-  const names = new Map((personas.data ?? []).map((persona) => [persona.id, persona.name]));
   return (
-    <div className="weq-settings-model-usage">
+    <div className="weq-set weq-settings-model-usage">
       <SectionHeader title="API 用量" icon={<Activity size={16} strokeWidth={1.8} />} />
-      <UsagePanel
-        personaCount={names.size}
-        resolveName={(id) => names.get(id) ?? '已删除的克隆'}
-        hasPersona={(id) => id === '__assistant__' || names.has(id)}
-      />
+      <UsagePanel />
     </div>
   );
 }
@@ -847,8 +894,7 @@ function AppearanceSection({
   const setAccent = useThemeStore((state) => state.setAccent);
   const setBackground = useThemeStore((state) => state.setBackground);
 
-  // 「纯文本消息自动渲染为 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
-  // （config.json）：渲染层要通过 App.tsx 的 TextMarkdownContext 广播给每条气泡。
+  // 业务开关复用电脑 AppSettings，主题等界面偏好走共享 clientState；本机仅保留启动快照。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: active,
     refetchOnWindowFocus: false,
@@ -856,13 +902,7 @@ function AppearanceSection({
     refetchOnMount: 'always',
   });
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
-  const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
-  const setShowMessageBubble = trpc.bootstrap.setShowMessageBubble.useMutation();
-  const setShowMessageFont = trpc.bootstrap.setShowMessageFont.useMutation();
-  const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
-  const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
-  const setShowMessageDate = trpc.bootstrap.setShowMessageDate.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
   const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
@@ -875,7 +915,6 @@ function AppearanceSection({
   const utils = trpc.useUtils();
   const [badgeError, setBadgeError] = useState<string | null>(null);
   const [readingError, setReadingError] = useState<string | null>(null);
-  const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [linkCard, setLinkCard] = useState(true);
   const [linkShot, setLinkShot] = useState(false);
@@ -954,35 +993,32 @@ function AppearanceSection({
 
       {page === 'theme' && (
         <>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>基础模式</strong>
-                <span>控制浅色、深色与跟随系统</span>
-              </div>
-            </div>
+          <Card
+            title="基础模式"
+            desc="控制浅色、深色与跟随系统"
+            icon={<Sun size={15} strokeWidth={1.8} />}
+            resetId="theme-mode"
+          >
             <ThemeModeSwitcher value={preference} onChange={setPreference} />
-          </div>
+          </Card>
 
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>主题色</strong>
-                <span>拖动色相条或输入色值挑选主色，界面主色、描边与按钮都会跟随</span>
-              </div>
-            </div>
+          <Card
+            title="主题色"
+            desc="色相决定颜色，明度决定深浅；界面主色、描边与按钮都会跟随"
+            icon={<Palette size={15} strokeWidth={1.8} />}
+            resetId="theme-accent"
+          >
             <ColorPicker value={accent} onChange={setAccent} />
-          </div>
+          </Card>
 
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>界面背景</strong>
-                <span>给聊天、联系人与导出页切换不同画布质感</span>
-              </div>
-            </div>
+          <Card
+            title="界面背景"
+            desc="给聊天、联系人与导出页切换不同画布质感"
+            icon={<ImageIcon size={15} strokeWidth={1.8} />}
+            resetId="theme-background"
+          >
             <ThemeBackgroundRow value={background} onChange={setBackground} />
-          </div>
+          </Card>
 
           <ComponentAppearance />
         </>
@@ -990,7 +1026,33 @@ function AppearanceSection({
       {page === 'messages' && (
         <>
           {category === 'reading' && (
-            <Card title="未读提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
+            <Card title="全部会话" icon={<MessagesSquare size={15} />}>
+              <Row
+                settingId="all-conversations-include-hidden"
+                label="包含已隐藏会话"
+                control={
+                  <SharedDisplayToggle
+                    name="allConversationsIncludeHidden"
+                    label="包含已隐藏会话"
+                    fallback={false}
+                  />
+                }
+              />
+              <Row
+                settingId="all-conversations-include-deleted"
+                label="包含已删除会话"
+                control={
+                  <SharedDisplayToggle
+                    name="allConversationsIncludeDeleted"
+                    label="包含已删除会话"
+                    fallback={false}
+                  />
+                }
+              />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card title="未读显示" icon={<Bell size={15} strokeWidth={1.8} />}>
               <Row
                 settingId="message-unread-badge"
                 label="在消息图标上显示红点"
@@ -1050,6 +1112,7 @@ function AppearanceSection({
                   }
                 />
               ))}
+              <AccountBasicsSection page="read" heading={false} />
             </Card>
           )}
           {(category === 'reading' || category === 'sending') && (
@@ -1063,6 +1126,20 @@ function AppearanceSection({
                 )
               }
             >
+              {category === 'reading' ? (
+                <Row
+                  settingId="keep-conversation-position-on-hover"
+                  label="鼠标停留时保持会话位置"
+                  desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
+                  control={
+                    <SharedDisplayToggle
+                      name="keepConversationPositionOnHover"
+                      label="鼠标停留时保持会话位置"
+                      fallback={false}
+                    />
+                  }
+                />
+              ) : null}
               {[
                 {
                   key: 'readFromFirstUnread' as const,
@@ -1125,6 +1202,7 @@ function AppearanceSection({
                     }
                   />
                 ))}
+              {category === 'reading' ? <MissingMessageSettings /> : null}
             </Card>
           )}
           {readingError ? <p role="alert">{readingError}</p> : null}
@@ -1139,45 +1217,22 @@ function AppearanceSection({
                   settingId="message-seq"
                   label="显示消息序号（seq）"
                   control={
-                    <Toggle
-                      checked={settings.data?.showMessageSeq ?? false}
-                      disabled={!settings.data || setShowMessageSeq.isLoading}
-                      onChange={(enabled) => {
-                        setSeqError(null);
-                        setShowMessageSeq.mutate(
-                          { enabled },
-                          {
-                            onSuccess: () => {
-                              void settings.refetch();
-                            },
-                            onError: (error) => setSeqError(error.message),
-                          },
-                        );
-                      }}
+                    <SharedDisplayToggle
+                      name="showMessageSeq"
+                      fallback={settings.data?.showMessageSeq ?? false}
+                      disabled={!settings.data}
                       label="显示消息序号（seq）"
                     />
                   }
                 />
-                {seqError ? <p role="alert">{seqError}</p> : null}
                 <Row
                   settingId="message-date"
                   label="显示发送日期"
                   control={
-                    <Toggle
-                      checked={settings.data?.showMessageDate ?? false}
-                      disabled={!settings.data || setShowMessageDate.isLoading}
-                      onChange={(enabled) => {
-                        setSeqError(null);
-                        setShowMessageDate.mutate(
-                          { enabled },
-                          {
-                            onSuccess: () => {
-                              void settings.refetch();
-                            },
-                            onError: (error) => setSeqError(error.message),
-                          },
-                        );
-                      }}
+                    <SharedDisplayToggle
+                      name="showMessageDate"
+                      fallback={settings.data?.showMessageDate ?? false}
+                      disabled={!settings.data}
                       label="显示发送日期"
                     />
                   }
@@ -1186,21 +1241,10 @@ function AppearanceSection({
                   settingId="message-time"
                   label="显示发送时间"
                   control={
-                    <Toggle
-                      checked={settings.data?.showMessageTime ?? false}
-                      disabled={!settings.data || setShowMessageTime.isLoading}
-                      onChange={(enabled) => {
-                        setSeqError(null);
-                        setShowMessageTime.mutate(
-                          { enabled },
-                          {
-                            onSuccess: () => {
-                              void settings.refetch();
-                            },
-                            onError: (error) => setSeqError(error.message),
-                          },
-                        );
-                      }}
+                    <SharedDisplayToggle
+                      name="showMessageTime"
+                      fallback={settings.data?.showMessageTime ?? false}
+                      disabled={!settings.data}
                       label="显示发送时间"
                     />
                   }
@@ -1212,44 +1256,32 @@ function AppearanceSection({
                     key: 'showAvatarPendant' as const,
                     settingId: 'avatar-pendant',
                     label: '聊天头像挂件',
-                    mutation: setShowAvatarPendant,
                   },
                   {
                     key: 'showMessageBubble' as const,
                     settingId: 'message-bubble',
                     label: '消息气泡',
-                    mutation: setShowMessageBubble,
                   },
                   {
                     key: 'showMessageFont' as const,
                     settingId: 'message-font',
                     label: '消息字体',
-                    mutation: setShowMessageFont,
                   },
-                ].map(({ key, settingId, label, mutation }) => (
+                ].map(({ key, settingId, label }) => (
                   <Row
                     key={key}
                     settingId={settingId}
                     label={label}
                     control={
-                      <Toggle
-                        checked={
+                      <SharedDisplayToggle
+                        name={key}
+                        fallback={
                           settings.data?.[key] ??
                           (key === 'showAvatarPendant'
                             ? true
                             : (settings.data?.showMsgDecoration ?? true))
                         }
-                        disabled={!settings.data || mutation.isLoading}
-                        onChange={(enabled) => {
-                          setSeqError(null);
-                          mutation.mutate(
-                            { enabled },
-                            {
-                              onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                              onError: (error) => setSeqError(error.message),
-                            },
-                          );
-                        }}
+                        disabled={!settings.data}
                         label={label}
                       />
                     }
@@ -1333,32 +1365,46 @@ function ThemeModeSwitcher({
   value: ThemePreference;
   onChange: (next: ThemePreference) => void;
 }) {
-  const options: Array<{ value: ThemePreference; label: string; icon: ReactNode }> = [
-    { value: 'light', label: '浅色', icon: <Sun size={14} /> },
-    { value: 'dark', label: '深色', icon: <Moon size={14} /> },
-    { value: 'system', label: '跟随系统', icon: <Monitor size={14} /> },
+  const options: Array<{ value: ThemePreference; label: ReactNode; title: string }> = [
+    {
+      value: 'light',
+      label: (
+        <span className="weq-set-seg-label">
+          <Sun size={14} aria-hidden />
+          浅色
+        </span>
+      ),
+      title: '浅色',
+    },
+    {
+      value: 'dark',
+      label: (
+        <span className="weq-set-seg-label">
+          <Moon size={14} aria-hidden />
+          深色
+        </span>
+      ),
+      title: '深色',
+    },
+    {
+      value: 'system',
+      label: (
+        <span className="weq-set-seg-label">
+          <Monitor size={14} aria-hidden />
+          跟随系统
+        </span>
+      ),
+      title: '跟随系统',
+    },
   ];
 
   return (
-    <div className="weq-settings-theme-switch-inner" role="radiogroup" aria-label="主题模式">
-      {options.map((option) => {
-        const active = value === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            className={`weq-settings-theme-option${active ? ' is-active' : ''}`}
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(option.value)}
-          >
-            <span className="weq-settings-theme-option-icon">{option.icon}</span>
-            <span className="weq-settings-theme-option-label">{option.label}</span>
-            {active ? <Check size={14} /> : null}
-          </button>
-        );
-      })}
-    </div>
+    <SegmentedControl<ThemePreference>
+      label="主题模式"
+      value={value}
+      options={options}
+      onChange={onChange}
+    />
   );
 }
 
@@ -1482,29 +1528,37 @@ function ColorPicker({
         <span className="weq-cp-preview-hex">{effective.toUpperCase()}</span>
       </div>
 
-      <div
-        className="weq-cp-bar weq-cp-hue"
-        role="slider"
-        aria-label="色相"
-        aria-valuemin={0}
-        aria-valuemax={360}
-        aria-valuenow={Math.round(hsl.h)}
-        onPointerDown={(e) => trackBar(e, pickHue)}
-      >
-        <span className="weq-cp-thumb" style={{ left: `${huePct}%` }} />
+      <div className="weq-cp-bar-row">
+        <span className="weq-cp-bar-label">色相</span>
+        <div
+          className="weq-cp-bar weq-cp-hue"
+          role="slider"
+          aria-label="色相"
+          aria-valuemin={0}
+          aria-valuemax={360}
+          aria-valuenow={Math.round(hsl.h)}
+          onPointerDown={(e) => trackBar(e, pickHue)}
+        >
+          <span className="weq-cp-thumb" style={{ left: `${huePct}%` }} />
+        </div>
+        <span className="weq-cp-bar-value">{Math.round(hsl.h)}°</span>
       </div>
 
-      <div
-        className="weq-cp-bar weq-cp-light"
-        role="slider"
-        aria-label="明度"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(lightFraction * 100)}
-        style={{ background: lightGradient }}
-        onPointerDown={(e) => trackBar(e, pickLight)}
-      >
-        <span className="weq-cp-thumb" style={{ left: `${lightFraction * 100}%` }} />
+      <div className="weq-cp-bar-row">
+        <span className="weq-cp-bar-label">明度</span>
+        <div
+          className="weq-cp-bar weq-cp-light"
+          role="slider"
+          aria-label="明度"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(lightFraction * 100)}
+          style={{ background: lightGradient }}
+          onPointerDown={(e) => trackBar(e, pickLight)}
+        >
+          <span className="weq-cp-thumb" style={{ left: `${lightFraction * 100}%` }} />
+        </div>
+        <span className="weq-cp-bar-value">{Math.round(hsl.l * 100)}%</span>
       </div>
 
       <div className="weq-cp-row">

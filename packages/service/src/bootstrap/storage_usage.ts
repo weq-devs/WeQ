@@ -372,7 +372,14 @@ export async function listStorageUsage(
       const dataOnly = MIXED_DATA_NAMES.has(name) && entry?.isDirectory();
       const size = dataOnly
         ? await listStorageDataFiles(path, nested, false, Boolean(previews))
-        : await measureStorage(path, new Set([...nested, ...(previews?.files ?? [])]));
+        : await measureStorage(
+            path,
+            new Set([
+              ...nested,
+              ...(previews?.files ?? []),
+              ...(root.cache && name === 'dress_shared' ? [join(path, 'index')] : []),
+            ]),
+          );
       if (previews) {
         items.push({
           id: `storage:dress-previews:${path}`,
@@ -386,6 +393,7 @@ export async function listStorageUsage(
         });
       }
       const safeCache =
+        name !== 'contacts' &&
         root.cache &&
         Object.hasOwn(CACHE_LABELS, name) &&
         nested.length === 0 &&
@@ -393,6 +401,9 @@ export async function listStorageUsage(
         (!entry || entry.isDirectory()) &&
         !size.incomplete;
       const persistent =
+        name !== 'contacts' &&
+        name !== 'models' &&
+        name !== 'enhancements' &&
         !root.protected &&
         name !== 'storage-maintenance' &&
         !['.ds_store', 'thumbs.db', 'desktop.ini'].includes(name.toLowerCase()) &&
@@ -404,6 +415,7 @@ export async function listStorageUsage(
         !size.incomplete;
       const clearable = safeCache || persistent;
       const label =
+        (name === 'contacts' ? '联系人与群资料历史' : undefined) ??
         (root.cache && Object.hasOwn(CACHE_LABELS, name) ? CACHE_LABELS[name] : undefined) ??
         (Object.hasOwn(DATA_LABELS, name) ? DATA_LABELS[name] : undefined) ??
         name;
@@ -432,8 +444,8 @@ export async function listStorageUsage(
               ? '符号链接，仅统计链接本身，不清理目标'
               : size.incomplete
                 ? '读取不完整，暂不提供清理'
-                : name === 'models'
-                  ? '由模型设置管理，避免删除正在使用的模型'
+                : name === 'models' || name === 'enhancements'
+                  ? '由增强包管理'
                   : '持久数据或运行中资源，不在此处直接清理',
         incomplete: size.incomplete,
         ...(safeCache && name === 'dress_shared' ? { cleanupKind: 'dress-shared' as const } : {}),

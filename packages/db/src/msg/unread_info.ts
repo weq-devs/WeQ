@@ -8,7 +8,7 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import { QqDb } from '../qq_db';
-import { classifyChatType, ProtoMsg } from '@weq/codec';
+import { ProtoMsg } from '@weq/codec';
 import {
   appendNode,
   buildEditTree,
@@ -20,17 +20,6 @@ import {
 import type { PbNode, PbValue } from '@weq/codec/raw';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { databaseRequestSignal } from '../query_schedule';
-import { toBigint } from './util';
-
-export const UNREAD_OUTGOING_PAGE_SIZE = 512;
-const OUTGOING_CACHE_MAX_AGE_MS = 60_000;
-const OUTGOING_CACHE_MAX_SEQUENCES = 32_768;
-interface OutgoingWindow {
-  from: bigint;
-  through: bigint;
-  verifiedAt: number;
-  sequences: string[];
-}
 
 export interface UnreadInfoDbOptions {
   dbPath: string;
@@ -93,6 +82,11 @@ export interface UnreadInfoResult {
   chatType: number;
   uid: string;
   msgSeq?: number;
+  localReadSeq?: string;
+  decreasedSeqs?: string[];
+  markUnread?: boolean;
+  storedUnreadCount?: number;
+  localUnreadCount?: number;
   /** Notify-highlights (特别关心 / @我 / …) present on this conversation. */
   highlights?: UnreadHighlight[];
 }
@@ -104,8 +98,9 @@ export interface UnreadInfoTarget {
 
 export interface UnreadInfoSnapshot extends UnreadInfoResult {
   latestSeq: string | null;
-  /** 原始已读水位至 latestSeq 之间，已确认由自己发送的去重序号。 */
-  outgoingSeqs?: string[];
+  /** 最近会话小表 40020，与 latestSeq 同一行的发送者。 */
+  latestSenderUid?: string;
+
   readError?: true;
 }
 
@@ -115,6 +110,7 @@ export interface UnreadReadChange extends UnreadInfoTarget {
   after: Uint8Array;
   afterReadSeq: string;
   beforeReadSeq?: string;
+  afterMarkUnread?: boolean;
 }
 
 /**
@@ -139,8 +135,6 @@ export interface UnreadHighlightInput {
 export class UnreadInfoDb {
   private readonly qq: QqDb;
   private readonly proto = new ProtoMsg(UnreadInfo);
-  private readonly outgoingWindows = new Map<string, OutgoingWindow>();
-  private outgoingWindowSequences = 0;
 
   constructor(nt: NtHelperBinding, opts: UnreadInfoDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
@@ -164,243 +158,98 @@ export class UnreadInfoDb {
       peer: row[0] as string,
       chatType,
       uid,
-      msgSeq: decoded.info?.msgSeq,
+      ...this.readFields(decoded),
       highlights: highlights.length ? highlights : undefined,
     };
   }
 
-  /**
-   * 每批同条 SQL 读取最新与已读水位；readSeqs 仅缩短自己发言的扫描区间，
-   * 不改写返回的 QQ 原始水位，也不替代缺失水位的实时计数。
-   */
-  async getUnreadInfos(
-    targets: UnreadInfoTarget[],
-    self?: { selfUid: string; selfUin: string },
-    readSeqs?: ReadonlyMap<string, string>,
-    options: { reuseOutgoing?: boolean } = {},
-  ): Promise<UnreadInfoSnapshot[]> {
+  /** 读取 QQ 已维护的阅读位置、减项及标志，不访问消息历史。 */
+  async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
     const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
     const result: UnreadInfoSnapshot[] = [];
-    const batchSize = self ? 128 : 256;
-    for (let offset = 0; offset < unique.length; offset += batchSize) {
+    for (let offset = 0; offset < unique.length; offset += 256) {
       databaseRequestSignal()?.throwIfAborted();
-      const batch = unique.slice(offset, offset + batchSize);
+      const batch = unique.slice(offset, offset + 256);
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
-         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003"${self ? ', r."40027"' : ''}
+         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003", r."40020"
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
-         LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND r."40010" = t.chatType`,
+         LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND CAST(r."40010" AS INTEGER) = t.chatType`,
         batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
       );
-      databaseRequestSignal()?.throwIfAborted();
-      const candidates: Array<{
-        snapshot: UnreadInfoSnapshot;
-        partition: string | null;
-        afterSeq: string;
-      }> = [];
-      for (const row of rows) {
-        const bytes = row[3];
-        const identity = {
-          chatType: Number(row[0]),
-          uid: String(row[1]),
-          peer: String(row[2]),
-          latestSeq: row[4] === null ? null : String(row[4]),
-        };
-        try {
-          const decoded = bytes instanceof Uint8Array ? this.proto.decode(bytes) : {};
-          const highlights = extractHighlights(decoded.info?.ext);
-          const snapshot: UnreadInfoSnapshot = {
-            ...identity,
-            msgSeq: decoded.info?.msgSeq,
-            highlights: highlights.length ? highlights : undefined,
-          };
-          result.push(snapshot);
-          const localRead = readSeqs?.get(snapshot.peer);
-          const afterSeq =
-            localRead !== undefined &&
-            /^\d{1,20}$/.test(localRead) &&
-            BigInt(localRead) > BigInt(snapshot.msgSeq ?? 0)
-              ? localRead
-              : String(snapshot.msgSeq ?? 0);
-          if (
-            self &&
-            snapshot.msgSeq !== undefined &&
-            snapshot.latestSeq !== null &&
-            BigInt(snapshot.latestSeq) > BigInt(afterSeq)
-          )
-            candidates.push({
-              snapshot,
-              partition: row[5] == null ? null : String(row[5]),
-              afterSeq,
-            });
-        } catch {
-          result.push({ ...identity, readError: true });
-        }
-      }
-      if (self) await this.loadOutgoingSequences(candidates, self, options.reuseOutgoing);
+      result.push(...this.decodeSnapshots(rows));
     }
     return result;
   }
 
-  /** 索引分区分页读取轻量列，让首屏能在统计页之间进入同库队列。 */
-  private async loadOutgoingSequences(
-    candidates: Array<{
-      snapshot: UnreadInfoSnapshot;
-      partition: string | null;
-      afterSeq: string;
-    }>,
-    self: { selfUid: string; selfUin: string },
-    reuseOutgoing = false,
-  ): Promise<void> {
-    for (const kind of ['group', 'direct', 'direct-fallback'] as const) {
-      const targets = candidates.filter(({ snapshot, partition }) =>
-        kind === 'group'
-          ? classifyChatType(snapshot.chatType) === 'group'
-          : classifyChatType(snapshot.chatType) === 'direct' &&
-            (kind === 'direct' ? partition !== null : partition === null),
-      );
-      if (!targets.length) continue;
-      const group = kind === 'group';
-      if (kind !== 'direct-fallback') {
-        for (const { snapshot, partition, afterSeq } of targets) {
-          databaseRequestSignal()?.throwIfAborted();
-          await this.loadOutgoingPartition(
-            snapshot,
-            group ? snapshot.uid : partition!,
-            group,
-            self,
-            afterSeq,
-            reuseOutgoing,
-          );
-        }
-        continue;
-      }
-      // UID 回退保留单次读取，避免在无索引时逐页重复扫描全表。
-      const table = group ? 'group_msg_table' : 'c2c_msg_table';
-      const column = kind === 'direct-fallback' ? '40021' : '40027';
-      const direction = group
-        ? `((? != '' AND m."40020" = ?) OR (CAST(? AS INTEGER) > 0 AND m."40033" = CAST(? AS INTEGER)))`
-        : `m."40020" != '' AND m."40020" != m."40021"`;
-      const rows = await this.qq.query(
-        `WITH targets(idx, partition, afterSeq, latestSeq) AS (VALUES ${targets.map(() => '(?, ?, ?, ?)').join(',')})
-         SELECT DISTINCT t.idx, m."40003" FROM targets t
-         JOIN ${table} m ON m."${column}" = t.partition
-           AND m."40003" > CAST(t.afterSeq AS INTEGER)
-           AND m."40003" <= CAST(t.latestSeq AS INTEGER)
-         WHERE ${direction} ORDER BY t.idx, m."40003"`,
-        [
-          ...targets.flatMap(({ snapshot, partition, afterSeq }, index) => [
-            index,
-            group || kind === 'direct-fallback' ? snapshot.uid : partition!,
-            afterSeq,
-            snapshot.latestSeq!,
-          ]),
-          ...(group ? [self.selfUid, self.selfUid, self.selfUin, self.selfUin] : []),
-        ],
-      );
-      databaseRequestSignal()?.throwIfAborted();
-      for (const { snapshot } of targets) snapshot.outgoingSeqs = [];
-      for (const row of rows) targets[Number(row[0])]!.snapshot.outgoingSeqs!.push(String(row[1]));
+  /** 账号共享快照只读两张小表，包含没有最近会话行的未读记录。 */
+  async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
+    const rows = await this.qq.query(
+      `SELECT r."40010", r."40021", CAST(r."40010" AS TEXT) || '_' || r."40021", NULL, r."40003", r."40020"
+       FROM recent_contact_v3_table r
+       WHERE CAST(r."40010" AS INTEGER) IN (1,2,8,134)
+       UNION ALL
+       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL FROM msg_unread_info_table u`,
+    );
+    // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
+    const merged = new Map<string, unknown[]>();
+    for (const row of rows) {
+      const peer = String(row[2]);
+      const recent = merged.get(peer);
+      if (recent && row[0] === null) recent[3] = row[3];
+      else merged.set(peer, [...row]);
     }
+    return this.decodeSnapshots([...merged.values()]).filter((row) =>
+      [1, 2, 8, 134].includes(row.chatType),
+    );
   }
 
-  private async loadOutgoingPartition(
-    snapshot: UnreadInfoSnapshot,
-    partition: string,
-    group: boolean,
-    self: { selfUid: string; selfUin: string },
-    afterSeq: string,
-    reuseOutgoing: boolean,
-  ): Promise<void> {
-    const table = group ? 'group_msg_table' : 'c2c_msg_table';
-    const direction = group
-      ? `((? != '' AND m."40020" = ?) OR (CAST(? AS INTEGER) > 0 AND m."40033" = CAST(? AS INTEGER)))`
-      : `m."40020" != '' AND m."40020" != m."40021"`;
-    const latest = BigInt(snapshot.latestSeq!);
-    const from = BigInt(afterSeq);
-    const key = JSON.stringify([table, partition, self.selfUid, self.selfUin]);
-    const cached = reuseOutgoing ? this.outgoingWindows.get(key) : undefined;
-    const now = Date.now();
-    // 仅复用向前增长的尾部；相同水位的显式校准、阅读回退和到期均完整重读。
-    const reusable =
-      cached &&
-      from >= cached.from &&
-      latest > cached.through &&
-      now >= cached.verifiedAt &&
-      now - cached.verifiedAt < OUTGOING_CACHE_MAX_AGE_MS;
-    const outgoing = new Set(reusable ? cached.sequences.filter((seq) => BigInt(seq) > from) : []);
-    if (reusable && cached.through > from) afterSeq = String(cached.through);
-    let cursor: [bigint, bigint] | undefined;
-    for (;;) {
-      databaseRequestSignal()?.throwIfAborted();
-      // LIMIT 位于发送者筛选前；即使没有自己发言，也只交付一页真实消息。
-      // 同序号尾段单独按 rowid 续读，避免二元游标只按 seq 定位而重扫前页。
-      const rows = await this.qq.query(
-        `WITH page AS MATERIALIZED (
-         SELECT m.rowid AS id, m."40003" AS seq,
-           CASE WHEN ${direction} THEN 1 ELSE 0 END AS outgoing
-         FROM ${table} m WHERE m."40027" = ?
-           AND ${cursor ? 'm."40003" = ? AND m.rowid > ?' : 'm."40003" > CAST(? AS INTEGER)'}
-           AND m."40003" <= CAST(? AS INTEGER)
-         ORDER BY m."40003",m.rowid LIMIT ?)
-         SELECT id,seq,outgoing,NULL FROM page WHERE outgoing = 1
-         UNION ALL
-         SELECT MAX(id),MAX(seq),0,(SELECT COUNT(*) FROM page)
-         FROM page WHERE seq = (SELECT MAX(seq) FROM page)`,
-        [
-          ...(group ? [self.selfUid, self.selfUid, self.selfUin, self.selfUin] : []),
-          partition,
-          ...(cursor ?? [afterSeq]),
-          snapshot.latestSeq!,
-          BigInt(UNREAD_OUTGOING_PAGE_SIZE),
-        ],
-      );
-      databaseRequestSignal()?.throwIfAborted();
-      for (const row of rows) if (Number(row[2]) === 1) outgoing.add(String(row[1]));
-      // 聚合游标在空页也存在；其他行只带自己发言，避免搬运整个未读区间。
-      const tail = rows.find((row) => row[3] !== null);
-      if (!tail) throw new Error('未读统计缺少分页游标');
-      if (Number(tail[3]) < UNREAD_OUTGOING_PAGE_SIZE) {
-        if (!cursor || cursor[0] >= latest) break;
-        afterSeq = String(cursor[0]);
-        cursor = undefined;
-        continue;
+  private readFields(
+    decoded: ReturnType<ProtoMsg<typeof UnreadInfo>['decode']>,
+  ): Omit<UnreadInfoResult, 'peer' | 'chatType' | 'uid'> {
+    const info = decoded.info;
+    return {
+      msgSeq: info?.msgSeq,
+      localReadSeq: info?.localReadSeq?.toString(),
+      decreasedSeqs: info?.decreases
+        ? [
+            ...new Set(
+              info.decreases.flatMap((item) =>
+                item.msgSeq === undefined ? [] : [String(item.msgSeq)],
+              ),
+            ),
+          ]
+        : undefined,
+      markUnread: info?.markUnread === undefined ? undefined : info.markUnread !== 0,
+      storedUnreadCount: info?.unreadCount,
+      localUnreadCount: info?.localUnreadCount,
+    };
+  }
+
+  private decodeSnapshots(rows: unknown[][]): UnreadInfoSnapshot[] {
+    return rows.map((row) => {
+      const peer = String(row[2]);
+      const split = peer.indexOf('_');
+      const identity = {
+        chatType: row[0] == null ? Number(peer.slice(0, split)) : Number(row[0]),
+        uid: row[1] == null ? peer.slice(split + 1) : String(row[1]),
+        peer,
+        latestSeq: row[4] == null ? null : String(row[4]),
+        latestSenderUid: row[5] == null ? undefined : String(row[5]),
+      };
+      try {
+        const decoded = row[3] instanceof Uint8Array ? this.proto.decode(row[3]) : {};
+        const highlights = extractHighlights(decoded.info?.ext);
+        return {
+          ...identity,
+          ...this.readFields(decoded),
+          highlights: highlights.length ? highlights : undefined,
+        };
+      } catch {
+        return { ...identity, readError: true as const };
       }
-      const next: [bigint, bigint] = [toBigint(tail[1]), toBigint(tail[0])];
-      if (cursor ? next[0] !== cursor[0] || next[1] <= cursor[1] : next[0] <= BigInt(afterSeq))
-        throw new Error('未读统计分页游标未前进');
-      cursor = next;
-    }
-    snapshot.outgoingSeqs = [...outgoing].sort((a, b) => {
-      const first = BigInt(a),
-        second = BigInt(b);
-      return first < second ? -1 : first > second ? 1 : 0;
     });
-    if (reuseOutgoing)
-      this.rememberOutgoingWindow(key, {
-        from,
-        through: latest,
-        verifiedAt: reusable ? cached.verifiedAt : now,
-        sequences: snapshot.outgoingSeqs,
-      });
-  }
-
-  private rememberOutgoingWindow(key: string, value: OutgoingWindow): void {
-    const previous = this.outgoingWindows.get(key);
-    if (previous) this.outgoingWindowSequences -= previous.sequences.length;
-    this.outgoingWindows.delete(key);
-    if (value.sequences.length > OUTGOING_CACHE_MAX_SEQUENCES) return;
-    this.outgoingWindows.set(key, { ...value, sequences: [...value.sequences] });
-    this.outgoingWindowSequences += value.sequences.length;
-    while (
-      this.outgoingWindows.size > 256 ||
-      this.outgoingWindowSequences > OUTGOING_CACHE_MAX_SEQUENCES
-    ) {
-      const oldest = this.outgoingWindows.keys().next().value!;
-      this.outgoingWindowSequences -= this.outgoingWindows.get(oldest)!.sequences.length;
-      this.outgoingWindows.delete(oldest);
-    }
   }
 
   /**
@@ -434,7 +283,7 @@ export class UnreadInfoDb {
     throw new Error('已读状态更新冲突，请稍后重试。');
   }
 
-  /** 显式手动操作允许降低水位；仅改阅读字段，未知字段逐字节保留。 */
+  /** 手动未读只改标志；已读抬高固定水位，未知字段逐字节保留。 */
   async setReadState(
     chatType: number,
     uid: string,
@@ -462,14 +311,20 @@ export class UnreadInfoDb {
       const readNode = info.children.find((node) => node.tag === 41002);
       const stored = readNode ? readVarintText(readNode) : 0n;
       const requested = BigInt(readSeq);
-      if (unread && stored > BigInt(throughSeq)) throw new Error('会话阅读位置已变化，请重试');
-      const target = unread || requested >= stored ? requested : stored;
+      const target = unread || requested < stored ? stored : requested;
       tree = readNode
         ? updateNode(tree, readNode.id, (node) => ({
             ...node,
             value: { kind: 'varint', text: String(target) },
           }))
         : appendNode(tree, info.id, varintNode(41002, target));
+      const flag = info.children.find((node) => node.tag === 41027);
+      tree = flag
+        ? updateNode(tree, flag.id, (node) => ({
+            ...node,
+            value: { kind: 'varint', text: unread ? '1' : '0' },
+          }))
+        : appendNode(tree, info.id, varintNode(41027, unread ? 1 : 0));
       if (!unread) {
         for (const node of readHighlightRemovals(info, BigInt(throughSeq)))
           tree = removeNode(tree, node.id);
@@ -493,6 +348,7 @@ export class UnreadInfoDb {
           after,
           afterReadSeq: String(target),
           beforeReadSeq: readNode ? String(stored) : undefined,
+          afterMarkUnread: unread,
         };
     }
     throw new Error('未读状态更新冲突，请稍后重试');
@@ -529,6 +385,12 @@ export class UnreadInfoDb {
       const readNode = info?.children?.find((node) => node.tag === 41002);
       if (!info?.children || !readNode || String(readVarintText(readNode)) !== change.afterReadSeq)
         return false;
+      const flag = info.children.find((node) => node.tag === 41027);
+      if (
+        change.afterMarkUnread !== undefined &&
+        Boolean(flag && readVarintText(flag) !== 0n) !== change.afterMarkUnread
+      )
+        return false;
       const original = change.before?.length
         ? buildEditTree(change.before).find((node) => node.tag === 48902)
         : undefined;
@@ -539,6 +401,14 @@ export class UnreadInfoDb {
             value: { kind: 'varint', text: String(readVarintText(originalRead)) },
           }))
         : removeNode(tree, readNode.id);
+      const originalFlag = original?.children?.find((node) => node.tag === 41027);
+      if (flag)
+        tree = originalFlag
+          ? updateNode(tree, flag.id, (node) => ({
+              ...node,
+              value: { kind: 'varint', text: String(readVarintText(originalFlag)) },
+            }))
+          : removeNode(tree, flag.id);
       for (const group of original ? findAll(original, 50060) : []) {
         const kind = readVarintChild(group, 50000);
         const currentInfo = tree.find((node) => node.tag === 48902)!;
@@ -599,8 +469,10 @@ export class UnreadInfoDb {
     // 50060 在 50005 内，遍历整棵树处理所有提醒组。
     const removable = readHighlightRemovals(info, target);
     const storedRead = readNode ? readVarintText(readNode) : 0n;
+    const flag = info.children.find((node) => node.tag === 41027);
+    const markedUnread = flag && readVarintText(flag) !== 0n;
     if (storedRead > target) target = storedRead;
-    const alreadyRead = removable.length === 0 && readNode && storedRead >= target;
+    const alreadyRead = !markedUnread && removable.length === 0 && readNode && storedRead >= target;
     if (alreadyRead) return false;
 
     let next = tree;
@@ -619,6 +491,11 @@ export class UnreadInfoDb {
     for (const node of removable) {
       next = removeNode(next, node.id);
     }
+    if (flag)
+      next = updateNode(next, flag.id, (node) => ({
+        ...node,
+        value: { kind: 'varint', text: '0' },
+      }));
 
     const encoded = encodeEditTree(next, bytes);
     const changed = await this.qq.write(
@@ -742,8 +619,6 @@ export class UnreadInfoDb {
   }
 
   close(): void {
-    this.outgoingWindows.clear();
-    this.outgoingWindowSequences = 0;
     this.qq.close();
   }
 }

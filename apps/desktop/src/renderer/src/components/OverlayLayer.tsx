@@ -50,10 +50,12 @@ import { useTabActive } from './RetainedTabs';
 import { useRenderDocument } from '../lib/renderDocument';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
+import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
 
 export type OverlayLayerProps = {
   portalTarget?: Element | null;
   anchor?: HTMLElement | null;
+  anchorPlacement?: 'above' | 'below' | 'side';
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating';
   width?: number;
   title?: string;
@@ -62,6 +64,8 @@ export type OverlayLayerProps = {
   /** 点遮罩空白处 / 按 Esc 时调用。不传则两种关闭都不响应。 */
   onClose?: () => void;
   dismissOnOutside?: boolean;
+  /** 轻浮窗可在关闭时继续执行背后控件的同次点击，其余浮层默认消费。 */
+  consumeOutsidePress?: boolean;
   /** 调用方自己的浮层类名（scrim 观感）。会与 `.weq-overlay-layer` 合并。 */
   className?: string;
   /**
@@ -88,7 +92,7 @@ export function OverlayLayer({ open = true, ...rest }: OverlayLayerProps): React
         onClose={rest.onClose}
         className={rest.className}
       >
-        {rest.children}
+        <ContactFieldHistoryBoundary>{rest.children}</ContactFieldHistoryBoundary>
       </WindowSurface>
     );
   if (rest.presentation === 'page' || rest.presentation === 'sidecar')
@@ -98,13 +102,17 @@ export function OverlayLayer({ open = true, ...rest }: OverlayLayerProps): React
         onClose={rest.onClose}
         placement={rest.presentation === 'sidecar' ? 'sidecar' : 'main'}
       >
-        {rest.children}
+        <ContactFieldHistoryBoundary>{rest.children}</ContactFieldHistoryBoundary>
       </WorkspacePage>
     );
   // 拆成内层组件是为了让「激活期间」的 hook 稳定：内层只在打开时挂载，
   // 于是 `useEscapeToClose` 天然只在打开期间监听，关闭时不会误吞 Esc；
   // `useOverlayLayer(true)` 也随挂载领层、随卸载释放，重开即拿更高的一层。
-  return <OpenOverlayLayer {...rest} />;
+  return (
+    <OpenOverlayLayer {...rest}>
+      <ContactFieldHistoryBoundary>{rest.children}</ContactFieldHistoryBoundary>
+    </OpenOverlayLayer>
+  );
 }
 
 function OpenOverlayLayer({
@@ -115,13 +123,21 @@ function OpenOverlayLayer({
   children,
   presentation = 'modal',
   anchor,
+  anchorPlacement,
   dismissOnOutside = true,
+  consumeOutsidePress = true,
   portalTarget,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
   const layer = useOverlayLayer(true);
   const ref = useRef<HTMLDivElement>(null);
-  const placement = useOverlayAnchor(ref, true, presentation === 'popover', anchor);
+  const placement = useOverlayAnchor(
+    ref,
+    true,
+    presentation === 'popover',
+    anchor,
+    anchorPlacement,
+  );
   // onClose 多半是每次渲染新写的箭头函数；用 ref 稳住，避免每帧重挂 keydown。
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -130,6 +146,7 @@ function OpenOverlayLayer({
   useSurfaceOutside(ref, onClose ? requestClose : undefined, dismissOnOutside, {
     scrim: true,
     anchor: placement.anchor?.element,
+    consume: consumeOutsidePress,
   });
 
   const handleScrimMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {

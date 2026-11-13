@@ -1,480 +1,43 @@
-/**
- * 合并转发预览窗口 — floating, movable, closable window stack.
- *
- * `openForwardWindow(...)` pushes a new window onto the global stack and kicks
- * off a `trpc.account.getForwardMessages` query. Multiple windows stack with
- * increasing z-index; the top one always sits above the rest. A nested forward
- * (a `multiMsg` element inside one of the sub-messages) opens YET another
- * window on top — the user can keep drilling down arbitrarily deep.
- *
- * Layout reuses the same renderer the main chat uses (`QqMessageContent`), so a
- * forwarded text / sticker / image / reply / face all draw exactly like in the
- * main timeline. The forward payload from the main process is already in the
- * `{ type, data }` render-view shape (see `forwardRecordToWire` in serde.ts) —
- * we do not parse proto on the renderer.
- *
- * Drag is by the title bar only. The window stays inside the viewport (clamped
- * on every drag) so closing the chrome can't strand it offscreen.
- */
-
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-  type ReactElement,
-} from 'react';
+import { lazy, Suspense, useCallback, useContext, useMemo, useRef, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { create } from 'zustand';
 import { X } from 'lucide-react';
-import { client } from '../trpc/client';
+import { ForwardCarrierContext, ConvContext } from '../state/messageContext';
 import {
-  QqMessageContent,
-  ConvContext,
-  ForwardCarrierContext,
-  ForwardKindContext,
-  ForwardSubRecordsContext,
-  MsgDecorationEnabledContext,
-} from './QqMessageContent';
-import { GrayTipLine, grayTipOf } from '../im-template/template/messageRow';
-import { useMsgDecoration } from '../hooks/useMsgDecoration';
-import { useActiveWidget } from '../hooks/useActiveWidget';
-import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
+  useForwardStore,
+  openForwardWindow,
+  ForwardParentContext,
+  forwardWindowStyle,
+  type ForwardWindowState,
+  type ForwardRecordWire,
+} from '../state/forwardWindow';
 import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
-import type { ResolvedWidget, MessageBubbleSkin } from '@weq/service';
-import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
-import { ProfileAvatar } from './ProfileAvatar';
+import { visibleViewport } from '../lib/visibleViewport';
+import { LoadingIndicator } from './LoadingIndicator';
+export { openForwardWindow, type ForwardRecordWire } from '../state/forwardWindow';
 
-// ---- types & store -------------------------------------------------------
+const Content = lazy(() =>
+  import('./ForwardWindowContent').then((module) => ({ default: module.ForwardWindowContent })),
+);
 
-/** One cached message inside a forward chain, as it arrives on the wire. */
-export interface ForwardRecordWire {
-  cachedBubbles?: MessageBubbleSkin[];
-  msgId: string;
-  msgSeq?: string;
-  msgType?: number;
-  isSender?: boolean;
-  senderUid?: string;
-  senderUin?: string;
-  sendTime?: string;
-  sendNick?: string;
-  senderInfo?: {
-    avatar?: {
-      avatarUrl?: string;
-      encryptedUin?: string;
-    };
-  };
-  /** Already lifted to render-view shape in the main process. */
-  elements: Array<{ type?: string; data?: Record<string, unknown> }>;
-  /** Recursive: nested 40900 forward cache (multi-forward inside multi-forward). */
-  subMsgs?: ForwardRecordWire[];
-  /** Per-message decoration from the nested proto40801 (0 = not set). */
-  decoration?: {
-    bubbleId: number;
-    fontId: number;
-    widgetId: number;
-    cachedBubble?: MessageBubbleSkin;
-  };
-}
-
-interface ForwardWindowState {
-  parentId?: number;
-  id: number;
-  /** Title shown in the header (parsed from the XML summary when available). */
-  title: string;
-  /** The forward kind needed for the lookup (c2c vs group). */
-  kind: 'c2c' | 'group';
-  /** Group code (群号) of the chat this was opened from; '' for c2c. Only used
-   *  as one of the two scene guesses when downloading a forwarded medium. */
-  conv: string;
-  /** Source msgId we asked the backend to look up. */
-  msgId: string;
-  /**
-   * msgId of the ROOT message in our own msg tables — the only row that has a
-   * 40900 blob. Equal to {@link msgId} for a window opened from the timeline;
-   * for a nested forward it keeps pointing at that same root, because the root's
-   * 40900 already nests every level. Media downloads resolve through it.
-   */
-  rootMsgId: string;
-  /** Inline records (for nested opens we already have the payload). */
-  records: ForwardRecordWire[] | null;
-  /**
-   * Optional server resource id of the merged forward. When the local 40900
-   * lookup returns nothing (gap messages never live in the DB), the window
-   * falls back to fetching the chain from QQ servers via SsoRecvLongMsg.
-   */
-  resId?: string;
-  /** Position (top-left), zustand-mutated by the drag handler. */
-  x: number;
-  y: number;
-  /** Render order — bumped on every interaction. */
-  z: number;
-  /** Loading / error flags for the initial fetch. */
-  loading: boolean;
-  error: string | null;
-}
-
-interface ForwardStore {
-  windows: ForwardWindowState[];
-  seq: number;
-  zTop: number;
-  open(opts: {
-    parentId?: number;
-    anchor?: DOMRect;
-    title: string;
-    kind: 'c2c' | 'group';
-    conv: string;
-    msgId: string;
-    rootMsgId?: string;
-    records?: ForwardRecordWire[];
-    resId?: string;
-  }): void;
-  close(id: number): void;
-  bringToFront(id: number): void;
-  move(id: number, x: number, y: number): void;
-  setRecords(id: number, records: ForwardRecordWire[]): void;
-  setError(id: number, error: string): void;
-}
-
-// Each new window opens centred in the viewport (Electron BrowserWindow). When
-// several windows stack, each subsequent one nudges down-right by STAGGER so
-// older ones stay partially visible — the user can still reach them to drag.
-const STAGGER = 28;
-const WINDOW_WIDTH = 460;
-const WINDOW_HEIGHT = 560;
-
-/** Centred top-left for a window of the configured size, plus a stagger nudge. */
-function spawnPosition(offset: number, anchor?: DOMRect): { x: number; y: number } {
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
-  const baseX = Math.max(0, Math.round((vw - WINDOW_WIDTH) / 2));
-  const baseY = Math.max(0, Math.round((vh - WINDOW_HEIGHT) / 2));
-  const nudge = STAGGER * (offset % 8);
-  const width = Math.min(WINDOW_WIDTH, vw - 16);
-  const height = Math.min(WINDOW_HEIGHT, vh - 16);
-  if (anchor)
-    return {
-      x: clamp(anchor.left, 8, Math.max(8, vw - width - 8)),
-      y: clamp(
-        anchor.bottom + height + 8 <= vh ? anchor.bottom + 8 : anchor.top - height - 8,
-        8,
-        Math.max(8, vh - height - 8),
-      ),
-    };
-  return {
-    x: clamp(baseX + nudge, 8, Math.max(8, vw - width - 8)),
-    y: clamp(baseY + nudge, 8, Math.max(8, vh - height - 8)),
-  };
-}
-
-const useForwardStore = create<ForwardStore>((set, get) => ({
-  windows: [],
-  seq: 0,
-  zTop: 1000,
-  open(opts) {
-    for (const record of opts.records ?? []) seedMessageBubbles(record.cachedBubbles);
-    const seq = get().seq + 1;
-    const zTop = get().zTop + 1;
-    const offset = get().windows.length;
-    const { x, y } = spawnPosition(offset, opts.anchor);
-    set({
-      seq,
-      zTop,
-      windows: [
-        ...get().windows,
-        {
-          id: seq,
-          parentId: opts.parentId,
-          title: opts.title || '聊天记录',
-          kind: opts.kind,
-          conv: opts.conv,
-          msgId: opts.msgId,
-          rootMsgId: opts.rootMsgId || opts.msgId,
-          records: opts.records ?? null,
-          resId: opts.resId,
-          x,
-          y,
-          z: zTop,
-          loading: !opts.records,
-          error: null,
-        },
-      ],
-    });
-  },
-  close(id) {
-    set({ windows: get().windows.filter((w) => w.id !== id) });
-  },
-  bringToFront(id) {
-    const windows = get().windows;
-    const raised = new Map([[id, get().zTop + 1]]);
-    // 父窗提升时连同全部后代一起提升，子记录仍在所属父窗上方。
-    for (const parent of raised.keys())
-      for (const child of windows)
-        if (child.parentId === parent && !raised.has(child.id))
-          raised.set(child.id, get().zTop + raised.size + 1);
-    const zTop = get().zTop + raised.size;
-    set({
-      zTop,
-      windows: windows.map((w) => (raised.has(w.id) ? { ...w, z: raised.get(w.id)! } : w)),
-    });
-  },
-  move(id, x, y) {
-    set({
-      windows: get().windows.map((w) => (w.id === id ? { ...w, x, y } : w)),
-    });
-  },
-  setRecords(id, records) {
-    const prepare = (rows: ForwardRecordWire[]) => {
-      for (const row of rows) {
-        seedMessageBubbles(row.cachedBubbles);
-        if (row.decoration)
-          row.decoration = {
-            ...row.decoration,
-            cachedBubble: messageBubble(row.decoration.bubbleId),
-          };
-        if (row.subMsgs) prepare(row.subMsgs);
-      }
-    };
-    prepare(records);
-    set({
-      windows: get().windows.map((w) =>
-        w.id === id ? { ...w, records, loading: false, error: null } : w,
-      ),
-    });
-  },
-  setError(id, error) {
-    set({
-      windows: get().windows.map((w) => (w.id === id ? { ...w, error, loading: false } : w)),
-    });
-  },
-}));
-
-/** Imperatively open a forward window. */
-export function openForwardWindow(opts: {
-  parentId?: number;
-  anchor?: DOMRect;
-  title: string;
-  kind: 'c2c' | 'group';
-  conv: string;
-  msgId: string;
-  rootMsgId?: string;
-  records?: ForwardRecordWire[];
-  resId?: string;
-}): void {
-  useForwardStore.getState().open(opts);
-}
-
-const ForwardParentContext = createContext<number | undefined>(undefined);
-
-// ---- helpers -------------------------------------------------------------
-
-function senderAvatarFromUin(uin: string | undefined): string | null {
-  if (!uin || uin === '0') return null;
-  return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
-}
-
-function formatForwardTime(seconds: string | undefined): string {
-  const secs = Number(seconds ?? 0);
-  if (!Number.isFinite(secs) || secs <= 0) return '';
-  const d = new Date(secs * 1000);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(Math.max(v, lo), hi);
-}
-
-/**
- * 转发窗口里给灰条组件用的最小会话上下文。
- *
- * 灰条（撤回 / 戳一戳 / 群提示 / XML 提示）优先按 `conversation.members` 把 uid 解析
- * 成昵称；转发窗口没有成员表，于是它们退回灰条自带的 nick 字段 —— 这正是主面板在
- * 「成员不在已加载分页里」时的同一条退路。这里给一个空成员的会话对象即可让类型与
- * 分支都成立，不会凭空造出假名字。
- */
-function forwardGrayTipConversation(kind: 'c2c' | 'group'): never {
-  const base = {
-    id: '',
-    updatedAt: '',
-    lastMessage: null,
-    members: [] as unknown[],
-    preference: { pinned: false, muted: false, blocked: false },
-    unreadCount: 0,
-  };
-  if (kind === 'group') {
-    return {
-      ...base,
-      type: 'group',
-      group: {
-        id: '',
-        name: '',
-        identityLabel: 'Group',
-        identityValue: '',
-        avatarUrl: null,
-        announcement: null,
-        memberCount: 0,
-        role: 'member',
-      },
-      otherUser: null,
-    } as never;
-  }
-  return {
-    ...base,
-    type: 'direct',
-    otherUser: {
-      id: '',
-      identityLabel: 'UID',
-      identityValue: '',
-      username: '',
-      displayName: '',
-      avatarUrl: null,
-    },
-    group: null,
-  } as never;
-}
-
-// ---- single window -------------------------------------------------------
-
-function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement {
-  const close = useForwardStore((s) => s.close);
-  const bringToFront = useForwardStore((s) => s.bringToFront);
-  const move = useForwardStore((s) => s.move);
-  const setRecords = useForwardStore((s) => s.setRecords);
-  const setError = useForwardStore((s) => s.setError);
+function PendingWindow({ win }: { win: ForwardWindowState }) {
   const surface = useRef<HTMLElement>(null);
+  const close = useForwardStore((s) => s.close);
+  const raise = useForwardStore((s) => s.bringToFront);
   useSurfaceEscape(surface, () => close(win.id), true, false);
-
-  // Initial fetch — only when no payload was injected up-front.
-  useEffect(() => {
-    if (win.records !== null) return;
-    let cancelled = false;
-    client.account.getForwardMessages
-      .query({ kind: win.kind, msgId: win.msgId, ...(win.resId ? { resId: win.resId } : {}) })
-      .then((records) => {
-        if (cancelled) return;
-        setRecords(win.id, records as ForwardRecordWire[]);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error('[forward] getForwardMessages failed', err);
-        setError(win.id, (err as Error)?.message || 'Failed to load forward');
-      });
-    return () => {
-      cancelled = true;
-    };
-    // We intentionally depend only on the identity — the rest of the state is
-    // mutated by the very setters we call from here.
-  }, [win.id, win.kind, win.msgId, win.resId, win.records, setRecords, setError]);
-
-  // Drag — only the header is a handle. Capture the pointer on the header so a
-  // fast drag past the window edge keeps tracking instead of stalling on the
-  // viewport background. The window is clamped to the viewport on every move.
-  const dragStateRef = useRef<{
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-  } | null>(null);
-
-  const onHeaderPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>): void => {
-      // Ignore drags that start on the close button or any nested control.
-      const target = event.target as HTMLElement;
-      if (target.closest('button')) return;
-
-      bringToFront(win.id);
-      dragStateRef.current = {
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: win.x,
-        originY: win.y,
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    [bringToFront, win.id, win.x, win.y],
-  );
-
-  const onHeaderPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>): void => {
-      const drag = dragStateRef.current;
-      if (!drag) return;
-      const dx = event.clientX - drag.startX;
-      const dy = event.clientY - drag.startY;
-      const maxX = Math.max(0, window.innerWidth - 80);
-      const maxY = Math.max(0, window.innerHeight - 32);
-      move(
-        win.id,
-        clamp(drag.originX + dx, -WINDOW_WIDTH + 80, maxX),
-        clamp(drag.originY + dy, 0, maxY),
-      );
-    },
-    [move, win.id],
-  );
-
-  const onHeaderPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
-    dragStateRef.current = null;
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      /* already released */
-    }
-  }, []);
-
-  // Position with left/top — NOT transform. The entrance animation
-  // (`weq-anim-pop`) owns `transform`, and a running/filled CSS animation wins
-  // over inline styles, so a transform-based position would be clobbered back to
-  // (0,0). left/top keeps the two concerns from colliding.
-  const style: CSSProperties = useMemo(
-    () => ({
-      left: win.x,
-      top: win.y,
-      zIndex: win.z,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT,
-      maxWidth: 'calc(100vw - 16px)',
-      maxHeight: 'calc(100dvh - 16px)',
-    }),
-    [win.x, win.y, win.z],
-  );
-
-  // 转发窗口挂在 App 根部、MainView 之外，拿不到聊天区那两个 provider——
-  // 这里补上，否则窗口里的视频/文件下载既不知道群号也不知道自己是转发内容。
-  const carrier = useMemo(
-    (): { msgId: string; kind: 'c2c' | 'group' } => ({ msgId: win.rootMsgId, kind: win.kind }),
-    [win.rootMsgId, win.kind],
-  );
-
   return (
     <section
       ref={surface}
       tabIndex={-1}
-      className="weq-forward-window weq-anim-pop"
-      style={style}
+      className="weq-forward-window"
+      style={forwardWindowStyle(win, visibleViewport())}
       role="dialog"
       aria-label={win.title}
-      onMouseDown={() => bringToFront(win.id)}
+      aria-busy="true"
+      onMouseDown={() => raise(win.id)}
     >
-      <header
-        className="weq-forward-header"
-        onPointerDown={onHeaderPointerDown}
-        onPointerMove={onHeaderPointerMove}
-        onPointerUp={onHeaderPointerUp}
-        onPointerCancel={onHeaderPointerUp}
-      >
-        <div className="weq-forward-title" title={win.title}>
-          {win.title}
-        </div>
+      <header className="weq-forward-header" style={{ cursor: 'default' }}>
+        <div className="weq-forward-title">{win.title}</div>
         <button
           type="button"
           className="weq-forward-close"
@@ -485,225 +48,10 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
           <X size={16} strokeWidth={1.9} />
         </button>
       </header>
-      <ForwardParentContext.Provider value={win.id}>
-        <ForwardKindContext.Provider value={win.kind}>
-          <ConvContext.Provider value={win.conv}>
-            <ForwardCarrierContext.Provider value={carrier}>
-              <ForwardSubRecordsProvider records={win.records ?? []}>
-                <ForwardScroll win={win} />
-              </ForwardSubRecordsProvider>
-            </ForwardCarrierContext.Provider>
-          </ConvContext.Provider>
-        </ForwardKindContext.Provider>
-      </ForwardParentContext.Provider>
+      <div className="weq-forward-body weq-forward-status">
+        <LoadingIndicator />
+      </div>
     </section>
-  );
-}
-
-/**
- * 把当前这一层每条记录内联的 `subMsgs` 挂成 msgId → 子记录表，供嵌套转发的预览卡
- * 直接取用（点进去时不必再查一次库）。
- */
-function ForwardSubRecordsProvider({
-  records,
-  children,
-}: {
-  records: ForwardRecordWire[];
-  children: ReactElement;
-}): ReactElement {
-  const table = useMemo(() => {
-    const map = new Map<string, unknown[]>();
-    for (const record of records) {
-      if (record.subMsgs && record.subMsgs.length > 0) map.set(record.msgId, record.subMsgs);
-    }
-    return map;
-  }, [records]);
-  return (
-    <ForwardSubRecordsContext.Provider value={table}>{children}</ForwardSubRecordsContext.Provider>
-  );
-}
-
-function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useLayoutEffect(() => {
-    // Always start at the top of the chain — keeps the chronological reading
-    // order obvious (oldest forward at the top, newest at the bottom).
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [win.records]);
-
-  if (win.loading) {
-    return (
-      <div className="weq-forward-body weq-forward-status">
-        <span>加载中…</span>
-      </div>
-    );
-  }
-  if (win.error) {
-    return (
-      <div className="weq-forward-body weq-forward-status weq-forward-error">
-        <span>加载失败：{win.error}</span>
-      </div>
-    );
-  }
-  const records = win.records ?? [];
-  if (records.length === 0) {
-    return (
-      <div className="weq-forward-body weq-forward-status">
-        <span>没有更多消息</span>
-      </div>
-    );
-  }
-
-  return (
-    <div ref={scrollRef} className="weq-forward-body">
-      {records.map((record, index) => (
-        <ForwardRow
-          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          key={`${record.msgId || 'rec'}:${index}`}
-          record={record}
-          kind={win.kind}
-        />
-      ))}
-    </div>
-  );
-}
-
-/** 转发头像上的挂件叠加层，与 messageBubble 的 PendantOverlay 同构。 */
-function PendantLayer({ widget }: { widget: ResolvedWidget }): ReactElement | null {
-  if (widget.animated) {
-    return <span className="weq-avatar-pendant-img" aria-hidden />;
-  }
-  return (
-    <img
-      className="weq-avatar-pendant-img"
-      src={widget.url}
-      alt=""
-      aria-hidden
-      draggable={false}
-      onError={(event) => {
-        event.currentTarget.style.display = 'none';
-      }}
-    />
-  );
-}
-
-function ForwardRow({
-  record,
-  kind,
-}: {
-  record: ForwardRecordWire;
-  kind: 'c2c' | 'group';
-}): ReactElement {
-  const rowRef = useRef<HTMLDivElement | null>(null);
-  const decorationEnabled = useContext(MsgDecorationEnabledContext);
-  // 转发行都是「对方」样式,生效挂件只在作用范围 all 时叠上来。
-  const { widget: activeWidget, scope: activeScope } = useActiveWidget();
-  const localWidget = activeScope === 'all' ? activeWidget : null;
-  const msgDec = useMsgDecoration(
-    localWidget && record.decoration ? { ...record.decoration, widgetId: 0 } : record.decoration,
-    rowRef,
-  );
-  // 炫彩只跟逐条消息字体走:生效字体的 font-family 规则只选中 .message-line（见
-  // lib/dressSkin 的 fontRules），转发行根本没换上那款字，只有光效没字会很怪。
-  const fontFxAttr = useBubbleFontFx(msgDec.fontFx, rowRef);
-  const avatar =
-    senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
-  const displayName = record.sendNick || record.senderUin || record.senderUid || 'Unknown';
-  const time = formatForwardTime(record.sendTime);
-  const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
-  const widget = decorationEnabled.widget ? (localWidget ?? msgDec.widget) : null;
-
-  // 灰条判定：放在所有 hook 之后（规则要求 hook 顺序稳定），命中就直接画成**居中
-  // 一行** —— 与主面板一样没有头像 / 昵称 / 气泡，而不是把这些消息硬套进转发行。
-  const gray = grayTipOf(record);
-  if (gray) {
-    // 灰条组件要 conversation / message 来把 uid 解析成昵称。转发窗口里没有会话成员表，
-    // 但灰条自带的 nick 字段 + 发送人快照够用 —— 走与主面板完全相同的分支（拿不到
-    // 成员表时它们本来就退回 nick 字段，不会凭空造名字）。
-    const graySender = {
-      id: record.senderUid || record.senderUin || '',
-      identityLabel: 'UID',
-      identityValue: record.senderUin || record.senderUid || '',
-      username: record.senderUid || record.senderUin || '',
-      displayName: record.sendNick || record.senderUin || record.senderUid || '',
-      avatarUrl: null,
-      kind: 'human' as const,
-    };
-    return (
-      <div className="weq-forward-graytip" data-message-id={record.msgId}>
-        <GrayTipLine
-          gt={gray}
-          conversation={forwardGrayTipConversation(kind)}
-          message={{ id: record.msgId, sender: graySender } as never}
-          user={graySender as never}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={rowRef}
-      className="weq-forward-row"
-      data-bubble={msgDec.bubbleId || undefined}
-      data-font={msgDec.fontId || undefined}
-      data-fontfx={fontFxAttr}
-      data-widget={widget?.animated ? widget.itemId : undefined}
-    >
-      <ProfileAvatar
-        target={{
-          identity: record.senderUid || record.senderUin || '',
-          uin: record.senderUin,
-          name: displayName,
-          avatarUrl: avatar,
-        }}
-      >
-        <div className="weq-forward-avatar">
-          {avatar ? (
-            <img src={avatar} alt="" loading="lazy" />
-          ) : (
-            <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
-          )}
-          {widget ? <PendantLayer widget={widget} /> : null}
-        </div>
-      </ProfileAvatar>
-      <div className="weq-forward-row-main">
-        <div className="weq-forward-row-meta">
-          <span className="weq-forward-row-name">{displayName}</span>
-          {time ? <span className="weq-forward-row-time">{time}</span> : null}
-        </div>
-        <ForwardBubble record={record} kind={kind} sendTimeMs={sendTimeMs} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * One forwarded message's content. Uses the same QqMessageContent component the
- * main timeline uses, so text / face / image / sticker / file / reply quote / 红包 /
- * 通话 / 在线文件 / 位置共享 / 长消息 / 机器人按钮 / 灰条 all draw identically —
- * including nested forwards, which now resolve their inline sub-records through
- * {@link ForwardSubRecordsContext} instead of a hand-rolled branch here.
- */
-function ForwardBubble({
-  record,
-  kind,
-  sendTimeMs,
-}: {
-  record: ForwardRecordWire;
-  kind: 'c2c' | 'group';
-  sendTimeMs: number;
-}): ReactElement {
-  void kind;
-  return (
-    <div className="weq-forward-bubble qq-bubble-shell">
-      <QqMessageContent
-        elements={record.elements as Array<{ type?: string; data?: Record<string, unknown> }>}
-        sendTimeMs={sendTimeMs}
-        msgId={record.msgId}
-      />
-    </div>
   );
 }
 
@@ -982,6 +330,7 @@ export function ForwardMultiMsgPreview({
     <button
       type="button"
       className="weq-forward-preview"
+      data-forward-res-id={resId}
       onClick={(event) => open(event.currentTarget)}
       title="查看合并转发"
     >
@@ -1004,21 +353,18 @@ export function ForwardMultiMsgPreview({
   );
 }
 
-// ---- host ---------------------------------------------------------------
-
-/** Mount once near the root. Renders the floating window stack. */
+/** 宿主与请求状态常驻，窗口正文只在首次打开时加载。 */
 export function ForwardWindowHost(): ReactElement | null {
   const windows = useForwardStore((s) => s.windows);
   const revision = useForwardStore((s) => s.zTop);
-  // 复用宿主也要在每次打开或提升窗口时重新领层，子浮层随宿主一起提升。
   const layer = useOverlayLayer(windows.length > 0, revision);
   if (typeof document === 'undefined' || windows.length === 0) return null;
   return createPortal(
     <div className="weq-forward-layer" style={{ zIndex: layer }} aria-live="polite">
       <OverlayLayerContext.Provider value={layer}>
-        {windows.map((w) => (
-          <ForwardWindowFrame key={w.id} win={w} />
-        ))}
+        <Suspense fallback={windows.map((win) => <PendingWindow key={win.id} win={win} />)}>
+          <Content windows={windows} />
+        </Suspense>
       </OverlayLayerContext.Provider>
     </div>,
     document.body,

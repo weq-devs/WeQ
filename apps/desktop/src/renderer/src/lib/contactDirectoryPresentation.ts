@@ -1,43 +1,29 @@
+import { formatDate } from '@weq/time';
+import { preciseTimeFormatter as eventTimeFormatter, clockFormatter } from '@weq/time';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
+import { profileTimeText } from '@weq/protocol/profile-values';
 import type { Contact, GroupConversation } from '../im-template/template/types';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
-import { contactBirth } from './contactBirth';
+import { birthRangeText, contactBirthdayText, contactBirth } from './contactBirth';
 import {
   directoryNumber,
   friendDirectoryNumber,
   type FriendSort,
   type GroupSort,
+  type DirectoryRows,
 } from './contactListOrder';
 
 type SortDetail = { text: string; title?: string };
-type MetricCell = NonNullable<ContactMetricRows[string][ContactMetric]>;
+type MetricCell = NonNullable<ContactMetricRows[string][ContactMetric]> & { partial?: boolean };
 const numbers = new Intl.NumberFormat('zh-CN');
-const dates = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-const updatedTimes = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  dateStyle: 'short',
-  timeStyle: 'short',
-});
-const addedTimes = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+
+const updatedTimes = eventTimeFormatter;
+const addedTimes = clockFormatter;
 function dateLabel(milliseconds: number) {
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
   const date = new Date(milliseconds);
   if (!Number.isFinite(date.getTime())) return null;
-  const parts = dates.formatToParts(date);
-  return ['year', 'month', 'day']
-    .map((type) => parts.find((part) => part.type === type)?.value)
-    .join('-');
+  return formatDate(date);
 }
 function numericValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
@@ -50,12 +36,18 @@ function metricDetail(
   const text = format(cell?.value);
   if (text === null)
     return {
-      text: `${label}${cell?.state === 'failed' ? '读取失败' : '未读取'}`,
+      text: `${label}${cell?.partial ? '补齐中' : cell?.state === 'failed' ? '读取失败' : '未读取'}`,
       title: cell?.error,
     };
   const updatedAt = cell?.updatedAt;
   const title = [
-    cell?.state === 'stale' ? '缓存已过期' : cell?.state === 'failed' ? '上次更新失败' : '',
+    cell?.partial
+      ? '本地时间仍在逐步补齐'
+      : cell?.state === 'stale'
+        ? '缓存已过期'
+        : cell?.state === 'failed'
+          ? '上次更新失败'
+          : '',
     updatedAt && dateLabel(updatedAt) ? `更新于 ${updatedTimes.format(updatedAt)}（北京时间）` : '',
   ]
     .filter(Boolean)
@@ -89,7 +81,13 @@ export function groupDirectoryTitle(
 }
 
 function birthDetail(contact: Contact): SortDetail {
-  const { year, month, day, age } = contactBirth(contact);
+  const birth = contactBirth(contact);
+  const { year, month, day, age } = birth;
+  if (birth.inference !== 'none')
+    return {
+      text: `${contactBirthdayText(birth)} （${age ?? '??'} 岁）`,
+      title: birthRangeText(birth) ?? undefined,
+    };
   const date = `${year ?? '????'}-${month === null ? '??' : String(month).padStart(2, '0')}-${day === null ? '??' : String(day).padStart(2, '0')}`;
   return { text: `${date} （${age ?? '??'} 岁）` };
 }
@@ -97,11 +95,25 @@ function birthDetail(contact: Contact): SortDetail {
 export function friendSortDetail(
   contact: Contact,
   sort: FriendSort,
-  rows: ContactMetricRows,
+  rows: DirectoryRows,
 ): SortDetail | null {
+  if (
+    (contact.identityLabel === '设备' || contact.clone) &&
+    ['energy', 'affinity', 'lastMessageAt'].includes(sort)
+  )
+    return {
+      text: `${{ energy: 'QQ 能量值', affinity: 'AI 好感度', lastMessageAt: '私聊联系时间' }[sort as 'energy' | 'affinity' | 'lastMessageAt']}不适用`,
+    };
   if (sort === 'likeCount' && (contact.kind === 'bot' || contact.extInfo?.isEnterprise))
     return null;
   if (sort === 'remark' || sort === 'nick') return null;
+  if (sort === 'sigUpdateTime') {
+    const time = profileTimeText(contact.sigUpdateTime);
+    return {
+      text: time ? `签名更新于 ${time}` : '签名更新时间未记录',
+      title: time ? '北京时间' : undefined,
+    };
+  }
   if (sort === 'uin') {
     const number = friendDirectoryNumber(contact);
     return { text: number ? `QQ 号：${number}` : 'QQ 号未读取' };
@@ -114,10 +126,18 @@ export function friendSortDetail(
         intimacy !== null && intimacy > 0 ? `亲密度：${numbers.format(intimacy)}` : '亲密度未读取',
     };
   }
+  if (sort === 'lastMessageAt') {
+    const cell = rows[`friend:${contact.id}`]?.lastMessageAt;
+    if (cell?.state === 'ready' && cell.value === undefined) return { text: '无本地私聊消息记录' };
+    return metricDetail('最近联系时间', cell, (value) =>
+      typeof value === 'number' && value > 0 ? profileTimeText(value) : null,
+    );
+  }
   const cell =
     rows[`friend:${contact.identityValue}`]?.[sort]?.value != null
       ? rows[`friend:${contact.identityValue}`]?.[sort]
       : (rows[`friend:${contact.id}`]?.[sort] ?? rows[`friend:${contact.identityValue}`]?.[sort]);
+  if (sort === 'affinity' && cell?.value === undefined) return { text: 'AI 好感度未分析' };
   if (sort === 'addedAt')
     return metricDetail('添加时间', cell, (value) => {
       const date = typeof value === 'number' ? dateLabel(value * 1000) : null;
@@ -128,6 +148,8 @@ export function friendSortDetail(
     likeCount: '获赞',
     commonFriends: '共同好友',
     commonGroups: '共同群聊',
+    energy: 'QQ 能量值',
+    affinity: 'AI 好感度',
   }[sort];
   return metricDetail(label, cell, (value) =>
     countDetail(
@@ -141,7 +163,7 @@ export function friendSortDetail(
 export function groupSortDetail(
   group: GroupConversation['group'],
   sort: GroupSort,
-  rows: ContactMetricRows,
+  rows: DirectoryRows,
 ): SortDetail | null {
   if (sort === 'remark' || sort === 'name') return null;
   if (sort === 'groupCode') {
@@ -155,6 +177,21 @@ export function groupSortDetail(
   if (sort === 'createTime') {
     const date = dateLabel(Date.parse(group.createTime ?? ''));
     return { text: date ? `创建于 ${date}` : '创建时间未读取' };
+  }
+  if (sort === 'lastMessageAt' || sort === 'lastSpokeAt' || sort === 'joinedAt') {
+    const label = {
+      lastMessageAt: '最近消息',
+      lastSpokeAt: '我最近发言',
+      joinedAt: '我的入群时间',
+    }[sort];
+    const cell = rows[`group:${group.id}`]?.[sort];
+    if (sort !== 'joinedAt' && cell?.state === 'ready' && cell.value === undefined)
+      return { text: sort === 'lastSpokeAt' ? '无本地本人发言记录' : '无本地群消息记录' };
+    return metricDetail(label, cell, (value) =>
+      typeof value === 'number' && value > (sort === 'joinedAt' ? 1 : 0)
+        ? profileTimeText(value)
+        : null,
+    );
   }
   return metricDetail(
     sort === 'friendCount' ? '群内好友数' : '活跃度',

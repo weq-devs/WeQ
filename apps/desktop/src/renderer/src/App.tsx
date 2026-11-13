@@ -15,8 +15,16 @@ import {
   type ReactNode,
 } from 'react';
 import { useViewState } from './state/view';
+import { ClientStateSync } from './components/ClientStateSync';
+import {
+  effectiveDisplaySettings,
+  preferenceValue,
+  useClientPreferences,
+} from './lib/clientPreferences';
+import './styles/client-sync.css';
 import { BootstrapView } from './views/BootstrapView';
 import { DialogHost } from './components/Dialog';
+import { ClientDocumentPreview } from './components/ClientDocumentPreview';
 import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
 import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
@@ -30,8 +38,7 @@ import { RestrictedModeHost } from './components/RestrictedMode';
 import { DesktopOnly, IS_WEB } from './lib/target';
 import { WebNotifications } from './components/WebNotifications';
 import { WebConnectionStatus } from './components/WebConnectionStatus';
-import { ImageLightbox } from './components/ImageLightbox';
-import { VideoLightbox } from './components/VideoLightbox';
+import { MediaPreviewHost } from './components/mediaPreviewStore';
 import { RedBagDetailHost } from './components/RedBagDetailDialog';
 import { RedBagQrcodeHost } from './components/RedBagQrcodeDialog';
 import { MarketFaceLightbox } from './components/MarketFaceLightbox';
@@ -47,6 +54,7 @@ import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
 import { ChatQqShowEnabledContext, resetChatQqShowCache } from './lib/chatQqShow';
 import { WarmupSplash } from './components/WarmupSplash';
+import { WorkspaceStartupLoading } from './components/WorkspaceStartupLoading';
 import { trpc } from './trpc/client';
 import { dressUrl } from './lib/resourceUrl';
 import { setWindowLayout } from './lib/windowLayout';
@@ -63,10 +71,10 @@ import { ChatImageCacheProvider } from './components/ChatImageCacheProvider';
 import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { RendererRecoveryNotice } from './components/RendererRecoveryNotice';
 import { RemoteStartupReporter } from './components/RemoteStartupReporter';
+import { StartupProgressReporter } from './components/StartupProgressReporter';
+import { loadMainWorkspace } from './lib/mainWorkspaceLoader';
 
-const MainView = lazy(() =>
-  import('./views/MainView').then((module) => ({ default: module.MainView })),
-);
+const MainView = lazy(loadMainWorkspace);
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。
@@ -83,10 +91,12 @@ function TextMarkdownProvider({
   children: ReactNode;
   cacheScope: string;
 }): ReactElement {
-  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+  useClientPreferences((state) => state.tick);
+  const query = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+  const settings = { ...query, data: query.data && effectiveDisplaySettings(query.data) };
   const bubble = settings.data?.showMessageBubble ?? settings.data?.showMsgDecoration ?? true;
   const font = settings.data?.showMessageFont ?? settings.data?.showMsgDecoration ?? true;
   const widget = settings.data?.showAvatarPendant ?? true;
@@ -135,6 +145,7 @@ function SelfPendantProvider({
   accountOpen: boolean;
   children: ReactNode;
 }): ReactElement {
+  useClientPreferences((state) => state.tick);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
@@ -144,7 +155,7 @@ function SelfPendantProvider({
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
-  const enabled = settings.data?.showAvatarPendant ?? true;
+  const enabled = preferenceValue('showAvatarPendant', settings.data?.showAvatarPendant ?? true);
   const url = enabled ? dressUrl(dress.data?.widgetUrl ?? '') : '';
   return (
     <SelfBubbleContext.Provider value={dress.data?.bubbleId ?? 0}>
@@ -208,7 +219,7 @@ export default function App(): ReactElement {
 
   useEffect(() => {
     ensureThemeInitialized();
-    // 隐私模式：从 localStorage 回填根属性，早于首帧避免闪明文。
+    // 隐私模式先用最近共享快照回填，随后异步校准，不等待查询才显示正文。
     usePrivacyStore.getState().hydrate();
   }, []);
 
@@ -221,6 +232,7 @@ export default function App(): ReactElement {
   // 全打在已关闭的账号上）。
   return (
     <CdnProvider accountOpen={view === 'main' && !switching}>
+      <ClientStateSync />
       <TextMarkdownProvider cacheScope={view === 'main' && !switching ? (openedUin ?? '') : ''}>
         <SelfPendantProvider accountOpen={view === 'main' && !switching}>
           {/* 生效挂件与自己的静态挂件同层级广播,也必须盖住转发窗口。 */}
@@ -233,16 +245,7 @@ export default function App(): ReactElement {
               <BootstrapView />
             ) : (
               <ContentSelectionProvider key={openedUin ?? ''}>
-                <Suspense
-                  fallback={
-                    <div
-                      data-weq-startup-pending
-                      className="weq-home-shell h-screen overflow-hidden font-sans text-foreground"
-                    >
-                      <WarmupSplash hint="正在加载会话界面" />
-                    </div>
-                  }
-                >
+                <Suspense fallback={<WorkspaceStartupLoading />}>
                   <MainView />
                 </Suspense>
               </ContentSelectionProvider>
@@ -253,7 +256,9 @@ export default function App(): ReactElement {
                 自身决定是否显示（见 JoinGroupDialog 的判据）。 */}
             {view === 'main' ? <JoinGroupDialog /> : null}
             <DialogHost />
+            <ClientDocumentPreview />
             <RemoteStartupReporter />
+            <StartupProgressReporter />
             <AccountSwitchRequestHost />
             <RemoteRequests />
             <ToastHost />
@@ -270,8 +275,7 @@ export default function App(): ReactElement {
             <DesktopOnly>
               <AppLockOverlay />
             </DesktopOnly>
-            <ImageLightbox />
-            <VideoLightbox />
+            <MediaPreviewHost />
             <RedBagDetailHost />
             <RedBagQrcodeHost />
             <MarketFaceLightbox />

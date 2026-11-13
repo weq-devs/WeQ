@@ -2,6 +2,8 @@ export const DEFAULT_ANALYSIS_CONTEXT_MESSAGES = 4;
 // 推荐窗口不含当前消息；默认保留 30 条上文，共 31 条消息。
 export const DEFAULT_SUGGESTION_CONTEXT_MESSAGES = 30;
 export const MAX_INTENT_CONTEXT_MESSAGES = 100;
+export const DEFAULT_SUGGESTION_HISTORY_LIMIT = 500;
+export const MAX_SUGGESTION_HISTORY_LIMIT = 10000;
 
 export function isIntentContextCount(value: unknown): value is number {
   return (
@@ -147,6 +149,20 @@ export const INTENT_TUNING = {
     min: 0,
     max: 600,
   },
+  suggestionExpiryMinutes: {
+    group: 'suggestions',
+    label: '最近推荐过期时间（分钟）',
+    default: 1,
+    min: -1,
+    max: 5256000,
+  },
+  suggestionHistoryLimit: {
+    group: 'suggestions',
+    label: '每会话保留的推荐轮数',
+    default: DEFAULT_SUGGESTION_HISTORY_LIMIT,
+    min: 0,
+    max: MAX_SUGGESTION_HISTORY_LIMIT,
+  },
   profileMessages: {
     group: 'profile',
     label: '画像统计消息范围（条）',
@@ -189,7 +205,10 @@ export const INTENT_TUNING_HELP: Partial<Record<IntentTuningKey, string>> = {
   apiCooldownSeconds: '失败后的等待时长；0 表示不额外冷却，不代表自动重发。',
   cacheEntries: '仅限制生成的分析缓存，不改动原始消息。',
   suggestionCacheSeconds: '同一消息复用候选的时长；0 表示不复用。',
-  suggestionCount: '生成式候选的数量上限；规则兜底可能少于此数量。',
+  suggestionExpiryMinutes:
+    '-1 表示永不过期，0 表示立即过期。仅在进入会话时限制未覆盖最新消息的推荐；已覆盖最新消息或正在显示的候选不因超时清空。',
+  suggestionHistoryLimit: '每轮包含一次生成的全部候选；0 表示停止新增保存，已有历史保留。',
+  suggestionCount: '生成式与回退候选的数量上限；可用内容不足时可能少于此数量。',
   suggestionTargetChars: '作为生成提示，不强制截断模型回复。',
   profileSamples: '不超过统计消息范围；只将选中的对方文本交给推断模型。',
   profileMinSamples: '不超过采样上限；按可用的对方文本计数，不依赖意图分析结果。',
@@ -220,4 +239,79 @@ export function normalizeIntentTuning(input: Partial<IntentTuning>): IntentTunin
       isIntentTuningValue(key, input[key]) ? input[key] : INTENT_TUNING[key].default,
     ]),
   ) as IntentTuning;
+}
+
+export const DEFAULT_SUGGESTION_FALLBACK_TEXTS: readonly string[] = [
+  '稍等我确认一下跟你说~',
+  '这个我还真知道，展开跟你讲讲',
+  '哈哈怎么突然问起这个？',
+  '没问题，包在我身上！',
+  '好嘞，我这就去弄，弄好叫你',
+  '手头稍微有点事，晚几分钟帮你看可以吗？',
+  '包的！直接冲，几点集合？',
+  '可以呀，算我一个~',
+  '我先看下时间安排，待会给你准信',
+  '在的在的，刚忙完~',
+  '哈哈早呀，今天心情不错嘛',
+  '咋啦，有什么好玩的事？',
+  '哈哈低调低调，还得靠大家捧场~',
+  '被你夸得我都要飘了哈哈哈',
+  '还得是你懂行！下次带你一起整',
+  '卧槽太强了吧！给大佬跪了',
+  '羡慕哭了，分我一点欧气！',
+  '牛哇，这波必须请客庆祝一下',
+  '抱抱你，别太往心里去，真的辛苦了',
+  '这也太欺负人了吧，换我也得气死！',
+  '不气不气，待会吃点好的转换下心情',
+  '辛苦啦！赶紧歇一歇回回血',
+  '打工人太难了，今晚必须早点睡',
+  '走，搞杯奶茶续命！',
+  '懂你，这事换谁遇到都得血压飙升',
+  '太离谱了吧，后来怎么解决的？',
+  '摸摸头，消消气，别拿别人的错误惩罚自己',
+  '哈哈哈哈笑死我了，你真是个人才',
+  '你小子夺笋啊，等着瞧！',
+  '蚌埠住了，今天功德又被你笑没了',
+  '搬好小板凳了，快展开讲讲！',
+  '尊嘟假嘟？还有这种操作？',
+  '这瓜保熟吗哈哈，细说后续',
+  '好啦好啦，都依你行了吧~',
+  '摸摸头，拿你没办法，走起！',
+  '哈哈少来这套，说吧想要啥？',
+  '哈哈看破不说破，先不打扰你忙啦',
+  '好家伙，这敷衍得也太明显了吧😂',
+  '行嘞，有空再聊~',
+  '收到！太及时了，多谢分享~',
+  '哇看着很不错诶，回头我也试试',
+  '了解，我记一下！',
+  '哈哈确实，我也这么觉得',
+  '展开说说？后来呢',
+  '好的呀，没问题~',
+];
+export const MAX_SUGGESTION_FALLBACK_TEXTS = 100;
+export const MAX_SUGGESTION_FALLBACK_LENGTH = 500;
+
+export function validateSuggestionFallbackTexts(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > MAX_SUGGESTION_FALLBACK_TEXTS)
+    throw new Error('回退内容最多 100 条');
+  const texts = value.map((text: unknown) => {
+    if (
+      typeof text !== 'string' ||
+      !text.trim() ||
+      text.trim().length > MAX_SUGGESTION_FALLBACK_LENGTH
+    )
+      throw new Error('每条回退内容须为 1–500 字符');
+    return text.trim();
+  });
+  if (new Set(texts).size !== texts.length) throw new Error('回退内容不能重复');
+  return texts;
+}
+
+export function sampleSuggestionFallback(texts: readonly string[], count: number): string[] {
+  const pool = [...texts];
+  for (let i = 0; i < Math.min(count, pool.length); i++) {
+    const j = i + Math.floor(Math.random() * (pool.length - i));
+    [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+  }
+  return pool.slice(0, count);
 }

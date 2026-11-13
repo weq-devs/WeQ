@@ -18,6 +18,8 @@ import {
 } from '@trpc/client';
 import type { AppRouter } from '../../../shared/router';
 import { useWebConnection } from '../state/webConnection';
+import { networkClientId } from '../lib/dataSaver';
+import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/unreadRequests';
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
@@ -29,6 +31,10 @@ const wsClient = createWSClient({
 
 const independentReads = new Set([
   'account.listRecentContacts',
+  // 可见行按需补全不能等待同批完整目录或在线接口。
+  'account.getProfilesByUids',
+  'account.getGroupMembersByUids',
+  'account.getGroupDetail',
   // 任务轮询与按需日志不能等待同批的 QQ / 数据库慢查询。
   'backgroundTasks.list',
   'backgroundTasks.details',
@@ -51,6 +57,7 @@ const independentReads = new Set([
 
 export function createLinks(): TRPCLink<AppRouter>[] {
   const httpOptions = {
+    headers: () => ({ 'x-weq-client-id': networkClientId }),
     url: '/trpc',
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       const res = await fetch(input, { ...init, credentials: 'same-origin' });
@@ -65,7 +72,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
       false: splitLink({
         condition: (op) => independentReads.has(op.path),
         true: httpLink(httpOptions),
-        false: httpBatchLink({ ...httpOptions, maxURLLength: 2048 }),
+        false: httpBatchLink({ ...httpOptions, maxURLLength: HTTP_BATCH_MAX_URL_LENGTH }),
       }),
     }),
   ];

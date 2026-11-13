@@ -11,20 +11,21 @@ export const MailWorkspace = memo(function MailWorkspace({
   active,
   selfUin,
   onUnreadChange,
-  enabled = false,
+  preferences,
   onOpenRequested,
   searchTarget,
 }: {
   active: boolean;
   selfUin: string;
   onUnreadChange: (count: number) => void;
-  enabled?: boolean;
+  preferences?: { showUnread: boolean; notifications: boolean };
   onOpenRequested?: () => void;
   searchTarget?: { id: string; folderId: number; revision: string } | null;
 }) {
   const [visited, setVisited] = useState(active);
   const parentActive = useTabActive();
   const foreground = active && parentActive;
+  const enabled = Boolean(preferences?.showUnread || preferences?.notifications);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const api = useMemo(() => createMailApi(selfUin), [selfUin]);
   useEffect(() => {

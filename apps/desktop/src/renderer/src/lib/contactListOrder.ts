@@ -1,46 +1,76 @@
+import type { FRIEND_SORTS, FRIEND_GROUPS, GROUP_SORTS } from '@weq/service/client-preferences';
 import type { Contact, Conversation } from '../im-template/template/types';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import { intimateRelationOf } from './profileRelations';
-import { contactBirth } from './contactBirth';
+import { birthReference, contactBirth } from './contactBirth';
+import { constellationFromBirthday } from './contactConstellation';
+import { occupationText, profileTimeSeconds } from '@weq/protocol/profile-values';
+import { personRelationship, type RelationshipDirectory } from './contactRelationship';
 
-export const FRIEND_SORTS = {
-  remark: '备注',
-  nick: '昵称',
-  uin: 'QQ 号',
-  age: '年龄',
-  birthday: '生日',
-  intimacy: '亲密度',
-  likeCount: '获赞数',
-  level: 'QQ 等级',
-  addedAt: '添加时间',
-  commonFriends: '共同好友数',
-  commonGroups: '共同群聊数',
-};
-export const FRIEND_GROUPS = {
-  none: '不分组',
-  qq: 'QQ 分组',
-  birthYear: '出生年份',
-  constellation: '星座',
-  gender: '性别',
-  location: '所在地',
-  relation: '亲密关系',
-  direction: '添加方向',
-};
-export const GROUP_SORTS = {
-  remark: '备注',
-  name: '群名',
-  groupCode: '群号',
-  memberCount: '人数',
-  activityScore: '活跃度',
-  createTime: '创建时间',
-  friendCount: '群内好友数',
-};
-export const GROUP_GROUPS = {
-  none: '不分组',
-  notify: '消息提醒方式',
-  identity: '我的身份',
-  capacity: '群容量',
-};
+export type DirectoryMetric = ContactMetric | 'lastMessageAt' | 'lastSpokeAt' | 'affinity';
+export type DirectoryRows = Record<
+  string,
+  Partial<
+    Record<
+      DirectoryMetric,
+      NonNullable<ContactMetricRows[string][ContactMetric]> & { partial?: boolean }
+    >
+  >
+>;
+
+/** 本地本人记录只补缺失值，不用较大的旧值覆盖协议更新后的统一指标。 */
+export function withLocalGroupJoinTimes(
+  rows: DirectoryRows,
+  times: Record<string, number>,
+): DirectoryRows {
+  const result = { ...rows };
+  for (const [id, value] of Object.entries(times)) {
+    const key = `group:${id}`;
+    const known = rows[key]?.joinedAt?.value;
+    if (typeof known === 'number' && Number.isInteger(known) && known > 1 && known <= 0xffffffff)
+      continue;
+    if (!Number.isInteger(value) || value <= 1 || value > 0xffffffff) continue;
+    result[key] = { ...rows[key], joinedAt: { value, state: 'ready', attemptedAt: 0 } };
+  }
+  return result;
+}
+
+export function directoryTimeSeeds(
+  items: readonly Conversation[],
+  selfUid?: string,
+): DirectoryRows {
+  const rows: DirectoryRows = {};
+  for (const row of items) {
+    if (row.generated) continue;
+    if (row.type === 'direct' && (row.otherUser.identityLabel === '设备' || row.otherUser.clone))
+      continue;
+    const message = row.lastMessage;
+    if (!message) continue;
+    const time = message.directoryTime;
+    if (typeof time !== 'number' || !Number.isFinite(time)) continue;
+    if (!(time > 0)) continue;
+    const key =
+      row.type === 'group'
+        ? `group:${row.group.id}`
+        : row.type === 'direct'
+          ? `friend:${row.otherUser.id}`
+          : null;
+    if (!key) continue;
+    const cell = { value: time, state: 'stale' as const, attemptedAt: 0 };
+    rows[key] = {
+      lastMessageAt: cell,
+      ...(selfUid && message.senderId === selfUid ? { lastSpokeAt: cell } : {}),
+    };
+  }
+  return rows;
+}
+
+export {
+  FRIEND_SORTS,
+  FRIEND_GROUPS,
+  GROUP_SORTS,
+  GROUP_GROUPS,
+} from '@weq/service/client-preferences';
 export type FriendSort = keyof typeof FRIEND_SORTS;
 export type FriendGrouping = keyof typeof FRIEND_GROUPS;
 export type GroupSort = keyof typeof GROUP_SORTS;
@@ -71,10 +101,10 @@ export function directoryNumber(value: string) {
 export function friendDirectoryNumber(contact: Contact) {
   return contact.identityLabel === 'QQ' ? directoryNumber(contact.identityValue) : null;
 }
-export function metricValue(rows: ContactMetricRows, id: string, metric: ContactMetric) {
+export function metricValue(rows: DirectoryRows, id: string, metric: DirectoryMetric) {
   return rows[id]?.[metric]?.value ?? null;
 }
-export function friendMetric(rows: ContactMetricRows, contact: Contact, metric: ContactMetric) {
+export function friendMetric(rows: DirectoryRows, contact: Contact, metric: DirectoryMetric) {
   if (metric === 'likeCount' && (contact.kind === 'bot' || contact.extInfo?.isEnterprise))
     return null;
   return (
@@ -90,78 +120,66 @@ function compareValue(a: number | string | null, b: number | string | null, desc
       : collator.compare(String(a), String(b))) * (descending ? -1 : 1)
   );
 }
-function birthday(month?: number, day?: number) {
-  if (
-    !month ||
-    !day ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day) ||
-    month < 1 ||
-    month > 12 ||
-    day < 1
-  )
-    return null;
-  const date = new Date(Date.UTC(2000, month - 1, day));
-  return date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? month * 100 + day : null;
-}
 export function zodiac(month?: number, day?: number) {
-  if (birthday(month, day) === null) return null;
-  const names = [
-    '水瓶座',
-    '双鱼座',
-    '白羊座',
-    '金牛座',
-    '双子座',
-    '巨蟹座',
-    '狮子座',
-    '处女座',
-    '天秤座',
-    '天蝎座',
-    '射手座',
-    '摩羯座',
-  ];
-  const cutoffs = [20, 19, 21, 20, 21, 22, 23, 23, 23, 24, 23, 22];
-  const index = month! - 1;
-  return names[day! < cutoffs[index]! ? (index + 11) % 12 : index]!;
+  return constellationFromBirthday(month, day)?.name ?? null;
 }
 export function sortFriends(
   items: readonly Contact[],
   sort: FriendSort,
   descending: boolean,
-  rows: ContactMetricRows,
+  rows: DirectoryRows,
 ) {
-  const now = new Date();
+  const now = birthReference();
   const births = new Map(
     sort === 'age' || sort === 'birthday'
       ? items.map((contact) => [contact, contactBirth(contact, now)] as const)
       : [],
   );
   const value = (contact: Contact): string | number | null => {
+    if (
+      (contact.identityLabel === '设备' || contact.clone) &&
+      ['energy', 'affinity', 'lastMessageAt'].includes(sort)
+    )
+      return null;
     if (sort === 'remark') return text(contact.remark) ?? text(contact.nick);
     if (sort === 'nick') return text(contact.nick);
     if (sort === 'uin') return friendDirectoryNumber(contact);
     if (sort === 'age') return births.get(contact)!.ageOrder;
     if (sort === 'intimacy') return positive(contact.intimacy);
-    if (sort === 'birthday') return birthday(contact.birthMonth, contact.birthDay);
+    if (sort === 'sigUpdateTime') return profileTimeSeconds(contact.sigUpdateTime);
+    if (sort === 'lastMessageAt') {
+      const time = friendMetric(rows, contact, sort);
+      return typeof time === 'number' && time > 0 ? time : null;
+    }
+    if (sort === 'birthday') return births.get(contact)!.birthdayOrder;
     const result = friendMetric(rows, contact, sort);
     return Array.isArray(result) ? result.length : typeof result === 'number' ? result : null;
   };
-  return [...items].sort(
-    (a, b) =>
-      compareValue(value(a), value(b), descending) ||
-      (sort === 'birthday'
-        ? compareValue(births.get(a)!.ageOrder, births.get(b)!.ageOrder, descending)
-        : 0) ||
-      collator.compare(a.remark || a.nick || a.displayName, b.remark || b.nick || b.displayName) ||
-      a.id.localeCompare(b.id),
-  );
+  return items
+    .map((contact) => ({
+      contact,
+      value: value(contact),
+      age: sort === 'birthday' ? births.get(contact)!.ageOrder : null,
+      inferred: births.get(contact)?.ranges.length ? 0 : 1,
+      name: contact.remark || contact.nick || contact.displayName,
+      id: contact.id,
+    }))
+    .sort(
+      (a, b) =>
+        compareValue(a.value, b.value, descending) ||
+        a.inferred - b.inferred ||
+        compareValue(a.age, b.age, descending) ||
+        collator.compare(a.name, b.name) ||
+        a.id.localeCompare(b.id),
+    )
+    .map(({ contact }) => contact);
 }
 type GroupRow = Extract<Conversation, { type: 'group' }>;
 export function sortGroups(
   items: readonly GroupRow[],
   sort: GroupSort,
   descending: boolean,
-  rows: ContactMetricRows,
+  rows: DirectoryRows,
   rawNames?: ReadonlyMap<string, string>,
 ) {
   const value = ({ group }: GroupRow): string | number | null => {
@@ -179,14 +197,24 @@ export function sortGroups(
       return time > 0 ? time : null;
     }
     const result = metricValue(rows, `group:${group.id}`, sort);
+    if (sort === 'joinedAt' && (typeof result !== 'number' || result <= 1 || result > 0xffffffff))
+      return null;
     return typeof result === 'number' ? result : null;
   };
-  return [...items].sort(
-    (a, b) =>
-      compareValue(value(a), value(b), descending) ||
-      collator.compare(a.group.remark || a.group.name, b.group.remark || b.group.name) ||
-      a.id.localeCompare(b.id),
-  );
+  return items
+    .map((row) => ({
+      row,
+      value: value(row),
+      name: row.group.remark || row.group.name,
+      id: row.id,
+    }))
+    .sort(
+      (a, b) =>
+        compareValue(a.value, b.value, descending) ||
+        collator.compare(a.name, b.name) ||
+        a.id.localeCompare(b.id),
+    )
+    .map(({ row }) => row);
 }
 export function locationGroup(ext: Contact['extInfo'], regions: RegionNode[]) {
   const country = text(ext?.country),
@@ -214,24 +242,79 @@ export function groupFriends(
   basis: Exclude<FriendGrouping, 'qq' | 'none'>,
   rows: ContactMetricRows,
   regions: RegionNode[] = [],
+  relationships: RelationshipDirectory | null = null,
 ) {
   const map = new Map<string, Contact[]>();
+  const schoolIdentities = new Map<string, Set<string>>();
+  const now = birthReference();
   for (const contact of items) {
     let name: string;
     switch (basis) {
-      case 'birthYear':
+      case 'type': {
+        const relation = personRelationship(contact, relationships);
         name =
-          Number.isInteger(contact.birthYear) &&
-          contact.birthYear! >= 1900 &&
-          contact.birthYear! <= new Date().getFullYear()
-            ? `${contact.birthYear} 年`
-            : '出生年份未知';
+          relation === 'self'
+            ? '我自己'
+            : contact.identityLabel === '设备'
+              ? '我的设备'
+              : contact.kind === 'bot'
+                ? '机器人'
+                : relation === 'friend'
+                  ? '当前好友'
+                  : relation === 'nonfriend'
+                    ? '非好友'
+                    : '关系待确认';
+        break;
+      }
+      case 'source': {
+        const source = friendMetric(rows, contact, 'source');
+        const groupCode = friendMetric(rows, contact, 'sourceGroup');
+        const wording = typeof source === 'string' ? source.trim() : '';
+        const fromGroup =
+          (typeof groupCode === 'string' && /^[1-9]\d*$/.test(groupCode)) ||
+          /QQ\s*群|群聊|群号/i.test(wording);
+        name = fromGroup ? 'QQ 群' : wording || '添加来源未知';
+        break;
+      }
+      case 'school': {
+        const cached = friendMetric(rows, contact, 'schools');
+        const schools = [
+          ...new Set(
+            [
+              contact.extInfo?.school,
+              ...(Array.isArray(cached)
+                ? cached.filter((item): item is string => typeof item === 'string')
+                : []),
+            ]
+              .map((item) => item?.trim())
+              .filter((item): item is string => Boolean(item)),
+          ),
+        ];
+        for (const school of schools.length ? schools : ['学校未知']) {
+          const list = map.get(school) ?? [];
+          const seen = schoolIdentities.get(school) ?? new Set<string>();
+          if (!seen.has(contact.id)) list.push(contact);
+          seen.add(contact.id);
+          schoolIdentities.set(school, seen);
+          map.set(school, list);
+        }
+        continue;
+      }
+      case 'birthYear':
+        {
+          const birth = contactBirth(contact, now);
+          const year = birth.year ?? birth.inferredYear;
+          name = year !== null && year <= now.year ? `${year} 年` : '出生年份未知';
+        }
         break;
       case 'constellation':
-        name = zodiac(contact.birthMonth, contact.birthDay) ?? '星座未知';
+        name = contactBirth(contact, now).constellation?.name ?? '星座未知';
         break;
       case 'gender':
         name = contact.gender === 1 ? '男' : contact.gender === 2 ? '女' : '性别未知';
+        break;
+      case 'occupation':
+        name = occupationText(contact.extInfo?.occupation) ?? '职业未知';
         break;
       case 'location':
         name = locationGroup(contact.extInfo, regions);
@@ -256,6 +339,10 @@ export function groupFriends(
   }
   return [...map]
     .sort(([a], [b]) => {
+      if (basis === 'type') {
+        const types = ['我自己', '我的设备', '机器人', '当前好友', '非好友', '关系待确认'];
+        return types.indexOf(a) - types.indexOf(b);
+      }
       const unknownA = /未知|无亲密关系/.test(a),
         unknownB = /未知|无亲密关系/.test(b);
       return (
@@ -265,4 +352,37 @@ export function groupFriends(
       );
     })
     .map(([name, members]) => ({ id: `derived:${basis}:${name}`, name, items: members }));
+}
+
+export function groupExtendedGroups<T extends { group: { id: string } }>(
+  items: T[],
+  basis: 'freezeState' | 'grade',
+  rows: DirectoryRows,
+) {
+  const grouped = new Map<number | null, T[]>();
+  for (const row of items) {
+    const raw = metricValue(rows, `group:${row.group.id}`, basis);
+    const value = typeof raw === 'number' && raw >= 0 ? raw : null;
+    const list = grouped.get(value) ?? [];
+    list.push(row);
+    grouped.set(value, list);
+  }
+  return [...grouped]
+    .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a - b))
+    .map(([value, list]) => ({
+      mode: `${basis}:${value ?? 'unknown'}`,
+      label:
+        basis === 'grade'
+          ? value === null
+            ? '群等级未知'
+            : `群等级：${value}`
+          : value === null
+            ? '冻结状态未知'
+            : value === 0
+              ? '正常'
+              : value === 1
+                ? '已冻结'
+                : `冻结状态：${value}`,
+      items: list,
+    }));
 }

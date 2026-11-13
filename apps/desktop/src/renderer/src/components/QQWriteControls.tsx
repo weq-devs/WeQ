@@ -1,14 +1,24 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Eraser, Save } from 'lucide-react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { MessageMenuFeedbackContext } from '../lib/messageMenuFeedback';
+import { Check, Eraser, Save } from 'lucide-react';
 import { Row, Toggle } from './settings/controls';
 import '../styles/qq-write.css';
+import { useSelfProfileSave } from './SelfProfileField';
+import {
+  ProfileEditorRow,
+  ProfileEditorAction,
+  ProfileFieldEditorContext,
+} from './ProfileFieldEditor';
 
 export function QQWriteResult({ result }: { result: { text: string; error: boolean } | null }) {
-  return result ? (
+  const target = useContext(MessageMenuFeedbackContext);
+  const content = result ? (
     <p className="weq-qq-write-result" role={result.error ? 'alert' : 'status'}>
       {result.text}
     </p>
   ) : null;
+  return target && content ? createPortal(content, target) : content;
 }
 
 /** 行标签：图标 + 文字，与设置页其它面板的 `.weq-set-row-icon` 同一套。 */
@@ -35,6 +45,9 @@ export function QQWriteTextRow({
   autoFocus = false,
   onDirtyChange,
   onSave,
+  actionIcon,
+  placeholder,
+  clearOnSave = false,
 }: {
   label: string;
   icon?: ReactNode;
@@ -47,13 +60,18 @@ export function QQWriteTextRow({
   autoFocus?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onSave: (value: string) => Promise<boolean>;
+  actionIcon?: ReactNode;
+  placeholder?: string;
+  clearOnSave?: boolean;
 }) {
+  const saveField = useSelfProfileSave();
+  const inlineEditor = useContext(ProfileFieldEditorContext);
   const [value, setValue] = useState(initial ?? '');
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const clearingUnknown = initial === null && allowEmpty && value === '';
-  const actionLabel = `${clearingUnknown ? '清空' : '保存'}${label}`;
+  const actionLabel = `${!inlineEditor && clearingUnknown ? '清空' : '保存'}${label}`;
   const previous = useRef(initial ?? '');
   useEffect(() => {
     const before = previous.current;
@@ -78,6 +96,7 @@ export function QQWriteTextRow({
     'aria-label': label,
     className: 'weq-qq-write-input',
     value,
+    placeholder,
     maxLength,
     required: !allowEmpty,
     disabled: disabled || saving,
@@ -88,35 +107,50 @@ export function QQWriteTextRow({
     },
   };
   return (
-    <Row
+    <ProfileEditorRow
       label={<QQWriteRowLabel icon={icon} label={label} />}
       control={
         <div className="weq-qq-write-field" data-qq-action>
           {multiline ? <textarea {...input} rows={3} /> : <input {...input} />}
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            aria-label={actionLabel}
-            title={actionLabel}
-            disabled={
-              disabled || saving || (!allowEmpty && !value.trim()) || value.length > maxLength
-            }
-            onClick={() => {
-              if (savingRef.current) return;
-              savingRef.current = true;
-              setSaving(true);
-              void onSave(value)
-                .then((ok) => {
-                  if (ok) setSubmitted(value);
-                })
-                .finally(() => {
-                  savingRef.current = false;
-                  setSaving(false);
-                });
-            }}
-          >
-            {clearingUnknown ? <Eraser size={16} /> : <Save size={16} />}
-          </button>
+          <ProfileEditorAction>
+            <button
+              type="button"
+              className={
+                inlineEditor ? 'weq-profile-field-tool weq-profile-field-save' : 'weq-set-iconbtn'
+              }
+              aria-label={actionLabel}
+              title={actionLabel}
+              disabled={
+                disabled ||
+                saving ||
+                inlineEditor?.disabled ||
+                (!allowEmpty && !value.trim()) ||
+                value.length > maxLength
+              }
+              onClick={() => {
+                if (savingRef.current) return;
+                savingRef.current = true;
+                setSaving(true);
+                void saveField(() => onSave(value))
+                  .then((ok) => {
+                    if (ok) {
+                      setSubmitted(value);
+                      if (clearOnSave) setValue('');
+                    }
+                  })
+                  .finally(() => {
+                    savingRef.current = false;
+                    setSaving(false);
+                  });
+              }}
+            >
+              {inlineEditor ? (
+                <Check size={14} />
+              ) : (
+                (actionIcon ?? (clearingUnknown ? <Eraser size={16} /> : <Save size={16} />))
+              )}
+            </button>
+          </ProfileEditorAction>
         </div>
       }
     />
@@ -148,6 +182,8 @@ export function QQWriteSelectRow({
   renderEditor?: (value: number | null) => ReactNode;
   segmented?: boolean;
 }) {
+  const saveField = useSelfProfileSave();
+  const inlineEditor = useContext(ProfileFieldEditorContext);
   const [value, setValue] = useState(initial === null ? '' : String(initial));
   const previous = useRef(value);
   const [saving, setSaving] = useState(false);
@@ -169,7 +205,7 @@ export function QQWriteSelectRow({
       setSaving(true);
       const rollback = () =>
         setValue(latestInitial.current === null ? '' : String(latestInitial.current));
-      void onSave(Number(next))
+      void saveField(() => onSave(Number(next)))
         .then((ok) => {
           if (!ok) rollback();
         }, rollback)
@@ -181,7 +217,7 @@ export function QQWriteSelectRow({
   }
   return (
     <>
-      <Row
+      <ProfileEditorRow
         label={<QQWriteRowLabel icon={icon} label={label} />}
         control={
           <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
@@ -222,26 +258,35 @@ export function QQWriteSelectRow({
                 </select>
               )}
               {!autoSave && !editor ? (
-                <button
-                  type="button"
-                  className="weq-set-iconbtn"
-                  aria-label={`保存${label}`}
-                  title={`保存${label}`}
-                  disabled={
-                    disabled || saving || !options.some((option) => String(option.value) === value)
-                  }
-                  onClick={() => {
-                    if (savingRef.current) return;
-                    savingRef.current = true;
-                    setSaving(true);
-                    void onSave(Number(value)).finally(() => {
-                      savingRef.current = false;
-                      setSaving(false);
-                    });
-                  }}
-                >
-                  <Save size={16} />
-                </button>
+                <ProfileEditorAction>
+                  <button
+                    type="button"
+                    className={
+                      inlineEditor
+                        ? 'weq-profile-field-tool weq-profile-field-save'
+                        : 'weq-set-iconbtn'
+                    }
+                    aria-label={`保存${label}`}
+                    title={`保存${label}`}
+                    disabled={
+                      disabled ||
+                      saving ||
+                      inlineEditor?.disabled ||
+                      !options.some((option) => String(option.value) === value)
+                    }
+                    onClick={() => {
+                      if (savingRef.current) return;
+                      savingRef.current = true;
+                      setSaving(true);
+                      void saveField(() => onSave(Number(value))).finally(() => {
+                        savingRef.current = false;
+                        setSaving(false);
+                      });
+                    }}
+                  >
+                    {inlineEditor ? <Check size={14} /> : <Save size={16} />}
+                  </button>
+                </ProfileEditorAction>
               ) : null}
             </div>
             {preview?.(value === '' ? null : Number(value))}

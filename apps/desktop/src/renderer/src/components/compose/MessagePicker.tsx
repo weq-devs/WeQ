@@ -1,3 +1,5 @@
+import { EmptyState } from '../EmptyState';
+import * as timeFormat from '@weq/time';
 /**
  * Message picker — lists a conversation's recent messages (via account.listLatest)
  * rendered faithfully with QqMessageContent, and lets the user click one. Used
@@ -8,6 +10,7 @@
 import { useMemo, type ReactElement } from 'react';
 import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { QqMessageContent, ConvContext, ForwardKindContext } from '../QqMessageContent';
 import type { RenderEl } from './composeModel';
 
@@ -41,9 +44,11 @@ export function MessagePicker({
       <ConvContext.Provider value={kind === 'group' ? conv : ''}>
         <div className="weq-msg-picker">
           {query.isLoading ? (
-            <div className="weq-face-empty">加载中…</div>
+            <div className="weq-face-empty" role="status">
+              <LoadingIndicator />
+            </div>
           ) : messages.length === 0 ? (
-            <div className="weq-face-empty">暂无消息</div>
+            <EmptyState compact icon={<MessageSquare />} title="暂无消息" />
           ) : (
             messages.map((m) => (
               <button key={m.msgId} type="button" className="weq-msg-row" onClick={() => onPick(m)}>
@@ -71,9 +76,7 @@ export function MessagePicker({
 }
 
 function fmtTime(sec: string): string {
-  const n = Number(sec);
-  if (!Number.isFinite(n) || n <= 0) return '';
-  const d = new Date(n * 1000);
-  const pad = (x: number) => String(x).padStart(2, '0');
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return Number(sec) > 0 ? timeFormat.formatUnixTime(sec) : '';
 }
+
+import { MessageSquare } from 'lucide-react';

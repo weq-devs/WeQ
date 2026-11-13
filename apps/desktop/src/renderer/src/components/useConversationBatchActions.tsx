@@ -1,6 +1,11 @@
 import { useContext, useId, useMemo, useState } from 'react';
 import { ConversationDirectoryContext, virtualConversationRow } from '../lib/conversationDirectory';
-import { conversationExportSelection, conversationRoamingTarget } from '../lib/conversationActions';
+import { conversationRoamingTarget } from '../lib/conversationActions';
+import {
+  conversationSupportsAction,
+  conversationRowName,
+  type ConversationBatchAction,
+} from '../lib/conversationViews';
 import type { Conversation } from '../im-template/template/types';
 import { useRequestContentExport } from '../state/contentSelection';
 import { Modal } from './Dialog';
@@ -22,56 +27,62 @@ export function useConversationBatchActions(conversations: Conversation[]) {
       new Map([
         ...conversations.map((row) => [row.id, row] as const),
         ...(directory?.real ?? []).map((row) => [row.id, row] as const),
+        ...(directory?.rows ?? []).map((row) => [row.id, row] as const),
         ...(directory?.virtual ?? []).map(
           (item) => [item.id, virtualConversationRow(item)] as const,
         ),
       ]),
-    [conversations, directory?.real, directory?.virtual],
+    [conversations, directory?.real, directory?.rows, directory?.virtual],
   );
-  const virtualIds = new Set(directory?.virtual.map((row) => row.id));
+  const supports = (id: string, action: ConversationBatchAction) =>
+    conversationSupportsAction(rows.get(id), action);
   const rosterIds = (ids: string[]) => [
     ...new Set(
       ids.flatMap((id) => {
         const row = rows.get(id);
-        return !virtualIds.has(id) && row?.type === 'group' && conversationRoamingTarget(row)
-          ? [row.group.id]
-          : [];
+        return supports(id, 'roster') && row?.type === 'group' ? [row.group.id] : [];
       }),
     ),
   ];
-  const run = (ids: string[], action: 'export' | 'roaming' | 'read' | 'unread') => {
+  const run = (ids: string[], action: ConversationBatchAction | 'unread') => {
     const supported: string[] = [];
     const unsupported: Array<{ id: string; name: string }> = [];
     for (const id of ids) {
       const row = rows.get(id);
-      const allowed =
-        !virtualIds.has(id) &&
-        (action === 'export'
-          ? conversationExportSelection(row)
-          : action === 'roaming'
-            ? conversationRoamingTarget(row)
-            : row && (row.type === 'direct' || row.type === 'group'));
+      const allowed = supports(id, action === 'unread' ? 'read' : action);
       if (allowed) supported.push(id);
       else
         unsupported.push({
           id,
-          name:
-            row?.type === 'group'
-              ? row.group.name
-              : row?.type === 'direct'
-                ? row.otherUser.displayName
-                : row?.type === 'merged'
-                  ? row.title
-                  : id,
+          name: row ? conversationRowName(row) : id,
         });
     }
     const execute = () => {
       if (!supported.length) return;
-      if (action === 'export')
-        requestExport?.({
-          owner: { kind: 'conversations', container: 'main-list' },
-          scope: { type: 'items', ids: supported },
-        });
+      const selected = supported.flatMap((id) => {
+        const row = rows.get(id);
+        return row ? [row] : [];
+      });
+      if (action === 'export') {
+        if (directory?.onExportBatch) directory.onExportBatch(selected);
+        else
+          requestExport?.({
+            owner: { kind: 'conversations', container: 'main-list' },
+            scope: { type: 'items', ids: supported },
+          });
+      } else if (action === 'delete') void directory?.onDelete?.(selected);
+      else if (action === 'roster')
+        requestExport?.(
+          ids.length === 1
+            ? {
+                owner: { kind: 'contacts', container: `group:${rosterIds(supported)[0]}` },
+                scope: { type: 'all' },
+              }
+            : {
+                owner: { kind: 'contacts', container: 'groups' },
+                scope: { type: 'items', ids: rosterIds(supported) },
+              },
+        );
       else if (action === 'read' || action === 'unread')
         directory?.onReadState?.(
           supported.flatMap((id) => {
@@ -93,11 +104,15 @@ export function useConversationBatchActions(conversations: Conversation[]) {
         label:
           action === 'export'
             ? '导出'
-            : action === 'roaming'
-              ? '拉取漫游消息'
-              : action === 'unread'
-                ? '标为未读'
-                : '标为已读',
+            : action === 'delete'
+              ? '永久删除'
+              : action === 'roster'
+                ? '导出群名单'
+                : action === 'roaming'
+                  ? '拉取漫游消息'
+                  : action === 'unread'
+                    ? '标为未读'
+                    : '标为已读',
         unsupported,
         supported: supported.length,
         run: execute,
@@ -106,15 +121,12 @@ export function useConversationBatchActions(conversations: Conversation[]) {
   };
   return {
     rosterIds,
-    runRoster: (ids: string[]) => {
-      const groupIds = rosterIds(ids);
-      if (groupIds.length)
-        requestExport?.({
-          owner: { kind: 'contacts', container: 'groups' },
-          scope: { type: 'items', ids: [...new Set(groupIds)] },
-        });
-    },
-    exportAvailable: Boolean(requestExport),
+    supports,
+    supportsAny: (ids: string[], action: ConversationBatchAction) =>
+      ids.some((id) => supports(id, action)),
+    runRoster: (ids: string[]) => run(ids, 'roster'),
+    runDelete: (ids: string[]) => run(ids, 'delete'),
+    exportAvailable: Boolean(requestExport || directory?.onExportBatch),
     roamingAvailable: Boolean(directory?.onRoaming),
     confirming: Boolean(pending),
     runExport: (ids: string[]) => run(ids, 'export'),

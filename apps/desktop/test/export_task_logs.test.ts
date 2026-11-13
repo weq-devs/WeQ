@@ -40,6 +40,7 @@ function mount(task: UiTask, onResume = vi.fn()) {
           detailOnly: true,
           onPause: vi.fn(),
           onResume,
+          onFinalize: vi.fn(),
           onCancel: vi.fn(),
           onDownload: vi.fn(),
           onDelete: vi.fn(),
@@ -54,6 +55,22 @@ function mount(task: UiTask, onResume = vi.fn()) {
   render(task);
   return { host, render };
 }
+
+it('导出收尾中按钮使用旋转图标，收尾结束恢复普通图标', () => {
+  const task: UiTask = {
+    ...fixture(),
+    status: 'paused',
+    canResume: true,
+    canFinalize: true,
+    isFinalizing: true,
+  };
+  const { host, render } = mount(task);
+  const button = host.querySelector<HTMLButtonElement>('[aria-label="收尾中"]');
+  expect(button?.disabled).toBe(true);
+  expect(button?.querySelector('svg.weq-exp-spin')).not.toBeNull();
+  render({ ...task, isFinalizing: false });
+  expect(host.querySelector('[aria-label="收尾"] svg.weq-exp-spin')).toBeNull();
+});
 
 function expectToggle(container: Element, text: string) {
   const button = container.querySelector<HTMLButtonElement>('button')!;

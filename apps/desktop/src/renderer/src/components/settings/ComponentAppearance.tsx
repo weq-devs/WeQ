@@ -1,6 +1,8 @@
 import type { KeyboardEvent } from 'react';
-import { Check, Search } from 'lucide-react';
+import { Check, LayoutGrid, Palette, Search } from 'lucide-react';
 import { componentStyles, useThemeStore, type ThemeComponentStyle } from '../../state/theme';
+import { Card } from './controls';
+import { SegmentedControl } from '../SegmentedControl';
 
 function navigateOptions(event: KeyboardEvent<HTMLDivElement>) {
   const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
@@ -68,13 +70,13 @@ export function ComponentAppearance() {
   const setDensity = useThemeStore((state) => state.setDensity);
   return (
     <>
-      <div
-        className="weq-settings-appearance-card weq-component-appearance"
-        data-setting-id="component-style"
+      <Card
+        title="组件风格"
+        desc="会话列表、气泡与按钮的整体造型"
+        icon={<Palette size={15} strokeWidth={1.8} />}
+        resetId="theme-components"
+        settingId="component-style"
       >
-        <div className="weq-settings-appearance-head">
-          <strong>组件风格</strong>
-        </div>
         <div
           className="weq-style-options"
           role="radiogroup"
@@ -100,39 +102,23 @@ export function ComponentAppearance() {
             </button>
           ))}
         </div>
-      </div>
-      <div
-        className="weq-settings-appearance-card weq-component-appearance"
-        data-setting-id="interface-density"
+      </Card>
+      <Card
+        title="界面密度"
+        desc="调整设置、列表与工具栏的行高与留白"
+        icon={<LayoutGrid size={15} strokeWidth={1.8} />}
+        settingId="interface-density"
       >
-        <div className="weq-settings-appearance-head">
-          <strong>界面密度</strong>
-        </div>
-        <div
-          className="weq-density-options"
-          role="radiogroup"
-          aria-label="界面密度"
-          onKeyDown={navigateOptions}
-        >
-          {(
-            [
-              { value: 'comfortable', label: '舒适' },
-              { value: 'compact', label: '紧凑' },
-            ] as const
-          ).map((option) => (
-            <button
-              type="button"
-              key={option.value}
-              role="radio"
-              aria-checked={density === option.value}
-              tabIndex={density === option.value ? 0 : -1}
-              onClick={() => setDensity(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
+        <SegmentedControl<'comfortable' | 'compact'>
+          label="界面密度"
+          value={density}
+          onChange={setDensity}
+          options={[
+            { value: 'comfortable', label: '舒适' },
+            { value: 'compact', label: '紧凑' },
+          ]}
+        />
+      </Card>
     </>
   );
 }

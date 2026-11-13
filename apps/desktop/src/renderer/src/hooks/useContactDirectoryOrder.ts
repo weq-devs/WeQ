@@ -1,7 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { PREFERENCES_CHANGED, changePreference, preferenceValue } from '../lib/clientPreferences';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
+import { accountOrderDefaults, isDirectoryPreference } from '@weq/service/client-preferences';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { useQQReadActivity } from './useQQAutoRefresh';
 import { contactCacheFields, shouldOfferContactRefresh } from '../lib/contactCachePolicy';
 import {
   defaultDescending,
@@ -9,16 +12,20 @@ import {
   FRIEND_SORTS,
   GROUP_GROUPS,
   GROUP_SORTS,
+  withLocalGroupJoinTimes,
   type DirectoryPreferences,
   type RegionNode,
+  type DirectoryRows,
 } from '../lib/contactListOrder';
 const EMPTY_ROWS: ContactMetricRows = {};
 const EMPTY_REGIONS: RegionNode[] = [];
+const EMPTY_SEEDS = () => EMPTY_ROWS;
 
 export function useContactDirectoryOrder(
   kind: 'friends' | 'groups',
   freeze: boolean,
   entities: readonly (readonly string[])[],
+  seedTimes: () => DirectoryRows = EMPTY_SEEDS,
 ) {
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
@@ -37,8 +44,14 @@ export function useContactDirectoryOrder(
   trpc.account.contactMetrics.changed.useSubscription(binding, {
     enabled,
     onData: (event) => {
+      if (event.profiles) {
+        utils.account.contactMetrics.cachedProfiles.setData(binding, []);
+        void utils.account.contactMetrics.cachedProfiles.invalidate(binding);
+        return;
+      }
       void utils.account.contactMetrics.snapshot.invalidate(binding);
       if (event.base) {
+        void utils.account.contactMetrics.localJoins.invalidate(binding);
         void utils.account.listProfiles.invalidate();
         void utils.account.listBuddies.invalidate();
         void utils.account.listCategories.invalidate();
@@ -48,12 +61,18 @@ export function useContactDirectoryOrder(
   });
   const groupingOptions = kind === 'friends' ? FRIEND_GROUPS : GROUP_GROUPS;
   const sortOptions = kind === 'friends' ? FRIEND_SORTS : GROUP_SORTS;
-  const defaults = useMemo<DirectoryPreferences>(
-    () => ({ grouping: kind === 'friends' ? 'qq' : 'notify', sort: 'remark', descending: false }),
-    [kind],
-  );
+  const defaults = useMemo<DirectoryPreferences>(() => ({ ...accountOrderDefaults[kind] }), [kind]);
   const storageKey = `weq.contacts.order.${configId ?? ''}.${uin ?? ''}.${kind}`;
   const [saved, setSaved] = useState<{ key: string; value: DirectoryPreferences }>();
+  const [sharedTick, setSharedTick] = useState(0);
+  useEffect(() => {
+    const update = () => {
+      setSaved(undefined);
+      setSharedTick((value) => value + 1);
+    };
+    window.addEventListener(PREFERENCES_CHANGED, update);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, update);
+  }, []);
   const [refreshRequest, setRefreshRequest] = useState<{
     fields: ContactMetric[];
     scope: string;
@@ -61,20 +80,96 @@ export function useContactDirectoryOrder(
   const storedPreferences = useMemo(() => {
     if (!enabled) return defaults;
     try {
-      const parsed = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
-      if (
-        parsed &&
-        Object.hasOwn(groupingOptions, parsed.grouping) &&
-        Object.hasOwn(sortOptions, parsed.sort) &&
-        typeof parsed.descending === 'boolean'
-      )
-        return parsed as DirectoryPreferences;
+      const parsed = preferenceValue('contactOrder')[kind];
+      if (isDirectoryPreference(kind, parsed))
+        return { grouping: parsed.grouping, sort: parsed.sort, descending: parsed.descending };
     } catch {
       /* 缺少偏好时使用默认值。 */
     }
     return defaults;
-  }, [storageKey, enabled, defaults, groupingOptions, sortOptions]);
+  }, [storageKey, enabled, defaults, groupingOptions, sortOptions, sharedTick, kind]);
   const preferences = saved?.key === storageKey ? saved.value : storedPreferences;
+  const activity = useQQReadActivity(enabled && !freeze, { onlineOnly: false });
+  const needsTimes = ['lastMessageAt', 'lastSpokeAt'].includes(preferences.sort);
+  const seeds = useMemo<DirectoryRows>(
+    () => (needsTimes ? seedTimes() : EMPTY_ROWS),
+    [needsTimes, seedTimes],
+  );
+  const times = trpc.account.contactMetrics.localTimes.useQuery(
+    { ...binding, kind },
+    {
+      enabled: activity.enabled && needsTimes,
+      keepPreviousData: false,
+      refetchInterval: (data) => (data?.done ? 5000 : 250),
+    },
+  );
+  const profiles = trpc.account.contactMetrics.cachedProfiles.useQuery(binding, {
+    enabled: activity.enabled && kind === 'friends' && preferences.sort === 'affinity',
+    keepPreviousData: false,
+    refetchInterval: 2000,
+  });
+  const joins = trpc.account.contactMetrics.localJoins.useQuery(binding, {
+    enabled: activity.enabled && kind === 'groups' && preferences.sort === 'joinedAt',
+    keepPreviousData: false,
+    staleTime: 5000,
+  });
+  const projectedRows = useMemo<DirectoryRows>(() => {
+    if (!needsTimes && !['affinity', 'joinedAt'].includes(preferences.sort))
+      return snapshot.data?.rows ?? EMPTY_ROWS;
+    const rows: DirectoryRows = { ...(snapshot.data?.rows ?? EMPTY_ROWS) };
+    if (needsTimes)
+      for (const [key, seed] of Object.entries(seeds)) rows[key] = { ...rows[key], ...seed };
+    if (needsTimes && times.data) {
+      const state = times.data.done ? ('ready' as const) : ('stale' as const);
+      for (const aliases of entities) {
+        const key =
+          aliases.find((alias) => alias.startsWith(kind === 'friends' ? 'friend:u_' : 'group:')) ??
+          aliases[0];
+        if (!key) continue;
+        const id = key.slice(key.indexOf(':') + 1);
+        const value = times.data.rows[id];
+        const latest = (a: unknown, b: number | null | undefined) =>
+          typeof a === 'number' && a > (b ?? 0) ? a : (b ?? undefined);
+        rows[key] = {
+          ...rows[key],
+          lastMessageAt: {
+            partial: !times.data.done,
+            value: latest(seeds[key]?.lastMessageAt?.value, value?.time),
+            state,
+            attemptedAt: 0,
+          },
+          lastSpokeAt: {
+            partial: !times.data.done,
+            value: latest(seeds[key]?.lastSpokeAt?.value, value?.mine),
+            state,
+            attemptedAt: 0,
+          },
+        };
+      }
+    }
+    if (kind === 'friends' && preferences.sort === 'affinity')
+      for (const profile of profiles.data ?? [])
+        rows[`friend:${profile.uid}`] = {
+          ...rows[`friend:${profile.uid}`],
+          affinity: {
+            value: profile.affinity,
+            state: 'ready',
+            attemptedAt: profile.computedAt,
+            updatedAt: profile.computedAt,
+          },
+        };
+    return preferences.sort === 'joinedAt' ? withLocalGroupJoinTimes(rows, joins.data ?? {}) : rows;
+  }, [
+    snapshot.data?.rows,
+    needsTimes,
+    times.data,
+    profiles.data,
+    joins.data,
+    kind,
+    preferences.sort,
+    entities,
+    seeds,
+  ]);
   const change = (patch: Partial<DirectoryPreferences>) => {
     const fields =
       patch.sort && patch.sort !== preferences.sort
@@ -96,16 +191,11 @@ export function useContactDirectoryOrder(
       ...(patch.sort ? { descending: defaultDescending(patch.sort) } : {}),
     };
     setSaved({ key: storageKey, value });
-    if (enabled)
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(value));
-      } catch {
-        /* 偏好不影响使用。 */
-      }
+    if (enabled) void changePreference('contactOrder', { [kind]: value });
   };
-  const latest = useRef({ key: storageKey, rows: snapshot.data?.rows ?? EMPTY_ROWS });
+  const latest = useRef({ key: storageKey, rows: projectedRows });
   if (!freeze || latest.current.key !== storageKey)
-    latest.current = { key: storageKey, rows: snapshot.data?.rows ?? EMPTY_ROWS };
+    latest.current = { key: storageKey, rows: projectedRows };
   const regions = trpc.account.qqWrite.profileRegions.useQuery(undefined, {
     enabled: enabled && preferences.grouping === 'location',
     staleTime: Infinity,
@@ -130,7 +220,15 @@ export function useContactDirectoryOrder(
     regions: regions.data?.regions ?? EMPTY_REGIONS,
     scopeKey: storageKey,
     rawGroupNames,
-    error: snapshot.error?.message,
+    error:
+      snapshot.error?.message ??
+      (needsTimes
+        ? times.error?.message
+        : preferences.sort === 'affinity'
+          ? profiles.error?.message
+          : preferences.sort === 'joinedAt'
+            ? joins.error?.message
+            : undefined),
     progress: snapshot.data?.progress,
     needsOnline,
     refreshRequest: refreshRequest?.scope === storageKey ? refreshRequest : null,

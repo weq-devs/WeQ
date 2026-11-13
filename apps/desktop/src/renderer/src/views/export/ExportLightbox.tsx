@@ -27,7 +27,6 @@ import {
 } from 'react';
 import { z } from 'zod';
 import { usePageState } from '../../components/PageSnapshots';
-import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   CalendarClock,
   Check,
@@ -36,7 +35,6 @@ import {
   Image as ImageIcon,
   Loader2,
   ListFilter,
-  RefreshCw,
   UserRound,
   Undo2,
   X,
@@ -48,6 +46,7 @@ import { useDialog } from '../../components/Dialog';
 import { ocrReadiness, type OcrReadiness } from './preflight';
 import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
 import { BaselinePicker } from './BaselinePicker';
+import { useRemoteClient } from '../../lib/remoteClient';
 import { ExportReportControl } from './ExportReportControl';
 import {
   BusinessExportDetails,
@@ -67,7 +66,8 @@ import {
 } from '@weq/service/export-content';
 import { exportContentPolicyInput } from '../../../../shared/export_content';
 import '../../styles/chat-export-continuation.css';
-import { Segmented } from './widgets';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { CheckPillGroup } from '../../components/settings/controls';
 import { TimeRangePicker } from './TimeRangePicker';
 import type { CalendarTarget } from '../../lib/messageCalendar';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
@@ -221,6 +221,7 @@ export function ExportLightbox({
   initialOptions,
   initialFormats,
   initialBaselineDirectory,
+  allowContinuation = true,
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
   disabled = false,
@@ -248,6 +249,7 @@ export function ExportLightbox({
   /** 上次使用的导出格式；缺失或不在当前变体可选范围内时退回默认格式。 */
   initialFormats?: ExportFormat[];
   initialBaselineDirectory?: string;
+  allowContinuation?: boolean;
   initialSchedule?: Schedule;
   submitting?: boolean;
   disabled?: boolean;
@@ -262,6 +264,7 @@ export function ExportLightbox({
   onConfirm: (result: LightboxResult) => void;
   onAuthorizationChange?: (state: ExportAuthorizationIndicatorState | null) => void;
 }): ReactElement {
+  const remote = useRemoteClient();
   useEscapeToClose(() => {
     if (!embedded && !hidden) onClose();
   });
@@ -413,7 +416,10 @@ export function ExportLightbox({
   async function changeContent(content: ExportContentPolicy): Promise<void> {
     let next = content;
     if (
-      (opts.chatlab || !formats.some((format) => format === 'json' || format === 'jsonl')) &&
+      (opts.chatlab ||
+        !formats.some(
+          (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+        )) &&
       addedStructuredContent(contentPolicy, next)
     ) {
       setRequestingFormat(true);
@@ -459,6 +465,8 @@ export function ExportLightbox({
   async function confirm(): Promise<void> {
     if (confirming || requestingFormat || submitting || disabled || selectionError) return;
     if (
+      allowContinuation &&
+      !remote &&
       baselineDirectory &&
       baselineByConversation &&
       calendarTargets?.some(
@@ -478,7 +486,9 @@ export function ExportLightbox({
         isMessageFlow &&
         requiresStructuredExport(selectedContent) &&
         (selectedChatlab ||
-          !selectedFormats.some((format) => format === 'json' || format === 'jsonl'))
+          !selectedFormats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          ))
       ) {
         if (await askForJson()) {
           selectedFormats = selectedFormats.includes('json')
@@ -502,9 +512,9 @@ export function ExportLightbox({
           : isMessageFlow
             ? {
                 ...opts,
-                ocrConcurrency: settings?.ocr.onlineConcurrency ?? opts.ocrConcurrency,
+                ocrConcurrency: settings?.ocr?.onlineConcurrency ?? opts.ocrConcurrency,
                 onlineConcurrency:
-                  settings?.voiceTranscribe.onlineConcurrency ?? opts.onlineConcurrency,
+                  settings?.voiceTranscribe?.onlineConcurrency ?? opts.onlineConcurrency,
                 chatlab: selectedChatlab,
                 content: selectedContent,
                 ...exportContentFlags(selectedContent),
@@ -520,14 +530,22 @@ export function ExportLightbox({
             void authorization.releaseCapture().catch(() => {});
           },
         },
-        baselineDirectory: selectedFormats.some((format) => format === 'json' || format === 'jsonl')
-          ? baselineDirectory
-          : undefined,
-        baselineByConversation: selectedFormats.some(
-          (format) => format === 'json' || format === 'jsonl',
-        )
-          ? baselineByConversation
-          : undefined,
+        baselineDirectory:
+          allowContinuation &&
+          !remote &&
+          selectedFormats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          )
+            ? baselineDirectory
+            : undefined,
+        baselineByConversation:
+          allowContinuation &&
+          !remote &&
+          selectedFormats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          )
+            ? baselineByConversation
+            : undefined,
         saveAsDefault,
         formats: selectedFormats,
         options: {
@@ -556,19 +574,6 @@ export function ExportLightbox({
       patch({ chatlab: false });
     }
   }
-  const formatSelection = useMultiSelection({
-    enabled: !hidden,
-    ids: formatOptions
-      .filter((format) => !opts.chatlab || format.value === 'json' || format.value === 'jsonl')
-      .map((format) => format.value),
-    selected: new Set(formats),
-    disabled: submitting,
-    onChange: (next) => {
-      setFormats(formatOptions.map((format) => format.value).filter((value) => next.has(value)));
-    },
-    onExit: onClose,
-  });
-
   const imageRecognition = isMessageFlow ? (
     <div className="weq-exp-image-recognition">
       <Row
@@ -687,9 +692,13 @@ export function ExportLightbox({
         </header>
 
         <div className="weq-exp-dialog-body">
-          {variant === 'full' &&
+          {allowContinuation &&
+          !remote &&
+          variant === 'full' &&
           !opts.chatlab &&
-          formats.some((format) => format === 'json' || format === 'jsonl') ? (
+          formats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          ) ? (
             <div className="weq-export-baseline">
               <span>继续更新归档</span>
               <input
@@ -831,25 +840,15 @@ export function ExportLightbox({
                 {/* 导出格式（多选；相册的格式仍走外部选择器） */}
                 {!isAlbum ? (
                   <Card title="导出格式" action={opts.chatlab ? undefined : <ExportFormatHint />}>
-                    <div className="weq-exp-format-grid" {...formatSelection.rootProps}>
-                      {formatOptions.map((f) => {
-                        const on = formats.includes(f.value);
-                        const blocked = opts.chatlab && f.value !== 'json' && f.value !== 'jsonl';
-                        return (
-                          <button
-                            key={f.value}
-                            type="button"
-                            className={`weq-exp-format${on ? ' is-on' : ''}${blocked ? ' is-blocked' : ''}`}
-                            {...formatSelection.itemProps(f.value, blocked)}
-                            aria-pressed={on}
-                            disabled={blocked}
-                          >
-                            {on ? <Check size={13} /> : null}
-                            {f.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <CheckPillGroup<ExportFormat>
+                      options={formatOptions.map((f) => ({ value: f.value, label: f.label }))}
+                      selected={formats}
+                      onChange={(next) => setFormats(next)}
+                      optionDisabled={(value) =>
+                        opts.chatlab && value !== 'json' && value !== 'jsonl'
+                      }
+                      disabled={submitting}
+                    />
                     <p className="weq-exp-block-hint">
                       {isMessageFlow
                         ? '多选时每个格式各产出一份消息文件，媒体资源只导出一份，不会重复。'
@@ -993,14 +992,13 @@ export function ExportLightbox({
                 {/* 定时设置 */}
                 {isScheduled ? (
                   <Card title="定时设置">
-                    <Segmented
+                    <SegmentedControl<Schedule['mode']>
+                      label="定时方式"
                       value={schedule.mode}
-                      onChange={(mode) =>
-                        setSchedule((s) => ({ ...s, mode: mode as Schedule['mode'] }))
-                      }
+                      onChange={(mode) => setSchedule((s) => ({ ...s, mode }))}
                       options={[
-                        { value: 'daily', label: '每天定时', icon: <CalendarClock size={13} /> },
-                        { value: 'interval', label: '间隔执行', icon: <RefreshCw size={13} /> },
+                        { value: 'daily', label: '每天定时' },
+                        { value: 'interval', label: '间隔执行' },
                       ]}
                     />
                     {schedule.mode === 'daily' ? (

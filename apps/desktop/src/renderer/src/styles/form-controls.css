@@ -1,0 +1,202 @@
+/* 输入表面独立于按钮、说明区域及组件皮肤的通用表面。 */
+html[data-theme] {
+  --weq-field-bg: var(--weq-bg-surface);
+  --weq-field-fg: var(--weq-fg-primary);
+  --weq-field-border: var(--weq-border-strong);
+  --weq-field-placeholder: var(--weq-fg-secondary);
+  --weq-field-readonly-bg: var(--weq-bg-elevated);
+  --weq-field-disabled-bg: var(--muted);
+  --weq-field-disabled-fg: var(--weq-fg-secondary);
+}
+
+html[data-theme='dark'] {
+  --weq-field-bg: var(--weq-bg-surface);
+  --weq-field-readonly-bg: var(--weq-bg-app);
+  --weq-field-disabled-bg: var(--muted);
+}
+
+/* 保留各处尺寸及皮肤形态，只统一输入框的状态颜色和可见描边。 */
+html:root[data-theme][data-component-style] body
+  :is(
+    .weq-input,
+    .weq-set-input,
+    .weq-set-select,
+    .form-field input,
+    .form-field select,
+    .form-field textarea,
+    .weq-set-row-ctrl input,
+    .weq-set-row-ctrl select,
+    .weq-set-row-ctrl textarea,
+    .weq-directory-toolbar input,
+    .weq-password-input,
+    .weq-static-input,
+    .weq-record-filters input,
+    .weq-record-filters select,
+    .weq-search-more-input,
+    .weq-msglist-select,
+    .weq-mf-textarea,
+    .weq-mf-input,
+    .weq-composition-time,
+    .group-keyword-input,
+    .group-keyword-search input,
+    .weq-qzn-navigation input,
+    .weq-qzn select,
+    .weq-qzn-composer select,
+    .weq-qzn-composer textarea,
+    .weq-cache-sql-input,
+    .weq-blob-bulk-input,
+    .weq-gift-detail-field textarea,
+    .voice-tts-input,
+    .ai-voice-textarea,
+    .link-card-field textarea,
+    .bounce-input,
+    .ark-json,
+    .flash-lightbox-input,
+    .weq-conversation-notice > input
+  ):where(
+    :not(
+      [type='checkbox'],
+      [type='radio'],
+      [type='range'],
+      [type='color'],
+      [type='file'],
+      [type='hidden'],
+      [type='button'],
+      [type='submit'],
+      [type='reset'],
+      [type='image']
+    )
+  ):is(:enabled, :disabled):not([hidden]) {
+  background: var(--weq-field-bg);
+  color: var(--weq-field-fg);
+  border-color: var(--weq-field-border);
+  border-style: solid;
+  border-width: var(--weq-skin-input-border-width, 1px);
+  caret-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  -webkit-text-fill-color: currentColor;
+
+  &::placeholder {
+    color: var(--weq-field-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: currentColor;
+  }
+
+  &[readonly] {
+    background: var(--weq-field-readonly-bg);
+    cursor: default;
+  }
+
+  &:is(.is-error, [aria-invalid='true']) {
+    border-color: var(--weq-list-alert-ink, var(--destructive));
+  }
+
+  &:disabled {
+    background: var(--weq-field-disabled-bg);
+    color: var(--weq-field-disabled-fg);
+    border-color: var(--weq-border-subtle);
+    opacity: 1;
+    cursor: not-allowed;
+  }
+
+  &:not(:disabled):where(:not(.is-error, [aria-invalid='true'])):focus {
+    border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  }
+}
+
+/* 组合输入框由外层承载底色和焦点；按钮和图标不算输入字段。 */
+html:root[data-theme][data-component-style] body
+  :is(
+    .search-box,
+    .weq-dress-search,
+    .weq-collection-search,
+    .weq-msglist-search,
+    .weq-face-search,
+    .weq-mf-search,
+    .weq-mf-mall-search,
+    .weq-gift-search,
+    .weq-redpack-wall-search,
+    .weq-grouppick-search,
+    .weq-rank-search,
+    .ark-search,
+    .emoji-lb-search,
+    .link-card-input,
+    .bounce-search,
+    .redpacket-input-wrap,
+    .redpacket-stepper,
+    .weq-keyfield-input,
+    .weq-set-keyfield,
+    .weq-onebot-token-input
+  ):has(input:not([type='hidden']), textarea, select):not([hidden]) {
+  background: var(--weq-field-bg);
+  color: var(--weq-field-placeholder);
+  border-color: var(--weq-field-border);
+  border-style: solid;
+  border-width: var(--weq-skin-input-border-width, 1px);
+
+  &:has([readonly]):not(:has(input:not([readonly]), textarea:not([readonly]))) {
+    background: var(--weq-field-readonly-bg);
+  }
+
+  &:has(:disabled):not(:has(input:enabled, textarea:enabled, select:enabled)) {
+    background: var(--weq-field-disabled-bg);
+    border-color: var(--weq-border-subtle);
+    cursor: not-allowed;
+  }
+
+  &:has(input:enabled:focus, textarea:enabled:focus, select:enabled:focus) {
+    border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  }
+
+  &:has(:is(input, textarea, select):is(.is-error, [aria-invalid='true'])) {
+    border-color: var(--weq-list-alert-ink, var(--destructive));
+  }
+
+  & :is(input, textarea, select):is(:enabled, :disabled) {
+    background: transparent;
+    color: var(--weq-field-fg);
+    border: 0;
+    caret-color: var(--weq-accent-ink, var(--weq-accent-effective));
+    -webkit-text-fill-color: currentColor;
+
+    &::placeholder {
+      color: var(--weq-field-placeholder);
+      opacity: 1;
+      -webkit-text-fill-color: currentColor;
+    }
+
+    &:disabled {
+      color: var(--weq-field-disabled-fg);
+      opacity: 1;
+      cursor: not-allowed;
+    }
+  }
+}
+
+html:root[data-theme][data-component-style] body .weq-asst-select:not(:disabled) {
+  background: var(--weq-field-bg);
+  color: var(--weq-field-fg);
+  border-color: var(--weq-field-border);
+
+  &:is(:hover, :focus-visible, .is-open) {
+    border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  }
+}
+
+html:root[data-theme][data-component-style] body .weq-asst-select:disabled {
+  background: var(--weq-field-disabled-bg);
+  color: var(--weq-field-disabled-fg);
+  border-color: var(--weq-border-subtle);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+html:root[data-theme][data-component-style] body .weq-asst-select-value.is-placeholder {
+  color: var(--weq-field-placeholder);
+}
+
+html:root[data-theme][data-component-style] body .weq-conversation-notice > input {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--weq-skin-input-radius, var(--weq-skin-radius));
+}

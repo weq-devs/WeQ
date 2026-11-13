@@ -1,3 +1,4 @@
+import { browserTimeSource } from '@weq/time';
 /**
  * WebUI 单文件前端（内嵌进 bot.mjs，产物零额外文件）。
  *
@@ -25,7 +26,8 @@ export function renderAppHtml(botName: string): string {
 <div id="bg-aurora" aria-hidden="true"></div>
 <div id="app"></div>
 <script>window.__BOT_NAME__ = ${JSON.stringify(botName)};</script>
-<script>${JS}</script>
+<script>${browserTimeSource}
+${JS}</script>
 </body>
 </html>`;
 }
@@ -494,10 +496,7 @@ const JS = `
   }
   function fmtInt(n) { return (n || 0).toLocaleString('en-US'); }
   function dur(ms) {
-    var s = Math.floor(ms / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
-    if (d > 0) return d + '天 ' + h + '小时';
-    if (h > 0) return h + '小时 ' + m + '分';
-    return m + '分钟';
+    return formatDuration(Math.max(0, ms / 1000), 'approximate');
   }
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
@@ -619,7 +618,7 @@ const JS = `
         row('brain', '生成回复轮数', fmtInt(s.totals.repliesGenerated)) + '</div>';
       html += '<div class="card"><div class="card-title">' + ic('clock', 15) + ' 运行状态</div>' +
         row('clock', '本次已运行', dur(s.now - s.startedAt)) +
-        row('clock', '累计起始', new Date(s.firstStartedAt).toLocaleDateString('zh-CN')) +
+        row('clock', '累计起始', formatDateTime(s.firstStartedAt, 'millisecond')) +
         row('msg', '收发合计', fmtInt(s.totals.messagesIn + s.totals.messagesOut)) + '</div>';
       html += '</div>';
 
@@ -714,9 +713,9 @@ const JS = `
 
       // 模型绑定
       html += '<div class="section-h">' + ic('cpu', 15) + ' 模型绑定</div><div class="card"><div class="rows">';
-      html += row('brain', '对话模型', o.models.chat || '—');
-      if (o.models.embedding) html += row('hash', '向量模型', o.models.embedding);
+      html += row('brain', '聊天模型', o.models.chat || '—');
       if (o.models.vision) html += row('grid', '视觉模型', o.models.vision);
+      if (o.models.embedding) html += row('hash', '向量模型', o.models.embedding);
       html += '</div></div>';
 
       // 发言意愿 + 语音
@@ -798,6 +797,14 @@ const JS = `
         '<button data-v="heuristic" class="' + (c.features.groupReplyMode === 'heuristic' ? 'active' : '') + '">启发式</button></div></div>' +
       '</div>';
 
+    var imageConfig = c.images || { mode: 'vision', prefilterEnabled: true };
+    html += '<div class="section-h">图片处理</div><div class="card">' +
+      '<div class="form-row"><label>图片处理偏好</label><select class="input" id="cfg-image-mode"><option value="ocr"' + (imageConfig.mode === 'ocr' ? ' selected' : '') + '>OCR</option><option value="vision"' + (imageConfig.mode !== 'ocr' ? ' selected' : '') + '>视觉模型</option></select></div>' +
+      '<div class="form-row"><label>视觉服务商</label><select class="input" id="cfg-image-provider"><option value="">未选择</option>' + c.llmProviders.map(function(p) { return '<option value="' + esc(p.id) + '"' + (imageConfig.visionModel && imageConfig.visionModel.providerId === p.id ? ' selected' : '') + '>' + esc(p.id) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="form-row"><label>视觉模型</label><input class="input" id="cfg-image-model" value="' + esc(imageConfig.visionModel ? imageConfig.visionModel.model : '') + '" /></div>' +
+      swRow('cfg-image-prefilter', 'OCR 前先筛图', '手动文字识别除外；筛图不可用时继续 OCR', imageConfig.prefilterEnabled !== false) +
+      '<div id="image-model-resources"></div></div>';
+
     // ── LLM 服务商 ──
     html += '<div class="section-h">' + ic('cpu', 15) + ' LLM 服务商</div><div class="card"><div class="form-grid">';
     c.llmProviders.forEach(function (p, i) {
@@ -858,6 +865,7 @@ const JS = `
       adapter: { type: val('cfg-ad-type'), wsUrl: val('cfg-ad-wsurl'), token: val('cfg-ad-token') },
       selfId: val('cfg-selfid'),
       features: { voice: sw('cfg-ft-voice'), groupChat: sw('cfg-ft-group'), groupReplyMode: segV },
+      images: { mode: val('cfg-image-mode') || 'vision', prefilterEnabled: sw('cfg-image-prefilter'), visionModel: val('cfg-image-provider') && val('cfg-image-model') ? { providerId: val('cfg-image-provider'), model: val('cfg-image-model') } : null, ocrModelId: settingsDraft.images ? settingsDraft.images.ocrModelId : undefined, filterModelId: settingsDraft.images ? settingsDraft.images.filterModelId : undefined },
       webui: { enabled: sw('cfg-wu-enabled'), port: Number(val('cfg-wu-port')) || 0 },
       llmProviders: [],
       ttsProviders: [],
@@ -881,6 +889,7 @@ const JS = `
       adapter: settingsDraft.adapter,
       selfId: settingsDraft.selfId,
       features: settingsDraft.features,
+      images: settingsDraft.images,
       webui: settingsDraft.webui,
       llmProviders: settingsDraft.llmProviders,
       ttsProviders: settingsDraft.ttsProviders,
@@ -893,6 +902,25 @@ const JS = `
   }
 
   function bindSettings(view) {
+    function loadImageResources() {
+      var box = document.getElementById('image-model-resources');
+      if (!box) return;
+      api('/api/image-models').then(function(r) {
+        box.innerHTML = (r.models || []).map(function(m) {
+          return '<div class="switch-row"><div class="sw-label"><b>' + esc(m.name) + '</b><span>' + (m.kind === 'filter' ? '筛图模型' : '识别模型') + ' · ' + esc(m.sizeLabel) + '</span></div><button class="sh-btn image-model-action" data-model="' + esc(m.id) + '" data-action="' + (m.downloaded ? 'delete' : 'download') + '">' + ic(m.downloaded ? 'trash' : 'download', 13) + (m.downloaded ? ' 删除' : ' 下载') + '</button></div>';
+        }).join('');
+        box.querySelectorAll('.image-model-action').forEach(function(button) {
+          button.onclick = function() {
+            button.disabled = true;
+            apiSend('/api/image-models', 'POST', { id: button.getAttribute('data-model'), action: button.getAttribute('data-action') }).then(function(res) {
+              if (!res.ok) throw new Error(res.j.error || '资源操作失败');
+              loadImageResources();
+            }).catch(function(e) { toast(e.message, 'err'); button.disabled = false; });
+          };
+        });
+      }).catch(function(e) { box.textContent = e.message || '资源状态读取失败'; });
+    }
+    loadImageResources();
     // 开关点击
     view.querySelectorAll('.switch').forEach(function (sw) {
       sw.onclick = function () {
@@ -978,8 +1006,8 @@ const JS = `
         '<span class="sh-spacer"></span>' +
         '<button id="stkUp" class="sh-btn">' + ic('upload', 13) + ' 上传表情</button></div>';
       var hint = r.canDescribe
-        ? '本机已配图像模型：上传后会自动解析表情内容，克隆体按语义精准挑选发送。'
-        : '未配置图像模型：新上传的表情没有文字说明，克隆体只能在想活跃气氛时“随机发”。可在导出时选一个图像模型来启用精准解析。';
+        ? '本机已配视觉模型：上传后会自动解析表情内容，克隆体按语义精准挑选发送。'
+        : '未配置视觉模型：新上传的表情没有文字说明，克隆体只能在想活跃气氛时“随机发”。可在导出时选一个视觉模型来启用精准解析。';
       var grid;
       if (list.length === 0) {
         grid = '<div class="card"><div class="muted-empty">还没有自定义表情，点右上角「上传表情」添加。</div></div>';

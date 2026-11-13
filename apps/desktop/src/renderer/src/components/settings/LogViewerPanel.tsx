@@ -1,3 +1,5 @@
+import * as timeFormat from '@weq/time';
+import { TimeLabel } from '../TimeLabel';
 /**
  * 设置 → 帮助 → 日志查看。
  *
@@ -79,11 +81,7 @@ function fmtBytes(bytes: number): string {
 }
 
 function fmtClock(ts: string | null): string {
-  if (!ts) return '';
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n: number, w = 2): string => String(n).padStart(w, '0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+  return ts ? timeFormat.formatClock(ts, /:\d{2}\.\d+/.test(ts) ? 'millisecond' : 'second') : '';
 }
 
 function normalizeLevel(raw: string | undefined | null): LogLevel {
@@ -771,7 +769,15 @@ export function LogViewerPanel(): ReactElement {
         ) : (
           visibleLines.map((line) => (
             <div key={line.id} className={`weq-log-line is-${line.level}`}>
-              {line.ts ? <span className="weq-log-ts">{fmtClock(line.ts)}</span> : null}
+              {line.ts ? (
+                <TimeLabel
+                  className="weq-log-ts"
+                  value={line.ts}
+                  precision={/:\d{2}\.\d+/.test(line.ts) ? 'millisecond' : 'second'}
+                >
+                  {fmtClock(line.ts)}
+                </TimeLabel>
+              ) : null}
               <span className="weq-log-lv">{line.level.toUpperCase()}</span>
               <span className="weq-log-msg">
                 {line.message}

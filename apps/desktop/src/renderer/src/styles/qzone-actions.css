@@ -25,6 +25,42 @@
   display: inline-flex;
   align-items: center;
 }
+.weq-qzn-forward-row {
+  padding: 8px 2px;
+}
+.weq-qzn-forward-row + .weq-qzn-forward-row {
+  border-top: 1px solid var(--border);
+}
+.weq-qzn-forward-row .weq-qzn-identity-link {
+  max-width: 100%;
+  justify-content: flex-start;
+  font: inherit;
+  font-size: 12px;
+}
+.weq-qzn-forward-row p {
+  margin: 4px 0 0 29px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.weq-qzn-forward-list .weq-qzn-status,
+.weq-qzn-forward-list .weq-qzn-error,
+.weq-qzn-forward-more {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.weq-qzn-forward-list button:not(.weq-qzn-person-link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
 .weq-qzn-like-layer {
   position: fixed;
   inset: 0;
@@ -141,7 +177,9 @@
 }
 .weq-qzn-forward-dialog h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 .weq-qzn-forward-dialog textarea {
   display: block;
@@ -175,8 +213,8 @@
   align-items: center;
   padding: 8px 14px;
   border-radius: 6px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 html[data-theme='dark'] .weq-qzn-like-popover {
   background: var(--popover);

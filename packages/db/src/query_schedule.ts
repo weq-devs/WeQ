@@ -9,6 +9,7 @@ import {
 } from './query_diagnostics';
 
 export type DatabasePriority = 'interactive' | 'background';
+export const SLOW_DATABASE_OPERATION_MS = 500;
 export interface SlowDatabaseOperation {
   priority: DatabasePriority;
   jsQueueWaitMs: number;
@@ -17,13 +18,18 @@ export interface SlowDatabaseOperation {
   fingerprint?: string;
   caller?: string;
 }
-const slowObservers = new Set<(sample: SlowDatabaseOperation) => void>();
+const slowObservers = new Map<(sample: SlowDatabaseOperation) => void, number>();
+let observationThreshold = Number.POSITIVE_INFINITY;
 export function observeSlowDatabaseOperations(
   observer: (sample: SlowDatabaseOperation) => void,
+  thresholdMs = SLOW_DATABASE_OPERATION_MS,
 ): () => void {
-  slowObservers.add(observer);
+  if (!Number.isFinite(thresholdMs) || thresholdMs < 0) throw new Error('数据库采样阈值无效');
+  slowObservers.set(observer, thresholdMs);
+  observationThreshold = Math.min(...slowObservers.values());
   return () => {
     slowObservers.delete(observer);
+    observationThreshold = Math.min(...slowObservers.values());
   };
 }
 const priority = new AsyncLocalStorage<{ priority: DatabasePriority; signal?: AbortSignal }>();
@@ -60,6 +66,22 @@ export function withDatabasePriority<T>(
         return signal && promotedSignals.has(signal) ? 'interactive' : value;
       },
       signal,
+    },
+    run,
+  );
+}
+
+/** 为后台生命周期补充取消信号，不覆盖调用方已有的优先级或取消条件。 */
+export function withDatabaseSignal<T>(signal: AbortSignal, run: () => T): T {
+  const inherited = priority.getStore();
+  const parentSignal = inherited?.signal;
+  return priority.run(
+    {
+      get priority() {
+        return inherited?.priority ?? 'interactive';
+      },
+      signal:
+        parentSignal && parentSignal !== signal ? AbortSignal.any([parentSignal, signal]) : signal,
     },
     run,
   );
@@ -222,7 +244,9 @@ export function scheduleDatabase<T>(
   // 排空队列的循环可能属于另一请求；诊断回调仍使用本次入队时的异步上下文。
   const notifySlow = slowObservers.size
     ? AsyncLocalStorage.bind((sample: SlowDatabaseOperation) => {
-        for (const observer of slowObservers) {
+        for (const [observer, threshold] of slowObservers) {
+          if (sample.jsQueueWaitMs <= threshold && sample.nativePromiseAwaitMs <= threshold)
+            continue;
           try {
             observer(sample);
           } catch {
@@ -279,13 +303,13 @@ export function scheduleDatabase<T>(
           if (job.trace) job.trace.endedAtMs = performance.now();
           const nativePromiseAwaitMs = performance.now() - began;
           record(data.nativeAwait, nativePromiseAwaitMs);
-          if (jsQueueWaitMs >= 500 || nativePromiseAwaitMs >= 500) {
+          if (jsQueueWaitMs > observationThreshold || nativePromiseAwaitMs > observationThreshold) {
             notifySlow?.({
               priority: job.priority,
               jsQueueWaitMs,
               nativePromiseAwaitMs,
               outcome,
-              ...(job.trace ? job.trace.source : {}),
+              ...(job.trace?.source ?? source ?? {}),
             });
           }
           if (job.priority === 'interactive') data.lastInteractiveAt = performance.now();

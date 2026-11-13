@@ -1,3 +1,4 @@
+import { EmptyState } from '../EmptyState';
 import { CompositionButton } from './CompositionButton';
 /**
  * 合并转发第二步：选择要转发到的会话（多选）。
@@ -7,7 +8,7 @@ import { CompositionButton } from './CompositionButton';
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { Check, Search, Users, ArrowLeft, ChevronRight, FolderOpen } from 'lucide-react';
+import { Check, Search, Users, ArrowLeft, ChevronRight, FolderOpen, SearchX } from 'lucide-react';
 import { QqAvatar } from '../QqAvatar';
 import { cn } from '../../im-template/template/classNames';
 import type { MfTarget } from './model';
@@ -90,7 +91,7 @@ export function MergeForwardTargets({
           </CompositionButton>
         ) : null}
         {visible.length === 0 && (insideAssistant || !assistantTargets.length) ? (
-          <div className="weq-mf-empty">没有匹配的会话</div>
+          <EmptyState compact icon={<SearchX />} title="没有匹配的会话" />
         ) : null}
         {visible.map((t) => (
           <TargetRow

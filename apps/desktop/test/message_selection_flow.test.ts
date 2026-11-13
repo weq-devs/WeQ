@@ -1,9 +1,9 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ContentSelectionProvider,
   useContentMultiSelect,
@@ -14,6 +14,9 @@ import { useDialog } from '../src/renderer/src/components/Dialog';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 import type { LoadSelectionMessages } from '../src/renderer/src/lib/messageSelection';
+import { GapMessagesModal } from '../src/renderer/src/components/lazyMainPanels';
+
+beforeAll(() => GapMessagesModal.preload());
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>

@@ -3,16 +3,19 @@ import { useContext } from 'react';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import { ConversationSelectionToolbar } from './ConversationSelectionToolbar';
 import { useConversationBatchActions } from './useConversationBatchActions';
+import { conversationViewActions, type ConversationView } from '../lib/conversationViews';
 
 /** 联系人与会话列表共用同一套可用性判断和批量操作。 */
 export function ConversationBatchToolbar({
   conversations,
   ids,
   busy = false,
+  view,
 }: {
   conversations: Conversation[];
   ids: string[];
   busy?: boolean;
+  view?: ConversationView;
 }) {
   const directory = useContext(ConversationDirectoryContext);
   const batch = useConversationBatchActions(conversations);
@@ -20,8 +23,23 @@ export function ConversationBatchToolbar({
   return (
     <>
       <ConversationSelectionToolbar
-        exportReason={reason ?? (!batch.exportAvailable ? '当前无法导出会话' : undefined)}
-        roamingReason={reason ?? (!batch.roamingAvailable ? '当前无法拉取漫游消息' : undefined)}
+        actions={view ? conversationViewActions(view) : undefined}
+        exportReason={
+          reason ??
+          (!batch.exportAvailable
+            ? '当前无法导出会话'
+            : !batch.supportsAny(ids, 'export')
+              ? '所选对象没有可导出的会话'
+              : undefined)
+        }
+        roamingReason={
+          reason ??
+          (!batch.roamingAvailable
+            ? '当前无法拉取漫游消息'
+            : !batch.supportsAny(ids, 'roaming')
+              ? '所选会话不支持拉取漫游消息'
+              : undefined)
+        }
         rosterReason={
           reason ??
           (!batch.exportAvailable
@@ -38,12 +56,25 @@ export function ConversationBatchToolbar({
               ? '正在更新标记'
               : ids.length > 4096
                 ? '一次最多标记 4096 个会话'
+                : !batch.supportsAny(ids, 'read')
+                  ? '所选会话不支持已读标记'
+                  : undefined)
+        }
+        deleteReason={
+          reason ??
+          (directory?.deleteBusy
+            ? '正在永久删除所选会话'
+            : !directory?.onDelete
+              ? '当前无法删除会话'
+              : !batch.supportsAny(ids, 'delete')
+                ? '永久删除仅适用于克隆和助手会话'
                 : undefined)
         }
         onExport={() => batch.runExport(ids)}
         onRoaming={() => batch.runRoaming(ids)}
         onRoster={() => batch.runRoster(ids)}
         onReadState={() => batch.runReadState(ids, false)}
+        onDelete={() => batch.runDelete(ids)}
       />
       {batch.confirmation}
     </>

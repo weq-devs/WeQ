@@ -6,10 +6,12 @@ export function installTouchContextMenu(document: Document): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let synthetic: Event | undefined;
   let suppressUntil = 0;
+  let nativeContextUntil = 0;
   const editable = (target: EventTarget | null) =>
     target instanceof Element &&
     target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
   const cancel = () => {
+    if (hold) nativeContextUntil = Date.now() + 800;
     clearTimeout(timer);
     timer = undefined;
     hold = undefined;
@@ -17,12 +19,14 @@ export function installTouchContextMenu(document: Document): () => void {
   const start = (event: PointerEvent) => {
     cancel();
     suppressUntil = 0;
+    nativeContextUntil = event.pointerType === 'touch' ? Date.now() + 800 : 0;
     if (
       event.pointerType !== 'touch' ||
       !event.isPrimary ||
       event.button !== 0 ||
       !(event.target instanceof Element) ||
-      editable(event.target)
+      editable(event.target) ||
+      event.target.closest('[data-hover-delay="0"] button')
     )
       return;
     const current = {
@@ -69,7 +73,14 @@ export function installTouchContextMenu(document: Document): () => void {
   const context = (event: MouseEvent) => {
     if (event === synthetic || editable(event.target)) return;
     // 某些 WebView 会在自定义计时器前后另发原生 contextmenu，统一消费以免菜单开两次。
-    if (hold || Date.now() < suppressUntil) {
+    // 手势取消可能早于系统菜单；旧内核的 MouseEvent 没有 pointerType，保留短暂兜底。
+    const pointerType = (event as PointerEvent).pointerType;
+    if (
+      hold ||
+      Date.now() < suppressUntil ||
+      pointerType === 'touch' ||
+      (!pointerType && Date.now() < nativeContextUntil)
+    ) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }

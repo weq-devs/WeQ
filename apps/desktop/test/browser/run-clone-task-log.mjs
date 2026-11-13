@@ -84,10 +84,27 @@ try {
       },
       [theme, accent, background],
     );
+    const spinner = page.locator('.weq-long-task-state svg');
+    for (const reducedMotion of ['reduce', 'no-preference']) {
+      await page.emulateMedia({ reducedMotion });
+      assert.equal(
+        await spinner.evaluate((node) => getComputedStyle(node).animationDuration),
+        reducedMotion === 'reduce' ? '1.8s' : '0.9s',
+      );
+      for (const circle of [spinner, page.locator('[aria-label="收尾中"] svg')]) {
+        const transforms = await circle.evaluate(async (node) => {
+          const before = getComputedStyle(node).transform;
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          return [before, getComputedStyle(node).transform];
+        });
+        assert.notEqual(transforms[0], transforms[1], '运行与收尾圆圈必须实际旋转');
+      }
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.getByRole('radio').nth(1).click();
     await page.getByRole('alert').filter({ hasText: '合成模型请求超时' }).waitFor();
     await page.getByText('推理输出', { exact: true }).click();
-    await page.getByText('合成推理片段', { exact: true }).waitFor();
+    await page.getByLabel('克隆任务日志').getByText('合成推理片段', { exact: true }).waitFor();
     await page.getByRole('radio').nth(1).press('ArrowRight');
     if ((await page.getByRole('radio').nth(2).getAttribute('aria-checked')) !== 'true')
       throw new Error('键盘切换失败');
@@ -107,7 +124,7 @@ try {
           return { background: style.backgroundColor, color: style.color, height: style.height };
         });
       return {
-        surfaces: styles('.weq-exp-log, .weq-help-log-view, .weq-clone-task-log pre'),
+        surfaces: styles('.weq-exp-log, .weq-help-log-view, .weq-model-log'),
         muted: styles('.weq-exp-log-time, .weq-exp-log-empty, .weq-log-ts'),
         warnings: styles('.is-warn .weq-exp-log-text, .is-warn .weq-log-msg'),
         errors: styles('.is-error .weq-exp-log-text, .is-error .weq-log-msg'),
@@ -137,12 +154,72 @@ try {
     assert.equal(palette.previewCount, 5);
     assert.equal(palette.scrollHeight, '240px');
     assert.equal(palette.exportHeight, '180px');
+    const suggestion = page.locator('[data-suggestion-log]');
+    await suggestion.getByRole('button', { name: '模拟开始', exact: true }).click();
+    assert.equal(
+      await suggestion.getByLabel('模型正文', { exact: true }).textContent(),
+      '{"summary":',
+    );
+    await suggestion.getByRole('button', { name: '模拟片段', exact: true }).click();
+    assert.equal(
+      await suggestion.getByLabel('模型正文', { exact: true }).textContent(),
+      '{"summary":"正在接收"',
+    );
+    assert.equal(
+      await suggestion.getByRole('button', { name: '模型正文：查看原文', exact: true }).count(),
+      0,
+    );
+    await suggestion.getByRole('button', { name: '模拟长输出', exact: true }).click();
+    const scroll = suggestion.locator('.weq-model-log');
+    assert.ok(await scroll.evaluate((node) => node.scrollTop > 0));
+    await scroll.evaluate((node) => {
+      node.scrollTop = 0;
+      node.dispatchEvent(new Event('scroll'));
+    });
+    await suggestion.getByRole('button', { name: '模拟片段', exact: true }).click();
+    assert.equal(await scroll.evaluate((node) => node.scrollTop), 0);
+    await scroll.evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+      node.dispatchEvent(new Event('scroll'));
+    });
+    await suggestion.getByRole('button', { name: '模拟片段', exact: true }).click();
+    assert.ok(
+      await scroll.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop < 24),
+    );
+    await suggestion.getByRole('button', { name: '模拟完成', exact: true }).click();
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll(
+          '[data-suggestion-log] [aria-label="模型正文"] .weq-model-log-token[style]',
+        ).length > 1,
+    );
+    const formatted = await suggestion.getByLabel('模型正文', { exact: true }).textContent();
+    assert.ok(formatted.includes('\n  "summary": '));
+    await suggestion.getByRole('button', { name: '模型正文：查看原文', exact: true }).click();
+    assert.equal(
+      (await suggestion.getByLabel('模型正文', { exact: true }).textContent()).includes('\n'),
+      false,
+    );
+    await suggestion.getByRole('button', { name: '模型正文：格式化 JSON', exact: true }).click();
+    await suggestion.locator('summary').filter({ hasText: 'User Prompt' }).click();
+    assert.ok(await suggestion.getByLabel('User Prompt', { exact: true }).isVisible());
+    await suggestion.locator('summary').filter({ hasText: 'User Prompt' }).click();
+    const overflows = await page
+      .locator('.weq-model-log, .weq-model-log pre')
+      .evaluateAll((nodes) =>
+        nodes
+          .filter((node) => node.clientWidth && node.scrollWidth > node.clientWidth + 1)
+          .map((node) => node.className),
+      );
+    assert.deepEqual(overflows, []);
     if (output)
       await page.screenshot({ path: resolve(output, `${theme}-${width}.png`), fullPage: true });
+    if (output)
+      await suggestion.screenshot({ path: resolve(output, `${theme}-${width}-model.png`) });
   }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    '日志：5 组主题、主题色、背景及视口配色/对比度检查通过；预览行数、滚动高度、克隆分段点击和键盘切换通过。',
+    '日志：5 组主题、主题色、背景及视口配色/对比度检查通过；JSON 高亮、原文切换、提示词折叠、流式更新、手动滚动与自动跟随、克隆请求切换通过。',
   );
 } finally {
   await browser?.close();

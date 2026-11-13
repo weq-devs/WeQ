@@ -5,11 +5,12 @@ interface PostDetail {
   contentHasMore: boolean | null;
   repost: QzoneEmotion['repost'] | null;
   repostHasMore: boolean | null;
+  contentSource?: 'native';
 }
 
 export { qzoneImageCompletionScope } from '@weq/service/qzone-media';
 
-/** R02 returns a whole body, not appendable chunks or a verified page cursor. */
+/** 补全返回整段正文；仅显式更多才续读，未知状态保留但不循环请求。 */
 export async function completeQzonePostText(
   source: QzoneEmotion,
   read: () => Promise<PostDetail>,
@@ -34,7 +35,7 @@ export async function completeQzonePostText(
         detail.content.length >= post.content.length || detail.contentHasMore === false
           ? detail.content
           : post.content,
-      contentTruncated: detail.contentHasMore === true,
+      contentTruncated: detail.contentHasMore ?? post.contentTruncated,
     };
     const sameRepost = Boolean(
       post.repost &&
@@ -45,17 +46,23 @@ export async function completeQzonePostText(
     if (sameRepost && post.repost && detail.repost) {
       post.repost = {
         ...post.repost,
+        ...(detail.repost.timeLabel ? { timeLabel: detail.repost.timeLabel } : {}),
         content:
           detail.repost.content.length >= post.repost.content.length ||
           detail.repostHasMore === false
             ? detail.repost.content
             : post.repost.content,
-        contentTruncated: detail.repostHasMore === true,
+        contentTruncated: detail.repostHasMore ?? post.repost.contentTruncated,
       };
     }
     onProgress(post);
     const more = detail.contentHasMore === true || (sameRepost && detail.repostHasMore === true);
-    if (!more) return { post, issue: null };
+    if (!more) {
+      const uncertain =
+        (detail.contentHasMore === null && post.contentTruncated === true) ||
+        (sameRepost && detail.repostHasMore === null && post.repost?.contentTruncated === true);
+      return { post, issue: uncertain ? '正文完整性尚未确认' : null };
+    }
     const signature = JSON.stringify([
       detail.content,
       detail.contentHasMore,

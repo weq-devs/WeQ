@@ -6,8 +6,9 @@
  * JSON 预览可展开)。final/error 不在这里展示（final 是主答复气泡，error 走对话框）。
  */
 
-import { useState, type ReactElement } from 'react';
-import { Brain, Check, ChevronDown, ChevronRight, Loader2, Wrench, X } from 'lucide-react';
+import { memo, useMemo, useState, type ReactElement } from 'react';
+import { Brain, Check, ChevronDown, ChevronRight, Loader2, Wrench, X, Copy } from 'lucide-react';
+import { copyTextToClipboard } from '../../im-template/template/clipboard';
 import type { AssistantStep } from '@weq/service';
 
 function summarizeArgs(args: unknown): string {
@@ -33,11 +34,22 @@ function ToolResult({ preview, ok }: { preview: string; ok: boolean }): ReactEle
         <span className="weq-asst-step-preview">{oneLine || (ok ? '（空结果）' : '失败')}</span>
       </button>
       {open ? <pre className="weq-asst-step-json">{preview}</pre> : null}
+      {open ? (
+        <button
+          type="button"
+          className="icon-button"
+          title="复制工具结果"
+          aria-label="复制工具结果"
+          onClick={() => void copyTextToClipboard(preview)}
+        >
+          <Copy size={13} />
+        </button>
+      ) : null}
     </div>
   );
 }
 
-export function AssistantSteps({
+export const AssistantSteps = memo(function AssistantSteps({
   steps,
   running,
   reasoning,
@@ -48,10 +60,23 @@ export function AssistantSteps({
   reasoning?: string;
 }): ReactElement | null {
   // 只展示过程类步骤。
-  const shown = steps.filter(
-    (s) => s.kind === 'thinking' || s.kind === 'tool_call' || s.kind === 'tool_result',
+  const calls = useMemo(
+    () => new Set(steps.filter((step) => step.kind === 'tool_call').map((step) => step.id)),
+    [steps],
   );
-  const [open, setOpen] = useState(running);
+  const results = useMemo(
+    () =>
+      new Map(steps.filter((step) => step.kind === 'tool_result').map((step) => [step.id, step])),
+    [steps],
+  );
+  const shown = steps.filter(
+    (s) =>
+      s.kind === 'thinking' ||
+      s.kind === 'tool_call' ||
+      (s.kind === 'tool_result' && !calls.has(s.id)),
+  );
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const open = manualOpen ?? running;
   // running 切换时不强制改 open（让用户的手动展开/收起优先），但首次有内容且运行中默认展开。
   const toolCount = steps.filter((s) => s.kind === 'tool_call').length;
   const reasoningText = reasoning?.trim() ?? '';
@@ -60,7 +85,12 @@ export function AssistantSteps({
 
   return (
     <div className={`weq-asst-steps${running ? ' is-running' : ''}`}>
-      <button type="button" className="weq-asst-steps-head" onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className="weq-asst-steps-head"
+        aria-expanded={open}
+        onClick={() => setManualOpen(!open)}
+      >
         {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         {running ? <Loader2 size={13} className="weq-asst-spin" /> : <Brain size={13} />}
         <span>
@@ -89,17 +119,34 @@ export function AssistantSteps({
             }
             if (s.kind === 'tool_call') {
               const args = summarizeArgs(s.args);
+              const result = results.get(s.id);
               return (
                 <div key={key} className="weq-asst-step weq-asst-step-call">
                   <Wrench size={12} className="weq-asst-step-lead" />
                   <span className="weq-asst-step-text">
                     <code className="weq-asst-step-tool">{s.name}</code>
-                    {args ? <span className="weq-asst-step-args">{args}</span> : null}
+                    <details>
+                      <summary className="weq-asst-step-args">{args || '参数'}</summary>
+                      <pre className="weq-asst-step-json">{JSON.stringify(s.args, null, 2)}</pre>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        title="复制工具参数"
+                        aria-label="复制工具参数"
+                        onClick={() => void copyTextToClipboard(JSON.stringify(s.args, null, 2))}
+                      >
+                        <Copy size={13} />
+                      </button>
+                    </details>
+                    {result?.kind === 'tool_result' ? (
+                      <ToolResult preview={result.preview} ok={result.ok} />
+                    ) : null}
                   </span>
                 </div>
               );
             }
             // tool_result
+            if (s.kind !== 'tool_result') return null;
             return (
               <div key={key} className="weq-asst-step weq-asst-step-res">
                 <ToolResult preview={s.preview} ok={s.ok} />
@@ -113,4 +160,4 @@ export function AssistantSteps({
       ) : null}
     </div>
   );
-}
+});

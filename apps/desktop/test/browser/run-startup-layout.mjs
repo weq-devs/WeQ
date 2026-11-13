@@ -63,6 +63,11 @@ try {
         window.logDirOpened++;
         return true;
       },
+      // 本机开启「仿 Windows 窗口按钮」时的快照：标题栏走自绘三键，不再为红绿灯留白。
+      windowChrome: {
+        getSnapshot: () => ({ controls: 'windows' }),
+        onChange: () => () => {},
+      },
     };
   }, platform);
   const errors = [];
@@ -195,7 +200,10 @@ try {
         '受限状态紧邻右侧工具按钮',
       );
       assert(Math.abs(height - metrics.footer.bottom - 12) <= 1, '账号管理操作栏靠底对齐');
-      assert(height - metrics.toast.bottom <= 22, '桌面窄窗口横幅不能预留手机底栏空间');
+      assert(
+        metrics.toast.bottom <= metrics.footer.top - 4,
+        '桌面窄窗口通知不能压在账号管理操作栏上',
+      );
       if (process.env.WEQ_STARTUP_ARTIFACTS) {
         await mkdir(process.env.WEQ_STARTUP_ARTIFACTS, { recursive: true });
         await page.screenshot({
@@ -264,7 +272,7 @@ try {
         3,
         'macOS 与 Windows/Linux 使用同款窗口按钮',
       );
-      for (const title of ['最小化', '全屏/还原', '关闭']) {
+      for (const title of ['最小化', '最大化/还原', '关闭']) {
         await page.locator('.app-title-bar-actions').getByTitle(title, { exact: true }).click();
       }
       assert.deepEqual(await page.evaluate(() => window.windowControlRequests), [

@@ -24,8 +24,11 @@ export async function syncArchiveDirectory(path: string): Promise<void> {
   }
 }
 
-export async function fileDigest(path: string): Promise<{ sha256: string; size: string }> {
-  const sha256 = await fileSha256(path);
+export async function fileDigest(
+  path: string,
+  signal?: AbortSignal,
+): Promise<{ sha256: string; size: string }> {
+  const sha256 = await fileSha256(path, signal);
   return { sha256, size: String((await lstat(path, { bigint: true })).size) };
 }
 

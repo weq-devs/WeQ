@@ -4,8 +4,9 @@ import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 import { Row, QueryError } from './controls';
+import { DEFAULT_API_MODEL_LABELS, useDefaultApiModel } from './useDefaultApiModel';
 
-/** AI 功能页的相同模型项目保持相同位置、文案与默认模型选项。 */
+/** AI 功能页的相同模型项目保持相同位置、文案与对应能力的默认模型选项。 */
 export function ApiModelRow({
   settingId,
   lastError,
@@ -54,10 +55,8 @@ export function ApiModelSelect({
     enabled: active,
     refetchOnWindowFocus: false,
   });
-  const defaultModel = trpc.bootstrap.getAgentLabDefaultModel.useQuery(undefined, {
-    enabled: active && allowDefault,
-    refetchOnWindowFocus: false,
-  });
+  const defaultModel = useDefaultApiModel(capability, allowDefault);
+  const defaultModelLabel = DEFAULT_API_MODEL_LABELS[capability];
   const groups = (providers.data ?? [])
     .map((provider) => ({
       ...provider,
@@ -137,8 +136,8 @@ export function ApiModelSelect({
       ) : null}
       {allowDefault && defaultModel.error ? (
         <QueryError
-          message={`默认模型读取失败：${defaultModel.error.message}`}
-          retryLabel="重新读取默认模型"
+          message={`${defaultModelLabel}读取失败：${defaultModel.error.message}`}
+          retryLabel={`重新读取${defaultModelLabel}`}
           retrying={defaultModel.isFetching}
           onRetry={() => void defaultModel.refetch()}
         />

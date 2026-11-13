@@ -2,7 +2,7 @@ import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  UnifiedSearchModal,
+  SearchMoreResults,
   type SearchMoreSnapshot,
 } from '../src/renderer/src/components/search/UnifiedSearchModal';
 import type { MoreSearchResult } from '../src/renderer/src/components/search/types';
@@ -34,29 +34,24 @@ function mount(
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() =>
-    root.render(
-      createElement(UnifiedSearchModal, {
-        category: 'friend',
-        initialKeyword: '旧词',
-        onClose: vi.fn(),
-        onSelect: vi.fn(),
-        onOpenChatRecords: vi.fn(),
-        ...options,
-      }),
-    ),
-  );
+  const render = (keyword: string) =>
+    act(() =>
+      root.render(
+        createElement(SearchMoreResults, {
+          category: 'friend',
+          keyword,
+          onBack: vi.fn(),
+          onSelect: vi.fn(),
+          onOpenChatRecords: vi.fn(),
+          ...options,
+        }),
+      ),
+    );
+  render(options.initialSnapshot?.keyword ?? '旧词');
   return {
     host,
     change(value: string) {
-      const input = host.querySelector('input')!;
-      act(() => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
-          input,
-          value,
-        );
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-      });
+      render(value);
     },
     close() {
       act(() => root.unmount());
@@ -104,7 +99,8 @@ describe('搜索更多的请求隔离', () => {
         await vi.advanceTimersByTimeAsync(250);
       });
       expect(rpc.query).toHaveBeenCalledTimes(2);
-      expect(restored.host.querySelector('input')!.value).toBe('调整后的词');
+      expect(restored.host.querySelector('input')).toBeNull();
+      expect(restored.host.querySelector('[role="dialog"]')).toBeNull();
       expect(restored.host.querySelector('.weq-search-more-body')!.scrollTop).toBe(184);
       expect(document.activeElement?.textContent).toContain('b');
       rpc.query.mockResolvedValueOnce({ ...page('c'), total: 3 });

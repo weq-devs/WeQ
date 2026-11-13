@@ -1,3 +1,4 @@
+import { OperationError } from './operation_error';
 /**
  * 最小二进制格式读取器（zip 中央目录 + sfnt 字体头校验）。
  *
@@ -300,7 +301,7 @@ export function readZipEntries(zip: Buffer, limits?: ZipReadLimits): ZipEntry[] 
     throw new Error('ZIP 读取限制无效');
   const eocd = findEocd(zip);
   if (eocd < 0) {
-    if (limits) throw new Error('ZIP 目录缺失或已截断');
+    if (limits) throw new OperationError('ZIP 目录缺失或已截断', 'expected');
     return [];
   }
 

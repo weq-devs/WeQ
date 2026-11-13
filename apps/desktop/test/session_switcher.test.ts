@@ -1,106 +1,148 @@
 /**
- * 克隆体 / 克隆群进入会话列表后，左栏没有了。
+ * 统一会话视图后，「切换 / 新建 / 删除助手会话」的入口从标题栏的 SessionSwitcher
+ * 浮层变成工作区内的会话侧栏（AssistantMenuWorkspace 的 aside[aria-label="助手会话"]）。
  *
- * 回归点：对话内部必须还有「新建 / 切换 / 删除会话」的入口，否则历史记录里
- * 能看到好几段对话却没有任何办法切换。
+ * 回归点不变：进到对话里必须还能切别的会话、开新会话、删旧会话，否则历史记录
+ * 在左侧列表里有好几段却没有任何办法操作。
  */
 
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
-import { afterEach, expect, it, vi } from 'vitest';
-import { SessionSwitcher } from '../src/renderer/src/views/agentlab/SessionSwitcher';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { AssistantMenuWorkspace } from '../src/renderer/src/views/agentlab/AssistantMenuWorkspace';
+import { readAssistantSession } from '../src/renderer/src/lib/assistantWorkspace';
 
+const fixture = vi.hoisted(() => ({
+  sessions: [
+    { id: 's1', title: '最近一段', createdAt: 1, updatedAt: 2000 },
+    { id: 's2', title: '更早一段', createdAt: 1, updatedAt: 1000 },
+  ],
+  remove: vi.fn(async () => undefined),
+  invalidate: vi.fn(async () => undefined),
+  confirm: vi.fn(async () => true),
+  error: vi.fn(),
+}));
+
+vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
+  useAppDialog: () => ({ confirm: fixture.confirm, error: fixture.error, success: vi.fn() }),
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({ account: { listAssistantSessions: { invalidate: fixture.invalidate } } }),
+    bootstrap: { listAgentLabProviders: { useQuery: () => ({ data: [] }) } },
+    account: {
+      listAssistantSessions: {
+        useQuery: () => ({ data: fixture.sessions, isSuccess: true, isFetching: false }),
+      },
+      deleteAssistantSession: {
+        useMutation: () => ({ mutateAsync: fixture.remove, isLoading: false }),
+      },
+    },
+  },
+}));
+vi.mock('../src/renderer/src/views/agentlab/AssistantPanel', () => ({
+  AssistantPanel: ({
+    sessionId,
+    workspaceTitle,
+  }: {
+    sessionId: string | null;
+    workspaceTitle?: string;
+  }) =>
+    h('div', { 'data-session': sessionId ?? 'new' }, h('strong', null, workspaceTitle ?? '新会话')),
+}));
+
+beforeEach(() => {
+  vi.stubGlobal('localStorage', new Storage());
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  fixture.confirm.mockClear().mockResolvedValue(true);
+  fixture.error.mockClear();
+  fixture.remove.mockClear();
+  fixture.invalidate.mockClear();
+});
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
-const sessions = [
-  { id: 's1', title: '最近一段', createdAt: 1, updatedAt: Date.now() },
-  { id: 's2', title: '更早一段', createdAt: 1, updatedAt: Date.now() - 86400_000 },
-];
-
-function mount(props: Partial<Parameters<typeof SessionSwitcher>[0]> = {}) {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.stubGlobal('localStorage', new Storage());
+function mount(accountScope = 'switch-fixture') {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const handlers = {
-    onSwitch: vi.fn(),
-    onNew: vi.fn(),
-    onDelete: vi.fn(),
-  };
-  act(() =>
-    root.render(
-      h(SessionSwitcher, {
-        sessions,
-        activeSessionId: 's1',
-        draft: false,
-        ...handlers,
-        ...props,
-      }),
-    ),
-  );
+  const render = (compact = false) =>
+    act(() => root.render(h(AssistantMenuWorkspace, { accountScope, compact }), null));
+  render();
+  const aside = () => host.querySelector<HTMLElement>('aside[aria-label="助手会话"]');
+  const row = (title: string) =>
+    [...(aside()?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
+      (button) => button.querySelector('span')?.textContent === title,
+    );
   return {
     host,
-    handlers,
-    trigger: () => host.querySelector<HTMLButtonElement>('[aria-label="切换会话"]')!,
-    // 菜单经 OverlayLayer portal 到 document.body，不在 host 里。
-    menu: () => document.querySelector<HTMLElement>('.weq-session-switcher-menu'),
-    close: () => {
+    render,
+    aside,
+    row,
+    session: () => host.querySelector('[data-session]')?.getAttribute('data-session'),
+    close() {
       act(() => root.unmount());
       host.remove();
     },
   };
 }
 
-it('触发器显示当前会话标题与数量，展开后能切换、新建、删除', () => {
+it('侧栏展示会话并在当前会话上标记，切换、新建、删除都能用', async () => {
+  localStorage.setItem('weq:assistant:switch-fixture:selected', 's1');
   const f = mount();
   try {
-    expect(f.trigger().textContent).toContain('最近一段');
-    expect(f.trigger().textContent).toContain('2');
-    expect(f.menu()).toBeNull();
-    act(() => f.trigger().click());
-    expect(f.menu()).not.toBeNull();
-    // 当前会话在列表里带勾选标记。
-    expect(f.menu()!.querySelector('.weq-session-switcher-row.is-active')?.textContent).toContain(
-      '最近一段',
-    );
-    const items = [...f.menu()!.querySelectorAll<HTMLButtonElement>('.weq-session-switcher-open')];
-    expect(items).toHaveLength(2);
-    act(() => items[1]!.click());
-    expect(f.handlers.onSwitch).toHaveBeenCalledWith('s2');
-    // 选完自动收起。
-    expect(f.menu()).toBeNull();
-    act(() => f.trigger().click());
-    act(() => f.menu()!.querySelector<HTMLButtonElement>('.weq-session-switcher-new')!.click());
-    expect(f.handlers.onNew).toHaveBeenCalledOnce();
-    act(() => f.trigger().click());
+    const aside = f.aside()!;
+    expect(aside.querySelectorAll('.weq-assistant-session-row')).toHaveLength(2);
+    // 当前会话在列表里带 aria-current 标记。
+    expect(f.row('最近一段')?.getAttribute('aria-current')).toBe('true');
+    expect(f.row('更早一段')?.getAttribute('aria-current')).toBeNull();
+    expect(f.session()).toBe('s1');
+
+    act(() => f.row('更早一段')!.click());
+    expect(f.session()).toBe('s2');
+    expect(readAssistantSession('switch-fixture')).toBe('s2');
+    expect(f.row('更早一段')?.getAttribute('aria-current')).toBe('true');
+
     act(() =>
-      f.menu()!.querySelector<HTMLButtonElement>('[aria-label="删除会话 更早一段"]')!.click(),
+      [...f.aside()!.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent?.includes('新建会话'))!
+        .click(),
     );
-    expect(f.handlers.onDelete).toHaveBeenCalledWith('s2');
+    expect(f.session()).toBe('new');
+    expect(readAssistantSession('switch-fixture')).toBeNull();
+
+    // 删除先要确认，确认后才真的删，并刷新会话列表。
+    await act(async () =>
+      f.row('更早一段')!.parentElement!.querySelector('button[title="删除会话"]')!.click(),
+    );
+    expect(fixture.confirm).toHaveBeenCalledOnce();
+    expect(fixture.remove).toHaveBeenCalledWith({ sessionId: 's2' });
+    expect(fixture.invalidate).toHaveBeenCalledOnce();
+    expect(fixture.error).not.toHaveBeenCalled();
   } finally {
     f.close();
   }
 });
 
-it('草稿态显示「新会话」，没有会话时给出提示，只读时禁用触发器', () => {
-  const f = mount({ draft: true, activeSessionId: null, sessions: [] });
+it('取消删除不请求后端；窄屏收起侧栏但保留当前会话', async () => {
+  localStorage.setItem('weq:assistant:switch-fixture:selected', 's2');
+  fixture.confirm.mockResolvedValue(false);
+  const f = mount();
   try {
-    expect(f.trigger().textContent).toContain('新会话');
-    act(() => f.trigger().click());
-    expect(f.menu()!.textContent).toContain('还没有会话');
-    act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
-    expect(f.menu()).toBeNull();
+    await act(async () =>
+      f.row('更早一段')!.parentElement!.querySelector('button[title="删除会话"]')!.click(),
+    );
+    expect(fixture.confirm).toHaveBeenCalledOnce();
+    expect(fixture.remove).not.toHaveBeenCalled();
+
+    // compact 只是隐藏侧栏，当前选中会话不变。
+    f.render(true);
+    expect(f.aside()?.hidden).toBe(true);
+    expect(f.session()).toBe('s2');
   } finally {
     f.close();
-  }
-  const disabled = mount({ disabled: true });
-  try {
-    expect(disabled.trigger().disabled).toBe(true);
-  } finally {
-    disabled.close();
   }
 });

@@ -1,3 +1,4 @@
+import { EmptyState } from '../EmptyState';
 import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { QQWriteToggleRow } from '../QQWriteControls';
@@ -6,7 +7,8 @@ import { QueryError } from '../settings/controls';
 import { QqAvatar } from '../QqAvatar';
 import { ProfileNavigationContext, profileTargetUser } from '../../lib/profileNavigation';
 import { useTabActive } from '../RetainedTabs';
-import { Plus, RefreshCw, Search, X } from 'lucide-react';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { Plus, Search, X, UsersRound } from 'lucide-react';
 import '../../styles/qzone-permissions.css';
 
 function PermissionProfile({ uin, name }: { uin: string; name: string }) {
@@ -54,11 +56,7 @@ function PermissionKind({
   const [adding, setAdding] = useState(false);
   const lists = trpc.account.qqActions.qzoneFriendPermissionList.useQuery(
     { ...action.binding!, kind },
-    {
-      enabled: action.available,
-      staleTime: 0,
-      retry: false,
-    },
+    useQQAutoRefresh(action.available),
   );
   const mutate = trpc.account.qqActions.qzoneFriendPermission.useMutation();
   const toggle = (target: string, enabled: boolean) =>
@@ -120,13 +118,6 @@ function PermissionKind({
         )}
         <div className="weq-qzone-permissions-tools">
           <ActionIcon
-            label={`刷新${label}`}
-            disabled={!action.available || action.pending || lists.isFetching}
-            onClick={() => void lists.refetch()}
-          >
-            <RefreshCw size={15} />
-          </ActionIcon>
-          <ActionIcon
             label={`添加到${label}`}
             disabled={disabled || adding}
             onClick={() => setAdding(true)}
@@ -139,7 +130,9 @@ function PermissionKind({
       {!lists.data && !lists.error && (
         <p role="status">{action.available ? '正在读取名单…' : '当前账号暂不可用'}</p>
       )}
-      {lists.data?.length === 0 && !lists.error && <p>暂无好友</p>}
+      {lists.data?.length === 0 && !lists.error && (
+        <EmptyState compact icon={<UsersRound />} title="暂无好友" />
+      )}
       <ul className="weq-qzone-permission-users">
         {lists.data?.map((row) => (
           <li key={row.uin}>

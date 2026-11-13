@@ -32,6 +32,15 @@ beforeEach(() => {
       getQzoneFeeds: vi.fn(async () => ({ feeds: [], hasMore: false })),
       getQzonePostDetail: vi.fn(async () => ({ content: 'full', contentComplete: true })),
       getQzonePostImages: vi.fn(async () => ['https://a.qpic.cn/full']),
+      getQzoneMediaTypes: vi.fn(async () => [{ videoId: 'fixture', isLivePhoto: true }]),
+      getQzoneForwardPage: vi.fn(async () => ({
+        forwards: [],
+        reportedTotal: 0,
+        rawCount: 0,
+        hasMore: false,
+        nextCursor: null,
+        stopReason: 'complete',
+      })),
       getQzoneStructuredComments: vi.fn(async () => ({
         comments: [],
         likes: [],
@@ -66,6 +75,40 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('按账号与帖传递不透明转发游标，拒绝无效页指纹', async () => {
+    const cursor = { attachInfo: 'opaque,20', previousPageKey: 'a'.repeat(64) };
+    const input = { selfUin, hostUin, tid: 'fixture', requestId: query.requestId, cursor };
+    await api.forwards(input);
+    expect(services.webQuery.getQzoneForwardPage).toHaveBeenCalledWith(
+      hostUin,
+      'fixture',
+      cursor,
+      expect.any(AbortSignal),
+    );
+    await expect(api.forwards({ ...input, selfUin: '10003' })).rejects.toThrow('账号已切换');
+    await expect(
+      api.forwards({ ...input, cursor: { ...cursor, previousPageKey: 'bad' } }),
+    ).rejects.toThrow();
+  });
+  it('按当前账号与准确帖定位读取原生媒体类型，不替换 Web 列表', async () => {
+    const input = {
+      selfUin,
+      hostUin,
+      tid: 'fixture',
+      time: 1700000000,
+      requestId: query.requestId,
+    };
+    expect(await api.mediaTypes(input)).toEqual([{ videoId: 'fixture', isLivePhoto: true }]);
+    expect(services.webQuery.getQzoneMediaTypes).toHaveBeenCalledWith(
+      hostUin,
+      'fixture',
+      input.time,
+      expect.any(AbortSignal),
+    );
+    expect(services.webQuery.getQzoneMsgList).not.toHaveBeenCalled();
+    await expect(api.mediaTypes({ ...input, selfUin: '10003' })).rejects.toThrow('账号已切换');
+    await expect(api.mediaTypes({ ...input, time: 0 })).rejects.toThrow();
+  });
   it('routes structured reply reads directly without scanning homepage HTML', async () => {
     const input = {
       selfUin,
@@ -104,6 +147,8 @@ describe('native Qzone boundary', () => {
       hostUin,
       'synthetic',
       expect.any(AbortSignal),
+      undefined,
+      undefined,
     );
     expect(services.webQuery.getQzonePostImages).toHaveBeenCalledWith(
       hostUin,

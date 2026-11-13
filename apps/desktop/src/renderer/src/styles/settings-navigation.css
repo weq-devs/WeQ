@@ -97,7 +97,7 @@ html[data-theme='dark'] .weq-settings-dialog .weq-settings-nav-item.is-active {
 }
 
 .weq-settings-body > :not(:first-child) {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .weq-settings-scope,
@@ -156,4 +156,16 @@ html[data-theme='dark'] .weq-settings-subnav {
   .weq-settings-subnav {
     padding: 10px 12px;
   }
+}
+
+/* 导航项与页头控件的键盘焦点统一用主题强调色，避免浏览器默认蓝框。 */
+html[data-theme] .weq-settings-dialog
+  :is(
+    .weq-settings-nav-item,
+    .weq-settings-subnav-item,
+    .weq-settings-close,
+    .weq-set-iconbtn
+  ):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
 }

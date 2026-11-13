@@ -34,3 +34,4 @@ export type {
 } from './friend-requests';
 export { GetGroupJoinInfo } from './get-group-join-info';
 export type { GroupJoinInfo } from './get-group-join-info';
+export type { GroupProfileExtras, GroupPortraitInfo } from './group-profile';

@@ -2,7 +2,7 @@ import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
-import { UnifiedSearchModal } from '../src/renderer/src/components/search/UnifiedSearchModal';
+import { SearchMoreResults } from '../src/renderer/src/components/search/UnifiedSearchModal';
 import type {
   ContentSearchHit,
   SearchCategory,
@@ -100,7 +100,8 @@ it('仅一个文件范围及结果组，混合排序后保留两种原始跳转�
     expect(
       [...f.host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent),
     ).toEqual(['文件']);
-    expect(f.host.textContent).toContain('群文件目录 · 已缓存内容 · 1 条');
+    expect(f.host.textContent).not.toContain('已缓存内容');
+    expect(f.host.textContent).not.toContain('群文件目录 ·');
     const rows = f.host.querySelectorAll<HTMLButtonElement>('[role="option"]');
     expect(rows).toHaveLength(2);
     act(() => rows[0]!.click());
@@ -149,10 +150,10 @@ it('文件更多页承接混合结果，选中目录文件时保留分页返回�
   const select = vi.fn();
   const navigate = vi.fn();
   const f = mount(
-    createElement(UnifiedSearchModal, {
+    createElement(SearchMoreResults, {
       category: 'file',
-      initialKeyword: '报告',
-      onClose: vi.fn(),
+      keyword: '报告',
+      onBack: vi.fn(),
       onSelect: select,
       onOpenChatRecords: vi.fn(),
       onNavigate: navigate,

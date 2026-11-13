@@ -1,8 +1,12 @@
 import { act, createElement as h, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { ImageLightbox, openLightbox } from '../src/renderer/src/components/ImageLightbox';
+import {
+  MediaPreviewHost,
+  openMediaPreview,
+} from '../src/renderer/src/components/mediaPreviewStore';
 import { QqImage } from '../src/renderer/src/components/QqMedia';
+import { interactiveMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import {
   releaseAttachment,
   type ComposerAttachment,
@@ -45,7 +49,7 @@ afterEach(async () => {
 
 async function mount(data: Record<string, unknown>) {
   await act(async () =>
-    root.render(h(Fragment, null, h(QqImage, { data, sendTimeMs: 1000 }), h(ImageLightbox))),
+    root.render(h(Fragment, null, h(QqImage, { data, sendTimeMs: 1000 }), h(MediaPreviewHost))),
   );
 }
 function preview() {
@@ -73,9 +77,9 @@ it('原图尚未就绪时回退到气泡缩略图', async () => {
   await act(async () => host.querySelector('img')!.click());
   expect(new URL(preview().src).searchParams.has('v')).toBe(false);
   await act(async () => preview().dispatchEvent(new Event('error')));
-  expect(preview().src).toBe(thumbnail);
+  expect(preview().src).toBe(interactiveMediaUrl(thumbnail));
   await act(async () => preview().dispatchEvent(new Event('load')));
-  expect(preview().src).toBe(thumbnail);
+  expect(preview().src).toBe(interactiveMediaUrl(thumbnail));
 });
 
 it('发送完成或切换会话释放附件时，已打开的预览保留 Blob 到关闭', async () => {
@@ -95,7 +99,11 @@ it('重复打开不会多占引用，换图后释放旧预览但不释放仍属�
   await act(async () => host.querySelector('img')!.click());
   await act(async () => host.querySelector('img')!.click());
   releaseAttachment(attachment('blob:pending-image'));
-  await act(async () => openLightbox('blob:next-image'));
+  await act(async () =>
+    openMediaPreview({
+      items: [{ key: 'blob:next-image', kind: 'image', src: 'blob:next-image' }],
+    }),
+  );
   expect(revoke.mock.calls).toEqual([['blob:pending-image']]);
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   expect(revoke).not.toHaveBeenCalledWith('blob:next-image');

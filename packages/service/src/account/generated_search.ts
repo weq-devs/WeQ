@@ -4,13 +4,15 @@ export interface GeneratedSearchHit {
   category: GeneratedSearchCategory;
   kind: 'persona' | 'group' | 'assistant';
   ownerId: string;
-  /** null 表示旧版单桶对话，不表示新建草稿。 */
+  /** null 表示克隆的长期对话（兼容旧单桶），不表示新建草稿。 */
   sessionId: string | null;
   messageId: string;
   title: string;
   sessionTitle: string;
   content: string;
   ts: number;
+  /** 标题命中不带消息锚点，直接打开对应独立会话。 */
+  matchType?: 'title' | 'content';
 }
 
 export interface GeneratedSearchSources {
@@ -25,12 +27,13 @@ export interface GeneratedSearchSources {
     getGroupMessages(id: string): GeneratedMessage[];
   };
   assistant: {
-    listSessions(): Array<{ id: string; title: string }>;
+    listSessions(): Array<{ id: string; title: string; updatedAt?: number }>;
     getConversation(sessionId: string): GeneratedMessage[];
   };
 }
 
 export interface GeneratedMessage {
+  status?: 'running' | 'complete' | 'stopped' | 'failed';
   id?: string;
   text: string;
   ts: number;
@@ -67,11 +70,26 @@ export function searchGeneratedMessages(
         messageId: message.id,
         content: `${start ? '…' : ''}${message.text.slice(start, Math.max(start + 200, at + needle.length))}${message.text.length > Math.max(start + 200, at + needle.length) ? '…' : ''}`,
         ts: message.ts,
+        matchType: 'content',
       });
     }
   };
   if (category === 'assistantMessage') {
     for (const session of sources.assistant.listSessions()) {
+      const messages = sources.assistant.getConversation(session.id);
+      if (session.title.toLocaleLowerCase().includes(needle))
+        hits.push({
+          category,
+          kind: 'assistant',
+          ownerId: 'assistant',
+          sessionId: session.id,
+          messageId: '',
+          title: 'WeQ 助手',
+          sessionTitle: session.title,
+          content: session.title,
+          ts: session.updatedAt ?? messages.at(-1)?.ts ?? 0,
+          matchType: 'title',
+        });
       add(
         {
           kind: 'assistant',
@@ -80,14 +98,14 @@ export function searchGeneratedMessages(
           title: 'WeQ 助手',
           sessionTitle: session.title,
         },
-        sources.assistant.getConversation(session.id),
+        messages,
       );
     }
   } else {
     for (const persona of sources.agentLab.listPersonas()) {
       const target = { kind: 'persona' as const, ownerId: persona.id, title: persona.name };
       add(
-        { ...target, sessionId: null, sessionTitle: '旧版对话' },
+        { ...target, sessionId: null, sessionTitle: '长期对话' },
         sources.agentLab.getConversation(persona.id),
       );
       for (const session of sources.agentLab.listPersonaSessions(persona.id)) {
@@ -100,7 +118,7 @@ export function searchGeneratedMessages(
     for (const group of sources.agentLab.listGroups()) {
       const target = { kind: 'group' as const, ownerId: group.id, title: group.name };
       add(
-        { ...target, sessionId: null, sessionTitle: '旧版对话' },
+        { ...target, sessionId: null, sessionTitle: '长期对话' },
         sources.agentLab.getGroupMessages(group.id),
       );
       for (const session of sources.agentLab.listGroupSessions(group.id)) {

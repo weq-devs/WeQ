@@ -351,12 +351,38 @@ if (serve) {
             document.querySelector('.sidebar-header-contacts .contact-tools'),
           );
           const box = toolbar.getBoundingClientRect();
+          const rect = (selector) => sidebar.querySelector(selector).getBoundingClientRect();
+          const surface = (node) => {
+            for (; node; node = node.parentElement) {
+              const color = getComputedStyle(node).backgroundColor;
+              if (color !== 'rgba(0, 0, 0, 0)') return color;
+            }
+          };
+          const notice = rect('.contact-notice-row');
+          const tabs = rect('.contact-tab-switch');
+          const order = rect('.weq-directory-order');
+          const select = rect('.weq-directory-order label');
+          const rightSelect = rect('.weq-directory-order > button');
           return {
             sameSurface: getComputedStyle(toolbar).backgroundColor === 'rgba(0, 0, 0, 0)',
             noOuterMargin: tools.marginLeft === '0px' && tools.marginRight === '0px',
             fullWidth: Math.abs(box.width - sidebar.clientWidth) <= 1,
             aligned: Math.abs(box.left - sidebar.getBoundingClientRect().left) <= 1,
             noOverflow: document.documentElement.scrollWidth <= innerWidth,
+            consistentGutters:
+              Math.abs(tabs.left - select.left) <= 1 &&
+              Math.abs(tabs.right - rightSelect.right) <= 1 &&
+              Math.abs(select.left - box.left - 12) <= 1,
+            consistentRhythm:
+              Math.abs(notice.top - box.bottom - 8) <= 1 &&
+              Math.abs(tabs.top - notice.bottom - 8) <= 1 &&
+              Math.abs(order.top - tabs.bottom - 8) <= 1,
+            continuousSurface: [
+              '.sidebar-header-contacts',
+              '.weq-directory-order',
+              '.weq-contact-directory-scroll',
+              '.contact-cat-header',
+            ].every((selector) => surface(sidebar.querySelector(selector)) === surface(sidebar)),
           };
         });
         for (const [name, passed] of Object.entries(checks))

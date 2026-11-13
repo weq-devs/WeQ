@@ -208,6 +208,25 @@ describe('AccountConfigService.setA1Payload', () => {
     expect(s.getRecord()?.a1Payload).toBe('deadbeef');
   });
 
+  it('通知已读按类别保存，重建服务后仍保留且不覆盖账号其他配置', () => {
+    const { s, dir } = svc();
+    s.setA1Payload('deadbeef');
+    s.setNoticeSeen('friend', { seen: ['buddy-request:u_peer:100'], readThrough: 100 });
+    s.setNoticeSeen('group', { seen: ['group-notify:123:u_peer:200'], readThrough: 200 });
+    const session = {
+      context: { uin: '12345', dbKey: 'k', algos: {} },
+    } as unknown as ConstructorParameters<typeof AccountConfigService>[0];
+    const reopened = new AccountConfigService(session, dir);
+    reopened.save({ dataDir: '/tmp/data-12345' });
+    expect(reopened.getRecord()?.noticeSeen).toEqual({
+      friend: { seen: ['buddy-request:u_peer:100'], readThrough: 100 },
+      group: { seen: ['group-notify:123:u_peer:200'], readThrough: 200 },
+    });
+    expect(reopened.getRecord()?.a1Payload).toBe('deadbeef');
+    reopened.save({ dataDir: '/tmp/other-source' });
+    expect(reopened.getRecord()?.noticeSeen).toBeUndefined();
+  });
+
   it('空串不写（没有可用 A1）', () => {
     const { s } = svc();
     s.setA1Payload('');

@@ -14,7 +14,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { measureMessageWork, recordMessagePartition, recordMessageWork } from '@weq/db';
+import { decodeBody, measureMessageWork, recordMessagePartition, recordMessageWork } from '@weq/db';
 import type {
   C2cMsg,
   GroupMsg,
@@ -51,6 +51,7 @@ import { matchesMessageFilter, messageSelectionKey, type MessageFilter } from '.
 import type { GapFetchedMessage } from './gap_history';
 import { elementsToText } from './export/element_text';
 import { sourceStamp } from './export/resume';
+import { mergeRoamingTimeline } from '../common/roaming_timeline';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 
@@ -137,6 +138,8 @@ export interface RecallInfo {
 type RecallMap = Map<string, { revokeUid: string; senderUid: string; recallTs: number }>;
 
 export interface RenderC2cMsg extends Omit<C2cMsg, 'elements'> {
+  forwardSource?: import('./export/types').ExportedMessage['forwardSource'];
+  senderName?: string;
   elements: RenderElement[];
   deletedKind?: DeletedKind;
   recall?: RecallInfo;
@@ -155,6 +158,8 @@ export interface MsgSalvageSource {
 }
 
 export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
+  forwardSource?: import('./export/types').ExportedMessage['forwardSource'];
+  senderName?: string;
   elements: RenderElement[];
   deletedKind?: DeletedKind;
   recall?: RecallInfo;
@@ -208,9 +213,13 @@ export class MsgService {
     );
   }
 
-  exportSourceStamp(kind: 'group' | 'c2c', conv: string): string {
+  exportSourceStamp(kind: 'group' | 'c2c' | 'official' | 'service', conv: string): string {
     return sourceStamp(
-      kind === 'group' ? this.session.groupMsgs.sourcePath : this.c2cDbFor(conv).sourcePath,
+      kind === 'group'
+        ? this.session.groupMsgs.sourcePath
+        : kind === 'service'
+          ? this.session.serviceAssistantMsgs.sourcePath
+          : this.c2cDbFor(conv).sourcePath,
     );
   }
   async exportSourceRows(
@@ -330,6 +339,105 @@ export class MsgService {
       cursor: hasMore ? next : null,
       scanned,
       hasMore,
+    };
+  }
+
+  /** 本地表与离线漫游缓存各读一个有界批次，先合并原始窗口再筛媒体。 */
+  async mediaPage(
+    kind: 'group' | 'c2c',
+    conv: string,
+    filter: MessageFilter & { start?: number; end?: number },
+    direction: 'older' | 'newer',
+    anchorMsgId: string,
+    cursor?: { msgSeq: string; sendTime: string; msgId: string },
+    anchorTime?: number,
+    anchorSeq?: string,
+    readCached?: (
+      cursor: { msgSeq: number; sendTime: number; msgId: string },
+      descending: boolean,
+    ) => Promise<GapFetchedMessage[]>,
+  ) {
+    let position = cursor;
+    if (!position) {
+      const source = (await this.exportSourceRows(kind, conv, [anchorMsgId], false))[0];
+      if (!source && (anchorTime === undefined || anchorSeq === undefined))
+        throw new Error('预览起点消息已不可用，请重新打开');
+      position = {
+        msgSeq: source ? String(source.columns['40003'] ?? 0) : anchorSeq!,
+        sendTime: source ? String(source.columns['40050'] ?? 0) : String(anchorTime),
+        msgId: anchorMsgId,
+      };
+    }
+    const descending = direction === 'older';
+    const [rows, cached] = await Promise.all([
+      this.getHistoryPage(kind, conv, {
+        cursor: {
+          msgSeq: BigInt(position.msgSeq),
+          sendTime: BigInt(position.sendTime),
+          msgId: BigInt(position.msgId),
+        },
+        min: 0n,
+        max: 0x7fffffffffffffffn,
+        descending,
+        limit: 300,
+      }),
+      readCached?.(
+        {
+          msgSeq: Number(position.msgSeq),
+          sendTime: Number(position.sendTime),
+          msgId: position.msgId,
+        },
+        descending,
+      ) ?? [],
+    ]);
+    const normalize = (
+      row: RenderGroupMsg | RenderC2cMsg | GapFetchedMessage,
+      source?: 'roaming',
+    ) => ({
+      kind,
+      conv,
+      msgId: String(row.msgId),
+      msgSeq: String(row.msgSeq),
+      sendTime: String(row.sendTime),
+      msgRandom: String(row.msgRandom ?? '0'),
+      senderUid: row.senderUid,
+      senderUin: String(row.senderUin),
+      elements: row.elements,
+      source,
+      sourceFormat: 'sourceFormat' in row ? row.sourceFormat : undefined,
+      localSent: 'localSent' in row ? row.localSent : undefined,
+      ntSeqVerified: 'ntSeqVerified' in row ? row.ntSeqVerified : undefined,
+      recall: row.recall,
+      deletedKind: 'deletedKind' in row ? row.deletedKind : undefined,
+    });
+    const merged = mergeRoamingTimeline(
+      kind,
+      rows.map((row) => normalize(row)),
+      cached.map((row) => normalize(row, 'roaming')),
+    );
+    if (descending) merged.reverse();
+    const window = merged.slice(0, 300);
+    const hidden = new Set(this.getHiddenDeletedMsgIds(kind, conv));
+    const items = window.filter(
+      (message) =>
+        !hidden.has(String(message.msgId)) &&
+        matchesMessageFilter(message, filter) &&
+        (filter.start === undefined || Number(message.sendTime) >= filter.start) &&
+        (filter.end === undefined || Number(message.sendTime) <= filter.end) &&
+        message.elements.some(
+          (element) =>
+            element.type === 'video' ||
+            (element.type === 'pic' &&
+              element.data?.subType !== 1 &&
+              !element.data?.isFlash &&
+              !String(element.data?.fileToken ?? '').startsWith('/')),
+        ),
+    );
+    const last = window.at(-1);
+    return {
+      items,
+      cursor: last ? { msgSeq: last.msgSeq, sendTime: last.sendTime, msgId: last.msgId } : position,
+      hasMore: rows.length === 300 || cached.length === 300 || merged.length > 300,
     };
   }
 
@@ -479,8 +587,6 @@ export class MsgService {
   async getRawElements(
     msgId: bigint,
   ): Promise<{ elements: Element[]; kind: 'c2c' | 'group' } | null> {
-    const { decodeBody } = await import('@weq/db');
-
     // c2c / dataline / 服务号(118) 三张表都是 C2cMsgDb（同一 wire shape），
     // 服务号消息物理存在 service_assistant_msg_table，漏查会导致「服务号 ARK
     // 消息右键修改」永远 getRawElements 返回 null（编辑框打不开）。
@@ -569,7 +675,6 @@ export class MsgService {
    * false when the row / element isn't found, or when the value is unchanged.
    */
   async setPttTranscript(msgId: bigint, fileName: string, text: string): Promise<boolean> {
-    const { decodeBody } = await import('@weq/db');
     for (const db of [
       this.session.c2cMsgs,
       this.session.datalineMsgs,

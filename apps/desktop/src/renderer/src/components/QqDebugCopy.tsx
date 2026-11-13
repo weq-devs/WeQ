@@ -14,6 +14,7 @@ const PHASE_LABELS: Record<QqDebugCopyPhase, string> = {
   signing: '正在配置调试签名',
   verifying: '正在校验副本',
   launching: '正在启动副本',
+  quitting: '正在退出普通 QQ',
   removing: '正在移除副本',
 };
 

@@ -7,13 +7,15 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactElement } from 'react';
-import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square, Info } from 'lucide-react';
+import { Lightbulb, RefreshCw, ChevronUp, ChevronDown, Square, Info, Play } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useToast } from '../Toast';
 import { useIntentSenseStatus } from './context';
 import { ReplySuggestionHistory } from './ReplySuggestionHistory';
 import { ReplySuggestionDetailsPanel } from './ReplySuggestionDetailsPanel';
 import type { ReplySuggestionHistoryEntry } from '@weq/service';
+import { INTENT_TUNING } from '@weq/service/intent-context';
+import { formatSuggestionAge } from '../../lib/suggestionExpiry';
 import '../../styles/intent-sense.css';
 
 export function IntentSuggestionBar({
@@ -36,7 +38,7 @@ export function IntentSuggestionBar({
   const [historyScope, setHistoryScope] = useState<string | null>(null);
   const [detail, setDetail] = useState<{
     scope: string;
-    id: string;
+    id?: string;
     anchor: HTMLButtonElement;
   } | null>(null);
   const historyId = useId();
@@ -44,6 +46,7 @@ export function IntentSuggestionBar({
     null,
   );
   const status = useIntentSenseStatus();
+  const manual = status.data?.suggestionMode === 'manual';
   const replyAllowed =
     replyTargetId !== null || (status.data?.suggestAfterSelf === true && !!latestMessageId);
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
@@ -61,6 +64,8 @@ export function IntentSuggestionBar({
   );
   const latestHistory = history.data?.[0];
   const upToDate = !!latestMessageId && latestHistory?.target.msgId === latestMessageId;
+  const expiryMinutes =
+    status.data?.suggestionExpiryMinutes ?? INTENT_TUNING.suggestionExpiryMinutes.default;
   const suggestions = trpc.account.intentSense.getSuggestionRound.useQuery(
     {
       kind,
@@ -72,6 +77,7 @@ export function IntentSuggestionBar({
     {
       enabled:
         active &&
+        !manual &&
         replyAllowed &&
         !history.isLoading &&
         !upToDate &&
@@ -94,7 +100,10 @@ export function IntentSuggestionBar({
     round: ReplySuggestionHistoryEntry;
   } | null>(null);
   const recent =
-    latestHistory && (upToDate || entry.current.at - latestHistory.createdAt <= 60_000)
+    latestHistory &&
+    (upToDate ||
+      expiryMinutes === -1 ||
+      (expiryMinutes > 0 && entry.current.at - latestHistory.createdAt <= expiryMinutes * 60_000))
       ? latestHistory
       : undefined;
   useEffect(() => {
@@ -128,8 +137,10 @@ export function IntentSuggestionBar({
       : ((replyAllowed ? suggestions.data : undefined) ?? recent);
   const list = currentRound?.suggestions ?? [];
   const loading =
-    stopped !== messageContext && ((!upToDate && replyAllowed && suggestions.isFetching) || busy);
+    stopped !== messageContext &&
+    ((!manual && !upToDate && replyAllowed && suggestions.isFetching) || busy);
   const showStop = loading && actionHovered;
+  const showStart = !loading && (manual || stopped === messageContext);
   const currentTarget = currentRound?.target;
   const error =
     refreshError?.context === requestContext.current
@@ -137,6 +148,36 @@ export function IntentSuggestionBar({
       : replyAllowed
         ? suggestions.error?.message
         : undefined;
+  const expiredAt =
+    active && !loading && !error && !currentRound && !recent && latestHistory?.suggestions.length
+      ? latestHistory.createdAt
+      : undefined;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (expiredAt === undefined) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      const age = Math.max(0, Date.now() - expiredAt);
+      const unit = age < 60_000 ? 1000 : 60_000;
+      timer = setTimeout(
+        () => {
+          tick((value) => value + 1);
+          schedule();
+        },
+        unit - (age % unit),
+      );
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, [expiredAt]);
+  const expiredAge = expiredAt !== undefined ? formatSuggestionAge(Date.now() - expiredAt) : null;
+  const emptyText = error
+    ? '推荐回复失败，可重试'
+    : expiredAt !== undefined
+      ? `暂无推荐回复（距上次推荐 ${expiredAge}，已过期）`
+      : replyAllowed
+        ? '暂无推荐回复'
+        : '等待对方新消息';
   const visible = active;
   const trackRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -163,10 +204,11 @@ export function IntentSuggestionBar({
     >
       {detail?.scope === scope ? (
         <ReplySuggestionDetailsPanel
-          key={detail.id}
+          key={detail.id ?? 'in-progress'}
           kind={kind}
           conv={conv}
           id={detail.id}
+          generating={loading}
           anchor={detail.anchor}
           onClose={() => setDetail(null)}
         />
@@ -201,14 +243,19 @@ export function IntentSuggestionBar({
               ? `推荐回复失败：${error}`
               : list.length
                 ? '推荐回复已更新'
-                : '暂无推荐回复'}
+                : emptyText}
         </span>
         <div key={`${kind}:${conv}`} ref={trackRef} className="weq-int-suggest-track">
           {loading && list.length === 0 ? (
             <span className="weq-int-suggest-empty">正在生成推荐回复</span>
+          ) : expiredAge !== null ? (
+            <span className="weq-int-suggest-empty weq-int-suggest-expired" title={emptyText}>
+              <span className="weq-int-suggest-expired-label">上次推荐已过期</span>
+              <span className="weq-int-suggest-expired-age"> · {expiredAge}前</span>
+            </span>
           ) : list.length === 0 ? (
-            <span className="weq-int-suggest-empty" title={error}>
-              {error ? '推荐回复失败，可重试' : replyAllowed ? '暂无推荐回复' : '等待对方新消息'}
+            <span className="weq-int-suggest-empty" title={error ?? emptyText}>
+              {emptyText}
             </span>
           ) : (
             list.map((s) => (
@@ -236,9 +283,13 @@ export function IntentSuggestionBar({
             className="weq-int-suggest-refresh"
             title="查看当前推荐详情"
             aria-label="查看当前推荐详情"
-            disabled={!currentRound}
+            disabled={!currentRound && !loading}
             onClick={(event) =>
-              currentRound && setDetail({ scope, id: currentRound.id, anchor: event.currentTarget })
+              setDetail({
+                scope,
+                id: loading ? undefined : currentRound?.id,
+                anchor: event.currentTarget,
+              })
             }
           >
             <Info size={12} />
@@ -246,8 +297,16 @@ export function IntentSuggestionBar({
           <button
             type="button"
             className={`weq-int-suggest-refresh weq-int-suggest-action${loading && !showStop ? ' is-busy' : ''}`}
-            title={showStop ? '停止推荐回复' : error ? '重试推荐回复' : '换一批'}
-            aria-label={showStop ? '停止推荐回复' : '换一批建议'}
+            title={
+              showStop
+                ? '停止推荐回复'
+                : error
+                  ? '重试推荐回复'
+                  : showStart
+                    ? '开始推荐回复'
+                    : '换一批'
+            }
+            aria-label={showStop ? '停止推荐回复' : showStart ? '开始推荐回复' : '换一批建议'}
             aria-busy={loading}
             disabled={stopping}
             onMouseEnter={() => setActionHovered(true)}
@@ -319,7 +378,13 @@ export function IntentSuggestionBar({
               }
             }}
           >
-            {showStop ? <Square size={12} /> : <RefreshCw size={12} />}
+            {showStop ? (
+              <Square size={12} />
+            ) : showStart ? (
+              <Play size={12} />
+            ) : (
+              <RefreshCw size={12} />
+            )}
           </button>
           <button
             type="button"

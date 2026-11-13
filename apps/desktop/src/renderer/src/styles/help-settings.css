@@ -29,7 +29,7 @@
   vertical-align: -2px;
 }
 html[data-theme] .weq-settings-dialog :is(.weq-help-faq, .weq-help-bug) {
-  gap: 16px;
+  gap: 12px;
 }
 
 html[data-theme] .weq-settings-dialog .weq-help-bug-card-head {

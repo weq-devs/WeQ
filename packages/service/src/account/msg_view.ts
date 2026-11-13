@@ -396,6 +396,7 @@ export interface RenderMarkdownElement {
  */
 export interface ForwardMessage {
   msgId?: string;
+  senderUid?: string;
   /** Sender display name (nickname / card / uin fallback). */
   senderName: string;
   /** Sender QQ number, when known ('' otherwise). */

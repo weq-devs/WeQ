@@ -33,7 +33,7 @@ export type {
   SourceSearchTable,
 } from './source_search';
 
-export { UnreadInfoDb, UNREAD_OUTGOING_PAGE_SIZE } from './unread_info';
+export { UnreadInfoDb } from './unread_info';
 export type {
   UnreadInfoDbOptions,
   UnreadInfoResult,
@@ -47,6 +47,7 @@ export type {
 
 export { AntiRecallDb, expectedAntiRecallTriggers } from './anti_recall';
 export { AnnualReportIndexDb } from './annual_report_index';
+export { MessageReadIndexDb } from './message_read_index';
 export type { AnnualReportIndexInfo } from './annual_report_index';
 export type {
   AntiRecallKind,

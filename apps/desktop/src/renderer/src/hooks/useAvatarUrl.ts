@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { cachedAvatarUrl, refreshAvatarUrl } from '../lib/avatarCache';
 import { avatarFetchUrl } from '../lib/resourceUrl';
+import { useDataSaver } from '../lib/dataSaver';
 
 const revisions = new Map<string, number>();
 const listeners = new Set<() => void>();
@@ -57,10 +58,12 @@ export function useAvatarUrl(
   wrap = true,
   variant: 'big' | 'small' = 'big',
 ): string | null {
+  const limited = useDataSaver((state) => state.enabled);
+  useDataSaver((state) => state.behavior.dataSaverAvatars);
   const key = avatarKey(src);
   const getSnapshot = () => (key ? (revisions.get(key) ?? 0) : 0);
   const revision = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  let resolved = wrap || key ? cachedAvatarUrl(src, variant) : (src ?? null);
+  let resolved = wrap || key ? cachedAvatarUrl(src, limited ? 'small' : variant) : (src ?? null);
   if (!revision || !resolved) return resolved;
   // CDN 直连偏好下，显式修改后的这一次刷新仍经本地桥强制回源。
   if (/^https?:/i.test(resolved)) resolved = avatarFetchUrl(resolved);

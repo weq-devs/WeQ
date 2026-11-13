@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useRenderDocument } from './renderDocument';
+import { visibleViewport } from './visibleViewport';
 
 type OverlayAnchor = { element: HTMLElement; rect: DOMRect };
 export const OverlayAnchorContext = createContext<RefObject<OverlayAnchor | null> | null>(null);
@@ -43,7 +44,7 @@ export function useOverlayAnchor(
   active: boolean,
   enabled: boolean,
   explicit?: HTMLElement | null,
-  preferred: 'above' | 'below' = 'below',
+  preferred: 'above' | 'below' | 'side' = 'below',
 ) {
   const document = useRenderDocument();
   const parent = useContext(OverlayAnchorContext);
@@ -77,23 +78,32 @@ export function useOverlayAnchor(
       const target = anchor.element.getClientRects().length
         ? anchor.element.getBoundingClientRect()
         : anchor.rect;
-      const width = view?.innerWidth ?? 1024;
-      const height = view?.innerHeight ?? 768;
+      const { width, height, left, top } = visibleViewport(view);
       const rect = card.getBoundingClientRect();
       const cardWidth = card.offsetWidth || rect.width;
       const cardHeight = card.offsetHeight || rect.height;
-      const x = Math.max(8, Math.min(target.left, width - cardWidth - 8));
+      const beside =
+        preferred === 'side'
+          ? target.right + cardWidth + 16 <= left + width
+            ? target.right + 8
+            : target.left - cardWidth - 8 >= left + 8
+              ? target.left - cardWidth - 8
+              : null
+          : null;
+      const x = Math.max(left + 8, Math.min(beside ?? target.left, left + width - cardWidth - 8));
       const below = target.bottom + 8;
       const above = target.top - cardHeight - 8;
       const y = Math.max(
-        8,
+        top + 8,
         Math.min(
-          preferred === 'above' && above >= 8
-            ? above
-            : below + cardHeight <= height - 8
-              ? below
-              : above,
-          height - cardHeight - 8,
+          beside !== null
+            ? target.top
+            : preferred === 'above' && above >= top + 8
+              ? above
+              : below + cardHeight <= top + height - 8
+                ? below
+                : above,
+          top + height - cardHeight - 8,
         ),
       );
       setPosition({
@@ -103,6 +113,8 @@ export function useOverlayAnchor(
     };
     place();
     view?.addEventListener('resize', place);
+    view?.visualViewport?.addEventListener('resize', place);
+    view?.visualViewport?.addEventListener('scroll', place);
     layer.ownerDocument.addEventListener('scroll', place, true);
     const observer = new ResizeObserver(place);
     observer.observe(card);
@@ -112,6 +124,8 @@ export function useOverlayAnchor(
       mutations.observe(element, { attributes: true, attributeFilter: ['style', 'class'] });
     return () => {
       view?.removeEventListener('resize', place);
+      view?.visualViewport?.removeEventListener('resize', place);
+      view?.visualViewport?.removeEventListener('scroll', place);
       layer.ownerDocument.removeEventListener('scroll', place, true);
       observer.disconnect();
       mutations.disconnect();

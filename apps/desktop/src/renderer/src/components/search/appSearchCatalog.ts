@@ -2,7 +2,10 @@ import { searchNameRank, type ConversationScope } from '@weq/service/search-poli
 import type { MainView } from '../../im-template/template/types';
 import type { ExportMode } from '../../views/export/types';
 import type { DressKind } from '../DressUpDialog';
+import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import { AI_SETTING_ITEMS } from '../settings/aiSettingsCatalog';
+import { isRemoteClient } from '../../lib/remoteClient';
+import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
 import {
   SETTINGS_PAGE_LABELS,
   SETTINGS_ITEM_TARGETS,
@@ -27,6 +30,7 @@ export type AppSearchTarget =
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
   | { kind: 'dressup'; dressKind?: DressKind }
+  | { kind: 'self-profile'; tab?: ContactWorkspaceTab }
   | { kind: 'clone-create'; group?: boolean };
 
 export interface AppSearchEntry {
@@ -39,6 +43,16 @@ export interface AppSearchEntry {
 
 // 这里只保存公开的界面名称与入口，不读取设置值、账号资料或凭据。
 const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
+  'enhancement-packs': [
+    'AI 功能',
+    '增强功能',
+    '本地模型',
+    '下载全部',
+    '模型下载',
+    '推理引擎',
+    '装扮索引',
+  ],
+  recognition: ['图片识别', '语音识别', '语音转写', 'OCR', 'ASR'],
   global: ['窗口行为', '通知', '应用内横幅提醒'],
   startup: ['启动', '开机启动', '系统登录项'],
   version: ['软件更新', '检查更新', '更新日志'],
@@ -47,13 +61,15 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   'chat-messages': ['聊天消息', '阅读设置', '未读设置'],
   'call-recording': ['通话与录音'],
   account: ['接入与监听', '账号接入与消息'],
-  accounts: ['账号管理', '媒体来源', 'media'],
+  accounts: ['账号管理'],
+  media: ['media', '媒体目录'],
+  'qq-accounts': ['QQ 账号管理'],
   credentials: ['账号凭据'],
-  diagnostics: ['高级诊断'],
+  diagnostics: ['高级诊断', '诊断工具'],
   'database-repair': ['损坏处理'],
-  'database-tolerance': ['损坏处理与容错', '容错记录', 'database-status'],
+  'database-tolerance': ['损坏处理与容错', '容错记录', 'database-status', '数据库宽容'],
   'database-management': ['维护工具', 'maintenance'],
-  'qq-storage': ['QQ 存储管理', '资源管理', '本地缓存'],
+  'qq-storage': ['QQ 存储管理', '资源管理', '本地缓存', '资源目录管理'],
   privacy: ['隐私与应用锁', '应用锁', '隐私模式', 'applock'],
   'resource-loading': ['资源下载网络', '加载来源', '网络', 'CDN'],
   assistant: ['公众号推送', 'QQ 公众号'],
@@ -77,6 +93,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['chat-interaction', '隐藏正在输入状态', '正在输入', '打字状态', '向对方展示输入状态'],
   ['startup', '开机自动启动 WeQ', '自启动'],
   ['startup', '自启时显示窗口', '启动显示窗口', '隐藏启动'],
+  ['startup', '启动后打开', '默认页面', '启动页面'],
   ['call-recording', '录音来源', '录制内容', '录音模式', '双方混合', '仅本端', '仅对方'],
   ['call-recording', '同时录电脑声音', '系统音频'],
   ['call-recording', '保存位置', '录音目录'],
@@ -110,7 +127,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['accounts', '现有配置', '自动进入账号'],
   ['account', '启用数据库监听', '自动刷新消息'],
   ['account', '长期授权', '权限助手', '免重复提权', '管理员授权'],
-  ['account', '同步已读状态到 QQ'],
+  ['chat-messages', '向 QQ 服务器上报已读位置'],
   ['account', '手动标记时上报已读位置'],
   ['account', '自动读取 QQ 内存（完整功能）', '完整模式'],
   ['account', '进入受限模式时横幅提醒', '受限横幅'],
@@ -119,7 +136,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['qzone', '在线翻页限速', '空间翻页频率'],
   ['mail', '显示未读邮件数'],
   ['mail', '新邮件提醒'],
-  ['storage', '优先使用 CDN', '下载加速'],
+  ['storage', '优先直连 QQ 加载图片', '优先使用 CDN', '下载加速'],
   ['storage', 'WeQ 存储管理', '清理数据', '释放空间'],
   ['media', '关联本机媒体目录', '本地图片目录'],
   ['media', '允许使用外部安卓图片缓存', 'Android 图片'],
@@ -132,9 +149,9 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
     '同名数据处理',
     '保留本机导出目录与图片库路径',
   ],
-  ['backup', '恢复默认设置', '重置设置', '恢复出厂'],
+  ['startup', '恢复本页默认设置', '恢复默认设置', '重置设置', '恢复出厂'],
   ['database', '数据库异常时弹窗提醒', '损坏提醒'],
-  ['database', '数据库宽容级别', '容错级别', '严格模式'],
+  ['database', '数据库容错级别', '数据库宽容级别', '容错级别', '严格模式'],
   ['database-status', '降级账本'],
   ['database-status', '已放弃的表（隔离中）'],
   [
@@ -151,8 +168,10 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
     'App ID',
     'Resource ID',
   ],
-  ['agentlab', '已保存的 provider', 'API Key', 'Base URL', '服务商'],
-  ['agentlab', '默认模型', 'LLM 默认模型'],
+  ['agentlab', '已保存的服务商', '已保存的 provider', 'API Key', 'Base URL', '服务商'],
+  ['agentlab', '默认聊天模型', 'LLM 默认聊天模型', '默认模型', 'LLM 默认模型'],
+  ['agentlab', '默认视觉模型', '图片分析模型'],
+  ['agentlab', '默认向量模型', '嵌入模型', 'Embedding 模型'],
   ['intent-sense', '启用意图感知'],
   ['intent-sense', '意图感知运行方式', '本地意图模型'],
   ['intent-sense', '意图模型资源（全局）', '意图模型资源', '使用下载镜像', 'hf-mirror.com 镜像'],
@@ -268,6 +287,11 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
   feature('WeQ 助手', { kind: 'tool', tool: 'assistant' }, 'AI 助手', '智能助手'),
   feature('合成聊天记录', { kind: 'composition' }, '合并转发'),
   feature('个性装扮', { kind: 'dressup' }, '装扮商城'),
+  feature('我的资料', { kind: 'self-profile' }, '本人资料', '个人资料'),
+  {
+    ...feature('礼物墙', { kind: 'self-profile', tab: 'giftwall' }, '我的礼物墙', '礼物'),
+    path: '我的资料 / 礼物墙',
+  },
   ...(
     [
       ['气泡商城', 'bubble', '聊天气泡', '气泡'],
@@ -276,7 +300,6 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
       ['通话背景', 'callbg'],
       ['QQ 聊天背景', 'background', '聊天背景商城'],
       ['商城表情', 'emoji', '表情商城'],
-      ['我的礼物墙', 'giftwall', '礼物墙', '礼物'],
       ['红包封面', 'redpack', '红包皮肤', '红包'],
     ] as const
   ).map(([title, dressKind, ...aliases]) =>
@@ -307,11 +330,17 @@ export function appSearchEntryRank(keyword: string, entry: AppSearchEntry): numb
 export function searchAppEntries(keyword: string): AppSearchEntry[] {
   const query = keyword.trim();
   if (!query) return [];
-  return APP_SEARCH_ENTRIES.map((entry, index) => ({
-    entry,
-    index,
-    rank: appSearchEntryRank(query, entry),
-  }))
+  return APP_SEARCH_ENTRIES.filter((entry) => {
+    if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
+    const target = resolveSettingsTarget(entry.target);
+    // 页面 / settingId / 行名三种禁项都在 shared/remote_capabilities 里，这里只消费。
+    return remoteSettingAvailable(target.section, target.settingId, target.item);
+  })
+    .map((entry, index) => ({
+      entry,
+      index,
+      rank: appSearchEntryRank(query, entry),
+    }))
     .filter(({ rank }) => rank > 0)
     .sort((a, b) => b.rank - a.rank || a.index - b.index)
     .map(({ entry }) => entry);

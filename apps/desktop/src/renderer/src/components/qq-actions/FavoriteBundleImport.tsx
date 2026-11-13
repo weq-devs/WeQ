@@ -158,7 +158,7 @@ export function FavoriteBundleImport({
     } catch (error) {
       if (mounted.current) {
         setError(
-          `提交结果需核对：${error instanceof Error ? error.message : String(error)}。请先刷新进度，不要重复上传。`,
+          `提交结果需核对：${error instanceof Error ? error.message : String(error)}。请先重新核对状态，不要重复上传。`,
         );
         await state.refetch();
       }
@@ -206,6 +206,22 @@ export function FavoriteBundleImport({
     if (stage && (running || stage.phase === 'ready')) void stop(true);
     else setOpen(false);
   }
+  async function recheck() {
+    if (!binding || !active || inFlight.current) return;
+    inFlight.current = true;
+    setPending(true);
+    try {
+      const result = await state.refetch();
+      if (result.error || !mounted.current) return;
+      await changed.current();
+      if (mounted.current) setError('');
+    } catch (reason) {
+      if (mounted.current) setError(`收藏列表读取失败：${String(reason)}`);
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setPending(false);
+    }
+  }
   const ready = stage?.items.filter((item) => item.disposition === 'ready') ?? [];
   const picture =
     stage?.items.find((item) => item.key === focused) ??
@@ -213,6 +229,15 @@ export function FavoriteBundleImport({
     stage?.items[0];
   const done = stage?.result?.items.filter((item) => item.state !== 'not-run').length ?? 0;
   const total = stage?.result?.items.length ?? selected.size;
+  const needsReadback = Boolean(
+    error ||
+      state.error ||
+      stage?.error ||
+      stage?.result?.stopped ||
+      stage?.result?.items.some((item) =>
+        ['unconfirmed', 'metadata-failed', 'accepted'].includes(item.state),
+      ),
+  );
   return (
     <>
       <ActionIcon
@@ -256,14 +281,6 @@ export function FavoriteBundleImport({
                   onClick={() => void choose()}
                 >
                   <FolderOpen size={16} />
-                </ActionIcon>
-                <ActionIcon
-                  text="刷新"
-                  label="重新读取导入状态"
-                  disabled={pending || state.isFetching}
-                  onClick={() => void state.refetch()}
-                >
-                  <RotateCw size={16} />
                 </ActionIcon>
                 {stage?.phase === 'ready' && (
                   <ActionIcon
@@ -323,6 +340,16 @@ export function FavoriteBundleImport({
                 {text}
               </p>
             ))}
+            {needsReadback ? (
+              <ActionIcon
+                text="重新核对状态"
+                label="重新核对导入状态"
+                disabled={pending || state.isFetching || !binding || !active}
+                onClick={() => void recheck()}
+              >
+                <RotateCw size={16} />
+              </ActionIcon>
+            ) : null}
             {stage?.phase === 'ready' && (
               <label className="weq-favorite-import-select">
                 <input

@@ -79,6 +79,9 @@ function fixture() {
 
 it('真实 UserConfig 的四分区快照不改原配置，公开清单不回显密钥', () => {
   const f = fixture();
+  write(join(f.cache, 'agentlab', '10001', 'assistant_sessions.json'), [
+    { id: 'synthetic-session', title: '合成会话' },
+  ]);
   const before = readFileSync(join(f.root, 'config.json'));
   const inventory = f.service.inventory();
   expect(inventory.accounts).toEqual([

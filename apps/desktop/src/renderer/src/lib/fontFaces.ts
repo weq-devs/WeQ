@@ -3,18 +3,22 @@ export interface FontLease {
   release(): void;
 }
 export const FONT_FACE_LIMIT = 128;
+export const FONT_FACE_IDLE_LIMIT = 8;
 
-/** 按文档、字体族和资源版本共享；最后一个持有者离开即撤销，迟到加载不注册。 */
+/** 注册随持有者释放；少量已解码字体按 LRU 保留，滚动返回可同步重新注册。 */
 function createFontFaces() {
-  type Entry = { users: number; face: FontFace; ready: Promise<boolean> };
-  const documents = new WeakMap<Document, { entries: Map<string, Entry>; loading: number }>();
+  type Entry = { users: number; face: FontFace; ready: Promise<boolean>; loaded: boolean };
+  const documents = new WeakMap<
+    Document,
+    { entries: Map<string, Entry>; idle: Map<string, FontFace>; loading: number }
+  >();
   let retained = 0;
   let loading = 0;
   return {
     acquire(family: string, url: string, target = document): FontLease {
       let state = documents.get(target);
       if (!state) {
-        state = { entries: new Map(), loading: 0 };
+        state = { entries: new Map(), idle: new Map(), loading: 0 };
         documents.set(target, state);
       }
       const owner = state;
@@ -22,30 +26,41 @@ function createFontFaces() {
       const key = JSON.stringify([family, url]);
       let entry = entries.get(key);
       if (!entry) {
-        if (entries.size >= FONT_FACE_LIMIT || owner.loading >= FONT_FACE_LIMIT)
+        const cached = owner.idle.get(key);
+        if (entries.size >= FONT_FACE_LIMIT || (!cached && owner.loading >= FONT_FACE_LIMIT))
           return { ready: Promise.resolve(false), release() {} };
         let face: FontFace;
         try {
-          face = new FontFace(family, `url("${url}")`);
+          face = cached ?? new FontFace(family, `url("${url}")`);
+          if (cached) target.fonts.add(cached);
         } catch {
           return { ready: Promise.resolve(false), release() {} };
         }
-        owner.loading++;
-        loading++;
-        const created = { users: 0, face, ready: Promise.resolve(false) };
+        owner.idle.delete(key);
+        const created = {
+          users: 0,
+          face,
+          ready: Promise.resolve(Boolean(cached)),
+          loaded: Boolean(cached),
+        };
         entries.set(key, created);
         retained++;
-        created.ready = new Promise<FontFace>((resolve) => resolve(face.load()))
-          .then(() => {
-            if (!created.users || entries.get(key) !== created) return false;
-            target.fonts.add(face);
-            return true;
-          })
-          .catch(() => false)
-          .finally(() => {
-            owner.loading--;
-            loading--;
-          });
+        if (!cached) {
+          owner.loading++;
+          loading++;
+          created.ready = new Promise<FontFace>((resolve) => resolve(face.load()))
+            .then(() => {
+              if (!created.users || entries.get(key) !== created) return false;
+              target.fonts.add(face);
+              created.loaded = true;
+              return true;
+            })
+            .catch(() => false)
+            .finally(() => {
+              owner.loading--;
+              loading--;
+            });
+        }
         entry = created;
       }
       const held = entry;
@@ -61,9 +76,27 @@ function createFontFaces() {
           if (entries.get(key) === held) {
             entries.delete(key);
             retained--;
+            if (held.loaded) {
+              owner.idle.set(key, held.face);
+              while (owner.idle.size > FONT_FACE_IDLE_LIMIT) {
+                const oldest = owner.idle.keys().next().value;
+                if (oldest !== undefined) owner.idle.delete(oldest);
+              }
+            }
           }
         },
       };
+    },
+    isLoaded(family: string, url: string, target = document): boolean {
+      const state = documents.get(target);
+      const key = JSON.stringify([family, url]);
+      return Boolean(
+        state?.entries.get(key)?.loaded ||
+          (state && state.entries.size < FONT_FACE_LIMIT && state.idle.has(key)),
+      );
+    },
+    clearIdle(target = document) {
+      documents.get(target)?.idle.clear();
     },
     count: () => retained,
     loading: () => loading,

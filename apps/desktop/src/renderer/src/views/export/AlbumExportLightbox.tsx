@@ -1,5 +1,6 @@
+import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Check, CheckCheck, FlipHorizontal2, Image, Loader2, X } from 'lucide-react';
+import { Check, CheckCheck, FlipHorizontal2, Image, Loader2, X, Images } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
@@ -143,7 +144,7 @@ export function AlbumExportLightbox({
             ) : albumError ? (
               <div className="weq-exp-list-state is-error">{albumError}</div>
             ) : albums.length === 0 ? (
-              <div className="weq-exp-list-state">这个群暂无相册</div>
+              <EmptyState compact icon={<Images />} title="这个群暂无相册" />
             ) : (
               albums.map((album) => (
                 <button

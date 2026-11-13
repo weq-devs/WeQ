@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { HTMLAttributes } from 'react';
 import { Check } from 'lucide-react';
 import '../../styles/message-gap-selection.css';
+import { useVisibleMessageGap } from '../../hooks/useVisibleMessageGap';
 
 /**
  * A run of messages QQ never synced to this device. Rendered between the two
@@ -17,18 +18,33 @@ export function MessageGapDivider({
   selectionMode = false,
   selected = false,
   selectionProps,
+  autoFetch = false,
 }: {
   count: number;
-  onOpen?: () => void | Promise<void>;
+  onOpen?: (automatic?: boolean) => void | Promise<void>;
+  autoFetch?: boolean;
   id?: string;
   selectionMode?: boolean;
   selected?: boolean;
   selectionProps?: HTMLAttributes<HTMLDivElement>;
 }) {
   const [loading, setLoading] = useState(false);
+  const open = async (automatic = false) => {
+    if (!onOpen || loading) return;
+    setLoading(true);
+    try {
+      await onOpen(automatic);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const gapRef = useVisibleMessageGap(autoFetch && !selectionMode && !!onOpen, id, () =>
+    open(true),
+  );
   return (
     <div
       {...selectionProps}
+      ref={gapRef}
       data-message-id={id}
       className={cn(
         'weq-graytip-band',
@@ -46,15 +62,7 @@ export function MessageGapDivider({
       <button
         type="button"
         className={cn('weq-graytip-band-hint', 'weq-gap-band-button')}
-        onClick={async () => {
-          if (!onOpen || loading) return;
-          setLoading(true);
-          try {
-            await onOpen();
-          } finally {
-            setLoading(false);
-          }
-        }}
+        onClick={() => open()}
         disabled={(!onOpen && !selectionProps) || loading}
         tabIndex={selectionMode ? -1 : 0}
         aria-busy={loading}

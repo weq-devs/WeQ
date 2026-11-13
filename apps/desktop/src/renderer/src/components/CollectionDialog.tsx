@@ -1,3 +1,6 @@
+import { TimeLabel } from './TimeLabel';
+import * as timeFormat from '@weq/time';
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 我的收藏 —— QQ favorites lightbox.
  *
@@ -43,7 +46,7 @@ import {
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
-import { openLightbox } from './ImageLightbox';
+import { openMediaPreview } from './mediaPreviewStore';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { CollectionContent, collectionContentText } from './CollectionContent';
@@ -211,24 +214,14 @@ function humanSize(raw: string): string {
 function humanTime(ms: number): string {
   if (!ms) return '';
   try {
-    return new Date(ms).toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return eventTimeFormatter.format(new Date(ms));
   } catch {
     return '';
   }
 }
 
 function humanSeconds(sec: number): string {
-  if (!sec || sec <= 0) return '';
-  const s = Math.round(sec);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `${s}"`;
+  return sec > 0 ? timeFormat.formatDuration(sec) : '';
 }
 
 function hostOf(url: string): string {
@@ -309,7 +302,9 @@ function Thumb({ pic, alt }: { pic: PicWire; alt: string }): ReactElement {
     <button
       type="button"
       className="weq-col-thumb"
-      onClick={() => openLightbox(src, alt)}
+      onClick={() =>
+        openMediaPreview({ items: [{ key: src, kind: 'image', src: src, title: alt }] })
+      }
       title="查看大图"
     >
       <CollectionImage
@@ -414,7 +409,12 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
           <button
             type="button"
             className="weq-col-video-cover"
-            onClick={() => src && openLightbox(src, v.title || '视频封面')}
+            onClick={() =>
+              src &&
+              openMediaPreview({
+                items: [{ key: src, kind: 'image', src: src, title: v.title || '视频封面' }],
+              })
+            }
             disabled={!src}
           >
             {src && v.cover ? (
@@ -546,15 +546,16 @@ function CollectionCard({
           />
         ) : null}
         <ProfileAvatar
+          className="weq-identity-link"
           enabled={!selecting}
           target={{ identity: it.authorUin, name: it.authorName }}
         >
           <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
+          <span className="weq-col-card-who">
+            <span className="weq-col-card-name">{it.authorName || '未知'}</span>
+          </span>
         </ProfileAvatar>
-        <span className="weq-col-card-who">
-          <span className="weq-col-card-name">{it.authorName || '未知'}</span>
-          {it.groupName ? <span className="weq-col-card-group">{it.groupName}</span> : null}
-        </span>
+        {it.groupName ? <span className="weq-col-card-group">{it.groupName}</span> : null}
         <span className={`weq-col-kind-badge weq-col-kind-${it.kind}`}>
           {kindIcon(it.kind)}
           {KIND_LABEL[it.kind] ?? '其他'}
@@ -564,7 +565,9 @@ function CollectionCard({
         <CardBody it={it} />
       </div>
       <footer className="weq-col-card-foot">
-        <span>{humanTime(it.collectTime)}</span>
+        <TimeLabel value={it.collectTime} precision="millisecond">
+          {humanTime(it.collectTime)}
+        </TimeLabel>
         <button type="button" className="weq-col-detail-open" onClick={() => onOpen(it)}>
           查看详情
           <ChevronRight size={12} />
@@ -1251,14 +1254,15 @@ export function CollectionDialog({
           {selected ? (
             <section className="weq-col-detail">
               <div className="weq-col-detail-meta">
-                <ProfileAvatar target={{ identity: selected.authorUin, name: selected.authorName }}>
+                <ProfileAvatar
+                  className="weq-identity-link"
+                  target={{ identity: selected.authorUin, name: selected.authorName }}
+                >
                   <QqAvatar uin={selected.authorUin || undefined} size={30} />
+                  <span>{selected.authorName || '未知'}</span>
                 </ProfileAvatar>
-                <span>
-                  {selected.authorName || '未知'}
-                  {selected.groupName ? ` · ${selected.groupName}` : ''}
-                </span>
-                <time>{humanTime(selected.collectTime)}</time>
+                {selected.groupName ? <span>{selected.groupName}</span> : null}
+                <TimeLabel value={selected.collectTime} precision="millisecond" />
               </div>
               {detailLoading ? (
                 <div className="weq-collection-state">

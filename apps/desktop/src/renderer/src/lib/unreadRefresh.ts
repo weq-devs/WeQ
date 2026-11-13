@@ -1,87 +1,16 @@
-import { unreadChatType } from '@weq/codec';
+/** 小表快照按 IPC 上限分批传输，不再区分水位与精确统计。 */
+export const UNREAD_BATCH_SIZE = 256;
 
-/** 精确计数逐会话排除自己发言，小批回显，水位快查仍可一次读取 256 项。 */
-export const UNREAD_COUNT_BATCH_SIZE = 16;
-export const UNREAD_WATERMARK_BATCH_SIZE = 256;
-const UNREAD_RECONCILE_MS = 60_000;
-
-interface CountWatermark {
-  chatType: number;
-  uid: string;
-  msgSeq?: string;
-  latestSeq: string | null;
-  readError?: boolean;
-  countPending?: boolean;
-  highlights?: readonly object[];
-}
-
-/** 水位和阅读操作即时校准；无关库写入不触发全体历史重扫，同水位修正低频补齐。 */
-export function createUnreadCountCache() {
-  const completed = new Map<
-    string,
-    {
-      msgSeq?: string;
-      latestSeq: string | null;
-      highlights?: readonly object[];
-      databaseRevision: number;
-      readRevision: number;
-      at: number;
-    }
-  >();
-  const key = (row: Pick<CountWatermark, 'chatType' | 'uid'>) => `${row.chatType}:${row.uid}`;
-  const reconciliationDue = (last: { databaseRevision: number; at: number }, revision: number) =>
-    last.databaseRevision !== revision && Date.now() - last.at >= UNREAD_RECONCILE_MS;
+/** 同账号 effect 重建保留操作版本，换源时隔离。 */
+export function createUnreadRefreshState() {
+  let current: { scope: string; guard: ReturnType<typeof createUnreadUpdateGuard> } | undefined;
   return {
-    retain(targets: readonly Pick<CountWatermark, 'chatType' | 'uid'>[]) {
-      const active = new Set(targets.map(key));
-      for (const id of completed.keys()) if (!active.has(id)) completed.delete(id);
-    },
-    needsReconcile(databaseRevision: number) {
-      for (const last of completed.values())
-        if (reconciliationDue(last, databaseRevision)) return true;
-      return false;
-    },
-    remember(row: CountWatermark, databaseRevision: number, readRevision: number) {
-      if (row.readError || row.countPending) return;
-      completed.set(key(row), {
-        msgSeq: row.msgSeq,
-        latestSeq: row.latestSeq,
-        highlights: row.highlights,
-        databaseRevision,
-        readRevision,
-        at: Date.now(),
-      });
-    },
-    needsCount(
-      row: CountWatermark,
-      databaseRevision: number,
-      accepts: (uid: string, revision: number) => boolean,
-    ) {
-      const last = completed.get(key(row));
-      return (
-        !last ||
-        reconciliationDue(last, databaseRevision) ||
-        last.msgSeq !== row.msgSeq ||
-        last.latestSeq !== row.latestSeq ||
-        !sameUnreadHighlights(last.highlights, row.highlights) ||
-        !accepts(row.uid, last.readRevision)
-      );
+    bind(scope: string) {
+      const changed = current?.scope !== scope;
+      if (changed || !current) current = { scope, guard: createUnreadUpdateGuard() };
+      return { ...current, changed };
     },
   };
-}
-
-/** QQ 已读变化没有新消息通知；仅优先校准仍有红点或高亮的会话。 */
-export function unreadBadgeTargets(
-  contacts: ReadonlyArray<{ chatType: number | string; targetUid: string }>,
-  counts: Readonly<Record<string, number>>,
-  highlights: Readonly<Record<string, readonly unknown[]>>,
-): Array<{ chatType: NonNullable<ReturnType<typeof unreadChatType>>; uid: string }> {
-  return contacts.flatMap((contact) => {
-    if (!((counts[contact.targetUid] ?? 0) > 0) && !highlights[contact.targetUid]?.length)
-      return [];
-    const chatType = unreadChatType(contact.chatType);
-    return chatType === null ? [] : [{ chatType, uid: contact.targetUid }];
-  });
 }
 
 /** 合并数据库通知；执行中只补一轮，失败退避，销毁后不再启动查询。 */

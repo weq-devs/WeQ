@@ -4,7 +4,10 @@
 
 import type { AccountSession } from '@weq/account';
 import type { ContactMetricsService } from './contact_metrics';
+import type { ContactHistoryService } from './contact_history';
 import { GroupMemberRosterCache } from './group_member_roster';
+import { GroupProfileReader } from './group_profile';
+import { GroupMemberPreviewReader, GROUP_PREVIEW_CANDIDATES } from './group_member_preview';
 import type { NtHelperBinding } from '@weq/native';
 import {
   FetchGroupMemberListPage,
@@ -284,6 +287,58 @@ const MEMBER_SCAN_LIMIT = 5000;
 const MIN_SHARED_GROUPS = 2;
 
 export class GroupInfoService {
+  private readonly memberPreviews = new GroupMemberPreviewReader();
+
+  async getMemberPreview(code: string, onlineAllowed = false) {
+    const groupId = Number(code);
+    const convert = (rows: GroupMemberListItem[]): GroupMember[] =>
+      rows.map((row) => ({
+        groupCode: BigInt(code),
+        uid: row.uid,
+        uin: BigInt(row.uin),
+        card: row.card,
+        nick: row.nickname,
+        joinTime: row.joinTime,
+        lastSpeakTime: row.lastSentTime,
+        muteUntil: row.shutUpTime,
+        adminFlag: row.permission === 1 || row.permission === 2 ? 1 : 0,
+        memberFlag: 0,
+        customTitle: row.specialTitle,
+        memberLevel: row.level,
+      }));
+    return this.memberPreviews.read(`${code}:${onlineAllowed}`, {
+      local: () =>
+        this.session.groupMembers.listMembersInGroup(BigInt(code), GROUP_PREVIEW_CANDIDATES, 0),
+      friends: async () =>
+        new Set(
+          (await this.session.buddies.listBuddies()).flatMap((row) => [row.uid, String(row.uin)]),
+        ),
+      cached: () => {
+        const value = this.onlineMembersCache.get(groupId);
+        return value &&
+          this.online &&
+          value.pid === this.online.resolvePid() &&
+          Date.now() - value.at < ONLINE_MEMBERS_TTL_MS
+          ? convert(value.members.slice(0, GROUP_PREVIEW_CANDIDATES))
+          : [];
+      },
+      online:
+        onlineAllowed && this.online
+          ? async () => {
+              const online = this.online!;
+              const pid = online.resolvePid();
+              const fetch = () => FetchGroupMemberListPage.invoke(online.nt, pid, { groupId });
+              const page = await (this.contactMetrics
+                ? this.contactMetrics.schedule(`member-preview:${code}`, fetch)
+                : fetch());
+              if (online.resolvePid() !== pid) throw new Error('QQ 运行时已切换');
+              return convert(page.members);
+            }
+          : undefined,
+    });
+  }
+  private contactHistory?: ContactHistoryService;
+  private readonly groupProfiles: GroupProfileReader;
   contactMetrics?: ContactMetricsService;
   contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
 
@@ -317,6 +372,7 @@ export class GroupInfoService {
       resolvePid: () => number;
     },
   ) {
+    this.groupProfiles = new GroupProfileReader(online, () => this.contactMetrics);
     this.groupNotifyService = new GroupNotifyService(session);
     this.analysis = new AnalyticsMessageSource(session);
   }
@@ -327,6 +383,64 @@ export class GroupInfoService {
 
   setMemberRosterCache(root: string): void {
     this.memberRosterCache = new GroupMemberRosterCache(root);
+  }
+
+  setGroupProfileCache(root: string): void {
+    this.groupProfiles.setCache(root);
+  }
+
+  setContactHistory(history: ContactHistoryService): void {
+    this.contactHistory = history;
+    this.groupProfiles.history = history;
+    if (this.memberRosterCache) this.memberRosterCache.history = history;
+  }
+
+  async getExtendedProfile(groupId: number, refresh = false, force = false) {
+    const result = await this.groupProfiles.read(groupId, refresh, force);
+    let joinedAt = result.profile?.joinedAt ?? null;
+    if (joinedAt === null) {
+      try {
+        const member = this.session.selfUid
+          ? await this.session.groupMembers.getMember(BigInt(groupId), this.session.selfUid)
+          : (
+              await this.session.groupMembers.getMembersByUins(BigInt(groupId), [
+                BigInt(this.session.context.uin),
+              ])
+            )[0];
+        if (member?.memberFlag === 0 && member.joinTime > 1) joinedAt = member.joinTime;
+      } catch {
+        /* 在线资料仍可交付；本地本人记录缺失不触发全群查询。 */
+      }
+    }
+    // 再检查账号读取生命周期，拒绝本地查询期间关闭后的迟到结果。
+    this.groupProfiles.assertActive();
+    if (result.profile && result.updatedAt)
+      await this.contactMetrics?.project(
+        `group:${groupId}`,
+        {
+          grade: result.profile.grade,
+          freezeState: result.profile.freezeState,
+        },
+        result.updatedAt,
+      );
+    if (joinedAt !== null)
+      await this.contactMetrics?.project(
+        `group:${groupId}`,
+        { joinedAt },
+        result.updatedAt ?? Date.now(),
+      );
+    else {
+      const previous = (await this.contactMetrics?.row(`group:${groupId}`))?.joinedAt?.value;
+      if (typeof previous === 'number' && previous > 1) joinedAt = previous;
+    }
+    if (result.error)
+      for (const field of ['grade', 'freezeState'] as const)
+        await this.contactMetrics?.failed(`group:${groupId}`, field, result.error);
+    return { ...result, joinedAt };
+  }
+
+  disposeGroupProfiles(): void {
+    this.groupProfiles.dispose();
   }
 
   /** 复用完整在线分页，只更新名单，不触发联系人其他指标的观察回调。 */
@@ -371,6 +485,20 @@ export class GroupInfoService {
     }
     const rows = await pending.task;
     if (resolvePid() !== pid) throw new Error('QQ 运行时已切换，请重新读取消息策略');
+    if (this.contactHistory)
+      await this.contactHistory
+        .capture(
+          rows.map((value) => ({
+            entity: `group:${value.groupId}`,
+            category: 'messagePolicy',
+            source: 'online',
+            value,
+            at: Date.now(),
+          })),
+        )
+        .catch((error: unknown) => {
+          this.contactHistory!.lastError = String(error);
+        });
     const target = rows.find((row) => row.groupId === groupId);
     if (!target) throw new Error('服务端未返回该群的消息策略');
     return target;

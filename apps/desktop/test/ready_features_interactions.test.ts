@@ -1,7 +1,9 @@
 import { act, createElement as h, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QQ_REGIONS } from '@weq/protocol';
 vi.mock(
   '../src/renderer/src/hooks/useContactDirectoryOrder',
   () => import('./support/contact-order.stub'),
@@ -10,7 +12,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { QzoneFriendPermissions } from '../src/renderer/src/components/qq-actions/QzoneFriendPermissions';
 import { QqAvatar } from '../src/renderer/src/components/QqAvatar';
-import { EditableSelfProfile } from '../src/renderer/src/components/settings/EditableSelfProfile';
+import {
+  EditableSelfProfile,
+  RegionEditor,
+} from '../src/renderer/src/components/settings/EditableSelfProfile';
 import { GroupAlbumManagement } from '../src/renderer/src/components/qq-actions/GroupAlbumManagement';
 import { QQExactLookup } from '../src/renderer/src/components/QQExactLookup';
 import { CommonRelationships } from '../src/renderer/src/components/qq-actions/CommonRelationships';
@@ -101,6 +106,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           snapshot: { useQuery: () => ({ data: undefined }) },
           changed: { useSubscription: vi.fn() },
         },
+        getSelfProfile: { useQuery: () => ({ data: null }) },
+        getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isFetching: false }) },
+        groupMemberPreview: {
+          useQuery: () => ({ data: undefined, isFetching: false, error: null, refetch: vi.fn() }),
+        },
         getProfileByUin: {
           useQuery: ({ uin }: { uin: string }) => ({
             data: state.profiles.find((row) => row.uin === uin),
@@ -115,6 +125,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
         getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.config } }) },
         qqActions: {
+          groupPermissions: {
+            useQuery: () => ({ data: { canManage: false, selfUin: '10001' }, error: null }),
+          },
           qzoneFriendPermissionList: {
             useQuery: ({ kind }: { kind: 'blocked' | 'hidden' }) => ({
               data: state.permissions[kind],
@@ -146,7 +159,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           },
           profileRegions: {
             useQuery: () => ({
-              data: { regions: [], professions: [{ value: 13, label: '学生' }] },
+              data: {
+                regions: [],
+                professions: [
+                  { value: 13, label: '学生' },
+                  { value: 14, label: '工程师' },
+                ],
+              },
             }),
           },
           editSelfProfile: {
@@ -201,11 +220,14 @@ afterEach(() => {
   useViewState.setState({ openedUin: null });
   vi.unstubAllGlobals();
 });
+// 共同群头像会打开共用的群名片，名片经 useGroupProfile 走 tanstack 查询。
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function mount(render: () => ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const update = () => act(() => root.render(render()));
+  const update = () =>
+    act(() => root.render(h(QueryClientProvider, { client: queryClient }, render())));
   update();
   cleanup.push(() => {
     act(() => root.unmount());
@@ -392,26 +414,102 @@ describe('可接入功能交互回归', () => {
   it('资料按字段隔离读取失败，邮箱失败时生日仍可保存', () => {
     state.errors = { email: '邮箱读取失败' };
     const f = mount(() => h(EditableSelfProfile));
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑生日"]')!.click());
     expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存生日"]')!.disabled).toBe(
       false,
     );
-    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存邮箱"]')!.disabled).toBe(true);
+    expect(f.host.querySelector('[aria-label="编辑邮箱"]')).toBeNull();
   });
-  it('职业选择即提交单字段，保留生日等文本编辑的保存按钮', async () => {
+  it('职业展开后确认保存单字段，浏览态没有输入框', async () => {
     const f = mount(() => h(EditableSelfProfile));
-    expect(f.host.querySelector('[aria-label="保存职业"]')).toBeNull();
+    expect(f.host.querySelector('input, select')).toBeNull();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑职业"]')!.click());
+    expect(f.host.querySelector('[aria-label="保存职业"]')).not.toBeNull();
     const select = f.host.querySelector<HTMLSelectElement>('[aria-label="职业"]')!;
     await act(async () => {
-      select.value = '13';
+      select.value = '14';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存职业"]')!.click(),
+    );
     expect(state.writes).toHaveBeenCalledOnce();
     expect(state.writes).toHaveBeenCalledWith('profile', {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
-      patch: { profession: 13 },
+      patch: { profession: 14 },
     });
-    expect(f.host.querySelector('[aria-label="保存生日"]')).not.toBeNull();
+    expect(f.host.querySelector('[aria-label="编辑生日"]')).not.toBeNull();
+  });
+  it.each([3, 4] as const)('地区 %i 层改选不限后清空下级并可保存', async (layers) => {
+    const saved = vi.fn(async () => true);
+    const f = mount(() =>
+      h(RegionEditor, {
+        label: '地区',
+        value: ['1', '35', '2', '3'].slice(0, layers),
+        layers,
+        regions: QQ_REGIONS,
+        disabled: false,
+        onSave: saved,
+      }),
+    );
+    const selects = [...f.host.querySelectorAll('select')];
+    await act(async () => {
+      selects[1]!.value = '0';
+      selects[1]!.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(selects.map((select) => select.value)).toEqual(['1', ...Array(layers - 1).fill('0')]);
+    expect(selects[2]!.disabled).toBe(true);
+    expect(selects[1]!.selectedOptions[0]!.textContent).toBe('不限');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存地区"]')!.click(),
+    );
+    expect(saved).toHaveBeenCalledWith(['1', ...Array(layers - 1).fill('0')]);
+  });
+  it('未知地区不自动写为不限，选定国家后允许只保存国家', async () => {
+    const saved = vi.fn(async () => true);
+    const f = mount(() =>
+      h(RegionEditor, {
+        label: '地区',
+        value: null,
+        layers: 3,
+        regions: QQ_REGIONS,
+        disabled: false,
+        onSave: saved,
+      }),
+    );
+    const save = f.host.querySelector<HTMLButtonElement>('[aria-label="保存地区"]')!;
+    expect(save.disabled).toBe(true);
+    const country = f.host.querySelector('select')!;
+    await act(async () => {
+      country.value = '1';
+      country.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(save.disabled).toBe(false);
+    await act(async () => save.click());
+    expect(saved).toHaveBeenCalledWith(['1', '0', '0']);
+  });
+  it('官方缺省省级仍保留可选城市，切换国家不会沿用旧城市', async () => {
+    const f = mount(() =>
+      h(RegionEditor, {
+        label: '地区',
+        value: ['DEU', '0', 'SWH', '0'],
+        layers: 4,
+        regions: QQ_REGIONS,
+        disabled: false,
+        onSave: async () => true,
+      }),
+    );
+    const selects = [...f.host.querySelectorAll('select')];
+    expect(selects[1]!.disabled).toBe(true);
+    expect(selects[2]!.disabled).toBe(false);
+    expect(selects[2]!.value).toBe('SWH');
+    await act(async () => {
+      selects[0]!.value = '0';
+      selects[0]!.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(selects.map((select) => select.value)).toEqual(['0', '0', '0', '0']);
+    expect(selects.slice(1).every((select) => select.disabled)).toBe(true);
   });
   it('相册未确认时保留草稿与弹窗，不把已有同名相册误当成新增成功', async () => {
     const changed = vi.fn();
@@ -489,12 +587,16 @@ describe('可接入功能交互回归', () => {
   );
   it('名片直接展示共同数量，列表需要手动打开，不额外显示完整性标签', async () => {
     const f = mount(() => h(CommonRelationships, { uin: '10002' }));
-    const rows = [...f.host.querySelectorAll('.weq-profile-row')];
-    expect(rows.map((row) => row.querySelector('.weq-profile-row-label')?.textContent)).toEqual([
-      '共同好友',
-      '共同群',
-    ]);
-    expect(rows.map((row) => row.querySelector('strong')?.textContent)).toEqual(['3', '1']);
+    // 名片统一改用 ContactRow（weq-profile-data-* 行模型）。
+    const rows = [...f.host.querySelectorAll('.weq-profile-data-row')];
+    expect(
+      rows.map((row) => row.querySelector('.weq-profile-data-label')?.textContent?.trim()),
+    ).toEqual(['共同好友', '共同群']);
+    // 共同好友是纯文本值，共同群是可点行（button，title「查看共同群列表」）。
+    expect(
+      rows.map((row) => row.querySelector('.weq-profile-data-value')?.textContent?.trim()),
+    ).toEqual(['3', '1']);
+    expect(rows[1]!.querySelector('.weq-contact-value')).not.toBeNull();
     expect(f.host.textContent).not.toContain('合成共同群');
     await act(async () =>
       [...f.host.querySelectorAll('button')]
@@ -514,13 +616,16 @@ describe('可接入功能交互回归', () => {
     );
     expect(avatar).not.toBeNull();
     await act(async () => avatar!.click());
-    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).toContain('合成共同群');
-    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).toContain('123');
-    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).not.toContain('群成员');
+    // 群名片是 portal 浮层，要在 document 上找；关闭按钮文案已统一为「关闭群资料」。
+    const groupCard = document.querySelector('[aria-label="群资料"]');
+    expect(groupCard?.textContent).toContain('合成共同群');
+    expect(groupCard?.textContent).toContain('123');
+    // 快速名片只给身份与成员数量，不展开成员列表（列表头是「群成员」浮层）。
+    expect(groupCard?.querySelector('.weq-group-member-list-header')).toBeNull();
     await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="群资料"] [aria-label="关闭"]')!.click(),
+      document.querySelector<HTMLButtonElement>('button[aria-label="关闭群资料"]')!.click(),
     );
-    expect(f.host.querySelector('[aria-label="群资料"]')).toBeNull();
+    expect(document.querySelector('[aria-label="群资料"]')).toBeNull();
     expect(f.host.querySelector('[aria-label="查看 合成共同群 的群名片"]')).not.toBeNull();
   });
   it('共同群优先复用已收录的群资料，不显示伪造的零成员信息', async () => {
@@ -547,10 +652,15 @@ describe('可接入功能交互回归', () => {
     await act(async () =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
     );
-    const profile = f.host.querySelector('[aria-label="群资料"]')!;
+    const profile = document.querySelector('[aria-label="群资料"]')!;
     expect(profile.textContent).toContain('已收录的群');
-    expect(profile.querySelector('.weq-profile-members-head strong')?.textContent).toBe('42');
-    expect(profile.textContent).toContain('已有的群公告');
+    // 成员数在名片的「成员」分区行里，旧的成员列表头已移除。
+    const memberCountRow = [...profile.querySelectorAll('.weq-profile-data-row')].find(
+      (row) => row.querySelector('.weq-profile-data-label')?.textContent?.trim() === '群成员数',
+    );
+    expect(memberCountRow?.querySelector('.weq-profile-data-value')?.textContent).toContain('42');
+    // 清单 G04：公告只在完整资料页显示，快速名片不再展示公告正文。
+    expect(profile.textContent).not.toContain('已有的群公告');
   });
   it('空共同群保留零数量和空态，切换数据源后关闭旧列表', async () => {
     state.commonGroups = [];

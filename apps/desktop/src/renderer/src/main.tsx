@@ -13,6 +13,14 @@ import { installDevelopmentErrors } from './lib/developmentErrors';
 import { installTouchContextMenu } from './lib/touchContextMenu';
 import { IS_WEB } from './lib/target';
 import './styles/touch-context-menu.css';
+import { installDataSaver } from './lib/dataSaver';
+import { installMainWorkspacePreload } from './lib/mainWorkspaceLoader';
+
+const stopWorkspacePreload = installMainWorkspacePreload();
+import.meta.hot?.dispose(stopWorkspacePreload);
+
+const stopDataSaver = installDataSaver();
+import.meta.hot?.dispose(stopDataSaver);
 
 if (IS_WEB) {
   const stopTouchContextMenu = installTouchContextMenu(document);

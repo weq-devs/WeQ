@@ -48,6 +48,94 @@ const group = (
 const ready = (value: number) => ({ value, attemptedAt: 1, state: 'ready' as const });
 afterEach(() => vi.useRealTimers());
 
+const constellationExt = (constellation: number): Contact['extInfo'] => ({
+  constellation,
+  interactMarks: [],
+  privileges: [],
+  interests: [],
+  album: [],
+});
+
+it('星座范围嵌入生日入口，双向切换不改锚点且不分组或重复联系人', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-11T12:00:00+08:00'));
+  const items = [
+    friend('after', { birthMonth: 1, birthDay: 21 }),
+    friend('exact', { birthMonth: 1, birthDay: 20 }),
+    friend('range', { age: 16, extInfo: constellationExt(1) }),
+    friend('before', { birthMonth: 1, birthDay: 19 }),
+    friend('none'),
+  ];
+  expect(sortFriends(items, 'birthday', false, {}).map((row) => row.id)).toEqual([
+    'before',
+    'range',
+    'exact',
+    'after',
+    'none',
+  ]);
+  expect(sortFriends(items, 'birthday', true, {}).map((row) => row.id)).toEqual([
+    'after',
+    'range',
+    'exact',
+    'before',
+    'none',
+  ]);
+});
+
+it('缓存星座补分组，唯一推断年入现有年份组，不确定年份仍未知', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-11T12:00:00+08:00'));
+  const inferred = friend('inferred', { age: 16, extInfo: constellationExt(1) });
+  const ambiguous = friend('ambiguous', { age: 16, extInfo: constellationExt(12) });
+  const exact = friend('exact', { birthYear: 2010, birthMonth: 1, birthDay: 25 });
+  expect(
+    groupFriends([inferred, ambiguous, exact], 'birthYear', {}).map((row) => [
+      row.name,
+      row.items.map((item) => item.id),
+    ]),
+  ).toEqual([
+    ['2010 年', ['inferred', 'exact']],
+    ['出生年份未知', ['ambiguous']],
+  ]);
+  expect(groupFriends([inferred, ambiguous], 'constellation', {}).map((row) => row.name)).toEqual(
+    expect.arrayContaining(['水瓶座', '摩羯座']),
+  );
+});
+
+it('加入星座联系人不改变原数据相对顺序，输入重排不影响结果且比较保持传递', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-11T12:00:00+08:00'));
+  const legacy = [
+    friend('none'),
+    friend('raw', { age: 16 }),
+    friend('year', { birthYear: 2010 }),
+    friend('exact', { birthYear: 2010, birthMonth: 1, birthDay: 20 }),
+  ];
+  const items = [
+    ...legacy,
+    friend('range', { age: 16, extInfo: constellationExt(1) }),
+    friend('cap', { birthYear: 2010, age: 16, extInfo: constellationExt(12) }),
+  ];
+  for (const sort of ['birthday', 'age'] as const)
+    for (const descending of [false, true]) {
+      const sorted = sortFriends(items, sort, descending, {}).map((row) => row.id);
+      expect(sortFriends([...items].reverse(), sort, descending, {}).map((row) => row.id)).toEqual(
+        sorted,
+      );
+      expect(sorted.filter((id) => legacy.some((row) => row.id === id))).toEqual(
+        sortFriends(legacy, sort, descending, {}).map((row) => row.id),
+      );
+      for (let a = 0; a < sorted.length; a++)
+        for (let b = a + 1; b < sorted.length; b++) {
+          const pair = items.filter((row) => [sorted[a], sorted[b]].includes(row.id));
+          expect(sortFriends(pair, sort, descending, {}).map((row) => row.id)).toEqual([
+            sorted[a],
+            sorted[b],
+          ]);
+        }
+    }
+});
+
 it('年龄按完整生日精确排序，缺生日回退资料年龄，推算年龄不单独分档', () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-11-10T12:00:00+08:00'));
@@ -331,4 +419,45 @@ it('群名按原始详情判断缺失，不把兜底群号当名称，也不误�
       ]),
     ).map((row) => row.id),
   ).toEqual(['123', '1']);
+});
+
+it('好友指标和群日期每轮每行只读取一次，下一轮仍重新读取原对象', () => {
+  const count = 128;
+  let friendReads = 0,
+    groupReads = 0,
+    revision = false;
+  const friends = Array.from({ length: count }, (_, index) => {
+    const row = friend(String(index));
+    return Object.defineProperty(row, 'intimacy', {
+      get: () => {
+        friendReads++;
+        return revision && index === 0 ? count + 1 : ((index * 9) % count) + 1;
+      },
+    });
+  });
+  const groups = Array.from({ length: count }, (_, index) => {
+    const row = group(String(index));
+    Object.defineProperty(row.group, 'createTime', {
+      get: () => {
+        groupReads++;
+        return new Date(
+          Date.UTC(2030, 0, 1) + (revision && index === 0 ? count + 1 : (index * 9) % count) * 1000,
+        ).toISOString();
+      },
+    });
+    return row;
+  });
+  const firstFriends = sortFriends(friends, 'intimacy', true, {});
+  const firstGroups = sortGroups(groups, 'createTime', true, {});
+  expect(friendReads).toBe(count);
+  expect(groupReads).toBe(count);
+  expect(firstFriends[0]).not.toBe(friends[0]);
+  expect(firstGroups[0]).not.toBe(groups[0]);
+  revision = true;
+  expect(sortFriends(friends, 'intimacy', true, {})[0]).toBe(friends[0]);
+  expect(sortGroups(groups, 'createTime', true, {})[0]).toBe(groups[0]);
+  expect(friendReads).toBe(count * 2);
+  expect(groupReads).toBe(count * 2);
+  expect(friends[0]!.id).toBe('0');
+  expect(groups[0]!.id).toBe('0');
 });

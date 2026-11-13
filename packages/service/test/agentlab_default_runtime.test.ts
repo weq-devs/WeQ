@@ -37,6 +37,7 @@ it('真实克隆运行时在默认向量模型更换后拒绝混用旧索引，�
     ],
   });
   config.setDefaultModel({ providerId: 'synthetic', model: 'first' });
+  config.setDefaultEmbeddingModel({ providerId: 'synthetic', model: 'first' });
   const persona = makeBackupPersona();
   persona.models = { chat: { useDefault: true }, embedding: { useDefault: true } };
   persona.embeddingModelIdentity = config.resolveEndpoint(
@@ -58,6 +59,10 @@ it('真实克隆运行时在默认向量模型更换后拒绝混用旧索引，�
     selfId: '10001',
   });
   config.setDefaultModel({ providerId: 'synthetic', model: 'second' });
+  expect(config.resolveEndpoint({ useDefault: true }, 'embedding').modelIdentity).toBe(
+    persona.embeddingModelIdentity,
+  );
+  config.setDefaultEmbeddingModel({ providerId: 'synthetic', model: 'second' });
   const fetch = vi.fn();
   vi.stubGlobal('fetch', fetch);
   await expect(

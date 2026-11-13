@@ -94,6 +94,9 @@ export function requiredAssets(version) {
     ...['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'].map(
       (target) => `weq-web-${version}-${target}.tar.gz`,
     ),
+    ...['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'].map(
+      (target) => `enhancement-engines-${target}.json`,
+    ),
     'latest.yml',
     'latest-linux.yml',
     'latest-linux-arm64.yml',
@@ -119,6 +122,17 @@ export function assertReady(plan, needs, release, assets) {
       matches[0].size <= 0
     )
       throw new Error(`发布产物不完整：${name}`);
+  }
+  for (const target of ['win32-x64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64']) {
+    for (const kind of target === 'darwin-x64' ? ['sherpa'] : ['onnx', 'sherpa']) {
+      const matches = assets.filter(
+        (asset) =>
+          asset.name.startsWith(`${kind}-`) &&
+          asset.name.includes(`-${target}-`) &&
+          asset.name.endsWith('.tar.gz'),
+      );
+      if (matches.length !== 1) throw new Error(`增强引擎分发不完整：${kind}/${target}`);
+    }
   }
   if (
     assets.some(

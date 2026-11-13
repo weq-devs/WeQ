@@ -21,9 +21,11 @@ import { parseSenseVoiceRichText, type VoiceTagDisplay } from './tags';
 // Node 子进程不读取 asar：使用解包后的 JS 包，与同目录的原生绑定一起加载。
 const resourcesDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const requireFn = createRequire(
-  existsSync(join(resourcesDir, 'app.asar'))
-    ? join(resourcesDir, 'app.asar.unpacked/node_modules/sherpa-onnx-node/package.json')
-    : import.meta.url,
+  process.env.WEQ_ENHANCEMENT_RUNTIME
+    ? join(process.env.WEQ_ENHANCEMENT_RUNTIME, 'package.json')
+    : existsSync(join(resourcesDir, 'app.asar'))
+      ? join(resourcesDir, 'app.asar.unpacked/node_modules/sherpa-onnx-node/package.json')
+      : import.meta.url,
 );
 
 interface WorkerParams {

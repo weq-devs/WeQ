@@ -8,9 +8,10 @@
  * weq-media://mface?...&enc=tea（密钥后端自动恢复），不过 tRPC。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { MarketFaceDetail } from '../../components/MarketFaceLightbox';
-import { ArrowLeft, Store, X, RefreshCw, Loader2, Download } from 'lucide-react';
+import { ArrowLeft, Store, X, RefreshCw, Loader2, Download, SearchX, Sticker } from 'lucide-react';
 import type { MarketPackFeeType, ExportSavePolicy } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
@@ -136,7 +137,7 @@ function PackDetailPane({
       ) : !detail.data ? (
         <div className="weq-mface-lb-state is-error">无法获取这组表情（网络问题或包不存在）</div>
       ) : items.length === 0 ? (
-        <div className="weq-mface-lb-state">这个表情包暂时没有可显示的表情</div>
+        <EmptyState compact icon={<Sticker />} title="这个表情包暂时没有可显示的表情" />
       ) : (
         <div className="weq-mface-lb-scroll weq-emb-emoji-scroll">
           <div className="weq-mface-lb-grid">
@@ -643,7 +644,7 @@ export function MarketEmojiBrowserLightbox({
                 搜索中…
               </div>
             ) : entries.length === 0 ? (
-              <div className="weq-emb-pack-list-state">没有匹配的表情包</div>
+              <EmptyState compact icon={<SearchX />} title="没有匹配的表情包" />
             ) : (
               <>
                 <div className="weq-market-pack-grid">

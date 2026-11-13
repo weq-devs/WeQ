@@ -13,9 +13,10 @@
  * Used by the window-icon loader and the `weq-asset://` protocol handler.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { configureDressIndexResources } from '@weq/service';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
@@ -72,6 +73,13 @@ export function resolveResource(...segments: string[]): string | null {
 
 /** Match native's offline index to desktop's actual packaged resource layout. */
 export function configureNativeDressResources(): void {
+  const manifest = resolveResource('dress', 'index-manifest.json');
+  if (manifest) {
+    configureDressIndexResources({
+      manifest: JSON.parse(readFileSync(manifest, 'utf8')),
+      legacyDirectory: process.env.NT_HELPER_DRESS_DIR ?? resolveResource('dress') ?? undefined,
+    });
+  }
   if (process.env.NT_HELPER_DRESS_DIR || process.env.WEQ_NATIVE_DIR) return;
   const directory = resolveResource('dress');
   if (directory) process.env.NT_HELPER_DRESS_DIR = directory;

@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { componentStyles, useThemeStore } from '../src/renderer/src/state/theme';
+import { componentStyles } from '../src/renderer/src/state/theme';
+
+// 共享偏好是跨用例的模块级状态（未保存值有意优先于旧 localStorage）。
+// 每个用例重新加载 store 模块，避免上一个用例的 pending/共享值串进来。
+type ThemeModule = typeof import('../src/renderer/src/state/theme');
+let useThemeStore: ThemeModule['useThemeStore'];
 import { resolveSettingsTarget } from '../src/renderer/src/components/settings/navigation';
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules();
   vi.stubGlobal('localStorage', new Storage());
   vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList);
+  ({ useThemeStore } = await import('../src/renderer/src/state/theme'));
   useThemeStore.getState().hydrate();
 });
 

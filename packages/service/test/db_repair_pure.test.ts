@@ -488,7 +488,7 @@ describe('renderDbRepairReportMarkdown', () => {
 
   it('坏页与阶段耗时如实落纸', () => {
     expect(markdown).toContain('7871, 8072');
-    expect(markdown).toContain('| Repair | 3.45 s |');
+    expect(markdown).toContain('| Repair | 3.448 s |');
     expect(markdown).toContain('33 / 66');
   });
 

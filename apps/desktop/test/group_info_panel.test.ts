@@ -15,8 +15,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GroupInfoPanel } from '@renderer/im-template/template/groupInfoPanel';
 import { TabActivity } from '@renderer/components/RetainedTabs';
+import { formatShortDate } from '@renderer/im-template/template/format';
 
 const rankQuery = vi.hoisted(() => vi.fn());
+const avatarRender = vi.hoisted(() => vi.fn());
+const metricsRender = vi.hoisted(() => vi.fn());
+vi.mock('../src/renderer/src/components/GroupProfileMetrics', () => ({
+  GroupProfileMetrics: ({ children }: { children: (rows: []) => unknown }) => {
+    metricsRender();
+    return children([]);
+  },
+}));
+vi.mock('../src/renderer/src/im-template/template/primitives', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../src/renderer/src/im-template/template/primitives')>();
+  return {
+    ...actual,
+    Avatar: (props: ComponentProps<typeof actual.Avatar>) => {
+      avatarRender(props);
+      return createElement(actual.Avatar, props);
+    },
+  };
+});
 vi.mock('../src/renderer/src/trpc/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/trpc/client')>()),
   client: { account: { listGroupMembersByLevel: { query: rankQuery } } },
@@ -95,6 +115,8 @@ describe('群资料面板', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     rankQuery.mockReset().mockResolvedValue([]);
+    avatarRender.mockClear();
+    metricsRender.mockClear();
   });
 
   afterEach(() => {
@@ -104,38 +126,122 @@ describe('群资料面板', () => {
     hosts.length = 0;
   });
 
-  it('渲染群资料行，创建时间格式化成 年/月/日', () => {
-    mountPanel();
+  it('完整资料保留群容量与统一的创建时间显示', () => {
+    mountPanel(undefined, undefined, { layout: 'profile', onOpenDetail: () => undefined });
 
-    expect(metaRow('群简介')?.querySelector('strong')?.textContent).toBe('群简介');
+    // 侧栏不再把群简介压成一行省略号，改为标题行上的「查看完整资料 ›」入口；其余日常字段照旧。
+    expect(metaRow('群简介')).toBeUndefined();
+    expect(document.querySelector('.group-info-heading')?.textContent).toContain('查看完整资料');
     expect(metaRow('群容量')?.querySelector('strong')?.textContent).toBe('12/200');
 
     const created = metaRow('创建时间')?.querySelector('strong')?.textContent ?? '';
-    // 不写死具体日期：格式化用的是本地时区，断言形状即可。
-    expect(created).toMatch(/^\d{4}\/\d{2}\/\d{2}$/);
+    expect(created).toBe(formatShortDate(CONVERSATION.group.createTime));
   });
 
   it('渲染群成员列表', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
   });
-  it('群资料展示排序依据中的活跃度和群内好友数，缺少缓存不误报零', () => {
-    mountPanel();
-    expect(metaRow('活跃度')?.querySelector('strong')?.textContent).toBe('未知');
-    expect(metaRow('群内好友数')?.querySelector('strong')?.textContent).toBe('未知');
+  it('侧栏移除资料区与指标读取，只保留紧凑摘要和成员', () => {
+    mountPanel(vi.fn(), vi.fn());
+    expect(document.querySelector('.group-info-overview')).toBeNull();
+    expect(document.querySelector('.group-info-meta-list')).toBeNull();
+    expect(metricsRender).not.toHaveBeenCalled();
+    expect(document.querySelector('.group-info-panel')?.getAttribute('aria-label')).toBe(
+      '群聊侧栏',
+    );
   });
-  it('已退群与等级排行是并列图标按钮，已退群保留原回调', () => {
+  it('成员行不随未读和回调变化重画，真实资料只更新目标行且事件调用最新实现', () => {
+    const members = Array.from({ length: 200 }, (_, index) => ({
+      ...CONVERSATION.members[0],
+      id: `uid-${index}`,
+      uin: String(10000 + index),
+      identityValue: String(10000 + index),
+      displayName: `合成成员 ${index}`,
+    }));
+    const open = vi.fn(),
+      nextOpen = vi.fn(),
+      menu = vi.fn();
+    mountPanel(undefined, undefined, {
+      conversation: { ...CONVERSATION, members },
+      onOpenMember: open,
+      onMemberContextMenu: menu,
+    });
+    const root = roots.at(-1)!,
+      host = hosts.at(-1)!;
+    const rows = () => [...host.querySelectorAll<HTMLElement>('.group-info-member-row')];
+    expect(rows()).toHaveLength(members.length);
+    expect(avatarRender).toHaveBeenCalledTimes(members.length);
+    expect(avatarRender.mock.calls.every(([props]) => props.resolution === 'small')).toBe(true);
+    avatarRender.mockClear();
+    const render = (overrides: Partial<ComponentProps<typeof GroupInfoPanel>> = {}) =>
+      act(() =>
+        root.render(
+          createElement(GroupInfoPanel, {
+            conversation: { ...CONVERSATION, members, unreadCount: 9 },
+            onOpenMember: (member, anchor) => nextOpen(member, anchor),
+            onMemberContextMenu: (event, member) => menu(event, member),
+            ...overrides,
+          }),
+        ),
+      );
+    render();
+    render();
+    expect(avatarRender).not.toHaveBeenCalled();
+    act(() =>
+      rows()[0]!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 20 }),
+      ),
+    );
+    expect(open).not.toHaveBeenCalled();
+    expect(nextOpen).toHaveBeenLastCalledWith(members[0], { x: 10, y: 20 });
+    act(() => rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+    expect(menu.mock.calls.at(-1)?.[1]).toBe(members[0]);
+    const updated = members.map((member, index) =>
+      index === 1 ? { ...member, displayName: '已更新成员', role: 'admin' } : member,
+    );
+    render({ conversation: { ...CONVERSATION, members: updated } });
+    expect(avatarRender).toHaveBeenCalledOnce();
+    expect(rows()[1]!.textContent).toContain('已更新成员');
+    expect(rows()[1]!.classList.contains('is-admin')).toBe(true);
+    act(() =>
+      rows()[1]!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' })),
+    );
+    expect(nextOpen.mock.calls.at(-1)?.[0]).toBe(updated[1]);
+    render({ onOpenMember: undefined, onMemberContextMenu: undefined });
+    expect(rows()[0]!.hasAttribute('role')).toBe(false);
+    expect(rows()[0]!.hasAttribute('tabindex')).toBe(false);
+    nextOpen.mockClear();
+    menu.mockClear();
+    act(() => {
+      rows()[0]!.click();
+      rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+    });
+    expect(nextOpen).not.toHaveBeenCalled();
+    expect(menu).not.toHaveBeenCalled();
+  });
+  it('群资料展示排序依据中的活跃度和群内好友数，缺少缓存不误报零，也不写「未知」占位', () => {
+    mountPanel();
+    // 设计契约 §3：没有可信缓存时整行不渲染；既不能报 0，也不允许「未知」占位。
+    expect(metaRow('活跃度')).toBeUndefined();
+    expect(metaRow('群内好友数')).toBeUndefined();
+    expect(document.querySelector('.group-info-panel')?.textContent).not.toContain('未知');
+  });
+  it('已退群与等级排行收进更多菜单，已退群保留原回调', () => {
     const open = vi.fn();
     mountPanel(undefined, undefined, { onOpenLeftMembers: open });
     const actions = document.querySelector('.group-info-member-actions')!;
     const buttons = [...actions.querySelectorAll<HTMLButtonElement>('button')];
-    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
-      '查看已退群的成员',
-      '群成员等级排行',
-    ]);
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['更多成员操作']);
     expect(buttons.every((button) => !button.textContent?.trim())).toBe(true);
     expect(rankQuery).not.toHaveBeenCalled();
     act(() => buttons[0].click());
+    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(2);
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>('[role="menuitem"][title="查看已退群的成员"]')!
+        .click(),
+    );
     expect(open).toHaveBeenCalledOnce();
   });
   it('等级排行直接查询当前群，点击未加载的成员仍能打开资料', async () => {
@@ -144,8 +250,11 @@ describe('群资料面板', () => {
     ]);
     const open = vi.fn();
     mountPanel(undefined, undefined, { onOpenMember: open });
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="更多成员操作"]')!.click());
     await act(async () => {
-      document.querySelector<HTMLButtonElement>('[aria-label="群成员等级排行"]')!.click();
+      document
+        .querySelector<HTMLButtonElement>('[role="menuitem"][title="群成员等级排行"]')!
+        .click();
     });
     expect(rankQuery).toHaveBeenCalledOnce();
     expect(rankQuery).toHaveBeenCalledWith({ groupCode: 'g1', limit: 50, offset: 0 });
@@ -184,8 +293,7 @@ describe('群资料面板', () => {
     mountPanel(vi.fn(), vi.fn());
     const sidebar = document.querySelector('.group-info-panel:not(.weq-group-profile-details)')!;
     expect([...sidebar.children].map((element) => element.className)).toEqual([
-      'group-info-section group-info-overview',
-      'weq-group-announcement',
+      'weq-group-summary',
       'weq-group-content-actions',
       'group-info-section member-list-section',
     ]);
@@ -226,10 +334,11 @@ describe('群资料面板', () => {
   it('公告区域保留独立入口，复用原打开回调', () => {
     const open = vi.fn();
     mountPanel(open);
-    const entry = document.querySelector<HTMLButtonElement>('[title="查看群公告"]')!;
-    expect(entry.textContent).toBe('群公告');
+    const entry = document.querySelector<HTMLButtonElement>('[aria-label="查看群公告"]')!;
+    expect(entry.textContent).toContain('群公告');
     act(() => entry.click());
     expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenLastCalledWith(entry);
   });
   it('群资料栏直接展示打卡入口，点击只打开页面，不直接写入', () => {
     const open = vi.fn();
@@ -238,5 +347,6 @@ describe('群资料面板', () => {
     expect(entry.textContent).toBe('打卡');
     act(() => entry.click());
     expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenLastCalledWith(entry);
   });
 });

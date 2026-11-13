@@ -65,6 +65,8 @@ export function beginApiUsage(endpoint: AgentLabEndpoint, stream = false) {
     startedAt: Date.now(),
     status: 'pending',
     model: endpoint.model,
+    providerId: endpoint.providerId,
+    providerName: endpoint.providerName,
     kind: endpoint.kind ?? 'chat',
     feature: endpoint.feature,
     stream,
@@ -84,6 +86,11 @@ export function beginApiUsage(endpoint: AgentLabEndpoint, stream = false) {
   return {
     report(raw: unknown) {
       const next = parseApiUsage(raw);
+      const changed =
+        (next.promptTokens !== null && next.promptTokens !== record.promptTokens) ||
+        (next.completionTokens !== null && next.completionTokens !== record.completionTokens) ||
+        (next.totalTokens !== null && next.totalTokens !== record.totalTokens);
+      if (!changed) return;
       record.promptTokens = next.promptTokens ?? record.promptTokens;
       record.completionTokens = next.completionTokens ?? record.completionTokens;
       record.totalTokens = next.totalTokens ?? record.totalTokens;

@@ -17,7 +17,9 @@ export function CollectionExportDialog({
   cids?: string[];
   onClose: () => void;
 }) {
-  const [format, setFormat] = useState<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt'>('json');
+  const [format, setFormat] = useState<'json' | 'jsonl' | 'jsonl.gz' | 'csv' | 'xlsx' | 'txt'>(
+    'json',
+  );
   const [structured, setStructured] = useState<StructuredExportOptions>({
     profile: 'basic',
     incrementalSupport: false,
@@ -69,6 +71,7 @@ export function CollectionExportDialog({
             options={[
               { value: 'json', label: 'JSON' },
               { value: 'jsonl', label: 'JSONL' },
+              { value: 'jsonl.gz', label: 'JSONL（压缩）' },
               { value: 'csv', label: 'CSV' },
               { value: 'xlsx', label: 'Excel' },
               { value: 'txt', label: 'TXT' },

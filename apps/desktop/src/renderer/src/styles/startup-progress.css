@@ -1,0 +1,131 @@
+:root {
+  --weq-startup-bg: #e8e8e8;
+  --weq-startup-fg: #666666;
+  --weq-startup-track: rgb(0 0 0 / 16%);
+  --weq-startup-accent: #007acb;
+}
+
+html[data-theme='dark'] {
+  --weq-startup-bg: #191919;
+  --weq-startup-fg: #b3b3b3;
+  --weq-startup-track: rgb(255 255 255 / 16%);
+  --weq-startup-accent: #56a8f7;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+.weq-initial-startup {
+  height: 100dvh;
+  background: var(--weq-bg-app, var(--weq-startup-bg));
+}
+
+.weq-warmup {
+  box-sizing: border-box;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: auto;
+  color: var(--weq-fg-secondary, var(--weq-startup-fg));
+  font:
+    13px / 1.5 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  letter-spacing: 0;
+}
+
+.weq-warmup-logo {
+  display: block;
+  width: 80px;
+  height: 80px;
+  flex: none;
+}
+
+.weq-warmup-logo[role='img'] {
+  background: url('@resources/brand/logo.png') center / contain no-repeat;
+}
+
+.weq-warmup-progress {
+  width: 260px;
+  max-width: 100%;
+  margin-top: 20px;
+}
+
+.weq-warmup-track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--weq-border-strong, var(--weq-startup-track));
+}
+
+.weq-warmup-bar {
+  width: 40%;
+  height: 100%;
+  background: var(--weq-accent-effective, var(--weq-accent-custom, var(--weq-startup-accent)));
+  animation: weq-startup-progress 1.4s ease-in-out infinite alternate;
+}
+
+.weq-warmup-status {
+  display: flex;
+  min-height: 36px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+
+.weq-warmup-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-warmup-bar[data-determinate] {
+  animation: none;
+  transition: width 160ms ease-out;
+}
+
+.weq-startup-final-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 3px;
+  z-index: 10000;
+  pointer-events: none;
+  background: var(--weq-border-strong);
+}
+
+.weq-startup-final-progress > div {
+  height: 100%;
+  background: var(--weq-accent-effective);
+  transition: width 120ms ease-out;
+}
+
+.weq-startup-final-progress[aria-valuenow='100'] > div {
+  transition: none;
+}
+
+@keyframes weq-startup-progress {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(150%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-warmup-bar {
+    animation: none;
+    transition: none;
+  }
+  .weq-startup-final-progress > div {
+    transition: none;
+  }
+}

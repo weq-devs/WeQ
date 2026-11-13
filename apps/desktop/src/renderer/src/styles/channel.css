@@ -33,8 +33,7 @@
   background: color-mix(in srgb, var(--weq-accent-effective) 15%, var(--weq-bg-surface));
 }
 
-.weq-channel-direct-trigger:focus-visible,
-.weq-guild-direct-list-back:focus-visible {
+.weq-channel-direct-trigger:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
@@ -51,21 +50,6 @@
   min-width: 0;
 }
 
-.weq-guild-direct-list-back {
-  display: none;
-}
-
-.weq-guild-direct-msg:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: -2px;
-}
-
-.weq-guild-direct-topbar {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
 html[data-theme='dark'] .weq-channel-direct-trigger {
   border-color: var(--weq-border-strong);
   background: var(--weq-bg-surface);
@@ -76,26 +60,9 @@ html[data-theme='dark'] .weq-channel-direct-trigger {
     flex: 1;
     border-right: 0;
   }
-  .weq-guild-direct:not(.has-selected-session) .weq-guild-direct-chat,
   .weq-guild-direct.has-selected-session .weq-guild-direct-side {
     display: none;
   }
-  .weq-guild-direct-list-back {
-    display: grid;
-    place-items: center;
-    flex: 0 0 32px;
-    width: 32px;
-    height: 32px;
-    border: 0;
-    border-radius: 4px;
-    color: var(--weq-fg-primary);
-    background: transparent;
-    cursor: pointer;
-  }
-}
-.weq-guild-direct-msg.is-search-hit {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: -2px;
 }
 
 .weq-guild-direct-side-title {
@@ -137,21 +104,10 @@ html[data-theme='dark'] .weq-channel-direct-trigger {
   color: var(--weq-accent-effective);
   border-color: var(--weq-accent-effective);
 }
-.weq-guild-direct-msg .message-line.selection-mode {
-  margin: 0;
-  padding: 4px 10px;
-  border: 1px dashed transparent;
-  border-radius: 6px;
-}
-.weq-guild-direct-msg .message-line.selection-mode.is-selected {
-  border-color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
-}
 .weq-guild-direct .selection-bar {
   padding: 8px 12px;
   flex-wrap: wrap;
 }
-html[data-theme='dark'] .weq-guild-direct-msg .message-line.selection-mode.is-selected,
 html[data-theme='dark'] .weq-guild-direct-item.is-multiselected {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }

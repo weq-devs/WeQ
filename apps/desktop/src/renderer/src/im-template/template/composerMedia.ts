@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 输入框里的「媒体素材」模型：图片 / 视频 / 文件附件，以及录好的语音片段。
  *
@@ -131,10 +132,7 @@ export function formatFileSize(bytes: number): string {
 
 /** 毫秒 → `0:07` / `1:02`（语音条上的时长展示）。 */
 export function formatClipDuration(ms: number): string {
-  const total = Math.max(0, Math.round(ms / 1000));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  return timeFormat.formatDuration(Math.max(0, ms / 1000), 'media');
 }
 
 function readImageSize(url: string): Promise<{ width: number; height: number }> {
@@ -245,7 +243,7 @@ export function attachmentToElement(attachment: ComposerAttachment): Record<stri
       localPreviewUrl: attachment.url,
     };
   }
-  return { ...base, kind: 'file' };
+  return { ...base, kind: 'file', localAttachmentId: attachment.id };
 }
 
 export function attachmentToken(attachment: ComposerAttachment): string {

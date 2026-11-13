@@ -169,6 +169,28 @@ function chooseNavigation(label: string) {
 }
 
 describe('设置二级页现场与活动生命周期', () => {
+  it.each([0, 1])('服务商编辑器 %s 关闭后离开 API 配置页不误报未保存', async (index) => {
+    const f = mount('agentlab');
+    try {
+      const create = [...f.body().querySelectorAll<HTMLButtonElement>('button')].filter(
+        (button) => button.textContent?.trim() === '新建',
+      )[index]!;
+      act(() => create.click());
+      expect(document.querySelector('.weq-provider-modal')).not.toBeNull();
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>('.weq-provider-modal [aria-label="关闭"]')!
+          .click(),
+      );
+      expect(document.querySelector('.weq-provider-modal')).toBeNull();
+      const navigate = vi.fn();
+      f.navigate(navigate);
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(document.body.textContent).not.toContain('当前设置尚未保存');
+    } finally {
+      f.dispose();
+    }
+  });
   it('没有未保存内容时直接执行主页面导航', () => {
     fixture.mcpPort = 48765;
     const f = mount('mcp');
@@ -457,7 +479,13 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(scroll.mock.contexts.filter((context) => context === setting)).toHaveLength(1);
       f.render('global', { ...target, revision: 2 });
       expect(scroll.mock.contexts.filter((context) => context === restoredSetting)).toHaveLength(1);
-      expect(document.activeElement).toBe(restoredSetting);
+      // 焦点落在命中行内第一个可操作控件上，行内没有控件时才落在行本身。
+      const focusable =
+        'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="switch"]:not([disabled]), button:not([disabled]), a[href], summary, [tabindex="0"]';
+      const control = restoredSetting.matches(focusable)
+        ? restoredSetting
+        : restoredSetting.querySelector<HTMLElement>(focusable);
+      expect(document.activeElement).toBe(control ?? restoredSetting);
     } finally {
       f.dispose();
       if (previous) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', previous);
@@ -465,11 +493,12 @@ describe('设置二级页现场与活动生命周期', () => {
     }
   });
   it('只挂载当前页，重建恢复输入、展开与滚动，不让旧页继续查询', async () => {
-    const f = mount();
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
     try {
       const body = f.body(),
         input = body.querySelector<HTMLInputElement>('input')!;
-      inputValue(input, '73');
+      inputValue(input, '48773');
       act(() => {
         body.scrollTop = 137;
         body.dispatchEvent(new Event('scroll', { bubbles: true }));
@@ -481,10 +510,10 @@ describe('设置二级页现场与活动生命周期', () => {
       act(() => {
         details.open = true;
       });
-      f.render('global');
+      f.render('mcp');
       expect(f.body()).not.toBe(body);
       expect(f.body().querySelector('input')).not.toBe(input);
-      expect(f.body().querySelector('input')!.value).toBe('73');
+      expect(f.body().querySelector('input')!.value).toBe('48773');
       Object.defineProperty(f.body(), 'scrollHeight', { value: 1000 });
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 30));

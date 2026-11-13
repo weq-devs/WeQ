@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { JSONParser, TokenType } from '@streamparser/json';
+import { compressedArchiveBlocks } from './archive_compression';
 import {
   ArchiveGraph,
   canonical,
@@ -87,7 +88,32 @@ function verifyHeader(header: JsonObject): ArchiveHeader {
 export async function* archiveLines(
   path: string,
   signal?: AbortSignal,
+  compressed = false,
 ): AsyncGenerator<{ value: JsonObject; end: number; error?: unknown }> {
+  if (compressed) {
+    for await (const { data, end } of compressedArchiveBlocks(path, signal)) {
+      assert(data.at(-1) === 10, '压缩归档块缺少完整换行');
+      let start = 0;
+      while (start < data.length) {
+        const newline = data.indexOf(10, start);
+        assert(newline >= start && newline - start <= 8 * 1024 * 1024, '归档单行超过 8 MiB');
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(
+          data.subarray(start, newline),
+        );
+        let value: JsonObject = {},
+          error: unknown;
+        try {
+          value = object(parseArchiveJson(text));
+        } catch (cause) {
+          error = cause;
+        }
+        assert(value.type !== 'commit' || newline === data.length - 1, '压缩归档提交必须位于块尾');
+        yield { value, end, ...(error ? { error } : {}) };
+        start = newline + 1;
+      }
+    }
+    return;
+  }
   let buffer = Buffer.alloc(0),
     offset = 0;
   for await (const chunk of createReadStream(path, { signal })) {
@@ -114,11 +140,11 @@ export async function* archiveLines(
 }
 export async function readArchiveHeader(
   path: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   signal?: AbortSignal,
 ): Promise<ArchiveHeader> {
-  if (format === 'jsonl') {
-    for await (const { value, error } of archiveLines(path, signal)) {
+  if (format !== 'json') {
+    for await (const { value, error } of archiveLines(path, signal, format === 'jsonl.gz')) {
       if (error) throw error;
       assert(
         value.type === 'header' &&
@@ -154,7 +180,7 @@ export interface StreamState {
 }
 export async function* streamArchiveEvents(
   path: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   state: StreamState,
   signal?: AbortSignal,
 ): AsyncGenerator<ArchiveEvent> {
@@ -178,7 +204,7 @@ export async function* streamArchiveEvents(
     digest = createHash('sha256');
   const batches = new Set<string>();
   let pendingError: unknown;
-  for await (const { value, end, error } of archiveLines(path, signal)) {
+  for await (const { value, end, error } of archiveLines(path, signal, format === 'jsonl.gz')) {
     if (first) {
       first = false;
       if (error) throw error;
@@ -268,7 +294,7 @@ export interface ArchiveScan {
 }
 export async function scanArchiveFile(
   path: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   signal?: AbortSignal,
 ): Promise<ArchiveScan> {
   const header = await readArchiveHeader(path, format, signal);

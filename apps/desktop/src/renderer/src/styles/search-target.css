@@ -1,0 +1,19 @@
+.weq-search-target {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+  animation: weq-search-target-fade 1.8s ease-out forwards;
+}
+@keyframes weq-search-target-fade {
+  from {
+    background-color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
+  }
+  to {
+    background-color: transparent;
+    outline-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-search-target {
+    animation: none;
+  }
+}

@@ -9,7 +9,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { FolderOpen, Info, PhoneCall, Radio, RotateCcw, Waypoints } from 'lucide-react';
+import { FolderOpen, Info, PhoneCall, Radio, Waypoints } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useToast } from '../Toast';
@@ -98,6 +98,7 @@ export function CallRecordingSection(): ReactElement {
         />
         <Row
           label="同时录电脑声音"
+          remoteUnsupported
           desc={
             systemUnsupported
               ? '当前平台不支持。macOS 需要先装 BlackHole 之类的虚拟声卡，再把系统输出指过去。'
@@ -114,7 +115,7 @@ export function CallRecordingSection(): ReactElement {
         />
       </Card>
 
-      <Card title="保存位置" icon={<FolderOpen size={15} strokeWidth={1.8} />}>
+      <Card title="保存位置" icon={<FolderOpen size={15} strokeWidth={1.8} />} remoteUnsupported>
         <Row
           label={config?.dir ?? '默认目录'}
           desc={
@@ -133,21 +134,12 @@ export function CallRecordingSection(): ReactElement {
                 <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
                 选择目录
               </button>
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={setSettings.isLoading || !config?.dir}
-                onClick={() => setSettings.mutate({ dir: null })}
-              >
-                <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
-                恢复默认
-              </button>
             </div>
           }
         />
       </Card>
 
-      <Card title="抓包与排障" icon={<Radio size={15} strokeWidth={1.8} />}>
+      <Card title="抓包与排障" icon={<Radio size={15} strokeWidth={1.8} />} remoteUnsupported>
         <Row
           label="记录 UDP 流量"
           desc="发起通话时自动开始，把本机收发的全部 UDP 数据报写到录音目录下的 udp 文件夹，格式与 UDP 抓包面板的导出相同（pcapng，Wireshark 可直接打开）。视频通话的文件可能有几个 GB，用完记得清理。"

@@ -24,6 +24,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { scopedNetworkAllowed } from '../common/network_scope';
 import { lookup } from 'node:dns/promises';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
@@ -561,6 +562,7 @@ export class LinkPreviewService {
 
   private async loadPreview(url: string): Promise<LinkPreview | null> {
     const cached = await this.readDisk(url);
+    if (!scopedNetworkAllowed('link-preview')) return cached?.preview ?? null;
     if (cached && this.fresh(cached)) {
       this.remember(url, cached);
       return cached.preview;

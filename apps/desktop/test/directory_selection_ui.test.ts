@@ -8,11 +8,13 @@ import {
   ConversationList,
 } from '../src/renderer/src/im-template/template/conversationLists';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ContactDirectoryContext,
   ConversationDirectoryContext,
+  virtualConversationRow,
 } from '../src/renderer/src/lib/conversationDirectory';
+import { conversationViewFixture } from './support/conversation-view-fixture';
 import {
   ContentSelectionProvider,
   useCurrentContentSelection,
@@ -248,6 +250,7 @@ it.each(['friends', 'groups'] as const)(
                 ConversationDirectoryContext.Provider,
                 {
                   value: {
+                    ...conversationViewFixture({ regular: [conversation] }),
                     real: [conversation],
                     virtual: [],
                     preferences,
@@ -311,6 +314,12 @@ it('会话混选多个群、好友和虚拟会话时，名单仅带入所选真�
     group: { ...base.group!, id },
   }));
   const rows = [...groups, friend];
+  const virtual = {
+    id: 'virtual:fixture',
+    kind: 'group' as const,
+    ownerId: 'fixture',
+    name: '合成虚拟群',
+  };
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -327,10 +336,12 @@ it('会话混选多个群、好友和虚拟会话时，名单仅带入所选真�
             ConversationDirectoryContext.Provider,
             {
               value: {
+                ...conversationViewFixture(
+                  { regular: rows, clone: [virtualConversationRow(virtual)] },
+                  'all',
+                ),
                 real: rows,
-                virtual: [
-                  { id: 'virtual:fixture', kind: 'group', ownerId: 'fixture', name: '合成虚拟群' },
-                ],
+                virtual: [virtual],
                 onVirtual: vi.fn(),
                 onCreate: vi.fn(),
               },
@@ -351,6 +362,16 @@ it('会话混选多个群、好友和虚拟会话时，名单仅带入所选真�
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="全选当前结果"]')!.click());
     expect(host.querySelectorAll('.is-multiselected')).toHaveLength(4);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="导出名单"]')!.click());
+    const confirmation = document.querySelector('[role="dialog"]')!;
+    expect(confirmation.textContent).toContain('2 个会话不支持导出群名单');
+    expect(confirmation.textContent).toContain(friend.otherUser!.displayName);
+    expect(confirmation.textContent).toContain('合成虚拟群');
+    expect(host.querySelector('output')!.textContent).toBe('');
+    act(() =>
+      [...confirmation.querySelectorAll('button')]
+        .find((node) => node.textContent === '仅处理支持的会话')!
+        .click(),
+    );
     expect(JSON.parse(host.querySelector('output')!.textContent!)).toEqual({
       owner: { kind: 'contacts', container: 'groups' },
       scope: { type: 'items', ids: ['10001', '10002'] },
@@ -416,6 +437,7 @@ it.each(['friends', 'groups'] as const)(
           ConversationDirectoryContext.Provider,
           {
             value: {
+              ...conversationViewFixture({ regular: rows }),
               real: rows,
               virtual: [],
               onVirtual: vi.fn(),

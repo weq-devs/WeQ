@@ -6,6 +6,28 @@ import { ContactMetricsService } from '../src/account/contact_metrics';
 
 const roots: string[] = [];
 const services: ContactMetricsService[] = [];
+it('新增投影持久化保留零、空列表和显式未知，失败不覆盖成功值', async () => {
+  const { service, path } = await setup();
+  await service.project('friend:123', {
+    energy: 0,
+    schools: ['厦门大学'],
+    source: '',
+    sourceGroup: '',
+  });
+  await service.project('group:456', { grade: 0, freezeState: 0, joinedAt: 123 });
+  await service.failed('friend:123', 'energy', new Error('offline'));
+  await service.project('group:456', { grade: null });
+  await service.project('friend:123', { schools: [] });
+  await service.flush();
+  const reopened = new ContactMetricsService(path, () => true);
+  services.push(reopened);
+  const rows = (await reopened.snapshot()).rows;
+  expect(rows['friend:123']?.energy).toMatchObject({ value: 0, state: 'failed' });
+  expect(rows['friend:123']?.schools?.value).toEqual([]);
+  expect(rows['friend:123']?.source?.value).toBe('');
+  expect(rows['group:456']?.freezeState?.value).toBe(0);
+  expect(rows['group:456']?.grade).toMatchObject({ value: undefined, state: 'stale' });
+});
 async function setup(online = () => true, interval = 0, concurrency = 2) {
   const root = await mkdtemp(join(tmpdir(), 'weq-contact-test-'));
   roots.push(root);

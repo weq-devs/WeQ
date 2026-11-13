@@ -4,7 +4,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { insertComposerNode } from '../src/renderer/src/im-template/template/composer';
 
 const target = vi.hoisted(() => ({ web: false }));
@@ -90,9 +90,116 @@ function fixture() {
 }
 
 describe('进入会话自动聚焦', () => {
+  it.each([
+    [390, 844, false],
+    [640, 960, false],
+    [390, 844, true],
+    [640, 960, true],
+  ] as const)('桌面端竖屏 %s × %s / Web %s 进入及返回会话自动聚焦', (width, height, web) => {
+    target.web = web;
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0)', maxTouchPoints: 0 });
+    vi.stubGlobal('innerWidth', width);
+    vi.stubGlobal('innerHeight', height);
+    vi.stubGlobal('matchMedia', (query: string) =>
+      Object.assign(new EventTarget(), { matches: query === '(max-width: 760px)' }),
+    );
+    const f = fixture();
+    localStorage.setItem('chat-template.layout.composerCollapsed', '1');
+    try {
+      act(() => f.otherInput.focus());
+      f.render();
+      expect(document.activeElement).toBe(f.editor());
+      expect(f.editor().textContent).toBe('已有草稿');
+
+      act(() => f.otherInput.focus());
+      const next = {
+        conversation: { ...f.props.conversation, id: 'desktop-portrait' },
+        draft: '新草稿',
+      };
+      f.render(next);
+      expect(document.activeElement).toBe(f.editor());
+      expect(f.editor().textContent).toBe('新草稿');
+
+      act(() => f.otherInput.focus());
+      f.render({ ...next, loading: true });
+      expect(document.activeElement).toBe(f.otherInput);
+      f.render(next, false);
+      expect(document.activeElement).toBe(f.otherInput);
+      f.render(next);
+      expect(document.activeElement).toBe(f.editor());
+    } finally {
+      f.dispose();
+    }
+  });
+
+  it.each([
+    ['Remote 窄横屏', 640, 320, 'WeQRemote Android', 5],
+    ['Remote 手机横屏', 844, 390, 'WeQRemote iOS', 5],
+    ['Remote 平板横屏', 1024, 768, 'WeQRemote iPadOS', 5],
+    ['Remote 宽竖屏', 820, 1180, 'WeQRemote iPadOS', 5],
+    ['手机网页横屏', 844, 390, 'Mozilla/5.0 (Linux; Android 15)', 5],
+    ['iPad 桌面 UA 横屏', 1024, 768, 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', 5],
+  ] as const)(
+    '%s 进入、切换及返回会话不自动聚焦，手动输入仍可用',
+    (_name, width, height, userAgent, maxTouchPoints) => {
+      target.web = true;
+      vi.stubGlobal('navigator', { userAgent, maxTouchPoints });
+      vi.stubGlobal('innerWidth', width);
+      vi.stubGlobal('innerHeight', height);
+      vi.stubGlobal('screen', {
+        width,
+        height,
+        orientation: Object.assign(new EventTarget(), {
+          type: width > height ? 'landscape-primary' : 'portrait-primary',
+        }),
+      });
+      vi.stubGlobal('matchMedia', (query: string) =>
+        Object.assign(new EventTarget(), {
+          matches: query === '(max-width: 760px)' ? width <= 760 : true,
+        }),
+      );
+      const f = fixture();
+      try {
+        act(() => f.otherInput.focus());
+        f.render();
+        expect(document.activeElement).toBe(f.otherInput);
+        expect(f.editor().textContent).toBe('已有草稿');
+
+        act(() => {
+          f.editor().focus();
+          f.editor().textContent = '手动输入';
+          f.editor().dispatchEvent(new InputEvent('input', { bubbles: true }));
+        });
+        expect(document.activeElement).toBe(f.editor());
+        expect(f.props.onDraftChange).toHaveBeenLastCalledWith(f.props.conversation.id, '手动输入');
+
+        f.render({
+          conversation: { ...f.props.conversation, id: 'next-landscape' },
+          draft: '新草稿',
+        });
+        expect(document.activeElement).not.toBe(f.editor());
+        expect(f.editor().textContent).toBe('新草稿');
+        act(() => f.otherInput.focus());
+        f.render({}, false);
+        f.render();
+        expect(document.activeElement).toBe(f.otherInput);
+      } finally {
+        f.dispose();
+      }
+    },
+  );
+
   it.each(['0', '1'])('手机输入区常驻，忽略旧收起偏好 %s 且不抢焦点', (saved) => {
     const f = fixture();
     target.web = true;
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone)', maxTouchPoints: 5 });
+    vi.stubGlobal('innerWidth', 390);
+    vi.stubGlobal('innerHeight', 844);
+    vi.stubGlobal('screen', {
+      width: 390,
+      height: 844,
+      orientation: Object.assign(new EventTarget(), { type: 'portrait-primary' }),
+    });
     vi.stubGlobal('matchMedia', (query: string) =>
       Object.assign(new EventTarget(), { matches: query === '(max-width: 760px)' }),
     );

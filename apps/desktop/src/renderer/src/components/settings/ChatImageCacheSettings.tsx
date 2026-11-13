@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { usePageState } from '../PageSnapshots';
-import { pageValue } from '../../lib/pageSnapshots';
-import { Image, Save } from 'lucide-react';
+import { useNumericSettingDraft } from './useNumericSettingDraft';
+import { Image } from 'lucide-react';
+import { AutoSave } from './AutoSave';
 import {
   DEFAULT_CHAT_IMAGE_CACHE_MIB,
   MAX_CHAT_IMAGE_CACHE_MIB,
@@ -17,33 +16,20 @@ export function ChatImageCacheSettings() {
   const save = trpc.bootstrap.setChatImageCacheMiB.useMutation();
   const utils = trpc.useUtils();
   const current = settings.data?.chatImageCacheMiB ?? DEFAULT_CHAT_IMAGE_CACHE_MIB;
-  const [draft, setDraft] = usePageState(
+  const [draft, setDraft] = useNumericSettingDraft(
     'image-cache:draft',
-    String(current),
-    pageValue.string,
-    true,
+    settings.data?.chatImageCacheMiB,
+    current,
   );
-  const [error, setError] = useState<string | null>(null);
-  const previous = useRef(String(current));
-  useEffect(() => {
-    setDraft((value) => (value === previous.current ? String(current) : value));
-    previous.current = String(current);
-  }, [current, setDraft]);
   const value = draft.trim() === '' ? NaN : Number(draft);
   const valid = Number.isInteger(value) && value >= 0 && value <= MAX_CHAT_IMAGE_CACHE_MIB;
 
-  async function apply() {
-    if (!valid || !settings.data || save.isLoading) return;
-    setError(null);
-    try {
-      const miB = await save.mutateAsync({ miB: value });
-      utils.bootstrap.getSettings.setData(undefined, (previous) =>
-        previous ? { ...previous, chatImageCacheMiB: miB } : previous,
-      );
-      await utils.bootstrap.getSettings.invalidate();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
+  async function apply(text: string | number) {
+    const miB = await save.mutateAsync({ miB: Number(text) });
+    utils.bootstrap.getSettings.setData(undefined, (previous) =>
+      previous ? { ...previous, chatImageCacheMiB: miB } : previous,
+    );
+    await utils.bootstrap.getSettings.invalidate();
   }
 
   return (
@@ -53,40 +39,33 @@ export function ChatImageCacheSettings() {
         label="图片预览内存预算"
         desc="按解码后像素估算，优先保留最近查看的图片与表情，超额时淘汰离屏项。0 表示不保留离屏预览。可见图片和动画额外帧可能使实际内存高于预算。"
         control={
-          <form
-            className="weq-image-cache-setting"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void apply();
-            }}
+          <AutoSave
+            value={draft.trim() ? Number(draft) : ''}
+            saved={current}
+            ready={!!settings.data}
+            valid={valid}
+            save={apply}
+            reset={() => setDraft(String(current))}
           >
-            <input
-              type="number"
-              min={0}
-              max={MAX_CHAT_IMAGE_CACHE_MIB}
-              step={1}
-              value={draft}
-              aria-label="图片预览内存预算"
-              aria-invalid={!valid}
-              disabled={!settings.data || save.isLoading}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setError(null);
-              }}
-            />
-            <span>MiB</span>
-            <button
-              type="submit"
-              title="保存图片预览内存预算"
-              aria-label="保存图片预览内存预算"
-              disabled={!settings.data || save.isLoading || !valid || value === current}
-            >
-              <Save size={16} aria-hidden />
-            </button>
-          </form>
+            <div className="weq-image-cache-setting">
+              <input
+                type="number"
+                min={0}
+                max={MAX_CHAT_IMAGE_CACHE_MIB}
+                step={1}
+                value={draft}
+                aria-label="图片预览内存预算"
+                aria-invalid={!valid}
+                disabled={!settings.data}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                }}
+              />
+              <span>MiB</span>
+            </div>
+          </AutoSave>
         }
       />
-      {error ? <p role="alert">{error}</p> : null}
       {settings.isError ? (
         <QueryError
           message="无法读取图片预览设置"

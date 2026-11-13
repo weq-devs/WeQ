@@ -19,6 +19,8 @@ import { resolveAvatar } from '../../lib/avatarResolver';
 import type { SearchHit } from './types';
 import { searchHitKey } from './types';
 import { PersonRelationshipStatus, GroupRelationshipStatus } from '../RelationshipStatus';
+import { classifyChatType } from '@weq/codec';
+import { isInlineSearchHit } from './searchNavigation';
 
 /** Group avatar CDN: https://p.qlogo.cn/gh/<code>/<code>/0 */
 export function groupAvatarSrc(groupCode: string): string | null {
@@ -153,6 +155,15 @@ export function SearchResultCard({
 
   switch (hit.category) {
     case 'contact': {
+      const conversationKind = classifyChatType(hit.chatType ?? 1);
+      const sourceLabel =
+        conversationKind === 'official'
+          ? '公众号'
+          : conversationKind === 'service'
+            ? '服务号'
+            : conversationKind === 'dataline'
+              ? '数据线'
+              : null;
       const matchedAlias =
         keyword.trim() &&
         hit.aliases.find(
@@ -175,13 +186,15 @@ export function SearchResultCard({
             '克隆体'
           ) : hit.target?.kind === 'guild' ? (
             '频道私聊'
+          ) : sourceLabel ? (
+            sourceLabel
           ) : (
             <PersonRelationshipStatus
               person={{ id: hit.uid, identityValue: hit.uin, isFriend: hit.isFriend }}
               compact
             />
           )}
-          {!hit.target && !hit.isFriend
+          {!hit.target && !sourceLabel && !hit.isFriend
             ? ` · ${hit.temporary ? '临时会话' : hit.hasConversation ? '本地会话' : '本地资料'}`
             : null}
           {' · '}
@@ -257,19 +270,29 @@ export function SearchResultCard({
     case 'groupFile':
     case 'mailMessage':
     case 'marketEmoji':
-    case 'guildMessage': {
+    case 'guildMessage':
+    case 'groupBulletin':
+    case 'groupEssence':
+    case 'flashFile':
+    case 'qzoneComment':
+    case 'otherQzoneComment':
+    case 'qzonePublicComment': {
       const Icon =
         hit.category === 'mailMessage'
           ? Mail
-          : hit.category === 'groupFile'
+          : hit.category === 'groupFile' || hit.category === 'flashFile'
             ? File
             : hit.category === 'guildMessage'
               ? Hash
               : hit.category === 'marketEmoji'
                 ? Smile
-                : hit.target.kind === 'qzonePost'
-                  ? Globe
-                  : Images;
+                : hit.category === 'groupBulletin' || hit.category === 'groupEssence'
+                  ? MessagesSquare
+                  : hit.target.kind === 'qzonePost' ||
+                      hit.target.kind === 'qzoneComment' ||
+                      hit.target.kind === 'qzonePublicComment'
+                    ? Globe
+                    : Images;
       media = (
         <span className="weq-search-avatar weq-search-source-icon">
           <Icon size={22} />
@@ -318,10 +341,11 @@ export function SearchResultCard({
           {hit.kind === 'assistant' ? <Bot size={22} /> : <MessagesSquare size={22} />}
         </span>
       );
-      title = `${hit.title} · ${hit.sessionTitle}`;
+      title = hit.kind === 'assistant' ? hit.sessionTitle : hit.title;
       subtitle = (
         <span className="weq-search-muted">
-          {hit.category === 'cloneMessage' ? '本地克隆对话' : '本地助手对话'} ·{' '}
+          {hit.category === 'cloneMessage' ? '克隆' : 'WeQ 助手'} ·{' '}
+          {hit.matchType === 'title' ? '标题命中' : '正文命中'} ·{' '}
           <span data-privacy-sensitive>{highlightText(hit.content, keyword)}</span>
         </span>
       );
@@ -380,8 +404,18 @@ export function SearchResultCard({
       title = hit.name;
       subtitle = (
         <span className="weq-search-muted">
-          查到<strong className="weq-search-strong">{hit.count}</strong>条包含
-          <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的消息
+          {hit.count > 0 || !hit.matchedBulletins ? (
+            <>
+              查到<strong className="weq-search-strong">{hit.count}</strong>条包含
+              <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的消息
+            </>
+          ) : null}
+          {hit.matchedBulletins ? (
+            <>
+              {hit.count > 0 ? ' · ' : ''}匹配
+              <strong className="weq-search-strong">{hit.matchedBulletins}</strong>条群公告
+            </>
+          ) : null}
         </span>
       );
       break;
@@ -405,6 +439,7 @@ export function SearchResultCard({
       type="button"
       className="weq-search-row"
       data-search-category={hit.category}
+      data-search-keep-open={isInlineSearchHit(hit) || undefined}
       role="option"
       data-search-hit-key={searchHitKey(hit)}
       onClick={() => onSelect?.(hit)}

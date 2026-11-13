@@ -37,6 +37,11 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { networkScope, scopedNetworkAllowed, transferBehavior } from '@weq/service/network-scope';
+import { hostDataSaver } from './data_saver';
+import { ManagedDownload } from '@weq/service/managed-download';
+import { avatarResponse } from './avatar_response';
+import { aiImageAssetPath } from './ai_images';
 import { viewerMedia } from './export_viewer';
 import { fileResponse as streamFile } from './file_response';
 import { withCors } from './protocol_response';
@@ -50,8 +55,9 @@ import {
   GROUP_VIDEO_RKEY_TYPE,
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
-  downloadUrlToFile,
+  managedMediaDownload as downloadUrlToFile,
   resolveChatpicFile,
+  chatpicRelPaths,
   type AvatarLocalFile,
   type MediaElement,
 } from '@weq/service';
@@ -59,7 +65,6 @@ import { getAppContext } from './context/app_context';
 import { fullModeAllowed } from './context/full_mode';
 import { resolveResource } from './resource';
 import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
-import { decodeSilkToWav, isSilkFile } from './voice';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
@@ -135,12 +140,13 @@ export async function findMediaElement(
  * 按 picElement 的 md5 在 chatraw/chatimg/chatthumb 里寻址。找不到返回 null，
  * 调用方继续走 rkey / CDN 下载。
  */
-function resolveChatpicFallback(md5: string): string | null {
+function resolveChatpicFallback(md5: string, originalOnly = false): string | null {
   if (!md5) return null;
   const boot = getAppContext().bootstrap;
   const cfg = boot?.userConfig.getSettings().externalChatpic;
   if (!cfg?.enabled || !cfg.dir) return null;
-  return resolveChatpicFile(cfg.dir, md5);
+  const path = resolveChatpicFile(cfg.dir, md5);
+  return originalOnly && path !== join(cfg.dir, chatpicRelPaths(md5).chatraw) ? null : path;
 }
 
 export const MEDIA_SCHEME = 'weq-media';
@@ -251,12 +257,7 @@ async function avatarFallbackResponse(
   }
   const respond = (blob: { data: Buffer; contentType: string }): Response | null =>
     // Defensive: a broken (empty) cache entry must never become a 200 empty body.
-    blob.data.length === 0
-      ? null
-      : new Response(new Uint8Array(blob.data), {
-          status: 200,
-          headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },
-        });
+    blob.data.length === 0 ? null : avatarResponse(blob, currentRequest.getStore());
   try {
     const res = respond(await cache.get(src, 'avatar', force ? 0 : undefined));
     if (res) return res;
@@ -317,6 +318,11 @@ function flashPicUpstreamUrl(token: string, spec: string): string | null {
 }
 
 async function albumRemoteResponse(src: string): Promise<Response> {
+  if (!scopedNetworkAllowed())
+    return new Response('省流量模式：点击加载', {
+      status: 409,
+      headers: { 'Cache-Control': 'no-store' },
+    });
   if (!/^https?:\/\//i.test(src)) return notFound('album image needs remote url');
   const target = new URL(src);
   const host = target.hostname.toLowerCase();
@@ -355,7 +361,23 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   const contentType = res.headers.get('content-type') ?? '';
   // 视频原样回传：要保留 range 支持（上游 206 + content-range 直接透传），
   // 且不能把整段 mp4 读进内存。
-  if (!contentType.startsWith('image/')) return res;
+  if (!contentType.startsWith('image/')) {
+    const responseHeaders = new Headers(res.headers);
+    const connectionHeaders = (responseHeaders.get('connection') ?? '').split(',');
+    for (const name of [
+      ...connectionHeaders.map((value) => value.trim()).filter(Boolean),
+      'connection',
+      'keep-alive',
+      'proxy-authenticate',
+      'proxy-authorization',
+      'te',
+      'trailer',
+      'transfer-encoding',
+      'upgrade',
+    ])
+      responseHeaders.delete(name);
+    return new Response(res.body, { status: res.status, headers: responseHeaders });
+  }
   // 图片则重新组装：qpic 带 `connection: keep-alive` 这类逐跳头,原样回传会让
   // Chromium 的协议处理器直接 ERR_UNEXPECTED。只挑必要的头。
   const body = await res.arrayBuffer();
@@ -483,10 +505,109 @@ async function giftRemoteResponse(src: string): Promise<Response> {
  * Serve one `weq-media://` request. Pure `Request`→`Response`, so the web app
  * can mount it on a plain HTTP route (see `apps/web`) without Electron.
  */
+export async function resolveChatImageFile(
+  q: URLSearchParams,
+  check = () => mediaBinding.getStore()?.(),
+) {
+  check();
+  const services = getAppContext().services;
+  if (!services) throw new Error('账号尚未打开');
+  const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
+  const { source, thumb } = await services.fileSearch.findFile(
+    Number(q.get('t') ?? '0'),
+    q.get('name') ?? '',
+    picType,
+    q.get('md5') ?? undefined,
+  );
+  check();
+  const path =
+    q.get('v') === 'thumb'
+      ? (thumb ?? source)
+      : q.get('v') === 'original' && picType !== 'emoji'
+        ? source
+        : (source ?? thumb);
+  if (path) return { path, variant: path === source ? ('original' as const) : ('thumb' as const) };
+  const backup = resolveChatpicFallback(q.get('md5') ?? '', q.get('v') === 'original');
+  if (backup) return { path: backup, variant: 'unknown' as const };
+  const cached = services.mediaDownload.cachedFile(q.get('token') ?? '');
+  if (cached) return { path: cached, variant: 'downloaded' as const };
+  const restricted = q.get('ds') === '1' || (await hostDataSaver());
+  const behavior = transferBehavior();
+  if (
+    q.get('intent') !== 'interactive' &&
+    restricted &&
+    (q.get('cacheOnly') === '1' ||
+      (picType === 'emoji' ? !behavior.dataSaverEmoji : behavior.dataSaverImageLoading === 'none'))
+  ) {
+    const localThumb = q.get('small')
+      ? await services.mediaDownload.thumbnail?.(q.get('small')!, true)
+      : null;
+    return localThumb
+      ? { path: localThumb, variant: 'thumb' as const }
+      : { path: null, variant: 'unknown' as const, deferred: true };
+  }
+  if (
+    q.get('intent') !== 'interactive' &&
+    restricted &&
+    picType !== 'emoji' &&
+    behavior.dataSaverImageLoading !== 'original'
+  ) {
+    const small = q.get('small');
+    const thumbnail =
+      small && small !== q.get('orig') ? await services.mediaDownload.thumbnail?.(small) : null;
+    return thumbnail
+      ? { path: thumbnail, variant: 'thumb' as const }
+      : { path: null, variant: 'unknown' as const, deferred: true };
+  }
+  const downloaded = await services.mediaDownload.download(q.get('token') ?? '', {
+    originalUrl: q.get('orig') ?? '',
+  });
+  check();
+  return { path: downloaded, variant: 'downloaded' as const };
+}
+
 export async function handleMediaRequest(request: Request, check?: () => void): Promise<Response> {
   try {
+    const query = new URL(request.url).searchParams;
+    const kind = new URL(request.url).hostname;
+    const restricted = query.get('ds') === '1' || (await hostDataSaver());
+    const intent =
+      query.get('intent') === 'interactive'
+        ? 'interactive'
+        : (kind === 'avatar' && query.get('v') === 'small') ||
+            (kind === 'pic' && query.get('v') === 'thumb') ||
+            (kind === 'video' && query.get('v') === 'thumb')
+          ? 'thumbnail'
+          : 'prefetch';
     const serve = () =>
-      currentRequest.run(request, async () => withCors(await routeMediaRequest(request)));
+      networkScope.run(
+        {
+          restricted,
+          intent,
+          clientId: query.get('cid') ?? undefined,
+          resource:
+            kind === 'avatar'
+              ? 'avatar'
+              : kind === 'video' && query.get('v') === 'thumb'
+                ? 'video-cover'
+                : kind === 'mface' || (kind === 'pic' && query.get('recv') === '1')
+                  ? 'emoji'
+                  : kind === 'pic'
+                    ? 'image'
+                    : kind.startsWith('dress') || kind === 'qqshow' || kind === 'redbag'
+                      ? 'dress'
+                      : undefined,
+        },
+        () =>
+          currentRequest.run(request, async () => {
+            const response = await routeMediaRequest(request);
+            return withCors(
+              request.headers.get('x-weq-web') === '1'
+                ? new ManagedDownload({ name: '传输媒体到客户端' }).response(response)
+                : response,
+            );
+          }),
+      );
     return await (check ? mediaBinding.run(check, serve) : serve());
   } catch (e) {
     // 路由内部已经有 try/catch；这里兜住「连 AppContext 都还没初始化」这类
@@ -630,6 +751,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       return notFound('no account session');
     }
     if (!services) return notFound('no account session');
+    if (kind === 'ai-image') {
+      return fileResponse(aiImageAssetPath(q.get('id') ?? ''));
+    }
 
     // 装扮字体:清单里记的 ttf 绝对路径。放在这里(而不是 weq-asset)是因为
     // weq-asset 只服务仓库的 resources/ 树,读不了账号缓存目录。
@@ -703,28 +827,22 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           // pic subType 1 = received animated emoji: lives under Emoji/emoji-recv
           // with no "original"; the displayable image comes back as `thumb`.
           const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
-          const { source, thumb } = await services.fileSearch.findFile(
-            tMs,
-            name,
-            picType,
-            q.get('md5') ?? undefined,
-          );
-          mediaBinding.getStore()?.();
-          const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
+          const { path, deferred } = await resolveChatImageFile(q);
           const respond = (path: string) =>
             wantThumb && picType !== 'emoji'
-              ? chatImageResponse(path, currentRequest.getStore(), mediaBinding.getStore())
+              ? chatImageResponse(
+                  path,
+                  currentRequest.getStore(),
+                  mediaBinding.getStore(),
+                  q.get('ds') === '1',
+                )
               : fileResponse(path);
-          if (path) return respond(path);
-          // 本地 miss → 外部安卓 chatpic 备份兜底（按 md5 寻址），再不行才走 CDN。
-          const chatpicFile = resolveChatpicFallback(q.get('md5') ?? '');
-          if (chatpicFile) return respond(chatpicFile);
-          // Missing on disk → CDN: digit token → originalUrl (no rkey); else rkey.
-          const dl = await services.mediaDownload.download(token, {
-            originalUrl: q.get('orig') ?? '',
-          });
-          mediaBinding.getStore()?.();
-          return dl ? respond(dl) : notFound('pic not found');
+          if (deferred)
+            return new Response('省流量模式：点击加载', {
+              status: 409,
+              headers: { 'Cache-Control': 'no-store', 'X-WeQ-Media-State': 'deferred' },
+            });
+          return path ? respond(path) : notFound('pic not found');
         }
         case 'video': {
           // ?v=thumb → cover image (rkey is fine for covers); otherwise →
@@ -825,6 +943,8 @@ async function routeMediaRequest(request: Request): Promise<Response> {
             }
           }
           if (!silk) return notFound('ptt not found');
+          const { decodeSilkToWav } = await import('./voice');
+          mediaBinding.getStore()?.();
           const wav = await decodeSilkToWav(silk);
           return wav ? fileResponse(wav) : notFound('ptt decode failed');
         }
@@ -885,7 +1005,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           const refresh = q.get('_weq_avatar_remote') === '1';
           if (fb && refresh) {
             const fresh = await avatarFallbackResponse(fb, true);
-            if (fresh.ok) return fresh;
+            if (fresh.ok || fresh.status === 304) return fresh;
           }
           let local: AvatarLocalFile | null = null;
           if (hash) {
@@ -915,7 +1035,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
               fb,
               local ? { notOlderThanMs: local.mtimeMs } : false,
             );
-            if (fresh.ok) return fresh;
+            if (fresh.ok || fresh.status === 304) return fresh;
           }
           // CDN 拿不到（离线 / 无网）→ 至少显示当前头像的缩略图，别退回旧大图。
           if (local) return revalidatingFileResponse(local.path);
@@ -963,6 +1083,8 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           if (!path) return notFound('localfilevoice needs path');
           const resolved = await services.fileResource.resolveLocalFile(path);
           if (!resolved) return notFound('localfilevoice not found');
+          const { decodeSilkToWav, isSilkFile } = await import('./voice');
+          mediaBinding.getStore()?.();
           if (!isSilkFile(resolved)) return fileResponse(resolved);
           const wav = await decodeSilkToWav(resolved);
           return wav ? fileResponse(wav) : notFound('localfilevoice decode failed');
@@ -988,6 +1110,8 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           if (!rel) return notFound('localvoice needs rel');
           const silk = await services.mediaResource.resolveFile('ptt', rel);
           if (!silk) return notFound('localvoice not found');
+          const { decodeSilkToWav } = await import('./voice');
+          mediaBinding.getStore()?.();
           const wav = await decodeSilkToWav(silk);
           return wav ? fileResponse(wav) : notFound('localvoice decode failed');
         }

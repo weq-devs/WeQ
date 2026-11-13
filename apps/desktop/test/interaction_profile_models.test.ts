@@ -22,13 +22,18 @@ vi.mock('node:child_process', async () => {
     fork: () => {
       const worker = new EventEmitter();
       return Object.assign(worker, {
+        connected: true,
+        exitCode: null,
+        signalCode: null,
         stderr: new EventEmitter(),
         kill: vi.fn(() => {
           fixture.killed += 1;
+          worker.emit('exit', 0);
         }),
         send: (message: { type: string; modelDir?: string; id?: number }) => {
           if (message.type === 'load') fixture.loaded.push(message.modelDir!);
           void Promise.resolve().then(() => {
+            if (message.type === 'close') worker.emit('exit', 0);
             if (message.type === 'load') {
               if (fixture.failNextLoad) {
                 fixture.failNextLoad = false;

@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 维护与诊断工具 → QQ 登录账号管理。
  *
@@ -69,13 +70,7 @@ function errMsg(e: unknown): string {
 function humanTime(sec: number): string {
   if (!sec) return '从未登录';
   try {
-    return new Date(sec * 1000).toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return eventTimeFormatter.format(new Date(sec * 1000));
   } catch {
     return String(sec);
   }
@@ -276,7 +271,9 @@ export function LoginAccountPanel(): ReactElement {
             <span>正在读取登录记录…</span>
           </div>
         ) : error && !overview ? (
-          <div className="weq-login-acc-state is-error">{error}</div>
+          <div className="weq-login-acc-state is-error" role="alert" title={error}>
+            读取登录记录失败，请确认 QQ 已安装、数据目录可访问后重试。
+          </div>
         ) : accounts.length === 0 ? (
           <div className="weq-login-acc-state">没有读到任何登录记录，请先在 QQ 里登录过账号。</div>
         ) : (
@@ -380,7 +377,11 @@ export function LoginAccountPanel(): ReactElement {
         )}
       </div>
 
-      {error && overview ? <div className="weq-login-acc-inline-error">{error}</div> : null}
+      {error && overview ? (
+        <div className="weq-login-acc-inline-error" role="alert" title={error}>
+          读取登录记录失败，请确认 QQ 已安装、数据目录可访问后重试。
+        </div>
+      ) : null}
 
       <p className="weq-login-acc-foot">
         <KeyRound size={12} strokeWidth={1.9} />

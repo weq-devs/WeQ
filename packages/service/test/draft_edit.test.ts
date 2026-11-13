@@ -40,6 +40,11 @@ describe('setLocalDraft', () => {
 });
 
 describe('localDraftToWrite', () => {
+  it('恢复副本绕过输入记账时，纯换行仍写成清空；有正文的换行原样保留', () => {
+    expect(localDraftToWrite({ u_a: '\n' }, 'u_a')).toBe('');
+    expect(localDraftToWrite({ u_a: ' \t\n' }, 'u_a')).toBe('');
+    expect(localDraftToWrite({ u_a: '\n正文\n' }, 'u_a')).toBe('\n正文\n');
+  });
   it('有正文就写正文', () => {
     expect(localDraftToWrite({ u_a: '你好' }, 'u_a')).toBe('你好');
   });

@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 import type { RepeatElement } from './messageRepeat';
 
 export interface ForwardOptions {
@@ -113,24 +114,11 @@ export function estimateForwardDuration(
 }
 
 export function formatForwardDuration(ms: number): string {
-  const seconds = Math.max(0, Math.ceil(ms)) / 1000;
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const remainder = Number((seconds % 60).toFixed(3));
-  return [
-    hours ? `${hours} 小时` : '',
-    minutes ? `${minutes} 分` : '',
-    remainder || !seconds ? `${remainder} 秒` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
+  return timeFormat.formatDuration(Math.max(0, Math.ceil(ms)) / 1000);
 }
 
 export function formatForwardClock(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-    .map((value) => String(value).padStart(2, '0'))
-    .join(':');
+  return timeFormat.formatDuration(Math.max(0, Math.floor(ms / 1000)), 'countdown');
 }
 export async function forwardSequentially<T>(
   rows: readonly T[],

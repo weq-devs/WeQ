@@ -124,7 +124,9 @@ describe('关闭确认框', () => {
 
   it('勾选「不再询问」后先持久化本次选择，再回传动作', async () => {
     ask({ canMinimizeToTray: true, services: ['MCP 服务器'] });
-    const checkbox = document.querySelector<HTMLInputElement>('.weq-close-remember input');
+    const checkbox = document.querySelector<HTMLButtonElement>(
+      '.weq-close-remember [role="checkbox"]',
+    );
     if (!checkbox) throw new Error('找不到「不再询问」勾选框');
     act(() => checkbox.click());
     click('完全退出');
@@ -137,7 +139,9 @@ describe('关闭确认框', () => {
 
   it('取消不记忆关闭偏好', async () => {
     ask({ canMinimizeToTray: true, services: [] });
-    const checkbox = document.querySelector<HTMLInputElement>('.weq-close-remember input');
+    const checkbox = document.querySelector<HTMLButtonElement>(
+      '.weq-close-remember [role="checkbox"]',
+    );
     if (!checkbox) throw new Error('找不到「不再询问」勾选框');
     act(() => checkbox.click());
     click('取消');

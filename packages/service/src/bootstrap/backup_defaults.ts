@@ -1,4 +1,5 @@
 import { DEFAULT_APP_SETTINGS, type UserConfig } from './user_config';
+import { normalizeDressConfig } from '../account/dress_config';
 
 export const WEQ_DEFAULTS_PATHS = [
   'tencentFilesRootOverride',
@@ -52,7 +53,21 @@ export function weqDefaultsPaths(config: UserConfig) {
 export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice): UserConfig {
   const settings = structuredClone(DEFAULT_APP_SETTINGS);
   const previous = current.settings;
+  settings.sharedPreferences.dress = normalizeDressConfig({
+    ...previous?.sharedPreferences?.dress,
+    localAppearanceVersion: 1,
+    activeBubble: 0,
+    activeFont: 0,
+    activeWidget: 0,
+    scope: 'mine',
+    background: 'none',
+    backgroundFile: '',
+    widgetId: '',
+    backgroundOpacity: 1,
+  });
   if (!choice.clearApi) {
+    if (previous?.sharedPreferences?.assistant)
+      settings.sharedPreferences.assistant = structuredClone(previous.sharedPreferences.assistant);
     for (const id of ['agentLab', 'mcp', 'oneBot', 'externalRkey', 'ssePush'] as const)
       if (previous?.[id] !== undefined)
         Object.assign(settings, { [id]: structuredClone(previous[id]) });
@@ -66,6 +81,13 @@ export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice
   const result: UserConfig = {
     ...current,
     settings,
+    settingsRevision: Math.max(Date.now(), (current.settingsRevision ?? 0) + 1),
+    globalClientPreferencesMigrated: true,
+    desktopPreferencesSeeded: true,
+    sharedPreferencesMigration: current.sharedPreferencesMigration ?? {
+      version: 1,
+      configId: null,
+    },
     autoEnter: null,
     skipAutoEnterOnce: false,
     exportPresets: {},

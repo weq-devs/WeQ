@@ -1,19 +1,22 @@
-/** Chat-record modal: left = matched conversations, right = their matching messages. */
+import { EmptyState } from '../EmptyState';
+import { eventTimeFormatter } from '@weq/time';
+/** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { CalendarDays, Download, Search, X } from 'lucide-react';
+import { CalendarDays, Download, Search, X, SearchX } from 'lucide-react';
 import { ConversationCalendar } from './ConversationCalendar';
 import { TimeRangePicker } from '../../views/export/TimeRangePicker';
 import { beijingDay, daySeconds } from '../../lib/messageCalendar';
 import { Modal } from '../Dialog';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard';
-import type { ChatRecordSearchHit, ConversationRecordHit, MoreSearchResult } from './types';
+import type { ChatRecordSearchHit, ConversationRecordHit } from './types';
 import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
 import { useExportReportDialog } from '../../views/export/ExportReportControl';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
+import { ChatMediaGallery } from '../ChatMediaGallery';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
@@ -32,6 +35,7 @@ export function ChatRecordsModal({
   onJumpMessage,
   renderers,
   localSource,
+  embeddedKeyword,
 }: {
   /** 非 QQ 数据源复用同一搜索页面；不向原生记录接口提交本地身份。 */
   localSource?: {
@@ -40,6 +44,8 @@ export function ChatRecordsModal({
     user: User;
     onJump: (messageId: string) => void;
   };
+  /** 全局搜索内嵌明细：共用顶栏关键词，不再查询或显示会话排名。 */
+  embeddedKeyword?: string;
   initialHit: ChatRecordSearchHit;
   initialKeyword: string;
   /**
@@ -49,13 +55,20 @@ export function ChatRecordsModal({
   fixed?: boolean;
   onClose: () => void;
   /** Jump to a conversation + seq (like a file hit). */
-  onJumpMessage: (hit: { source: 'buddy' | 'group'; targetUid: string; msgSeq: string }) => void;
+  onJumpMessage: (hit: {
+    source: 'buddy' | 'group';
+    targetUid: string;
+    msgSeq: string;
+    msgId?: string;
+  }) => void;
   /** The same message renderers the chat pane uses (qqMessageRenderer etc.). */
   renderers?: MessageRenderer[];
 }): ReactElement {
   const dialog = useAppDialog();
   const requestExport = useRequestContentExport();
-  const [keyword, setKeyword] = useState(initialKeyword);
+  const [localKeyword, setKeyword] = useState(initialKeyword);
+  const embedded = embeddedKeyword !== undefined;
+  const keyword = embeddedKeyword ?? localKeyword;
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [rangeCalendarOpen, setRangeCalendarOpen] = useState(false);
   const [startDay, setStartDay] = useState('');
@@ -102,15 +115,12 @@ export function ChatRecordsModal({
       active = false;
     };
   }, [fixed, localSource]);
-  const [conversations, setConversations] = useState<ChatRecordSearchHit[]>([]);
-  const [convLoading, setConvLoading] = useState(false);
-  // fixed 模式下不请求会话排名，selected 恒为当前会话的 hit。
-  const [selected, setSelected] = useState<ChatRecordSearchHit | null>(initialHit);
+  const selected = initialHit;
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
-  const convRunRef = useRef(0);
+  const [msgLimited, setMsgLimited] = useState(false);
   const msgRunRef = useRef(0);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -119,43 +129,6 @@ export function ChatRecordsModal({
     () => localSource?.conversation ?? (selected ? conversationFromHit(selected) : null),
     [selected, localSource],
   );
-
-  // Fetch the conversation ranking for the current keyword.
-  useEffect(() => {
-    if (localSource) return;
-    const trimmed = keyword.trim();
-    if (!trimmed || fixed) return undefined;
-    const run = ++convRunRef.current;
-    setConvLoading(true);
-    const timer = window.setTimeout(() => {
-      void client.account.searchMore
-        .query({
-          category: 'chatRecord',
-          keyword: trimmed,
-          offset: 0,
-          limit: 100,
-          conversationScope: 'real',
-        })
-        .then((result) => {
-          if (run !== convRunRef.current) return;
-          const items = (result as MoreSearchResult).items.filter(
-            (hit): hit is ChatRecordSearchHit => hit.category === 'chatRecord',
-          );
-          setConversations(items);
-          // Keep the selection valid: prefer the previously selected conversation.
-          setSelected((prev) =>
-            prev && items.some((c) => c.partition === prev.partition && c.source === prev.source)
-              ? prev
-              : (items[0] ?? null),
-          );
-        })
-        .catch((err) => console.error('[chat-records] conversation list failed', err))
-        .finally(() => {
-          if (run === convRunRef.current) setConvLoading(false);
-        });
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [keyword, fixed, localSource]);
 
   // Fetch messages for the selected conversation.
   useEffect(() => {
@@ -207,6 +180,9 @@ export function ChatRecordsModal({
     }
     const run = ++msgRunRef.current;
     setMsgLoading(true);
+    setMsgLoadingMore(false);
+    msgScrollRef.current?.scrollTo(0, 0);
+    setMsgLimited(false);
     setMsgError('');
     browseCursor.current = null;
     const request = fixed
@@ -226,7 +202,8 @@ export function ChatRecordsModal({
     void request
       .then((result) => {
         if (run !== msgRunRef.current) return;
-        const r = result as { items: ConversationRecordHit[]; total: number };
+        const r = result as { items: ConversationRecordHit[]; total: number; limited?: boolean };
+        setMsgLimited(Boolean(r.limited));
         setMessages(r.items);
         if (fixed) {
           const page = result as {
@@ -285,7 +262,8 @@ export function ChatRecordsModal({
     void request
       .then((result) => {
         if (run !== msgRunRef.current) return;
-        const r = result as { items: ConversationRecordHit[]; total: number };
+        const r = result as { items: ConversationRecordHit[]; total: number; limited?: boolean };
+        setMsgLimited(Boolean(r.limited));
         setMessages((prev) => [...prev, ...r.items]);
         if (fixed) {
           const page = result as {
@@ -300,7 +278,9 @@ export function ChatRecordsModal({
       .catch((err) => {
         if (run === msgRunRef.current) setMsgError(String(err));
       })
-      .finally(() => setMsgLoadingMore(false));
+      .finally(() => {
+        if (run === msgRunRef.current) setMsgLoadingMore(false);
+      });
   }, [keyword, selected, messages.length, msgLoadingMore, msgLoading, fixed, filter, localSource]);
 
   // Infinite scroll for the message list.
@@ -334,12 +314,20 @@ export function ChatRecordsModal({
         return;
       }
       if (!selected) return;
-      if (!/^\d+$/.test(msg.msgSeq) || BigInt(msg.msgSeq) <= 0n) {
+      if (
+        (!/^\d+$/.test(msg.msgSeq) || BigInt(msg.msgSeq) <= 0n) &&
+        !(selected.targetUid.startsWith('service:') && msg.msgId)
+      ) {
         setMsgError('该消息没有可定位的原生序号。');
         return;
       }
       // 跳转进会话时自动关闭聊天记录模态。
-      onJumpMessage({ source: selected.source, targetUid: selected.targetUid, msgSeq: msg.msgSeq });
+      onJumpMessage({
+        source: selected.source,
+        targetUid: selected.targetUid,
+        msgSeq: msg.msgSeq,
+        msgId: msg.msgId,
+      });
       onClose();
     },
     [onJumpMessage, onClose, selected, localSource],
@@ -348,37 +336,31 @@ export function ChatRecordsModal({
   const isGroup = selected?.source === 'group';
   const convKey = isGroup && selected ? selected.targetUid : '';
 
-  return (
-    <Modal
-      presentation="floating"
-      onClose={() => {
-        if (rangeCalendarOpen) setRangeCalendarOpen(false);
-        else if (calendarOpen) setCalendarOpen(false);
-        else onClose();
-      }}
-      width={960}
-      labelledBy="weq-chatrecords-title"
-    >
+  const content = (
+    <>
       {report.dialog}
       <div className="weq-chatrecords">
-        <div className="weq-chatrecords-head" data-window-drag-handle>
-          <div className="weq-chatrecords-title-wrap">
-            <h3 id="weq-chatrecords-title" className="weq-search-more-title">
-              消息
-            </h3>
-            {fixed ? (
-              <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
-                <Search size={13} aria-hidden />
-                {initialHit.name}
-              </span>
-            ) : null}
+        {embedded ? null : (
+          <div className="weq-chatrecords-head" data-window-drag-handle>
+            <div className="weq-chatrecords-title-wrap">
+              <h3 id="weq-chatrecords-title" className="weq-search-more-title">
+                聊天记录
+              </h3>
+              {fixed ? (
+                <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
+                  <Search size={13} aria-hidden />
+                  {initialHit.name}
+                </span>
+              ) : null}
+            </div>
+            <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
+              <X size={16} strokeWidth={1.9} aria-hidden />
+            </button>
           </div>
-          <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
-            <X size={16} strokeWidth={1.9} aria-hidden />
-          </button>
-        </div>
+        )}
         {calendarOpen && selected ? (
           <ConversationCalendar
+            embedded={embedded}
             kind={selected.source === 'group' ? 'group' : 'c2c'}
             conv={selected.targetUid}
             onClose={() => setCalendarOpen(false)}
@@ -392,13 +374,15 @@ export function ChatRecordsModal({
             }}
           />
         ) : null}
-        <input
-          className="weq-search-more-input"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
-          placeholder={fixed ? `搜索「${initialHit.name}」的消息` : '搜索消息'}
-          autoFocus
-        />
+        {embedded ? null : (
+          <input
+            className="weq-search-more-input"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            placeholder={fixed ? `搜索「${initialHit.name}」的消息` : '搜索消息'}
+            autoFocus
+          />
+        )}
         <div className="weq-record-calendar-actions">
           {fixed ? (
             <button type="button" onClick={() => setRangeCalendarOpen(true)}>
@@ -616,140 +600,151 @@ export function ChatRecordsModal({
             {msgError}
           </p>
         ) : null}
-        <div className={`weq-chatrecords-body${fixed ? ' is-fixed' : ''}`}>
-          {fixed ? null : (
-            <div className="weq-chatrecords-convs">
-              {convLoading ? (
-                <SearchListSkeleton rows={4} />
-              ) : conversations.length === 0 ? (
-                <div className="weq-search-empty">无结果</div>
-              ) : (
-                conversations.map((conv) => (
-                  <button
-                    type="button"
-                    key={`${conv.source}:${conv.partition}`}
-                    className={`weq-chatrecords-conv ${selected?.partition === conv.partition && selected.source === conv.source ? 'active' : ''}`}
-                    onClick={() => setSelected(conv)}
-                  >
-                    <span className="weq-chatrecords-conv-name">{conv.name}</span>
-                    <span className="weq-chatrecords-conv-meta">
-                      搜索到<strong>{conv.count}</strong>条包含{keyword.trim()}的消息
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
+        <div className="weq-chatrecords-body is-fixed">
           <div className="weq-chatrecords-msgs" ref={msgScrollRef} onScroll={onMsgScroll}>
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
-                <ReplyJumpContext.Provider value={noop}>
-                  {msgLoading ? (
-                    <SearchListSkeleton rows={4} />
-                  ) : messages.length === 0 ? (
-                    <div className="weq-search-empty">
-                      {fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
-                    </div>
-                  ) : (
-                    <>
-                      {messages.map((msg) => {
-                        // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
-                        if (msg.elements?.length && conversation) {
-                          const message =
-                            localSource?.messages.find((message) => message.id === msg.msgId) ??
-                            messageFromHit(msg, conversation);
-                          const sender = message.sender ?? senderUserFromHit(msg);
+                <ChatMediaGallery
+                  key={`${selected?.targetUid}:${JSON.stringify(filter)}`}
+                  scopeKey={selected?.targetUid}
+                  conv={selected?.targetUid ?? ''}
+                  kind={isGroup ? 'group' : 'c2c'}
+                  filter={filter}
+                  paged={!localSource}
+                  messages={messages.map((message) => ({
+                    msgId: message.msgId,
+                    msgSeq: message.msgSeq,
+                    sendTime: message.sendTime,
+                    elements: message.elements ?? [],
+                  }))}
+                >
+                  <ReplyJumpContext.Provider value={noop}>
+                    {msgLoading ? (
+                      <SearchListSkeleton rows={4} />
+                    ) : messages.length === 0 ? (
+                      <EmptyState
+                        compact
+                        icon={<SearchX />}
+                        title={fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
+                      />
+                    ) : (
+                      <>
+                        {messages.map((msg) => {
+                          // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
+                          if (msg.elements?.length && conversation) {
+                            const message =
+                              localSource?.messages.find((message) => message.id === msg.msgId) ??
+                              messageFromHit(msg, conversation);
+                            const sender = message.sender ?? senderUserFromHit(msg);
+                            return (
+                              <div
+                                key={msg.msgId}
+                                className="weq-chatrecords-msg is-bubble"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => jumpTo(msg)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    jumpTo(msg);
+                                  }
+                                }}
+                                title="点击跳转到该消息"
+                              >
+                                <MessageBubble
+                                  message={message}
+                                  conversation={conversation}
+                                  sender={sender}
+                                  mine={false}
+                                  senderName={displayUserName(sender)}
+                                  senderAvatarUrl={sender.avatarUrl}
+                                  senderSeed={sender.identityValue}
+                                  senderKind={sender.kind}
+                                  showSenderName
+                                  active={false}
+                                  renderers={renderers}
+                                  onContextMenu={noop}
+                                  onLongPress={noop}
+                                />
+                              </div>
+                            );
+                          }
                           return (
-                            <div
+                            <button
+                              type="button"
                               key={msg.msgId}
-                              className="weq-chatrecords-msg is-bubble"
-                              role="button"
-                              tabIndex={0}
+                              className="weq-chatrecords-msg"
                               onClick={() => jumpTo(msg)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  jumpTo(msg);
-                                }
-                              }}
-                              title="点击跳转到该消息"
                             >
-                              <MessageBubble
-                                message={message}
-                                conversation={conversation}
-                                sender={sender}
-                                mine={false}
-                                senderName={displayUserName(sender)}
-                                senderAvatarUrl={sender.avatarUrl}
-                                senderSeed={sender.identityValue}
-                                senderKind={sender.kind}
-                                showSenderName
-                                active={false}
-                                renderers={renderers}
-                                onContextMenu={noop}
-                                onLongPress={noop}
+                              <img
+                                className="weq-chatrecords-msg-avatar"
+                                src={
+                                  msg.senderUin && msg.senderUin !== '0'
+                                    ? (c2cAvatarSrc(msg.senderUin) ?? undefined)
+                                    : isGroup
+                                      ? (groupAvatarSrc(selected?.targetUid ?? '') ?? undefined)
+                                      : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
+                                }
+                                alt=""
+                                loading="lazy"
                               />
-                            </div>
+                              <span className="weq-chatrecords-msg-text">
+                                <span className="weq-chatrecords-msg-meta">
+                                  {msg.senderName ? (
+                                    <>
+                                      <span data-privacy-sensitive>{msg.senderName}</span>
+                                      {' · '}
+                                    </>
+                                  ) : null}
+                                  {formatTime(msg.sendTime)} · seq {msg.msgSeq}
+                                </span>
+                                <span className="weq-chatrecords-msg-content">
+                                  {highlightText(msg.content, keyword.trim())}
+                                </span>
+                              </span>
+                            </button>
                           );
-                        }
-                        return (
-                          <button
-                            type="button"
-                            key={msg.msgId}
-                            className="weq-chatrecords-msg"
-                            onClick={() => jumpTo(msg)}
-                          >
-                            <img
-                              className="weq-chatrecords-msg-avatar"
-                              src={
-                                msg.senderUin && msg.senderUin !== '0'
-                                  ? (c2cAvatarSrc(msg.senderUin) ?? undefined)
-                                  : isGroup
-                                    ? (groupAvatarSrc(selected?.targetUid ?? '') ?? undefined)
-                                    : (c2cAvatarSrc(selected?.targetUin ?? '') ?? undefined)
-                              }
-                              alt=""
-                              loading="lazy"
-                            />
-                            <span className="weq-chatrecords-msg-text">
-                              <span className="weq-chatrecords-msg-meta">
-                                {msg.senderName ? (
-                                  <>
-                                    <span data-privacy-sensitive>{msg.senderName}</span>
-                                    {' · '}
-                                  </>
-                                ) : null}
-                                {formatTime(msg.sendTime)} · seq {msg.msgSeq}
-                              </span>
-                              <span className="weq-chatrecords-msg-content">
-                                {highlightText(msg.content, keyword.trim())}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                      {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
-                      {(fixed ? !browseHasMore : messages.length >= msgTotal) &&
-                      messages.length > 0 ? (
-                        <div className="weq-search-more-end">没有更多了</div>
-                      ) : null}
-                    </>
-                  )}
-                  {fixed && browseHasMore ? (
-                    <button
-                      className="weq-action-soft"
-                      disabled={msgLoading || msgLoadingMore}
-                      onClick={() => void loadMoreMessages()}
-                    >
-                      {msgLoadingMore ? '加载中...' : '继续加载'}
-                    </button>
-                  ) : null}
-                </ReplyJumpContext.Provider>
+                        })}
+                        {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
+                        {(fixed ? !browseHasMore : messages.length >= msgTotal) &&
+                        messages.length > 0 ? (
+                          <div className="weq-search-more-end">
+                            {msgLimited ? '本轮候选已显示完' : '没有更多了'}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                    {fixed && browseHasMore ? (
+                      <button
+                        className="weq-action-soft"
+                        disabled={msgLoading || msgLoadingMore}
+                        onClick={() => void loadMoreMessages()}
+                      >
+                        {msgLoadingMore ? '加载中...' : '继续加载'}
+                      </button>
+                    ) : null}
+                  </ReplyJumpContext.Provider>
+                </ChatMediaGallery>
               </ConvContext.Provider>
             </ForwardKindContext.Provider>
           </div>
         </div>
       </div>
+    </>
+  );
+  if (embedded) return content;
+  return (
+    <Modal
+      presentation="floating"
+      onClose={() => {
+        if (rangeCalendarOpen) setRangeCalendarOpen(false);
+        else if (calendarOpen) setCalendarOpen(false);
+        else onClose();
+      }}
+      width={960}
+      labelledBy="weq-chatrecords-title"
+    >
+      {content}
     </Modal>
   );
 }
@@ -848,14 +843,5 @@ function formatTime(sendTimeSeconds: string): string {
   if (!Number.isFinite(secs) || secs <= 0) return '';
   const d = new Date(secs * 1000);
   if (!Number.isFinite(d.getTime())) return '时间未核验';
-  return `${new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).format(d)} +08`;
+  return `${eventTimeFormatter.format(d)} +08`;
 }

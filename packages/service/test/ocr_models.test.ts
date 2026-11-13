@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, truncateSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -30,11 +30,13 @@ function newService(): { service: OcrModelService; root: string } {
 }
 
 /** 把某个模型的全部文件按注册表里的名字写到磁盘上（内容不关心，只看体积/状态）。 */
-function materialize(service: OcrModelService, id: string, bytesPerFile = 16): void {
+function materialize(service: OcrModelService, id: string, bytesPerFile?: number): void {
   const dir = service.resolveModelDir(id);
   mkdirSync(dir, { recursive: true });
-  for (const f of getOcrModel(id)!.files)
-    writeFileSync(join(dir, f.name), Buffer.alloc(bytesPerFile));
+  for (const f of getOcrModel(id)!.files) {
+    writeFileSync(join(dir, f.name), '');
+    truncateSync(join(dir, f.name), bytesPerFile ?? f.sizeBytes!);
+  }
 }
 
 describe('OCR_MODELS registry', () => {
@@ -94,10 +96,10 @@ describe('OcrModelService', () => {
   it('flips an entry to downloaded once every file is on disk', () => {
     const { service } = newService();
     const id = 'ppocr-v6-det-tiny';
-    materialize(service, id, 8);
+    materialize(service, id);
     const status = service.getModelStatus(id)!;
     expect(status.downloaded).toBe(true);
-    expect(status.sizeOnDisk).toBe(status.files.length * 8);
+    expect(status.sizeOnDisk).toBe(status.sizeBytes);
     expect(service.isDownloading(id)).toBe(false);
   });
 
@@ -122,12 +124,27 @@ describe('OcrModelService', () => {
     materialize(service, 'ppocr-v6-det-tiny');
     expect(service.deleteModel('ppocr-v6-det-tiny')).toBe(true);
     expect(service.getModelStatus('ppocr-v6-det-tiny')!.downloaded).toBe(false);
-    expect(service.deleteModel('does-not-exist')).toBe(true);
+    expect(service.deleteModel('does-not-exist')).toBe(false);
 
     expect(service.listByKind('filter').map((m) => m.id)).toEqual(['ppocr-v6-det-tiny']);
     expect(service.listByKind('ocr').map((m) => m.id)).toEqual(['ppocr-v5-mobile']);
     expect(service.getModel('nope')).toBeUndefined();
     expect(service.getModelStatus('nope')).toBeUndefined();
+  });
+  it('零字节、截断和同名目录均不能作为完整模型，未知删除 ID 不越界', () => {
+    const { service, root } = newService();
+    const id = 'ppocr-v6-det-tiny';
+    for (const bytes of [0, 8]) {
+      materialize(service, id, bytes);
+      expect(service.getModelStatus(id)!.downloaded).toBe(false);
+    }
+    const file = join(service.resolveModelDir(id), service.getModel(id)!.files[0]!.name);
+    rmSync(file);
+    mkdirSync(file);
+    expect(service.getModelStatus(id)!.downloaded).toBe(false);
+    mkdirSync(join(root, 'keep'));
+    expect(service.deleteModel('../keep')).toBe(false);
+    expect(service.deleteModel('')).toBe(false);
   });
 });
 

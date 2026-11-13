@@ -67,8 +67,8 @@ export interface SwitchAccountResult {
 }
 
 /**
- * 执行一次切号。**调用方负责串行化**（界面侧用组件内的 `busy` 标志，MCP 侧靠
- * `useAccountSwitch().active`）—— 这里只看全局过渡状态，过渡中直接拒绝。
+ * 所有入口共用全局占用检查；邮件确认结束后重新读取状态，同步进入过渡，
+ * 不能让确认期间抵达的另一入口一起关闭、打开账号。
  */
 export async function switchAccount(options: SwitchAccountOptions): Promise<SwitchAccountResult> {
   const { queryClient, utils, target, currentConfigId, currentUin, onError } = options;
@@ -83,8 +83,10 @@ export async function switchAccount(options: SwitchAccountOptions): Promise<Swit
 
   if (!(await confirmMailAccountLeave())) return { switched: false, reason: 'cancelled' };
 
+  const confirmedSwitchState = useAccountSwitch.getState();
+  if (confirmedSwitchState.active) return { switched: false, reason: 'busy' };
+  confirmedSwitchState.begin(`正在打开 ${target.displayName || target.uin}…`);
   const view = useViewState.getState();
-  switchState.begin(`正在打开 ${target.displayName || target.uin}…`);
   try {
     await client.bootstrap.closeAccount.mutate();
     purgeAccountQueries(queryClient);

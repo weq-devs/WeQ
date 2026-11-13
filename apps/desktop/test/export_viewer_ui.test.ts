@@ -83,7 +83,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-vi.mock('../src/renderer/src/components/ImageLightbox', () => ({ openLightbox: vi.fn() }));
+vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({ openMediaPreview: vi.fn() }));
 const source = {
   id: 'synthetic-id',
   name: '合成归档',
@@ -144,7 +144,7 @@ it('只提供文件夹与 JSON/JSONL 打开入口，显示嵌套正文且不执�
 });
 it('打开会话绑定当前账号与数据源，增量入口传递原基线', async () => {
   await mount();
-  await click('打开 JSON / JSONL');
+  await click('打开归档');
   await click('打开会话');
   expect(f.jump).toHaveBeenCalledWith({
     id: source.id,

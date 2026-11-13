@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Hand,
   MicOff,
+  Mic,
   Pencil,
   ShieldMinus,
   ShieldPlus,
@@ -50,14 +51,17 @@ export function AvatarContextMenu({
   onChangeTitle,
   onKick,
   onMute,
+  onUnmute,
   onToggleAdmin,
   showChangeCard = false,
   showChangeTitle = false,
   showKick = false,
   showMute = false,
+  showUnmute = false,
   showSetAdmin = false,
   showUnsetAdmin = false,
   moderationBlockedReason,
+  unmuteBlockedReason,
 }: {
   state: AvatarContextMenuState;
   onClose?: () => void;
@@ -74,16 +78,19 @@ export function AvatarContextMenu({
   onKick?: (sender: User) => void;
   /** 设置禁言，`durationSeconds` 为秒。 */
   onMute?: (sender: User, durationSeconds: number) => void;
+  onUnmute?: (sender: User) => void;
   /** 设置 / 取消管理员（仅群主）。 */
   onToggleAdmin?: (sender: User, enable: boolean) => void;
   showChangeCard?: boolean;
   showChangeTitle?: boolean;
   showKick?: boolean;
   showMute?: boolean;
+  showUnmute?: boolean;
   showSetAdmin?: boolean;
   showUnsetAdmin?: boolean;
   /** 非空 = 群管理操作不可执行（与发送按钮同条件），按钮置灰并显示原因。 */
   moderationBlockedReason?: string | null;
+  unmuteBlockedReason?: string | null;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const active = useTabActive();
@@ -91,7 +98,13 @@ export function AvatarContextMenu({
   const [muteOpen, setMuteOpen] = useState(false);
   const moderationDisabled = Boolean(moderationBlockedReason);
   const hasModeration =
-    showChangeCard || showChangeTitle || showKick || showMute || showSetAdmin || showUnsetAdmin;
+    showChangeCard ||
+    showChangeTitle ||
+    showKick ||
+    showMute ||
+    showUnmute ||
+    showSetAdmin ||
+    showUnsetAdmin;
 
   // 与 MessageContextMenu 同款：fixed 定位后按渲染尺寸拉回窗口内。
   useLayoutEffect(() => {
@@ -209,6 +222,17 @@ export function AvatarContextMenu({
             </div>
           ) : null}
         </>
+      ) : null}
+      {showUnmute && onUnmute ? (
+        <button
+          type="button"
+          title={moderationBlockedReason ?? unmuteBlockedReason ?? '解除禁言'}
+          disabled={moderationDisabled || Boolean(unmuteBlockedReason)}
+          onClick={() => onUnmute(state.sender)}
+        >
+          <Mic size={17} />
+          <span>解除禁言</span>
+        </button>
       ) : null}
       {showSetAdmin && onToggleAdmin ? (
         <button

@@ -1,0 +1,196 @@
+/* 仅快速群名片使用；群资料页不采用此布局。 */
+.weq-group-quick-card .weq-group-quick-identity {
+  align-items: center;
+}
+
+.weq-group-quick-card .weq-group-tags {
+  padding: 0;
+  border-top: 0;
+}
+
+.weq-dialog-layer.weq-nonmodal-layer[tabindex] > .weq-modal.weq-group-card-member-list {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(320px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(480px, calc(100dvh - 24px));
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+
+.weq-group-member-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weq-group-member-list-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.weq-group-member-list-close,
+.weq-group-member-list-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-group-member-list-close {
+  width: 32px;
+  padding: 0;
+  border: 0;
+}
+
+.weq-group-member-list-search {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.weq-group-member-list-search::placeholder {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-group-member-list-rows {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.weq-group-member-list-rows li > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.weq-group-member-list-rows .avatar {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+}
+
+.weq-group-member-list-rows button > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-group-member-list-rows strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.weq-group-member-list-rows small,
+.weq-group-card-member-list p {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-group-card-member-list button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-group-card-member-list button:focus-visible,
+.weq-group-card-member-list input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-group-card-member-list button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.weq-group-card .weq-group-quick-name-editor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.weq-group-quick-name-editor > .weq-contact-value {
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.weq-group-quick-name-editor > svg {
+  flex: 0 0 auto;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-group-quick-name-editor:has([data-qq-action]) > svg {
+  display: none;
+}
+
+.weq-group-quick-name-editor > .weq-profile-field-inline {
+  width: 100%;
+  min-width: 0;
+}
+
+.weq-group-quick-name-editor .weq-member-inline-field {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.weq-group-quick-card .weq-group-quick-sections .weq-profile-section-block {
+  min-width: 0;
+}
+
+.weq-group-quick-card .weq-profile-avatar:disabled {
+  cursor: default;
+}
+
+@media (max-width: 420px), (pointer: coarse) {
+  .weq-group-quick-card.weq-contact-card .weq-profile-hero.weq-group-quick-identity {
+    margin-top: 24px;
+    padding-inline-end: 0;
+  }
+}
+
+@media (pointer: coarse) {
+  .weq-group-quick-card.weq-contact-card .weq-profile-hero.weq-group-quick-identity {
+    margin-top: 32px;
+  }
+}

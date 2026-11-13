@@ -95,6 +95,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             path: '/synthetic/QQ-WeQ.app',
             readerReady: false,
             runningPids: mock.debugPids,
+            sourceRunningPids: [],
             message: '合成副本状态',
           },
           refetch: mock.refetch,
@@ -201,6 +202,17 @@ describe('受限原因按实际能力判定', () => {
       ).toEqual(['credentials']);
     },
   );
+  it('长期授权需要修复时直接给出原因，不再用泛化的“会话凭据不完整”', () => {
+    const issue = {
+      title: '长期授权需要修复',
+      message: '长期授权需要修复：权限助手接口已更新，请修复后重试。',
+    };
+    expect(
+      restrictionReasons({
+        access: { ...ready, ssoReady: false, credentialsPending: false, credentialsIssue: issue },
+      }),
+    ).toEqual([{ code: 'authorization', title: issue.title, guidance: issue.message }]);
+  });
 });
 
 let cleanup = () => {};
@@ -1043,6 +1055,24 @@ describe('非阻塞提权入口', () => {
     );
     expect(useToast.getState().toasts.every((item) => item.loading === false)).toBe(true);
     expect(useToast.getState().toasts.at(-1)!.title).toContain('待提权');
+  });
+  it('长期授权需要修复时不再保留进入中，详情直接显示原因和修复入口', () => {
+    mock.access = {
+      ...ready,
+      ssoReady: false,
+      credentialsPending: false,
+      credentialsIssue: {
+        title: '长期授权需要修复',
+        message: '长期授权需要修复：权限助手接口已更新，请修复后重试。',
+      },
+    };
+    const f = fixture();
+    act(() => useRestrictedMode.getState().beginEntering());
+    act(() => useRestrictedMode.getState().setOpen(true));
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('受限模式');
+    expect(f.host.textContent).toContain('长期授权需要修复');
+    expect(f.host.textContent).toContain('权限助手接口已更新');
+    expect(f.host.textContent).not.toContain('正在启用完整功能');
   });
   it('部分凭据和原生登记等待期间始终保留进入中状态，真正就绪后才结束', async () => {
     mock.access = { ...ready, ssoReady: false, credentialsPending: true };

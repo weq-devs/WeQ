@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
-import { pageValue } from '../../lib/pageSnapshots';
-import { Bell, Loader2, Save } from 'lucide-react';
+import { useEffect } from 'react';
+import { useNumericSettingDraft } from './useNumericSettingDraft';
+import { Bell } from 'lucide-react';
+import { AutoSave } from './AutoSave';
 import {
   DEFAULT_TOAST_DURATIONS,
   isToastDuration,
@@ -23,13 +23,16 @@ export function ToastSettingsCard() {
   const mutation = trpc.bootstrap.setToastDuration.useMutation();
   const utils = trpc.useUtils();
   const saved = settings.data?.toastDurations ?? DEFAULT_TOAST_DURATIONS;
+  useEffect(() => {
+    if (settings.data?.toastDurations) useToast.getState().setDurations(saved);
+  }, [saved, settings.data?.toastDurations]);
   return (
     <Card title="应用内横幅提醒" icon={<Bell size={15} />}>
       <DurationRow
         key="success"
         kind="success"
         initial={saved.successSeconds}
-        disabled={settings.isLoading || settings.isError || mutation.isLoading}
+        disabled={settings.isLoading || settings.isError}
         save={async (seconds) => {
           const durations = await mutation.mutateAsync({ kind: 'success', seconds });
           useToast.getState().setDurations(durations);
@@ -40,7 +43,7 @@ export function ToastSettingsCard() {
         key="failure"
         kind="failure"
         initial={saved.failureSeconds}
-        disabled={settings.isLoading || settings.isError || mutation.isLoading}
+        disabled={settings.isLoading || settings.isError}
         save={async (seconds) => {
           const durations = await mutation.mutateAsync({ kind: 'failure', seconds });
           useToast.getState().setDurations(durations);
@@ -64,70 +67,41 @@ function DurationRow({
   save: (seconds: number) => Promise<void>;
 }) {
   const label = `${kind === 'success' ? '成功' : '失败'}通知停留时长`;
-  const [value, setValue] = usePageState(`toast:${label}`, String(initial), pageValue.string, true);
-  usePageDraftConfirmation(`toast:${label}`, disabled ? undefined : String(initial));
-  const [saving, setSaving] = useState(false);
-  const busy = useRef(false);
-  const previous = useRef(String(initial));
-  useEffect(() => {
-    setValue((draft) => (draft === previous.current ? String(initial) : draft));
-    previous.current = String(initial);
-  }, [initial, setValue]);
+  const [value, setValue] = useNumericSettingDraft(
+    `toast:${label}`,
+    disabled ? undefined : initial,
+    initial,
+  );
   const seconds = value.trim() === '' ? NaN : Number(value);
-  const canSave = !disabled && !saving && isToastDuration(seconds);
-  async function submit() {
-    if (!canSave || busy.current) return;
-    busy.current = true;
-    setSaving(true);
-    try {
-      await save(seconds);
-      useToast.getState().push({ tone: 'success', title: `${label}已保存` });
-    } catch (error) {
-      useToast.getState().push({
-        tone: 'error',
-        title: '通知设置保存失败',
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      busy.current = false;
-      setSaving(false);
-    }
-  }
   return (
-    <Row
-      label={label}
-      desc="1 至 86400 秒；-1 表示不自动关闭"
-      control={
-        <div className="weq-toast-duration-control">
-          <input
-            type="number"
-            className="weq-set-input"
-            aria-label={label}
-            min={-1}
-            max={MAX_TOAST_DURATION_SECONDS}
-            step={1}
-            value={value}
-            disabled={disabled || saving}
-            onChange={(event) => setValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                void submit();
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            aria-label={`保存${label}`}
-            title={`保存${label}`}
-            disabled={!canSave}
-            onClick={() => void submit()}
-          >
-            {saving ? <Loader2 size={16} className="weq-spin" /> : <Save size={16} />}
-          </button>
-        </div>
-      }
-    />
+    <AutoSave
+      resetKeys={[kind === 'success' ? 'successSeconds' : 'failureSeconds']}
+      value={value.trim() ? Number(value) : ''}
+      saved={initial}
+      ready={!disabled}
+      valid={isToastDuration(seconds)}
+      save={(text) => save(Number(text))}
+      reset={() => setValue(String(initial))}
+    >
+      <Row
+        label={label}
+        desc="1 至 86400 秒；-1 表示不自动关闭"
+        control={
+          <div className="weq-toast-duration-control">
+            <input
+              type="number"
+              className="weq-set-input"
+              aria-label={label}
+              min={-1}
+              max={MAX_TOAST_DURATION_SECONDS}
+              step={1}
+              value={value}
+              disabled={disabled}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </div>
+        }
+      />
+    </AutoSave>
   );
 }

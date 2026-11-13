@@ -92,3 +92,42 @@ it('持久快照先显示但不阻止按需刷新，也不覆盖本地目录的�
   expect(mock.query).toHaveBeenCalledWith({ uids: ['u_a'] });
   expect(f.host.textContent).toBe('读回备注');
 });
+
+it('相同刷新不重建资料 Map，单行变更保留其他行，空备注仍清空', async () => {
+  mock.query.mockReset().mockImplementation(async () => [
+    { uid: 'u_a', remark: '甲' },
+    { uid: 'u_b', remark: '乙' },
+  ]);
+  const f = fixture([]);
+  await act(async () => f.get().refreshProfiles(['u_a', 'u_b']));
+  const first = f.get().profileByUid;
+  await act(async () => f.get().refreshProfiles(['u_a', 'u_b']));
+  expect(mock.query).toHaveBeenCalledTimes(2);
+  expect(f.get().profileByUid).toBe(first);
+  mock.query.mockResolvedValueOnce([
+    { uid: 'u_a', remark: '' },
+    { uid: 'u_b', remark: '乙' },
+  ]);
+  await act(async () => f.get().refreshProfiles(['u_a', 'u_b']));
+  expect(f.get().profileByUid.get('u_b')).toBe(first.get('u_b'));
+  expect(f.get().profileByUid.get('u_a')?.remark).toBe('');
+});
+
+it('等值刷新继续阻止迟到首次补全，拒绝旧结果不重建 Map', async () => {
+  let finish!: (profiles: Profile[]) => void;
+  mock.query.mockReset().mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = fixture([]);
+  const read = async () => [{ uid: 'u_a', remark: '当前备注' }];
+  await act(async () => f.get().refreshProfiles(['u_a'], () => true, read));
+  const first = f.get().profileByUid;
+  act(() => f.get().resolveProfiles(['u_a']));
+  await act(async () => f.get().refreshProfiles(['u_a'], () => true, read));
+  await act(async () => finish([{ uid: 'u_a', remark: '迟到旧备注' }]));
+  expect(f.get().profileByUid).toBe(first);
+  expect(f.host.textContent).toBe('当前备注');
+});

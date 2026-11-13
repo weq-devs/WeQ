@@ -146,29 +146,14 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-select-accent-fg) 50%, transparent);
 }
 
-.weq-select .weq-auto-enter input:checked {
-  background: var(--weq-select-accent-fg);
-  border-color: var(--weq-select-accent-fg);
-}
-
-.weq-select .weq-auto-enter input:checked::after {
-  border-color: var(--weq-bg-surface);
-}
-
 .weq-select .weq-acct-pop {
   box-shadow: var(--weq-shadow-card);
 }
 
-.weq-select .weq-auto-enter {
-  background: var(--weq-bg-surface);
-}
-
-.weq-select .weq-auto-enter:hover,
 .weq-select .weq-acct-row:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
 }
 
-.weq-select .weq-auto-enter:has(input:checked),
 .weq-select .weq-acct-row.is-active {
   background: color-mix(in srgb, var(--weq-accent-effective) 15%, var(--weq-bg-surface));
   border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, var(--weq-border-strong));
@@ -452,8 +437,9 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   padding: 12px 0 0;
   border-top: 1px solid var(--weq-border-subtle);
 }
+/* 小标题与下面账号卡片左边缘对齐（列表本身有 2px 内缩）。 */
 .weq-account-workspace .weq-account-section-head {
-  padding: 0 0 8px 4px;
+  padding: 0 0 8px 2px;
 }
 .weq-account-workspace .weq-account-list {
   max-height: 152px;
@@ -505,7 +491,7 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   gap: 10px;
   color: var(--weq-fg-primary);
   font-size: 21px;
-  font-weight: 650;
+  font-weight: 600;
   flex-shrink: 0;
 }
 .weq-account-brand img {
@@ -515,7 +501,7 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
 .weq-account-head h1 {
   margin: 0;
   font-size: 20px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -665,27 +651,6 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
   font-size: 14px;
   border-radius: 6px;
 }
-.weq-account-workspace .weq-auto-enter {
-  padding: 0;
-  min-height: 24px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  line-height: 1.5;
-}
-.weq-account-workspace .weq-auto-enter:hover,
-.weq-account-workspace .weq-auto-enter:has(input:checked) {
-  color: var(--weq-fg-primary);
-  background: transparent;
-}
-.weq-account-workspace .weq-auto-enter input:checked {
-  background: var(--weq-accent-solid);
-  border-color: var(--weq-accent-solid);
-}
-.weq-account-workspace .weq-auto-enter input:checked::after {
-  border-color: var(--weq-accent-solid-foreground);
-}
 .weq-key-details {
   min-width: 0;
   border-top: 1px solid var(--weq-border-subtle);
@@ -750,6 +715,15 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
   font-size: 14px;
   font-weight: 500;
 }
+/* 能力受限时按钮保留原位但不可点（例如 Remote 不能选电脑目录）。禁用状态
+   必须看得出来，否则用户会反复点一个没反应的按钮。 */
+html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
+  color: var(--weq-fg-secondary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .weq-account-detail-empty img {
   object-fit: contain;
 }
@@ -803,20 +777,34 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
   justify-content: space-between;
   padding: 16px 20px;
 }
+/* 打开账号页的两个开关：与设置页同一套 Toggle，标签左对齐、开关靠右。 */
 .weq-login-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.weq-login-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
+  min-height: 32px;
   min-width: 0;
 }
-.weq-account-workspace .weq-login-options .weq-auto-enter {
-  gap: 4px;
-  font-size: 12px;
-  white-space: nowrap;
+.weq-login-option-label {
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  line-height: 1.4;
 }
-.weq-account-workspace .weq-login-options input {
-  flex-shrink: 0;
+/* 两个开关的说明合成一行，开关保持同一水平线，不再随说明行数上下错位。 */
+.weq-login-options-hint {
+  margin: 2px 0 0;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .weq-account-workspace .weq-account-grid {
   flex: 0 1 auto;
@@ -1033,5 +1021,22 @@ html[data-theme='dark'] .weq-account-workspace .weq-account-diagnostics .weq-sta
   }
   .weq-account-workspace .weq-login-panel {
     gap: 8px;
+  }
+}
+
+/* 矮/窄窗口：优先保证「最近使用」能完整露出第一张账号卡，说明文字收进 title。 */
+@media (max-height: 720px) {
+  .weq-account-workspace .weq-open-identity > :is(img, .weq-avatar-fallback) {
+    width: 56px !important;
+    height: 56px !important;
+  }
+  .weq-account-workspace .weq-open-identity h2 {
+    font-size: 17px;
+  }
+  .weq-login-options-hint {
+    display: none;
+  }
+  .weq-account-workspace .weq-account-accounts {
+    padding-top: 8px;
   }
 }

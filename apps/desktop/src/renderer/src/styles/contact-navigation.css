@@ -8,19 +8,64 @@
   background: var(--destructive);
 }
 
-html[data-theme] .sidebar .sidebar-header-contacts {
+/* 整列共用底色与对齐线，避免不同外观各自叠加边距。 */
+html[data-theme] body .sidebar:has(.sidebar-header-contacts) {
+  --weq-contact-directory-gutter: 12px;
+  --weq-contact-directory-surface: var(--weq-bg-surface);
+  background: var(--weq-contact-directory-surface);
+}
+
+html[data-component-style='qqnt'][data-theme] body .sidebar:has(.sidebar-header-contacts) {
+  --weq-contact-directory-surface: var(--weq-qqnt-canvas);
+}
+
+html[data-theme] body .sidebar .sidebar-header-contacts {
+  padding: 0;
   background: inherit;
 }
 
-html[data-theme] .sidebar .contact-tools {
-  gap: 4px;
+html[data-theme] body .sidebar .sidebar-header-contacts .contact-tools {
+  gap: 8px;
   min-width: 0;
+  margin: 0;
+  padding: 8px 0;
   background: transparent;
 }
 
-/* qqnt 外观下 contact-tools 自身没有左右外边距，通知行自己补内缩。 */
-html[data-component-style='qqnt'][data-theme] body .sidebar-header-contacts .contact-notice-row {
-  padding-inline: 12px;
+html[data-theme] body .sidebar-header-contacts .weq-directory-toolbar {
+  height: 32px;
+  padding: 0 var(--weq-contact-directory-gutter);
+  border-bottom: 0;
+  background: transparent;
+}
+
+html[data-theme] body .sidebar-header-contacts :is(.contact-notice-row, .contact-list-controls) {
+  padding-inline: var(--weq-contact-directory-gutter);
+}
+
+html[data-theme] body .sidebar-header-contacts .contact-tab-switch {
+  margin: 0;
+  padding: 3px;
+  border: 0;
+  border-radius: 6px;
+}
+
+html[data-theme] body .sidebar .weq-contact-directory {
+  background: var(--weq-contact-directory-surface);
+}
+
+html[data-theme] body .sidebar .weq-directory-order {
+  padding: 0 var(--weq-contact-directory-gutter) 8px;
+  background: transparent;
+}
+
+html[data-theme] body .sidebar .weq-contact-directory-scroll {
+  padding-block: 8px;
+}
+
+html[data-theme] body .sidebar .weq-contact-directory-scroll .contact-cat-header {
+  padding-inline: var(--weq-contact-directory-gutter);
+  background: var(--weq-contact-directory-surface);
 }
 
 /* 好友/群通知压成一行两个轻量入口：与工具行同高，不再冒充列表行。 */
@@ -35,7 +80,7 @@ html[data-theme] .sidebar .contact-notice-row {
 html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry {
   display: flex;
   min-width: 0;
-  min-height: 30px;
+  min-height: 32px;
   align-items: center;
   justify-content: center;
   padding: 0 8px;
@@ -115,12 +160,13 @@ html[data-theme='dark'] .sidebar .contact-notice-row > .weq-contact-notice-entry
   }
 }
 
-@media (max-width: 760px) {
-  html[data-theme] .sidebar .contact-notice-row > .weq-contact-notice-entry {
-    min-height: 36px;
-    padding-inline: 10px;
-    font-size: 13px;
-  }
+html:where([data-weq-layout='single'])[data-theme]
+  .sidebar
+  .contact-notice-row
+  > .weq-contact-notice-entry {
+  min-height: 36px;
+  padding-inline: 10px;
+  font-size: 13px;
 }
 
 @media (prefers-reduced-motion: reduce) {

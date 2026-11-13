@@ -39,6 +39,21 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
       qzone: {
+        feeds: {
+          query: async () => ({
+            feeds: [
+              {
+                uin: '10002',
+                nickname: '合成好友',
+                appid: 311,
+                key: 'abcdef123456',
+                time: 1,
+                html: '<div class="f-info">fixture-feed</div>',
+              },
+            ],
+            hasMore: false,
+          }),
+        },
         posts: { query: fixture.posts },
         detail: {
           query: async () => ({
@@ -85,6 +100,36 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
     },
   };
 }
+it('好友动态不显示常驻多选按钮，修饰键选择后仍可操作并退出多选', async () => {
+  const f = mount(
+    createElement(
+      ContentSelectionProvider,
+      null,
+      createElement(QzoneView, {
+        selfUin: '10001',
+        nickname: '合成自己',
+        active: true,
+      }),
+    ),
+  );
+  try {
+    await act(async () => {});
+    const item = f.host.querySelector<HTMLElement>('.weq-reference-item');
+    expect(item?.textContent).toContain('fixture-feed');
+    expect(f.host.querySelector('[aria-label="多选"]')).toBeNull();
+    expect(f.host.querySelector('.weq-reference-toolbar')).toBeNull();
+    act(() => {
+      item!.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    });
+    expect(item?.classList.contains('is-selected')).toBe(true);
+    expect(f.host.querySelector('[aria-label="导出所选内容"]')).not.toBeNull();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click());
+    expect(f.host.querySelector('.weq-reference-toolbar')).toBeNull();
+    expect(item?.classList.contains('is-selected')).toBe(false);
+  } finally {
+    f.close();
+  }
+});
 it('空间预热不读内容，停稳才读；再次滑动暂停读取但不清空已显示内容', async () => {
   const page = (readEnabled: boolean) =>
     createElement(QzoneWorkspace, {

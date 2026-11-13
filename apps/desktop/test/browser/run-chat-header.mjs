@@ -62,6 +62,78 @@ try {
   const results = [];
   const more = () => page.getByRole('button', { name: '更多会话操作', exact: true });
   const menu = () => page.getByRole('menu', { name: '会话操作', exact: true });
+  const headerMetrics = (selector) =>
+    page.locator(selector).evaluate((header) => {
+      const box = (node) => {
+        const { x, y, width, height } = node.getBoundingClientRect();
+        return { x, y, width, height };
+      };
+      const title = getComputedStyle(
+        header.querySelector('.weq-mobile-identity > strong, .chat-title > strong'),
+      );
+      return {
+        bounds: box(header),
+        title: {
+          fontSize: title.fontSize,
+          fontWeight: title.fontWeight,
+          lineHeight: title.lineHeight,
+        },
+        actions: [...header.querySelectorAll('button')]
+          .filter((button) =>
+            ['全局搜索', '连接菜单', '搜索聊天记录', '更多会话操作'].includes(
+              button.getAttribute('aria-label'),
+            ),
+          )
+          .map(box),
+      };
+    });
+  for (const width of [320, 390, 430, 760]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const componentStyle of ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(
+          ({ componentStyle, theme }) => {
+            document.documentElement.dataset.componentStyle = componentStyle;
+            document.documentElement.dataset.theme = theme;
+            window.chatHeaderQa.home(true);
+          },
+          { componentStyle, theme },
+        );
+        await page.locator('.weq-mobile-header').waitFor();
+        const home = await headerMetrics('.weq-mobile-header');
+        if (output && width === 390 && componentStyle === 'classic')
+          await page.screenshot({ path: resolve(output, `home-${theme}.png`) });
+        await page.evaluate(() => window.chatHeaderQa.home(false));
+        await more().waitFor();
+        const chat = await headerMetrics('.chat-header');
+        if (output && width === 390 && componentStyle === 'classic')
+          await page.screenshot({ path: resolve(output, `chat-${theme}.png`) });
+        assert(
+          JSON.stringify(home) === JSON.stringify(chat),
+          `首页与会话顶栏跳位 ${width}/${componentStyle}/${theme}: ${JSON.stringify({ home, chat })}`,
+        );
+        assert(chat.actions.length === 2, '右侧须保留两个操作');
+        results.push({ width, componentStyle, theme, stableActions: chat.actions });
+      }
+    }
+  }
+  await page.evaluate(() => {
+    document
+      .querySelector('.app-shell-root')
+      .style.setProperty('--weq-mobile-header-height', '115px');
+    window.chatHeaderQa.home(true);
+  });
+  await page.locator('.weq-mobile-header').waitFor();
+  const safeHome = await headerMetrics('.weq-mobile-header');
+  await page.evaluate(() => window.chatHeaderQa.home(false));
+  await more().waitFor();
+  const safeChat = await headerMetrics('.chat-header');
+  assert(JSON.stringify(safeHome) === JSON.stringify(safeChat), '增加安全区高度后顶栏不一致');
+  assert(safeChat.bounds.height === 115, 'QQ NT 风格未沿用顶栏高度');
+  await page.evaluate(() => {
+    document.querySelector('.app-shell-root').style.removeProperty('--weq-mobile-header-height');
+    document.documentElement.dataset.componentStyle = 'classic';
+  });
   for (const kind of ['direct', 'group']) {
     await page.evaluate((kind) => window.chatHeaderQa.kind(kind), kind);
     for (const [width, height] of [
@@ -186,7 +258,7 @@ try {
   );
   await page.keyboard.press('End');
   assert(
-    (await page.evaluate(() => document.activeElement?.textContent)) === '会话设置',
+    (await page.evaluate(() => document.activeElement?.textContent)) === '连接菜单',
     '菜单键盘导航失败',
   );
   await page.setViewportSize({ width: 1180, height: 844 });

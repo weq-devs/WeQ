@@ -3,14 +3,19 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   QqMessageContent,
   ReplyJumpContext,
 } from '../src/renderer/src/components/QqMessageContent';
 
-const lightbox = vi.hoisted(() => vi.fn());
-vi.mock('../src/renderer/src/components/ImageLightbox', () => ({ openLightbox: lightbox }));
+const gallery = vi.hoisted(() =>
+  vi.fn((_options: unknown) => ({ close: vi.fn(), update: vi.fn() })),
+);
+vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
+  openMediaPreview: gallery,
+  MediaPreviewHost: () => null,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
@@ -30,7 +35,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  lightbox.mockClear();
+  gallery.mockClear();
 });
 
 function mount({ media = 'pic', quoted = true, seq = 42, previewElements = [media] } = {}) {
@@ -132,7 +137,7 @@ it.each(['pic', 'video'])('引用 %s 只跳转原消息，不同时打开灯箱�
   act(() => f.host.querySelector<HTMLElement>('.qq-reply-preview-media img')!.click());
   expect(f.jump).toHaveBeenCalledOnce();
   expect(f.jump).toHaveBeenCalledWith(expect.objectContaining({ seq: 42 }));
-  expect(lightbox).not.toHaveBeenCalled();
+  expect(gallery).not.toHaveBeenCalled();
   expect(f.host.querySelector('video')).toBeNull();
   expect(f.scroll.scrollTop).toBe(120);
 });
@@ -155,7 +160,7 @@ it.each([
   );
   act(() => body.querySelector<HTMLElement>('.qq-reply-preview-media img')!.click());
   expect(f.jump).toHaveBeenCalledOnce();
-  expect(lightbox).not.toHaveBeenCalled();
+  expect(gallery).not.toHaveBeenCalled();
 });
 
 it.each(['Enter', ' '])('引用框键盘 %j 跳转并阻止默认滚动', (key) => {
@@ -176,9 +181,10 @@ it('无有效引用序号时不伪造跳转，也不退出贴底', () => {
   expect(f.scroll.scrollTop).toBe(800);
 });
 
-it('普通正文图片仍打开灯箱，不触发引用跳转', () => {
+it('普通正文图片打开连续预览，不触发引用跳转', () => {
   const f = mount({ quoted: false });
   act(() => f.host.querySelector<HTMLElement>('.qq-media-image')!.click());
-  expect(lightbox).toHaveBeenCalledOnce();
+  expect(gallery).toHaveBeenCalledOnce();
+  expect(gallery.mock.calls[0]?.[0]).toMatchObject({ initialKey: 'quote:0' });
   expect(f.jump).not.toHaveBeenCalled();
 });

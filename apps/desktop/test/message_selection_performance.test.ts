@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { useMessageSelectionFlow } from '../src/renderer/src/hooks/useMessageSelectionFlow';
 import { useContentMultiSelect } from '../src/renderer/src/state/contentSelection';
 import type { Message } from '../src/renderer/src/im-template/template/types';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { useMultiSelection } from '../src/renderer/src/hooks/useMultiSelection';
 
 vi.mock('../src/renderer/src/im-template/template/messageRow', () => ({ grayTipOf: () => null }));

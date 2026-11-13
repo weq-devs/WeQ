@@ -277,92 +277,6 @@ button.composer-single-thumb {
   font-size: 12px;
 }
 
-/* ── 素材灯箱（附件放大看） ───────────────────────────────────────────────── */
-
-.composer-media-lb-layer {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 32px;
-  background: rgba(0, 0, 0, 0.46);
-  backdrop-filter: blur(2px);
-}
-
-.composer-media-lb {
-  display: grid;
-  max-width: min(880px, 100%);
-  max-height: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
-  border-radius: 16px;
-  background: var(--popover, #ffffff);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
-}
-
-.composer-media-lb-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 76%, transparent);
-}
-
-.composer-media-lb-title {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  color: var(--weq-fg-primary, #111111);
-  font-size: 13.5px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.composer-media-lb-head em {
-  flex: 0 0 auto;
-  margin-left: auto;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11.5px;
-  font-style: normal;
-}
-
-.composer-media-lb-close {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--weq-fg-secondary, #666666);
-  cursor: pointer;
-}
-
-.composer-media-lb-close:hover {
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 14%, transparent);
-}
-
-.composer-media-lb-body {
-  display: grid;
-  min-height: 0;
-  place-items: center;
-  padding: 14px;
-  overflow: auto;
-}
-
-.composer-media-lb-body img,
-.composer-media-lb-body video {
-  max-width: 100%;
-  max-height: min(72dvh, 640px);
-  border-radius: 10px;
-  object-fit: contain;
-}
-
 /* ── 语音面板 ─────────────────────────────────────────────────────────────── */
 
 .voice-panel {
@@ -560,15 +474,15 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   border-radius: 50%;
   background: radial-gradient(
     circle at 34% 26%,
-    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 68%, #ffffff),
-    var(--weq-accent-effective, #0099ff) 72%
+    color-mix(in srgb, var(--weq-accent-solid, #0099ff) 68%, #ffffff),
+    var(--weq-accent-solid, #0099ff) 72%
   );
-  color: #ffffff;
+  color: var(--weq-accent-solid-foreground, #ffffff);
   cursor: pointer;
   user-select: none;
   touch-action: none;
   box-shadow:
-    0 12px 28px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 40%, transparent),
+    0 12px 28px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 40%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.42);
   transition:
     transform 150ms ease,
@@ -741,8 +655,8 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   cursor: pointer;
   transition:
     transform 140ms ease,
@@ -935,10 +849,10 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 }
 
 .voice-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .voice-btn.primary:hover:not(:disabled) {
@@ -1252,10 +1166,10 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 }
 
 .link-card-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .link-card-btn.primary:hover:not(:disabled) {
@@ -1295,88 +1209,89 @@ html[data-theme='dark'] .link-card-preview-card {
  * 声纹环就直接坐在输入框自己的磨砂底上，看着是输入框的一部分，而不是另一个面板。
  */
 
-@media (min-width: 761px) {
-  .composer > .voice-panel {
-    position: relative;
-    z-index: 6;
-    inset: auto;
-    bottom: auto;
-    left: auto;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-    grid-column: 1 / -1;
-    grid-row: 2;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-  }
+:where(html:not([data-weq-layout='single'])) .composer > .voice-panel {
+  position: relative;
+  z-index: 6;
+  inset: auto;
+  bottom: auto;
+  left: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
 
-  /* 没有 ✕ 也没有分隔线：头部只剩「语音」+ 页签（配了 TTS 才有）。 */
-  .composer > .voice-panel .voice-panel-head {
-    padding: 0 4px 2px;
-    border-bottom: 0;
-  }
+/* 没有 ✕ 也没有分隔线：头部只剩「语音」+ 页签（配了 TTS 才有）。 */
 
-  .voice-panel-body {
-    padding: 2px 4px 0;
-    overflow: auto;
-    scrollbar-width: thin;
-    /* 录音行吃掉剩余高度、脚注贴底，声纹环就在这一行里居中 —— 去掉外框后整块
+:where(html:not([data-weq-layout='single'])) .composer > .voice-panel .voice-panel-head {
+  padding: 0 4px 2px;
+  border-bottom: 0;
+}
+
+:where(html:not([data-weq-layout='single'])) .voice-panel-body {
+  padding: 2px 4px 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  /* 录音行吃掉剩余高度、脚注贴底，声纹环就在这一行里居中 —— 去掉外框后整块
        内容是坐在输入框里，而不是顶在上边。 */
-    grid-template-rows: minmax(0, 1fr) auto;
-  }
+  grid-template-rows: minmax(0, 1fr) auto;
+}
 
-  .voice-panel-body > .voice-stage {
-    align-self: center;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel-body > .voice-stage {
+  align-self: center;
+}
 
-  .voice-panel-body:has(> .voice-tts) {
-    display: block;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel-body:has(> .voice-tts) {
+  display: block;
+}
 
-  .voice-panel .voice-tts {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 32%);
-    gap: 6px 12px;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 32%);
+  gap: 6px 12px;
+}
 
-  .voice-panel .voice-tts-note,
-  .voice-panel .voice-tts > .voice-error {
-    grid-column: 1 / -1;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-note,
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts > .voice-error {
+  grid-column: 1 / -1;
+}
 
-  .voice-panel .voice-tts-input {
-    grid-column: 1;
-    grid-row: 2 / span 3;
-    height: 100%;
-    min-height: 80px;
-    resize: none;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-input {
+  grid-column: 1;
+  grid-row: 2 / span 3;
+  height: 100%;
+  min-height: 80px;
+  resize: none;
+}
 
-  .voice-panel .voice-tts-row,
-  .voice-panel .voice-tts > .voice-review-actions {
-    grid-column: 2;
-  }
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-row,
+:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts > .voice-review-actions {
+  grid-column: 2;
+}
 
-  /* 引用条占正文上面那一行：正文让出一行，整条输入区高度不变（不推挤消息列表）。 */
-  .composer.has-quote {
-    grid-template-rows: 42px auto minmax(0, 1fr);
-  }
+/* 引用条占正文上面那一行：正文让出一行，整条输入区高度不变（不推挤消息列表）。 */
 
-  .composer.has-quote > .composer-quote {
-    grid-row: 2;
-  }
+:where(html:not([data-weq-layout='single'])) .composer.has-quote {
+  grid-template-rows: 42px auto minmax(0, 1fr);
+}
 
-  .composer.has-quote > .composer-editor {
-    grid-row: 3;
-  }
+:where(html:not([data-weq-layout='single'])) .composer.has-quote > .composer-quote {
+  grid-row: 2;
+}
 
-  /* 语音条本来就顶掉正文那一行：有引用时它跟着到第三行，引用条留在上面。 */
-  .composer.has-quote.voice-open > .voice-panel {
-    grid-row: 3;
-  }
+:where(html:not([data-weq-layout='single'])) .composer.has-quote > .composer-editor {
+  grid-row: 3;
+}
+
+/* 语音条本来就顶掉正文那一行：有引用时它跟着到第三行，引用条留在上面。 */
+
+:where(html:not([data-weq-layout='single'])) .composer.has-quote.voice-open > .voice-panel {
+  grid-row: 3;
 }
 
 /* ── 小屏：「只能单独发」的卡片挤进输入框第一行 ────────────────────────────────
@@ -1386,95 +1301,107 @@ html[data-theme='dark'] .link-card-preview-card {
  * 压过那条规则。
  */
 
-@media (max-width: 760px) {
-  .chat-pane:has(.composer.has-single-send) {
-    --composer-height: calc(186px + var(--mobile-composer-safe-bottom)) !important;
-  }
+:where(html[data-weq-layout='single']) .chat-pane:has(.composer.has-single-send) {
+  --composer-height: calc(186px + var(--mobile-composer-safe-bottom)) !important;
+}
 
-  .composer.has-single-send {
-    grid-template-rows: 124px 48px;
-  }
+:where(html[data-weq-layout='single']) .composer.has-single-send {
+  grid-template-rows: 124px 48px;
+}
 
-  .composer-single-stage {
-    grid-row: 1;
-    padding: 0 8px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-stage {
+  grid-row: 1;
+  padding: 0 8px;
+}
 
-  .composer-single-card {
-    gap: 3px;
-    padding: 8px 14px 6px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-card {
+  gap: 3px;
+  padding: 8px 14px 6px;
+}
 
-  .composer-single-thumb {
-    width: 58px;
-    height: 58px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-thumb {
+  width: 58px;
+  height: 58px;
+}
 
-  .composer-single-info {
-    max-width: 200px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-info {
+  max-width: 200px;
+}
 
-  .composer-single-info strong {
-    font-size: 12.5px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-info strong {
+  font-size: 12.5px;
+}
 
-  .composer-single-note {
-    font-size: 10.5px;
-  }
+:where(html[data-weq-layout='single']) .composer-single-note {
+  font-size: 10.5px;
+}
 
-  .voice-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-  } /* 小屏面板是浮层，舞台可以放宽裕一点；录音键不放大 —— 环的内圈就那么宽。 */
-  .voice-stage {
-    height: 150px;
-  }
+:where(html[data-weq-layout='single']) .voice-panel {
+  left: 8px;
+  width: calc(100% - 16px);
+}
 
-  /* 引用条：小屏依旧放在正文上面，正文整体下移一行（下面那格要留给表情 / 更多面板）。
+/* 小屏面板是浮层，舞台可以放宽裕一点；录音键不放大 —— 环的内圈就那么宽。 */
+
+:where(html[data-weq-layout='single']) .voice-stage {
+  height: 150px;
+}
+
+/* 引用条：小屏依旧放在正文上面，正文整体下移一行（下面那格要留给表情 / 更多面板）。
      这一整套只在面板没开时生效（下面 :not 链），所以不会把面板那三行布局搞乱。 */
+
+:where(html[data-weq-layout='single'])
   .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel)) {
-    grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
-  }
+  grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
+}
 
+:where(html[data-weq-layout='single'])
   .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-    > .composer-quote {
-    grid-row: 1;
-    margin: 0 0 6px;
-  }
+  > .composer-quote {
+  grid-row: 1;
+  margin: 0 0 6px;
+}
 
+:where(html[data-weq-layout='single'])
   .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-    > .composer-editor {
-    grid-row: 2;
-  }
+  > .composer-editor {
+  grid-row: 2;
+}
 
+:where(html[data-weq-layout='single'])
   .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-    > :is(.composer-send, .mobile-composer-expand-button) {
-    grid-row: 2;
-  }
+  > :is(.composer-send, .mobile-composer-expand-button) {
+  grid-row: 2;
+}
 
+:where(html[data-weq-layout='single'])
   .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-    > .composer-tools {
-    grid-row: 3;
-  }
+  > .composer-tools {
+  grid-row: 3;
+}
 
-  /* 面板打开时引用条让位（display:none）：待发送的引用还在，发送时依旧带上，
+/* 面板打开时引用条让位（display:none）：待发送的引用还在，发送时依旧带上，
      只是不跟面板挤同一格。 */
-  .composer.has-quote:has(> .emoji-panel) > .composer-quote,
-  .composer.has-quote:has(> .composer-plus-panel) > .composer-quote {
-    display: none;
-  }
 
-  /* 引用条那一行要从输入区高度里要回来，而且只在它真看得见时才加。 */
+:where(html[data-weq-layout='single']) .composer.has-quote:has(> .emoji-panel) > .composer-quote,
+:where(html[data-weq-layout='single'])
+  .composer.has-quote:has(> .composer-plus-panel)
+  > .composer-quote {
+  display: none;
+}
+
+/* 引用条那一行要从输入区高度里要回来，而且只在它真看得见时才加。 */
+
+:where(html[data-weq-layout='single'])
   .chat-pane:has(.composer.has-quote):not(:has(.composer > .emoji-panel)):not(
     :has(.composer > .composer-plus-panel)
   ) {
-    --composer-height: calc(
-      var(--mobile-composer-editor-height, 42px) +
-      62px +
-      40px +
-      var(--mobile-composer-safe-bottom)
-    ) !important;
-  }
+  --composer-height: calc(
+    var(--mobile-composer-editor-height, 42px) +
+    62px +
+    40px +
+    var(--mobile-composer-safe-bottom)
+  ) !important;
 }
 
 /* ── AI 声聊面板（输入框工具栏「AI 声聊」按钮）──────────────────────────────
@@ -1810,8 +1737,8 @@ html[data-theme='dark'] .link-card-preview-card {
 
 /* 正在播的那条：实心主题色 + 轻微呼吸，扫一眼就知道是哪条在响。 */
 .ai-voice-chip-play.is-playing {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   animation: ai-voice-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1870,10 +1797,10 @@ html[data-theme='dark'] .link-card-preview-card {
 }
 
 .ai-voice-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .ai-voice-btn.primary:hover:not(:disabled) {
@@ -1900,22 +1827,20 @@ html[data-theme='dark'] .ai-voice-chip {
 
 /* ── 小屏：面板收窄、声线区矮一点，别把整屏顶满 ─────────────────────────── */
 
-@media (max-width: 760px) {
-  .ai-voice-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-    max-height: min(
-      462px,
-      max(
-        236px,
-        calc(100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) - 56px)
-      )
-    );
-  }
+:where(html[data-weq-layout='single']) .ai-voice-panel {
+  left: 8px;
+  width: calc(100% - 16px);
+  max-height: min(
+    462px,
+    max(
+      236px,
+      calc(100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) - 56px)
+    )
+  );
+}
 
-  .ai-voice-voices-list {
-    max-height: 188px;
-  }
+:where(html[data-weq-layout='single']) .ai-voice-voices-list {
+  max-height: 188px;
 }
 
 /* ── 弹射表情（emojiBounce / FACEBUBBLE）─────────────────────────────────────
@@ -2404,10 +2329,10 @@ html[data-theme='dark'] .ai-voice-chip {
 }
 
 .bounce-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .bounce-btn.primary:hover:not(:disabled) {
@@ -2436,34 +2361,32 @@ html[data-theme='dark'] .bounce-search {
 
 /* ── 小屏：面板收窄、网格矮一点，别把整屏顶满 ────────────────────────────── */
 
-@media (max-width: 760px) {
-  .bounce-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-    max-height: min(452px, calc(100dvh - 150px));
-  }
+:where(html[data-weq-layout='single']) .bounce-panel {
+  left: 8px;
+  width: calc(100% - 16px);
+  max-height: min(452px, calc(100dvh - 150px));
+}
 
-  .bounce-stage {
-    grid-template-columns: 76px minmax(0, 1fr);
-    gap: 9px;
-  }
+:where(html[data-weq-layout='single']) .bounce-stage {
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 9px;
+}
 
-  .bounce-preview {
-    min-height: 76px;
-  }
+:where(html[data-weq-layout='single']) .bounce-preview {
+  min-height: 76px;
+}
 
-  .bounce-preview-face {
-    width: 52px;
-    height: 52px;
-  }
+:where(html[data-weq-layout='single']) .bounce-preview-face {
+  width: 52px;
+  height: 52px;
+}
 
-  .bounce-preview-count {
-    font-size: 12px;
-  }
+:where(html[data-weq-layout='single']) .bounce-preview-count {
+  font-size: 12px;
+}
 
-  .bounce-picker {
-    max-height: 168px;
-  }
+:where(html[data-weq-layout='single']) .bounce-picker {
+  max-height: 168px;
 }
 
 /* ── 戳一戳互动表情（pokeEmoji）────────────────────────────────────────────
@@ -2843,10 +2766,10 @@ html[data-theme='dark'] .bounce-search {
 }
 
 .poke-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .poke-btn.primary:hover:not(:disabled) {
@@ -2873,21 +2796,19 @@ html[data-theme='dark'] .poke-combo-btn {
 
 /* ── 小屏：面板收窄，预览缩一点 ──────────────────────────────────────────── */
 
-@media (max-width: 760px) {
-  .poke-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-    max-height: min(452px, calc(100dvh - 150px));
-  }
+:where(html[data-weq-layout='single']) .poke-panel {
+  left: 8px;
+  width: calc(100% - 16px);
+  max-height: min(452px, calc(100dvh - 150px));
+}
 
-  .poke-stage {
-    grid-template-columns: 128px minmax(0, 1fr);
-    gap: 9px;
-  }
+:where(html[data-weq-layout='single']) .poke-stage {
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 9px;
+}
 
-  .poke-preview {
-    min-height: 128px;
-  }
+:where(html[data-weq-layout='single']) .poke-preview {
+  min-height: 128px;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -3464,10 +3385,10 @@ html[data-theme='dark'] .poke-combo-btn {
 }
 
 .redpacket-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .redpacket-btn.primary:hover:not(:disabled) {
@@ -3494,11 +3415,9 @@ html[data-theme='dark'] .redpacket-step {
 
 /* ── 小屏：面板收窄 ──────────────────────────────────────────────────────── */
 
-@media (max-width: 760px) {
-  .redpacket-panel {
-    left: 8px;
-    width: calc(100% - 16px);
-  }
+:where(html[data-weq-layout='single']) .redpacket-panel {
+  left: 8px;
+  width: calc(100% - 16px);
 }
 
 /* 面板窄到放不下左右两栏时折成上下：左栏在上，封面缩成一小块贴右。 */

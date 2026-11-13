@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
 import type { NtHelperBinding } from '@weq/native';
-import type { UserConfigService } from '@weq/service';
+import { DebugReadUnavailableError, type UserConfigService } from '@weq/service';
 import { createLinuxAttachHook } from '../src/main/attach_elevation';
 
 const f = vi.hoisted(() => ({ helper: vi.fn(), password: vi.fn() }));
@@ -48,7 +48,7 @@ it('权限路径均失败才提示调试副本，不尝试无效的 sudo', async
   const { scan, hook } = fixture();
   scan.mockRejectedValue(new Error('task_for_pid 失败'));
   f.helper.mockRejectedValue(new Error('permission denied'));
-  await expect(hook.ensure(42, {})).rejects.toThrow('调试副本');
+  await expect(hook.ensure(42, {})).rejects.toBeInstanceOf(DebugReadUnavailableError);
   expect(f.password).not.toHaveBeenCalled();
 });
 it('非权限错误原样返回，不误报 SIP 或尝试助手', async () => {

@@ -10,6 +10,8 @@ const rpc = vi.hoisted(() => ({
   albums: vi.fn(),
   media: vi.fn(),
   remember: vi.fn(),
+  membersByUid: vi.fn(),
+  membersByUin: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
@@ -19,9 +21,13 @@ vi.mock('../src/main/context/app_context', () => {
     webQuery: { getGroupAlbumFeed: rpc.feed, getGroupAlbumList: rpc.albums },
     groupAlbumMedia: { getMediaList: rpc.media },
     contentSearch: { remember: rpc.remember },
+    groupInfo: { getMembersByUids: rpc.membersByUid, getMembersByUins: rpc.membersByUin },
   };
   return {
     accountEventBus: new EventEmitter(),
+    requireBootstrap: () => ({
+      userConfig: { getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: true } }) },
+    }),
     getAppContext: () => ({
       account: { context: { uin: rpc.uin } },
       services,
@@ -49,6 +55,8 @@ beforeEach(() => {
   });
   rpc.albums.mockResolvedValue([]);
   rpc.media.mockResolvedValue({ mediaList: [], nextAttachInfo: '' });
+  rpc.membersByUid.mockResolvedValue([]);
+  rpc.membersByUin.mockResolvedValue([]);
 });
 it('动态读取使用完整卡片目标和捕获来源，不传绑定字段给 Web 请求', async () => {
   await accountRouter
@@ -113,4 +121,28 @@ it('QQ 不在线时明确报错，不把读取失败当成空动态', async () =
     accountRouter.createCaller({}).getGroupAlbumFeed({ ...binding, ...target }),
   ).rejects.toThrow('登录');
   expect(rpc.feed).not.toHaveBeenCalled();
+});
+it('公告发布者按 UID 与 QQ 号批量读取群成员，使用捕获的账号来源且无需在线', async () => {
+  rpc.online = false;
+  const api = accountRouter.createCaller({});
+  await api.getGroupMembersByUids({ ...binding, groupCode: '123456', uids: ['u_peer'] });
+  await api.getGroupMembersByUins({ ...binding, groupCode: '123456', uins: ['10002'] });
+  expect(rpc.membersByUid).toHaveBeenCalledWith(123456n, ['u_peer']);
+  expect(rpc.membersByUin).toHaveBeenCalledWith(123456n, [10002n]);
+});
+it('公告发布者补全拒绝错误来源，并丢弃读取期间换源的响应', async () => {
+  const api = accountRouter.createCaller({});
+  rpc.configId = 'source-b';
+  await expect(
+    api.getGroupMembersByUids({ ...binding, groupCode: '123456', uids: ['u_peer'] }),
+  ).rejects.toThrow('数据源已切换');
+  expect(rpc.membersByUid).not.toHaveBeenCalled();
+  rpc.configId = 'source-a';
+  rpc.membersByUin.mockImplementationOnce(async () => {
+    rpc.configId = 'source-b';
+    return [];
+  });
+  await expect(
+    api.getGroupMembersByUins({ ...binding, groupCode: '123456', uins: ['10002'] }),
+  ).rejects.toThrow('数据源已切换');
 });

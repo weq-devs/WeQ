@@ -85,8 +85,9 @@ export class NotesStore {
 
   clear(personaId: string): void {
     if (!(personaId in this.data)) return;
-    delete this.data[personaId];
-    this.persist();
+    const next = { ...this.data };
+    delete next[personaId];
+    this.store.replace(next, true);
   }
 
   private ensure(personaId: string): PersonaNotesEntry {

@@ -23,6 +23,7 @@ import { getLogger, logErrorContext } from '../common/logger';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { normalizeGroupKeywordRules, type GroupKeywordRules } from './group_keyword';
 import type { VipInfo } from './vip';
+import type { SharedPreferenceOwner } from '../common/shared_preferences';
 
 /**
  * A download rkey issued by QQ's OIDB service (`FetchDownloadRkeys`). Used
@@ -75,10 +76,14 @@ export function clientKeyExpiryMs(c: ClientKey): number {
 }
 
 export interface AccountConfig {
-  /** 当前账号显式开启的邮箱提醒；不保存邮箱票据。 */
+  /** WeQ 各端共用的通知阅读记录，与 QQ 申请处理状态独立。 */
+  noticeSeen?: Partial<Record<'friend' | 'group', { seen: string[]; readThrough: number }>>;
+  /** 兼容读取视图的邮箱偏好；宿主全局保存，不保存邮箱票据。 */
   mailNotifications?: boolean;
   /** 左侧导航显示邮箱未读数；旧配置默认显示。 */
   mailShowUnread?: boolean;
+  /** 后台邮箱查询间隔，单位分钟；旧配置默认一分钟。 */
+  mailPollIntervalMinutes?: number;
   /**
    * Stable record id derived from (uin, dataDir). Filename is
    * `<configId>.json`. Older configs written before this field existed fall
@@ -122,7 +127,7 @@ export interface AccountConfig {
   avatarUrl?: string;
   /** Unix milliseconds of last login. */
   lastLoginAt: number;
-  /** Per-account annual-report page collection and ordering preferences. */
+  /** 兼容读取视图的年度报告页面偏好；宿主全局保存。 */
   annualReport?: AnnualReportPreferences;
 
   /**
@@ -308,6 +313,7 @@ export class AccountConfigService {
   constructor(
     private readonly session: AccountSession,
     appDataRoot: string,
+    private readonly sharedPreferences?: SharedPreferenceOwner,
   ) {
     this.accountsDir = join(appDataRoot, 'config', 'accounts');
     this.currentConfigId = accountConfigId(this.session.context.uin);
@@ -326,7 +332,17 @@ export class AccountConfigService {
     const uin = this.session.context.uin;
     const configId = accountConfigId(uin, metadata.dataDir);
     this.currentConfigId = configId;
-    const prev = this.readRecord();
+    let prev = this.readRecord();
+    if (prev && this.sharedPreferences) {
+      const {
+        mailNotifications: _notifications,
+        mailShowUnread: _unread,
+        mailPollIntervalMinutes: _poll,
+        annualReport: _report,
+        ...account
+      } = prev;
+      prev = account;
+    }
     const config: AccountConfig = {
       ...prev,
       configId,
@@ -357,7 +373,19 @@ export class AccountConfigService {
 
   /** Read the current account's record from disk, or null if not yet written. */
   getRecord(): AccountConfig | null {
-    return this.readRecord();
+    const record = this.readRecord();
+    if (!record || !this.sharedPreferences) return record;
+    const mail = this.sharedPreferences.getSharedPreference('mail');
+    const annualReport = this.sharedPreferences.getSharedPreference('annualReport');
+    return {
+      ...record,
+      mailNotifications: mail.mailNotifications ?? false,
+      mailShowUnread: mail.mailShowUnread ?? true,
+      mailPollIntervalMinutes: mail.mailPollIntervalMinutes ?? 1,
+      annualReport: Object.keys(annualReport).length
+        ? (annualReport as AnnualReportPreferences)
+        : undefined,
+    };
   }
 
   /** 打开账号后刷新菜单昵称，不能把切号时传回的旧配置当作最新资料。 */
@@ -377,11 +405,33 @@ export class AccountConfigService {
   }
 
   setMailNotifications(enabled: boolean): void {
+    if (this.sharedPreferences) {
+      this.sharedPreferences.patchSharedPreference('mail', { mailNotifications: enabled });
+      return;
+    }
     this.patch({ mailNotifications: enabled });
   }
 
+  setNoticeSeen(kind: 'friend' | 'group', state: { seen: string[]; readThrough: number }): void {
+    this.patch({ noticeSeen: { ...this.getRecord()?.noticeSeen, [kind]: state } });
+  }
+
   setMailShowUnread(enabled: boolean): void {
+    if (this.sharedPreferences) {
+      this.sharedPreferences.patchSharedPreference('mail', { mailShowUnread: enabled });
+      return;
+    }
     this.patch({ mailShowUnread: enabled });
+  }
+
+  setMailPollIntervalMinutes(minutes: number): void {
+    if (this.sharedPreferences) {
+      this.sharedPreferences.patchSharedPreference('mail', {
+        mailPollIntervalMinutes: minutes,
+      });
+      return;
+    }
+    this.patch({ mailPollIntervalMinutes: minutes });
   }
 
   /** Update the online flag + pid without disturbing the rest of the record. */
@@ -510,6 +560,10 @@ export class AccountConfigService {
 
   /** Persist the user's annual-report page collection and ordering. */
   setAnnualReportPreferences(annualReport: AnnualReportPreferences): void {
+    if (this.sharedPreferences) {
+      this.sharedPreferences.patchSharedPreference('annualReport', annualReport);
+      return;
+    }
     this.patch({ annualReport });
     this.logger.info('stored annual report preferences', {
       event: 'set-annual-report-preferences',
@@ -612,6 +666,11 @@ export interface AccountSessionMaterial {
    * 扫出，生命周期一致：账号下线即清除（它绑定在那个 QQ 进程的登录会话上）。
    */
   secToken?: string;
+  /**
+   * token 的过期时间（Unix 秒）。Linux 的会话物料表能顺带读到；
+   * 距过期不足 300 s 时主动重扫，没有这一项时退回「pid 变了才重扫」。
+   */
+  secTokenExpire?: number;
   /**
    * 读到这份物料时 QQ 的 pid。用来判断「这份缓存是不是仍属于当前那个 QQ 进程」
    * —— 本地凭据齐全时直接拿它登记 SSO（不读内存、不提权）；pid 对不上说明 QQ

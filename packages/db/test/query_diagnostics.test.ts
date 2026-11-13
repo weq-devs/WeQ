@@ -8,10 +8,111 @@ import {
   withDatabasePriority,
   promoteDatabaseSignal,
   measureMessageWork,
+  observeSlowDatabaseOperations,
+  SLOW_DATABASE_OPERATION_MS,
 } from '../src/query_schedule';
 import { ACTIVE_QUERY_DIAGNOSTIC_LIMIT, withDatabaseRequest } from '../src/query_diagnostics';
 
 afterEach(() => vi.unstubAllEnvs());
+
+it('独立诊断可采样低于告警阈值的等待，不改变默认告警订阅', async () => {
+  let now = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const warning = vi.fn(),
+    diagnostic = vi.fn();
+  const stopWarning = observeSlowDatabaseOperations(warning);
+  const stopDiagnostic = observeSlowDatabaseOperations(diagnostic, SLOW_DATABASE_OPERATION_MS / 4);
+  try {
+    await scheduleDatabase('/synthetic/separate-observation.db', async () => {
+      now += SLOW_DATABASE_OPERATION_MS / 2;
+    });
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(warning).not.toHaveBeenCalled();
+    stopDiagnostic();
+    await scheduleDatabase('/synthetic/separate-observation.db', async () => {
+      now += SLOW_DATABASE_OPERATION_MS / 2;
+    });
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(warning).not.toHaveBeenCalled();
+  } finally {
+    stopWarning();
+    stopDiagnostic();
+    clock.mockRestore();
+  }
+});
+
+it.each([
+  [200, false],
+  [500, false],
+  [SLOW_DATABASE_OPERATION_MS - 1, false],
+  [SLOW_DATABASE_OPERATION_MS, false],
+  [SLOW_DATABASE_OPERATION_MS + 1, true],
+] as const)('排队与原生等待 %sms 的阈值边界均正确', async (elapsed, warn) => {
+  let now = 0;
+  let release!: () => void;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const samples: Array<{ jsQueueWaitMs: number; nativePromiseAwaitMs: number }> = [];
+  const stop = observeSlowDatabaseOperations((sample) => samples.push(sample));
+  try {
+    const path = `/synthetic/warning-boundary-${elapsed}.db`;
+    const first = scheduleDatabase(
+      path,
+      () =>
+        new Promise<void>((done) => {
+          release = done;
+        }),
+    );
+    const second = scheduleDatabase(path, async () => []);
+    now = elapsed;
+    release();
+    await Promise.all([first, second]);
+    expect(samples).toHaveLength(warn ? 2 : 0);
+    if (warn) {
+      expect(samples.some((sample) => sample.nativePromiseAwaitMs === elapsed)).toBe(true);
+      expect(samples.some((sample) => sample.jsQueueWaitMs === elapsed)).toBe(true);
+    }
+  } finally {
+    stop();
+    clock.mockRestore();
+  }
+});
+
+it('未开启完整诊断时仍归因超过阈值的原生读取，不泄露 SQL 或参数', async () => {
+  vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '');
+  let now = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const samples: unknown[] = [];
+  const stop = observeSlowDatabaseOperations((sample) => samples.push(sample));
+  const path = '/synthetic/slow-source.db';
+  const nt = {
+    executeSql: async () => {
+      now += SLOW_DATABASE_OPERATION_MS + 1;
+      return [];
+    },
+  } as unknown as NtHelperBinding;
+  const db = new QqDb(nt, { dbPath: path });
+  class FixtureReader {
+    read() {
+      return db.query('SELECT ?', ['不得记录的 UID']);
+    }
+  }
+  try {
+    await new FixtureReader().read();
+    expect(samples).toEqual([
+      expect.objectContaining({
+        nativePromiseAwaitMs: SLOW_DATABASE_OPERATION_MS + 1,
+        fingerprint: createHash('sha256').update('SELECT ?').digest('hex').slice(0, 16),
+        caller: 'FixtureReader.read',
+      }),
+    ]);
+    for (const forbidden of [path, 'SELECT', '不得记录的 UID'])
+      expect(JSON.stringify(samples)).not.toContain(forbidden);
+    expect(databasePerformance(path).diagnostics).toMatchObject({ enabled: false, queries: [] });
+  } finally {
+    stop();
+    clock.mockRestore();
+  }
+});
 
 it('默认不开启逐查询采样；启用后只记录指纹与调用点，不记录 SQL、参数和路径', async () => {
   vi.stubEnv('WEQ_DATABASE_DIAGNOSTICS', '');

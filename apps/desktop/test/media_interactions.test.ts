@@ -2,8 +2,11 @@ import { act, createElement as h, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Window as HappyWindow } from 'happy-dom';
-import { ImageLightbox, openLightbox } from '../src/renderer/src/components/ImageLightbox';
-import { VideoLightbox, openVideoLightbox } from '../src/renderer/src/components/VideoLightbox';
+import {
+  MediaPreviewHost,
+  openMediaPreview,
+} from '../src/renderer/src/components/mediaPreviewStore';
+
 import { QqImage, QqVideo, QqVoice, QqMarketFace } from '../src/renderer/src/components/QqMedia';
 import { mediaRetryUrl } from '../src/renderer/src/lib/mediaRetryUrl';
 
@@ -95,11 +98,21 @@ it('可操作图片、闪照、语音、视频及商城表情使用原生按钮�
 });
 
 it('图片候选全部失败才显示终态，重试从原始候选重新进入同一媒体链并忽略迟到事件', () => {
-  act(() => root.render(h(ImageLightbox)));
+  act(() => root.render(h(MediaPreviewHost)));
   act(() =>
-    openLightbox('weq-media://pic?token=fixture', '图片', null, document, undefined, [
-      'weq-media://pic?token=fixture&v=thumb',
-    ]),
+    openMediaPreview({
+      items: [
+        {
+          key: 'weq-media://pic?token=fixture',
+          kind: 'image',
+          src: 'weq-media://pic?token=fixture',
+          title: '图片',
+          ocr: null,
+          fallbackSources: ['weq-media://pic?token=fixture&v=thumb'],
+        },
+      ],
+      ownerDocument: document,
+    }),
   );
   expect(document.querySelector('[role="status"]')?.textContent).toContain('正在加载图片');
   expect(button('复制到剪贴板').disabled).toBe(true);
@@ -170,8 +183,23 @@ it('预览焦点进入、Tab回环、键盘缩放、关闭后归还触发点', (
       h(
         Fragment,
         null,
-        h('button', { onClick: () => openLightbox('data:image/png;base64,fixture') }, '打开图片'),
-        h(ImageLightbox),
+        h(
+          'button',
+          {
+            onClick: () =>
+              openMediaPreview({
+                items: [
+                  {
+                    key: 'data:image/png;base64,fixture',
+                    kind: 'image',
+                    src: 'data:image/png;base64,fixture',
+                  },
+                ],
+              }),
+          },
+          '打开图片',
+        ),
+        h(MediaPreviewHost),
       ),
     ),
   );
@@ -199,8 +227,18 @@ it('预览焦点进入、Tab回环、键盘缩放、关闭后归还触发点', (
 });
 
 it('上层表面存在时 Escape 不关闭下层预览', () => {
-  act(() => root.render(h(ImageLightbox)));
-  act(() => openLightbox('data:image/png;base64,fixture'));
+  act(() => root.render(h(MediaPreviewHost)));
+  act(() =>
+    openMediaPreview({
+      items: [
+        {
+          key: 'data:image/png;base64,fixture',
+          kind: 'image',
+          src: 'data:image/png;base64,fixture',
+        },
+      ],
+    }),
+  );
   const upper = document.createElement('div');
   upper.setAttribute('role', 'dialog');
   upper.style.zIndex = '99999';
@@ -213,20 +251,39 @@ it('上层表面存在时 Escape 不关闭下层预览', () => {
   }
 });
 
-it('已打开预览迁移到子窗口后，焦点和 Escape 跟随所属文档', () => {
+it('不同文档的预览独立，焦点和 Escape 跟随所属文档', () => {
   const child = new HappyWindow();
-  act(() => root.render(h(Fragment, null, h('button', null, '主窗入口'), h(ImageLightbox))));
+  act(() => root.render(h(Fragment, null, h('button', null, '主窗入口'), h(MediaPreviewHost))));
   const trigger = button('主窗入口');
   trigger.focus();
-  act(() => openLightbox('data:image/png;base64,main'));
+  act(() =>
+    openMediaPreview({
+      items: [
+        { key: 'data:image/png;base64,main', kind: 'image', src: 'data:image/png;base64,main' },
+      ],
+    }),
+  );
   const childTrigger = child.document.createElement('button');
   child.document.body.append(childTrigger);
   childTrigger.focus();
   try {
     act(() =>
-      openLightbox('data:image/png;base64,child', '', null, child.document as unknown as Document),
+      openMediaPreview({
+        items: [
+          {
+            key: 'data:image/png;base64,child',
+            kind: 'image',
+            src: 'data:image/png;base64,child',
+            title: '',
+            ocr: null,
+          },
+        ],
+        ownerDocument: child.document as unknown as Document,
+      }),
     );
-    expect(document.activeElement).toBe(trigger);
+    expect(document.querySelector('.weq-lightbox-layer')?.contains(document.activeElement)).toBe(
+      true,
+    );
     expect(
       child.document.querySelector('.weq-lightbox-layer')?.contains(child.document.activeElement),
     ).toBe(true);
@@ -250,10 +307,21 @@ it('视频预览具有模态语义、失败提示、重试及焦点归还', () =
         null,
         h(
           'button',
-          { onClick: () => openVideoLightbox('weq-media://localmedia?kind=video&rel=fixture.mp4') },
+          {
+            onClick: () =>
+              openMediaPreview({
+                items: [
+                  {
+                    key: 'weq-media://localmedia?kind=video&rel=fixture.mp4',
+                    kind: 'video',
+                    src: 'weq-media://localmedia?kind=video&rel=fixture.mp4',
+                  },
+                ],
+              }),
+          },
           '打开视频',
         ),
-        h(VideoLightbox),
+        h(MediaPreviewHost),
       ),
     ),
   );
@@ -316,8 +384,18 @@ it('重试仅刷新媒体桥，保留定位参数，不改写 CDN 签名与 Blob
 });
 
 it('触屏平移在取消、第二指针或窗口失焦后可继续，不把中断误当点击缩放', () => {
-  act(() => root.render(h(ImageLightbox)));
-  act(() => openLightbox('data:image/png;base64,fixture'));
+  act(() => root.render(h(MediaPreviewHost)));
+  act(() =>
+    openMediaPreview({
+      items: [
+        {
+          key: 'data:image/png;base64,fixture',
+          kind: 'image',
+          src: 'data:image/png;base64,fixture',
+        },
+      ],
+    }),
+  );
   send(image(), 'load');
   act(() => button('放大').click());
   const frame = document.querySelector<HTMLElement>('.weq-lightbox-frame')!;

@@ -54,6 +54,11 @@
 
 每个压缩包只包含自己平台的原生模块（`native/`），因此不要跨平台解压使用。
 
+装扮离线索引由 [dress-resources](https://github.com/weq-devs/dress-resources) 独立分发，压缩包不携带三份 `.dat`。
+首次需要未缓存的气泡、字体或挂件时，由 Web 服务宿主按固定清单自动获取对应类别；任务列表显示进度和失败重试，
+连接同一宿主的浏览器和 Remote 共用缓存，不在各客户端重复下载完整索引。已下载素材直接复用；
+QQ 在线协议补全不等待索引下载，完全断网时只能使用本机已有素材。详见[表情与装扮资源](../../docs/guide/emoji-resources.md)。
+
 ### 助手资源服务
 
 启用 WeQ 助手时，在当前 Web 进程内启动回环静态文件服务；停用助手或结束 Web
@@ -157,7 +162,7 @@ WEQ_TOKEN=$(openssl rand -hex 24) WEQ_HOST=0.0.0.0 node server.mjs
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm native:fetch --no-authorization # 取本机原生模块与配套装扮资源
+pnpm native:fetch --no-authorization # 只取本机原生模块，不取桌面权限助手或装扮索引
 pnpm --filter @weq/web build     # 产物在 apps/web/dist/
 pnpm --filter @weq/web deps      # 从根锁文件部署运行依赖（优先用本地缓存）
 ```

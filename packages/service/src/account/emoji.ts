@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { NtHelperBinding } from '@weq/native';
+import { scopedNetworkAllowed } from '../common/network_scope';
 import {
   AddCustomFace,
   DeleteCustomFace,
@@ -763,6 +764,7 @@ export class EmojiService {
     const cachePath = join(cacheDir, `${hash}.gif`);
     if (existsSync(cachePath)) return cachePath;
 
+    if (!scopedNetworkAllowed('emoji')) return null;
     let key = keyOverride?.trim();
     if (!key) {
       const recovered = await this.getMarketPackKey(id);
@@ -856,7 +858,7 @@ export class EmojiService {
       }
     }
 
-    if (localOnly) return null;
+    if (localOnly || !scopedNetworkAllowed('emoji')) return null;
     // 3. Fallback to CDN. CDN bytes are PLAINTEXT — unlike QQ's local encrypted
     // GIF (step 2a) they are NOT XOR-encrypted, so they're saved as-is.
     const hashPrefix = emojiHash.slice(0, 2);

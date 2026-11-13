@@ -8,6 +8,7 @@ import {
 
 const MAX_PARTITIONS = 4;
 const MAX_ROWS = 10_000;
+const MAX_QUERIES = 160;
 const procedures = new Set([
   'getSelfProfile',
   'listBuddies',
@@ -25,6 +26,37 @@ const procedures = new Set([
   'listAgentLabPersonas',
   'listAgentLabGroups',
 ]);
+const additionalProcedures = [
+  'getSystemFaces',
+  'listBuddyRequests',
+  'listGroupNotifies',
+  'specialCare',
+  'contactMetrics.snapshot',
+  'emojiPanel.overview',
+  'emojiPanel.marketPackages',
+  'emojiPanel.marketPackDetail',
+  'emojiPanel.relatedGifs',
+  'emojiPanel.showEmojiCatalog',
+  'emojiPanel.customEmojiRecent',
+  'emojiPanel.recentReactions',
+  'marketEmoji.searchCatalog',
+  'qqActions.favorites',
+] as const;
+const additionalPaths = new Set<string>(additionalProcedures);
+const browsedPaths = new Set([
+  'emojiPanel.marketPackDetail',
+  'emojiPanel.relatedGifs',
+  'marketEmoji.searchCatalog',
+]);
+
+/** 仅 Web 使用：恢复的数据立即可见，过期后在实际打开对应面板时后台刷新。 */
+export function configureBusinessCache(client: QueryClient): void {
+  for (const path of additionalProcedures)
+    client.setQueryDefaults([['account', ...path.split('.')]], {
+      staleTime: 60_000,
+      refetchOnMount: true,
+    });
+}
 
 export const resolvedProfilesKey = ['weq-business-resolved-profiles'] as const;
 export interface BusinessSnapshot {
@@ -104,7 +136,10 @@ function persisted(key: QueryKey): boolean {
   const path = key[0];
   return (
     key[0] === resolvedProfilesKey[0] ||
-    (Array.isArray(path) && path.length === 2 && path[0] === 'account' && procedures.has(path[1]))
+    (Array.isArray(path) &&
+      path[0] === 'account' &&
+      ((path.length === 2 && procedures.has(path[1])) ||
+        additionalPaths.has(path.slice(1).join('.'))))
   );
 }
 
@@ -117,7 +152,7 @@ export async function restoreBusinessCache(
   try {
     const value = await store.get(scope);
     if (!current() || value?.scope !== scope || !Array.isArray(value.state?.queries)) return;
-    // 仅恢复本地明确允许的目录项，不恢复 mutation、错误或账号配置。
+    // 仅恢复明确允许的目录项，不恢复 mutation、错误或账号配置。
     const queries = value.state.queries.filter(
       (query) =>
         Array.isArray(query.queryKey) &&
@@ -156,7 +191,23 @@ export function watchBusinessCache(
   scope: string,
   store = businessCacheStore,
 ): () => Promise<void> {
-  let pending: DehydratedState | undefined;
+  const retained = new Map(
+    dehydrate(client, {
+      shouldDehydrateQuery: (query) => persisted(query.queryKey) && query.state.data !== undefined,
+    }).queries.map((query) => [query.queryHash, query]),
+  );
+  const trim = () => {
+    while (retained.size > MAX_QUERIES) {
+      // 先淘汰浏览记录，不让大量包详情或搜索挤掉联系人及表情主目录。
+      const victim = [...retained.values()].find((query) => {
+        const path = query.queryKey[0];
+        return Array.isArray(path) && browsedPaths.has(path.slice(1).join('.'));
+      });
+      retained.delete(victim?.queryHash ?? retained.keys().next().value!);
+    }
+  };
+  trim();
+  let dirty = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let idle: number | undefined;
   let writing = Promise.resolve();
@@ -165,9 +216,21 @@ export function watchBusinessCache(
     if (idle !== undefined) window.cancelIdleCallback(idle);
     timer = undefined;
     idle = undefined;
-    if (pending) {
-      const snapshot = { scope, savedAt: Date.now(), state: pending };
-      pending = undefined;
+    if (dirty) {
+      const queries = [...retained.values()].slice(-MAX_QUERIES).map((query) => ({
+        ...query,
+        state: {
+          ...query.state,
+          data: boundedData(query.state.data),
+          status: 'success' as const,
+          fetchStatus: 'idle' as const,
+          error: null,
+          fetchFailureCount: 0,
+          fetchFailureReason: null,
+        },
+      }));
+      const snapshot = { scope, savedAt: Date.now(), state: { mutations: [], queries } };
+      dirty = false;
       // 串行提交，避免慢事务覆盖更新的快照；失败不删除已有缓存。
       writing = writing.then(() => store.put(snapshot)).catch(() => {});
     }
@@ -180,21 +243,16 @@ export function watchBusinessCache(
       !persisted(event.query.queryKey)
     )
       return;
-    pending = dehydrate(client, {
-      shouldDehydrateQuery: (query) => persisted(query.queryKey) && query.state.data !== undefined,
+    const { queryHash, queryKey, state } = event.query;
+    // 成功事件只保存该查询的不可变状态；全量快照留到空闲写入，不随每次更新扫描。
+    retained.delete(queryHash);
+    retained.set(queryHash, {
+      queryHash,
+      queryKey,
+      state,
     });
-    pending.queries = pending.queries.map((query) => ({
-      ...query,
-      state: {
-        ...query.state,
-        data: boundedData(query.state.data),
-        status: 'success',
-        fetchStatus: 'idle',
-        error: null,
-        fetchFailureCount: 0,
-        fetchFailureReason: null,
-      },
-    }));
+    trim();
+    dirty = true;
     if (timer === undefined)
       timer = setTimeout(() => {
         if (window.requestIdleCallback)

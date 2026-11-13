@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -9,21 +9,22 @@ const releasePkgPath = join(appDir, 'package.release.json');
 
 const WORKSPACE_PREFIX = '@weq/';
 
-const pkg = JSON.parse(readFileSync(appPkgPath, 'utf8'));
-const dependencies = Object.fromEntries(
-  Object.entries(pkg.dependencies ?? {}).filter(([name]) => !name.startsWith(WORKSPACE_PREFIX)),
-);
+export function releaseDesktopManifest(pkg) {
+  return {
+    ...pkg,
+    dependencies: Object.fromEntries(
+      Object.entries(pkg.dependencies ?? {}).filter(([name]) => !name.startsWith(WORKSPACE_PREFIX)),
+    ),
+  };
+}
 
-const releasePkg = {
-  ...pkg,
-  dependencies,
-};
-
-writeFileSync(releasePkgPath, `${JSON.stringify(releasePkg, null, 2)}\n`);
-
-console.log(`wrote ${releasePkgPath}`);
-console.log(
-  `removed workspace runtime deps: ${Object.keys(pkg.dependencies ?? {})
-    .filter((name) => name.startsWith(WORKSPACE_PREFIX))
-    .join(', ')}`,
-);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const pkg = JSON.parse(readFileSync(appPkgPath, 'utf8'));
+  writeFileSync(releasePkgPath, `${JSON.stringify(releaseDesktopManifest(pkg), null, 2)}\n`);
+  console.log(`wrote ${releasePkgPath}`);
+  console.log(
+    `removed workspace runtime deps: ${Object.keys(pkg.dependencies ?? {})
+      .filter((name) => name.startsWith(WORKSPACE_PREFIX))
+      .join(', ')}`,
+  );
+}

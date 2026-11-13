@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { UserConfigService, DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_config';
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
@@ -248,20 +250,26 @@ describe('关闭窗口与退出提醒', () => {
     ).toBe('tray');
   });
 
-  it('「不再询问退出提醒」默认关闭，可持久化并随备份往返', () => {
-    const f = fixture();
-    expect(f.service.getSettings().quitConfirmSuppressed).toBe(false);
-    f.service.setSettings({ quitConfirmSuppressed: true });
-    f.service.setSettings({ preferCdn: true });
+  it.each([undefined, false, true])('退出提醒旧字段只接受输入，不再输出或保存：%s', (value) => {
+    const f = fixture({ settings: { quitConfirmSuppressed: value, preferCdn: true } });
+    expect(DEFAULT_APP_SETTINGS).not.toHaveProperty('quitConfirmSuppressed');
+    expect(f.service.getSettings()).not.toHaveProperty('quitConfirmSuppressed');
+    const legacy = { quitConfirmSuppressed: value, showMessageTime: true };
+    if (value !== undefined) expect(() => validateWeqAppSettings(legacy)).not.toThrow();
+    f.service.setSettings(legacy);
     const reloaded = new UserConfigService(f.platform).getSettings();
-    expect(reloaded.quitConfirmSuppressed).toBe(true);
+    expect(reloaded).not.toHaveProperty('quitConfirmSuppressed');
     expect(reloaded.preferCdn).toBe(true);
-
+    expect(reloaded.showMessageTime).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(f.root, 'config.json'), 'utf8')).settings,
+    ).not.toHaveProperty('quitConfirmSuppressed');
     const snapshot = snapshotWeqSettings(reloaded);
-    expect(snapshot.quitConfirmSuppressed).toBe(true);
+    expect(snapshot).not.toHaveProperty('quitConfirmSuppressed');
     expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
-    for (const value of ['true', 1, null])
-      expect(() => validateWeqAppSettings({ quitConfirmSuppressed: value })).toThrow('字段无效');
+    for (const invalid of ['true', 1, null])
+      expect(() => validateWeqAppSettings({ quitConfirmSuppressed: invalid })).toThrow('字段无效');
+    expect(() => validateWeqAppSettings({ unrecognizedRetiredFlag: true })).toThrow('字段无效');
   });
 });
 

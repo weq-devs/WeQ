@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   listDressPreviewFiles,
@@ -29,6 +29,17 @@ export interface StorageCleanupPlan {
 function contains(parent: string, child: string): boolean {
   const path = relative(parent, child);
   return path === '' || (!isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`));
+}
+
+/** 仅清理具体装扮素材；离线索引与未知链接留给增强包或其原消费者。 */
+export async function clearDressSharedFiles(path: string, recreate = true): Promise<void> {
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    if (entry.name === 'index' || entry.isSymbolicLink()) continue;
+    await rm(join(path, entry.name), { recursive: true, force: true });
+  }
+  if (recreate)
+    for (const name of ['bubbles', 'fonts', 'pendants'])
+      await mkdir(join(path, name), { recursive: true });
 }
 
 /** 不依赖 realpath 的字符串相等性：Windows 的 8.3 短名与长名可能指向同一目录。 */
@@ -154,12 +165,10 @@ export async function executeStorageCleanup(
         const previews = await listDressPreviewFiles(path);
         if (previews.incomplete) throw new Error('预览文件读取不完整，未清除');
         for (const file of previews.files) await rm(file, { force: true });
+      } else if (item.cleanupKind === 'dress-shared') {
+        await clearDressSharedFiles(path, !!plan.busyPaths);
       } else {
         await rm(path, { recursive: true, force: true });
-        if (plan.busyPaths && item.cleanupKind === 'dress-shared') {
-          for (const name of ['bubbles', 'fonts', 'pendants'])
-            await mkdir(join(path, name), { recursive: true });
-        }
       }
       const after = dataOnly ? await measureData() : await measureStorage(path);
       result.freedBytes += Math.max(0, before.bytes - after.bytes);

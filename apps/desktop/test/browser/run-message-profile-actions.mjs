@@ -64,6 +64,12 @@ try {
         assert(bounds && bounds.x >= -1 && bounds.x + bounds.width <= width + 1);
         const preview = await profile.locator('.weq-contact-chat-preview').boundingBox();
         assert(preview && preview.height > 100 && preview.y + preview.height <= 845);
+        if (!popover) {
+          assert.equal(await profile.locator('.weq-profile-page-header').count(), 0);
+          assert(
+            Math.abs(bounds.height - preview.height) <= 1 && Math.abs(bounds.y - preview.y) <= 1,
+          );
+        }
         const scroll = profile.locator('.weq-private-preview-scroll');
         const scrollTop = await scroll.evaluate((element) => element.scrollTop);
         await profile.locator('.message-avatar-button').click();

@@ -21,18 +21,27 @@ function compareLayerPaths(left: number[], right: number[]): number {
   return 0;
 }
 
+const ESCAPE_SURFACE = '[data-weq-escape-surface]';
 const SURFACES =
   '[aria-modal="true"], [role="dialog"], [role="menu"], [role="listbox"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window, [data-weq-surface], .weq-lightbox-layer, .weq-redbag-detail-layer, .weq-redbag-qr-layer';
 const SHELLS = '.weq-dialog-layer, .weq-overlay-layer, .weq-window-layer';
 
-export function surfaceRoot(element: HTMLElement): HTMLElement {
-  return element.closest<HTMLElement>(SHELLS) ?? element;
+export function surfaceRoot(element: HTMLElement, includeEscapeSurfaces = true): HTMLElement {
+  return (
+    element.closest<HTMLElement>(includeEscapeSurfaces ? `${ESCAPE_SURFACE}, ${SHELLS}` : SHELLS) ??
+    element
+  );
 }
 
-export function topSurface(document: Document): HTMLElement | undefined {
+export function topSurface(
+  document: Document,
+  includeEscapeSurfaces = true,
+): HTMLElement | undefined {
   let top: HTMLElement | undefined;
-  for (const item of document.querySelectorAll<HTMLElement>(SURFACES)) {
-    const root = surfaceRoot(item);
+  for (const item of document.querySelectorAll<HTMLElement>(
+    includeEscapeSurfaces ? `${ESCAPE_SURFACE}, ${SURFACES}` : SURFACES,
+  )) {
+    const root = surfaceRoot(item, includeEscapeSurfaces);
     let visible = true;
     for (let parent: HTMLElement | null = root; parent; parent = parent.parentElement) {
       if (
@@ -43,9 +52,56 @@ export function topSurface(document: Document): HTMLElement | undefined {
         break;
       }
     }
-    if (visible && (!top || compareLayerPaths(layerPath(root), layerPath(top)) >= 0)) top = root;
+    if (visible) {
+      const order = top ? compareLayerPaths(layerPath(root), layerPath(top)) : 1;
+      if (!top || order > 0 || (order === 0 && !root.contains(top))) top = root;
+    }
   }
   return top;
+}
+
+/** 轻量子浮层只消费最上层 Esc，不抢焦点或限制 Tab；标记节点与父外壳分别参与层级判定。 */
+export function useSurfaceEscapeDismissal(
+  ref: RefObject<HTMLElement | null>,
+  onClose: () => void,
+  active: boolean,
+) {
+  useMobileBack(active, onClose, 100, () => ref.current);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!active || !element) return;
+    const document = element.ownerDocument;
+    const previous = document.activeElement;
+    return () => {
+      if (
+        (element.contains(document.activeElement) || document.activeElement === document.body) &&
+        previous?.isConnected &&
+        !element.contains(previous) &&
+        'focus' in previous
+      )
+        (previous as HTMLElement).focus({ preventScroll: true });
+    };
+  }, [ref, active]);
+  useEffect(() => {
+    const element = ref.current;
+    if (!active || !element) return;
+    const document = element.ownerDocument;
+    const dismiss = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        topSurface(document) !== surfaceRoot(element)
+      )
+        return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    document.addEventListener('keydown', dismiss, true);
+    return () => document.removeEventListener('keydown', dismiss, true);
+  }, [ref, onClose, active]);
 }
 
 /** 非模态页面只处理自身焦点内的 Escape；模态层只允许最上层处理。 */
@@ -56,7 +112,7 @@ export function useSurfaceEscape(
   modal: boolean,
 ) {
   useMobileBack(
-    active && modal && Boolean(onClose),
+    active && Boolean(onClose),
     () => onClose?.(),
     100,
     () => ref.current,
@@ -79,7 +135,16 @@ export function useSurfaceEscape(
       const focusable = element.querySelector<HTMLElement>(
         'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
       );
-      (focusable ?? element).focus({ preventScroll: true });
+      // 非模态页面：首个可聚焦项在标题栏/导航里时，焦点交给面板容器本身而不是那个按钮。
+      // 否则进入页面会给「返回」「关闭」画上焦点框；而完全不聚焦会让 ESC（要求焦点在面板内）失效。
+      const chrome =
+        !modal &&
+        focusable?.closest(
+          'header, nav, [role="navigation"], .weq-mobile-settings-header, .weq-app-title-bar',
+        );
+      const target = chrome ? element : (focusable ?? element);
+      if (chrome && !element.hasAttribute('tabindex')) element.setAttribute('tabindex', '-1');
+      target.focus({ preventScroll: true });
     }
     return () => {
       // 常驻宿主关闭 Portal 时，节点可能先移除，浏览器已将焦点放回 body。
@@ -90,7 +155,7 @@ export function useSurfaceEscape(
       )
         (previous as HTMLElement).focus({ preventScroll: true });
     };
-  }, [active, ref]);
+  }, [active, modal, ref]);
 
   useEffect(() => {
     const element = ref.current;
@@ -98,13 +163,14 @@ export function useSurfaceEscape(
     const document = element.ownerDocument;
     function handleEscape(event: KeyboardEvent) {
       if (!['Escape', 'Tab'].includes(event.key) || event.defaultPrevented || !element) return;
+      if (event.key === 'Escape' && (event.isComposing || event.keyCode === 229)) return;
       const top = topSurface(document);
       if (top && surfaceRoot(element) !== top) return;
       if (event.key === 'Tab') {
         if (!modal) return;
         const controls = [
           ...element.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
+            'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], video[controls]:not([tabindex="-1"]), audio[controls]:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
           ),
         ].filter(
           (item) =>

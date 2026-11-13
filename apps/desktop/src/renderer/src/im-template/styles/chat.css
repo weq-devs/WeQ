@@ -919,13 +919,13 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
 
 .message-action-button.primary {
   border-color: transparent;
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #12a8ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .message-action-button.primary:hover,
 .message-action-button.primary:focus-visible {
-  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 88%, black);
+  background: color-mix(in srgb, var(--weq-accent-solid, #12a8ff) 88%, black);
 }
 
 .message-action-button.danger {
@@ -1613,68 +1613,7 @@ html[data-theme='dark'] .avatar-context-submenu {
   object-fit: contain;
 }
 
-.conversation-details {
-  position: absolute;
-  top: var(--chat-header-height);
-  right: 0;
-  bottom: 0;
-  z-index: 20;
-  display: block;
-  width: clamp(280px, 28vw, 320px);
-  min-width: 0;
-  min-height: 0;
-  padding: 38px 22px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  border-left: 1px solid #dedede;
-  background: #eeeeee;
-  box-shadow: -18px 0 42px rgba(0, 0, 0, 0.08);
-  animation: detailsSlideIn 130ms ease-out;
-}
-
-.conversation-details > * + * {
-  margin-top: 22px;
-}
-
-.conversation-details-profile {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  padding: 8px 0 10px;
-  text-align: center;
-}
-
-.conversation-details-profile .avatar {
-  width: 58px;
-  height: 58px;
-  font-size: 22px;
-}
-
-.conversation-details-profile strong {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 17px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conversation-details-profile span {
-  color: #888888;
-  font-size: 12px;
-}
-
-.details-card {
-  display: grid;
-  overflow: hidden;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.details-toggle-row,
-.details-row {
+.details-toggle-row {
   display: flex;
   width: 100%;
   min-height: 50px;
@@ -1692,18 +1631,12 @@ html[data-theme='dark'] .avatar-context-submenu {
   cursor: pointer;
 }
 
-.details-toggle-row:first-child,
-.details-row:first-child {
+.details-toggle-row:first-child {
   border-top: 0;
 }
 
-.details-toggle-row:hover,
-.details-row:hover {
+.details-toggle-row:hover {
   background: #f8f8f8;
-}
-
-.details-row {
-  border-radius: 8px;
 }
 
 .group-member-row .avatar {
@@ -2381,280 +2314,6 @@ html[data-theme='dark'] .member-role-badge.admin {
   overflow-wrap: anywhere;
 }
 
-.group-invite-dialog {
-  display: grid;
-  width: min(420px, calc(100vw - 36px));
-  max-height: min(520px, calc(100vh - 48px));
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 12px;
-  padding: 18px;
-  border: 1px solid #dedede;
-  border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 22px 62px rgba(0, 0, 0, 0.18);
-}
-
-.group-invite-dialog header,
-.group-invite-dialog footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.group-invite-dialog header strong {
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.group-invite-dialog input {
-  height: 40px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 6px;
-  background: #f3f3f3;
-  color: #111111;
-  font-size: 15px;
-  outline: none;
-}
-
-.group-invite-list {
-  min-height: 0;
-  overflow: auto;
-}
-
-.group-invite-list button {
-  display: grid;
-  width: 100%;
-  min-height: 48px;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: #111111;
-  text-align: left;
-  cursor: pointer;
-}
-
-.group-invite-list button:hover,
-.group-invite-list button.active {
-  background: #f3f3f3;
-}
-
-.group-invite-list .avatar {
-  width: 32px;
-  height: 32px;
-  font-size: 12px;
-}
-
-.group-invite-list span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-invite-list em,
-.group-invite-empty,
-.group-invite-dialog footer span {
-  color: #888888;
-  font-size: 13px;
-  font-style: normal;
-}
-
-.group-edit-card,
-.group-avatar-settings {
-  gap: 12px;
-  padding: 14px;
-}
-
-.group-settings-panel .group-edit-card {
-  overflow: visible;
-}
-
-.group-edit-card-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.group-edit-card-header strong {
-  overflow: hidden;
-  color: #111111;
-  font-size: 15px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-edit-icon-button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #777777;
-  cursor: pointer;
-}
-
-.group-edit-icon-button:hover {
-  color: #0099f7;
-}
-
-.group-edit-preview-list {
-  display: grid;
-  gap: 0;
-}
-
-.group-edit-preview-row {
-  display: grid;
-  gap: 6px;
-  padding: 12px 0;
-  border-top: 1px solid #eeeeee;
-}
-
-.group-edit-preview-row:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.group-edit-preview-row:last-child {
-  padding-bottom: 0;
-}
-
-.group-edit-preview-row span {
-  color: #777777;
-  font-size: 13px;
-}
-
-.group-edit-preview-row strong,
-.group-edit-preview-row p {
-  margin: 0;
-  color: #111111;
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.group-edit-preview-row strong {
-  overflow: hidden;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-edit-field {
-  display: grid;
-  gap: 8px;
-}
-
-.group-edit-field span,
-.group-avatar-settings > span {
-  color: #777777;
-  font-size: 13px;
-}
-
-.group-edit-field input,
-.group-edit-field textarea,
-.group-avatar-settings input {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid #e4e4e4;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #111111;
-  font-size: 14px;
-  outline: none;
-}
-
-.group-edit-field input:focus,
-.group-edit-field textarea:focus,
-.group-avatar-settings input:focus {
-  border-color: #0099f7;
-  box-shadow: 0 0 0 3px rgba(0, 153, 247, 0.12);
-}
-
-.group-edit-field input,
-.group-avatar-settings input {
-  height: 36px;
-  padding: 0 10px;
-}
-
-.group-edit-field textarea {
-  resize: vertical;
-  min-height: 80px;
-  max-height: 160px;
-  padding: 9px 10px;
-  line-height: 1.45;
-}
-
-.group-avatar-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 7px;
-  background: #f0f0f0;
-}
-
-.group-avatar-tabs button {
-  min-height: 30px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #777777;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.group-avatar-tabs button.active {
-  background: #ffffff;
-  color: #0099f7;
-}
-
-.group-edit-actions,
-.group-avatar-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.group-avatar-actions button,
-.group-edit-actions button {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid #d8d8d8;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #111111;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.group-avatar-actions button:hover,
-.group-edit-actions button:hover {
-  background: #f6f6f6;
-}
-
-.group-avatar-actions .primary-button,
-.group-edit-actions .primary-button {
-  border-color: #0099f7;
-  background: #0099f7;
-  color: #ffffff;
-}
-
-.form-status.compact {
-  justify-self: center;
-  margin-top: -8px;
-  font-size: 13px;
-}
-
 .switch-control {
   position: relative;
   width: 38px;
@@ -2781,8 +2440,8 @@ html[data-theme='dark'] .member-role-badge.admin {
   gap: 6px;
   padding: 0 13px;
   border-radius: 7px;
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 13px;
   white-space: nowrap;
   line-height: 1;
@@ -2811,18 +2470,15 @@ html[data-theme='dark'] .member-role-badge.admin {
 
 /* 给编辑器右侧留出按钮的位置，正文不会滑到按钮底下。只在桌面端生效 ——
    小屏有独立的 composer 内边距（responsive.css），别把它盖掉。 */
-@media (min-width: 761px) {
-  .composer:has(> .composer-send) > .composer-editor {
-    padding-right: 96px;
-  }
-
-  /* 收起输入区：那一行高度已被 --composer-height:0 归零，这里再把 .composer 整个
+:where(html:not([data-weq-layout='single'])) .composer:has(> .composer-send) > .composer-editor {
+  padding-right: 96px;
+}
+/* 收起输入区：那一行高度已被 --composer-height:0 归零，这里再把 .composer 整个
 	 * 从布局里拿走（否则内容会溢出到消息区上）。消息区顺势长高，右下角「N 条新
 	 * 消息」气泡的 bottom 就是 --composer-height，于是自动落回底边。小屏有自己
 	 * 的输入框展开方式（.mobile-composer-expand-button），不参与这套。 */
-  .chat-pane.composer-collapsed .composer {
-    display: none;
-  }
+:where(html:not([data-weq-layout='single'])) .chat-pane.composer-collapsed .composer {
+  display: none;
 }
 
 html[data-theme='dark'] .composer-send:disabled {

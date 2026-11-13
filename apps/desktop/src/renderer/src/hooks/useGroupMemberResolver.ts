@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
+import { reconcileResolvedRows } from '../lib/resolvedRows';
 
 /** getGroupMembersByUids 的单次 uid 上限（与 IPC 层一致）。 */
 const CHUNK = 200;
@@ -25,6 +26,8 @@ interface MemberJob {
   generation: number;
   isCurrent: () => boolean;
   attempted: Set<string>;
+  dueAt?: number;
+  dueIntervalMs?: number;
 }
 
 export interface GroupMemberResolver<T> {
@@ -84,13 +87,11 @@ export function useGroupMemberResolver<T extends { uid: string }>(
       const key = `${groupCode}:${member.uid}`;
       versions.current.set(key, (versions.current.get(key) ?? 0) + 1);
     }
-    setMissingMembers((previous) => ({
-      ...previous,
-      [groupCode]: {
-        ...previous[groupCode],
-        ...Object.fromEntries(members.map((member) => [member.uid, member])),
-      },
-    }));
+    setMissingMembers((previous) => {
+      const current = previous[groupCode] ?? {};
+      const next = reconcileResolvedRows(current, members);
+      return next === current ? previous : { ...previous, [groupCode]: next };
+    });
   }, []);
 
   const drain = useCallback(() => {
@@ -104,12 +105,17 @@ export function useGroupMemberResolver<T extends { uid: string }>(
     const now = Date.now();
     let earliest = Infinity;
     const index = jobs.current.findIndex((job) => {
-      const due = Math.min(
-        ...job.uids.map((uid) => {
-          const at = lastRead.current.get(`${job.groupCode}:${uid}`);
-          return at === undefined ? 0 : at + minRefreshIntervalMs;
-        }),
-      );
+      // 串行队列内 UID 去重；其他任务完成不会改变本任务的上次读取时间。
+      if (job.dueAt === undefined || job.dueIntervalMs !== minRefreshIntervalMs) {
+        job.dueAt = Math.min(
+          ...job.uids.map((uid) => {
+            const at = lastRead.current.get(`${job.groupCode}:${uid}`);
+            return at === undefined ? 0 : at + minRefreshIntervalMs;
+          }),
+        );
+        job.dueIntervalMs = minRefreshIntervalMs;
+      }
+      const due = job.dueAt;
       earliest = Math.min(earliest, due);
       return due <= now;
     });
@@ -125,7 +131,7 @@ export function useGroupMemberResolver<T extends { uid: string }>(
       const at = lastRead.current.get(`${job.groupCode}:${uid}`);
       (at === undefined || at + minRefreshIntervalMs <= now ? ready : delayed).push(uid);
     }
-    if (delayed.length) jobs.current.push({ ...job, uids: delayed });
+    if (delayed.length) jobs.current.push({ ...job, uids: delayed, dueAt: undefined });
     job.uids = ready;
     running.current = true;
     void (async () => {
@@ -144,15 +150,15 @@ export function useGroupMemberResolver<T extends { uid: string }>(
         if (members.length > 0) {
           setMissingMembers((prev) => {
             if (job.generation !== generation.current) return prev;
-            const groupCache = { ...(prev[job.groupCode] ?? {}) };
-            for (const member of members as unknown as T[]) {
-              if (
+            const current = prev[job.groupCode] ?? {};
+            const groupCache = reconcileResolvedRows(
+              current,
+              members as unknown as T[],
+              (member) =>
                 job.captured.get(member.uid) ===
-                (versions.current.get(`${job.groupCode}:${member.uid}`) ?? 0)
-              )
-                groupCache[member.uid] = member;
-            }
-            return { ...prev, [job.groupCode]: groupCache };
+                (versions.current.get(`${job.groupCode}:${member.uid}`) ?? 0),
+            );
+            return groupCache === current ? prev : { ...prev, [job.groupCode]: groupCache };
           });
         }
       } catch (err) {

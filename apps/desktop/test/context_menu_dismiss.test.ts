@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationActionsMenu } from '@renderer/components/ConversationActionsMenu';
 import { AvatarContextMenu } from '@renderer/im-template/template/avatarContextMenu';
 import { MessageContextMenu } from '@renderer/im-template/template/messageContextMenu';
-import { createTemplateDemoData } from '@renderer/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { AccountSelector } from '@renderer/views/bootstrap/AccountSelector';
 import { OverlayLayer } from '@renderer/components/OverlayLayer';
 
@@ -92,6 +92,8 @@ describe('右键菜单外部点击', () => {
           onMention: vi.fn(),
           onPoke: vi.fn(),
           showMute: true,
+          showUnmute: true,
+          onUnmute: () => mute('unmute'),
           onMute: mute,
         }),
       );
@@ -103,6 +105,13 @@ describe('右键菜单外部点击', () => {
     )!;
     press(duration);
     expect(mute).toHaveBeenCalledOnce();
+    expect(
+      [...document.querySelectorAll('.avatar-context-submenu button')].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(['10 分钟', '1 小时', '12 小时', '1 天']);
+    press(document.querySelector('button[title="解除禁言"]')!);
+    expect(mute).toHaveBeenLastCalledWith('unmute');
     expect(close).not.toHaveBeenCalled();
     press(host);
     expect(close).toHaveBeenCalledOnce();
@@ -120,7 +129,7 @@ describe('右键菜单外部点击', () => {
         }),
       );
     });
-    press(document.querySelector('.message-context-menu button')!);
+    press(document.querySelector('.message-context-menu [aria-label="复制"]')!);
     expect(copy).toHaveBeenCalledOnce();
     expect(close).not.toHaveBeenCalled();
     press(host);

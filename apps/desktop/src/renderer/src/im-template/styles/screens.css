@@ -76,21 +76,6 @@
   background: radial-gradient(circle at 30% 18%, rgba(0, 153, 247, 0.08), transparent 34%), #f2f2f2;
 }
 
-.brand-mark {
-  display: inline-grid;
-  width: 48px;
-  height: 48px;
-  place-items: center;
-  border-radius: 8px;
-  background: transparent;
-}
-
-.app-logo-img {
-  display: block;
-  width: 48px;
-  height: 48px;
-}
-
 .auth-switch button.active {
   background: var(--card, #ffffff);
   color: var(--weq-accent-effective, #0099f7);
@@ -168,20 +153,12 @@ html[data-theme='dark'] .notice-header h2,
 html[data-theme='dark'] .notice-header .icon-button,
 html[data-theme='dark'] .notice-copy p,
 html[data-theme='dark'] .notice-split-button button,
-html[data-theme='dark'] .modal-nav button,
-html[data-theme='dark'] .modal-card h3,
-html[data-theme='dark'] .preference-row,
-html[data-theme='dark'] .profile-editor-row > span,
-html[data-theme='dark'] .profile-editor-source > span,
-html[data-theme='dark'] .form-field,
-html[data-theme='dark'] .create-group-contact,
 html[data-theme='dark'] .group-member-card header strong,
 html[data-theme='dark'] .empty-state strong,
 html[data-theme='dark'] .chat-empty h1,
 html[data-theme='dark'] .auth-card h1,
 html[data-theme='dark'] .invite-card h1,
 html[data-theme='dark'] .splash,
-html[data-theme='dark'] .about-link,
 html[data-theme='dark'] .theme-option,
 html[data-theme='dark'] .theme-option-label,
 html[data-theme='dark'] .bot-detail-head strong {
@@ -198,9 +175,6 @@ html[data-theme='dark'] .contact-tools > button:hover,
 html[data-theme='dark'] .contact-tools > button.active,
 html[data-theme='dark'] .conversation-row:hover,
 html[data-theme='dark'] .contact-row:hover,
-html[data-theme='dark'] .modal-nav button:hover,
-html[data-theme='dark'] .modal-nav button.active,
-html[data-theme='dark'] .profile-editor-close:hover,
 html[data-theme='dark'] .message-context-menu button:hover,
 html[data-theme='dark'] .reaction-picker-cell:hover,
 html[data-theme='dark'] .rail-menu-popover button:hover,
@@ -209,8 +183,6 @@ html[data-theme='dark'] .notice-mini-menu button:hover,
 html[data-theme='dark'] .emoji-grid button:hover,
 html[data-theme='dark'] .kaomoji-grid button:hover,
 html[data-theme='dark'] .emoji-tabs button:hover,
-html[data-theme='dark'] .create-group-contact:hover,
-html[data-theme='dark'] .create-group-contact.active,
 html[data-theme='dark'] .bot-list-row:hover,
 html[data-theme='dark'] .bot-list-row.active {
   background: #3f4144;
@@ -250,30 +222,19 @@ html[data-theme='dark'] .composer {
 html[data-theme='dark'] .search-box,
 html[data-theme='dark'] .contact-tools > button,
 html[data-theme='dark'] .contact-tab-switch,
-html[data-theme='dark'] .global-search-box,
-html[data-theme='dark'] .auth-switch,
-html[data-theme='dark'] .avatar-source-tabs {
+html[data-theme='dark'] .auth-switch {
   background: #28292b;
 }
 
 html[data-theme='dark'] .search-box input,
-html[data-theme='dark'] .global-search-box input,
-html[data-theme='dark'] .settings-form input,
 html[data-theme='dark'] .auth-form input,
-html[data-theme='dark'] .profile-editor-row input,
-html[data-theme='dark'] .form-field input,
 html[data-theme='dark'] .bot-group-join-row select,
 html[data-theme='dark'] .bot-token-panel input,
-html[data-theme='dark'] .group-edit-field input,
-html[data-theme='dark'] .group-edit-field textarea,
-html[data-theme='dark'] .group-avatar-settings input,
 html[data-theme='dark'] .composer-editor {
   color: #eef0f3;
 }
 
-html[data-theme='dark'] .search-box input::placeholder,
-html[data-theme='dark'] .global-search-box input::placeholder,
-html[data-theme='dark'] .profile-editor-row input::placeholder {
+html[data-theme='dark'] .search-box input::placeholder {
   color: #777c85;
 }
 
@@ -287,30 +248,15 @@ html[data-theme='dark'] .contact-profile-head span,
 html[data-theme='dark'] .contact-profile-row strong,
 html[data-theme='dark'] .group-info-section p,
 html[data-theme='dark'] .group-info-member-row,
-html[data-theme='dark'] .group-edit-field span,
 html[data-theme='dark'] .notice-copy time,
 html[data-theme='dark'] .notice-copy strong,
 html[data-theme='dark'] .notice-action,
 html[data-theme='dark'] .message-name,
 html[data-theme='dark'] .message-time-divider,
 html[data-theme='dark'] .details-toggle-row,
-html[data-theme='dark'] .details-row,
-html[data-theme='dark'] .conversation-details-profile span,
 html[data-theme='dark'] .group-member-row span,
-html[data-theme='dark'] .create-group-contact small,
 html[data-theme='dark'] .modal-actions > span,
-html[data-theme='dark'] .modal-card p,
-html[data-theme='dark'] .modal-titlebar span,
-html[data-theme='dark'] .help-list span,
-html[data-theme='dark'] .preference-row strong,
-html[data-theme='dark'] .panel-heading span,
-html[data-theme='dark'] .settings-form label span,
 html[data-theme='dark'] .auth-form label span,
-html[data-theme='dark'] .profile-editor-readonly strong,
-html[data-theme='dark'] .profile-editor-row em,
-html[data-theme='dark'] .profile-editor-note,
-html[data-theme='dark'] .text-button,
-html[data-theme='dark'] .form-status,
 html[data-theme='dark'] .invite-output span,
 html[data-theme='dark'] .empty-state,
 html[data-theme='dark'] .chat-empty,
@@ -341,7 +287,6 @@ html[data-theme='dark'] .contact-tools > button + button {
   border-color: #1e2122;
 }
 
-html[data-theme='dark'] .avatar-source-tabs button.active,
 html[data-theme='dark'] .auth-switch button.active {
   background: #333538;
   color: #ffffff;
@@ -376,7 +321,6 @@ html[data-theme='dark'] .profile-popover-row span {
 
 html[data-theme='dark'] .profile-popover-head em,
 html[data-theme='dark'] .profile-popover-row strong,
-html[data-theme='dark'] .help-list strong,
 html[data-theme='dark'] .rail-menu-popover button,
 html[data-theme='dark'] .sidebar-add-menu button,
 html[data-theme='dark'] .message-context-menu button,
@@ -384,10 +328,6 @@ html[data-theme='dark'] .notice-mini-menu button,
 html[data-theme='dark'] .kaomoji-grid strong,
 html[data-theme='dark'] .emoji-tabs button {
   color: #eef0f3;
-}
-
-html[data-theme='dark'] .help-modal .help-list li {
-  border-color: #343537;
 }
 
 html[data-theme='dark'] .avatar {
@@ -588,17 +528,12 @@ html[data-theme='dark'] .composer-tools button.active {
   color: #26a8ff;
 }
 
-html[data-theme='dark'] .conversation-details,
-html[data-theme='dark'] .group-info-panel,
-html[data-theme='dark'] .modal-main,
-html[data-theme='dark'] .profile-editor-modal {
-  background: #101112;
-}
-
-html[data-theme='dark'] .conversation-details,
+/* 群聊右侧资料栏跟随聊天画布，不单独铺一层近黑色，否则深色下与消息区并排
+ * 出现明显的色块分界（浅色由基类的 transparent 兜底）。深色也不再加单向
+ * 大阴影 —— 它会在消息区一侧压出一条渐变暗带，浅色并没有对应处理。 */
 html[data-theme='dark'] .group-info-panel {
+  background: transparent;
   border-left-color: #1f1f1f;
-  box-shadow: -18px 0 42px rgba(0, 0, 0, 0.26);
 }
 
 html[data-theme='dark'] .group-announcement-content.is-empty {
@@ -629,18 +564,8 @@ html[data-theme='dark'] .composer-toggle:focus-visible {
   color: #cfd2d6;
 }
 
-html[data-theme='dark'] .details-card,
 html[data-theme='dark'] .details-toggle-row,
-html[data-theme='dark'] .details-row,
-html[data-theme='dark'] .group-avatar-tabs,
 html[data-theme='dark'] .notice-card,
-html[data-theme='dark'] .modal-card,
-html[data-theme='dark'] .app-modal .panel-section,
-html[data-theme='dark'] .create-group-form,
-html[data-theme='dark'] .form-field input,
-html[data-theme='dark'] .profile-editor-row,
-html[data-theme='dark'] .profile-editor-source,
-html[data-theme='dark'] .settings-form input,
 html[data-theme='dark'] .auth-form input,
 html[data-theme='dark'] .mode-button,
 html[data-theme='dark'] .secondary-button,
@@ -652,42 +577,11 @@ html[data-theme='dark'] .invite-card {
 }
 
 html[data-theme='dark'] .details-toggle-row,
-html[data-theme='dark'] .details-row,
 html[data-theme='dark'] .contact-profile-fields,
 html[data-theme='dark'] .contact-profile-row,
-html[data-theme='dark'] .preference-row,
-html[data-theme='dark'] .global-search-tabs,
-html[data-theme='dark'] .add-contact-modal .invite-panel,
 html[data-theme='dark'] .emoji-tabs,
 html[data-theme='dark'] .notice-split-button button + button {
   border-color: #343537;
-}
-
-html[data-theme='dark'] .create-group-check {
-  border-color: #5b5d61;
-}
-
-html[data-theme='dark'] .create-group-contact.active .create-group-check {
-  border-color: #149dff;
-  background: #149dff;
-}
-
-html[data-theme='dark'] .app-modal {
-  border-color: #3a3b3d;
-  background: #272829;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
-}
-
-html[data-theme='dark'] .modal-nav {
-  background: #282a2c;
-  border-right-color: #343537;
-}
-
-html[data-theme='dark'] .modal-titlebar,
-html[data-theme='dark'] .profile-editor-titlebar,
-html[data-theme='dark'] .add-contact-main {
-  border-color: #1f1f1f;
-  background: #101112;
 }
 
 html[data-theme='dark'] .theme-preview {
@@ -817,107 +711,18 @@ html[data-theme='dark'] .contact-profile-actions .secondary-button {
   color: #eef0f3;
 }
 
-html[data-theme='dark'] .conversation-details {
-  border-left-color: #2c2d2f;
-  background: #1a1b1c;
-  box-shadow: -18px 0 42px rgba(0, 0, 0, 0.28);
-}
-
-html[data-theme='dark'] .details-card,
-html[data-theme='dark'] .details-toggle-row,
-html[data-theme='dark'] .details-row,
-html[data-theme='dark'] .group-avatar-tabs {
+html[data-theme='dark'] .details-toggle-row {
   border-color: transparent;
   background: #252627;
 }
 
-html[data-theme='dark'] .details-card {
-  border-radius: 12px;
-}
-
-html[data-theme='dark'] .details-toggle-row,
-html[data-theme='dark'] .details-row {
+html[data-theme='dark'] .details-toggle-row {
   border-top-color: #38393b;
   color: #f1f3f5;
 }
 
-html[data-theme='dark'] .group-info-heading,
-html[data-theme='dark'] .group-edit-card-header strong,
-html[data-theme='dark'] .group-edit-preview-row strong,
-html[data-theme='dark'] .group-edit-preview-row p,
-html[data-theme='dark'] .group-avatar-actions button,
-html[data-theme='dark'] .group-edit-actions button {
+html[data-theme='dark'] .group-info-heading {
   color: #f1f3f5;
-}
-
-html[data-theme='dark'] .group-edit-preview-row {
-  border-color: #38393b;
-}
-
-html[data-theme='dark'] .group-edit-preview-row span,
-html[data-theme='dark'] .group-edit-icon-button {
-  color: #a4a7ad;
-}
-
-html[data-theme='dark'] .group-edit-icon-button:hover {
-  color: #149dff;
-}
-
-html[data-theme='dark'] .group-edit-field input,
-html[data-theme='dark'] .group-edit-field textarea,
-html[data-theme='dark'] .group-avatar-settings input {
-  border-color: #45474b;
-  background: #1f2022;
-}
-
-html[data-theme='dark'] .group-edit-field input:focus,
-html[data-theme='dark'] .group-edit-field textarea:focus,
-html[data-theme='dark'] .group-avatar-settings input:focus {
-  border-color: #149dff;
-  box-shadow: 0 0 0 3px rgba(20, 157, 255, 0.16);
-}
-
-html[data-theme='dark'] .group-avatar-tabs button {
-  color: #a4a7ad;
-}
-
-html[data-theme='dark'] .group-avatar-tabs button.active {
-  background: #333436;
-  color: #149dff;
-}
-
-html[data-theme='dark'] .group-avatar-actions button,
-html[data-theme='dark'] .group-edit-actions button {
-  border-color: #45474b;
-  background: #252627;
-}
-
-html[data-theme='dark'] .group-avatar-actions .primary-button,
-html[data-theme='dark'] .group-edit-actions .primary-button {
-  border-color: #0877d8;
-  background: #0877d8;
-  color: #ffffff;
-}
-
-html[data-theme='dark'] .group-invite-dialog {
-  border-color: #3a3b3d;
-  background: #272829;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
-}
-
-html[data-theme='dark'] .group-invite-dialog header strong,
-html[data-theme='dark'] .group-invite-list button {
-  color: #eef0f3;
-}
-
-html[data-theme='dark'] .group-invite-dialog input {
-  background: #1f2022;
-  color: #eef0f3;
-}
-
-html[data-theme='dark'] .group-invite-list button:hover,
-html[data-theme='dark'] .group-invite-list button.active {
-  background: #333436;
 }
 
 html[data-theme='dark'] .group-role-badge,
@@ -931,8 +736,7 @@ html[data-theme='dark'] .group-role-badge.owner {
   color: #ffb85c;
 }
 
-html[data-theme='dark'] .details-toggle-row:hover,
-html[data-theme='dark'] .details-row:hover {
+html[data-theme='dark'] .details-toggle-row:hover {
   background: #2b2c2e;
 }
 
@@ -975,8 +779,7 @@ html[data-theme='dark'] .confirm-dialog-actions button:hover {
 
 html[data-theme='dark'] .tools-pane,
 html[data-theme='dark'] .tools-detail-pane,
-html[data-theme='dark'] .mobile-conversation-details,
-html[data-theme='dark'] .mobile-settings-page {
+html[data-theme='dark'] .mobile-conversation-details {
   background: #101112;
   color: #eef0f3;
 }
@@ -986,14 +789,9 @@ html[data-theme='dark'] .tools-row,
 html[data-theme='dark'] .tools-row-icon,
 html[data-theme='dark'] .tools-detail-icon,
 html[data-theme='dark'] .tools-detail-related button,
-html[data-theme='dark'] .mobile-profile-sheet,
-html[data-theme='dark'] .mobile-profile-card,
-html[data-theme='dark'] .mobile-profile-footer,
 html[data-theme='dark'] .mobile-detail-card,
 html[data-theme='dark'] .mobile-detail-row,
 html[data-theme='dark'] .mobile-detail-switch-row,
-html[data-theme='dark'] .mobile-settings-card,
-html[data-theme='dark'] .mobile-settings-row,
 html[data-theme='dark'] .mobile-settings-search {
   background: #1a1b1c;
   color: #eef0f3;
@@ -1005,8 +803,7 @@ html[data-theme='dark'] .tools-detail-row,
 html[data-theme='dark'] .tools-detail-related button,
 html[data-theme='dark'] .mobile-profile-row,
 html[data-theme='dark'] .mobile-detail-row,
-html[data-theme='dark'] .mobile-detail-switch-row,
-html[data-theme='dark'] .mobile-settings-row {
+html[data-theme='dark'] .mobile-detail-switch-row {
   border-color: #2c2d2f;
 }
 
@@ -1024,8 +821,7 @@ html[data-theme='dark'] .tools-detail-related > span {
 
 html[data-theme='dark'] .tools-row:hover,
 html[data-theme='dark'] .tools-detail-related button:hover,
-html[data-theme='dark'] .tools-detail-related button.active,
-html[data-theme='dark'] .mobile-settings-row:hover {
+html[data-theme='dark'] .tools-detail-related button.active {
   background: #242526;
 }
 
@@ -1033,18 +829,12 @@ html[data-theme='dark'] .tools-row-label,
 html[data-theme='dark'] .tools-detail-head strong,
 html[data-theme='dark'] .tools-detail-row span,
 html[data-theme='dark'] .tools-detail-related button,
-html[data-theme='dark'] .mobile-profile-copy strong,
 html[data-theme='dark'] .mobile-profile-row,
-html[data-theme='dark'] .mobile-profile-footer-button,
 html[data-theme='dark'] .mobile-detail-title,
 html[data-theme='dark'] .mobile-detail-back,
 html[data-theme='dark'] .mobile-detail-row-label,
 html[data-theme='dark'] .mobile-detail-switch-label,
-html[data-theme='dark'] .mobile-detail-switch-icon,
-html[data-theme='dark'] .mobile-settings-title,
-html[data-theme='dark'] .mobile-settings-back,
-html[data-theme='dark'] .mobile-settings-row-label,
-html[data-theme='dark'] .mobile-settings-row-icon {
+html[data-theme='dark'] .mobile-detail-switch-icon {
   color: #eef0f3;
 }
 
@@ -1052,12 +842,9 @@ html[data-theme='dark'] .tools-detail-row strong {
   color: #b7bbc3;
 }
 
-html[data-theme='dark'] .mobile-profile-copy p,
 html[data-theme='dark'] .mobile-group-copy span,
 html[data-theme='dark'] .mobile-member-name,
 html[data-theme='dark'] .mobile-detail-row-value,
-html[data-theme='dark'] .mobile-settings-section-title,
-html[data-theme='dark'] .mobile-settings-row-value,
 html[data-theme='dark'] .mobile-settings-search,
 html[data-theme='dark'] .mobile-settings-search-input::placeholder {
   color: #9ea2aa;
@@ -1068,49 +855,47 @@ html[data-theme='dark'] .mobile-settings-header {
   background: #191a1c;
 }
 
-@media (max-width: 760px) {
-  html[data-theme='dark'] .app-rail {
-    border-top-color: #25262a;
-    background: rgba(44, 45, 46, 0.97);
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .app-rail {
+  border-top-color: #25262a;
+  background: rgba(44, 45, 46, 0.97);
+}
 
-  html[data-theme='dark'] .mobile-sidebar-top {
-    background: #212425;
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-sidebar-top {
+  background: #212425;
+}
 
-  html[data-theme='dark'] .sidebar,
-  html[data-theme='dark'] .sidebar-header,
-  html[data-theme='dark'] .sidebar-body {
-    background: #191d1e;
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .sidebar,
+html:where([data-weq-layout='single'])[data-theme='dark'] .sidebar-header,
+html:where([data-weq-layout='single'])[data-theme='dark'] .sidebar-body {
+  background: #191d1e;
+}
 
-  html[data-theme='dark'] .mobile-sidebar-title strong,
-  html[data-theme='dark'] .rail-nav button {
-    color: #eef0f3;
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-sidebar-title strong,
+html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button {
+  color: #eef0f3;
+}
 
-  html[data-theme='dark'] .rail-nav button:hover,
-  html[data-theme='dark'] .rail-nav button.active {
-    background: transparent;
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button:hover,
+html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button.active {
+  background: transparent;
+}
 
-  html[data-theme='dark'] .rail-nav button.active {
-    color: #4096f5;
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .rail-nav button.active {
+  color: #4096f5;
+}
 
-  html[data-theme='dark'] .search-box {
-    background: #2c2f30;
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .search-box {
+  background: #2c2f30;
+}
 
-  html[data-theme='dark'] .composer,
-  html[data-theme='dark'] .search-row,
-  html[data-theme='dark'] .composer-editor,
-  html[data-theme='dark'] .emoji-panel,
-  html[data-theme='dark'] .composer-plus-panel {
-    background: #1b1b1c;
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .composer,
+html:where([data-weq-layout='single'])[data-theme='dark'] .search-row,
+html:where([data-weq-layout='single'])[data-theme='dark'] .composer-editor,
+html:where([data-weq-layout='single'])[data-theme='dark'] .emoji-panel,
+html:where([data-weq-layout='single'])[data-theme='dark'] .composer-plus-panel {
+  background: #1b1b1c;
+}
 
-  html[data-theme='dark'] .composer-editor {
-    background: #232628;
-  }
+html:where([data-weq-layout='single'])[data-theme='dark'] .composer-editor {
+  background: #232628;
 }

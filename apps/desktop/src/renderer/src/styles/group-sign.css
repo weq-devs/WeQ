@@ -48,3 +48,140 @@ html[data-theme='dark'] .weq-group-sign-page {
   color: var(--weq-fg-primary);
   background: var(--weq-bg-surface);
 }
+
+.weq-group-feature-layer.weq-group-sign-layer.weq-nonmodal-layer[tabindex] > .weq-group-sign-page {
+  width: min(320px, calc(100vw - 16px));
+  max-height: min(400px, calc(100dvh - 16px));
+}
+.weq-group-sign-layer .weq-group-sign-page > header {
+  padding: 10px 12px;
+}
+.weq-group-sign-layer .weq-group-sign-page > header strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.weq-group-sign-layer .weq-group-sign-page > header span {
+  font-size: 11px;
+}
+.weq-group-sign-layer .weq-group-sign-body {
+  display: flex;
+  overflow: hidden;
+  padding: 10px 12px;
+}
+.weq-group-sign-layer .weq-group-sign-record-page,
+.weq-group-sign-layer .weq-group-sign-records {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+}
+.weq-group-sign-layer .weq-group-sign-tools {
+  position: static;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+}
+.weq-group-sign-layer .weq-group-sign-tools input[type='date'] {
+  flex: 1 1 0;
+  width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 12px;
+}
+.weq-group-sign-layer .weq-group-sign-tools .weq-set-btn {
+  min-height: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.weq-group-sign-layer .weq-group-sign-records > .weq-qq-action-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  scrollbar-color: var(--weq-border-strong) transparent;
+}
+.weq-group-sign-layer .weq-qq-action-list > li {
+  min-height: 28px;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.weq-group-sign-layer .weq-qq-action-list > li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-group-sign-records > .weq-group-sign-list {
+  max-height: min(320px, 50dvh);
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--weq-border-strong) transparent;
+}
+.weq-group-sign-records .weq-group-sign-list > li {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 6px;
+  padding: 4px 0;
+}
+.weq-group-sign-records .weq-group-sign-rank {
+  flex: 0 0 20px;
+  color: var(--weq-fg-secondary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.weq-group-sign-member {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  border-radius: 4px;
+  color: var(--weq-fg-primary);
+  text-align: left;
+  font: inherit;
+}
+.weq-group-sign-list .weq-group-sign-member {
+  justify-content: flex-start;
+}
+.weq-group-sign-member > :first-child {
+  flex: 0 0 22px;
+}
+.weq-group-sign-member > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-group-sign-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  gap: 6px;
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-group-sign-load-state > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-group-sign-load-state[role='alert'] {
+  color: var(--destructive);
+}

@@ -13,6 +13,7 @@ import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { QQWriteResult } from '../QQWriteControls';
 import { useDialog } from '../Dialog';
 import '../../styles/qq-actions.css';
+import { useRenderDocument } from '../../lib/renderDocument';
 
 /** 同号切换数据源也销毁草稿，不能仅以 QQ 号判断编辑器身份。 */
 export function withQQAccountScope<P extends object>(Component: ComponentType<P>) {
@@ -58,6 +59,7 @@ export function ActionIcon({
   );
 }
 export function useQQAction(scope: string) {
+  const ownerDocument = useRenderDocument();
   const session = useQQWriteSession(`actions:${scope}`);
   const confirm = useDialog((s) => s.confirm);
   const [error, setError] = useState('');
@@ -84,7 +86,7 @@ export function useQQAction(scope: string) {
     busy.current = true;
     setPending(true);
     try {
-      if (warning && !(await confirm('确认 QQ 操作', warning))) return false;
+      if (warning && !(await confirm('确认 QQ 操作', warning, { ownerDocument }))) return false;
       if (!mounted.current || latest.current !== identity) return false;
       return await session.run(action, refresh, options);
     } finally {
@@ -123,7 +125,7 @@ export function ActionFeedback({ action }: { action: ReturnType<typeof useQQActi
   return (
     <>
       <QQWriteResult result={action.result} />
-      {action.error && <p role="alert">{action.error}</p>}
+      {action.error && <QQWriteResult result={{ text: action.error, error: true }} />}
     </>
   );
 }

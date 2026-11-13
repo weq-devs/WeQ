@@ -1,10 +1,11 @@
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState } from 'react';
 import {
   StructuredExportControls,
   structuredExportOptions,
   type StructuredExportOptions,
 } from './StructuredExportControls';
-import { Download, RotateCw, Search, Sparkles, Users } from 'lucide-react';
+import { Download, RotateCw, Search, Sparkles, Users, MessagesSquare } from 'lucide-react';
 import type {
   ExportSavePolicy,
   GeneratedContentTarget,
@@ -14,6 +15,7 @@ import type {
 import { client, trpc } from '../../trpc/client';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { CheckPill, CheckPillGroup } from '../../components/settings/controls';
 import { useTabActive } from '../../components/RetainedTabs';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -180,12 +182,6 @@ export function GeneratedExportPane({
   const groupAvatarUins = target?.kind === 'group' ? (avatarFor(target).groupUins ?? []) : [];
   const supportsGroup = target?.kind === 'group';
   const groupMemberCount = target?.kind === 'group' ? groupAvatarUins.length : 0;
-  const formatMulti = useMultiSelection({
-    ids: FORMATS,
-    selected: formats,
-    onChange: setFormats,
-    disabled: busy,
-  });
   const visible = useMemo(
     () =>
       (sessions.data ?? []).filter((session) =>
@@ -348,30 +344,28 @@ export function GeneratedExportPane({
           ) : (
             <>
               <header className="weq-generated-export-range">
-                <label className="weq-message-scope-mode">
-                  <input
-                    type="checkbox"
+                <div className="weq-message-scope-mode">
+                  <CheckPill
                     disabled={busy}
                     checked={ids !== undefined}
-                    onChange={(event) =>
+                    onChange={(checked) =>
                       setScopes((current) => {
                         const next = { ...current };
-                        if (event.target.checked) next[key] = [];
+                        if (checked) next[key] = [];
                         else delete next[key];
                         return next;
                       })
                     }
-                  />
-                  <span>
+                  >
                     {ids === undefined ? '整场持久对话' : `精确选中 ${ids.length} 条消息`}
-                  </span>
-                </label>
+                  </CheckPill>
+                </div>
               </header>
               <div className="weq-generated-export-transcript">
                 {content.isFetching && rows.length === 0 ? (
                   <PickerListSkeleton rows={5} />
                 ) : rows.length === 0 ? (
-                  <p className="weq-generated-export-empty">这段对话还没有消息。</p>
+                  <EmptyState compact icon={<MessagesSquare />} title="这段对话还没有消息。" />
                 ) : null}
                 {rows.map((row, index) => {
                   const sender = senderOf(row);
@@ -432,14 +426,12 @@ export function GeneratedExportPane({
         onChange={(value) => setStructured((current) => ({ ...current, ...value }))}
       />
       <footer className="weq-generated-export-foot">
-        <div role="group" aria-label="生成对话导出格式" {...formatMulti.rootProps}>
-          {FORMATS.map((format) => (
-            <label key={format} {...formatMulti.itemProps(format)}>
-              <input type="checkbox" readOnly checked={formats.has(format)} disabled={busy} />
-              {format.toUpperCase()}
-            </label>
-          ))}
-        </div>
+        <CheckPillGroup<BackendFormat>
+          options={FORMATS.map((format) => ({ value: format, label: format.toUpperCase() }))}
+          selected={[...formats]}
+          onChange={(next) => setFormats(new Set(next))}
+          disabled={busy}
+        />
         <div className="weq-save-action-group">
           <button
             type="button"

@@ -1,3 +1,5 @@
+import { formatDateTime } from '@weq/time';
+import { SegmentedControl } from '../../components/SegmentedControl';
 /**
  * Protobuf tree for the BLOB lightbox — the schema-free decoder rendered as an
  * editable outline.
@@ -282,7 +284,9 @@ function valueHint(value: PbValue): string | null {
       const n = Number(value.text);
       if (!Number.isFinite(n)) return null;
       const d = new Date(value.unit === 'sec' ? n * 1000 : n);
-      return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
+      return Number.isNaN(d.getTime())
+        ? null
+        : `${formatDateTime(d, value.unit === 'sec' ? 'second' : 'millisecond')}（北京时间，按 Unix ${value.unit === 'sec' ? '秒' : '毫秒'}解释）`;
     }
     case 'zigzag':
       return 'zigzag';
@@ -351,17 +355,12 @@ function AddField({
           }
         }}
       />
-      <select
-        className="weq-pb-add-wire"
+      <SegmentedControl<WireType>
+        label="字段类型"
         value={wire}
-        onChange={(e) => setWire(Number(e.target.value) as WireType)}
-      >
-        {WIRE_CHOICES.map((w) => (
-          <option key={w} value={w}>
-            {WIRE_LABELS[w]}
-          </option>
-        ))}
-      </select>
+        onChange={setWire}
+        options={WIRE_CHOICES.map((w) => ({ value: w, label: WIRE_LABELS[w] }))}
+      />
       <button type="button" className="weq-pb-add-btn" onClick={submit} disabled={!valid}>
         添加字段
       </button>

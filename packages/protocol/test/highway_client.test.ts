@@ -43,7 +43,13 @@ interface FakeNode {
 
 /** 起一个假 highway 节点；`respond` 决定每块的错误码。 */
 async function startFakeNode(
-  respond: (chunk: ReceivedChunk, index: number) => number | Promise<number> = () => 0,
+  respond: (
+    chunk: ReceivedChunk,
+    index: number,
+  ) =>
+    | number
+    | { errorCode: number; extend?: Uint8Array; body?: Uint8Array }
+    | Promise<number> = () => 0,
 ): Promise<FakeNode> {
   const received: ReceivedChunk[] = [];
   const server = net.createServer((socket) => {
@@ -93,9 +99,13 @@ async function startFakeNode(
 
         const index = received.length - 1;
         Promise.resolve(respond(record, index))
-          .then((errorCode) => {
-            const head2 = encode(RESP_DATA_HIGHWAY_HEAD, { errorCode });
-            const respFrame = packHighwayFrame(head2, new Uint8Array(0));
+          .then((result) => {
+            const response = typeof result === 'number' ? { errorCode: result } : result;
+            const head2 = encode(RESP_DATA_HIGHWAY_HEAD, {
+              errorCode: response.errorCode,
+              bytesRspExtendInfo: response.extend,
+            });
+            const respFrame = packHighwayFrame(head2, response.body ?? new Uint8Array(0));
             const httpHeader = `HTTP/1.1 200 OK\r\nContent-Length: ${respFrame.length}\r\n\r\n`;
             socket.write(Buffer.concat([Buffer.from(httpHeader, 'ascii'), Buffer.from(respFrame)]));
           })
@@ -132,6 +142,60 @@ afterEach(async () => {
 const MB = 1024 * 1024;
 
 describe('uploadHighwayHttp（本地假节点）', () => {
+  it('逐块提供业务回包，末块与正文独立保留，旧调用保持 void', async () => {
+    const node = await startFakeNode(() => ({
+      errorCode: 0,
+      extend: new Uint8Array([0, 7]),
+      body: new Uint8Array([9]),
+    }));
+    nodes.push(node);
+    const replies: { final: boolean; extend: number[]; body: number[] }[] = [];
+    const source = new BufferChunkSource(new Uint8Array(MB + 16));
+    expect(
+      await uploadHighwayHttp({
+        session: node.session,
+        uin: '10001',
+        commandId: 39,
+        source,
+        fileMd5: new Uint8Array([1]),
+        extend: new Uint8Array(),
+        onResponse(reply) {
+          replies.push({ final: reply.final, extend: [...reply.extend], body: [...reply.body] });
+        },
+      }),
+    ).toBeUndefined();
+    expect(replies).toEqual([
+      { final: false, extend: [0, 7], body: [9] },
+      { final: true, extend: [0, 7], body: [9] },
+    ]);
+    expect(node.received.every((chunk) => chunk.commandId === 39)).toBe(true);
+  });
+  it('业务解析失败不会重传，source 恰好关闭一次', async () => {
+    const node = await startFakeNode(() => ({ errorCode: 0, extend: new Uint8Array([1]) }));
+    nodes.push(node);
+    let closed = 0;
+    await expect(
+      uploadHighwayHttp({
+        session: node.session,
+        uin: '10001',
+        commandId: 39,
+        source: {
+          size: 2,
+          read: async () => new Uint8Array([1, 2]),
+          close: async () => {
+            closed++;
+          },
+        },
+        fileMd5: new Uint8Array([1]),
+        extend: new Uint8Array(),
+        onResponse() {
+          throw new Error('业务失败');
+        },
+      }),
+    ).rejects.toThrow('业务失败');
+    expect(node.received).toHaveLength(1);
+    expect(closed).toBe(1);
+  });
   it('按 1 MiB 顺序分块上传：偏移正确、每块 md5 正确、拼回来等于原文件', async () => {
     const node = await startFakeNode();
     nodes.push(node);

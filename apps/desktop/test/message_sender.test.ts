@@ -1,11 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { describe, expect, it, vi } from 'vitest';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { GroupMember } from '../src/renderer/src/im-template/template/types';
 import {
   mergeMessageMembers,
   localProfileUser,
   messageSender,
   optimisticMessageSender,
+  createMemberUinLookup,
 } from '../src/renderer/src/lib/messageSender';
 
 const demo = createTemplateDemoData();
@@ -167,6 +168,59 @@ describe('群消息发送者资料', () => {
   it('其他群没有对应成员时不会借用本群的身份资料', () => {
     expect(optimisticMessageSender(group, user, new Map())).not.toHaveProperty('memberLevel', 42);
     expect(optimisticMessageSender(direct, user, members)).toBe(user);
+  });
+
+  it('一批 QQ 号回退只遍历一次成员表，UID 命中不建索引，重复号码保留首项', () => {
+    let reads = 0;
+    const rows = Array.from({ length: 200 }, (_, index) => ({
+      ...member,
+      id: `u_member_${index}`,
+      get uin() {
+        reads++;
+        return String(20000 + (index === 1 ? 0 : index));
+      },
+      card: `群名片 ${index}`,
+      displayName: `群名片 ${index}`,
+    }));
+    const directory = new Map(rows.map((row) => [row.id, row]));
+    const values = vi.spyOn(directory, 'values');
+    const lookup = createMemberUinLookup(directory);
+    const sender = (senderUid: string, senderUin: string) =>
+      messageSender(
+        { senderUid, senderUin, elements: [] },
+        group,
+        user,
+        directory,
+        undefined,
+        undefined,
+        lookup,
+      );
+    expect(sender(rows[0]!.id, '20000').displayName).toBe('群名片 0');
+    expect(reads).toBe(0);
+    expect(values).not.toHaveBeenCalled();
+    for (let index = 0; index < rows.length; index++) {
+      const position = index === 1 ? 0 : index;
+      expect(sender('', String(20000 + position)).displayName).toBe(`群名片 ${position}`);
+    }
+    expect(sender('', '99999').displayName).toBe('99999');
+    expect(sender('', '99999').displayName).toBe('99999');
+    expect(reads).toBe(rows.length);
+    expect(values).toHaveBeenCalledOnce();
+    const updated = { ...rows[0]!, card: '更新后的群名片', displayName: '更新后的群名片' };
+    const next = new Map(directory).set(updated.id, updated);
+    const nextLookup = createMemberUinLookup(next);
+    expect(nextLookup('20000')).toBe(updated);
+    expect(lookup('20000')).toBe(rows[0]);
+    values.mockRestore();
+  });
+
+  it('未传批次索引的单条回退仍读取当前 Map，不跨调用缓存旧群名片', () => {
+    const peer = { ...member, id: 'u_peer', uin: '20002', displayName: '旧群名片' };
+    const directory = new Map([[peer.id, peer]]);
+    const message = { senderUid: '', senderUin: '20002', elements: [] };
+    expect(messageSender(message, group, user, directory).displayName).toBe('旧群名片');
+    directory.set(peer.id, { ...peer, displayName: '新群名片' });
+    expect(messageSender(message, group, user, directory).displayName).toBe('新群名片');
   });
 
   it('分页替换时展示快照保留离屏发送者，新资料完整替换旧值（包括清空头衔）', () => {

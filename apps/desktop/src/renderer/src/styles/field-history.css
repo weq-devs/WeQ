@@ -1,0 +1,165 @@
+.weq-field-presentation {
+  min-width: 0;
+  color: var(--weq-fg-primary);
+}
+.weq-field-record-time {
+  display: grid;
+  gap: 4px;
+}
+.weq-field-record-time small,
+.weq-field-first,
+.weq-field-previous {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-field-record-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  white-space: pre-wrap;
+}
+.weq-field-record-value > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-field-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-field-previous {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.weq-field-previous > span {
+  margin-right: 6px;
+}
+.weq-field-trend {
+  margin: 14px 0 0;
+}
+.weq-field-trend figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  font-weight: 500;
+}
+.weq-field-trend figcaption span {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+.weq-field-trend svg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 368 / 172;
+  overflow: visible;
+}
+.weq-field-trend text {
+  fill: var(--weq-fg-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-field-chart-grid {
+  stroke: var(--weq-border-subtle);
+  stroke-width: 1;
+}
+.weq-field-chart-line {
+  fill: none;
+  stroke: var(--weq-accent-effective);
+  stroke-width: 2;
+}
+.weq-field-chart-point {
+  fill: var(--weq-accent-effective);
+  stroke: var(--weq-bg-surface);
+  stroke-width: 1;
+}
+.weq-field-history-body .weq-field-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.weq-field-history-body .weq-field-items > li {
+  display: grid;
+  gap: 3px;
+  padding-block: 6px;
+  border-bottom: 0;
+}
+.weq-field-items small {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.weq-field-collection-changes {
+  display: grid;
+  gap: 10px;
+}
+.weq-field-collection-changes strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.weq-field-collection-changes summary {
+  cursor: pointer;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-field-item-change {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.weq-field-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+}
+.weq-field-photo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  cursor: zoom-in;
+}
+.weq-field-photo.is-show {
+  aspect-ratio: 3 / 4;
+}
+.weq-field-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.weq-field-photo-unavailable {
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.weq-field-photo-unavailable small {
+  color: var(--weq-fg-secondary);
+}
+.weq-field-photo:hover {
+  outline: 1px solid var(--weq-accent-effective);
+  outline-offset: -1px;
+}
+.weq-field-presentation :is(button, summary):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+html[data-theme='dark'] .weq-field-chart-grid {
+  stroke: var(--weq-border-strong);
+}
+html[data-theme='dark'] .weq-field-photo {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, var(--weq-bg-surface));
+}

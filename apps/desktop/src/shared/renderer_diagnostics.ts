@@ -1,8 +1,5 @@
-export const DIAGNOSTIC_SAMPLE_REQUEST = 'diagnostics:sample-request';
-export const DIAGNOSTIC_SAMPLE_RESPONSE = 'diagnostics:sample-response';
 export const RESOURCE_DIAGNOSTIC_REQUEST = 'weq:resource-diagnostic-request';
 export const RESOURCE_DIAGNOSTIC_ID = 'weq-resource-diagnostics';
-export const DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS = 10_000;
 export const DEVELOPMENT_DIAGNOSTIC_VERSION = 3;
 export const DEVELOPMENT_MAIN_VIEWS = [
   'home',

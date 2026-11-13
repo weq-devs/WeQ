@@ -7,7 +7,13 @@ import type { ReplySuggestionHistoryEntry } from '@weq/service';
 const fixture = vi.hoisted(() => ({
   data: [{ text: '旧候选' }] as { text: string }[] | undefined,
   fetching: false,
-  status: { suggestionsEnabled: true, suggestionRevision: 0, suggestAfterSelf: false },
+  status: {
+    suggestionsEnabled: true,
+    suggestionRevision: 0,
+    suggestAfterSelf: false,
+    suggestionMode: 'auto',
+    suggestionExpiryMinutes: 1,
+  },
   query: vi.fn(),
   refresh: vi.fn(),
   stop: vi.fn(async () => true),
@@ -79,7 +85,13 @@ beforeEach(() => {
   fixture.data = [{ text: '旧候选' }];
   fixture.fetching = false;
   fixture.error = null;
-  fixture.status = { suggestionsEnabled: true, suggestionRevision: 0, suggestAfterSelf: false };
+  fixture.status = {
+    suggestionsEnabled: true,
+    suggestionRevision: 0,
+    suggestAfterSelf: false,
+    suggestionMode: 'auto',
+    suggestionExpiryMinutes: 1,
+  };
   fixture.query.mockReset().mockImplementation(() => ({
     data: fixture.data,
     isFetching: fixture.fetching,
@@ -106,6 +118,49 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it.each(['c2c', 'group'] as const)(
+  '手动推荐 %s 只由开始按钮生成，收到新消息也不自动请求',
+  async (kind) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.status.suggestionMode = 'manual';
+    fixture.data = undefined;
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const render = (id: string, replyTargetId: string | null = id) =>
+      act(() =>
+        root.render(
+          createElement(IntentSuggestionBar, {
+            kind,
+            conv: 'fixture',
+            latestMessageId: id,
+            replyTargetId,
+            onInsert: vi.fn(),
+          }),
+        ),
+      );
+    try {
+      render('first');
+      expect(fixture.query.mock.calls.at(-1)?.[1].enabled).toBe(false);
+      const button = host.querySelector<HTMLButtonElement>('[aria-label="开始推荐回复"]')!;
+      expect(button.querySelector('.lucide-play')).not.toBeNull();
+      expect(fixture.refresh).not.toHaveBeenCalled();
+      fixture.refresh.mockResolvedValue([{ text: '手动候选' }]);
+      render('self', null);
+      await act(async () => button.click());
+      expect(fixture.refresh).toHaveBeenCalledWith(
+        expect.objectContaining({ refresh: true, targetId: 'self' }),
+      );
+      expect(host.textContent).toContain('手动候选');
+      render('next');
+      expect(fixture.query.mock.calls.at(-1)?.[1].enabled).toBe(false);
+      expect(host.textContent).toContain('手动候选');
+      expect(fixture.refresh).toHaveBeenCalledOnce();
+    } finally {
+      act(() => root.unmount());
+    }
+  },
+);
 
 it('相同候选仍按轮次 ID 区分，正式详情和历史日期打开对应轮次，展开日志不重新生成', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -171,8 +226,8 @@ it('相同候选仍按轮次 ID 区分，正式详情和历史日期打开对应
     expect(panel.textContent).toContain('第一轮概括');
     expect(panel.textContent).toContain('model-first');
     act(() => panel.querySelector<HTMLButtonElement>('.weq-int-round-log-toggle')!.click());
-    expect(panel.querySelector('.weq-exp-log')?.textContent).toContain('实际系统提示词');
-    expect(panel.querySelector('.weq-exp-log')?.textContent).toContain('实际输入消息');
+    expect(panel.querySelector('.weq-model-log')?.textContent).toContain('实际系统提示词');
+    expect(panel.querySelector('.weq-model-log')?.textContent).toContain('实际输入消息');
     act(() => panel.querySelector<HTMLButtonElement>('[aria-label="关闭推荐详情"]')!.click());
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="查看本轮推荐详情"]')!.click());
     expect(fixture.detailQuery.mock.calls.at(-1)?.[0].id).toBe('second');
@@ -183,6 +238,84 @@ it('相同候选仍按轮次 ID 区分，正式详情和历史日期打开对应
     host.remove();
   }
 });
+
+it.each([false, true])(
+  '生成中有旧候选=%s 仍可打开当前轮实时详情，完成后不跳到其他轮次',
+  (hasPrevious) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    fixture.fetching = true;
+    fixture.data = hasPrevious ? [{ text: '旧候选' }] : undefined;
+    let done = false;
+    const entry: ReplySuggestionHistoryEntry = {
+      id: 'running-round',
+      createdAt: 1000,
+      target: { msgId: 'message', senderUin: '10000', sendTime: 1 },
+      suggestions: [],
+    };
+    fixture.detailQuery.mockImplementation(() => ({
+      data: {
+        entry: done
+          ? { ...entry, summary: '新一轮概括', suggestions: [{ text: '新候选' }] }
+          : entry,
+        progress: {
+          id: entry.id,
+          status: done ? 'completed' : 'running',
+          stage: done ? '生成完成' : '等待模型返回',
+          startedAt: 900,
+          updatedAt: 1000,
+        },
+        trace: {
+          logs: [
+            { seq: 1, ts: 900, stage: '读取输入', level: 'info', text: '正在读取输入' },
+            ...(done
+              ? [{ seq: 2, ts: 1000, stage: '生成完成', level: 'info', text: '本轮生成完成' }]
+              : []),
+          ],
+        },
+      },
+      isLoading: false,
+      error: null,
+    }));
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = () =>
+      act(() =>
+        root.render(
+          createElement(IntentSuggestionBar, {
+            kind: 'c2c',
+            conv: 'fixture',
+            latestMessageId: 'message',
+            onInsert: vi.fn(),
+          }),
+        ),
+      );
+    try {
+      render();
+      const button = host.querySelector<HTMLButtonElement>('[aria-label="查看当前推荐详情"]')!;
+      expect(button.disabled).toBe(false);
+      act(() => button.click());
+      expect(fixture.detailQuery.mock.calls[0]?.[0].id).toBeUndefined();
+      expect(fixture.detailQuery.mock.calls.at(-1)?.[0].id).toBe(entry.id);
+      let panel = document.querySelector('.weq-int-round-details')!;
+      expect(panel.textContent).toContain('等待模型返回');
+      expect(panel.querySelector('[role="log"]')?.textContent).toContain('正在读取输入');
+      const interval = fixture.detailQuery.mock.calls.at(-1)?.[1].refetchInterval;
+      expect(interval(fixture.detailQuery.mock.results.at(-1)?.value.data)).toBe(500);
+      done = true;
+      fixture.fetching = false;
+      render();
+      panel = document.querySelector('.weq-int-round-details')!;
+      expect(panel.textContent).toContain('新一轮概括');
+      expect(panel.querySelector('[role="log"]')?.textContent).toContain('本轮生成完成');
+      expect(interval(fixture.detailQuery.mock.results.at(-1)?.value.data)).toBe(false);
+      expect(fixture.refresh).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  },
+);
 
 it.each([true, false])(
   '历史已覆盖最新消息=%s：过期推荐仅在输入仍为最新时复用，手动换一批始终可用',
@@ -391,6 +524,97 @@ it.each([0, 60_000, 60_001])(
     }
   },
 );
+
+it.each([
+  { minutes: 1, age: 120_000, text: '上次推荐已过期 · 2分钟前' },
+  { minutes: 5, age: 300_000, text: '最近推荐' },
+  { minutes: 5, age: 300_001, text: '上次推荐已过期 · 5分钟前' },
+  { minutes: -1, age: 40_000_000_000, text: '最近推荐' },
+  { minutes: 0, age: 59_999, text: '上次推荐已过期 · 59秒前' },
+  { minutes: 0, age: 0, text: '上次推荐已过期 · 0秒前' },
+])('手动模式按设置恢复最近推荐或说明过期原因：$minutes 分钟／$age ms', ({ minutes, age, text }) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(50_000_000_000);
+  fixture.status.suggestionMode = 'manual';
+  fixture.status.suggestionExpiryMinutes = minutes;
+  fixture.data = undefined;
+  fixture.historyQuery.mockReturnValue({
+    data: [
+      {
+        id: 'expired',
+        createdAt: Date.now() - age,
+        target: { msgId: 'old', senderUin: '10000', sendTime: 1000 },
+        suggestions: [{ text: '最近推荐' }],
+      },
+    ],
+    isLoading: false,
+    refetch: fixture.historyRefetch,
+  });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(IntentSuggestionBar, {
+          kind: 'c2c',
+          conv: 'fixture',
+          latestMessageId: 'new',
+          onInsert: vi.fn(),
+        }),
+      ),
+    );
+    expect(host.querySelector('.weq-int-suggest-track')?.textContent).toBe(text);
+    expect(fixture.query.mock.calls.at(-1)?.[1].enabled).toBe(false);
+  } finally {
+    act(() => root.unmount());
+    clock.mockRestore();
+  }
+});
+
+it('过期间隔随时钟更新，满一分钟改用分钟，卸载后不残留计时器', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  vi.setSystemTime(50_000_000_000);
+  fixture.status.suggestionMode = 'manual';
+  fixture.status.suggestionExpiryMinutes = 0;
+  fixture.data = undefined;
+  fixture.historyQuery.mockReturnValue({
+    data: [
+      {
+        id: 'expired',
+        createdAt: Date.now() - 59_000,
+        target: { msgId: 'old', senderUin: '10000', sendTime: 1000 },
+        suggestions: [{ text: '最近推荐' }],
+      },
+    ],
+    isLoading: false,
+    refetch: fixture.historyRefetch,
+  });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(IntentSuggestionBar, {
+          kind: 'group',
+          conv: 'fixture',
+          latestMessageId: 'new',
+          onInsert: vi.fn(),
+        }),
+      ),
+    );
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('59秒');
+    act(() => vi.advanceTimersByTime(1000));
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('1分钟');
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).not.toContain('秒');
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(host.querySelector('.weq-int-suggest-empty')?.textContent).toContain('2分钟');
+  } finally {
+    act(() => root.unmount());
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  }
+});
 
 it('在途推荐悬停变为停止，停止保留候选并抑制本条重试，新消息恢复自动推荐', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

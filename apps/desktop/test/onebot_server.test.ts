@@ -47,9 +47,14 @@ async function setup(path = '/') {
       return unsubscribe;
     },
   };
-  const server = new OneBotServer(backend, 'synthetic-token');
+  const server = new OneBotServer(backend);
   servers.push(server);
-  const port = await server.start(0);
+  const [status] = await server.startConfigured({
+    webSocketServers: [{ id: 'ws-main', port: 0, token: 'synthetic-token' }],
+    httpServers: [],
+  });
+  expect(status).toMatchObject({ running: true });
+  const port = status!.port;
   const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, {
     headers: { Authorization: 'Bearer synthetic-token' },
   });

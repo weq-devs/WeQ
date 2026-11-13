@@ -11,7 +11,7 @@ import {
   rejectedOutgoingRemoval,
   type LocalOutgoingRecord,
 } from '../src/renderer/src/lib/localOutgoing';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 const demo = createTemplateDemoData();
 const message = {

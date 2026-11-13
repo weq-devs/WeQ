@@ -172,7 +172,11 @@ export function MessageBubble({
   /** Restore a WeQ-deleted message (only used when `deleted`). */
   onRestore?: (msgId: string) => Promise<void>;
   onContextMenu: (event: ReactMouseEvent, message: Message) => void;
-  onLongPress: (point: { x: number; y: number }, message: Message) => void;
+  onLongPress: (
+    point: { x: number; y: number },
+    message: Message,
+    target?: EventTarget | null,
+  ) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onReedit?: (message: Message) => Promise<boolean>;
   /**
@@ -323,6 +327,7 @@ export function MessageBubble({
       return;
     }
     const startPoint = { x: event.clientX, y: event.clientY };
+    const target = event.target;
     const rect = event.currentTarget.getBoundingClientRect();
     longPressPointRef.current = startPoint;
     longPressAnchorRef.current = {
@@ -333,7 +338,7 @@ export function MessageBubble({
     longPressTimerRef.current = window.setTimeout(() => {
       const anchorPoint = longPressAnchorRef.current ?? startPoint;
       selectMessageContent();
-      onLongPress(anchorPoint, message);
+      onLongPress(anchorPoint, message, target);
       clearLongPress();
     }, 460);
   }
@@ -534,7 +539,10 @@ export function MessageBubble({
               ) : null}
             </span>
           ) : null}
-          <MessageProvenance message={message} />
+          <MessageProvenance
+            message={message}
+            precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
+          />
         </div>
         {repeatAction ? (
           <div className="weq-repeat-content">

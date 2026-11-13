@@ -1,6 +1,6 @@
 import type { LoggerContext, LogLevel } from './logger';
+import { formatConsoleHeader, levelColors } from './console_header.mjs';
 
-const levelColors: Record<LogLevel, number> = { debug: 90, info: 32, warn: 33, error: 31 };
 const labels: Record<string, string> = {
   version: '版本',
   mode: '模式',
@@ -23,6 +23,8 @@ const labels: Record<string, string> = {
   jsQueueWaitMs: '排队',
   nativePromiseAwaitMs: '原生等待',
   count: '共',
+  artifactCount: '产物数',
+  groupCount: '群数',
   failed: '失败',
   size: '大小',
   candidateCount: '本机候选',
@@ -81,6 +83,28 @@ const placeholders = new Set([
   'unknown',
 ]);
 const plain = (value: string) => value.replace(/\s+/g, ' ').trim();
+const eventTitles: Record<string, Record<string, string>> = {
+  logger: { init: '日志已就绪' },
+  'desktop-main': {
+    'tray-create': '托盘已创建',
+    'app-ready': '应用已就绪',
+    'create-window': '主窗口已创建',
+  },
+  'app-context': {
+    'init-app-context': '应用上下文初始化',
+    'open-account-start': '正在打开账号',
+    'open-account-success': '账号已打开',
+    'apply-group-keyword': '群关键词规则已应用',
+  },
+  'account-monitor': {
+    'monitor-start': '账号监视已启动',
+    'monitor-stop': '账号监视已停止',
+    'account-online': '账号已上线',
+    'account-offline': '账号已离线',
+    'sso-session-reused': '已复用本机 SSO 会话',
+  },
+  'mcp-server': { 'mcp-start': 'MCP 服务已启动', 'mcp-stop': 'MCP 服务已停止' },
+};
 const duration = (value: number) =>
   value < 1000 ? `${Math.round(value)}ms` : `${Number((value / 1000).toFixed(2))}s`;
 function bytes(value: number): string {
@@ -106,13 +130,13 @@ export function formatConsoleRecord(
     if (firstLine && !firstLine.startsWith('at '))
       context = { ...context, errorMessage: firstLine };
   }
-  const time = new Date(options.now + 8 * 3600_000).toISOString().slice(11, 19);
   const scope = typeof context.scope === 'string' ? plain(context.scope) : 'app';
   const repeated = typeof context.repeated === 'number' && context.repeated > 0;
   let title =
-    repeated && typeof context.originalMessage === 'string'
+    eventTitles[scope]?.[String(context.event)] ??
+    (repeated && typeof context.originalMessage === 'string'
       ? plain(context.originalMessage)
-      : plain(message);
+      : plain(message));
   if (context.event === 'request-slow') title = '慢请求';
   if (context.event === 'request-failed')
     title = context.outcome === 'cancelled' ? '请求已取消' : '请求失败';
@@ -148,10 +172,10 @@ export function formatConsoleRecord(
             ? levelColors[level]
             : key === 'failed' && value !== 0
               ? 31
-              : key === 'count' || key === 'version'
+              : key === 'count' || key === 'artifactCount' || key === 'version'
                 ? 32
                 : 36;
-      parts.push(`${paint(90, label)} ${paint(tone, text)}`);
+      parts.push(`${paint(37, label)} ${paint(tone, text)}`);
     };
     // 常见诊断字段优先，其他标量仅在 DEBUG 中展示，避免对象转储占满屏幕。
     for (const key of new Set([
@@ -163,6 +187,16 @@ export function formatConsoleRecord(
       'exitCode',
       ...Object.keys(labels),
     ])) {
+      if (key === 'logDir' && scope === 'app-context' && context.event === 'init-app-context')
+        continue;
+      if (key === 'port' && typeof (context.address ?? context.url) === 'string') {
+        try {
+          if (new URL(String(context.address ?? context.url)).port === String(context.port))
+            continue;
+        } catch {
+          // 非 URL 的地址仍需展示端口。
+        }
+      }
       if (debugOnly.has(key) && !options.details) continue;
       if (key === 'failed' && context[key] === 0) continue;
       add(key, context[key]);
@@ -192,7 +226,7 @@ export function formatConsoleRecord(
     }
   }
   const limit = options.details ? 12 : 7;
-  const header = `${paint(90, time)} ${paint(levelColors[level], level.toUpperCase().padEnd(5))} ${paint(36, scope)}  ${paint(level === 'error' ? 31 : 39, title)}`;
+  const header = formatConsoleHeader(level, title, scope, options);
   let output = `${header}${parts.length ? `  ${parts.slice(0, limit).join('  ')}` : ''}\n`;
   if (!repeated && typeof stack === 'string' && (level === 'error' || options.details)) {
     const lines = stack.split('\n').filter((line) => line.trim());

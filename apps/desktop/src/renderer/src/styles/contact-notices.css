@@ -87,6 +87,47 @@
   outline-offset: 2px;
 }
 
+/* 身份区跨头像和正文两列，不继承单独头像按钮的固定尺寸。 */
+.weq-notice-dialog .notice-card-request:has(> .notice-identity) {
+  grid-template-columns: 32px minmax(0, 1fr) 76px;
+  gap: 4px 10px;
+}
+
+.weq-notice-dialog .notice-avatar-button.notice-identity {
+  grid-column: 1 / 3;
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  gap: 10px;
+  justify-content: flex-start;
+  border-radius: 4px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-notice-dialog .notice-identity .avatar {
+  flex-shrink: 0;
+}
+
+.weq-notice-dialog .notice-identity .notice-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-notice-dialog .notice-card-request > .notice-copy {
+  grid-column: 2;
+}
+
+.weq-notice-dialog .notice-card-request > .notice-meta {
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+
 .weq-notice-dialog .notice-copy,
 .weq-notice-dialog .notice-meta {
   display: grid;
@@ -117,6 +158,35 @@
   overflow-wrap: anywhere;
 }
 
+.weq-notice-dialog .notice-card-request .notice-copy button.notice-group-name {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: inherit;
+  color: var(--weq-fg-secondary);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.weq-notice-dialog .notice-card-request .notice-copy button.notice-group-name:hover {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.weq-notice-dialog button.notice-group-name:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
 .weq-notice-dialog .notice-action-text,
 .weq-notice-dialog .notice-operator,
 .weq-notice-dialog .notice-sysremark {
@@ -125,6 +195,11 @@
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog.weq-notice-panel .notice-card-request .notice-operator {
+  overflow: visible;
+  white-space: normal;
 }
 
 .weq-notice-dialog .notice-fields {
@@ -163,6 +238,12 @@
   font-size: 11px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.weq-notice-dialog.weq-notice-panel .notice-card-request .notice-meta time {
+  max-width: 76px;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
 }
 
 .weq-notice-dialog .notice-state {

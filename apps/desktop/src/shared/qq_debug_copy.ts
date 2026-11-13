@@ -4,6 +4,7 @@ export const QQ_DEBUG_COPY_ACTIONS = [
   'launch',
   'activate',
   'open',
+  'switch',
   'remove',
 ] as const;
 export type QqDebugCopyAction = (typeof QQ_DEBUG_COPY_ACTIONS)[number];
@@ -21,6 +22,7 @@ export type QqDebugCopyPhase =
   | 'signing'
   | 'verifying'
   | 'launching'
+  | 'quitting'
   | 'removing';
 
 export interface QqDebugCopyStatus {
@@ -33,5 +35,6 @@ export interface QqDebugCopyStatus {
   version: string | null;
   readerReady: boolean;
   runningPids: number[];
+  sourceRunningPids: number[];
   message: string;
 }

@@ -4,7 +4,12 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService } from '../src/account/user_config';
 import { createCachedAttachHook, type AttachHook } from '../src/bootstrap/attach';
 import { AccountMonitorService } from '../src/account/monitor';
+import {
+  CredentialRepairRequiredError,
+  DebugReadUnavailableError,
+} from '../src/common/credential_repair';
 import { registerSsoSession } from '../src/account/sso_session';
+import { getLogger } from '../src/common/logger';
 
 const tickets = vi.hoisted(() => ({ rkeys: vi.fn(), clientKey: vi.fn(), dress: vi.fn() }));
 vi.mock('../src/account/online_ticket', () => ({
@@ -116,6 +121,49 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it.each([true, false])('重复检查已登记的凭据不重复记录复用日志：stored=%s', async (stored) => {
+    const logger = getLogger().child({});
+    const info = vi.spyOn(logger, 'info');
+    const child = vi.spyOn(getLogger(), 'child').mockReturnValueOnce(logger);
+    const f = fixture(stored);
+    child.mockRestore();
+    const reuseLogs = () =>
+      info.mock.calls.filter(([, context]) => context?.event === 'sso-session-reused');
+
+    await f.monitor.ensureCredentialsReady(42);
+    expect(reuseLogs()).toHaveLength(stored ? 1 : 0);
+    await f.monitor.ensureCredentialsReady(42);
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    expect(f.hook.ensure).toHaveBeenCalledTimes(stored ? 0 : 1);
+    expect(reuseLogs()).toHaveLength(stored ? 1 : 0);
+
+    f.record.session = { ...material, d2: 'dd', pid: 42 };
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(reuseLogs()).toHaveLength(stored ? 2 : 1);
+    f.monitor.stop();
+  });
+
+  it('复用登记失败不记录成功，重试成功后只记录一次', async () => {
+    const logger = getLogger().child({});
+    const info = vi.spyOn(logger, 'info');
+    const child = vi.spyOn(getLogger(), 'child').mockReturnValueOnce(logger);
+    const f = fixture(true);
+    child.mockRestore();
+    const reuseLogs = () =>
+      info.mock.calls.filter(([, context]) => context?.event === 'sso-session-reused');
+    f.nt.setSsoSession.mockRejectedValueOnce(new Error('登记失败'));
+
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('登记失败');
+    expect(reuseLogs()).toHaveLength(0);
+    await f.monitor.ensureCredentialsReady(42);
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(reuseLogs()).toHaveLength(1);
+    f.monitor.stop();
+  });
+
   it('按需等待 SSO 登记，不等待或重复获取 rkey 等网络票据', async () => {
     const f = fixture(true);
     const registration = deferred<void>();
@@ -192,6 +240,50 @@ describe('account monitor authorization and SSO readiness', () => {
     await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
     await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
     expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('调试权限被拒后结束进入中，保留后台重试及副本引导', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValue(new DebugReadUnavailableError('请启动 QQ 调试副本'));
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(f.monitor.credentialIssue).toBeNull();
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(f.hook.ensure.mock.calls.length).toBeGreaterThan(1);
+    expect(f.monitor.credentialsPending).toBe(false);
+    f.monitor.stop();
+  });
+
+  it('长期授权需要修复时不再显示进入中，并把可操作原因交给界面', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValue(
+      new CredentialRepairRequiredError('长期授权需要修复：权限助手接口已更新，请修复后重试。'),
+    );
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(f.monitor.credentialIssue).toEqual({
+      title: '长期授权需要修复',
+      message: '长期授权需要修复：权限助手接口已更新，请修复后重试。',
+    });
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+    expect(f.monitor.credentialIssue).toBeNull();
+  });
+
+  it('长期授权修复后再次成功会清掉原因并恢复进入中判定', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValueOnce(
+      new CredentialRepairRequiredError('长期授权需要修复：权限助手接口已更新，请修复后重试。'),
+    );
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('长期授权需要修复');
+    expect(f.monitor.credentialIssue).not.toBeNull();
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.monitor.credentialIssue).toBeNull();
+    expect(f.monitor.credentialsPending).toBe(false);
     f.monitor.stop();
   });
 

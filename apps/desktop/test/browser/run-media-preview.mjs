@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { createServer } from 'vite';
 import sharp from 'sharp';
+import { runMediaPreviewTouch } from './media-preview-touch.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
@@ -211,9 +212,87 @@ try {
           .evaluate((el) => document.activeElement === el),
         true,
       );
+      await page.getByRole('button', { name: '打开混排', exact: true }).click();
+      await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '1 / 2');
+      assert.equal(
+        await page.getByRole('button', { name: '上一项媒体', exact: true }).isDisabled(),
+        true,
+      );
+      assert.equal(
+        await page.getByRole('button', { name: '下一项媒体', exact: true }).isEnabled(),
+        true,
+      );
+      const viewport = await page.locator('.weq-preview-viewport').boundingBox();
+      await page.mouse.click(viewport.x + 5, viewport.y + 10);
+      assert.equal(await page.getByRole('dialog').count(), 1);
+      await page.mouse.click(viewport.x + viewport.width - 5, viewport.y + 10);
+      await page.waitForFunction(
+        () => document.querySelector('.weq-unified-preview video')?.readyState >= 2,
+      );
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 2');
+      assert.equal(
+        await page.getByRole('button', { name: '下一项媒体', exact: true }).isDisabled(),
+        true,
+      );
+      await page.keyboard.press('ArrowRight');
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 2');
+      assert.equal(await page.getByText('没有更新的媒体', { exact: true }).count(), 0);
+      const comment = page.getByRole('textbox', { name: '媒体评论' });
+      await comment.focus();
+      await page.keyboard.press('ArrowLeft');
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 2');
+      await page.getByRole('button', { name: '追加合成媒体', exact: true }).click();
+      await page.waitForFunction(
+        () => document.querySelector('.weq-preview-count')?.textContent === '2 / 3',
+      );
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 3');
+      assert.equal(
+        await page.getByRole('button', { name: '下一项媒体', exact: true }).isEnabled(),
+        true,
+      );
+      await fits();
+      if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-mixed.png`) });
+      await page.getByRole('button', { name: '下一项媒体', exact: true }).click();
+      await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '3 / 3');
+      const next = page.getByRole('button', { name: '下一项媒体', exact: true });
+      assert.equal(await next.isDisabled(), true);
+      assert.equal(await next.evaluate((el) => getComputedStyle(el).opacity), '0.3');
+      if (output)
+        await page.screenshot({ path: resolve(output, `${theme}-${width}-boundary.png`) });
+      await close();
+      await page.getByRole('button', { name: '打开表情包', exact: true }).click();
+      await page.locator('.weq-mface-lb-cell').click();
+      await page.locator('.weq-mface-detail').waitFor();
+      await page.keyboard.press('Escape');
+      await page.locator('.weq-mface-lb-grid').waitFor();
+      await close();
       cases++;
     }
   }
+  await page.getByRole('button', { name: '打开渐进图片', exact: true }).click();
+  await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+  assert.ok(
+    await page
+      .locator('.weq-unified-preview img')
+      .evaluate(
+        (image) => image.complete && image.naturalWidth === 640 && image.src.includes('v=thumb'),
+      ),
+  );
+  const thumbnailPixels = await sharp(
+    await page.locator('.weq-unified-preview img').screenshot(),
+  ).stats();
+  assert.ok(thumbnailPixels.channels[1].mean > 80);
+  assert.equal(requests.filter((value) => value.includes('token=progressiveFull')).length, 0);
+  await page.getByRole('button', { name: '放大', exact: true }).click();
+  await page.evaluate(() => window.releasePreviewDetail());
+  await page.waitForFunction(() =>
+    document.querySelector('.weq-unified-preview img')?.src.includes('token=progressiveFull'),
+  );
+  await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+  assert.match(await page.locator('.weq-lightbox-frame').getAttribute('style'), /scale\(1\.25\)/);
+  await close();
   // 在真实 Chromium 事件循环中合成单指拖动和取消，验证可继续下一次手势。
   await page.getByRole('button', { name: '打开图片', exact: true }).click();
   await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
@@ -239,9 +318,10 @@ try {
   });
   assert.match(await page.locator('.weq-lightbox-frame').getAttribute('style'), /30px/);
   await close();
+  const touchCases = await runMediaPreviewTouch(page, output);
   assert.deepEqual(errors, []);
   assert.ok(requests.some((value) => value.includes('_weq_retry=1')));
-  console.log(JSON.stringify({ cases, errors, mediaRequests: requests.length }));
+  console.log(JSON.stringify({ cases, touchCases, errors, mediaRequests: requests.length }));
 } finally {
   await browser?.close();
   await server.close();

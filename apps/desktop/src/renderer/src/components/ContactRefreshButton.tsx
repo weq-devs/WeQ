@@ -7,6 +7,8 @@ import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { SegmentedControl } from './SegmentedControl';
 import { useContactRefreshTask } from '../hooks/useContactRefreshTask';
 import '../styles/contact-directory-order.css';
+import type { ContactMetric } from '@weq/service';
+import { PREFERENCES_CHANGED, changePreference, preferenceValue } from '../lib/clientPreferences';
 
 export function ContactRefreshButton({
   onRefresh,
@@ -41,26 +43,32 @@ export function ContactCacheRefreshDialog({
   onClose,
   onRefresh,
   stale = false,
+  fields,
 }: {
   onClose: () => void;
   onRefresh?: () => void;
   stale?: boolean;
+  fields?: ContactMetric[];
 }) {
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: Boolean(uin),
   });
   const [range, setRange] = useState<'older24h' | 'all' | 'none'>('older24h');
-  const storageKey = `weq.contacts.refreshRange.${config.data?.configId ?? ''}.${uin ?? ''}`;
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved === 'older24h' || saved === 'all' || saved === 'none') setRange(saved);
-      else setRange('older24h');
-    } catch {
-      /* 使用默认更新范围。 */
-    }
-  }, [storageKey]);
+    const update = () => {
+      try {
+        const saved = preferenceValue('contactOrder').refreshRange;
+        if (saved === 'older24h' || saved === 'all' || saved === 'none') setRange(saved);
+        else setRange('older24h');
+      } catch {
+        /* 使用默认更新范围。 */
+      }
+    };
+    update();
+    window.addEventListener(PREFERENCES_CHANGED, update);
+    return () => window.removeEventListener(PREFERENCES_CHANGED, update);
+  }, []);
   const rebuild = trpc.account.contactMetrics.rebuild.useMutation();
   const showError = useDialog((state) => state.showError);
   const start = async () => {
@@ -72,7 +80,12 @@ export function ContactCacheRefreshDialog({
     if (!uin || config.data?.uin !== uin) return;
     const binding = { expectedAccountUin: uin, expectedAccountConfigId: config.data.configId };
     try {
-      const taskId = await rebuild.mutateAsync({ ...binding, missingOnly: false, range });
+      const taskId = await rebuild.mutateAsync({
+        ...binding,
+        missingOnly: false,
+        range,
+        ...(fields?.length ? { fields } : {}),
+      });
       onClose();
       if (useViewState.getState().openedUin === uin) {
         onRefresh?.();
@@ -123,12 +136,7 @@ export function ContactCacheRefreshDialog({
             ]}
             onChange={(value) => {
               setRange(value);
-              if (config.data?.uin === uin)
-                try {
-                  localStorage.setItem(storageKey, value);
-                } catch {
-                  /* 更新范围不影响操作。 */
-                }
+              void changePreference('contactOrder', { refreshRange: value });
             }}
           />
           {config.error && <p role="alert">账号信息读取失败：{config.error.message}</p>}

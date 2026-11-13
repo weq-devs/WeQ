@@ -4,7 +4,7 @@ import '../styles/remote-shell.css';
 
 declare global {
   interface Window {
-    weqRemoteShell?: { openMenu: () => void };
+    weqRemoteShell?: { openMenu: () => void; connectionFailed?: () => void };
     weqMobileNavigation?: { back: () => boolean };
   }
 }
@@ -22,7 +22,7 @@ function useRemoteShellAvailable() {
 
 export function RemoteShellMenuItem({ onClose }: { onClose: () => void }) {
   const available = useRemoteShellAvailable();
-  if (!available || !window.matchMedia('(max-width: 760px)').matches) return null;
+  if (!available) return null;
   return (
     <button
       type="button"

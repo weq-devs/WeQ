@@ -3,7 +3,11 @@
 import type { SearchCategory } from '@weq/service';
 import type { ContactSearchHit, GroupSearchHit } from '@weq/service';
 export type { ContactSearchHit, GroupSearchHit } from '@weq/service';
-import { DEFAULT_SEARCH_CATEGORIES, searchNameRank } from '@weq/service/search-policy';
+import {
+  DEFAULT_SEARCH_CATEGORIES,
+  searchNameRank,
+  type SearchSource,
+} from '@weq/service/search-policy';
 export { DEFAULT_SEARCH_CATEGORIES } from '@weq/service/search-policy';
 export type { SearchCategory } from '@weq/service';
 import type { GeneratedSearchHit } from '@weq/service';
@@ -48,6 +52,7 @@ export interface ChatRecordSearchHit {
   targetUin: string;
   name: string;
   count: number;
+  matchedBulletins?: number;
 }
 
 export interface FileSearchHit {
@@ -158,7 +163,7 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
   conversation: { label: '会话', plural: '会话' },
   friend: { label: '好友', plural: '好友' },
   groupMember: { label: '群友', plural: '群友' },
-  chatRecord: { label: '消息', plural: '消息' },
+  chatRecord: { label: '聊天记录', plural: '聊天记录' },
   file: { label: '文件', plural: '文件' },
   qzone: { label: '空间', plural: '空间' },
   collection: { label: '收藏', plural: '收藏' },
@@ -173,6 +178,12 @@ export const CATEGORY_META: Record<SearchCategory, { label: string; plural: stri
   mailMessage: { label: '邮件', plural: '邮件' },
   marketEmoji: { label: '商城表情', plural: '商城表情' },
   guildMessage: { label: '频道私聊', plural: '频道私聊' },
+  groupBulletin: { label: '群公告', plural: '群公告' },
+  groupEssence: { label: '群精华', plural: '群精华' },
+  flashFile: { label: '闪传文件', plural: '闪传文件' },
+  qzoneComment: { label: '空间评论', plural: '空间评论与回复' },
+  otherQzoneComment: { label: '他人空间评论', plural: '他人空间评论与回复' },
+  qzonePublicComment: { label: '空友评论', plural: '空友评论与回复' },
 };
 
 export const CONTENT_CATEGORY_ORDER: ContentSearchCategory[] = [
@@ -185,9 +196,26 @@ export const CONTENT_CATEGORY_ORDER: ContentSearchCategory[] = [
   'mailMessage',
   'marketEmoji',
   'guildMessage',
+  'groupBulletin',
+  'groupEssence',
+  'flashFile',
+  'qzoneComment',
+  'otherQzoneComment',
+  'qzonePublicComment',
 ];
 
 export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [...DEFAULT_SEARCH_CATEGORIES];
+
+export function searchHitSource(hit: SearchHit): SearchSource {
+  if (hit.category === 'assistantMessage') return 'assistant';
+  if (
+    hit.category === 'cloneMessage' ||
+    (hit.category === 'contact' && hit.target?.kind === 'persona') ||
+    (hit.category === 'group' && hit.target)
+  )
+    return 'clone';
+  return 'qq';
+}
 
 export function searchHitNameRank(hit: SearchHit, keyword: string): number {
   switch (hit.category) {
@@ -247,6 +275,12 @@ export function searchHitKey(hit: SearchHit): string {
     case 'mailMessage':
     case 'marketEmoji':
     case 'guildMessage':
+    case 'groupBulletin':
+    case 'groupEssence':
+    case 'flashFile':
+    case 'qzoneComment':
+    case 'otherQzoneComment':
+    case 'qzonePublicComment':
       return hit.id;
   }
 }

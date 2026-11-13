@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { useToast } from '../src/renderer/src/components/Toast';
+import { pageSnapshots, pageValue } from '../src/renderer/src/lib/pageSnapshots';
 import {
   useChatShellController,
   noopChatShellHistoryAdapter,
@@ -39,6 +41,7 @@ const group: GroupConversation = {
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  useToast.setState({ toasts: [] });
   vi.unstubAllGlobals();
 });
 
@@ -89,6 +92,44 @@ it('重建界面恢复栏目和联系人详情，另一数据源不继承旧导�
   const other = mount(storage, 'account:source-b');
   expect(other.state().view).toBe('messages');
   expect(other.state().selectedContactId).toBeNull();
+});
+
+it('旧标签相册章节快照恢复为概览，不重新打开已移除的聚合页', () => {
+  const storage = new Storage();
+  const scope = 'removed-label-albums';
+  const first = mount(storage, scope);
+  act(() => first.state().openContactDetails(person, 'marks'));
+  pageSnapshots.write(JSON.stringify([scope, 'shell:contact-detail']), 'labels');
+  const restored = mount(storage, scope);
+  expect(restored.state().selectedContactId).toBe(person.id);
+  expect(restored.state().contactWorkspaceTab).toBe('profile');
+});
+
+it.each([
+  'profile',
+  'details',
+  'signatures',
+  'questions',
+  'marks',
+  'group',
+  'personality',
+  'portrait',
+  'history',
+  'edit',
+] as const)('联系人 %s 分区可保存并从磁盘恢复，不误报存储失败', (tab) => {
+  const storage = new Storage();
+  const scope = 'contact-sections';
+  const first = mount(storage, scope);
+  act(() => first.state().openContactDetails(person, tab === 'profile' ? 'marks' : 'profile'));
+  act(() => first.state().setContactWorkspaceTab(tab));
+  expect(first.state().contactWorkspaceTab).toBe(tab);
+  expect(useToast.getState().toasts).toEqual([]);
+  // 直接读磁盘，不能让同一工作区的内存兜底掩盖保存失败。
+  expect(
+    pageSnapshots.read(JSON.stringify([scope, 'shell:contact-detail']), pageValue.string),
+  ).toBe(tab);
+  const restored = mount(storage, scope);
+  expect(restored.state().contactWorkspaceTab).toBe(tab);
 });
 
 it.each(['home', 'messages'] as const)('正常启动进入 %s，后续崩溃重建恢复新现场', (page) => {
@@ -150,22 +191,60 @@ it('目录外群名片可展开，连续切换不会残留前一个好友或群'
   expect(p.state().contactWorkspaceTab).toBe('profile');
 });
 
-it('切换好友与群聊分别保留详情和好友分区，未选对象时显示群交集首页', () => {
+it('切换左侧好友与群聊不替换或关闭右侧详情，点击对象才切换详情', () => {
   const p = mount();
   act(() => p.state().openContactDetails(person, 'marks'));
   act(() => p.state().changeContactTab('groups'));
-  expect(p.state().selectedContact).toBeUndefined();
-  expect(p.state().selectedGroupConversation).toBeUndefined();
-  expect(p.state().contactOverviewOpen).toBe(true);
-  act(() => p.state().openGroupDetails(group));
-  act(() => p.state().changeContactTab('friends'));
+  expect(p.state().contactTab).toBe('groups');
   expect(p.state().selectedContact).toEqual(person);
   expect(p.state().selectedGroupConversation).toBeUndefined();
   expect(p.state().contactWorkspaceTab).toBe('marks');
+  expect(p.state().contactOverviewOpen).toBe(false);
+  expect(p.state().mainOpen).toBe(true);
+  act(() => p.state().openGroupDetails(group));
+  act(() => p.state().changeContactTab('friends'));
+  expect(p.state().contactTab).toBe('friends');
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().selectedGroupConversation).toEqual(group);
+  expect(p.state().contactOverviewOpen).toBe(false);
+  expect(p.state().mainOpen).toBe(true);
   act(() => p.state().changeContactTab('groups'));
   expect(p.state().selectedGroupConversation).toEqual(group);
   expect(p.state().selectedContact).toBeUndefined();
+  act(() => p.state().selectContact(person));
+  expect(p.state().selectedContact).toEqual(person);
+  expect(p.state().selectedGroupConversation).toBeUndefined();
+  act(() => p.state().selectGroup(group.id));
+  expect(p.state().selectedGroupConversation).toEqual(group);
+  expect(p.state().selectedContact).toBeUndefined();
   expect(p.read).not.toHaveBeenCalled();
+});
+
+it('重建界面时分别恢复左侧分类和右侧已打开详情', () => {
+  const storage = new Storage();
+  const scope = 'independent-contact-detail';
+  const first = mount(storage, scope);
+  act(() => first.state().openContactDetails(person, 'marks'));
+  act(() => first.state().changeContactTab('groups'));
+  const restored = mount(storage, scope);
+  expect(restored.state().contactTab).toBe('groups');
+  expect(restored.state().selectedContact).toEqual(person);
+  expect(restored.state().contactWorkspaceTab).toBe('marks');
+  expect(restored.state().contactOverviewOpen).toBe(false);
+});
+
+it('旧现场没有独立详情分类时，首次切换目录仍保留原详情', () => {
+  const storage = new Storage();
+  const scope = 'legacy-contact-detail';
+  mount(storage, scope);
+  pageSnapshots.write(JSON.stringify([scope, 'shell:view']), 'contacts');
+  pageSnapshots.write(JSON.stringify([scope, 'shell:contact-tab']), 'friends');
+  pageSnapshots.write(JSON.stringify([scope, 'shell:contact']), person.id);
+  const restored = mount(storage, scope);
+  expect(restored.state().selectedContact).toEqual(person);
+  act(() => restored.state().changeContactTab('groups'));
+  expect(restored.state().selectedContact).toEqual(person);
+  expect(mount(storage, scope).state().selectedContact).toEqual(person);
 });
 
 it('直接进入联系人且尚未打开好友或群聊时，默认显示群交集', () => {
@@ -173,6 +252,45 @@ it('直接进入联系人且尚未打开好友或群聊时，默认显示群交�
   act(() => p.state().switchView('contacts'));
   expect(p.state().selectedContact).toBeUndefined();
   expect(p.state().selectedGroupConversation).toBeUndefined();
+  expect(p.state().contactOverviewOpen).toBe(true);
+});
+
+it.each(['home', 'messages', 'qzone', 'export', 'agentlab'] as const)(
+  '从 %s 打开资料，连续查看联系人和群后关闭仍返回来源页',
+  (view) => {
+    const p = mount();
+    act(() => p.state().switchView(view));
+    act(() => p.state().setQuery('来源查询'));
+    act(() => p.state().openContactDetails(person));
+    act(() => p.state().openGroupDetails(group));
+    act(() => p.state().backGroup());
+    expect(p.state().view).toBe(view);
+    expect(p.state().query).toBe('来源查询');
+    expect(p.state().selectedContact).toBeUndefined();
+    expect(p.state().selectedGroupConversation).toBeUndefined();
+  },
+);
+
+it('从联系人目录打开资料，关闭清空两类选择并回到群交集', () => {
+  const p = mount();
+  act(() => p.state().switchView('contacts'));
+  act(() => p.state().openContactDetails(person));
+  act(() => p.state().openGroupDetails(group));
+  act(() => p.state().backGroup());
+  expect(p.state().view).toBe('contacts');
+  expect(p.state().contactOverviewOpen).toBe(true);
+  act(() => p.state().changeContactTab('friends'));
+  expect(p.state().selectedContact).toBeUndefined();
+});
+
+it('主动离开资料页后，重新从联系人目录打开不沿用旧来源', () => {
+  const p = mount();
+  act(() => p.state().switchView('qzone'));
+  act(() => p.state().openContactDetails(person));
+  act(() => p.state().switchView('contacts'));
+  act(() => p.state().selectContact(person));
+  act(() => p.state().backContact());
+  expect(p.state().view).toBe('contacts');
   expect(p.state().contactOverviewOpen).toBe(true);
 });
 

@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 维护与诊断工具「ntqq 抓包」面板。
  *
@@ -132,9 +133,7 @@ function fmtBytes(bytes: number): string {
 }
 
 function fmtClock(ts: number): string {
-  const d = new Date(ts);
-  const p = (n: number, w = 2): string => String(n).padStart(w, '0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+  return timeFormat.formatClock(ts, 'millisecond');
 }
 
 /** 加密类型文案（native：0 = 不加密，1 = d2key，2 = 全零 key）。 */
@@ -246,7 +245,10 @@ function FrameDetail({
               ['命令字', frame.cmd ?? '（无命令字）'],
               ['序号', `seq ${frame.seq}`],
               ['加密', encryptLabel(frame.encryptType)],
-              ['时间', `${fmtClock(frame.ts)}（游标 ${frame.cursor}）`],
+              [
+                '时间',
+                `${timeFormat.formatDateTime(frame.ts, 'millisecond')}（游标 ${frame.cursor}）`,
+              ],
               ['proto', String(frame.proto)],
               ['原始大小', fmtBytes(raw.length)],
               ['解密大小', payload.length > 0 ? fmtBytes(payload.length) : '—（未解开）'],

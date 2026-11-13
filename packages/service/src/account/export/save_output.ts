@@ -1,8 +1,8 @@
 import { cp, link, lstat, open, readdir, unlink, writeFile } from 'node:fs/promises';
 import { createReadStream, existsSync, realpathSync } from 'node:fs';
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
+import { fileExtension, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import { createAtomicExportBundle } from './atomic_bundle';
 import { fileSha256 } from './resume';
 import { assertDestinationCapacity } from './storage_preflight';
@@ -20,6 +20,8 @@ export interface ExportSaveState {
   policy: ExportSavePolicy;
   status: 'pending' | 'saving' | 'saved' | 'failed' | 'interrupted';
   path?: string;
+  /** 最近一次成功保存的时间；再次保存失败时保留。 */
+  savedAt?: number;
   error?: string;
 }
 
@@ -321,7 +323,7 @@ export async function saveExportOutput(
         });
       }
     } else {
-      const name = `${sanitizeSegment(output.name, 'export')}${extname(sourcePath)}`;
+      const name = `${sanitizeSegment(output.name, 'export')}${fileExtension(sourcePath)}`;
       await cp(sourcePath, join(bundle.stageDir, name), { force: false, errorOnExist: true });
       for (const report of reportFiles(output)) {
         const reportHash = await fileSha256(report.path, signal);
@@ -340,7 +342,7 @@ export async function saveExportOutput(
       )
         throw new Error('导出结果保存校验失败，未发布目标。');
     } else {
-      const name = `${sanitizeSegment(output.name, 'export')}${extname(sourcePath)}`;
+      const name = `${sanitizeSegment(output.name, 'export')}${fileExtension(sourcePath)}`;
       const info = await lstat(join(bundle.stageDir, name));
       if (
         `${info.size}:${await fileSha256(join(bundle.stageDir, name), signal)}` !==

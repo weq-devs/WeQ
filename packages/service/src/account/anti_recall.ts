@@ -37,6 +37,7 @@
 import {
   AntiRecallDb,
   expectedAntiRecallTriggers,
+  withDatabaseSignal,
   type AntiRecallTarget,
   type AntiRecallTriggerInfo,
   type RecallConvSummary,
@@ -45,6 +46,7 @@ import {
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { JsonStore } from '../common/json_store';
+import type { PreferencePersistence } from '../common/shared_preferences';
 import { DbWatchService, type DbWatchHandle, type DbWatchTask } from './db_watch';
 import { getLogger, logErrorContext } from '../common/logger';
 
@@ -76,6 +78,7 @@ export interface AntiRecallConfig {
 
 /** What the renderer needs to render the settings panel. */
 export interface AntiRecallStatus extends AntiRecallConfig {
+  settingsRevision?: number;
   /** Triggers actually present in the DB right now (source of truth for state). */
   installed: AntiRecallTriggerInfo[];
   /** True while QQ is running — installs are deferred / the UI warns to restart. */
@@ -94,6 +97,8 @@ export interface RecallNotifyEvent {
 }
 
 export interface AntiRecallOptions {
+  readOnly?: boolean;
+  preferences?: PreferencePersistence<AntiRecallConfig>;
   /**
    * Raised for every newly-recorded recall in a conversation whose notification
    * switch is on. Implemented in the Electron main process (native notification
@@ -109,6 +114,8 @@ const DEFAULT_CONFIG: AntiRecallConfig = {
   notifyEnabled: false,
   notifyTargets: [],
 };
+
+export { DEFAULT_CONFIG as DEFAULT_ANTI_RECALL_CONFIG };
 
 /** Conversation key used by {@link AntiRecallConfig.notifyTargets}. */
 export function notifyKey(kind: string, id: string): string {
@@ -139,6 +146,9 @@ export class AntiRecallService {
   /** nt_msg.db 的变更监听（只为「有新撤回记录」这一件事而挂）。 */
   private monitor: DbWatchService | null = null;
   private monitorHandle: DbWatchHandle | null = null;
+  private monitorReads: AbortController | null = null;
+  private monitorGeneration = 0;
+  private recallBaseline: Promise<void> | null = null;
   /**
    * 撤回记录的读取游标（`weq_recall_log` 的最大 msgid）。null = 尚未建立基线，
    * 下次 drain 只记录当前最大值、不通知 —— 保证启动 / 刚开启保护时不会把历史记录
@@ -158,6 +168,8 @@ export class AntiRecallService {
     private readonly opts: AntiRecallOptions = {},
   ) {
     this.configStore = new JsonStore(storePath, () => ({ ...DEFAULT_CONFIG }), {
+      persistence: opts.preferences,
+      strict: Boolean(opts.preferences),
       normalize: (raw) => {
         const parsed = (raw ?? {}) as Partial<AntiRecallConfig>;
         return {
@@ -180,6 +192,7 @@ export class AntiRecallService {
         };
       },
     });
+    if (opts.preferences) this.reconcileInBackground();
   }
 
   /** 当前配置（内存态）。 */
@@ -188,7 +201,7 @@ export class AntiRecallService {
   }
 
   private set config(next: AntiRecallConfig) {
-    this.configStore.data = next;
+    this.configStore.replace(next);
   }
 
   /** 缓存消息与 QQ 原库使用同一份保护范围。 */
@@ -202,17 +215,13 @@ export class AntiRecallService {
 
   /** Current config + live trigger state + whether QQ is running. */
   async getStatus(): Promise<AntiRecallStatus> {
-    const db = this.openDb();
-    try {
-      const installed = await db.status();
-      return {
-        ...this.config,
-        installed,
-        qqRunning: this.isQqRunning(),
-      };
-    } finally {
-      db.close();
-    }
+    const installed = this.opts.readOnly ? [] : await this.openDb().status();
+    return {
+      ...this.config,
+      settingsRevision: this.opts.preferences?.revision?.(),
+      installed,
+      qqRunning: this.isQqRunning(),
+    };
   }
 
   /**
@@ -223,19 +232,15 @@ export class AntiRecallService {
    */
   async listRecalls(kind: 'c2c' | 'group', conv: string): Promise<RecallLogRow[]> {
     const db = this.openDb();
-    try {
-      const rows = await db.listRecalls(kind, conv);
-      if (kind !== 'c2c') return rows;
-      // 数据线（我的手机 / 我的电脑）在消息库里是**独立一张表**、触发器也单独一张，
-      // 但会话 key 与私聊同为 40021 的 uid。面板 / 消息标记只知道 'c2c' 这一档，
-      // 所以这里把 dataline 的记录一起取回 —— 同一个 conv 不会同时出现在两张表里，
-      // 合并无副作用，却让数据线的撤回记录也能看见。
-      const dataline = await db.listRecalls('dataline', conv);
-      if (dataline.length === 0) return rows;
-      return [...rows, ...dataline].sort((a, b) => b.recallTs - a.recallTs);
-    } finally {
-      db.close();
-    }
+    const rows = await db.listRecalls(kind, conv);
+    if (kind !== 'c2c') return rows;
+    // 数据线（我的手机 / 我的电脑）在消息库里是**独立一张表**、触发器也单独一张，
+    // 但会话 key 与私聊同为 40021 的 uid。面板 / 消息标记只知道 'c2c' 这一档，
+    // 所以这里把 dataline 的记录一起取回 —— 同一个 conv 不会同时出现在两张表里，
+    // 合并无副作用，却让数据线的撤回记录也能看见。
+    const dataline = await db.listRecalls('dataline', conv);
+    if (dataline.length === 0) return rows;
+    return [...rows, ...dataline].sort((a, b) => b.recallTs - a.recallTs);
   }
 
   /**
@@ -244,13 +249,8 @@ export class AntiRecallService {
    * Rows without a usable conversation key are dropped.
    */
   async listRecallConversations(): Promise<RecallConvSummary[]> {
-    const db = this.openDb();
-    try {
-      const summaries = await db.recallSummaries();
-      return summaries.filter((s) => s.conv !== '');
-    } finally {
-      db.close();
-    }
+    const summaries = await this.openDb().recallSummaries();
+    return summaries.filter((s) => s.conv !== '');
   }
 
   /**
@@ -276,7 +276,6 @@ export class AntiRecallService {
   /** Flip the master switch, then reconcile triggers to match. Persists. */
   async setEnabled(enabled: boolean): Promise<AntiRecallStatus> {
     this.config = { ...this.config, enabled };
-    this.persist();
     // (重新)开启保护时重建通知基线：历史记录不该在新一轮里弹出来。
     this.resetRecallBaseline();
     this.reconcileInBackground();
@@ -294,7 +293,6 @@ export class AntiRecallService {
     const mode: 'selected' | 'all' = scope === 'all' ? 'all' : 'selected';
     const wasEnabled = this.config.enabled;
     this.config = { ...this.config, enabled, mode };
-    this.persist();
     if (enabled && !wasEnabled) this.resetRecallBaseline();
     this.reconcileInBackground();
     return this.optimisticStatus();
@@ -306,7 +304,6 @@ export class AntiRecallService {
    */
   async setMode(mode: 'selected' | 'all'): Promise<AntiRecallStatus> {
     this.config = { ...this.config, mode };
-    this.persist();
     this.reconcileInBackground();
     return this.optimisticStatus();
   }
@@ -326,7 +323,6 @@ export class AntiRecallService {
       clean.push(t);
     }
     this.config = { ...this.config, targets: clean };
-    this.persist();
     this.reconcileInBackground();
     return this.optimisticStatus();
   }
@@ -342,7 +338,6 @@ export class AntiRecallService {
       next.notifyTargets = [...new Set(input.targets.filter((k) => typeof k === 'string' && k))];
     }
     this.config = next;
-    this.persist();
     return this.optimisticStatus();
   }
 
@@ -353,10 +348,15 @@ export class AntiRecallService {
    */
   startMonitor(): void {
     if (this.monitorHandle) return;
+    const generation = ++this.monitorGeneration;
     this.monitor = new DbWatchService({ intervalMs: 1_000 });
     const task: DbWatchTask = {
       dbPath: this.session.msgDbPath,
-      onDbFileChangeHook: () => this.drainRecalls(),
+      onDbFileChangeHook: () => {
+        const reads = this.monitorReads;
+        if (generation !== this.monitorGeneration || !reads) return;
+        return withDatabaseSignal(reads.signal, () => this.drainRecalls(reads));
+      },
     };
     this.monitorHandle = this.monitor.mount(task);
     this.resetRecallBaseline();
@@ -364,6 +364,11 @@ export class AntiRecallService {
 
   /** Stop the recall monitor. Idempotent. */
   stopMonitor(): void {
+    this.monitorGeneration++;
+    this.monitorReads?.abort();
+    this.monitorReads = null;
+    this.recallBaseline = null;
+    this.recallCursor = null;
     this.monitorHandle?.unmount();
     this.monitorHandle = null;
     this.monitor = null;
@@ -380,6 +385,7 @@ export class AntiRecallService {
    * callers surface `qqRunning` as a heads-up.
    */
   async applyTriggers(): Promise<void> {
+    if (this.opts.readOnly) return;
     const db = this.openDb();
     try {
       const allConversations = this.config.enabled && this.config.mode === 'all';
@@ -396,6 +402,7 @@ export class AntiRecallService {
    * (SQLCipher) write. Failures are logged; a later `getStatus` shows reality.
    */
   private reconcileInBackground(): void {
+    if (this.opts.readOnly) return;
     void this.applyTriggers().catch((error) => {
       logger.warn('anti-recall reconcile failed', {
         event: 'anti-recall-reconcile-failed',
@@ -406,10 +413,12 @@ export class AntiRecallService {
 
   /** Status snapshot built from the desired config (no DB read). */
   private optimisticStatus(): AntiRecallStatus {
-    const allConversations = this.config.enabled && this.config.mode === 'all';
-    const active = this.config.enabled ? this.config.targets : [];
+    const allConversations =
+      !this.opts.readOnly && this.config.enabled && this.config.mode === 'all';
+    const active = !this.opts.readOnly && this.config.enabled ? this.config.targets : [];
     return {
       ...this.config,
+      settingsRevision: this.opts.preferences?.revision?.(),
       installed: expectedAntiRecallTriggers(allConversations, active),
       qqRunning: this.isQqRunning(),
     };
@@ -426,18 +435,30 @@ export class AntiRecallService {
    */
   private resetRecallBaseline(): void {
     this.recallCursor = null;
-    void this.initRecallBaseline();
+    this.monitorReads?.abort();
+    this.monitorReads = null;
+    this.recallBaseline = null;
+    if (!this.monitorHandle) return;
+    const reads = new AbortController();
+    this.monitorReads = reads;
+    const baseline = withDatabaseSignal(reads.signal, () => this.initRecallBaseline(reads));
+    this.recallBaseline = baseline;
+    void baseline.finally(() => {
+      if (this.recallBaseline === baseline) this.recallBaseline = null;
+    });
   }
 
-  private async initRecallBaseline(): Promise<void> {
+  private monitorCurrent(reads: AbortController): boolean {
+    return this.monitorReads === reads && !reads.signal.aborted && this.monitorHandle !== null;
+  }
+
+  private async initRecallBaseline(reads: AbortController): Promise<void> {
     try {
       const db = this.openDb();
-      try {
-        this.recallCursor = await db.latestRecallCursor();
-      } finally {
-        db.close();
-      }
+      const cursor = await db.latestRecallCursor();
+      if (this.monitorCurrent(reads)) this.recallCursor = cursor;
     } catch (error) {
+      if (!this.monitorCurrent(reads)) return;
       // Leave the cursor null — the next drain will baseline instead.
       logger.debug('anti-recall baseline failed', {
         event: 'anti-recall-baseline-failed',
@@ -453,19 +474,26 @@ export class AntiRecallService {
    * cursor so enabling a conversation's notification later does not dump the
    * backlog.
    */
-  private async drainRecalls(): Promise<void> {
+  private async drainRecalls(reads: AbortController): Promise<void> {
+    if (!this.monitorCurrent(reads)) return;
     if (!this.config.enabled && !this.config.notifyEnabled) return;
+    if (this.recallBaseline) await this.recallBaseline;
+    if (!this.monitorCurrent(reads)) return;
+    // 只读包装复用账号连接；close 会关闭同库其他读者的 native 缓存。
     const db = this.openDb();
     try {
       if (this.recallCursor === null) {
-        this.recallCursor = await db.latestRecallCursor();
+        const cursor = await db.latestRecallCursor();
+        if (this.monitorCurrent(reads)) this.recallCursor = cursor;
         return;
       }
       let cursor = this.recallCursor;
       for (let page = 0; page < 20; page++) {
         const rows = await db.listRecallsAfter(cursor, 200);
+        if (!this.monitorCurrent(reads)) return;
         if (rows.length === 0) break;
         for (const row of rows) {
+          if (!this.monitorCurrent(reads)) return;
           // msgid 是 64 位整数，必须用 BigInt 比较：Number() 会向下取整，
           // 让游标卡在新记录下面、同一行被反复命中（重复弹通知）。
           const rowMsgId = BigInt(row.msgid);
@@ -489,14 +517,13 @@ export class AntiRecallService {
         }
         if (rows.length < 200) break;
       }
-      this.recallCursor = cursor;
+      if (this.monitorCurrent(reads)) this.recallCursor = cursor;
     } catch (error) {
+      if (!this.monitorCurrent(reads)) return;
       logger.debug('anti-recall drain failed', {
         event: 'anti-recall-drain-failed',
         ...logErrorContext(error),
       });
-    } finally {
-      db.close();
     }
   }
 
@@ -514,15 +541,12 @@ export class AntiRecallService {
     }
   }
 
+  /** 读取只借用账号连接；触发器写入路径仍负责 close 以释放写锁。 */
   private openDb(): AntiRecallDb {
     return new AntiRecallDb(this.platform.native.ntHelper, {
       dbPath: this.session.msgDbPath,
       key: this.session.context.dbKey,
       algo: algoFor(this.session.context, this.session.msgDbPath),
     });
-  }
-
-  private persist(): void {
-    this.configStore.save();
   }
 }

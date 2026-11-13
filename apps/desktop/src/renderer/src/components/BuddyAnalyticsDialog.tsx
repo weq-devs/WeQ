@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { DurationLabel } from './TimeLabel';
+import { EmptyState } from './EmptyState';
 import {
   Clock,
   Cloud,
@@ -24,7 +26,6 @@ import {
   HourlyBarChart,
   WordCloud,
   formatDate,
-  formatDuration,
   formatNumber,
 } from './analyticsCharts';
 import { useAnalyticsExport } from './useAnalyticsExport';
@@ -79,15 +80,21 @@ function ReplyCard({
         <div className="ba-reply-rows">
           <div>
             <small>最快</small>
-            <strong>{formatDuration(stats.fastestSec)}</strong>
+            <strong>
+              <DurationLabel seconds={stats.fastestSec} />
+            </strong>
           </div>
           <div>
             <small>平均</small>
-            <strong>{formatDuration(stats.avgSec)}</strong>
+            <strong>
+              <DurationLabel seconds={stats.avgSec} />
+            </strong>
           </div>
           <div>
             <small>最慢</small>
-            <strong>{formatDuration(stats.slowestSec)}</strong>
+            <strong>
+              <DurationLabel seconds={stats.slowestSec} />
+            </strong>
           </div>
         </div>
       ) : (
@@ -138,6 +145,7 @@ export function BuddyAnalyticsDialog({
   embedded = false,
   scope,
   periodLabel,
+  onRangeChange,
 }: {
   peerUid: string;
   peerName: string;
@@ -149,6 +157,7 @@ export function BuddyAnalyticsDialog({
   embedded?: boolean;
   scope?: AnalysisScope;
   periodLabel?: string;
+  onRangeChange?: (range: { start: number; end: number }) => void;
 }) {
   const [data, setData] = useState<BuddyAnalyticsData | null>(
     (initialData as BuddyAnalyticsData) ?? null,
@@ -262,13 +271,14 @@ export function BuddyAnalyticsDialog({
       {/* Hero: peer + overview */}
       <div className="ba-hero">
         <ProfileAvatar
+          className="weq-identity-link"
           enabled={!exportMode}
           target={{ identity: data.peer?.uid || peerUid, uin: data.peer?.uin, name: peerName }}
         >
           <Avatar name={peerName} avatarUrl={avatarUrl(data.peer?.uin)} />
+          <strong>{peerName}</strong>
         </ProfileAvatar>
         <div className="ba-hero-info">
-          <strong>{peerName}</strong>
           <span>
             {formatDate(stats.firstMessageTime)} — {formatDate(stats.lastMessageTime)}
           </span>
@@ -292,7 +302,10 @@ export function BuddyAnalyticsDialog({
             firstTime={data.timeline.firstMessageTime}
             lastTime={data.timeline.lastMessageTime}
             range={range}
-            onChange={setRange}
+            onChange={(next) => {
+              setRange(next);
+              onRangeChange?.(next);
+            }}
           />
         </section>
       ) : null}
@@ -470,7 +483,7 @@ export function BuddyAnalyticsDialog({
         {data.wordCloud && data.wordCloud.length > 0 ? (
           <WordCloud words={data.wordCloud} height={260} />
         ) : (
-          <span className="ga-chip-empty">暂无足够的文本生成词云</span>
+          <EmptyState compact icon={<Cloud />} title="暂无足够的文本生成词云" />
         )}
       </section>
 
@@ -547,7 +560,7 @@ export function BuddyAnalyticsDialog({
         ) : error ? (
           <AnalyticsRetry error={error} onRetry={() => void load()} />
         ) : !data ? (
-          <p className="ga-placeholder">暂无分析数据</p>
+          <EmptyState icon={<MessageSquare />} title="暂无分析数据" />
         ) : (
           renderSections()
         )}

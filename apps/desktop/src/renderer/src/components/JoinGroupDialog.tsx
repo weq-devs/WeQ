@@ -31,6 +31,8 @@ import { Loader2, Users } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
 import { GroupJoinQr } from './GroupJoinQr';
+import { IS_WEB } from '../lib/target';
+import { openExternalLink } from '../lib/openExternalLink';
 import logoUrl from '@resources/brand/logo.png';
 
 /** `mode` → 主按钮文案与一句引导语。 */
@@ -102,6 +104,10 @@ export function JoinGroupDialog(): ReactElement | null {
     setNote(null);
     try {
       const result = await join.mutateAsync();
+      if (IS_WEB && result.link) {
+        const opened = await openExternalLink(result.link);
+        if (!opened.ok) throw new Error(opened.error ?? '无法打开加群链接');
+      }
       if (result.action === 'inject') {
         setNote({ tone: 'ok', text: '入群申请已发送，请在 QQ 里留意群通知。' });
       } else if (result.action === 'deeplink') {

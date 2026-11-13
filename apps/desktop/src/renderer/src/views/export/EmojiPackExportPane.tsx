@@ -9,8 +9,9 @@
  * 图片字节不过 tRPC —— 预览走 weq-media://cemoji；进度与保存复用下方任务列表。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
-import { Check, Download, Heart, Inbox, Loader2, Sparkles } from 'lucide-react';
+import { Check, Download, Heart, Inbox, Loader2, Sparkles, Smile } from 'lucide-react';
 import type {
   EmojiExportScope,
   EmojiPackFormat,
@@ -21,6 +22,7 @@ import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
+import { LoadingIndicator } from '../../components/LoadingIndicator';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import '../../styles/emoji-pack-formats.css';
 import { useExportReportDialog } from './ExportReportControl';
@@ -262,9 +264,11 @@ function ScopeCard({
 
       <div className="weq-epk-stage">
         {loading && sample.length === 0 ? (
-          <div className="weq-epk-stage-empty">加载中…</div>
+          <div className="weq-epk-stage-empty" role="status">
+            <LoadingIndicator />
+          </div>
         ) : sample.length === 0 ? (
-          <div className="weq-epk-stage-empty">本地暂无该来源的表情</div>
+          <EmptyState compact icon={<Smile />} title="本地暂无该来源的表情" />
         ) : (
           <div className="weq-epk-cells">
             {sample.map((addr) => (

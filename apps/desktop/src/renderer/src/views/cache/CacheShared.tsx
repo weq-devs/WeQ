@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * Shared bits for the 本地资源 (cache) view: formatting helpers, the file-browser
  * toolbar + offset-paged infinite-scroll hook, the cursor-paged infinite-scroll
@@ -35,7 +36,9 @@ import {
 } from 'lucide-react';
 import type { FileCategory, FileSortKey, FileSortOrder } from '@weq/service';
 import { FooterSkeleton } from './CacheSkeleton';
+import { EmptyState } from '../../components/EmptyState';
 import { useTabActive } from '../../components/RetainedTabs';
+import { OverlayLayer } from '../../components/OverlayLayer';
 
 /** 重扫完成后重读资源数据，分类和筛选控件本身不重建。 */
 export const ResourceRevisionContext = createContext(0);
@@ -87,10 +90,7 @@ export function fmtBytes(bytes: number): string {
 }
 
 export function fmtDate(ms: number): string {
-  if (!ms) return '';
-  const d = new Date(ms);
-  const pad = (x: number): string => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return ms ? timeFormat.formatDateTime(ms) : '';
 }
 
 /** The category is an image kind — used to decide whether to try an inline preview. */
@@ -331,11 +331,8 @@ export function ListFooter({
   sentinelRef: React.RefObject<HTMLDivElement | null>;
 }): ReactElement {
   if (done) {
-    return (
-      <div className="weq-filebrowser-more is-end">
-        {count === 0 ? '没有匹配的文件' : `已全部加载（${count}）`}
-      </div>
-    );
+    if (count === 0) return <EmptyState compact icon={<Files />} title="没有匹配的文件" />;
+    return <div className="weq-filebrowser-more is-end">{`已全部加载（${count}）`}</div>;
   }
   if (loading) {
     return (
@@ -501,11 +498,8 @@ export function GridFooter({
   sentinelRef: React.RefObject<HTMLDivElement | null>;
 }): ReactElement {
   if (done) {
-    return (
-      <div className="weq-cache-avatar-more is-end">
-        {count === 0 ? '该分类暂无缓存' : `已全部加载（${count}）`}
-      </div>
-    );
+    if (count === 0) return <EmptyState compact icon={<Package />} title="该分类暂无缓存" />;
+    return <div className="weq-cache-avatar-more is-end">{`已全部加载（${count}）`}</div>;
   }
   if (loading) {
     return (
@@ -546,10 +540,11 @@ export function BlobDialog({
   children: ReactNode;
 }): ReactElement {
   return (
-    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-blob-overlay" onClose={onClose}>
       <div
         className={cn('weq-blob-dialog', dialogClass)}
         role="dialog"
+        aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="weq-blob-head">
@@ -563,7 +558,7 @@ export function BlobDialog({
         </header>
         <div className={cn('weq-blob-body', bodyClass)}>{children}</div>
       </div>
-    </div>
+    </OverlayLayer>
   );
 }
 

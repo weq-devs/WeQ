@@ -8,7 +8,7 @@ import {
   mergeSelectionGaps,
   type SelectionGap,
 } from '../src/renderer/src/lib/messageSelection';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { createSelectionGapIndex } from '../src/renderer/src/lib/selectionGapIndex';
 
 describe('message_selection', () => {

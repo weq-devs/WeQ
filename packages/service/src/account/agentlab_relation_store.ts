@@ -61,6 +61,16 @@ export class JsonRelationStore implements AgentLabRelationStore {
       .map((r) => this.withDecay(r));
   }
 
+  deletePersona(personaId: string): void {
+    const next = Object.fromEntries(
+      Object.entries(this.data).filter(
+        ([, relation]) =>
+          relation.subjectPersonaId !== personaId && relation.objectId !== personaId,
+      ),
+    );
+    this.store.replace(next, true);
+  }
+
   upsert(relation: AgentLabRelation): void {
     this.data[this.key(relation.subjectPersonaId, relation.objectId)] = clampRelation(relation);
     this.persist();

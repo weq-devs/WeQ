@@ -1,4 +1,5 @@
 import { Star, StarOff } from 'lucide-react';
+import { MessageMenuButton } from './MessageMenuButton';
 import { client, trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { qqEssenceTarget } from '../lib/qqEssenceTarget';
@@ -16,18 +17,22 @@ export function QQMessageEssenceAction({
   conversation,
   message,
   onClose,
+  removeLabel,
 }: {
   conversation: Conversation;
   message: Message;
   onClose: () => void;
+  removeLabel?: string;
 }) {
-  if (conversation.type !== 'group') return null;
+  if (conversation.type !== 'group' || !['owner', 'admin'].includes(conversation.group.role))
+    return null;
   return (
     <QQEssenceAction
       target={qqEssenceTarget(conversation, message)}
       initialActive={conversation.group.essenceSeqs?.includes(message.msgSeq ?? '') ?? false}
       allowed={conversation.group.role === 'owner' || conversation.group.role === 'admin'}
       onClose={onClose}
+      removeLabel={removeLabel}
     />
   );
 }
@@ -38,12 +43,14 @@ export function QQEssenceAction({
   allowed,
   onClose,
   iconOnly = false,
+  removeLabel = '取消精华',
 }: {
   target: EssenceTarget | null;
   initialActive: boolean;
   allowed: boolean;
   onClose?: () => void;
   iconOnly?: boolean;
+  removeLabel?: string;
 }) {
   const session = useQQWriteSession(`essence:${target?.groupId}:${target?.sequence}`);
   const mutation = trpc.account.qqWrite.groupEssence.useMutation();
@@ -98,19 +105,19 @@ export function QQEssenceAction({
   }
   return (
     <>
-      <button
+      <MessageMenuButton
         type="button"
         className={iconOnly ? 'weq-set-iconbtn weq-essence-remove' : undefined}
-        aria-label={active ? '取消精华' : '设为精华'}
-        title={reason || (active ? '取消精华' : '设为精华')}
+        aria-label={active ? removeLabel : '设为精华'}
+        title={reason || (active ? removeLabel : '设为精华')}
         disabled={Boolean(reason) || session.busy || Boolean(receipt?.pending)}
         onClick={() => {
           void submit();
         }}
       >
         {active ? <StarOff size={17} /> : <Star size={17} />}
-        {!iconOnly && <span>{active ? '取消精华' : '设为精华'}</span>}
-      </button>
+        {!iconOnly && <span>{active ? removeLabel : '设为精华'}</span>}
+      </MessageMenuButton>
       <QQWriteResult result={session.result} />
     </>
   );

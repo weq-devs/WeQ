@@ -1,0 +1,155 @@
+.weq-profile-field-content {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+.weq-member-inline-field {
+  width: min(304px, 100%);
+  max-width: 100%;
+}
+.weq-profile-field-primary {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.weq-profile-field-primary > .weq-self-field-display {
+  flex: 0 1 auto;
+  width: auto;
+}
+.weq-profile-field-primary > .weq-self-field-inputs {
+  flex: 0 1 auto;
+  width: 240px;
+  max-width: 100%;
+}
+.weq-profile-field-primary > .weq-self-field-inputs:has(.weq-segmented) {
+  width: auto;
+}
+.weq-profile-field-primary > .weq-self-field-inputs:has(.weq-profile-region-editor, textarea) {
+  width: 400px;
+}
+.weq-profile-field-primary > .weq-self-field-inputs:has(.weq-profile-birthday-editor) {
+  width: 156px;
+}
+.weq-self-field > .weq-profile-data-row,
+.weq-profile-data-row:has(> .weq-profile-data-value > .weq-member-inline-field) {
+  align-items: center;
+}
+.weq-profile-field-actions,
+.weq-profile-field-action-target {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+}
+.weq-profile-field-auxiliary {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.weq-profile-field-action-target:empty {
+  display: none;
+}
+.weq-profile-field-actions .weq-profile-field-tool {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-profile-field-actions .weq-profile-field-tool:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+.weq-profile-field-tool:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+.weq-profile-field-tool:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-self-field-inputs .weq-qq-write-field {
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+}
+.weq-self-field .weq-self-field-inputs :is(input, select, textarea),
+.weq-member-inline-field :is(input, select) {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  letter-spacing: 0;
+  caret-color: var(--weq-accent-effective);
+}
+.weq-self-field-inputs :is(input, select, textarea):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+.weq-self-field-inputs textarea {
+  width: 100%;
+  min-height: 72px;
+}
+.weq-self-field-inputs .weq-profile-region-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 88px), 1fr));
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  max-width: 400px;
+}
+.weq-self-field-inputs .weq-profile-region-editor :is(input, select) {
+  width: 100%;
+  max-width: none;
+}
+.weq-self-field-inputs .weq-profile-birthday-editor {
+  max-width: 156px;
+}
+.weq-profile-field-feedback {
+  flex-basis: 100%;
+  min-width: 0;
+  font-size: 12px;
+  white-space: normal;
+}
+.weq-profile-field-feedback:empty {
+  display: none;
+}
+.weq-profile-field-feedback > [role='alert'] {
+  margin: 0;
+  color: var(--destructive);
+}
+html[data-theme='dark'] .weq-profile-field-actions .weq-profile-field-tool:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+@media (pointer: coarse) {
+  .weq-profile-field-actions .weq-profile-field-tool {
+    width: 36px;
+    height: 36px;
+  }
+}

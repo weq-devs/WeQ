@@ -1,3 +1,4 @@
+import { formatPartialDate } from '@weq/time';
 import {
   useEffect,
   useMemo,
@@ -58,11 +59,7 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
       <div className="weq-sp">
         <header className="weq-sp-kicker weq-report-line" style={{ '--i': 1 } as CSSProperties}>
           <span>{allTime ? '历史以来' : `${data.year} 年`} · 全部私聊里，最滚烫的一天</span>
-          {top ? (
-            <span className="weq-sp-kicker-date">
-              {top.year} 年 {top.month} 月 {top.day} 日
-            </span>
-          ) : null}
+          {top ? <span className="weq-sp-kicker-date">{formatPartialDate(top)}</span> : null}
         </header>
 
         {top ? (
@@ -100,7 +97,7 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
                 ? `历史以来 · ${activeYear} 年`
                 : '历史以来'
               : rollingActive
-                ? `${wallWindow!.fromYear} 年 ${wallWindow!.fromMonth} 月 — ${wallWindow!.toYear} 年 ${wallWindow!.toMonth} 月`
+                ? `${formatPartialDate({ year: wallWindow!.fromYear, month: wallWindow!.fromMonth })} — ${formatPartialDate({ year: wallWindow!.toYear, month: wallWindow!.toMonth })}`
                 : undefined
           }
           onPrev={wallIndex > 0 ? () => moveWall(-1) : null}
@@ -331,7 +328,7 @@ function buildRollingGrid(
           month,
           day,
           count: countByDay.get(`${y}-${month}-${day}`) ?? 0,
-          date: `${month} 月 ${day} 日`,
+          date: formatPartialDate({ month, day }),
         });
       }
     }
@@ -366,7 +363,7 @@ function buildYearGrid(year: number, days: SparkWallDay[]): GridCell[][] {
           month,
           day,
           count: countByDay.get(`${month}-${day}`) ?? 0,
-          date: `${month} 月 ${day} 日`,
+          date: formatPartialDate({ month, day }),
         });
       }
     }

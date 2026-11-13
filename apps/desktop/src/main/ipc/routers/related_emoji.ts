@@ -5,6 +5,7 @@
  * are NOT returned here — the renderer streams each gif via the
  * `weq-media://relemoji?hash=<md5>&file=<gif>` protocol. Read-only.
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -13,7 +14,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

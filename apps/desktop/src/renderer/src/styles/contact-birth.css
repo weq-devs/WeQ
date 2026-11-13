@@ -1,0 +1,52 @@
+.weq-birth-details {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+  color: var(--weq-fg-primary);
+}
+
+.weq-birth-details > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: var(--weq-profile-inline-gap);
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.weq-birth-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.weq-birth-details > summary:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+
+.weq-birth-details > summary svg {
+  flex-shrink: 0;
+}
+
+.weq-birth-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.weq-birth-details > p {
+  margin: 8px 0 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+html[data-theme='dark'] .weq-birth-details {
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] .weq-birth-details > p {
+  color: var(--weq-fg-secondary);
+}

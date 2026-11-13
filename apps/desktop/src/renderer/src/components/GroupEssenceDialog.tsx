@@ -1,7 +1,9 @@
-import type { ReactElement } from 'react';
-import { RefreshCw, Sparkles, X } from 'lucide-react';
+import { eventTimeFormatter } from '@weq/time';
+import { useRef, type ReactElement } from 'react';
+import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
+import { FileText, RefreshCw, X } from 'lucide-react';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { OverlayLayer } from './OverlayLayer';
+import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useQQGroupPermissions } from './qq-actions/shared';
 import {
@@ -13,6 +15,7 @@ import {
 import { qqEssenceTargetParts } from '../lib/qqEssenceTarget';
 import { QQEssenceAction } from './QQMessageEssenceAction';
 import '../styles/group-essence-actions.css';
+import { ContactEmptyState } from './contactProfile/ContactRow';
 
 /** 显示用的群精华数据（已转换） */
 export interface GroupEssenceWire {
@@ -36,6 +39,9 @@ export interface GroupEssenceWire {
 }
 
 export function GroupEssenceDialog({
+  embedded,
+  anchor,
+  presentation,
   groupCode,
   groupName,
   essenceMessages,
@@ -43,7 +49,12 @@ export function GroupEssenceDialog({
   onlineError,
   onClose,
   onJumpToMessage,
+  initialMsgSeq,
+  loadMore,
 }: {
+  embedded?: boolean;
+  anchor?: HTMLElement | null;
+  presentation?: GroupFeaturePresentation;
   groupCode: string;
   groupName: string;
   essenceMessages?: GroupEssenceWire[];
@@ -52,7 +63,10 @@ export function GroupEssenceDialog({
   onlineError?: boolean;
   onClose: () => void;
   onJumpToMessage?: (seq: number) => void;
+  initialMsgSeq?: number;
+  loadMore?: { loading: boolean; onLoad: () => void };
 }): ReactElement {
+  const root = useRef<HTMLElement>(null);
   const session = useQQWriteSession(`essence-list:${groupCode}`);
   const permissions = useQQGroupPermissions(Number(groupCode), session);
   const receipts = useQQEssence((state) => state.receipts);
@@ -79,16 +93,25 @@ export function GroupEssenceDialog({
         active: true,
       });
   }
+  useSearchTargetFocus(
+    root,
+    'data-essence-seq',
+    initialMsgSeq === undefined ? undefined : String(initialMsgSeq),
+    visible.length > 0,
+  );
   return (
-    <OverlayLayer
-      presentation="sidecar"
+    <GroupFeatureSurface
+      embedded={embedded}
+      presentation={presentation}
+      anchor={anchor}
       title="群精华"
       className="modal-scrim group-essence-scrim"
       onClose={onClose}
     >
       <section
+        ref={root}
         className="group-essence-dialog"
-        role="dialog"
+        role={embedded ? 'region' : 'dialog'}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>
@@ -96,7 +119,13 @@ export function GroupEssenceDialog({
             <strong>群精华</strong>
             <span>{groupName}</span>
           </div>
-          <button className="icon-button" type="button" title="关闭" onClick={onClose}>
+          <button
+            className="icon-button"
+            type="button"
+            title="关闭群精华"
+            aria-label="关闭群精华"
+            onClick={onClose}
+          >
             <X size={18} />
           </button>
         </header>
@@ -121,6 +150,7 @@ export function GroupEssenceDialog({
                 return (
                   <article
                     key={item.id}
+                    data-essence-seq={item.msgSeq}
                     className={`group-essence-item${canJump ? ' is-clickable' : ''}`}
                   >
                     <button
@@ -162,7 +192,7 @@ export function GroupEssenceDialog({
                                   />
                                 ) : element.type === 5 && element.fileName ? (
                                   <div className="essence-file">
-                                    📎 {element.fileName}
+                                    <FileText size={14} aria-hidden /> {element.fileName}
                                     {element.fileSize
                                       ? ` (${formatFileSize(element.fileSize)})`
                                       : ''}
@@ -200,19 +230,25 @@ export function GroupEssenceDialog({
               })}
             </div>
           ) : (
-            <div className="group-essence-empty">
-              <Sparkles size={22} />
-              <span>暂无群精华</span>
-              <small>
-                {onlineError
-                  ? '本地未找到有效记录，联网结果暂不可用'
-                  : '本地与当前联网页暂无有效记录'}
-              </small>
-            </div>
+            <ContactEmptyState>
+              {onlineError
+                ? '本地未找到群精华，联网结果暂时不可用。'
+                : '还没有群精华。本地与当前联网页都未找到记录。'}
+            </ContactEmptyState>
           )}
+          {loadMore ? (
+            <button
+              type="button"
+              className="weq-group-text-action"
+              disabled={loadMore.loading}
+              onClick={loadMore.onLoad}
+            >
+              加载更多精华
+            </button>
+          ) : null}
         </div>
       </section>
-    </OverlayLayer>
+    </GroupFeatureSurface>
   );
 }
 
@@ -220,11 +256,7 @@ function formatShortDate(value: string | null | undefined): string {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime()) || date.getTime() <= 0) return '';
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
+  return eventTimeFormatter.format(date);
 }
 
 function formatFileSize(size: number | string | undefined): string {

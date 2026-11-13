@@ -1,11 +1,13 @@
-import { useContext, useId, useState } from 'react';
-import { ChevronRight, UsersRound, UserRound, X, RefreshCw } from 'lucide-react';
+import { EmptyState } from '../EmptyState';
+import { useContext, useId, useRef, useState } from 'react';
+import { X, RefreshCw, UsersRound } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Modal } from '../Dialog';
 import { withQQAccountScope } from './shared';
 import { GroupAvatar } from '../exportAvatars';
-import { GroupProfileDialog, ProfileRow } from '../../im-template/template/profilePanes';
+import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import { ContactRow } from '../contactProfile/ContactRow';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { sharedGroupConversation } from '../ark/groupShareCard';
@@ -13,10 +15,11 @@ import { ChatNavigationContext } from '../../lib/chatNavigation';
 import '../../styles/common-relationships.css';
 
 function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?: () => void }) {
-  const session = useQQWriteSession(`common-relationships:${uin}`);
+  const session = useQQWriteSession(`common-relationships:${uin}`, true);
   const directory = useContext(ConversationDirectoryContext);
   const openChat = useContext(ChatNavigationContext);
   const titleId = useId();
+  const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const query = trpc.account.qqWrite.commonRelationships.useQuery(
@@ -48,47 +51,50 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
   if (uin === session.binding?.expectedAccountUin) return null;
   return (
     <>
-      <ProfileRow
-        icon={<UserRound size={13} />}
+      <ContactRow
         label="共同好友"
-        value={String(query.data?.friendCount ?? (query.isFetching ? '…' : '未知'))}
-        mono
-        action={
-          query.error || query.data?.friendError || query.data?.groupError ? (
-            <button
-              className="weq-profile-row-copy"
-              type="button"
-              title="重新读取共同关系"
-              aria-label="重新读取共同关系"
-              disabled={query.isFetching}
-              onClick={() => void query.refetch()}
-            >
-              <RefreshCw size={12} />
-            </button>
-          ) : undefined
+        empty={
+          query.data?.friendCount == null &&
+          !query.isFetching &&
+          !query.error &&
+          !query.data?.friendError &&
+          !query.data?.groupError
         }
-      />
-      <ProfileRow
-        icon={<UsersRound size={13} />}
-        label="共同群"
-        value={String(query.data?.groups?.length ?? (query.isFetching ? '…' : '未知'))}
-        mono
-        action={
+      >
+        {query.data?.friendCount ?? (query.isFetching ? '读取中…' : null)}
+        {query.error || query.data?.friendError || query.data?.groupError ? (
           <button
             className="weq-profile-row-copy"
             type="button"
-            disabled={!query.data?.groups}
-            onClick={() => setOpen(true)}
-            title="查看共同群列表"
-            aria-label="查看共同群列表"
+            title="重新读取共同关系"
+            aria-label="重新读取共同关系"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
           >
-            <ChevronRight size={12} />
+            <RefreshCw size={12} />
           </button>
-        }
-      />
+        ) : undefined}
+      </ContactRow>
+      <ContactRow label="共同群" empty={!query.data?.groups && !query.isFetching}>
+        <button
+          ref={anchor}
+          type="button"
+          className="weq-contact-value"
+          disabled={!query.data?.groups}
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          title="查看共同群列表"
+          aria-label="查看共同群列表"
+        >
+          {query.data?.groups?.length ?? '读取中…'}
+        </button>
+      </ContactRow>
       {open && (
         <Modal
-          centered
+          presentation="popover"
+          anchor={anchor.current}
+          anchorPlacement="side"
           width={420}
           title="共同群"
           labelledBy={titleId}
@@ -115,27 +121,29 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
               <X size={18} />
             </button>
           </header>
-          {!query.data?.groups?.length && <p className="weq-common-groups-empty">暂无共同群</p>}
+          {!query.data?.groups?.length && (
+            <EmptyState compact icon={<UsersRound />} title="暂无共同群" />
+          )}
           <ul className="weq-common-groups-list">
             {query.data?.groups?.map((group) => (
               <li key={group.groupCode}>
                 <button
                   type="button"
-                  className="weq-common-group-avatar"
+                  className="weq-common-group-avatar weq-common-group-target"
                   title={`查看 ${group.name || group.groupCode} 的群名片`}
                   aria-label={`查看 ${group.name || group.groupCode} 的群名片`}
                   onClick={() => setSelectedCode(group.groupCode)}
                 >
                   <GroupAvatar code={group.groupCode} size={40} />
+                  <span className="weq-common-group-info">
+                    <strong title={group.name || group.groupCode}>
+                      {group.name || group.groupCode}
+                    </strong>
+                    <small>
+                      群号 <span className="weq-number">{group.groupCode}</span>
+                    </small>
+                  </span>
                 </button>
-                <span className="weq-common-group-info">
-                  <strong title={group.name || group.groupCode}>
-                    {group.name || group.groupCode}
-                  </strong>
-                  <small>
-                    群号 <span className="weq-number">{group.groupCode}</span>
-                  </small>
-                </span>
               </li>
             ))}
           </ul>

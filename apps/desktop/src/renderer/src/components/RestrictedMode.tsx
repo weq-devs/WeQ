@@ -70,7 +70,10 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
-  const entering = useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0);
+  const authorizationIssue = reasons.some((reason) => reason.code === 'authorization');
+  const entering =
+    useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0) &&
+    !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
   const title = awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式';
   const visible = Boolean(reasons.length || requests.length || entering);
@@ -202,7 +205,8 @@ export function RestrictedModeHost() {
   const enteringSince = useRestrictedMode((s) => s.enteringSince);
   const enteringManually = useRestrictedMode((s) => s.enteringManually);
   const awaitingAuthorization = requests.length > 0;
-  const entering = enteringSince !== null && !awaitingAuthorization;
+  const authorizationIssue = reasons.some((reason) => reason.code === 'authorization');
+  const entering = enteringSince !== null && !awaitingAuthorization && !authorizationIssue;
   const previousUin = useRef(uin);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
@@ -477,7 +481,7 @@ export function RestrictedModeHost() {
             tone: 'warning',
             title: '签名器已降级：改用完整签名函数',
             detail: signer.data
-              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → 诊断工具 → 签名器」里手动重扫。`
+              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → QQ 协议工具 → 签名器」里手动重扫。`
               : undefined,
           });
         }
@@ -640,6 +644,11 @@ export function RestrictedModeHost() {
       />
     ) : (
       <>
+        {authorizationIssue && (
+          <LongTermAuthorizationLink
+            beforeNavigate={() => useRestrictedMode.getState().setOpen(false)}
+          />
+        )}
         {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
           <button
             type="button"

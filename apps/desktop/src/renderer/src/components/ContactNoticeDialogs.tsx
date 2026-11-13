@@ -7,14 +7,17 @@
 import { ArrowLeft, Bell, Users } from 'lucide-react';
 import { useRef } from 'react';
 import { cn } from '../im-template/template/classNames';
-import { formatProfileDate } from '../im-template/template/format';
 import { Avatar, EmptyState } from '../im-template/template/primitives';
 import type { ContactRequest, GroupJoinRequest, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { PageShell } from './PageShell';
 import { RequestActions, useNoticeOperations } from './qq-actions/RequestActions';
 import { withQQAccountScope } from './qq-actions/shared';
-import { bindNoticeOperations, type NoticeOperation } from '../lib/contactNotice';
+import {
+  bindNoticeOperations,
+  formatNoticeTimestamp,
+  type NoticeOperation,
+} from '../lib/contactNotice';
 import { avatarFromUin } from '../lib/avatarResolver';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import '../styles/contact-notices.css';
@@ -23,6 +26,11 @@ export type NoticeProfileHandler = (
   user: User,
   anchor: { x: number; y: number },
   group?: { code: string; name: string },
+) => void;
+
+type NoticeGroupProfileHandler = (
+  group: { code: string; name: string },
+  anchor: HTMLButtonElement,
 ) => void;
 
 /**
@@ -84,7 +92,6 @@ function ContactNoticeDialogBody({
             />
           ) : (
             cards.map(({ notice: request, operation }) => {
-              const who = displayUserName(request.user);
               const badge = FRIEND_STATE_LABEL[request.status];
               const fields = splitNoticeMessage(request.message || '请求添加对方为好友');
               return (
@@ -95,9 +102,6 @@ function ContactNoticeDialogBody({
                   <NoticeAvatar user={request.user} onOpenProfile={onOpenProfile} />
                   <div className="notice-copy">
                     <p className="notice-line-head">
-                      <span className="notice-who" title={who}>
-                        {who}
-                      </span>
                       <span className="notice-action-text">
                         {request.status === 'accepted'
                           ? '已同意好友申请'
@@ -119,7 +123,9 @@ function ContactNoticeDialogBody({
                     {badge ? (
                       <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
                     ) : null}
-                    <time>{formatProfileDate(request.createdAt)}</time>
+                    <time dateTime={request.createdAt}>
+                      {formatNoticeTimestamp(request.createdAt)}
+                    </time>
                   </div>
                   {open && operation && (
                     <RequestActions
@@ -185,18 +191,20 @@ function splitNoticeMessage(message: string): Array<{ label?: string; value: str
 /**
  * 群通知面板。结构与好友通知一致；保留存疑申请标记（notice-doubt-mark）。
  * 卡片主体三列：头像 / 正文 / 状态与时间；审核区在下方独立占用正文和状态两列。
- * 每行 nowrap + 省略号，长群名靠 CSS 截断而不是把时间挤到下一行。
+ * 长群名省略显示，日期和时分秒在时间列内换行，不挤占审核区。
  */
 function GroupNoticeDialogBody({
   open,
   requests,
   onClose,
   onOpenProfile,
+  onOpenGroupProfile,
 }: {
   open: boolean;
   requests: GroupJoinRequest[];
   onClose: () => void;
   onOpenProfile?: NoticeProfileHandler;
+  onOpenGroupProfile?: NoticeGroupProfileHandler;
 }) {
   const inbox = useNoticeOperations(true, open);
   const panel = useRef<HTMLElement>(null);
@@ -243,7 +251,6 @@ function GroupNoticeDialogBody({
           ) : (
             cards.map(({ notice: request, operation }) => {
               const badge = HANDLE_STATE_LABEL[request.handleState];
-              const who = displayUserName(request.user);
               const fields = request.message ? splitNoticeMessage(request.message) : [];
               return (
                 <article
@@ -257,15 +264,14 @@ function GroupNoticeDialogBody({
                   />
                   <div className={cn('notice-copy')}>
                     <p className="notice-line-head">
-                      <span className="notice-who" title={who}>
-                        {who}
-                      </span>
                       <span className="notice-action-text">{request.action}</span>
                     </p>
                     <p className="notice-line-group">
-                      <span className="notice-group-name" title={request.group.name}>
-                        {request.group.name}
-                      </span>
+                      <NoticeGroupName
+                        code={request.group.id}
+                        name={request.group.name}
+                        onOpenGroupProfile={onOpenGroupProfile}
+                      />
                     </p>
                     {fields.length > 0 ? (
                       <dl className="notice-fields">
@@ -280,7 +286,14 @@ function GroupNoticeDialogBody({
                     {request.operator ? (
                       <span className="notice-operator">
                         由 {displayUserName(request.operator)} 处理
-                        {request.respondedAt ? ` · ${formatProfileDate(request.respondedAt)}` : ''}
+                        {request.respondedAt ? (
+                          <>
+                            {' · '}
+                            <time dateTime={request.respondedAt}>
+                              {formatNoticeTimestamp(request.respondedAt)}
+                            </time>
+                          </>
+                        ) : null}
                       </span>
                     ) : null}
                     {request.systemRemark ? (
@@ -291,7 +304,9 @@ function GroupNoticeDialogBody({
                     {badge ? (
                       <em className={cn('notice-state', badge.tone)}>{badge.text}</em>
                     ) : null}
-                    <time>{formatProfileDate(request.createdAt)}</time>
+                    <time dateTime={request.createdAt}>
+                      {formatNoticeTimestamp(request.createdAt)}
+                    </time>
                   </div>
                   {open && operation && (
                     <RequestActions
@@ -310,6 +325,7 @@ function GroupNoticeDialogBody({
                 key={`${operation.kind}:${operation.token}`}
                 operation={operation}
                 onOpenProfile={onOpenProfile}
+                onOpenGroupProfile={onOpenGroupProfile}
               />
             ))}
         </div>
@@ -322,9 +338,11 @@ function GroupNoticeDialogBody({
 function OnlineRequestCard({
   operation,
   onOpenProfile,
+  onOpenGroupProfile,
 }: {
   operation: NoticeOperation;
   onOpenProfile?: NoticeProfileHandler;
+  onOpenGroupProfile?: NoticeGroupProfileHandler;
 }) {
   const user: User = {
     id: operation.uid,
@@ -345,14 +363,17 @@ function OnlineRequestCard({
       />
       <div className="notice-copy">
         <p className="notice-line-head">
-          <span className="notice-who">{operation.name}</span>
           <span className="notice-action-text">
             {operation.groupId ? '申请加入' : '请求加为好友'}
           </span>
         </p>
-        {operation.groupName && (
+        {operation.groupId && (
           <p className="notice-line-group">
-            <span className="notice-group-name">{operation.groupName}</span>
+            <NoticeGroupName
+              code={operation.groupId}
+              name={operation.groupName || operation.groupId}
+              onOpenGroupProfile={onOpenGroupProfile}
+            />
           </p>
         )}
         <p className="notice-sysremark">{operation.message}</p>
@@ -368,6 +389,37 @@ function OnlineRequestCard({
   );
 }
 
+function NoticeGroupName({
+  code,
+  name,
+  onOpenGroupProfile,
+}: {
+  code: string;
+  name: string;
+  onOpenGroupProfile?: NoticeGroupProfileHandler;
+}) {
+  if (!code || !onOpenGroupProfile)
+    return (
+      <span className="notice-group-name" title={name}>
+        {name}
+      </span>
+    );
+  return (
+    <button
+      type="button"
+      className="notice-group-name"
+      title={`查看 ${name} 的群名片`}
+      aria-label={`查看 ${name} 的群名片`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpenGroupProfile({ code, name }, event.currentTarget);
+      }}
+    >
+      {name}
+    </button>
+  );
+}
+
 function NoticeAvatar({
   user,
   group,
@@ -379,11 +431,20 @@ function NoticeAvatar({
 }) {
   const name = displayUserName(user);
   const avatar = <Avatar name={name} avatarUrl={user.avatarUrl} seed={user.identityValue} />;
-  if (!onOpenProfile || (!user.id && !user.identityValue)) return avatar;
+  const identity = (
+    <>
+      {avatar}
+      <span className="notice-who" title={name}>
+        {name}
+      </span>
+    </>
+  );
+  if (!onOpenProfile || (!user.id && !user.identityValue))
+    return <span className="notice-avatar-button notice-identity">{identity}</span>;
   return (
     <button
       type="button"
-      className="notice-avatar-button"
+      className="notice-avatar-button notice-identity"
       title={`查看 ${name} 的名片`}
       aria-label={`查看 ${name} 的名片`}
       onClick={(event) => {
@@ -396,7 +457,7 @@ function NoticeAvatar({
         onOpenProfile(user, anchor, group);
       }}
     >
-      {avatar}
+      {identity}
     </button>
   );
 }

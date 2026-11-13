@@ -1,13 +1,6 @@
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ArchiveRestore,
-  Download,
-  FolderOpen,
-  RefreshCw,
-  RotateCcw,
-  Upload,
-  X,
-} from 'lucide-react';
+import { ArchiveRestore, Download, FolderOpen, RefreshCw, Upload, X } from 'lucide-react';
 import type {
   WeqBackupPart,
   WeqBackupSummary,
@@ -18,11 +11,10 @@ import { snapshotWeqClientSettings } from '@weq/service/backup-client';
 import { client } from '../../trpc/client';
 import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast';
-import { Card, SectionHeader } from './controls';
+import { Card, CheckPill, SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { Modal } from '../Dialog';
 import '../../styles/backup.css';
-import { DefaultsOptions, DEFAULTS_DESCRIPTION } from './DefaultsOptions';
 
 const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
 const LABELS: Record<WeqBackupPart, string> = {
@@ -69,11 +61,11 @@ function Check({
   checked: boolean;
   onChange: (next: boolean) => void;
 }) {
+  // 与设置页其它多选项统一成 weq-set-chk 胶囊，不用原生复选框 + 双列网格。
   return (
-    <label className="weq-backup-check">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <span>{label}</span>
-    </label>
+    <CheckPill checked={checked} onChange={onChange}>
+      {label}
+    </CheckPill>
   );
 }
 function toggle<T>(list: T[], value: T): T[] {
@@ -84,10 +76,7 @@ function Summary({ value }: { value: WeqBackupSummary }) {
     <>
       <div className="weq-backup-summary">
         <span>
-          {new Date(value.createdAt).toLocaleString('zh-CN', {
-            timeZone: 'Asia/Shanghai',
-            hour12: false,
-          })}
+          {eventTimeFormatter.format(new Date(value.createdAt))}
           （北京时间）
         </span>
         {value.parts.map((part) => (
@@ -127,12 +116,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   });
   const [preview, setPreview] = useState<Preview | null>(null);
   const [exported, setExported] = useState<Exported | null>(null);
-  const [confirm, setConfirm] = useState<'defaults' | 'apply' | 'claim' | 'skip' | null>(null);
+  const [confirm, setConfirm] = useState<'apply' | 'claim' | 'skip' | null>(null);
   const [busy, setBusy] = useState<string | null>('正在读取');
-  const [defaultsInfo, setDefaultsInfo] = useState<Awaited<
-    ReturnType<BackupApi['defaultsInfo']>
-  > | null>(null);
-  const [defaultsChoice, setDefaultsChoice] = useState<WeqDefaultsChoice>({});
   const [error, setError] = useState<string | null>(null);
   const acting = useRef(false);
   const sourceId = useRef<string | null>(null);
@@ -140,9 +125,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const alive = useRef(true);
   const input = useRef<HTMLInputElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
-  const defaultsFailed = useRef(false);
   useEffect(() => {
-    if (confirm === 'defaults' && !busy) cancelButton.current?.focus();
+    if (confirm && !busy) cancelButton.current?.focus();
   }, [confirm, busy]);
   const toast = useToast((s) => s.push);
   const refresh = useCallback(
@@ -270,12 +254,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const result = inventory?.restore.result;
   const confirmation = confirm
     ? {
-        defaults: {
-          title: '恢复默认设置？',
-          message: '将关闭当前账号并刷新界面，无需重启 WeQ。请先保存正在编辑的内容。',
-          action: '确认恢复默认',
-          progress: '正在恢复…',
-        },
         apply: {
           title: '应用待恢复数据？',
           message:
@@ -284,8 +262,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           progress: '正在恢复…',
         },
         claim: {
-          title: '在此设备恢复界面偏好？',
-          message: '将覆盖当前设备的界面偏好并重新加载，原发起设备不会再应用这份界面偏好。',
+          title: '认领界面恢复回执？',
+          message: '将恢复所选共享设置及当前设备布局并重新加载，原发起设备不再重复应用。',
           action: '在此设备恢复',
           progress: '正在恢复…',
         },
@@ -300,22 +278,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   function openConfirmation(value: NonNullable<typeof confirm>) {
     setError(null);
     setConfirm(value);
-    if (value === 'defaults') {
-      defaultsFailed.current = false;
-      setDefaultsInfo(null);
-      setDefaultsChoice({});
-      void readDefaultsInfo();
-    }
-  }
-  async function readDefaultsInfo() {
-    await act('正在读取恢复范围', async () => {
-      const info = await api.defaultsInfo();
-      if (alive.current) setDefaultsInfo(info);
-    });
   }
   function closeConfirmation() {
     setConfirm(null);
-    if (defaultsFailed.current) window.location.reload();
   }
   const importValid =
     source &&
@@ -334,7 +299,21 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   ];
   return (
     <div className="weq-set weq-backup" aria-busy={Boolean(busy)}>
-      <SectionHeader icon={<ArchiveRestore size={17} />} title="配置备份与恢复" />
+      <SectionHeader
+        icon={<ArchiveRestore size={17} />}
+        title="配置备份与恢复"
+        actions={
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={Boolean(busy)}
+            onClick={() => void act('正在读取', () => refresh())}
+          >
+            <RefreshCw size={14} />
+            刷新状态
+          </button>
+        }
+      />
       <p className="weq-set-note">
         备份不加密，可能包含 API 密钥、账号数据库密钥、克隆对话和记忆。请妥善保管；不包含 QQ
         原始数据库、漫游缓存或本机应用锁密钥。
@@ -349,17 +328,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           {busy}
         </p>
       ) : null}
-      <div className="weq-backup-actions">
-        <button
-          type="button"
-          className="weq-set-btn"
-          disabled={Boolean(busy)}
-          onClick={() => void act('正在读取', () => refresh())}
-        >
-          <RefreshCw size={14} />
-          刷新状态
-        </button>
-      </div>
       {result ? (
         <Card
           title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}
@@ -724,28 +692,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </div>
         ) : null}
       </Card>
-      {!pending ? (
-        <Card
-          title="恢复默认设置"
-          icon={<RotateCcw size={15} strokeWidth={1.8} />}
-          settingId="weq-config-management"
-        >
-          <p>{DEFAULTS_DESCRIPTION}</p>
-          <div className="weq-backup-actions">
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              disabled={
-                Boolean(busy) || !inventory || Boolean(pending) || Boolean(result?.clientPending)
-              }
-              onClick={() => openConfirmation('defaults')}
-            >
-              <RotateCcw size={14} />
-              恢复默认设置
-            </button>
-          </div>
-        </Card>
-      ) : null}
       {pending ? (
         <Card
           title={pending.phase === 'ready' ? '存在待恢复数据' : '恢复暂存未完成'}
@@ -788,8 +734,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           dismissOnOutside={false}
           onClose={busy ? undefined : closeConfirmation}
           labelledBy="weq-backup-confirm-title"
-          width={confirm === 'defaults' ? 520 : 400}
-          className={`weq-message-modal${confirm === 'defaults' ? ' weq-defaults-modal' : ''}`}
+          width={400}
+          className="weq-message-modal"
         >
           <div className="weq-dialog" aria-busy={Boolean(busy)}>
             <div className="weq-dialog-head">
@@ -798,28 +744,11 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               </h3>
             </div>
             <div className="weq-dialog-body">
-              {confirm === 'defaults' && defaultsInfo ? (
-                <DefaultsOptions
-                  info={defaultsInfo}
-                  choice={defaultsChoice}
-                  onChange={setDefaultsChoice}
-                  disabled={Boolean(busy)}
-                />
-              ) : null}
               <p>{confirmation.message}</p>
               {error ? (
                 <p role="alert" className="weq-backup-error">
                   {error}
                 </p>
-              ) : null}
-              {confirm === 'defaults' && !defaultsInfo && !busy && error ? (
-                <button
-                  type="button"
-                  className="weq-action-soft"
-                  onClick={() => void readDefaultsInfo()}
-                >
-                  重新读取恢复范围
-                </button>
               ) : null}
             </div>
             <div className="weq-dialog-foot">
@@ -835,27 +764,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <button
                 type="button"
                 className="weq-action-primary"
-                disabled={Boolean(busy) || (confirm === 'defaults' && !defaultsInfo)}
+                disabled={Boolean(busy)}
                 onClick={() =>
                   void act(confirmation.progress, async () => {
-                    if (confirm === 'defaults') {
-                      const restored = await api
-                        .defaults(backupClientId(localStorage), defaultsChoice)
-                        .catch((error: unknown) => {
-                          defaultsFailed.current = true;
-                          throw error;
-                        });
-                      defaultsFailed.current = false;
-                      if (restored.warnings.length)
-                        toast({
-                          tone: 'warning',
-                          title: '设置已恢复，部分操作未完成',
-                          detail: restored.warnings.join('；'),
-                        });
-                      sourceId.current = null;
-                      setSource(null);
-                      setPreview(null);
-                    } else if (confirm === 'apply') await api.apply();
+                    if (confirm === 'apply') await api.apply();
                     else if (result) {
                       const ok =
                         confirm === 'claim'

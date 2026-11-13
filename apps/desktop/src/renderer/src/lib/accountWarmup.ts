@@ -83,6 +83,15 @@ export function runAccountWarmup(
   return runWarmupSteps(utils, onProgress, STEPS, timeoutMs);
 }
 
+/** 冷启动只预载首屏身份，联系人目录与通知由工作区分批加载。 */
+export function runDesktopStartupWarmup(
+  utils: Utils,
+  onProgress: (progress: WarmupProgress) => void,
+  timeoutMs: number = WARMUP_TIMEOUT_MS,
+): Promise<void> {
+  return runWarmupSteps(utils, onProgress, STEPS.slice(0, 1), timeoutMs);
+}
+
 /** Remote 接回现有账号时只预载首屏身份，不等待完整会话和联系人目录。 */
 export function runRemoteIdentityWarmup(
   utils: Utils,

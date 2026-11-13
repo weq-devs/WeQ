@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Award, ChevronLeft, Heart, Search, Users2, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
+import { EmptyState } from '../EmptyState';
 import { groupAvatar, personAvatar } from './graphModel';
 import './relationGraph.css';
 
@@ -186,7 +187,7 @@ function ListTail({ loading, empty, hasMore, emptyText }: any) {
       </div>
     );
   }
-  if (empty) return <p className="weq-rank-empty">{emptyText}</p>;
+  if (empty) return <EmptyState compact icon={<Users2 />} title={emptyText} />;
   if (!hasMore) return <p className="weq-rank-end">已到底部</p>;
   return null;
 }
@@ -273,7 +274,7 @@ function GroupActivityList() {
             加载中…
           </div>
         ) : allItems.length === 0 ? (
-          <p className="weq-rank-empty">暂无群活跃度数据</p>
+          <EmptyState compact icon={<Activity />} title="暂无群活跃度数据" />
         ) : (
           visible.map((g, i) => (
             <RankRow
@@ -395,7 +396,7 @@ function CommonGroupList({ nodes, onOpenMember }: { nodes: any[]; onOpenMember?:
     <>
       <div className="weq-rank-list" onScroll={onScroll}>
         {ranked.length === 0 ? (
-          <p className="weq-rank-empty">暂无共同群聊数据</p>
+          <EmptyState compact icon={<Users2 />} title="暂无共同群聊数据" />
         ) : (
           visible.map(({ node, metric }, i) => (
             <RankRow
@@ -450,7 +451,7 @@ function GroupChooser({ groups, onPick }: { groups: any[]; onPick: (g: any) => v
       </div>
       <div className="weq-rank-list">
         {filtered.length === 0 ? (
-          <p className="weq-rank-empty">没有匹配的群聊</p>
+          <EmptyState compact icon={<Search />} title="没有匹配的群聊" />
         ) : (
           filtered.map((g) => {
             const avatar = groupAvatar(g.code);

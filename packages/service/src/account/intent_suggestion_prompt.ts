@@ -1,3 +1,4 @@
+import { formatUnixTime } from '@weq/time';
 export interface SuggestionElement {
   kind: string;
   textContent?: unknown;
@@ -47,16 +48,6 @@ export function suggestionMentions(elements: readonly SuggestionElement[]) {
     });
 }
 
-const beijingTime = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
 function timestamp(seconds: number): string | null {
   if (
     !Number.isFinite(seconds) ||
@@ -64,10 +55,7 @@ function timestamp(seconds: number): string | null {
     !Number.isFinite(new Date(seconds * 1000).getTime())
   )
     return null;
-  const parts = new Map(
-    beijingTime.formatToParts(seconds * 1000).map((part) => [part.type, part.value]),
-  );
-  return `${parts.get('year')}-${parts.get('month')}-${parts.get('day')}T${parts.get('hour')}:${parts.get('minute')}:${parts.get('second')}+08:00`;
+  return `${formatUnixTime(seconds).replace(' ', 'T')}+08:00`;
 }
 
 export function buildSuggestionPrompt({

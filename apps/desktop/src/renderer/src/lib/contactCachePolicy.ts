@@ -2,7 +2,18 @@ import type { ContactMetric, ContactMetricRows } from '@weq/service';
 
 export const CACHE_DAY_MS = 24 * 60 * 60 * 1000;
 export function contactCacheFields(control: 'sort' | 'grouping', basis: string): ContactMetric[] {
-  if (control === 'grouping') return basis === 'direction' ? ['direction'] : [];
+  if (control === 'grouping')
+    return basis === 'direction'
+      ? ['direction']
+      : basis === 'source'
+        ? ['source', 'sourceGroup']
+        : basis === 'school'
+          ? ['schools']
+          : basis === 'freezeState'
+            ? ['freezeState']
+            : basis === 'grade'
+              ? ['grade']
+              : [];
   return [
     'level',
     'likeCount',
@@ -11,6 +22,8 @@ export function contactCacheFields(control: 'sort' | 'grouping', basis: string):
     'commonGroups',
     'friendCount',
     'activityScore',
+    'energy',
+    'joinedAt',
   ].includes(basis)
     ? [basis as ContactMetric]
     : [];

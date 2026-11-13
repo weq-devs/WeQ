@@ -1,6 +1,7 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { WebApplication, WebAuth } from '../web/application';
 import type { RemotePairing } from './pairing';
+import { observeRemoteRequest } from './device';
 
 function webCredential(req: IncomingMessage): string {
   const bearer = /^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization ?? '');
@@ -21,10 +22,11 @@ export class RemoteWebGateway {
         (!req.headers.origin ||
           req.headers.origin === `http://${host}` ||
           req.headers.origin === `https://${host}`) &&
-        pairing.canAccessWeb(webCredential(req))
+        pairing.canAccessWeb(webCredential(req), observeRemoteRequest(req))
       );
     };
     this.application = createApplication({
+      remoteClient: true,
       login: async () => false,
       logout: () => {},
       isAuthed: this.allowed,

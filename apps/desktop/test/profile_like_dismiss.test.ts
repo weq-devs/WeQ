@@ -19,6 +19,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
   trpc: {
     account: {
+      dressup: { peerStats: { useQuery: () => ({ data: { likeCount: 100 } }) } },
       getAccountConfig: {
         useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }),
       },
@@ -116,9 +117,9 @@ it.each([
         else if (method === 'escape') {
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         } else {
-          document
-            .querySelector('.weq-dialog-layer')!
-            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+          document.body.dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, cancelable: true }),
+          );
           document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         }
       });

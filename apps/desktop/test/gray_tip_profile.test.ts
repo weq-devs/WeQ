@@ -10,7 +10,7 @@ import { ReplyJumpContext } from '../src/renderer/src/components/QqMessageConten
 import { GrayTipLine } from '../src/renderer/src/im-template/template/messageRow';
 import { grayTipProfileTarget } from '../src/renderer/src/lib/grayTipProfile';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { GroupMember } from '../src/renderer/src/im-template/template/types';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -100,6 +100,67 @@ it('戳一戳灰条中同名的两个人分别打开自己的名片', () => {
   );
 });
 
+it.each(['grayTipPoke', 'grayTipXml'] as const)('%s 按所有身份别名查找本地名称', (type) => {
+  const f = mount(
+    h(type === 'grayTipPoke' ? GrayTipPokeMessage : GrayTipXmlMessage, {
+      conversation: group,
+      message,
+      element: {
+        type,
+        data: {
+          grayTipXmlContent: '<gtip><qq uin="99999" uid="u_bob" nm="u_bob"/></gtip>',
+        },
+      },
+    }),
+  );
+  expect(f.host.textContent).toBe('同名');
+});
+
+it.each(['xml', 'json'])('%s 中的 UID 占位不覆盖人物快照或附加昵称', (format) => {
+  const f = mount(
+    h(GrayTipPokeMessage, {
+      conversation: { ...group, members: [] },
+      element: {
+        type: 'grayTipPoke',
+        data: {
+          ...(format === 'xml'
+            ? { grayTipXmlContent: '<gtip><qq uin="u_unloaded" nm="u_unloaded"/></gtip>' }
+            : {
+                tipJson: JSON.stringify({
+                  items: [{ type: 'qq', uid: 'u_unloaded', txt: 'u_unloaded' }],
+                }),
+              }),
+          actionInitiator: { uid: 'u_unloaded', nickname: 'u_unloaded' },
+          actionAttributes: [{ key: 'nick_str1', value: '消息中的昵称' }],
+        },
+      },
+    }),
+  );
+  expect(f.host.textContent).toBe('消息中的昵称');
+});
+
+it('JSON 参数中的自己显示为你，其他参与者可通过 UID 别名匹配', () => {
+  const f = mount(
+    h(GrayTipPokeMessage, {
+      conversation: { ...group, members: [{ ...bob, id: 'member:10003', uid: 'u_bob' }] },
+      user: self,
+      element: {
+        type: 'grayTipPoke',
+        data: {
+          tipJson: JSON.stringify({
+            items: [
+              { type: 'url', param: ['u_self'], txt: 'u_self' },
+              { type: 'nor', txt: '戳了戳' },
+              { type: 'qq', uid: 'u_bob', txt: 'u_bob' },
+            ],
+          }),
+        },
+      },
+    }),
+  );
+  expect(f.host.textContent).toBe('你戳了戳同名');
+});
+
 it('群提示使用明确的 user1Uid，不按昵称或消息发送人猜测身份', () => {
   const f = mount(
     h(GrayTipGroupMessage, {
@@ -118,6 +179,34 @@ it('群提示使用明确的 user1Uid，不按昵称或消息发送人猜测身�
   expect(f.people()).toHaveLength(1);
   act(() => f.people()[0]!.click());
   expect(f.open.mock.calls[0]![0]).toMatchObject({ id: 'u_bob', identityValue: '10003' });
+});
+
+it('灰条名片首帧保留精确匹配成员的群内资料，不借用同名发送人的资料', () => {
+  const member = {
+    ...bob,
+    joinedAt: '2024-09-01T00:00:00+08:00',
+    lastSpeakAt: '2024-09-02T03:04:05+08:00',
+    memberLevel: 8,
+    customTitle: '合成头衔',
+    muteUntil: '2030-01-01T00:00:00+08:00',
+  };
+  const f = mount(
+    h(GrayTipXmlMessage, {
+      conversation: { ...group, members: [alice, member] },
+      message,
+      element: {
+        type: 'grayTipXml',
+        data: { grayTipXmlContent: '<gtip><qq uin="10003" nm="同名"/></gtip>' },
+      },
+    }),
+  );
+  act(() => f.people()[0]!.click());
+  expect(f.open.mock.calls[0]![0]).toMatchObject({
+    id: bob.id,
+    profileContext: { groupCode: group.id, groupName: group.group.name, member },
+  });
+  const unknown = grayTipProfileTarget(['u_unknown'], '同名', group, message);
+  expect(unknown?.member).toBeUndefined();
 });
 
 it('XML 灰条支持 UID、明确 QQ 号和未加载的用户，不把数字当作 UID', () => {

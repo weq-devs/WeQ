@@ -1,0 +1,49 @@
+/* 系统占位只作用于相交的顶部操作区，背景与正文继续铺满。 */
+:root {
+  --weq-window-safe-top: env(safe-area-inset-top, 0px);
+}
+[data-weq-window-chrome] {
+  padding-left: max(var(--weq-window-base-left, 12px), var(--weq-window-chrome-left)) !important;
+  padding-right: max(var(--weq-window-base-right, 12px), var(--weq-window-chrome-right)) !important;
+  padding-top: max(env(safe-area-inset-top, 0px), var(--weq-window-chrome-top)) !important;
+}
+
+.app-title-bar,
+.sidebar-header,
+.app-rail {
+  --weq-window-base-left: 0px;
+  --weq-window-base-right: 0px;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] .app-title-bar[data-weq-window-chrome] {
+  height: calc(44px + max(env(safe-area-inset-top, 0px), var(--weq-window-chrome-top)));
+}
+
+html[data-weq-layout='single'] .app-shell-root.weq-web-shell {
+  --weq-mobile-header-height: calc(
+    56px +
+    max(env(safe-area-inset-top, 0px), var(--weq-window-header-top, 0px))
+  );
+}
+
+:where(html[data-weq-layout='single'])
+  .weq-web-shell
+  .weq-mobile-settings-header[data-weq-window-chrome] {
+  min-height: calc(52px + max(env(safe-area-inset-top, 0px), var(--weq-window-chrome-top)));
+  --weq-window-base-left: 8px;
+  --weq-window-base-right: 8px;
+}
+
+.weq-preview-header[data-weq-window-chrome],
+.weq-profile-page-toolbar[data-weq-window-chrome] {
+  min-height: calc(56px + max(env(safe-area-inset-top, 0px), var(--weq-window-chrome-top)));
+}
+
+/* 原布局先压缩标题；次要按钮仍使用既有更多菜单，不缩小触控热区。 */
+.app-title-bar[data-weq-window-chrome] .app-title-bar-user {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.app-title-bar[data-weq-window-chrome] .app-title-bar-signature {
+  display: none;
+}

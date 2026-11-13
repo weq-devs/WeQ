@@ -21,6 +21,7 @@ import { LoginPanel } from './LoginPanel';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
 import { IS_MAC } from '../../lib/target';
+import { useRemoteClient } from '../../lib/remoteClient';
 import { QqDebugCopy } from '../../components/QqDebugCopy';
 import { BootstrapWindowActions } from '../../components/BootstrapWindowActions';
 import type { UiAccount } from './types';
@@ -28,6 +29,7 @@ import logoUrl from '@resources/brand/logo.png';
 import '../../styles/bootstrap-select.css';
 
 export function SelectScreen({ install }: { install: GlobalInstallInfo }): ReactElement {
+  const remote = useRemoteClient();
   const mode = useViewState((s) => s.selectMode);
   const enterSelect = useViewState((s) => s.enterSelect);
   const goTo = useViewState((s) => s.goTo);
@@ -121,7 +123,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   }
 
   async function pickRoot(): Promise<void> {
-    if (busy) return;
+    if (busy || remote) return;
     setBusy(true);
     try {
       const res = await client.bootstrap.pickTencentFilesRoot.mutate();
@@ -169,7 +171,11 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           className={mode === 'backup' ? 'weq-account-import' : 'weq-account-grid'}
         >
           {mode === 'backup' ? (
-            <StaticBackupPanel onEntered={onEntered} onBusyChange={setBusy} />
+            remote ? (
+              <p role="status">WeQ Remote 不支持导入电脑目录。配置备份可在设置中从设备上传。</p>
+            ) : (
+              <StaticBackupPanel onEntered={onEntered} onBusyChange={setBusy} />
+            )
           ) : (
             <>
               <section className="weq-account-detail" aria-label="打开选中账号">
@@ -183,7 +189,9 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                     onEntered={onEntered}
                     onBusyChange={setBusy}
                     disabled={busy || dataBlocked}
-                    onDiagnostics={mode === 'new' ? () => setDiagnostics(true) : undefined}
+                    onDiagnostics={
+                      mode === 'new' && !remote ? () => setDiagnostics(true) : undefined
+                    }
                   />
                 ) : (
                   <div className="weq-account-detail-empty">
@@ -215,7 +223,15 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                 </div>
                 {accountQuery.error && (
                   <div className="weq-select-error" role="alert">
-                    读取账号失败：{accountQuery.error.message}
+                    <span>读取账号失败，请确认 QQ 数据目录可访问后重试。</span>
+                    <button
+                      type="button"
+                      className="weq-action-soft"
+                      disabled={busy || accountQuery.isFetching}
+                      onClick={() => void accountQuery.refetch()}
+                    >
+                      重试
+                    </button>
                   </div>
                 )}
                 {accountQuery.isLoading ? (
@@ -237,7 +253,13 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                   !accountQuery.error && (
                     <div className="weq-account-empty">
                       <History size={28} aria-hidden />
-                      <h3>{mode === 'existing' ? '还没有保存的账号' : '未发现本机 QQ 账号'}</h3>
+                      <h3>
+                        {mode === 'existing'
+                          ? '还没有保存的账号'
+                          : remote
+                            ? '电脑端还没有可用账号'
+                            : '未发现本机 QQ 账号'}
+                      </h3>
                       {mode === 'existing' ? (
                         <button
                           type="button"
@@ -247,6 +269,23 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                           <UserPlus size={15} aria-hidden />
                           添加账号
                         </button>
+                      ) : remote ? (
+                        /* Remote 不能选电脑目录：按钮保留原位但不可点，并把原因和下一步写出来，
+                           而不是给一个没有说明的死按钮。 */
+                        <>
+                          <p>
+                            数据目录只能在电脑上选择。请先在电脑端选好目录并完成登录，再回到这里刷新。
+                          </p>
+                          <button
+                            type="button"
+                            className="weq-action-soft"
+                            disabled
+                            title="电脑数据目录只能在电脑端选择"
+                          >
+                            <FolderOpen size={15} aria-hidden />
+                            选择 QQ 数据目录
+                          </button>
+                        </>
                       ) : (
                         <button
                           type="button"
@@ -277,15 +316,17 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               <UserPlus size={16} aria-hidden />
               添加账号
             </button>
-            <button
-              type="button"
-              data-mode="backup"
-              disabled={busy}
-              onClick={() => enterSelect('backup')}
-            >
-              <FolderInput size={16} aria-hidden />
-              导入备份
-            </button>
+            {!remote && (
+              <button
+                type="button"
+                data-mode="backup"
+                disabled={busy}
+                onClick={() => enterSelect('backup')}
+              >
+                <FolderInput size={16} aria-hidden />
+                导入备份
+              </button>
+            )}
             {debugCopyAction}
           </nav>
         ) : (
@@ -331,7 +372,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
             </div>
           </Modal>
         )}
-        {mode === 'new' && diagnostics && (
+        {mode === 'new' && diagnostics && !remote && (
           <Modal
             open
             centered

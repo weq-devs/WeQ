@@ -7,10 +7,8 @@ import { useSettingsMaintenance } from '../src/renderer/src/hooks/useSettingsMai
 import { useAppLock } from '../src/renderer/src/state/lock';
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
 import { useUpdateStore } from '../src/renderer/src/state/update';
-import {
-  DataMaintenanceDialog,
-  type MaintenanceTool,
-} from '../src/renderer/src/components/settings/DataMaintenanceSection';
+import type { MaintenanceTool } from '../src/renderer/src/components/settings/DataMaintenanceSection';
+import { DataMaintenanceDialog } from '../src/renderer/src/components/settings/DataMaintenanceDialog';
 import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -116,7 +114,10 @@ describe('设置来源工具不替换设置页面', () => {
       expect(mark).not.toBeNull();
       expect(mark.parentElement?.className).toBe('weq-settings-nav-label');
       expect(mark.parentElement?.textContent).toBe('关于 WeQ');
-      expect(mark.closest('button')?.children).toHaveLength(2);
+      expect(mark.closest('button')?.children).toHaveLength(3);
+      expect(
+        mark.closest('button')?.lastElementChild?.classList.contains('weq-mobile-settings-chevron'),
+      ).toBe(true);
       act(() => useUpdateStore.setState({ available: false }));
       expect(f.host.querySelector('.weq-settings-nav .weq-settings-update-mark')).toBeNull();
     } finally {

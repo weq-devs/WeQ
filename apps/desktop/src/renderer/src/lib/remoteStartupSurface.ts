@@ -15,13 +15,14 @@ export function observeRemoteStartupSurface(
   selector: string,
   ready: () => void,
   progress?: (message: string) => void,
+  pendingSelector = '[data-weq-startup-pending]',
 ): () => void {
   let frame = 0;
   let closed = false;
   let lastStage = '';
   const prepared = () => {
     const surface = [...root.querySelectorAll(selector)].some((element) => visible(element, root));
-    const pending = [...root.querySelectorAll('[data-weq-startup-pending]')].some((element) =>
+    const pending = [...root.querySelectorAll(pendingSelector)].some((element) =>
       visible(element, root),
     );
     const stage = pending

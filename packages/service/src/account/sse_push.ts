@@ -20,7 +20,7 @@
 
 import type { AccountSession } from '@weq/account';
 import type { Element } from '@weq/codec';
-import type { C2cMsg, GroupMsg } from '@weq/db';
+import { withDatabasePriority, type C2cMsg, type GroupMsg } from '@weq/db';
 import { getLogger, logErrorContext } from '../common/logger';
 import { DbWatchService, type DbWatchHandle } from './db_watch';
 import { liftForwardRecords } from './export/forward_expand';
@@ -107,7 +107,7 @@ export class SsePushService {
   private lastSeq = new Map<string, bigint>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private flushing = false;
+  private flushing: AbortController | null = null;
   private retryCount = 0;
 
   constructor(session: AccountSession, opts: SsePushOptions = {}) {
@@ -142,6 +142,7 @@ export class SsePushService {
     if (!this.handle) return;
     this.handle.unmount();
     this.handle = null;
+    this.cancelFlush();
     this.clearTimers();
     this.pending = [];
     this.lastSeq.clear();
@@ -159,16 +160,18 @@ export class SsePushService {
     const changed =
       target?.pushUrl !== this.target?.pushUrl || target?.accessToken !== this.target?.accessToken;
     this.target = target;
+    if (changed) {
+      this.cancelFlush();
+      this.clearTimers();
+      this.retryCount = 0;
+    }
     if (!target) {
       this.pending = [];
       this.clearTimers();
       return;
     }
     // 换目标后立刻按新目标重试/推送（不再沿用旧退避）。
-    if (changed && this.retryTimer) {
-      this.clearRetry();
-      void this.flush();
-    }
+    if (changed && this.pending.length) void this.flush();
   }
 
   /** 更新防抖 / 阈值调优。 */
@@ -180,6 +183,7 @@ export class SsePushService {
   // ---- internals ----
 
   private onNewMessages(change: NewMessages): void {
+    if (!this.handle || !this.target) return;
     for (const m of change.c2c) this.pending.push({ kind: 'c2c', msg: m });
     for (const m of change.group) this.pending.push({ kind: 'group', msg: m });
     if (this.pending.length > this.opts.maxPending) {
@@ -195,6 +199,7 @@ export class SsePushService {
   }
 
   private scheduleFlush(): void {
+    if (!this.handle || !this.target || !this.pending.length) return;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
@@ -203,32 +208,41 @@ export class SsePushService {
   }
 
   private async flush(): Promise<void> {
-    if (this.flushing) return;
+    if (this.flushing || !this.handle) return;
     const target = this.target;
     if (!target || this.pending.length === 0) return;
 
-    this.flushing = true;
+    const controller = new AbortController();
+    const { signal } = controller;
+    this.flushing = controller;
     try {
-      const { events, consumed, nextSeqs } = await this.buildEvents();
+      const { events, consumed, nextSeqs } = await withDatabasePriority(
+        'background',
+        () => this.buildEvents(signal),
+        signal,
+      );
+      signal.throwIfAborted();
       if (events.length === 0) {
         // 全是已推送过的旧行，直接消费掉。
-        this.pending.splice(0, consumed);
+        this.consume(consumed);
         return;
       }
-      const res = await postSsePushEvents(target, events, this.opts.timeoutMs);
+      const res = await postSsePushEvents(target, events, this.opts.timeoutMs, signal);
+      signal.throwIfAborted();
       if (!res.ok) {
         throw new Error(`推送地址返回 HTTP ${res.status}`);
       }
       // 推送成功才推进水位；失败时 lastSeq 保持原样，重试会重新生成同样的事件。
       for (const [key, seq] of nextSeqs) this.lastSeq.set(key, seq);
       this.retryCount = 0;
-      this.pending.splice(0, consumed);
+      this.consume(consumed);
       this.logger.info('pushed sse events', {
         event: 'sse-push-ok',
         count: events.length,
         url: target.pushUrl,
       });
     } catch (error) {
+      if (signal.aborted) return;
       this.retryCount += 1;
       const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.min(this.retryCount - 1, 5));
       this.logger.warn('sse push failed, will retry', {
@@ -243,10 +257,24 @@ export class SsePushService {
         void this.flush();
       }, delay);
     } finally {
-      this.flushing = false;
-      // flush 期间又有新消息进来：等防抖窗口结束后再推一批。
-      if (this.pending.length > 0 && this.retryTimer === null) this.scheduleFlush();
+      // 旧批次取消后，迟到 finally 不能覆盖重启／换目标后的在途批次。
+      if (this.flushing === controller) {
+        this.flushing = null;
+        if (this.pending.length > 0 && this.retryTimer === null) this.scheduleFlush();
+      }
     }
+  }
+
+  private cancelFlush(): void {
+    const controller = this.flushing;
+    this.flushing = null;
+    controller?.abort();
+  }
+
+  private consume(rows: readonly PendingRow[]): void {
+    const consumed = new Set(rows);
+    // 在途发送时队列可能因溢出裁掉旧头部，不能再按原长度误删新消息。
+    this.pending = this.pending.filter((row) => !consumed.has(row));
   }
 
   /**
@@ -255,14 +283,14 @@ export class SsePushService {
    *   - 跳变量 > massThreshold → 一条 mass 事件（预览最新一条）；
    *   - 否则逐条 message 事件（跳过已推送过的旧 seq）。
    */
-  private async buildEvents(): Promise<{
+  private async buildEvents(signal: AbortSignal): Promise<{
     events: SsePushEvent[];
-    consumed: number;
+    consumed: PendingRow[];
     /** 成功推送后才提交的会话水位（lastSeq）更新。 */
     nextSeqs: Map<string, bigint>;
   }> {
-    const consumed = this.pending.length;
-    const rows = this.pending.slice(0, consumed);
+    signal.throwIfAborted();
+    const rows = this.pending.slice();
 
     const convs = new Map<string, ConvGroup>();
     for (const row of rows) {
@@ -279,11 +307,13 @@ export class SsePushService {
     const watermarks = new Map<string, bigint>();
     try {
       const list = await this.session.recentContacts.listSeqWatermarks();
+      signal.throwIfAborted();
       for (const r of list) {
         if (!r.targetUid) continue;
         watermarks.set(`${kindOfChatType(r.chatType)}:${r.targetUid}`, r.msgSeq);
       }
     } catch (error) {
+      signal.throwIfAborted();
       this.logger.warn('read seq watermarks failed, falling back to batch gap', {
         event: 'sse-push-watermark-failed',
         ...logErrorContext(error),
@@ -293,6 +323,7 @@ export class SsePushService {
     const events: SsePushEvent[] = [];
     const nextSeqs = new Map<string, bigint>();
     for (const [key, group] of convs) {
+      signal.throwIfAborted();
       group.rows.sort((a, b) => compareSeq(a.msg, b.msg));
       const first = group.rows[0]!.msg;
       const last = group.rows[group.rows.length - 1]!.msg;
@@ -304,7 +335,7 @@ export class SsePushService {
       const gap = toSeq > safePrev ? toSeq - safePrev : 0n;
 
       if (gap > BigInt(this.opts.massThreshold)) {
-        const preview = await this.previewLatest(group.kind, key, last);
+        const preview = await this.previewLatest(group.kind, key, last, signal);
         events.push({
           type: 'mass',
           chatType: group.kind,
@@ -320,16 +351,17 @@ export class SsePushService {
 
       let maxSeq = safePrev;
       for (const row of group.rows) {
+        signal.throwIfAborted();
         if (row.msg.msgSeq <= safePrev) continue;
         const event = toMessageEvent(group.kind, row.msg);
-        await this.expandForwardCache(event);
+        await this.expandForwardCache(event, signal);
         events.push(event);
         if (row.msg.msgSeq > maxSeq) maxSeq = row.msg.msgSeq;
       }
       if (maxSeq > safePrev) nextSeqs.set(key, maxSeq);
     }
 
-    return { events, consumed, nextSeqs };
+    return { events, consumed: rows, nextSeqs };
   }
 
   /** mass 事件里「最新一条」的预览：优先拉会话最新几行，取最后一条。 */
@@ -337,33 +369,38 @@ export class SsePushService {
     kind: 'c2c' | 'group',
     convId: string,
     fallback: C2cMsg | GroupMsg,
+    signal: AbortSignal,
   ): Promise<SseMessageEvent | null> {
+    signal.throwIfAborted();
     try {
       // listLatest 返回 newest-first（DESC by seq），所以最新一条是 msgs[0]。
       if (kind === 'group') {
         const msgs = await this.session.groupMsgs.listLatest(convId, 5);
+        signal.throwIfAborted();
         if (msgs.length > 0) {
           const latest = toMessageEvent('group', msgs[0]!);
-          await this.expandForwardCache(latest);
+          await this.expandForwardCache(latest, signal);
           return latest;
         }
       } else {
         const part = c2cPartition(this.session, convId);
         const msgs = await this.session.c2cMsgs.listLatest(part, 5);
+        signal.throwIfAborted();
         if (msgs.length > 0) {
           const latest = toMessageEvent('c2c', msgs[0]!);
-          await this.expandForwardCache(latest);
+          await this.expandForwardCache(latest, signal);
           return latest;
         }
       }
     } catch (error) {
+      signal.throwIfAborted();
       this.logger.warn('fetch latest preview failed, using batch tail', {
         event: 'sse-push-preview-failed',
         ...logErrorContext(error),
       });
     }
     const fallbackEvent = toMessageEvent(kind, fallback);
-    await this.expandForwardCache(fallbackEvent);
+    await this.expandForwardCache(fallbackEvent, signal);
     return fallbackEvent;
   }
 
@@ -372,7 +409,8 @@ export class SsePushService {
    * 真实内容）并注入 forwardMessages，与导出管线的 expandForwards 一致。
    * 缓存缺失 / 解析失败时保留占位，不阻塞推送。
    */
-  private async expandForwardCache(event: SseMessageEvent): Promise<void> {
+  private async expandForwardCache(event: SseMessageEvent, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
     const hasForward = event.elements.some((el) => el.type === 'multiMsg');
     if (!hasForward) return;
     try {
@@ -381,12 +419,14 @@ export class SsePushService {
         event.chatType === 'group'
           ? await this.session.forwardMsgs.listGroupForward(msgId)
           : await this.session.forwardMsgs.listC2cForward(msgId);
+      signal.throwIfAborted();
       const lifted = liftForwardRecords(records);
       if (lifted.length === 0) return;
       for (const el of event.elements) {
         if (el.type === 'multiMsg') el.data.forwardMessages = lifted;
       }
     } catch (error) {
+      signal.throwIfAborted();
       this.logger.warn('expand forward cache failed, keep placeholder', {
         event: 'sse-push-forward-failed',
         chatType: event.chatType,
@@ -487,6 +527,7 @@ export async function postSsePushEvents(
   target: SsePushTarget,
   events: SsePushEvent[],
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = target.accessToken.trim();
@@ -496,7 +537,9 @@ export async function postSsePushEvents(
     method: 'POST',
     headers,
     body: JSON.stringify(payload, bigintReplacer),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+      : AbortSignal.timeout(timeoutMs),
   });
 }
 

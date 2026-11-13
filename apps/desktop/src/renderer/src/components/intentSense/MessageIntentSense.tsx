@@ -18,6 +18,7 @@ import { useRenderDocument } from '../../lib/renderDocument';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { intentPopoverPosition } from '../../lib/intentPopoverPosition';
 import { shouldDismissHoverHint } from '../../lib/hoverHint';
+import { useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';
 import { useTabActive } from '../RetainedTabs';
 import {
   Award,
@@ -235,10 +236,12 @@ export function MessageIntentSense({
   const getAnalysis = ctx?.getAnalysis;
   const isUnavailable = ctx?.isUnavailable;
   const requestAnalysis = ctx?.requestAnalysis;
-  const result = getAnalysis?.(msgId);
-  const unavailable = isUnavailable?.(msgId) ?? false;
+  const manualPending = ctx?.isManualPending?.(msgId) === true;
+  const manualSingle = manualPending && ctx?.manualSingleMessageId === msgId;
+  const result = manualPending ? undefined : getAnalysis?.(msgId);
+  const unavailable = !manualPending && (isUnavailable?.(msgId) ?? false);
   const pending = ctx?.isPending?.(msgId) ?? false;
-  const failure = ctx?.getFailure?.(msgId);
+  const failure = manualPending ? undefined : ctx?.getFailure?.(msgId);
   const displayState = result
     ? 'ready'
     : unavailable
@@ -266,6 +269,7 @@ export function MessageIntentSense({
 
     const hasAnalyzableText = (): boolean => {
       if (getAnalysis(msgId)) return true;
+      if (ctx?.automatic === false) return false;
       if (isUnavailable?.(msgId)) return false;
       if (analyzable !== undefined) return analyzable;
       const textEl = bubble.querySelector('.message-text, .qq-text-run');
@@ -345,6 +349,7 @@ export function MessageIntentSense({
     msgId,
     ownerDocument,
     analyzable,
+    ctx?.automatic,
   ]);
 
   useEffect(() => {
@@ -352,6 +357,16 @@ export function MessageIntentSense({
   }, [msgId, ctx?.conv, ctx?.kind, hoverActive]);
 
   const showPopover = hoverActive && anchor !== null && (!!result || !unavailable);
+  useSurfaceEscapeDismissal(
+    popoverRef,
+    () => {
+      if (openTimer.current) clearTimeout(openTimer.current);
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+      openTimer.current = closeTimer.current = null;
+      setAnchor(null);
+    },
+    showPopover,
+  );
   const layer = useOverlayLayer(showPopover);
   useLayoutEffect(() => {
     const popover = popoverRef.current;
@@ -395,7 +410,7 @@ export function MessageIntentSense({
     const view = ownerDocument.defaultView;
     const dismiss = (): void => setAnchor(null);
     const keydown = (event: KeyboardEvent): void => {
-      if (shouldDismissHoverHint(event)) dismiss();
+      if (event.key !== 'Escape' && shouldDismissHoverHint(event)) dismiss();
     };
     ownerDocument.addEventListener('scroll', dismiss, true);
     ownerDocument.addEventListener('pointerdown', dismiss, true);
@@ -451,8 +466,13 @@ export function MessageIntentSense({
 
   return (
     <>
-      {/* 文本消息保留同高槽位，无结果/失败都不收缩气泡。 */}
-      {persistentDisplay && (analyzable !== false || result) ? (
+      {/* 单条手动等待始终可见，普通分析仍遵循显示偏好；正文不等待分析。 */}
+      {manualSingle ||
+      (persistentDisplay &&
+        (result ||
+          (ctx?.loadingAnimation !== false &&
+            analyzable !== false &&
+            (ctx?.automatic !== false || pending || failure)))) ? (
         <span
           className="weq-intent-chips"
           data-intent-state={displayState}
@@ -475,7 +495,11 @@ export function MessageIntentSense({
           )}
         </span>
       ) : null}
-      {!persistentDisplay && hoverActive && analyzable !== false && !unavailable ? (
+      {!persistentDisplay &&
+      hoverActive &&
+      analyzable !== false &&
+      !unavailable &&
+      (ctx?.automatic !== false || result) ? (
         <span
           role="group"
           tabIndex={0}
@@ -494,6 +518,7 @@ export function MessageIntentSense({
         ? createPortal(
             <div
               ref={popoverRef}
+              data-weq-escape-surface
               id={tooltipId}
               className="weq-intent-popover"
               style={{

@@ -21,8 +21,8 @@ describe('逐条转发执行', () => {
     expect(() => validateForwardOptions(options)).not.toThrow();
     for (const maxIntervalMs of [-2, -0.5, Number.NaN, Number.POSITIVE_INFINITY])
       expect(() => validateForwardOptions({ ...options, maxIntervalMs })).toThrow('参数无效');
-    expect(formatForwardDuration(250)).toBe('0.25 秒');
-    expect(formatForwardDuration(3_600_000)).toBe('1 小时');
+    expect(formatForwardDuration(250)).toBe('0.25秒');
+    expect(formatForwardDuration(3_600_000)).toBe('1小时');
   });
   it('两种非固定间隔连同抖动一并封顶，预估与实际等待一致', async () => {
     for (const mode of ['text', 'original'] as const) {

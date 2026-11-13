@@ -1,9 +1,8 @@
 /**
  * ARK feed helpers — extract & filter ARK elements for 服务号 (118) / 公众号 (103).
  *
- * Both conversation types are ARK-only in practice; this layer strips any
- * non-ARK elements and best-effort extracts a human-readable `prompt` from
- * the ARK JSON payload for preview display.
+ * 仅供旧 Ark 专用接口与卡片预览提取使用。
+ * 完整会话页、目录和导出不得通过本层过滤其他消息类型。
  */
 
 import type { Element } from '@weq/codec';

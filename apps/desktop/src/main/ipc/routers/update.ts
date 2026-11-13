@@ -17,6 +17,8 @@
 
 import { observable } from '@trpc/server/observable';
 import { TRPCError } from '@trpc/server';
+import { z } from 'zod';
+import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { procedure, router } from '../trpc';
 import { backgroundTasks, runBackgroundTask } from '../../background_tasks';
 import {
@@ -37,6 +39,18 @@ const desktop = procedure.use(({ ctx, next }) => {
 let downloadTask: Promise<unknown> | null = null;
 
 export const updateRouter = router({
+  getInterval: procedure.query(() => getUpdateActions().getInterval()),
+  setInterval: desktop
+    .input(z.object({ minutes: z.number().refine(isUpdateCheckInterval) }))
+    .mutation(({ input }) => {
+      getUpdateActions().setInterval(input.minutes);
+      return getUpdateActions().getInterval();
+    }),
+  getPrerelease: procedure.query(() => getUpdateActions().getPrerelease()),
+  setPrerelease: desktop.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    getUpdateActions().setPrerelease(input.enabled);
+    return getUpdateActions().getPrerelease();
+  }),
   /** Last cached check result, or null if not checked yet this session. */
   getState: procedure.query((): UpdateState | null => getUpdateState()),
 

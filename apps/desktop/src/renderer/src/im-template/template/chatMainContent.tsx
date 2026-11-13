@@ -7,9 +7,8 @@ import {
 import { ChatPane, type ChatPaneProps } from './chatPane';
 import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
-import type { ConversationDetailActionRegistry } from './conversationDetailActions';
 import type { ProfileActionRegistry } from './profileActions';
-import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
+import type { ContactWorkspaceTab, GroupWorkspaceTab } from '../../lib/profileNavigation';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
 import type {
   Contact,
@@ -35,10 +34,10 @@ export function ChatMainContent({
   onContactWorkspaceTabChange,
   selectedGroupConversation,
   contactGroupDetails,
+  groupWorkspaceLocation,
   activeConversation,
   messages,
   composerActions,
-  conversationDetailActions: _conversationDetailActions,
   messageRenderers,
   profileActions: _profileActions,
   toolRegistry,
@@ -89,6 +88,7 @@ export function ChatMainContent({
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
   groupTodos,
+  groupSidebarFeature,
   onOpenGroupSign,
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
@@ -118,6 +118,10 @@ export function ChatMainContent({
   unreadDock,
   missingJumpSeq,
   resolvedGapIds,
+  onLoadOlder,
+  onLoadNewer,
+  hasOlder,
+  onTimelineElement,
 }: Pick<
   ChatPaneProps,
   | 'user'
@@ -163,6 +167,7 @@ export function ChatMainContent({
   | 'onOpenGroupFiles'
   | 'onOpenGroupAnnouncements'
   | 'groupTodos'
+  | 'groupSidebarFeature'
   | 'onOpenGroupSign'
   | 'onOpenGroupEssence'
   | 'onOpenGroupInfoDetail'
@@ -190,6 +195,10 @@ export function ChatMainContent({
   | 'unreadDock'
   | 'missingJumpSeq'
   | 'resolvedGapIds'
+  | 'onLoadOlder'
+  | 'onLoadNewer'
+  | 'hasOlder'
+  | 'onTimelineElement'
 > & {
   view: MainView;
   contactTab?: ContactTab;
@@ -199,11 +208,17 @@ export function ChatMainContent({
   onPreviewContactChat?: (contact: Contact) => void;
   contactPreviewContent?: React.ReactNode;
   contactWorkspaceTab?: ContactWorkspaceTab;
+  groupWorkspaceLocation?: {
+    code: string;
+    section?: GroupWorkspaceTab;
+    albumId?: string;
+    folderId?: string;
+    fileId?: string;
+  };
   onContactWorkspaceTabChange?: (tab: ContactWorkspaceTab) => void;
   selectedGroupConversation?: GroupConversation;
   contactGroupDetails?: React.ReactNode;
   activeConversation?: Conversation;
-  conversationDetailActions?: Partial<ConversationDetailActionRegistry>;
   profileActions?: Partial<ProfileActionRegistry>;
   toolRegistry?: ToolPaneGroup[];
   selectedToolId?: string | null;
@@ -252,6 +267,9 @@ export function ChatMainContent({
         ) : selectedGroupConversation ? (
           <GroupProfileDialog
             embedded
+            {...(groupWorkspaceLocation?.code === selectedGroupConversation.id
+              ? groupWorkspaceLocation
+              : {})}
             details={contactGroupDetails}
             conversation={selectedGroupConversation}
             onClose={onBackGroup}
@@ -323,6 +341,7 @@ export function ChatMainContent({
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
       groupTodos={groupTodos}
+      groupSidebarFeature={groupSidebarFeature}
       onOpenGroupSign={onOpenGroupSign}
       onOpenGroupEssence={onOpenGroupEssence}
       onOpenGroupInfoDetail={onOpenGroupInfoDetail}
@@ -350,6 +369,10 @@ export function ChatMainContent({
       unreadDock={unreadDock}
       missingJumpSeq={missingJumpSeq}
       resolvedGapIds={resolvedGapIds}
+      onLoadOlder={onLoadOlder}
+      onLoadNewer={onLoadNewer}
+      hasOlder={hasOlder}
+      onTimelineElement={onTimelineElement}
     />
   );
 }

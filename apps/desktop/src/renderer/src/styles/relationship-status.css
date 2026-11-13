@@ -25,6 +25,38 @@
   color: var(--weq-fg-secondary);
 }
 
+.weq-contact-meta:has(> .weq-relationship-with-category) {
+  align-self: stretch;
+}
+
+.weq-relationship-with-category {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-relationship-with-category > .weq-contact-value {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.weq-profile-field-inline {
+  flex: 1 1 130px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-profile-field-inline .weq-member-inline-field {
+  padding: 0;
+}
+
 .weq-relationship-status.is-compact {
   flex: none;
   flex-wrap: nowrap;

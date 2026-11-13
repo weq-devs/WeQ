@@ -77,6 +77,8 @@ html[data-theme='dark'] .weq-directory-order {
 .weq-contact-task-log h3 {
   margin: 16px 0 8px;
   font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 .weq-contact-task-log details {
   border-bottom: 1px solid var(--weq-border-subtle);

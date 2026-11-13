@@ -3,6 +3,38 @@
   padding-left: 84px;
 }
 
+:where(html[data-weq-layout='single']) .app-shell-root.is-desktop-shell.weq-web-shell {
+  --weq-mobile-window-chrome-height: 40px;
+}
+
+:where(html[data-weq-layout='single'])
+  .app-shell-root.is-desktop-shell.weq-web-shell
+  > .app-title-bar {
+  display: flex;
+}
+
+/* macOS 原生红绿灯合入页面头部；仿 Windows 按钮继续使用独立窗口栏。 */
+html[data-weq-layout='single'][data-weq-inline-native-controls]
+.app-shell-root.is-mac.is-desktop-shell.weq-web-shell {
+  --weq-mobile-window-chrome-height: 0px;
+}
+html[data-weq-layout='single'][data-weq-inline-native-controls]
+  .app-shell-root.is-mac.is-desktop-shell.weq-web-shell
+  > .app-title-bar {
+  display: none;
+}
+html[data-weq-inline-native-controls]
+  .is-desktop-shell
+  :is(.weq-mobile-header, .weq-mobile-settings-header, .weq-profile-page-toolbar) {
+  -webkit-app-region: drag;
+}
+html[data-weq-inline-native-controls]
+  .is-desktop-shell
+  :is(.weq-mobile-header, .weq-mobile-settings-header, .weq-profile-page-toolbar)
+  :is(button, input, a, [role='button'], .weq-titlebar-search) {
+  -webkit-app-region: no-drag;
+}
+
 .weq-native-window-header {
   display: flex;
   align-items: center;

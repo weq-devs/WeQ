@@ -19,7 +19,39 @@ createRoot(document.getElementById('root')!).render(
           network: { state: 'online', addresses: ['https://192.168.1.8:7691'] },
           invitationExpiresAt: null,
           pending: [],
-          devices: [],
+          devices: [
+            {
+              id: '00000000-0000-4000-8000-000000000001',
+              name: 'WeQ Remote iOS',
+              scope: 'web:access',
+              approvedAt: Date.now() - 86_400_000,
+              lastSeenAt: Date.now(),
+              deviceInfo: {
+                platform: 'ios',
+                model: 'iPhone17,1',
+                osVersion: '26.1',
+                appVersion: '1.0.0b3',
+                appBuild: '11',
+              },
+              lastConnection: { ip: '100.64.0.7', route: 'tailscale' },
+            },
+            {
+              id: '00000000-0000-4000-8000-000000000002',
+              name: 'Android 测试设备（较长名称用于窄屏展示检查）',
+              scope: 'web:access',
+              approvedAt: Date.now() - 7 * 86_400_000,
+              lastSeenAt: Date.now() - 3_600_000,
+              deviceInfo: {
+                platform: 'android',
+                model: 'Example Manufacturer Phone Model',
+                osVersion: '16',
+                appVersion: '1.0.0b3',
+                appBuild: '9',
+              },
+              lastConnection: { ip: '192.168.1.12', route: 'lan' },
+            },
+            { id: 'legacy-device', name: '旧版手机', approvedAt: 1, lastSeenAt: null },
+          ],
         }}
         qr={null}
         busy={false}

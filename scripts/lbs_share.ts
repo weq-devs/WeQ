@@ -1,3 +1,4 @@
+import { formatClock } from '../packages/time/src/index.mjs';
 /**
  * 位置共享联调脚本：借同机在线 QQ 的凭据，发起一次私聊 / 群聊位置共享，
  * 按服务端要求的心跳持续上报，并周期性查询房间成员。
@@ -37,7 +38,7 @@ import { sendMessage } from '../packages/protocol/src/msg/send';
 const LABEL = 'lbs-share';
 
 function log(message: string): void {
-  console.log(`[${LABEL}] ${new Date().toISOString().slice(11, 23)} ${message}`);
+  console.log(`[${LABEL}] ${formatClock(Date.now(), 'millisecond')} ${message}`);
 }
 
 function fail(message: string): never {

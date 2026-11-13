@@ -1,4 +1,5 @@
 export type BackgroundTaskKind =
+  | 'analysis'
   | 'calendar'
   | 'contacts'
   | 'model'
@@ -22,6 +23,7 @@ export interface BackgroundTask {
   kind: BackgroundTaskKind;
   name: string;
   scope?: BackgroundTaskScope;
+  destination?: 'db-checkup';
   status: BackgroundTaskStatus;
   statusLabel?: string;
   progress?: number;
@@ -30,6 +32,7 @@ export interface BackgroundTask {
   logs?: BackgroundTaskLogLine[];
   subtasks?: Array<{ label: string; done: number; total: number; failed: number }>;
   download?: { url: string; name: string };
+  reportId?: string;
   actions: { id: string; label: string }[];
   startedAt: number;
   updatedAt: number;
@@ -54,7 +57,7 @@ export interface BackgroundTaskLogLine {
 type TaskPatch = Partial<
   Pick<
     BackgroundTask,
-    'progress' | 'note' | 'details' | 'statusLabel' | 'download' | 'subtasks' | 'logs'
+    'progress' | 'note' | 'details' | 'statusLabel' | 'download' | 'subtasks' | 'logs' | 'reportId'
   >
 >;
 export type BackgroundTaskAction = {
@@ -77,7 +80,7 @@ export class BackgroundTaskRegistry {
     return () => this.listeners.delete(listener);
   };
 
-  start(input: Pick<BackgroundTask, 'name' | 'kind' | 'scope'> & TaskPatch) {
+  start(input: Pick<BackgroundTask, 'name' | 'kind' | 'scope' | 'destination'> & TaskPatch) {
     const now = Date.now();
     const task: BackgroundTask = {
       ...input,
@@ -119,6 +122,19 @@ export class BackgroundTaskRegistry {
       ...task,
       actions: actions.map(({ id, label }) => ({ id, label })),
     }));
+  }
+
+  /** 业务自身持久化的任务恢复原身份和时间，避免重启后重复提醒已读结果。 */
+  project(task: BackgroundTask, actions: BackgroundTaskAction[]) {
+    this.actions.set(task.id, actions);
+    const next = { ...task, actions: actions.map(({ id, label }) => ({ id, label })) };
+    const index = this.tasks.findIndex((entry) => entry.id === task.id);
+    this.tasks =
+      index < 0
+        ? [...this.tasks, next]
+        : this.tasks.map((entry, at) => (at === index ? next : entry));
+    this.prune();
+    this.emit();
   }
 
   resume(id: string) {

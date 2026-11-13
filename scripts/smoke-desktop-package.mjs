@@ -205,6 +205,16 @@ assert.equal(image.id, 1);
 assert.ok(Buffer.isBuffer(image.result), JSON.stringify(image));
 assert.equal((await sharp(image.result).metadata()).format, 'webp');
 console.log('PASS 图片 worker 实体启动、解包依赖加载及真实缩图 IPC 往返');
+const cover = await probeWorker('coverWorker.mjs', {}, undefined, {
+  id: 2,
+  operation: 'cover',
+  spec: { title: '封面渲染验收', theme: { mode: 'dark', accent: '#00a389' } },
+});
+assert.equal(cover.id, 2);
+assert.ok(Buffer.isBuffer(cover.result), JSON.stringify(cover));
+assert.equal((await sharp(cover.result).metadata()).width, 1440);
+assert.equal((await sharp(cover.result).metadata()).height, 720);
+console.log('PASS 封面 worker 实体启动、中文排版与 PNG 编码 IPC 往返');
 await probeWorker('storageCleanupWorker.mjs', {}, 'ready');
 if (process.platform === 'darwin') await probeWorker('macUpdateWorker.mjs', {}, 'error');
 console.log('PASS 备份/清理/更新 worker 依赖闭包（未提交任何操作）');

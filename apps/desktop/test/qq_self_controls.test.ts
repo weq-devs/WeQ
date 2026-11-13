@@ -1,15 +1,16 @@
-import { act, createElement as h, type ReactNode } from 'react';
+import { act, Fragment, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SelfQQControls } from '../src/renderer/src/components/settings/SelfQQControls';
+import { SelfProfileFixture as SelfQQControls } from './support/SelfProfileFixture';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 import { TitleBar } from '../src/renderer/src/im-template/template/TitleBar';
 import type { User } from '../src/renderer/src/im-template/template/types';
+import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import SelfOnlineStatusEditor from '../src/renderer/src/components/SelfOnlineStatusEditor';
 
 vi.mock('../src/renderer/src/components/settings/EditableSelfProfile', () => ({
-  EditableSelfProfile: () => null,
+  useEditableSelfProfileFields: () => ({ fields: {}, feedback: null }),
 }));
-
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
   useDialog: (selector: (s: { confirm: () => Promise<boolean> }) => unknown) =>
@@ -30,6 +31,9 @@ const state = vi.hoisted(() => ({
   invalidate: vi.fn(async () => undefined),
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
   pick: vi.fn<() => Promise<{ path: string } | null>>(async () => null),
+  navigate: vi.fn(),
+  statusSaved: vi.fn(),
+  readback: undefined as (() => Promise<boolean>) | undefined,
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
@@ -37,7 +41,12 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     available: true,
     busy: false,
     result: null,
-    run: async (action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>) => {
+    run: async (
+      action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
+      _refresh?: unknown,
+      options?: { readback?: () => Promise<boolean> },
+    ) => {
+      state.readback = options?.readback;
       await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.configId });
       return true;
     },
@@ -54,12 +63,19 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({
       account: {
         getSelfProfile: { invalidate: state.invalidate },
+        profileExtras: {
+          avatarHistory: { invalidate: state.invalidate },
+          signatureHistory: { invalidate: state.invalidate },
+        },
         getOnlineStatus: { invalidate: state.invalidate },
         getSelfVip: { invalidate: state.invalidate },
       },
     }),
     account: {
       // 顶栏会员徽标与资料编辑无关，这里让它不渲染。
+      getSelfProfile: { useQuery: () => ({ data: null }) },
+      dressup: { peerStats: { useQuery: () => ({ data: null }) } },
+      profileExtras: { energy: { useQuery: () => ({ data: undefined }) } },
       getSelfVip: { useQuery: () => ({ data: null }) },
       onVipChanged: { useSubscription: () => {} },
       qqActions: {
@@ -84,12 +100,18 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                   : null,
                 status: state.status,
                 statusError: state.statusError,
-                statusOptions: [{ value: 10, label: '在线' }],
+                statusOptions: [
+                  { value: 10, label: '在线' },
+                  { value: 30, label: '离开' },
+                ],
               },
               isLoading: false,
               dataUpdatedAt: state.nick === '原昵称' ? 1 : 2,
               isFetching: false,
-              refetch: async () => ({ error: null }),
+              refetch: async () => ({
+                error: null,
+                data: { status: state.status, statusError: state.statusError },
+              }),
             };
           },
         },
@@ -123,8 +145,31 @@ function fixture(titleBar = false) {
     displayName: '自己',
     avatarUrl: null,
   };
-  const render = () =>
-    act(() => root.render(titleBar ? h(TitleBar, { user: { ...user } }) : h(SelfQQControls)));
+  const render = () => {
+    act(() =>
+      root.render(
+        titleBar
+          ? h(
+              ProfileNavigationContext.Provider,
+              { value: state.navigate },
+              h(TitleBar, { user: { ...user } }),
+            )
+          : h(
+              Fragment,
+              null,
+              h(SelfQQControls),
+              h(SelfOnlineStatusEditor, {
+                key: state.configId,
+                binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
+                onSaved: state.statusSaved,
+              }),
+            ),
+      ),
+    );
+    if (!titleBar)
+      for (const label of ['QQ 昵称', '性别', '个性签名'])
+        act(() => host.querySelector<HTMLButtonElement>(`[aria-label="编辑${label}"]`)?.click());
+  };
   cleanup.push(() => {
     act(() => root.unmount());
     host.remove();
@@ -133,6 +178,8 @@ function fixture(titleBar = false) {
   return { host, render, user };
 }
 function input(host: HTMLElement, name: string, value: string) {
+  if (!host.querySelector(`[aria-label="${name}"]`))
+    act(() => host.querySelector<HTMLButtonElement>(`[aria-label="编辑${name}"]`)?.click());
   const field = host.querySelector<HTMLInputElement>(`[aria-label="${name}"]`)!;
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value);
@@ -156,6 +203,9 @@ beforeEach(() => {
   state.invalidate.mockClear();
   state.mutate.mockClear();
   state.pick.mockReset().mockResolvedValue(null);
+  state.navigate.mockClear();
+  state.statusSaved.mockClear();
+  state.readback = undefined;
 });
 afterEach(() => {
   for (const close of cleanup.splice(0)) close();
@@ -164,12 +214,89 @@ afterEach(() => {
 });
 
 describe('个人资料编辑入口', () => {
+  it('尚未编辑时整体跟随迟到回读，不拼接不同版本的状态字段', () => {
+    const f = fixture();
+    state.status = {
+      type: 10,
+      subType: 2000,
+      customStatus: { faceId: 14, faceType: 1, text: '迟到的完整状态' },
+    };
+    f.render();
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!.value).toBe(
+      '2000',
+    );
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
+      '迟到的完整状态',
+    );
+    expect(f.host.querySelector('[aria-label="状态表情"]')!.getAttribute('title')).toBe('[呲牙]');
+  });
+  it('从扩展状态切换为离开时只提交一次整体状态，并清空扩展值', async () => {
+    state.status = { type: 10, subType: 1018, customStatus: undefined };
+    const f = fixture();
+    act(() => {
+      const base = f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!;
+      base.value = '30';
+      base.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(f.host.querySelector('[aria-label="扩展在线状态"]')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      status: 30,
+      extStatus: 0,
+    });
+    expect(await state.readback!()).toBe(false);
+    state.status = { type: 30, subType: 0, customStatus: undefined };
+    expect(await state.readback!()).toBe(true);
+  });
+  it('自定义状态完整核对基础值、扩展值、文字、表情编号和表情类型', async () => {
+    const expected = { faceId: 0, text: '完整状态', faceType: 1 };
+    state.status = { type: 10, subType: 2000, customStatus: expected };
+    const f = fixture();
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),
+    );
+    const readback = state.readback!;
+    expect(await readback()).toBe(true);
+    for (const patch of [{ text: '另一个值' }, { faceId: 14 }, { faceType: 2 }]) {
+      state.status = { type: 10, subType: 2000, customStatus: { ...expected, ...patch } };
+      expect(await readback()).toBe(false);
+    }
+    state.statusError = '读取失败';
+    expect(await readback()).toBe(false);
+  });
+  it('状态保存期间连续点击不重复提交，失败后保留整份草稿可重试', async () => {
+    let reject!: (cause: Error) => void;
+    state.mutate.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    const f = fixture();
+    const save = f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!;
+    act(() => {
+      save.click();
+      save.click();
+    });
+    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(save.disabled).toBe(true);
+    await act(async () => reject(new Error('合成状态提交失败')));
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成状态提交失败');
+    expect(save.disabled).toBe(false);
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!.value).toBe('10');
+  });
   it.each([
     { label: '性别', value: '1', payload: { patch: { gender: 1 } } },
     { label: '在线状态', value: '10', payload: { status: 10, extStatus: 0 } },
-  ])('$label 选择后直接提交，不显示保存按钮', async ({ label, value, payload }) => {
+  ])('$label 选择后通过保存提交', async ({ label, value, payload }) => {
     const f = fixture();
-    expect(f.host.querySelector(`[aria-label="保存${label}"]`)).toBeNull();
+    expect(f.host.querySelector(`[aria-label="保存${label}"]`)).not.toBeNull();
     await act(async () => {
       if (label === '性别') {
         f.host.querySelectorAll<HTMLButtonElement>('[aria-label="性别"] button')[1]!.click();
@@ -178,7 +305,11 @@ describe('个人资料编辑入口', () => {
         select.value = value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }
+      expect(state.mutate).not.toHaveBeenCalled();
     });
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>(`[aria-label="保存${label}"]`)!.click(),
+    );
     expect(state.mutate).toHaveBeenCalledOnce();
     expect(state.mutate).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
@@ -186,20 +317,20 @@ describe('个人资料编辑入口', () => {
       ...payload,
     });
   });
-  it('只有选中自定义扩展状态才显示编辑与清除操作，选择自定义不写入', async () => {
+  it('所有状态选择共用一个保存入口，切换自定义和预设不自动提交', async () => {
     const f = fixture();
     expect(f.host.querySelector('[aria-label="自定义状态文字"]')).toBeNull();
     expect(f.host.querySelector('[title="清除自定义状态"]')).toBeNull();
     selectExtended(f.host, '2000');
     expect(f.host.querySelector('[aria-label="自定义状态文字"]')).not.toBeNull();
-    expect(f.host.querySelector('[title="清除自定义状态"]')).not.toBeNull();
+    expect(f.host.querySelectorAll('[aria-label="保存在线状态"]')).toHaveLength(1);
     expect(f.host.querySelector('[aria-label="保存扩展在线状态"]')).toBeNull();
     input(f.host, '自定义状态文字', '未保存草稿');
     await act(async () => selectExtended(f.host, '1018'));
     expect(f.host.querySelector('[aria-label="自定义状态文字"]')).toBeNull();
     expect(f.host.querySelector('[title="清除自定义状态"]')).toBeNull();
     expect(f.host.querySelector('[aria-label="保存扩展在线状态"]')).toBeNull();
-    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(state.mutate).not.toHaveBeenCalled();
     state.mutate.mockClear();
     selectExtended(f.host, '2000');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
@@ -232,7 +363,7 @@ describe('个人资料编辑入口', () => {
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
       '未保存草稿',
     );
-    expect(f.host.querySelector('[aria-label="状态表情"]')!.getAttribute('title')).toBe('[呲牙]');
+    expect(f.host.querySelector('[aria-label="状态表情"]')!.getAttribute('title')).toBe('[微笑]');
   });
   it('同号更换来源会清除另一来源的自定义状态草稿', () => {
     const f = fixture();
@@ -254,7 +385,8 @@ describe('个人资料编辑入口', () => {
     const f = fixture();
     expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('状态读取失败');
     const signature = f.host.querySelector<HTMLTextAreaElement>('[aria-label="个性签名"]')!;
-    expect(signature.value).toBe('原签名');
+    expect(signature.value).toBe('');
+    expect(signature.placeholder).toBe('新签名');
     expect(signature.disabled).toBe(false);
   });
   it('选择头像后提交当前来源的文件，并恢复按钮', async () => {
@@ -295,25 +427,65 @@ describe('个人资料编辑入口', () => {
     expect(state.mutate).not.toHaveBeenCalled();
     expect(avatarButton().disabled).toBe(false);
   });
-  it('头像位于基本字段前，昵称与性别分组，签名独立占满编辑区', () => {
+  it('取消选图不写入，选图失败显示错误并恢复按钮', async () => {
     const f = fixture();
-    const header = f.host.querySelector('[aria-label="个人资料概览"]')!;
-    expect(header).not.toBeNull();
-    expect(header.textContent).toContain('10001');
-    expect(header.querySelector('[aria-label="更换头像"]')).not.toBeNull();
-    const basic = f.host.querySelector('[aria-label="基本资料编辑"]')!;
-    expect(basic.querySelector('[aria-label="QQ 昵称"]')).not.toBeNull();
-    expect(basic.querySelector('[aria-label="性别"]')).not.toBeNull();
-    expect(basic.querySelector('[aria-label="个性签名"]')).toBeNull();
-    const signature = f.host.querySelector('[aria-label="签名编辑"]')!;
-    expect(signature.querySelector('textarea')).not.toBeNull();
-    expect(header.compareDocumentPosition(basic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(
-      basic.compareDocumentPosition(signature) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    const button = () => f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!;
+    await act(async () => button().click());
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(button().disabled).toBe(false);
+    state.pick.mockRejectedValueOnce(new Error('合成选图错误'));
+    await act(async () => button().click());
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toBe('合成选图错误');
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(button().disabled).toBe(false);
+  });
+  it('关闭头像对话框后，迟到的选图结果不再提交', async () => {
+    let finish!: (file: { path: string }) => void;
+    state.pick.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const f = fixture();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!.click());
+    cleanup.pop()!();
+    await act(async () => finish({ path: '/synthetic/late-avatar.png' }));
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('基础状态在扩展状态上方，预设扩展状态选择后直接提交并显示图标', async () => {
+  it('头像请求已提交后关闭对话框，完成时仍刷新原账号的头像历史', async () => {
+    let finish!: (value: { state: 'accepted' }) => void;
+    state.pick.mockResolvedValueOnce({ path: '/synthetic/avatar.png' });
+    state.mutate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const f = fixture();
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledOnce();
+    cleanup.pop()!();
+    state.invalidate.mockClear();
+    await act(async () => finish({ state: 'accepted' }));
+    expect(state.invalidate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+    });
+  });
+  it('共享控制层提供独立字段，不再生成重复身份区和基本资料分组', () => {
+    const f = fixture();
+    expect(f.host.querySelector('[aria-label="个人资料概览"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="基本资料编辑"]')).toBeNull();
+    expect(f.host.querySelectorAll('[aria-label="QQ 昵称"]')).toHaveLength(1);
+    expect(f.host.querySelectorAll('[aria-label="性别"]')).toHaveLength(1);
+    expect(f.host.querySelectorAll('input[aria-label="个性签名"]')).toHaveLength(1);
+    expect(f.host.querySelector('[aria-label="更换头像"]')).not.toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('基础状态在扩展状态上方，预设扩展状态预览图标后确认提交', async () => {
     const f = fixture();
     const basic = f.host.querySelector('[aria-label="在线状态"]')!;
     const extended = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
@@ -325,6 +497,9 @@ describe('个人资料编辑入口', () => {
     const preview = f.host.querySelector('[aria-label="扩展状态预览"]')!;
     expect(preview.textContent).toBe('学习中');
     expect(preview.querySelector('img')?.getAttribute('src')).toContain('study_3x.png');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),
+    );
     expect(state.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ status: 10, extStatus: 1018 }),
     );
@@ -355,6 +530,9 @@ describe('个人资料编辑入口', () => {
       select.value = '1018';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),
+    );
     expect(f.host.querySelector('[aria-label="保存扩展在线状态"]')).toBeNull();
     expect(state.mutate).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
@@ -363,29 +541,38 @@ describe('个人资料编辑入口', () => {
       extStatus: 1018,
     });
   });
-  it('标题栏头像打开真实资料编辑器，关闭后重新打开不保留草稿', async () => {
+  it('标题栏头像直接打开通用名片，不挂载专用的我的名片弹窗', () => {
     const f = fixture(true);
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
-    const open = () =>
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑 QQ 资料"]')!.click());
-    open();
-    input(f.host, 'QQ 昵称', '从标题栏修改');
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="保存QQ 昵称"]')!.click(),
+    const avatar = f.host.querySelector<HTMLButtonElement>('[aria-label="查看我的名片"]')!;
+    vi.spyOn(avatar, 'getBoundingClientRect').mockReturnValue({
+      right: 68,
+      bottom: 40,
+    } as DOMRect);
+    act(() => avatar.click());
+    expect(state.navigate).toHaveBeenCalledWith(
+      expect.objectContaining({ identityValue: '10001', displayName: '自己' }),
+      { x: 68, y: 40 },
     );
-    expect(state.mutate).toHaveBeenCalledWith({
-      expectedAccountUin: '10001',
-      expectedAccountConfigId: 'source-a',
-      patch: { nickname: '从标题栏修改' },
-    });
-    input(f.host, 'QQ 昵称', '关闭时丢弃的草稿');
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭资料编辑"]')!.click());
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
-    open();
-    expect(f.host.querySelector<HTMLInputElement>('[aria-label="QQ 昵称"]')!.value).toBe('原昵称');
+    act(() =>
+      avatar.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, detail: 1, clientX: 48, clientY: 24 }),
+      ),
+    );
+    expect(state.navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identityValue: '10001' }),
+      { x: 48, y: 24 },
+    );
     f.user.identityValue = '10002';
     f.render();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="查看我的名片"]')!.click());
+    expect(state.navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identityValue: '10002' }),
+      expect.any(Object),
+    );
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
   });
   it('修改昵称只提交昵称，不带旧签名和性别', async () => {
     const f = fixture();
@@ -458,7 +645,7 @@ describe('个人资料编辑入口', () => {
     expect(f.host.querySelector('.weq-face-picker')).toBeNull();
     expect(document.activeElement).toBe(f.host.querySelector('[aria-label="状态表情"]'));
     await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="保存自定义状态"]')!.click(),
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),
     );
     expect(state.mutate).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
@@ -480,7 +667,7 @@ describe('个人资料编辑入口', () => {
       '/14/apng/14.png',
     );
     await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="保存自定义状态"]')!.click(),
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),
     );
     expect(state.mutate).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
@@ -489,6 +676,58 @@ describe('个人资料编辑入口', () => {
       extStatus: 2000,
       custom: { faceId: 14, faceType: 1, wording: '新的状态' },
     });
+  });
+  it.each(['搜索表情', '状态表情', 'blank'])('状态表情在 %s 聚焦时 Esc 只收起选择器', (focus) => {
+    const f = fixture();
+    selectExtended(f.host, '2000');
+    input(f.host, '自定义状态文字', '保留状态草稿');
+    const trigger = f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!;
+    act(() => trigger.click());
+    const picker = f.host.querySelector<HTMLElement>('.weq-qq-write-face-picker')!;
+    const target =
+      focus === 'blank' ? picker : f.host.querySelector<HTMLElement>(`[aria-label="${focus}"]`)!;
+    if (focus === 'blank') target.tabIndex = -1;
+    act(() => target.focus());
+    const editors = [...f.host.querySelectorAll('[data-profile-editing]')];
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => target.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(f.host.querySelector('.weq-face-picker')).toBeNull();
+    expect([...f.host.querySelectorAll('[data-profile-editing]')]).toEqual(editors);
+    expect(document.activeElement).toBe(trigger);
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
+      '保留状态草稿',
+    );
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('上层详情和输入法 Esc 不收起状态表情选择器', () => {
+    const f = fixture();
+    selectExtended(f.host, '2000');
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!.click());
+    const search = f.host.querySelector<HTMLElement>('[aria-label="搜索表情"]')!;
+    for (const init of [{ isComposing: true }, { keyCode: 229 }]) {
+      act(() =>
+        search.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, ...init }),
+        ),
+      );
+      expect(f.host.querySelector('.weq-face-picker')).not.toBeNull();
+    }
+    const detail = document.createElement('div');
+    detail.setAttribute('role', 'dialog');
+    detail.style.zIndex = '100';
+    f.host.append(detail);
+    act(() =>
+      detail.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(f.host.querySelector('.weq-face-picker')).not.toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
   });
   it('同号切换数据源不携带上一个现场的未提交状态', () => {
     const f = fixture();
@@ -502,15 +741,20 @@ describe('个人资料编辑入口', () => {
     expect(state.mutate).not.toHaveBeenCalled();
   });
 
-  it('资料缓存未填充时仍可明确修改昵称或清空签名', async () => {
+  it('资料缓存未填充时仍可明确修改昵称或提交新签名，空签名不提交', async () => {
     state.profilePresent = false;
     const f = fixture();
     input(f.host, 'QQ 昵称', '首次设置昵称');
     await act(async () =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="保存QQ 昵称"]')!.click(),
     );
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="个性签名"]')!.value).toBe('');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存个性签名"]')!.disabled).toBe(
+      true,
+    );
+    input(f.host, '个性签名', '新的签名');
     await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="清空个性签名"]')!.click(),
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存个性签名"]')!.click(),
     );
     expect(state.mutate).toHaveBeenNthCalledWith(1, {
       expectedAccountUin: '10001',
@@ -520,7 +764,8 @@ describe('个人资料编辑入口', () => {
     expect(state.mutate).toHaveBeenNthCalledWith(2, {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
-      patch: { signature: '' },
+      patch: { signature: '新的签名' },
     });
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="个性签名"]')!.value).toBe('');
   });
 });

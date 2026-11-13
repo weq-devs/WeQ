@@ -10,7 +10,15 @@ export interface QzoneSpaceRequest {
 
 export type QzoneCardTarget =
   | { kind: 'space'; uin: string }
-  | { kind: 'post'; uin: string; tid: string }
+  | {
+      kind: 'post';
+      uin: string;
+      tid: string;
+      commentId?: string;
+      parentCommentId?: string;
+      replyId?: string;
+      commentText?: string;
+    }
   | { kind: 'album'; uin: string; topicId: string };
 export const QzoneCardNavigationContext = createContext<((target: QzoneCardTarget) => void) | null>(
   null,

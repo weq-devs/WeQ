@@ -1,0 +1,16 @@
+{
+  "name": "@weq/time",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.mts",
+      "default": "./src/index.mjs"
+    }
+  },
+  "scripts": {
+    "test": "node test/run.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "version": "2.7.0"
+}

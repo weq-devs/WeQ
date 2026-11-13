@@ -8,8 +8,72 @@ import {
 import { DEFAULT_HOME_SETTINGS, normalizeHomeSettings } from '../src/common/home_settings';
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture } from './support/user_config';
+import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '../src/common/update_settings';
+
+describe('自动检查更新频率', () => {
+  it('旧配置默认 60 分钟，正数不设上限并随备份保留', () => {
+    const f = configFixture();
+    expect(f.service.getSettings().updateCheckIntervalMinutes).toBe(
+      DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+    );
+    for (const minutes of [-1, 0.5, 100_000, Number.MAX_VALUE]) {
+      f.service.setSettings({ updateCheckIntervalMinutes: minutes });
+      f.service.setSettings({ preferCdn: false });
+      const saved = f.open().getSettings();
+      expect(saved.updateCheckIntervalMinutes).toBe(minutes);
+      const backup = snapshotWeqSettings(saved);
+      expect(backup.updateCheckIntervalMinutes).toBe(minutes);
+      expect(() => validateWeqAppSettings(backup)).not.toThrow();
+    }
+  });
+  it.each([0, -2, -0.5, NaN, Infinity, '60', null])(
+    '无效值 %s 不覆盖配置且备份拒绝导入',
+    (value) => {
+      const f = configFixture({ settings: { updateCheckIntervalMinutes: value } });
+      expect(f.service.getSettings().updateCheckIntervalMinutes).toBe(
+        DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+      );
+      f.service.setSettings({ updateCheckIntervalMinutes: 120 });
+      f.service.setSettings(JSON.parse(JSON.stringify({ updateCheckIntervalMinutes: value })));
+      expect(f.open().getSettings().updateCheckIntervalMinutes).toBe(120);
+      expect(() => validateWeqAppSettings({ updateCheckIntervalMinutes: value })).toThrow(
+        'settings.updateCheckIntervalMinutes',
+      );
+    },
+  );
+});
+
+describe('测试版更新偏好', () => {
+  it('默认关闭，独立保存且重开后保留', () => {
+    const f = configFixture();
+    expect(f.service.getSettings().updateCheckPrerelease).toBe(false);
+    f.service.setSettings({ updateCheckPrerelease: true });
+    f.service.setSettings({ preferCdn: false });
+    expect(f.open().getSettings().updateCheckPrerelease).toBe(true);
+    expect(snapshotWeqSettings(f.open().getSettings()).updateCheckPrerelease).toBe(true);
+    f.service.setSettings({ updateCheckPrerelease: false });
+    expect(f.open().getSettings().updateCheckPrerelease).toBe(false);
+  });
+});
 
 describe('导出识别并发设置', () => {
+  it('全局 OCR 筛图默认开启，关闭后不改变模型，重开与备份保留', () => {
+    const f = configFixture();
+    expect(f.service.getSettings().ocr.prefilterEnabled).toBe(true);
+    f.service.setSettings({ modelResources: { filter: 'filter-model' } });
+    f.service.setSettings({ ocr: { prefilterEnabled: false } });
+    f.service.setSettings({ ocr: { onlineConcurrency: 8 } });
+    const settings = f.open().getSettings();
+    expect(settings.ocr.prefilterEnabled).toBe(false);
+    expect(settings.modelResources.filter).toBe('filter-model');
+    const backup = snapshotWeqSettings(settings);
+    expect(backup.ocr.prefilterEnabled).toBe(false);
+    expect(() => validateWeqAppSettings(backup)).not.toThrow();
+    expect(() => validateWeqAppSettings({ ocr: { prefilterEnabled: 'false' } })).toThrow(
+      'settings.ocr.prefilterEnabled',
+    );
+  });
+
   it('旧配置使用默认并发，独立修改、备份和重开后保留', () => {
     const f = configFixture();
     expect(f.service.getSettings().ocr.onlineConcurrency).toBe(
@@ -95,6 +159,7 @@ describe('个性主页', () => {
     config.setSettings({
       home: {
         ...DEFAULT_HOME_SETTINGS,
+        preferQqShow: false,
         showTags: false,
         blockedWords: [' ABC ', 'abc', '', '剧透'],
       },
@@ -102,6 +167,7 @@ describe('个性主页', () => {
     config.setSettings({ preferCdn: false });
     expect(new UserConfigService(platform).getSettings().home).toEqual({
       ...DEFAULT_HOME_SETTINGS,
+      preferQqShow: false,
       showTags: false,
       blockedWords: ['ABC', '剧透'],
     });
@@ -109,7 +175,12 @@ describe('个性主页', () => {
 
   it('损坏或缺少的字段回落默认值，不把 false 吞掉', () => {
     expect(
-      normalizeHomeSettings({ showGreeting: false, showTags: 'false', blockedWords: [42, '  '] }),
+      normalizeHomeSettings({
+        preferQqShow: 'false',
+        showGreeting: false,
+        showTags: 'false',
+        blockedWords: [42, '  '],
+      }),
     ).toEqual({
       ...DEFAULT_HOME_SETTINGS,
       showGreeting: false,
@@ -119,13 +190,15 @@ describe('个性主页', () => {
   it('主页偏好随全局设置备份，屏蔽词数组可校验并拒绝损坏数据', () => {
     const backup = snapshotWeqSettings({
       ...DEFAULT_APP_SETTINGS,
-      home: { ...DEFAULT_HOME_SETTINGS, blockedWords: ['剧透'] },
+      home: { ...DEFAULT_HOME_SETTINGS, preferQqShow: false, blockedWords: ['剧透'] },
     });
     expect(backup.home.blockedWords).toEqual(['剧透']);
+    expect(backup.home.preferQqShow).toBe(false);
     expect(() => validateWeqAppSettings(backup)).not.toThrow();
     for (const home of [
       { blockedWords: [42] },
       { showTags: 'false' },
+      { preferQqShow: 'false' },
       { blockedWords: ['x'.repeat(201)] },
     ])
       expect(() => validateWeqAppSettings({ home })).toThrow('settings.home');

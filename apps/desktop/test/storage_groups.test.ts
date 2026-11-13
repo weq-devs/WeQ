@@ -119,7 +119,7 @@ it('数据库备份固定置顶，未知项固定置底，其余分类和条目�
 it('配置旧入口定位重置按钮，桌面缓存和空间清理定位存储页', () => {
   for (const item of ['账号与应用配置', '全局配置']) {
     expect(resolveSettingsTarget({ section: 'weq-storage', item })).toMatchObject({
-      section: 'backup',
+      section: 'startup',
       settingId: 'weq-config-management',
     });
   }

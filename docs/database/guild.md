@@ -120,8 +120,8 @@ WeQ 实际读取的列：
 | 40050 | `sendTime` | INTEGER | 发送时间，unix 秒 | 已验证 |
 | 40011 | `msgType` | INTEGER | 消息类型 | 观测一致 |
 | 40012 | `subType` | INTEGER | 消息子类型 | 观测一致 |
-| 40800 | `msgBody` | BLOB | 消息正文，protobuf `repeated ElementWire`，**结构与 nt_msg.db 的 40800 完全一致**，见 [40800 解析](./nt_msg/40800.md) | 已验证 |
-| 40801 | `dress` | BLOB | 消息装扮，同 [40801](./nt_msg/40801.md) | 已验证 |
+| 40800 | `msgBody` | BLOB | 消息正文，protobuf `repeated ElementWire`，**结构与 nt_msg.db 的 40800 完全一致**，见 [40800 解析](nt_msg/40800.md) | 已验证 |
+| 40801 | `dress` | BLOB | 消息装扮，同 [40801](nt_msg/40801.md) | 已验证 |
 
 与 `nt_msg.db` 消息表的同构性是刻意的：**列号同一套编号体系**（40001/40003/40050/40800…），
 但身份体系不同 —— 这里没有 uid/uin，发送者一律是**频道 tiny id**。
@@ -230,4 +230,4 @@ IPC 路径见 `apps/desktop/src/main/ipc/routers/account.ts`（`account.guildDir
 
 ---
 
-[← 返回数据库分析](./index.md)
+[← 返回数据库分析](index.md)

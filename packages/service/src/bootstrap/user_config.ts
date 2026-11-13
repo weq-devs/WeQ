@@ -16,12 +16,27 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import { mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  unlinkSync,
+  existsSync,
+  statSync,
+} from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
+import { clearDressSharedFiles } from './storage_cleanup';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
+import {
+  DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+  isUpdateCheckInterval,
+} from '../common/update_settings';
 import { DEFAULT_SERVICE_PORTS } from '../common/service_ports';
+import { DEFAULT_CONTACT_CARD, normalizeContactCard } from '../common/contact_card';
 import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
+import { normalizeImagePreferences, type AiImagePreferences } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
 import {
@@ -36,6 +51,14 @@ import {
 } from '../common/chat_image_cache';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { emitSettingsChanged } from '../common/settings_changes';
+import {
+  readPreferenceObject,
+  type SharedPreferences,
+  type SharedPreferenceGroups,
+} from '../common/shared_preferences';
+import { migrateSharedPreferences } from './shared_preferences_migration';
+import { displayPreferenceKeys, validatePreferencePatch } from '../common/client_preferences';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   listStorageUsage,
@@ -579,6 +602,8 @@ export interface VoiceTranscribeConfig {
 export interface OcrModelsConfig {
   modelId: string;
   filterModelId: string;
+  /** 非手动 OCR 前先筛除无文字图片，不改变模型资源选择。 */
+  prefilterEnabled: boolean;
   /** 导出时同时向 QQ 发起的在线识别请求数。 */
   onlineConcurrency: number;
 }
@@ -669,6 +694,8 @@ export interface WeqAssistantConfig {
 export interface AgentLabSettings {
   providers: AgentLabProviderConfig[];
   defaultModel: AgentLabModelRef | null;
+  defaultVisionModel: AgentLabModelRef | null;
+  defaultEmbeddingModel: AgentLabModelRef | null;
 }
 
 /**
@@ -703,6 +730,12 @@ export interface LinkPreviewConfig {
 }
 
 export interface AppSettings {
+  sharedPreferences: SharedPreferences;
+  contactCard: import('../common/contact_card').ContactCardSettings;
+  /** 软件更新是否包含测试发布，默认关闭。 */
+  updateCheckPrerelease: boolean;
+  /** 自动检查更新间隔（分钟），-1 表示永不。 */
+  updateCheckIntervalMinutes: number;
   /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
   toastDurations: ToastDurations;
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
@@ -746,18 +779,11 @@ export interface AppSettings {
   oneBot: OneBotConfig;
   weqAssistant: WeqAssistantConfig;
   agentLab: AgentLabSettings;
+  aiImages: AiImagePreferences;
   /** 点击关闭按钮时的行为。默认 'tray'（最小化到托盘，后台服务继续运行）。 */
   windowCloseBehavior: WindowCloseBehavior;
   /** macOS / Linux 使用右上角仿 Windows 窗口按钮，账号选择页不受影响。 */
   windowsStyleControls: boolean;
-  /**
-   * 已废弃（2026-11-09 起退出不再确认）。
-   *
-   * 仅为兼容旧配置保留：读写链路还在（旧文件里的值不会校验失败、保存时也不丢），
-   * 但已没有任何代码读取它。退出（Dock / Cmd+Q / 托盘）现在直接结束进程；
-   * 「退出会停止哪些服务」改由关窗确认框与「后台服务」页展示。
-   */
-  quitConfirmSuppressed: boolean;
   /**
    * 是否把纯文本消息里的 Markdown 也渲染出来。这是 WeQ 自己的 feature——QQ 的语义里
    * 只有 markdownElement 才是 Markdown，纯文本就该是纯文本（关掉后别人发的 ``` 或 **
@@ -1110,6 +1136,10 @@ function normalizeQqShowCacheMinutes(value: unknown, legacyDays?: unknown): numb
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  sharedPreferences: {},
+  contactCard: DEFAULT_CONTACT_CARD,
+  updateCheckPrerelease: false,
+  updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   exportSaveMode: 'before',
   realtimeEnabled: true,
@@ -1127,7 +1157,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
   voiceTranscribe: { modelId: '', autoTranscribe: false, onlineConcurrency: 5, ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
-  ocr: { modelId: '', filterModelId: '', onlineConcurrency: 5 },
+  ocr: { modelId: '', filterModelId: '', prefilterEnabled: true, onlineConcurrency: 5 },
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: DEFAULT_SERVICE_PORTS.mcp, token: '' },
@@ -1146,11 +1176,15 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   },
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: DEFAULT_SERVICE_PORTS['weq-assistant'] },
-  agentLab: { providers: [], defaultModel: null },
+  agentLab: {
+    providers: [],
+    defaultModel: null,
+    defaultVisionModel: null,
+    defaultEmbeddingModel: null,
+  },
+  aiImages: normalizeImagePreferences(null),
   windowCloseBehavior: 'tray',
   windowsStyleControls: false,
-  /** 已废弃，仅为旧配置兼容保留；不再控制任何行为（见类型注释）。 */
-  quitConfirmSuppressed: false,
   renderTextMarkdown: true,
   showAvatarPendant: true,
   showChatQqShow: true,
@@ -1192,11 +1226,14 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 };
 
 export interface UserConfig {
+  desktopPreferencesSeeded?: boolean;
+  sharedPreferenceRestoreReceipts?: string[];
+  settingsRevision?: number;
+  globalClientPreferencesMigrated?: boolean;
+  sharedPreferencesMigration?: { version: 1; configId: string | null; receipt?: string };
   autoEnter?: AutoEnterTarget | null;
   /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
   skipAutoEnterOnce?: boolean;
-  /** 正常退出时写入，下次进程启动消费，异常终止不会留下该标记。 */
-  cleanExit?: boolean;
   tencentFilesRootOverride?: string | null;
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
@@ -1275,7 +1312,92 @@ export class UserConfigService {
     // settings（都用 `getSettings()` 重建），跑在后面有丢掉旧规则的风险。
     this.migrateGroupKeywordToAccounts();
     this.runConfigMigrations();
+    try {
+      this.migrateGlobalClientPreferences();
+    } catch (error) {
+      this.logger.warn('旧全局偏好迁移失败，保留原件等待重试', logErrorContext(error));
+    }
     qzonePaginationLimiter.configure(this.getSettings().qzonePagination);
+  }
+
+  getSharedPreference<K extends keyof SharedPreferenceGroups>(key: K): SharedPreferenceGroups[K] {
+    return structuredClone(
+      this.read().settings?.sharedPreferences?.[key] ?? {},
+    ) as SharedPreferenceGroups[K];
+  }
+
+  sharedPreferenceRevision(): number {
+    const value = this.read().settingsRevision;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? value
+      : (statSync(this.configPath, { throwIfNoEntry: false })?.mtimeMs ?? 0);
+  }
+
+  patchSharedPreference<K extends keyof SharedPreferenceGroups>(
+    key: K,
+    patch: SharedPreferenceGroups[K],
+  ): void {
+    const settings = this.read().settings ?? {};
+    const groups = settings.sharedPreferences ?? {};
+    const value = { ...groups[key], ...patch };
+    if (JSON.stringify(groups[key]) === JSON.stringify(value)) return;
+    this.write({ settings: { ...settings, sharedPreferences: { ...groups, [key]: value } } });
+  }
+
+  replaceSharedPreference<K extends keyof SharedPreferenceGroups>(
+    key: K,
+    value: SharedPreferenceGroups[K],
+  ): void {
+    const settings = this.read().settings ?? {};
+    const groups = settings.sharedPreferences ?? {};
+    if (JSON.stringify(groups[key]) === JSON.stringify(value)) return;
+    this.write({
+      settings: { ...settings, sharedPreferences: { ...groups, [key]: structuredClone(value) } },
+    });
+  }
+
+  migrateSharedAccountPreferences(configId: string): void {
+    migrateSharedPreferences(this, this.root, this.cacheBaseDir(), configId);
+  }
+
+  sharedAppearanceDir(): string {
+    const path = join(this.root, 'config', 'appearance');
+    mkdirSync(path, { recursive: true });
+    return path;
+  }
+
+  private migrateGlobalClientPreferences(): void {
+    if (this.read().globalClientPreferencesMigrated) return;
+    const legacy = readPreferenceObject(join(this.root, 'client-state', 'global.json'));
+    if (!legacy.values || typeof legacy.values !== 'object' || Array.isArray(legacy.values)) {
+      this.write({ settings: this.read().settings ?? {}, globalClientPreferencesMigrated: true });
+      return;
+    }
+    const current = this.getSharedPreference('client');
+    validatePreferencePatch(legacy.values);
+    const settings = this.read().settings ?? {};
+    const display = Object.fromEntries(
+      Object.entries(legacy.values).filter(
+        ([key]) =>
+          displayPreferenceKeys.includes(key as keyof typeof legacy.values) &&
+          !Object.hasOwn(settings, key),
+      ),
+    );
+    const client = Object.fromEntries(
+      Object.entries(legacy.values).filter(
+        ([key]) =>
+          !displayPreferenceKeys.includes(key as keyof typeof legacy.values) &&
+          key !== 'contactOrder',
+      ),
+    );
+    this.write({
+      settings: {
+        ...settings,
+        ...display,
+        sharedPreferences: { ...settings.sharedPreferences, client: { ...client, ...current } },
+      },
+      globalClientPreferencesMigrated: true,
+    });
   }
 
   /**
@@ -1672,14 +1794,9 @@ export class UserConfigService {
 
   getStartupPage(): AppSettings['startupPage'] {
     if (this.startupPageThisStartup === undefined) {
-      this.startupPageThisStartup = this.read().cleanExit ? this.getSettings().startupPage : 'last';
-      this.write({ cleanExit: false });
+      this.startupPageThisStartup = this.getSettings().startupPage;
     }
     return this.startupPageThisStartup;
-  }
-
-  markCleanExit(): void {
-    this.write({ cleanExit: true });
   }
 
   getStartupAutoEnter(): AutoEnterTarget | null {
@@ -1740,6 +1857,7 @@ export class UserConfigService {
   reload(): void {
     this.cached = undefined;
     this.readFailure = undefined;
+    emitSettingsChanged();
   }
 
   write(patch: Partial<UserConfig>): UserConfig {
@@ -1749,6 +1867,8 @@ export class UserConfigService {
         cause: this.readFailure,
       });
     const next: UserConfig = { ...current, ...patch };
+    if (patch.settings)
+      next.settingsRevision = Math.max(Date.now(), this.sharedPreferenceRevision() + 1);
     mkdirSync(this.root, { recursive: true });
     try {
       writeFileAtomicSync(this.configPath, JSON.stringify(next, null, 2));
@@ -1762,6 +1882,7 @@ export class UserConfigService {
       throw error;
     }
     this.cached = next;
+    if (patch.settings) emitSettingsChanged();
     this.logger.info('wrote user config', {
       event: 'config-write',
       configPath: this.configPath,
@@ -1801,7 +1922,13 @@ export class UserConfigService {
     const suppressAttachHint =
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
+      sharedPreferences: structuredClone(s?.sharedPreferences ?? {}),
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      contactCard: normalizeContactCard(s?.contactCard),
+      updateCheckPrerelease: s?.updateCheckPrerelease === true,
+      updateCheckIntervalMinutes: isUpdateCheckInterval(s?.updateCheckIntervalMinutes)
+        ? s.updateCheckIntervalMinutes
+        : d.updateCheckIntervalMinutes,
       toastDurations: normalizeToastDurations(s?.toastDurations),
       exportSaveMode:
         s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
@@ -1825,7 +1952,6 @@ export class UserConfigService {
       windowCloseBehavior:
         normalizeWindowCloseBehavior(s?.windowCloseBehavior) ?? d.windowCloseBehavior,
       windowsStyleControls: s?.windowsStyleControls === true,
-      quitConfirmSuppressed: s?.quitConfirmSuppressed === true,
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       showChatQqShow: s?.showChatQqShow ?? d.showChatQqShow,
@@ -1904,6 +2030,10 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        prefilterEnabled:
+          typeof s?.ocr?.prefilterEnabled === 'boolean'
+            ? s.ocr.prefilterEnabled
+            : d.ocr.prefilterEnabled,
         onlineConcurrency: recognitionConcurrency(
           s?.ocr?.onlineConcurrency,
           d.ocr.onlineConcurrency,
@@ -1922,7 +2052,10 @@ export class UserConfigService {
       agentLab: {
         providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
         defaultModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultModel),
+        defaultVisionModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultVisionModel),
+        defaultEmbeddingModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultEmbeddingModel),
       },
+      aiImages: normalizeImagePreferences(s?.aiImages),
     };
   }
 
@@ -1951,6 +2084,24 @@ export class UserConfigService {
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
+      sharedPreferences: {
+        ...current.sharedPreferences,
+        ...Object.fromEntries(
+          Object.entries(patch.sharedPreferences ?? {}).map(([key, value]) => [
+            key,
+            { ...current.sharedPreferences[key as keyof SharedPreferences], ...value },
+          ]),
+        ),
+      } as SharedPreferences,
+      contactCard: normalizeContactCard({
+        ...current.contactCard,
+        ...patch.contactCard,
+        visible: { ...current.contactCard.visible, ...patch.contactCard?.visible },
+      }),
+      updateCheckPrerelease: patch.updateCheckPrerelease ?? current.updateCheckPrerelease,
+      updateCheckIntervalMinutes: isUpdateCheckInterval(patch.updateCheckIntervalMinutes)
+        ? patch.updateCheckIntervalMinutes
+        : current.updateCheckIntervalMinutes,
       toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
@@ -1970,7 +2121,6 @@ export class UserConfigService {
       windowCloseBehavior:
         normalizeWindowCloseBehavior(patch.windowCloseBehavior) ?? current.windowCloseBehavior,
       windowsStyleControls: patch.windowsStyleControls ?? current.windowsStyleControls,
-      quitConfirmSuppressed: patch.quitConfirmSuppressed ?? current.quitConfirmSuppressed,
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       showChatQqShow: patch.showChatQqShow ?? current.showChatQqShow,
@@ -2075,6 +2225,10 @@ export class UserConfigService {
       ocr: {
         modelId: resources.ocr,
         filterModelId: resources.filter,
+        prefilterEnabled:
+          typeof patch.ocr?.prefilterEnabled === 'boolean'
+            ? patch.ocr.prefilterEnabled
+            : current.ocr.prefilterEnabled,
         onlineConcurrency: recognitionConcurrency(
           patch.ocr?.onlineConcurrency,
           current.ocr.onlineConcurrency,
@@ -2099,7 +2253,16 @@ export class UserConfigService {
           patch.agentLab?.defaultModel !== undefined
             ? normalizeAgentLabDefaultModel(patch.agentLab.defaultModel)
             : current.agentLab.defaultModel,
+        defaultVisionModel:
+          patch.agentLab?.defaultVisionModel !== undefined
+            ? normalizeAgentLabDefaultModel(patch.agentLab.defaultVisionModel)
+            : current.agentLab.defaultVisionModel,
+        defaultEmbeddingModel:
+          patch.agentLab?.defaultEmbeddingModel !== undefined
+            ? normalizeAgentLabDefaultModel(patch.agentLab.defaultEmbeddingModel)
+            : current.agentLab.defaultEmbeddingModel,
       },
+      aiImages: normalizeImagePreferences({ ...current.aiImages, ...patch.aiImages }),
     };
     this.write({ settings: next });
     qzonePaginationLimiter.configure(next.qzonePagination);
@@ -2134,6 +2297,21 @@ export class UserConfigService {
   setTypingStatusHidden(hidden: TypingStatusConversation[]): TypingStatusSettings {
     const current = this.getSettings().typingStatus;
     return this.setSettings({ typingStatus: { ...current, hidden } }).typingStatus;
+  }
+
+  setTypingStatusHiddenForAccount(
+    accountUin: string,
+    accountConfigId: string,
+    hidden: TypingStatusConversation[],
+  ): TypingStatusSettings {
+    if (
+      hidden.some((row) => row.accountUin !== accountUin || row.accountConfigId !== accountConfigId)
+    )
+      throw new Error('会话选择与目标账号不一致');
+    const others = this.getSettings().typingStatus.hidden.filter(
+      (row) => row.accountUin !== accountUin || row.accountConfigId !== accountConfigId,
+    );
+    return this.setTypingStatusHidden([...others, ...hidden]);
   }
 
   getLocalModelId(kind: keyof LocalModelResources): string {
@@ -2319,19 +2497,19 @@ export class UserConfigService {
           const previews = await listDressPreviewFiles(dir);
           if (previews.incomplete) throw new Error('装扮预览目录读取不完整，未清理');
           for (const file of previews.files) await rm(file, { force: true });
+        } else if (item.cleanupKind === 'dress-shared') {
+          await clearDressSharedFiles(dir);
         } else {
           await rm(dir, { recursive: true, force: true });
           await mkdir(dir, { recursive: true });
-          // 共享装扮服务持有这三个下载目录；保留当前会话继续下载所需的结构。
-          if (item.cleanupKind === 'dress-shared') {
-            for (const name of ['bubbles', 'fonts', 'pendants'])
-              await mkdir(join(dir, name), { recursive: true });
-          }
         }
         const remaining =
           item.cleanupKind === 'dress-previews'
             ? await listDressPreviewFiles(dir)
-            : await measureStorage(dir);
+            : await measureStorage(
+                dir,
+                new Set(item.cleanupKind === 'dress-shared' ? [join(dir, 'index')] : []),
+              );
         freedBytes += Math.max(0, item.bytes - remaining.bytes);
         cleared.push(id);
       } catch (error) {

@@ -1,1151 +1,650 @@
-/**
- * WeQ 助手面板：与会调用内置工具 + 外部 MCP 工具的多轮任务型助手对话。
- *
- * 一次提问 = 一个任务：后端多轮推进，过程（思考/工具调用/工具结果）经
- * `account.onAssistantEvent` 订阅实时流式推送，前端逐步展示（可折叠），最终答复
- * 用 Markdown 渲染。模型与思考等级在输入框上方就近切换（即改即存）；顶部设置
- * 弹窗配置：权限模式 / 额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
- *
- * 流式部分见下面两处：事件按动画帧合并 flush（`flush`），正文段的归档时机由 `applySteps`
- * 的 `handoffIndex` 控制——工具轮次之间不再把气泡清空，细节见两处注释。
- */
-
-import {
-  memo,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
-import { createPortal } from 'react-dom';
-import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
-import {
-  isDefaultModelSelection,
-  DEFAULT_MODEL_SELECTION_KEY,
-} from '@weq/agentlab/model-selection';
-import { useModelSelectionLabel } from '../../components/settings/useModelSelectionLabel';
-import { useOverlayLayer } from '../../lib/overlayStack';
-import { useOverlayAnchor } from '../../lib/overlayAnchor';
-import '../../styles/assistant-model-selection.css';
-import {
-  ArrowLeft,
-  Brain,
-  Check,
-  ChevronDown,
-  Cpu,
-  Loader2,
-  Play,
-  Save,
-  Send,
-  Settings,
-  Sparkles,
-  Square,
-  Trash2,
-} from 'lucide-react';
+/** 助手数据与运行控制适配；可见界面全部由 ChatPane 提供。 */
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, Play, Square, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useAppDialog } from '../../lib/dialogUtils';
-import { useDraftClose } from '../../lib/draftClose';
-import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
-import { Modal } from '../../components/Dialog';
-import type { AssistantStep } from '@weq/service';
-import { ChatBubble } from './ChatBubble';
-import { AssistantMessage } from './AssistantMessage';
-import { AssistantSteps } from './AssistantSteps';
-import { AssistantArtifactCard } from './AssistantArtifactCard';
-import {
-  AssistantPlanPanel,
-  AssistantNotesPanel,
-  AssistantCompactionMarker,
-} from './AssistantWorkspace';
-import type { FlatModels } from './NewCloneModal';
-import type { GeneratedSearchHit } from '../../components/search/types';
-import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
-import { useGeneratedSelection } from './useGeneratedSelection';
+import { ChatPane } from '../../im-template/template/chatPane';
+import type { Message } from '../../im-template/template/types';
+import type { MessageRenderer } from '../../im-template/template/messageRenderers';
+import { cloneChatUser, cloneChatConversation, cloneChatInput } from './cloneChatAdapter';
+import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
-import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import { assistantResultVersion } from '../../lib/workspaceReadState';
-import { PageSnapshotScope } from '../../components/PageSnapshots';
-import { PageScrollSnapshot } from '../../components/PageScrollSnapshot';
+import type { AssistantActivity } from '../../lib/workspaceIndicators';
+import type { GeneratedSearchHit } from '../../components/search/types';
+import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
+import { AiImageComposer } from '../../components/AiImageComposer';
+import {
+  aiImageDraft,
+  parseAiImageDraft,
+  changeAiImageDraftText,
+  type AiImageAssetRef,
+} from '../../lib/aiImageDraft';
+import { AssistantReplyContent, type AssistantReplyActions } from './AssistantReplyContent';
+import { useStableCallback } from '../../hooks/useStableCallback';
+import { timeDate } from '@weq/time';
+import { AssistantSettingsPanel, AssistantQuickTools } from './AssistantSettingsPanel';
+import {
+  applyAssistantStep,
+  persistedAssistantTurn,
+  type AssistantTurn,
+} from './assistantTranscript';
+import type { FlatModels } from './NewCloneModal';
+export { AssistantSettingsPanel as AssistantSettings } from './AssistantSettingsPanel';
 
-interface Turn {
-  id?: string;
-  role: 'user' | 'assistant';
-  text: string;
-  steps?: AssistantStep[];
-  running?: boolean;
-  /** 运行中逐字累积的正文（final 到达后清空，改用 text）。 */
-  streamingText?: string;
-  /** 运行中逐字累积的推理内容（reasoning_delta），喂给思考面板。 */
-  reasoning?: string;
-  /**
-   * 「当前这段正文」在 `steps` 里待归档的下标。工具调用等过程步骤到来时先记下位置，
-   * 但**不立刻**把正文从气泡挪走——否则气泡会瞬间清空、已读到的字像被撤回；
-   * 等下一段正文开始（或 final/aborted）再插回该位置，顺序与后端持久化一致。
-   */
-  handoffIndex?: number;
-}
-
-/** 后端会在这些过程步骤之前记一条 thinking（`record({kind:'thinking'})`），故它们是一次正文段的边界。 */
-const SEGMENT_BOUNDARY_KINDS: ReadonlySet<AssistantStep['kind']> = new Set([
-  'tool_call',
-  'plan',
-  'notes',
-  'compaction',
-]);
-
-/**
- * 把一批流式步骤应用到「运行中的最后一条助手回合」。
- *
- * 正文段在过程步骤（工具调用等）到来时只记账（记下 `handoffIndex`）而不搬走，让气泡里的字留到
- * 下一段正文开始；归档位置固定在该批过程步骤**之前**，与后端 `record(thinking)` / `persistable()`
- * 的顺序对齐，重载后视觉一致。纯函数——清 runId、失效查询、报错弹窗等副作用由调用方结算。
- */
-function applySteps(turn: Turn, batch: AssistantStep[]): Turn {
-  const steps = [...(turn.steps ?? [])];
-  const next: Turn = { ...turn, steps };
-
-  /** 把气泡里的正文段归档成一条 thinking（插回它在 steps 中该在的位置）。 */
-  const commit = (): void => {
-    if (next.handoffIndex == null) return;
-    const text = (next.streamingText ?? '').trim();
-    if (text)
-      steps.splice(Math.min(next.handoffIndex, steps.length), 0, { kind: 'thinking', text });
-    next.handoffIndex = undefined;
-  };
-
-  for (const step of batch) {
-    switch (step.kind) {
-      case 'text_delta': {
-        // 上一段正文到此结束（它会先归档进 steps），本条 delta 开启新的一段。
-        const startsNewSegment = next.handoffIndex != null;
-        commit();
-        next.streamingText = startsNewSegment ? step.text : (next.streamingText ?? '') + step.text;
-        break;
-      }
-      case 'reasoning_delta':
-        // 推理流整轮累积（不按工具轮次清零）：面板里不跳变，且后端也不持久化它。
-        next.reasoning = (next.reasoning ?? '') + step.text;
-        break;
-      case 'final':
-        commit();
-        next.text = step.text || '（没能得出结论。）';
-        next.streamingText = '';
-        next.reasoning = '';
-        next.running = false;
-        break;
-      case 'aborted': {
-        // 中断在工具轮次之间时，气泡里那段其实是「思考」而非答复（后端同样把它清零了），
-        // 所以要先看 handoffIndex 再决定能不能拿它当半截答复。
-        const visible = next.handoffIndex != null ? '' : (next.streamingText ?? '').trim();
-        commit();
-        next.text = visible || next.text || '（已停止）';
-        next.streamingText = '';
-        next.reasoning = '';
-        next.running = false;
-        break;
-      }
-      case 'error':
-        next.running = false;
-        break;
-      default:
-        if (SEGMENT_BOUNDARY_KINDS.has(step.kind) && next.handoffIndex == null) {
-          next.handoffIndex = steps.length;
-        }
-        steps.push(step);
-    }
-  }
-  return next;
-}
-
-function parseSel(key: string, models: FlatModels['chat']): AgentLabModelSelection | undefined {
-  if (key === DEFAULT_MODEL_SELECTION_KEY) return { useDefault: true };
-  const option = models.find((model) => model.key === key);
-  return option ? { providerId: option.providerId, model: option.model } : undefined;
-}
-
-/** 下拉里的分组：一个 provider 一组，组内多个模型选项。 */
-interface SelectGroup {
-  label: string;
-  options: Array<{ value: string; label: string }>;
-}
-
-/**
- * 把扁平模型列表按 provider 分组（label 形如 `Provider · Model`：组标题取 provider，
- * 选项标题取 model 部分，去掉冗余的 provider 前缀让下拉更清爽）。保持原有顺序。
- */
-function buildModelGroups(models: FlatModels['chat']): SelectGroup[] {
-  const groups: SelectGroup[] = [];
-  const byProvider = new Map<string, SelectGroup>();
-  for (const m of models) {
-    const sep = m.label.indexOf(' · ');
-    const provider = sep >= 0 ? m.label.slice(0, sep) : m.label;
-    const modelLabel = sep >= 0 ? m.label.slice(sep + 3) : m.label;
-    let group = byProvider.get(m.providerId);
-    if (!group) {
-      group = { label: provider, options: [] };
-      byProvider.set(m.providerId, group);
-      groups.push(group);
-    }
-    group.options.push({ value: m.key, label: modelLabel });
-  }
-  return groups;
-}
-
-/**
- * 输入框上方的紧凑下拉（模型 / 思考等级共用）。
- *
- * 原生 <select> 在这里既丑又难与主题一致，改成自定义 popover：触发器是一颗胶囊，
- * 点开在其上方弹出圆角卡片（用 portal + fixed 定位，避免被会话滚动区裁剪 / 撑高）。
- * 选项可按 provider 分组、当前项高亮打勾。纯展示，选中回调交给父组件落库。
- */
-function ComposerSelect({
-  icon,
-  title,
-  placeholder,
-  value,
-  groups,
-  disabled,
-  onChange,
-}: {
-  icon: ReactNode;
-  title: string;
-  placeholder: string;
-  value: string;
-  groups: SelectGroup[];
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}): ReactElement {
-  const [open, setOpen] = useState(false);
-  const layer = useOverlayLayer(open);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popRef = useRef<HTMLDivElement | null>(null);
-  const menuLayerRef = useRef<HTMLDivElement | null>(null);
-  const placement = useOverlayAnchor(menuLayerRef, open, open, triggerRef.current, 'above');
-
-  const flat = groups.flatMap((g) => g.options);
-  const current = flat.find((o) => o.value === value);
-  const hasGroups = groups.length > 1 || (groups[0]?.label ?? '') !== '';
-
-  useEffect(() => {
-    if (!open) return undefined;
-    function onDocDown(e: PointerEvent): void {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t) || popRef.current?.contains(t)) return;
-      setOpen(false);
-    }
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setOpen(false);
-    }
-    document.addEventListener('pointerdown', onDocDown, true);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDocDown, true);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        className={`weq-asst-select${open ? ' is-open' : ''}`}
-        title={title}
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span className="weq-asst-select-icon">{icon}</span>
-        <span className={`weq-asst-select-value${current ? '' : ' is-placeholder'}`}>
-          {current?.label ?? placeholder}
-        </span>
-        <ChevronDown size={13} className="weq-asst-select-caret" aria-hidden />
-      </button>
-      {open
-        ? createPortal(
-            <div
-              className="weq-assistant-select-layer"
-              ref={menuLayerRef}
-              style={placement.position}
-            >
-              <div
-                ref={popRef}
-                className="weq-asst-select-pop"
-                role="listbox"
-                style={{
-                  left: 'var(--weq-popover-left, 8px)',
-                  top: 'var(--weq-popover-top, 8px)',
-                  minWidth: Math.min(
-                    triggerRef.current?.offsetWidth ?? 0,
-                    Math.max(0, window.innerWidth - 16),
-                  ),
-                  zIndex: layer,
-                }}
-              >
-                {groups.map((g, gi) => (
-                  <div key={g.label || `g-${gi}`} className="weq-asst-select-group">
-                    {hasGroups && g.label ? (
-                      <div className="weq-asst-select-group-label">{g.label}</div>
-                    ) : null}
-                    {g.options.map((o) => {
-                      const active = o.value === value;
-                      return (
-                        <button
-                          key={o.value}
-                          type="button"
-                          role="option"
-                          title={o.label}
-                          aria-selected={active}
-                          className={`weq-asst-select-opt${active ? ' is-active' : ''}`}
-                          onClick={() => {
-                            onChange(o.value);
-                            setOpen(false);
-                          }}
-                        >
-                          <span className="weq-asst-select-opt-label">{o.label}</span>
-                          {active ? <Check size={14} aria-hidden /> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
-    </>
-  );
-}
-
-/** 思考等级选项：非「不思考」时以 reasoning_effort 传给模型（M2）。 */
-const EFFORT_OPTIONS = [
-  { value: 'off', label: '不思考' },
-  { value: 'low', label: '轻度思考' },
-  { value: 'medium', label: '标准思考' },
-  { value: 'high', label: '深度思考' },
-] as const;
-
-type EffortValue = (typeof EFFORT_OPTIONS)[number]['value'];
-
-/** 空状态预设问题：点一下直接发送，让新用户知道助手能干什么。 */
-const PRESET_QUESTIONS = [
+const PRESETS = [
   '我最近一周和谁聊得最火热？',
   '看看我最活跃的群最近都在聊什么',
   '帮我写一份我的聊天数据周报',
   '找找最近有谁跟我约过「吃饭」',
 ];
 
-export function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
-  const dialog = useAppDialog();
-  const utils = trpc.useUtils();
-  const config = trpc.account.getAssistantConfig.useQuery();
-  const save = trpc.account.setAssistantConfig.useMutation();
-  const [prompt, setPrompt] = useState('');
-  const [mcp, setMcp] = useState('');
-  const [permissionMode, setPermissionMode] = useState<'sandbox' | 'unrestricted'>('sandbox');
-  const guard = useDraftClose(onClose, { prompt, mcp, permissionMode }, save.isLoading);
-
-  useEffect(() => {
-    const c = config.data;
-    if (!c) return;
-    setPrompt(c.customPrompt ?? '');
-    setMcp(c.mcpServers ?? '');
-    setPermissionMode(c.permissionMode ?? 'sandbox');
-    guard.reset({
-      prompt: c.customPrompt ?? '',
-      mcp: c.mcpServers ?? '',
-      permissionMode: c.permissionMode ?? 'sandbox',
-    });
-  }, [config.data, guard.reset]);
-
-  async function onSave(): Promise<void> {
-    try {
-      const enablingUnrestricted =
-        permissionMode === 'unrestricted' && config.data?.permissionMode !== 'unrestricted';
-      if (
-        enablingUnrestricted &&
-        !(await dialog.confirm(
-          '开启任意权限？',
-          '助手将以当前系统用户的权限执行任意代码和操作，包括读取、修改或删除 WeQ 目录之外的文件，运行命令、联网以及使用外部 MCP 工具。聊天内容或模型错误也可能诱发这些操作，删除可能无法恢复。此模式不是沙箱，也不会逐项再次询问。',
-          { okLabel: '我了解风险，开启任意权限', cancelLabel: '保留沙箱模式', tone: 'warning' },
-        ))
-      )
-        return;
-      await save.mutateAsync({
-        customPrompt: prompt,
-        mcpServers: mcp,
-        permissionMode,
-        confirmUnrestricted: enablingUnrestricted,
-      });
-      await utils.account.getAssistantConfig.invalidate();
-      dialog.success('已保存', '助手设置已更新');
-      onClose();
-    } catch (e) {
-      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  return (
-    <Modal onClose={guard.requestClose} width={520}>
-      <div className="weq-persona-modal">
-        <header className="weq-persona-modal-head">
-          <Settings size={16} />
-          <strong>WeQ 助手设置</strong>
-        </header>
-        <div className="weq-clone-config">
-          <label className="weq-agentlab-field">
-            <span>权限模式</span>
-            <select
-              aria-label="权限模式"
-              value={permissionMode}
-              onChange={(event) =>
-                setPermissionMode(
-                  event.target.value === 'unrestricted' ? 'unrestricted' : 'sandbox',
-                )
-              }
-            >
-              <option value="sandbox">沙箱模式</option>
-              <option value="unrestricted">任意权限</option>
-            </select>
-          </label>
-          <div className="weq-asst-set-hint">
-            {permissionMode === 'sandbox'
-              ? '仅开放审核过的查询、隔离脚本和受控报告生成；禁止宿主文件操作、发送消息、写库及外部 MCP 工具。'
-              : '任意权限可操作当前用户有权访问的文件，包括删除外部文件；不提供系统级隔离，也不自动提权。'}
-          </div>
-          <label className="weq-agentlab-field">
-            <span>额外提示（可选）</span>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
-              placeholder="例如：回答尽量简洁"
-            />
-          </label>
-          <label className="weq-agentlab-field">
-            <span>外部 MCP 服务器（可选）</span>
-            <textarea
-              value={mcp}
-              onChange={(e) => setMcp(e.target.value)}
-              rows={4}
-              placeholder={
-                '远程 HTTP/SSE 服务器，两种写法任选：\n' +
-                '① 每行一个：名字=https://example.com/mcp\n' +
-                '② Claude Desktop JSON：{"mcpServers":{"名字":{"url":"https://…","headers":{"Authorization":"Bearer …"}}}}'
-              }
-            />
-          </label>
-          <div className="weq-asst-set-hint">
-            外部工具仅在任意权限模式下合并进可用工具（命名空间 <code>mcp__服务器__工具</code>
-            ），连接在首次使用时建立； 某个服务器不可用不会影响内置工具。
-          </div>
-          <div className="weq-clone-actions">
-            <button className="weq-set-btn weq-set-btn-soft" onClick={guard.requestClose}>
-              取消
-            </button>
-            <button className="weq-set-btn" disabled={save.isLoading} onClick={() => void onSave()}>
-              <Save size={14} aria-hidden="true" />
-              保存
-            </button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
+interface AssistantViewMessage extends Message {
+  assistantTurn: AssistantTurn;
+  assistantActions?: AssistantReplyActions;
 }
 
-/**
- * 助手回复气泡：折叠过程 + Markdown 终答 + 附件卡片。
- * `memo` 隔离：流式期间只有「正在跑的最后一条」变化，历史气泡不因父组件 setTurns 重渲。
- */
-const AssistantBubble = memo(function AssistantBubble({ turn }: { turn: Turn }): ReactElement {
-  const steps = turn.steps ?? [];
-  const artifacts = steps
-    .filter((s): s is Extract<AssistantStep, { kind: 'artifact' }> => s.kind === 'artifact')
-    .map((s) => s.artifact);
-  // 调查过程（计划/笔记/压缩标记）取 steps 里最新一次快照，随运行逐步刷新。
-  const plan = steps
-    .filter((s): s is Extract<AssistantStep, { kind: 'plan' }> => s.kind === 'plan')
-    .at(-1)?.plan;
-  const notes = steps
-    .filter((s): s is Extract<AssistantStep, { kind: 'notes' }> => s.kind === 'notes')
-    .at(-1)?.notes;
-  const compaction = steps
-    .filter((s): s is Extract<AssistantStep, { kind: 'compaction' }> => s.kind === 'compaction')
-    .at(-1);
-  // 运行中显示逐字流式缓冲，完成后显示定稿正文。
-  const body = turn.running ? turn.streamingText || turn.text : turn.text;
-
+const QueueTextEditor = memo(function QueueTextEditor({
+  id,
+  label,
+  value,
+  onSave,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onSave: (id: string, value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const previous = useRef(value);
+  useEffect(() => {
+    const prior = previous.current;
+    setDraft((current) => (current === prior ? value : current));
+    previous.current = value;
+  }, [value]);
   return (
-    <div className="message-line theirs">
-      <span className="avatar weq-asst-avatar">
-        <Sparkles size={18} />
-      </span>
-      <div className="message-bubble">
-        <span className="message-name">
-          WeQ 助手
-          <small className="bot-badge" aria-label="AI">
-            <Sparkles size={11} strokeWidth={2.4} />
-          </small>
-        </span>
-        <div className="message-content weq-asst-content">
-          {plan ? <AssistantPlanPanel plan={plan} /> : null}
-          <AssistantSteps steps={steps} running={!!turn.running} reasoning={turn.reasoning} />
-          {body ? (
-            <AssistantMessage text={body} streaming={!!turn.running} />
-          ) : turn.running ? (
-            <div className="weq-agentlab-typing weq-asst-typing">
-              <span />
-              <span />
-              <span />
-            </div>
-          ) : null}
-          {notes ? <AssistantNotesPanel notes={notes} running={!!turn.running} /> : null}
-          {compaction ? (
-            <AssistantCompactionMarker
-              summary={compaction.summary}
-              foldedTurns={compaction.foldedTurns}
-            />
-          ) : null}
-          {artifacts.map((a) => (
-            <AssistantArtifactCard key={a.id} artifact={a} />
-          ))}
-        </div>
-      </div>
-    </div>
+    <textarea
+      aria-label={label}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft !== value) onSave(id, draft);
+      }}
+    />
   );
 });
 
 export function AssistantPanel({
   sessionId,
   searchTarget,
-  chatModels,
   onBack,
+  onBackToDirectory,
   onSessionCreated,
-  compact = false,
   draftAccount,
   workspaceTitle,
   onActivityChange,
   headless = false,
 }: {
-  /** 真实会话 id；`null` 表示草稿会话——用户真正发第一条消息时才落库。 */
   sessionId: string | null;
   searchTarget?: GeneratedSearchHit;
   chatModels: FlatModels['chat'];
   onBack: () => void;
-  /** 草稿会话首次发送、后端建好真会话后回调（父组件据此刷新列表 + 更新选中态）。 */
-  onSessionCreated: (sessionId: string) => void;
+  onBackToDirectory?: () => void;
+  onSessionCreated: (id: string) => void;
   compact?: boolean;
   draftAccount?: string;
   workspaceTitle?: string;
   onActivityChange?: (activity: AssistantActivity, result?: string) => void;
   headless?: boolean;
-}): ReactElement | null {
-  const dialog = useAppDialog();
+}) {
   const utils = trpc.useUtils();
-  // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
-  // 后续父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
-  const initialSessionId = useRef(sessionId).current;
-  const conversationSessionId = searchTarget?.sessionId ?? initialSessionId;
-  // 可变的当前会话 id：草稿首次发送时被写成真 id，之后所有读写都走它。
-  const sessionIdRef = useRef<string | null>(sessionId);
-  const conversation = trpc.account.getAssistantConversation.useQuery(
-    { sessionId: conversationSessionId ?? '' },
-    {
-      enabled: !!conversationSessionId,
-      staleTime: 0,
-      refetchOnMount: 'always',
-    },
-  );
-  const selfProfile = trpc.account.getSelfProfile.useQuery();
-  const assistantConfig = trpc.account.getAssistantConfig.useQuery();
-  const send = trpc.account.chatWithAssistant.useMutation();
-  const createSession = trpc.account.createAssistantSession.useMutation();
-  const abort = trpc.account.abortAssistantRun.useMutation();
-  const resumeRun = trpc.account.resumeAssistantRun.useMutation();
-  const clear = trpc.account.clearAssistantConversation.useMutation();
-  const saveConfig = trpc.account.setAssistantConfig.useMutation();
-
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [requestFailed, setRequestFailed] = useState(false);
+  const [currentId, setCurrentId] = useState(sessionId);
+  const idRef = useRef(currentId);
+  idRef.current = currentId;
   const [input, setInput] = useState(() =>
     draftAccount ? readAssistantDraft(draftAccount, sessionId) : '',
   );
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  // 已请求停止、正在等后端收尾（在途 LLM 请求要等它返回/被 signal 掐断才 emit aborted）。
+  const [imageUploading, setImageUploading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
-  // 当前真实会话 id（草稿升级后跟随更新；resume 查询依赖它，不能用挂载时的快照）。
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
-  useEffect(() => {
-    if (draftAccount) rememberAssistantDraft(draftAccount, currentSessionId, input);
-  }, [draftAccount, currentSessionId, input]);
-  const seeded = useRef(false);
-  const lastPersisted = useRef(conversation.data);
-  const runIdRef = useRef<string | null>(null);
-  const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  /** 是否贴底跟随：用户往上翻阅历史时不抢滚动条，回到底部附近才恢复。 */
-  const stickRef = useRef(true);
-  const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
-  useEffect(() => {
-    if (!searchTarget) return;
-    setSearchMessageId(searchTarget.messageId);
-    if (conversationSessionId)
-      void utils.account.getAssistantConversation.invalidate({ sessionId: conversationSessionId });
-  }, [searchTarget, conversationSessionId, utils]);
-  const missingSearch = useGeneratedSearchJump(
-    transcriptRef,
-    searchMessageId,
-    !headless && conversation.isSuccess && !conversation.isFetching,
-    turns,
+  const stopPending = useRef(false);
+  const request = useRef<{ raw: string; id: string } | undefined>(undefined);
+  const [error, setError] = useState('');
+  const [settings, setSettings] = useState(false);
+  const [search, setSearch] = useState(false);
+  const [jump, setJump] = useState(
+    searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
-
-  // 该会话是否有上次中断留下的断点任务（“继续回答”入口）。final/aborted 后失效刷新。
-  const resumeQuery = trpc.account.getAssistantResumeState.useQuery(
-    { sessionId: currentSessionId ?? '' },
-    { enabled: !!currentSessionId },
+  const account = trpc.account.getAccountConfig.useQuery();
+  const profile = trpc.account.getSelfProfile.useQuery();
+  const config = trpc.account.getAssistantConfig.useQuery();
+  const binding = account.data
+    ? {
+        expectedAccountUin: String(account.data.uin),
+        expectedAccountConfigId: account.data.configId,
+      }
+    : null;
+  const bindingRef = useRef(binding);
+  bindingRef.current = binding;
+  const conversation = trpc.account.getAssistantConversation.useQuery(
+    { ...binding, sessionId: currentId ?? '' },
+    { enabled: Boolean(binding && currentId), staleTime: 0, refetchOnMount: 'always' },
   );
-
-  const busy = turns.some((t) => t.running);
-  const activity = busy
+  const [turns, setTurns] = useState<AssistantTurn[]>(
+    () => conversation.data?.map(persistedAssistantTurn) ?? [],
+  );
+  const queue = trpc.account.assistantQueue.useQuery(
+    { ...binding!, sessionId: currentId ?? '' },
+    {
+      enabled: Boolean(binding && currentId),
+      refetchInterval: (data) => (data?.running ? 2000 : false),
+    },
+  );
+  const resume = trpc.account.getAssistantResumeState.useQuery(
+    { ...binding, sessionId: currentId ?? '' },
+    { enabled: Boolean(binding && currentId) },
+  );
+  const sharedDraft = useSharedAssistantDraft(
+    `assistant:${currentId ?? 'new'}`,
+    input,
+    setInput,
+    Boolean(draftAccount),
+  );
+  useEffect(() => {
+    if (draftAccount) rememberAssistantDraft(draftAccount, currentId, input);
+  }, [draftAccount, currentId, input]);
+  useEffect(() => {
+    if (!conversation.data) return;
+    setTurns((current) => {
+      const byId = new Map(current.map((turn) => [turn.id, turn]));
+      return conversation.data.map((turn) =>
+        turn.status === 'running' && byId.get(turn.id)?.running
+          ? byId.get(turn.id)!
+          : persistedAssistantTurn(turn),
+      );
+    });
+  }, [conversation.data]);
+  useEffect(() => {
+    if (searchTarget) setJump({ messageId: searchTarget.messageId, revision: Date.now() });
+  }, [searchTarget]);
+  const running = Boolean(queue.data?.running || turns.some((turn) => turn.running));
+  const activity: AssistantActivity = running
     ? 'running'
-    : requestFailed || turns.some((turn) => turn.role === 'assistant')
+    : error || turns.some((turn) => turn.role === 'assistant')
       ? 'finished'
       : 'idle';
-  const resultVersion = activity === 'finished' ? assistantResultVersion(turns) : undefined;
+  const version = activity === 'finished' ? assistantResultVersion(turns) : undefined;
   useEffect(() => {
-    if (activity === 'finished') onActivityChange?.(activity, resultVersion);
-    else onActivityChange?.(activity);
-  }, [activity, resultVersion, onActivityChange]);
-  const selection = useGeneratedSelection(
-    { kind: 'assistant', ownerId: 'assistant', sessionId: currentSessionId },
-    turns,
-    Boolean(currentSessionId && turns.some((turn) => turn.id)),
-  );
-  const resumable = !busy && resumeQuery.data?.resumable === true;
-
-  // 轮次结束（final / aborted / error）后 busy 转 false，把「停止中」复位。
+    onActivityChange?.(activity, version);
+  }, [activity, version, onActivityChange]);
   useEffect(() => {
-    if (!busy) setStopping(false);
-  }, [busy]);
-  const modelLabel = useModelSelectionLabel();
-  const modelRef = assistantConfig.data?.model ?? { useDefault: true };
-  const inheritedModel = isDefaultModelSelection(modelRef);
-  const currentModel =
-    modelRef && !isDefaultModelSelection(modelRef)
-      ? chatModels.find(
-          (model) => model.providerId === modelRef.providerId && model.model === modelRef.model,
-        )
-      : undefined;
-  const modelSel = modelRef
-    ? inheritedModel
-      ? DEFAULT_MODEL_SELECTION_KEY
-      : (currentModel?.key ?? JSON.stringify([modelRef.providerId, modelRef.model]))
-    : '';
-  const effort: EffortValue = assistantConfig.data?.reasoningEffort ?? 'medium';
-  const modelGroups = [
-    {
-      label: '',
-      options: [{ value: DEFAULT_MODEL_SELECTION_KEY, label: modelLabel({ useDefault: true }) }],
-    },
-    ...buildModelGroups(chatModels),
-    ...(modelRef && !inheritedModel && !currentModel
-      ? [
-          {
-            label: '已保存',
-            options: [{ value: modelSel, label: `已保存但不可用：${modelLabel(modelRef)}` }],
-          },
-        ]
-      : []),
-  ];
-  const modelTitle = currentModel?.label ?? modelLabel(modelRef);
-  const modelName = currentModel?.label.split(' · ').slice(1).join(' · ') || modelLabel(modelRef);
-
-  /** 让当前会话的持久化对话缓存失效（会话 id 走 ref，草稿升级后仍指向真会话）。 */
-  function invalidateConversation(): void {
-    const id = sessionIdRef.current;
-    if (id) void utils.account.getAssistantConversation.invalidate({ sessionId: id });
-  }
-  // 事件订阅只该建一次，所以通过 ref 拿最新实现，而不是把它当依赖。
-  const invalidateConversationRef = useRef(invalidateConversation);
-  invalidateConversationRef.current = invalidateConversation;
-  // useAppDialog 每次渲染返回新对象；订阅若依赖它，重渲会取消尚未 flush 的增量。
-  const reportErrorRef = useRef(dialog.error);
-  reportErrorRef.current = dialog.error;
-
-  /** 输入框旁的快捷设置：改了立即落库（与设置弹窗共用同一份配置）。 */
-  async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
-    try {
-      await saveConfig.mutateAsync({
-        ...(patch.modelKey !== undefined ? { model: parseSel(patch.modelKey, chatModels) } : {}),
-        ...(patch.effort !== undefined ? { reasoningEffort: patch.effort } : {}),
-      });
-      await utils.account.getAssistantConfig.invalidate();
-    } catch (e) {
-      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
+    if (!running && !sending) {
+      setStopping(false);
+      stopPending.current = false;
     }
-  }
-
-  // 首次加载持久化对话（含历史的折叠过程）。
+  }, [running, sending]);
   useEffect(() => {
-    if (
-      !busy &&
-      conversation.data &&
-      !conversation.isFetching &&
-      (!seeded.current || lastPersisted.current !== conversation.data)
-    ) {
-      setTurns(
-        conversation.data.map((t) => ({
-          id: t.id,
-          role: t.role,
-          text: t.text,
-          steps: t.steps,
-        })),
-      );
-      seeded.current = true;
-      lastPersisted.current = conversation.data;
-    }
-  }, [conversation.data, conversation.isFetching, searchTarget, busy]);
-
-  // 实时过程流：累积进"运行中"的最后一条助手回合。镜像 UpdateCard 的订阅范式。
-  //
-  // 事件先入缓冲、按动画帧合并 flush：LLM 一个 token 就是一条事件，逐条 setState 会让每次输出
-  // 都触发一次重渲 + 整段 Markdown 重解析 + 强制滚动，高速输出下直接掉帧。合并后每秒最多 60 次。
-  useEffect(() => {
-    let frame: number | null = null;
-    const pending: AssistantStep[] = [];
-
-    const flush = (): void => {
-      frame = null;
-      const batch = pending.splice(0, pending.length);
-      if (batch.length === 0) return;
-      setTurns((prev) => {
-        const idx = prev.length - 1;
-        const turn = prev[idx];
-        if (turn?.role !== 'assistant') return prev;
-        const next = [...prev];
-        next[idx] = applySteps(turn, batch);
+    let frame: number | undefined;
+    let legacyRun = '';
+    type Event = Parameters<
+      NonNullable<
+        NonNullable<Parameters<typeof client.account.onAssistantEvent.subscribe>[1]>['onData']
+      >
+    >[0];
+    const pending: Event[] = [];
+    const flush = () => {
+      frame = undefined;
+      const events = pending.splice(0);
+      setTurns((current) => {
+        const next = [...current];
+        for (const event of events) {
+          if (event.step.kind === 'queue') continue;
+          if (event.step.kind === 'reset') {
+            next.length = 0;
+            continue;
+          }
+          if (event.step.kind === 'remove_turn') {
+            const id = event.step.id;
+            const index = next.findIndex((turn) => turn.id === id);
+            if (index >= 0) next.splice(index, 1);
+            continue;
+          }
+          if (event.step.kind === 'turn') {
+            const turn = persistedAssistantTurn(event.step.turn);
+            const index = next.findIndex((row) => row.id === turn.id);
+            if (index < 0) next.push(turn);
+            else next[index] = turn;
+          } else {
+            const index = event.messageId
+              ? next.findIndex((row) => row.id === event.messageId)
+              : next.length - 1;
+            if (index >= 0 && next[index]?.role === 'assistant')
+              next[index] = applyAssistantStep(next[index]!, event.step);
+          }
+        }
         return next;
       });
-      // 副作用在 setTurns 之外结算：保持上面 updater 纯净（StrictMode 会跑两遍）。
-      const failed = batch.find(
-        (s): s is Extract<AssistantStep, { kind: 'error' }> => s.kind === 'error',
-      );
-      if (failed) {
-        runIdRef.current = null;
-        reportErrorRef.current('助手出错', failed.message);
-        return;
-      }
-      if (batch.some((s) => s.kind === 'final' || s.kind === 'aborted')) {
-        runIdRef.current = null;
-        invalidateConversationRef.current();
-        // 首轮对话后端会自动总结标题；刷新会话列表让左栏标题跟上。
+      if (
+        events.some((event) =>
+          ['queue', 'reset', 'final', 'aborted', 'error'].includes(event.step.kind),
+        )
+      ) {
+        const id = idRef.current;
+        if (id) {
+          void utils.account.assistantQueue.invalidate();
+          void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
+          if (
+            events.some((event) => ['reset', 'final', 'aborted', 'error'].includes(event.step.kind))
+          )
+            void utils.account.getAssistantConversation.invalidate({ sessionId: id });
+        }
         void utils.account.listAssistantSessions.invalidate();
-        // 完成/中断后断点快照被清除或已保存，刷新「继续回答」状态。
-        void utils.account.getAssistantResumeState.invalidate({
-          sessionId: sessionIdRef.current ?? '',
-        });
       }
     };
-
-    const sub = client.account.onAssistantEvent.subscribe(undefined, {
-      onData: ({ runId, step }) => {
-        if (runId !== runIdRef.current) return;
-        pending.push(step);
-        if (frame == null) frame = requestAnimationFrame(flush);
+    const subscription = client.account.onAssistantEvent.subscribe(undefined, {
+      onData: (event) => {
+        if (event.sessionId !== idRef.current) return;
+        if (
+          event.accountConfigId &&
+          event.accountConfigId !== bindingRef.current?.expectedAccountConfigId
+        )
+          return;
+        if (
+          !event.messageId &&
+          !['turn', 'queue', 'reset', 'remove_turn'].includes(event.step.kind)
+        ) {
+          if (legacyRun !== event.runId) {
+            legacyRun = event.runId;
+            void utils.account.assistantQueue.invalidate();
+          }
+          if (['final', 'aborted', 'error'].includes(event.step.kind)) {
+            legacyRun = '';
+            void utils.account.getAssistantConversation.invalidate({ sessionId: event.sessionId });
+            void utils.account.getAssistantResumeState.invalidate({ sessionId: event.sessionId });
+            void utils.account.assistantQueue.invalidate();
+          }
+          return;
+        }
+        pending.push(event);
+        if (frame === undefined) frame = requestAnimationFrame(flush);
       },
-      onError: (err) => console.error('[assistant] event subscription error', err),
+      onError: (reason) => setError(reason.message),
     });
     return () => {
-      if (frame != null) cancelAnimationFrame(frame);
-      sub.unsubscribe();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      subscription.unsubscribe();
     };
-    // 订阅只按 runIdRef 匹配，会话 id 走 ref，不必因 id 变化重订阅。
   }, [utils]);
-
-  // 新内容时滚到底部（仅当用户本就贴着底部）。
-  useEffect(() => {
-    const el = transcriptRef.current;
-    if (!headless && el && stickRef.current && !searchMessageId) {
-      const frame = requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
+  async function control(action: 'stop' | 'continue' | 'next') {
+    if (!bindingRef.current || !idRef.current) return;
+    try {
+      setError('');
+      await client.account.controlAssistantQueue.mutate({
+        ...bindingRef.current,
+        sessionId: idRef.current,
+        action,
       });
-      return () => cancelAnimationFrame(frame);
-    }
-  }, [turns, searchMessageId, headless]);
-
-  function onTranscriptScroll(): void {
-    const el = transcriptRef.current;
-    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-  }
-  useLayoutEffect(() => {
-    const element = transcriptRef.current;
-    if (!element || headless) return;
-    const observer = new ResizeObserver(() => {
-      if (element.clientHeight > 0 && stickRef.current && !searchMessageId)
-        element.scrollTop = element.scrollHeight;
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [searchMessageId, headless]);
-
-  async function onSend(preset?: string): Promise<void> {
-    setSearchMessageId(null);
-    const raw = preset ?? input;
-    if (!raw.trim() || busy) return;
-    // 没配聊天模型时后端会直接抛错、且这条 rejection 被路由吞掉（不会 emit error
-    // 事件），前端就会永久转圈。发送前先拦下来，给出可操作的提示而不是加载动画。
-    if (!assistantConfig.data?.model) {
-      await dialog.confirm(
-        '还没配置聊天模型',
-        compact
-          ? '请先展开助手面板配置并选择聊天模型。'
-          : chatModels.length === 0
-            ? '请先在 AgentLab 里添加一个带「聊天」能力的模型，再回到助手这里选择它。'
-            : '请先在输入框上方选择一个聊天模型。',
-        { okLabel: '知道了', tone: 'warning' },
-      );
-      return;
-    }
-    const text = raw.trim();
-    setRequestFailed(false);
-    if (!preset) {
-      setInput('');
-      if (inputRef.current) inputRef.current.style.height = 'auto';
-    }
-    // 自己发的消息总是要跟到底部（哪怕刚在翻历史）。
-    stickRef.current = true;
-    setTurns((prev) => [
-      ...prev,
-      { role: 'user', text },
-      { role: 'assistant', text: '', steps: [], running: true },
-    ]);
-    try {
-      // 草稿会话：真正发第一条消息时才落库建会话，拿到真 id 后续都走它。
-      // 建好立刻通知父组件刷新列表 + 把选中态指向新会话（不换组件 key，避免闪断）。
-      let id = sessionIdRef.current;
-      if (!id) {
-        const session = await createSession.mutateAsync();
-        id = session.id;
-        sessionIdRef.current = id;
-        setCurrentSessionId(id);
-        seeded.current = true; // 新会话无历史可 seed，别再被首帧空对话覆盖本地 turns。
-        await utils.account.listAssistantSessions.invalidate();
-        onSessionCreated(id);
-      }
-      // 新问题会取代上次中断的任务（后端已清掉断点快照），刷新“继续回答”状态。
-      void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
-      const { runId } = await send.mutateAsync({ sessionId: id, text });
-      runIdRef.current = runId;
-    } catch (e) {
-      dialog.error('发送失败', e instanceof Error ? e.message : String(e));
-      setRequestFailed(true);
-      // 回滚刚加入的两条。
-      setTurns((prev) => prev.slice(0, -2));
-      if (!preset) setInput(text);
-    }
-  }
-
-  async function onClear(): Promise<void> {
-    const ok = await dialog.confirm('清空对话', '确认清空当前这段对话的内容？', {
-      okLabel: '清空',
-      tone: 'warning',
-    });
-    if (!ok) return;
-    const id = sessionIdRef.current;
-    // 草稿会话还没落库，直接清本地即可。
-    if (id) {
-      await clear.mutateAsync({ sessionId: id });
-      invalidateConversation();
-      await utils.account.listAssistantSessions.invalidate();
-      // 清空对话同时作废了断点任务，刷新“继续回答”状态。
-      void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
-    }
-    setTurns([]);
-    setRequestFailed(false);
-    stickRef.current = true;
-    runIdRef.current = null;
-  }
-
-  /** 停止当前任务：请求后端掐断（真正收尾 + 持久化半截答复由后端 emit `aborted` 驱动）。 */
-  async function onStop(): Promise<void> {
-    if (stopping) return;
-    // 先给即时反馈：掐断要走 IPC，且后端要等在途的 LLM 请求返回才能收尾，
-    // 这期间按钮停在「停止中…」，否则点了像没反应。
-    setStopping(true);
-    const runId = runIdRef.current;
-    // runId 还没回来（发送仍在建会话/起任务）：等 busy 结束由上面的 effect 复位。
-    if (!runId) return;
-    try {
-      await abort.mutateAsync({ runId });
-    } catch (e) {
+      await utils.account.assistantQueue.invalidate();
+    } catch (reason) {
       setStopping(false);
-      dialog.error('停止失败', e instanceof Error ? e.message : String(e));
+      setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
-
-  /**
-   * 断点续答：把最后一条（半截）assistant 回合重新标记为运行中，然后请求后端从快照继续。
-   * 后续事件流与正常轮次完全一致（工具调用/正文流式/最终答复）。
-   */
-  async function onResume(): Promise<void> {
-    const id = sessionIdRef.current;
-    if (!id || busy) return;
-    setRequestFailed(false);
-    setTurns((prev) => {
-      const next = [...prev];
-      const last = next[next.length - 1];
-      if (last?.role === 'assistant') {
-        next[next.length - 1] = {
-          ...last,
-          running: true,
-          streamingText: '',
-          reasoning: '',
-          handoffIndex: undefined,
-        };
-      } else {
-        // 兜底：没有可续的 assistant 回合时补一条空的。
-        next.push({ role: 'assistant', text: '', steps: [], running: true });
+  const editQueuedMessage = useStableCallback(
+    async (requestId: string, patch: { text?: string; beforeId?: string; cancel?: boolean }) => {
+      const owner = bindingRef.current;
+      const sessionId = idRef.current;
+      if (!owner || !sessionId) return;
+      try {
+        setError('');
+        await client.account.editAssistantQueue.mutate({
+          ...owner,
+          sessionId,
+          requestId,
+          ...patch,
+        });
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        void utils.account.assistantQueue.invalidate();
       }
-      return next;
-    });
+    },
+  );
+  const saveQueuedText = useStableCallback((id: string, value: string) => {
+    void editQueuedMessage(id, { text: value });
+  });
+  async function send(body: string, preset = false) {
+    if (!binding || sending || imageUploading) return;
+    const text = cloneChatInput(body, new Map());
+    const images = preset ? [] : parseAiImageDraft(input).images;
+    if (!text.trim() && !images.length) return;
+    const submitted = aiImageDraft(text, images);
+    if (!request.current || request.current.raw !== submitted)
+      request.current = { raw: submitted, id: crypto.randomUUID() };
+    const clearDraft = preset ? undefined : sharedDraft.prepareSubmitted(input);
+    setSending(true);
+    setError('');
     try {
-      const { runId } = await resumeRun.mutateAsync({ sessionId: id });
-      runIdRef.current = runId;
-    } catch (e) {
-      dialog.error('继续失败', e instanceof Error ? e.message : String(e));
-      setTurns((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last?.role === 'assistant') next[next.length - 1] = { ...last, running: false };
-        return next;
+      let id = idRef.current;
+      if (!id) {
+        const created = await client.account.createAssistantSession.mutate(binding);
+        id = created.id;
+        idRef.current = id;
+        setCurrentId(id);
+        onSessionCreated(id);
+        if (stopPending.current) return;
+      }
+      await client.account.submitAssistantMessage.mutate({
+        ...binding,
+        sessionId: id,
+        requestId: request.current.id,
+        text,
+        images,
       });
+      request.current = undefined;
+      if (!preset) setInput((value) => (value === input ? '' : value));
+      if (clearDraft) void clearDraft().catch(() => {});
+      if (stopPending.current) await control('stop');
+      void utils.account.assistantQueue.invalidate();
+      void utils.account.getAssistantConversation.invalidate({ sessionId: id });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
+    } finally {
+      setSending(false);
     }
   }
-
-  if (headless) return null;
-  return (
-    <PageSnapshotScope name={`assistant:${draftAccount ?? ''}:${currentSessionId ?? 'draft'}`}>
-      <PageScrollSnapshot className={`weq-agentlab-chat${compact ? ' is-menu-compact' : ''}`}>
-        <header className="weq-agentlab-head">
-          <div className="weq-agentlab-head-left">
-            {draftAccount ? (
-              <strong>{workspaceTitle ?? '新会话'}</strong>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="weq-set-iconbtn"
-                  onClick={onBack}
-                  aria-label="返回主页"
-                  title="返回"
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <div>
-                  <strong>WeQ 助手</strong>
-                  <span>把问题交给它：会自己查聊天记录、找联系人、多轮推进直到给出结论。</span>
-                </div>
-              </>
-            )}
-          </div>
-          <div className="weq-agentlab-head-actions">
-            {selection.control}
-            <button
-              className={
-                draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
-              }
-              title="助手设置"
-              aria-label="助手设置"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <Settings size={draftAccount ? 16 : 12} /> {draftAccount ? null : '设置'}
-            </button>
-            <button
-              className={
-                draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
-              }
-              title="清空当前对话"
-              aria-label="清空当前对话"
-              disabled={busy}
-              onClick={() => void onClear()}
-            >
-              {draftAccount ? <Trash2 size={16} /> : '清空'}
-            </button>
-          </div>
-        </header>
-
-        {compact ? (
-          <div className="weq-asst-menu-meta" aria-label="当前助手会话信息">
-            <span title={workspaceTitle ?? '新会话'}>{workspaceTitle ?? '新会话'}</span>
-            <span title={modelTitle}>{modelName}</span>
-            <span>{EFFORT_OPTIONS.find((option) => option.value === effort)?.label ?? effort}</span>
-          </div>
-        ) : null}
-
-        {resumable ? (
-          <div className="weq-asst-resume-bar">
-            <span>
-              上次回答被中断，已执行 {resumeQuery.data?.toolCallCount ?? 0} 次工具调用
-              {resumeQuery.data?.question
-                ? `（「${resumeQuery.data.question.slice(0, 40)}」）`
-                : ''}
-              。可从中断处继续，已完成的调查不重查。
-            </span>
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-sm"
-              disabled={resumeRun.isLoading}
-              onClick={() => void onResume()}
-            >
-              <Play size={13} aria-hidden="true" />
-              {resumeRun.isLoading ? '继续中…' : '继续回答'}
-            </button>
-          </div>
-        ) : null}
-
-        <div
-          className="weq-agentlab-transcript"
-          {...selection.rootProps}
-          ref={(element) => {
-            transcriptRef.current = element;
-            selection.rootProps.ref(element);
-          }}
-          onScroll={onTranscriptScroll}
-        >
-          <GeneratedSearchNotice
-            missing={missingSearch}
-            error={Boolean(searchMessageId && conversation.isError)}
+  const user = useMemo(() => cloneChatUser('self', '我', profile.data?.uin), [profile.data?.uin]);
+  const peer = useMemo(
+    () => ({ ...cloneChatUser('assistant', 'WeQ 助手'), kind: 'bot' as const }),
+    [],
+  );
+  const viewId = `assistant:${currentId ?? 'new'}`;
+  const chat = useMemo(
+    () =>
+      cloneChatConversation({
+        target: { kind: 'assistant', ownerId: 'assistant', sessionId: currentId },
+        viewId,
+        name: workspaceTitle ?? '新会话',
+        peer: { ...peer, displayName: workspaceTitle ?? '新会话' },
+      }),
+    [currentId, viewId, workspaceTitle, peer],
+  );
+  const project = useMemo(() => {
+    const projection = new WeakMap<AssistantTurn, AssistantViewMessage>();
+    return (turn: AssistantTurn, index: number) => {
+      const cached = projection.get(turn);
+      if (cached) return cached;
+      const sender = turn.role === 'user' ? user : peer;
+      const message = {
+        id: turn.id ?? `pending:${index}`,
+        generatedPending: !turn.id || turn.status === 'running',
+        conversationId: viewId,
+        senderId: sender.id,
+        sender,
+        body:
+          (turn.running ? turn.streamingText || turn.text : turn.text) ||
+          (turn.images?.length ? '[图片]' : ''),
+        createdAt: timeDate(turn.ts)?.toISOString() ?? new Date(0).toISOString(),
+        assistantTurn: turn,
+      };
+      projection.set(turn, message);
+      return message;
+    };
+  }, [viewId, user, peer]);
+  const baseMessages = useMemo(() => turns.map(project), [turns, project]);
+  const continueCurrent = useStableCallback(() => {
+    void control('continue');
+  });
+  const runNext = useStableCallback(() => {
+    void control('next');
+  });
+  const restoreQuestion = useStableCallback(() => {
+    const question = turns.findLast((turn) => turn.role === 'user');
+    if (question) {
+      const images = question.images ?? [];
+      const assets = images.filter(
+        (image): image is AiImageAssetRef => typeof image.path === 'string',
+      );
+      setInput(aiImageDraft(question.text, assets));
+      if (assets.length !== images.length)
+        setError('原消息中的聊天图片引用仍保留在历史中，本次编辑仅带入已保存附件。');
+    }
+  });
+  const lastAssistant = turns.findLast((turn) => turn.role === 'assistant');
+  const recoveryId =
+    !running &&
+    (lastAssistant?.status === 'failed' ||
+      lastAssistant?.status === 'stopped' ||
+      lastAssistant?.error)
+      ? lastAssistant?.id
+      : undefined;
+  const resumable = !running && resume.data?.resumable === true;
+  const queuePaused = Boolean(
+    queue.data?.paused && queue.data.items.some((item) => item.status !== 'running'),
+  );
+  const messages = useMemo(
+    () =>
+      recoveryId
+        ? baseMessages.map((message) =>
+            message.id === recoveryId
+              ? {
+                  ...message,
+                  assistantActions: {
+                    onContinue: resumable ? continueCurrent : undefined,
+                    onRestore: resumable ? undefined : restoreQuestion,
+                    onNext: queuePaused ? runNext : undefined,
+                  },
+                }
+              : message,
+          )
+        : baseMessages,
+    [baseMessages, recoveryId, resumable, queuePaused, continueCurrent, restoreQuestion, runNext],
+  );
+  const renderers = useMemo<MessageRenderer[]>(
+    () => [
+      {
+        id: 'assistant-content',
+        match: () => true,
+        render: ({ message }) => (
+          <AssistantReplyContent
+            turn={(message as AssistantViewMessage).assistantTurn}
+            actions={(message as AssistantViewMessage).assistantActions}
           />
-          {searchMessageId && conversation.isFetching ? (
-            <div className="weq-agentlab-empty">加载记录中…</div>
-          ) : turns.length === 0 ? (
-            compact ? null : (
-              <div className="weq-agentlab-empty weq-asst-empty">
-                <span className="weq-asst-empty-icon">
-                  <Sparkles size={26} strokeWidth={1.6} />
-                </span>
-                <strong>把任务交给 WeQ 助手</strong>
-                <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
-                <div className="weq-asst-presets">
-                  {PRESET_QUESTIONS.map((q) => (
+        ),
+      },
+    ],
+    [],
+  );
+  if (headless) return null;
+  const stopAction = {
+    id: 'assistant-stop',
+    label: stopping ? '停止中' : '停止当前任务',
+    icon: Square,
+    disabled: () => stopping,
+    onClick: () => {
+      stopPending.current = true;
+      setStopping(true);
+      void control('stop');
+    },
+  };
+  const stopActions = running || sending ? [stopAction] : [];
+  const waiting = queue.data?.items.filter((item) => item.status !== 'running') ?? [];
+  return (
+    <>
+      <AiImageComposer
+        fill
+        value={input}
+        setValue={setInput}
+        onBusyChange={setImageUploading}
+        onSendImages={() => void send(parseAiImageDraft(input).text)}
+      >
+        {(attachments, imageButton) => (
+          <ChatPane
+            user={user}
+            conversation={chat}
+            messages={messages}
+            messageRenderers={renderers}
+            composerActions={{
+              desktopToolbar: stopActions,
+              mobileToolbar: stopActions,
+              mobileExpandedToolbar: stopActions,
+            }}
+            loading={conversation.isFetching && !turns.length}
+            loadError={conversation.error?.message}
+            preference={undefined}
+            draft={parseAiImageDraft(input).text}
+            onDraftChange={(_id, text) => setInput((value) => changeAiImageDraftText(value, text))}
+            onDraftClear={() => {}}
+            onSend={(body) => send(body)}
+            sendAvailable={Boolean(
+              binding && config.data && !sending && !stopping && !imageUploading,
+            )}
+            sendBlockedReason={
+              stopping
+                ? '任务正在停止'
+                : sending
+                  ? '正在提交消息'
+                  : imageUploading
+                    ? '图片准备中'
+                    : !binding
+                      ? '账号未就绪'
+                      : !config.data
+                        ? '参数读取中'
+                        : undefined
+            }
+            onBack={onBackToDirectory ?? onBack}
+            hasExternalAttachments={parseAiImageDraft(input).images.length > 0}
+            composerAttachments={attachments}
+            composerToolbar={imageButton}
+            composerParameters={<AssistantQuickTools />}
+            onOpenConversationSettings={() => setSettings(true)}
+            settingsLabel="助手设置"
+            onSearchChatRecords={() => setSearch(true)}
+            jumpRequest={jump}
+            timelineNotice={
+              turns.length === 0 ? (
+                <div className="weq-conversation-notice">
+                  {PRESETS.map((text) => (
                     <button
-                      key={q}
+                      key={text}
                       type="button"
-                      className="weq-asst-preset"
-                      disabled={busy}
-                      onClick={() => void onSend(q)}
+                      className="weq-set-btn weq-set-btn-soft"
+                      onClick={() => void send(text, true).catch(() => {})}
                     >
-                      {q}
+                      {text}
                     </button>
                   ))}
                 </div>
-              </div>
-            )
-          ) : (
-            turns.map((t, i) => (
-              <div
-                key={t.id ?? `${t.role}-${i}`}
-                {...selection.itemProps(t.id)}
-                data-generated-message-id={t.id}
-                className={`weq-generated-message${t.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(t.id) ? ' is-selected' : ''}`}
-              >
-                {t.role === 'user' ? (
-                  <ChatBubble mine name="我" uin={selfProfile.data?.uin} text={t.text} />
-                ) : (
-                  <AssistantBubble turn={t} />
-                )}
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="weq-asst-composer">
-          {!compact ? (
-            <div className="weq-asst-composer-tools">
-              <ComposerSelect
-                icon={<Cpu size={13} />}
-                title="聊天模型"
-                placeholder="选择模型…"
-                value={modelSel}
-                groups={modelGroups}
-                disabled={busy || saveConfig.isLoading}
-                onChange={(v) => void onQuickConfig({ modelKey: v })}
-              />
-              <ComposerSelect
-                icon={<Brain size={13} />}
-                title="思考等级"
-                placeholder="思考等级"
-                value={effort}
-                groups={[
-                  {
-                    label: '',
-                    options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-                  },
-                ]}
-                disabled={busy || saveConfig.isLoading}
-                onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
-              />
-            </div>
-          ) : null}
-          <div className="weq-agentlab-composer weq-asst-composer-row">
-            <textarea
-              ref={inputRef}
-              rows={1}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                autoGrowTextarea(e.currentTarget);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void onSend();
-                }
-              }}
-              placeholder={
-                compact ? '发送消息…' : '把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）'
-              }
-              disabled={busy}
-            />
-            {busy ? (
-              <button
-                className="weq-set-btn weq-asst-stop-btn"
-                onClick={() => void onStop()}
-                disabled={stopping}
-                aria-busy={stopping}
-                title={stopping ? '正在停止本轮任务…' : '停止本轮任务'}
-              >
-                {stopping ? (
-                  <>
-                    <Loader2 size={13} strokeWidth={2.4} className="weq-asst-spin" /> 停止中…
-                  </>
-                ) : (
-                  <>
-                    <Square size={13} strokeWidth={2.6} /> 停止
-                  </>
-                )}
-              </button>
-            ) : (
-              <button
-                className="weq-set-btn"
-                title="发送消息"
-                aria-label="发送消息"
-                onClick={() => void onSend()}
-                disabled={!input.trim()}
-              >
-                <Send size={14} /> {compact ? null : '发送'}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {settingsOpen ? <AssistantSettings onClose={() => setSettingsOpen(false)} /> : null}
-      </PageScrollSnapshot>
-    </PageSnapshotScope>
+              ) : null
+            }
+            composerTools={
+              <>
+                {resume.data?.resumable && !running && !recoveryId ? (
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    onClick={() => void control('continue')}
+                  >
+                    <Play size={14} />
+                    继续当前任务并恢复队列
+                  </button>
+                ) : null}
+                {queue.data?.paused && waiting.length && !running && !recoveryId ? (
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    onClick={() => void control('next')}
+                  >
+                    <Play size={14} />
+                    跳过当前任务并执行下一条
+                  </button>
+                ) : null}
+                {error || (!recoveryId && queue.data?.error) ? (
+                  <p role="alert">{error || queue.data?.error}</p>
+                ) : null}
+                {waiting.length ? (
+                  <div className="weq-assistant-queue" aria-label="待处理消息">
+                    {waiting.map((item, index) => (
+                      <div key={item.requestId}>
+                        <QueueTextEditor
+                          id={item.requestId}
+                          label={`待处理消息 ${index + 1}`}
+                          value={item.text}
+                          onSave={saveQueuedText}
+                        />
+                        {index ? (
+                          <button
+                            type="button"
+                            className="icon-button"
+                            title="上移消息"
+                            aria-label="上移消息"
+                            onClick={() =>
+                              void editQueuedMessage(item.requestId, {
+                                beforeId: waiting[index - 1]!.requestId,
+                              })
+                            }
+                          >
+                            <ArrowUp size={14} />
+                          </button>
+                        ) : null}
+                        {index < waiting.length - 1 ? (
+                          <button
+                            type="button"
+                            className="icon-button"
+                            title="下移消息"
+                            aria-label="下移消息"
+                            onClick={() =>
+                              void editQueuedMessage(waiting[index + 1]!.requestId, {
+                                beforeId: item.requestId,
+                              })
+                            }
+                          >
+                            <ArrowDown size={14} />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="icon-button"
+                          title="取消消息"
+                          aria-label="取消消息"
+                          onClick={() => void editQueuedMessage(item.requestId, { cancel: true })}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            }
+          />
+        )}
+      </AiImageComposer>
+      {settings ? <AssistantSettingsPanel onClose={() => setSettings(false)} /> : null}
+      {search ? (
+        <ChatRecordsModal
+          fixed
+          initialKeyword=""
+          initialHit={{
+            category: 'chatRecord',
+            source: 'buddy',
+            partition: viewId,
+            targetUid: viewId,
+            targetUin: '',
+            name: workspaceTitle ?? 'WeQ 助手',
+            count: messages.length,
+          }}
+          renderers={renderers}
+          localSource={{
+            conversation: chat,
+            messages,
+            user,
+            onJump: (messageId) => setJump({ messageId, revision: Date.now() }),
+          }}
+          onClose={() => setSearch(false)}
+          onJumpMessage={() => {}}
+        />
+      ) : null}
+    </>
   );
 }

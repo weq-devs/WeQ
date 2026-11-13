@@ -52,8 +52,8 @@ WeQ 实际读取的列（`SELECT` 见 `recent_contact.ts`），按用途分组�
 | 列 | 字段名 | 类型 | 含义 | 置信度 |
 | -- | ------ | ---- | ---- | ------ |
 | 40001 | — | INTEGER | 最后一条消息的 msgId，指回消息表 | 观测一致 |
-| 40003 | `msgSeq` | INTEGER | 最后一条消息的序列号。**未读数就是拿它减去已读 seq 算的**，见 [msg_unread_info_table](./unread-info.md) | 已验证 |
-| 40011 | — | INTEGER | 最后一条消息的 msgType，枚举同 [40900 · MsgType](./40900.md#msgtypetag-40011) | 观测一致 |
+| 40003 | `msgSeq` | INTEGER | 最后一条消息的序列号。**未读数就是拿它减去已读 seq 算的**，见 [msg_unread_info_table](unread-info.md) | 已验证 |
+| 40011 | — | INTEGER | 最后一条消息的 msgType，枚举同 [40900 · MsgType](40900.md#msgtypetag-40011) | 观测一致 |
 | 40050 | `sendTime` | INTEGER | 最后一条消息的时间，unix 秒。无草稿时它就是排序时间，见 [`41136`](#41136--真正的排序键) | 已验证 |
 | 41136 | — | INTEGER | **排序键**。无草稿时 = `40050`；有草稿时替换成草稿时间；置顶行另置 `2^47` 高位。见 [`41136` — 真正的排序键](#41136--真正的排序键) | 观测一致 |
 | 40051 | `preview` | BLOB | **外显预览**，protobuf，见下方第三节 | 已验证 |
@@ -106,9 +106,9 @@ function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
 
 | 列 | 字段名 | 类型 | 含义 | 置信度 |
 | -- | ------ | ---- | ---- | ------ |
-| 41103 | `topTime` | INTEGER | **置顶时间**，unix 秒。与 [recent_contact_top_table](./recent-contact-top.md) 的同名列逐秒相等；未置顶为 0 | 已验证 |
+| 41103 | `topTime` | INTEGER | **置顶时间**，unix 秒。与 [recent_contact_top_table](recent-contact-top.md) 的同名列逐秒相等；未置顶为 0 | 已验证 |
 | 41104 | `pinned` | INTEGER | **置顶标记**：`1` = 已置顶，`0` = 未置顶 | 已验证 |
-| 41108 | `draftTime` | INTEGER | **草稿更新时间**，unix 秒。与 [draft_storage_table_v1](./draft-storage.md) 同会话行的 `40050` 逐秒相等；无草稿为 0 | 已验证 |
+| 41108 | `draftTime` | INTEGER | **草稿更新时间**，unix 秒。与 [draft_storage_table_v1](draft-storage.md) 同会话行的 `40050` 逐秒相等；无草稿为 0 | 已验证 |
 
 这三列都只在极少数行上非零，且长期被误读 —— 因为最常见的观测环境里，「置顶」和「有草稿」
 总是同时发生，两个特征叠在同一批行上。用下面这组对照样本才能把它们拆开
@@ -124,16 +124,16 @@ function mutedFromNotifyLevel(notifyLevel: number | undefined): boolean {
 
 - **`41104` 是置顶标记，不是草稿标记。** 判据是集合恒等：`41104 = 1` 的行集与
   `recent_contact_top_table` 的行集**完全相等**，而上面那个未置顶的草稿群 `41104 = 0`。
-- **`41108` 是草稿时间。** 三行的 `41108` 都与 [draft_storage_table_v1](./draft-storage.md)
+- **`41108` 是草稿时间。** 三行的 `41108` 都与 [draft_storage_table_v1](draft-storage.md)
   对应行的 `40050` **逐秒相等**，与置顶无关。
 - **`41103` 是置顶时间**，与 `recent_contact_top_table.41103` 逐秒相等（其含义见
-  [recent-contact-top](./recent-contact-top.md#二列结构)）。
+  [recent-contact-top](recent-contact-top.md#二列结构)）。
 
 > 验证手法值得记一笔：`41108` 与 trigger 无关 —— `nt_msg.db` 里**一条 trigger 都没有**
 > （`sqlite_master` 里 `type='trigger'` 零行），这个值是 QQ 进程自己写的。
 > 用 SQL 往草稿表插一行（`40050` 写成未来时间）时 QQ 界面毫无反应，
 > 只有在输入框里真的改动草稿才更新 —— 详细时间线见
-> [draft-storage · 直接写表会被 QQ 认吗](./draft-storage.md#直接写表会被-qq-认吗)。
+> [draft-storage · 直接写表会被 QQ 认吗](draft-storage.md#直接写表会被-qq-认吗)。
 
 ### `41136` — 真正的排序键
 
@@ -181,7 +181,7 @@ bit 47（`2^47 = 140737488355328`），排序时一次比较就能把置顶组�
 
 理解要点：
 
-- **它就是一个 `ElementWire`**（结构见 [40800 解析](./40800.md)），只是**单个**，不是 `repeated`。
+- **它就是一个 `ElementWire`**（结构见 [40800 解析](40800.md)），只是**单个**，不是 `repeated`。
   多消息段的消息（图 + 文）只挑第一段做预览。
 - **多出来的只有一个 tag：`49093`**，装的是最终外显文本。图片消息这里就是 `"[图片]"`，
   也就是说**外显文案是 QQ 写进库的，不需要解析方自己按类型翻译**。
@@ -190,7 +190,7 @@ bit 47（`2^47 = 140737488355328`），排序时一次比较就能把置顶组�
 | --- | ------ | ---- | ---- | ------ |
 | 49093 | `displayText` | string | 会话列表外显的最新消息文本 | 已验证 |
 
-解码同样先过 `sanitizeBytes` 容错（原因见 [40800 · 容错解码](./40800.md#六容错解码sanitizebytes)），
+解码同样先过 `sanitizeBytes` 容错（原因见 [40800 · 容错解码](40800.md#六容错解码sanitizebytes)），
 一个猜错类型的 tag 不至于让整个会话列表少一行。
 
 ## 四、ChatType（会话类型）
@@ -288,12 +288,12 @@ LIMIT ? OFFSET ?;
 > 「取较新者」尚未验证（见上文「未验证的两点」），WeQ 选的是后者 —— 两者的差别只会在
 > 「仓库里有旧草稿、之后又来了新消息」时显现。另外 WeQ 排序**只认库里的时间**：输入框里
 > 正在编辑、还没写回库的内容不参与排序（写回时机见
-> [draft-storage · 写入策略](./draft-storage.md)）。
+> [draft-storage · 写入策略](draft-storage.md)）。
 
 > 会话的**置顶**状态在
-> [recent_contact_top_table](./recent-contact-top.md) 里有完整登记（靠 `40021` / `targetUid` 关联）；
+> [recent_contact_top_table](recent-contact-top.md) 里有完整登记（靠 `40021` / `targetUid` 关联）；
 > 本表的 `41103` / `41104` 也各存了一份置顶时间与置顶标记的副本。
 
 ---
 
-[← 返回 nt_msg.db](./index.md)
+[← 返回 nt_msg.db](index.md)

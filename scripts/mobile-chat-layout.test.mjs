@@ -34,6 +34,70 @@ before(async () => {
 });
 after(async () => browser?.close());
 
+test('自己的发送者与时间换行后仍逐行靠右，对方消息保持靠左', async () => {
+  const page = await browser.newPage();
+  try {
+    for (const width of [320, 402, 430, 760, 1180]) {
+      await page.setViewportSize({ width, height: 874 });
+      for (const theme of ['light', 'dark']) {
+        for (const component of ['default', 'qqnt']) {
+          for (const name of ['合成测试发送者昵称', '合成昵称'.repeat(20)]) {
+            await page.setContent(`<meta name="viewport" content="width=device-width,initial-scale=1">
+              <style>*{box-sizing:border-box}body{margin:0}${css}
+              .app-shell{grid-template-columns:minmax(0,1fr)}</style>${fixture({ suggest: false })}`);
+            await page.evaluate(
+              ({ theme, component, name }) => {
+                document.documentElement.dataset.theme = theme;
+                document.documentElement.dataset.componentStyle = component;
+                const line = document.querySelector('.message-line');
+                line.classList.add('theirs');
+                line.querySelector('.message-name > span').textContent = name;
+                const mine = line.cloneNode(true);
+                mine.classList.replace('theirs', 'mine');
+                line.after(mine);
+              },
+              { theme, component, name },
+            );
+            const rows = await page.locator('.message-line').evaluateAll((nodes) =>
+              nodes.map((node) => {
+                const heading = node.querySelector('.weq-message-heading');
+                const box = heading.getBoundingClientRect();
+                const sender = node.querySelector('.message-name > span');
+                const range = document.createRange();
+                range.selectNodeContents(sender);
+                const senderLines = [...range.getClientRects()].filter((rect) => rect.width > 0);
+                const provenance = node
+                  .querySelector('.weq-message-provenance')
+                  .getBoundingClientRect();
+                const mine = node.classList.contains('mine');
+                const wrapped = provenance.top >= sender.getBoundingClientRect().bottom;
+                const alignedRects = wrapped
+                  ? [...senderLines, provenance]
+                  : [mine ? provenance : senderLines[0]];
+                const edges = alignedRects.map((rect) =>
+                  mine ? box.right - rect.right : rect.left - box.left,
+                );
+                return { mine, edges, wrapped };
+              }),
+            );
+            const context = JSON.stringify({ width, theme, component, name, rows });
+            for (const row of rows) {
+              assert.ok(
+                row.edges.every((edge) => Math.abs(edge) <= 1),
+                context,
+              );
+              if (width === 320) assert.ok(row.wrapped, context);
+              if (width === 1180 && name === '合成测试发送者昵称') assert.ok(!row.wrapped, context);
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 const text = '用于验证手机长引用与正文换行的合成消息'.repeat(12);
 function fixture({ actions = true, suggest = true, quote = false } = {}) {
   return `<div class="app-shell-root weq-web-shell" data-mobile-detail>

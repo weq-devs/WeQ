@@ -27,6 +27,8 @@
 
 export { encode, decode, message } from './protobuf';
 export type { ProtoMessage, ProtoField, ScalarType } from './protobuf';
+export { GetQzoneFeedMediaDetail } from './qzone/feed-media-detail';
+export type { QzoneMediaType, QzoneNativeDetail } from './qzone/feed-media-detail';
 
 export { sendOidb, sendPacket } from './transport';
 /**
@@ -233,6 +235,19 @@ export type {
 } from './oidb/set-self-profile';
 
 export * from './call';
+export * from './oidb/profile/extras';
+export { getProfileDetails, PROFILE_DETAIL_FIELDS } from './oidb/profile/details';
+export type { ProfileDetailInfo, ProfileDetailField } from './oidb/profile/details';
+export { getEducationHistory } from './oidb/profile/education';
+export * from './oidb/profile/display-settings';
+export { LegacyOidbRejectedError } from './oidb/legacy';
+export {
+  getSelfAvatarHistory,
+  historicalAvatarUrl,
+  SELF_AVATAR_HISTORY_COMMAND,
+  type HistoricalAvatar,
+} from './oidb/profile/avatar-history';
+export type { ProfileEducationRecord, ProfileEducationHistory } from './oidb/profile/education';
 /**
  * 群通话协议层。
  *

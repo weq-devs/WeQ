@@ -1,3 +1,4 @@
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 设置 → 全局设置.
  *
@@ -15,6 +16,7 @@
 
 import { useContext, useEffect, useState, type ReactElement } from 'react';
 import {
+  Bell,
   Cloud,
   ChevronRight,
   FolderOpen,
@@ -33,15 +35,18 @@ import { client, trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
-import { Card, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
+import { Card, CheckPill, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
+import { MessageNotificationRows } from './MessageNotificationRows';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
 import { supportsWindowsStyleControls } from '../../../../shared/window_controls';
 import '../../styles/storage-management.css';
+import { DataSaverSettings } from './DataSaverSettings';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -52,7 +57,7 @@ function backupDescription(item: StorageUsageItem): string | null {
   const { at, status } = item.backup;
   const date =
     at && /(?:Z|[+-]\d{2}:\d{2})$/.test(at) && Number.isFinite(Date.parse(at))
-      ? `${new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`
+      ? `${eventTimeFormatter.format(new Date(at))}（北京时间）`
       : at || '时间未知';
   return `${date} · ${status === 'linked' ? '已关联修复记录' : status === 'orphan' ? '无关联修复记录' : '未识别备份'}`;
 }
@@ -213,26 +218,66 @@ export function GlobalSettingsSection({
   });
 
   const storageItem = (item: StorageUsageItem, members: StorageUsageItem[]) => (
-    <label key={item.id} className="weq-set-cache-item" {...cacheMulti.itemProps(item.id)}>
-      <input
-        type="checkbox"
-        aria-label={item.label}
-        checked={pickedCats.has(item.id)}
-        readOnly
-        disabled={cleanupBusy || cacheUsage.isFetching}
-      />
-      <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-      <span className="weq-storage-detail">
-        <span>{item.label}</span>
+    <div
+      key={item.id}
+      className={`weq-storage-item${item.clearable ? '' : ' is-readonly'}`}
+      data-cache-id={item.id}
+    >
+      <div className="weq-storage-item-head">
+        {item.clearable ? (
+          <CheckPill
+            checked={pickedCats.has(item.id)}
+            disabled={cleanupBusy || cacheUsage.isFetching}
+            onChange={() => cacheMulti.toggle(item.id)}
+          >
+            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+            <span>{item.label}</span>
+          </CheckPill>
+        ) : (
+          <span className="weq-storage-item-label">
+            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+            <span>{item.label}</span>
+          </span>
+        )}
+        <span className="weq-set-cache-size weq-number">
+          {item.incomplete ? '至少 ' : ''}
+          {formatBytes(item.bytes)}
+        </span>
+      </div>
+      <div className="weq-storage-detail">
         {item.backup && <small>{backupDescription(item)}</small>}
         {item.category === 'program-backups' && <small>{item.reason}</small>}
         <small>{item.confirmation ?? item.reason}</small>
         <small className="weq-storage-path">
-          {members.map((member) => member.path).join('\n')}
+          {[...new Set(members.map((member) => member.path))].join('\n')}
         </small>
-      </span>
-      <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
-    </label>
+        {!item.clearable && (
+          <div className="weq-set-btn-group weq-storage-item-actions">
+            {item.management === 'repair' && navigate && (
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                onClick={() => navigate('database-repair')}
+              >
+                数据库修复
+              </button>
+            )}
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+              onClick={() =>
+                void client.bootstrap.revealStorageItem
+                  .mutate({ id: item.id })
+                  .catch((error: unknown) => showError('定位失败', errMsg(error)))
+              }
+            >
+              <FolderOpen size={14} aria-hidden />
+              定位
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 
   async function onClearWeqCache(explicitTargets?: StorageUsageItem[]): Promise<void> {
@@ -408,9 +453,16 @@ export function GlobalSettingsSection({
       {/* Window close behavior */}
       {section === 'general' && (
         <>
+          <Card title="消息提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
+            <MessageNotificationRows />
+          </Card>
           <ToastSettingsCard />
           <DesktopOnly>
-            <Card title="窗口" icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}>
+            <Card
+              title="窗口"
+              icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}
+              remoteUnsupported
+            >
               {platform && supportsWindowsStyleControls(platform) && (
                 <Row
                   label={
@@ -485,7 +537,7 @@ export function GlobalSettingsSection({
         <Card title="现有配置" icon={<User size={15} strokeWidth={1.8} />}>
           {accountList.length === 0 ? (
             <div className="weq-set-empty">
-              {accounts.isLoading ? '加载中…' : '暂无保存的账号配置'}
+              {accounts.isLoading ? <LoadingIndicator /> : '暂无保存的账号配置'}
             </div>
           ) : (
             <div className="weq-set-accounts">
@@ -580,13 +632,14 @@ export function GlobalSettingsSection({
         </Card>
       )}
 
+      {section === 'network' && <DataSaverSettings />}
       {section === 'network' && (
         <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
           <Row
             label={
               <span className="weq-set-row-icon">
                 <Cloud size={15} strokeWidth={1.8} aria-hidden />
-                优先使用 CDN
+                优先直连 QQ 加载图片
               </span>
             }
             desc={`桌面端与 Web 共用。${
@@ -599,7 +652,7 @@ export function GlobalSettingsSection({
                 checked={preferCdn}
                 disabled={settings.isLoading || setPreferCdnMut.isLoading}
                 onChange={(next) => void onSetPreferCdn(next)}
-                label="优先使用 CDN"
+                label="优先直连 QQ 加载图片"
               />
             }
           />
@@ -624,13 +677,14 @@ export function GlobalSettingsSection({
             <div className="weq-set-btn-group weq-storage-toolbar-buttons">
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
                 title="刷新存储占用"
                 aria-label="刷新存储占用"
                 disabled={cacheUsage.isFetching || cleanupBusy}
                 onClick={() => void cacheUsage.refetch()}
               >
                 <RotateCcw size={14} aria-hidden />
+                刷新占用
               </button>
             </div>
           </div>
@@ -695,46 +749,7 @@ export function GlobalSettingsSection({
                       </span>
                     </summary>
                     <div className="weq-storage-entries">
-                      {group.entries.map(({ item, members }) =>
-                        item.clearable ? (
-                          storageItem(item, members)
-                        ) : (
-                          <div key={item.id} className="weq-set-cache-item is-readonly">
-                            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-                            <span className="weq-storage-detail">
-                              <span>{item.label}</span>
-                              {item.backup && <small>{backupDescription(item)}</small>}
-                              <small>{item.reason}</small>
-                              <small className="weq-storage-path">{item.path}</small>
-                              {item.management === 'repair' && navigate && (
-                                <button
-                                  type="button"
-                                  className="weq-set-btn weq-set-btn-sm"
-                                  onClick={() => navigate('database-repair')}
-                                >
-                                  数据库修复
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="weq-set-btn weq-set-btn-sm"
-                                onClick={() =>
-                                  void client.bootstrap.revealStorageItem
-                                    .mutate({ id: item.id })
-                                    .catch((error: unknown) => showError('定位失败', errMsg(error)))
-                                }
-                              >
-                                <FolderOpen size={14} aria-hidden />
-                                定位
-                              </button>
-                            </span>
-                            <span className="weq-set-cache-size weq-number">
-                              {item.incomplete ? '至少 ' : ''}
-                              {formatBytes(item.bytes)}
-                            </span>
-                          </div>
-                        ),
-                      )}
+                      {group.entries.map(({ item, members }) => storageItem(item, members))}
                       {group.items.length === 0 && (
                         <div className="weq-set-empty">系统辅助文件</div>
                       )}
@@ -765,7 +780,7 @@ export function GlobalSettingsSection({
       )}
 
       {section === 'logs' && (
-        <Card title="日志" icon={<ScrollText size={15} strokeWidth={1.8} />}>
+        <Card title="日志文件" icon={<ScrollText size={15} strokeWidth={1.8} />} remoteUnsupported>
           <Row
             label="日志保留时长"
             desc={

@@ -1,3 +1,5 @@
+import { EmptyState } from '../../components/EmptyState';
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 商城表情包浏览器（本地资源 → 商城表情包分类）。
  *
@@ -100,7 +102,7 @@ export function MarketPackExplorer(): ReactElement {
         </button>
       </div>
       {list.length === 0 ? (
-        <div className="weq-cache-grid-state">未找到本地添加的商城表情包</div>
+        <EmptyState icon={<Store />} title="未找到本地添加的商城表情包" />
       ) : (
         <div className="weq-cache-avatar-scroll">
           <div className="weq-mpack-grid">
@@ -247,7 +249,7 @@ function PackDetail({
               <span className="weq-mpack-panel-label">上架时间</span>
               <span className="weq-mpack-panel-val weq-mpack-mono">
                 {detail.data.updateTime
-                  ? new Date(detail.data.updateTime * 1000).toLocaleString('zh-CN')
+                  ? eventTimeFormatter.format(new Date(detail.data.updateTime * 1000))
                   : '未知'}
               </span>
             </div>

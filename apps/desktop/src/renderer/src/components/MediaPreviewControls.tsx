@@ -87,7 +87,7 @@ export function MediaZoomControls({
         className="weq-lightbox-action"
         aria-label="适应窗口"
         title="适应窗口"
-        disabled={disabled || !zoom.zoomed}
+        disabled={disabled || !zoom.canReset}
         onClick={zoom.reset}
       >
         <Maximize size={18} aria-hidden />

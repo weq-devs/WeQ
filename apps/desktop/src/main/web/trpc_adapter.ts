@@ -29,6 +29,10 @@ export function createTrpcHandler(
     router,
     onError: ({ error, path }) => logTransportError('trpc-http', path, error),
     createContext: ({ req }) => ({
+      networkClientId:
+        typeof req.headers['x-weq-client-id'] === 'string'
+          ? req.headers['x-weq-client-id']
+          : undefined,
       host,
       authorize: auth
         ? () => {

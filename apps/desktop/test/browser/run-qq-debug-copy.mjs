@@ -205,6 +205,42 @@ try {
     await dialog.getByRole('button', { name: '创建副本', exact: true }).waitFor();
     await page.getByRole('button', { name: '关闭调试副本', exact: true }).click();
   }
+  for (const width of [1180, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1&recovery=1`,
+      );
+      await page.getByRole('button', { name: '受限模式', exact: true }).click();
+      await page.evaluate((theme) => {
+        window.debugCopyQa.store.getState().setPreference(theme);
+        window.debugCopyQa.setOnlineFixture({
+          credentialsPending: true,
+          hasD2: false,
+          ssoReady: false,
+        });
+        window.debugCopyQa.setFixture({ state: 'ready', sourceRunningPids: [51] });
+      }, theme);
+      await page.waitForFunction(() =>
+        document
+          .querySelector('.weq-restricted-indicator')
+          ?.textContent.includes('正在启用完整功能'),
+      );
+      await page.evaluate(() => window.debugCopyQa.restrictedStore.getState().setOpen(true));
+      const panel = page.locator('.weq-restricted-panel');
+      const switchQq = panel.getByRole('button', { name: '退出普通 QQ 并打开副本', exact: true });
+      if (await switchQq.isDisabled()) throw new Error('凭据等待期间应允许明确切换调试副本');
+      await panel.locator('.weq-restricted-more summary').click();
+      await panel.getByRole('button', { name: '副本设置', exact: true }).click();
+      await page.getByRole('dialog', { name: 'QQ 调试副本', exact: true }).waitFor();
+      await page.getByRole('button', { name: '关闭副本设置', exact: true }).click();
+      await panel.locator('.weq-restricted-more summary').click();
+      if (await panel.evaluate((node) => node.scrollWidth > node.clientWidth + 1))
+        throw new Error('切换调试副本入口溢出');
+      if (output) await page.screenshot({ path: resolve(output, `switch-${width}-${theme}.png`) });
+      await switchQq.click();
+      await switchQq.waitFor({ state: 'detached' });
+    }
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1`,
   );
@@ -354,9 +390,52 @@ try {
       await panel.waitFor({ state: 'detached' });
     }
   }
+  for (const width of [1180, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-debug-copy.html?restricted=1&offline=1&pending-status=1`,
+      );
+      await page.getByRole('button', { name: '受限模式', exact: true }).click();
+      await page.evaluate((theme) => {
+        window.debugCopyQa.store.getState().setPreference(theme);
+        window.debugCopyQa.pauseAction();
+      }, theme);
+      const panel = page.locator('.weq-restricted-panel');
+      const open = panel.getByRole('button', { name: '打开 QQ', exact: true });
+      if (await open.isDisabled()) throw new Error('首次状态尚未返回时必须允许打开 QQ');
+      const initialWidth = (await open.boundingBox())?.width;
+      if (output) await page.screenshot({ path: resolve(output, `instant-${width}-${theme}.png`) });
+      await open.click();
+      const checking = panel.getByRole('button', { name: '正在检查 QQ', exact: true });
+      await checking.waitFor();
+      if (!(await checking.isDisabled())) throw new Error('提交后必须禁止重复打开');
+      await page.evaluate(() => {
+        window.debugCopyQa.setFixture({ phase: 'copying' });
+        window.debugCopyQa.setStatusPending(false);
+      });
+      await panel.getByRole('button', { name: '正在准备 QQ', exact: true }).waitFor();
+      if (
+        (await panel.getByRole('button', { name: '正在准备 QQ', exact: true }).boundingBox())
+          ?.width !== initialWidth
+      )
+        throw new Error('主按钮不能随进度文案改变宽度');
+      if (
+        await panel.evaluate((node) =>
+          [...node.querySelectorAll('button')].some(
+            (button) => button.scrollWidth > button.clientWidth + 1,
+          ),
+        )
+      )
+        throw new Error(`打开进度按钮溢出：${width} ${theme}`);
+      if (output)
+        await page.screenshot({ path: resolve(output, `progress-${width}-${theme}.png`) });
+      await page.evaluate(() => window.debugCopyQa.resumeAction());
+      await panel.getByText('请在 QQ 中完成登录，登录后会自动继续。', { exact: true }).waitFor();
+    }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    `通过 ${cases} 组权限引导视口/主题/主题色/背景布局、${restrictedCases} 组精简受限面板检查、${offlineCases} 组离线副本引导、4 组副本设置与移除确认交互，以及三类权限入口、按需引导、多账号入口、运行中保护和减少动态效果检查。`,
+    `通过 ${cases} 组权限引导视口/主题/主题色/背景布局、6 组凭据等待中切换副本与设置交互、${restrictedCases} 组精简受限面板检查、${offlineCases} 组离线副本引导、6 组首次查询未返回时立即打开与进度检查、4 组副本设置与移除确认交互，以及三类权限入口、按需引导、多账号入口、运行中保护和减少动态效果检查。`,
   );
 } finally {
   await browser?.close();

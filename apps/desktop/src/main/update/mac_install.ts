@@ -51,7 +51,7 @@ export function macAppBundle(executable: string): string {
 const releaseSchema = z.object({
   tag_name: z.string(),
   draft: z.literal(false),
-  prerelease: z.literal(false),
+  prerelease: z.boolean(),
   assets: z.array(
     z.object({
       name: z.string(),
@@ -67,12 +67,14 @@ export function officialMacArchive(
   data: unknown,
   version: string,
   fileName: string,
+  includePrerelease = false,
 ): {
   arch: 'arm64' | 'x64';
   sha256: string;
   size: number;
 } {
   const release = releaseSchema.parse(data);
+  if (release.prerelease && !includePrerelease) throw new Error('未开启检查测试版');
   if (release.tag_name !== `v${version}` && release.tag_name !== version)
     throw new Error('官方 Release 版本与更新包不一致');
   const arch =

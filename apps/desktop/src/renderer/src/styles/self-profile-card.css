@@ -1,0 +1,93 @@
+.weq-self-field {
+  min-width: 0;
+  max-width: 100%;
+}
+.weq-self-signature-editor {
+  padding: 0 16px 12px;
+  min-width: 0;
+}
+.weq-self-signature-editor .weq-set-row-main {
+  display: none;
+}
+.weq-self-signature-editor .weq-set-row {
+  padding: 0;
+  border: 0;
+}
+.weq-self-signature-editor .weq-set-row-ctrl,
+.weq-self-signature-editor .weq-qq-write-field {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+}
+.weq-profile-avatar-pass {
+  display: contents;
+}
+.weq-self-identity-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+.weq-self-field-display {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.weq-self-field-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-self-field.is-inline {
+  max-width: 100%;
+}
+.weq-self-field-display > .weq-self-field-value {
+  display: block;
+  flex: 1;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  white-space: pre-wrap;
+  font: inherit;
+  color: inherit;
+}
+.weq-self-field-display > button.weq-self-field-value {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.weq-self-field-display > button.weq-self-field-value > span {
+  flex: 1;
+  min-width: 0;
+}
+.weq-self-field-display > button:hover {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-self-field-display > button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-self-field button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-self-field-editor {
+  min-width: 0;
+}
+.weq-self-field-inputs {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.weq-self-field-editor :is(.weq-qq-write-field, .weq-profile-region-editor) {
+  width: 100%;
+  min-width: 0;
+}
+html[data-theme='dark'] .weq-self-field-display > button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}

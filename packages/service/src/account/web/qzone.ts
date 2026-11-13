@@ -267,6 +267,7 @@ interface RawEmotion {
   rt_tid?: string;
   rt_uin?: string | number;
   rt_uinname?: string;
+  rt_createTime?: string;
   rt_con?: string | { content?: string };
   rt_pic?: RawPic[];
   rt_video?: RawTopVideo[];
@@ -299,6 +300,8 @@ export interface QzoneEmotionVideo {
   videoId: string;
   /** 时长 ms。 */
   duration: number;
+  /** 原始媒体序列中的位置，供图片与视频混排。 */
+  mediaIndex?: number;
 }
 
 /** 一条说说(归一化形态)。 */
@@ -327,6 +330,8 @@ export interface QzoneEmotion {
     tid: string;
     uin: string;
     nickname: string;
+    /** 接口提供的原帖时间文字，保留其实际精度与相对日期。 */
+    timeLabel?: string;
     content: string;
     images: string[];
     videos: QzoneEmotionVideo[];
@@ -366,9 +371,13 @@ function pickPicUrl(pic: RawPic): string | undefined {
  */
 function mapVideos(pic: RawPic[], topVideo: RawTopVideo[] | undefined): QzoneEmotionVideo[] {
   const out: QzoneEmotionVideo[] = [];
+  let mediaIndex = 0;
   for (const p of pic) {
     const vi = p.video_info;
-    if (!p.is_video || !vi) continue;
+    if (!p.is_video || !vi?.url3) {
+      if (pickPicUrl(p)) mediaIndex++;
+      continue;
+    }
     const videoUrl = vi.url3 || '';
     if (!videoUrl) continue;
     out.push({
@@ -376,6 +385,7 @@ function mapVideos(pic: RawPic[], topVideo: RawTopVideo[] | undefined): QzoneEmo
       videoUrl,
       videoId: String(vi.video_id ?? ''),
       duration: Number(vi.video_time ?? 0),
+      mediaIndex: mediaIndex++,
     });
   }
   for (const v of topVideo ?? []) {
@@ -386,6 +396,7 @@ function mapVideos(pic: RawPic[], topVideo: RawTopVideo[] | undefined): QzoneEmo
       videoUrl,
       videoId: String(v.video_id ?? ''),
       duration: Number(v.video_time ?? 0),
+      mediaIndex: mediaIndex++,
     });
   }
   return out;
@@ -462,6 +473,9 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
                 tid: String(e.rt_tid ?? ''),
                 uin: String(e.rt_uin ?? ''),
                 nickname: typeof e.rt_uinname === 'string' ? e.rt_uinname : '',
+                ...(typeof e.rt_createTime === 'string' && e.rt_createTime.trim()
+                  ? { timeLabel: e.rt_createTime.trim() }
+                  : {}),
                 content: originalContent,
                 contentTruncated:
                   e.rt_has_more_con === true ||

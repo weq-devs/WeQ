@@ -5,7 +5,7 @@ import { useViewState } from '../../state/view';
 import { useTabActive } from '../RetainedTabs';
 import { SectionHeader, QueryError } from './controls';
 import { DbExplorer } from '../../views/cache/DbExplorer';
-import { ExportTool } from '../../views/ExportView';
+import { ExportTool } from '../lazyWorkspaces';
 import { ToolSurface } from '../ToolSurface';
 import { PageShell } from '../PageShell';
 import {

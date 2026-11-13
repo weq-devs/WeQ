@@ -6,7 +6,7 @@ import { listExportBaselines } from './baseline';
 import { mediaRelPath } from './element_text';
 import { MFACE_SUBDIR, SYSFACE_SUBDIR } from './sysface_export';
 import { object as archiveObject } from './archive';
-import { streamArchiveViewerValues } from './archive_viewer';
+import { compressedArchiveView, streamArchiveViewerValues } from './archive_viewer';
 import { NotFormalArchiveError, readArchiveHeader } from './archive_stream';
 
 export interface ExportViewerConversation {
@@ -32,7 +32,7 @@ export interface ExportViewerSource {
   path: string;
   root: string;
   name: string;
-  format: 'json' | 'jsonl';
+  format: 'json' | 'jsonl' | 'jsonl.gz';
   bytes: number;
   updatedAt: number;
   fileMtimeMs: number;
@@ -290,6 +290,10 @@ async function* values(
   source: Pick<ExportViewerSource, 'path' | 'format' | 'committedOnly'>,
   signal?: AbortSignal,
 ) {
+  if (source.format === 'jsonl.gz') {
+    yield* streamArchiveViewerValues(source.path, source.format, signal);
+    return;
+  }
   if (source.format === 'jsonl') {
     let first = true;
     for await (const value of lines(source.path, source.committedOnly === true, signal)) {
@@ -336,16 +340,18 @@ async function* values(
 async function inspectViewerFile(path: string, committedOnly = false) {
   const canonical = await realpath(path);
   const info = await stat(canonical);
-  const ext = extname(canonical).toLowerCase();
-  if (!info.isFile() || !['.json', '.jsonl'].includes(ext))
-    throw new Error('请选择聊天 JSON 或 JSONL 文件。');
+  const ext = canonical.toLowerCase().endsWith('.jsonl.gz')
+    ? '.jsonl.gz'
+    : extname(canonical).toLowerCase();
+  if (!info.isFile() || !['.json', '.jsonl', '.jsonl.gz'].includes(ext))
+    throw new Error('请选择聊天 JSON、JSONL 或 JSONL（压缩）文件。');
   const source: ExportViewerSource = {
     path: canonical,
     root: basename(dirname(canonical)).startsWith('.weq-export')
       ? dirname(dirname(canonical))
       : dirname(canonical),
     name: basename(canonical),
-    format: ext === '.json' ? 'json' : 'jsonl',
+    format: ext === '.json' ? 'json' : ext === '.jsonl.gz' ? 'jsonl.gz' : 'jsonl',
     bytes: info.size,
     updatedAt: info.mtimeMs,
     fileMtimeMs: info.mtimeMs,
@@ -353,7 +359,10 @@ async function inspectViewerFile(path: string, committedOnly = false) {
     conversation: null,
     ...(committedOnly ? { committedOnly: true } : {}),
   };
-  if (basename(dirname(canonical)) === 'albums' && /^index\.jsonl?$/.test(basename(canonical))) {
+  if (
+    basename(dirname(canonical)) === 'albums' &&
+    /^index\.(?:json|jsonl(?:\.gz)?)$/.test(basename(canonical))
+  ) {
     try {
       const header = await readArchiveHeader(canonical, source.format);
       const selection = record(record(record(header.scope).selection).value);
@@ -557,7 +566,7 @@ export async function discoverViewerSources(
   }
   // 老导出可能没有基线；只探索当前目录，不递归读取未知文件树。
   const files = (await readdir(root, { withFileTypes: true })).filter(
-    (entry) => entry.isFile() && /\.jsonl?$/i.test(entry.name),
+    (entry) => entry.isFile() && /\.(?:json|jsonl(?:\.gz)?)$/i.test(entry.name),
   );
   for (const entry of files.slice(0, 64)) {
     options.signal?.throwIfAborted();
@@ -616,7 +625,14 @@ export async function readViewerPage(
   let rowIndex = 0;
   let visited = 0;
   const query = options.query?.trim().toLocaleLowerCase();
-  for await (const value of values(source, signal)) {
+  const compressed =
+    source.format === 'jsonl.gz' ? await compressedArchiveView(source.path, signal) : undefined;
+  const directPage = compressed && !query && !options.date;
+  const input = compressed
+    ? compressed.values(directPage ? options.offset : 0, directPage ? 100 : compressed.total)
+    : values(source, signal);
+  if (directPage) rowIndex = options.offset;
+  for await (const value of input) {
     if (++visited % 500 === 0) await yieldToEventLoop(undefined, { signal });
     signal?.throwIfAborted();
     const row = record(value);
@@ -637,13 +653,13 @@ export async function readViewerPage(
       new Date(m.sendTime * 1000 + 8 * 3600000).toISOString().slice(0, 10) !== options.date
     )
       continue;
-    if (total >= options.offset && messages.length < 100) messages.push(m);
+    if ((directPage || total >= options.offset) && messages.length < 100) messages.push(m);
     total++;
   }
   const after = await stat(source.path);
   if (after.size !== info.size || after.mtimeMs !== info.mtimeMs)
     throw new Error('导出文件已变化，请重新打开后查看。');
-  return { messages, total };
+  return { messages, total: directPage ? compressed.total : total };
 }
 
 /** 不信任正文中的绝对路径、URL 或目录穿越，也不允许通过软链接越出所选目录。 */

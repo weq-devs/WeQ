@@ -25,6 +25,8 @@ const fixture = vi.hoisted(() => ({
     analysisContextMessages: 0,
     analysisRevision: 0,
     suggestionRevision: 0,
+    analysisMode: 'auto',
+    loadingAnimation: true,
   },
   list: vi.fn(),
   ensure: vi.fn(),
@@ -112,6 +114,8 @@ beforeEach(() => {
     analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
     analysisRevision: 0,
     suggestionRevision: 0,
+    analysisMode: 'auto',
+    loadingAnimation: true,
   };
   fixture.list.mockReset().mockResolvedValue([sample]);
   fixture.ensure.mockReset().mockResolvedValue({ analyzed: 0 });
@@ -155,7 +159,17 @@ function renderFixture() {
   const render = (
     latestMessageId?: string | null,
     roamingMessageKey?: string,
-    { conv = 'u_peer', ids = [latestMessageId ?? 'old'] }: { conv?: string; ids?: string[] } = {},
+    {
+      conv = 'u_peer',
+      ids = [latestMessageId ?? 'old'],
+      manualPendingMessageIds,
+      manualSingleMessageId,
+    }: {
+      conv?: string;
+      ids?: string[];
+      manualPendingMessageIds?: ReadonlySet<string>;
+      manualSingleMessageId?: string;
+    } = {},
   ) =>
     act(async () =>
       root.render(
@@ -167,6 +181,8 @@ function renderFixture() {
             latestPeerMsgId: null,
             latestMessageId,
             roamingMessageKey,
+            manualPendingMessageIds,
+            manualSingleMessageId,
           } as Parameters<typeof IntentSenseProvider>[0],
           h(Consumer, { ids }),
         ),
@@ -178,6 +194,68 @@ function renderFixture() {
   });
   return { render, get: () => context!, commits, host };
 }
+
+it('手动分析只标记本轮指定消息，首次提交即有动画，完成或失败后清理，不启动自动分析', async () => {
+  fixture.status.analysisMode = 'manual';
+  const f = renderFixture();
+  const ids = ['old', 'first', 'second', 'unselected'];
+  await f.render('second', '', { ids });
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(0);
+  const commit = f.commits.length;
+  await f.render('second', '', { ids, manualPendingMessageIds: new Set(['first', 'second']) });
+  expect(f.get().isPending?.('first')).toBe(true);
+  expect(f.get().isPending?.('unselected')).toBe(false);
+  expect(f.commits[commit]?.animated).toBe(4);
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(4);
+  await act(async () =>
+    fixture.callbacks.at(-1)!({
+      kind: 'c2c',
+      conv: 'u_peer',
+      results: [{ ...sample, msgId: 'first' }],
+    }),
+  );
+  await f.render('second', '', { ids, manualPendingMessageIds: new Set(['second']) });
+  expect(f.get().isPending?.('first')).toBe(false);
+  expect(f.host.querySelectorAll('.is-loading')).toHaveLength(2);
+  await f.render('second', '', { ids });
+  expect(f.get().isPending?.('second')).toBe(false);
+  expect(f.host.querySelector('.is-loading')).toBeNull();
+  expect(fixture.ensure).not.toHaveBeenCalled();
+  expect(fixture.analyze).not.toHaveBeenCalled();
+});
+
+it('单条手动重算忽略动画与常驻开关，已有结果暂换动画，完成后恢复显示偏好', async () => {
+  fixture.status.analysisMode = 'manual';
+  fixture.status.loadingAnimation = false;
+  fixture.status.persistentDisplay = false;
+  const f = renderFixture();
+  await f.render('old');
+  const commit = f.commits.length;
+  await f.render('old', '', {
+    manualPendingMessageIds: new Set(['old']),
+    manualSingleMessageId: 'old',
+  });
+  expect(f.commits[commit]?.animated).toBe(2);
+  expect(f.host.querySelector('[data-intent-state="pending"]')).not.toBeNull();
+  await f.render('old');
+  expect(f.host.querySelector('.weq-intent-chips')).toBeNull();
+});
+
+it('手动意图模式读取缓存但不自动补齐或悬停分析，新消息和漫游补入也不启动', async () => {
+  fixture.status.analysisMode = 'manual';
+  const f = renderFixture();
+  await f.render('old', '', { ids: ['old', 'unknown'] });
+  expect(f.get().getAnalysis('old')).toEqual(sample);
+  expect(f.get().automatic).toBe(false);
+  expect(f.host.querySelector('.is-loading')).toBeNull();
+  await f.render('new', 'roaming:protocol:2:77');
+  await act(async () => f.get().requestAnalysis('new'));
+  expect(fixture.ensure).not.toHaveBeenCalled();
+  expect(fixture.analyze).not.toHaveBeenCalled();
+  fixture.status.analysisMode = 'auto';
+  await f.render('new', 'roaming:protocol:2:77');
+  expect(fixture.ensure).toHaveBeenCalled();
+});
 
 it('缓存及真实批次延迟返回时，首个提交已有随机动画，结果原位替换', async () => {
   let finish!: (value: IntentAnalysis[]) => void;

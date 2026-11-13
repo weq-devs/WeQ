@@ -38,6 +38,9 @@ import {
 /** 上传需要的 native 能力：OIDB（申请上传）+ 原始 SSO 包（highway 会话）。 */
 export type MediaNative = OidbNative & TrpcNative;
 
+/** 秒传未命中；与业务拒绝、网络失败分开，供调用方按需准备原始字节。 */
+export class MediaBytesRequiredError extends Error {}
+
 /** 上传请求里的一个 fileInfo 槽（`NTV2_UPLOAD_INFO`）。 */
 export interface Ntv2UploadInfoInput {
   fileInfo: {
@@ -194,7 +197,7 @@ export async function runNtv2Upload(
       continue;
     }
     if (size === 0) {
-      if (sub.fastOnlyError) throw new Error(sub.fastOnlyError);
+      if (sub.fastOnlyError) throw new MediaBytesRequiredError(sub.fastOnlyError);
       continue;
     }
     if (!target) continue;

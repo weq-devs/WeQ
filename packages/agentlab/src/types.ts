@@ -2,12 +2,39 @@
 
 export type AgentLabModelCapability = 'chat' | 'embedding' | 'vision';
 
+export type ModelMetadataStatus = 'supported' | 'unsupported' | 'unknown';
+export interface ModelReasoningControl {
+  kind: 'effort' | 'toggle' | 'budget' | 'adaptive';
+  /** 服务商原始字段路径；不当作其他协议的请求参数。 */
+  source: string;
+  values?: Array<string | number | boolean> | null;
+  default?: string | number | boolean | null;
+  min?: number;
+  max?: number;
+}
+export interface ModelMetadata {
+  capabilities: Record<AgentLabModelCapability, ModelMetadataStatus>;
+  reasoning: {
+    supported?: boolean;
+    mandatory?: boolean;
+    controls: ModelReasoningControl[];
+  };
+  /** 原始模型对象，不含请求认证信息。 */
+  raw: Record<string, unknown>;
+  source: string;
+  fetchedAt: number;
+  error?: string;
+}
+
 export interface AgentLabProviderModel {
+  reasoningEfforts?: string[];
+  metadata?: ModelMetadata;
+  overrides?: { capabilities?: AgentLabModelCapability[]; reasoning?: boolean };
   /** 发给 API 的模型 id */
   id: string;
   /** 展示名（可选，默认用 id） */
   label?: string;
-  /** 这个模型能干哪些活：聊天 / 向量 / 视觉 */
+  /** 这个模型能干哪些活：聊天 / 视觉 / 向量 */
   capabilities: AgentLabModelCapability[];
 }
 
@@ -43,7 +70,7 @@ export interface AgentLabModelRef {
   model: string;
 }
 
-/** 显式继承全局默认模型；缺失或 null 仍表示未选择。 */
+/** 显式继承对应能力的全局默认模型；缺失或 null 仍表示未选择。 */
 export interface AgentLabDefaultModelRef {
   useDefault: true;
 }
@@ -63,6 +90,9 @@ export interface AgentLabModels {
 export interface AgentLabUsage {
   requestId?: string;
   startedAt?: number;
+  /** 请求开始时的配置身份与名称；旧记录缺省时不猜补。 */
+  providerId?: string;
+  providerName?: string;
   status?: 'pending' | 'success' | 'failed' | 'cancelled' | 'interrupted';
   feature?: string;
   stream?: boolean;
@@ -86,6 +116,7 @@ export interface AgentLabModelOutput {
 }
 
 export interface AgentLabEndpoint {
+  reasoningEfforts?: string[];
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -359,6 +390,8 @@ export interface AgentLabStoredPair {
 export interface AgentLabChatTurn {
   role: 'user' | 'assistant';
   text: string;
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
 }
 
 export interface AgentLabChatRequest {
@@ -366,6 +399,8 @@ export interface AgentLabChatRequest {
   pairs: AgentLabStoredPair[];
   history: AgentLabChatTurn[];
   input: string;
+  inputContent?: string | AiContentPart[];
+  fallbackImageInput?: () => Promise<string>;
   /** 克隆体对当前对方的记忆（service 注入；命中的会在结果里回报以便记账衰减）。 */
   memories?: AgentLabMemoryItem[];
   /** 对话反思笔记（service 注入）：用户纠正 + 历次对话摘要。 */
@@ -398,6 +433,8 @@ export type AgentLabChatAction =
   | { kind: 'voice'; text: string };
 
 export interface AgentLabChatResult {
+  imageRefs?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
   /** 完整回复文本（分条用 \n 连接，落库/few-shot 用）。 */
   text: string;
   /** 分条后的纯文字消息（不含表情/语音；few-shot/兜底用）。 */
@@ -457,6 +494,9 @@ export interface AgentLabGroupMember {
  * 前端复用同一套四叉渲染，只是按 senderId 分气泡。
  */
 export interface AgentLabGroupMessage {
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
+  imageContext?: string;
   id: string;
   groupId: string;
   /** 发送者 memberId（persona 的 personaId 或 user 的 uin）。 */
@@ -467,6 +507,11 @@ export interface AgentLabGroupMessage {
   /** 原始有序动作（可选，富渲染/调试用；纯文本消息可省）。 */
   actions?: AgentLabChatAction[];
   ts: number;
+  /** 合并前的会话来源；null 表示旧版主对话。 */
+  sourceSessionId?: string | null;
+  sourceSessionTitle?: string;
+  sourceMessageId?: string;
+  sourceReplyToId?: string;
   /** 回复的目标消息 id（可选）。 */
   replyToId?: string;
   /** @ 到的成员 memberId 列表（驱动 @必回）。 */
@@ -534,3 +579,4 @@ export interface AgentLabRelationStore {
     now: number,
   ): AgentLabRelation;
 }
+import type { AiImageRef, AiImageOutcome, AiContentPart } from './images';

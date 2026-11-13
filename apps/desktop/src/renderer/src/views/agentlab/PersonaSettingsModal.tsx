@@ -1,6 +1,14 @@
 /** 克隆体设置：配置统一保存，即时管理操作与配置分开。 */
 
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import '../../styles/assistant-settings.css';
 import { CloneUpdateButton } from './CloneUpdateButton';
 import '../../styles/persona-settings.css';
 import type { AgentLabModelSelection } from '@weq/agentlab';
@@ -32,6 +40,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
+import { Toggle } from '../../components/settings/controls';
 import {
   CloneSettingsDraftContext,
   useCloneSettingsDraft,
@@ -39,6 +48,8 @@ import {
 } from './cloneSettingsDraft';
 import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { openExternalLink } from '../../lib/openExternalLink';
+import { isRemoteClient } from '../../lib/remoteClient';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useExportReportDialog } from '../export/ExportReportControl';
@@ -172,19 +183,11 @@ function WillingTab({
         />
       </label>
       <label className="weq-clone-check">
-        <input
-          type="checkbox"
-          checked={mustReply}
-          onChange={(e) => setMustReply(e.target.checked)}
-        />
+        <Toggle label="被 @ 时必定回复" checked={mustReply} onChange={setMustReply} />
         <span>被 @ 时必定回复（关掉后被 @ 也可能不接）</span>
       </label>
       <label className="weq-clone-check">
-        <input
-          type="checkbox"
-          checked={gatePrivate}
-          onChange={(e) => setGatePrivate(e.target.checked)}
-        />
+        <Toggle label="私聊也按意愿" checked={gatePrivate} onChange={setGatePrivate} />
         <span>私聊也按意愿（开启后 1:1 私聊里 TA 也可能懒得回你）</span>
       </label>
 
@@ -194,7 +197,7 @@ function WillingTab({
         感。嫌太频繁就调低频率或直接关掉。
       </p>
       <label className="weq-clone-check">
-        <input type="checkbox" checked={typoOn} onChange={(e) => setTypoOn(e.target.checked)} />
+        <Toggle label="允许模拟聊天中的偶发错别字" checked={typoOn} onChange={setTypoOn} />
         <span>允许模拟聊天中的偶发错别字</span>
       </label>
       {typoOn ? (
@@ -281,11 +284,11 @@ function VoiceTab({
   return (
     <div className="weq-persona-form">
       <label className="weq-clone-check">
-        <input
-          type="checkbox"
+        <Toggle
+          label="开启语音克隆"
           checked={enabled}
           disabled={!canEnable && !enabled}
-          onChange={(e) => setEnabled(e.target.checked)}
+          onChange={setEnabled}
         />
         <span>开启语音克隆</span>
       </label>
@@ -381,6 +384,19 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
           '默认地址没响应。请确认 bot 已 npm start，或在下方填入实际访问地址后重试。',
         );
       } else if (r.opened) {
+        if (r.openUrl) {
+          const target = new URL(r.openUrl);
+          if (isRemoteClient() && ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)) {
+            setUrlInput(r.openUrl);
+            dialog.error(
+              '需要手机可访问的地址',
+              '控制台当前只提供电脑本机地址。请填写手机可访问的控制台地址后重试。',
+            );
+            return;
+          }
+          const opened = await openExternalLink(r.openUrl);
+          if (!opened.ok) throw new Error(opened.error ?? '无法打开控制台');
+        }
         setUrlInput(null);
       }
     } catch (e) {
@@ -601,13 +617,18 @@ export function ExportTab({
         <span>
           <Plug size={13} /> 适配器
         </span>
-        <select
+        <SegmentedControl
+          label="适配器"
           value={adapterType}
-          onChange={(e) => setAdapterType(e.target.value as 'napcat' | 'snowluma')}
-        >
-          <option value="napcat">NapCat</option>
-          <option value="snowluma">SnowLuma</option>
-        </select>
+          onChange={setAdapterType}
+          options={[
+            { value: 'napcat', label: 'NapCat' },
+            { value: 'snowluma', label: 'SnowLuma' },
+          ]}
+        />
+        <small>
+          连接 {adapterType === 'napcat' ? 'NapCat' : 'SnowLuma'} 的 OneBot 正向 WebSocket 服务。
+        </small>
       </label>
 
       <label className="weq-agentlab-field">
@@ -657,11 +678,11 @@ export function ExportTab({
 
       <label className="weq-agentlab-field">
         <span>
-          <ImageIcon size={13} /> 图像模型（可选，解析上传的新表情）
+          <ImageIcon size={13} /> 视觉模型（可选，解析上传的新表情）
         </span>
         <ApiModelSelect
           allowDefault
-          label="导出图像模型"
+          label="导出视觉模型"
           capability="vision"
           value={visionModel}
           onChange={setVisionModel}
@@ -669,22 +690,18 @@ export function ExportTab({
       </label>
 
       <label className={`weq-clone-check${canVoice ? '' : ' is-disabled'}`}>
-        <input
-          type="checkbox"
+        <Toggle
+          label="允许发语音"
           checked={voice && canVoice}
           disabled={!canVoice}
-          onChange={(e) => setVoice(e.target.checked)}
+          onChange={setVoice}
         />
         <AudioLines size={14} />
         <span>允许发语音{canVoice ? '' : '（需先在「语音克隆」页开启）'}</span>
       </label>
 
       <label className="weq-clone-check">
-        <input
-          type="checkbox"
-          checked={groupChat}
-          onChange={(e) => setGroupChat(e.target.checked)}
-        />
+        <Toggle label="参与群聊" checked={groupChat} onChange={setGroupChat} />
         <Users size={14} />
         <span>参与群聊（被 @ 或聊到感兴趣的话题时才接话）</span>
       </label>
@@ -739,7 +756,10 @@ function ProfilePrompt({ initial }: { initial: string }) {
   );
 }
 
-export function PersonaSettingsModal({
+export function PersonaSettingsModal(props: ComponentProps<typeof PersonaSettingsBody>) {
+  return <PersonaSettingsBody key={props.persona.id} {...props} />;
+}
+function PersonaSettingsBody({
   persona,
   profileContent,
   replyContent,
@@ -771,38 +791,33 @@ export function PersonaSettingsModal({
   onDelete?: () => void;
   deleting?: boolean;
 }): ReactElement {
-  const dialog = useAppDialog();
   const update = trpc.account.updateAgentLabPersona.useMutation();
   const [tab, setTab] = useState<Tab>('profile');
   const [visited, setVisited] = useState<Tab[]>(['profile']);
-  const form = useCloneSettingsDraft();
+  const form = useCloneSettingsDraft(async (patch) => {
+    const result = await update.mutateAsync({ personaId: persona.id, ...patch });
+    if (!result) throw new Error('克隆体已不存在');
+    onSaved();
+  });
   const guard = useDraftClose(onClose, null, update.isLoading || deleting);
-
-  async function save(): Promise<void> {
-    if (!form.dirty || !form.valid || update.isLoading) return;
-    try {
-      const result = await update.mutateAsync({ personaId: persona.id, ...form.patch });
-      if (!result) throw new Error('克隆体已不存在');
-      form.markSaved();
-      dialog.success('已保存', '克隆体设置已更新');
-      onSaved();
-    } catch (e) {
-      dialog.error('保存失败', e instanceof Error ? e.message : String(e));
-    }
-  }
 
   return (
     <DraftCloseContext.Provider value={guard.drafts}>
       <CloneSettingsDraftContext.Provider
-        value={{ register: form.register, saving: update.isLoading }}
+        value={{ register: form.register, saving: form.saving, flush: form.flush }}
       >
         <ConversationSettingsFrame<Tab>
           title="克隆体设置"
           subtitle={persona.name}
           value={tab}
-          onClose={guard.requestClose}
+          onClose={() =>
+            void form.flush().then((ok) => {
+              if (ok) guard.requestClose();
+            })
+          }
           sections={TABS}
           onValueChange={(id) => {
+            void form.flush();
             setVisited((current) => (current.includes(id) ? current : [...current, id]));
             setTab(id);
           }}
@@ -811,16 +826,25 @@ export function PersonaSettingsModal({
             <span className="weq-cvs-body-icon">{TABS.find((item) => item.id === tab)?.icon}</span>
             <strong>{TABS.find((item) => item.id === tab)?.label}</strong>
           </div>
-          <div className="weq-cvs-body-scroll">
+          <div
+            className="weq-cvs-body-scroll"
+            onBlurCapture={() => {
+              setTimeout(() => void form.flush(), 0);
+            }}
+            onClickCapture={(event) => {
+              if ((event.target as Element).closest('[role="switch"], [role="radio"]'))
+                setTimeout(() => void form.flush(), 0);
+            }}
+            onChangeCapture={(event) => {
+              if (event.target instanceof HTMLSelectElement) setTimeout(() => void form.flush(), 0);
+            }}
+          >
             {fromGroup ? (
               <p className="weq-persona-scope">
                 以下修改影响此克隆体的所有私聊和群聊，不仅限于当前群。
               </p>
             ) : null}
-            <fieldset
-              className="weq-persona-tabpane weq-persona-fields"
-              disabled={update.isLoading || deleting}
-            >
+            <fieldset className="weq-persona-tabpane weq-persona-fields" disabled={deleting}>
               {visited.map((page) => (
                 <TabActivity key={page} active={tab === page}>
                   <div hidden={tab !== page} inert={tab !== page}>
@@ -873,18 +897,21 @@ export function PersonaSettingsModal({
             </fieldset>
           </div>
           <footer className="weq-persona-savebar">
-            <span role="status">
-              {form.dirty ? (form.valid ? '有未保存的更改' : '请检查配置值') : '配置已保存'}
-            </span>
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={!form.dirty || !form.valid || update.isLoading || deleting}
-              onClick={() => void save()}
-            >
-              <Save size={14} />
-              {update.isLoading ? '保存中…' : '保存更改'}
-            </button>
+            <span role="status">{form.valid ? form.status : '请检查配置值'}</span>
+            {form.error ? (
+              <>
+                <span role="alert">{form.error}</span>
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={!form.valid || form.saving || deleting}
+                  onClick={() => void form.flush()}
+                >
+                  <Save size={14} />
+                  重试保存
+                </button>
+              </>
+            ) : null}
           </footer>
         </ConversationSettingsFrame>
       </CloneSettingsDraftContext.Provider>

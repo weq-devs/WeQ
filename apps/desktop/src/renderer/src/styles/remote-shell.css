@@ -1,29 +1,21 @@
-.weq-remote-shell-menu {
-  display: none;
+.weq-web-shell .weq-remote-shell-menu {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  touch-action: manipulation;
 }
-
-@media (max-width: 760px) {
-  .weq-web-shell .weq-remote-shell-menu {
-    display: inline-grid;
-    place-items: center;
-    flex: 0 0 44px;
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--weq-fg-primary);
-    touch-action: manipulation;
-  }
-
-  .weq-web-shell .weq-remote-shell-menu:hover,
-  .weq-web-shell .weq-remote-shell-menu:active {
-    background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  }
-
-  .weq-web-shell .weq-remote-shell-menu:focus-visible {
-    outline: 2px solid var(--weq-accent-effective);
-    outline-offset: -2px;
-  }
+.weq-web-shell .weq-remote-shell-menu:hover,
+.weq-web-shell .weq-remote-shell-menu:active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-web-shell .weq-remote-shell-menu:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
 }

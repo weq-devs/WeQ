@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import type { Contact } from '../im-template/template/types';
 
 export type PersonRelationship = 'self' | 'friend' | 'nonfriend' | 'unknown';
 export type GroupRelationship = 'member' | 'nonmember' | 'unknown';
@@ -7,7 +8,7 @@ export type Relationship = PersonRelationship | GroupRelationship;
 export interface RelationshipDirectory {
   selfUid?: string;
   selfUin?: string;
-  friends: ReadonlyMap<string, { categoryName?: string | null }>;
+  friends: ReadonlyMap<string, Partial<Contact>>;
   friendsComplete: boolean;
   groups: ReadonlyMap<string, { listed: boolean; role?: string | null }>;
 }

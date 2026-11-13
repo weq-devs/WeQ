@@ -7,6 +7,29 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { startExport: { mutate: state.start } } },
 }));
 beforeEach(() => state.start.mockReset().mockResolvedValue('task-a'));
+
+it('聊天记录导出携带独立的卡片目标，不退回整条消息或整个会话', async () => {
+  const forwardTarget = { elementIndex: 2, resId: 'selected-record' };
+  const pending = startChatExportTasks(
+    [{ id: 'group', name: '聊天记录', kind: 'group', messageIds: ['123'], forwardTarget }],
+    { ...DEFAULT_OPTIONS, ocrImages: false },
+    ['txt', 'html'],
+    'txt',
+    { baselineDirectory: '/other-conversation-archive' },
+  );
+  forwardTarget.resId = 'changed-after-click';
+  await pending;
+  expect(state.start).toHaveBeenCalledWith(
+    expect.objectContaining({
+      kind: 'group',
+      conv: 'group',
+      formats: ['txt', 'html'],
+      baselineDirectory: undefined,
+      incrementalSupport: false,
+      filter: { messageIds: ['123'], forwardTarget: { elementIndex: 2, resId: 'selected-record' } },
+    }),
+  );
+});
 it.each([false, true])(
   '批量导出将本次完整性报告选择 %s 传给每个任务',
   async (includeIntegrityReport) => {

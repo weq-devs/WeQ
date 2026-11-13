@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it, vi } from 'vitest';
-import { createWebHost } from '../src/main/web/host';
+import { createWebHost, lookupDownload } from '../src/main/web/host';
 
 it('内置 Web 复用离屏渲染，但不开放桌面文件框与系统能力', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-web-report-'));
@@ -23,6 +23,13 @@ it('内置 Web 复用离屏渲染，但不开放桌面文件框与系统能力',
     expect(host.canReveal).toBe(false);
     expect(host.canAutostart).toBe(false);
     expect(host.restartApplication).toBeUndefined();
+    const markdown = join(root, 'report.md');
+    const report = await host.openHtmlReport(markdown);
+    expect(lookupDownload(report!.url.split('/').at(-1)!)).toMatchObject({
+      path: markdown,
+      name: 'report.md',
+      kind: 'file',
+    });
     const standalone = createWebHost({ exportDir: root, version: 'test' });
     await expect(standalone.renderHtmlToPdf('fixture')).rejects.toThrow('不支持');
     await expect(standalone.renderHtmlToLongPng('fixture')).rejects.toThrow('不支持');

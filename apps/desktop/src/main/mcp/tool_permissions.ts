@@ -44,6 +44,7 @@ const READ_ONLY_TOOLS = new Set([
   'get_forward_messages',
   'get_message_details',
   'get_ocr_status',
+  'analyze_chat_image',
   'list_dataline_conversations',
   'get_dataline_messages',
   'list_guild_direct_sessions',

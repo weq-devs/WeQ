@@ -14,6 +14,7 @@ import { classifyChatType } from '@weq/codec';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
 import { useTabActive } from '../RetainedTabs';
 import { ToolSurface } from '../ToolSurface';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { PageShell } from '../PageShell';
 import { useAppLock } from '../../state/lock';
 import { trpc } from '../../trpc/client';
@@ -124,9 +125,6 @@ export function TypingStatusSettingsCard() {
   async function onSave(): Promise<void> {
     if (unavailable || !editing || conversations.isLoading || conversations.error) return;
     if (!accountUin || !accountConfigId) return;
-    const others = (query.data?.hidden ?? []).filter(
-      (item) => item.accountUin !== accountUin || item.accountConfigId !== accountConfigId,
-    );
     const byId = new Map(items.map((item) => [item.id, item]));
     const add = [...selected].sort().map((uid) => ({
       accountUin,
@@ -142,7 +140,10 @@ export function TypingStatusSettingsCard() {
         )?.name ??
         uid,
     }));
-    await preferences.setHidden([...others, ...add]);
+    await preferences.setHidden(add, {
+      expectedAccountUin: accountUin,
+      expectedAccountConfigId: accountConfigId,
+    });
   }
 
   return (
@@ -212,7 +213,7 @@ export function TypingStatusSettingsCard() {
         ) : null}
         {query.isLoading ? (
           <div className="weq-set-empty" role="status">
-            加载中…
+            <LoadingIndicator />
           </div>
         ) : null}
       </Card>

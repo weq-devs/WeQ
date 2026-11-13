@@ -47,6 +47,12 @@ html[data-theme='dark'] .weq-qqshow-gallery-scrim {
   overflow: hidden;
 }
 
+.weq-qqshow-gallery-popover .weq-qqshow-gallery {
+  width: min(520px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 24px));
+  border-radius: 8px;
+}
+
 html[data-theme='dark'] .weq-qqshow-gallery {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-border-subtle));
 }

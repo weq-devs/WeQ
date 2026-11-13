@@ -4,9 +4,17 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MobileWebNavigation as Navigation } from '../src/renderer/src/components/MobileWebNavigation';
 import { OnlineStatus } from '../src/renderer/src/components/OnlineStatus';
 import { ChatHeader } from '../src/renderer/src/components/ChatHeader';
+import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 const { onlineStatusQuery } = vi.hoisted(() => ({ onlineStatusQuery: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: { account: { getOnlineStatus: { useQuery: onlineStatusQuery } } },
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      getOnlineStatus: { useQuery: onlineStatusQuery },
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+    },
+  },
   client: {},
 }));
 vi.mock('../src/renderer/src/components/FaceEmoji', () => ({
@@ -115,16 +123,34 @@ it('更多中的收藏入口复用现有回调，不增加底栏入口', async (
 
 it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
   const onOpenProfile = vi.fn();
-  await act(async () =>
+  const render = (user = props.user) =>
     root.render(
-      createElement(MobileWebNavigation, {
-        ...props,
-        onOpenProfile,
-      }),
+      createElement(
+        ProfileNavigationContext.Provider,
+        { value: onOpenProfile },
+        createElement(MobileWebNavigation, { ...props, user }),
+      ),
+    );
+  await act(async () => render());
+  const avatar = host.querySelector<HTMLButtonElement>('[aria-label="查看我的名片"]')!;
+  vi.spyOn(avatar, 'getBoundingClientRect').mockReturnValue({
+    right: 68,
+    bottom: 40,
+  } as DOMRect);
+  await click('查看我的名片');
+  expect(onOpenProfile).toHaveBeenLastCalledWith(props.user, { x: 68, y: 40 });
+  await act(async () =>
+    avatar.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, detail: 1, clientX: 48, clientY: 24 }),
     ),
   );
-  await click('编辑 QQ 资料');
-  expect(onOpenProfile).toHaveBeenCalledOnce();
+  expect(onOpenProfile).toHaveBeenLastCalledWith(props.user, { x: 48, y: 24 });
+  const nextUser = { ...props.user, identityValue: '10002' };
+  await act(async () => render(nextUser));
+  await click('查看我的名片');
+  expect(onOpenProfile).toHaveBeenLastCalledWith(nextUser, { x: 68, y: 40 });
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+  expect(props.onOpenSettings).not.toHaveBeenCalled();
   expect(host.querySelector('.weq-mobile-actions-toggle')).toBeNull();
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   const more = host.querySelector('[aria-label="更多功能"]')!;
@@ -138,11 +164,12 @@ it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
 it('各页面和更多页顶栏始终显示昵称，不再显示页面标题', async () => {
   for (const view of ['messages', 'contacts', 'qzone', 'mail', 'tools'] as const) {
     await act(async () => root.render(createElement(MobileWebNavigation, { ...props, view })));
-    expect(host.querySelector('.weq-mobile-identity > strong')?.textContent).toBe('合成账号');
+    expect(host.querySelector('.weq-mobile-account > strong')?.textContent).toBe('合成账号');
+    expect(host.querySelector('.weq-mobile-account .avatar')).not.toBeNull();
     expect(host.querySelector('.weq-mobile-header > strong')).toBeNull();
   }
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
-  expect(host.querySelector('.weq-mobile-identity > strong')?.textContent).toBe('合成账号');
+  expect(host.querySelector('.weq-mobile-account > strong')?.textContent).toBe('合成账号');
 });
 
 it.each([
@@ -252,7 +279,7 @@ it.each([null, { uid: 'u_other', typeName: '在线' }, { uid: 'u_fixture', typeN
   },
 );
 
-it('桌面等现有入口未启用基础状态展示时保持原有文案', async () => {
+it.each(['awa', '在线 - awa'])('所有入口均并列展示传统与自定义状态：%s', async (displayStatus) => {
   onlineStatusQuery.mockReturnValue({
     data: {
       uid: 'u_fixture',
@@ -260,15 +287,17 @@ it('桌面等现有入口未启用基础状态展示时保持原有文案', asyn
       typeName: '在线',
       subType: 2000,
       subTypeName: '',
-      displayStatus: 'awa',
+      displayStatus,
       customStatus: { faceId: 66, faceType: 1, text: 'awa' },
     },
   });
   await act(async () => root.render(createElement(OnlineStatus, { uid: 'u_fixture' })));
-  expect(host.textContent).toBe('awa');
+  expect(host.textContent).toBe('在线·awa');
+  expect(host.firstElementChild?.getAttribute('title')).toBe('在线 - awa');
+  expect(host.querySelector('img')?.getAttribute('alt')).toBe('合成状态表情');
 });
 
-it('会话标题为手机保留基础状态与自定义状态，桌面维持原有状态文案', async () => {
+it('会话标题在手机与桌面均并列展示传统与自定义状态', async () => {
   onlineStatusQuery.mockReturnValue({
     data: {
       uid: 'u_fixture',
@@ -292,7 +321,7 @@ it('会话标题为手机保留基础状态与自定义状态，桌面维持原�
     ),
   );
   expect(host.querySelector('.chat-title strong')?.textContent).toBe('合成昵称 (00.3.12)');
-  expect(host.querySelector('.chat-status-desktop')?.textContent).toBe('今天是晴天');
+  expect(host.querySelector('.chat-status-desktop')?.textContent).toBe('在线·今天是晴天');
   expect(host.querySelector('.chat-status-mobile')?.textContent).toBe('在线·今天是晴天');
   expect(host.querySelector('.chat-status-mobile img')?.getAttribute('alt')).toBe('合成状态表情');
 });

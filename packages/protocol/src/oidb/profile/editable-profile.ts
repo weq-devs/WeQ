@@ -4,6 +4,8 @@ import { sendOidb, type PacketNative } from '../../transport';
 import { requireUin } from '../write-validation';
 import { getCloudProfile } from './cloud-profile';
 import { invokeLegacyOidb } from '../legacy';
+import { QQ_PROFESSIONS } from '../../profile-values';
+export { QQ_PROFESSIONS } from '../../profile-values';
 
 export interface QqRegion {
   code: string;
@@ -14,8 +16,8 @@ export const QQ_REGIONS: QqRegion[] = [];
 for (const row of regionRows) {
   let siblings = QQ_REGIONS;
   for (let depth = 0; depth < 4; depth++) {
-    const code = row[depth * 2]!,
-      name = row[depth * 2 + 1]!;
+    const code = row[depth * 2] || '0',
+      name = code === '0' ? '不限' : row[depth * 2 + 1]!;
     let node = siblings.find((entry) => entry.code === code);
     if (!node) {
       node = { code, name, children: [] };
@@ -24,22 +26,16 @@ for (const row of regionRows) {
     siblings = node.children;
   }
 }
-export const QQ_PROFESSIONS = [
-  '计算机／互联网／通信',
-  '生产／工艺／制造',
-  '医疗／护理／制药',
-  '金融／银行／投资／保险',
-  '商业／服务业／个体经营',
-  '文化／广告／传媒',
-  '娱乐／艺术／表演',
-  '律师／法务',
-  '教育／培训',
-  '公务员／行政／事业单位',
-  '模特',
-  '空姐',
-  '学生',
-  '其他职业',
-].map((label, index) => ({ value: index + 1, label }));
+function addUnrestrictedRegions(nodes: QqRegion[], depth: number): void {
+  if (!nodes.some((node) => node.code === '0')) {
+    nodes.unshift({ code: '0', name: '不限', children: [] });
+  }
+  if (depth < 3) {
+    for (const node of nodes) addUnrestrictedRegions(node.children, depth + 1);
+  }
+}
+// 官方目录中的空层级可能仍有城市，不能把它们当成终止节点。
+addUnrestrictedRegions(QQ_REGIONS, 0);
 export type EditableProfilePatch = {
   birthday?: string;
   region?: string[];
@@ -47,6 +43,8 @@ export type EditableProfilePatch = {
   school?: string;
   profession?: number;
   hometown?: string[];
+  company?: string;
+  personalDescription?: string;
 };
 const keys = {
   school: 20021,
@@ -54,10 +52,13 @@ const keys = {
   profession: 27037,
   hometown: 24002,
   district: 20043,
+  company: 24008,
+  personalDescription: 20019,
 } as const;
 
 export function packQqRegionCode(code: string) {
   if (!/^[A-Za-z0-9]{0,4}$/.test(code)) throw new Error('地区代码无效');
+  if (code === '0') return 0;
   let value = 0;
   for (const byte of Buffer.from(code, 'ascii')) value = value * 256 + byte;
   return value;
@@ -67,9 +68,9 @@ export function encodeQqRegion(path: string[], layers: 3 | 4) {
   let siblings = QQ_REGIONS;
   const bytes = Buffer.alloc(layers * 4);
   path.forEach((code, index) => {
-    const node = siblings.find((row) => row.code === code);
+    const node = siblings.find((row) => row.code === (code || '0'));
     if (!node) throw new Error('地区不在 QQ 官方目录中');
-    bytes.writeUInt32BE(layers === 4 && code === '0' ? 0 : packQqRegionCode(code), index * 4);
+    bytes.writeUInt32BE(packQqRegionCode(node.code), index * 4);
     siblings = node.children;
   });
   return bytes;
@@ -81,9 +82,7 @@ function decodeRegion(bytes: Uint8Array | undefined, district?: Uint8Array) {
   const path: string[] = [];
   for (let index = 0; index < buffer.length / 4; index++) {
     const code = buffer.readUInt32BE(index * 4);
-    const node = siblings.find(
-      (row) => (district && row.code === '0' ? 0 : packQqRegionCode(row.code)) === code,
-    );
+    const node = siblings.find((row) => packQqRegionCode(row.code) === code);
     if (!node) return null;
     path.push(node.code);
     siblings = node.children;
@@ -159,7 +158,14 @@ export async function readEditableProfile(
     errors.region = '当前地区读取失败';
   }
   if (legacyResult.status === 'rejected')
-    for (const field of ['email', 'school', 'profession', 'hometown'] as const)
+    for (const field of [
+      'email',
+      'school',
+      'profession',
+      'hometown',
+      'company',
+      'personalDescription',
+    ] as const)
       errors[field] = '该项资料读取失败';
   const date = modern?.bytes.get(20031);
   let birthday: string | null = null;
@@ -173,7 +179,7 @@ export async function readEditableProfile(
       /* 未确认的生日形态保持未知。 */
     }
   }
-  const text = (key: number, field: 'email' | 'school') => {
+  const text = (key: number, field: 'email' | 'school' | 'company' | 'personalDescription') => {
     const bytes = legacy.get(key);
     if (bytes === undefined) return null;
     try {
@@ -189,6 +195,8 @@ export async function readEditableProfile(
     region: decodeRegion(modern?.bytes.get(20032)),
     email: text(keys.email, 'email'),
     school: text(keys.school, 'school'),
+    company: text(keys.company, 'company'),
+    personalDescription: text(keys.personalDescription, 'personalDescription'),
     profession: profession?.length === 4 ? Buffer.from(profession).readUInt32BE() : null,
     hometown: legacy.has(keys.district)
       ? decodeRegion(legacy.get(keys.hometown), legacy.get(keys.district))
@@ -227,10 +235,15 @@ export function encodeEditableProfile(patch: EditableProfilePatch) {
     };
   if (patch.region !== undefined)
     return { modern: { bytes: [{ key: 20032, value: encodeQqRegion(patch.region, 3) }] }, legacy };
-  if (patch.email !== undefined || patch.school !== undefined) {
-    const text = patch.email ?? patch.school!;
+  const textField = (['email', 'school', 'company', 'personalDescription'] as const).find(
+    (field) => patch[field] !== undefined,
+  );
+  if (textField) {
+    const text = patch[textField]!;
+    if (textField === 'personalDescription' && Array.from(text).length > 383)
+      throw new Error('个人说明不能超过 383 字符');
     if (Buffer.byteLength(text) > 996) throw new Error('文本超出 QQ 资料字段容量');
-    legacy.set(patch.email !== undefined ? keys.email : keys.school, Buffer.from(text));
+    legacy.set(keys[textField], Buffer.from(text));
   } else if (patch.profession !== undefined) {
     if (!QQ_PROFESSIONS.some((row) => row.value === patch.profession))
       throw new Error('职业不在支持目录中');

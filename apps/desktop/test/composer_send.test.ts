@@ -22,7 +22,7 @@ vi.mock('../src/renderer/src/lib/composerDraftMedia', async (importOriginal) => 
     },
   };
 });
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   focusComposerEnd,
   restoreComposer,
@@ -510,12 +510,15 @@ describe('输入区发送交接', () => {
       const gap = f.host.querySelector<HTMLButtonElement>('.weq-gap-band-button');
       expect(gap).not.toBeNull();
       await act(async () => gap!.click());
-      expect(openGap).toHaveBeenCalledWith({
-        conversation: f.props.conversation,
-        previousSeq: '10',
-        currentSeq: '14',
-        count: 3,
-      });
+      expect(openGap).toHaveBeenCalledWith(
+        {
+          conversation: f.props.conversation,
+          previousSeq: '10',
+          currentSeq: '14',
+          count: 3,
+        },
+        false,
+      );
       expect(f.onSend).not.toHaveBeenCalled();
     } finally {
       f.close();

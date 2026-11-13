@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * RecalledMessagesModal — the "撤回列表": browse the messages that were recalled
  * in one conversation while anti-recall was protecting it.
@@ -18,6 +19,7 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { CornerUpRight, RotateCcw, Search, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { ConvContext, ForwardKindContext } from '../QqMessageContent';
@@ -39,10 +41,7 @@ type RecallInfo = { revokeUid: string; sameSender: boolean; recallTs: number };
 
 /** Format a unix-second recall timestamp as a short local date-time. */
 function formatRecallTime(ts: number): string {
-  if (!ts) return '';
-  const d = new Date(ts * 1000);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return ts > 0 ? timeFormat.formatUnixTime(ts) : '';
 }
 
 /** A recalled message plus the labels/keys the header + filters need. */
@@ -287,7 +286,9 @@ export function RecalledMessagesModal({
                 ) : null}
               </div>
             ) : loading ? (
-              <div className="weq-deleted-empty">加载中…</div>
+              <div className="weq-deleted-empty" role="status">
+                <LoadingIndicator />
+              </div>
             ) : rows.length === 0 ? (
               <div className="weq-deleted-empty">
                 <RotateCcw size={26} />

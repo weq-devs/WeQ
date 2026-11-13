@@ -1,0 +1,177 @@
+/**
+ * 文档站「工具箱」的共享样式。
+ *
+ * 只用 VitePress 自己的主题变量（`--vp-c-*`），浅色 / 深色自动成立，
+ * 不写死任何颜色，也就不需要 `.dark` 覆盖。
+ */
+
+.weq-tool {
+  margin: 24px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+}
+
+.weq-tool > :first-child {
+  margin-top: 0;
+}
+
+.weq-tool > :last-child {
+  margin-bottom: 0;
+}
+
+.weq-tool-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+}
+
+.weq-tool-desc {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+}
+
+.weq-tool-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.weq-tool-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-tool-field > label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vp-c-text-2);
+}
+
+.weq-tool input,
+.weq-tool select,
+.weq-tool textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+  font-size: 13px;
+  font-family: var(--vp-font-family-mono);
+  transition: border-color 0.2s;
+}
+
+.weq-tool input:focus,
+.weq-tool select:focus,
+.weq-tool textarea:focus {
+  outline: none;
+  border-color: var(--vp-c-brand-1);
+}
+
+.weq-tool textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.weq-tool-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--vp-c-text-3);
+}
+
+.weq-tool-error {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--vp-c-danger-1);
+}
+
+.weq-tool-out {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg);
+}
+
+.weq-tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.weq-tool-row + .weq-tool-row {
+  border-top: 1px dashed var(--vp-c-divider);
+}
+
+.weq-tool-key {
+  flex: 0 0 auto;
+  min-width: 96px;
+  color: var(--vp-c-text-2);
+}
+
+.weq-tool-val {
+  flex: 1 1 220px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12.5px;
+  color: var(--vp-c-text-1);
+  word-break: break-all;
+  user-select: all;
+}
+
+.weq-tool-empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--vp-c-text-3);
+}
+
+.weq-tool-btn {
+  align-self: flex-start;
+  padding: 5px 12px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.weq-tool-btn:hover {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+.weq-tool-img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin: 12px auto 0;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background:
+    linear-gradient(45deg, var(--vp-c-bg-alt) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--vp-c-bg-alt) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--vp-c-bg-alt) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--vp-c-bg-alt) 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+}

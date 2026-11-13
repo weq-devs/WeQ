@@ -10,7 +10,7 @@
   flex-direction: column;
   width: min(940px, calc(100vw - 48px));
   height: min(660px, calc(100vh - 72px));
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--weq-border-subtle);
   border-radius: 12px;
   background: var(--weq-bg-surface);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
@@ -31,14 +31,14 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #6b7686;
+  color: var(--weq-fg-secondary);
   cursor: pointer;
 }
 
 .weq-dress-close:hover,
 .weq-dress-close:focus-visible {
-  background: rgba(0, 0, 0, 0.05);
-  color: #161616;
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
   outline: none;
 }
 
@@ -48,14 +48,14 @@
   align-items: center;
   gap: 14px;
   padding: 14px 52px 12px 16px;
-  border-bottom: 1px solid var(--weq-border, rgba(0, 0, 0, 0.08));
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-dress-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--weq-accent-effective, #12a8ff);
+  color: var(--weq-accent-effective);
   flex: none;
 }
 
@@ -81,8 +81,8 @@
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #6b7686;
-  font-size: 12.5px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
   cursor: pointer;
   transition:
     background 0.15s,
@@ -91,12 +91,12 @@
 }
 
 .weq-dress-kind:hover {
-  background: var(--weq-bg-hover, rgba(0, 0, 0, 0.04));
+  background: var(--weq-bg-hover);
 }
 
 .weq-dress-kind.is-active {
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 600;
 }
 
@@ -106,10 +106,10 @@
   gap: 6px;
   margin-left: auto;
   padding: 5px 10px;
-  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--weq-border-strong);
   border-radius: 8px;
-  background: var(--weq-bg-subtle, rgba(0, 0, 0, 0.03));
-  color: #6b7686;
+  background: var(--weq-bg-subtle);
+  color: var(--weq-fg-secondary);
   flex: none;
 }
 
@@ -118,7 +118,7 @@
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   outline: none;
 }
 
@@ -139,7 +139,7 @@
 }
 
 .weq-dress-search-clear:hover {
-  background: rgba(0, 0, 0, 0.07);
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
 }
 
 .weq-workspace-page .weq-dress-head,
@@ -176,7 +176,7 @@
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--weq-border, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .weq-dress-chip {
@@ -184,22 +184,22 @@
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
-  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--weq-border-strong);
   border-radius: 999px;
   background: transparent;
-  color: #6b7686;
+  color: var(--weq-fg-secondary);
   font-size: 12px;
   cursor: pointer;
 }
 
 .weq-dress-chip:hover {
-  border-color: var(--weq-accent-effective, #12a8ff);
+  border-color: var(--weq-accent-effective);
 }
 
 .weq-dress-chip.is-active {
   border-color: transparent;
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 600;
 }
 
@@ -216,17 +216,17 @@
 }
 
 .weq-dress-scope-label {
-  color: #8a94a4;
-  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
 }
 
 /* 两段式开关：仅自己 / 所有人。 */
 .weq-dress-scope {
   display: flex;
   padding: 2px;
-  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--weq-border-strong);
   border-radius: 8px;
-  background: var(--weq-bg-subtle, rgba(0, 0, 0, 0.03));
+  background: var(--weq-bg-subtle);
 }
 
 .weq-dress-scope-btn {
@@ -234,7 +234,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #6b7686;
+  color: var(--weq-fg-secondary);
   font-size: 12px;
   cursor: pointer;
   transition:
@@ -243,32 +243,32 @@
 }
 
 .weq-dress-scope-btn.is-active {
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 600;
 }
 
 .weq-dress-hint {
   padding: 3px 8px;
   border-radius: 6px;
-  background: rgba(250, 173, 20, 0.14);
-  color: #a86a00;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
   font-size: 11px;
 }
 
 .weq-dress-clear {
   padding: 4px 10px;
-  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--weq-border-strong);
   border-radius: 8px;
   background: transparent;
-  color: #6b7686;
+  color: var(--weq-fg-secondary);
   font-size: 12px;
   cursor: pointer;
 }
 
 .weq-dress-clear:hover {
-  border-color: #f5222d;
-  color: #f5222d;
+  border-color: var(--destructive);
+  color: var(--destructive);
 }
 
 /* 离线提示条：只影响搜索与字体下载，文案要说清楚，别让用户以为整页坏了。 */
@@ -277,11 +277,11 @@
   gap: 7px;
   margin: 10px 16px 0;
   padding: 8px 10px;
-  border: 1px solid rgba(250, 173, 20, 0.35);
-  border-radius: 9px;
-  background: rgba(250, 173, 20, 0.08);
-  color: #a86a00;
-  font-size: 11.5px;
+  border: 1px solid color-mix(in srgb, var(--weq-warn-solid) 35%, transparent);
+  border-radius: 10px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -291,16 +291,16 @@
 }
 
 .weq-dress-notice.is-bad {
-  border-color: rgba(245, 34, 45, 0.35);
-  background: rgba(245, 34, 45, 0.07);
-  color: #d4380d;
+  border-color: color-mix(in srgb, var(--destructive) 35%, transparent);
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  color: var(--destructive);
 }
 
 /* 中性说明（不是警告）——琥珀底会读成「出问题了」，这里跟着主题色走。 */
 .weq-dress-notice.is-info {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 24%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
-  color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 72%, var(--weq-fg-primary));
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 72%, var(--weq-fg-primary));
 }
 
 /* ===== 卡片网格 ===== */
@@ -328,15 +328,15 @@
 .weq-dress-card {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--weq-border, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--weq-border-subtle);
   border-radius: 10px;
-  background: var(--weq-bg-elevated, #fff);
+  background: var(--weq-bg-elevated);
   overflow: hidden;
 }
 
 .weq-dress-card.is-active {
-  border-color: var(--weq-accent-effective, #12a8ff);
-  box-shadow: 0 0 0 1px var(--weq-accent-effective, #12a8ff) inset;
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 1px var(--weq-accent-effective) inset;
 }
 
 .weq-dress-card-preview {
@@ -373,7 +373,7 @@
 }
 
 .weq-dress-card-noimg {
-  color: #a8b0bd;
+  color: var(--weq-fg-muted);
   font-size: 11px;
 }
 
@@ -382,7 +382,12 @@
   display: block;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, #eceff3 25%, #e0e5ea 50%, #eceff3 75%);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-fg-primary) 6%, transparent) 25%,
+    color-mix(in srgb, var(--weq-fg-primary) 11%, transparent) 50%,
+    color-mix(in srgb, var(--weq-fg-primary) 6%, transparent) 75%
+  );
   background-size: 200% 100%;
   animation: weq-dress-shimmer 1.3s ease-in-out infinite;
 }
@@ -396,7 +401,7 @@
 }
 
 .weq-dress-card-body strong {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -405,7 +410,7 @@
 
 .weq-dress-card-body small {
   font-size: 11px;
-  color: #8a94a4;
+  color: var(--weq-fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -416,7 +421,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
-  gap: 6px;
+  gap: 8px;
   margin: 0 10px 10px;
 }
 
@@ -428,10 +433,10 @@
   justify-content: center;
   gap: 5px;
   padding: 6px 8px;
-  border: 1px solid var(--weq-accent-effective, #12a8ff);
-  border-radius: 7px;
+  border: 1px solid var(--weq-accent-effective);
+  border-radius: 8px;
   background: transparent;
-  color: var(--weq-accent-effective, #12a8ff);
+  color: var(--weq-accent-effective);
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
@@ -442,13 +447,13 @@
 }
 
 .weq-dress-use:hover:not(:disabled) {
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-dress-use:disabled {
   border-color: var(--weq-border, rgba(0, 0, 0, 0.12));
-  color: #a8b0bd;
+  color: var(--weq-fg-muted);
   cursor: not-allowed;
 }
 
@@ -456,12 +461,12 @@
 .weq-dress-save {
   flex: 0 0 auto;
   border-color: var(--weq-border, rgba(0, 0, 0, 0.12));
-  color: var(--weq-fg-secondary, #6a7d90);
+  color: var(--weq-fg-secondary);
 }
 
 .weq-dress-save:hover:not(:disabled) {
-  border-color: var(--weq-accent-effective, #12a8ff);
-  color: var(--weq-accent-effective, #12a8ff);
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
 
@@ -480,7 +485,12 @@ html[data-theme='dark'] .weq-dress-save {
 .weq-dress-skel-block {
   display: block;
   border-radius: 6px;
-  background: linear-gradient(90deg, #eceff3 25%, #e0e5ea 50%, #eceff3 75%);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-fg-primary) 6%, transparent) 25%,
+    color-mix(in srgb, var(--weq-fg-primary) 11%, transparent) 50%,
+    color-mix(in srgb, var(--weq-fg-primary) 6%, transparent) 75%
+  );
   background-size: 200% 100%;
   animation: weq-dress-shimmer 1.3s ease-in-out infinite;
 }
@@ -504,7 +514,7 @@ html[data-theme='dark'] .weq-dress-save {
 .weq-dress-skel-btn {
   flex: 1 1 auto;
   height: 26px;
-  border-radius: 7px;
+  border-radius: 8px;
 }
 
 @keyframes weq-dress-shimmer {
@@ -548,7 +558,7 @@ html[data-theme='dark'] .weq-dress-save {
   width: 100%;
   height: 100%;
   padding: 10px;
-  color: #23272d;
+  color: var(--weq-fg-primary);
   text-align: center;
 }
 
@@ -572,7 +582,7 @@ html[data-theme='dark'] .weq-dress-save {
 }
 
 .weq-dress-font-fallback {
-  color: #a8b0bd;
+  color: var(--weq-fg-muted);
   font-size: 11px;
 }
 
@@ -591,7 +601,7 @@ html[data-theme='dark'] .weq-dress-save {
   gap: 6px;
   height: 100%;
   min-height: 220px;
-  color: #8a94a4;
+  color: var(--weq-fg-muted);
 }
 
 .weq-dress-empty p {
@@ -600,16 +610,16 @@ html[data-theme='dark'] .weq-dress-save {
 }
 
 .weq-dress-empty span {
-  font-size: 11.5px;
-  color: #a8b0bd;
+  font-size: 12px;
+  color: var(--weq-fg-muted);
 }
 
 .weq-dress-empty.is-error {
-  color: #d4380d;
+  color: var(--destructive);
 }
 
 .weq-dress-empty.is-warn {
-  color: #a86a00;
+  color: var(--weq-warn-fg);
 }
 
 .weq-dress-spin {
@@ -631,7 +641,7 @@ html[data-theme='dark'] .weq-dress-save {
   z-index: 5;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.62);
+  background: color-mix(in srgb, var(--weq-bg-surface) 62%, transparent);
   backdrop-filter: blur(2px);
   /* 淡入而不是硬切 —— 资源已在磁盘缓存时整个过程只有几十毫秒,硬切会闪一下。 */
   animation: weq-dress-fade-in 0.14s ease-out both;
@@ -643,9 +653,9 @@ html[data-theme='dark'] .weq-dress-save {
   gap: 10px;
   padding: 14px 20px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--weq-bg-elevated);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
-  color: #303030;
+  color: var(--weq-fg-primary);
   font-size: 13px;
   font-weight: 500;
 }
@@ -688,7 +698,7 @@ html[data-theme='dark'] .weq-dress-save {
 }
 
 .weq-dress-bg-note {
-  color: #8b93a1;
+  color: var(--weq-fg-muted);
   font-size: 12px;
 }
 
@@ -698,8 +708,8 @@ html[data-theme='dark'] .weq-dress-save {
   gap: 5px;
   margin-left: auto;
   padding: 5px 11px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 7px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -707,8 +717,8 @@ html[data-theme='dark'] .weq-dress-save {
 }
 
 .weq-dress-pick:hover {
-  border-color: var(--weq-accent-effective, #12a8ff);
-  color: var(--weq-accent-effective, #12a8ff);
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
 }
 
 .weq-dress-bg-row {
@@ -726,7 +736,7 @@ html[data-theme='dark'] .weq-dress-save {
   gap: 3px;
   padding: 0 0 10px;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--weq-border-subtle);
   border-radius: 10px;
   background: transparent;
   color: inherit;
@@ -740,25 +750,25 @@ html[data-theme='dark'] .weq-dress-save {
 }
 
 .weq-dress-bg-card:not(:disabled):hover {
-  border-color: var(--weq-accent-effective, #12a8ff);
+  border-color: var(--weq-accent-effective);
 }
 
 .weq-dress-bg-card.is-active {
-  border-color: var(--weq-accent-effective, #12a8ff);
-  box-shadow: 0 0 0 1px var(--weq-accent-effective, #12a8ff) inset;
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 1px var(--weq-accent-effective) inset;
 }
 
 .weq-dress-bg-card strong {
   padding: 0 10px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .weq-dress-bg-card small {
   padding: 0 10px;
   overflow: hidden;
-  color: #8b93a1;
-  font-size: 11.5px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -800,7 +810,7 @@ html[data-theme='dark'] .weq-dress-save {
   width: 100%;
   height: 100%;
   place-items: center;
-  color: #a8b0bd;
+  color: var(--weq-fg-muted);
   font-size: 12px;
 }
 
@@ -813,8 +823,8 @@ html[data-theme='dark'] .weq-dress-save {
   height: 20px;
   place-items: center;
   border-radius: 50%;
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-dress-opacity {
@@ -827,17 +837,17 @@ html[data-theme='dark'] .weq-dress-save {
 
 .weq-dress-opacity span {
   flex: 0 0 auto;
-  color: #6b7280;
+  color: var(--weq-fg-secondary);
 }
 
 .weq-dress-opacity input {
   flex: 1 1 auto;
-  accent-color: var(--weq-accent-effective, #12a8ff);
+  accent-color: var(--weq-accent-effective);
 }
 
 .weq-dress-opacity em {
   flex: 0 0 38px;
-  color: #6b7280;
+  color: var(--weq-fg-secondary);
   font-style: normal;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -846,7 +856,7 @@ html[data-theme='dark'] .weq-dress-save {
 .weq-dress-widget-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .weq-dress-widget {
@@ -856,20 +866,20 @@ html[data-theme='dark'] .weq-dress-save {
   max-height: 148px;
   place-items: center;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
   background:
     repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 10px 10px;
   cursor: pointer;
 }
 
 .weq-dress-widget:hover {
-  border-color: var(--weq-accent-effective, #12a8ff);
+  border-color: var(--weq-accent-effective);
 }
 
 .weq-dress-widget.is-active {
-  border-color: var(--weq-accent-effective, #12a8ff);
-  box-shadow: 0 0 0 1px var(--weq-accent-effective, #12a8ff) inset;
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 1px var(--weq-accent-effective) inset;
 }
 
 .weq-dress-widget img {
@@ -896,48 +906,10 @@ html[data-theme='dark'] .weq-dress-save {
   border-radius: 5px;
   background: rgba(0, 0, 0, 0.42);
   color: #fff;
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 /* ===== 深色 ===== */
-html[data-theme='dark'] .weq-dress-dialog {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: var(--weq-bg-surface);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
-  color: var(--weq-fg-primary);
-}
-
-html[data-theme='dark'] .weq-dress-close {
-  color: #98a4b3;
-}
-
-html[data-theme='dark'] .weq-dress-close:hover,
-html[data-theme='dark'] .weq-dress-close:focus-visible {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f7fbff;
-}
-
-html[data-theme='dark'] .weq-dress-head,
-html[data-theme='dark'] .weq-dress-toolbar {
-  border-color: rgba(255, 255, 255, 0.09);
-}
-
-html[data-theme='dark'] .weq-dress-card {
-  border-color: rgba(255, 255, 255, 0.09);
-  background: #1f2429;
-}
-
-html[data-theme='dark'] .weq-dress-search,
-html[data-theme='dark'] .weq-dress-scope {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-html[data-theme='dark'] .weq-dress-chip,
-html[data-theme='dark'] .weq-dress-clear {
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
 html[data-theme='dark'] .weq-dress-search-clear:hover {
   background: rgba(255, 255, 255, 0.1);
 }
@@ -947,39 +919,8 @@ html[data-theme='dark'] .weq-dress-card-preview {
     repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
 }
 
-html[data-theme='dark'] .weq-dress-applying {
-  background: rgba(16, 19, 24, 0.62);
-}
-
-html[data-theme='dark'] .weq-dress-applying-box {
-  background: #1f2429;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
-  color: #edf2f7;
-}
-
-html[data-theme='dark'] .weq-dress-bg-card,
-html[data-theme='dark'] .weq-dress-widget,
-html[data-theme='dark'] .weq-dress-pick {
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
 html[data-theme='dark'] .weq-dress-bg-preview,
 html[data-theme='dark'] .weq-dress-widget {
   background:
     repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
-}
-
-html[data-theme='dark'] .weq-dress-skel-block,
-html[data-theme='dark'] .weq-dress-card-pending {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.055) 25%,
-    rgba(255, 255, 255, 0.1) 50%,
-    rgba(255, 255, 255, 0.055) 75%
-  );
-  background-size: 200% 100%;
-}
-
-html[data-theme='dark'] .weq-dress-font-preview {
-  color: #edf2f7;
 }

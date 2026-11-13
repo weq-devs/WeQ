@@ -120,6 +120,7 @@ export function AgentMessageContent({
   faces,
   personaId,
   onMediaLoad,
+  sourceSession,
 }: {
   text: string;
   /** 提供后，会把文本里的系统表情 faceText 渲染成表情图（克隆体气泡用）。 */
@@ -128,6 +129,7 @@ export function AgentMessageContent({
   personaId?: string;
   /** 图片类消息加载后通知父级重新贴底。 */
   onMediaLoad?: () => void;
+  sourceSession?: { id?: string | null; title?: string; messageId?: string };
 }): ReactElement {
   // 自定义表情包：整条消息就是一个表情标记时，渲染成图片。
   const stickerMatch = personaId ? text.match(STICKER_MARKER) : null;
@@ -136,7 +138,16 @@ export function AgentMessageContent({
   // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
   const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
   return (
-    <div className="message-content">
+    <div
+      className="message-content"
+      title={
+        sourceSession?.title
+          ? `来源会话：${sourceSession.title}${sourceSession.messageId ? ` · 原消息：${sourceSession.messageId}` : ''}`
+          : undefined
+      }
+      data-source-session-id={sourceSession?.id ?? undefined}
+      data-source-message-id={sourceSession?.messageId}
+    >
       {stickerMatch && !stickerFailed ? (
         <img
           className="weq-agentlab-sticker-img"

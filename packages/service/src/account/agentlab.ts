@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -14,7 +14,6 @@ import {
   AgentLabStore,
   AgentRuntime,
   buildPersonaArtifacts,
-  describeSticker,
   distillMemories,
   embedTexts,
   extractExpressions,
@@ -63,8 +62,6 @@ import {
   type AgentLabVoiceProfile,
   type AgentLabVoiceRefClip,
   type AgentLabVoiceBinding,
-  type AgentLabGroupStore,
-  type AgentLabRelationStore,
   type AgentLabGroup,
   type AgentLabGroupMember,
   type AgentLabGroupMessage,
@@ -86,12 +83,11 @@ import {
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
 } from './media_download';
-import { TokenUsageStore, type TokenStats } from './agentlab_usage';
+import { TokenUsageStore, type TokenStats, type ApiUsagePeriod } from './agentlab_usage';
 import { ConversationStore, type ConversationTurn } from './agentlab_conversation';
 import {
   AgentLabSessionStore,
   AgentLabGroupSessionMessageStore,
-  sessionTitleFromText,
   type AgentLabSession,
 } from './agentlab_session';
 import { MemoryStore } from './agentlab_memory';
@@ -99,6 +95,7 @@ import { NotesStore } from './agentlab_notes';
 import { JsonGroupStore } from './agentlab_group_store';
 import { JsonRelationStore } from './agentlab_relation_store';
 import { getLogger } from '../common/logger';
+import { CloneConversationRuns, type CloneConversationTarget } from './agentlab_runs';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -114,6 +111,7 @@ export type EndpointResolver = (
  * 镜像 ExportTaskManager 的注入方式（silk 解码 / sherpa 转录是 app 侧 native）。
  */
 export interface AgentLabMediaDeps {
+  images?: AiImagePort;
   fileSearch: FileSearchService;
   mediaDownload: MediaDownloadService;
   /** silk → 文本（内部自己解码成 16k wav 再跑识别）。 */
@@ -182,7 +180,7 @@ export interface BuildFromC2cInput {
   autoName?: boolean;
 }
 
-/** 高频表情包累计：扫描期收集，之后再下载 + vision 解读。 */
+/** 高频表情包累计：扫描期收集，之后缓存资产并复用语料图片解读。 */
 interface StickerAccum {
   md5: string;
   fileName: string;
@@ -190,7 +188,7 @@ interface StickerAccum {
   originalUrl: string;
   ts: number;
   count: number;
-  /** TA 发这张前最近的真实对话短句（≤3 条，去重）：喂 vision 判断场景 + 存进 ref。 */
+  /** TA 发这张前最近的真实对话短句（≤3 条，去重），保留供聊天时匹配场景。 */
   contexts: string[];
 }
 
@@ -281,21 +279,6 @@ function hashKey(text: string): string {
   return createHash('sha1').update(text).digest('hex');
 }
 
-/** 读本地图片 → data URL（按文件头猜 mime），失败返回 null。 */
-function imageToDataUrl(path: string): string | null {
-  try {
-    const buf = readFileSync(path);
-    if (buf.length < 4) return null;
-    let mime = 'image/png';
-    if (buf[0] === 0xff && buf[1] === 0xd8) mime = 'image/jpeg';
-    else if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) mime = 'image/gif';
-    else if (buf[0] === 0x89 && buf[1] === 0x50) mime = 'image/png';
-    return `data:${mime};base64,${buf.toString('base64')}`;
-  } catch {
-    return null;
-  }
-}
-
 /** 一次导出产物的 WebUI 访问信息（存 bot_exports.json，供设置页查密钥 / 打开控制台）。 */
 export interface BotExportInfo {
   taskId?: string;
@@ -321,9 +304,9 @@ export class AgentLabService extends EventEmitter {
   private readonly notes: NotesStore;
   // 群聊数据底座（M1「接口优先 + JSON 先兑现」）。引擎与路由通过 AgentLab*Store
   // 接口消费；将来换 SQLite 后端时只替换这两行的具体实现。
-  private readonly groups: AgentLabGroupStore;
-  private readonly relations: AgentLabRelationStore;
-  /** 克隆体会话元数据（好友克隆 / 群聊通用，按 ownerId 分桶）。 */
+  private readonly groups: JsonGroupStore;
+  private readonly relations: JsonRelationStore;
+  /** 合并前的会话来源元数据；不再作为可选择的子会话。 */
   private readonly sessions: AgentLabSessionStore;
   /** 群聊会话的消息记录（按 `${groupId}:${sessionId}` 分桶）。 */
   private readonly groupSessionMessages: AgentLabGroupSessionMessageStore;
@@ -335,6 +318,8 @@ export class AgentLabService extends EventEmitter {
   private readonly buildingPersonas = new Set<string>();
   private readonly buildControllers = new Map<string, AbortController>();
   private readonly buildPromises = new Set<Promise<AgentLabPersona>>();
+  private readonly buildsByPersona = new Map<string, Promise<AgentLabPersona>>();
+  private readonly conversationRuns = new CloneConversationRuns();
   private closed = false;
 
   constructor(
@@ -378,6 +363,7 @@ export class AgentLabService extends EventEmitter {
         }
       : undefined;
     this.runtime = new AgentRuntime({
+      images: this.media?.images,
       rootDir,
       store: this.store,
       endpoints: this.resolveEndpoint,
@@ -397,7 +383,11 @@ export class AgentLabService extends EventEmitter {
   async close(): Promise<void> {
     this.closed = true;
     for (const controller of this.buildControllers.values()) controller.abort();
-    await Promise.allSettled([...this.buildPromises, this.runtime.close()]);
+    await Promise.allSettled([
+      ...this.buildPromises,
+      this.conversationRuns.close(),
+      this.runtime.close(),
+    ]);
   }
 
   /** 对话反思笔记（前端「记忆/画像」灯箱可选展示）。 */
@@ -496,10 +486,12 @@ export class AgentLabService extends EventEmitter {
     this.groups.renameGroup(groupId, name.trim() || '未命名群聊', Date.now());
   }
 
-  deleteGroup(groupId: string): void {
-    this.groups.deleteGroup(groupId);
-    this.sessions.deleteOwner(this.groupOwnerId(groupId));
-    this.groupSessionMessages.deleteGroup(groupId);
+  async deleteGroup(groupId: string): Promise<void> {
+    await this.conversationRuns.stopAndDelete({ kind: 'group', id: groupId }, () => {
+      this.groups.deleteGroup(groupId);
+      this.sessions.deleteOwner(this.groupOwnerId(groupId));
+      this.groupSessionMessages.deleteGroup(groupId);
+    });
   }
 
   addGroupMember(groupId: string, personaId: string): void {
@@ -521,29 +513,30 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** 群历史消息（前端 seed / 引擎上下文用；有 sessionId 则读该会话桶）。 */
-  getGroupMessages(groupId: string, limit?: number, sessionId?: string): AgentLabGroupMessage[] {
-    const list = sessionId
-      ? this.groupSessionMessages.list(this.groupSessionBucket(groupId, sessionId))
-      : this.groups.listMessages(groupId);
+  getGroupMessages(groupId: string, limit?: number, _sessionId?: string): AgentLabGroupMessage[] {
+    this.mergeGroupConversations(groupId);
+    const list = this.groups.listMessages(groupId);
     if (limit === undefined || limit >= list.length) return list;
     return list.slice(list.length - limit);
   }
 
-  clearGroupMessages(groupId: string, sessionId?: string): void {
-    if (sessionId) this.groupSessionMessages.clear(this.groupSessionBucket(groupId, sessionId));
-    else this.groups.clearMessages(groupId);
+  clearGroupMessages(groupId: string, _sessionId?: string): void {
+    this.mergeGroupConversations(groupId);
+    this.groups.clearMessages(groupId);
   }
 
   // ── 克隆体会话（好友克隆 / 群聊多会话）──────────────────────────────────────
 
-  /** 好友克隆的会话列表（最近活跃倒序）。 */
+  /** 兼容旧调用：历史已并入长期对话，不再列出分会话。 */
   listPersonaSessions(personaId: string): AgentLabSession[] {
-    return this.sessions.list(personaId);
+    this.mergePersonaConversations(personaId);
+    return [];
   }
 
-  /** 新建一个克隆体会话（空对话，标题待首条消息生成）。 */
+  /** 兼容旧客户端的长期对话句柄，不创建分会话。 */
   createPersonaSession(personaId: string): AgentLabSession {
-    return this.sessions.create(personaId);
+    this.mergePersonaConversations(personaId);
+    return this.longTermSession(this.store.getPersona(personaId)?.persona.name ?? '克隆对话');
   }
 
   /** 删除克隆体会话（含其对话内容）。 */
@@ -553,18 +546,20 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** 某会话的对话内容。 */
-  getPersonaSessionConversation(personaId: string, sessionId: string): ConversationTurn[] {
-    return this.conversations.get(this.personaSessionBucket(personaId, sessionId));
+  getPersonaSessionConversation(personaId: string, _sessionId: string): ConversationTurn[] {
+    return this.getConversation(personaId);
   }
 
-  /** 群聊的会话列表（最近活跃倒序）。 */
+  /** 兼容旧调用：群历史已并入长期对话。 */
   listGroupSessions(groupId: string): AgentLabSession[] {
-    return this.sessions.list(this.groupOwnerId(groupId));
+    this.mergeGroupConversations(groupId);
+    return [];
   }
 
-  /** 新建一个群聊会话（空对话，标题待首条消息生成）。 */
+  /** 兼容旧客户端的长期群对话句柄，不创建分会话。 */
   createGroupSession(groupId: string): AgentLabSession {
-    return this.sessions.create(this.groupOwnerId(groupId));
+    this.mergeGroupConversations(groupId);
+    return this.longTermSession(this.groups.getGroup(groupId)?.name ?? '克隆群聊');
   }
 
   /** 删除群聊会话（含其消息记录）。 */
@@ -574,8 +569,38 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** 某群聊会话的消息记录。 */
-  getGroupSessionConversation(groupId: string, sessionId: string): AgentLabGroupMessage[] {
-    return this.groupSessionMessages.list(this.groupSessionBucket(groupId, sessionId));
+  getGroupSessionConversation(groupId: string, _sessionId: string): AgentLabGroupMessage[] {
+    return this.getGroupMessages(groupId);
+  }
+
+  getRunningConversations(): CloneConversationTarget[] {
+    return this.conversationRuns.list();
+  }
+
+  private longTermSession(title: string): AgentLabSession {
+    return { id: 'long-term', title, createdAt: 0, updatedAt: 0 };
+  }
+
+  private mergePersonaConversations(personaId: string): void {
+    const old = this.sessions.list(personaId);
+    this.conversations.mergeOwner(personaId, new Map(old.map((item) => [item.id, item.title])));
+  }
+
+  private mergeGroupConversations(groupId: string): void {
+    const old = this.sessions.list(this.groupOwnerId(groupId));
+    const titles = new Map(old.map((item) => [item.id, item.title]));
+    const buckets = this.groupSessionMessages.listGroupBuckets(groupId);
+    this.groups.mergeMessages(
+      groupId,
+      buckets.flatMap(({ sessionId, messages }) =>
+        messages.map((message) => ({
+          ...message,
+          sourceSessionId: message.sourceSessionId ?? sessionId,
+          sourceSessionTitle: message.sourceSessionTitle ?? titles.get(sessionId) ?? sessionId,
+        })),
+      ),
+    );
+    if (buckets.length) this.groupSessionMessages.deleteGroup(groupId);
   }
 
   /** 克隆体对话桶 key：`${personaId}:${sessionId}`。 */
@@ -600,9 +625,9 @@ export class AgentLabService extends EventEmitter {
 
   private groupMsgId(groupId: string, senderId: string, ts: number, text: string): string {
     return createHash('sha1')
-      .update(`${groupId}:${senderId}:${ts}:${text}`)
+      .update(`${groupId}:${senderId}:${ts}:${text}:${randomUUID()}`)
       .digest('hex')
-      .slice(0, 16);
+      .slice(0, 32);
   }
 
   /**
@@ -616,8 +641,8 @@ export class AgentLabService extends EventEmitter {
     objectKind: 'user' | 'persona',
     exchange: string,
     endpoint: AgentLabEndpoint,
-  ): void {
-    void (async () => {
+  ): Promise<void> {
+    return (async () => {
       try {
         const prev = this.relations.get(subjectPersonaId, objectId);
         const nextCount = (prev?.interactionCount ?? 0) + 1;
@@ -627,6 +652,7 @@ export class AgentLabService extends EventEmitter {
           delta.affinity = s.affinityDelta;
           delta.mood = s.moodDelta;
         }
+        endpoint.signal?.throwIfAborted();
         this.relations.applyDelta(subjectPersonaId, objectId, objectKind, delta, Date.now());
       } catch {
         /* 关系更新失败不影响聊天 */
@@ -649,7 +675,7 @@ export class AgentLabService extends EventEmitter {
     return messages.slice(-limit).map((m) => {
       if (m.senderId === personaId) return { role: 'assistant', text: m.text };
       const name = nameById.get(m.senderId) ?? '某人';
-      return { role: 'user', text: `「${name}」：${m.text}` };
+      return { role: 'user', text: `「${name}」：${m.text}`, images: m.images };
     });
   }
 
@@ -666,29 +692,34 @@ export class AgentLabService extends EventEmitter {
    * 意愿闸的存在感/冷却惩罚。某轮没人接话就收摊。onMessage 逐条流式回调。
    */
   async sendGroupMessage(
-    input: { groupId: string; text: string; mentions?: string[]; sessionId?: string },
+    input: {
+      groupId: string;
+      text: string;
+      images?: AiImageRef[];
+      mentions?: string[];
+      sessionId?: string;
+    },
     onMessage: (message: AgentLabGroupMessage) => void,
+  ): Promise<{ messages: AgentLabGroupMessage[] }> {
+    return this.conversationRuns.start([{ kind: 'group', id: input.groupId }], (signal) =>
+      this.runGroupMessage(input, onMessage, signal),
+    );
+  }
+
+  private async runGroupMessage(
+    input: { groupId: string; text: string; images?: AiImageRef[]; mentions?: string[] },
+    onMessage: (message: AgentLabGroupMessage) => void,
+    signal: AbortSignal,
   ): Promise<{ messages: AgentLabGroupMessage[] }> {
     const detail = this.getGroupDetail(input.groupId);
     if (!detail) throw new Error('找不到群聊');
     const { members } = detail;
     const selfId = this.selfMemberId();
-    const sessionId = input.sessionId;
-    // 多会话兜底：sessionId 指向的会话不存在（被删 / 外部写入）时重建一个，消息不丢。
-    let effectiveSessionId = sessionId;
-    if (sessionId && !this.sessions.get(this.groupOwnerId(input.groupId), sessionId)) {
-      effectiveSessionId = this.sessions.create(this.groupOwnerId(input.groupId)).id;
-    }
+    this.mergeGroupConversations(input.groupId);
     const emitted: AgentLabGroupMessage[] = [];
     const record = (msg: AgentLabGroupMessage): void => {
-      if (effectiveSessionId) {
-        this.groupSessionMessages.append(
-          this.groupSessionBucket(input.groupId, effectiveSessionId),
-          msg,
-        );
-      } else {
-        this.groups.appendMessage(msg);
-      }
+      signal.throwIfAborted();
+      this.groups.appendMessage(msg);
       emitted.push(msg);
       onMessage(msg);
     };
@@ -702,24 +733,11 @@ export class AgentLabService extends EventEmitter {
       senderId: selfId,
       senderKind: 'user',
       text: input.text,
+      images: input.images,
       ts: now,
       mentions,
     };
     record(userMsg);
-    // 多会话：刷新活跃时间；首条消息时用第一句生成标题。
-    if (effectiveSessionId) {
-      this.sessions.touch(this.groupOwnerId(input.groupId), effectiveSessionId);
-      if (
-        this.groupSessionMessages.list(this.groupSessionBucket(input.groupId, effectiveSessionId))
-          .length === 1
-      ) {
-        this.sessions.setTitle(
-          this.groupOwnerId(input.groupId),
-          effectiveSessionId,
-          sessionTitleFromText(input.text),
-        );
-      }
-    }
 
     const personaMembers = members.filter((m) => m.kind === 'persona');
     const mentionSet = new Set(mentions ?? []);
@@ -731,10 +749,32 @@ export class AgentLabService extends EventEmitter {
     let prevRoundSpeakers = new Set<string>();
     const nameById = new Map(members.map((m) => [m.memberId, m.displayName]));
     for (let round = 0; round < AgentLabService.GROUP_MAX_CHAIN_DEPTH; round += 1) {
+      signal.throwIfAborted();
       if (totalReplies >= AgentLabService.GROUP_MAX_REPLIES_PER_TURN) break;
-      const roundBase = effectiveSessionId
-        ? this.groupSessionMessages.list(this.groupSessionBucket(input.groupId, effectiveSessionId))
-        : this.groups.listMessages(input.groupId);
+      const roundBase = this.groups.listMessages(input.groupId);
+      if (this.media?.images)
+        for (const message of roundBase.slice(-16)) {
+          if (message.images?.length) {
+            const prepared = await this.media.images.prepare({
+              feature: 'cloneChat',
+              text: message.text,
+              images: message.images,
+              signal,
+            });
+            this.groups.patchImageAnalysis(
+              input.groupId,
+              message.id,
+              prepared.text,
+              prepared.outcomes,
+            );
+            const index = roundBase.indexOf(message);
+            roundBase[index] = {
+              ...message,
+              imageContext: prepared.text,
+              imageOutcomes: prepared.outcomes,
+            };
+          }
+        }
       const recent8 = roundBase.slice(-8);
 
       // 本轮候选：第 0 轮定向（@）则只有被 @ 的；否则排除上一轮刚开过口的（防连续刷屏兜底）。
@@ -746,64 +786,82 @@ export class AgentLabService extends EventEmitter {
 
       // 每个候选并发：定位触发消息 → @必回快捷 / 否则 LLM 决策 → 决定回则生成落库。
       const results = await Promise.all(
-        candidateMembers.map(async (member) => {
-          const rec = this.store.getPersona(member.memberId);
-          if (!rec?.persona.models?.chat) return { memberId: member.memberId, count: 0 };
-          let trigger: AgentLabGroupMessage | null = null;
-          for (let i = roundBase.length - 1; i >= 0; i -= 1) {
-            const m = roundBase[i]!;
-            if (m.senderId !== member.memberId) {
-              trigger = m;
-              break;
-            }
-          }
-          if (!trigger) return { memberId: member.memberId, count: 0 };
+        candidateMembers.map((member) =>
+          this.conversationRuns
+            .start(
+              [
+                { kind: 'group', id: input.groupId },
+                { kind: 'persona', id: member.memberId },
+              ],
+              async (memberSignal) => {
+                const rec = this.store.getPersona(member.memberId);
+                if (!rec?.persona.models?.chat) return { memberId: member.memberId, count: 0 };
+                let trigger: AgentLabGroupMessage | null = null;
+                for (let i = roundBase.length - 1; i >= 0; i -= 1) {
+                  const m = roundBase[i]!;
+                  if (m.senderId !== member.memberId) {
+                    trigger = m;
+                    break;
+                  }
+                }
+                if (!trigger) return { memberId: member.memberId, count: 0 };
 
-          const willing = rec.persona.willing;
-          const mustReply = willing?.mustReplyOnMention !== false;
-          const mentioned = (trigger.mentions ?? []).includes(member.memberId);
-          const ctx = { personaId: member.memberId, scope: 'chat' as const };
-          const chatEndpoint = this.resolveWithUsage(rec.persona.models.chat, 'chat', ctx);
+                const willing = rec.persona.willing;
+                const mustReply = willing?.mustReplyOnMention !== false;
+                const mentioned = (trigger.mentions ?? []).includes(member.memberId);
+                const ctx = {
+                  personaId: member.memberId,
+                  scope: 'chat' as const,
+                  signal: memberSignal,
+                };
+                const chatEndpoint = this.resolveWithUsage(rec.persona.models.chat, 'chat', ctx);
 
-          // @ 且必回 → 跳过决策；否则让 TA 自己带上下文判断要不要开口。
-          // 决策原因回传给生成层，让回复贴合「为什么接这句话」的念头。
-          let replyReason = '被@了';
-          if (!(mentioned && mustReply)) {
-            const rel = this.relations.get(member.memberId, trigger.senderId);
-            const decision = await decideGroupReply(chatEndpoint, {
-              personaName: rec.persona.name,
-              tone: rec.persona.profile?.card?.tone || rec.persona.profile?.styleSummary,
-              transcript: this.renderNeutralTranscript(members, roundBase, 12),
-              currentSpeaker:
-                trigger.senderKind === 'user' ? '我' : (nameById.get(trigger.senderId) ?? '某人'),
-              currentText: trigger.text,
-              relationNote: rel ? describeRelationTone(rel) : undefined,
-              memories: this.memories
-                .getAbout(member.memberId, [trigger.senderId], trigger.senderKind === 'user')
-                .slice(0, 5)
-                .map((m) => m.text),
-              dispositionHint: this.willingDisposition(willing?.level),
-              crowdedHint: this.crowdedHint(recent8, member.memberId),
-            });
-            if (!decision.reply) return { memberId: member.memberId, count: 0 };
-            replyReason = decision.reason || '想接这句话';
-          }
+                // @ 且必回 → 跳过决策；否则让 TA 自己带上下文判断要不要开口。
+                // 决策原因回传给生成层，让回复贴合「为什么接这句话」的念头。
+                let replyReason = '被@了';
+                if (!(mentioned && mustReply)) {
+                  const rel = this.relations.get(member.memberId, trigger.senderId);
+                  const decision = await decideGroupReply(chatEndpoint, {
+                    personaName: rec.persona.name,
+                    tone: rec.persona.profile?.card?.tone || rec.persona.profile?.styleSummary,
+                    transcript: this.renderNeutralTranscript(members, roundBase, 12),
+                    currentSpeaker:
+                      trigger.senderKind === 'user'
+                        ? '我'
+                        : (nameById.get(trigger.senderId) ?? '某人'),
+                    currentText: trigger.imageContext ?? trigger.text,
+                    relationNote: rel ? describeRelationTone(rel) : undefined,
+                    memories: this.memories
+                      .getAbout(member.memberId, [trigger.senderId], trigger.senderKind === 'user')
+                      .slice(0, 5)
+                      .map((m) => m.text),
+                    dispositionHint: this.willingDisposition(willing?.level),
+                    crowdedHint: this.crowdedHint(recent8, member.memberId),
+                  });
+                  if (!decision.reply) return { memberId: member.memberId, count: 0 };
+                  replyReason = decision.reason || '想接这句话';
+                }
 
-          const delayMs = 300 + Math.round(Math.random() * 500);
-          const count = await this.respondInGroup(
-            input.groupId,
-            members,
-            rec.persona,
-            rec.pairs,
-            member,
-            trigger,
-            roundBase,
-            delayMs,
-            record,
-            replyReason,
-          );
-          return { memberId: member.memberId, count };
-        }),
+                const delayMs = 300 + Math.round(Math.random() * 500);
+                const count = await this.respondInGroup(
+                  input.groupId,
+                  members,
+                  rec.persona,
+                  rec.pairs,
+                  member,
+                  trigger,
+                  roundBase,
+                  delayMs,
+                  record,
+                  replyReason,
+                  memberSignal,
+                );
+                return { memberId: member.memberId, count };
+              },
+              signal,
+            )
+            .catch(() => ({ memberId: member.memberId, count: 0 })),
+        ),
       );
       const roundSpeakers = new Set(results.filter((r) => r.count > 0).map((r) => r.memberId));
       totalReplies += results.reduce((sum, r) => sum + r.count, 0);
@@ -824,7 +882,7 @@ export class AgentLabService extends EventEmitter {
       .slice(-limit)
       .map(
         (m) =>
-          `${m.senderKind === 'user' ? '我' : (nameById.get(m.senderId) ?? '某人')}: ${m.text.slice(0, 80)}`,
+          `${m.senderKind === 'user' ? '我' : (nameById.get(m.senderId) ?? '某人')}: ${(m.imageContext ?? m.text).slice(0, 800)}`,
       )
       .join('\n');
   }
@@ -863,9 +921,10 @@ export class AgentLabService extends EventEmitter {
     delayMs: number,
     record: (message: AgentLabGroupMessage) => void,
     replyReason: string,
+    signal: AbortSignal,
   ): Promise<number> {
     try {
-      const ctx = { personaId: member.memberId, scope: 'chat' as const };
+      const ctx = { personaId: member.memberId, scope: 'chat' as const, signal };
       const chatEndpoint = this.resolveWithUsage(persona.models.chat, 'chat', ctx);
       const embeddingEndpoint = persona.models.embedding
         ? this.resolveWithUsage(persona.models.embedding, 'embedding', ctx)
@@ -887,9 +946,12 @@ export class AgentLabService extends EventEmitter {
       const triggerName =
         members.find((m) => m.memberId === trigger.senderId)?.displayName ?? '某人';
       const inputText =
-        trigger.senderKind === 'user' ? trigger.text : `「${triggerName}」：${trigger.text}`;
+        trigger.senderKind === 'user'
+          ? (trigger.imageContext ?? trigger.text)
+          : `「${triggerName}」：${trigger.text}`;
 
       await sleep(delayMs); // 越想回越快开口
+      signal.throwIfAborted();
       const { renderedTurns } = await this.runtime.generatePersonaTurns(persona, pairs, {
         chatEndpoint,
         embeddingEndpoint,
@@ -908,6 +970,7 @@ export class AgentLabService extends EventEmitter {
       for (const text of renderedTurns) {
         if (this.tooSimilar(text, recentTexts)) continue;
         if (recorded > 0) await sleep(Math.min(1400, 300 + text.length * 45));
+        signal.throwIfAborted();
         record({
           id: this.groupMsgId(groupId, member.memberId, Date.now(), text),
           groupId,
@@ -921,27 +984,47 @@ export class AgentLabService extends EventEmitter {
       }
       if (recorded > 0) {
         const exchange = `对方：${trigger.text}\n你：${renderedTurns.join(' / ')}`;
-        this.updateRelationAfterExchange(
-          member.memberId,
-          persona.name,
-          trigger.senderId,
-          trigger.senderKind,
-          exchange,
-          chatEndpoint,
-        );
+        void this.conversationRuns
+          .start(
+            [
+              { kind: 'group', id: groupId },
+              { kind: 'persona', id: member.memberId },
+            ],
+            (backgroundSignal) =>
+              this.updateRelationAfterExchange(
+                member.memberId,
+                persona.name,
+                trigger.senderId,
+                trigger.senderKind,
+                exchange,
+                { ...chatEndpoint, signal: backgroundSignal },
+              ),
+            signal,
+          )
+          .catch(() => {});
         // M5：节流地蒸馏「关于触发者」的记忆（带 aboutId 防串人 + 有向量时嵌入）。不阻塞。
-        this.maybeDistillGroupMemory(
-          member.memberId,
-          persona.name,
-          trigger.senderId,
-          trigger.senderKind,
-          [
-            { role: 'user', text: trigger.text },
-            { role: 'assistant', text: renderedTurns.join(' / ') },
-          ],
-          chatEndpoint,
-          embeddingEndpoint,
-        );
+        void this.conversationRuns
+          .start(
+            [
+              { kind: 'group', id: groupId },
+              { kind: 'persona', id: member.memberId },
+            ],
+            (backgroundSignal) =>
+              this.maybeDistillGroupMemory(
+                member.memberId,
+                persona.name,
+                trigger.senderId,
+                trigger.senderKind,
+                [
+                  { role: 'user', text: trigger.text },
+                  { role: 'assistant', text: renderedTurns.join(' / ') },
+                ],
+                { ...chatEndpoint, signal: backgroundSignal },
+                embeddingEndpoint ? { ...embeddingEndpoint, signal: backgroundSignal } : null,
+              ),
+            signal,
+          )
+          .catch(() => {});
       }
       return recorded;
     } catch {
@@ -961,18 +1044,19 @@ export class AgentLabService extends EventEmitter {
     convo: Array<{ role: 'user' | 'assistant'; text: string }>,
     chatEndpoint: AgentLabEndpoint,
     embeddingEndpoint: AgentLabEndpoint | null,
-  ): void {
+  ): Promise<void> {
     const key = `${personaId} ${aboutId}`;
     const n = (this.groupMemoryCounter.get(key) ?? 0) + 1;
     this.groupMemoryCounter.set(key, n);
-    if (n % 6 !== 0) return;
-    void (async () => {
+    if (n % 6 !== 0) return Promise.resolve();
+    return (async () => {
       try {
         const known = this.memories
           .getAbout(personaId, [aboutId], aboutKind === 'user')
           .map((m) => m.text)
           .slice(-40);
         const fresh = await distillMemories(chatEndpoint, personaName, convo, known);
+        chatEndpoint.signal?.throwIfAborted();
         if (fresh.length === 0) return;
         let embeddings: Array<number[] | undefined> | undefined;
         if (embeddingEndpoint) {
@@ -982,6 +1066,7 @@ export class AgentLabService extends EventEmitter {
             /* 嵌入失败就退化成关键词召回 */
           }
         }
+        chatEndpoint.signal?.throwIfAborted();
         this.memories.add(personaId, fresh, Date.now(), { aboutId, aboutKind }, embeddings);
       } catch {
         /* 记忆蒸馏失败不影响聊天 */
@@ -1003,25 +1088,44 @@ export class AgentLabService extends EventEmitter {
     return false;
   }
 
-  /** token 用量统计（主页图表用）。 */
-  getTokenStats(global?: TokenUsageStore): TokenStats {
-    return this.usage.getStats(global);
+  /** 通用 API 用量页；按范围合并当前账号与应用全局请求。 */
+  getTokenStats(global?: TokenUsageStore, period?: ApiUsagePeriod): TokenStats {
+    return this.usage.getStats(global, period);
   }
 
   /** 与某克隆体的历史对话（持久化，刷新不丢）。 */
   getConversation(personaId: string): ConversationTurn[] {
+    this.mergePersonaConversations(personaId);
     return this.conversations.get(personaId);
   }
 
   clearConversation(personaId: string): void {
+    this.mergePersonaConversations(personaId);
     this.conversations.clear(personaId);
+  }
+
+  /** 共用图片请求仍计入当前账号，并保留场景与克隆体归属。 */
+  recordImageUsage(usage: AgentLabUsage, context: { feature: string; personaId?: string }): void {
+    this.usage.record({
+      ...usage,
+      ts: usage.startedAt ?? Date.now(),
+      personaId: context.personaId,
+      scope:
+        context.feature === 'assistant'
+          ? 'assistant'
+          : context.feature === 'cloneChat'
+            ? 'chat'
+            : context.feature === 'cloneTraining'
+              ? 'build'
+              : (usage.feature ?? context.feature),
+    });
   }
 
   /** 解析端点并挂上 token 记账回调（按任务类型 + 归属 persona/场景）。 */
   private resolveWithUsage(
     ref: AgentLabModelSelection,
     kind: 'chat' | 'embedding' | 'vision',
-    ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant' },
+    ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant'; signal?: AbortSignal },
   ): AgentLabEndpoint {
     const ep = this.resolveEndpoint(ref, kind);
     const buildSignal = ctx.personaId
@@ -1030,20 +1134,16 @@ export class AgentLabService extends EventEmitter {
     return {
       ...ep,
       kind,
+      signal: AbortSignal.any([
+        ...(ep.signal ? [ep.signal] : []),
+        ...(ctx.signal ? [ctx.signal] : []),
+        ...(ctx.scope === 'build' && buildSignal ? [buildSignal] : []),
+      ]),
       ...(ctx.scope === 'build' && ctx.personaId
         ? {
-            signal: AbortSignal.any([
-              ...(ep.signal ? [ep.signal] : []),
-              ...(buildSignal ? [buildSignal] : []),
-            ]),
             onOutput: (output: AgentLabModelOutput) => {
               if (!ctx.personaId) return;
-              this.emit('build-progress', {
-                personaId: ctx.personaId,
-                phase: '模型输出',
-                percent: 0,
-                output,
-              } satisfies AgentLabBuildProgress);
+              this.emitBuildOutput(ctx.personaId, output);
             },
           }
         : {}),
@@ -1057,7 +1157,17 @@ export class AgentLabService extends EventEmitter {
     };
   }
 
-  /** Emit one build-progress event (consumed by the onAgentLabBuildProgress subscription). */
+  /** 模型增量沿构建订阅发送，由前端按 output 分路。 */
+  private emitBuildOutput(personaId: string, output: AgentLabModelOutput): void {
+    this.emit('build-progress', {
+      personaId,
+      phase: '模型输出',
+      percent: 0,
+      output,
+    } satisfies AgentLabBuildProgress);
+  }
+
+  /** 发送构建阶段与进度。 */
   private emitProgress(
     personaId: string,
     phase: string,
@@ -1212,16 +1322,18 @@ export class AgentLabService extends EventEmitter {
     return { persona: record.persona, pairs };
   }
 
-  deletePersona(personaId: string): boolean {
-    this.memories.clear(personaId);
-    this.conversations.clear(personaId);
-    this.notes.clear(personaId);
-    // 清掉该克隆体的所有会话桶（`${personaId}:*`）。
-    for (const s of this.sessions.list(personaId)) {
-      this.conversations.clear(this.personaSessionBucket(personaId, s.id));
-    }
-    this.sessions.deleteOwner(personaId);
-    return this.store.deletePersona(personaId);
+  async deletePersona(personaId: string): Promise<boolean> {
+    return this.conversationRuns.stopAndDelete({ kind: 'persona', id: personaId }, async () => {
+      this.buildControllers.get(personaId)?.abort();
+      await Promise.allSettled([this.buildsByPersona.get(personaId)]);
+      await this.runtime.stopPersona(personaId);
+      this.memories.clear(personaId);
+      this.conversations.clearOwner(personaId);
+      this.notes.clear(personaId);
+      this.sessions.deleteOwner(personaId);
+      this.relations.deletePersona(personaId);
+      return this.store.deletePersona(personaId);
+    });
   }
 
   /** 增量更新克隆体的可编辑字段（额外提示 / 名称 / 语音克隆开关 / 语音绑定）。 */
@@ -1397,17 +1509,73 @@ export class AgentLabService extends EventEmitter {
     selfName: string,
     peerName: string,
     voiceClips: VoiceClipCandidate[],
+    personaId?: string,
+    signal?: AbortSignal,
+    stickerOutcomes = new Map<string, AiImageOutcome>(),
   ): Promise<AgentLabMessage[]> {
     const canTranscribe = !!this.media?.transcribe && (this.media.voiceReady?.() ?? false);
     let transcribed = 0;
     const out: AgentLabMessage[] = [];
-    for (const msg of rawMsgs) {
+    let lastYield = performance.now();
+    const report = (index: number, detail?: string) => {
+      if (personaId)
+        this.emitProgress(
+          personaId,
+          `整理语料 ${index}/${rawMsgs.length}${detail ? ` · ${detail}` : ''}`,
+          28 + (index / Math.max(1, rawMsgs.length)) * 13,
+        );
+    };
+    for (const [index, msg] of rawMsgs.entries()) {
+      // 缓存命中与纯文本不会等待 I/O，避免整批微任务饿死交互请求。
+      if (performance.now() - lastYield >= 8) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        lastYield = performance.now();
+      }
+      signal?.throwIfAborted();
+      if (index % 100 === 0) report(index);
       const role = msg.senderUin.toString() === selfUin ? 'user' : 'assistant';
       const ts = Number(msg.sendTime) * 1000;
       const modality = detectModality(msg.elements);
       let text = textFromElements(msg.elements);
+      if (this.media?.images && msg.elements.some((element) => element.kind === 'pic')) {
+        const images = messageImageRefs(
+          msg.elements,
+          'c2c',
+          msg.targetUid,
+          msg.msgId.toString(),
+          ts,
+        );
+        text = textFromElements(msg.elements.filter((element) => element.kind !== 'pic'));
+        const outcomes: AiImageOutcome[] = [];
+        for (const image of images) {
+          signal?.throwIfAborted();
+          const md5 = image.media?.emoji ? image.media.md5 : undefined;
+          const cached = md5 ? stickerOutcomes.get(md5) : undefined;
+          if (cached) {
+            outcomes.push({ ...cached, id: image.id });
+            continue;
+          }
+          const prepared = await this.media.images.prepare({
+            feature: 'cloneTraining',
+            personaId,
+            text,
+            images: [image],
+            signal,
+            onProgress: (progress) => report(index + 1, progress.text),
+            onOutput: personaId ? (output) => this.emitBuildOutput(personaId, output) : undefined,
+          });
+          const outcome = prepared.outcomes[0];
+          if (outcome) {
+            outcomes.push(outcome);
+            if (md5) stickerOutcomes.set(md5, outcome);
+          }
+        }
+        text = trainingImageText(text, outcomes);
+      }
       if (modality === 'voice' && canTranscribe && transcribed < VOICE_TRANSCRIBE_CAP) {
+        report(index + 1, '正在转录语音');
         const res = await this.transcribePtt(msg.elements, ts);
+        report(index + 1, res.spoken ? '语音转录完成' : '语音未能转录，保留占位');
         if (res.spoken) {
           text = text.includes('[语音]')
             ? text.replace('[语音]', `[语音]${res.spoken}`)
@@ -1428,6 +1596,7 @@ export class AgentLabService extends EventEmitter {
       if (!text) continue;
       out.push({ role, text, ts, senderName: role === 'user' ? selfName : peerName, modality });
     }
+    report(rawMsgs.length);
     return out;
   }
 
@@ -1542,24 +1711,15 @@ export class AgentLabService extends EventEmitter {
     return { stickers, faces };
   }
 
-  /** Top 高频表情包 → 本地缓存 + （有 vision 时）解读内容/场景。 */
+  /** Top 高频表情包 → 本地缓存 + 复用本轮语料的图片识别结果，不再单独请求模型。 */
   private async buildStickerRefs(
     accums: StickerAccum[],
-    visionRef: AgentLabModelSelection | undefined,
-    chatFriendName: string,
+    outcomes: ReadonlyMap<string, AiImageOutcome>,
     personaId: string,
   ): Promise<AgentLabStickerRef[]> {
     const media = this.media;
     if (!media) return [];
     const top = [...accums].sort((a, b) => b.count - a.count).slice(0, STICKER_CAP);
-    let visionEndpoint: AgentLabEndpoint | null = null;
-    if (visionRef) {
-      try {
-        visionEndpoint = this.resolveWithUsage(visionRef, 'vision', { personaId, scope: 'build' });
-      } catch {
-        visionEndpoint = null;
-      }
-    }
     const out: AgentLabStickerRef[] = [];
     for (const s of top) {
       this.buildControllers.get(personaId)?.signal.throwIfAborted();
@@ -1573,30 +1733,15 @@ export class AgentLabService extends EventEmitter {
       }
       this.buildControllers.get(personaId)?.signal.throwIfAborted();
       const localPath = found ? this.cacheStickerFile(found, s.md5) : undefined;
-      let description = '';
-      let scenario = '';
-      if (localPath && visionEndpoint) {
-        const dataUrl = imageToDataUrl(localPath);
-        if (dataUrl) {
-          // 用这张表情专属的使用情境作 hint（比全局语料切片精准）。
-          const d = await describeSticker(
-            visionEndpoint,
-            chatFriendName,
-            dataUrl,
-            s.contexts.join('\n'),
-          );
-          description = d.description;
-          scenario = d.scenario;
-        }
-      }
+      const outcome = outcomes.get(s.md5);
       out.push({
         md5: s.md5,
         fileName: s.fileName,
         localPath,
         cdnToken: s.fileToken,
         count: s.count,
-        description,
-        scenario,
+        description: outcome?.status === 'read' ? (outcome.text ?? '') : '',
+        scenario: '',
         contexts: s.contexts,
       });
     }
@@ -1677,7 +1822,11 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** 私聊语料不足时去好友所在群学风格：只取 TA 自己的发言，受多重上限约束。 */
-  private async collectGroupStyleMessages(targetUid: string): Promise<AgentLabMessage[]> {
+  private async collectGroupStyleMessages(
+    targetUid: string,
+    personaId?: string,
+    signal?: AbortSignal,
+  ): Promise<AgentLabMessage[]> {
     const groups = await this.session.groupMembers.listUserGroups(targetUid, 50);
     const picked = [...groups]
       .sort((a, b) => b.lastSpeakTime - a.lastSpeakTime)
@@ -1705,7 +1854,26 @@ export class AgentLabService extends EventEmitter {
         beforeSeq = oldest.msgSeq;
         for (const m of page) {
           if (m.senderUid !== targetUid) continue;
-          const text = textFromElements(m.elements);
+          signal?.throwIfAborted();
+          let text = textFromElements(m.elements);
+          if (this.media?.images && m.elements.some((element) => element.kind === 'pic')) {
+            const images = messageImageRefs(
+              m.elements,
+              'group',
+              String(groupCode),
+              m.msgId.toString(),
+              Number(m.sendTime) * 1000,
+            );
+            text = textFromElements(m.elements.filter((element) => element.kind !== 'pic'));
+            const prepared = await this.media.images.prepare({
+              feature: 'cloneTraining',
+              personaId,
+              text,
+              images,
+              signal,
+            });
+            text = trainingImageText(text, prepared.outcomes);
+          }
           if (!isMeaningful(text)) continue;
           out.push({ role: 'assistant', text, ts: Number(m.sendTime) * 1000, modality: 'text' });
           taken += 1;
@@ -1788,6 +1956,7 @@ export class AgentLabService extends EventEmitter {
     this.buildControllers.set(input.personaId, controller);
     const pending = this.runBuild(input, previous);
     this.buildPromises.add(pending);
+    this.buildsByPersona.set(input.personaId, pending);
     try {
       const persona = await pending;
       this.emitProgress(input.personaId, '完成', 100, { done: true });
@@ -1804,6 +1973,7 @@ export class AgentLabService extends EventEmitter {
     } finally {
       this.buildControllers.delete(input.personaId);
       this.buildPromises.delete(pending);
+      this.buildsByPersona.delete(input.personaId);
       this.buildingPersonas.delete(input.personaId);
     }
   }
@@ -1839,9 +2009,19 @@ export class AgentLabService extends EventEmitter {
     chatEndpoint.signal?.throwIfAborted();
 
     // 2) 映射成语料（顺手把语音转录成文本，并收集 TA 的干净语音做克隆参考）。
-    this.emitProgress(input.personaId, '整理语料 / 转录语音', 28);
+    this.emitProgress(input.personaId, '整理语料 / 图片分析 / 转录语音', 28);
     const voiceClips: VoiceClipCandidate[] = [];
-    const messages = await this.mapC2cMessages(rawMsgs, selfUin, selfName, peerName, voiceClips);
+    const stickerOutcomes = new Map<string, AiImageOutcome>();
+    const messages = await this.mapC2cMessages(
+      rawMsgs,
+      selfUin,
+      selfName,
+      peerName,
+      voiceClips,
+      input.personaId,
+      chatEndpoint.signal,
+      stickerOutcomes,
+    );
     chatEndpoint.signal?.throwIfAborted();
 
     // 3) 表情包 + 系统表情白名单（只看好友自己的消息）。
@@ -1862,7 +2042,7 @@ export class AgentLabService extends EventEmitter {
       this.emitProgress(input.personaId, '私聊语料不足，群里补采风格', 50);
     }
     const groupStyleMessages = needGroup
-      ? await this.collectGroupStyleMessages(input.targetUid)
+      ? await this.collectGroupStyleMessages(input.targetUid, input.personaId, chatEndpoint.signal)
       : [];
 
     // 语音参考兜底（group 模式）：语音不分私聊/群聊、一视同仁——只要还没攒够参考音频就继续补。
@@ -2015,18 +2195,13 @@ export class AgentLabService extends EventEmitter {
       }
     }
 
-    // 表情包：本地缓存 +（有 vision 模型时）解读内容/场景。无 media/vision 时降级为空。
-    if (this.media && stickerAccum.size > 0 && input.models.vision) {
-      this.emitProgress(input.personaId, '解读表情包', 88);
+    // 表情包内容已按图片偏好在整理语料时处理；这里只缓存高频表情资产。
+    if (this.media && stickerAccum.size > 0) {
+      this.emitProgress(input.personaId, '整理常用表情', 88);
     }
     const stickers =
       this.media && stickerAccum.size > 0
-        ? await this.buildStickerRefs(
-            [...stickerAccum.values()],
-            input.models.vision,
-            trainingName,
-            input.personaId,
-          )
+        ? await this.buildStickerRefs([...stickerAccum.values()], stickerOutcomes, input.personaId)
         : [];
 
     // 语音画像：使用场景（chat 模型总结）+ 克隆参考音频（按质量挑 Top-K，已排除变声）。
@@ -2120,27 +2295,23 @@ export class AgentLabService extends EventEmitter {
     personaId: string;
     history: AgentLabChatTurn[];
     text: string;
+    images?: AiImageRef[];
     sessionId?: string;
   }) {
-    // 运行时对话（意愿闸 / 生成 / 落库 / 记忆反思）已下沉到 AgentRuntime，桌面与 bot 共用同一套。
-    let sessionId = input.sessionId;
-    // 多会话兜底：sessionId 指向的会话不存在（被删 / 外部写入）时重建一个，消息不丢；
-    // 结果里带回真实 sessionId，前端发现不一致时采纳它。
-    if (sessionId && !this.sessions.get(input.personaId, sessionId)) {
-      sessionId = this.sessions.create(input.personaId).id;
-    }
-    const result = await this.runtime.chat({ ...input, sessionId });
-    if (sessionId) {
-      this.sessions.touch(input.personaId, sessionId);
-      // 首条用户消息（含意愿闸沉默只记用户）→ 用第一句生成标题。
-      const userTurns = this.conversations
-        .get(this.personaSessionBucket(input.personaId, sessionId))
-        .filter((t) => t.role === 'user').length;
-      if (userTurns === 1) {
-        this.sessions.setTitle(input.personaId, sessionId, sessionTitleFromText(input.text));
-      }
-    }
-    return { ...result, sessionId };
+    return this.conversationRuns.start(
+      [{ kind: 'persona', id: input.personaId }],
+      async (signal) => {
+        this.mergePersonaConversations(input.personaId);
+        const result = await this.runtime.chat({
+          personaId: input.personaId,
+          text: input.text,
+          images: input.images,
+          history: this.conversations.get(input.personaId),
+          signal,
+        });
+        return { ...result, sessionId: undefined };
+      },
+    );
   }
 
   private c2cPartition(targetUid: string): { sortNo: bigint } | { uid: string } {
@@ -2148,3 +2319,5 @@ export class AgentLabService extends EventEmitter {
     return sortNo !== undefined ? { sortNo } : { uid: targetUid };
   }
 }
+import type { AiImagePort, AiImageRef, AiImageOutcome } from '@weq/agentlab';
+import { messageImageRefs, trainingImageText } from '../common/ai_message_images';

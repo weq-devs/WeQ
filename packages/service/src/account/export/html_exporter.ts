@@ -894,7 +894,12 @@ export async function exportToHtml(
       opts.roam,
     );
   } else {
-    const r = await resolveC2cSenders(opts.conv, deps);
+    const r = await resolveC2cSenders(opts.conv, deps, {
+      msgs,
+      kind: opts.kind,
+      range: opts.range,
+      roam: opts.roam,
+    });
     senders = r.senders;
     selfId = selfId ?? r.ownerId;
   }
@@ -902,7 +907,15 @@ export async function exportToHtml(
   // ---- write ----
   const writer = createExportWriter(opts.outputPath);
 
-  const title = escapeHtml(convName || (opts.kind === 'group' ? '群聊' : '私聊'));
+  const kindLabel =
+    opts.kind === 'group'
+      ? '群聊'
+      : opts.kind === 'official'
+        ? '公众号'
+        : opts.kind === 'service'
+          ? '服务号'
+          : '私聊';
+  const title = escapeHtml(convName || kindLabel);
   const exportedAt = escapeHtml(formatTime(Math.floor(Date.now() / 1000)));
   await writer.write(
     `<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n` +
@@ -911,7 +924,7 @@ export async function exportToHtml(
       (dressCss ? `<style id="dress-css">${dressCss}</style>\n` : '') +
       `</head>\n<body>\n<div class="frame">\n` +
       `<header class="head">\n` +
-      `<div class="head-top"><strong>${title}</strong><small>${opts.kind === 'group' ? '群聊' : '私聊'} · 导出于 ${exportedAt}</small></div>\n` +
+      `<div class="head-top"><strong>${title}</strong><small>${kindLabel} · 导出于 ${exportedAt}</small></div>\n` +
       `<div class="search"><input id="q" type="search" placeholder="搜索消息内容…" autocomplete="off" spellcheck="false"><span id="qinfo"></span><div id="results" class="results" hidden></div></div>\n` +
       `</header>\n<main class="log"><div id="log-viewport"><div id="log-spacer-top"></div><div id="log-rows"></div><div id="log-spacer-bottom"></div></div></main>\n` +
       `<script type="application/json" id="log-data">\n[\n`,
@@ -938,8 +951,10 @@ export async function exportToHtml(
         await writeRow(`<div class="day"><span>${escapeHtml(day)}</span></div>`);
         lastDay = day;
       }
-      const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
-      const dec = opts.dressLookup?.(exported.msgId);
+      const sender = exported.forwardSource
+        ? fallbackSender(exported)
+        : (senders.get(exported.senderUid) ?? fallbackSender(exported));
+      const dec = exported.forwardSource ? undefined : opts.dressLookup?.(exported.msgId);
       await writeRow(
         renderMessage(
           exported,

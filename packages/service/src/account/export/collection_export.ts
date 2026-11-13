@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 收藏导出器 —— 导出 QQ 收藏（`collection.db → collection_list_info_table`）为
  * csv / xlsx / json / txt。
@@ -232,27 +233,14 @@ const KIND_LABEL: Record<string, string> = {
 
 // ---- 小工具 ----
 
-/** 毫秒级时间戳 → `YYYY-MM-DD HH:mm`（0/空留空）。 */
+/** 收藏的毫秒字段在导出中保留完整精度（0/空留空）。 */
 function timeText(ms: number): string {
-  if (!ms) return '';
-  return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(ms));
+  return ms ? timeFormat.formatDateTime(ms, 'millisecond') : '';
 }
 
 /** 秒 → `M:SS` / `S"`（0/空留空）。 */
 function durationText(sec: number): string {
-  if (!sec || sec <= 0) return '';
-  const s = Math.round(sec);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return m > 0 ? `${m}:${r.toString().padStart(2, '0')}` : `${s}"`;
+  return sec > 0 ? timeFormat.formatDuration(sec) : '';
 }
 
 /** 字节字符串 → 人类可读（0/空留空）。 */
@@ -551,7 +539,7 @@ export async function exportCollections(
         });
     }
   }
-  if (opts.format === 'json' || opts.format === 'jsonl')
+  if (opts.format === 'json' || opts.format === 'jsonl' || opts.format === 'jsonl.gz')
     await writeCollectionArchive(rows, coverage, opts.outputPath, opts.format, opts.archive);
   else await writeTable(opts.format, COLLECTION_COLS, rows, opts.outputPath, '收藏');
   opts.signal?.throwIfAborted();

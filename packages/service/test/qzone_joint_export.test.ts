@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -61,6 +62,17 @@ const photo = (url = image): QzoneAlbumPhoto => ({
   width: 1,
   height: 1,
 });
+async function waitForTask(manager: ExportTaskManager, id: string, saved = false) {
+  for (;;) {
+    const task = manager.getTask(id)!;
+    if (
+      task.status === 'failed' ||
+      (saved ? task.save?.status === 'saved' : task.status === 'completed')
+    )
+      return;
+    await once(manager, 'progress');
+  }
+}
 async function run(
   opts: { posts?: boolean; otherUrl?: string; repeats?: boolean; video?: boolean } = {},
 ) {
@@ -119,9 +131,11 @@ async function run(
       transcribeVoice: false,
     },
   });
-  await vi.waitFor(() => expect(manager.getTask(id)?.status).toMatch(/completed|failed/));
-  if (manager.getTask(id)?.status === 'completed')
-    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+  await waitForTask(manager, id);
+  if (manager.getTask(id)?.status === 'completed') {
+    await waitForTask(manager, id, true);
+    expect(manager.getTask(id)?.save?.status).toBe('saved');
+  }
   return { task: manager.getTask(id)!, manager, fetchMsgList, fetchAlbumPage };
 }
 it('同一任务导出别人空间的说说与相册，相同 URL 只下载一次并引用同一文件', async () => {
@@ -157,7 +171,7 @@ it('空间增量同时更新说说与相册分卷，复用整包媒体根，查�
   const oldMain = readArchive(JSON.parse(readFileSync(main, 'utf8')));
   const oldAlbum = readArchive(JSON.parse(readFileSync(album, 'utf8')));
   expect(manager.resumeTask(task.id, true)).toBe(true);
-  await vi.waitFor(() => expect(task.status).toMatch(/completed|failed/));
+  await waitForTask(manager, task.id);
   expect(task.error).toBeUndefined();
   expect(task.filePath).toBe(main);
   const afterMain = readArchive(JSON.parse(readFileSync(main, 'utf8')));

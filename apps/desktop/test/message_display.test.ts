@@ -49,13 +49,13 @@ describe('消息元信息', () => {
     expect(metadata(true, false)).not.toContain('<time');
     expect(metadata(false, true)).toContain('01:02:03');
     expect(metadata(false, true)).not.toContain('seq 42');
-    expect(metadata(true, true, true)).toContain('01:02:03');
+    expect(metadata(true, true, true)).toBe('');
     expect(metadata(true, true, true)).not.toContain('seq 42');
   });
   it('日期独立开关，按北京时间以 yyyy-mm-dd 显示并可与时间组合', () => {
     expect(metadata(false, false, false, true)).toContain('>2026-10-17</time>');
     expect(metadata(false, true, false, true)).toContain('>2026-10-17 01:02:03</time>');
-    expect(metadata(true, true, true, true)).toContain('>2026-10-17 01:02:03</time>');
+    expect(metadata(true, true, true, true)).toBe('');
     expect(metadata(true, true, true, true)).not.toContain('seq 42');
     expect(metadata(false, false, false, true, '2026-01-02T03:04:05Z')).toContain(
       '>2026-01-02</time>',

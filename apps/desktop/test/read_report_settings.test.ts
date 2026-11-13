@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountBasicsSection } from '../src/renderer/src/components/settings/AccountBasicsSection';
+import { Card } from '../src/renderer/src/components/settings/controls';
 
 const fixture = vi.hoisted(() => ({
   settings: {
@@ -86,13 +87,26 @@ function mount(page: 'read' | 'account' = 'read') {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = () => act(() => root.render(createElement(AccountBasicsSection, { page })));
+  const render = () =>
+    act(() =>
+      root.render(
+        page === 'read'
+          ? createElement(
+              Card,
+              { title: '未读提醒' },
+              createElement(AccountBasicsSection, { page }),
+            )
+          : createElement(AccountBasicsSection, { page }),
+      ),
+    );
   render();
   return {
     host,
     render,
     toggle: () =>
-      host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="同步已读状态到 QQ"]')!,
+      host.querySelector<HTMLButtonElement>(
+        '[role="switch"][aria-label="向 QQ 服务器上报已读位置"]',
+      )!,
     close: () => {
       act(() => root.unmount());
       host.remove();
@@ -125,11 +139,19 @@ describe('设置中的已读上报开关', () => {
     let f = mount();
     try {
       expect(f.toggle().getAttribute('aria-checked')).toBe('false');
+      expect(
+        f.host.querySelector('[data-setting-id="read-sync"] .weq-set-row-label svg'),
+      ).toBeNull();
       await act(async () => {
         f.toggle().click();
       });
       expect(fixture.mutate).toHaveBeenCalledWith({ enabled: true });
       expect(fixture.confirm).toHaveBeenCalledOnce();
+      expect(fixture.confirm).toHaveBeenCalledWith(
+        '向 QQ 服务器上报已读位置',
+        expect.stringContaining('向 QQ 服务器上报已读位置'),
+        { okLabel: '开启上报' },
+      );
       expect(fixture.mutations).toContain('bootstrap.setReadSyncEnabled');
       expect(fixture.mutations).not.toContain('bootstrap.setReportReadEnabled');
       expect(fixture.mutations).not.toContain('bootstrap.setManualReadReportEnabled');
@@ -179,7 +201,7 @@ describe('设置中的已读上报开关', () => {
       const card = f.toggle().closest('.weq-set-card');
       expect(card).not.toBeNull();
       expect(card?.querySelector('[role="status"]')).toBeNull();
-      expect(card?.textContent).toContain('向 QQ 上报在 WeQ 阅读和手动标记的位置');
+      expect(card?.textContent).toContain('向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置');
       expect(fixture.readReportQuery).not.toHaveBeenCalled();
     } finally {
       f.close();

@@ -24,7 +24,11 @@ export function QqAvatar({
   className?: string;
 }): ReactElement {
   const ownerDocument = useRenderDocument();
-  const raw = useAvatarUrl(url || (uin ? qqAvatarUrl(uin) : null));
+  const raw = useAvatarUrl(
+    url || (uin ? qqAvatarUrl(uin) : null),
+    true,
+    size <= 64 ? 'small' : 'big',
+  );
   const resolved = raw ? resourceForRenderDocument(raw, ownerDocument) : raw;
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);

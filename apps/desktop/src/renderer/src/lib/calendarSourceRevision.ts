@@ -28,3 +28,13 @@ export function calendarCloneRevision(
       .sort((a, b) => a.id.localeCompare(b.id));
   return JSON.stringify([project(personas), project(groups)]);
 }
+
+export function calendarAssistantRevision(
+  sessions: readonly { id: string; updatedAt: number }[],
+): string {
+  return JSON.stringify(
+    sessions
+      .map(({ id, updatedAt }) => [id, updatedAt])
+      .sort(([a], [b]) => String(a).localeCompare(String(b))),
+  );
+}

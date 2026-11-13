@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { detectModelCapabilities } from '../src/capability_probe';
+import { detectModelCapabilities, detectModelReasoning } from '../src/capability_probe';
 import { normalizeProviderConfig } from '../src/provider';
 
 const endpoint = {
@@ -10,6 +10,47 @@ const endpoint = {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const answer = (text: string) => json({ choices: [{ message: { content: text } }] });
 afterEach(() => vi.unstubAllGlobals());
+
+it('只探测指定的缺失能力', async () => {
+  const fetch = vi.fn(async () => answer('OK'));
+  vi.stubGlobal('fetch', fetch);
+  expect(await detectModelCapabilities(endpoint, ['chat'])).toHaveLength(1);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(await detectModelCapabilities(endpoint, [])).toEqual([]);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('思考探测只采纳接口明确返回的合法枚举，保留原始值且不猜默认值', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      json(
+        {
+          error: {
+            message: "reasoning_effort invalid; allowed values: ['low', 'xhigh', 'custom']",
+          },
+        },
+        400,
+      ),
+    ),
+  );
+  expect(await detectModelReasoning(endpoint)).toMatchObject({
+    status: 'supported',
+    reasoning: { controls: [{ values: ['low', 'xhigh', 'custom'] }] },
+  });
+});
+
+it.each([200, 401, 429, 502])('思考参数被忽略或 HTTP %s 不生成已支持档位', async (status) => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      status === 200
+        ? answer('OK')
+        : json({ error: { message: "reasoning_effort allowed values: ['low', 'high']" } }, status),
+    ),
+  );
+  expect((await detectModelReasoning(endpoint)).status).toBe('unknown');
+});
 
 it('实际验证聊天、数值向量和两张不同颜色的内置图片', async () => {
   const colors = new Set<string>();

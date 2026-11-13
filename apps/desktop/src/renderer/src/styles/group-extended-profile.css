@@ -1,0 +1,33 @@
+.weq-group-extras {
+  min-width: 0;
+  padding: 14px 0 2px;
+}
+.weq-group-extras-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.weq-group-extras-toolbar > strong {
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+}
+.weq-group-extras-toolbar > span {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-group-extras-toolbar > button {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+}
+.weq-group-extras-rows {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+/* 行本身由共用 ContactRow（.weq-profile-data-*）渲染，这里不再定义 dt/dd 网格。 */
+html[data-theme='dark'] .weq-group-extras-toolbar > span {
+  color: var(--weq-fg-secondary);
+}

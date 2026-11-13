@@ -91,14 +91,18 @@ WeQ 的判别式是 `app`（如 `com.tencent.structmsg`）而不是 `view`——
 `ark-cards.generated.json` 由 `scripts/extract-ark-cards.mjs` 从 QQ 官方 ark 资源包
 （`resources/arks_resource/<app>/<时间戳>/index.js`）机械提取：
 
-- 每个 `index.js` 用 `_setViewTemplate('<id>', \`<XML>\`)` 注册布局模板；
+- 每个 `index.js` 用 `_setViewTemplate('<id>', '<XML>')` 注册布局模板；
 - 用 Lua 的 `ViewModel:OnSetMetadata(value)` 定义 `data["字段"] → self.<节点>` 的绑定。
 
 脚本只抽取静态渲染需要的「排版 + 字段绑定」，运行时 Lua 逻辑、网络请求、动效一律忽略。
 
-> ⚠️ 原始资源包约 25MB，提取完成后已从仓库删除，只保留脚本与生成的 JSON。
-> 需要重新生成时得先把 ark 包放回 `resources/arks_resource/` 再跑
-> `node scripts/extract-ark-cards.mjs`。
+::: info 资源包不入库
+
+原始资源包约 25MB，提取完成后已从仓库删除，只保留脚本与生成的 JSON。
+需要重新生成时得先把 ark 包放回 `resources/arks_resource/` 再跑
+`node scripts/extract-ark-cards.mjs`。
+
+:::
 
 ### 生成 JSON 的结构
 

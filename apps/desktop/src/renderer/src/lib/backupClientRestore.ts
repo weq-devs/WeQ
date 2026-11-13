@@ -1,6 +1,7 @@
 import { applyWeqClientSettings, WEQ_CLIENT_RESTORE_RECEIPT } from '@weq/service/backup-client';
 import type { WeqRestoreResult } from '@weq/service';
 import type { ToastDurations } from '@weq/service/toast-settings';
+import { validatePreferencePatch, type PreferencePatch } from '@weq/service/client-preferences';
 
 export const BACKUP_CLIENT_ID_KEY = 'weq.backup-client-id';
 export interface BackupStartupState {
@@ -32,6 +33,7 @@ export async function restoreBackupClient(
   api: {
     read: (clientId?: string) => Promise<BackupStartupState>;
     acknowledge: (id: string, clientId: string) => Promise<boolean>;
+    applyShared: (id: string, values: PreferencePatch) => Promise<unknown>;
   },
   source: Storage | (() => Storage),
 ): Promise<BackupStartupState> {
@@ -44,6 +46,13 @@ export async function restoreBackupClient(
   if (!state.ok || !pending) return state;
   if (storage.getItem(WEQ_CLIENT_RESTORE_RECEIPT) !== pending.id)
     applyWeqClientSettings(storage, pending.values, true, pending.id, pending.defaults);
+  const intent = storage.getItem('weq.sync.restored-shared');
+  if (intent !== null) {
+    const values: unknown = JSON.parse(intent);
+    validatePreferencePatch(values);
+    await api.applyShared(pending.id, values);
+    storage.removeItem('weq.sync.restored-shared');
+  }
   if (!(await api.acknowledge(pending.id, clientId)))
     throw new Error('界面偏好已应用，但恢复回执未确认，请重试读取。');
   return {

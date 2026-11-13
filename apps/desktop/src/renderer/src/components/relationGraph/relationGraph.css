@@ -1415,13 +1415,13 @@ html[data-theme='dark'] .weq-rank-value {
   padding: 0 20px;
   border: 0;
   border-radius: 10px;
-  background: var(--weq-accent-effective);
-  color: #fff;
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, #ffffff);
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
   box-shadow:
-    0 10px 24px -12px color-mix(in srgb, var(--weq-accent-effective) 70%, transparent),
+    0 10px 24px -12px color-mix(in srgb, var(--weq-accent-solid) 70%, transparent),
     0 1px 0 rgba(255, 255, 255, 0.18) inset;
   transition:
     transform 140ms ease,
@@ -1432,7 +1432,7 @@ html[data-theme='dark'] .weq-rank-value {
 .weq-relhome-cta:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: brightness(1.05);
-  box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--weq-accent-effective) 78%, transparent);
+  box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--weq-accent-solid) 78%, transparent);
 }
 
 .weq-relhome-cta:active:not(:disabled) {

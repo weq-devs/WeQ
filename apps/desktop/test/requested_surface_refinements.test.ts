@@ -6,16 +6,26 @@ import { NewCloneModal } from '../src/renderer/src/views/agentlab/NewCloneModal'
 import { NewGroupModal } from '../src/renderer/src/views/agentlab/NewGroupModal';
 import { ConversationMessageActions } from '../src/renderer/src/components/ConversationMessageActions';
 import { OverlayAnchorContext } from '../src/renderer/src/lib/overlayAnchor';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 const state = vi.hoisted(() => ({ status: 'paused' }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({
+      bootstrap: { getSettings: { invalidate: async () => {} } },
+      account: { intentSense: { getStatus: { invalidate: async () => {} } } },
+    }),
     bootstrap: {
+      // 新建克隆里的图片处理偏好读取共享设置。
+      getSettings: { useQuery: () => ({ data: { aiImages: {} } }) },
+      setAiImagePreference: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isLoading: false }),
+      },
       listAgentLabProviders: {
         useQuery: () => ({ data: [{ id: 'p', name: '合成服务', models: [{ id: 'm' }] }] }),
       },
       getAgentLabDefaultModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
+      getDefaultEmbeddingModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
     },
     account: {
       roamingBackfill: {
@@ -164,12 +174,18 @@ describe('邮箱与会话入口界面细节', () => {
           .find((b) => b.textContent?.includes('下一步'))!
           .click();
       });
+      expect(document.querySelector('[aria-label="克隆训练 图片处理偏好"]')).not.toBeNull();
+      expect(document.body.textContent).not.toContain('分析 TA 的自定义表情包');
+      expect(document.querySelector('[aria-label="克隆视觉模型"]')).toBeNull();
       act(() => {
         [...document.querySelectorAll<HTMLButtonElement>('button')]
           .find((b) => b.textContent?.includes('开始克隆'))!
           .click();
       });
       expect(onStart).toHaveBeenCalledTimes(3);
+      for (const [args] of onStart.mock.calls) {
+        expect(args.params.models).toEqual({ chat: { useDefault: true } });
+      }
       const uids = onStart.mock.calls.map(([args]) => args.params.targetUid);
       expect(new Set(uids)).toEqual(new Set(['u1', 'u2', 'u3']));
       const ids = onStart.mock.calls.map(([args]) => args.params.personaId);

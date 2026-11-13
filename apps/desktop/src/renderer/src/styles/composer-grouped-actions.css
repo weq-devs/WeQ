@@ -1,8 +1,6 @@
-@media (max-width: 760px) {
-  .composer:has(> .bounce-panel),
-  .composer:has(> .poke-panel) {
-    overflow: visible;
-  }
+:where(html[data-weq-layout='single']) .composer:has(> .bounce-panel),
+:where(html[data-weq-layout='single']) .composer:has(> .poke-panel) {
+  overflow: visible;
 }
 
 @media (prefers-reduced-motion: reduce) {

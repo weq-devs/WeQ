@@ -21,6 +21,7 @@ import { resolve } from 'node:path';
 const saveState = vi.hoisted(() => ({
   current: true,
   web: false,
+  remote: false,
   requestExport: vi.fn(),
   prepare: vi.fn(
     async (_intent?: ExportSavePolicy, _output?: unknown): Promise<ExportSavePolicy | null> => ({
@@ -36,6 +37,10 @@ vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
     return saveState.web;
   },
+}));
+vi.mock('../src/renderer/src/lib/remoteClient', () => ({
+  isRemoteClient: () => saveState.remote,
+  useRemoteClient: () => saveState.remote,
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
@@ -99,7 +104,7 @@ function fixture() {
     save: vi.fn(async () => 'attachment-task'),
     exportMessages: vi.fn(async () => 'mail-export-task'),
     image: vi.fn(async () => ({ mime: 'image/png', base64: '' })),
-    subscribe: vi.fn(() => () => {}),
+    subscribe: vi.fn((_listener: Parameters<MailApi['subscribe']>[0]) => () => {}),
     openLink: vi.fn(async () => {}),
     dispose: vi.fn(),
   };
@@ -113,6 +118,7 @@ beforeEach(() => {
   );
   saveState.current = true;
   saveState.web = false;
+  saveState.remote = false;
   saveState.requestExport.mockReset();
   saveState.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
 });
@@ -244,7 +250,7 @@ describe('邮箱文件夹重复选择', () => {
       f.close();
     }
   });
-  it('进入与恢复前台自动读取，隐藏和离线取消读取，保留写信草稿且不重发操作', async () => {
+  it('返回前台复用已加载邮件，收到更新后重新读取，保留写信草稿且不重发操作', async () => {
     const { api, list } = fixture();
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
     const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
@@ -272,13 +278,15 @@ describe('邮箱文件夹重复选择', () => {
       expect(list).toHaveBeenCalledTimes(1);
       online.mockReturnValue(true);
       await act(async () => window.dispatchEvent(new Event('online')));
+      expect(list).toHaveBeenCalledTimes(1);
+      await act(async () => api.subscribe.mock.calls[0]![0]({ type: 'changed' }));
       expect(list).toHaveBeenCalledTimes(2);
       expect(subject.value).toBe('未保存的主题');
       expect(view.host.textContent).toContain('恢复后新邮件');
       await view.setActive(false);
       expect(list.mock.calls[1]![1]!.aborted).toBe(true);
       await view.setActive(true);
-      expect(list).toHaveBeenCalledTimes(3);
+      expect(list).toHaveBeenCalledTimes(2);
       expect(api.subscribe).toHaveBeenCalledTimes(1);
       expect(api.send).not.toHaveBeenCalled();
       expect(api.action).not.toHaveBeenCalled();
@@ -584,7 +592,9 @@ describe('邮箱修饰键多选', () => {
         if (action === '收件箱')
           f.host.querySelector<HTMLButtonElement>('.weq-mail-folders [title="收件箱"]')!.click();
         else if (action === '未读')
-          f.host.querySelector<HTMLInputElement>('.weq-mail-list-heading input')!.click();
+          f.host
+            .querySelector<HTMLButtonElement>('.weq-mail-list-heading [role="checkbox"]')!
+            .click();
         else if (action === '搜索')
           f.host
             .querySelector<HTMLFormElement>('.weq-mail-search')!
@@ -599,7 +609,7 @@ describe('邮箱修饰键多选', () => {
     }
   });
 
-  it('自动刷新移除失效选择和锚点，不把旧邮件带入批量操作', async () => {
+  it('收到邮件更新后移除失效选择和锚点，不把旧邮件带入批量操作', async () => {
     const f = await selectionView();
     try {
       await f.click('a', { ctrlKey: true });
@@ -609,6 +619,8 @@ describe('邮箱修饰键多选', () => {
       });
       await f.setActive(false);
       await f.setActive(true);
+      expect(f.checked()).toEqual(['a']);
+      await act(async () => f.api.subscribe.mock.calls[0]![0]({ type: 'changed' }));
       expect(f.checked()).toEqual([]);
       await f.click('e', { shiftKey: true });
       expect(f.checked()).toEqual(['e']);
@@ -671,6 +683,22 @@ describe('邮箱修饰键多选', () => {
 });
 
 describe('附件公共保存入口', () => {
+  it('Remote 附件直接交付设备下载，不使用电脑保存位置', async () => {
+    saveState.web = true;
+    saveState.remote = true;
+    const view = await attachmentView();
+    try {
+      expect(view.host.querySelector('[title="下载附件到设备"]')).not.toBeNull();
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('[aria-label="保存附件 README"]')!.click(),
+      );
+      expect(view.api.download).toHaveBeenCalledWith('attachment-token', expect.any(AbortSignal));
+      expect(view.api.save).not.toHaveBeenCalled();
+      expect(saveState.prepare).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
   it('按所选附件的真实文件名准备单文件，创建任务而非直接另存', async () => {
     const view = await attachmentView();
     try {

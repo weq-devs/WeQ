@@ -1,3 +1,4 @@
+import { OperationError } from '../common/operation_error';
 /**
  * MessageSendService —— 往群聊 / 私聊**发消息**（MessageSvc.PbSendMsg + 媒体上传）。
  *
@@ -45,6 +46,7 @@ import {
   PUSH_MSG_BODY,
   SEND_MESSAGE_REQUEST,
   sendPrivateFile,
+  sendDatalineFile,
   SendAiVoice,
   SendLocationArk,
   type ContactArkKind,
@@ -59,6 +61,7 @@ import {
 } from '@weq/protocol';
 import { getLogger } from '../common/logger';
 import { toGapMessage, type GapFetchedMessage } from './gap_history';
+import type { MediaDownloadService } from './media_download';
 
 const logger = getLogger().child({ scope: 'message-send' });
 
@@ -509,7 +512,38 @@ export class MessageSendService {
     private readonly currentChatFontId?: () => number | undefined,
     private readonly sendWithQqFont: () => boolean = () => true,
     private readonly currentChatBubbleId?: () => number | undefined,
+    private readonly mediaDownload?: Pick<MediaDownloadService, 'download'>,
   ) {}
+
+  private withImageFallback(elements: SendElement[]): SendElement[] {
+    return elements.map((element) => {
+      if (element.kind !== 'image' || !element.fingerprint) return element;
+      const { source, download } = element;
+      return {
+        ...element,
+        resolveSource: async () => {
+          if (typeof source !== 'string' || source.trim()) return source;
+          const local = download?.fileToken
+            ? await this.mediaDownload?.download(download.fileToken, {
+                originalUrl: download.originalUrl,
+              })
+            : null;
+          if (!local) throw new Error('图片秒传未命中，且无法取回原图，请重试或重新选择图片。');
+          return local;
+        },
+      };
+    });
+  }
+
+  private withForwardImageFallback(nodes: SendForwardNodeInput[]): SendForwardNodeInput[] {
+    return nodes.map((node) => ({
+      ...node,
+      elements: this.withImageFallback(node.elements),
+      ...(node.innerForward
+        ? { innerForward: this.withForwardImageFallback(node.innerForward) }
+        : {}),
+    }));
+  }
 
   /** 回读前按账号配置预览气泡，不把预览 ID 写入发送请求。 */
   async prepareChatDecoration(
@@ -686,7 +720,7 @@ export class MessageSendService {
     }
 
     // 私聊：非纯数字 = uid
-    if (isDatalineUid(text)) throw new Error('设备会话目前仅支持文本消息');
+    if (isDatalineUid(text)) throw new OperationError('设备会话目前仅支持文本消息', 'expected');
     if (!/^\d+$/.test(text)) {
       const uin = this.session.uidMap.uinByUid(text);
       if (!uin) {
@@ -831,6 +865,42 @@ export class MessageSendService {
   async sendFile(params: SendFileParams): Promise<SendFileOutcome> {
     const filePath = params.path?.trim();
     if (!filePath) throw new Error('文件路径不能为空。');
+    const deviceUid = String(params.targetId).trim();
+    const device = params.peerType === 'c2c' ? datalineDevice(deviceUid) : null;
+    if (device) {
+      const result = await sendDatalineFile(this.nt, this.resolvePid(), {
+        target: {
+          selfUin: Number(this.selfUin()),
+          selfUid: this.session.selfUid ?? '',
+          deviceUid,
+          terminalType: device === 'pc' ? 1 : device === 'phone' ? 2 : 3,
+        },
+        filePath,
+        ...(params.fileName?.trim() ? { fileName: params.fileName.trim() } : {}),
+        beforeSend: params.beforeSend,
+        log: (message) => logger.info(message, { event: 'device-file-upload' }),
+      });
+      return {
+        ok: result.sent,
+        peerType: 'c2c',
+        targetId: deviceUid,
+        uid: deviceUid,
+        scene: 'c2c',
+        kind: 'file',
+        fileId: result.fileId,
+        fileName: result.fileName,
+        fileSize: result.fileSize,
+        md5Hex: result.md5Hex,
+        fastUpload: result.fastUpload,
+        sent: result.sent,
+        result: result.receipt.result,
+        errMsg: result.receipt.errMsg,
+        random: result.receipt.random,
+        privateSequence: result.receipt.privateSequence,
+        timestamp: result.receipt.timestamp,
+        ...(result.sent ? { hint: '文件已上传，设备消息已提交。' } : {}),
+      };
+    }
     const target = this.resolveTarget(params.targetId, params.peerType, params.peerType === 'c2c');
     const pid = this.resolvePid();
     const selfUin = this.selfUin();
@@ -1039,7 +1109,7 @@ export class MessageSendService {
       ...(!device && !groupTemp && target.scene === 'c2c' && target.uid
         ? { userUid: target.uid }
         : {}),
-      elements,
+      elements: this.withImageFallback(elements),
       // 显式携带当前字体原值；服务器历史回填字体不代表实时推送也带字体。
       ...(dress ? { dress } : {}),
       ...(needUpload
@@ -1294,7 +1364,7 @@ export class MessageSendService {
       ...(target.scene !== 'group' && target.uid ? { userUid: target.uid } : {}),
       selfUin,
       selfUid,
-      nodes: params.nodes as ProtocolSendForwardParams['nodes'],
+      nodes: this.withForwardImageFallback(params.nodes) as ProtocolSendForwardParams['nodes'],
       log: (message: string) => logger.info(message, { event: 'forward-upload' }),
     });
     logger.info(`合并转发内容已上传: resId=${upload.resId} levels=${upload.levels.length}`, {

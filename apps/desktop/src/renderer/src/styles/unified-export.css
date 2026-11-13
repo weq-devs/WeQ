@@ -192,24 +192,13 @@ html[data-theme='dark'] .weq-export-contact-outside > button {
   border-color: var(--weq-border-strong);
 }
 
-.weq-export-tool .weq-exp-seg {
-  border-radius: 6px;
-}
-.weq-export-tool .weq-exp-seg button {
-  color: var(--weq-fg-secondary);
-}
-.weq-export-tool .weq-exp-seg button.is-active {
-  background: var(--weq-bg-surface);
-  color: var(--weq-accent-effective);
-  box-shadow: var(--weq-shadow-soft);
-}
 .weq-export-tool .weq-exp-primary,
 html[data-theme='dark'] .weq-export-tool .weq-exp-primary,
 .weq-export-tool .weq-exp-primary:hover:not(:disabled),
 html[data-theme='dark'] .weq-export-tool .weq-exp-primary:hover:not(:disabled) {
-  background: var(--weq-accent-effective);
-  border-color: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 .weq-export-tool .weq-exp-primary:disabled,
 html[data-theme='dark'] .weq-export-tool .weq-exp-primary:disabled {
@@ -283,23 +272,6 @@ html[data-theme='dark'] .weq-export-tool .weq-exp-sched-card {
     min-height: 40px;
     padding: 6px 12px;
   }
-  .weq-export-tool .weq-export-save-control {
-    padding: 6px 12px;
-    gap: 6px 8px;
-    font-size: 12px;
-  }
-  .weq-export-tool .weq-export-save-control legend {
-    margin-right: 8px;
-  }
-  .weq-export-tool .weq-export-save-control > button > span {
-    display: none;
-  }
-  .weq-export-tool .weq-export-save-location > span {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
   .weq-export-tool .weq-exp-pane-head {
     padding: 8px 12px;
   }
@@ -345,11 +317,6 @@ html[data-theme='dark'] .weq-export-tool .weq-exp-sched-card {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .weq-export-tool .weq-exp-seg button {
-    transition: none;
-  }
-}
 .weq-qzone-scope-row {
   display: flex;
   align-items: center;

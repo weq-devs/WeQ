@@ -2,6 +2,8 @@ import { act, createElement, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageIntentSense } from '../src/renderer/src/components/intentSense/MessageIntentSense';
+import type { IntentSenseResult } from '@weq/service';
+import { Modal } from '../src/renderer/src/components/Dialog';
 
 const context = vi.hoisted(() => ({
   active: true,
@@ -10,15 +12,25 @@ const context = vi.hoisted(() => ({
   kind: 'group',
   latestPeerMsgId: null,
   settled: true,
-  getAnalysis: () => ({
-    msgId: 'fixture',
-    intent: 'request',
-    emotion: 'neutral',
-    intensity: 60,
-    sentiment: 5,
-    confidence: 0.9,
-    engine: 'local',
-  }),
+  hasResult: true,
+  loadingAnimation: true,
+  persistentDisplay: true,
+  hoverDisplay: true,
+  getAnalysis: (): IntentSenseResult | undefined =>
+    context.hasResult
+      ? {
+          msgId: 'fixture',
+          intent: 'request',
+          emotion: 'neutral',
+          intensity: 60,
+          sentiment: 5,
+          confidence: 0.9,
+          engine: 'local',
+          mine: false,
+          sendTime: 1000,
+          analyzedAt: 1000,
+        }
+      : undefined,
   isUnavailable: () => false,
   requestAnalysis: vi.fn(),
 }));
@@ -42,6 +54,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   context.conv = 'fixture-a';
+  context.hasResult = true;
+  context.loadingAnimation = true;
+  context.persistentDisplay = true;
+  context.hoverDisplay = true;
   context.requestAnalysis.mockClear();
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: HTMLElement,
@@ -69,6 +85,54 @@ async function fixture() {
   return { host, root, close: () => act(() => root.unmount()) };
 }
 describe('意图浮窗的宿主与关闭', () => {
+  it('Esc 先收起意图浮窗，不关闭它下面的业务弹窗', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const parentClose = vi.fn();
+    try {
+      act(() =>
+        root.render(createElement(Modal, { onClose: parentClose }, createElement(Fixture))),
+      );
+      const bubble = document.querySelector('.message-content')!;
+      act(() => {
+        bubble.dispatchEvent(new Event('pointerenter'));
+        vi.advanceTimersByTime(300);
+      });
+      expect(document.querySelector('.weq-intent-popover')).not.toBeNull();
+      act(() =>
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+      );
+      expect(document.querySelector('.weq-intent-popover')).toBeNull();
+      expect(parentClose).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+  it('关闭等待动画时首次提交无胶囊和占位，结果到达后直接显示，常驻关闭优先', async () => {
+    context.hasResult = false;
+    context.loadingAnimation = false;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(Fixture)));
+      expect(host.querySelector('.message-text')?.textContent).toBe('合成消息');
+      expect(host.querySelector('.weq-intent-chips')).toBeNull();
+      expect(host.querySelector('.weq-intent-focus-trigger')).toBeNull();
+      context.hasResult = true;
+      act(() => root.render(createElement(Fixture)));
+      expect(host.querySelectorAll('.weq-intent-pill')).toHaveLength(2);
+      context.persistentDisplay = false;
+      act(() => root.render(createElement(Fixture)));
+      expect(host.querySelector('.weq-intent-chips')).toBeNull();
+      context.hoverDisplay = false;
+      act(() => root.render(createElement(Fixture)));
+      expect(host.querySelector('.weq-intent-focus-trigger')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it('键盘聚焦胶囊可打开详情，并通过 aria-describedby 关联到工具提示', async () => {
     const host = document.createElement('div');
     document.body.append(host);

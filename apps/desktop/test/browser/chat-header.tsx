@@ -2,19 +2,23 @@ import { useState } from 'react';
 import { CloudSun } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { ConversationDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
 import { PROJECT_GROUP_IDS } from '../../src/shared/project_groups';
 import { ChatHeader } from '../../src/renderer/src/components/ChatHeader';
+import { MobileWebNavigation } from '../../src/renderer/src/components/MobileWebNavigation';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
+import '../../src/renderer/src/styles/workspace-tools.css';
 
 const demo = createTemplateDemoData();
 const noop = () => {};
 const calls: string[] = [];
 const record = (name: string) => () => calls.push(name);
+window.weqRemoteShell = { openMenu: record('连接菜单') };
 function Fixture() {
+  const [home, setHome] = useState(false);
   const [kind, setKind] = useState<'direct' | 'group'>('direct');
   const [active, setActive] = useState(true);
   const [alignment, setAlignment] = useState(false);
@@ -28,6 +32,7 @@ function Fixture() {
             ...source.group,
             id: PROJECT_GROUP_IDS[0]!,
             name: '用于验证标题截断的合成群聊名称与更多工具',
+            luckyChar: { id: 10001, litCount: 3 },
           },
         }
       : source.type === 'direct'
@@ -42,7 +47,13 @@ function Fixture() {
           }
         : source;
   Object.assign(window, {
-    chatHeaderQa: { calls, kind: setKind, active: setActive, alignment: setAlignment },
+    chatHeaderQa: {
+      calls,
+      kind: setKind,
+      active: setActive,
+      alignment: setAlignment,
+      home: setHome,
+    },
   });
   if (alignment) {
     const status = (
@@ -64,31 +75,47 @@ function Fixture() {
     );
   }
   return (
-    <div className="weq-web-shell" style={{ height: '100dvh' }}>
-      <ConversationDirectoryContext.Provider
-        value={{ virtual: [], onCreate: noop, onVirtual: noop, onAnalyze: record('分析') }}
-      >
-        <ContentSelectionProvider>
-          <ChatPane
-            user={demo.user}
-            conversation={conversation}
-            messages={[]}
-            draft=""
-            tabActive={active}
-            onBack={record('返回')}
-            onDraftChange={noop}
-            onDraftClear={noop}
-            onSend={noop}
-            onSearchChatRecords={record('搜索')}
-            onOpenRoamingBackfill={record('漫游')}
-            onAddMessage={record('添加')}
-            onViewDeleted={record('删除')}
-            onViewRecalled={record('撤回')}
-            onOpenConversationSettings={record('设置')}
-            onOpenGroupBug={record('反馈')}
-          />
-        </ContentSelectionProvider>
-      </ConversationDirectoryContext.Provider>
+    <div className="app-shell-root weq-web-shell" style={{ height: '100dvh' }}>
+      {home ? (
+        <MobileWebNavigation
+          user={{ ...demo.user, displayName: '用于验证标题截断的合成联系人名称' }}
+          view="messages"
+          hidden={false}
+          query=""
+          onQueryChange={noop}
+          messageBadgeCount={0}
+          contactBadgeCount={0}
+          onViewChange={noop}
+          onOpenSettings={noop}
+          onOpenDressUp={noop}
+          onOpenCollection={noop}
+        />
+      ) : (
+        <ConversationDirectoryContext.Provider
+          value={{ virtual: [], onCreate: noop, onVirtual: noop, onAnalyze: record('分析') }}
+        >
+          <ContentSelectionProvider>
+            <ChatPane
+              user={demo.user}
+              conversation={conversation}
+              messages={[]}
+              draft=""
+              tabActive={active}
+              onBack={record('返回')}
+              onDraftChange={noop}
+              onDraftClear={noop}
+              onSend={noop}
+              onSearchChatRecords={record('搜索')}
+              onOpenRoamingBackfill={record('漫游')}
+              onAddMessage={record('添加')}
+              onViewDeleted={record('删除')}
+              onViewRecalled={record('撤回')}
+              onOpenConversationSettings={record('设置')}
+              onOpenGroupBug={record('反馈')}
+            />
+          </ContentSelectionProvider>
+        </ConversationDirectoryContext.Provider>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MessageBubble } from '../src/renderer/src/im-template/template/messageBubble';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { MsgDecorationEnabledContext } from '../src/renderer/src/components/QqMessageContent';
 import { composerSendError } from '../src/renderer/src/im-template/template/composerSend';
 import { stubReadyDecorationResources } from './support/readyDecorationResources';

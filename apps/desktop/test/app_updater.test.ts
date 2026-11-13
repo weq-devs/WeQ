@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({
-  app: { isPackaged: true, getVersion: () => '1.0.0' },
+  app: { isPackaged: true, getVersion: () => '1.0.0', once: vi.fn() },
   quitAndInstall: vi.fn(),
   setFeedURL: vi.fn(),
   checkForUpdates: vi.fn(),
@@ -10,6 +10,12 @@ const fixture = vi.hoisted(() => ({
   macVerifiedArchive: false,
   prepareMacUpdate: vi.fn(),
   installMacUpdate: vi.fn(),
+  restricted: false,
+  cancelDownload: vi.fn(),
+}));
+vi.mock('../src/main/data_saver', () => ({
+  hostDataSaver: async () => fixture.restricted,
+  refreshTransferPolicy: async () => undefined,
 }));
 vi.mock('electron', () => ({ app: fixture.app }));
 vi.mock('electron-updater', async () => {
@@ -39,9 +45,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixture.app.isPackaged = true;
   fixture.macVerifiedArchive = false;
+  fixture.restricted = false;
   fixture.prepareMacUpdate.mockResolvedValue({ version: '1.1.0' });
   fixture.installMacUpdate.mockResolvedValue(undefined);
 });
+afterEach(() => vi.useRealTimers());
 async function ready() {
   const {
     default: { autoUpdater },
@@ -58,7 +66,10 @@ async function ready() {
     base: 'https://synthetic.invalid',
     ranked: ['https://synthetic.invalid'],
   });
-  fixture.checkForUpdates.mockResolvedValue({ updateInfo: { version: '1.1.0' } });
+  fixture.checkForUpdates.mockResolvedValue({
+    updateInfo: { version: '1.1.0' },
+    cancellationToken: { cancel: fixture.cancelDownload },
+  });
   fixture.downloadUpdate.mockImplementation(async () => {
     autoUpdater.emit('update-downloaded', {
       version: '1.1.0',
@@ -70,6 +81,147 @@ async function ready() {
 }
 
 describe('更新安装动作', () => {
+  it('大文件按共享阈值暂停；关闭自动继续后网络恢复仍等待本次继续', async () => {
+    const { updater, autoUpdater } = await ready();
+    const { updateTransferPolicy } = await import('@weq/service/transfer-policy');
+    const { UNKNOWN_NETWORK } = await import('@weq/service/data-saver');
+    const { backgroundTasks } = await import('../src/main/background_tasks');
+    updateTransferPolicy('always', UNKNOWN_NETWORK, {
+      dataSaverLargeMiB: 1,
+      dataSaverAutoResume: false,
+    });
+    fixture.downloadUpdate.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          fixture.cancelDownload.mockImplementation(() => reject(new Error('fixture cancelled')));
+          queueMicrotask(() =>
+            autoUpdater.emit('download-progress', {
+              percent: 1,
+              transferred: 1,
+              total: 2 * 1024 * 1024,
+              bytesPerSecond: 1,
+            }),
+          );
+        }),
+    );
+    const work = updater.startDownload();
+    await vi.waitFor(() => expect(fixture.cancelDownload).toHaveBeenCalled());
+    updateTransferPolicy('never', UNKNOWN_NETWORK, { dataSaverAutoResume: false });
+    await Promise.resolve();
+    expect(fixture.downloadUpdate).toHaveBeenCalledTimes(1);
+    const task = backgroundTasks.snapshot().find((task) => task.name === '下载 WeQ 更新');
+    expect(task?.status).toBe('paused');
+    await backgroundTasks.act(task!.id, 'continue');
+    await work;
+    expect(fixture.downloadUpdate).toHaveBeenCalledTimes(2);
+  });
+  it('持久配置控制启动和周期检查，保存 -1 后仍可手动检查', async () => {
+    vi.useFakeTimers();
+    const { updater } = await ready();
+    const { getUpdateActions } = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    vi.mocked(mirrors.resolveBestMirror).mockResolvedValue({
+      version: '1.0.0',
+      base: 'https://synthetic.invalid',
+      ranked: [],
+    });
+    let minutes = -1;
+    updater.installUpdateActions({
+      get: () => false,
+      set: () => {},
+      getInterval: () => minutes,
+      setInterval: (value) => {
+        minutes = value;
+      },
+    });
+    updater.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).not.toHaveBeenCalled();
+    getUpdateActions().setInterval(1);
+    expect(minutes).toBe(1);
+    expect(getUpdateActions().getInterval()).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledOnce();
+    getUpdateActions().setInterval(-1);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledOnce();
+    await getUpdateActions().check(true);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledTimes(2);
+  });
+  it('开发版不自动检查', async () => {
+    vi.useFakeTimers();
+    const { updater } = await ready();
+    fixture.app.isPackaged = false;
+    updater.startAutomaticUpdateChecks();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('自动检查失败发布结束事件且下一周期重试', async () => {
+    vi.useFakeTimers();
+    const { updater, events } = await ready();
+    const { getUpdateActions } = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    vi.mocked(mirrors.resolveBestMirror).mockRejectedValue(new Error('离线'));
+    updater.installUpdateActions();
+    getUpdateActions().setInterval(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(events).toContainEqual({ kind: 'check-failed' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledTimes(2);
+    getUpdateActions().setInterval(-1);
+  });
+  it('测试版选择传入真实检查与下载，切换后旧结果失效且不允许降级', async () => {
+    const { updater, autoUpdater } = await ready();
+    const state = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    let enabled = false;
+    updater.installUpdateActions({
+      get: () => enabled,
+      set: (value) => {
+        enabled = value;
+      },
+    });
+    updater.setCheckPrerelease(true);
+    expect(enabled).toBe(true);
+    expect(state.getUpdateState()).toBeNull();
+    vi.mocked(mirrors.resolveBestMirror).mockResolvedValue({
+      version: '1.1.0-beta.2',
+      base: 'https://synthetic.invalid',
+      ranked: ['https://synthetic.invalid'],
+      channel: 'beta',
+    });
+    expect(await updater.checkForUpdate(true)).toMatchObject({
+      includePrerelease: true,
+      hasUpdate: true,
+    });
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledWith(undefined, true, true);
+    await updater.startDownload();
+    expect(autoUpdater.allowPrerelease).toBe(true);
+    expect(autoUpdater.channel).toBe('beta');
+    expect(autoUpdater.allowDowngrade).toBe(false);
+    updater.setCheckPrerelease(false);
+    expect(() => updater.quitAndInstall()).toThrow('下载');
+  });
+
+  it('切换开关后拒绝旧的在途检查结果', async () => {
+    const { updater } = await ready();
+    const state = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    let complete:
+      | ((value: { version: string; base: string; ranked: string[] }) => void)
+      | undefined;
+    vi.mocked(mirrors.resolveBestMirror).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const checking = updater.checkForUpdate(true);
+    await vi.waitFor(() => expect(complete).toBeTypeOf('function'));
+    updater.setCheckPrerelease(true);
+    complete?.({ version: '1.1.0', base: 'https://synthetic.invalid', ranked: [] });
+    await expect(checking).rejects.toThrow('选项已改变');
+    expect(state.getUpdateState()).toBeNull();
+  });
   it('Mac 统一使用官方校验安装链，校验完成后才允许安装', async () => {
     fixture.macVerifiedArchive = true;
     const { updater, events } = await ready();
@@ -85,6 +237,7 @@ describe('更新安装动作', () => {
       expect(fixture.prepareMacUpdate).toHaveBeenCalledWith(
         '/synthetic/weQ-1.1.0-mac-arm64.zip',
         '1.1.0',
+        false,
       ),
     );
     expect(events).not.toContainEqual({ kind: 'downloaded', latest: '1.1.0' });

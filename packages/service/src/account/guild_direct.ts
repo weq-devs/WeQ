@@ -11,6 +11,7 @@
 import type { AccountSession } from '@weq/account';
 import type { Element, MsgDecoration } from '@weq/codec';
 import type { GuildDirectMsg, GuildDirectSession, GuildMessageCursor } from '@weq/db';
+import { decodeBody, decodeDress } from '@weq/db';
 import { toRenderElements, type RenderElement } from './msg_view';
 import type { GuildExportTaskMeta } from './export/guild_source';
 import { existsSync } from 'node:fs';
@@ -333,7 +334,6 @@ export class GuildDirectService {
   async rawElementsOf(msgId: bigint): Promise<Element[] | null> {
     const blob = await this.session.guildDirectMsgs.getMsgBody(msgId);
     if (!blob) return null;
-    const { decodeBody } = await import('@weq/db');
     return decodeBody(blob);
   }
 
@@ -341,7 +341,6 @@ export class GuildDirectService {
   async decorationOf(msgId: bigint): Promise<MsgDecoration | null> {
     const blob = await this.session.guildDirectMsgs.getMsgDressBlob(msgId);
     if (!blob) return null;
-    const { decodeDress } = await import('@weq/db');
     return decodeDress(blob) ?? null;
   }
 

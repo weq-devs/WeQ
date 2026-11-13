@@ -70,7 +70,12 @@ describe('parseModelList', () => {
     });
     expect(models.map((m) => m.id)).toEqual(['gpt-4o', 'deepseek-chat']);
     expect(models[0]?.label).toBe('GPT-4o');
-    expect(models[0]?.capabilities).toEqual(['chat', 'vision']);
+    expect(models[0]?.capabilities).toEqual([]);
+    expect(models[0]?.metadata?.capabilities).toEqual({
+      chat: 'unknown',
+      embedding: 'unknown',
+      vision: 'unknown',
+    });
   });
 
   it('解析 { models: [...] } 与裸数组', () => {

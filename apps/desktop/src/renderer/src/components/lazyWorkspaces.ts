@@ -5,9 +5,9 @@ export const SettingsDialog = lazyPanel<
   ComponentProps<typeof import('./SettingsDialog').SettingsDialog>
 >(() => import('./SettingsDialog').then((m) => ({ default: m.SettingsDialog })));
 export const DataMaintenanceDialog = lazyPanel<
-  ComponentProps<typeof import('./settings/DataMaintenanceSection').DataMaintenanceDialog>
+  ComponentProps<typeof import('./settings/DataMaintenanceDialog').DataMaintenanceDialog>
 >(() =>
-  import('./settings/DataMaintenanceSection').then((m) => ({ default: m.DataMaintenanceDialog })),
+  import('./settings/DataMaintenanceDialog').then((m) => ({ default: m.DataMaintenanceDialog })),
 );
 export const CollectionDialog = lazyPanel<
   ComponentProps<typeof import('./CollectionDialog').CollectionDialog>
@@ -39,6 +39,18 @@ export const RoamingBackfillPanel = lazyPanel<
 export const AgentLabView = lazyPanel<
   ComponentProps<typeof import('../views/AgentLabView').AgentLabView>
 >(() => import('../views/AgentLabView').then((m) => ({ default: m.AgentLabView })));
+export const AssistantConversationPane = lazyPanel<
+  ComponentProps<
+    typeof import('../views/agentlab/AssistantConversationPane').AssistantConversationPane
+  >
+>(() =>
+  import('../views/agentlab/AssistantConversationPane').then((m) => ({
+    default: m.AssistantConversationPane,
+  })),
+);
+export const GuildDirectDialog = lazyPanel<
+  ComponentProps<typeof import('./GuildDirectDialog').GuildDirectDialog>
+>(() => import('./GuildDirectDialog').then((m) => ({ default: m.GuildDirectDialog })));
 export const AnnualReportView = lazyPanel<
   NonNullable<
     ComponentProps<typeof import('../views/annual-report/AnnualReportView').AnnualReportView>

@@ -416,7 +416,7 @@ async function firstResolved(attempts: Array<() => Promise<string>>): Promise<st
 
 /** Successful download evidence; it does not prove that a server supplied the original variant. */
 export type DownloadOutcome =
-  | { ok: true; bytes: number; sha256: string; contentType: string }
+  | { ok: true; bytes: number; sha256: string; contentType: string; finalUrl?: string }
   | { ok: false; reason: string };
 
 export interface DownloadOptions {
@@ -426,9 +426,18 @@ export interface DownloadOptions {
   expectedSha256?: string;
   maxBytes?: number;
   timeoutMs?: number;
+  /** 生成成果的静态依赖可包含样式及脚本；聊天媒体默认仍拒绝文本响应。 */
+  allowText?: boolean;
+  /** 宿主网络栈（桌面沿用 Electron 代理）；缺省使用当前 fetch。 */
+  fetcher?: (
+    url: string,
+    options: { signal: AbortSignal; headers?: Record<string, string> },
+  ) => Promise<Response>;
+  onProgress?: (downloadedBytes: number, totalBytes: number) => void;
+  attempts?: number;
 }
 
-function mediaSignature(bytes: Buffer, kind: 'image' | 'video'): boolean {
+export function mediaSignature(bytes: Buffer, kind: 'image' | 'video'): boolean {
   const png = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
   const gif = /^(GIF87a|GIF89a)/.test(bytes.toString('ascii', 0, 6));
@@ -465,7 +474,8 @@ export async function downloadUrlToFile(
   dest: string,
   options: DownloadOptions = {},
 ): Promise<DownloadOutcome> {
-  for (let attempt = 0; attempt <= 3; attempt++) {
+  const attempts = Math.min(4, Math.max(1, Math.trunc(options.attempts ?? 4)));
+  for (let attempt = 0; attempt < attempts; attempt++) {
     const temporary = `${dest}.${randomUUID()}.part`;
     const controller = new AbortController();
     const cancel = () => controller.abort(options.signal?.reason);
@@ -477,18 +487,17 @@ export async function downloadUrlToFile(
     let retry = true;
     try {
       options.signal?.throwIfAborted();
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await (options.fetcher ?? fetch)(url, { signal: controller.signal });
       const ct = (res.headers.get('content-type') ?? '').toLowerCase();
       if (
         !res.ok ||
         !res.body ||
-        ct.startsWith('text/') ||
-        ct.includes('json') ||
-        ct.includes('xml')
+        (!options.allowText &&
+          (ct.startsWith('text/') || ct.includes('json') || ct.includes('xml')))
       ) {
         await res.body?.cancel();
         retry = res.status === 429 || res.status >= 500;
-        if (!retry || attempt === 3)
+        if (!retry || attempt === attempts - 1)
           return { ok: false, reason: `HTTP ${res.status} ct=${ct || 'n/a'}` };
       } else {
         const maxBytes = options.maxBytes ?? Number.MAX_SAFE_INTEGER;
@@ -509,6 +518,7 @@ export async function downloadUrlToFile(
               return;
             }
             hash.update(chunk);
+            options.onProgress?.(bytes, options.expectedSize ?? length);
             if (prefix.length < 512)
               prefix = Buffer.concat([prefix, chunk.subarray(0, 512 - prefix.length)]);
             done(null, chunk);
@@ -522,7 +532,10 @@ export async function downloadUrlToFile(
         );
         retry = false;
         const sha256 = hash.digest('hex');
-        if (!bytes || /^\s*(?:<!doctype|<html|<\?xml)/i.test(prefix.toString('utf8')))
+        if (
+          !bytes ||
+          (!options.allowText && /^\s*(?:<!doctype|<html|<\?xml)/i.test(prefix.toString('utf8')))
+        )
           throw new Error('媒体为空或返回了错误页面。');
         if (options.expectedKind && !mediaSignature(prefix, options.expectedKind))
           throw new Error('媒体格式与期望不符，可能返回了错误页面。');
@@ -556,10 +569,16 @@ export async function downloadUrlToFile(
           if (existing.digest('hex') !== sha256)
             throw new Error('目标已有不同内容，已保留原文件。');
         }
-        return { ok: true, bytes, sha256, contentType: ct };
+        return {
+          ok: true,
+          bytes,
+          sha256,
+          contentType: ct,
+          ...(options.allowText ? { finalUrl: res.url } : {}),
+        };
       }
     } catch (error) {
-      if (options.signal?.aborted || attempt === 3 || !retry)
+      if (options.signal?.aborted || attempt === attempts - 1 || !retry)
         return { ok: false, reason: error instanceof Error ? error.message : String(error) };
     } finally {
       clearTimeout(timer);

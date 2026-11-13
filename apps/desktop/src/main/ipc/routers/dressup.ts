@@ -16,13 +16,19 @@
  * 聊天背景与浮屏挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
  * 自定义背景是本地图片 / 视频,浮屏挂件是仓库里 bundle 的 Lottie。
  */
+import { OperationError } from '@weq/service';
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { pickedBrowserFiles } from '../../browser_files';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { observable } from '@trpc/server/observable';
-import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
+import {
+  describeExportOutput,
+  exportOutputFileName,
+  getHost,
+  subscribeDressIndexResources,
+} from '@weq/service';
 import { z } from 'zod';
 import {
   DressAppId,
@@ -49,10 +55,22 @@ import {
   prepareExportDestination,
 } from './export_save';
 
-function requireServices(): AccountServices {
+function requireServices(
+  expected: { expectedAccountUin?: string; expectedAccountConfigId?: string } = {},
+): AccountServices {
   const ctx = getAppContext();
+  if (
+    (expected.expectedAccountUin &&
+      String(ctx.account?.context.uin) !== expected.expectedAccountUin) ||
+    (expected.expectedAccountConfigId &&
+      ctx.services?.accountConfig.getRecord()?.configId !== expected.expectedAccountConfigId)
+  )
+    throw new Error('账号或数据源已切换，请重新读取资料');
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }
@@ -131,7 +149,7 @@ const EXCLUDED_WIDGETS = new Set(['9']);
  * 扫目录而不是硬编码列表 —— 加减素材时不必改代码。要求目录里有 `fullscreen.json`
  * (Lottie 本体),否则不算一款可用的挂件。
  */
-function listScreenWidgets(): string[] {
+export function listScreenWidgets(): string[] {
   const root = resolveResource('dress', 'screen');
   if (!root) return [];
   try {
@@ -157,8 +175,12 @@ export const dressupRouter = router({
         emit.next(e);
       };
       accountEventBus.on('dressChanged', handler);
+      const unsubscribeIndex = subscribeDressIndexResources(({ state }) => {
+        if (state.status === 'ready') emit.next({ at: Date.now() });
+      });
       return () => {
         accountEventBus.off('dressChanged', handler);
+        unsubscribeIndex();
       };
     });
   }),
@@ -170,6 +192,7 @@ export const dressupRouter = router({
     return {
       qqOnline: qqOnline(services),
       manifest,
+      indexResources: services.dressInstall.indexResources(),
       cachedBubbles: [
         ...new Set([manifest.activeBubble, record?.homeDress?.bubbleId ?? 0]),
       ].flatMap((id) => {
@@ -197,6 +220,15 @@ export const dressupRouter = router({
       },
     };
   }),
+
+  retryIndex: procedure
+    .input(z.object({ kind: z.enum(['bubble', 'font', 'widget']) }))
+    .mutation(async ({ input }) => {
+      const services = requireServices();
+      const ok = await services.dressInstall.retryIndex(input.kind);
+      if (!ok) throw new Error('装扮离线索引下载失败，请查看任务列表后重试');
+      return services.dressInstall.indexResources();
+    }),
 
   /**
    * 排行榜。在线走接口,离线回退静态资源;`source` 告诉前端这批是哪来的,
@@ -557,9 +589,9 @@ export const dressupRouter = router({
    * 「需要在线实例」的提示。慢(SSR 页面几秒)但语义准确。
    */
   peerHome: procedure
-    .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
+    .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }).merge(exportAccountBindingInput))
     .query(async ({ input }) => {
-      const services = requireServices();
+      const services = requireServices(input);
       if (!webQqOnline(services)) throw new Error(PEER_HOME_HINT);
       let dress: Awaited<ReturnType<typeof services.webQuery.getFriendDress>>;
       try {
@@ -570,6 +602,7 @@ export const dressupRouter = router({
       // null = 页面抠不出 __INITIAL_ASYNCDATA__(未登录态 / 风控 / 页面改版),
       // 与网络失败同因同果,给同一句提示。
       if (!dress) throw new Error(PEER_HOME_HINT);
+      if (requireServices(input) !== services) throw new Error('账号已切换，请重新读取资料');
       return toPeerDress(dress);
     }),
 
@@ -581,12 +614,27 @@ export const dressupRouter = router({
    * 「需要在线实例」的提示，前端静默不渲染该行即可。
    */
   peerStats: procedure
-    .input(z.object({ uin: z.string().regex(/^\d{5,}$/), uid: z.string().min(1) }))
+    .input(
+      z
+        .object({
+          uin: z.string().regex(/^\d{5,}$/),
+          uid: z.string(),
+          fields: z
+            .array(z.enum(['level', 'likeCount']))
+            .min(1)
+            .max(2)
+            .optional(),
+          scope: z.string().optional(),
+        })
+        .merge(exportAccountBindingInput),
+    )
     .query(async ({ input }) => {
       requireAttachEnabled();
-      const services = requireServices();
+      const services = requireServices(input);
       try {
-        return await services.peerStats.getPeerStats(input.uin, input.uid);
+        const result = await services.peerStats.getPeerStats(input.uin, input.uid, input.fields);
+        if (requireServices(input) !== services) throw new Error('账号已切换，请重新读取资料');
+        return result;
       } catch {
         throw new Error(PEER_STATS_HINT);
       }
@@ -609,11 +657,13 @@ export const dressupRouter = router({
    * 过期才重新发包；查询失败时回退到过期记录，失败提示只在前端静默处理。
    */
   peerQqShow: procedure
-    .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }))
+    .input(z.object({ uin: z.string().regex(/^\d{5,}$/) }).merge(exportAccountBindingInput))
     .query(async ({ input }) => {
-      const services = requireServices();
+      const services = requireServices(input);
       try {
-        return await services.qqShow.resolveOne(input.uin);
+        const result = await services.qqShow.resolveOne(input.uin);
+        if (requireServices(input) !== services) throw new Error('账号已切换，请重新读取资料');
+        return result;
       } catch {
         throw new Error(PEER_QQ_SHOW_HINT);
       }

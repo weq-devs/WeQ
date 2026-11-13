@@ -1,3 +1,4 @@
+import { calendarParts } from '@weq/time';
 /**
  * 聊天页门面（无选中会话时的落地页）——「个性装扮」版。
  *
@@ -18,7 +19,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_HOME_SETTINGS } from '@weq/service/home-settings';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from '../components/dressPieces';
-import { dressUrl } from '../lib/resourceUrl';
+import { dressUrl, qqShowUrl } from '../lib/resourceUrl';
+import { useContactQqShow } from '../hooks/useContactCard';
+import { useViewState } from '../state/view';
 import { useThemeStore } from '../state/theme';
 import { trpc } from '../trpc/client';
 import '../styles/home-layout.css';
@@ -30,15 +33,15 @@ interface Verse {
 
 const EMPTY_VERSES: Verse[] = [];
 
-/** 按当前时刻给英文问候语。 */
+/** 按当前时刻给中文问候语（全站界面文案用中文，不混英文招呼）。 */
 function greetWord(): string {
-  const h = new Date().getHours();
-  if (h < 5) return 'Good night';
-  if (h < 11) return 'Good morning';
-  if (h < 13) return 'Hello';
-  if (h < 18) return 'Good afternoon';
-  if (h < 23) return 'Good evening';
-  return 'Good night';
+  const h = calendarParts(Date.now())!.hour;
+  if (h < 5) return '夜深了';
+  if (h < 11) return '早上好';
+  if (h < 13) return '中午好';
+  if (h < 18) return '下午好';
+  if (h < 23) return '晚上好';
+  return '夜深了';
 }
 
 /**
@@ -107,6 +110,15 @@ export function ChatHome({
   useThemeStore((s) => s.resolved);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, { refetchOnWindowFocus: false });
   const home = settings.data?.home ?? DEFAULT_HOME_SETTINGS;
+  const uin = useViewState((s) => s.openedUin) ?? '';
+  const qqShow = useContactQqShow(uin, home.preferQqShow);
+  const showSource =
+    home.preferQqShow && qqShow.data?.hasShow && qqShow.data.url
+      ? qqShowUrl(qqShow.data.url, qqShow.data.expiresAt)
+      : '';
+  const [loadedShow, setLoadedShow] = useState('');
+  const [failedShow, setFailedShow] = useState('');
+  const showReady = Boolean(showSource && loadedShow === showSource && failedShow !== showSource);
   const dressQuery = trpc.account.getHomeDress.useQuery(undefined, {
     refetchOnWindowFocus: false,
     // 首次进入时 fetchHomeDress 可能还在后台写入，轮询直到拿到数据
@@ -130,7 +142,7 @@ export function ChatHome({
         !blocked.some((word) => `${verse.text}\n${verse.from}`.toLowerCase().includes(word)),
     );
   }, [verses, home.blockedWords]);
-  const name = nickname?.trim() || 'there';
+  const name = nickname?.trim() || '';
 
   const widgetUrl = dressUrl(dress?.widgetUrl ?? '');
   const cardUrl = dressUrl(dress?.cardUrl ?? '');
@@ -147,31 +159,47 @@ export function ChatHome({
       <CardBackdrop imageUrl={cardUrl} videoUrl={cardVideoUrl} />
       {screenUrl && <ScreenRain src={screenUrl} />}
 
-      <div className="weq-chathome-inner">
-        <div className="weq-chathome-hero">
-          <div className="weq-chathome-stage">
-            <AvatarOrb
-              avatarUrl={selfAvatarUrl}
-              nickname={name}
-              widgetUrl={widgetUrl}
-              refreshOnFocus
-            />
-            <TagRing tags={tags} radiusPad={32} contained />
+      <div className="weq-chathome-content">
+        <div className="weq-chathome-inner">
+          <div className="weq-chathome-hero">
+            <div className="weq-chathome-stage">
+              {!showReady && (
+                <AvatarOrb
+                  avatarUrl={selfAvatarUrl}
+                  nickname={name}
+                  widgetUrl={widgetUrl}
+                  refreshOnFocus
+                />
+              )}
+              {showSource && failedShow !== showSource && (
+                <img
+                  key={showSource}
+                  className="weq-chathome-qqshow"
+                  src={showSource}
+                  alt={name ? `${name}的 QQ 秀` : 'QQ 秀'}
+                  hidden={!showReady}
+                  draggable={false}
+                  onLoad={() => setLoadedShow(showSource)}
+                  onError={() => setFailedShow(showSource)}
+                />
+              )}
+              <TagRing tags={tags} radiusPad={32} contained />
+            </div>
+            {home.showGreeting && (
+              <h1 className="weq-chathome-greet">
+                <span className="weq-chathome-greet-hi">{greetWord()}</span>
+                {name ? <span className="weq-chathome-greet-name">{name}</span> : null}
+              </h1>
+            )}
           </div>
-          {home.showGreeting && (
-            <h1 className="weq-chathome-greet">
-              <span className="weq-chathome-greet-hi">{greetWord()},</span>
-              <span className="weq-chathome-greet-name">{name}</span>
-            </h1>
+
+          {wantHitokoto && visibleVerses[0] && (
+            <HitokotoTicker
+              key={`${visibleVerses[0].text}\n${visibleVerses[0].from}`}
+              verse={visibleVerses[0]}
+            />
           )}
         </div>
-
-        {wantHitokoto && visibleVerses[0] && (
-          <HitokotoTicker
-            key={`${visibleVerses[0].text}\n${visibleVerses[0].from}`}
-            verse={visibleVerses[0]}
-          />
-        )}
       </div>
     </section>
   );

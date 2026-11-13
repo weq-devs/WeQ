@@ -8,6 +8,7 @@
  * Values cross the wire as `DbCell` (INTEGER→string, BLOB→hex) so the renderer
  * never loses bigint precision and superjson never sees a typed array.
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -16,7 +17,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }
@@ -80,9 +84,15 @@ export const dbExplorerRouter = router({
     }),
 
   /** Run a hand-written statement (SELECT returns rows, else affected count). */
-  runSql: procedure.input(z.object({ dbPath, sql: z.string().min(1) })).mutation(({ input }) => {
-    return requireServices().dbExplorer.runSql(input.dbPath, input.sql);
-  }),
+  runSql: procedure
+    .input(z.object({ dbPath, sql: z.string().min(1) }))
+    .mutation(({ ctx, input }) => {
+      return requireServices().dbExplorer.runSql(
+        input.dbPath,
+        input.sql,
+        ctx.host?.remoteClient === true,
+      );
+    }),
 
   /** Update a single cell. */
   updateCell: procedure

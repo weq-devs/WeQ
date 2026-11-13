@@ -56,7 +56,7 @@ export class DatabaseCheckupTasks {
   async cancel(uin: string, taskId: string): Promise<{ cancelled: boolean }> {
     const task = this.tasks.get(taskId);
     if (!task || task.uin !== uin) return { cancelled: false };
-    task.abort.abort(new Error('数据库体检已停止。'));
+    task.abort.abort(new DOMException('数据库体检已停止。', 'AbortError'));
     await task.done.catch(() => {});
     return { cancelled: true };
   }

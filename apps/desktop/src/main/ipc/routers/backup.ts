@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { z } from 'zod';
 import { basename } from 'node:path';
 import {
@@ -86,18 +87,7 @@ export const backupProcedures = {
     .mutation(async ({ input }) => {
       const ctx = ready(),
         host = getHost();
-      const timestamp = new Intl.DateTimeFormat('sv-SE', {
-        timeZone: 'Asia/Shanghai',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      })
-        .format(new Date())
-        .replace(/[^0-9]/g, '');
+      const timestamp = eventTimeFormatter.format(new Date()).replace(/[^0-9]/g, '');
       const target = await host.pickSaveTarget({
         locationKey: 'weq-backup',
         defaultName: `weq-backup-${timestamp}.zip`,

@@ -34,6 +34,7 @@ for (const entry of [
   'server.mjs',
   'attachWorker.mjs',
   'imageWorker.mjs',
+  'coverWorker.mjs',
   'backupProbeWorker.mjs',
   'transcribeWorker.mjs',
   'start.sh',

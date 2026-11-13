@@ -2,6 +2,40 @@ import type { Conversation, Message, User } from '../im-template/template/types'
 import { profileTargetUser, type ProfileTarget } from './profileNavigation';
 import { selfIdentityValues } from './selfIdentity';
 
+/** 人名按全部身份别名精确匹配；UID、QQ 号占位不能挡住后面的可读昵称。 */
+export function createGrayTipNameResolver(conversation?: Conversation, message?: Message) {
+  const people = [
+    ...(conversation?.type === 'group'
+      ? conversation.members
+      : conversation?.type === 'direct'
+        ? [conversation.otherUser]
+        : []),
+    ...(message?.sender ? [message.sender] : []),
+  ];
+  const byIdentity = new Map<string, User>();
+  for (const person of people) {
+    for (const identity of selfIdentityValues(person)) {
+      if (!byIdentity.has(identity)) byIdentity.set(identity, person);
+    }
+  }
+  return (identities: readonly string[], labels: readonly string[]): string => {
+    const names = identities.flatMap((identity) => {
+      const person = byIdentity.get(identity);
+      return person ? [person.displayName, person.username] : [];
+    });
+    const candidates = [...names, ...labels].map((value) => value?.trim() || '').filter(Boolean);
+    return (
+      candidates.find(
+        (value) => !value.startsWith('u_') && !/^\d+$/.test(value) && !identities.includes(value),
+      ) ||
+      candidates.find((value) => /^\d+$/.test(value)) ||
+      candidates[0] ||
+      identities.find(Boolean) ||
+      ''
+    );
+  };
+}
+
 /** 同一人可在同条灰条里重复出现，按身份内的出现次数区分，不依赖全局数组位置。 */
 export function createGrayTipPersonKey() {
   const occurrences = new Map<string, number>();
@@ -63,7 +97,12 @@ export function grayTipProfileTarget(
     name,
     avatarUrl: matches[0]?.avatarUrl,
     ...(conversation?.type === 'group' && /^[1-9]\d*$/.test(code)
-      ? { group: { code, name: conversation.group.name } }
+      ? {
+          group: { code, name: conversation.group.name },
+          member: conversation.members.find((person) =>
+            values(person).some((value) => keys.includes(value)),
+          ),
+        }
       : {}),
   };
 }

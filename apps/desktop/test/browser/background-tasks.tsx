@@ -4,6 +4,7 @@ import { CurrentTaskList } from '../../src/renderer/src/components/tasks/Current
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { localBackgroundTasks } from '../../src/renderer/src/state/backgroundTasks';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
+import { useViewState } from '../../src/renderer/src/state/view';
 import type { BackgroundTaskKind } from '../../src/shared/background_task';
 import type { UiTask } from '../../src/renderer/src/views/export/TaskList';
 import '../../src/renderer/src/styles/index.css';
@@ -20,12 +21,16 @@ const fixtures: [BackgroundTaskKind, string][] = [
   ['album-upload', '群相册长文件名-video-with-a-long-filename-for-layout-testing.mp4'],
   ['resource', '资源扫描与清理'],
 ];
+useViewState.setState({ openedUin: 'synthetic' });
 for (const [kind, name] of fixtures) {
   const id = localBackgroundTasks.start({
     kind,
     name,
     progress: kind === 'model' ? 42 : undefined,
     note: '合成数据，不发出网络请求',
+    ...(kind === 'database'
+      ? { destination: 'db-checkup' as const, scope: { uin: 'synthetic' } }
+      : {}),
   });
   if (kind === 'forward') {
     localBackgroundTasks.setActions(id, [
@@ -81,6 +86,18 @@ function Fixture() {
             current: 35,
             total: 100,
           },
+          {
+            id: 'export-saved',
+            name: '合成已保存结果',
+            kind: 'c2c',
+            format: 'json',
+            status: 'completed',
+            progress: 100,
+            current: 1,
+            total: 1,
+            save: { status: 'saved', path: '/synthetic/saved.json' },
+            reportPath: '/synthetic/report',
+          },
         ]
       : [],
   );
@@ -89,7 +106,7 @@ function Fixture() {
   return (
     <>
       <style>{`html,body,#root{margin:0;height:100%;background:var(--background)}main{display:flex;width:calc(100% - 16px);max-width:${compact ? '390px' : '1040px'};height:calc(100% - 32px);margin:16px auto;background:var(--weq-chat-bg)}`}</style>
-      <main>
+      <main className="weq-workspace-menu">
         <CurrentTaskList
           layout={compact ? 'compact' : 'split'}
           exports={tasks}
@@ -98,12 +115,23 @@ function Fixture() {
             resume: (task) => update(task, { status: 'running', canResume: false }),
             cancel: (task) => update(task, { status: 'cancelled', canResume: false }),
             remove: (task) => setTasks((items) => items.filter((item) => item.id !== task.id)),
+            save: (task) => {
+              window.taskQuickCalls?.push({ action: 'save', input: task.id });
+            },
+            openSaved: (task, reveal) => {
+              window.taskQuickCalls?.push({
+                action: 'openSaved',
+                input: { taskId: task.id, reveal },
+              });
+            },
+            report: (task) => {
+              window.taskQuickCalls?.push({ action: 'report', input: task.id });
+            },
           }}
           onOpenDetail={() => {
             throw new Error('快捷操作不应展开完整面板');
           }}
           cleanupBinding={{ expectedAccountUin: 'synthetic', expectedAccountConfigId: 'fixture' }}
-          onSaveAll={() => {}}
           renderExport={() => null}
         />
       </main>

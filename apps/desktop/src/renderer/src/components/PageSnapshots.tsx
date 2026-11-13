@@ -128,17 +128,28 @@ export function usePageDraftConfirmation(name: string, value: unknown) {
   const key = usePageSnapshotKey(name);
   const fallback = useContext(SnapshotContext)?.fallback;
   const encoded = value === undefined ? undefined : superjson.stringify(value);
+  const confirm = useCallback(
+    (confirmedValue: unknown) => {
+      if (!key) return;
+      try {
+        pageSnapshots.confirm(key, confirmedValue);
+        if (
+          fallback?.has(key) &&
+          superjson.stringify(fallback.get(key)) === superjson.stringify(confirmedValue)
+        )
+          fallback.delete(key);
+      } catch {
+        /* 读回不覆盖损坏原件，也不丢弃尚未确认的输入。 */
+      }
+    },
+    [key, fallback],
+  );
   // 其它 effect 也可能刚把输入与服务端对齐，因此每次提交后都复核一次。
   useEffect(() => {
-    if (!key || encoded === undefined) return;
-    try {
-      pageSnapshots.confirm(key, superjson.parse<unknown>(encoded));
-      if (fallback?.has(key) && superjson.stringify(fallback.get(key)) === encoded)
-        fallback.delete(key);
-    } catch {
-      /* 读回不覆盖损坏原件，也不丢弃尚未确认的输入。 */
-    }
+    if (encoded !== undefined) confirm(superjson.parse<unknown>(encoded));
   });
+  // 请求可能晚于原页面卸载；闭包仍只确认捕获的作用域和完全相同的正文。
+  return confirm;
 }
 
 export function usePageState<T>(

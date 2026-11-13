@@ -100,6 +100,20 @@ describe('开发终端', () => {
     redirected.dispose();
     expect(sink.mock.calls[0]![0]).not.toContain('\x1b[');
   });
+  it('开发启动管道继承原终端颜色，NO_COLOR 仍优先', () => {
+    for (const noColor of [false, true]) {
+      const sink = vi.fn();
+      const logger = createConsoleLogger({
+        development: true,
+        processName: 'test',
+        env: { WEQ_DEV_STDERR_TTY: '1', ...(noColor ? { NO_COLOR: '' } : {}) },
+        sink,
+      });
+      logger.write('info', 'ready');
+      expect(sink.mock.calls[0]![0].includes('\x1b[')).toBe(!noColor);
+      logger.dispose();
+    }
+  });
   it('脱敏递归投影、截断集合、堆栈及循环对象，不修改输入', () => {
     const data: Record<string, unknown> = {
       cookie: 'private-cookie',

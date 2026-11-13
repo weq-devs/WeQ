@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { atAllMentionState, nextMentionIndex } from '../src/renderer/src/lib/atAllMention';
 import { filterMentionMembers } from '../src/renderer/src/im-template/template/mentions';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 describe('@全体成员候选', () => {
   it('自己尚未出现在分页成员列表时仍有全体候选，按全体成员搜索能命中', () => {

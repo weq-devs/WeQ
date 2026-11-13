@@ -10,6 +10,7 @@
  *
  * 下方控制条按「力图 / 重合图」两套设置切换。
  */
+import { EmptyState } from '../EmptyState';
 import type React from 'react';
 import { createPortal } from 'react-dom';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -27,6 +28,7 @@ import {
   Users,
   Waypoints,
   X,
+  SearchX,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useGroupMemberRefresh } from '../../hooks/useGroupMemberRefresh';
@@ -577,7 +579,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
 
         <div className="weq-grouppick-list">
           {filtered.length === 0 ? (
-            <p className="weq-grouppick-empty">没有匹配的群聊</p>
+            <EmptyState variant="inline" icon={<SearchX />} title="没有匹配的群聊" />
           ) : (
             filtered.map((group) => {
               const checked = draft.has(group.code);

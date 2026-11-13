@@ -19,6 +19,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getSettings: { query: async () => ({ qzonePublicRefreshCooldownMinutes: state.minutes }) },
     },
     account: {
+      qzone: {
+        cancel: { mutate: async () => {} },
+      },
       qzonePublic: {
         me: { query: async () => ({}) },
         capabilities: { query: async () => ({ public_qzone_entrance_switch: true }) },
