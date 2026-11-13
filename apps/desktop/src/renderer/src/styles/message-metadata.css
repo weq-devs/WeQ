@@ -50,6 +50,11 @@ html[data-theme='dark'] .weq-message-heading > .weq-message-provenance {
   padding-block: 0;
   overflow-wrap: anywhere;
 }
+.weq-system-message-content:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
 .weq-system-message-content > .weq-message-provenance {
   display: inline-flex;
   flex: 0 0 auto;

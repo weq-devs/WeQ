@@ -34,7 +34,7 @@ import {
   GROUP_CALL_ENDED_SUBTYPES,
 } from '../../components/GroupCallEndedMessage';
 import { QqDynamic, qqDynamicElementProps } from '../../components/QqDynamic';
-import { MessageProvenance } from '../../components/MessageProvenance';
+import { SystemMessageContent } from '../../components/MessageProvenance';
 import type { ReactionInteraction } from '../../components/SetEmojiReactions';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
@@ -291,10 +291,9 @@ export const MessageRow = memo(function MessageRow({
             {selected ? <Check size={13} /> : null}
           </span>
         ) : null}
-        <div className="weq-system-message-content">
+        <SystemMessageContent message={message}>
           <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
-          <MessageProvenance message={message} system />
-        </div>
+        </SystemMessageContent>
       </div>
     );
   }

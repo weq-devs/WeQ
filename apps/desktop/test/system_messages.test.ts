@@ -8,7 +8,10 @@ import { SetEmojiReactions } from '../src/renderer/src/components/SetEmojiReacti
 import {
   ShowMessageTimeContext,
   ShowMessageSeqContext,
+  ShowMessageDateContext,
+  SystemMessageContent,
 } from '../src/renderer/src/components/MessageProvenance';
+import { HoverTooltip } from '../src/renderer/src/components/HoverTooltip';
 import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -82,7 +85,85 @@ describe('撤回灰条的精确身份', () => {
 });
 
 describe('系统消息共用行', () => {
-  it('正文与时间放在同一行容器，不输出 seq', () => {
+  it('无效时间不生成提示，漫游来源标记仍常驻', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        ShowMessageTimeContext.Provider,
+        { value: true },
+        createElement(
+          SystemMessageContent,
+          {
+            message: { createdAt: 'invalid', source: 'roaming', sourceFormat: 'protocol' },
+          },
+          '合成系统消息',
+        ),
+      ),
+    );
+    const line = new DOMParser()
+      .parseFromString(html, 'text/html')
+      .querySelector('.weq-system-message-content');
+    expect(line?.hasAttribute('title')).toBe(false);
+    expect(line?.hasAttribute('tabindex')).toBe(false);
+    expect(line?.textContent).toBe('合成系统消息漫游');
+  });
+  it('共用浮层支持悬停及键盘聚焦，点击人物和右键菜单不被时间提示吞掉', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.useFakeTimers();
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const click = vi.fn(),
+      menu = vi.fn();
+    try {
+      act(() =>
+        root.render(
+          createElement(
+            ShowMessageTimeContext.Provider,
+            { value: true },
+            createElement(
+              'div',
+              { onContextMenu: menu },
+              createElement(
+                SystemMessageContent,
+                { message },
+                createElement('button', { onClick: click }, '人物'),
+              ),
+              createElement(HoverTooltip),
+            ),
+          ),
+        ),
+      );
+      const line = host.querySelector<HTMLElement>('.weq-system-message-content')!;
+      await act(async () => {
+        line.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+        vi.advanceTimersByTime(300);
+      });
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+        '2026-10-17 07:35:11（北京时间）',
+      );
+      act(() => host.querySelector('button')!.click());
+      expect(click).toHaveBeenCalledOnce();
+      act(() =>
+        line.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+      );
+      expect(menu).toHaveBeenCalledOnce();
+      await act(async () => {
+        line.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
+        line.focus();
+        vi.advanceTimersByTime(300);
+      });
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+        '2026-10-17 07:35:11（北京时间）',
+      );
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+  it('灰条时间仅作悬停或聚焦提示，不再接在正文右侧，也不输出 seq', () => {
     const system = {
       ...message,
       qqElements: [
@@ -103,8 +184,29 @@ describe('系统消息共用行', () => {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const line = doc.querySelector('.weq-system-message-content');
     expect(line?.querySelector('.weq-graytip')).not.toBeNull();
-    expect(line?.querySelector('time')?.textContent).toBe('07:35:11');
+    expect(line?.querySelector('time')).toBeNull();
+    expect(line?.getAttribute('title')).toBe('2026-10-17 07:35:11（北京时间）');
+    expect(line?.getAttribute('tabindex')).toBe('0');
+    expect(line?.hasAttribute('data-time-detail')).toBe(false);
     expect(doc.querySelector('.weq-message-seq')).toBeNull();
+  });
+  it('未开启日期和时间时不增加时间提示或键盘停靠点，日期单独开启也可查看完整时间', () => {
+    const system = { ...message, qqElements: [{ type: 'grayTipRevoke', data: {} }] };
+    for (const showDate of [false, true]) {
+      const html = renderToStaticMarkup(
+        createElement(
+          ShowMessageDateContext.Provider,
+          { value: showDate },
+          createElement(MessageRow, { message: system, conversation: group, user }),
+        ),
+      );
+      const line = new DOMParser()
+        .parseFromString(html, 'text/html')
+        .querySelector('.weq-system-message-content');
+      expect(line?.hasAttribute('title')).toBe(showDate);
+      expect(line?.getAttribute('tabindex')).toBe(showDate ? '0' : null);
+      expect(line?.querySelector('time')).toBeNull();
+    }
   });
   it.each([
     'grayTipRevoke',
