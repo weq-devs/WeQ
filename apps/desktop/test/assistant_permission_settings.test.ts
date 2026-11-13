@@ -57,6 +57,11 @@ it('requires the real warning confirmation before persisting unrestricted permis
   const onClose = vi.fn();
   try {
     act(() => root.render(h(Fragment, {}, h(AssistantSettings, { onClose }), h(DialogHost))));
+    expect(
+      [...document.querySelectorAll('[aria-label="思考等级"] option')].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(['不指定', 'low', 'medium', 'high']);
     // 权限模式在「提示与工具」分区，标题也改成了「运行模式」。
     act(() =>
       [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]

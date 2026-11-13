@@ -82,7 +82,6 @@ function EffortSelect({
     ...(declared ?? ['low', 'medium', 'high']).filter((item) => item !== 'off'),
   ];
   if (!values.includes(value)) values.push(value);
-  const labels: Record<string, string> = { off: '跟随模型', low: '低', medium: '中', high: '高' };
   return (
     <select
       aria-label="思考等级"
@@ -92,7 +91,7 @@ function EffortSelect({
     >
       {values.map((effort) => (
         <option value={effort} key={effort}>
-          {labels[effort] ?? effort}
+          {effort === 'off' ? '不指定' : effort}
         </option>
       ))}
     </select>
