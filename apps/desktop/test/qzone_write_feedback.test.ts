@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   configId: 'source-a',
   refreshWait: null as Promise<void> | null,
   readback: undefined as (() => Promise<boolean>) | undefined,
+  autoReadback: false,
   write: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   forward: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   pickImage: vi.fn(async () => ({ path: '/synthetic/image.png', fileName: '合成图片.png' })),
@@ -68,6 +69,7 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
       try {
         await action({ expectedAccountUin: '10001', expectedAccountConfigId: configId });
         if (configId !== state.configId) return false;
+        if (state.autoReadback) await options?.readback?.();
         await refresh?.();
         await state.refreshWait;
         return true;
@@ -120,6 +122,7 @@ beforeEach(() => {
   state.configId = 'source-a';
   state.refreshWait = null;
   state.readback = undefined;
+  state.autoReadback = false;
   state.write.mockReset().mockResolvedValue({ state: 'accepted' });
   state.forward.mockReset().mockResolvedValue({ state: 'accepted' });
   state.pickImage.mockClear();
@@ -760,8 +763,98 @@ it('定向回复保留根身份与实际目标，切换目标不丢草稿，未�
     commentCountInclusive: 1,
     fieldCoverage: { comments: 'observed' },
   });
-  expect(await state.readback!()).toBe(true);
+  await act(async () => expect(await state.readback!()).toBe(true));
 });
+
+it.each([false, true])(
+  '定向回复确认后立即回显、退出输入且不误增根计数，后续补图=%s',
+  async (withReplyImage) => {
+    const image = 'https://qpic.cn/synthetic-comment.png';
+    const root = {
+      id: '1',
+      uin: '10002',
+      nickname: '评论者',
+      content: '一级评论',
+      time: 1,
+      images: [image],
+      isReply: false,
+    };
+    const target = {
+      id: '1_r_2_10003',
+      parentCommentId: '1',
+      replyId: '2',
+      uin: '10003',
+      nickname: '回复者',
+      content: '二级回复',
+      replyToUin: '10002',
+      replyToNickname: '评论者',
+      time: 2,
+      images: [],
+      isReply: true,
+    };
+    const own = {
+      id: '1_r_3_10001',
+      parentCommentId: '1',
+      replyId: '3',
+      uin: '10001',
+      nickname: '自己',
+      content: '即时回显正文',
+      replyToUin: '10003',
+      replyToNickname: '回复者',
+      time: Math.floor(Date.now() / 1000),
+      images: [],
+      isReply: true,
+    };
+    const initial = {
+      comments: [root, target],
+      likes: [],
+      commentCountInclusive: 2,
+      fieldCoverage: { comments: 'observed' },
+    };
+    state.interactions.mockImplementation(async (input: unknown) =>
+      (input as { structuredOnly?: boolean }).structuredOnly
+        ? { ...initial, comments: [{ ...root, images: [] }, target, own], commentCountInclusive: 3 }
+        : withReplyImage && state.write.mock.calls.length
+          ? {
+              ...initial,
+              comments: [root, target, { ...own, images: [image] }],
+              commentCountInclusive: 3,
+            }
+          : initial,
+    );
+    state.autoReadback = true;
+    const view = await mount();
+    await openComments(view.host);
+    const buttons = [
+      ...view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-comment-meta button'),
+    ];
+    await act(async () => buttons[1]!.click());
+    const input = view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '即时回显正文',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => view.button('发送说说回复').click());
+    expect(view.host.querySelectorAll('.weq-qzn-comment')).toHaveLength(3);
+    expect(view.host.querySelectorAll('.weq-qzn-reply-message')).toHaveLength(2);
+    expect(view.host.textContent).toContain('自己 回复 回复者：即时回显正文');
+    expect(view.host.querySelector('[aria-label="说说回复"]')).toBeNull();
+    expect(view.host.querySelector('[aria-label="说说评论"]')).not.toBeNull();
+    expect(view.count()).toContain('评论 2');
+    expect(state.write).toHaveBeenCalledOnce();
+    expect(state.interactions).toHaveBeenCalledWith(
+      expect.objectContaining({ structuredOnly: true }),
+    );
+    expect(view.host.querySelectorAll('.weq-qzn-pictures img')).toHaveLength(
+      withReplyImage ? 2 : 1,
+    );
+    expect(view.host.textContent).toContain('评论及回复共 3 条');
+    if (!withReplyImage) capture(view.host, 'reply-readback');
+  },
+);
 
 it('移除原生详情对照按钮和重复正文，正常浏览不新增详情读取', async () => {
   const view = await mount();

@@ -6,6 +6,7 @@ import { localFileUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
 import type { QzoneReplyTarget } from '../../lib/qzoneActions';
 import { qzoneReplyPresentation } from '../../lib/qzoneReplyPresentation';
+import type { QzoneInteraction } from '../../views/qzone_types';
 import {
   ActionFeedback,
   ActionIcon,
@@ -337,6 +338,7 @@ function QzoneWriteActionsBody({
   onLikeChange,
   likeRevision,
   onCommentAccepted,
+  onCommentsReadback,
   mode = 'comment',
   likeCount,
   replyTarget,
@@ -354,6 +356,7 @@ function QzoneWriteActionsBody({
   onLikeChange?: (change: QzoneLikeChange | null) => void;
   likeRevision?: number;
   onCommentAccepted?: () => void;
+  onCommentsReadback?: (comments: QzoneInteraction) => void;
   mode?: 'like' | 'comment';
   likeCount?: number | null;
   replyTarget?: QzoneReplyTarget | null;
@@ -422,6 +425,7 @@ function QzoneWriteActionsBody({
             if (draftRevision.current === submittedRevision) {
               setContent('');
               setPicture(null);
+              if (submittedTarget) onCancelReply?.();
             }
             onCommentAccepted?.();
           }
@@ -438,7 +442,7 @@ function QzoneWriteActionsBody({
               structuredOnly: true,
               requestId: crypto.randomUUID(),
             });
-            return result.comments.some((source) => {
+            const matched = result.comments.some((source) => {
               const entry = submittedTarget
                 ? qzoneReplyPresentation(source, submittedTarget.rootUin)
                 : source;
@@ -453,6 +457,8 @@ function QzoneWriteActionsBody({
                 entry.time >= sentAt - 5
               );
             });
+            if (matched && mounted.current) onCommentsReadback?.(result);
+            return matched;
           },
         },
       );

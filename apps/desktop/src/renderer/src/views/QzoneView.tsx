@@ -1696,6 +1696,11 @@ function PostActionsBody({
   const summaryRefresh = useRef<number | null>(null);
   const summaryGeneration = useRef(0);
   const [writeRevision, setWriteRevision] = useState(0);
+  const [commentReadback, setCommentReadback] = useState<{
+    revision: number;
+    refresh: number;
+    page: QzoneInteraction;
+  } | null>(null);
   const [likeRevision, setLikeRevision] = useState(0);
   const [likeChange, setLikeChange] = useState<{
     write: QzoneLikeChange;
@@ -1783,7 +1788,12 @@ function PostActionsBody({
       onDraftPictureChange={setCommentPicture}
       replyTarget={replyTarget}
       onCancelReply={() => setReplyTarget(null)}
-      onCommentAccepted={() => setCommentCount((count) => (count === null ? null : count + 1))}
+      onCommentAccepted={() => {
+        if (!replyTarget) setCommentCount((count) => (count === null ? null : count + 1));
+      }}
+      onCommentsReadback={(page) =>
+        setCommentReadback({ revision: writeRevision + 1, refresh, page })
+      }
       onChanged={() => {
         summaryGeneration.current++;
         summaryRefresh.current = null;
@@ -1891,6 +1901,11 @@ function PostActionsBody({
           onCommentCount={setCommentCount}
           focusComment={focusComment}
           readComments={writeRevision > 0 ? undefined : readComments}
+          confirmedComments={
+            commentReadback?.revision === writeRevision && commentReadback.refresh === refresh
+              ? commentReadback.page
+              : undefined
+          }
           writeRevision={writeRevision}
           writePending={likePending}
           renderReply={(comment) => (replyTarget?.id === comment.id ? composer : null)}
@@ -2105,6 +2120,7 @@ function Interaction({
   onCommentCount,
   focusComment,
   readComments,
+  confirmedComments,
   writeRevision = 0,
   writePending = false,
   onReply,
@@ -2119,6 +2135,7 @@ function Interaction({
   onCommentCount: (count: number) => void;
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  confirmedComments?: QzoneInteraction;
   writeRevision?: number;
   writePending?: boolean;
   onReply?: (
@@ -2155,10 +2172,51 @@ function Interaction({
     setLoading(true);
     const applyComments = (page: QzoneInteraction) => {
       if (!live) return;
-      setResult(page);
+      // 确认读回比信息流缓存更新；后续补图不能让刚确认的评论消失。
+      const comments = [...page.comments];
+      for (const confirmed of confirmedComments?.comments ?? []) {
+        const index = comments.findIndex(
+          (entry) =>
+            entry.uin === confirmed.uin &&
+            entry.isReply === confirmed.isReply &&
+            (entry.id === confirmed.id ||
+              (confirmed.isReply &&
+                confirmed.replyId !== undefined &&
+                entry.replyId === confirmed.replyId &&
+                entry.parentCommentId === confirmed.parentCommentId)),
+        );
+        if (index < 0) comments.push(confirmed);
+        else
+          comments[index] = { ...comments[index], ...confirmed, images: comments[index]!.images };
+      }
+      setResult((previous) => ({
+        ...page,
+        commentCountInclusive:
+          confirmedComments?.commentCountInclusive != null
+            ? Math.max(page.commentCountInclusive ?? 0, confirmedComments.commentCountInclusive)
+            : page.commentCountInclusive,
+        comments: comments.map((comment) => {
+          if (comment.images.length) return comment;
+          const observed = previous?.comments.find(
+            (entry) =>
+              entry.uin === comment.uin &&
+              entry.isReply === comment.isReply &&
+              (entry.id === comment.id ||
+                (comment.isReply &&
+                  comment.replyId !== undefined &&
+                  entry.replyId === comment.replyId &&
+                  entry.parentCommentId === comment.parentCommentId)) &&
+              qzoneReplyPresentation(entry).content === qzoneReplyPresentation(comment).content,
+          );
+          return observed?.images.length ? { ...comment, images: observed.images } : comment;
+        }),
+      }));
       if (page.fieldCoverage?.comments === 'complete')
-        onCommentCount(page.comments.filter((comment) => !comment.isReply).length);
+        onCommentCount(comments.filter((comment) => !comment.isReply).length);
     };
+    if (mode === 'comments' && confirmedComments && retry === 0) {
+      applyComments(confirmedComments);
+    }
     void (
       mode === 'comments' && readComments
         ? readComments().then(applyComments)
@@ -2241,6 +2299,7 @@ function Interaction({
     readyLikes,
     onCommentCount,
     readComments,
+    confirmedComments,
     writeRevision,
     writePending,
   ]);
