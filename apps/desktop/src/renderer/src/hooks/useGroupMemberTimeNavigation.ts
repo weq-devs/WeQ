@@ -56,15 +56,11 @@ export function useGroupMemberTimeNavigation(
       }
       if (!mounted.current || latest.current !== key) return;
       if (!anchor) {
-        useToast
-          .getState()
-          .push({
-            tone: 'info',
-            title:
-              field === 'joinedAt'
-                ? '本地没有入群时间之后的消息'
-                : '本地未找到该成员这次发言的消息',
-          });
+        useToast.getState().push({
+          tone: 'info',
+          title:
+            field === 'joinedAt' ? '本地没有入群时间之后的消息' : '本地未找到该成员这次发言的消息',
+        });
         return;
       }
       onNavigate?.();
@@ -80,13 +76,11 @@ export function useGroupMemberTimeNavigation(
       );
     } catch (error) {
       if (mounted.current && latest.current === key)
-        useToast
-          .getState()
-          .push({
-            tone: 'error',
-            title: '定位失败',
-            detail: error instanceof Error ? error.message : String(error),
-          });
+        useToast.getState().push({
+          tone: 'error',
+          title: '定位失败',
+          detail: error instanceof Error ? error.message : String(error),
+        });
     } finally {
       running.current = false;
     }
