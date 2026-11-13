@@ -211,10 +211,12 @@ it('切换账号或数据源立即丢弃旧编辑器与已保存显示值', asyn
   expect(button('编辑备注').textContent).toBe('新账号备注');
   expect(mock.writes).not.toHaveBeenCalled();
 });
-it('离线不能开始编辑；读取失败有重试且不写入', async () => {
+it('离线已有内容为纯文本；读取失败有重试且不写入', async () => {
   mock.online = false;
   render();
-  expect(button('编辑备注').disabled).toBe(true);
+  expect(button('编辑备注')).toBeNull();
+  expect(host.textContent).toContain('旧备注');
+  expect(host.querySelector('[aria-label="复制备注"]')).toBeNull();
   mock.online = true;
   mock.readError = true;
   render();

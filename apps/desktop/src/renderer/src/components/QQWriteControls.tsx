@@ -40,6 +40,9 @@ export function QQWriteTextRow({
   autoFocus = false,
   onDirtyChange,
   onSave,
+  actionIcon,
+  placeholder,
+  clearOnSave = false,
 }: {
   label: string;
   icon?: ReactNode;
@@ -52,6 +55,9 @@ export function QQWriteTextRow({
   autoFocus?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onSave: (value: string) => Promise<boolean>;
+  actionIcon?: ReactNode;
+  placeholder?: string;
+  clearOnSave?: boolean;
 }) {
   const saveField = useSelfProfileSave();
   const [value, setValue] = useState(initial ?? '');
@@ -84,6 +90,7 @@ export function QQWriteTextRow({
     'aria-label': label,
     className: 'weq-qq-write-input',
     value,
+    placeholder,
     maxLength,
     required: !allowEmpty,
     disabled: disabled || saving,
@@ -113,7 +120,10 @@ export function QQWriteTextRow({
               setSaving(true);
               void saveField(() => onSave(value))
                 .then((ok) => {
-                  if (ok) setSubmitted(value);
+                  if (ok) {
+                    setSubmitted(value);
+                    if (clearOnSave) setValue('');
+                  }
                 })
                 .finally(() => {
                   savingRef.current = false;
@@ -121,7 +131,7 @@ export function QQWriteTextRow({
                 });
             }}
           >
-            {clearingUnknown ? <Eraser size={16} /> : <Save size={16} />}
+            {actionIcon ?? (clearingUnknown ? <Eraser size={16} /> : <Save size={16} />)}
           </button>
         </div>
       }

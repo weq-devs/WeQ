@@ -7,6 +7,7 @@ import { OverlayLayer, type OverlayLayerProps } from '../../components/OverlayLa
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { ContactProfileSurface } from '../../components/contactProfile/ContactProfileSurface';
 import { SelfProfileDisplayProvider } from '../../components/ProfileDisplaySettings';
+import { SelfProfileProvider } from '../../components/settings/SelfQQControls';
 import { useViewState } from '../../state/view';
 import { cn } from './classNames';
 import { Avatar, EmptyState } from './primitives';
@@ -300,7 +301,7 @@ export function ContactProfileDialog(props: Parameters<typeof ContactProfileDial
   const content = <ContactProfileDialogBody {...props} />;
   return own ? (
     <SelfProfileDisplayProvider key={props.contact.id} uin={props.contact.identityValue}>
-      {content}
+      <SelfProfileProvider>{content}</SelfProfileProvider>
     </SelfProfileDisplayProvider>
   ) : (
     content

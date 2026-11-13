@@ -240,17 +240,10 @@ try {
       }),
     );
     await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
-    await card.getByTitle('复制邮箱', { exact: true }).click();
-    await card.locator('.weq-copy-feedback').waitFor();
-    const emailBounds = await card.getByTitle('复制邮箱', { exact: true }).boundingBox();
-    const emailFeedbackBounds = await card.locator('.weq-copy-feedback').boundingBox();
-    assert.ok(emailFeedbackBounds.y + emailFeedbackBounds.height <= emailBounds.y + 1);
-    assert.equal(
-      await page.evaluate(() => navigator.clipboard.readText()),
-      'sample@example.invalid',
-    );
-    if (output) await page.screenshot({ path: resolve(output, 'copy-feedback-email.png') });
-    await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
+    assert.equal(await card.getByTitle('复制邮箱', { exact: true }).count(), 0);
+    const email = card.locator('[data-profile-field="email"] .weq-profile-data-value');
+    assert.equal(await email.innerText(), 'sample@example.invalid');
+    assert.equal(await email.locator('button').count(), 0);
     const previousSettings = await page.evaluate(() => {
       const qa = window.contactCardQa;
       const previous = qa.settings;
@@ -681,7 +674,7 @@ try {
     assert.doesNotMatch(await page.locator('.weq-contact-title-line').innerText(), /正在听音乐/);
     report.push({ kind: 'short-signature-and-identity-settings', calls: [] });
     await page.locator('.weq-contact-signature-text').click();
-    await page.getByRole('dialog', { name: '历史个性签名', exact: true }).waitFor();
+    await page.getByRole('dialog', { name: '个性签名', exact: true }).waitFor();
     assert.equal(await page.locator('.weq-member-pop').count(), 1);
     assert.equal(await page.locator('.weq-contact-workspace-v2').count(), 0);
     assert.equal(await page.locator('[aria-modal="true"]').count(), 0);

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { SelfQQControls } from '../../src/renderer/src/components/settings/SelfQQControls';
+import { SelfProfileFixture as SelfQQControls } from '../support/SelfProfileFixture';
 import { QQExactLookup } from '../../src/renderer/src/components/QQExactLookup';
 import { CollectionDialog } from '../../src/renderer/src/components/CollectionDialog';
 import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog';

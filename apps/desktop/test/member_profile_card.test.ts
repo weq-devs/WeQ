@@ -68,6 +68,10 @@ vi.mock('@renderer/trpc/client', () => ({
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source' } }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       qqWrite: {
+        selfProfile: {
+          useMutation: () => ({ mutateAsync: vi.fn(async () => ({ state: 'confirmed' })) }),
+        },
+        selfState: { useQuery: () => ({ refetch: async () => ({ data: undefined }) }) },
         memberDetails: { useQuery: () => ({ data: preferences.memberDetails }) },
         groupMemberMute: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       },
@@ -259,7 +263,7 @@ describe('群成员资料卡浮层', () => {
     await mountCard(() => {}, undefined, { ...MEMBER, clone: true });
     expect(layer().querySelector('[aria-label="打开完整资料页"]')).toBeNull();
   });
-  it('点击签名正文在原名片旁打开无遮罩历史，不跳转或关闭名片，选中文字不触发', async () => {
+  it('签名正文在原名片旁打开无遮罩历史，选中文字不触发也不复制', async () => {
     const close = vi.fn();
     await mountCard(close, undefined, { ...MEMBER, signature: '可以点击的合成签名' });
     const signature = layer().querySelector<HTMLButtonElement>('.weq-contact-signature-text');
@@ -273,14 +277,16 @@ describe('群成员资料卡浮层', () => {
     expect(document.querySelector('.weq-extras-dialog')).toBeNull();
     selection.removeAllRanges();
     await act(async () => signature!.click());
+    const historyTrigger = layer().querySelector<HTMLButtonElement>('[aria-label="查看个性签名"]')!;
+    expect(historyTrigger).toBe(signature);
     expect(expandContact).not.toHaveBeenCalled();
     expect(close).not.toHaveBeenCalled();
     expect(layer().querySelector('.weq-member-pop')).not.toBeNull();
     expect(document.querySelector('[aria-modal="true"]')).toBeNull();
     const history = document.querySelector('.weq-extras-dialog')!;
     expect(history.parentElement?.classList.contains('is-anchored-popover')).toBe(true);
-    expect(signature?.getAttribute('aria-haspopup')).toBe('dialog');
-    expect(signature?.getAttribute('aria-expanded')).toBe('true');
+    expect(historyTrigger.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(historyTrigger.getAttribute('aria-expanded')).toBe('true');
     expect(trpc.account.profileExtras.signatureHistory.useInfiniteQuery).toHaveBeenLastCalledWith(
       expect.objectContaining({ uin: MEMBER.identityValue }),
       expect.objectContaining({ enabled: true }),
@@ -288,7 +294,7 @@ describe('群成员资料卡浮层', () => {
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect(document.querySelector('.weq-extras-dialog')).toBeNull();
     expect(close).not.toHaveBeenCalled();
-    expect(signature?.getAttribute('aria-expanded')).toBe('false');
+    expect(historyTrigger.getAttribute('aria-expanded')).toBe('false');
   });
   it('没有备注时添加备注仍位于备注行，不再查询或展示扩展备注资料', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, isFriend: true });
@@ -324,8 +330,12 @@ describe('群成员资料卡浮层', () => {
       expect(row.textContent).toContain(text);
       expect(row.closest('section')?.querySelector('h3')?.textContent).toBe('个人资料');
     }
-    expect(layer().querySelector('[data-profile-field="company"] button')).toBeNull();
-    expect(layer().querySelector('[data-profile-field="description"] button')).toBeNull();
+    expect(
+      layer().querySelector('[data-profile-field="company"] [aria-label="复制公司"]'),
+    ).toBeNull();
+    expect(
+      layer().querySelector('[data-profile-field="description"] [aria-label="复制个人说明"]'),
+    ).toBeNull();
     expect(layer().querySelector('.weq-contact-clamp')).toBeNull();
     expect(
       [...layer().querySelectorAll('button')].some((el) => el.textContent === '详细资料'),
@@ -455,7 +465,7 @@ describe('群成员资料卡浮层', () => {
     ]);
     expect(host.querySelector('.weq-profile-tech')?.textContent).toContain(MEMBER.id);
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('.weq-contact-signature-text')!.click(),
+      host.querySelector<HTMLButtonElement>('[aria-label="查看个性签名"]')!.click(),
     );
     expect(document.querySelector('.weq-extras-dialog')?.parentElement?.classList).toContain(
       'is-anchored-popover',
@@ -738,14 +748,14 @@ describe('群成员资料卡浮层', () => {
     );
   });
 
-  it('点击昵称复制当前显示名称，不进入详情；展开按钮仍可进入详情', async () => {
+  it('他人昵称显示纯文本，不复制或进入详情；展开按钮仍可进入详情', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, nick: '合成昵称' });
-    const title = layer().querySelector<HTMLButtonElement>('.weq-profile-name')!;
+    const title = layer().querySelector<HTMLElement>('.weq-profile-name')!;
     await act(async () => title.click());
     const { copyTextToClipboard } = await import('@renderer/im-template/template/clipboard');
-    expect(copyTextToClipboard).toHaveBeenLastCalledWith('合成昵称', document);
-    expect(title.getAttribute('aria-label')).toBe('复制昵称');
-    expect(title.textContent).toContain('已复制');
+    expect(copyTextToClipboard).not.toHaveBeenCalled();
+    expect(title.tagName).toBe('SPAN');
+    expect(title.textContent).toBe('合成昵称');
     expect(expandContact).not.toHaveBeenCalled();
     act(() => layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]')!.click());
     expect(expandContact).toHaveBeenCalledOnce();

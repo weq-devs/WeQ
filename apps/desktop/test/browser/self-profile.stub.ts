@@ -6,6 +6,7 @@ let failed = false;
 let online = true;
 let fetching = false;
 let requests = 0;
+let writes = 0;
 let failSave = false;
 let account = '10001';
 const listeners = new Set<() => void>();
@@ -44,6 +45,30 @@ const extra = {
   personalDescription: '第一行个人说明\n第二行个人说明',
   errors: {},
 };
+export function withFallback<T extends object>(target: T): T {
+  const fallback = (): unknown =>
+    new Proxy(() => fallback(), {
+      get: (_target, key) =>
+        key === 'useQuery'
+          ? () => ({
+              data: undefined,
+              isLoading: false,
+              isFetching: false,
+              refetch: async () => ({ data: undefined }),
+            })
+          : key === 'useMutation'
+            ? () => ({ mutateAsync: async () => undefined })
+            : key === 'query' || key === 'fetch' || key === 'invalidate'
+              ? async () => null
+              : key === 'useSubscription'
+                ? () => undefined
+                : fallback(),
+    });
+  for (const value of Object.values(target))
+    if (value && typeof value === 'object') withFallback(value);
+  Object.setPrototypeOf(target, fallback());
+  return target;
+}
 const options = {
   regions: [
     {
@@ -143,6 +168,7 @@ function useHistory(_input: unknown, opts: { enabled: boolean }) {
   };
 }
 const mutate = async (input: { patch?: Record<string, unknown> }) => {
+  writes++;
   if (input.patch) {
     Object.assign(profile, input.patch.nickname ? { nick: input.patch.nickname } : input.patch);
     Object.assign(extra, input.patch);
@@ -152,11 +178,17 @@ const mutate = async (input: { patch?: Record<string, unknown> }) => {
 };
 const mutation = { useMutation: () => ({ mutateAsync: mutate }) };
 const invalidation = { invalidate: async () => {} };
-export const trpc = {
+export const trpc = withFallback({
   bootstrap: {
     getSettings: { useQuery: () => useFixtureQuery(() => ({ exportSaveMode: 'before' })) },
   },
-  useUtils: () => ({ account: { getSelfProfile: invalidation, getOnlineStatus: invalidation } }),
+  useUtils: () => ({
+    account: {
+      getSelfProfile: invalidation,
+      getOnlineStatus: invalidation,
+      profileExtras: { signatureHistory: invalidation },
+    },
+  }),
   account: {
     getSelfProfile: { useQuery: () => useFixtureQuery(() => ({ ...profile, uin: account })) },
     getAccountConfig: {
@@ -184,29 +216,35 @@ export const trpc = {
       editSelfProfile: mutation,
     },
     profileExtras: {
+      signatureHistory: { useInfiniteQuery: () => useFixtureQuery(() => ({ pages: [] })) },
       energy: {
         useQuery: () => useFixtureQuery(() => ({ targetUin: account, score: 831, level: 1 })),
       },
       avatarHistory: { useInfiniteQuery: useHistory },
     },
   },
-};
-export const client = { account: { qqWrite: { onlineStatus: { mutate } } } };
+});
+export const client = withFallback({ account: { qqWrite: { onlineStatus: { mutate } } } });
 export function useQQWriteSession() {
   useData();
   return {
     binding: { expectedAccountUin: account, expectedAccountConfigId: 'fixture' },
     available: online,
     busy: false,
-    run: async (action: (binding: unknown) => Promise<unknown>) => {
+    run: async (
+      action: (binding: unknown) => Promise<unknown>,
+      _refresh?: unknown,
+      options?: { readback?: () => Promise<boolean> },
+    ) => {
       if (failSave) return false;
       await action({ expectedAccountUin: account, expectedAccountConfigId: 'fixture' });
-      return true;
+      return options?.readback ? options.readback() : true;
     },
   };
 }
 export const qa = {
   requests: () => requests,
+  writes: () => writes,
   failSave: (value: boolean) => {
     failSave = value;
   },

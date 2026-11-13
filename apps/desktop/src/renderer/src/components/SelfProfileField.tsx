@@ -7,10 +7,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Pencil, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/self-profile-card.css';
 
-type Save = (action: () => Promise<boolean>) => Promise<boolean>;
+export type Save = (action: () => Promise<boolean>) => Promise<boolean>;
 const SaveContext = createContext<Save>((action) => action());
 export const SelfProfileEditingContext = createContext(true);
 export const useSelfProfileSave = () => useContext(SaveContext);
@@ -21,12 +22,26 @@ export function SelfProfileField({
   disabled,
   children,
   onCancel,
+  renderValue,
+  inline = false,
+  afterSave,
+  editorFooter,
+  onEditingChange,
+  unframed = false,
+  valueHasAction = false,
 }: {
   label: string;
   value: ReactNode;
   disabled?: boolean;
   children: ReactNode | ((save: Save) => ReactNode);
   onCancel?: () => void;
+  renderValue?: (value: ReactNode) => ReactNode;
+  inline?: boolean;
+  afterSave?: () => Promise<boolean>;
+  editorFooter?: ReactNode;
+  onEditingChange?: (editing: boolean) => void;
+  unframed?: boolean;
+  valueHasAction?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const editable = useContext(SelfProfileEditingContext);
@@ -55,13 +70,15 @@ export function SelfProfileField({
   function close() {
     restoreFocus.current = true;
     setEditing(false);
+    onEditingChange?.(false);
   }
   const save: Save = async (action) => {
     if (running.current || !mounted.current) return false;
     running.current = true;
     setPending(true);
     try {
-      const ok = await action();
+      const contentSaved = await action();
+      const ok = contentSaved && mounted.current && (!afterSave || (await afterSave()));
       if (ok && mounted.current) close();
       return ok;
     } finally {
@@ -69,27 +86,47 @@ export function SelfProfileField({
       if (mounted.current) setPending(false);
     }
   };
-  return (
-    <div className="weq-self-field" data-profile-field={label}>
-      {!editing ? (
-        <div className="weq-self-field-display">
-          <span className="weq-self-field-label">{label}</span>
-          <span className="weq-self-field-value" data-privacy-sensitive>
-            {value ?? '尚未读取'}
-          </span>
-          {editable ? (
-            <button
-              ref={edit}
-              type="button"
-              title={`编辑${label}`}
-              aria-label={`编辑${label}`}
-              disabled={disabled}
-              onClick={() => setEditing(true)}
-            >
-              <Pencil size={14} />
-            </button>
-          ) : null}
+  const canEdit = editable && !disabled;
+  const structured = Boolean(
+    valueHasAction ||
+      unframed ||
+      (!renderValue && typeof value !== 'string' && typeof value !== 'number' && value != null),
+  );
+  const content = renderValue ? renderValue(value) : (value ?? '尚未读取');
+  const display = (
+    <div className="weq-self-field-display">
+      {canEdit && !structured ? (
+        <button
+          ref={edit}
+          type="button"
+          className="weq-self-field-value weq-profile-data-action"
+          data-privacy-sensitive
+          title={`编辑${label}`}
+          aria-label={`编辑${label}`}
+          onClick={(event) => {
+            const selection = event.currentTarget.ownerDocument.getSelection();
+            if (selection?.toString() && event.currentTarget.contains(selection.anchorNode)) return;
+            setEditing(true);
+            onEditingChange?.(true);
+          }}
+        >
+          <span>{content}</span>
+        </button>
+      ) : (
+        <div className="weq-self-field-value" data-privacy-sensitive>
+          {content}
         </div>
+      )}
+    </div>
+  );
+  return (
+    <div className={`weq-self-field${inline ? ' is-inline' : ''}`} data-profile-field={label}>
+      {!editing ? (
+        inline || unframed ? (
+          display
+        ) : (
+          <ContactRow label={label}>{display}</ContactRow>
+        )
       ) : (
         <div
           ref={editor}
@@ -105,9 +142,12 @@ export function SelfProfileField({
             }
           }}
         >
-          <SaveContext.Provider value={save}>
-            {typeof children === 'function' ? children(save) : children}
-          </SaveContext.Provider>
+          <fieldset disabled={pending} className="weq-self-field-inputs">
+            <SaveContext.Provider value={save}>
+              {typeof children === 'function' ? children(save) : children}
+            </SaveContext.Provider>
+            {editorFooter}
+          </fieldset>
           <button
             type="button"
             className="weq-self-field-cancel"
@@ -125,24 +165,5 @@ export function SelfProfileField({
         </div>
       )}
     </div>
-  );
-}
-export function SelfProfileSection({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="weq-self-card-section">
-      <h3>
-        {icon}
-        {title}
-      </h3>
-      {children}
-    </section>
   );
 }

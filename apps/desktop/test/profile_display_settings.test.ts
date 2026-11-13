@@ -3,10 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ProfileDisplaySetting } from '@weq/protocol';
 import {
-  ProfileDisplayControl,
-  ProfileDisplayToolbar,
+  DisplaySelfProfileField,
+  ProfileDisplayEntry,
   SelfProfileDisplayProvider,
 } from '../src/renderer/src/components/ProfileDisplaySettings';
+import { QQWriteTextRow } from '../src/renderer/src/components/QQWriteControls';
 
 const state = vi.hoisted(() => ({
   config: 'a',
@@ -16,6 +17,7 @@ const state = vi.hoisted(() => ({
   settings: [] as ProfileDisplaySetting[],
   mutate: vi.fn(),
   refetch: vi.fn(),
+  content: vi.fn(),
   enabled: [] as boolean[],
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
@@ -52,11 +54,22 @@ function fixture(provider = true) {
   const children = h(
     'div',
     null,
-    h('p', null, '本地资料正文'),
-    h(ProfileDisplayToolbar),
-    h(ProfileDisplayControl, { field: 'gender' }),
-    h(ProfileDisplayControl, { field: 'education' }),
-    h(ProfileDisplayControl, { field: 'education' }),
+    h(
+      DisplaySelfProfileField,
+      {
+        label: '公司',
+        value: '原公司',
+        displayField: 'company',
+      },
+      h(QQWriteTextRow, {
+        label: '公司',
+        initial: '原公司',
+        disabled: false,
+        onSave: state.content,
+      }),
+    ),
+    h(ProfileDisplayEntry, { field: 'age' }, '21 岁'),
+    h(ProfileDisplayEntry, { field: 'education' }, '学校'),
   );
   const render = () =>
     act(() =>
@@ -67,16 +80,19 @@ function fixture(provider = true) {
     act(() => root.unmount());
     host.remove();
   });
-  const toggle = () =>
-    act(() => host.querySelector<HTMLButtonElement>('[data-profile-display-mode]')!.click());
+  const click = (label: string) =>
+    act(() => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click());
   const choose = (field: string, value: string) =>
     act(() => {
-      const buttons = host.querySelectorAll<HTMLButtonElement>(
-        `[data-display-field="${field}"] [role="radio"]`,
-      );
-      [...buttons].find((button) => button.textContent === value)!.click();
+      [
+        ...host.querySelectorAll<HTMLButtonElement>(
+          `[data-display-field="${field}"] [role="radio"]`,
+        ),
+      ]
+        .find((button) => button.textContent === value)!
+        .click();
     });
-  return { host, render, toggle, choose };
+  return { host, render, click, choose };
 }
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -84,7 +100,7 @@ beforeEach(() => {
   state.available = true;
   state.loading = false;
   state.error = null;
-  state.settings = ['gender', 'education'].map((field) => ({
+  state.settings = ['company', 'age', 'education'].map((field) => ({
     field: field as ProfileDisplaySetting['field'],
     raw: 0,
     value: 0,
@@ -93,102 +109,147 @@ beforeEach(() => {
   state.enabled = [];
   state.mutate.mockReset();
   state.refetch.mockReset();
+  state.content.mockReset().mockResolvedValue(true);
+  state.mutate.mockImplementation(async ({ field, value }: { field: string; value: number }) => ({
+    targetUin: '10002',
+    field,
+    state: 'confirmed',
+    setting: { field, value, raw: value, status: 'known' },
+    error: null,
+  }));
+  state.refetch.mockResolvedValue({
+    data: { targetUin: '10002', settings: state.settings },
+    error: null,
+  });
 });
 afterEach(() => {
   for (const fn of dispose.splice(0)) fn();
   vi.unstubAllGlobals();
 });
 
-it('未启用不读状态；启用不隐藏正文；关闭不写入', () => {
+it('普通展示不读范围、不显示全局开关；只展开正在编辑的字段', () => {
   const f = fixture();
-  expect(f.host.querySelector('[data-profile-display-mode]')?.tagName).toBe('BUTTON');
-  expect(f.host.querySelector('[role="switch"]')).toBeNull();
   expect(state.enabled.every((enabled) => !enabled)).toBe(true);
+  expect(f.host.querySelector('[data-profile-display-mode]')).toBeNull();
   expect(f.host.querySelector('[role="radiogroup"]')).toBeNull();
-  f.toggle();
-  expect(f.host.querySelector('[data-profile-display-mode]')?.textContent).toBe('完成资料展示设置');
+  f.click('编辑公司');
   expect(state.enabled.at(-1)).toBe(true);
-  expect(f.host.textContent).toContain('本地资料正文');
-  f.toggle();
-  expect(f.host.querySelector('[role="radiogroup"]')).toBeNull();
-  expect(state.mutate).not.toHaveBeenCalled();
+  expect(f.host.querySelectorAll('[role="radiogroup"]')).toHaveLength(1);
+  expect(f.host.querySelector('[data-display-field="age"]')).toBeNull();
+  expect(f.host.textContent).toContain('21 岁');
 });
-it('同一项多入口共享状态，确认成功才选中；在途不阻塞其他项', async () => {
-  let release!: (value: unknown) => void;
-  state.mutate.mockImplementation(
+it('选择范围只改草稿；取消不写入，重新编辑恢复已确认值', () => {
+  const f = fixture();
+  f.click('编辑公司');
+  f.choose('company', '仅好友');
+  expect(state.mutate).not.toHaveBeenCalled();
+  expect(state.content).not.toHaveBeenCalled();
+  f.click('取消编辑公司');
+  f.click('编辑公司');
+  expect(f.host.querySelector('[aria-checked="true"][role="radio"]')?.textContent).toBe('所有人');
+});
+it('内容与展示范围顺序保存，全部成功才退出编辑', async () => {
+  let release!: (ok: boolean) => void;
+  state.content.mockImplementation(
     () =>
       new Promise((resolve) => {
         release = resolve;
       }),
   );
   const f = fixture();
-  f.toggle();
-  f.choose('education', '仅好友');
-  expect(f.host.querySelectorAll('[data-display-field="education"] button:disabled')).toHaveLength(
-    6,
-  );
-  expect(f.host.querySelectorAll('[data-display-field="gender"] button:disabled')).toHaveLength(0);
-  f.choose('education', '不可见');
+  f.click('编辑公司');
+  f.choose('company', '仅好友');
+  await act(async () => f.click('保存公司'));
+  expect(state.mutate).not.toHaveBeenCalled();
+  expect(f.host.querySelector('[aria-label="取消编辑公司"]')).not.toBeNull();
+  await act(async () => release(true));
   expect(state.mutate).toHaveBeenCalledTimes(1);
-  await act(async () =>
-    release({
-      targetUin: '10002',
-      field: 'education',
-      state: 'confirmed',
-      setting: { field: 'education', value: 1, raw: 1, status: 'known' },
-      error: null,
-    }),
-  );
-  expect(
-    f.host.querySelectorAll('[data-display-field="education"] [aria-checked="true"]'),
-  ).toHaveLength(2);
-  expect(
-    [...f.host.querySelectorAll('[data-display-field="education"] [aria-checked="true"]')].every(
-      (el) => el.textContent === '仅好友',
-    ),
-  ).toBe(true);
+  expect(state.mutate).toHaveBeenCalledWith({
+    expectedAccountUin: '10002',
+    expectedAccountConfigId: 'a',
+    field: 'company',
+    value: 1,
+  });
+  expect(f.host.querySelector('[aria-label="编辑公司"]')).not.toBeNull();
 });
-it('保存失败不冒充成功；读回按钮不重发写请求', async () => {
+it('内容失败不提交范围；重复点击保存不重复提交', async () => {
+  let release!: (ok: boolean) => void;
+  state.content.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const f = fixture();
+  f.click('编辑公司');
+  f.choose('company', '不可见');
+  f.click('保存公司');
+  f.click('保存公司');
+  expect(state.content).toHaveBeenCalledTimes(1);
+  await act(async () => release(false));
+  expect(state.mutate).not.toHaveBeenCalled();
+  expect(f.host.querySelector('[aria-label="取消编辑公司"]')).not.toBeNull();
+});
+it('只改内容不写范围，只有范围可改的字段也有保存与取消', async () => {
+  const f = fixture();
+  f.click('编辑公司');
+  await act(async () => f.click('保存公司'));
+  expect(state.mutate).not.toHaveBeenCalled();
+  f.click('编辑年龄');
+  f.choose('age', '不可见');
+  expect(state.mutate).not.toHaveBeenCalled();
+  expect(f.host.querySelector('[aria-label="取消编辑年龄"]')).not.toBeNull();
+  await act(async () => f.click('保存年龄'));
+  expect(state.mutate).toHaveBeenCalledWith(expect.objectContaining({ field: 'age', value: 2 }));
+});
+it('范围失败保留编辑并标明未完成项，重新读取不重发写请求', async () => {
   state.mutate.mockResolvedValue({
     targetUin: '10002',
-    field: 'gender',
+    field: 'company',
     state: 'mismatch',
     setting: state.settings[0],
     error: '读回不一致',
   });
-  state.refetch.mockResolvedValue({
-    data: { targetUin: '10002', settings: state.settings },
-    error: null,
-  });
   const f = fixture();
-  f.toggle();
-  await act(async () => f.choose('gender', '不可见'));
+  f.click('编辑公司');
+  f.choose('company', '不可见');
+  await act(async () => f.click('保存公司'));
+  expect(f.host.textContent).toContain('展示范围尚未保存');
   expect(f.host.textContent).toContain('读回不一致');
-  expect(
-    f.host.querySelector('[data-display-field="gender"] [aria-checked="true"]')?.textContent,
-  ).toBe('所有人');
-  await act(async () =>
-    f.host.querySelector<HTMLButtonElement>('[aria-label="重新读取性别展示设置"]')!.click(),
-  );
+  expect(f.host.querySelector('[aria-label="取消编辑公司"]')).not.toBeNull();
+  await act(async () => f.click('重新读取公司展示设置'));
   expect(state.mutate).toHaveBeenCalledTimes(1);
   expect(state.refetch).toHaveBeenCalledTimes(1);
 });
-it('缺失未知和读取中均不默认选中；离线保留正文', () => {
-  state.settings = [
-    { field: 'gender', raw: 99, value: null, status: 'unknown' },
-    { field: 'education', raw: null, value: null, status: 'missing' },
-  ];
+it.each(['unknown', 'missing', 'incomplete'] as const)(
+  '范围为 %s 时不默认选中、不阻止内容保存',
+  async (status) => {
+    state.settings[0] = {
+      field: 'company',
+      raw: status === 'unknown' ? 99 : null,
+      value: null,
+      status,
+    };
+    const f = fixture();
+    f.click('编辑公司');
+    expect(f.host.querySelector('[aria-checked="true"][role="radio"]')).toBeNull();
+    expect(f.host.querySelectorAll('[role="radio"]:not(:disabled)')).toHaveLength(0);
+    await act(async () => f.click('保存公司'));
+    expect(state.content).toHaveBeenCalledTimes(1);
+    expect(state.mutate).not.toHaveBeenCalled();
+  },
+);
+it('范围读取失败仍可独立保存内容', async () => {
+  state.error = new Error('读取失败');
+  state.settings = [];
   const f = fixture();
-  f.toggle();
-  expect(f.host.textContent).toContain('未知状态（99）');
-  expect(f.host.textContent).toContain('未返回此项');
-  expect(f.host.querySelector('[aria-checked="true"][role="radio"]')).toBeNull();
-  state.available = false;
-  f.render();
-  expect(f.host.textContent).toContain('本地资料正文');
-  expect(f.host.querySelectorAll('[role="radio"]:not(:disabled)')).toHaveLength(0);
+  f.click('编辑公司');
+  expect(f.host.textContent).toContain('读取失败');
+  await act(async () => f.click('保存公司'));
+  expect(state.content).toHaveBeenCalledTimes(1);
+  expect(state.mutate).not.toHaveBeenCalled();
 });
-it('切换账号退出模式，旧保存回包不会污染新账号', async () => {
+it('切换数据源退出编辑，忽略旧保存回包', async () => {
   let release!: (value: unknown) => void;
   state.mutate.mockImplementation(
     () =>
@@ -197,67 +258,38 @@ it('切换账号退出模式，旧保存回包不会污染新账号', async () =
       }),
   );
   const f = fixture();
-  f.toggle();
-  f.choose('gender', '不可见');
+  f.click('编辑年龄');
+  f.choose('age', '仅好友');
+  await act(async () => f.click('保存年龄'));
   state.config = 'b';
   f.render();
   await act(async () =>
     release({
       targetUin: '10002',
-      field: 'gender',
+      field: 'age',
       state: 'confirmed',
-      setting: { field: 'gender', value: 2, raw: 2, status: 'known' },
-      error: null,
+      setting: { field: 'age', value: 1, raw: 1, status: 'known' },
     }),
   );
-  expect(f.host.querySelector('[data-profile-display-mode]')?.getAttribute('aria-expanded')).toBe(
-    'false',
-  );
-  f.toggle();
-  expect(
-    f.host.querySelector('[data-display-field="gender"] [aria-checked="true"]')?.textContent,
-  ).toBe('所有人');
+  expect(f.host.querySelector('[role="radiogroup"]')).toBeNull();
+  f.click('编辑年龄');
+  expect(f.host.querySelector('[aria-checked="true"][role="radio"]')?.textContent).toBe('所有人');
 });
-it('没有自己的资料上下文时，其他联系人不会出现入口或查询', () => {
-  const f = fixture(false);
-  expect(f.host.querySelector('[data-profile-display-mode]')).toBeNull();
-  expect(state.enabled).toHaveLength(0);
-});
-
-it('首次读取未完成时没有默认选项，正文照常绘制', () => {
-  state.settings = [];
-  state.loading = true;
+it('离线保持正文；没有本人上下文时不提供展示范围操作', () => {
+  state.available = false;
   const f = fixture();
-  f.toggle();
-  expect(f.host.textContent).toContain('本地资料正文');
-  expect(f.host.textContent).toContain('读取中');
-  expect(f.host.querySelector('[aria-checked="true"][role="radio"]')).toBeNull();
-  expect(f.host.querySelectorAll('[role="radio"]:not(:disabled)')).toHaveLength(0);
+  expect(f.host.textContent).toContain('21 岁');
+  expect(f.host.querySelector('[aria-label="编辑年龄"]')).toBeNull();
+  const other = fixture(false);
+  expect(other.host.querySelector('[aria-label="编辑年龄"]')).toBeNull();
 });
-
-it('较早开始的全量刷新不能覆盖随后确认的单项保存', async () => {
-  let releaseRefresh!: (value: unknown) => void;
-  state.refetch.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        releaseRefresh = resolve;
-      }),
-  );
-  state.mutate.mockResolvedValue({
-    targetUin: '10002',
-    field: 'gender',
-    state: 'confirmed',
-    setting: { field: 'gender', raw: 1, value: 1, status: 'known' },
-    error: null,
-  });
+it('Escape 取消整个字段草稿，不冒泡关闭页面并恢复焦点', () => {
   const f = fixture();
-  f.toggle();
-  act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="重新读取展示设置"]')!.click());
-  await act(async () => f.choose('gender', '仅好友'));
-  await act(async () =>
-    releaseRefresh({ data: { targetUin: '10002', settings: state.settings }, error: null }),
-  );
-  expect(
-    f.host.querySelector('[data-display-field="gender"] [aria-checked="true"]')?.textContent,
-  ).toBe('仅好友');
+  f.click('编辑公司');
+  f.choose('company', '仅好友');
+  const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  act(() => f.host.querySelector('[aria-label="公司"]')!.dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(true);
+  expect(state.mutate).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(f.host.querySelector('[aria-label="编辑公司"]'));
 });

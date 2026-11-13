@@ -1,7 +1,7 @@
 import { eventTimeFormatter } from '@weq/time';
 import { Fragment, useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bot, Building2, ChevronDown } from 'lucide-react';
+import { Bot, Building2, ChevronDown, History } from 'lucide-react';
 import {
   occupationText,
   bloodTypeText,
@@ -57,6 +57,8 @@ import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { CalendarNavigationContext } from '../../lib/calendarNavigation';
 import { useGroupMemberTimeNavigation } from '../../hooks/useGroupMemberTimeNavigation';
 import { previewMemberView } from '../../hooks/useGroupProfile';
+import { SelfProfileSlot, useSelfProfileFields } from '../SelfProfileFields';
+import { ProfileDisplayEntry } from '../ProfileDisplaySettings';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
@@ -90,6 +92,7 @@ export function ContactIdentity({
   cardBody?: boolean;
 }) {
   const relationship = usePersonRelationship(person);
+  const self = useSelfProfileFields();
   const names = useCardDisplayNames(
     'user',
     person.identityValue,
@@ -133,39 +136,46 @@ export function ContactIdentity({
   return (
     <>
       <div className="weq-profile-hero weq-contact-identity" data-privacy-sensitive>
-        <button
-          type="button"
-          className={`weq-profile-avatar${person.clone ? ' weq-clone-profile-avatar' : ''}`}
-          title="查看头像"
-          aria-label="查看头像"
-          onClick={() =>
-            person.avatarUrl &&
-            openMediaPreview({
-              items: [
-                { key: person.avatarUrl, kind: 'image', src: person.avatarUrl, title: title },
-              ],
-            })
-          }
-        >
-          <Avatar name={title} avatarUrl={person.avatarUrl} seed={person.identityValue} />
-          {person.clone ? <VirtualConversationBadge /> : null}
-          {pendant && !person.clone && ['QQ', 'UIN'].includes(person.identityLabel) ? (
-            <ContactPendant person={person} />
-          ) : null}
-        </button>
+        <div className={self ? 'weq-self-identity-avatar' : 'weq-profile-avatar-pass'}>
+          <button
+            type="button"
+            className={`weq-profile-avatar${person.clone ? ' weq-clone-profile-avatar' : ''}`}
+            title={self?.avatarAction ? '更换头像' : '查看头像'}
+            aria-label={self?.avatarAction ? '更换头像' : '查看头像'}
+            disabled={self?.avatarAction?.disabled}
+            aria-busy={self?.avatarAction?.busy || undefined}
+            onClick={() =>
+              self?.avatarAction
+                ? self.avatarAction.onClick()
+                : person.avatarUrl &&
+                  openMediaPreview({
+                    items: [
+                      { key: person.avatarUrl, kind: 'image', src: person.avatarUrl, title: title },
+                    ],
+                  })
+            }
+          >
+            <Avatar name={title} avatarUrl={person.avatarUrl} seed={person.identityValue} />
+            {person.clone ? <VirtualConversationBadge /> : null}
+            {pendant && !person.clone && ['QQ', 'UIN'].includes(person.identityLabel) ? (
+              <ContactPendant person={person} />
+            ) : null}
+          </button>
+        </div>
         <ContactFieldHistoryButton field="avatar" label="头像" />
         <div className="weq-profile-heading">
           <div className="weq-contact-title-line">
-            <CopyButton
-              text={title}
-              className="weq-profile-name weq-contact-name"
-              aria-label="复制昵称"
-              title="复制昵称"
+            <SelfProfileSlot
+              field="nickname"
+              inline
+              renderValue={(value) => (
+                <span className="weq-profile-name weq-contact-name">{value}</span>
+              )}
             >
-              {title}
-            </CopyButton>
+              <span className="weq-profile-name weq-contact-name">{title}</span>
+            </SelfProfileSlot>
             <ContactFieldHistoryButton field="nick" label="昵称" />
-            {showStatus ? (
+            {showStatus && !self ? (
               /^u_/.test(person.uid || person.id) ? (
                 <OnlineStatus
                   uid={person.uid || person.id}
@@ -176,7 +186,9 @@ export function ContactIdentity({
                 <span className="weq-contact-status">{fallbackStatus}</span>
               )
             ) : null}
-            {showStatus ? <ContactFieldHistoryButton field="status" label="在线状态" /> : null}
+            {showStatus && !self ? (
+              <ContactFieldHistoryButton field="status" label="在线状态" />
+            ) : null}
           </div>
           <div className="weq-contact-meta">
             {!person.clone ? <PersonRelationshipStatus person={person} editableCategory /> : null}
@@ -234,19 +246,41 @@ export function ContactIdentity({
             />
           ) : null}
           {!person.clone && (settings?.visible.signature !== false || signatureTime) ? (
-            <SignatureRow
-              key={person.identityValue}
-              text={settings?.visible.signature !== false ? person.signature || '' : ''}
-              updated={signatureTime}
-              historyUin={
-                person.kind !== 'bot' &&
-                !person.extInfo?.isEnterprise &&
-                ['QQ', 'UIN'].includes(person.identityLabel) &&
-                /^[1-9]\d{4,19}$/.test(person.identityValue)
-                  ? person.identityValue
-                  : undefined
-              }
-            />
+            self ? (
+              <SelfProfileSlot
+                field="signature"
+                valueHasAction
+                renderValue={(value) => (
+                  <SignatureRow
+                    unframed
+                    text={typeof value === 'string' ? value : '尚未读取'}
+                    historyUin={person.identityValue}
+                    updated={signatureTime}
+                  />
+                )}
+              />
+            ) : (
+              <SignatureRow
+                key={person.identityValue}
+                text={settings?.visible.signature !== false ? person.signature || '' : ''}
+                updated={signatureTime}
+                historyUin={
+                  person.kind !== 'bot' &&
+                  !person.extInfo?.isEnterprise &&
+                  ['QQ', 'UIN'].includes(person.identityLabel) &&
+                  /^[1-9]\d{4,19}$/.test(person.identityValue)
+                    ? person.identityValue
+                    : undefined
+                }
+              />
+            )
+          ) : null}
+          {self ? (
+            <>
+              <SelfProfileSlot field="status" />
+              <SelfProfileSlot field="extendedStatus" />
+              {self.avatarHistory}
+            </>
           ) : null}
         </div>
       ) : (
@@ -257,6 +291,12 @@ export function ContactIdentity({
 }
 
 function IdentityNumber({ label, value }: { label: string; value: string }) {
+  if (!['QQ', 'QID', 'UID'].includes(label))
+    return (
+      <span className="weq-contact-number">
+        {label} <span className="weq-number">{value}</span>
+      </span>
+    );
   return (
     <CopyButton
       text={value}
@@ -376,14 +416,7 @@ function ExtraField({
   if (field === 'company') return <ContactRow label="公司" value={data?.company} />;
   if (field === 'description')
     return <ContactRow label="个人说明" value={data?.personalDescription} />;
-  return (
-    <ContactRow
-      label="邮箱"
-      value={data?.email}
-      copyValue={data?.email ?? undefined}
-      activateTitle="复制邮箱"
-    />
-  );
+  return <ContactRow label="邮箱" value={data?.email} />;
 }
 
 function EnergyRow({ person }: { person: ProfilePerson }) {
@@ -401,6 +434,7 @@ function EnergyRow({ person }: { person: ProfilePerson }) {
 }
 
 function LabelsRow({ person, preview }: { person: ProfilePerson; preview: boolean }) {
+  const self = useSelfProfileFields();
   const session = useQQWriteSession(`profile-extras:${person.identityValue}`, true);
   const input = {
     expectedAccountUin: session.binding?.expectedAccountUin ?? '',
@@ -413,8 +447,14 @@ function LabelsRow({ person, preview }: { person: ProfilePerson; preview: boolea
   });
   const data = query.data?.targetUin === person.identityValue ? query.data : null;
   const fallback = [...new Set(person.extInfo?.interests ?? [])];
+  if (self && !data?.labels.length)
+    return (
+      <ProfileDisplayEntry field="personalityLabels">
+        {fallback.join(' · ') || '未设置'}
+      </ProfileDisplayEntry>
+    );
   if (!(data ? data.labels.length : fallback.length))
-    return <ContactRow label="标签" value={null} />;
+    return <ContactRow label="标签" value={self ? '未设置' : null} />;
   return (
     <>
       <ContactRow label="标签">
@@ -535,20 +575,53 @@ function BotFeaturesRow({ person }: { person: ProfilePerson }) {
   );
 }
 
+function SignatureHistory({ uin, children }: { uin: string; children?: ReactNode }) {
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        className={children ? 'weq-contact-signature-text' : undefined}
+        title="查看个性签名"
+        aria-label="查看个性签名"
+        aria-haspopup="dialog"
+        aria-expanded={Boolean(anchor)}
+        onClick={(event) => {
+          const button = event.currentTarget;
+          const selection = button.ownerDocument.getSelection();
+          if (selection?.toString() && button.contains(selection.anchorNode)) return;
+          setAnchor((previous) => (previous ? null : button));
+        }}
+      >
+        {children ?? <History size={12} />}
+      </button>
+      {anchor ? (
+        <ProfileExtraDialog
+          uin={uin}
+          view="signatures"
+          anchor={anchor}
+          onClose={() => setAnchor(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function SignatureRow({
   text,
   historyUin,
   updated,
+  unframed = false,
 }: {
   text: string;
   historyUin?: string;
   updated?: string | null;
+  unframed?: boolean;
 }) {
   const hasHistory = useContactFieldHistoryAvailable('个性签名');
   const [open, setOpen] = useState(false);
-  const [historyAnchor, setHistoryAnchor] = useState<HTMLButtonElement | null>(null);
   const [overflow, setOverflow] = useState(false);
-  const content = useRef<HTMLParagraphElement | HTMLButtonElement>(null);
+  const content = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const element = content.current;
     if (!element) {
@@ -565,37 +638,19 @@ function SignatureRow({
     return () => observer?.disconnect();
   }, [text]);
   if (!text && !updated) return hasHistory ? <ContactRow label="个性签名" value={null} /> : null;
-  return (
-    <ContactRow label="个性签名">
+  const body = (
+    <>
       <div className={`weq-contact-signature${open ? ' is-open' : ''}`}>
         {!text ? null : historyUin ? (
-          <button
-            ref={(element) => {
-              content.current = element;
-            }}
-            type="button"
-            className="weq-contact-signature-text"
-            title="查看历史个性签名"
-            aria-haspopup="dialog"
-            aria-expanded={Boolean(historyAnchor)}
-            onClick={(event) => {
-              const selection = event.currentTarget.ownerDocument.getSelection();
-              if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode)) {
-                const anchor = event.currentTarget;
-                setHistoryAnchor((previous) => (previous ? null : anchor));
-              }
-            }}
-          >
-            {text}
-          </button>
+          <SignatureHistory uin={historyUin}>
+            <span className="weq-contact-signature-value" ref={content}>
+              {text}
+            </span>
+          </SignatureHistory>
         ) : (
-          <p
-            ref={(element) => {
-              content.current = element;
-            }}
-          >
+          <span className="weq-contact-signature-value" ref={content}>
             {text}
-          </p>
+          </span>
         )}
         {updated ? <span className="weq-contact-signature-time">更新于 {updated}</span> : null}
         {overflow ? (
@@ -605,16 +660,9 @@ function SignatureRow({
           </button>
         ) : null}
       </div>
-      {historyAnchor && historyUin ? (
-        <ProfileExtraDialog
-          uin={historyUin}
-          view="signatures"
-          anchor={historyAnchor}
-          onClose={() => setHistoryAnchor(null)}
-        />
-      ) : null}
-    </ContactRow>
+    </>
   );
+  return unframed ? body : <ContactRow label="个性签名">{body}</ContactRow>;
 }
 
 function memberDate(value?: string | null) {
@@ -809,32 +857,82 @@ export function ContactContent({
       />
     ),
     gender: (
-      <ContactRow
-        label="性别"
-        value={person.gender === 1 ? '男' : person.gender === 2 ? '女' : null}
-      />
+      <SelfProfileSlot field="gender">
+        {
+          <ContactRow
+            label="性别"
+            value={person.gender === 1 ? '男' : person.gender === 2 ? '女' : null}
+          />
+        }
+      </SelfProfileSlot>
     ),
-    age: <ContactRow label="年龄" value={birth.age ? `${birth.age} 岁` : null} />,
-    birthday: <ContactBirthdayRow birth={birth} />,
-    constellation: <ContactRow label="星座" value={birth.constellation?.name} />,
+    age: (
+      <SelfProfileSlot field="age">
+        <ContactRow label="年龄" value={birth.age ? `${birth.age} 岁` : null} />
+      </SelfProfileSlot>
+    ),
+    birthday: (
+      <SelfProfileSlot field="birthday">
+        <ContactBirthdayRow birth={birth} />
+      </SelfProfileSlot>
+    ),
+    constellation: (
+      <SelfProfileSlot field="constellation">
+        <ContactRow label="星座" value={birth.constellation?.name} />
+      </SelfProfileSlot>
+    ),
     zodiac: <ContactRow label="生肖" value={chineseZodiacText(ext?.zodiac)} />,
     bloodType: <ContactRow label="血型" value={bloodTypeText(ext?.bloodType)} />,
-    occupation: <ContactRow label="职业" value={occupationText(ext?.occupation)} />,
+    occupation: (
+      <SelfProfileSlot field="profession">
+        <ContactRow label="职业" value={occupationText(ext?.occupation)} />
+      </SelfProfileSlot>
+    ),
     region: (
-      <ContactRow
-        label="所在地"
-        value={[...new Set([ext?.country, ext?.province, ext?.city].filter(Boolean))].join(' · ')}
-      />
+      <>
+        <SelfProfileSlot field="region">
+          {
+            <ContactRow
+              label="所在地"
+              value={[...new Set([ext?.country, ext?.province, ext?.city].filter(Boolean))].join(
+                ' · ',
+              )}
+            />
+          }
+        </SelfProfileSlot>
+        <SelfProfileSlot field="hometown" />
+      </>
     ),
     school: (
-      <ContactRow
-        label="学校"
-        value={[ext?.school, ext?.degree].filter(Boolean).join(' · ')}
-        onActivate={(anchor) => open('education', anchor)}
-        activateTitle="查看教育经历"
-      />
+      <SelfProfileSlot
+        field="education"
+        valueHasAction
+        renderValue={(value) => (
+          <button
+            type="button"
+            className="weq-profile-data-action"
+            title="查看教育经历"
+            onClick={(event) => open('education', event.currentTarget)}
+          >
+            {value}
+          </button>
+        )}
+      >
+        {
+          <ContactRow
+            label="学校"
+            value={[ext?.school, ext?.degree].filter(Boolean).join(' · ')}
+            onActivate={(anchor) => open('education', anchor)}
+            activateTitle="查看教育经历"
+          />
+        }
+      </SelfProfileSlot>
     ),
-    labels: personal ? <LabelsRow person={person} preview={preview} /> : null,
+    labels: personal ? (
+      <ProfileDisplayEntry field="personalityLabels" unframed>
+        <LabelsRow person={person} preview={preview} />
+      </ProfileDisplayEntry>
+    ) : null,
     photos: ext?.album.length ? (
       <ContactRow label="精选照片">
         <div className="weq-profile-album">
@@ -939,9 +1037,21 @@ export function ContactContent({
     ),
     friendClue:
       personal && relationship === 'friend' ? <FriendClue uid={person.uid || person.id} /> : null,
-    company: personal ? <ExtraField person={person} field="company" /> : null,
-    description: personal ? <ExtraField person={person} field="description" /> : null,
-    email: personal ? <ExtraField person={person} field="email" /> : null,
+    company: personal ? (
+      <SelfProfileSlot field="company">
+        <ExtraField person={person} field="company" />
+      </SelfProfileSlot>
+    ) : null,
+    description: personal ? (
+      <SelfProfileSlot field="personalNote">
+        <ExtraField person={person} field="description" />
+      </SelfProfileSlot>
+    ) : null,
+    email: personal ? (
+      <SelfProfileSlot field="email">
+        <ExtraField person={person} field="email" />
+      </SelfProfileSlot>
+    ) : null,
     botDescription: person.kind === 'bot' ? <BotDescription person={person} /> : null,
     botFeatures: person.kind === 'bot' ? <BotFeaturesRow person={person} /> : null,
   };

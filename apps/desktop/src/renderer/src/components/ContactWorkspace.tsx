@@ -17,7 +17,8 @@ import { ContactGroupWorkspace } from './contactProfile/ContactGroupWorkspace';
 import { ProfileDisclosure } from './contactProfile/ProfileDisclosure';
 import { ContactSection } from './contactProfile/ContactRow';
 import { ProfileExtrasContent } from './ProfileExtras';
-import { SelfQQControls } from './settings/SelfQQControls';
+import { useSelfProfileFields } from './SelfProfileFields';
+import { ProfileDisplayEntry, ProfileDisplaySettingField } from './ProfileDisplaySettings';
 import { ProfileWorkspace } from './ProfileWorkspace';
 import { ContactDressRow } from './contactProfile/ContactDressRow';
 import '../styles/contact-card.css';
@@ -40,6 +41,7 @@ export function ContactWorkspace({
   const [detail, setDetail] = useState<ContactWorkspaceTab | null>(null);
   const [openRequest, setOpenRequest] = useState(0);
   const relationship = usePersonRelationship(contact);
+  const self = useSelfProfileFields();
   const hasQQ =
     ['QQ', 'UIN'].includes(contact.identityLabel) &&
     /^[1-9]\d{4,19}$/.test(contact.identityValue) &&
@@ -75,15 +77,7 @@ export function ContactWorkspace({
     if (key === 'profile')
       return (
         <>
-          {relationship === 'self' ? (
-            <ProfileDisclosure
-              title="编辑资料与展示设置"
-              initiallyOpen={opened === 'edit'}
-              openRequest={openRequest}
-            >
-              <SelfQQControls />
-            </ProfileDisclosure>
-          ) : null}
+          {self?.feedback}
           {content([
             'gender',
             'age',
@@ -134,13 +128,16 @@ export function ContactWorkspace({
         {content(['qqShow', 'labels', 'photos'])}
         {hasQQ && contact.kind !== 'bot' ? <ContactDressRow person={contact} /> : null}
         {human ? (
-          <ProfileDisclosure
-            title="匿问我答"
-            initiallyOpen={opened === 'questions'}
-            openRequest={openRequest}
-          >
-            <ProfileExtrasContent uin={contact.identityValue} view="questions" />
-          </ProfileDisclosure>
+          <ProfileDisplayEntry field="anonymousQuestions" unframed>
+            <ProfileDisclosure
+              title="匿问我答"
+              initiallyOpen={opened === 'questions'}
+              openRequest={openRequest}
+            >
+              {self ? <ProfileDisplaySettingField field="anonymousQuestions" /> : null}
+              <ProfileExtrasContent uin={contact.identityValue} view="questions" />
+            </ProfileDisclosure>
+          </ProfileDisplayEntry>
         ) : null}
       </>
     );

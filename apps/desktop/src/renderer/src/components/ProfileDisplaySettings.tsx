@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from 'react';
-import { Check, Loader2, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { Check, Loader2, RotateCcw, Save } from 'lucide-react';
 import {
   PROFILE_DISPLAY_FIELDS,
   type ProfileDisplayField,
@@ -26,17 +26,18 @@ interface FieldState {
   saved?: boolean;
 }
 interface DisplayContext {
-  enabled: boolean;
   available: boolean;
   loading: boolean;
   error: string | null;
   fields: Partial<Record<ProfileDisplayField, FieldState>>;
-  enable: (enabled: boolean) => void;
-  save: (field: ProfileDisplayField, value: number) => void;
+  request: () => void;
+  save: (field: ProfileDisplayField, value: number) => Promise<boolean>;
   refresh: () => void;
 }
 const Context = createContext<DisplayContext | null>(null);
-export const useProfileDisplayMode = () => useContext(Context)?.enabled ?? false;
+export function ReadonlyProfileDisplay({ children }: { children: ReactNode }) {
+  return <Context.Provider value={null}>{children}</Context.Provider>;
+}
 
 export function SelfProfileDisplayProvider({
   uin,
@@ -94,15 +95,16 @@ function Controller({
     fields[field as ProfileDisplayField] = state;
   const current = () => mounted.current && latest.current === identity;
   async function save(field: ProfileDisplayField, value: number) {
-    if (!available || !enabled || pending.current.has(field) || !session.binding) return;
+    if (!available || !enabled || pending.current.has(field) || !session.binding) return false;
     const previous = fields[field]?.setting;
-    if (previous?.status !== 'known' || previous.value === value) return;
+    if (previous?.status !== 'known') return false;
+    if (previous.value === value) return true;
     pending.current.add(field);
     versions.current.set(field, (versions.current.get(field) ?? 0) + 1);
     setOverrides((states) => ({ ...states, [field]: { setting: previous, pending: true } }));
     try {
       const result = await mutation.mutateAsync({ ...session.binding, field, value });
-      if (!current()) return;
+      if (!current()) return false;
       if (result.targetUin !== uin || result.field !== field)
         throw new Error('资料展示返回目标不匹配');
       setOverrides((states) => ({
@@ -113,6 +115,7 @@ function Controller({
           error: result.error ?? undefined,
         },
       }));
+      return result.state === 'confirmed' || result.state === 'unchanged';
     } catch (error) {
       if (current())
         setOverrides((states) => ({
@@ -122,6 +125,7 @@ function Controller({
             error: error instanceof Error ? error.message : '保存失败，请重新读取核对',
           },
         }));
+      return false;
     } finally {
       pending.current.delete(field);
     }
@@ -145,18 +149,12 @@ function Controller({
   return (
     <Context.Provider
       value={{
-        enabled,
         available,
         loading: query.isFetching,
         error: query.error?.message ?? null,
         fields,
-        enable: (next) => {
-          enable(next);
-          if (next && query.data) void refresh();
-        },
-        save: (field, value) => {
-          void save(field, value);
-        },
+        request: () => enable(true),
+        save,
         refresh: () => {
           void refresh();
         },
@@ -167,47 +165,17 @@ function Controller({
   );
 }
 
-export function ProfileDisplayToolbar() {
+export function ProfileDisplayControl({
+  field,
+  value,
+  onChange,
+}: {
+  field: ProfileDisplayField;
+  value: number | null;
+  onChange: (value: number) => void;
+}) {
   const context = useContext(Context);
   if (!context) return null;
-  return (
-    <div className="weq-profile-display-toolbar">
-      <button
-        type="button"
-        className="weq-set-btn weq-profile-display-mode-button"
-        data-profile-display-mode
-        aria-expanded={context.enabled}
-        onClick={() => context.enable(!context.enabled)}
-      >
-        {context.enabled ? <Check size={14} /> : <SlidersHorizontal size={14} />}
-        {context.enabled ? '完成资料展示设置' : '资料展示设置'}
-      </button>
-      {context.enabled && (
-        <>
-          <span role="status">
-            {!context.available
-              ? '暂不可在线读取'
-              : (context.error ?? (context.loading ? '读取中' : ''))}
-          </span>
-          <button
-            type="button"
-            title="重新读取展示设置"
-            aria-label="重新读取展示设置"
-            className="weq-set-iconbtn"
-            disabled={!context.available || context.loading}
-            onClick={context.refresh}
-          >
-            <RotateCcw size={14} />
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-export function ProfileDisplayControl({ field }: { field: ProfileDisplayField }) {
-  const context = useContext(Context);
-  if (!context?.enabled) return null;
   const definition = PROFILE_DISPLAY_FIELDS[field];
   const state = context.fields[field];
   const setting = state?.setting;
@@ -240,10 +208,10 @@ export function ProfileDisplayControl({ field }: { field: ProfileDisplayField })
     >
       <SegmentedControl<number>
         label={`${definition.label}展示范围`}
-        value={setting?.value ?? null}
+        value={value}
         options={definition.options}
         disabled={!context.available || setting?.status !== 'known' || Boolean(state?.pending)}
-        onChange={(value) => context.save(field, value)}
+        onChange={onChange}
       />
       <span
         className="weq-profile-display-status"
@@ -256,7 +224,7 @@ export function ProfileDisplayControl({ field }: { field: ProfileDisplayField })
           <Check size={12} />
         ) : null}
         {status}
-        {state?.error && (
+        {(state?.error || context.error || setting?.status !== 'known') && (
           <button
             type="button"
             title={`重新读取${definition.label}展示设置`}
@@ -272,52 +240,103 @@ export function ProfileDisplayControl({ field }: { field: ProfileDisplayField })
   );
 }
 
-/** 原有编辑组件不依赖展示设置；关闭模式时保持原布局。 */
+/** 展示范围与内容共用一次保存；范围读取失败不阻塞内容编辑。 */
 export function DisplaySelfProfileField({
   displayField,
   ...props
 }: ComponentProps<typeof SelfProfileField> & { displayField?: ProfileDisplayField }) {
-  const enabled = useProfileDisplayMode();
+  const context = useContext(Context);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<number | null>(null);
+  const [partial, setPartial] = useState(false);
+  const setting = displayField ? context?.fields[displayField]?.setting : undefined;
+  const value = draft ?? (setting?.status === 'known' ? setting.value : null);
   return (
-    <div
-      className={enabled && displayField ? 'weq-profile-display-field' : 'weq-profile-display-pass'}
-    >
-      <SelfProfileField {...props} />
-      {displayField ? <ProfileDisplayControl field={displayField} /> : null}
-    </div>
+    <SelfProfileField
+      {...props}
+      onEditingChange={(next) => {
+        setEditing(next);
+        setDraft(null);
+        setPartial(false);
+        if (next && displayField) context?.request();
+        props.onEditingChange?.(next);
+      }}
+      afterSave={async () => {
+        if (props.afterSave && !(await props.afterSave())) return false;
+        if (!displayField || !context || value === null || value === setting?.value) return true;
+        const ok = await context.save(displayField, value);
+        setPartial(!ok);
+        return ok;
+      }}
+      editorFooter={
+        editing && displayField ? (
+          <>
+            <ProfileDisplayControl
+              field={displayField}
+              value={value}
+              onChange={(next) => {
+                setDraft(next);
+                setPartial(false);
+              }}
+            />
+            {partial ? <p role="alert">展示范围尚未保存。请重试保存或重新读取。</p> : null}
+          </>
+        ) : (
+          props.editorFooter
+        )
+      }
+    />
   );
 }
 export function ProfileDisplayEntry({
   field,
   children,
+  unframed = false,
+  label,
 }: {
   field: ProfileDisplayField;
   children: ReactNode;
+  unframed?: boolean;
+  label?: string;
 }) {
-  return useProfileDisplayMode() ? (
-    <div className="weq-profile-display-entry">
-      {children}
-      <ProfileDisplayControl field={field} />
-    </div>
-  ) : (
-    children
+  const context = useContext(Context);
+  if (!context || unframed) return children;
+  return (
+    <DisplaySelfProfileField
+      label={label ?? PROFILE_DISPLAY_FIELDS[field].label}
+      value={children}
+      displayField={field}
+      disabled={!context.available}
+      unframed={unframed}
+    >
+      {(save) => (
+        <button
+          type="button"
+          className="weq-set-iconbtn"
+          title={`保存${PROFILE_DISPLAY_FIELDS[field].label}`}
+          aria-label={`保存${PROFILE_DISPLAY_FIELDS[field].label}`}
+          onClick={() => void save(async () => true)}
+        >
+          <Save size={16} />
+        </button>
+      )}
+    </DisplaySelfProfileField>
   );
 }
-export function ProfileDisplayValue({
-  field,
-  value,
-}: {
-  field: ProfileDisplayField;
-  value: ReactNode;
-}) {
-  if (!useProfileDisplayMode()) return null;
+
+export function ProfileDisplaySettingField({ field }: { field: ProfileDisplayField }) {
+  const context = useContext(Context);
+  if (!context) return null;
+  const setting = context.fields[field]?.setting;
+  const label = `${PROFILE_DISPLAY_FIELDS[field].label}展示范围`;
+  const value =
+    setting?.status === 'known'
+      ? PROFILE_DISPLAY_FIELDS[field].options.find((option) => option.value === setting.value)
+          ?.label
+      : null;
   return (
-    <div className="weq-profile-display-field">
-      <div className="weq-profile-display-value">
-        <span>{PROFILE_DISPLAY_FIELDS[field].label}</span>
-        <strong data-privacy-sensitive>{value ?? '暂无本地资料'}</strong>
-      </div>
-      <ProfileDisplayControl field={field} />
-    </div>
+    <ProfileDisplayEntry field={field} label={label}>
+      {value ?? '未读取'}
+    </ProfileDisplayEntry>
   );
 }

@@ -133,7 +133,7 @@ export function ProfileInlineField({
     </form>
   ) : (
     <ContactRow label={label} valueClassName={valueClassName}>
-      {editable ? (
+      {editable && !locked ? (
         <button
           ref={trigger}
           type="button"
@@ -154,7 +154,7 @@ export function ProfileInlineField({
             `设置${label}`}
         </button>
       ) : (
-        initial || null
+        options?.find((option) => option.value === initial)?.label || initial || null
       )}
     </ContactRow>
   );

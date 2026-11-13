@@ -32,11 +32,11 @@ const server = await createServer({
     alias: [
       {
         find: /^.*\/trpc\/client$/,
-        replacement: resolve(root, 'test/browser/self-profile.stub.ts'),
+        replacement: resolve(root, 'test/browser/profile-display.stub.ts'),
       },
       {
         find: /^.*\/hooks\/useQQWriteSession$/,
-        replacement: resolve(root, 'test/browser/self-profile.stub.ts'),
+        replacement: resolve(root, 'test/browser/profile-display.stub.ts'),
       },
       { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
       { find: '@resources', replacement: resolve(root, '../../resources') },
@@ -70,6 +70,58 @@ try {
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/self-profile.html`;
   await page.goto(url);
   await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
+  const nickname = page.getByRole('button', { name: '编辑QQ 昵称', exact: true });
+  assert.equal(await nickname.textContent(), '合成名片昵称');
+  assert.equal(await nickname.locator('svg').count(), 0);
+  assert.equal(await nickname.locator('button').count(), 0);
+  assert.equal(await page.locator('button button').count(), 0, '字段内没有嵌套操作按钮');
+  assert.equal(await page.getByText('编辑资料与展示设置', { exact: true }).count(), 0);
+  assert.equal(await page.locator('[data-profile-display-mode]').count(), 0);
+  assert.equal(await page.getByRole('button', { name: '复制昵称', exact: true }).count(), 0);
+  assert.equal(await page.getByTitle('查看教育经历', { exact: true }).count(), 1);
+  assert.equal(
+    await page.locator('button button').count(),
+    0,
+    'identity and history actions are not nested',
+  );
+  await page.getByRole('button', { name: '查看个性签名', exact: true }).click();
+  await page.getByRole('dialog', { name: '个性签名', exact: true }).waitFor();
+  assert.equal(await page.getByRole('textbox', { name: '个性签名', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('textbox', { name: '个性签名', exact: true }).inputValue(), '');
+  assert.equal(
+    await page.getByRole('textbox', { name: '个性签名', exact: true }).getAttribute('placeholder'),
+    '新签名',
+  );
+  assert.equal(
+    await page
+      .getByRole('button', { name: '保存个性签名', exact: true })
+      .locator('.lucide-check')
+      .count(),
+    1,
+  );
+  await page.getByRole('textbox', { name: '个性签名', exact: true }).fill('从资料页提交的新签名');
+  await page.evaluate(() => window.selfProfileQa.failSave(true));
+  await page.getByRole('button', { name: '保存个性签名', exact: true }).click();
+  assert.equal(
+    await page.getByRole('textbox', { name: '个性签名', exact: true }).inputValue(),
+    '从资料页提交的新签名',
+  );
+  await page.evaluate(() => window.selfProfileQa.failSave(false));
+  await page.getByRole('button', { name: '保存个性签名', exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector('input[aria-label="个性签名"]')?.value === '',
+  );
+  await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
+  await page.getByTitle('查看教育经历', { exact: true }).click();
+  await page.getByRole('dialog', { name: '教育经历', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '编辑学校', exact: true }).count(), 0);
+  await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
+  for (const label of ['性别', '生日', '所在地', '家乡', '邮箱', '职业', '公司', '个人说明'])
+    assert.equal(
+      await page.getByRole('button', { name: `编辑${label}`, exact: true }).count(),
+      1,
+      `${label} appears once`,
+    );
   assert.equal(
     await page.evaluate(() => window.selfProfileQa.requests()),
     0,
@@ -94,9 +146,34 @@ try {
   await page.getByRole('button', { name: '保存QQ 昵称', exact: true }).click();
   await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
   await page.getByRole('button', { name: '编辑公司', exact: true }).click();
+  await page.locator('[data-display-field="company"] [aria-checked="true"]').waitFor();
+  const companyRange = page.locator('[data-display-field="company"]');
+  await companyRange.getByRole('radio', { name: '仅好友', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.profileDisplayQa.writes()), 0);
   await page.getByRole('textbox', { name: '公司', exact: true }).fill('');
   await page.getByRole('button', { name: '保存公司', exact: true }).click();
   await page.getByRole('button', { name: '编辑公司', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.profileDisplayQa.writes()), 1);
+  assert.equal(await page.locator('[data-display-field]').count(), 0);
+  await page.getByRole('button', { name: '编辑公司', exact: true }).click();
+  await page.getByRole('textbox', { name: '公司', exact: true }).fill('只提交一次的公司');
+  await page
+    .locator('[data-display-field="company"]')
+    .getByRole('radio', { name: '不可见', exact: true })
+    .click();
+  await page.evaluate(() => window.profileDisplayQa.mismatch(true));
+  const beforePartial = await page.evaluate(() => window.selfProfileQa.writes());
+  await page.getByRole('button', { name: '保存公司', exact: true }).click();
+  await page.getByText('展示范围尚未保存。请重试保存或重新读取。', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.selfProfileQa.writes()), beforePartial + 1);
+  await page.evaluate(() => window.profileDisplayQa.mismatch(false));
+  await page.getByRole('button', { name: '保存公司', exact: true }).click();
+  await page.getByRole('button', { name: '编辑公司', exact: true }).waitFor();
+  assert.equal(
+    await page.evaluate(() => window.selfProfileQa.writes()),
+    beforePartial + 1,
+    'retry does not submit confirmed content again',
+  );
   await page.getByRole('button', { name: '编辑个人说明', exact: true }).click();
   await page
     .getByRole('textbox', { name: '个人说明', exact: true })
@@ -115,6 +192,8 @@ try {
           '--weq-accent-effective',
           theme === 'light' ? '#167d67' : '#db7aa4',
         );
+        document.querySelector('.weq-profile-workspace-body').scrollTop = 0;
+        document.querySelector('.weq-profile-page-header').scrollTop = 0;
       }, theme);
       const overflow = () =>
         page.evaluate(() =>
@@ -128,6 +207,18 @@ try {
         );
       assert.deepEqual(await overflow(), [], `${width}/${theme}: card overflow`);
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-card.png`) });
+      await page.getByRole('button', { name: '查看个性签名', exact: true }).click();
+      const signatureDialog = page.getByRole('dialog', { name: '个性签名', exact: true });
+      await signatureDialog.waitFor();
+      assert.equal(await signatureDialog.locator('input[aria-label="个性签名"]').count(), 1);
+      assert.equal(
+        await signatureDialog.evaluate((el) => el.scrollWidth <= el.clientWidth + 2),
+        true,
+        `${width}/${theme}: signature editor overflow`,
+      );
+      if (output)
+        await page.screenshot({ path: resolve(output, `${width}-${theme}-signature.png`) });
+      await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
       await page.getByRole('button', { name: '历史头像', exact: true }).click();
       await page.getByText('共 4 个头像', { exact: true }).waitFor();
       const dates = () => page.locator('.weq-avatar-history-grid article dl').allTextContents();
@@ -175,6 +266,48 @@ try {
     await page.evaluate(() => window.selfProfileQa.requests()),
     count,
     'closing stops pagination',
+  );
+  await page.goto(`${url}?popover`);
+  await page.getByRole('dialog', { name: '用户资料', exact: true }).waitFor();
+  assert.equal(
+    await page.locator('.weq-self-field').count(),
+    0,
+    'compact self card stays read-only',
+  );
+  await page.getByRole('button', { name: '查看个性签名', exact: true }).click();
+  await page.getByRole('dialog', { name: '个性签名', exact: true }).waitFor();
+  assert.equal(await page.getByPlaceholder('新签名', { exact: true }).inputValue(), '');
+  assert.equal(
+    await page
+      .getByRole('button', { name: '保存个性签名', exact: true })
+      .locator('.lucide-check')
+      .count(),
+    1,
+  );
+  await page.getByPlaceholder('新签名', { exact: true }).fill('从名片提交的新签名');
+  await page.getByRole('button', { name: '保存个性签名', exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector('input[aria-label="个性签名"]')?.value === '',
+  );
+  await page.goto(`${url}?other`);
+  await page.getByRole('region', { name: '联系人资料', exact: true }).waitFor();
+  assert.equal(await page.locator('.weq-self-field').count(), 0, 'other profiles stay read-only');
+  await page.getByRole('button', { name: '查看个性签名', exact: true }).click();
+  await page.getByRole('dialog', { name: '个性签名', exact: true }).waitFor();
+  assert.equal(
+    await page.getByPlaceholder('新签名', { exact: true }).count(),
+    0,
+    'other contacts do not get a signature composer',
+  );
+  assert.equal(
+    await page
+      .locator('[aria-label^="复制"]')
+      .evaluateAll((buttons) =>
+        buttons.every((button) =>
+          ['复制QQ', '复制QID', '复制UID'].includes(button.getAttribute('aria-label')),
+        ),
+      ),
+    true,
   );
   assert.deepEqual(errors, []);
   if (output)

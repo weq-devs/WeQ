@@ -47,7 +47,7 @@ export function ContactRow({
   onActivate?: (anchor: HTMLButtonElement) => void;
   activateTitle?: string;
   valueClassName?: string;
-  /** 点值复制，成功后就地提示。 */
+  /** 仅 QQ、QID、UID 使用点值复制，成功后就地提示。 */
   copyValue?: string;
   /** 同名字段可指向不同项目，例如普通添加来源与来源群。 */
   historyField?: string;
@@ -55,6 +55,10 @@ export function ContactRow({
   const hasHistory = useContactFieldHistoryAvailable(label, historyField);
   const blank = empty ?? isBlank(children ?? value);
   const content = blank ? '暂无当前资料' : (children ?? value);
+  const text = ['QQ', 'QID', 'UID'].includes(label)
+    ? (copyValue ??
+      (typeof content === 'string' || typeof content === 'number' ? String(content) : undefined))
+    : undefined;
   if (blank && !hasHistory) return null;
   const className = `weq-profile-data-row${valueClassName ? ` ${valueClassName}` : ''}`;
   return (
@@ -69,11 +73,7 @@ export function ContactRow({
         <ContactFieldHistoryButton label={label} field={historyField} />
       </span>
       <div className={`weq-profile-data-value${mono ? ' is-mono' : ''}`} data-privacy-sensitive>
-        {copyValue !== undefined && !blank ? (
-          <CopyButton text={copyValue} className="weq-profile-data-action" title={activateTitle}>
-            {content}
-          </CopyButton>
-        ) : onActivate ? (
+        {onActivate ? (
           <button
             type="button"
             className="weq-profile-data-action"
@@ -86,6 +86,15 @@ export function ContactRow({
           >
             {content}
           </button>
+        ) : text !== undefined && !blank ? (
+          <CopyButton
+            text={text}
+            className="weq-profile-data-action"
+            title={(copyValue !== undefined ? activateTitle : undefined) ?? `复制${label}`}
+            aria-label={`复制${label}`}
+          >
+            {content}
+          </CopyButton>
         ) : (
           content
         )}

@@ -15,7 +15,9 @@ import { Modal } from './Dialog';
 import { OverlayLayer } from './OverlayLayer';
 import { SegmentedControl } from './SegmentedControl';
 import { ProfileDetailsEntry, ProfileDetailsContent } from './ProfileDetailsEntry';
-import { ProfileDisplayEntry } from './ProfileDisplaySettings';
+import { ProfileDisplayEntry, ProfileDisplaySettingField } from './ProfileDisplaySettings';
+import { useSelfProfileFields } from './SelfProfileFields';
+import { SelfSignatureComposer } from './SelfSignatureComposer';
 import {
   SignatureInteractions,
   QuestionInteractions,
@@ -68,11 +70,12 @@ export function ProfileExtraDialog({
   onClose: () => void;
   anchor?: HTMLElement | null;
 }) {
+  const self = useSelfProfileFields();
   const id = useId();
   const title = {
     details: '详细资料',
     education: '教育经历',
-    signatures: '历史个性签名',
+    signatures: '个性签名',
     questions: '匿问我答',
   }[view];
   return (
@@ -91,6 +94,10 @@ export function ProfileExtraDialog({
           <X size={18} />
         </button>
       </header>
+      {view === 'signatures' ? <SelfSignatureComposer uin={uin} /> : null}
+      {view === 'education' && self?.uin === uin ? (
+        <ProfileDisplaySettingField field="education" />
+      ) : null}
       <ProfileExtrasContent uin={uin} view={view} />
     </Modal>
   );
@@ -151,7 +158,7 @@ function ExtrasBody({
         <button
           className="weq-extras-history"
           type="button"
-          title="查看历史个性签名"
+          title="查看个性签名"
           aria-haspopup="dialog"
           aria-expanded={detail?.view === 'signatures'}
           onClick={({ currentTarget: anchor }) =>
@@ -194,7 +201,7 @@ function ExtrasBody({
           </div>
           <div className="weq-extras-links">
             <ProfileDetailsEntry input={input} online={online} />
-            <ProfileDisplayEntry field="education">
+            <ProfileDisplayEntry field="education" unframed>
               <button
                 type="button"
                 title="查看完整教育经历"
@@ -205,7 +212,7 @@ function ExtrasBody({
                 <ChevronRight size={14} />
               </button>
             </ProfileDisplayEntry>
-            <ProfileDisplayEntry field="anonymousQuestions">
+            <ProfileDisplayEntry field="anonymousQuestions" unframed>
               <button type="button" onClick={() => setDetail({ view: 'questions' })}>
                 <MessageCircleQuestion size={15} />
                 匿问我答
@@ -592,6 +599,9 @@ export function ProfileLabelAlbum({
               </button>
             </header>
             <div className="weq-label-album-content">
+              {input.uin === input.expectedAccountUin ? (
+                <ProfileDisplaySettingField field="personalityLabels" />
+              ) : null}
               <ProfileLabelLikes users={label.likeUsers ?? []} total={label.likes} />
               {input.uin === input.expectedAccountUin ? (
                 <PersonalityPhotoUploader

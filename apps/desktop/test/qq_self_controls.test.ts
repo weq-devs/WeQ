@@ -1,14 +1,14 @@
 import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SelfQQControls } from '../src/renderer/src/components/settings/SelfQQControls';
+import { SelfProfileFixture as SelfQQControls } from './support/SelfProfileFixture';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 import { TitleBar } from '../src/renderer/src/im-template/template/TitleBar';
 import type { User } from '../src/renderer/src/im-template/template/types';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 
 vi.mock('../src/renderer/src/components/settings/EditableSelfProfile', () => ({
-  EditableSelfProfile: () => null,
+  useEditableSelfProfileFields: () => ({ fields: {}, feedback: null }),
 }));
 vi.mock('../src/renderer/src/components/SelfAvatarHistory', () => ({
   SelfAvatarHistory: () => h('button', null, '历史头像'),
@@ -59,7 +59,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({
       account: {
         getSelfProfile: { invalidate: state.invalidate },
-        profileExtras: { avatarHistory: { invalidate: state.invalidate } },
+        profileExtras: {
+          avatarHistory: { invalidate: state.invalidate },
+          signatureHistory: { invalidate: state.invalidate },
+        },
         getOnlineStatus: { invalidate: state.invalidate },
         getSelfVip: { invalidate: state.invalidate },
       },
@@ -288,7 +291,8 @@ describe('个人资料编辑入口', () => {
     const f = fixture();
     expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('状态读取失败');
     const signature = f.host.querySelector<HTMLTextAreaElement>('[aria-label="个性签名"]')!;
-    expect(signature.value).toBe('原签名');
+    expect(signature.value).toBe('');
+    expect(signature.placeholder).toBe('新签名');
     expect(signature.disabled).toBe(false);
   });
   it('选择头像后提交当前来源的文件，并恢复按钮', async () => {
@@ -329,22 +333,14 @@ describe('个人资料编辑入口', () => {
     expect(state.mutate).not.toHaveBeenCalled();
     expect(avatarButton().disabled).toBe(false);
   });
-  it('头像位于基本字段前，昵称与性别分组，签名独立占满编辑区', () => {
+  it('共享控制层提供独立字段，不再生成重复身份区和基本资料分组', () => {
     const f = fixture();
-    const header = f.host.querySelector('[aria-label="个人资料概览"]')!;
-    expect(header).not.toBeNull();
-    expect(header.textContent).toContain('10001');
-    expect(header.querySelector('[aria-label="更换头像"]')).not.toBeNull();
-    const basic = f.host.querySelector('[aria-label="基本资料编辑"]')!;
-    expect(basic.querySelector('[aria-label="QQ 昵称"]')).not.toBeNull();
-    expect(basic.querySelector('[aria-label="性别"]')).not.toBeNull();
-    expect(basic.querySelector('[aria-label="个性签名"]')).toBeNull();
-    const signature = f.host.querySelector('[aria-label="签名编辑"]')!;
-    expect(signature.querySelector('textarea')).not.toBeNull();
-    expect(header.compareDocumentPosition(basic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(
-      basic.compareDocumentPosition(signature) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(f.host.querySelector('[aria-label="个人资料概览"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="基本资料编辑"]')).toBeNull();
+    expect(f.host.querySelectorAll('[aria-label="QQ 昵称"]')).toHaveLength(1);
+    expect(f.host.querySelectorAll('[aria-label="性别"]')).toHaveLength(1);
+    expect(f.host.querySelectorAll('input[aria-label="个性签名"]')).toHaveLength(1);
+    expect(f.host.querySelector('[aria-label="更换头像"]')).not.toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
   it('基础状态在扩展状态上方，预设扩展状态预览图标后确认提交', async () => {
@@ -551,15 +547,20 @@ describe('个人资料编辑入口', () => {
     expect(state.mutate).not.toHaveBeenCalled();
   });
 
-  it('资料缓存未填充时仍可明确修改昵称或清空签名', async () => {
+  it('资料缓存未填充时仍可明确修改昵称或提交新签名，空签名不提交', async () => {
     state.profilePresent = false;
     const f = fixture();
     input(f.host, 'QQ 昵称', '首次设置昵称');
     await act(async () =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="保存QQ 昵称"]')!.click(),
     );
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="个性签名"]')!.value).toBe('');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存个性签名"]')!.disabled).toBe(
+      true,
+    );
+    input(f.host, '个性签名', '新的签名');
     await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="清空个性签名"]')!.click(),
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存个性签名"]')!.click(),
     );
     expect(state.mutate).toHaveBeenNthCalledWith(1, {
       expectedAccountUin: '10001',
@@ -569,7 +570,8 @@ describe('个人资料编辑入口', () => {
     expect(state.mutate).toHaveBeenNthCalledWith(2, {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
-      patch: { signature: '' },
+      patch: { signature: '新的签名' },
     });
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="个性签名"]')!.value).toBe('');
   });
 });

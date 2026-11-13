@@ -1,55 +1,10 @@
-.weq-profile-display-toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 0 16px;
-  font-size: 13px;
-  color: var(--weq-fg-primary);
-}
-.weq-profile-display-toolbar > span[role='status'] {
-  flex: 1;
-  min-width: 100px;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.weq-profile-display-pass {
-  display: contents;
-}
-.weq-profile-display-mode-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-}
-.weq-profile-display-field {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, auto);
-  align-items: start;
-  gap: 8px 16px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-.weq-profile-display-value {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 36px;
-  font-size: 13px;
-}
-.weq-profile-display-value strong {
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
 .weq-profile-display-control {
   display: grid;
+  justify-items: start;
   gap: 2px;
   min-width: 0;
   max-width: 100%;
-  justify-items: end;
+  padding-block: 6px;
 }
 .weq-profile-display-control .weq-segmented {
   flex-wrap: nowrap;
@@ -64,7 +19,6 @@
 .weq-profile-display-status {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 4px;
   min-height: 18px;
   font-size: 11px;
@@ -86,44 +40,4 @@
   background: transparent;
   border: 0;
   cursor: pointer;
-}
-.weq-profile-display-entry {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: start;
-  gap: 8px 16px;
-  min-width: 0;
-  width: 100%;
-}
-.weq-profile-display-entry > button {
-  flex: 1;
-  min-height: 36px;
-}
-html[data-theme='dark'] .weq-profile-display-field {
-  border-color: var(--weq-border-subtle);
-}
-@container (max-width: 540px) {
-  .weq-profile-display-field {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .weq-profile-display-control {
-    justify-items: start;
-  }
-  .weq-profile-display-status {
-    justify-content: flex-start;
-  }
-}
-.weq-self-profile-page {
-  container-type: inline-size;
-}
-@media (max-width: 540px) {
-  .weq-profile-display-field {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .weq-profile-display-control {
-    justify-items: start;
-  }
-  .weq-profile-display-status {
-    justify-content: flex-start;
-  }
 }

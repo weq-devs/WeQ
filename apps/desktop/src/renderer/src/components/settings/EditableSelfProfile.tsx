@@ -1,14 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  Save,
-  MapPin,
-  Cake,
-  Mail,
-  GraduationCap,
-  BriefcaseBusiness,
-  RefreshCw,
-  FileText,
-} from 'lucide-react';
+import { Save, MapPin, Cake, Mail, BriefcaseBusiness, RefreshCw, FileText } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { QQWriteTextRow, QQWriteSelectRow } from '../QQWriteControls';
@@ -16,6 +7,7 @@ import { Row } from './controls';
 import { withQQAccountScope } from '../qq-actions/shared';
 import { useSelfProfileSave } from '../SelfProfileField';
 import { DisplaySelfProfileField as SelfProfileField } from '../ProfileDisplaySettings';
+import type { SelfProfileFields } from '../SelfProfileFields';
 
 interface Region {
   code: string;
@@ -118,7 +110,7 @@ export function RegionEditor({
     />
   );
 }
-function EditableSelfProfileBody() {
+export function useEditableSelfProfileFields() {
   const a = useQQWriteSession('editable-self-profile');
   const profile = trpc.account.qqWrite.editableSelfProfile.useQuery(a.binding!, {
     enabled: a.available,
@@ -131,21 +123,30 @@ function EditableSelfProfileBody() {
   });
   const local = trpc.account.getSelfProfile.useQuery(undefined, { staleTime: 30_000 });
   const mutation = trpc.account.qqWrite.editSelfProfile.useMutation();
+  const confirmed = useRef(profile.data);
+  useEffect(() => {
+    confirmed.current = profile.data;
+  }, [profile.data]);
   type Patch = Parameters<typeof mutation.mutateAsync>[0]['patch'];
-  const save = (patch: Patch) =>
-    a.run((binding) => mutation.mutateAsync({ ...binding, patch }), undefined, {
+  const save = (patch: Patch) => {
+    const matches = (data: typeof profile.data) =>
+      Object.entries(patch).every(
+        ([key, value]) =>
+          JSON.stringify(data?.[key as keyof NonNullable<typeof data>]) === JSON.stringify(value),
+      );
+    if (matches(confirmed.current)) return Promise.resolve(true);
+    return a.run((binding) => mutation.mutateAsync({ ...binding, patch }), undefined, {
       requireReadback: true,
       readbackSuccessText: '资料已保存',
       readback: async () => {
         const result = await profile.refetch();
         if (result.error) throw result.error;
-        return Object.entries(patch).every(
-          ([key, value]) =>
-            JSON.stringify(result.data?.[key as keyof NonNullable<typeof result.data>]) ===
-            JSON.stringify(value),
-        );
+        const ok = matches(result.data);
+        if (ok) confirmed.current = result.data;
+        return ok;
       },
     });
+  };
   const disabled = !a.available || a.busy || !profile.data || Boolean(profile.error);
   const errors = profile.data?.errors ?? {};
   const cached = local.data?.uin.toString() === a.binding?.expectedAccountUin ? local.data : null;
@@ -163,8 +164,8 @@ function EditableSelfProfileBody() {
         .join(' · ') || '未设置'
     );
   };
-  return (
-    <div className="weq-self-profile-additional">
+  const feedback = (
+    <>
       {Object.entries(errors).map(([field, message]) => (
         <p role="alert" key={field}>
           {message}
@@ -194,6 +195,10 @@ function EditableSelfProfileBody() {
           </button>
         </p>
       )}
+    </>
+  );
+  const fields: SelfProfileFields = {
+    birthday: (
       <SelfProfileField
         label="生日"
         displayField="birthday"
@@ -215,8 +220,10 @@ function EditableSelfProfileBody() {
           onSave={(birthday) => save({ birthday })}
         />
       </SelfProfileField>
+    ),
+    region: (
       <SelfProfileField
-        label="当前地区"
+        label="所在地"
         displayField="region"
         value={
           regionText(profile.data?.region) ??
@@ -230,7 +237,7 @@ function EditableSelfProfileBody() {
         disabled={disabled || Boolean(errors.region)}
       >
         <RegionEditor
-          label="当前地区"
+          label="所在地"
           value={profile.data?.region ?? null}
           layers={3}
           regions={directory.data?.regions ?? []}
@@ -238,6 +245,8 @@ function EditableSelfProfileBody() {
           onSave={(region) => save({ region })}
         />
       </SelfProfileField>
+    ),
+    email: (
       <SelfProfileField
         label="邮箱"
         displayField="email"
@@ -259,6 +268,8 @@ function EditableSelfProfileBody() {
           onSave={(email) => save({ email })}
         />
       </SelfProfileField>
+    ),
+    profession: (
       <SelfProfileField
         label="职业"
         displayField="profession"
@@ -282,6 +293,8 @@ function EditableSelfProfileBody() {
           onSave={(profession) => save({ profession })}
         />
       </SelfProfileField>
+    ),
+    hometown: (
       <SelfProfileField
         label="家乡"
         displayField="hometown"
@@ -300,6 +313,8 @@ function EditableSelfProfileBody() {
           onSave={(hometown) => save({ hometown })}
         />
       </SelfProfileField>
+    ),
+    company: (
       <SelfProfileField
         label="公司"
         displayField="company"
@@ -321,6 +336,8 @@ function EditableSelfProfileBody() {
           onSave={(company) => save({ company })}
         />
       </SelfProfileField>
+    ),
+    personalNote: (
       <SelfProfileField
         label="个人说明"
         displayField="personalNote"
@@ -343,27 +360,9 @@ function EditableSelfProfileBody() {
           onSave={(personalDescription) => save({ personalDescription })}
         />
       </SelfProfileField>
-      <SelfProfileField
-        label="学校"
-        displayField="education"
-        value={
-          profile.data?.school ||
-          cached?.extInfo?.school ||
-          (errors.school || profile.error ? '读取失败' : profile.data ? '未设置' : null)
-        }
-        disabled={disabled || Boolean(errors.school)}
-      >
-        <QQWriteTextRow
-          label="学校"
-          icon={<GraduationCap size={14} />}
-          initial={profile.data?.school ?? null}
-          disabled={disabled || Boolean(errors.school)}
-          maxLength={996}
-          onSave={(school) => save({ school })}
-        />
-      </SelfProfileField>
-    </div>
-  );
+    ),
+  };
+  return { fields, feedback };
 }
 function BirthdayEditor({
   initial,
@@ -407,4 +406,14 @@ function BirthdayEditor({
     />
   );
 }
-export const EditableSelfProfile = withQQAccountScope(EditableSelfProfileBody);
+export const EditableSelfProfile = withQQAccountScope(function EditableSelfProfileBody() {
+  const { fields, feedback } = useEditableSelfProfileFields();
+  return (
+    <div className="weq-self-profile-additional">
+      {feedback}
+      {Object.entries(fields).map(([key, field]) => (
+        <div key={key}>{field}</div>
+      ))}
+    </div>
+  );
+});

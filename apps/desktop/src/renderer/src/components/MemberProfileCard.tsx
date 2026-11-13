@@ -16,6 +16,8 @@ import {
 } from './contactProfile/ContactContent';
 import { ContactActions } from './contactProfile/ContactActions';
 import '../styles/profile-workspace.css';
+import { SelfProfileFieldsContext } from './SelfProfileFields';
+import { ReadonlyProfileDisplay } from './ProfileDisplaySettings';
 
 /** 群成员、私聊头像和联系人浮层共用内容，只保留贴屏定位这一层差异。 */
 export function MemberProfileCard({
@@ -105,47 +107,55 @@ export function MemberProfileCard({
     };
   }, [anchor.x, anchor.y]);
   return (
-    <OverlayLayer presentation="popover" className="weq-member-pop-scrim" onClose={onClose}>
-      <section
-        ref={card}
-        className={`weq-member-pop weq-contact-card${previewContent ? ' is-previewing-chat' : ''}`}
-        role="dialog"
-        aria-label="用户资料"
-        style={{ position: 'fixed', ...position }}
-      >
-        <ProfileCardControls onExpand={openProfile} onClose={onClose} />
-        {previewContent || (
-          <>
-            <ContactIdentity
-              key={`identity:${identityKey}`}
-              person={person}
-              settings={settings}
-              cardBody
-              pendant={settings.ready && settings.visible.pendant}
-            />
-            {!localClone ? (
-              <ContactContent
-                key={`content:${identityKey}`}
-                person={person}
-                settings={settings}
-                onNavigate={onClose}
-                localOnly={!settings.ready}
-                leading={
-                  <ContactGroupContent person={person} settings={settings} onNavigate={onClose} />
-                }
-              />
-            ) : null}
-            <ContactActions
-              key={`actions:${identityKey}`}
-              person={person}
-              onClose={onClose}
-              onOpenChat={onOpenChat}
-              onPreviewChat={onPreviewChat}
-              onAnalyze={onAnalyze}
-            />
-          </>
-        )}
-      </section>
-    </OverlayLayer>
+    <SelfProfileFieldsContext.Provider value={null}>
+      <ReadonlyProfileDisplay>
+        <OverlayLayer presentation="popover" className="weq-member-pop-scrim" onClose={onClose}>
+          <section
+            ref={card}
+            className={`weq-member-pop weq-contact-card${previewContent ? ' is-previewing-chat' : ''}`}
+            role="dialog"
+            aria-label="用户资料"
+            style={{ position: 'fixed', ...position }}
+          >
+            <ProfileCardControls onExpand={openProfile} onClose={onClose} />
+            {previewContent || (
+              <>
+                <ContactIdentity
+                  key={`identity:${identityKey}`}
+                  person={person}
+                  settings={settings}
+                  cardBody
+                  pendant={settings.ready && settings.visible.pendant}
+                />
+                {!localClone ? (
+                  <ContactContent
+                    key={`content:${identityKey}`}
+                    person={person}
+                    settings={settings}
+                    onNavigate={onClose}
+                    localOnly={!settings.ready}
+                    leading={
+                      <ContactGroupContent
+                        person={person}
+                        settings={settings}
+                        onNavigate={onClose}
+                      />
+                    }
+                  />
+                ) : null}
+                <ContactActions
+                  key={`actions:${identityKey}`}
+                  person={person}
+                  onClose={onClose}
+                  onOpenChat={onOpenChat}
+                  onPreviewChat={onPreviewChat}
+                  onAnalyze={onAnalyze}
+                />
+              </>
+            )}
+          </section>
+        </OverlayLayer>
+      </ReadonlyProfileDisplay>
+    </SelfProfileFieldsContext.Provider>
   );
 }

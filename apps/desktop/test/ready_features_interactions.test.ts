@@ -159,7 +159,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           },
           profileRegions: {
             useQuery: () => ({
-              data: { regions: [], professions: [{ value: 13, label: '学生' }] },
+              data: {
+                regions: [],
+                professions: [
+                  { value: 13, label: '学生' },
+                  { value: 14, label: '工程师' },
+                ],
+              },
             }),
           },
           editSelfProfile: {
@@ -412,7 +418,7 @@ describe('可接入功能交互回归', () => {
     expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存生日"]')!.disabled).toBe(
       false,
     );
-    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="编辑邮箱"]')!.disabled).toBe(true);
+    expect(f.host.querySelector('[aria-label="编辑邮箱"]')).toBeNull();
   });
   it('职业展开后确认保存单字段，浏览态没有输入框', async () => {
     const f = mount(() => h(EditableSelfProfile));
@@ -421,7 +427,7 @@ describe('可接入功能交互回归', () => {
     expect(f.host.querySelector('[aria-label="保存职业"]')).not.toBeNull();
     const select = f.host.querySelector<HTMLSelectElement>('[aria-label="职业"]')!;
     await act(async () => {
-      select.value = '13';
+      select.value = '14';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () =>
@@ -431,7 +437,7 @@ describe('可接入功能交互回归', () => {
     expect(state.writes).toHaveBeenCalledWith('profile', {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
-      patch: { profession: 13 },
+      patch: { profession: 14 },
     });
     expect(f.host.querySelector('[aria-label="编辑生日"]')).not.toBeNull();
   });

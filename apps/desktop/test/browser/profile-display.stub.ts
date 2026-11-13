@@ -4,7 +4,7 @@ import {
   PROFILE_DISPLAY_KEYS,
   type ProfileDisplayField,
 } from '@weq/protocol/profile-display';
-import { trpc as base, useQQWriteSession, client } from './self-profile.stub';
+import { trpc as base, useQQWriteSession, client, withFallback } from './self-profile.stub';
 export { useQQWriteSession, client };
 
 let version = 0;
@@ -64,7 +64,7 @@ function useDisplayQuery(_input: unknown, opts: { enabled: boolean }) {
     refetch: load,
   };
 }
-export const trpc = {
+export const trpc = withFallback({
   ...base,
   account: {
     ...base.account,
@@ -96,7 +96,7 @@ export const trpc = {
       },
     },
   },
-};
+});
 export const qa = {
   calls: () => calls,
   writes: () => writes,

@@ -54,14 +54,15 @@ export function QQProfileField(props: Props) {
         }}
       />
     );
-  const trigger = (
+  const trigger = !session.available ? (
+    value || null
+  ) : (
     <button
       ref={triggerRef}
       type="button"
       className="weq-contact-value"
       aria-label={`编辑${label}`}
       title={`编辑${label}`}
-      disabled={!session.available}
       onClick={(event) => {
         const selection = event.currentTarget.ownerDocument.getSelection();
         if (!selection?.toString() || !event.currentTarget.contains(selection.anchorNode))

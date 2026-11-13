@@ -1,5 +1,4 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Copy, Pencil } from 'lucide-react';
 import type { GroupConversation, GroupMember } from '../../im-template/template/types';
 import { Avatar } from '../../im-template/template/primitives';
 import { RelationshipDirectoryContext, useGroupRelationship } from '../../lib/contactRelationship';
@@ -7,7 +6,6 @@ import type { useGroupProfile } from '../../hooks/useGroupProfile';
 import { ContactRow, ContactSection } from '../contactProfile/ContactRow';
 import { GroupRelationshipStatus } from '../RelationshipStatus';
 import { QQProfileField } from '../QQProfileField';
-import { CopyButton } from '../CopyButton';
 import { VirtualConversationBadge } from '../VirtualConversationAvatar';
 import { openMediaPreview } from '../mediaPreviewStore';
 import { GroupFreezeNotice, GroupTags, groupCreationDate } from './GroupContent';
@@ -85,25 +83,9 @@ export function GroupCardIdentity({
             {editable && (role === 'owner' || role === 'admin') ? (
               <div className="weq-profile-name weq-group-quick-name-editor">
                 <QQProfileField field="groupName" target={conversation.id} initial={name} inline />
-                <CopyButton
-                  text={name}
-                  className="weq-profile-field-history"
-                  title="复制群名"
-                  aria-label="复制群名"
-                >
-                  <Copy size={12} />
-                </CopyButton>
-                <Pencil size={12} aria-hidden />
               </div>
             ) : (
-              <CopyButton
-                text={name}
-                className="weq-profile-name weq-contact-name"
-                title="复制群名"
-                aria-label="复制群名"
-              >
-                {name}
-              </CopyButton>
+              <span className="weq-profile-name weq-contact-name">{name}</span>
             )}
             <ContactFieldHistoryButton label="群名称" field="groupName" />
           </div>
@@ -129,12 +111,7 @@ export function GroupCardIdentity({
             valueClassName="weq-profile-identity-remark"
           />
         )}
-        <ContactRow
-          label={generated ? 'ID' : '群号'}
-          value={identity}
-          copyValue={identity}
-          activateTitle={generated ? '复制 ID' : '复制群号'}
-        />
+        <ContactRow label={generated ? 'ID' : '群号'} value={identity} />
       </div>
     </>
   );

@@ -53,12 +53,11 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-display.html`,
   );
   const modeButton = page.locator('[data-profile-display-mode]');
-  await modeButton.waitFor();
-  assert.equal(await modeButton.getAttribute('type'), 'button');
+  await page.getByRole('button', { name: '编辑性别', exact: true }).waitFor();
+  assert.equal(await modeButton.count(), 0);
   assert.equal(await page.getByRole('switch').count(), 0);
   assert.equal(await page.evaluate(() => window.profileDisplayQa.calls()), 0);
-  await modeButton.click();
-  assert.equal(await modeButton.textContent(), '完成资料展示设置');
+  await page.getByRole('button', { name: '编辑性别', exact: true }).click();
   assert.ok((await page.locator('main').textContent()).includes('合成名片昵称'));
   assert.equal(
     await page.locator('[data-display-field="gender"] [aria-checked="true"]').count(),
@@ -68,24 +67,33 @@ try {
   assert.equal(await page.evaluate(() => window.profileDisplayQa.calls()), 1);
   const gender = page.locator('[data-display-field="gender"]');
   await gender.getByRole('radio', { name: '仅好友', exact: true }).click();
-  await gender.getByText('已保存').waitFor();
+  assert.equal(await page.evaluate(() => window.profileDisplayQa.writes()), 0);
+  await page.getByRole('button', { name: '保存性别', exact: true }).click();
+  await page.getByRole('button', { name: '编辑性别', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.profileDisplayQa.writes()), 1);
   await page.evaluate(() => window.profileDisplayQa.mismatch(true));
+  await page.getByRole('button', { name: '编辑性别', exact: true }).click();
   await gender.getByRole('radio', { name: '不可见', exact: true }).click();
+  await page.getByRole('button', { name: '保存性别', exact: true }).click();
   await gender.getByText('读回状态与选择不一致，请重新读取核对').waitFor();
   assert.equal(
-    await gender.getByRole('radio', { name: '仅好友', exact: true }).getAttribute('aria-checked'),
+    await gender.getByRole('radio', { name: '不可见', exact: true }).getAttribute('aria-checked'),
     'true',
   );
   await gender.getByRole('button', { name: '重新读取性别展示设置' }).click();
   await page.waitForFunction(() => window.profileDisplayQa.calls() === 2);
   await page.waitForTimeout(350);
-  const education = page.locator('[data-display-field="education"]');
-  assert.equal(await education.count(), 2);
+  await page.getByRole('button', { name: '取消编辑性别', exact: true }).click();
+  await page.getByRole('button', { name: '编辑公司', exact: true }).click();
+  const education = page.locator('[data-display-field="company"]');
+  assert.equal(await education.count(), 1);
   await page.evaluate(() => window.profileDisplayQa.mismatch(false));
   await education.first().getByRole('radio', { name: '不可见', exact: true }).click();
-  await education.last().getByText('已保存').waitFor();
-  assert.equal(await education.locator('[aria-checked="true"]').count(), 2);
+  await page.getByRole('button', { name: '保存公司', exact: true }).click();
+  await page.getByRole('button', { name: '编辑公司', exact: true }).waitFor();
+  await page.getByRole('button', { name: '编辑公司', exact: true }).click();
+  await page.getByRole('button', { name: '编辑性别', exact: true }).click();
+  assert.equal(await education.locator('[aria-checked="true"]').count(), 1);
   if (output) await mkdir(output, { recursive: true });
   for (const width of [1180, 390, 320])
     for (const theme of ['light', 'dark'])
@@ -121,16 +129,19 @@ try {
           await page.screenshot({ path: resolve(output, `${width}-${theme}.png`), fullPage: true });
         results.push({ width, theme, background, overflow });
       }
-  await modeButton.click();
+  await page.getByRole('button', { name: '取消编辑性别', exact: true }).click();
+  await page.getByRole('button', { name: '取消编辑公司', exact: true }).click();
   assert.equal(await page.locator('[data-display-field]').count(), 0);
-  await modeButton.click();
+  await page.getByRole('button', { name: '编辑性别', exact: true }).click();
   await gender.getByRole('radio', { name: '仅好友', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
-  await gender.getByText('已保存').waitFor();
+  assert.equal(await page.evaluate(() => window.profileDisplayQa.writes()), 3);
   assert.equal(
     await gender.getByRole('radio', { name: '不可见', exact: true }).getAttribute('aria-checked'),
     'true',
   );
+  await page.getByRole('button', { name: '保存性别', exact: true }).click();
+  await page.getByRole('button', { name: '编辑性别', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.profileDisplayQa.writes()), 4);
   assert.deepEqual(errors, []);
   if (output)

@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { SelfQQControls } from '../../src/renderer/src/components/settings/SelfQQControls';
+import { SelfProfileFixture as SelfQQControls } from '../support/SelfProfileFixture';
 import { SelfProfileDisplayProvider } from '../../src/renderer/src/components/ProfileDisplaySettings';
 import { qa } from './profile-display.stub';
 import '../../src/renderer/src/styles/index.css';
