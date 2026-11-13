@@ -501,14 +501,20 @@
   padding: 0 14px;
   border: 1px solid transparent;
   border-radius: 6px;
-  background: var(--weq-accent-effective);
-  color: var(--weq-accent-ink, #fff);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground);
   font-weight: 500;
   cursor: pointer;
 }
 
-.weq-contact-actions .weq-contact-primary:hover {
-  filter: brightness(1.05);
+.weq-contact-actions .weq-contact-primary:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.weq-contact-actions .weq-contact-primary:disabled {
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border-color: var(--weq-border-subtle);
+  cursor: not-allowed;
 }
 
 .weq-contact-actions .weq-contact-secondary {

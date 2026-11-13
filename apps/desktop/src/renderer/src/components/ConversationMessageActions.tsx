@@ -84,7 +84,7 @@ export function ConversationMessageActions({
           ? '已暂停'
           : undefined;
   const actions = [
-    ...((directory?.onAnalyze && conversationAnalysisTarget(conversation)) || generated
+    ...(!generated && directory?.onAnalyze && conversationAnalysisTarget(conversation)
       ? [
           {
             label: '分析',
@@ -95,7 +95,7 @@ export function ConversationMessageActions({
           },
         ]
       : []),
-    ...((requestExport || generated) && exportSelection
+    ...(requestExport && exportSelection
       ? [
           {
             label: '导出',
@@ -105,8 +105,7 @@ export function ConversationMessageActions({
           },
         ]
       : []),
-    ...((requestExport && conversation.type === 'group' && target) ||
-    (generated && conversation.type === 'group')
+    ...(requestExport && conversation.type === 'group' && target && !generated
       ? [
           {
             label: '导出名单',
@@ -121,7 +120,7 @@ export function ConversationMessageActions({
           },
         ]
       : []),
-    ...((target && onRoaming) || generated
+    ...(target && onRoaming && !generated
       ? [
           {
             label: '拉取漫游消息',
@@ -132,7 +131,7 @@ export function ConversationMessageActions({
           },
         ]
       : []),
-    ...(onRecalled || generated
+    ...(onRecalled && !generated
       ? [
           {
             label: '撤回列表',
@@ -143,7 +142,7 @@ export function ConversationMessageActions({
           },
         ]
       : []),
-    ...(onDeleted || generated
+    ...(onDeleted && !generated
       ? [
           {
             label: '删除列表',
@@ -154,7 +153,7 @@ export function ConversationMessageActions({
           },
         ]
       : []),
-    ...(onAdd || generated
+    ...(onAdd && !generated
       ? [
           {
             label: '添加本地消息',

@@ -106,7 +106,7 @@ function GroupProfileBody({
   const chatAction = canChat ? (
     <button
       type="button"
-      className="weq-contact-primary"
+      className="weq-contact-primary weq-set-btn"
       onClick={() => {
         if (!embedded) close();
         if (onOpenChat) onOpenChat();

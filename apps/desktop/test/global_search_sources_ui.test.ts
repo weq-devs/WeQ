@@ -59,7 +59,7 @@ describe('全局搜索两层筛选', () => {
         '搜索来源',
       );
       expect(types()).toEqual([
-        '全部',
+        '清空',
         '联系人',
         '群聊',
         '聊天记录',
@@ -69,9 +69,9 @@ describe('全局搜索两层筛选', () => {
         '邮件',
       ]);
       act(() => source('QQ').click());
-      expect(types()).toEqual(['全部', '联系人', '群聊', '聊天记录']);
+      expect(types()).toEqual(['清空', '联系人', '群聊', '聊天记录']);
       act(() => source('克隆').click());
-      expect(types()).toEqual(['全部', '聊天记录']);
+      expect(types()).toEqual(['清空', '聊天记录']);
       act(() => source('WeQ 助手').click());
       expect(host.querySelector('[aria-label="搜索类型"]')).toBeNull();
       expect(host.querySelector('.weq-app-search')).not.toBeNull();

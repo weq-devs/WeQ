@@ -2211,7 +2211,7 @@ function ExportToolBody({
                       </header>
                       {mode === 'qzone' ? (
                         <QzoneScopePicker
-                          key={scopeConversation.id}
+                          key={`${accountUin}:${scopeConversation.id}`}
                           selfUin={exportAccount.data?.uin ?? ''}
                           hostUin={scopeConversation.id}
                           selected={postSelections[scopeConversation.id]}
@@ -2226,7 +2226,7 @@ function ExportToolBody({
                         />
                       ) : (
                         <MessageScopePicker
-                          key={`chat:${scopeConversation.kind ?? 'c2c'}:${scopeConversation.id}`}
+                          key={`${accountUin}:chat:${scopeConversation.kind ?? 'c2c'}:${scopeConversation.id}`}
                           kind={scopeConversation.kind ?? 'c2c'}
                           conv={scopeConversation.id}
                           selected={messageSelections[scopeConversation.id]}
@@ -2332,6 +2332,8 @@ function ExportToolBody({
                         />
                       </details>
                       <ContactScopePicker
+                        key={`${accountUin}:friends`}
+                        scopeKey={`${accountUin}:friends`}
                         items={friendPreview}
                         loading={friendDirectory.isLoading}
                         error={friendDirectory.isError}
@@ -2388,7 +2390,8 @@ function ExportToolBody({
                             </button>
                           </header>
                           <ContactScopePicker
-                            key={memberScopeGroup.id}
+                            key={`${accountUin}:${memberScopeGroup.id}`}
+                            scopeKey={`${accountUin}:${memberScopeGroup.id}`}
                             items={memberDirectory.data ?? []}
                             loading={memberDirectory.isLoading}
                             error={memberDirectory.isError}
@@ -2472,12 +2475,25 @@ function ExportToolBody({
                 ) : showFormatChips ? (
                   <div className="weq-exp-foot-format">
                     <span className="weq-exp-foot-label">格式</span>
-                    <SegmentedControl<ExportFormat>
-                      label="导出格式"
+                    <select
+                      className="weq-set-input"
+                      aria-label="导出格式"
                       value={format}
-                      onChange={setFormat}
-                      options={formatOptions}
-                    />
+                      onChange={(event) => setFormat(event.target.value as ExportFormat)}
+                    >
+                      {formatOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <small>
+                      {format === 'csv' || format === 'xlsx'
+                        ? '适合表格查看和筛选。'
+                        : format === 'txt'
+                          ? '适合直接阅读纯文本内容。'
+                          : '保留结构化收藏信息，适合程序处理。'}
+                    </small>
                     <StructuredExportControls
                       onRequireJson={() => setFormat('json')}
                       domain={

@@ -17,6 +17,14 @@ function save(root: string, name: string, value: unknown) {
 }
 
 describe('统一设置来源', () => {
+  it('邮箱列宽持久化到应用共享值，重开与切号不会恢复账号旧值', () => {
+    const f = configFixture();
+    f.service.patchSharedPreference('client', { mailListWidth: 432 });
+    expect(f.open().getSharedPreference('client').mailListWidth).toBe(432);
+    f.service.migrateSharedAccountPreferences('a');
+    f.service.migrateSharedAccountPreferences('b');
+    expect(f.open().getSharedPreference('client').mailListWidth).toBe(432);
+  });
   it('以当前账号初始化，显式全局 false 与空列表不被旧账号接管', () => {
     const f = configFixture();
     f.service.patchSharedPreference('intent', { enabled: false, suggestionFallbackTexts: [] });

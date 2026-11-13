@@ -27,6 +27,7 @@ export const preferenceDefaults = {
   background: 'plain',
   componentStyle: 'qqnt',
   density: 'comfortable',
+  mailListWidth: 360,
   showMessageBubble: true,
   showMessageFont: true,
   showAvatarPendant: true,
@@ -93,6 +94,8 @@ export function validatePreferencePatch(value: unknown): asserts value is Prefer
     else if (key === 'componentStyle')
       valid = ['qqnt', 'classic', 'minimal', 'retro'].includes(String(entry));
     else if (key === 'density') valid = entry === 'comfortable' || entry === 'compact';
+    else if (key === 'mailListWidth')
+      valid = typeof entry === 'number' && Number.isFinite(entry) && entry >= 280 && entry <= 560;
     else if (key === 'contactOrder')
       valid =
         isRecord(entry) &&

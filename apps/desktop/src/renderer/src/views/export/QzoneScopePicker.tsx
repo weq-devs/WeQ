@@ -5,6 +5,8 @@ import { useQzoneRequests } from '../../hooks/useQzoneRequests';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useTabActive } from '../../components/RetainedTabs';
 import { WindowedList } from '../../components/WindowedList';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { useExactSelectionMode } from './useExactSelectionMode';
 
 interface Choice {
   tid: string;
@@ -32,6 +34,7 @@ export function QzoneScopePicker({
   const [retry, setRetry] = useState(0);
   const { run, cancel } = useQzoneRequests();
   const exact = selected !== undefined;
+  const changeMode = useExactSelectionMode(`${selfUin}:${hostUin}`, selected, onChange);
   useEffect(() => {
     if (!exact) {
       setRows([]);
@@ -88,14 +91,18 @@ export function QzoneScopePicker({
   });
   return (
     <section className="weq-message-scope" aria-label="说说精确范围" {...multi.rootProps}>
-      <label className="weq-message-scope-mode">
-        <input
-          type="checkbox"
-          checked={exact}
-          onChange={(event) => onChange(event.target.checked ? [] : undefined)}
+      <div className="weq-message-scope-mode">
+        <SegmentedControl
+          label="说说导出范围"
+          value={exact ? 'exact' : 'condition'}
+          onChange={changeMode}
+          options={[
+            { value: 'condition', label: '按条件' },
+            { value: 'exact', label: '精确选择' },
+          ]}
         />
         <span>{exact ? `精确选中 ${selected.length} 条说说` : '按空间及日期导出'}</span>
-      </label>
+      </div>
       {exact ? (
         <>
           <label className="weq-message-scope-search">

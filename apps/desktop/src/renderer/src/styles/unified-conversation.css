@@ -81,6 +81,66 @@ html[data-weq-layout='single'] .chat-pane.without-composer {
   grid-column: 1 / -1;
   min-width: 0;
 }
+.composer:has(.weq-assistant-parameters) {
+  container-type: inline-size;
+}
+.weq-assistant-parameters {
+  min-width: 0;
+  max-width: 440px;
+  margin-right: auto;
+}
+.weq-assistant-parameters .weq-conversation-tools {
+  flex-wrap: nowrap;
+}
+.composer-tools .weq-assistant-parameters span {
+  display: revert;
+}
+.composer-tools .weq-assistant-parameters .weq-assistant-parameter {
+  display: inline-flex;
+}
+.weq-assistant-parameters select {
+  min-width: 0;
+}
+html[data-weq-layout='single'] .composer.has-extensions:has(.weq-assistant-parameters) {
+  grid-template-rows: max-content minmax(var(--mobile-composer-editor-height, 42px), 1fr) max-content;
+}
+html[data-weq-layout='single'] .composer:has(.weq-assistant-parameters) > .composer-tools {
+  overflow: visible;
+}
+.weq-assistant-parameters .weq-api-model-select {
+  min-width: 0;
+}
+.composer-tools .weq-assistant-parameters .weq-assistant-parameter > span {
+  flex: none;
+  white-space: nowrap;
+}
+.weq-assistant-parameters .weq-api-model-field {
+  min-width: 0;
+  flex: 1;
+}
+.weq-assistant-parameters .weq-api-model-field select {
+  width: 100%;
+}
+.composer:has(.weq-assistant-parameters) > .composer-tools {
+  height: auto;
+  min-height: 42px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+}
+.composer.has-extensions:has(.weq-assistant-parameters) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+@container (max-width: 620px) {
+  .weq-assistant-parameters {
+    flex: 0 0 100%;
+    max-width: 100%;
+    padding-block: 4px;
+  }
+  .weq-assistant-parameters .weq-assistant-parameter:first-child {
+    flex: 1;
+  }
+}
 
 .weq-conversation-notice {
   padding: 8px 14px;

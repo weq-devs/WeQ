@@ -188,7 +188,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             control={
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-danger"
                 aria-label="退出群聊"
                 disabled={a.disabled || permissions.data?.role === null}
                 onClick={() =>
