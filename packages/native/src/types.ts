@@ -132,6 +132,13 @@ export interface SessionMaterial {
    * `SsoSecureInfo.sec_token`。扫不到就是 `undefined`。
    */
   secToken?: string;
+  /**
+   * `SecToken` 的过期时间（Unix 秒）。只有 Linux 从会话物料表里读得到；
+   * 其余来源 / 平台没有这一项，调用方应退回固定间隔重扫。
+   */
+  secTokenExpire?: number;
+  /** token 来源，诊断用：`session-map` / `token-field` / `uin` / `proto-identity` / `vote`。 */
+  secTokenSource?: string;
 }
 
 /** `signPacket` 的返回：三个字段都是大写十六进制（对齐 Lagrange 的 SsoSecureInfo）。 */

@@ -33,7 +33,11 @@ import { queueSsoWork, ssoWorkState, type SsoWorkState } from './sso_lifecycle';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
-import { canReuseSessionMaterial, isCompleteSessionMaterial } from '../common/session_material';
+import {
+  canReuseSessionMaterial,
+  isCompleteSessionMaterial,
+  secTokenExpiringSoon,
+} from '../common/session_material';
 import {
   CredentialRepairRequiredError,
   DebugReadUnavailableError,
@@ -499,8 +503,13 @@ export class AccountMonitorService {
     }
     const stored = record.session;
     // 复用判据要求 secToken 也在：老物料缺它时下面会重扫一次，否则升级后
-    // 需要签名的命令会一直带着空 token 发出去。
-    if (stored?.pid === pid && canReuseSessionMaterial(stored)) {
+    // 需要签名的命令会一直带着空 token 发出去。能读到过期时间时，快过期的
+    // token 同样不复用 —— 重扫一次比等 QQ 自己刷新更可控。
+    if (
+      stored?.pid === pid &&
+      canReuseSessionMaterial(stored) &&
+      !secTokenExpiringSoon(stored)
+    ) {
       const registered = await this.storeSsoSession(pid, stored, generation);
       if (registered) {
         this.logger.info('registered the native sso session from stored material', {
@@ -522,6 +531,7 @@ export class AccountMonitorService {
       d2: material.d2,
       d2Key: material.d2Key,
       secToken: material.secToken,
+      secTokenExpire: material.secTokenExpire,
       pid,
     });
     if (!isCompleteSessionMaterial(material))
@@ -546,6 +556,7 @@ export class AccountMonitorService {
         d2: session.d2,
         d2Key: session.d2Key,
         secToken: session.secToken,
+        secTokenExpire: session.secTokenExpire,
         pid: record.qqPid,
       });
     } catch {
