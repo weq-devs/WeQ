@@ -16,6 +16,7 @@
  * 聊天背景与浮屏挂件则**一律离线可用**:QQ 同款背景的直链 bootstrap 时已存进 config,
  * 自定义背景是本地图片 / 视频,浮屏挂件是仓库里 bundle 的 Lottie。
  */
+import { OperationError } from '@weq/service';
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { pickedBrowserFiles } from '../../browser_files';
@@ -66,7 +67,10 @@ function requireServices(
   )
     throw new Error('账号或数据源已切换，请重新读取资料');
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

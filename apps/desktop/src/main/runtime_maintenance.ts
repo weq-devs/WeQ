@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { OperationError } from '@weq/service';
 
 export const MAINTENANCE_DRAIN_TIMEOUT_MS = 15_000;
 
@@ -20,7 +21,7 @@ export class RuntimeMaintenance {
   }
 
   async operation<T>(run: () => Promise<T>, name = '后台请求'): Promise<T> {
-    if (this.busy) throw new Error('WeQ 正在维护中，请稍后重试');
+    if (this.busy) throw new OperationError('WeQ 正在维护中，请稍后重试', 'expected');
     const id = Symbol();
     this.active.set(id, name);
     try {
@@ -32,7 +33,7 @@ export class RuntimeMaintenance {
   }
 
   async run<T>(run: () => Promise<T>): Promise<T> {
-    if (this.busy) throw new Error('已有维护操作正在进行，请稍后重试');
+    if (this.busy) throw new OperationError('已有维护操作正在进行，请稍后重试', 'expected');
     this.busy = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {

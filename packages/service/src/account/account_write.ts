@@ -1,3 +1,4 @@
+import { OperationError } from '../common/operation_error';
 import type { Buddy, Category } from '@weq/db';
 import type { ContactMetricsService } from './contact_metrics';
 import { SelfProfileDisplayService } from './profile_display';
@@ -401,7 +402,7 @@ export class AccountWriteService {
             rawCategories.some((entry) => entry.id === 0) ||
             (candidates.length !== 1 && !cloudConfirmed)
           )
-            throw new Error('分组目录缺少可确认的 ID，请刷新本地联系人后重试');
+            throw new OperationError('分组目录缺少可确认的 ID，请刷新本地联系人后重试', 'expected');
           return { ...row, sortOrder, id: 0, idPresent: false };
         });
         const normalizedFriends = friends.map((row) =>
@@ -465,7 +466,8 @@ export class AccountWriteService {
       const category = categories.find((row) => row.id === operation.id);
       if (!category) throw new Error('分组已不存在');
       const sort = category.sortOrder;
-      if (sort === null) throw new Error('分组目录缺少可确认的排序，请重新读取');
+      if (sort === null)
+        throw new OperationError('分组目录缺少可确认的排序，请重新读取', 'expected');
       await write(() =>
         UpdateFriendCategories.invoke(this.nt, pid, {
           categories: [{ id: operation.id, name: operation.name, sort }],

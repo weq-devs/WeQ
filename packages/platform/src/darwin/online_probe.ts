@@ -72,18 +72,21 @@ export function createQqOnlineProbe(
         finish(pid);
       }
     };
-    const fail = (message: string) => {
+    const fail = (message: string, code?: string) => {
       if (!settled) {
         settled = true;
         job.settled = true;
-        reject(new Error(message));
+        reject(Object.assign(new Error(message), code ? { code } : {}));
       }
     };
     const clear = () => {
       if (active.get(target) === job) active.delete(target);
     };
     const timer = setTimeout(() => {
-      fail(`QQ 在线探测超时（${stage}，限时 ${timeoutMs}ms），尚未确认是否离线。`);
+      fail(
+        `QQ 在线探测超时（${stage}，限时 ${timeoutMs}ms），尚未确认是否离线。`,
+        'QQ_ONLINE_PROBE_TIMEOUT',
+      );
       child?.kill('SIGKILL');
     }, timeoutMs);
     timer.unref();

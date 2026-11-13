@@ -236,7 +236,7 @@ function resolveRouting(params: SendMessageParams): RoutingPlan {
       };
     }
     if (params.elements.some((element) => element.kind !== 'text'))
-      throw new Error('设备会话目前仅支持文本消息');
+      throw Object.assign(new Error('设备会话目前仅支持文本消息'), { code: 'BAD_REQUEST' });
     const text = params.elements
       .map((element) => (element.kind === 'text' ? element.textContent : ''))
       .join('');

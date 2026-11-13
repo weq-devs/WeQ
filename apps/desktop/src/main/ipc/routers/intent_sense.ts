@@ -12,6 +12,7 @@
  *   getSuggestions                   → 回复建议（API 生成／本地候选 + 建议开关开启）
  *   onAnalyzed                       → 增量分析结果推送
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { backgroundTasks } from '../../background_tasks';
@@ -40,7 +41,10 @@ import { normalizeSharedIntentPreferences } from '@weq/service/shared-preference
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

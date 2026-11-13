@@ -1,5 +1,6 @@
 /** Shared bounded HTTP transport for QQ web cgis. */
 import { isQzonePageRequest, waitForQzonePage } from '../../common/qzone_pagination';
+import { OperationError } from '../../common/operation_error';
 
 export type WebRequestErrorKind =
   | 'cancelled'
@@ -11,7 +12,7 @@ export type WebRequestErrorKind =
   | 'response-too-large'
   | 'decode';
 
-export class WebRequestError extends Error {
+export class WebRequestError extends OperationError {
   constructor(
     readonly kind: WebRequestErrorKind,
     message: string,
@@ -23,7 +24,15 @@ export class WebRequestError extends Error {
       cause?: unknown;
     } = {},
   ) {
-    super(message, { cause: options.cause });
+    super(
+      message,
+      kind === 'cancelled'
+        ? 'cancelled'
+        : ['timeout', 'network', 'rate-limit', 'authentication', 'http'].includes(kind)
+          ? 'read-failure'
+          : undefined,
+      { cause: options.cause },
+    );
     this.name = 'WebRequestError';
   }
 

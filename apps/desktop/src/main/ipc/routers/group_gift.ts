@@ -5,6 +5,7 @@
  * `group-gift-panel`），需要在线 QQ 实例；完全离线模式下直接报错，由渲染层回落到
  * 内置抓包示例并弹错误提示。这里**没有任何写操作**：不下单、不付款。
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -14,7 +15,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

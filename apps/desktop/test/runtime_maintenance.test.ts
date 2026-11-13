@@ -14,7 +14,10 @@ it('先进入维护态、拒绝新请求，等待旧请求结束后再替换文�
   });
   expect(maintenance.status().state).toBe('maintenance');
   expect(applied).toBe(false);
-  await expect(maintenance.operation(async () => {})).rejects.toThrow('维护中');
+  await expect(maintenance.operation(async () => {})).rejects.toMatchObject({
+    message: 'WeQ 正在维护中，请稍后重试',
+    diagnostic: 'expected',
+  });
   await expect(maintenance.run(async () => {})).rejects.toThrow('已有维护');
   release();
   await old;

@@ -5,6 +5,7 @@
  * returned here — the renderer streams each file via the existing
  * `weq-media://mface?pack=<itemId>&hash=<hash>` protocol. Read-only.
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { exportAccountBindingInput, exportSavePolicyInput } from './export_save';
@@ -28,15 +29,18 @@ function requireServices(
 ): AccountServices {
   const ctx = getAppContext();
   if (expectedAccountUin && String(ctx.account?.context.uin ?? '') !== expectedAccountUin)
-    throw new Error('账号已切换，已停止操作');
+    throw new DOMException('账号已切换，已停止操作', 'AbortError');
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   if (
     expectedAccountConfigId &&
     ctx.services.accountConfig.getRecord()?.configId !== expectedAccountConfigId
   )
-    throw new Error('账号数据源已切换，已停止操作');
+    throw new DOMException('账号数据源已切换，已停止操作', 'AbortError');
   return ctx.services;
 }
 

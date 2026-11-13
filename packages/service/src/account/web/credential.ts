@@ -12,6 +12,7 @@
 import type { NtHelperBinding } from '@weq/native';
 import { getLogger, logErrorContext } from '../../common/logger';
 import { createNativeSingleFlight } from '../../common/native_single_flight';
+import { OperationError } from '../../common/operation_error';
 
 /**
  * djb2 hash → 31-bit `bkn` (a.k.a. `g_tk` / csrf token), QQ-web style.
@@ -255,10 +256,12 @@ export class WebCredentialProvider {
       // 的场景仍能用 p_skey 算 g_tk，四字段 Cookie 也足够多数 cgi 使用。
       if (!pskey) {
         const res = await fetchCredentials(this.nt, pid, this.uin, domain);
-        if (this.resolvePid() !== pid) throw new Error('在线来源已变化，已丢弃旧 Web 凭据');
+        if (this.resolvePid() !== pid)
+          throw new OperationError('在线来源已变化，已丢弃旧 Web 凭据', 'expected');
         if (this.generations.get(domain) !== generation)
-          throw new Error('Web 凭据已失效，请重新获取。');
-        if (!res.success || !res.pskey) throw new Error(res.msg || '获取 Web 凭据失败');
+          throw new OperationError('Web 凭据已失效，请重新获取。', 'expected');
+        if (!res.success || !res.pskey)
+          throw new OperationError(res.msg || '获取 Web 凭据失败', 'unavailable');
         skey = res.skey;
         pskey = res.pskey;
         cookie = res.cookie || undefined;
@@ -281,12 +284,16 @@ export class WebCredentialProvider {
         cookie: cookie ?? cookieHeader({ uin: this.uin, skey: skey ?? '', pskey }),
       };
     } catch (error) {
-      this.logger.error('failed to resolve web credential', {
-        event: 'resolve-web-credential-failed',
-        pid,
-        domain,
-        ...logErrorContext(error),
-      });
+      // 预期失败由请求或后台任务边界统一告警，底层仅保留诊断，避免重复计错。
+      this.logger[error instanceof OperationError ? 'debug' : 'error'](
+        'failed to resolve web credential',
+        {
+          event: 'resolve-web-credential-failed',
+          pid,
+          domain,
+          ...logErrorContext(error),
+        },
+      );
       throw error;
     }
   }

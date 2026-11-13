@@ -1,3 +1,4 @@
+import { OperationError } from '../common/operation_error';
 /**
  * MessageSendService —— 往群聊 / 私聊**发消息**（MessageSvc.PbSendMsg + 媒体上传）。
  *
@@ -719,7 +720,7 @@ export class MessageSendService {
     }
 
     // 私聊：非纯数字 = uid
-    if (isDatalineUid(text)) throw new Error('设备会话目前仅支持文本消息');
+    if (isDatalineUid(text)) throw new OperationError('设备会话目前仅支持文本消息', 'expected');
     if (!/^\d+$/.test(text)) {
       const uin = this.session.uidMap.uinByUid(text);
       if (!uin) {

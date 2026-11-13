@@ -10,6 +10,7 @@
  * mirror cache (`SysEmojiDownloadService`). Rendering already backfills faces
  * one at a time on demand; this is the explicit "grab everything now" path.
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -18,7 +19,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

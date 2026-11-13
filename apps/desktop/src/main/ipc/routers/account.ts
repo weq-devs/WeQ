@@ -10,6 +10,7 @@
  * Messages load as a *seq window* (see MsgService): `listLatest` for the newest
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
@@ -220,7 +221,10 @@ const FLASH_COVER_MAX_BYTES = 1024 * 1024;
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }
@@ -235,9 +239,9 @@ function currentDraftState() {
 function requireExpectedAccount(expected?: string, expectedConfigId?: string): AccountServices {
   const ctx = getAppContext();
   if (expected && String(ctx.account?.context.uin ?? '') !== expected)
-    throw new Error('账号已切换，已停止操作');
+    throw new DOMException('账号已切换，已停止操作', 'AbortError');
   if (expectedConfigId && ctx.services?.accountConfig.getRecord()?.configId !== expectedConfigId)
-    throw new Error('账号数据源已切换，已停止操作');
+    throw new DOMException('账号数据源已切换，已停止操作', 'AbortError');
   return requireServices();
 }
 
@@ -313,7 +317,10 @@ async function readMessageScope<T>(
 function requireScheduler(): import('@weq/service').ExportScheduler {
   const ctx = getAppContext();
   if (!ctx.scheduler) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.scheduler;
 }
@@ -988,7 +995,10 @@ function requireQqOnlineForAlbum(services = requireServices()): void {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
   if (!state.attachEnabled) {
-    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
+    throw new OperationError(
+      '已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。',
+      'expected',
+    );
   }
 }
 
@@ -1117,7 +1127,10 @@ function requireFreshClientKeyForAlbum(services = requireServices()): void {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
   if (!state.attachEnabled) {
-    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），群相册等在线功能不可用。');
+    throw new OperationError(
+      '已开启完全离线模式（自动读取 QQ 内存 已关闭），群相册等在线功能不可用。',
+      'expected',
+    );
   }
   if (!state.clientKeyValid) {
     throw new Error(
@@ -5337,7 +5350,7 @@ export const accountRouter = router({
           requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
           services
         )
-          throw new Error('账号已切换，已停止操作');
+          throw new DOMException('账号已切换，已停止操作', 'AbortError');
         return services.msgs.deleteCachedSentMessage(message, input.hideAfterDelete ?? false);
       }
       return services.msgs.deleteMessage(
@@ -7321,7 +7334,8 @@ export const accountRouter = router({
         services.flashTransferFiles.downloads,
         getHost(),
         () => {
-          if (current() !== services) throw new Error('账号已切换，已停止操作');
+          if (current() !== services)
+            throw new DOMException('账号已切换，已停止操作', 'AbortError');
         },
       );
     }),

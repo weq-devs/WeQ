@@ -12,6 +12,7 @@
  * underlying `AsyncIterable<KeyEvent>` converted to an `observable`.
  * superjson moves `bigint`s through unscathed.
  */
+import { OperationError } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
 import { trackModelDownload } from '../../model_download_task';
@@ -1448,7 +1449,10 @@ export const bootstrapRouter = router({
       assertAccountBinding(input);
       const accountConfig = getAppContext().services?.accountConfig;
       if (!accountConfig) {
-        throw new Error('No account session open — call bootstrap.openAccount first.');
+        throw new OperationError(
+          'No account session open — call bootstrap.openAccount first.',
+          'expected',
+        );
       }
       const rules = input.groupId ? { ...accountConfig.getGroupKeywordRules() } : input.rules;
       if (input.groupId) {

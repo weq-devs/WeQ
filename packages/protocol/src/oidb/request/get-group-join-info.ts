@@ -103,7 +103,8 @@ export namespace GetGroupJoinInfo {
     if (!Array.isArray(body.groups) || body.groups.length === 0)
       throw new Error('服务端未返回群资料');
     return body.groups.map((row: Record<string, unknown>) => {
-      if (row.result !== undefined && row.result !== 0) throw new Error('服务端拒绝读取群资料');
+      if (row.result !== undefined && row.result !== 0)
+        throw Object.assign(new Error('服务端拒绝读取群资料'), { code: 'REMOTE_REJECTED' });
       const info = row.info as Record<string, unknown> | undefined;
       if (!info) throw new Error('服务端未返回群资料');
       const groupId = Number(row.groupCode);

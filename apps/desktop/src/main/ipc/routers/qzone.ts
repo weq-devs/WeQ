@@ -1,4 +1,6 @@
 /** Native Qzone UI: only already implemented web capabilities are exposed. */
+import { OperationError } from '@weq/service';
+
 import { z } from 'zod';
 import { getHost, qzoneFeedSearchRecord } from '@weq/service';
 import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
@@ -20,7 +22,8 @@ function online(selfUin: string): AccountServices {
   if (!services || String(ctx.account?.context.uin) !== selfUin)
     throw new Error('账号已切换，请重新打开空间。');
   const record = services.accountConfig.getRecord();
-  if (!record?.qqOnline || !record.qqPid) throw new Error('请先登录当前账号的 QQ。');
+  if (!record?.qqOnline || !record.qqPid)
+    throw new OperationError('请先登录当前账号的 QQ。', 'expected');
   return services;
 }
 
@@ -278,7 +281,7 @@ export const qzoneRouter = router({
   ),
   cancel: procedure.input(z.object({ requestId: z.string().uuid() })).mutation(({ input }) => {
     const entry = pending.get(input.requestId);
-    entry?.controller.abort(new Error('空间加载已取消。'));
+    entry?.controller.abort(new DOMException('空间加载已取消。', 'AbortError'));
     return { cancelled: Boolean(entry) };
   }),
   uploadImage: procedure

@@ -11,6 +11,7 @@
  *
  * `recordRecent` 会写回 QQ 的 emoji.db（最近使用），是唯一有副作用的接口。
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -23,7 +24,10 @@ import { resourceSourceInput, requireResourceSource } from './resource_source';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

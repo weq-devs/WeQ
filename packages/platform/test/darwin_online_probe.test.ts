@@ -52,7 +52,7 @@ describe('bounded macOS account online probe', () => {
     const launch = vi.fn(() => pg);
     const probe = createQqOnlineProbe(launch, (x) => x, 100);
     const result = probe(path);
-    const timedOut = expect(result).rejects.toThrow('超时');
+    const timedOut = expect(result).rejects.toMatchObject({ code: 'QQ_ONLINE_PROBE_TIMEOUT' });
     await vi.advanceTimersByTimeAsync(100);
     await timedOut;
     expect(pg.kill).toHaveBeenCalledWith('SIGKILL');

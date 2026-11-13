@@ -12,6 +12,7 @@
  * url_params / orderID 任一)就当成「需要支付」抛错,让用户回手机 QQ 送。WeQ 没有
  * 收银台,静默吞掉只会让人以为礼物已经送出去了。
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { GIFT_MALL_SUBTABS, GIFT_MALL_TABS } from '@weq/protocol';
@@ -22,7 +23,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

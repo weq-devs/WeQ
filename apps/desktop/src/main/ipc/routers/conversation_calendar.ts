@@ -1,3 +1,4 @@
+import { OperationError } from '@weq/service';
 import { z } from 'zod';
 import {
   createCalendarSources,
@@ -199,7 +200,7 @@ export const conversationCalendarRouter = router({
     .mutation(async ({ input }) => {
       const { session, services, native } = current(input);
       if (input.day && !calendarMonthDays(input.month).some((value) => value.day === input.day))
-        throw new Error('日期不属于当前月份');
+        throw new OperationError('日期不属于当前月份', 'expected');
       let cache = sessions.get(session);
       if (!cache) {
         cache = new Map();
@@ -248,7 +249,10 @@ export const conversationCalendarRouter = router({
         ) &&
         !native.executeSqlBudgeted
       )
-        throw new Error('会话日历需要支持短预算读取的原生组件，请更新原生组件后重试');
+        throw new OperationError(
+          '会话日历需要支持短预算读取的原生组件，请更新原生组件后重试',
+          'expected',
+        );
       const value = {
         session,
         services,
@@ -374,7 +378,7 @@ export const conversationCalendarRouter = router({
     .query(({ input }) => {
       const value = entry(input);
       if (input.day && !input.day.startsWith(`${value.job.month}-`))
-        throw new Error('日期不属于当前月份');
+        throw new OperationError('日期不属于当前月份', 'expected');
       const changed = value.day !== input.day || input.retry;
       value.day = input.day;
       if (input.kinds) value.job.setKinds(input.kinds);
@@ -402,7 +406,7 @@ export const conversationCalendarRouter = router({
         throw new Error('日历任务已结束');
       const [id, value] = found;
       if (input.day && !calendarMonthDays(value.job.month).some(({ day }) => day === input.day))
-        throw new Error('日期不属于当前月份');
+        throw new OperationError('日期不属于当前月份', 'expected');
       value.day =
         input.day ??
         value.day ??

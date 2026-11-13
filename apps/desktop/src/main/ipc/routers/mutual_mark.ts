@@ -6,6 +6,8 @@
  * 一样不预先按 qqOnline 短路 —— 一律先打一次，让服务端告诉我们行不行；
  * 失败统一转成「需要在线实例」的提示，底层票据错误不透给前端。
  */
+import { OperationError } from '@weq/service';
+
 import { z } from 'zod';
 import {
   getAppContext,
@@ -17,7 +19,10 @@ import { procedure, router } from '../trpc';
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }

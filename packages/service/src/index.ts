@@ -1237,6 +1237,7 @@ export { configureConsoleLogger, flushConsoleLogger } from './common/logger';
 export { withLogOperation, currentOperationId } from './common/operation_log';
 export { configureDevelopmentLogging } from './common/development_logging';
 export { logRequest, logTransportError } from './common/request_log';
+export { OperationError } from './common/operation_error';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
 export { getHost, setHost, withHost } from './common/host';
 export type { AppAutostartStatus, HostBridge, SaveTarget } from './common/host';

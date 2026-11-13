@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { getLogger } from '../src/common/logger';
 import {
   computeBkn,
   cookieHeader,
@@ -30,6 +31,30 @@ function deadNative(): WebNative {
       }),
   };
 }
+
+it('凭据链路正常返回不可用时交上层统一告警，意外编程错误仍报错', async () => {
+  const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn() };
+  const spy = vi.spyOn(getLogger(), 'child').mockReturnValue(logger);
+  try {
+    const provider = new WebCredentialProvider(deadNative(), '10000', () => 1);
+    await expect(provider.forDomain('vip.qq.com')).rejects.toThrow();
+    expect(logger.debug).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+    const broken = new WebCredentialProvider(
+      {
+        ptFetchCredentials: async () => {
+          throw new TypeError('bug');
+        },
+      },
+      '10000',
+      () => 2,
+    );
+    await expect(broken.forDomain('vip.qq.com')).rejects.toThrow('bug');
+    expect(logger.error).toHaveBeenCalledTimes(1);
+  } finally {
+    spy.mockRestore();
+  }
+});
 
 describe('computeBkn', () => {
   it.each([

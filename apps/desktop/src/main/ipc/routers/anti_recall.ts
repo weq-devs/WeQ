@@ -18,6 +18,7 @@
  * running; if QQ is open it may keep serving from its cached schema until the
  * next restart, so `getStatus().qqRunning` lets the UI warn about that.
  */
+import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, requireBootstrap, type AccountServices } from '../../context/app_context';
@@ -28,7 +29,10 @@ import { assertAccountBinding, optionalAccountBinding } from '../account_binding
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
-    throw new Error('No account session open — call bootstrap.openAccount first.');
+    throw new OperationError(
+      'No account session open — call bootstrap.openAccount first.',
+      'expected',
+    );
   }
   return ctx.services;
 }
