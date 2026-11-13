@@ -272,6 +272,17 @@ function MediaPreviewItem({
   const src = resourceForRenderDocument(source, ownerDocument);
   const zoom = useZoomPan(`${item.key}:${attempt}`, {
     clickZoom: current.kind === 'image',
+    onSwipe: onMove
+      ? (direction) => {
+          if (direction === 'left' ? canNewer : canOlder)
+            onMove(direction === 'left' ? 'newer' : 'older');
+        }
+      : undefined,
+    onTapOutside: (clientX, element) => {
+      const bounds = element.getBoundingClientRect();
+      if (onMove) onMove(clientX < bounds.left + bounds.width / 2 ? 'older' : 'newer');
+      else onClose();
+    },
   });
   const image = useRef<HTMLImageElement | null>(null);
   const [imageFrame, setImageFrame] = useState<HTMLDivElement | null>(null);
@@ -373,6 +384,7 @@ function MediaPreviewItem({
       active={active}
       onClose={onClose}
       onWheelAt={zoom.wheelAt}
+      onMediaPointerDown={current.kind === 'image' ? zoom.onPointerDown : undefined}
       onBackdrop={(side) => (onMove ? onMove(side === 'left' ? 'older' : 'newer') : onClose())}
       onKeyDown={(event) => {
         const target = event.target as HTMLElement;

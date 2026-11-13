@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { createServer } from 'vite';
 import sharp from 'sharp';
+import { runMediaPreviewTouch } from './media-preview-touch.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
@@ -317,9 +318,10 @@ try {
   });
   assert.match(await page.locator('.weq-lightbox-frame').getAttribute('style'), /30px/);
   await close();
+  const touchCases = await runMediaPreviewTouch(page, output);
   assert.deepEqual(errors, []);
   assert.ok(requests.some((value) => value.includes('_weq_retry=1')));
-  console.log(JSON.stringify({ cases, errors, mediaRequests: requests.length }));
+  console.log(JSON.stringify({ cases, touchCases, errors, mediaRequests: requests.length }));
 } finally {
   await browser?.close();
   await server.close();

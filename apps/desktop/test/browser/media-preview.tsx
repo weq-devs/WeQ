@@ -26,6 +26,22 @@ function View() {
       <button
         type="button"
         onClick={() =>
+          setGallery(
+            [1, 2, 3].map((index) => ({
+              key: `touch-${index}`,
+              kind: 'image',
+              src: `/_media/pic?token=touch-${index}`,
+              title: `触摸图片 ${index}`,
+              ocr: null,
+            })),
+          )
+        }
+      >
+        打开触摸图库
+      </button>
+      <button
+        type="button"
+        onClick={() =>
           setGallery([
             { key: 'first', kind: 'image', src: '/_media/pic?token=good', title: '混排图片' },
             { key: 'second', kind: 'video', src: '/_media/video?token=good', title: '混排视频' },
@@ -148,9 +164,9 @@ function View() {
       {gallery ? (
         <MediaPreview
           items={gallery}
-          hasOlder
-          hasNewer
-          prefetchAdjacent
+          hasOlder={gallery[0]?.key !== 'touch-1'}
+          hasNewer={gallery[0]?.key !== 'touch-1'}
+          prefetchAdjacent={gallery[0]?.key !== 'touch-1'}
           loadPage={emptyPreviewPage}
           onClose={() => setGallery(null)}
           renderActions={() => (

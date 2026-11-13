@@ -28,6 +28,7 @@ export function MediaPreviewShell({
   onKeyDown,
   onBackdrop,
   onWheelAt,
+  onMediaPointerDown,
   onEscape = onClose,
   footer,
   className = '',
@@ -42,6 +43,7 @@ export function MediaPreviewShell({
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   onBackdrop?: (side: 'left' | 'right') => void;
   onWheelAt?: (x: number, y: number, delta: number) => void;
+  onMediaPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onEscape?: () => void;
   footer?: ReactNode;
   className?: string;
@@ -151,6 +153,8 @@ export function MediaPreviewShell({
       </header>
       <div
         className="weq-preview-viewport"
+        onPointerDown={onMediaPointerDown}
+        style={{ touchAction: onMediaPointerDown ? 'none' : undefined }}
         onMouseDown={(event) => {
           if (event.target !== event.currentTarget) return;
           const bounds = event.currentTarget.getBoundingClientRect();
