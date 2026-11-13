@@ -312,13 +312,14 @@ test('真实 pnpm run 为带空格路径完整传递构建参数，元数据留�
     join(root, 'fixture build.cjs'),
     `
 const fs = require('node:fs');
-const arg = process.argv[2];
-require('node:assert/strict').equal(process.argv.length, 3);
-require('node:assert/strict').equal(require('node:path').basename(arg), 'bot-meta.json');
-require('node:assert/strict').equal(fs.realpathSync(require('node:path').dirname(arg.slice('--metafile='.length))), fs.realpathSync('.weq-dev'));
+const path = require('node:path');
+const arg = process.env.WEQ_BOT_METAFILE;
+require('node:assert/strict').equal(process.argv.length, 2);
+require('node:assert/strict').equal(path.basename(arg ?? ''), 'bot-meta.json');
+require('node:assert/strict').equal(fs.realpathSync(path.dirname(arg)), fs.realpathSync('.weq-dev'));
 fs.mkdirSync('resources/bot-runtime', { recursive: true });
 fs.writeFileSync('resources/bot-runtime/bot.mjs', 'fixture');
-fs.writeFileSync(arg.slice('--metafile='.length), JSON.stringify({ inputs: { 'entry.js': {} } }));
+fs.writeFileSync(arg, JSON.stringify({ inputs: { 'entry.js': {} } }));
 `,
   );
   await prepareBot(root, { env: { ...process.env, npm_execpath: actualPnpm() }, log: silent });

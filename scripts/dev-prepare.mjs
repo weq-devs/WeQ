@@ -238,8 +238,15 @@ export async function prepareBot(
   log('正在构建机器人运行时', 'info', 'build');
   const started = performance.now();
   await mkdir(dirname(metaPath), { recursive: true });
-  const [command, args] = pnpmCommand(['run', 'build:bot', `--metafile=${metaPath}`], env);
-  await run(command, args, { cwd: root, env, log, scope: 'build' });
+  // 元数据路径经环境变量传递：走脚本参数会被 cmd.exe 再解析一次，路径带空格时
+  // 会被拆成多个参数（Windows CI 上 `--metafile=<带空格路径>` 就是这样断的）。
+  const [command, args] = pnpmCommand(['run', 'build:bot'], env);
+  await run(command, args, {
+    cwd: root,
+    env: { ...env, WEQ_BOT_METAFILE: metaPath },
+    log,
+    scope: 'build',
+  });
   const meta = await readJson(metaPath);
   if (!meta?.inputs || !Object.keys(meta.inputs).length || !(await exists(artifact)))
     throw new Error('机器人运行时构建产物或输入清单缺失');
