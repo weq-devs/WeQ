@@ -48,7 +48,8 @@ function LikeAction({
   count?: number | null;
 }) {
   const [liked, setLiked] = useState(initialLiked);
-  const [pending, setPending] = useState(false);
+  const [pendingLike, setPendingLike] = useState<boolean | null>(null);
+  const pending = pendingLike !== null;
   const running = useRef(false);
   const mounted = useRef(true);
   const calibrated = useRef({ initialLiked, likeRevision });
@@ -72,9 +73,9 @@ function LikeAction({
   async function toggle() {
     if (running.current || action.disabled || disabled) return;
     running.current = true;
-    setPending(true);
     const previous = liked;
     const next = liked !== true;
+    setPendingLike(next);
     if (optimistic) {
       setLiked(next);
       onLikeChange?.({ previous, next, pending: true });
@@ -105,7 +106,7 @@ function LikeAction({
           setLiked(previous);
           onLikeChange?.(null);
         }
-        setPending(false);
+        setPendingLike(null);
       }
     }
   }
@@ -116,7 +117,7 @@ function LikeAction({
       aria-label={actionLabel}
       aria-pressed={liked === null ? 'mixed' : liked}
       aria-busy={pending}
-      title={pending ? `正在${actionLabel}…` : actionLabel}
+      title={pending ? `正在${pendingLike ? `点赞${label}` : `取消${label}点赞`}…` : actionLabel}
       disabled={action.disabled || disabled || pending}
       onClick={() => void toggle()}
     >

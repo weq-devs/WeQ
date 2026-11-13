@@ -702,15 +702,26 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.button('取消说说点赞').getAttribute('aria-pressed')).toBe('true');
     expect(f.button('取消说说点赞').disabled).toBe(true);
     expect(f.button('取消说说点赞').getAttribute('aria-busy')).toBe('true');
+    expect(f.button('取消说说点赞').title).toBe('正在点赞说说…');
     await act(async () => finish({ state: 'accepted' }));
     expect(f.button('取消说说点赞').getAttribute('aria-pressed')).toBe('true');
+    expect(f.button('取消说说点赞').title).toBe('取消说说点赞');
     expect(f.button('点赞说说')).toBeNull();
-    await act(async () => f.button('取消说说点赞').click());
+    state.mutate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    act(() => f.button('取消说说点赞').click());
+    expect(f.button('点赞说说').title).toBe('正在取消说说点赞…');
     expect(state.mutate).toHaveBeenLastCalledWith(
       'qzone',
       expect.objectContaining({ action: 'unlike' }),
     );
+    await act(async () => finish({ state: 'accepted' }));
     expect(f.button('点赞说说').getAttribute('aria-pressed')).toBe('false');
+    expect(f.button('点赞说说').title).toBe('点赞说说');
   });
   it('远端已经点赞时直接提供取消，取消失败保留原状态', async () => {
     const f = fixture(() =>
