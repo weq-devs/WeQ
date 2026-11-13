@@ -32,6 +32,7 @@ import {
   Trash2,
   X,
   Zap,
+  SearchX,
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
@@ -54,6 +55,8 @@ import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
 import { CurrentTaskList } from '../components/tasks/CurrentTaskList';
+import { EmptyState } from '../components/EmptyState';
+
 import { preflightExportEstimate } from './export/preflight';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
@@ -2614,9 +2617,7 @@ function ExportToolBody({
                       </button>
                     </div>
                   ) : (schedules.data ?? []).length === 0 ? (
-                    <div className="weq-exp-sched-empty">
-                      <strong>暂无定时任务</strong>
-                    </div>
+                    <EmptyState compact icon={<CalendarClock />} title="暂无定时任务" />
                   ) : (
                     (schedules.data as ScheduledTask[]).map((s) => (
                       <button
@@ -3077,11 +3078,11 @@ function CollectionScope({
           {loading ? (
             <PickerListSkeleton rows={6} />
           ) : filtered.length === 0 ? (
-            <div className="weq-exp-list-state">
-              <span>
-                {query ? '没有匹配的收藏' : allActive ? '还没有任何收藏' : '所选类型下暂无收藏'}
-              </span>
-            </div>
+            <EmptyState
+              compact
+              icon={query ? <SearchX /> : <Bookmark />}
+              title={query ? '没有匹配的收藏' : allActive ? '还没有任何收藏' : '所选类型下暂无收藏'}
+            />
           ) : (
             filtered.map((it) => (
               <div key={it.cid} className="weq-exp-row is-static" {...itemsMulti.itemProps(it.cid)}>

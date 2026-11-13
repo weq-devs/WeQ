@@ -1,6 +1,7 @@
+import { EmptyState } from '../EmptyState';
 import { useContext, useEffect, useId, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { X } from 'lucide-react';
+import { X, UsersRound, SearchX } from 'lucide-react';
 import type { GroupConversation, GroupMember } from '../../im-template/template/types';
 import { Avatar } from '../../im-template/template/primitives';
 import { displayUserName } from '../../im-template/template/user';
@@ -229,7 +230,12 @@ export function GroupCardMemberList({
       (generated || query.isSuccess) &&
       !visible.length &&
       !query.hasNextPage ? (
-        <p role="status">{keyword.trim() ? '没有匹配的成员' : `暂无本地${title}记录`}</p>
+        <EmptyState
+          compact
+          role="status"
+          icon={keyword.trim() ? <SearchX /> : <UsersRound />}
+          title={keyword.trim() ? '没有匹配的成员' : `暂无本地${title}记录`}
+        />
       ) : null}
       {!pendingSearch && query.hasNextPage ? (
         <button

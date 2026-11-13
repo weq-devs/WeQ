@@ -1,5 +1,6 @@
+import { EmptyState } from './EmptyState';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, RotateCw } from 'lucide-react';
+import { Search, RotateCw, SearchX } from 'lucide-react';
 import { client } from '../trpc/client';
 import { ChatPane } from '../im-template/template/chatPane';
 import type { Conversation, Message, User } from '../im-template/template/types';
@@ -398,7 +399,7 @@ export function ReadonlyConversationPane({
           ) : null}
           {searching ? <p role="status">正在搜索本地记录…</p> : null}
           {searched && !searching && !searchError && !hits.length ? (
-            <p role="status">未找到匹配消息</p>
+            <EmptyState compact role="status" icon={<SearchX />} title="未找到匹配消息" />
           ) : null}
         </Modal>
       ) : null}

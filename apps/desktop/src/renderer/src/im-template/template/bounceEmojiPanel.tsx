@@ -21,9 +21,10 @@
  * `@weq/protocol` 的 `SendEmojiBounceElement`（`faceId` / `count` / `name`）。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useState } from 'react';
 import type { RefObject } from 'react';
-import { Rocket, Search, SendHorizontal, Smile, Sparkles, X } from 'lucide-react';
+import { Rocket, Search, SendHorizontal, Smile, Sparkles, X, SearchX } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { formatBounceCount } from '../../lib/bounceCount';
 import { cn } from './classNames';
@@ -336,9 +337,9 @@ export function BounceEmojiPanel({
           {overview.isLoading && groups.length === 0 ? (
             <div className={cn('bounce-state')}>加载中…</div>
           ) : groups.length === 0 ? (
-            <div className={cn('bounce-state')}>这个账号还没有可用的系统表情</div>
+            <EmptyState compact icon={<Smile />} title="这个账号还没有可用的系统表情" />
           ) : filtered.length === 0 ? (
-            <div className={cn('bounce-state')}>没有匹配「{query.trim()}」的表情</div>
+            <EmptyState compact icon={<SearchX />} title={`没有匹配「${query.trim()}」的表情`} />
           ) : (
             filtered.map((group) => (
               <section className={cn('bounce-group')} key={group.key}>

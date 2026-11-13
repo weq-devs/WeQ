@@ -1,10 +1,11 @@
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState } from 'react';
 import {
   StructuredExportControls,
   structuredExportOptions,
   type StructuredExportOptions,
 } from './StructuredExportControls';
-import { Download, RotateCw, Search, Sparkles, Users } from 'lucide-react';
+import { Download, RotateCw, Search, Sparkles, Users, MessagesSquare } from 'lucide-react';
 import type {
   ExportSavePolicy,
   GeneratedContentTarget,
@@ -364,7 +365,7 @@ export function GeneratedExportPane({
                 {content.isFetching && rows.length === 0 ? (
                   <PickerListSkeleton rows={5} />
                 ) : rows.length === 0 ? (
-                  <p className="weq-generated-export-empty">这段对话还没有消息。</p>
+                  <EmptyState compact icon={<MessagesSquare />} title="这段对话还没有消息。" />
                 ) : null}
                 {rows.map((row, index) => {
                   const sender = senderOf(row);

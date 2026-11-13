@@ -7,8 +7,9 @@
  * FaceEmoji renders the glyph) and the plain id otherwise (renders the APNG).
  */
 
+import { EmptyState } from '../EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
-import { Search } from 'lucide-react';
+import { Search, SearchX } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { FaceEmoji } from '../FaceEmoji';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -82,7 +83,7 @@ export function FacePicker({
             <LoadingIndicator />
           </div>
         ) : groups.length === 0 ? (
-          <div className="weq-face-empty">没有匹配的表情</div>
+          <EmptyState compact icon={<SearchX />} title="没有匹配的表情" />
         ) : (
           groups.map((g) => (
             <div key={g.type} className="weq-face-group">

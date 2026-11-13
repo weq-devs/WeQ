@@ -8,8 +8,9 @@
  * 事件按 groupId 过滤（而非事后才拿到的
  * groupRunId），避免「用户那条消息比 mutation 响应更早到达」的竞态把它漏掉。
  */
+import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { Trash2, Users, UserMinus, UserPlus, Settings2 } from 'lucide-react';
+import { Trash2, Users, UserMinus, UserPlus, Settings2, UsersRound } from 'lucide-react';
 import { ChatPane } from '../../im-template/template/chatPane';
 import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
@@ -589,7 +590,7 @@ export function GroupChatPanel({
                 </p>
                 <div className="weq-group-members">
                   {personaMembers.length === 0 ? (
-                    <div className="weq-agentlab-empty">群里还没有克隆体。</div>
+                    <EmptyState compact icon={<UsersRound />} title="群里还没有克隆体。" />
                   ) : (
                     personaMembers.map((m) => {
                       const meta = metaFor(m.memberId, 'persona', m.displayName);

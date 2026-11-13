@@ -15,6 +15,7 @@
  * user's own downloaded files.
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import {
   useCallback,
   useEffect,
@@ -44,6 +45,7 @@ import {
   AlertTriangle,
   Sparkles,
   Layers,
+  CircleCheck,
 } from 'lucide-react';
 import type { CleanupTargetStat, CleanupVariant, CleanupResult } from '@weq/service';
 import { z } from 'zod';
@@ -714,7 +716,7 @@ function ConfirmStage({
       </div>
 
       {nothing ? (
-        <div className="weq-clean-empty">没有可清理的内容。</div>
+        <EmptyState compact icon={<CircleCheck />} title="没有可清理的内容。" />
       ) : (
         <div className="weq-clean-review">
           {rows.map(({ t, variant, bytes: b }) => (

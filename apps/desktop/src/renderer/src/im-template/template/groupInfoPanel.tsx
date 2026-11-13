@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { EmptyState } from '../../components/EmptyState';
 import {
   Award,
   Bot,
@@ -12,6 +13,7 @@ import {
   UserMinus,
   UserPlus,
   X,
+  SearchX,
 } from 'lucide-react';
 import {
   memo,
@@ -520,7 +522,7 @@ export function GroupInfoPanel({
         onScroll={requestMoreNearBottom}
       >
         {searching && rows.length === 0 && !fetching ? (
-          <div className={cn('group-info-member-empty')}>没有匹配的成员</div>
+          <EmptyState compact icon={<SearchX />} title="没有匹配的成员" />
         ) : null}
         <GroupMemberRows
           members={rows}

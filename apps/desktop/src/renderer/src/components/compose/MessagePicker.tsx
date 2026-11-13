@@ -1,3 +1,4 @@
+import { EmptyState } from '../EmptyState';
 import * as timeFormat from '@weq/time';
 /**
  * Message picker — lists a conversation's recent messages (via account.listLatest)
@@ -47,7 +48,7 @@ export function MessagePicker({
               <LoadingIndicator />
             </div>
           ) : messages.length === 0 ? (
-            <div className="weq-face-empty">暂无消息</div>
+            <EmptyState compact icon={<MessageSquare />} title="暂无消息" />
           ) : (
             messages.map((m) => (
               <button key={m.msgId} type="button" className="weq-msg-row" onClick={() => onPick(m)}>
@@ -77,3 +78,5 @@ export function MessagePicker({
 function fmtTime(sec: string): string {
   return Number(sec) > 0 ? timeFormat.formatUnixTime(sec) : '';
 }
+
+import { MessageSquare } from 'lucide-react';

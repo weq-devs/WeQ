@@ -1,5 +1,6 @@
 /** 搜索结果框内的分类分页结果，不创建独立弹窗。 */
 
+import { EmptyState } from '../EmptyState';
 import {
   useCallback,
   useEffect,
@@ -8,7 +9,7 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { ArrowLeft, RotateCw } from 'lucide-react';
+import { ArrowLeft, RotateCw, SearchX } from 'lucide-react';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchListSkeleton } from './SearchSkeleton';
 import {
@@ -258,7 +259,7 @@ export function SearchMoreResults({
         ) : loading ? (
           <SearchListSkeleton rows={5} />
         ) : data && data.items.length === 0 ? (
-          <div className="weq-search-empty">无结果</div>
+          <EmptyState icon={<SearchX />} title="无结果" />
         ) : data ? (
           <>
             <div className="weq-search-more-total">

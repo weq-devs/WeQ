@@ -1,8 +1,9 @@
+import { EmptyState } from '../EmptyState';
 import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { CalendarDays, Download, Search, X } from 'lucide-react';
+import { CalendarDays, Download, Search, X, SearchX } from 'lucide-react';
 import { ConversationCalendar } from './ConversationCalendar';
 import { TimeRangePicker } from '../../views/export/TimeRangePicker';
 import { beijingDay, daySeconds } from '../../lib/messageCalendar';
@@ -621,9 +622,11 @@ export function ChatRecordsModal({
                     {msgLoading ? (
                       <SearchListSkeleton rows={4} />
                     ) : messages.length === 0 ? (
-                      <div className="weq-search-empty">
-                        {fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
-                      </div>
+                      <EmptyState
+                        compact
+                        icon={<SearchX />}
+                        title={fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
+                      />
                     ) : (
                       <>
                         {messages.map((msg) => {

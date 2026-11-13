@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { EmptyState } from './EmptyState';
 import * as timeFormat from '@weq/time';
 /**
  * Shared analytics visualisations used by both the group (GroupAnalyticsDialog)
@@ -8,7 +9,7 @@ import * as timeFormat from '@weq/time';
  *   - WordCloud           — canvas-measured spiral layout, Chinese-friendly
  */
 
-import { Loader2 } from 'lucide-react';
+import { Loader2, CalendarDays } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../im-template/template/classNames';
 
@@ -283,7 +284,7 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
     return { weeks, monthLabels, max, total, activeDays };
   }, [data]);
 
-  if (!model) return <p className="ga-placeholder">暂无活跃数据</p>;
+  if (!model) return <EmptyState compact icon={<CalendarDays />} title="暂无活跃数据" />;
 
   return (
     <div className="ga-heatmap">

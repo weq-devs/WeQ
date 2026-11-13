@@ -1,4 +1,5 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
+import { EmptyState } from '../components/EmptyState';
 import {
   useCallback,
   useLayoutEffect,
@@ -31,6 +32,7 @@ import {
   Settings,
   ThumbsUp,
   X,
+  Images,
 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { openExternalLink } from '../lib/openExternalLink';
@@ -3055,7 +3057,7 @@ function FeedTimeline({
               />
             ))}
             {feeds && !loading && !relatedShown?.length ? (
-              <p className="weq-qzn-status">暂无此类互动</p>
+              <EmptyState compact icon={<MessageCircle />} title="暂无此类互动" />
             ) : null}
           </div>
           {unclassified.length ? (
@@ -3147,6 +3149,12 @@ function FeedTimeline({
                 : '加载更多动态'}
               {pageCountLabel}
             </button>
+          ) : !incomplete && kind !== 'related' && !shown?.length ? (
+            <EmptyState
+              icon={<Images />}
+              title={filter !== '0' ? '暂无此类型动态' : '暂时没有可查看的动态'}
+              body={pageCountLabel}
+            />
           ) : (
             <p className="weq-qzn-status">
               {incomplete

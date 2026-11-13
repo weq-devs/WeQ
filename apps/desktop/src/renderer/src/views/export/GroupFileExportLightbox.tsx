@@ -7,6 +7,7 @@
  *   - 勾选的文件导出时按 path 在输出目录里重建文件夹树。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
@@ -23,6 +24,7 @@ import {
   Loader2,
   Minus,
   X,
+  FolderOpen,
 } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import '../../styles/resource-export.css';
@@ -347,9 +349,11 @@ export function GroupFileExportLightbox({
             ) : error ? (
               <div className="group-album-state is-error">{error}</div>
             ) : !listing || listing.files.length + listing.folders.length === 0 ? (
-              <div className="group-album-state">
-                {current.id === '/' ? '这个群暂无文件' : '这个目录还没有文件'}
-              </div>
+              <EmptyState
+                compact
+                icon={<FolderOpen />}
+                title={current.id === '/' ? '这个群暂无文件' : '这个目录还没有文件'}
+              />
             ) : (
               <>
                 {listing.folders.map((folder) => {

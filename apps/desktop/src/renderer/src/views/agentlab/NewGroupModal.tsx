@@ -2,8 +2,9 @@
  * 新建群聊弹窗：起个群名 + 多选已训练的克隆体（≥2）拉进群。
  * 创建后「我」会自动作为成员加入（后端 createGroup 处理）。
  */
+import { EmptyState } from '../../components/EmptyState';
 import { useState, type ReactElement } from 'react';
-import { Users, Check, Plus, X } from 'lucide-react';
+import { Users, Check, Plus, X, UsersRound } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -75,7 +76,12 @@ export function NewGroupModal({
           <div className="weq-agentlab-field">
             <span>选择克隆体（至少 2 个）</span>
             {personas.length === 0 ? (
-              <div className="weq-agentlab-empty">还没有克隆体，先去克隆几个好友吧。</div>
+              <EmptyState
+                compact
+                icon={<UsersRound />}
+                title="还没有克隆体"
+                body="先去克隆几个好友吧。"
+              />
             ) : (
               <div className="weq-exp-list weq-clone-group-list">
                 {personas.map((p) => {

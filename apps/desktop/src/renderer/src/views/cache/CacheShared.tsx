@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import type { FileCategory, FileSortKey, FileSortOrder } from '@weq/service';
 import { FooterSkeleton } from './CacheSkeleton';
+import { EmptyState } from '../../components/EmptyState';
 import { useTabActive } from '../../components/RetainedTabs';
 
 /** 重扫完成后重读资源数据，分类和筛选控件本身不重建。 */
@@ -329,11 +330,8 @@ export function ListFooter({
   sentinelRef: React.RefObject<HTMLDivElement | null>;
 }): ReactElement {
   if (done) {
-    return (
-      <div className="weq-filebrowser-more is-end">
-        {count === 0 ? '没有匹配的文件' : `已全部加载（${count}）`}
-      </div>
-    );
+    if (count === 0) return <EmptyState compact icon={<Files />} title="没有匹配的文件" />;
+    return <div className="weq-filebrowser-more is-end">{`已全部加载（${count}）`}</div>;
   }
   if (loading) {
     return (
@@ -499,11 +497,8 @@ export function GridFooter({
   sentinelRef: React.RefObject<HTMLDivElement | null>;
 }): ReactElement {
   if (done) {
-    return (
-      <div className="weq-cache-avatar-more is-end">
-        {count === 0 ? '该分类暂无缓存' : `已全部加载（${count}）`}
-      </div>
-    );
+    if (count === 0) return <EmptyState compact icon={<Package />} title="该分类暂无缓存" />;
+    return <div className="weq-cache-avatar-more is-end">{`已全部加载（${count}）`}</div>;
   }
   if (loading) {
     return (

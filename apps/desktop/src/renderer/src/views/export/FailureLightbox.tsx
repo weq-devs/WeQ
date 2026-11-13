@@ -3,8 +3,9 @@
  * 供用户排查为何某些项没能导出。只读，无确认动作。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
-import { FileWarning, X } from 'lucide-react';
+import { FileWarning, X, CircleCheck } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import type { UiFailure } from './TaskList';
 
@@ -96,7 +97,7 @@ export function FailureLightbox({
 
         <div className="weq-exp-dialog-body weq-exp-fail-body">
           {shown.length === 0 ? (
-            <div className="weq-exp-fail-empty">没有失败项</div>
+            <EmptyState compact icon={<CircleCheck />} title="没有失败项" />
           ) : (
             <ul className="weq-exp-fail-list">
               {shown.map((f, i) => (

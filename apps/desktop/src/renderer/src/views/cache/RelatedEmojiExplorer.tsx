@@ -12,7 +12,8 @@
  */
 
 import { useCallback, useState, type ReactElement } from 'react';
-import { Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon, ImageOff } from 'lucide-react';
+import { EmptyState } from '../../components/EmptyState';
 import type { RelatedEmojiKeyword } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -40,7 +41,7 @@ export function RelatedEmojiExplorer(): ReactElement {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
   }
   if (!loading && entries.length === 0 && done) {
-    return <div className="weq-cache-grid-state">未找到关联表情资源</div>;
+    return <EmptyState icon={<ImageIcon />} title="未找到关联表情资源" />;
   }
 
   return (
@@ -129,7 +130,7 @@ function RelatedEmojiLightbox({
       {gifs.isLoading ? (
         <GridSkeleton cells={6} />
       ) : files.length === 0 ? (
-        <div className="weq-cache-grid-state">该关键词无可渲染的表情</div>
+        <EmptyState compact icon={<ImageOff />} title="该关键词无可渲染的表情" />
       ) : (
         files.map((file) => (
           <div key={file} className="weq-related-stage">

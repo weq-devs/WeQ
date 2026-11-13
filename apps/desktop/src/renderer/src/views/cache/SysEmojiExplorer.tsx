@@ -17,8 +17,9 @@
  * protocol (see main/resource_protocol.ts) — nothing crosses tRPC but metadata.
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { RefreshCw, Smile, Download } from 'lucide-react';
+import { RefreshCw, Smile, Download, ImageOff } from 'lucide-react';
 import type { SysEmojiEntry } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { emojiUrl } from '../../lib/resourceUrl';
@@ -104,9 +105,11 @@ export function SysEmojiExplorer(): ReactElement {
       {loading && entries.length === 0 ? (
         <GridSkeleton />
       ) : !loading && entries.length === 0 && done ? (
-        <div className="weq-cache-grid-state">
-          {missing > 0 ? '本地没有系统表情资源，可点击上方补全下载' : '未找到系统表情资源'}
-        </div>
+        <EmptyState
+          icon={<Smile />}
+          title="未找到系统表情资源"
+          body={missing > 0 ? '本地没有系统表情资源，可点击上方补全下载' : undefined}
+        />
       ) : (
         <div className="weq-cache-avatar-scroll">
           <div className="weq-cache-sysemoji-grid">
@@ -206,7 +209,7 @@ function SysEmojiLightbox({
       onClose={onClose}
     >
       {panels.length === 0 ? (
-        <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
+        <EmptyState compact icon={<ImageOff />} title="该表情无可渲染的资源" />
       ) : (
         panels.map((p) => (
           <figure key={p.fmt} className={`weq-sysemoji-panel is-${p.fmt}`}>

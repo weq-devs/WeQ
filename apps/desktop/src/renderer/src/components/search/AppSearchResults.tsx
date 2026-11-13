@@ -1,4 +1,5 @@
-import { Settings2 } from 'lucide-react';
+import { EmptyState } from '../EmptyState';
+import { Settings2, SearchX } from 'lucide-react';
 import { highlightText } from './SearchResultCard';
 import { searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
 import '../../styles/app-search.css';
@@ -26,7 +27,7 @@ export function AppSearchResults({
           </button>
         ) : null}
       </div>
-      {!entries.length ? <div className="weq-search-empty">无结果</div> : null}
+      {!entries.length ? <EmptyState variant="inline" icon={<SearchX />} title="无结果" /> : null}
       {(expanded ? entries : entries.slice(0, 6)).map((entry) => (
         <button
           key={entry.id}

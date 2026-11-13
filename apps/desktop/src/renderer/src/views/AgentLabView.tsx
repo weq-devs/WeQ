@@ -1,3 +1,4 @@
+import { EmptyState } from '../components/EmptyState';
 import { TimeLabel } from '../components/TimeLabel';
 import * as timeFormat from '@weq/time';
 import { z } from 'zod';
@@ -755,7 +756,7 @@ export function AgentLabView({
         ) : null}
         {sel.kind === 'home' ? (
           embedded ? null : (
-            <div className="weq-agentlab-empty">暂无打开的克隆会话</div>
+            <EmptyState icon={<MessagesSquare />} title="暂无打开的克隆会话" />
           )
         ) : sel.kind === 'assistant' ? (
           <AssistantPanel

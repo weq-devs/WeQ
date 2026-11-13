@@ -1,3 +1,4 @@
+import { EmptyState } from '../../components/EmptyState';
 import { eventTimeFormatter } from '@weq/time';
 /**
  * 商城表情包浏览器（本地资源 → 商城表情包分类）。
@@ -101,7 +102,7 @@ export function MarketPackExplorer(): ReactElement {
         </button>
       </div>
       {list.length === 0 ? (
-        <div className="weq-cache-grid-state">未找到本地添加的商城表情包</div>
+        <EmptyState icon={<Store />} title="未找到本地添加的商城表情包" />
       ) : (
         <div className="weq-cache-avatar-scroll">
           <div className="weq-mpack-grid">

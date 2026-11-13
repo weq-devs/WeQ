@@ -1,5 +1,16 @@
+import { EmptyState } from '../EmptyState';
 import { useId, useState } from 'react';
-import { ArrowUpToLine, Download, Pencil, RotateCw, Save, Smile, Trash2, X } from 'lucide-react';
+import {
+  ArrowUpToLine,
+  Download,
+  Pencil,
+  RotateCw,
+  Save,
+  Smile,
+  Trash2,
+  X,
+  Heart,
+} from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { favEmojiItem, type EmojiItem } from '../../im-template/template/emojiPacks';
@@ -80,7 +91,7 @@ function FavoritePickerTabBody({
       {loading && !rows.length ? (
         <div className={cn('emoji-state')}>加载中…</div>
       ) : !rows.length ? (
-        <div className={cn('emoji-state')}>还没有可用的收藏表情</div>
+        <EmptyState compact icon={<Heart />} title="还没有可用的收藏表情" />
       ) : null}
       <div className={cn('emoji-grid emoji-big-grid')}>
         {rows.map((row) => {

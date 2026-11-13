@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Heart, Search, Star } from 'lucide-react';
+import { Heart, ImageOff, Search, Star } from 'lucide-react';
 import { EmptyState } from '../../components/EmptyState';
 import type {
   CustomEmojiEntry,
@@ -247,7 +247,7 @@ function CustomEmojiLightbox({
       onClose={onClose}
     >
       {panels.length === 0 ? (
-        <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
+        <EmptyState compact icon={<ImageOff />} title="该表情无可渲染的资源" />
       ) : (
         panels.map((p) => (
           <figure key={p.variant} className="weq-marketemoji-panel">

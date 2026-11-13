@@ -14,7 +14,8 @@
  */
 
 import { useCallback, useState, type ReactElement } from 'react';
-import { Sticker } from 'lucide-react';
+import { ImageOff, Sticker } from 'lucide-react';
+import { EmptyState } from '../../components/EmptyState';
 import type { MarketFaceEntry } from '@weq/service';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -44,7 +45,7 @@ export function MarketEmojiExplorer(): ReactElement {
     return <GridSkeleton />;
   }
   if (!loading && entries.length === 0 && done) {
-    return <div className="weq-cache-grid-state">未找到商城表情资源</div>;
+    return <EmptyState icon={<Sticker />} title="未找到商城表情资源" />;
   }
 
   return (
@@ -152,7 +153,7 @@ function MarketEmojiLightbox({
       onClose={onClose}
     >
       {panels.length === 0 ? (
-        <div className="weq-cache-grid-state">该表情无可渲染的资源</div>
+        <EmptyState compact icon={<ImageOff />} title="该表情无可渲染的资源" />
       ) : (
         panels.map((p) => (
           <figure key={p.fmt} className="weq-marketemoji-panel">

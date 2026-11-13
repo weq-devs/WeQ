@@ -16,6 +16,7 @@
  * 用同一个组件把卡片重新渲染（840px 长图口径）并拍下来 —— 屏幕上全程零变化。
  * 导出窗口里靠 `exportMode` + `initialData` 复用这里（见 ./export/main.tsx）。
  */
+import { EmptyState } from './EmptyState';
 import {
   CalendarDays,
   Clock,
@@ -504,7 +505,7 @@ export function GroupAnalyticsDialog({
             <Loader2 size={22} className="weq-spin" />
           </div>
         ) : ranking.length === 0 ? (
-          <p className="ga-placeholder">暂无发言数据</p>
+          <EmptyState compact icon={<Users />} title="暂无发言数据" />
         ) : (
           <div className="ca-people">
             {ranking.map((item, idx) => (
@@ -591,7 +592,7 @@ export function GroupAnalyticsDialog({
         ) : report.words.length > 0 ? (
           <WordCloud words={report.words} />
         ) : (
-          <p className="ga-placeholder">暂无足够的文本数据生成词云</p>
+          <EmptyState compact icon={<Cloud />} title="暂无足够的文本数据生成词云" />
         )}
       </section>
     </div>

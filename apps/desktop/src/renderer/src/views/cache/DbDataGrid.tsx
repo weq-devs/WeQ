@@ -8,6 +8,7 @@
  * tables without a usable key render read-only regardless of 编辑模式.
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   ChevronLeft,
@@ -20,6 +21,8 @@ import {
   Search,
   ArrowUp,
   ArrowDown,
+  Database,
+  SearchX,
 } from 'lucide-react';
 import type { DbCell, DbColumn, RowKey, TableRowsResult } from '@weq/service';
 import { client } from '../../trpc/client';
@@ -309,7 +312,7 @@ export function DbDataGrid({
     );
   }
   if (!page) {
-    return <div className="weq-cache-grid-state">无数据</div>;
+    return <EmptyState compact icon={<Database />} title="无数据" />;
   }
 
   const pageIndex = cursorStackRef.current.length + 1;
@@ -526,7 +529,11 @@ export function DbDataGrid({
                   className="weq-cache-grid-empty"
                   colSpan={page.columns.length + 1 + (canEditRows ? 1 : 0)}
                 >
-                  {search ? '没有匹配的行' : '该表暂无数据'}
+                  <EmptyState
+                    variant="inline"
+                    icon={search ? <SearchX /> : <Database />}
+                    title={search ? '没有匹配的行' : '该表暂无数据'}
+                  />
                 </td>
               </tr>
             ) : null}

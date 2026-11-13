@@ -1,3 +1,4 @@
+import { EmptyState } from '../components/EmptyState';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -10,6 +11,7 @@ import {
   Search,
   X,
   Loader2,
+  SearchX,
 } from 'lucide-react';
 import type { ExportViewerMessage, ExportViewerPart } from '@weq/service';
 import { client, trpc } from '../trpc/client';
@@ -551,7 +553,7 @@ export function ExportViewer({
                   />
                 ))
               ) : !page.error ? (
-                <p>没有匹配的消息</p>
+                <EmptyState compact icon={<SearchX />} title="没有匹配的消息" />
               ) : null}
             </div>
             <footer className="weq-ev-pagination">

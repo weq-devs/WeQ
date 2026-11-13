@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { DurationLabel } from './TimeLabel';
+import { EmptyState } from './EmptyState';
 import {
   Clock,
   Cloud,
@@ -482,7 +483,7 @@ export function BuddyAnalyticsDialog({
         {data.wordCloud && data.wordCloud.length > 0 ? (
           <WordCloud words={data.wordCloud} height={260} />
         ) : (
-          <span className="ga-chip-empty">暂无足够的文本生成词云</span>
+          <EmptyState compact icon={<Cloud />} title="暂无足够的文本生成词云" />
         )}
       </section>
 
@@ -559,7 +560,7 @@ export function BuddyAnalyticsDialog({
         ) : error ? (
           <AnalyticsRetry error={error} onRetry={() => void load()} />
         ) : !data ? (
-          <p className="ga-placeholder">暂无分析数据</p>
+          <EmptyState icon={<MessageSquare />} title="暂无分析数据" />
         ) : (
           renderSections()
         )}

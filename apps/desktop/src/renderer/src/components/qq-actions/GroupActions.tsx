@@ -1,3 +1,4 @@
+import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
 import {
   Check,
@@ -8,6 +9,7 @@ import {
   Plus,
   Trash2,
   X,
+  ListTodo,
 } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { Card, Row } from '../settings/controls';
@@ -376,7 +378,7 @@ function GroupTodosBody({
           本地待办读取失败：{localTodos.error.message}
         </p>
       )}
-      {isEmpty && <div className="group-announcements-empty weq-todo-empty">暂无群待办</div>}
+      {isEmpty && <EmptyState compact icon={<ListTodo />} title="暂无群待办" />}
       <ul className="group-bulletins-list weq-todo-list">
         {entries.map((t) => (
           <li

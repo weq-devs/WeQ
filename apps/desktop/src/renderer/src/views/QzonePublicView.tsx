@@ -9,6 +9,7 @@
  * 复用空间页的媒体网格、预览、滚动保留与状态件（见 `qzoneShared.tsx`），
  * 只新增 feed / 评论这两套 `cell_*` 投影（`lib/qzonePublic.ts`）。
  */
+import { EmptyState } from '../components/EmptyState';
 import {
   useCallback,
   useContext,
@@ -30,6 +31,7 @@ import {
   UserPlus,
   UserCheck,
   X,
+  Images,
 } from 'lucide-react';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import type { ContentSearchTarget } from '../components/search/types';
@@ -550,10 +552,10 @@ function QzonePublicContent({
             <button type="button" className="weq-qzn-more" onClick={loadMore}>
               加载更多推荐
             </button>
+          ) : feeds.length ? (
+            <p className="weq-qzn-status">已加载当前可查看的推荐</p>
           ) : (
-            <p className="weq-qzn-status">
-              {feeds.length ? '已加载当前可查看的推荐' : '暂时没有可查看的推荐'}
-            </p>
+            <EmptyState icon={<Images />} title="暂时没有可查看的推荐" />
           )
         ) : null}
       </div>
@@ -1199,7 +1201,7 @@ function PublicFeedDetail({
               {loading ? '正在加载…' : '加载更多评论'}
             </button>
           ) : comments.length === 0 ? (
-            <p className="weq-qzn-status">还没有评论</p>
+            <EmptyState variant="inline" icon={<MessageCircle />} title="还没有评论" />
           ) : null}
         </>
       ) : null}

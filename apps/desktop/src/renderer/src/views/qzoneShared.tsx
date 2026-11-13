@@ -1,3 +1,4 @@
+import { EmptyState } from '../components/EmptyState';
 import { eventTimeFormatter } from '@weq/time';
 /**
  * 空间页与空友爱看共用的展示件。
@@ -17,7 +18,7 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
-import { CircleDot, Loader2, Pause, Play, VideoOff } from 'lucide-react';
+import { CircleDot, Loader2, Pause, Play, VideoOff, Images } from 'lucide-react';
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { qzoneMediaSource } from '../lib/qzone';
@@ -85,6 +86,9 @@ export function State({
   retry?: () => void;
   progress?: string;
 }) {
+  if (!loading && !error && empty) {
+    return <EmptyState compact role="status" icon={<Images />} title={empty} body={progress} />;
+  }
   return (
     <div className="weq-qzn-state" role="status">
       {loading ? (

@@ -3,8 +3,9 @@
  * 选中项由父组件以 id 持有；空列表时可显示一段说明（如「后端待接入」）。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
-import { Circle, CircleDot, Search, X } from 'lucide-react';
+import { Circle, CircleDot, Search, X, ListFilter, SearchX } from 'lucide-react';
 import { Avatar } from './widgets';
 import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
@@ -56,10 +57,12 @@ export function SingleSelectPicker({
         {loading ? (
           <PickerListSkeleton />
         ) : filtered.length === 0 ? (
-          <div className="weq-exp-list-state">
-            <span>{query ? '没有匹配项' : emptyText}</span>
-            {!query && hint ? <small className="weq-exp-list-hint">{hint}</small> : null}
-          </div>
+          <EmptyState
+            compact
+            icon={query ? <SearchX /> : <ListFilter />}
+            title={query ? '没有匹配项' : emptyText}
+            body={!query ? hint : undefined}
+          />
         ) : (
           filtered.map((it) => {
             const active = it.id === selectedId;

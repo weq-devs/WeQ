@@ -1,3 +1,4 @@
+import { EmptyState } from '../EmptyState';
 import { eventTimeFormatter } from '@weq/time';
 import { CompositionButton } from './CompositionButton';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -19,6 +20,7 @@ import {
   Minus,
   Square,
   Copy as RestoreWindow,
+  Layers,
 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { resolveDraftSave } from '../../lib/draftPersistence';
@@ -622,15 +624,19 @@ export function CompositionWorkspace({
                     <LoadingIndicator />
                   </p>
                 ) : !library.length ? (
-                  <p className="weq-composition-empty">
-                    {kind === 'material'
-                      ? rejected.length
-                        ? '暂无可用素材'
-                        : '暂无素材'
-                      : rejected.length
-                        ? '暂无可用合成记录'
-                        : '暂无合成记录'}
-                  </p>
+                  <EmptyState
+                    compact
+                    icon={<Layers />}
+                    title={
+                      kind === 'material'
+                        ? rejected.length
+                          ? '暂无可用素材'
+                          : '暂无素材'
+                        : rejected.length
+                          ? '暂无可用合成记录'
+                          : '暂无合成记录'
+                    }
+                  />
                 ) : (
                   library.map((entry) => {
                     return (

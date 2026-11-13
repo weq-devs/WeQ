@@ -6,8 +6,18 @@
  * 由父组件以 Set<string> 持有，本组件只负责呈现与回调。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
-import { Check, CheckCheck, FlipHorizontal2, Search, SlidersHorizontal, X } from 'lucide-react';
+import {
+  Check,
+  CheckCheck,
+  FlipHorizontal2,
+  Search,
+  SlidersHorizontal,
+  X,
+  MessagesSquare,
+  SearchX,
+} from 'lucide-react';
 import { Avatar } from './widgets';
 import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
@@ -121,7 +131,11 @@ export function ConversationPicker({
         {loading ? (
           <PickerListSkeleton />
         ) : filtered.length === 0 ? (
-          <div className="weq-exp-list-state">{query ? '没有匹配的会话' : emptyText}</div>
+          <EmptyState
+            compact
+            icon={query ? <SearchX /> : <MessagesSquare />}
+            title={query ? '没有匹配的会话' : emptyText}
+          />
         ) : (
           <WindowedList
             items={filtered}

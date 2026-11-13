@@ -1,7 +1,8 @@
+import { EmptyState } from './EmptyState';
 import { TimeLabel } from './TimeLabel';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw, History } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useTabActive } from './RetainedTabs';
@@ -325,13 +326,13 @@ function HistoryQuery({
           </button>
         </p>
       ) : section && !selectedCategory && !categoriesQuery.isFetching ? (
-        <p role="status">暂无这类资料的历史记录</p>
+        <EmptyState compact role="status" icon={<History />} title="暂无这类资料的历史记录" />
       ) : list.isLoading ? (
         <p role="status">正在读取历史…</p>
       ) : list.error ? (
         <p role="alert">历史读取失败：{list.error.message}</p>
       ) : !list.data?.rows.length ? (
-        <p role="status">暂无资料历史</p>
+        <EmptyState compact role="status" icon={<History />} title="暂无资料历史" />
       ) : (
         <ol className="contact-history-list">
           {list.data.rows.map((row) => (

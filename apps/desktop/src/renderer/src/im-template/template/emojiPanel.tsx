@@ -17,6 +17,7 @@
  * 图片字节全部走协议（weq-asset / weq-media），不过 tRPC。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs';
@@ -38,6 +39,9 @@ import {
   Store,
   Type,
   X,
+  Images,
+  SearchX,
+  Sticker,
 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { trpc } from '../../trpc/client';
@@ -374,7 +378,7 @@ function FaceGrid({
     return <div className={cn('emoji-state')}>加载中…</div>;
   }
   if (empty || items.length === 0) {
-    return <div className={cn('emoji-state')}>{emptyText ?? '这里还没有表情'}</div>;
+    return <EmptyState compact icon={<Smile />} title={emptyText ?? '这里还没有表情'} />;
   }
   return (
     <div
@@ -511,7 +515,12 @@ function MarketTab({
       {packages.isLoading ? (
         <div className={cn('emoji-state')}>加载中…</div>
       ) : list.length === 0 ? (
-        <div className={cn('emoji-state')}>还没有添加商城表情包，点右上「添加」去搜索</div>
+        <EmptyState
+          compact
+          icon={<Sticker />}
+          title="还没有添加商城表情包"
+          body="点右上「添加」去搜索"
+        />
       ) : (
         <div className={cn('emoji-pack-list')}>
           {list.map((pkg) => (
@@ -604,7 +613,7 @@ function GifTab({
   );
 
   if (loading && tags.length === 0) return <div className={cn('emoji-state')}>加载中…</div>;
-  if (tags.length === 0) return <div className={cn('emoji-state')}>还没有 GIF 表情</div>;
+  if (tags.length === 0) return <EmptyState compact icon={<Images />} title="还没有 GIF 表情" />;
 
   const list = gifs.data ?? [];
   return (
@@ -748,7 +757,7 @@ function EmojiCatalogLightbox({
           ) : catalog.isLoading ? (
             <div className={cn('emoji-state')}>搜索中…</div>
           ) : (catalog.data?.entries ?? []).length === 0 ? (
-            <div className={cn('emoji-state')}>没有找到匹配的表情包</div>
+            <EmptyState compact icon={<SearchX />} title="没有找到匹配的表情包" />
           ) : (
             <div className={cn('emoji-pack-list')}>
               {(catalog.data?.entries ?? []).map((entry) => (

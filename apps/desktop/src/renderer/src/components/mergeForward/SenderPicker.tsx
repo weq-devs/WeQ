@@ -1,3 +1,4 @@
+import { EmptyState } from '../EmptyState';
 import { CompositionButton } from './CompositionButton';
 /**
  * 合并转发的「发消息的人」选择器。
@@ -12,7 +13,7 @@ import { CompositionButton } from './CompositionButton';
  */
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { ChevronLeft, Search, UserPlus } from 'lucide-react';
+import { ChevronLeft, Search, UserPlus, SearchX } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
 
@@ -130,7 +131,7 @@ export function SenderPicker({
         ) : null}
         {mode === 'conversation' ? (
           localFiltered.length === 0 ? (
-            <div className="weq-mf-empty">没有匹配的成员</div>
+            <EmptyState variant="inline" icon={<SearchX />} title="没有匹配的成员" />
           ) : (
             localFiltered.map((p) => (
               <PersonRow key={p.uid || `uin:${p.uin}`} person={p} onPick={onPick} />
@@ -141,7 +142,12 @@ export function SenderPicker({
         ) : quick.isLoading ? (
           <div className="weq-mf-empty">搜索中…</div>
         ) : friends.length === 0 && groupMembers.length === 0 ? (
-          <div className="weq-mf-empty">没有匹配的好友或群友，可在下方直接填写</div>
+          <EmptyState
+            compact
+            icon={<SearchX />}
+            title="没有匹配的好友或群友"
+            body="可在下方直接填写"
+          />
         ) : (
           <>
             {friends.length > 0 ? (

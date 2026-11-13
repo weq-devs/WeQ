@@ -13,11 +13,12 @@
  * 「分析表情」需选一个视觉模型；不选则不解读表情包。
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentLabModels, AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
-import { ArrowLeft, Check, Search, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, Check, Search, Sparkles, X, SearchX, UsersRound } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { qqAvatarUrl } from '../../components/QqAvatar';
 import { Avatar } from '../export/widgets';
@@ -214,9 +215,11 @@ export function NewCloneModal({
             </div>
             <div className="weq-exp-list">
               {filtered.length === 0 ? (
-                <div className="weq-exp-list-state">
-                  {query ? '没有匹配的好友' : '没有可克隆的好友'}
-                </div>
+                <EmptyState
+                  compact
+                  icon={query ? <SearchX /> : <UsersRound />}
+                  title={query ? '没有匹配的好友' : '没有可克隆的好友'}
+                />
               ) : (
                 filtered.map((b) => (
                   <button

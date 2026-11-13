@@ -1,5 +1,6 @@
+import { EmptyState } from './EmptyState';
 import { useEffect, useRef, useState } from 'react';
-import { LocateFixed, RotateCw, X } from 'lucide-react';
+import { LocateFixed, RotateCw, X, SearchX } from 'lucide-react';
 import { client } from '../trpc/client';
 import { formatFileTime } from '../lib/groupFile';
 import '../styles/group-file-message-results.css';
@@ -82,7 +83,7 @@ export function GroupFileMessageResults({
       {pending && <p role="status">正在查找原消息…</p>}
       {error && <p role="alert">{error}</p>}
       {!pending && !error && !page.messages.length && !page.nextBefore && (
-        <p role="status">本地未找到对应消息</p>
+        <EmptyState compact role="status" icon={<SearchX />} title="本地未找到对应消息" />
       )}
       <ul>
         {page.messages.map((message) => (

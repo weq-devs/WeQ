@@ -71,7 +71,8 @@ it('克隆群复用普通群资料栏，支持折叠与本地成员搜索，不�
       search.dispatchEvent(new Event('input', { bubbles: true }));
     });
     expect(host.querySelectorAll('.group-info-member-row')).toHaveLength(0);
-    expect(host.querySelector('.group-info-member-empty')?.textContent).toBe('没有匹配的成员');
+    expect(host.querySelector('.weq-empty-state-title')?.textContent).toBe('没有匹配的成员');
+    expect(host.querySelectorAll('.weq-empty-state-icon svg')).toHaveLength(1);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="清除搜索"]')!.click());
     expect(host.querySelectorAll('.group-info-member-row')).toHaveLength(2);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="添加成员"]')!.click());

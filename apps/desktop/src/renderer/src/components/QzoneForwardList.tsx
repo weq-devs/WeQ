@@ -1,5 +1,6 @@
+import { EmptyState } from './EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, Loader2, RefreshCw } from 'lucide-react';
+import { ChevronDown, Loader2, RefreshCw, Forward } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import type { QzoneForwardPage } from '../views/qzone_types';
@@ -98,7 +99,7 @@ export function QzoneForwardList({
       ))}
       {paused ? <p className="weq-qzn-status">读取已暂停</p> : null}
       {!paused && !loading && !error && rows.length === 0 ? (
-        <p className="weq-qzn-status">暂无可读取的转发记录</p>
+        <EmptyState variant="inline" icon={<Forward />} title="暂无可读取的转发记录" />
       ) : null}
       {loading ? (
         <p className="weq-qzn-status" role="status">

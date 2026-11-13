@@ -1,3 +1,4 @@
+import { EmptyState } from '../EmptyState';
 import { useState } from 'react';
 import { curveStepAfter, line, scaleLinear, scaleTime } from 'd3';
 import {
@@ -6,7 +7,7 @@ import {
   clockFormatter,
   preciseClockFormatter,
 } from '@weq/time';
-import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, History } from 'lucide-react';
 import {
   fieldHistoryItems,
   fieldHistoryMode,
@@ -35,7 +36,8 @@ export function FieldHistoryContent({
 }) {
   const mode = fieldHistoryMode(field);
   const rows = presentFieldHistoryRows(field, inputRows);
-  if (!rows.length) return <p role="status">暂无这项资料的历史记录</p>;
+  if (!rows.length)
+    return <EmptyState compact role="status" icon={<History />} title="暂无这项资料的历史记录" />;
   return (
     <div className={`weq-field-presentation is-${mode}`} data-field={field} data-privacy-sensitive>
       {mode === 'trend' ? <FieldTrend field={field} label={label} rows={rows} /> : null}

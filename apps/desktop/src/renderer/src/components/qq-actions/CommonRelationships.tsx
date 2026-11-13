@@ -1,5 +1,6 @@
+import { EmptyState } from '../EmptyState';
 import { useContext, useId, useRef, useState } from 'react';
-import { X, RefreshCw } from 'lucide-react';
+import { X, RefreshCw, UsersRound } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Modal } from '../Dialog';
@@ -120,7 +121,9 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
               <X size={18} />
             </button>
           </header>
-          {!query.data?.groups?.length && <p className="weq-common-groups-empty">暂无共同群</p>}
+          {!query.data?.groups?.length && (
+            <EmptyState compact icon={<UsersRound />} title="暂无共同群" />
+          )}
           <ul className="weq-common-groups-list">
             {query.data?.groups?.map((group) => (
               <li key={group.groupCode}>

@@ -8,6 +8,7 @@
  * manager; the 打开 button opens it with the default app.
  */
 
+import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { FolderOpen, ExternalLink, AlertTriangle } from 'lucide-react';
 import { DesktopOnly, IS_ELECTRON } from '../../lib/target';
@@ -75,7 +76,9 @@ export function FileDirExplorer(): ReactElement {
   const present = summary.data?.present ?? true;
 
   if (!summary.isLoading && !present) {
-    return <div className="weq-cache-grid-state">未找到该账号的 File 目录（nt_data/File/Ori）</div>;
+    return (
+      <EmptyState icon={<FolderOpen />} title="未找到该账号的 File 目录" body="nt_data/File/Ori" />
+    );
   }
 
   return (

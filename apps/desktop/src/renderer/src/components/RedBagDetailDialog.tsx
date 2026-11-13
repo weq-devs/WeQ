@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { EmptyState } from './EmptyState';
 import * as timeFormat from '@weq/time';
 /**
  * 红包灯箱 —— 三态共用同一张卡片，尺寸固定不跳动：
@@ -29,7 +30,7 @@ import * as timeFormat from '@weq/time';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { Crown, RefreshCw, X } from 'lucide-react';
+import { Crown, RefreshCw, X, Gift } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
@@ -353,9 +354,7 @@ function RedBagDetailDialog({
                   })}
                 </ul>
               ) : (
-                <div className="weq-redbag-detail-empty">
-                  <span>还没有人领取</span>
-                </div>
+                <EmptyState compact icon={<Gift />} title="还没有人领取" />
               )}
             </div>
           </>

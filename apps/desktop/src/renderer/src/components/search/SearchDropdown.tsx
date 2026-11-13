@@ -1,5 +1,6 @@
 /** The unified search dropdown under the sidebar search box. */
 
+import { EmptyState } from '../EmptyState';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Bookmark,
@@ -20,6 +21,7 @@ import {
   UserRound,
   UsersRound,
   type LucideIcon,
+  SearchX,
 } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { isLookupNumber } from '../../hooks/useNumberLookup';
@@ -470,19 +472,23 @@ export function SearchDropdown({
           ) : null}
           <div role="listbox" aria-label="搜索结果" aria-busy={quickLoading || slowLoading}>
             {!hasScope ? (
-              <div className="weq-search-empty">
-                未选择搜索范围
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  onClick={() => {
-                    changeSources([...DEFAULT_SEARCH_SOURCES]);
-                    onCategoriesChange([...SEARCH_CATEGORY_ORDER]);
-                  }}
-                >
-                  恢复全部范围
-                </button>
-              </div>
+              <EmptyState
+                compact
+                icon={<SearchX />}
+                title="未选择搜索范围"
+                body={
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    onClick={() => {
+                      changeSources([...DEFAULT_SEARCH_SOURCES]);
+                      onCategoriesChange([...SEARCH_CATEGORY_ORDER]);
+                    }}
+                  >
+                    恢复全部范围
+                  </button>
+                }
+              />
             ) : null}
             {hasScope &&
             !quickLoading &&
@@ -497,7 +503,7 @@ export function SearchDropdown({
               (category) =>
                 category !== 'app' && (sections.get(category)?.loading || failedFor(category)),
             ) ? (
-              <div className="weq-search-empty">没有找到相关内容</div>
+              <EmptyState compact icon={<SearchX />} title="没有找到相关内容" />
             ) : null}
             {lookupEnabled && isLookupNumber(numberLookupKeyword) ? (
               <NumberLookupResults
@@ -563,7 +569,7 @@ export function SearchDropdown({
                     <SearchSectionSkeleton />
                   ) : !hits || hits.length === 0 ? (
                     failed ? null : (
-                      <div className="weq-search-empty">无结果</div>
+                      <EmptyState variant="inline" icon={<SearchX />} title="无结果" />
                     )
                   ) : (
                     hits.map((hit) => (
