@@ -127,6 +127,7 @@ export const DEFAULT_RAW_CASES: readonly string[] = [
   'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias',
   'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike',
   'QunAlbum.trpc.qzone.webapp_qun_feeds.FeedsReader.GetQunFeedDetail',
+  'QzoneV4Service.trpc.qzone.feeds_reader.FeedsReader.GetFeedDetail',
   'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunComment',
   'Faceroam.OpReq',
   'ImgStore.BDHExpressionRoam',
