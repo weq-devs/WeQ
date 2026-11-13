@@ -358,16 +358,16 @@ export function ProfileDisplayEntry({
 export function ProfileDisplaySettingField({ field }: { field: ProfileDisplayField }) {
   const context = useContext(Context);
   if (!context) return null;
-  const setting = context.fields[field]?.setting;
-  const label = `${PROFILE_DISPLAY_FIELDS[field].label}展示范围`;
-  const value =
-    setting?.status === 'known'
-      ? PROFILE_DISPLAY_FIELDS[field].options.find((option) => option.value === setting.value)
-          ?.label
-      : null;
   return (
-    <ProfileDisplayEntry field={field} label={label}>
-      {value ?? '未读取'}
-    </ProfileDisplayEntry>
+    <DisplaySelfProfileField
+      label="展示范围"
+      value={null}
+      displayField={field}
+      valueHasAction
+      rangeOnly
+      disabled={!context.available}
+    >
+      {null}
+    </DisplaySelfProfileField>
   );
 }

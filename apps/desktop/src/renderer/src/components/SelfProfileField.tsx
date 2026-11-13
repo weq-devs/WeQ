@@ -11,6 +11,7 @@ import { Check, X } from 'lucide-react';
 import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/self-profile-card.css';
 import { ProfileFieldEditorContext } from './ProfileFieldEditor';
+import { useProfileFieldEscape } from '../hooks/useProfileFieldEscape';
 
 export type Save = (action: () => Promise<boolean>) => Promise<boolean>;
 const SaveContext = createContext<Save>((action) => action());
@@ -34,6 +35,7 @@ export function SelfProfileField({
   auxiliaryEditing = false,
   auxiliarySaveDisabled = false,
   onClose,
+  rangeOnly = false,
 }: {
   label: string;
   value: ReactNode;
@@ -51,6 +53,7 @@ export function SelfProfileField({
   auxiliaryEditing?: boolean;
   auxiliarySaveDisabled?: boolean;
   onClose?: () => void;
+  rangeOnly?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const editable = useContext(SelfProfileEditingContext);
@@ -90,6 +93,15 @@ export function SelfProfileField({
     onEditingChange?.(false);
     onClose?.();
   }
+  useProfileFieldEscape(
+    editor,
+    active,
+    () => {
+      onCancel?.();
+      close();
+    },
+    pending,
+  );
   const save: Save = async (action) => {
     if (running.current || !mounted.current) return false;
     running.current = true;
@@ -153,6 +165,7 @@ export function SelfProfileField({
         ref={editor}
         className={`weq-profile-field-content${active ? ' weq-self-field-editor' : ''}`}
         aria-busy={pending || undefined}
+        data-profile-editing={active || undefined}
         onClickCapture={(event) => {
           if (
             event.target instanceof Element &&
@@ -186,53 +199,60 @@ export function SelfProfileField({
           }
         }}
       >
-        {editing ? (
-          <fieldset disabled={pending} className="weq-self-field-inputs">
-            <SaveContext.Provider value={save}>
-              <ProfileFieldEditorContext.Provider
-                value={{ target: actionTarget, disabled: pending }}
+        <div className="weq-profile-field-primary">
+          {editing ? (
+            <fieldset disabled={pending} className="weq-self-field-inputs">
+              <SaveContext.Provider value={save}>
+                <ProfileFieldEditorContext.Provider
+                  value={{ target: actionTarget, disabled: pending }}
+                >
+                  {typeof children === 'function' ? children(save) : children}
+                </ProfileFieldEditorContext.Provider>
+              </SaveContext.Provider>
+            </fieldset>
+          ) : rangeOnly ? null : (
+            display
+          )}
+          {!editing && auxiliary ? (
+            <fieldset disabled={pending} className="weq-profile-field-auxiliary">
+              {auxiliary}
+            </fieldset>
+          ) : null}
+          {active ? (
+            <span className="weq-profile-field-actions">
+              <span ref={setActionTarget} className="weq-profile-field-action-target" />
+              {!editing ? (
+                <button
+                  type="button"
+                  className="weq-profile-field-tool weq-profile-field-save"
+                  title={`保存${label}`}
+                  aria-label={`保存${label}`}
+                  disabled={pending || auxiliarySaveDisabled}
+                  onClick={() => void save(async () => true)}
+                >
+                  <Check size={14} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="weq-profile-field-tool"
+                title={`取消编辑${label}`}
+                aria-label={`取消编辑${label}`}
+                disabled={pending}
+                onClick={() => {
+                  onCancel?.();
+                  close();
+                }}
               >
-                {typeof children === 'function' ? children(save) : children}
-              </ProfileFieldEditorContext.Provider>
-            </SaveContext.Provider>
-          </fieldset>
-        ) : (
-          display
-        )}
-        {auxiliary ? (
+                <X size={14} />
+              </button>
+            </span>
+          ) : null}
+        </div>
+        {editing && auxiliary ? (
           <fieldset disabled={pending} className="weq-profile-field-auxiliary">
             {auxiliary}
           </fieldset>
-        ) : null}
-        {active ? (
-          <span className="weq-profile-field-actions">
-            <span ref={setActionTarget} className="weq-profile-field-action-target" />
-            {!editing ? (
-              <button
-                type="button"
-                className="weq-profile-field-tool weq-profile-field-save"
-                title={`保存${label}`}
-                aria-label={`保存${label}`}
-                disabled={pending || auxiliarySaveDisabled}
-                onClick={() => void save(async () => true)}
-              >
-                <Check size={14} />
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="weq-profile-field-tool"
-              title={`取消编辑${label}`}
-              aria-label={`取消编辑${label}`}
-              disabled={pending}
-              onClick={() => {
-                onCancel?.();
-                close();
-              }}
-            >
-              <X size={14} />
-            </button>
-          </span>
         ) : null}
         {active && editorFooter ? (
           <div className="weq-profile-field-feedback">{editorFooter}</div>

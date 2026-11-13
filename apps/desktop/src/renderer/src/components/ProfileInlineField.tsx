@@ -3,6 +3,7 @@ import { Check, X } from 'lucide-react';
 import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/group-member-edit.css';
 import '../styles/profile-field-editor.css';
+import { useProfileFieldEscape } from '../hooks/useProfileFieldEscape';
 
 /** 名片资料共用的原行编辑器，保存失败时保留输入。 */
 export function ProfileInlineField({
@@ -39,6 +40,7 @@ export function ProfileInlineField({
   const [saving, setSaving] = useState(false);
   const running = useRef(false);
   const trigger = useRef<HTMLButtonElement>(null);
+  const editor = useRef<HTMLFormElement>(null);
   const restoreFocus = useRef(false);
   const locked = disabled || saving;
   useLayoutEffect(() => {
@@ -52,10 +54,13 @@ export function ProfileInlineField({
     setEditing(false);
     onCancel?.();
   }
+  useProfileFieldEscape(editor, editing && editable, cancel, saving);
   const content =
     editing && editable ? (
       <form
         className="weq-member-inline-field"
+        ref={editor}
+        data-profile-editing
         data-qq-action
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) {

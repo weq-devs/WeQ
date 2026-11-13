@@ -5,6 +5,7 @@ import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { ProfileInlineField } from './ProfileInlineField';
 import { ContactInlineError, ContactRow } from './contactProfile/ContactRow';
 import { QQWriteResult } from './QQWriteControls';
+import { useProfileFieldEscape } from '../hooks/useProfileFieldEscape';
 
 type Field = 'friendRemark' | 'groupRemark' | 'groupName' | 'friendCategory';
 type Props = {
@@ -100,6 +101,7 @@ function QQProfileFieldEditor({
   onSaved: (value: string) => void;
 }) {
   const session = useQQWriteSession(`profile-edit:${field}:${target}`);
+  const editor = useRef<HTMLDivElement>(null);
   const cache = useQueryClient();
   const utils = trpc.useUtils();
   const group = field === 'groupRemark' || field === 'groupName';
@@ -149,6 +151,7 @@ function QQProfileFieldEditor({
   const allowed = group
     ? field !== 'groupName' || peer.data?.role === 'owner' || peer.data?.role === 'admin'
     : Boolean(peer.data?.friend);
+  useProfileFieldEscape(editor, !ready || !allowed, onClose, session.busy);
   const initial =
     field === 'friendRemark'
       ? (remark.data?.remark ?? '')
@@ -169,6 +172,8 @@ function QQProfileFieldEditor({
   };
   return (
     <div
+      ref={editor}
+      data-profile-editing={!ready || !allowed || undefined}
       data-qq-action
       className={inline ? 'weq-profile-field-inline' : undefined}
       onKeyDown={(event) => {

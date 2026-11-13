@@ -96,6 +96,10 @@
   color: var(--weq-fg-primary);
   scrollbar-color: var(--weq-border-strong) transparent;
 }
+.weq-extras-range-row {
+  padding: 8px 18px 0;
+  min-width: 0;
+}
 .weq-extras-list article {
   padding: 15px 0;
   border-bottom: 1px solid var(--weq-border-subtle);
@@ -226,6 +230,9 @@ html[data-theme='dark'] .weq-extras-photo-error {
   background: color-mix(in srgb, var(--weq-bg-surface) 85%, var(--weq-fg-primary) 15%);
 }
 @media (max-width: 480px) {
+  .weq-extras-range-row {
+    padding-inline: 12px;
+  }
   .weq-extras-header {
     padding: 12px;
   }

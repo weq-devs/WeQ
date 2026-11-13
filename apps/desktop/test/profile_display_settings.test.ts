@@ -6,6 +6,7 @@ import {
   DisplaySelfProfileField,
   ProfileDisplayEntry,
   SelfProfileDisplayProvider,
+  ProfileDisplaySettingField,
 } from '../src/renderer/src/components/ProfileDisplaySettings';
 import { QQWriteTextRow } from '../src/renderer/src/components/QQWriteControls';
 
@@ -70,6 +71,7 @@ function fixture(provider = true) {
     ),
     h(ProfileDisplayEntry, { field: 'age' }, '21 岁'),
     h(ProfileDisplayEntry, { field: 'education' }, '学校'),
+    h(ProfileDisplaySettingField, { field: 'education' }),
   );
   const render = () =>
     act(() =>
@@ -124,6 +126,15 @@ beforeEach(() => {
     data: { targetUin: '10002', settings: state.settings },
     error: null,
   });
+});
+
+it('范围专用行只显示一次当前范围，字段名不重复项目名称', () => {
+  const f = fixture();
+  const row = f.host.querySelector('[data-profile-field="展示范围"]')!;
+  expect(row.querySelector('.weq-profile-data-label')?.textContent).toBe('展示范围');
+  expect(row.querySelector('.weq-self-field-display')).toBeNull();
+  expect(row.querySelector('[aria-label="编辑教育经历展示范围"]')?.textContent).toBe('（所有人）');
+  expect(row.textContent).toBe('展示范围（所有人）');
 });
 afterEach(() => {
   for (const fn of dispose.splice(0)) fn();

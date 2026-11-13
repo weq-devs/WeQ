@@ -64,4 +64,4 @@ UID 仅在开启该字段时进入身份区。`styles/contact-workspace.css` 承
 
 原行编辑定向测试为 `profile_inline_field.test.ts` 与 `group_member_inline_edit.test.ts`；浏览器入口 `apps/desktop/test/browser/run-profile-inline.mjs` 使用同一运行时环境变量，以 `WEQ_PROFILE_INLINE_QA` 指定截图目录，覆盖备注保存／清空／取消、分组、群名称、失败草稿及深浅主题窄屏布局，所有写入均为合成桩。
 
-本人字段与范围回归为 `self_profile_field.test.ts`、`profile_display_settings.test.ts`；`run-profile-field-editor.mjs` 用 `WEQ_PROFILE_FIELD_QA` 输出截图，覆盖 1180／390／320px 深浅主题的标签节点及样式稳定、输入／地区／多行布局、统一操作尺寸、仅改范围、两种编辑顺序、部分成功重试和键盘焦点。`run-self-profile.mjs` 与 `run-profile-display.mjs` 继续验证现有本人资料和展示设置路径。
+本人字段与范围回归为 `self_profile_field.test.ts`、`profile_display_settings.test.ts`；`run-profile-field-editor.mjs` 用 `WEQ_PROFILE_FIELD_QA` 输出截图，覆盖 1180／390／320px 深浅主题的标签节点及样式稳定、输入／地区／多行布局、统一操作尺寸及内容旁间距、同行居中、仅改范围、两种编辑顺序、部分成功重试和键盘焦点。`useProfileFieldEscape` 在捕获阶段让当前上层资料内的编辑优先处理 Esc，焦点移到空白后也可取消最近的编辑，不穿透新打开的详情，不取消在途保存；`profile_field_escape.test.ts` 覆盖这些顺序。范围专用行通过 `rangeOnly` 省略正文，只显示一份摘要。`run-self-profile.mjs` 与 `run-profile-display.mjs` 继续验证现有本人资料和展示设置路径。

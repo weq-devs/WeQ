@@ -102,6 +102,32 @@ try {
           `${label}: no replacement label`,
         );
         assert.equal(await field.locator('[role="radiogroup"]').count(), label === '性别' ? 1 : 0);
+        const contentLayout = await field.evaluate((node) => {
+          const inputs = node.querySelector('.weq-self-field-inputs').getBoundingClientRect();
+          const actions = node.querySelector('.weq-profile-field-actions').getBoundingClientRect();
+          const label = node.querySelector('.weq-profile-data-label').getBoundingClientRect();
+          const scope = node.querySelector('.weq-profile-field-auxiliary').getBoundingClientRect();
+          const center = (rect) => rect.top + rect.height / 2;
+          return {
+            gap: actions.left - inputs.right,
+            centered: Math.abs(center(inputs) - center(actions)) < 1,
+            labelCentered:
+              Math.abs(
+                center(label) -
+                  center(node.querySelector('.weq-profile-field-content').getBoundingClientRect()),
+              ) < 1,
+            scopeCentered:
+              Math.abs(center(inputs) - center(scope)) < 1 || scope.top >= inputs.bottom,
+          };
+        });
+        assert.ok(
+          contentLayout.gap >= 0 && contentLayout.gap <= 8,
+          `${label}/${width}: actions beside content ${JSON.stringify(contentLayout)}`,
+        );
+        assert.ok(
+          contentLayout.centered && contentLayout.labelCentered && contentLayout.scopeCentered,
+          JSON.stringify(contentLayout),
+        );
         assert.equal(
           await field
             .locator('.weq-profile-data-label')
@@ -189,7 +215,14 @@ try {
         assert.equal(geometry.actionsTogether, true);
         if (output && ['生日', '所在地', '个人说明'].includes(label))
           await page.screenshot({ path: resolve(output, `${width}-${theme}-${label}.png`) });
-        await button(`取消编辑${label}`).click();
+        await page.locator('.weq-profile-workspace-body').click({ position: { x: 2, y: 2 } });
+        await page.keyboard.press('Escape');
+        assert.equal(
+          await field.locator('[data-profile-editing]').count(),
+          0,
+          `${label}: Esc exits after clicking blank space`,
+        );
+        await page.getByRole('region', { name: '我的资料', exact: true }).waitFor();
         cases++;
       }
     }
@@ -255,6 +288,19 @@ try {
   });
   assert.deepEqual(touchGeometry, [true, true]);
   await touch.close();
+  await page.getByTitle('查看教育经历', { exact: true }).click();
+  const education = page.getByRole('dialog', { name: '教育经历', exact: true });
+  await education.waitFor();
+  const rangeRow = education.locator('[data-profile-field="展示范围"]');
+  assert.equal(await rangeRow.locator('.weq-self-field-display').count(), 0);
+  assert.equal(await rangeRow.locator('.weq-profile-display-summary').count(), 1);
+  assert.equal(await rangeRow.locator('.weq-profile-data-label').textContent(), '展示范围');
+  await rangeRow.getByRole('button', { name: '编辑教育经历展示范围', exact: true }).click();
+  await page.keyboard.press('Escape');
+  assert.equal(await rangeRow.locator('[role="radiogroup"]').count(), 0);
+  assert.equal(await education.count(), 1, 'Esc cancels range without closing education');
+  if (output) await page.screenshot({ path: resolve(output, 'education-range.png') });
+  await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({

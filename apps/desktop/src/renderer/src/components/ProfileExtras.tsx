@@ -96,7 +96,9 @@ export function ProfileExtraDialog({
       </header>
       {view === 'signatures' ? <SelfSignatureComposer uin={uin} /> : null}
       {view === 'education' && self?.uin === uin ? (
-        <ProfileDisplaySettingField field="education" />
+        <div className="weq-extras-range-row">
+          <ProfileDisplaySettingField field="education" />
+        </div>
       ) : null}
       <ProfileExtrasContent uin={uin} view={view} />
     </Modal>

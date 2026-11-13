@@ -130,6 +130,61 @@ it('编辑因离线或读取失败禁用时仍可用 Esc 退出', () => {
   expect(close).not.toHaveBeenCalled();
 });
 
+it.each(['self', 'inline'])('字段 %s 焦点移到名片空白后 Esc 仍只退出编辑', (kind) => {
+  act(() =>
+    root.render(
+      h(
+        Card,
+        null,
+        kind === 'self'
+          ? h(SelfProfileField, { label: '昵称', value: '原值', onCancel: cancel }, h('input'))
+          : h(ProfileInlineField, {
+              label: '昵称',
+              initial: '原值',
+              initialEditing: true,
+              editable: true,
+              disabled: false,
+              onCancel: cancel,
+              onSave: async () => true,
+            }),
+      ),
+    ),
+  );
+  if (kind === 'self')
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="编辑昵称"]')!.click());
+  const card = host.querySelector<HTMLElement>('[role="dialog"]')!;
+  card.tabIndex = -1;
+  card.focus();
+  expect(pressEscape(card).defaultPrevented).toBe(true);
+  expect(host.querySelector('[data-profile-editing]')).toBeNull();
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(close).not.toHaveBeenCalled();
+});
+
+it('上层详情打开时 Esc 不取消下层字段编辑', () => {
+  act(() =>
+    root.render(
+      h(
+        Card,
+        null,
+        h(ProfileInlineField, {
+          label: '昵称',
+          initial: '原值',
+          initialEditing: true,
+          editable: true,
+          disabled: false,
+          onCancel: cancel,
+          onSave: async () => true,
+        }),
+        h('div', { role: 'dialog', style: { zIndex: 100 }, tabIndex: -1 }, '详情'),
+      ),
+    ),
+  );
+  pressEscape(host.querySelectorAll('[role="dialog"]')[1]!);
+  expect(host.querySelector('[data-profile-editing]')).not.toBeNull();
+  expect(cancel).not.toHaveBeenCalled();
+});
+
 it('本人资料保存期间 Esc 不关闭名片，保存失败后可正常退出编辑', async () => {
   let finish!: (ok: boolean) => void;
   function SaveButton() {
