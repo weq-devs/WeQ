@@ -236,7 +236,7 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
   gap: 12px;
-  align-items: baseline;
+  align-items: start;
   min-height: 32px;
   padding-block: 5px;
   border: 0;
@@ -278,10 +278,6 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   font-family: var(--weq-font-mono, ui-monospace, SFMono-Regular, monospace);
   font-size: 12px;
   color: var(--weq-fg-secondary);
-}
-
-.weq-profile-data-row:has(> .weq-profile-data-value > .weq-profile-privileges) {
-  align-items: center;
 }
 
 .weq-profile-data-value > .weq-profile-privileges {
@@ -370,6 +366,7 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
   gap: 6px;
   width: auto;
   max-width: 100%;
+  margin: 0;
   padding: 0;
   border: 0;
   background: transparent;

@@ -130,11 +130,6 @@
   text-align: start;
 }
 
-.weq-contact-profile-v2 .weq-profile-data-row:has(.weq-contact-qqshow),
-.weq-contact-profile-v2 .weq-profile-data-row:has(.weq-contact-dress-assets) {
-  align-items: center;
-}
-
 .weq-contact-profile-v2 .weq-contact-qqshow {
   display: flex;
   align-items: center;

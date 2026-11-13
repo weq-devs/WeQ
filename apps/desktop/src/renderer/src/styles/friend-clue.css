@@ -1,10 +1,6 @@
-.weq-profile-data-row:has(> .weq-profile-data-value > .weq-friend-source-group) {
-  align-items: center;
-}
-
 .weq-friend-source-group {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-start;
   gap: var(--weq-profile-inline-gap);
   width: fit-content;
