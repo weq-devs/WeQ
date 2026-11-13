@@ -26,13 +26,17 @@ vi.mock('../src/main/context/app_context', () => {
     customEmoji: { resolveFile: f.resolveFile },
     messageSend: { sendElements: f.sendElements },
   };
+  const bootstrap = () => ({
+    userConfig: { getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: false } }) },
+  });
   return {
     accountEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: '10001' } },
       services: f.switched ? { ...services } : services,
-      bootstrap: { userConfig: { getSettings: () => ({ autoAttachQq: true }) } },
+      bootstrap: bootstrap(),
     }),
+    requireBootstrap: bootstrap,
   };
 });
 const hash = 'aabbccddeeff00112233445566778899';

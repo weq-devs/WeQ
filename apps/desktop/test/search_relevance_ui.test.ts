@@ -68,7 +68,7 @@ function mount(overrides: Partial<ComponentProps<typeof SearchDropdown>>) {
   };
 }
 
-it('功能与设置也参与排序，同分按分类顺序，空分类始终落在有结果者之后', () => {
+it('功能与设置也参与排序，同分按分类顺序，多类结果下空分类不再单独占一行', () => {
   const f = mount({
     quick: {
       contacts: [contactSearchHit({ nick: '报告' })],
@@ -87,7 +87,7 @@ it('功能与设置也参与排序，同分按分类顺序，空分类始终落�
     },
   });
   try {
-    expect(f.order()).toEqual(['功能与设置', '联系人', '文件', '群聊', '消息']);
+    expect(f.order()).toEqual(['功能与设置', '联系人', '文件']);
   } finally {
     f.close();
   }
@@ -115,7 +115,7 @@ it('无结果的功能分类不固定置顶，已出结果不被其它分类的�
     },
   });
   try {
-    expect(f.order()).toEqual(['文件', '功能与设置', '联系人', '群聊', '消息']);
+    expect(f.order()).toEqual(['文件', '功能与设置', '联系人', '群聊', '聊天记录']);
     expect(f.host.querySelectorAll('[role="status"]')).toHaveLength(1);
     expect(f.host.querySelector('[data-search-hit-key="file:group:1:1"]')).not.toBeNull();
   } finally {

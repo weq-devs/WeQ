@@ -328,20 +328,23 @@ describe('message_repeat', () => {
         expect(canRepeatMessage(message('mixed', [plain('正文'), { type }]))).toBe(false);
       },
     );
-    it('空内容、缺少原始元素、撤回、删除及乐观发送状态不提供入口', () => {
+    it('空内容、缺少原始元素及乐观发送状态不提供入口，撤回删除仍按正文判断', () => {
       const normal = message('fixture', [plain('正文')]);
       for (const item of [
         { id: 'preview', body: '只有预览' },
         message('empty', []),
         message('empty-text', [plain('')]),
-        { ...normal, recall: {} },
-        { ...normal, deletedKind: 'qq' },
         { ...normal, optimistic: 'sending' },
         { ...normal, optimistic: 'failed' },
         { ...normal, optimistic: 'sent' },
         { ...normal, optimisticRejected: true },
       ])
         expect(canRepeatMessage(item)).toBe(false);
+      // 手动 +1 只按内容判断：撤回 / 删除不再阻止入口，改由自动提示的候选判定兜住。
+      expect(canRepeatMessage({ ...normal, recall: {} })).toBe(true);
+      expect(canRepeatMessage({ ...normal, deletedKind: 'qq' })).toBe(true);
+      expect(repeatTarget([normal, { ...normal, recall: {} }], true)).toBeNull();
+      expect(repeatTarget([normal, { ...normal, deletedKind: 'qq' }], true)).toBeNull();
     });
   });
 

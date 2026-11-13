@@ -167,7 +167,8 @@ describe('收藏全局搜索定位', () => {
               failedCategories: ['collection'],
               indexStatus: 'disabled',
             },
-            categories: ['collection', 'assistantMessage'],
+            // 助手消息现在跟着「聊天记录」一起展示（来源=WeQ 助手），不再单独成类。
+            categories: ['collection', 'chatRecord'],
             onCategoriesChange: vi.fn(),
             onSelect: vi.fn(),
             onMore: vi.fn(),

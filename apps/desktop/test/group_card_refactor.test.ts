@@ -140,7 +140,8 @@ it('名片首屏保留本地身份，公告／入群问题／扩展指标不进�
   expect(text.classList.contains('is-clamped')).toBe(true);
   expect(
     [...host.querySelectorAll('.weq-profile-subtitle')].map((node) => node.textContent),
-  ).toEqual(['群资料', '成员']);
+    // 快速名片与完整资料页共用同一个小节标题。
+  ).toEqual(['基本资料', '成员']);
   expect(host.textContent).not.toContain('与我的关系');
   expect(host.querySelector('.weq-group-preview-avatars')).toBeNull();
   const labels = [...host.querySelectorAll('.weq-profile-data-label')].map(
@@ -175,7 +176,7 @@ it('短简介不显示展开，成员和好友数量打开旁侧名单而不关�
   expect(host.querySelector('.weq-group-description p')?.textContent).toBe('短简介');
   expect(host.querySelector('.weq-group-description button')).toBeNull();
   expect(host.querySelector('.weq-profile-card-actions')?.textContent).not.toContain('完整群资料');
-  act(() => (host.querySelector('.weq-profile-expand') as HTMLButtonElement).click());
+  act(() => (host.querySelector('[aria-label="打开完整群资料"]') as HTMLButtonElement).click());
   expect(navigate).toHaveBeenLastCalledWith({ kind: 'group', conversation });
   act(() => (host.querySelector('[aria-label="查看群成员列表"]') as HTMLButtonElement).click());
   expect(host.querySelector('[aria-label="群成员"]')).not.toBeNull();
@@ -205,14 +206,15 @@ it('完整群资料页只在页头渲染一条操作行，不再吸底重复', (
       onOpenChat: vi.fn(),
     }),
   );
-  const bars = host.querySelectorAll('.weq-group-card-actions');
+  // 完整资料页只在页头操作区渲染一条操作行，正文底部不再有第二套吸底操作。
+  const bars = host.querySelectorAll('.weq-profile-card-actions');
   expect(bars).toHaveLength(1);
-  expect(bars[0].classList.contains('weq-profile-card-actions')).toBe(false);
-  expect(bars[0].querySelector('.weq-contact-primary')).not.toBeNull();
+  expect(bars[0].querySelector('button')).not.toBeNull();
   expect(host.querySelector('.weq-group-quick-card')).toBeNull();
-  expect(host.querySelector('.weq-contact-identity-body')).toBeNull();
-  expect(host.querySelector('.weq-profile-expand')).toBeNull();
-  expect(host.querySelector('.weq-profile-id')?.textContent).toContain('12345');
+  // 完整资料页与快速名片共用同一份身份正文。
+  expect(host.querySelector('.weq-contact-identity-body')).not.toBeNull();
+  expect(host.querySelector('[aria-label="打开完整群资料"]')).toBeNull();
+  expect(host.textContent).toContain('12345');
 });
 it('快速名片底部只显示消息操作，预览不关闭名片，打开消息关闭名片', () => {
   mock.profile.mockReturnValue({
@@ -243,7 +245,11 @@ it('快速名片底部只显示消息操作，预览不关闭名片，打开消�
   expect(bar.classList.contains('weq-group-card-actions')).toBe(false);
   const actions = bar.querySelectorAll('button');
   expect([...actions].map((button) => button.textContent)).toEqual(['查看消息', '预览消息']);
-  expect([...actions].every((button) => button.className === 'weq-contact-secondary')).toBe(true);
+  // 主操作（查看消息）是填充按钮，其余次操作是描边按钮。
+  expect(actions[0].className).toBe('weq-contact-primary');
+  expect(
+    [...actions].slice(1).every((button) => button.className === 'weq-contact-secondary'),
+  ).toBe(true);
   act(() => (actions[1] as HTMLButtonElement).click());
   expect(preview).toHaveBeenCalledWith(group);
   expect(close).not.toHaveBeenCalled();
@@ -336,7 +342,7 @@ it('没有成功值的缓存不显示好友数，正常／未知不占位', () =
   expect(host.textContent).not.toContain('未知');
 });
 it('创建日期以北京时间显示，缺失、无效或 epoch 不冒充有效日期', () => {
-  expect(groupCreationDate('2024-01-01T20:00:00Z')).toBe('2024/01/02');
+  expect(groupCreationDate('2024-01-01T20:00:00Z')).toBe('2024-01-02 04:00:00');
   expect(groupCreationDate('not-a-date')).toBe('');
   expect(groupCreationDate('1970-01-01T00:00:00Z')).toBe('');
   expect(groupCreationDate()).toBe('');

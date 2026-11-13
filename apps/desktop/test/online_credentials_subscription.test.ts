@@ -11,15 +11,17 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock('../src/main/context/app_context', async () => {
   const { EventEmitter } = await import('node:events');
+  const bootstrap = () => ({
+    ocrModels: { listByKind: () => [] },
+    userConfig: {
+      getSettings: () => ({ autoAttachQq: fixture.automatic, ocr: { prefilterEnabled: false } }),
+      getLocalModelId: () => null,
+    },
+  });
   return {
+    requireBootstrap: bootstrap,
     getAppContext: () => ({
-      bootstrap: {
-        ocrModels: { listByKind: () => [] },
-        userConfig: {
-          getSettings: () => ({ autoAttachQq: fixture.automatic }),
-          getLocalModelId: () => null,
-        },
-      },
+      bootstrap: bootstrap(),
       services: fixture.services,
       account: { context: { uin: '10001' } },
       platform: { native: { ntHelper: { hasSsoSession: fixture.hasSsoSession } } },

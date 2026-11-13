@@ -40,7 +40,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return { trpc: proxy(), client: proxy() };
 });
 
-it('群待办附属页打开后隐藏而不卸载宿主，详情持续可见并能关闭返回', async () => {
+it('群待办浮层打开不隐藏也不卸载群资料宿主，详情持续可见并能关闭返回', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   useViewState.setState({ openedUin: '10001' });
@@ -79,32 +79,34 @@ it('群待办附属页打开后隐藏而不卸载宿主，详情持续可见并�
         ),
       ),
     );
+    // 群待办是资料侧栏上的浮层（presentation="popover"），宿主聊天与群资料面板都不换承载。
     const sidebar = host.querySelector<HTMLElement>('.group-info-panel')!;
     expect(sidebar.hidden).toBe(false);
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看群待办"]')!.click(),
     );
     expect(host.querySelector('.group-info-panel')).toBe(sidebar);
-    expect(sidebar.hidden).toBe(true);
-    const page = host.querySelector('.weq-workspace-sidecar-host [aria-label="群待办列表"]');
+    expect(sidebar.hidden).toBe(false);
+    // 浮层挂到 body 上，避免被侧栏裁剪。
+    const page = document.querySelector('[aria-label="群待办列表"]');
     expect(page).not.toBeNull();
     expect(page?.textContent).toContain('待办详情正文');
     moreMembers.mockClear();
     await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
     expect(moreMembers).not.toHaveBeenCalled();
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[aria-label="关闭群待办"]')!.click(),
+      document.querySelector<HTMLButtonElement>('[aria-label="关闭群待办"]')!.click(),
     );
     expect(sidebar.hidden).toBe(false);
-    expect(host.querySelector('[aria-label="群待办列表"]')).toBeNull();
+    expect(document.querySelector('[aria-label="群待办列表"]')).toBeNull();
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看群待办"]')!.click(),
     );
-    const locate = host.querySelector<HTMLButtonElement>('[aria-label="定位原消息"]')!;
+    const locate = document.querySelector<HTMLButtonElement>('[aria-label="定位原消息"]')!;
     expect(locate.disabled).toBe(false);
     await act(async () => locate.click());
     expect(jump).toHaveBeenCalledWith('123');
-    expect(host.querySelector('[aria-label="群待办列表"]')).toBeNull();
+    expect(document.querySelector('[aria-label="群待办列表"]')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();

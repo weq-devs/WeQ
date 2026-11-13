@@ -92,21 +92,30 @@ function mount() {
     [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (node) => node.textContent === text,
     )!;
-  const exportCurrent = () =>
-    act(() =>
+  // 导出面板走 lazyWorkspaces（React.lazy + Suspense），点开要等动态 import 落地。
+  const exportCurrent = async () => {
+    await act(async () =>
       host.querySelector<HTMLButtonElement>('[data-setting-id="database-export"]')!.click(),
     );
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+  };
   return { host, render, button, exportCurrent };
 }
 
-it('设置直接显示浏览器、表、SQL 和编辑模式；公共导出关闭后保留原 SQL 草稿', () => {
+it('设置直接显示浏览器、表、SQL 和编辑模式；公共导出关闭后保留原 SQL 草稿', async () => {
   const page = mount();
   expect(page.host.querySelector('[data-grid]')?.textContent).toContain('synthetic_table');
   expect(page.host.querySelector('.weq-maintenance-entry')).toBeNull();
   expect(page.host.querySelector('.weq-settings-database-browser')).toBeNull();
   expect(page.host.querySelector('.weq-settings-database > .weq-cache-db')).not.toBeNull();
   const browser = page.host.querySelector('.weq-cache-db');
-  act(() => page.host.querySelector<HTMLInputElement>('.weq-cache-editmode input')!.click());
+  const editMode = () =>
+    [...page.host.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')].find(
+      (node) => node.textContent === '编辑模式',
+    )!;
+  act(() => editMode().click());
   expect(page.host.querySelector('[data-grid]')?.getAttribute('data-editable')).toBe('true');
   act(() => page.button('SQL').click());
   const input = page.host.querySelector('textarea')!;
@@ -117,7 +126,7 @@ it('设置直接显示浏览器、表、SQL 和编辑模式；公共导出关闭
     );
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  page.exportCurrent();
+  await page.exportCurrent();
   expect(f.targets.at(-1)).toEqual({
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'synthetic-source',
@@ -133,9 +142,7 @@ it('设置直接显示浏览器、表、SQL 和编辑模式；公共导出关闭
   expect(page.host.querySelector('.weq-cache-db')).toBe(browser);
   expect(page.host.querySelector('textarea')).toBe(input);
   expect(input.value).toBe('SELECT 1;');
-  expect(page.host.querySelector<HTMLInputElement>('.weq-cache-editmode input')!.checked).toBe(
-    true,
-  );
+  expect(editMode().getAttribute('aria-checked')).toBe('true');
 });
 
 it('换库后不展示或执行另一库的旧 SQL 草稿和结果', async () => {
@@ -159,11 +166,11 @@ it('换库后不展示或执行另一库的旧 SQL 草稿和结果', async () =>
   expect(page.button('执行').disabled).toBe(true);
 });
 
-it('选择另一个库再导出携带它的路径，隐藏后停查询并移除导出模态，换源重置浏览现场', () => {
+it('选择另一个库再导出携带它的路径，隐藏后停查询并移除导出模态，换源重置浏览现场', async () => {
   const page = mount();
   act(() => page.host.querySelector<HTMLButtonElement>('.weq-cache-dbpick-btn')!.click());
   act(() => page.host.querySelectorAll<HTMLButtonElement>('.weq-cache-dbpick-item')[1]!.click());
-  page.exportCurrent();
+  await page.exportCurrent();
   expect(f.targets.at(-1)?.dbPaths).toEqual(['/synthetic/other.db']);
   page.render(false);
   for (const name of ['config', 'databases', 'objects'])

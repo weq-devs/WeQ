@@ -7,14 +7,13 @@ const fixture = vi.hoisted(() => ({
   configId: 'fixture-source',
   start: vi.fn(async (_input: unknown) => 'task'),
 }));
-vi.mock('../src/main/context/app_context', () => ({
-  accountEventBus: new EventEmitter(),
-  getAppContext: () => ({
+vi.mock('../src/main/context/app_context', () => {
+  const context = () => ({
     account: { context: { uin: fixture.uin } },
     bootstrap: {
       ocrModels: { listByKind: () => [] },
       userConfig: {
-        getSettings: () => ({ autoAttachQq: true }),
+        getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: true } }),
         getLocalModelId: () => null,
       },
     },
@@ -24,8 +23,13 @@ vi.mock('../src/main/context/app_context', () => ({
       },
       exportManager: { startTask: fixture.start },
     },
-  }),
-}));
+  });
+  return {
+    accountEventBus: new EventEmitter(),
+    getAppContext: context,
+    requireBootstrap: () => context().bootstrap,
+  };
+});
 afterEach(() => {
   fixture.uin = '10001';
   fixture.configId = 'fixture-source';

@@ -587,15 +587,16 @@ describe('可接入功能交互回归', () => {
   );
   it('名片直接展示共同数量，列表需要手动打开，不额外显示完整性标签', async () => {
     const f = mount(() => h(CommonRelationships, { uin: '10002' }));
-    const rows = [...f.host.querySelectorAll('.weq-profile-row')];
-    expect(rows.map((row) => row.querySelector('.weq-profile-row-label')?.textContent)).toEqual([
-      '共同好友',
-      '共同群',
-    ]);
-    // 共同好友是纯文本行（strong），共同群是可点行（button，title「查看共同群列表」）。
-    expect(rows.map((row) => row.querySelector('strong, .weq-contact-value')?.textContent)).toEqual(
-      ['3', '1'],
-    );
+    // 名片统一改用 ContactRow（weq-profile-data-* 行模型）。
+    const rows = [...f.host.querySelectorAll('.weq-profile-data-row')];
+    expect(
+      rows.map((row) => row.querySelector('.weq-profile-data-label')?.textContent?.trim()),
+    ).toEqual(['共同好友', '共同群']);
+    // 共同好友是纯文本值，共同群是可点行（button，title「查看共同群列表」）。
+    expect(
+      rows.map((row) => row.querySelector('.weq-profile-data-value')?.textContent?.trim()),
+    ).toEqual(['3', '1']);
+    expect(rows[1]!.querySelector('.weq-contact-value')).not.toBeNull();
     expect(f.host.textContent).not.toContain('合成共同群');
     await act(async () =>
       [...f.host.querySelectorAll('button')]
@@ -619,7 +620,8 @@ describe('可接入功能交互回归', () => {
     const groupCard = document.querySelector('[aria-label="群资料"]');
     expect(groupCard?.textContent).toContain('合成共同群');
     expect(groupCard?.textContent).toContain('123');
-    expect(groupCard?.textContent).not.toContain('群成员');
+    // 快速名片只给身份与成员数量，不展开成员列表（列表头是「群成员」浮层）。
+    expect(groupCard?.querySelector('.weq-group-member-list-header')).toBeNull();
     await act(async () =>
       document.querySelector<HTMLButtonElement>('button[aria-label="关闭群资料"]')!.click(),
     );
@@ -652,8 +654,11 @@ describe('可接入功能交互回归', () => {
     );
     const profile = document.querySelector('[aria-label="群资料"]')!;
     expect(profile.textContent).toContain('已收录的群');
-    // 成员数在身份区（共用名片解剖），旧的成员列表头已移除。
-    expect(profile.querySelector('.weq-group-count')?.textContent).toContain('42');
+    // 成员数在名片的「成员」分区行里，旧的成员列表头已移除。
+    const memberCountRow = [...profile.querySelectorAll('.weq-profile-data-row')].find(
+      (row) => row.querySelector('.weq-profile-data-label')?.textContent?.trim() === '群成员数',
+    );
+    expect(memberCountRow?.querySelector('.weq-profile-data-value')?.textContent).toContain('42');
     // 清单 G04：公告只在完整资料页显示，快速名片不再展示公告正文。
     expect(profile.textContent).not.toContain('已有的群公告');
   });

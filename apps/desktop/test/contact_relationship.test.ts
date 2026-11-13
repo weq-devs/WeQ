@@ -241,9 +241,12 @@ it.each([false, true])(
     );
     const scope = embedded ? host : document.body;
     expect(scope.querySelector('[data-relationship="friend"]')?.textContent).toContain('我的好友');
-    expect(
-      scope.querySelector('.weq-contact-identity [aria-label="编辑好友分组"]')?.textContent,
-    ).toBe('同学');
+    // 好友分组编辑已并入名片头部的身份行，分组名直接显示在同一行。
+    const relationship = scope.querySelector(
+      '.weq-contact-identity .weq-relationship-with-category',
+    );
+    expect(relationship?.textContent).toContain('我的好友');
+    expect(relationship?.textContent).toContain('同学');
     expect(
       [...scope.querySelectorAll('.weq-profile-data-label')].some(
         (node) => node.textContent === '好友分组',
@@ -291,17 +294,26 @@ it('联系人列表不显示好友关系标识，保留姓名和签名', () => {
     expect(host.textContent).toContain(text);
 });
 
-it.each(['20001', '20002', '20003'])('联系人页群资料 %s 不显示入群状态提示', (code) => {
-  const conversation = {
-    ...group,
-    id: code,
-    group: { ...group.group, id: code, identityValue: code },
-  };
-  const { host } = mount(h(GroupProfileDialog, { conversation, embedded: true, onClose: vi.fn() }));
-  expect(host.querySelector('.weq-relationship-status')).toBeNull();
-  expect(host.textContent).toContain(group.group.name);
-  expect(host.textContent).toContain('20 位成员');
-});
+// 完整资料页与快速名片共用同一份身份正文：入群状态与人数都只在身份区出现一次。
+it.each(['20001', '20002', '20003'])(
+  '联系人页群资料 %s 与名片共用身份区，状态只出现一次',
+  (code) => {
+    const conversation = {
+      ...group,
+      id: code,
+      group: { ...group.group, id: code, identityValue: code },
+    };
+    const { host } = mount(
+      h(GroupProfileDialog, { conversation, embedded: true, onClose: vi.fn() }),
+    );
+    expect(host.querySelectorAll('.weq-relationship-status')).toHaveLength(1);
+    expect(host.querySelector('.weq-relationship-status')?.textContent).toBe(
+      code === '20001' ? '我在群内· 管理员' : code === '20002' ? '我不在群内' : '入群状态待确认',
+    );
+    expect(host.textContent).toContain(group.group.name);
+    expect(host.textContent).toContain('20 人');
+  },
+);
 
 it.each(['20001', '20002', '20003'])('独立群名片 %s 保留关系，群外不显示旧管理身份', (code) => {
   const conversation = {

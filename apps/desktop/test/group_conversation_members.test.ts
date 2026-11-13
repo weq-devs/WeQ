@@ -7,6 +7,10 @@ import { classifyChatType } from '@weq/codec';
 import { contactSenderName, contactTitle } from '../src/renderer/src/lib/contactTitle';
 import { previewNodes, previewNodesToText } from '../src/renderer/src/lib/conversationPreview';
 import { selfIdentityValues } from '../src/renderer/src/lib/selfIdentity';
+import {
+  groupDirectoryPreference,
+  mutedFromNotifyLevel,
+} from '../src/renderer/src/lib/groupNotifications';
 import type { Conversation, User } from '../src/renderer/src/im-template/template/types';
 
 const user: User = {
@@ -68,7 +72,8 @@ runInNewContext(compiled.outputText, {
   selfIdentityValues,
   avatarSrc: () => null,
   groupAvatarSrc: () => null,
-  mutedFromNotifyLevel: () => false,
+  mutedFromNotifyLevel,
+  groupDirectoryPreference,
   fallbackPreference: { pinned: false, muted: false, archived: false },
 });
 

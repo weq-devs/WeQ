@@ -1,5 +1,6 @@
 import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -128,8 +129,16 @@ async function fixture(element: ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  // 关键词规则编辑器用 tanstack 无限查询加载成员候选，需要独立缓存。
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () =>
-    root.render(h(ProfileNavigationContext.Provider, { value: open }, element)),
+    root.render(
+      h(
+        QueryClientProvider,
+        { client: cache },
+        h(ProfileNavigationContext.Provider, { value: open }, element),
+      ),
+    ),
   );
   cleanups.push(() => {
     act(() => {

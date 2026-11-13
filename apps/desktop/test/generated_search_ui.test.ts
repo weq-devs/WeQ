@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentLabView } from '../src/renderer/src/views/AgentLabView';
 import { WorkspaceTools } from '../src/renderer/src/components/WorkspaceTools';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import type { GeneratedSearchHit } from '../src/renderer/src/components/search/types';
 import { isGeneratedSearchHit } from '../src/renderer/src/components/search/types';
 import {
@@ -50,9 +51,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       case 'getAgentLabPersonaSessionConversation':
       case 'getAgentLabConversation':
       case 'getAssistantConversation':
-        return fixture.missing ? [] : [message];
+        // 没有已保存会话时（sessionless）最新会话也是空的，避免旧记录冒充当前会话。
+        return fixture.missing || fixture.sessionless ? [] : [message];
       case 'getAgentLabGroupConversation':
-        return fixture.missing
+        return fixture.missing || fixture.sessionless
           ? []
           : [{ ...message, groupId: 'g', senderId: '10000', senderKind: 'user' }];
       case 'getAgentLabGroupDetail':
@@ -61,6 +63,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         return {};
       case 'getAssistantResumeState':
         return { resumable: false };
+      case 'assistantQueue':
+        return { running: false, items: [] };
       case 'getSelfProfile':
         return { uid: 'u_self', uin: '10000', nick: '我' };
       case 'listAgentLabPersonaSessions':
@@ -221,8 +225,9 @@ describe('生成内容搜索定位', () => {
         expect(f.host.querySelector('.chat-pane > .message-scroll')).not.toBeNull();
         expect(f.host.querySelector('.composer .composer-editor')).not.toBeNull();
         expect(f.host.querySelector('.composer .composer-send')).not.toBeNull();
-        expect(f.host.querySelector('[aria-label="切换会话"]')).not.toBeNull();
+        // 会话切换已并入统一会话列表，标题栏只保留「这是生成内容」的标记。
         expect(f.host.querySelector('.chat-header [title="克隆会话"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [aria-label="克隆会话"]')).not.toBeNull();
         expect(f.host.querySelector('.chat-header [aria-label="搜索聊天记录"]')).not.toBeNull();
         expect(f.host.querySelector('.chat-header [aria-label="消息管理"]')).not.toBeNull();
         expect(f.host.querySelector('.chat-header [aria-label="多选消息"]')).toBeNull();
@@ -285,47 +290,40 @@ describe('生成内容搜索定位', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(50);
         });
-        if (kind === 'assistant') {
-          act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
-          act(() =>
-            f.host.querySelector<HTMLElement>('[data-generated-message-id="message-hit"]')!.click(),
-          );
-        } else {
-          act(() =>
-            f.host
-              .querySelector('[data-generated-message-id="message-hit"] .message-bubble')!
-              .dispatchEvent(
-                new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
-              ),
-          );
-          act(() =>
-            [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
-              .find((item) => item.textContent === '多选')!
-              .click(),
-          );
-          expect(
-            f.host
-              .querySelector('.composer.selection-mode .selection-bar-info')
-              ?.getAttribute('aria-label'),
-          ).toBe('已选 1 条消息');
-          expect(f.host.querySelector('.selection-bar [aria-label="复制"]')).not.toBeNull();
-          expect(f.host.querySelector('.selection-bar [aria-label="导出所选消息"]')).not.toBeNull();
-          expect(f.host.querySelector('.selection-bar [aria-label="退出多选"]')).not.toBeNull();
-        }
+        // 三类生成内容都走普通聊天的右键「多选」入口（单独的顶部多选按钮已移除）。
+        act(() =>
+          f.host
+            .querySelector('[data-generated-message-id="message-hit"] .message-bubble')!
+            .dispatchEvent(
+              new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+            ),
+        );
+        act(() =>
+          [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
+            .find((item) => item.textContent === '多选')!
+            .click(),
+        );
+        expect(
+          f.host
+            .querySelector('.composer.selection-mode .selection-bar-info')
+            ?.getAttribute('aria-label'),
+        ).toBe('已选 1 条消息');
+        expect(f.host.querySelector('.selection-bar [aria-label="复制"]')).not.toBeNull();
+        expect(f.host.querySelector('.selection-bar [aria-label="导出所选消息"]')).not.toBeNull();
+        expect(f.host.querySelector('.selection-bar [aria-label="退出多选"]')).not.toBeNull();
         expect(JSON.parse(f.host.querySelector('output')!.textContent!)).toEqual({
           owner: {
             kind: kind === 'assistant' ? 'assistant-messages' : 'clone-messages',
-            container: JSON.stringify([kind, hit.ownerId, hit.sessionId]),
+            // 助手面板按 sessionId 打开；克隆体由统一列表打开，面板内部恢复当前会话，容器 sessionId 为 null。
+            container: JSON.stringify([
+              kind,
+              hit.ownerId,
+              kind === 'assistant' ? hit.sessionId : null,
+            ]),
           },
           scope: { type: 'items', ids: ['message-hit'] },
         });
-        expect(
-          f.host.querySelector(
-            kind === 'assistant'
-              ? '.weq-generated-message.is-selected'
-              : '.message-line.is-selected',
-          ),
-        ).not.toBeNull();
+        expect(f.host.querySelector('.message-line.is-selected')).not.toBeNull();
         expect(fixture.mutate).not.toHaveBeenCalled();
         if (kind !== 'assistant') {
           const editor = f.host.querySelector('.composer-editor');
@@ -339,30 +337,34 @@ describe('生成内容搜索定位', () => {
       }
     },
   );
-  it.each(['persona', 'group'] as const)('%s 没有新会话时恢复旧版记录并保持只读', async (kind) => {
-    fixture.sessionless = true;
-    const f = mount();
-    try {
-      act(() =>
-        f.root.render(
-          createElement(AgentLabView, {
-            embedded: true,
-            openTarget: { kind, id: kind === 'persona' ? 'p' : 'g', revision: 2 },
-          }),
-        ),
-      );
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(50);
-      });
-      expect(f.host.textContent).toContain('合成搜索命中');
-      expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
-        'false',
-      );
-      expect(fixture.mutate).not.toHaveBeenCalled();
-    } finally {
-      f.close();
-    }
-  });
+  it.each(['persona', 'group'] as const)(
+    '%s 没有已保存会话时打开新草稿，不伪造旧记录',
+    async (kind) => {
+      fixture.sessionless = true;
+      const f = mount();
+      try {
+        act(() =>
+          f.root.render(
+            createElement(AgentLabView, {
+              embedded: true,
+              openTarget: { kind, id: kind === 'persona' ? 'p' : 'g', revision: 2 },
+            }),
+          ),
+        );
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        // 旧版只读回放已移除：没有会话时按新草稿进入，不把别的历史塞进来冒充当前会话。
+        expect(f.host.textContent).not.toContain('合成搜索命中');
+        expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
+          'true',
+        );
+        expect(fixture.mutate).not.toHaveBeenCalled();
+      } finally {
+        f.close();
+      }
+    },
+  );
   it('没有任何历史的克隆仍可进入新草稿，不因兼容读取而变成只读', async () => {
     fixture.sessionless = true;
     fixture.missing = true;
@@ -424,11 +426,10 @@ describe('生成内容搜索定位', () => {
           await vi.advanceTimersByTimeAsync(50);
         });
         expect(f.host.textContent).toContain('合成搜索命中');
+        // 统一列表只给克隆体/群，面板自己读取该归属下的当前会话（不再按 sessionId 单独取）。
         expect(fixture.query).toHaveBeenCalledWith(
-          kind === 'persona'
-            ? 'getAgentLabPersonaSessionConversation'
-            : 'getAgentLabGroupConversation',
-          expect.objectContaining({ sessionId: kind === 'persona' ? 'ps' : 'gs' }),
+          kind === 'persona' ? 'getAgentLabConversation' : 'getAgentLabGroupConversation',
+          kind === 'persona' ? { personaId: 'p' } : { groupId: 'g' },
         );
         expect(fixture.mutate).not.toHaveBeenCalled();
       } finally {
@@ -459,16 +460,19 @@ describe('生成内容搜索定位', () => {
       fixture.fetching = true;
       try {
         act(() => f.root.render(createElement(AgentLabView, props)));
-        expect(f.host.textContent).not.toContain('缓存旧数据');
+        // 克隆/群面板在刷新期间不铺旧快照；助手面板允许先显示缓存，但刷新后必须换成新快照。
+        if (kind !== 'assistant') expect(f.host.textContent).not.toContain('缓存旧数据');
         fixture.fetching = false;
         act(() => f.root.render(createElement(AgentLabView, props)));
         await act(async () => {
           await vi.advanceTimersByTimeAsync(50);
         });
         expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
+        expect(f.host.textContent).not.toContain('缓存旧数据');
+        expect(f.host.querySelector('[data-generated-message-id="cached-old"]')).toBeNull();
         const query =
           kind === 'persona'
-            ? 'getAgentLabPersonaSessionConversation'
+            ? 'getAgentLabConversation'
             : kind === 'group'
               ? 'getAgentLabGroupConversation'
               : 'getAssistantConversation';
@@ -510,7 +514,8 @@ describe('生成内容搜索定位', () => {
         ),
       );
       const row = f.host.querySelector<HTMLButtonElement>('[role="option"]')!;
-      expect(row.textContent).toContain('本地克隆对话');
+      // 生成来源改成简短的「克隆 · 命中类型 · 命中内容」副标题。
+      expect(row.textContent).toContain('克隆 · 正文命中');
       act(() => row.click());
       expect(select).toHaveBeenCalledWith(hit);
     } finally {
@@ -560,13 +565,17 @@ describe('生成内容搜索定位', () => {
         expect(f.scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'instant' });
         const name =
           kind === 'persona'
-            ? 'getAgentLabPersonaSessionConversation'
+            ? 'getAgentLabConversation'
             : kind === 'group'
               ? 'getAgentLabGroupConversation'
               : 'getAssistantConversation';
         expect(fixture.query).toHaveBeenCalledWith(
           name,
-          expect.objectContaining({ sessionId: target(kind).sessionId }),
+          kind === 'assistant'
+            ? expect.objectContaining({ sessionId: target(kind).sessionId })
+            : kind === 'persona'
+              ? { personaId: 'p' }
+              : { groupId: 'g' },
         );
         expect(fixture.mutate).not.toHaveBeenCalled();
       } finally {
@@ -576,7 +585,7 @@ describe('生成内容搜索定位', () => {
   );
 
   it.each(['persona', 'group'] as const)(
-    '旧版 %s 记录不当作草稿，保持只读且不触发发送',
+    '旧版 %s 记录（无会话 id）以新草稿继续，不触发发送',
     async (kind) => {
       const f = mount();
       try {
@@ -585,10 +594,10 @@ describe('生成内容搜索定位', () => {
           await vi.advanceTimersByTimeAsync(50);
         });
         expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
+        // 只读回放模式已删除：旧记录进入可继续输入的新草稿，且不会自动外发。
         expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe(
-          'false',
+          'true',
         );
-        expect(f.host.querySelector<HTMLButtonElement>('.composer-send')?.title).toContain('只读');
         expect(fixture.mutate).not.toHaveBeenCalled();
       } finally {
         f.close();
@@ -611,35 +620,45 @@ describe('生成内容搜索定位', () => {
     }
   });
 
-  it('助手搜索由工具宿主打开，不在主内容区域新增助手导航', async () => {
+  it('助手搜索由工具宿主交给助手宿主，不在主内容区域新增助手导航', async () => {
     const f = mount();
+    const onOpenAssistant = vi.fn();
+    const trigger = document.createElement('button');
+    document.body.append(trigger);
+    useWorkspaceMenu.setState({ anchor: trigger });
+    const props = (extra: Record<string, unknown>) =>
+      createElement(WorkspaceTools, {
+        accountScope: '10000/fixture-config',
+        footerControls: null,
+        onOpenAnalysis: vi.fn(),
+        ...extra,
+      });
     try {
+      act(() => f.root.render(props({})));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      // 工作菜单已改名「任务」。
+      const workspace = document.querySelector('.weq-workspace-menu');
+      expect(workspace?.querySelector('#weq-workspace-menu-title')?.textContent).toBe('任务');
+      // 浮动菜单是 popover 对话框（role/aria-labelledby），不叠加 aria-modal。
+      expect(workspace?.getAttribute('role')).toBe('dialog');
+      expect(workspace?.getAttribute('aria-labelledby')).toBe('weq-workspace-menu-title');
+      expect(workspace?.closest('[hidden], [inert]')).toBeNull();
+      // 助手搜索不在菜单里铺结果：交给助手宿主打开，并收起任务菜单。
       act(() =>
-        f.root.render(
-          createElement(WorkspaceTools, {
-            accountScope: '10000/fixture-config',
-            footerControls: null,
-            onOpenAnalysis: vi.fn(),
-            assistantSearchTarget: target('assistant'),
-          }),
-        ),
+        f.root.render(props({ onOpenAssistant, assistantSearchTarget: target('assistant') })),
       );
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
-      const workspace = document.querySelector('.weq-workspace-menu');
-      expect(workspace?.querySelector('#weq-workspace-menu-title')?.textContent).toBe('WeQ 助手');
-      expect(workspace?.getAttribute('aria-modal')).toBe('true');
-      expect(workspace?.closest('[hidden], [inert]')).toBeNull();
-      expect(workspace?.querySelector('.weq-menu-assistant .is-search-hit')?.textContent).toContain(
-        '合成搜索命中',
-      );
-      expect(fixture.query).toHaveBeenCalledWith(
-        'getAssistantConversation',
-        expect.objectContaining({ sessionId: target('assistant').sessionId }),
-      );
+      expect(onOpenAssistant).toHaveBeenCalledWith(target('assistant'));
+      // 交给助手宿主后任务菜单收起（anchor 清空），不会在工具菜单里留下助手结果。
+      expect(useWorkspaceMenu.getState().anchor).toBeNull();
       expect(fixture.mutate).not.toHaveBeenCalled();
     } finally {
+      useWorkspaceMenu.setState({ anchor: null });
+      trigger.remove();
       f.close();
     }
   });

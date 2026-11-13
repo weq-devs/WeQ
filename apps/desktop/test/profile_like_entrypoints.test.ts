@@ -8,50 +8,94 @@ import { useViewState } from '../src/renderer/src/state/view';
 import type { Contact } from '../src/renderer/src/im-template/template/types';
 
 const write = vi.hoisted(() => vi.fn());
-vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: {
-    account: {
-      getProfile: { query: async () => null },
-      getBotProfile: { query: async () => null },
-      qqActions: { profileLike: { mutate: write } },
-      // 资料卡 hero 头像点开 QQ 秀展柜前会先查一次当前形象；本用例只关心入口，
-      // 给「没有 QQ 秀」即可（展柜本身不挂载）。
-      dressup: { peerQqShow: { query: async () => ({ hasShow: false, url: '' }) } },
+vi.mock('../src/renderer/src/trpc/client', () => {
+  const emptyQuery = () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    isSuccess: false,
+    error: null,
+    refetch: async () => ({ data: undefined }),
+  });
+  // 名片/资料页链路引用的 trpc 入口很多，但本用例只关心入口是否出现：
+  // 未显式提供数据的查询统一返回空，避免每加一处读取就改一次桩。
+  const fallback = (): any =>
+    new Proxy(() => undefined, {
+      get: (_target, key: string) => {
+        if (key === 'useQuery' || key === 'useInfiniteQuery') return emptyQuery;
+        if (key === 'useMutation')
+          return () => ({
+            isLoading: false,
+            error: null,
+            mutate: () => undefined,
+            mutateAsync: async () => ({}),
+          });
+        if (key === 'useUtils') return () => fallback();
+        if (key === 'invalidate' || key === 'cancel' || key === 'refetch')
+          return async () => undefined;
+        if (key === 'getData' || key === 'setData') return () => undefined;
+        if (key === 'query') return async () => null;
+        if (key === 'mutate' || key === 'mutateAsync') return async () => ({});
+        return fallback();
+      },
+    });
+  const withFallback = (values: Record<string, unknown>): any =>
+    new Proxy(values, {
+      get: (target, key: string) => {
+        if (!(key in target)) return fallback();
+        const value = target[key];
+        return value && typeof value === 'object' && !Array.isArray(value)
+          ? withFallback(value as Record<string, unknown>)
+          : value;
+      },
+    });
+  return {
+    client: {
+      account: {
+        getProfile: { query: async () => null },
+        getBotProfile: { query: async () => null },
+        qqActions: { profileLike: { mutate: write } },
+        // 资料卡 hero 头像点开 QQ 秀展柜前会先查一次当前形象；本用例只关心入口，
+        // 给「没有 QQ 秀」即可（展柜本身不挂载）。
+        dressup: { peerQqShow: { query: async () => ({ hasShow: false, url: '' }) } },
+      },
     },
-  },
-  trpc: {
-    bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
-    // `useQQWriteSession` 写完后会刷缓存；本用例只关心入口是否出现。
-    useUtils: () => ({ invalidate: async () => undefined }),
-    account: {
-      // `withQQAccountScope` 用它校验「当前会话 = 当前数据源」，没有绑定就不渲染操作。
-      profileExtras: {
-        energy: { useQuery: () => ({ data: undefined }) },
-        details: { useQuery: () => ({ data: undefined }) },
-        personalityLabels: { useQuery: () => ({ data: undefined }) },
-      },
-      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
-      getGroupAlbumAccessState: {
-        useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
-      },
-      qqWrite: {
-        // 共同关系行只关心「入口出现」，读取结果给空即可。
-        commonRelationships: {
-          useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }),
+    trpc: withFallback({
+      bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
+      // `useQQWriteSession` 写完后会刷缓存；本用例只关心入口是否出现。
+      useUtils: () => ({ invalidate: async () => undefined }),
+      account: {
+        // `withQQAccountScope` 用它校验「当前会话 = 当前数据源」，没有绑定就不渲染操作。
+        profileExtras: {
+          energy: { useQuery: () => ({ data: undefined }) },
+          details: { useQuery: () => ({ data: undefined }) },
+          personalityLabels: { useQuery: () => ({ data: undefined }) },
+        },
+        getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
+        // 名片头部的在线状态是只读展示，具体状态不影响入口断言。
+        getOnlineStatus: { useQuery: () => ({ data: undefined }) },
+        getGroupAlbumAccessState: {
+          useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
+        },
+        qqWrite: {
+          // 共同关系行只关心「入口出现」，读取结果给空即可。
+          commonRelationships: {
+            useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }),
+          },
+        },
+        dressup: {
+          peerHome: { useQuery: () => ({ data: {}, isLoading: false }) },
+          peerStats: { useQuery: () => ({ data: { level: 5, likeCount: 100 } }) },
+          peerQqShow: { useQuery: () => ({ data: { hasShow: false } }) },
+        },
+        intentSense: {
+          getStatus: { useQuery: () => ({ data: undefined }) },
+          getProfile: { useQuery: () => ({ data: undefined }) },
         },
       },
-      dressup: {
-        peerHome: { useQuery: () => ({ data: {}, isLoading: false }) },
-        peerStats: { useQuery: () => ({ data: { level: 5, likeCount: 100 } }) },
-        peerQqShow: { useQuery: () => ({ data: { hasShow: false } }) },
-      },
-      intentSense: {
-        getStatus: { useQuery: () => ({ data: undefined }) },
-        getProfile: { useQuery: () => ({ data: undefined }) },
-      },
-    },
-  },
-}));
+    }),
+  };
+});
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ children }: { children: ReactNode }) => children,
 }));
@@ -117,19 +161,18 @@ it.each(['human', 'bot', 'enterprise'])(
           ),
         ),
       );
-      expect(host.querySelectorAll('[aria-label="赞资料卡"]')).toHaveLength(excluded ? 0 : 3);
+      expect(host.querySelectorAll('[aria-label="赞资料卡"]')).toHaveLength(excluded ? 0 : 1);
       expect(host.querySelectorAll('.weq-profile-likes-row')).toHaveLength(excluded ? 0 : 1);
       expect(host.querySelectorAll('.weq-extras-summary')).toHaveLength(excluded ? 0 : 1);
       expect(host.querySelectorAll('.weq-extras-history')).toHaveLength(excluded ? 0 : 1);
       for (const button of host.querySelectorAll(
         '.weq-profile-likes-row [aria-label="赞资料卡"]',
       )) {
-        const row = button.closest('.weq-profile-row');
+        const row = button.closest('.weq-profile-data-row');
         expect(row?.textContent).toContain('获赞');
         expect(row?.querySelector('strong')?.textContent).toBe('100');
-        expect(row?.querySelector('.weq-profile-row-value strong')?.nextElementSibling).toBe(
-          button,
-        );
+        const trigger = row?.querySelector('.weq-profile-data-value strong')?.nextElementSibling;
+        expect(trigger?.querySelector('button')).toBe(button);
       }
       expect(host.querySelector('.weq-perhome-stat-like')).toBeNull();
       expect(write).not.toHaveBeenCalled();

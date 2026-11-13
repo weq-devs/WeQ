@@ -30,6 +30,12 @@ beforeAll(async () => {
     platform: 'node',
     format: 'esm',
     bundle: true,
+    // 生产构建把这些依赖留在外部按 node_modules 解析；测试把整包打进 .mjs 后，
+    // 依赖里的 CJS `require('node:path')` 在 ESM 里没有 require。用 banner 提供
+    // createRequire，esbuild 的 __require 代理就会走它而不是直接抛错。
+    banner: {
+      js: "import { createRequire as __weqCreateRequire } from 'node:module'; const require = __weqCreateRequire(import.meta.url);",
+    },
   });
   processor = createImageProcessor({ workerPath: path, timeoutMs: 20_000 });
 }, 20_000);

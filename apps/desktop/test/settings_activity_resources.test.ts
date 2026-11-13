@@ -60,7 +60,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     }
                   : name === 'getVersionInfo'
                     ? { app: '1.0.0', isDev: false }
-                    : { current: '1.0.0', hasUpdate: true, latest: '2.0.0' },
+                    : name === 'getSettings'
+                      ? // 图片识别页的筛图开关读取共享设置里的 ocr 配置。
+                        { ocr: { prefilterEnabled: true }, modelResources: {} }
+                      : { current: '1.0.0', hasUpdate: true, latest: '2.0.0' },
               isLoading: false,
               isFetching: false,
               refetch: fixture.refetch,

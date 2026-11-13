@@ -111,7 +111,7 @@ it('任务详情包含日期、六组选择、当前扫描、双进度、按需�
     );
     expect(host.querySelector('input[type="date"]')?.getAttribute('min')).toBe('2026-11-01');
     expect(host.querySelector('.weq-density-calendar-grid')).toBeNull();
-    expect(host.querySelectorAll('[aria-label="统计内容"] button')).toHaveLength(7);
+    expect(host.querySelectorAll('[aria-label="统计内容"] button')).toHaveLength(8);
     expect(host.querySelectorAll('progress')).toHaveLength(2);
     const pauseDay = host.querySelector<HTMLButtonElement>('[aria-label="暂停2026-11-09统计"]')!;
     await act(async () => pauseDay.click());

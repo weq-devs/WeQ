@@ -18,7 +18,12 @@ const fixture = vi.hoisted(() => ({
   fork: vi.fn(),
 }));
 vi.mock('electron', () => ({ app: fixture.app, dialog: { showErrorBox: vi.fn() } }));
-vi.mock('node:child_process', () => ({ fork: fixture.fork, execFileSync: vi.fn() }));
+// @weq/native 现在还会 import execFile，保留真实实现只替换真正用到的 fork。
+vi.mock('node:child_process', async (original) => ({
+  ...(await original<typeof import('node:child_process')>()),
+  fork: fixture.fork,
+  execFileSync: vi.fn(),
+}));
 vi.mock('../src/main/worker_path', () => ({
   resolveChildWorkerPath: () => '/synthetic/storageCleanupWorker.mjs',
 }));

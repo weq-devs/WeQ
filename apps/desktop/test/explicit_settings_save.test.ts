@@ -62,6 +62,7 @@ beforeEach(() => {
     },
     'bootstrap.listMcpAgentTargets': [],
     'bootstrap.getWeqAssistantStatus': { enabled: false, port: 27182, url: '' },
+    'settings.intent.getStatus': { ...DEFAULT_INTENT_TUNING },
     'account.intentSense.getStatus': { ...DEFAULT_INTENT_TUNING },
   };
   state.mutate.mockReset().mockResolvedValue({ port: 48765 });
@@ -256,9 +257,10 @@ describe('显式保存设置不以未变化禁用', () => {
     },
     {
       view: () => createElement(IntentTuningPanel, { group: 'analysis' }),
-      label: '分析上文条数',
+      label: '意图感知上文条数',
       value: '8',
-      route: 'account.intentSense.setConfig',
+      // 全局 AI 配置迁到 settings.intent 路由。
+      route: 'settings.intent.setConfig',
       input: { analysisContextMessages: 8 },
     },
   ])('$label 移除保存按钮，修改后回车提交', async ({ view, label, value, route, input }) => {

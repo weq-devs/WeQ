@@ -13,10 +13,22 @@ const f = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({ account: { getAssistantConfig: { invalidate: f.invalidate } } }),
+    useUtils: () => ({
+      account: { getAssistantConfig: { invalidate: f.invalidate, setData: () => {} } },
+      bootstrap: { getSettings: { invalidate: async () => {} } },
+    }),
     account: {
       getAssistantConfig: { useQuery: () => ({ data: f.config }) },
       setAssistantConfig: { useMutation: () => ({ mutateAsync: f.save, isLoading: false }) },
+    },
+    // 设置面板里的模型选择与图片偏好会读取服务商、默认模型和共享设置。
+    bootstrap: {
+      listAgentLabProviders: { useQuery: () => ({ data: [] }) },
+      getAgentLabDefaultModel: { useQuery: () => ({ data: undefined }) },
+      getSettings: { useQuery: () => ({ data: { aiImages: {} } }) },
+      setAiImagePreference: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isLoading: false }),
+      },
     },
   },
   client: {},
@@ -45,33 +57,53 @@ it('requires the real warning confirmation before persisting unrestricted permis
   const onClose = vi.fn();
   try {
     act(() => root.render(h(Fragment, {}, h(AssistantSettings, { onClose }), h(DialogHost))));
-    const mode = document.querySelector<HTMLSelectElement>('[aria-label="权限模式"]')!;
+    // 权限模式在「提示与工具」分区，标题也改成了「运行模式」。
+    act(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
+        .find((button) => button.textContent?.trim() === '提示与工具')!
+        .click(),
+    );
+    const mode = document.querySelector<HTMLSelectElement>('[aria-label="运行模式"]')!;
     expect(mode.value).toBe('sandbox');
     capture('sandbox-settings');
+    // 设置页改为选择即保存，不再有「保存」按钮；升级到任意权限必须先确认警告。
     act(() => {
       mode.value = 'unrestricted';
       mode.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    const save = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent?.trim() === '保存',
-    )!;
-    await act(async () => save.click());
+    await act(async () => {});
     expect(f.save).not.toHaveBeenCalled();
     expect(useDialog.getState().current?.title).toBe('开启任意权限？');
-    expect(document.body.textContent).toContain('删除 WeQ 目录之外的文件');
+    expect(document.body.textContent).toContain('修改外部文件');
     capture('unrestricted-warning');
     await act(async () =>
       document.querySelector<HTMLButtonElement>('.weq-dialog-foot .weq-action-soft')!.click(),
     );
     expect(f.save).not.toHaveBeenCalled();
-    await act(async () => save.click());
+    // 取消后回到沙箱态再选一次，确认通过才真正落库。
+    act(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
+        .find((button) => button.textContent?.trim() === '模型与生成')!
+        .click(),
+    );
+    act(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
+        .find((button) => button.textContent?.trim() === '提示与工具')!
+        .click(),
+    );
+    const retry = document.querySelector<HTMLSelectElement>('[aria-label="运行模式"]')!;
+    act(() => {
+      retry.value = 'unrestricted';
+      retry.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {});
     await act(async () =>
       document.querySelector<HTMLButtonElement>('.weq-dialog-foot .weq-action-primary')!.click(),
     );
     expect(f.save).toHaveBeenCalledWith(
       expect.objectContaining({ permissionMode: 'unrestricted', confirmUnrestricted: true }),
     );
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(useDialog.getState().current).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();

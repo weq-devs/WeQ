@@ -127,9 +127,10 @@ describe('定时任务设置', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(h(ScheduleSettings, { schedule: { ...schedule, chatlab } })));
+      // 设置页直接按后端格式值大写显示（jsonl.gz → JSONL.GZ），不再套用导出页的中文标签。
       expect(
         [...host.querySelectorAll('fieldset label')].map((label) => label.textContent),
-      ).toEqual((chatlab ? CHATLAB_FORMATS : FULL_FORMATS).map((item) => item.label));
+      ).toEqual((chatlab ? CHATLAB_FORMATS : FULL_FORMATS).map((item) => item.value.toUpperCase()));
       expect(host.textContent).not.toContain('VCARD');
     } finally {
       act(() => root.unmount());

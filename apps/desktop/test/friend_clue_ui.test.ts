@@ -151,7 +151,7 @@ it.each([true, false])(
     state.data = data();
     const f = render(known);
     try {
-      expect(f.host.textContent).toContain('添加时间2024/01/01 00:00:07');
+      expect(f.host.textContent).toContain('添加时间2024-01-01 00:00:07');
       expect(f.host.textContent).toContain('我添加对方');
       expect(f.host.textContent).toContain('线索接口返回的群名');
       expect(f.host.textContent).not.toContain('接口真实群名');
@@ -168,7 +168,7 @@ it.each([true, false])(
       expect(dialog.textContent).not.toContain('旧缓存群名');
       expect(source.textContent).toBe('线索接口返回的群名');
       // 群名与人数来自群资料（不是线索原文），名片不再另起一套成员列表。
-      expect(dialog.querySelector('.weq-group-count')?.textContent).toContain('23');
+      expect(dialog.querySelector('[aria-label="查看群成员列表"]')?.textContent).toContain('23');
       expect(dialog.querySelector('.weq-profile-list')).toBeNull();
       // 清单 G04：公告正文不进入快速名片，只在完整资料页查看。
       expect(dialog.textContent).not.toContain('真实群公告');
@@ -188,12 +188,18 @@ it.each(['通过 QQ 号搜索', 'QQ空间', '其他来源'.repeat(40), null])(
     state.data = { ...data(), source, sourceGroupCode: null };
     const f = render();
     try {
-      const label = [...f.host.querySelectorAll('.weq-profile-row-label')].find(
+      const label = [...f.host.querySelectorAll('.weq-profile-data-label')].find(
         (item) => item.textContent === '添加来源',
-      )!;
-      expect(label.parentElement?.classList.contains('weq-profile-row--block')).toBe(false);
-      expect(label.nextElementSibling?.tagName).toBe('STRONG');
-      expect(label.nextElementSibling?.textContent).toBe(source || '未知');
+      );
+      if (!source) {
+        // 空内容行整行不渲染，不再用「未知」占位。
+        expect(label).toBeUndefined();
+        expect(f.host.textContent).not.toContain('未知');
+      } else {
+        const row = label!.parentElement!;
+        expect(row.classList.contains('weq-profile-data-row')).toBe(true);
+        expect(row.querySelector('.weq-profile-data-value')?.textContent).toBe(source);
+      }
       expect(state.groupQuery).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -244,8 +250,10 @@ it('未知不冒称被动添加，显式空验证显示无消息', () => {
   const f = render();
   try {
     expect(f.host.textContent).not.toContain('对方添加我');
-    expect(f.host.textContent).toContain('添加方向未知');
-    expect(f.host.textContent).toContain('无验证消息');
+    // 方向与验证消息都没有内容时整行不渲染，不冒称「未知」「无消息」。
+    expect(f.host.textContent).not.toContain('添加方向');
+    expect(f.host.textContent).not.toContain('验证消息');
+    expect(f.host.textContent).toContain('添加来源未知');
   } finally {
     f.close();
   }

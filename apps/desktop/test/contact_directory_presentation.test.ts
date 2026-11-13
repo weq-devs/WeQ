@@ -126,9 +126,9 @@ it('星座补全摘要不显示排序边界或缺失提示，唯一推断年标�
   };
   for (const sort of ['age', 'birthday'] as const) {
     const detail = friendSortDetail(contact, sort, {});
-    expect(detail?.text).toBe('2010 年（推断） · 水瓶座 （16 岁）');
+    expect(detail?.text).toBe('2010年（推断） · 水瓶座 （16 岁）');
     expect(detail?.text).not.toContain('01-20');
-    expect(detail?.title).toBe('推断生日：2010 年 1 月 20 日至2 月 18 日');
+    expect(detail?.title).toBe('推断生日：2010年1月20日至2月18日');
   }
 });
 it.each([

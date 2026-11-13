@@ -118,14 +118,44 @@ it.each(['group', 'direct'] as const)(
             new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
           ),
       );
-      const button = [
-        ...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
-      ].find((button) => button.textContent === '意图感知')!;
-      expect(button.disabled).toBe(true);
-      expect(button.title).toContain('可分析的文字');
-      act(() => button.click());
+      // 纯媒体消息没有可分析的文字，入口不再显示灰按钮，而是直接不出现。
+      const menuButton = () =>
+        [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
+          (button) => button.textContent === '意图感知',
+        );
+      expect(menuButton()).toBeUndefined();
       expect(fixture.analyze).not.toHaveBeenCalled();
       expect(Boolean(host.querySelector('.message-reaction-strip'))).toBe(type === 'group');
+      // 换成有文字的消息后入口回来：可用、标题为「意图感知」，点击才发起分析。
+      await act(async () =>
+        root.render(
+          h(ChatPane, {
+            user: demo.user,
+            conversation,
+            messages: [
+              {
+                ...demo.messages[0]!,
+                conversationId: conversation.id,
+                body: '合成可分析文本',
+                qqElements: undefined,
+              },
+            ],
+            draft: '',
+            onSend: vi.fn(),
+            onBack: vi.fn(),
+          }),
+        ),
+      );
+      await act(async () =>
+        host
+          .querySelector('.message-bubble')!
+          .dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+          ),
+      );
+      const textButton = menuButton()!;
+      expect(textButton.disabled).toBe(false);
+      expect(textButton.title).toBe('意图感知');
     } finally {
       act(() => root.unmount());
       host.remove();

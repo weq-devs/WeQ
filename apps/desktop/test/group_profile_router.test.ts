@@ -22,17 +22,22 @@ vi.mock('../src/main/context/app_context', () => {
     },
     profile: { profilesByUids: rpc.profiles },
   };
+  const bootstrap = () => ({
+    ocrModels: { listByKind: () => [] },
+    userConfig: {
+      getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: false } }),
+      getLocalModelId: () => null,
+    },
+  });
   return {
     accountEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: rpc.uin } },
       services,
-      bootstrap: {
-        ocrModels: { listByKind: () => [] },
-        userConfig: { getSettings: () => ({ autoAttachQq: true }), getLocalModelId: () => null },
-      },
+      bootstrap: bootstrap(),
       platform: null,
     }),
+    requireBootstrap: bootstrap,
   };
 });
 const input = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a', groupId: 123 };

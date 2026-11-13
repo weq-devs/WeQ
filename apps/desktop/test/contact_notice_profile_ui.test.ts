@@ -207,13 +207,13 @@ describe('通知头像名片入口', () => {
       }),
     );
     for (const host of [friendHost, groupHost]) {
-      expect(host.querySelector('.notice-meta time')?.textContent).toBe('2026/10/19 09:00:37');
+      expect(host.querySelector('.notice-meta time')?.textContent).toBe('2026-10-19 09:00:37');
       expect(host.querySelector('.notice-meta time')?.getAttribute('datetime')).toBe(
         friend.createdAt,
       );
     }
     expect(groupHost.querySelector('.notice-operator')?.textContent).toContain(
-      '2026/10/19 10:03:49',
+      '2026-10-19 10:03:49',
     );
   });
   it.each(['group', 'filteredGroup'] as const)('在线 %s 申请的群名也能打开群名片', (kind) => {

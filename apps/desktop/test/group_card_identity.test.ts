@@ -12,6 +12,9 @@ vi.mock('../src/renderer/src/components/QQProfileField', () => ({
   QQProfileField: ({ field, initial }: { field: string; initial: string }) =>
     h('button', { 'data-edit-field': field }, initial),
 }));
+vi.mock('../src/renderer/src/components/groupProfile/GroupProfileAvatarEditor', () => ({
+  GroupProfileAvatarEditor: () => h('button', { 'data-avatar-edit': '' }, '更换群头像'),
+}));
 vi.mock('../src/renderer/src/components/groupProfile/GroupContent', () => ({
   GroupFreezeNotice: () => null,
   GroupTags: () => null,

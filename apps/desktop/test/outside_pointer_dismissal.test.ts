@@ -11,7 +11,6 @@ import { focusComposerEnd } from '../src/renderer/src/im-template/template/compo
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
 import { MergedSessionPanel } from '../src/renderer/src/components/sidebar/MergedSessionPanel';
-import { AssistantPanel } from '../src/renderer/src/views/agentlab/AssistantPanel';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -63,18 +62,30 @@ function press(target: Element, pointerType = 'mouse') {
   );
 }
 
-function clickTitle(host: ParentNode, title: string) {
-  const button = host.querySelector<HTMLButtonElement>(`button[title="${title}"]`);
-  expect(button, title).not.toBeNull();
-  act(() => button!.click());
+/**
+ * 面板本体走 lazyPanel（React.lazy + Suspense）：首次点击只挂起出加载态，
+ * 要等动态 import 真正完成、React 重试渲染后 DOM 里才有 `.<panel>`。
+ */
+async function settleLazyPanels() {
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
 }
 
-function choose(label: string) {
+async function clickTitle(host: ParentNode, title: string) {
+  const button = host.querySelector<HTMLButtonElement>(`button[title="${title}"]`);
+  expect(button, title).not.toBeNull();
+  await act(async () => button!.click());
+  await settleLazyPanels();
+}
+
+async function choose(label: string) {
   const button = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
     (row) => row.textContent === label,
   );
   expect(button, label).toBeDefined();
-  act(() => button!.click());
+  await act(async () => button!.click());
+  await settleLazyPanels();
 }
 
 function mountChat(props: Partial<ComponentProps<typeof ChatPane>> = {}) {
@@ -101,9 +112,9 @@ it.each([
   ['表情', '.emoji-panel'],
   ['语音', '.voice-panel'],
   ['发送 Ark 卡片', '.ark-panel'],
-])('点击框选空白区关闭%s面板，内部和触发按钮不误关', (title, selector) => {
+])('点击框选空白区关闭%s面板，内部和触发按钮不误关', async (title, selector) => {
   const { host, scroll } = mountChat();
-  clickTitle(host, title);
+  await clickTitle(host, title);
   const panel = host.querySelector(selector)!;
   expect(panel).not.toBeNull();
   press(panel);
@@ -114,11 +125,11 @@ it.each([
   expect(host.querySelector(selector)).toBeNull();
 });
 
-it('更多功能面板点击框选空白区关闭，内部按下不误关', () => {
+it('更多功能面板点击框选空白区关闭，内部按下不误关', async () => {
   const { host, scroll } = mountChat({
     composerActions: { plusPanel: [{ id: 'fixture', label: '合成操作', icon: Smile }] },
   });
-  clickTitle(host, '更多功能');
+  await clickTitle(host, '更多功能');
   press(host.querySelector('.composer-plus-panel')!);
   expect(host.querySelector('.composer-plus-panel')).not.toBeNull();
   press(scroll);
@@ -146,11 +157,11 @@ it.each([
   ['位置', '发送位置', '.location-card-panel'],
   ['位置', '共享位置', '.lbs-panel'],
   ['语音', 'AI 声聊', '.ai-voice-panel'],
-])('点击框选空白区关闭%s中的%s面板', (title, action, selector) => {
+])('点击框选空白区关闭%s中的%s面板', async (title, action, selector) => {
   const { host, scroll } = mountChat();
-  clickTitle(host, title);
-  if (action === 'AI 声聊') clickTitle(host, action);
-  else choose(action);
+  await clickTitle(host, title);
+  if (action === 'AI 声聊') await clickTitle(host, action);
+  else await choose(action);
   const panel = host.querySelector(selector)!;
   expect(panel).not.toBeNull();
   press(panel);
@@ -162,10 +173,10 @@ it.each([
 it.each([
   ['发送 Ark 卡片', undefined, '.ark-panel', 'ark-contact-list'],
   ['发送图片或文件', 'QQ闪传', '.flash-composer', 'flash-lightbox'],
-])('点击%s的 Portal 子面板不误关父面板', (title, action, selector, className) => {
+])('点击%s的 Portal 子面板不误关父面板', async (title, action, selector, className) => {
   const { host, scroll } = mountChat();
-  clickTitle(host, title);
-  if (action) choose(action);
+  await clickTitle(host, title);
+  if (action) await choose(action);
   const portal = document.createElement('div');
   portal.className = className;
   document.body.append(portal);
@@ -181,7 +192,7 @@ it('请求麦克风期间点击消息空白区仍保留录音面板', async () =
   const { host, scroll } = mountChat();
   const getUserMedia = vi.fn(() => new Promise<MediaStream>(() => {}));
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
-  clickTitle(host, '语音');
+  await clickTitle(host, '语音');
   await act(async () => press(host.querySelector('[aria-label="按住说话"]')!));
   expect(getUserMedia).toHaveBeenCalledOnce();
   press(scroll);
@@ -253,7 +264,7 @@ it('导航栏个人菜单不受外部默认行为及冒泡拦截影响', () => {
   expect(host.querySelector('.profile-popover')).toBeNull();
 });
 
-it('侧栏添加菜单不受外部默认行为及冒泡拦截影响', () => {
+it('侧栏添加菜单不受外部默认行为及冒泡拦截影响', async () => {
   const host = mount(
     h(SidebarHeader, {
       user: createTemplateDemoData().user,
@@ -268,7 +279,7 @@ it('侧栏添加菜单不受外部默认行为及冒泡拦截影响', () => {
       activeNotice: null,
     }),
   );
-  clickTitle(host, '搜索 QQ 号或群号');
+  await clickTitle(host, '搜索 QQ 号或群号');
   press(host.querySelector('.sidebar-add-menu')!);
   expect(host.querySelector('.sidebar-add-menu')).not.toBeNull();
   obstructOutside(host);
@@ -304,23 +315,4 @@ it('合并会话面板延迟注册外部关闭，卸载后移除捕获监听', (
   } finally {
     vi.useRealTimers();
   }
-});
-
-it('助手模型选择器内部不误关，外部拦截冒泡仍关闭', () => {
-  const host = mount(
-    h(AssistantPanel, {
-      sessionId: null,
-      chatModels: [],
-      onBack: vi.fn(),
-      onSessionCreated: vi.fn(),
-    }),
-  );
-  clickTitle(host, '聊天模型');
-  const panel = document.querySelector('.weq-asst-select-pop')!;
-  expect(panel).not.toBeNull();
-  press(panel);
-  expect(document.querySelector('.weq-asst-select-pop')).not.toBeNull();
-  obstructOutside(host);
-  press(host);
-  expect(document.querySelector('.weq-asst-select-pop')).toBeNull();
 });

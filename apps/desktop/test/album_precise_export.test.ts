@@ -6,10 +6,23 @@ import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import { exportSelectedQzoneAlbums } from '../src/main/ipc/routers/account';
 import type { AccountServices } from '../src/main/context/app_context';
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({}),
-  accountEventBus: new EventEmitter(),
-}));
+vi.mock('../src/main/context/app_context', () => {
+  const context = () => ({
+    account: { context: {} },
+    bootstrap: {
+      ocrModels: { listByKind: () => [] },
+      userConfig: {
+        getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: false } }),
+        getLocalModelId: () => null,
+      },
+    },
+  });
+  return {
+    getAppContext: context,
+    requireBootstrap: () => context().bootstrap,
+    accountEventBus: new EventEmitter(),
+  };
+});
 afterEach(() => vi.unstubAllGlobals());
 it('实际相册导出器只下载离散媒体，分页重复不重复保存，失效项不扩大范围', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-exact-album-'));

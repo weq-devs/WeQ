@@ -53,18 +53,29 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({
+      // 意图/推荐/画像的全局配置已迁到 settings.intent 路由；结果缓存仍在 account.intentSense。
+      settings: { intent: { getStatus: { setData: fixture.setData, invalidate: async () => {} } } },
       account: {
         intentSense: {
-          getStatus: { setData: fixture.setData },
+          getStatus: { setData: fixture.setData, invalidate: async () => {} },
           listMessageAnalyses: { invalidate: fixture.invalidate },
           getSuggestions: { invalidate: fixture.invalidate },
           getProfile: { invalidate: fixture.invalidate },
         },
       },
+      bootstrap: {
+        localModelResources: { invalidate: async () => {} },
+        getLocalEngine: { invalidate: async () => {} },
+        getSettings: { invalidate: async () => {} },
+      },
     }),
     bootstrap: {
       listAgentLabProviders: { useQuery: () => ({ data: [] }) },
       getAgentLabDefaultModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
+      getSettings: { useQuery: () => ({ data: { aiImages: {} } }) },
+      setAiImagePreference: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isLoading: false }),
+      },
       getLocalEngine: {
         useQuery: () => ({
           data: { available: false, modelDownloaded: false, engineReady: false, models: [] },
@@ -82,6 +93,29 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       onModelDownloadProgress: {
         useSubscription: (_input: unknown, options: { enabled: boolean }) => {
           fixture.resourceSubscriptionActive = options.enabled;
+        },
+      },
+    },
+    settings: {
+      intent: {
+        getStatus: {
+          useQuery: () => ({
+            data: fixture.hasStatus
+              ? {
+                  ...DEFAULT_INTENT_TUNING,
+                  ...fixture.status,
+                  analysisContextMessages: fixture.status.analysisContextMessages,
+                  suggestionContextMessages: fixture.status.suggestionContextMessages,
+                }
+              : undefined,
+            error: fixture.statusError,
+            isLoading: !fixture.hasStatus && !fixture.statusError,
+            isFetching: false,
+            refetch: fixture.retry,
+          }),
+        },
+        setConfig: {
+          useMutation: () => ({ mutateAsync: fixture.save, isLoading: fixture.pending }),
         },
       },
     },

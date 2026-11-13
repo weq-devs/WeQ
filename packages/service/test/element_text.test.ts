@@ -142,10 +142,9 @@ describe('forwardToText', () => {
 });
 
 describe('formatTime / messageToText', () => {
-  it('formatTime → 本地时区 YYYY-MM-DD HH:mm:ss', () => {
-    // 用 Date 构造保证与实现同一时区下比较。
-    const d = new Date(2026, 0, 2, 3, 4, 5);
-    expect(formatTime(Math.floor(d.getTime() / 1000))).toBe('2026-01-02 03:04:05');
+  it('formatTime → 固定北京时间 YYYY-MM-DD HH:mm:ss，与运行机时区无关', () => {
+    const d = new Date('2026-01-02T03:04:05Z');
+    expect(formatTime(Math.floor(d.getTime() / 1000))).toBe('2026-01-02 11:04:05');
   });
 
   it('messageToText 与复制共用北京时间分段格式', () => {
