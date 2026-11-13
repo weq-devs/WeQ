@@ -372,11 +372,12 @@ describe('群成员资料卡浮层', () => {
     const container = heading.closest('section')?.parentElement;
     expect(container?.classList.contains('weq-contact-sections')).toBe(true);
     expect(container?.querySelector('[data-profile-field="company"]')).not.toBeNull();
-    // 群内资料不再顶到名片最前面：跟资料页四个分页同序（个人资料 / 与我的关系 → 群内资料）。
+    // 名片优先展示当前群内资料，不改变完整资料页的分页顺序。
     const titles = [...(container?.querySelectorAll('.weq-profile-subtitle') ?? [])].map(
       (node) => node.textContent,
     );
-    expect(titles.indexOf('群内资料 · 合成群')).toBeGreaterThan(titles.indexOf('个人资料'));
+    expect(titles[0]).toBe('群内资料 · 合成群');
+    expect(titles.indexOf('个人资料')).toBeGreaterThan(0);
   });
   it('身份正文按备注、QQ、QID、UID、签名分行，状态仍位于昵称旁', async () => {
     preferences.uid = true;

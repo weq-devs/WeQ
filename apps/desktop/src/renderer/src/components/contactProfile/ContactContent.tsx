@@ -826,7 +826,7 @@ export function ContactContent({
   onSection?: (section: ContactWorkspaceTab) => void;
   onNavigate?: () => void;
   localOnly?: boolean;
-  /** 名片宿主的补充分区（群内资料）：插在「与我的关系」之后，与资料页分页同序。 */
+  /** 名片宿主的补充分区（群内资料）：显示在「个人资料」之前。 */
   leading?: ReactNode;
   /** 设置页预览：只渲染内容，不提供跳转。 */
   preview?: boolean;
@@ -1132,31 +1132,18 @@ export function ContactContent({
       ) : null}
       {titled.length || leading ? (
         <div className="weq-profile-data weq-contact-sections">
-          {(() => {
-            // 群内资料跟在「个人资料 / 与我的关系」之后，和资料页四个分页同序；
-            // 名片宿主通过 leading 传入，不再顶到最前面。
-            const nodes = titled.map((block) =>
-              sectioned ? (
-                <ContactSection key={block.key} title={block.title} fields>
-                  {block.rows}
-                </ContactSection>
-              ) : (
-                <ContactSection key={block.key} title={block.title} hideTitle fields>
-                  {block.rows}
-                </ContactSection>
-              ),
-            );
-            if (!leading) return nodes;
-            let anchor = -1;
-            for (const [index, block] of titled.entries())
-              if (block.key === 'social' || block.key === 'basic') anchor = index;
-            const at = titled.length ? anchor + 1 : 0;
-            return [
-              ...nodes.slice(0, at),
-              <Fragment key="leading">{leading}</Fragment>,
-              ...nodes.slice(at),
-            ];
-          })()}
+          {leading}
+          {titled.map((block) =>
+            sectioned ? (
+              <ContactSection key={block.key} title={block.title} fields>
+                {block.rows}
+              </ContactSection>
+            ) : (
+              <ContactSection key={block.key} title={block.title} hideTitle fields>
+                {block.rows}
+              </ContactSection>
+            ),
+          )}
           {techRows.length ? (
             <ContactTechnicalDetails>{techRows}</ContactTechnicalDetails>
           ) : techBlock ? (
