@@ -97,7 +97,11 @@ export function LongTaskRow({
     </button>
   );
   return showQuickActions && task.quickActions ? (
-    <div className="weq-long-task-entry" role="group" aria-label={task.name}>
+    <div
+      className={`weq-long-task-entry${active ? ' is-selected' : ''}`}
+      role="group"
+      aria-label={task.name}
+    >
       {row}
       {task.quickActions}
     </div>

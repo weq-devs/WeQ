@@ -106,7 +106,7 @@ function Fixture() {
   return (
     <>
       <style>{`html,body,#root{margin:0;height:100%;background:var(--background)}main{display:flex;width:calc(100% - 16px);max-width:${compact ? '390px' : '1040px'};height:calc(100% - 32px);margin:16px auto;background:var(--weq-chat-bg)}`}</style>
-      <main>
+      <main className="weq-workspace-menu">
         <CurrentTaskList
           layout={compact ? 'compact' : 'split'}
           exports={tasks}

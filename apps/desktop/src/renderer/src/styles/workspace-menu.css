@@ -140,7 +140,7 @@ html[data-theme='dark'] {
   cursor: pointer;
 }
 
-.weq-workspace-menu button:hover:not(:disabled) {
+.weq-workspace-menu button:hover:not(:disabled):not(.weq-long-task) {
   background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
 }
 

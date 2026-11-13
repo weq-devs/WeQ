@@ -1,4 +1,5 @@
 .weq-current-tasks {
+  --weq-task-hover-background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
   display: flex;
   flex: 1;
   min-height: 0;
@@ -89,8 +90,13 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
 }
 
 .weq-long-task:hover,
-.weq-long-task.is-selected {
-  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+.weq-long-task-entry:hover {
+  background: var(--weq-task-hover-background);
+}
+
+.weq-long-task.is-selected,
+.weq-long-task-entry.is-selected {
+  background: var(--weq-list-selected-background);
 }
 
 .weq-long-task:focus-visible {
@@ -106,6 +112,7 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
 .weq-long-task-entry > .weq-long-task {
   padding-bottom: 6px;
   border-bottom: 0;
+  background: transparent;
 }
 
 .weq-task-quick-actions {
@@ -324,9 +331,8 @@ html[data-theme='dark'] .weq-long-task-detail > .weq-exp-detail {
   flex-shrink: 0;
 }
 
-html[data-theme='dark'] .weq-long-task.is-selected,
-html[data-theme='dark'] .weq-long-task:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+html[data-theme='dark'] .weq-current-tasks {
+  --weq-task-hover-background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
 }
 
 html[data-theme='dark'] .weq-long-task-detail {
