@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   online: vi.fn(),
   usage: vi.fn(),
   globalUsage: vi.fn(),
+  market: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => state.context }));
 vi.mock('../src/main/media_protocol', () => ({ resolveChatImageFile: state.retrieve }));
@@ -43,6 +44,7 @@ beforeEach(() => {
   const imagePath = join(state.root, 'download.png');
   writeFileSync(imagePath, png);
   state.retrieve.mockResolvedValue({ path: imagePath, variant: 'downloaded' });
+  state.market.mockResolvedValue(imagePath);
   state.find.mockResolvedValue({ source: null, thumb: null });
   state.metadata.mockResolvedValue({ width: 32, height: 32 });
   state.online.mockRejectedValue(new Error('QQ 离线'));
@@ -82,6 +84,7 @@ beforeEach(() => {
       accountConfig: { getRecord: () => ({ configId: 'fixture', qqOnline: false }) },
       fileResource: { resolveLocalFile: async (path: string) => path },
       fileSearch: { findFile: state.find },
+      emoji: { getMarketFace: state.market },
       msgs: { getC2cMessageById: async () => message },
       chatImageOcr: { recognize: state.online },
     },
@@ -112,6 +115,31 @@ afterEach(() => {
   rmSync(state.root, { recursive: true, force: true });
 });
 const chatImage = { id: '1:0', chat: { kind: 'c2c' as const, conv: 'peer', msgId: '1', index: 0 } };
+
+it('商城表情复用聊天页取图服务后识别，不误走普通图片下载或在线 OCR', async () => {
+  const result = await createAccountImagePort(account).prepare({
+    feature: 'assistant',
+    text: '',
+    images: [{ id: 'market', market: { pack: '123', hash: 'ab'.repeat(16) } }],
+  });
+  expect(result.outcomes[0]?.status).toBe('read');
+  expect(result.text).toContain('local-a');
+  expect(state.market).toHaveBeenCalledWith('123', 'ab'.repeat(16));
+  expect(state.retrieve).not.toHaveBeenCalled();
+  expect(state.online).not.toHaveBeenCalled();
+});
+
+it('意图感知的商城表情遵循文字占位设置，不下载或识别图片', async () => {
+  const result = await createAccountImagePort(account).prepare({
+    feature: 'intent',
+    text: '',
+    images: [{ id: 'market', market: { pack: '123', hash: 'ab'.repeat(16) } }],
+  });
+  expect(result.text).toBe('[图片]');
+  expect(result.outcomes[0]?.status).toBe('skipped');
+  expect(state.market).not.toHaveBeenCalled();
+  expect(state.local).not.toHaveBeenCalled();
+});
 
 it('QQ 离线仍通过既有完整取图入口取回像素，不要求用户补图', async () => {
   const result = await createAccountImagePort(account).prepare({

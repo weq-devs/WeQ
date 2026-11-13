@@ -20,6 +20,7 @@ export interface AiImageRef {
   url?: string;
   file?: string;
   chat?: { kind: 'c2c' | 'group'; conv: string; msgId: string; index: number };
+  market?: { pack: string; hash: string };
   media?: {
     fileName: string;
     fileToken: string;

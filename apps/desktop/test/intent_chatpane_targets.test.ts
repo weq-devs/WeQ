@@ -80,88 +80,96 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it.each(['group', 'direct'] as const)(
-  '%s 媒体消息的意图感知置灰，私聊不显示贴表情',
-  async (type) => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    vi.stubGlobal('localStorage', new Storage());
-    fixture.enabled = true;
-    const demo = createTemplateDemoData();
-    const conversation = demo.conversations.find((row) => row.type === type)!;
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
-    try {
-      await act(async () =>
-        root.render(
-          h(ChatPane, {
-            user: demo.user,
-            conversation,
-            messages: [
-              {
-                ...demo.messages[0]!,
-                conversationId: conversation.id,
-                body: '[图片]',
-                qqElements: [{ type: 'pic', data: {} }],
-              },
-            ],
-            draft: '',
-            onSend: vi.fn(),
-            onBack: vi.fn(),
-          }),
+it.each([
+  ['group', 'pic'],
+  ['direct', 'pic'],
+  ['group', 'mface'],
+  ['direct', 'mface'],
+] as const)('%s 的 %s 消息可从右键发起意图分析，私聊不显示贴表情', async (type, mediaType) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  fixture.enabled = true;
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations.find((row) => row.type === type)!;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        h(ChatPane, {
+          user: demo.user,
+          conversation,
+          messages: [
+            {
+              ...demo.messages[0]!,
+              conversationId: conversation.id,
+              body: '[图片]',
+              qqElements: [{ type: mediaType, data: {} }],
+            },
+          ],
+          draft: '',
+          onSend: vi.fn(),
+          onBack: vi.fn(),
+        }),
+      ),
+    );
+    await act(async () =>
+      host
+        .querySelector('.message-bubble')!
+        .dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
         ),
+    );
+    const menuButton = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
+        (button) => button.textContent === '意图感知',
       );
-      await act(async () =>
-        host
-          .querySelector('.message-bubble')!
-          .dispatchEvent(
-            new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
-          ),
-      );
-      // 纯媒体消息没有可分析的文字，入口不再显示灰按钮，而是直接不出现。
-      const menuButton = () =>
-        [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
-          (button) => button.textContent === '意图感知',
-        );
-      expect(menuButton()).toBeUndefined();
-      expect(fixture.analyze).not.toHaveBeenCalled();
-      expect(Boolean(host.querySelector('.message-reaction-strip'))).toBe(type === 'group');
-      // 换成有文字的消息后入口回来：可用、标题为「意图感知」，点击才发起分析。
-      await act(async () =>
-        root.render(
-          h(ChatPane, {
-            user: demo.user,
-            conversation,
-            messages: [
-              {
-                ...demo.messages[0]!,
-                conversationId: conversation.id,
-                body: '合成可分析文本',
-                qqElements: undefined,
-              },
-            ],
-            draft: '',
-            onSend: vi.fn(),
-            onBack: vi.fn(),
-          }),
+    expect(menuButton()?.disabled).toBe(false);
+    expect(fixture.analyze).not.toHaveBeenCalled();
+    expect(Boolean(host.querySelector('.message-reaction-strip'))).toBe(type === 'group');
+    await act(async () => menuButton()!.click());
+    expect(fixture.analyze).toHaveBeenCalledWith({
+      kind: type === 'group' ? 'group' : 'c2c',
+      conv: conversation.id,
+      msgId: String(demo.messages[0]!.id),
+      manual: true,
+    });
+    // 换成有文字的消息后入口回来：可用、标题为「意图感知」，点击才发起分析。
+    await act(async () =>
+      root.render(
+        h(ChatPane, {
+          user: demo.user,
+          conversation,
+          messages: [
+            {
+              ...demo.messages[0]!,
+              conversationId: conversation.id,
+              body: '合成可分析文本',
+              qqElements: undefined,
+            },
+          ],
+          draft: '',
+          onSend: vi.fn(),
+          onBack: vi.fn(),
+        }),
+      ),
+    );
+    await act(async () =>
+      host
+        .querySelector('.message-bubble')!
+        .dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
         ),
-      );
-      await act(async () =>
-        host
-          .querySelector('.message-bubble')!
-          .dispatchEvent(
-            new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
-          ),
-      );
-      const textButton = menuButton()!;
-      expect(textButton.disabled).toBe(false);
-      expect(textButton.title).toBe('意图感知');
-    } finally {
-      act(() => root.unmount());
-      host.remove();
-    }
-  },
-);
+    );
+    const textButton = menuButton()!;
+    expect(textButton.disabled).toBe(false);
+    expect(textButton.title).toBe('意图感知');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it.each([
   { results: ['success'], tone: null, counts: '' },
@@ -208,10 +216,10 @@ it.each([
       id: String(index + 1),
       msgSeq: String(index + 1),
       conversationId: conversation.id,
-      body: result === 'media' ? '[图片]' : '合成文本',
+      body: result === 'media' ? '[文件]' : '合成文本',
       qqElements:
         result === 'media'
-          ? [{ type: 'pic', data: {} }]
+          ? [{ type: 'file', data: {} }]
           : [{ type: 'text', data: { textContent: '合成文本' } }],
     }));
     let finish: (() => void) | undefined;

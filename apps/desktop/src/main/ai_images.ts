@@ -119,6 +119,13 @@ function processor(): AiImageProcessor {
         variant: 'original' as const,
       };
     }
+    if (image.market) {
+      const { pack, hash } = image.market;
+      const path = await svc.emoji.getMarketFace(pack, hash);
+      check(signal);
+      if (!path) throw new Error('现有取图链路未能取回商城表情');
+      return { path, online: undefined, key: ocrCacheKey(hash), variant: 'original' as const };
+    }
     if (!image.chat) throw new Error('图片缺少消息定位信息');
     const ref = image.chat;
     const row = image.media

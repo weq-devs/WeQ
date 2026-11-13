@@ -27,7 +27,7 @@ it('自己的 id／UIN／UID 都属于可分析消息，但都不是回复推荐
   });
 });
 
-it('灰条、撤回和删除不覆盖目标；自己的媒体与发送占位暂停自动查询目标', () => {
+it('灰条、撤回和删除不覆盖目标；图片可分析，发送占位暂停自动查询目标', () => {
   const own = { id: 'own', senderId: 'u_self', body: '自己正文' };
   for (const extra of [
     { id: 'system' },
@@ -55,10 +55,10 @@ it('灰条、撤回和删除不覆盖目标；自己的媒体与发送占位暂�
       system,
     ),
   ).toEqual({
-    latestMessageId: 'peer',
+    latestMessageId: 'own',
     latestPeerMsgId: null,
     latestSuggestionId: 'own',
-    latestSelfMessageIds: [],
+    latestSelfMessageIds: ['own'],
   });
   expect(intentTimelineTargets([own, { ...peer, id: 'new-peer' }], self, system)).toEqual({
     latestMessageId: 'new-peer',
@@ -82,6 +82,7 @@ it('末尾连续自己的有效文本都保留胶囊目标，对方消息结束�
   ];
   expect(intentTimelineTargets(messages, self, system).latestSelfMessageIds).toEqual([
     'own-2',
+    'media',
     'own-1',
   ]);
   expect(
@@ -91,7 +92,7 @@ it('末尾连续自己的有效文本都保留胶囊目标，对方消息结束�
   expect(intentTimelineTargets(messages, new Set(), system).latestSelfMessageIds).toEqual([]);
 });
 
-it('只认正文文本和表情说明，不把引用、提及或媒体预览当成可分析文本', () => {
+it('支持正文、表情说明、图片与商城表情，不分析引用或其他媒体预览', () => {
   expect(messageHasIntentText({ body: '正文' })).toBe(true);
   expect(
     messageHasIntentText({ qqElements: [{ type: 'text', data: { textContent: '正文' } }] }),
@@ -99,7 +100,9 @@ it('只认正文文本和表情说明，不把引用、提及或媒体预览当�
   expect(messageHasIntentText({ qqElements: [{ type: 'face', data: { faceText: '微笑' } }] })).toBe(
     true,
   );
-  for (const type of ['reply', 'at', 'pic', 'file', 'ark'])
+  for (const type of ['pic', 'mface'])
+    expect(messageHasIntentText({ qqElements: [{ type, data: {} }] })).toBe(true);
+  for (const type of ['reply', 'at', 'file', 'ark'])
     expect(
       messageHasIntentText({
         body: '预览',

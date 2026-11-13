@@ -16,7 +16,7 @@ import {
   validateWeqAppSettings,
 } from '../src/bootstrap/backup_settings';
 import { configFixture } from './support/user_config';
-import { trainingImageText } from '../src/common/ai_message_images';
+import { messageImageRefs, trainingImageText } from '../src/common/ai_message_images';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -139,7 +139,27 @@ it('助手已有流式文字后不重放请求、不回退 OCR', async () => {
   expect(f.calls).toHaveBeenCalledOnce();
   expect(f.ocr).not.toHaveBeenCalled();
 });
-it('纯图片消息进入意图分析；更换图片策略后不复用旧派生缓存', async () => {
+it('商城表情与图片引用保留独立定位，并兼容漫游的十六进制标识', () => {
+  const refs = messageImageRefs(
+    [
+      { kind: 'text' },
+      { kind: 'mface', emojiPackId: 123, marketEmoticonId: new Uint8Array(16).fill(0xab) },
+      { kind: 'pic', fileName: 'fixture.png', subType: 1 },
+      { kind: 'mface', emojiPackId: 456, marketEmoticonIdHex: 'cd'.repeat(16) },
+    ],
+    'c2c',
+    'peer',
+    '1',
+    1700000000000,
+  );
+  expect(refs).toMatchObject([
+    { id: '1:0', market: { pack: '123', hash: 'ab'.repeat(16) } },
+    { id: '1:1', chat: { index: 0 }, media: { emoji: true } },
+    { id: '1:2', market: { pack: '456', hash: 'cd'.repeat(16) } },
+  ]);
+});
+
+it.each(['pic', 'mface'])('%s 消息进入意图分析；更换图片策略后不复用旧派生缓存', async (kind) => {
   let revision = 'first';
   const prepared = vi.fn(async () => ({
     text: '[图片] OCR 合成文字',
@@ -153,7 +173,15 @@ it('纯图片消息进入意图分析；更换图片策略后不复用旧派生�
     senderUin: 10001n,
     sendTime: 1700000000n,
     elements: [
-      { kind: 'pic', fileName: 'fixture.png', fileToken: 'token', imgWidth: 100, imgHeight: 100 },
+      {
+        kind,
+        fileName: 'fixture.png',
+        fileToken: 'token',
+        imgWidth: 100,
+        imgHeight: 100,
+        emojiPackId: 123,
+        marketEmoticonId: new Uint8Array(16).fill(0xab),
+      },
     ],
   };
   const session = {
@@ -178,13 +206,19 @@ it('纯图片消息进入意图分析；更换图片策略后不复用旧派生�
     expect.objectContaining({
       feature: 'intent',
       images: [
-        expect.objectContaining({ chat: { kind: 'c2c', conv: 'peer', msgId: '1', index: 0 } }),
+        expect.objectContaining(
+          kind === 'pic'
+            ? { chat: { kind: 'c2c', conv: 'peer', msgId: '1', index: 0 } }
+            : { market: { pack: '123', hash: 'ab'.repeat(16) } },
+        ),
       ],
     }),
   );
   expect(analyze.mock.calls[0]?.[0]).toContain('OCR 合成文字');
+  expect(await service.analyzeMessage('c2c', 'peer', '1', { manual: true })).not.toBeNull();
+  expect(analyze).toHaveBeenCalledTimes(2);
   revision = 'second';
   service.getStatus();
   expect((await service.ensureAnalysis('c2c', 'peer', 1)).analyzed).toBe(1);
-  expect(analyze).toHaveBeenCalledTimes(2);
+  expect(analyze).toHaveBeenCalledTimes(3);
 });

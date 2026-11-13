@@ -418,7 +418,7 @@ function fileSafe(key: string): string {
 
 type SenseElement = SuggestionElement;
 
-/** 消息 → 供分析的文本：text + at + face 段；纯媒体消息返回 ''（不做分析）。 */
+/** 消息 → 供分析的文本；图片与商城表情再由共用图片管线补全内容。 */
 function elementsToSenseText(elements: SenseElement[]): string {
   const parts: string[] = [];
   for (const el of elements) {
@@ -430,6 +430,8 @@ function elementsToSenseText(elements: SenseElement[]): string {
       if (t) parts.push(t);
     } else if (el.kind === 'pic') {
       parts.push('[图片]');
+    } else if (el.kind === 'mface') {
+      parts.push('[表情包]');
     }
   }
   return parts.join(' ').trim();
@@ -2222,7 +2224,9 @@ export class IntentSenseService {
                 await this.opts.images.prepare({
                   feature,
                   text: elementsToSenseText(
-                    row.elementsRaw.filter((element) => element.kind !== 'pic'),
+                    row.elementsRaw.filter(
+                      (element) => element.kind !== 'pic' && element.kind !== 'mface',
+                    ),
                   ),
                   images,
                   signal,
@@ -2268,7 +2272,7 @@ export class IntentSenseService {
       const elements = message.elements.map(
         (element): SenseElement => ({
           kind: element.type,
-          ...(element.type === 'pic' ? { ...element.data } : {}),
+          ...(element.type === 'pic' || element.type === 'mface' ? { ...element.data } : {}),
           ...(element.type === 'text' || element.type === 'at'
             ? {
                 textContent: element.data.textContent,
