@@ -39,6 +39,9 @@ export const preferenceDefaults = {
   showMessageDate: false,
   showMessageSeq: false,
   keepConversationPositionOnHover: false,
+  autoFetchMissingMessages: false,
+  autoFetchMissingContext: false,
+  missingMessageContextCount: 30,
   allConversationsIncludeHidden: false,
   allConversationsIncludeDeleted: false,
   search: normalizeSearchPreferences(null) as SearchPreferences,
@@ -105,6 +108,8 @@ export function validatePreferencePatch(value: unknown): asserts value is Prefer
     else if (key === 'density') valid = entry === 'comfortable' || entry === 'compact';
     else if (key === 'mailListWidth')
       valid = typeof entry === 'number' && Number.isFinite(entry) && entry >= 280 && entry <= 560;
+    else if (key === 'missingMessageContextCount')
+      valid = typeof entry === 'number' && Number.isInteger(entry) && entry >= 1 && entry <= 500;
     else if (key === 'contactOrder')
       valid =
         isRecord(entry) &&

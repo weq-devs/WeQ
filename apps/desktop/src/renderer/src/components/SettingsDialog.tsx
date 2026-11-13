@@ -89,6 +89,7 @@ import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMai
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
+import { MissingMessageSettings } from './settings/MissingMessageSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import {
@@ -1200,6 +1201,7 @@ function AppearanceSection({
                     }
                   />
                 ))}
+              {category === 'reading' ? <MissingMessageSettings /> : null}
             </Card>
           )}
           {readingError ? <p role="alert">{readingError}</p> : null}

@@ -355,6 +355,8 @@ import { useMessageNotifications } from '../hooks/useMessageNotifications';
 import type { RoamingTarget, MessageBubbleSkin } from '@weq/service';
 import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
+import { fetchMissingContext } from '../lib/missingMessageFetch';
+import { preferenceDefaults } from '@weq/service/client-preferences';
 import { createMediaId } from '../im-template/template/composerMedia';
 import type {
   ChatRecordSearchHit,
@@ -3404,7 +3406,8 @@ function MainWorkspace(): ReactElement {
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
   const gapFetchCursors = useRef(new Map<string, number>());
-  const gapFetchLock = useRef(false);
+  const gapFetchQueue = useRef(Promise.resolve());
+  const automaticGapAttempts = useRef(new Set<string>());
   /** 乐观条目持有的本地预览 blob（目前只有闪照）；条目被真消息收掉时释放。 */
   const optimisticBlobs = useRef(new Map<string, string>());
   /**
@@ -3717,33 +3720,65 @@ function MainWorkspace(): ReactElement {
   );
 
   const handleOpenGapMessages = useCallback(
-    async (gap: {
-      conversation: Conversation;
-      previousSeq: string;
-      currentSeq: string;
-      count: number;
-    }) => {
-      if (gapFetchLock.current) return;
+    async (
+      gap: {
+        conversation: Conversation;
+        previousSeq: string;
+        currentSeq: string;
+        count: number;
+      },
+      automatic = false,
+    ) => {
       const selection = selectionRef.current;
       const win = windowRef.current;
+      const scope = messageScopeRef.current;
+      const binding = messageBindingRef.current;
       const { kind, conv } = convFetchKey(gap.conversation);
       const key = [kind, conv, gap.previousSeq, gap.currentSeq].join(':');
       const first = Number(BigInt(gap.previousSeq) + 1n);
       const end = Number(BigInt(gap.currentSeq) - 1n);
-      let start = gapFetchCursors.current.get(key) ?? first;
-      gapFetchLock.current = true;
+      const previous = gapFetchQueue.current;
+      let release!: () => void;
+      gapFetchQueue.current = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const current = () =>
+        selectionRef.current === selection &&
+        windowRef.current === win &&
+        messageScopeRef.current === scope &&
+        selection?.id === gap.conversation.id &&
+        (!automatic ||
+          (preferenceValue('autoFetchMissingMessages') &&
+            messagesTabActiveRef.current &&
+            document.visibilityState !== 'hidden'));
+      const notify = (toast: Parameters<typeof pushToast>[0]) => {
+        if (!automatic) pushToast(toast);
+      };
+      await previous;
       try {
+        if (!binding || !scope || !current()) return;
+        let start = gapFetchCursors.current.get(key) ?? first;
+        if (automatic) {
+          if (automaticGapAttempts.current.has(key)) return;
+          automaticGapAttempts.current.add(key);
+          if (automaticGapAttempts.current.size > 500)
+            automaticGapAttempts.current.delete(
+              automaticGapAttempts.current.values().next().value!,
+            );
+        }
         // Bound each click to eight empty windows; unresolved gaps remain visible.
         for (let page = 0; page < 8; page += 1) {
+          if (!current()) return;
           const result = await client.account.fetchGapMessages.query({
+            ...binding,
             kind,
             conv,
             startSeq: start,
             endSeq: end,
           });
-          if (selectionRef.current !== selection || windowRef.current !== win) return;
+          if (!current()) return;
           if (!result.ok) {
-            pushToast({ tone: 'warning', message: result.message });
+            notify({ tone: 'warning', message: result.message });
             return;
           }
           if (result.nextStartSeq !== null) gapFetchCursors.current.set(key, result.nextStartSeq);
@@ -3768,14 +3803,15 @@ function MainWorkspace(): ReactElement {
             return;
           }
           if (result.messages.length > 0) {
-            setUnplacedRoaming({
-              conversation: gap.conversation,
-              messages: result.messages.map((row) => ({
-                ...toMessageWire(row),
-                source: 'roaming' as const,
-              })),
-            });
-            pushToast({
+            if (!automatic)
+              setUnplacedRoaming({
+                conversation: gap.conversation,
+                messages: result.messages.map((row) => ({
+                  ...toMessageWire(row),
+                  source: 'roaming' as const,
+                })),
+              });
+            notify({
               tone: 'warning',
               message: '这些私聊漫游记录缺少已确认的 NT 序号，暂不能安全混排。',
             });
@@ -3790,7 +3826,7 @@ function MainWorkspace(): ReactElement {
               next.add(`gap:${gap.previousSeq}:${gap.currentSeq}`);
               return next;
             });
-            pushToast({
+            notify({
               tone: 'info',
               durationKind: 'success',
               message: '该缺口未拉取到可用记录，消息可能已过期或未开启漫游。',
@@ -3799,19 +3835,19 @@ function MainWorkspace(): ReactElement {
           }
           start = result.nextStartSeq;
         }
-        pushToast({
+        notify({
           tone: 'info',
           durationKind: 'success',
           message: '已检查 240 个消息序号，暂未找到记录；可再次点击继续。',
         });
       } catch (error) {
-        pushToast({
+        notify({
           tone: 'error',
           title: '拉取缺失消息失败',
           detail: error instanceof Error ? error.message : String(error),
         });
       } finally {
-        gapFetchLock.current = false;
+        release();
         if (gapFetchCursors.current.size > 100)
           gapFetchCursors.current.delete(gapFetchCursors.current.keys().next().value!);
       }
@@ -5560,6 +5596,7 @@ function MainWorkspace(): ReactElement {
     setHiddenDeletedIds(new Set());
     // 换会话后缺口要重新判断：上个会话「确认无消息」的缺口 id 与本会话无关。
     setResolvedGaps(new Set());
+    automaticGapAttempts.current.clear();
     flashPhotoTried.current.clear();
     flashPhotoAttempts.current.clear();
     // 补丁按会话号分桶存在 sessionStorage：换回来时直接接着用，不重新发包。
@@ -7938,7 +7975,7 @@ function MainWorkspace(): ReactElement {
         }
 
         const seen = new Set<string>();
-        const merged: MessageWire[] = [];
+        let merged: MessageWire[] = [];
         // before is DESC (newest-first) incl. centre → reverse to ASC; after is ASC.
         for (const m of [...before.map(toMessageWire).reverse(), ...after.map(toMessageWire)]) {
           if (seen.has(timelineRowKey(m))) continue;
@@ -7949,9 +7986,52 @@ function MainWorkspace(): ReactElement {
         if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
           merged.unshift(toMessageWire(exactRecord));
         const exactId = messageId ?? exactRecord?.msgId;
-        const target = merged.find((m) =>
+        let target = merged.find((m) =>
           exactId ? timelineRowKey(m) === exactId || m.msgId === exactId : m.msgSeq === targetSeq,
         );
+
+        const autoContext = () =>
+          preferenceValue('autoFetchMissingMessages') || preferenceValue('autoFetchMissingContext');
+        const current = () =>
+          isCurrent() &&
+          scope === messageScopeRef.current &&
+          selectionRef.current?.id === conv &&
+          (previousSelection === null || selectionRef.current === previousSelection);
+        if (!target && autoContext()) {
+          try {
+            const rows = await fetchMissingContext(
+              targetSeq,
+              preferenceValue('autoFetchMissingMessages')
+                ? preferenceDefaults.missingMessageContextCount
+                : preferenceValue('missingMessageContextCount'),
+              (range) =>
+                client.account.fetchGapMessages.query({ ...binding, kind, conv, ...range }),
+              () => current() && autoContext(),
+            );
+            if (!current()) return false;
+            merged = mergeRoamingTimeline(
+              kind,
+              merged,
+              rows
+                .filter((row) => kind === 'group' || row.ntSeqVerified === true)
+                .map((row) => ({ ...toMessageWire(row), source: 'roaming' as const })),
+            );
+            target = merged.find((row) =>
+              exactId
+                ? timelineRowKey(row) === exactId || row.msgId === exactId
+                : row.msgSeq === targetSeq,
+            );
+          } catch (error) {
+            if (!current()) return false;
+            pushToast({
+              tone: 'warning',
+              title: '自动拉取上下文失败',
+              detail: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        if (!current()) return false;
+        if (target) setMissingJumpSeq(null);
 
         const atLatest = after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq) > 0n);
         // Update the live-subscription's window descriptor synchronously: a
@@ -8079,6 +8159,13 @@ function MainWorkspace(): ReactElement {
           return;
         }
         if (targetNum >= BigInt(minSeq) && targetNum <= BigInt(maxSeq)) {
+          if (
+            preferenceValue('autoFetchMissingMessages') ||
+            preferenceValue('autoFetchMissingContext')
+          ) {
+            await centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId);
+            return;
+          }
           // 在已加载范围内却没有这一行 ⇒ 一条被撤回/删除/从未同步的「空消息」。
           // 不把用户丢回原地：滚到最近的邻居，并挂一条「点击拉取」的缺口条，
           // 同时 Toast 说明原因。

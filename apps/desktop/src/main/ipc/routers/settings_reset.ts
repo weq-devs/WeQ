@@ -15,6 +15,7 @@ import { sharedIntentStatus } from './intent_sense';
 import { sharedAntiRecallStatus } from './anti_recall';
 import { clientStateRouter } from './client_state';
 import { dataSaverBehaviorDefaults } from '@weq/service/data-saver';
+import { preferenceDefaults } from '@weq/service/client-preferences';
 import {
   remoteResetCardAvailable,
   remoteSettingAvailable,
@@ -139,6 +140,21 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   app('reading', 'showScrollToBottomButton', '回到底部按钮', (enabled) =>
     b.setShowScrollToBottomButton({ enabled }),
   );
+  const clientPreferences = config.getSharedPreference('client');
+  for (const [key, label] of [
+    ['autoFetchMissingMessages', '查看时自动拉取缺失的消息'],
+    ['autoFetchMissingContext', '定位到缺失消息时自动拉取上下文'],
+    ['missingMessageContextCount', '自动拉取上下文条数'],
+  ] as const) {
+    add(
+      'reading',
+      key,
+      label,
+      clientPreferences[key] ?? preferenceDefaults[key],
+      preferenceDefaults[key],
+      () => clientStateRouter.createCaller(ctx).patch({ [key]: preferenceDefaults[key] }),
+    );
+  }
   app('unread', 'reportReadEnabled', '自动阅读上报已读位置', (enabled) =>
     b.setReportReadEnabled({ enabled }),
   );

@@ -28,7 +28,14 @@ vi.mock('../src/main/context/app_context', () => ({
   }),
   closeSalvageConnections: vi.fn(),
   getAppContext: () => ({
-    bootstrap: { userConfig: { getSettings: () => state.settings, getAutoEnter: () => null } },
+    bootstrap: {
+      userConfig: {
+        getSettings: () => state.settings,
+        getAutoEnter: () => null,
+        getSharedPreference: (key: keyof AppSettings['sharedPreferences']) =>
+          state.settings.sharedPreferences[key] ?? {},
+      },
+    },
     services: state.account
       ? {
           mail: { status: () => ({ lastSync: null }) },
@@ -90,6 +97,29 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('阅读定位恢复预览包含条件隐藏的上下文配置', async () => {
+    state.settings.sharedPreferences.client = {
+      autoFetchMissingMessages: true,
+      autoFetchMissingContext: true,
+      missingMessageContextCount: 80,
+    };
+    const preview = await caller().preview({ page: 'chat-messages', card: 'reading' });
+    expect(preview.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'reading:autoFetchMissingMessages',
+          current: true,
+          defaultValue: false,
+        }),
+        expect.objectContaining({
+          id: 'reading:autoFetchMissingContext',
+          current: true,
+          defaultValue: false,
+        }),
+        expect.objectContaining({ id: 'reading:missingMessageContextCount', current: 80 }),
+      ]),
+    );
+  });
   it('已读上报随未读提醒卡片恢复，不影响阅读定位配置', async () => {
     state.settings.reportReadEnabled = false;
     state.settings.manualReadReportEnabled = false;

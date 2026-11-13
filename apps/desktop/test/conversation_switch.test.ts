@@ -3,6 +3,7 @@ import {
   createElement as h,
   StrictMode,
   useLayoutEffect,
+  useContext,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -26,6 +27,11 @@ import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
 import { timelineViewport } from '../src/renderer/src/lib/timelineViewport';
 import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession';
+import {
+  ReplyJumpContext,
+  type ReplyJumpTarget,
+} from '../src/renderer/src/components/QqMessageContent';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 
 beforeAll(() => LazyGapMessagesModal.preload());
 
@@ -87,6 +93,9 @@ const f = vi.hoisted(() => ({
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
   gapRows: [] as TestMessage[],
+  gapRequests: [] as unknown[],
+  jump: undefined as ((target: ReplyJumpTarget) => void | Promise<void>) | undefined,
+  automaticGap: false,
   beforeRows: [] as TestMessage[],
   afterReply: undefined as (() => Promise<TestMessage[]>) | undefined,
   previewMessages: [] as ComponentProps<typeof GapMessagesModal>['messages'],
@@ -179,8 +188,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (path.at(-1) === 'listBefore') return f.beforeRows;
             if (path.at(-1) === 'listAfter') return f.afterReply?.() ?? [];
-            if (path.at(-1) === 'fetchGapMessages')
+            if (path.at(-1) === 'fetchGapMessages') {
+              f.gapRequests.push(input);
               return { ok: true, messages: f.gapRows, nextStartSeq: null };
+            }
             if (path.at(-1) === 'deletedMsgIds')
               return f.deletedReply?.() ?? [...f.deletedResponse];
             if (path.at(-1) === 'hiddenDeletedMsgIds')
@@ -271,6 +282,7 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
     >();
   return {
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
+      f.jump = useContext(ReplyJumpContext);
       f.messages = props.messages;
       f.atLatest = props.atLatest;
       f.deletionSets = { deleted: props.deletedIds, hidden: props.hiddenDeletedIds };
@@ -297,12 +309,15 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
             'data-gap': true,
             onClick: () =>
               props.activeConversation &&
-              props.onOpenGapMessages?.({
-                conversation: props.activeConversation,
-                previousSeq: '1',
-                currentSeq: '3',
-                count: 1,
-              }),
+              props.onOpenGapMessages?.(
+                {
+                  conversation: props.activeConversation,
+                  previousSeq: '1',
+                  currentSeq: '3',
+                  count: 1,
+                },
+                f.automaticGap,
+              ),
           },
           '拉取缺口',
         ),
@@ -359,6 +374,9 @@ afterEach(() => {
   f.unreadChanged = undefined;
   f.refreshRows = undefined;
   f.gapRows = [];
+  f.gapRequests = [];
+  f.jump = undefined;
+  f.automaticGap = false;
   f.beforeRows = [];
   f.afterReply = undefined;
   f.previewMessages = [];
@@ -1327,6 +1345,149 @@ it('未确认 NT 序号的私聊漫游仅更新预览，不混入正文时间线
     host.remove();
   }
 });
+
+it.each([false, true])('可见缺口自动拉取遵循开关且重复触发只请求一次：%s', async (enabled) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const epoch = `automatic-gap-${enabled}`;
+  acceptPreferences(
+    { epoch, revision: 1, records: {}, values: { autoFetchMissingMessages: enabled } },
+    false,
+  );
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const native: TestMessage = {
+    msgId: 'native',
+    msgSeq: '1',
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: '本地' } }],
+  };
+  f.gapRows = [{ ...native, msgId: 'fetched', msgSeq: '2' }];
+  f.automaticGap = true;
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [native] }));
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-gap]')!.click();
+      host.querySelector<HTMLButtonElement>('[data-gap]')!.click();
+    });
+    expect(f.gapRequests).toHaveLength(enabled ? 1 : 0);
+    expect(f.messages.some((row) => row.msgSeq === '2')).toBe(enabled);
+    if (!enabled) {
+      f.automaticGap = false;
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-gap]')!.click());
+      expect(f.gapRequests).toHaveLength(1);
+    }
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+    acceptPreferences({ epoch, revision: 2, records: {}, values: {} }, false);
+  }
+});
+
+it.each([
+  { id: '10001', enabled: false, verified: true },
+  { id: '10001', enabled: true, verified: true },
+  { id: 'u_peer', enabled: true, verified: true },
+  { id: 'u_peer', enabled: true, verified: false },
+])(
+  '定位缺失消息按共享设置拉取上下文：$id / $enabled / $verified',
+  async ({ id, enabled, verified }) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const epoch = `missing-${id}-${enabled}-${verified}`;
+    acceptPreferences(
+      {
+        epoch,
+        revision: 1,
+        records: {},
+        values: {
+          autoFetchMissingMessages: false,
+          autoFetchMissingContext: enabled,
+          missingMessageContextCount: 47,
+        },
+      },
+      false,
+    );
+    useViewState.getState().setOpenedUin('90001');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const message = (seq: string): TestMessage => ({
+      msgId: `context-${seq}`,
+      msgSeq: seq,
+      sendTime: '1794200000',
+      senderUid: 'u_peer',
+      senderUin: '20001',
+      ntSeqVerified: verified,
+      elements: [{ type: 'text', data: { textContent: `消息 ${seq}` } }],
+    });
+    f.beforeRows = [message('1')];
+    f.afterReply = async () => [message('200')];
+    f.gapRows = [message('100')];
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === id)!
+          .click(),
+      );
+      await act(async () =>
+        f.reads.at(-1)!.show({ complete: true, rows: [message('1'), message('200')] }),
+      );
+      let locating: void | Promise<void>;
+      await act(async () => {
+        locating = f.jump!({ seq: '100', index: '100' });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+        await locating;
+      });
+      expect(f.gapRequests).toHaveLength(enabled ? 1 : 0);
+      if (enabled)
+        expect(f.gapRequests[0]).toMatchObject({
+          kind: id === '10001' ? 'group' : 'c2c',
+          conv: id,
+          startSeq: 76,
+          endSeq: 123,
+          expectedAccountUin: '90001',
+          expectedAccountConfigId: 'switch-test',
+        });
+      expect(f.messages.some((row) => row.msgSeq === '100')).toBe(
+        enabled && (id === '10001' || verified),
+      );
+    } finally {
+      act(() => root.unmount());
+      client.clear();
+      host.remove();
+      acceptPreferences({ epoch, revision: 2, records: {}, values: {} }, false);
+    }
+  },
+);
 
 it('全目录一次获取共享结果，不在前端轮询精算，服务快照通知定向刷新', async () => {
   vi.useFakeTimers();

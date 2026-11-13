@@ -1,4 +1,5 @@
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
+import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
   useContentMultiSelect,
   useRequestContentExport,
@@ -655,12 +656,15 @@ export type ChatPaneProps = {
   onSearchChatRecords?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
-  onOpenGapMessages?: (gap: {
-    conversation: Conversation;
-    previousSeq: string;
-    currentSeq: string;
-    count: number;
-  }) => void | Promise<void>;
+  onOpenGapMessages?: (
+    gap: {
+      conversation: Conversation;
+      previousSeq: string;
+      currentSeq: string;
+      count: number;
+    },
+    automatic?: boolean,
+  ) => void | Promise<void>;
   onLoadSelectionMessages?: import('../../lib/messageSelection').LoadSelectionMessages;
   /** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
   deletedIds?: Set<string>;
@@ -806,6 +810,8 @@ export function ChatPane({
   const parentJumpToSeq = useContext(ReplyJumpContext);
   const backdrop = useChatBackdrop();
   const tabActive = useTabActive();
+  useClientPreferences((state) => state.tick);
+  const autoFetchGaps = tabActive && preferenceValue('autoFetchMissingMessages');
   const directory = useContext(ConversationDirectoryContext);
   const [body, setBody] = useState('');
   const draftMediaFingerprint = JSON.stringify([...composerAssetIds(body)].sort());
@@ -5982,7 +5988,11 @@ export function ChatPane({
                   gapPrevious && hasHiddenDeletionBetween(gapPrevious.msgSeq, message.msgSeq);
                 const gap = restrictedSource
                   ? 0
-                  : messageGapCount(gapPrevious, message, selectionMode || Boolean(deletedGap));
+                  : messageGapCount(
+                      gapPrevious,
+                      message,
+                      selectionMode || Boolean(deletedGap) || autoFetchGaps,
+                    );
                 // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
                 // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
                 // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
@@ -6014,13 +6024,17 @@ export function ChatPane({
                         }),
                       )}
                       count={1}
-                      onOpen={() =>
-                        onOpenGapMessages({
-                          conversation,
-                          previousSeq: String(gapPrevious.msgSeq ?? ''),
-                          currentSeq: String(message.msgSeq ?? ''),
-                          count: 1,
-                        })
+                      autoFetch={autoFetchGaps}
+                      onOpen={(automatic) =>
+                        onOpenGapMessages(
+                          {
+                            conversation,
+                            previousSeq: String(gapPrevious.msgSeq ?? ''),
+                            currentSeq: String(message.msgSeq ?? ''),
+                            count: 1,
+                          },
+                          automatic,
+                        )
                       }
                     />,
                   );
@@ -6068,15 +6082,19 @@ export function ChatPane({
                           : undefined
                       }
                       count={gap}
+                      autoFetch={autoFetchGaps && !deletedGap}
                       onOpen={
                         conversation && onOpenGapMessages && gapPrevious
-                          ? () =>
-                              onOpenGapMessages({
-                                conversation,
-                                previousSeq: String(gapPrevious.msgSeq ?? ''),
-                                currentSeq: String(message.msgSeq ?? ''),
-                                count: gap,
-                              })
+                          ? (automatic) =>
+                              onOpenGapMessages(
+                                {
+                                  conversation,
+                                  previousSeq: String(gapPrevious.msgSeq ?? ''),
+                                  currentSeq: String(message.msgSeq ?? ''),
+                                  count: gap,
+                                },
+                                automatic,
+                              )
                           : undefined
                       }
                     />,

@@ -107,11 +107,23 @@ const data: Record<string, unknown> = {
   'mail.list': { items: [], page: 0, total: 0, unread: 0, hasMore: false },
 };
 const results = new Map<string, object>();
+let preferenceRevision = 0;
+let preferences: Record<string, unknown> = {};
 const noop = () => {};
 function proxy(path = ''): unknown {
   return new Proxy(noop, {
     apply: () => proxy(path),
     get: (_target, key) => {
+      if (path === 'clientState.patch' && key === 'mutate')
+        return async (patch: Record<string, unknown>) => {
+          preferences = { ...preferences, ...patch };
+          return {
+            epoch: 'settings-audit',
+            revision: ++preferenceRevision,
+            values: preferences,
+            records: {},
+          };
+        };
       if (key === 'useUtils') return () => utils;
       if (key === 'useQuery')
         return () => {
