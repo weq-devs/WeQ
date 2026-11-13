@@ -18,6 +18,7 @@ import type {
 const DEBUGGER = 'com.apple.security.cs.debugger';
 const GET_TASK_ALLOW = 'com.apple.security.get-task-allow';
 const markerName = 'weq-debug-copy.json';
+const STATUS_CACHE_MS = 60_000;
 const markerSchema = z.object({
   format: z.literal(1),
   source: z.string(),
@@ -54,6 +55,11 @@ export class QqDebugCopyManager {
   private busy = false;
   private readonly path: string;
   private readonly run: Command;
+  private inspection?: {
+    key: string;
+    expiresAt: number;
+    result: Promise<QqDebugCopyStatus>;
+  };
   constructor(
     private readonly options: {
       source: () => string | null;
@@ -198,7 +204,80 @@ export class QqDebugCopyManager {
       `x-apple.systempreferences:com.apple.preference.security?${panes[action]}`,
     );
   }
+  private async inspectionKey(source: string | null): Promise<string> {
+    const paths = [
+      this.options.executable ?? process.execPath,
+      ...[source, this.path].flatMap((bundle) =>
+        bundle
+          ? [
+              bundle,
+              join(bundle, 'Contents/Info.plist'),
+              join(bundle, 'Contents/MacOS/QQ'),
+              join(bundle, 'Contents/_CodeSignature/CodeResources'),
+              join(bundle, 'Contents/Resources', markerName),
+            ]
+          : [],
+      ),
+    ];
+    return JSON.stringify(
+      await Promise.all(
+        paths.map(async (path) => {
+          try {
+            const stat = await lstat(path);
+            return [path, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs];
+          } catch (error) {
+            if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+              return [path, null];
+            throw error;
+          }
+        }),
+      ),
+    );
+  }
   async status(): Promise<QqDebugCopyStatus> {
+    const source = this.options.source();
+    if ((this.options.platform ?? process.platform) !== 'darwin') return this.inspect(source);
+    const key = await this.inspectionKey(source);
+    // 静态校验按文件变化及短期有效期复用；操作阶段和进程始终读取当前值。
+    if (
+      !this.inspection ||
+      this.inspection.key !== key ||
+      this.inspection.expiresAt <= Date.now()
+    ) {
+      const inspection = {
+        key,
+        expiresAt: Number.POSITIVE_INFINITY,
+        result: this.inspect(source),
+      };
+      this.inspection = inspection;
+      void inspection.result.then(
+        () => {
+          inspection.expiresAt = Date.now() + STATUS_CACHE_MS;
+        },
+        () => {
+          if (this.inspection === inspection) this.inspection = undefined;
+        },
+      );
+    }
+    const [result, processes] = await Promise.all([
+      this.inspection.result,
+      this.command('/bin/ps', ['-axo', 'pid=,comm=']),
+    ]);
+    const sourceExecutable =
+      result.sourceVersion && result.sourcePath && join(result.sourcePath, 'Contents/MacOS/QQ');
+    return {
+      ...result,
+      phase: this.phase,
+      runningPids: debugCopyPids(processes, this.path),
+      sourceRunningPids: sourceExecutable
+        ? processes.split('\n').flatMap((line) => {
+            const match = /^\s*([1-9]\d*)\s+(.+?)\s*$/.exec(line);
+            return match?.[2] === sourceExecutable ? [Number(match[1])] : [];
+          })
+        : [],
+    };
+  }
+  private async inspect(source: string | null): Promise<QqDebugCopyStatus> {
     const supported = (this.options.platform ?? process.platform) === 'darwin';
     const result: QqDebugCopyStatus = {
       supported,
@@ -220,17 +299,14 @@ export class QqDebugCopyManager {
     } catch {
       /* 未签名开发宿主必须明确显示读取端未就绪。 */
     }
-    const source = this.options.source();
     if (source && resolve(source) !== resolve(this.path)) {
       result.sourcePath = source;
       try {
         result.sourceVersion = await this.version(source);
-        result.sourceRunningPids = await this.sourcePids(source);
       } catch (error) {
         result.message = error instanceof Error ? error.message : String(error);
       }
     }
-    result.runningPids = await this.pids();
     if (!(await exists(this.path))) return { ...result, phase: this.phase };
     result.state = 'unmanaged';
     result.message = '此位置已有非 WeQ 管理的应用，未覆盖或删除；请先将它移到其他位置。';
@@ -255,6 +331,7 @@ export class QqDebugCopyManager {
       throw new Error('仅 macOS 支持 QQ 调试副本。');
     if (this.busy) throw new Error('正在处理 QQ 调试副本，请等待当前操作完成。');
     this.busy = true;
+    this.inspection = undefined;
     this.phase = 'checking';
     // 目录锁跨 WeQ 实例生效；不触碰其他实例持有的暂存目录。
     const lock = `${this.path}.lock`;
@@ -322,6 +399,7 @@ export class QqDebugCopyManager {
       } finally {
         this.busy = false;
         this.phase = 'idle';
+        this.inspection = undefined;
       }
     }
     return this.status();

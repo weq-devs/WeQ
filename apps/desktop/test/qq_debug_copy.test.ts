@@ -223,6 +223,46 @@ it('原安装升级后显示可更新；更新成功替换副本并清理本次�
   expect(await f.manager.perform('prepare')).toMatchObject({ state: 'ready', version: '7.0.1-2' });
   expect(await readdir(join(f.home, 'Applications'))).toEqual(['QQ-WeQ.app']);
 });
+it('轮询复用版本与签名检查，但每次只用一次进程快照更新两类进程', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  f.run.mockClear();
+  f.processes(`42 ${f.target}/Contents/MacOS/QQ\n51 ${f.source}/Contents/MacOS/QQ`);
+  expect(await f.manager.status()).toMatchObject({ runningPids: [42], sourceRunningPids: [51] });
+  f.processes('');
+  expect(await f.manager.status()).toMatchObject({ runningPids: [], sourceRunningPids: [] });
+  expect(f.run.mock.calls.map(([command]) => command)).toEqual(['/bin/ps', '/bin/ps']);
+});
+it('并发查询共用一次静态检查，缓存过期后自动复查', async () => {
+  const f = await fixture();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    await Promise.all([f.manager.status(), f.manager.status(), f.manager.status()]);
+    expect(f.run.mock.calls.filter(([cmd]) => cmd === '/usr/bin/codesign')).toHaveLength(1);
+    f.run.mockClear();
+    vi.setSystemTime(Date.now() + 61_000);
+    await f.manager.status();
+    expect(f.run.mock.calls.filter(([cmd]) => cmd === '/usr/bin/codesign')).toHaveLength(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('缓存期间文件改变立即重查，实际打开不依赖缓存的有效结论', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  await writeFile(
+    join(f.target, 'Contents/Resources/weq-debug-copy.json'),
+    JSON.stringify({ format: 1, source: f.source, sourceVersion: '7.0.1-1' }),
+  );
+  expect(await f.manager.status()).toMatchObject({ state: 'invalid' });
+  await f.manager.perform('open');
+  expect(await f.manager.status()).toMatchObject({ state: 'ready' });
+  f.run.mockClear();
+  await f.manager.perform('open');
+  expect(
+    f.run.mock.calls.some(([cmd, args]) => cmd === '/usr/bin/codesign' && args.includes('--deep')),
+  ).toBe(true);
+});
 it('旧签名副本提示修复且不再启动，重新准备后恢复可用', async () => {
   const f = await fixture();
   await f.manager.perform('prepare');
@@ -270,6 +310,15 @@ it('非 WeQ 同名应用不覆盖、不移除、不启动', async () => {
   for (const action of ['prepare', 'remove', 'launch'] as const)
     await expect(f.manager.perform(action)).rejects.toThrow('非 WeQ');
   expect(await readFile(join(f.target, 'personal-original'), 'utf8')).toBe('keep');
+});
+it('缓存的副本被普通文件替换时立即报告位置占用，不因子路径不是目录而丢失状态', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  await rm(f.target, { recursive: true });
+  await writeFile(f.target, 'personal-original');
+  expect(await f.manager.status()).toMatchObject({ state: 'unmanaged' });
+  await expect(f.manager.perform('open')).rejects.toThrow('非 WeQ');
+  expect(await readFile(f.target, 'utf8')).toBe('personal-original');
 });
 it('复制期间同名位置被其他应用占用时保留新到的原件，不覆盖提交', async () => {
   const f = await fixture();

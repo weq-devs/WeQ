@@ -5,6 +5,22 @@ import type { OnlineAccess } from '../../src/renderer/src/lib/restrictedMode';
 
 const offline = new URLSearchParams(location.search).has('offline');
 const recovery = new URLSearchParams(location.search).has('recovery');
+let statusPending = new URLSearchParams(location.search).has('pending-status');
+let actionGate: Promise<void> | undefined;
+let releaseAction: (() => void) | undefined;
+export function pauseAction() {
+  actionGate = new Promise((resolve) => {
+    releaseAction = resolve;
+  });
+}
+export function resumeAction() {
+  releaseAction?.();
+  actionGate = undefined;
+}
+export function setStatusPending(pending: boolean) {
+  statusPending = pending;
+  for (const listener of listeners) listener();
+}
 let onlineAccess: OnlineAccess = {
   source: { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic' },
   qqOnline: !offline,
@@ -78,7 +94,7 @@ const debugTrpc = {
               listeners.delete(listener);
             };
           },
-          () => data,
+          () => (statusPending ? undefined : data),
         ),
         refetch: async () => ({ data }),
         error: null,
@@ -105,6 +121,8 @@ const debugClient = {
     qqDebugCopyPermission: { mutate: async () => true },
     qqDebugCopyAction: {
       mutate: async ({ action }: { action: QqDebugCopyAction }) => {
+        await actionGate;
+        setFixture({ phase: 'idle' });
         if (
           action === 'prepare' ||
           (['open', 'switch'].includes(action) && ['missing', 'invalid'].includes(data.state))

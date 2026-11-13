@@ -286,12 +286,59 @@ async function mountAction(needsQq = true, busy = false) {
   };
   return {
     host,
+    render: async () => {
+      await act(async () =>
+        root.render(
+          createElement(RestrictedQqAction, { needsQq, busy, onOpened, onEnable, onRetry }),
+        ),
+      );
+    },
     onOpened,
     onEnable,
     onRetry,
     primary: () => host.querySelector<HTMLButtonElement>('.weq-restricted-actions > button')!,
   };
 }
+it('首次状态尚未返回也能立即打开，点击后显示检查进度并阻止重复提交', async () => {
+  const result = f.data!;
+  f.data = undefined;
+  let finish!: (value: QqDebugCopyStatus) => void;
+  f.action.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const v = await mountAction();
+  expect(v.primary().textContent).toBe('打开 QQ');
+  expect(v.primary().disabled).toBe(false);
+  await act(async () => v.primary().click());
+  expect(v.primary().textContent).toBe('正在检查 QQ');
+  expect(v.primary().disabled).toBe(true);
+  await act(async () => v.primary().click());
+  expect(f.action).toHaveBeenCalledOnce();
+  f.data = { ...result, phase: 'copying' };
+  await v.render();
+  expect(v.primary().textContent).toBe('正在准备 QQ');
+  f.data = { ...result, phase: 'launching' };
+  await v.render();
+  expect(v.primary().textContent).toBe('正在打开 QQ');
+  f.data = result;
+  await act(async () => finish(result));
+  expect(v.onOpened).toHaveBeenCalledOnce();
+  expect(v.primary().disabled).toBe(false);
+});
+it('状态查询失败不阻断打开，明确的位置占用仍禁用主操作', async () => {
+  f.data = undefined;
+  f.error = new Error('synthetic status failure');
+  const v = await mountAction();
+  expect(v.primary().disabled).toBe(false);
+  await act(async () => v.primary().click());
+  expect(f.action).toHaveBeenCalledWith({ action: 'open' });
+  f.data = { ...(await f.refetch()).data, state: 'unmanaged' };
+  await v.render();
+  expect(v.primary().disabled).toBe(true);
+  expect(v.host.textContent).toContain('副本位置已被其他应用占用');
+});
 it('凭据启用期间仍可打开副本设置与独立的副本启动操作', async () => {
   const v = await mountAction(true, true);
   expect(v.primary().disabled).toBe(false);
