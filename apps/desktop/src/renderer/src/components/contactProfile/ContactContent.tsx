@@ -115,17 +115,10 @@ export function ContactIdentity({
   const showStatus = !person.clone && settings?.visible.status !== false;
   const onlineStatus = person.onlineStatus?.trim();
   const customStatus = person.customStatus?.trim();
-  const selfStatus = self?.fields.status?.props.value;
-  const selfExtendedStatus = self?.fields.extendedStatus?.props.value;
-  const selfStatusText = [selfStatus, selfExtendedStatus]
-    .filter((value) => typeof value === 'string' && value !== '未设置')
-    .join(' · ');
   const fallbackStatus =
     (onlineStatus && customStatus && !onlineStatus.includes(customStatus)
       ? `${onlineStatus} · ${customStatus}`
-      : onlineStatus || customStatus) ||
-    selfStatusText ||
-    (self ? '尚未读取' : undefined);
+      : onlineStatus || customStatus) || (relationship === 'self' ? '尚未读取' : undefined);
   const remarks =
     remark || editableRemark ? (
       <div className="weq-contact-remarks">
@@ -190,17 +183,20 @@ export function ContactIdentity({
             </SelfProfileSlot>
             <ContactFieldHistoryButton field="nick" label="昵称" />
             {showStatus ? (
-              <SelfOnlineStatus>
-                {/^u_/.test(person.uid || person.id) ? (
-                  <OnlineStatus
-                    uid={person.uid || person.id}
-                    showBaseStatus
-                    fallbackText={fallbackStatus}
-                  />
-                ) : (
+              /^u_/.test(person.uid || person.id) ? (
+                <OnlineStatus
+                  uid={person.uid || person.id}
+                  showBaseStatus
+                  fallbackText={fallbackStatus}
+                  selfUin={relationship === 'self' ? person.identityValue : undefined}
+                />
+              ) : relationship === 'self' ? (
+                <SelfOnlineStatus uin={person.identityValue}>
                   <span className="weq-contact-status">{fallbackStatus}</span>
-                )}
-              </SelfOnlineStatus>
+                </SelfOnlineStatus>
+              ) : (
+                <span className="weq-contact-status">{fallbackStatus}</span>
+              )
             ) : null}
             {showStatus && !self ? (
               <ContactFieldHistoryButton field="status" label="在线状态" />

@@ -153,6 +153,7 @@ export function MobileWebNavigation({
               <OnlineStatus
                 key={user.uid}
                 uid={user.uid}
+                selfUin={user.identityValue}
                 className="weq-mobile-online-status"
                 refetchInterval={15_000}
                 showBaseStatus

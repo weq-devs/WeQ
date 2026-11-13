@@ -22,8 +22,6 @@ export type SelfProfileKey =
   | 'education'
   | 'age'
   | 'constellation'
-  | 'status'
-  | 'extendedStatus'
   | 'personalityLabels'
   | 'anonymousQuestions';
 export type SelfProfileFields = Partial<

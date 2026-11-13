@@ -81,6 +81,7 @@ try {
   await statusTrigger.click();
   const statusDialog = page.getByRole('dialog', { name: '修改在线状态', exact: true });
   await statusDialog.waitFor();
+  await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).waitFor();
   assert.equal(
     await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).count(),
     1,
@@ -116,10 +117,16 @@ try {
   await statusDialog.waitFor({ state: 'detached' });
   assert.ok((await statusTrigger.textContent()).includes('离开'));
   await statusTrigger.click();
+  await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).selectOption('10');
   await statusDialog
     .getByRole('combobox', { name: '扩展在线状态', exact: true })
     .selectOption('1018');
-  await statusDialog.getByRole('button', { name: '保存扩展在线状态', exact: true }).click();
+  assert.equal(
+    await statusDialog.getByRole('button', { name: /^保存/ }).count(),
+    1,
+    '基础和扩展状态整体保存',
+  );
+  await statusDialog.getByRole('button', { name: '保存在线状态', exact: true }).click();
   await statusDialog.waitFor({ state: 'detached' });
   assert.ok((await statusTrigger.textContent()).includes('学习中'));
   await statusTrigger.click();
@@ -267,6 +274,7 @@ try {
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-card.png`) });
       await statusTrigger.click();
       await statusDialog.waitFor();
+      await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).waitFor();
       await page.locator('.weq-self-status-layer.is-anchored-popover').waitFor();
       const statusBox = await statusDialog.boundingBox();
       if (output && (statusBox.x < 7 || statusBox.x + statusBox.width > width - 7))
@@ -402,6 +410,10 @@ try {
     0,
     'compact self card stays read-only',
   );
+  await statusTrigger.click();
+  await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).waitFor();
+  assert.equal(await statusDialog.getByRole('button', { name: /^保存/ }).count(), 1);
+  await page.getByRole('button', { name: '关闭在线状态', exact: true }).click();
   await page.getByRole('button', { name: '历史头像', exact: true }).click();
   const avatarDialog = page.getByRole('dialog', { name: '历史头像', exact: true });
   await avatarDialog.waitFor();
@@ -434,12 +446,16 @@ try {
   );
   await page.goto(`${url}?member`);
   await page.getByRole('dialog', { name: '用户资料', exact: true }).waitFor();
+  await statusTrigger.click();
+  await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).waitFor();
+  await page.getByRole('button', { name: '关闭在线状态', exact: true }).click();
   await page.getByRole('button', { name: '历史头像', exact: true }).click();
   await page.getByRole('dialog', { name: '历史头像', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '更换头像', exact: true }).isEnabled(), true);
   await page.getByRole('button', { name: '关闭历史头像' }).click();
   await page.goto(`${url}?other`);
   await page.getByRole('region', { name: '联系人资料', exact: true }).waitFor();
+  assert.equal(await statusTrigger.count(), 0, '他人状态仍为只读');
   assert.equal(await page.locator('.weq-self-field').count(), 0, 'other profiles stay read-only');
   assert.equal(await page.getByRole('button', { name: '历史头像', exact: true }).count(), 0);
   assert.equal(await page.getByRole('button', { name: '查看头像', exact: true }).count(), 1);
@@ -462,12 +478,41 @@ try {
     '可复制的标识与联系方式直接点击内容，不额外显示复制图标或嵌套按钮',
   );
   assert.deepEqual(errors, []);
+  for (const surface of ['titlebar', 'mobile-header', 'self-chat-status', 'directory']) {
+    await page.setViewportSize({ width: surface === 'mobile-header' ? 390 : 1180, height: 850 });
+    await page.goto(`${url}?${surface}`);
+    if (surface === 'mobile-header')
+      await page.evaluate(() => {
+        document.documentElement.dataset.weqLayout = 'single';
+      });
+    if (surface === 'directory') await page.locator('.contact-cat-header').click();
+    await statusTrigger.click();
+    await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).waitFor();
+    assert.equal(await statusDialog.getByRole('button', { name: /^保存/ }).count(), 1);
+    assert.equal(await page.locator('button button').count(), 0);
+    if (output) await page.screenshot({ path: resolve(output, `${surface}-status.png`) });
+    await page.getByRole('button', { name: '关闭在线状态', exact: true }).click();
+    assert.equal(await statusTrigger.evaluate((node) => node === document.activeElement), true);
+    if (surface === 'directory')
+      assert.equal(
+        await page.evaluate(() => window.selfStatusEntryQa.selections),
+        0,
+        '状态编辑不触发联系人行导航',
+      );
+  }
+  assert.deepEqual(errors, []);
   if (output)
     await writeFile(
       resolve(output, 'result.json'),
-      JSON.stringify({ results, errors, failureRetry: true, writes: 'synthetic-only' }, null, 2),
+      JSON.stringify(
+        { results, entryPoints: 7, errors, failureRetry: true, writes: 'synthetic-only' },
+        null,
+        2,
+      ),
     );
-  console.log(JSON.stringify({ cases: results.length, failureRetry: true, errors }));
+  console.log(
+    JSON.stringify({ cases: results.length, entryPoints: 7, failureRetry: true, errors }),
+  );
 } finally {
   await browser?.close();
   await server.close();

@@ -17,6 +17,17 @@ const state = vi.hoisted(() => ({
     displayStatus: string;
   } | null,
   query: vi.fn(),
+  available: true,
+}));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' },
+    available: state.available,
+    busy: false,
+  }),
+}));
+vi.mock('../src/renderer/src/components/SelfOnlineStatusEditor', () => ({
+  default: () => h('p', null, '统一状态编辑器'),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => children,
@@ -75,6 +86,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.status = { uid: 'u_self', type: 10, typeName: '在线', subType: 0, displayStatus: '在线' };
   state.query.mockClear();
+  state.available = true;
   useRestrictedMode.setState({ reasons: [], requests: [], enteringSince: null });
 });
 afterEach(() => {
@@ -83,6 +95,22 @@ afterEach(() => {
 });
 
 describe('标题栏在线状态', () => {
+  it('整段本人状态点击打开统一编辑器，离线保持文本且不增加编辑图标', async () => {
+    const f = fixture();
+    const status = f.host.querySelector<HTMLButtonElement>('[aria-label="编辑在线状态"]')!;
+    expect(status.classList.contains('weq-title-online-status')).toBe(true);
+    expect(status.querySelector('.lucide-pencil')).toBeNull();
+    await act(async () => status.click());
+    expect(document.querySelector('[aria-label="修改在线状态"]')?.textContent).toContain(
+      '统一状态编辑器',
+    );
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭在线状态"]')!.click());
+    expect(document.activeElement).toBe(status);
+    state.available = false;
+    f.render();
+    expect(f.host.querySelector('[aria-label="编辑在线状态"]')).toBeNull();
+    expect(f.host.querySelector('.weq-title-online-status')?.textContent).toBe('在线');
+  });
   it('搜索在签名右侧、受限提示左侧，签名保留全文提示且受限状态可收拢', () => {
     const f = fixture();
     const signature = f.host.querySelector('.app-title-bar-signature')!;

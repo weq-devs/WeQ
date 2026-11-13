@@ -1,8 +1,11 @@
 import type React from 'react';
+import { useContext } from 'react';
 import { trpc } from '../trpc/client';
 import { Circle, Smile, Clock, Minus, Ban, MinusCircle } from 'lucide-react';
 import { resourceUrl } from '../lib/resourceUrl';
 import { FaceEmoji } from './FaceEmoji';
+import { RelationshipDirectoryContext } from '../lib/contactRelationship';
+import { SelfOnlineStatus } from './SelfOnlineStatus';
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',
@@ -63,24 +66,41 @@ export function OnlineStatus({
   refetchInterval,
   showBaseStatus = false,
   fallbackText,
+  selfUin,
 }: {
   uid: string;
   className?: string;
   refetchInterval?: number;
   showBaseStatus?: boolean;
   fallbackText?: string | null;
+  selfUin?: string;
 }) {
+  const directory = useContext(RelationshipDirectoryContext);
+  const ownUin = selfUin || (directory?.selfUid === uid ? directory.selfUin : undefined);
   const { data: status } = trpc.account.getOnlineStatus.useQuery(
     { uid },
     { refetchInterval, refetchOnMount: 'always' },
   );
 
+  const wrap = (content: React.ReactNode, title?: string) =>
+    ownUin ? (
+      <SelfOnlineStatus uin={ownUin} title={title} className={className}>
+        {content}
+      </SelfOnlineStatus>
+    ) : (
+      content
+    );
   if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid))
-    return fallbackText ? (
-      <span className={className} style={{ fontSize: 12, color: 'var(--weq-fg-secondary)' }}>
-        {fallbackText}
-      </span>
-    ) : null;
+    return fallbackText
+      ? wrap(
+          <span
+            className={ownUin ? undefined : className}
+            style={{ fontSize: 12, color: 'var(--weq-fg-secondary)' }}
+          >
+            {fallbackText}
+          </span>,
+        )
+      : null;
 
   const customText =
     status.type === 10 && status.subType === 2000 ? status.customStatus?.text?.trim() : '';
@@ -90,10 +110,11 @@ export function OnlineStatus({
     : status.displayStatus;
   const hasDetail = withBaseStatus && detail !== status.typeName;
 
-  return (
+  const title = hasDetail ? `${status.typeName} - ${detail}` : status.displayStatus;
+  return wrap(
     <span
-      className={className}
-      title={hasDetail ? `${status.typeName} - ${detail}` : status.displayStatus}
+      className={ownUin ? undefined : className}
+      title={title}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -115,6 +136,7 @@ export function OnlineStatus({
         <OnlineStatusIcon type={status.type} subType={status.subType} />
       )}
       <span>{detail}</span>
-    </span>
+    </span>,
+    title,
   );
 }

@@ -5744,12 +5744,28 @@ export function ChatPane({
         }
         status={
           !restrictedSource && !dataLine && conversation.type === 'direct' ? (
-            <OnlineStatus uid={conversation.otherUser.id} />
+            <OnlineStatus
+              uid={conversation.otherUser.id}
+              selfUin={
+                conversation.otherUser.identityValue === user.identityValue
+                  ? user.identityValue
+                  : undefined
+              }
+            />
           ) : null
         }
         mobileStatus={
           !restrictedSource && !dataLine && conversation.type === 'direct' ? (
-            <OnlineStatus uid={conversation.otherUser.id} showBaseStatus refetchInterval={15_000} />
+            <OnlineStatus
+              uid={conversation.otherUser.id}
+              selfUin={
+                conversation.otherUser.identityValue === user.identityValue
+                  ? user.identityValue
+                  : undefined
+              }
+              showBaseStatus
+              refetchInterval={15_000}
+            />
           ) : null
         }
         actions={

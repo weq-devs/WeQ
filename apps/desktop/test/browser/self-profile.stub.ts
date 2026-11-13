@@ -122,7 +122,11 @@ const pages = () =>
         page(avatars.slice(0, 2), 1600000000),
         ...(pageCount > 1 ? [page([avatars[1]!, ...avatars.slice(2)], null)] : []),
       ];
-let onlineStatus = { type: 10, subType: 0 };
+let onlineStatus: {
+  type: number;
+  subType: number;
+  customStatus?: { faceId: number; faceType: number; text: string };
+} = { type: 10, subType: 0 };
 const state = () => ({
   profile: { ...profile, uin: account },
   status: onlineStatus,
@@ -176,11 +180,24 @@ const mutate = async (input: {
   source?: string;
   status?: number;
   extStatus?: number;
+  custom?: { faceId: number; faceType: number; wording: string };
 }) => {
   writes++;
   if (input.source) avatarSources.push(input.source);
   if (input.status !== undefined)
-    onlineStatus = { type: input.status, subType: input.extStatus ?? 0 };
+    onlineStatus = {
+      type: input.status,
+      subType: input.extStatus ?? 0,
+      ...(input.custom
+        ? {
+            customStatus: {
+              faceId: input.custom.faceId,
+              faceType: input.custom.faceType,
+              text: input.custom.wording,
+            },
+          }
+        : {}),
+    };
   if (input.patch) {
     Object.assign(profile, input.patch.nickname ? { nick: input.patch.nickname } : input.patch);
     Object.assign(extra, input.patch);
@@ -209,6 +226,25 @@ export const trpc = withFallback({
     },
   }),
   account: {
+    getOnlineStatus: {
+      useQuery: () =>
+        useFixtureQuery(() => {
+          const typeName = onlineStatus.type === 10 ? '在线' : '离开';
+          const detail =
+            onlineStatus.subType === 2000
+              ? onlineStatus.customStatus?.text
+              : onlineStatus.subType === 1018
+                ? '学习中'
+                : '';
+          return {
+            ...onlineStatus,
+            uid: 'u_self',
+            typeName,
+            subTypeName: detail,
+            displayStatus: detail ? `${typeName} - ${detail}` : typeName,
+          };
+        }),
+    },
     getSelfProfile: { useQuery: () => useFixtureQuery(() => ({ ...profile, uin: account })) },
     getAccountConfig: {
       useQuery: () => useFixtureQuery(() => ({ uin: account, configId: 'fixture' })),

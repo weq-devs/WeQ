@@ -79,7 +79,12 @@ import {
   ContactDirectoryContext,
 } from '../../lib/conversationDirectory';
 import { VirtualConversationAvatar } from '../../components/VirtualConversationAvatar';
-import { groupRelationship, RelationshipDirectoryContext } from '../../lib/contactRelationship';
+import {
+  groupRelationship,
+  personRelationship,
+  RelationshipDirectoryContext,
+} from '../../lib/contactRelationship';
+import { OnlineStatus } from '../../components/OnlineStatus';
 import { SourceGroup } from '../../components/qq-actions/FriendClue';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import {
@@ -1625,6 +1630,9 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
   uidMetrics: ContactMetricRows[string] | undefined;
   events: ContactRowEvents;
 }) {
+  const own =
+    personRelationship(contact, useContext(RelationshipDirectoryContext)) === 'self' &&
+    !contact.clone;
   const relation = intimateRelationOf(contact);
   const title = friendDirectoryTitle(contact, sort);
   const detail = friendSortDetail(contact, sort, {
@@ -1693,7 +1701,7 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
               </span>
             ) : (
               <>
-                {contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+                {!own && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
                   <span className={cn('contact-card-status')}>
                     <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
                     <span>[{contact.onlineStatusObj.displayStatus}]</span>
@@ -1715,6 +1723,16 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
           <span className={unreadClass(muted)}>{formatBadgeCount(unreadCount)}</span>
         ) : null}
       </button>
+      {own && !detail && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+        <div className="weq-contact-self-status-row">
+          <OnlineStatus
+            uid={contact.uid || contact.id}
+            selfUin={contact.identityValue}
+            showBaseStatus
+            fallbackText={contact.onlineStatusObj.displayStatus}
+          />
+        </div>
+      ) : null}
       {String(categoryId).startsWith('derived:source:') &&
       typeof sourceGroup === 'string' &&
       /^[1-9]\d*$/.test(sourceGroup) &&

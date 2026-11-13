@@ -1,29 +1,15 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import {
-  AtSign,
-  ChevronDown,
-  CircleDot,
-  PersonStanding,
-  RefreshCw,
-  Save,
-  Smile,
-  UserPen,
-  X,
-} from 'lucide-react';
+import { PersonStanding, RefreshCw, UserPen } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
-import { Row } from './controls';
 import {
   DisplaySelfProfileField as SelfProfileField,
   ProfileDisplayEntry,
 } from '../ProfileDisplaySettings';
 import { contactBirth } from '../../lib/contactBirth';
-import { FacePicker } from '../compose/FacePicker';
-import { FaceEmoji } from '../FaceEmoji';
 import '../../styles/self-profile-editor.css';
-import { ExtendedStatusAction } from '../qq-actions/ExtendedStatusAction';
-import { QQWriteActionRow, QQWriteSelectRow, QQWriteTextRow } from '../QQWriteControls';
+import { QQWriteSelectRow, QQWriteTextRow } from '../QQWriteControls';
 import { useEditableSelfProfileFields } from './EditableSelfProfile';
 import { SelfProfileFieldsContext, type SelfProfileFields } from '../SelfProfileFields';
 
@@ -61,46 +47,13 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     confirmed.current = ownProfile;
   }, [ownProfile]);
-  const extendedStatuses = trpc.account.qqActions.extendedStatuses.useQuery(
-    { ...session.binding! },
-    { enabled: session.available, retry: false, staleTime: 60_000 },
-  );
-  const online = trpc.account.qqWrite.onlineStatus.useMutation();
-  const faces = trpc.account.getSystemFaces.useQuery(undefined, { staleTime: 60_000 });
   const [error, setError] = useState('');
-  const [wording, setWording] = useState('');
-  const [faceId, setFaceId] = useState('');
-  const [choosingFace, setChoosingFace] = useState(false);
-  const facePickerId = useId();
-  const faceTrigger = useRef<HTMLButtonElement>(null);
-  const facePanel = useRef<HTMLDivElement>(null);
   const currentIdentity = useRef(identityKey);
-  const previousCustom = useRef({ wording: '', faceId: '' });
   currentIdentity.current = identityKey;
   useEffect(() => {
-    setWording('');
-    setFaceId('');
-    setChoosingFace(false);
     setError('');
     setSyncIdentity(null);
-    previousCustom.current = { wording: '', faceId: '' };
   }, [identityKey]);
-  const currentStatus = profile.data?.status;
-  const custom =
-    currentStatus?.type === 10 && currentStatus.subType === 2000
-      ? currentStatus.customStatus
-      : undefined;
-  useEffect(() => {
-    if (!currentStatus || profile.data?.statusError) return;
-    const next = {
-      wording: custom?.text ?? '',
-      faceId: custom?.faceType === 1 ? String(custom.faceId) : '',
-    };
-    const before = previousCustom.current;
-    setWording((value) => (value === before.wording ? next.wording : value));
-    setFaceId((value) => (value === before.faceId ? next.faceId : value));
-    previousCustom.current = next;
-  }, [identityKey, currentStatus, custom, profile.data?.statusError]);
   useEffect(() => {
     if (!syncing) return;
     const timer = setTimeout(() => setSyncIdentity(null), 15_000);
@@ -115,22 +68,19 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
     ]).catch(() => {});
   }, [syncing, identityKey, profile.dataUpdatedAt, utils]);
   const disabled = !session.available || session.busy;
-  useEffect(() => {
-    if (choosingFace && !disabled) facePanel.current?.scrollIntoView({ block: 'nearest' });
-  }, [choosingFace, disabled]);
   async function refresh() {
     const updated = await profile.refetch();
     if (updated.error) throw updated.error;
   }
   const act = async (
     action: Parameters<typeof session.run>[0],
-    field = 'QQ 状态',
+    field: string,
     matches?: (data: NonNullable<typeof profile.data>) => boolean,
   ) => {
     const ok = await session.run(action, refresh, {
       backgroundRefresh: true,
       requireReadback: Boolean(matches),
-      readbackSuccessText: field === 'QQ 状态' ? 'QQ 状态已更新' : `${field}已保存`,
+      readbackSuccessText: `${field}已保存`,
       readback: matches
         ? async () => {
             const result = await profile.refetch();
@@ -163,15 +113,6 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
       },
     );
   }
-  const statusFaces = (faces.data ?? []).filter(
-    (face) =>
-      face.emojiType === 1 && Number.isInteger(face.id) && face.id >= 0 && face.id <= 0xffffffff,
-  );
-  const selectedFace = statusFaces.find((face) => String(face.id) === faceId);
-  const customValid =
-    wording.trim().length > 0 &&
-    faceId !== '' &&
-    statusFaces.some((face) => String(face.id) === faceId);
   const feedback = (
     <>
       {additional.feedback}
@@ -193,7 +134,6 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
         </button>
       )}
       {error && <p role="alert">{error}</p>}
-      {profile.data?.statusError && <p role="alert">状态读取失败：{profile.data.statusError}</p>}
     </>
   );
   const fields: SelfProfileFields = {
@@ -259,189 +199,6 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
       <ProfileDisplayEntry field="constellation">
         {ownProfile ? contactBirth(ownProfile).constellation?.name || '未设置' : '尚未读取'}
       </ProfileDisplayEntry>
-    ),
-    status: (
-      <SelfProfileField
-        label="在线状态"
-        value={
-          profile.data?.statusError
-            ? '读取失败'
-            : (profile.data?.statusOptions.find((item) => item.value === currentStatus?.type)
-                ?.label ?? null)
-        }
-        disabled={disabled}
-      >
-        <QQWriteSelectRow
-          label="在线状态"
-          icon={<CircleDot size={14} strokeWidth={1.8} />}
-          initial={profile.data?.status?.type ?? null}
-          options={profile.data?.statusOptions ?? []}
-          disabled={disabled}
-          onSave={(value) =>
-            act(
-              (binding) => online.mutateAsync({ ...binding, status: value, extStatus: 0 }),
-              'QQ 状态',
-              (data) => !data.statusError && data.status?.type === value && !data.status.subType,
-            )
-          }
-        />
-      </SelfProfileField>
-    ),
-    extendedStatus: (
-      <SelfProfileField
-        label="扩展在线状态"
-        value={
-          profile.data?.statusError
-            ? '读取失败'
-            : custom?.text ||
-              (currentStatus?.subType
-                ? (extendedStatuses.data?.find((item) => item.value === currentStatus.subType)
-                    ?.label ?? `状态 ${currentStatus.subType}`)
-                : '未设置')
-        }
-        disabled={disabled}
-        onCancel={() => {
-          setWording(custom?.text ?? '');
-          setFaceId(custom?.faceType === 1 ? String(custom.faceId) : '');
-          setChoosingFace(false);
-        }}
-      >
-        {(saveStatus) => (
-          <ExtendedStatusAction
-            autoSave={false}
-            key={identityKey}
-            onSaved={() => {
-              if (currentIdentity.current !== identityKey) return;
-              setSyncIdentity(identityKey);
-              setSyncRevision((value) => value + 1);
-            }}
-            customEditor={
-              <>
-                <Row
-                  label={
-                    <span className="weq-set-row-icon">
-                      <AtSign size={14} strokeWidth={1.8} aria-hidden />
-                      自定义状态
-                    </span>
-                  }
-                  control={
-                    <div className="weq-qq-write-custom">
-                      <div className="weq-qq-write-custom-line">
-                        <button
-                          ref={faceTrigger}
-                          type="button"
-                          aria-label="状态表情"
-                          title={
-                            selectedFace?.desc ??
-                            (statusFaces.length ? '选择状态表情' : '本机表情目录不可用')
-                          }
-                          className="weq-qq-write-face-trigger"
-                          aria-expanded={choosingFace && !disabled}
-                          aria-controls={facePickerId}
-                          disabled={disabled || statusFaces.length === 0}
-                          onClick={() => setChoosingFace((value) => !value)}
-                        >
-                          {selectedFace ? (
-                            <FaceEmoji
-                              key={selectedFace.id}
-                              element={{
-                                faceId: selectedFace.id,
-                                faceText: selectedFace.desc,
-                              }}
-                              size={24}
-                            />
-                          ) : (
-                            <Smile size={24} aria-hidden />
-                          )}
-                          <ChevronDown size={12} aria-hidden />
-                        </button>
-                        <input
-                          aria-label="自定义状态文字"
-                          className="weq-qq-write-input"
-                          value={wording}
-                          maxLength={1024}
-                          disabled={disabled}
-                          onChange={(event) => setWording(event.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="weq-set-iconbtn"
-                          aria-label="保存自定义状态"
-                          title="保存自定义状态"
-                          disabled={disabled || !customValid}
-                          onClick={() => {
-                            void saveStatus(() =>
-                              act(
-                                (binding) =>
-                                  online.mutateAsync({
-                                    ...binding,
-                                    status: 10,
-                                    extStatus: 2000,
-                                    custom: { faceId: Number(faceId), faceType: 1, wording },
-                                  }),
-                                'QQ 状态',
-                                (data) =>
-                                  !data.statusError &&
-                                  data.status?.type === 10 &&
-                                  data.status.subType === 2000 &&
-                                  data.status.customStatus?.text === wording &&
-                                  data.status.customStatus?.faceId === Number(faceId),
-                              ),
-                            );
-                          }}
-                        >
-                          <Save size={16} />
-                        </button>
-                      </div>
-                      {choosingFace && !disabled && (
-                        <div
-                          ref={facePanel}
-                          id={facePickerId}
-                          className="weq-qq-write-face-picker"
-                          role="group"
-                          aria-label="状态表情选择"
-                          onKeyDown={(event) => {
-                            if (event.key === 'Escape') {
-                              event.stopPropagation();
-                              setChoosingFace(false);
-                              faceTrigger.current?.focus();
-                            }
-                          }}
-                        >
-                          <FacePicker
-                            purpose="status"
-                            selectedFaceId={selectedFace?.id}
-                            onPick={(face) => {
-                              setFaceId(String(face.faceId));
-                              setChoosingFace(false);
-                              faceTrigger.current?.focus();
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  }
-                />
-                <QQWriteActionRow
-                  label="清除自定义状态"
-                  disabled={disabled}
-                  icon={<X size={15} />}
-                  onClick={() => {
-                    void saveStatus(() =>
-                      act(
-                        (binding) => online.mutateAsync({ ...binding, status: 10, extStatus: 0 }),
-                        'QQ 状态',
-                        (data) =>
-                          !data.statusError && data.status?.type === 10 && !data.status.subType,
-                      ),
-                    );
-                  }}
-                />
-              </>
-            }
-          />
-        )}
-      </SelfProfileField>
     ),
   };
   return (

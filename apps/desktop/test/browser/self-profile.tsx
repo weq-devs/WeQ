@@ -6,10 +6,19 @@ import { ContactProfileDialog } from '../../src/renderer/src/im-template/templat
 import { useViewState } from '../../src/renderer/src/state/view';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
+import { TitleBar } from '../../src/renderer/src/im-template/template/TitleBar';
+import { MobileWebNavigation } from '../../src/renderer/src/components/MobileWebNavigation';
+import { OnlineStatus } from '../../src/renderer/src/components/OnlineStatus';
+import { ContactList } from '../../src/renderer/src/im-template/template/conversationLists';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 
-Object.assign(window, { selfProfileQa: qa, profileDisplayQa: displayQa });
+const statusEntryQa = { selections: 0 };
+Object.assign(window, {
+  selfProfileQa: qa,
+  profileDisplayQa: displayQa,
+  selfStatusEntryQa: statusEntryQa,
+});
 useViewState.setState({ openedUin: '10001' });
 const directory = {
   selfUin: '10001',
@@ -32,6 +41,47 @@ function Fixture() {
     avatarUrl: '/_avatar/synthetic',
     createdAt: '',
   };
+  if (params.has('titlebar')) return <TitleBar user={contact} />;
+  if (params.has('mobile-header'))
+    return (
+      <div className="weq-web-shell">
+        <MobileWebNavigation
+          user={contact}
+          view="messages"
+          hidden={false}
+          query=""
+          onQueryChange={() => {}}
+          messageBadgeCount={0}
+          contactBadgeCount={0}
+          onViewChange={() => {}}
+          onOpenSettings={() => {}}
+          onOpenDressUp={() => {}}
+          onOpenCollection={() => {}}
+        />
+      </div>
+    );
+  if (params.has('self-chat-status')) return <OnlineStatus uid="u_self" showBaseStatus />;
+  if (params.has('directory'))
+    return (
+      <ContactList
+        contacts={[
+          {
+            ...contact,
+            onlineStatusObj: {
+              uid: 'u_self',
+              type: 10,
+              typeName: '在线',
+              subType: 0,
+              displayStatus: '在线',
+            },
+          },
+        ]}
+        activeContactId={null}
+        onSelect={() => {
+          statusEntryQa.selections++;
+        }}
+      />
+    );
   if (params.has('member'))
     return <MemberProfileCard member={contact} anchor={{ x: 100, y: 80 }} onClose={() => {}} />;
   return (

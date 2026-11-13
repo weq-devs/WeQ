@@ -64,6 +64,7 @@ export function TitleBar({
             <OnlineStatus
               key={user.uid}
               uid={user.uid}
+              selfUin={user.identityValue}
               className="weq-title-online-status"
               refetchInterval={15_000}
             />
