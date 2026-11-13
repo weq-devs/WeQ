@@ -156,7 +156,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
     'Resource ID',
   ],
   ['agentlab', '已保存的服务商', '已保存的 provider', 'API Key', 'Base URL', '服务商'],
-  ['agentlab', '默认模型', 'LLM 默认模型'],
+  ['agentlab', '默认文本模型', 'LLM 默认文本模型', '默认模型', 'LLM 默认模型'],
   ['intent-sense', '启用意图感知'],
   ['intent-sense', '意图感知运行方式', '本地意图模型'],
   ['intent-sense', '意图模型资源（全局）', '意图模型资源', '使用下载镜像', 'hf-mirror.com 镜像'],

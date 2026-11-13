@@ -5,7 +5,7 @@ import { useTabActive } from '../RetainedTabs';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 import { Row, QueryError } from './controls';
 
-/** AI 功能页的相同模型项目保持相同位置、文案与默认模型选项。 */
+/** AI 功能页的相同模型项目保持相同位置、文案与默认文本模型选项。 */
 export function ApiModelRow({
   settingId,
   lastError,
@@ -137,8 +137,8 @@ export function ApiModelSelect({
       ) : null}
       {allowDefault && defaultModel.error ? (
         <QueryError
-          message={`默认模型读取失败：${defaultModel.error.message}`}
-          retryLabel="重新读取默认模型"
+          message={`默认文本模型读取失败：${defaultModel.error.message}`}
+          retryLabel="重新读取默认文本模型"
           retrying={defaultModel.isFetching}
           onRetry={() => void defaultModel.refetch()}
         />

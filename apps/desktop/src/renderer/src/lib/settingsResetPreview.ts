@@ -60,8 +60,8 @@ export function formatResetValue(value: unknown, id = ''): string {
   if (value === false) return '关闭';
   if (value === '' || value === null) {
     if (id === 'theme-accent:accent') return '预设主题色';
-    if (id === 'api-default:model') return '未设置默认模型';
-    if (id.endsWith('ProviderRef') || id.endsWith(':providerRef')) return '使用默认模型';
+    if (id === 'api-default:model') return '未设置默认文本模型';
+    if (id.endsWith('ProviderRef') || id.endsWith(':providerRef')) return '使用默认文本模型';
     if (id === 'auto-enter:account') return '不自动进入账号';
     if (id === 'rkey:enabled' || id === 'sse-targets:enabled') return '未启用';
     return '默认／未设置';
@@ -82,8 +82,8 @@ export function formatResetValue(value: unknown, id = ''): string {
       return `标签：${formatResetValue(data.showTags)}；问候语：${formatResetValue(data.showGreeting)}；一言：${formatResetValue(data.showHitokoto)}；屏蔽词：${formatResetValue(data.blockedWords)}`;
     if ('enabled' in data && 'screenshot' in data)
       return `链接预览：${formatResetValue(data.enabled)}；网页截图：${formatResetValue(data.screenshot)}`;
-    if (data.useDefault) return '使用默认模型';
-    if (typeof data.model === 'string') return data.model || '使用默认模型';
+    if (data.useDefault) return '使用默认文本模型';
+    if (typeof data.model === 'string') return data.model || '使用默认文本模型';
     if (typeof data.name === 'string') return data.name;
     if (typeof data.uin === 'string') return `QQ ${data.uin}`;
     return '自定义配置';

@@ -77,8 +77,8 @@ function mount(content: () => ReactElement = () => createElement(DefaultApiModel
   };
 }
 
-describe('LLM 默认模型设置', () => {
-  it('助手等入口统一默认模型文案，旧资料中未使用的可选模型仍保留原提示', () => {
+describe('LLM 默认文本模型设置', () => {
+  it('助手等入口统一默认文本模型文案，旧资料中未使用的可选模型仍保留原提示', () => {
     function Labels() {
       const label = useModelSelectionLabel();
       return createElement(
@@ -155,6 +155,9 @@ describe('LLM 默认模型设置', () => {
   it('不自动选择首项，只列聊天模型；显式选择及清空提交真实引用', async () => {
     const page = mount();
     try {
+      expect(page.host.textContent).toContain('默认文本模型');
+      expect(page.select().getAttribute('aria-label')).toBe('默认文本模型');
+      expect(page.select().selectedOptions[0]?.textContent).toBe('未设置默认文本模型');
       expect(page.select().value).toBe('');
       expect([...page.select().options].map((option) => option.textContent)).not.toContain(
         'embedding',
@@ -180,7 +183,7 @@ describe('LLM 默认模型设置', () => {
 
   it('失效引用保留并显示原因，保存失败不改变已存选择', async () => {
     const saved = { providerId: 'removed', model: 'missing-chat' };
-    f.status = { ref: saved, available: false, error: '默认模型的 provider 不可用：removed' };
+    f.status = { ref: saved, available: false, error: '默认文本模型的 provider 不可用：removed' };
     f.save.mockRejectedValueOnce(new Error('合成写入失败'));
     const page = mount();
     try {
@@ -203,7 +206,7 @@ describe('LLM 默认模型设置', () => {
     const page = mount();
     try {
       expect(page.select().disabled).toBe(true);
-      expect(page.host.textContent).toContain('默认模型读取失败');
+      expect(page.host.textContent).toContain('默认文本模型读取失败');
       act(() => page.host.querySelector<HTMLButtonElement>('button')!.click());
       expect(f.refetch).toHaveBeenCalled();
       expect(f.save).not.toHaveBeenCalled();

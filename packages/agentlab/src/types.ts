@@ -43,7 +43,7 @@ export interface AgentLabModelRef {
   model: string;
 }
 
-/** 显式继承全局默认模型；缺失或 null 仍表示未选择。 */
+/** 显式继承全局默认文本模型；缺失或 null 仍表示未选择。 */
 export interface AgentLabDefaultModelRef {
   useDefault: true;
 }

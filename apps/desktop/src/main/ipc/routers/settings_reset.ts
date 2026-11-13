@@ -232,7 +232,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   add(
     'api-default',
     'model',
-    '默认模型',
+    '默认文本模型',
     current.agentLab.defaultModel,
     defaults.agentLab.defaultModel,
     () => b.setAgentLabDefaultModel({ ref: defaults.agentLab.defaultModel }),

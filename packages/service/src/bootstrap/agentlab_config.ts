@@ -91,7 +91,7 @@ export class AgentLabConfigService {
       return {
         ref,
         available: false,
-        error: error instanceof Error ? error.message : '默认模型不可用',
+        error: error instanceof Error ? error.message : '默认文本模型不可用',
       };
     }
   }
@@ -99,7 +99,7 @@ export class AgentLabConfigService {
   setDefaultModel(ref: AgentLabModelRef | null) {
     const next = ref ? { providerId: ref.providerId.trim(), model: ref.model.trim() } : null;
     if (next && (next.providerId.includes('\0') || next.model.includes('\0')))
-      throw new Error('默认模型引用无效');
+      throw new Error('默认文本模型引用无效');
     if (next) this.resolveDefaultEndpoint(next);
     this.userConfig.setSettings({ agentLab: { defaultModel: next } });
     return this.getDefaultModelStatus();
@@ -109,16 +109,16 @@ export class AgentLabConfigService {
     ref = this.getDefaultModel(),
     capability: AgentLabModelCapability = 'chat',
   ): AgentLabEndpoint {
-    if (!ref) throw new Error('未设置默认模型');
+    if (!ref) throw new Error('未设置默认文本模型');
     const provider = this.getProvider(ref.providerId);
-    if (!provider) throw new Error(`默认模型的 provider 不可用：${ref.providerId}`);
+    if (!provider) throw new Error(`默认文本模型的 provider 不可用：${ref.providerId}`);
     const model = provider.models.find(
       (item) =>
         item.id === ref.model &&
         item.capabilities?.includes('chat') !== false &&
         item.capabilities?.includes(capability) !== false,
     );
-    if (!model) throw new Error(`默认模型不存在或不支持 ${capability}：${ref.model}`);
+    if (!model) throw new Error(`默认文本模型不存在或不支持 ${capability}：${ref.model}`);
     validateProviderConfig(provider);
     return this.resolveEndpoint(ref);
   }
@@ -139,7 +139,7 @@ export class AgentLabConfigService {
     if (!isDefaultModelSelection(ref)) return { ...ref };
     const current = this.getDefaultModel();
     this.resolveDefaultEndpoint(current, capability);
-    if (!current) throw new Error('未设置默认模型');
+    if (!current) throw new Error('未设置默认文本模型');
     return { ...current };
   }
 

@@ -26,7 +26,7 @@ export function DefaultApiModelRow() {
       await utils.bootstrap.getSettings.invalidate();
       await utils.account.intentSense.getStatus.invalidate();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '默认模型保存失败');
+      setError(cause instanceof Error ? cause.message : '默认文本模型保存失败');
     }
   }
 
@@ -34,13 +34,13 @@ export function DefaultApiModelRow() {
     <>
       <Row
         settingId="llm-default-model"
-        label="默认模型"
+        label="默认文本模型"
         control={
           <ApiModelSelect
             allowDefault={false}
-            label="LLM 默认模型"
+            label="默认文本模型"
             value={status.data?.ref ?? null}
-            emptyLabel="未设置默认模型"
+            emptyLabel="未设置默认文本模型"
             disabled={!status.data || !!status.error || save.isLoading}
             onChange={(ref) => {
               if (!isDefaultModelSelection(ref)) void onChange(ref);
@@ -50,8 +50,8 @@ export function DefaultApiModelRow() {
       />
       {status.error ? (
         <QueryError
-          message={`默认模型读取失败：${status.error.message}`}
-          retryLabel="重新读取默认模型"
+          message={`默认文本模型读取失败：${status.error.message}`}
+          retryLabel="重新读取默认文本模型"
           retrying={status.isFetching}
           onRetry={() => void status.refetch()}
         />

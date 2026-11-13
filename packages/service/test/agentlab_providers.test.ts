@@ -113,10 +113,10 @@ describe('多 provider 持久化与调用隔离', () => {
     expect(() => f.service.resolveEndpoint({ useDefault: true }, 'embedding')).toThrow('支持');
     expect(() => f.service.resolveEndpoint({ useDefault: true }, 'vision')).toThrow('支持');
     f.service.setDefaultModel(null);
-    expect(() => f.service.resolveEndpoint({ useDefault: true })).toThrow('未设置默认模型');
+    expect(() => f.service.resolveEndpoint({ useDefault: true })).toThrow('未设置默认文本模型');
     expect(f.service.resolveEndpoint(first).model).toBe('first');
   });
-  it('默认模型显式保存，跨重启和 provider 编辑保留；清空不自动选择其他模型', () => {
+  it('默认文本模型显式保存，跨重启和 provider 编辑保留；清空不自动选择其他模型', () => {
     const f = fixture();
     expect(f.service.getDefaultModelStatus()).toEqual({ ref: null, available: false, error: null });
     const provider = {
@@ -145,7 +145,7 @@ describe('多 provider 持久化与调用隔离', () => {
       available: false,
       error: null,
     });
-    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('未设置默认模型');
+    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('未设置默认文本模型');
   });
 
   it('拒绝无效默认选择；已选模型被删除时保留引用并明确不可用，不扩大为其他端点', () => {
