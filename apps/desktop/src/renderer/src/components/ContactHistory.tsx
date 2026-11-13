@@ -7,6 +7,7 @@ import { useViewState } from '../state/view';
 import { useTabActive } from './RetainedTabs';
 import '../styles/contact-history.css';
 import { contactHistorySection, type ContactWorkspaceSection } from '../lib/contactWorkspace';
+import { CONTACT_HISTORY_DISPLAY_ENABLED } from '../lib/contactHistoryVisibility';
 
 const _time = eventTimeFormatter;
 const labels: Record<string, string> = {
@@ -133,14 +134,16 @@ function categoryName(name: string) {
 }
 const sourceLabel: Record<string, string> = { online: '云端', local: '本地', legacy: '原有缓存' };
 
-/** 历史页仅读取账号配置与本地历史，不使用会触发在线能力检查的写操作 session。 */
-export function ContactHistory({
-  entity,
-  section,
-}: {
+type ContactHistoryProps = {
   entity: string;
   section?: ContactWorkspaceSection;
-}) {
+};
+export function ContactHistory(props: ContactHistoryProps) {
+  return CONTACT_HISTORY_DISPLAY_ENABLED ? <EnabledContactHistory {...props} /> : null;
+}
+
+/** 历史页仅读取账号配置与本地历史，不使用会触发在线能力检查的写操作 session。 */
+function EnabledContactHistory({ entity, section }: ContactHistoryProps) {
   const active = useTabActive();
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {

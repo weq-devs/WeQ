@@ -4,6 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContactFieldHistoryProvider } from '../src/renderer/src/components/contactProfile/ContactFieldHistory';
 import { ContactRow } from '../src/renderer/src/components/contactProfile/ContactRow';
+vi.mock('../src/renderer/src/lib/contactHistoryVisibility', () => ({
+  CONTACT_HISTORY_DISPLAY_ENABLED: true,
+}));
 type Row = { id: number; first_at: number; last_at: number; value: unknown };
 type Page = { rows: Row[]; nextBefore: number | null };
 const rpc = vi.hoisted(() => ({

@@ -29,9 +29,13 @@
 
 `ProfileDisclosure` 仅用于问答、本人编辑等仍需折叠的内容，收起保留现场并通过 `TabActivity` 暂停读取。互动画像随关系页直接挂载，不再折叠。`ProfileExtraDialog` 的教育和签名、共同群名单、项目历史使用显式锚点及 `presentation=popover`、`anchorPlacement=side`；QQ 秀展柜与本人头像历史同样支持锚点，保留原分页、互动与关闭行为。`ContactDressRow` 仅输出真实装扮素材，不复用带头像和 QQ 秀的个性主页舞台。
 
-### 项目级历史
+### 项目级历史（展示暂撤下）
 
-`ContactFieldHistoryProvider` 绑定账号、数据源、对象及可选成员 UID；`ContactRow` 和分区标题根据项目元数据在原位置挂历史按钮。弹窗内容默认不继承宿主的项目历史，打开其他联系人后由其资料 Provider 提供对应历史；`Modal` 与 `OverlayLayer` 复用纯上下文隔离组件。联系人页不再挂载汇总 `ContactHistory`，原组件仍供群资料等既有调用方使用。
+当前 `contactHistoryVisibility` 中的固定常量 `CONTACT_HISTORY_DISPLAY_ENABLED=false` 统一关闭自建资料历史展示，不提供设置或隐藏菜单。`ContactFieldHistoryProvider` 只隔离旧上下文并透传正文，不挂载查询；字段可用性恒为假，字段按钮与汇总 `ContactHistory` 不挂载内容。QQ 原生的 `profileExtras.signatureHistory` 与 `profileExtras.avatarHistory` 保留原路径，不经过这个开关。已有存储、采集及迁移数据不变。
+
+以下为保留但未挂到正式界面的实现说明；实现回归在测试中显式启用，正式关闭状态由 `contact_history_visibility.test.ts` 验证。
+
+启用展示时，`ContactFieldHistoryProvider` 绑定账号、数据源、对象及可选成员 UID；`ContactRow` 和分区标题根据项目元数据在原位置挂历史按钮。弹窗内容默认不继承宿主的项目历史，打开其他联系人后由其资料 Provider 提供对应历史；`Modal` 与 `OverlayLayer` 复用纯上下文隔离组件。
 
 - `history.fieldSummary` 只在打开资料时读取本地历史，worker 每批最多处理 100 条该对象的记录，返回变化项目和是否仍在构建；构建中短间隔继续，完成后仅活动资料页每 30 秒校准一次。离开后停止。无关的大名单和照片正文不解压，不扫描整个账号。
 - `projectContactHistoryFields` 为已知资料返回逐项目投影：未返回字段与明确清空分开，生日／地区的部分返回保留既有子字段，集合按稳定身份归一；同来源的不同接口与查询分页共用字段流，不把本地和云端初值差异当作真实历史。群成员投影锁定群和 UID，成员换页不产生丢失或误判。

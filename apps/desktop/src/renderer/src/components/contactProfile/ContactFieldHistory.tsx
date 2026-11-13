@@ -9,6 +9,8 @@ import { Modal } from '../Dialog';
 import { FieldHistoryContent } from './FieldHistoryContent';
 import { ContactFieldHistoryContext as Context } from '../../lib/contactFieldHistoryContext';
 import { fieldPhotoHistoryValue } from '../../lib/contactFieldPresentation';
+import { CONTACT_HISTORY_DISPLAY_ENABLED } from '../../lib/contactHistoryVisibility';
+import { ContactFieldHistoryBoundary } from '../../lib/contactFieldHistoryContext';
 
 export const contactHistoryFieldForLabel: Record<string, string> = {
   昵称: 'nick',
@@ -74,18 +76,26 @@ export const contactHistoryFieldForLabel: Record<string, string> = {
 export function useContactFieldHistoryAvailable(label: string, field?: string) {
   const context = useContext(Context);
   const key = field ?? contactHistoryFieldForLabel[label];
-  return Boolean(context && key && context.fields.includes(key));
+  return CONTACT_HISTORY_DISPLAY_ENABLED && Boolean(context && key && context.fields.includes(key));
 }
 
-export function ContactFieldHistoryProvider({
-  entity,
-  memberUid,
-  children,
-}: {
+type FieldHistoryProviderProps = {
   entity: string;
   memberUid?: string;
   children: ReactNode;
-}) {
+};
+export function ContactFieldHistoryProvider(props: FieldHistoryProviderProps) {
+  return CONTACT_HISTORY_DISPLAY_ENABLED ? (
+    <EnabledContactFieldHistoryProvider {...props} />
+  ) : (
+    <ContactFieldHistoryBoundary>{props.children}</ContactFieldHistoryBoundary>
+  );
+}
+function EnabledContactFieldHistoryProvider({
+  entity,
+  memberUid,
+  children,
+}: FieldHistoryProviderProps) {
   const session = useQQWriteSession(`field-history:${entity}:${memberUid ?? ''}`, true);
   const active = useTabActive();
   const query = useQuery({
@@ -113,7 +123,10 @@ export function ContactFieldHistoryProvider({
   );
 }
 
-export function ContactFieldHistoryButton({ field, label }: { field?: string; label: string }) {
+export function ContactFieldHistoryButton(props: { field?: string; label: string }) {
+  return CONTACT_HISTORY_DISPLAY_ENABLED ? <EnabledContactFieldHistoryButton {...props} /> : null;
+}
+function EnabledContactFieldHistoryButton({ field, label }: { field?: string; label: string }) {
   const context = useContext(Context);
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);

@@ -1,5 +1,7 @@
 # 联系人与群资料历史
 
+自建资料历史的界面展示当前已暂时撤下，仅保留 QQ 原生签名历史与本人头像历史。以下采集、存储、迁移和查询接口仍保留，撤下展示不删除已保存数据；具体入口状态见[联系人资料](./contact-profile.md)的「项目级历史」。
+
 ## 接入方式
 
 `ContactDirectoryRuntime` 为账号创建一个 `ContactHistoryService`，安装共享 service 实例的只读方法包装。桌面、Web、Remote 和 MCP 复用这些实例，不在各路由重复保存。接入清单以 `packages/service/src/account/contact_history_capture.ts` 的 `CONTACT_HISTORY_CAPTURE` 为准，增加资料读取方法时同步补清单及回归用例。

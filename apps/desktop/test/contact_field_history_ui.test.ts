@@ -6,6 +6,10 @@ import { ContactFieldHistoryProvider } from '../src/renderer/src/components/cont
 import { ContactRow } from '../src/renderer/src/components/contactProfile/ContactRow';
 import { Modal } from '../src/renderer/src/components/Dialog';
 import { OverlayLayer } from '../src/renderer/src/components/OverlayLayer';
+// 待恢复展示的实现继续保留回归；正式入口关闭状态由 contact_history_visibility 验证。
+vi.mock('../src/renderer/src/lib/contactHistoryVisibility', () => ({
+  CONTACT_HISTORY_DISPLAY_ENABLED: true,
+}));
 const rpc = vi.hoisted(() => ({
   summary: vi.fn(async () => ({ fields: ['company'], pending: false })),
   versions: vi.fn(async () => ({
