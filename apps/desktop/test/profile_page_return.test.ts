@@ -182,3 +182,60 @@ it('从工具页查看资料期间保留编辑现场，返回恢复工具页，�
   act(() => navigate('home', false));
   expect(close).toHaveBeenCalledOnce();
 });
+
+it.each(['main', 'sidecar'] as const)(
+  '从 %s 查看资料时新开的设置可见，关闭恢复资料及来源工具现场',
+  (placement) => {
+    let navigate: (key: string, suspended: boolean) => void = () => {};
+    const close = vi.fn();
+    function Tool() {
+      const [count, setCount] = useState(0);
+      return h('button', { 'data-tool': true, onClick: () => setCount(count + 1) }, count);
+    }
+    function Page() {
+      const [state, setState] = useState({ key: 'tools', suspended: false });
+      const [settings, setSettings] = useState(false);
+      navigate = (key, suspended) => setState({ key, suspended });
+      return h(
+        WorkspacePages,
+        { navigationKey: state.key, suspended: state.suspended },
+        h(
+          WorkspaceContent,
+          null,
+          h('button', { 'data-open-settings': true, onClick: () => setSettings(true) }, '打开设置'),
+        ),
+        h(WorkspacePage, { title: '来源工具', placement, onClose: close }, h(Tool)),
+        settings &&
+          h(
+            WorkspacePage,
+            { title: '设置', standalone: true, onClose: () => setSettings(false) },
+            h(
+              'button',
+              { 'data-close-settings': true, onClick: () => setSettings(false) },
+              '关闭设置',
+            ),
+          ),
+      );
+    }
+    const host = mount(h(Page));
+    const tool = host.querySelector<HTMLButtonElement>('[data-tool]')!;
+    act(() => tool.click());
+    act(() => navigate('contacts:self', true));
+    act(() => host.querySelector<HTMLButtonElement>('[data-open-settings]')!.click());
+    expect(host.querySelector('[data-close-settings]')?.closest('[hidden]')).toBeNull();
+    expect(host.querySelector('[data-close-settings]')).not.toBeNull();
+    expect(host.querySelector('.weq-workspace-page-host')?.hasAttribute('hidden')).toBe(false);
+    expect(host.querySelector('#workspace-base-page')?.hasAttribute('hidden')).toBe(true);
+    expect(host.querySelector('[data-tool]')).toBe(tool);
+    expect(tool.closest('[hidden]')).not.toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    pressEscape();
+    expect(host.querySelector('[data-close-settings]')).toBeNull();
+    expect(host.querySelector('#workspace-base-page')?.hasAttribute('hidden')).toBe(false);
+    expect(host.querySelector('[data-tool]')).toBe(tool);
+    act(() => navigate('tools', false));
+    expect(tool.closest('[hidden]')).toBeNull();
+    expect(tool.textContent).toBe('1');
+    expect(close).not.toHaveBeenCalled();
+  },
+);
