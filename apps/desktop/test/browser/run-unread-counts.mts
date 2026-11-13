@@ -90,8 +90,12 @@ try {
   assert(address && typeof address !== 'string');
   if (output) await mkdir(output, { recursive: true });
   const results: object[] = [];
-  for (const width of [1280, 390]) {
-    await page.setViewportSize({ width, height: 800 });
+  for (const { width, height } of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 844 },
+    { width: 844, height: 390 },
+  ]) {
+    await page.setViewportSize({ width, height });
     for (const theme of ['light', 'dark']) {
       await service.dispose();
       service = createService();
@@ -162,7 +166,7 @@ try {
             JSON.stringify(frames),
           );
         }
-        results.push({ width, theme, step: step.name, count: value });
+        results.push({ width, height, theme, step: step.name, count: value });
       }
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
     }

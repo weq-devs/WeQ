@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
+import { unreadRequestBatches, type UnreadRequest } from '../lib/unreadRequests';
 import { dataSaverActive, useDataSaver } from '../lib/dataSaver';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
 import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
@@ -2215,6 +2216,13 @@ export function MainView(): ReactElement {
   ) : (
     workspace
   );
+}
+
+async function readUnreadInfos(input: UnreadRequest) {
+  const batches = unreadRequestBatches(input, IS_WEB);
+  return (
+    await Promise.all(batches.map((batch) => client.account.getUnreadInfos.query(batch)))
+  ).flat();
 }
 
 function MainWorkspace(): ReactElement {
@@ -5642,8 +5650,6 @@ function MainWorkspace(): ReactElement {
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     let disposed = false;
-    let initialized = false;
-    const startupTargets = new Map<string, { chatType: number; uid: string }>();
     const binding = messageBindingRef.current;
     const source = messageScope;
     const isCurrent = () =>
@@ -5666,30 +5672,10 @@ function MainWorkspace(): ReactElement {
         const chatType = unreadChatType(contact.chatType);
         return chatType === null ? [] : [{ chatType, uid: contact.targetUid }];
       });
-      const batches = Array.from(
-        { length: Math.ceil(targets.length / UNREAD_BATCH_SIZE) },
-        (_, index) => targets.slice(index * UNREAD_BATCH_SIZE, (index + 1) * UNREAD_BATCH_SIZE),
-      );
       // 共享服务快照一次准备；所有批次返回后只提交一帧角标，不逐会话回填。
-      const rows = (
-        await Promise.all(
-          batches.map((batch) =>
-            client.account.getUnreadInfos.query({ ...binding, targets: batch }),
-          ),
-        )
-      ).flat();
+      const rows = await readUnreadInfos({ ...binding, targets });
       if (!isCurrent()) return true;
       applyLive(rows, startedAt);
-      initialized = true;
-      if (startupTargets.size) {
-        liveRefresh.request(
-          [...startupTargets.values()].flatMap((target) => {
-            const chatType = unreadChatType(target.chatType);
-            return chatType === null ? [] : [{ ...target, chatType }];
-          }),
-        );
-        startupTargets.clear();
-      }
       return !rows.some((row) => row.readError);
     }
 
@@ -5735,7 +5721,7 @@ function MainWorkspace(): ReactElement {
     const readTargets = async (targets: Target[]) => {
       if (!isCurrent() || !binding) return true;
       const startedAt = guard.revision();
-      const rows = await client.account.getUnreadInfos.query({ ...binding, targets });
+      const rows = await readUnreadInfos({ ...binding, targets });
       if (!isCurrent()) return true;
       applyLive(rows, startedAt);
       return rows
@@ -5751,11 +5737,6 @@ function MainWorkspace(): ReactElement {
       ? client.account.onUnreadChanged.subscribe(binding, {
           onData(targets) {
             if (!isCurrent()) return;
-            if (!initialized) {
-              for (const target of targets)
-                startupTargets.set(`${target.chatType}:${target.uid}`, target);
-              return;
-            }
             const selection = selectionRef.current;
             for (const target of targets) {
               const kind = target.chatType === 2 ? 'group' : 'c2c';
@@ -7483,7 +7464,7 @@ function MainWorkspace(): ReactElement {
               isCurrent,
             );
             if (changed !== null && isCurrent()) {
-              const rows = await client.account.getUnreadInfos.query({
+              const rows = await readUnreadInfos({
                 expectedAccountUin: openedUin!,
                 expectedAccountConfigId: binding?.expectedAccountConfigId,
                 targets: [{ chatType: request.chatType, uid: conv.id }],
@@ -7703,7 +7684,7 @@ function MainWorkspace(): ReactElement {
       let info: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number] | undefined;
       try {
         if (!openedUin) return;
-        [info] = await client.account.getUnreadInfos.query({
+        [info] = await readUnreadInfos({
           expectedAccountUin: openedUin,
           expectedAccountConfigId: binding?.expectedAccountConfigId,
           targets: [{ chatType, uid: convId }],
@@ -8733,7 +8714,7 @@ function MainWorkspace(): ReactElement {
           active,
           resolveReadSeq: async () => {
             try {
-              const [info] = await client.account.getUnreadInfos.query({
+              const [info] = await readUnreadInfos({
                 ...binding,
                 targets: [{ chatType: entryChatType, uid: conv }],
               });

@@ -19,6 +19,7 @@ import {
 import type { AppRouter } from '../../../shared/router';
 import { useWebConnection } from '../state/webConnection';
 import { networkClientId } from '../lib/dataSaver';
+import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/unreadRequests';
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
@@ -71,7 +72,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
       false: splitLink({
         condition: (op) => independentReads.has(op.path),
         true: httpLink(httpOptions),
-        false: httpBatchLink({ ...httpOptions, maxURLLength: 2048 }),
+        false: httpBatchLink({ ...httpOptions, maxURLLength: HTTP_BATCH_MAX_URL_LENGTH }),
       }),
     }),
   ];

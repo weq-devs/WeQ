@@ -89,6 +89,8 @@ const f = vi.hoisted(() => ({
   }>,
   headEnabled: false,
   unreadReads: [] as UnreadInput[],
+  unreadFailures: 0,
+  unreadReply: undefined as (() => Promise<unknown>) | undefined,
   dbChanged: undefined as (() => void) | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
@@ -199,6 +201,15 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             if (['listLatest', 'listFrom'].includes(path.at(-1) ?? '')) return f.refreshRows;
             if (path.at(-1) === 'getUnreadInfos' && f.unreadMode && input) {
               f.unreadReads.push(input);
+              if (f.unreadFailures > 0) {
+                f.unreadFailures--;
+                throw new Error('首次未读读取失败');
+              }
+              if (f.unreadReply) {
+                const reply = f.unreadReply;
+                f.unreadReply = undefined;
+                return reply();
+              }
               return input.targets.map((target) => ({
                 ...target,
                 peer: `${target.chatType}_${target.uid}`,
@@ -370,6 +381,8 @@ afterEach(() => {
   f.groups = [];
   f.headEnabled = false;
   f.unreadReads.length = 0;
+  f.unreadFailures = 0;
+  f.unreadReply = undefined;
   f.dbChanged = undefined;
   f.unreadChanged = undefined;
   f.refreshRows = undefined;
@@ -678,68 +691,87 @@ it('等值删除标记迟到不重复贴底，真实标记增删和正文更新�
   }
 });
 
-it('MainView 单条未读更新在深比较前只重建受影响会话，清零仍即时更新', async () => {
-  vi.useFakeTimers();
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.stubGlobal('localStorage', new Storage());
-  useViewState.getState().setOpenedUin('90001');
-  f.unreadMode = true;
-  const reconcile = vi.spyOn(conversationRows, 'reconcileConversationRows');
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const projected = () =>
-    reconcile.mock.calls
-      .filter(([, rows]) => rows.some((row) => 'pinStateKnown' in row))
-      .at(-1)?.[1];
-  const count = () =>
-    (
-      JSON.parse(host.querySelector('[data-previews]')!.textContent!) as Array<{
-        id: string;
-        unreadCount?: number;
-      }>
-    ).find((row) => row.id === '10001')?.unreadCount;
-  try {
-    await act(async () =>
-      root.render(
-        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
-      ),
-    );
-    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
-    await act(async () => vi.advanceTimersByTimeAsync(200));
-    const before = new Map(projected()!.map((row) => [row.id, row]));
-    expect(before.size).toBe(f.recent.length);
-    reconcile.mockClear();
-    f.unreadCounts['10001'] = 9;
-    await act(async () => {
-      f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(count()).toBe(9);
-    const after = projected()!;
-    expect(after.filter((row) => row !== before.get(row.id)).map((row) => row.id)).toEqual([
-      '10001',
-    ]);
-    const byId = new Map(after.map((row) => [row.id, row]));
-    reconcile.mockClear();
-    f.unreadCounts['10001'] = 0;
-    await act(async () => {
-      f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(count()).toBe(0);
-    expect(
-      projected()!
-        .filter((row) => row !== byId.get(row.id))
-        .map((row) => row.id),
-    ).toEqual(['10001']);
-  } finally {
-    act(() => root.unmount());
-    client.clear();
-    host.remove();
-  }
-});
+it.each(['success', 'failed', 'pending'] as const)(
+  'MainView 首次读取=%s 时实时未读仍立即回显，迟到快照及清零只更新对应会话',
+  async (firstRead) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    f.unreadMode = true;
+    f.unreadFailures = firstRead === 'failed' ? 1 : 0;
+    let finishSnapshot: (() => void) | undefined;
+    if (firstRead === 'pending')
+      f.unreadReply = () =>
+        new Promise((resolve) => {
+          finishSnapshot = () =>
+            resolve(f.recent.map((row) => ({ uid: row.targetUid, unreadCount: 0 })));
+        });
+    const reconcile = vi.spyOn(conversationRows, 'reconcileConversationRows');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const projected = () =>
+      reconcile.mock.calls
+        .filter(([, rows]) => rows.some((row) => 'pinStateKnown' in row))
+        .at(-1)?.[1];
+    const count = () =>
+      (
+        JSON.parse(host.querySelector('[data-previews]')!.textContent!) as Array<{
+          id: string;
+          unreadCount?: number;
+        }>
+      ).find((row) => row.id === '10001')?.unreadCount;
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      const before = new Map(projected()!.map((row) => [row.id, row]));
+      expect(before.size).toBe(f.recent.length);
+      reconcile.mockClear();
+      f.unreadCounts['10001'] = 9;
+      await act(async () => {
+        f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(count()).toBe(9);
+      const after = projected()!;
+      expect(after.filter((row) => row !== before.get(row.id)).map((row) => row.id)).toEqual([
+        '10001',
+      ]);
+      if (finishSnapshot) {
+        await act(async () => {
+          finishSnapshot!();
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(count()).toBe(9);
+      }
+      const byId = new Map(after.map((row) => [row.id, row]));
+      reconcile.mockClear();
+      f.unreadCounts['10001'] = 0;
+      await act(async () => {
+        f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(count()).toBe(0);
+      expect(
+        projected()!
+          .filter((row) => row !== byId.get(row.id))
+          .map((row) => row.id),
+      ).toEqual(['10001']);
+    } finally {
+      act(() => root.unmount());
+      finishSnapshot?.();
+      client.clear();
+      host.remove();
+    }
+  },
+);
 
 it('MainView 单行预览更新时每条会话只计算一次排序时间', async () => {
   vi.useFakeTimers();

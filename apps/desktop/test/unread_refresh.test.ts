@@ -36,7 +36,10 @@ describe('未读刷新调度', () => {
       source.indexOf('const unreadContactsRef'),
       source.indexOf('const unreadDirectoryKey'),
     );
-    expect(effect).toMatch(/Promise\.all\(\s*batches\.map\(/);
+    expect(source).toMatch(/Promise\.all\(\s*batches\.map\(/);
+    expect(effect).toContain('await readUnreadInfos({ ...binding, targets })');
+    expect(effect).not.toContain('initialized');
+    expect(effect).not.toContain('startupTargets');
     expect(effect).toContain('applyLive(rows, startedAt)');
     expect(effect).not.toContain('setInterval');
     expect(effect).not.toContain('while (isCurrent() && initialMessagesPendingRef.current)');

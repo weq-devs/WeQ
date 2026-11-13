@@ -36,6 +36,9 @@ Windows 群会话研究读取已实测，正式 N-API 的目标机运行、私�
 
 前端首次并行获取传输批次，合并为一次状态提交，不等待聊天首屏或 QQ 内存定位，
 不再逐会话精算。账号来源不变时 HMR／刷新器重建保留已显示角标和进行中的阅读保护。
+Web／Remote 按 SuperJSON 序列化及 URL 编码后的实际长度拆分未读请求，遵守 HTTP
+批次的 2048 字符上限；桌面 IPC 仍按最多 256 个会话分批。实时变化独立读取，不等待
+首次全量快照完成；首次失败仍可展示后续成功的实时结果，迟到快照不覆盖较新的变化。
 
 服务端复用文件变化通知，50ms 合并后重读小表，比较每个会话的字段并只通知变化目标。
 有订阅者时共享每 1.5 秒补查，覆盖纯阅读变化；最后一个订阅者退出后停止定时补查。
@@ -58,5 +61,6 @@ Windows 群会话研究读取已实测，正式 N-API 的目标机运行、私�
 `packages/db/test/unread_snapshot.test.ts`、`unread_paging.test.ts` 验证小表字段、全量快照与零历史扫描。
 `packages/service/test/local_unread.test.ts`、`unread_scheduling.test.ts` 验证投影、迁移、共享刷新及操作。
 `apps/desktop/test/browser/run-unread-counts.mts` 验证真实列表的批量绘制、深浅色及窄屏；
+`apps/desktop/test/web_unread_requests.test.ts` 使用真实 tRPC 验证大目录及特殊字符的传输分批；
 `run-unread-hmr.mjs` 验证保留组件状态的 HMR。
 浏览器脚本支持 `WEQ_PLAYWRIGHT_IMPORT` 和 `WEQ_BROWSER_EXECUTABLE` 复用已安装运行时。
