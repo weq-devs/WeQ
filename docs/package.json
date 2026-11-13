@@ -1,6 +1,6 @@
 {
   "name": "@weq/docs",
-  "version": "2.6.1",
+  "version": "2.7.0",
   "private": true,
   "type": "module",
   "description": "WeQ 文档站（VitePress），内容就是仓库 docs/ 目录",

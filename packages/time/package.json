@@ -11,5 +11,6 @@
   "scripts": {
     "test": "node test/run.mjs",
     "typecheck": "tsc --noEmit"
-  }
+  },
+  "version": "2.7.0"
 }
