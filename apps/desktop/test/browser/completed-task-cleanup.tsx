@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { ListTodo, Maximize2 } from 'lucide-react';
+import { EmptyState } from '../../src/renderer/src/components/EmptyState';
 import { createRoot } from 'react-dom/client';
 import { CurrentTaskList } from '../../src/renderer/src/components/tasks/CurrentTaskList';
 import { DialogHost, Modal, useDialog } from '../../src/renderer/src/components/Dialog';
@@ -10,6 +12,7 @@ import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/settings-controls.css';
 import '../../src/renderer/src/styles/long-tasks.css';
 import '../../src/renderer/src/styles/workspace-menu.css';
+import '../../src/renderer/src/styles/workspace-tools.css';
 
 const task: UiTask = {
   id: 'fixture',
@@ -24,6 +27,7 @@ const task: UiTask = {
 declare global {
   interface Window {
     cleanupTheme: (dark: boolean, accent: string) => void;
+    cleanupMenuTasks: (count: number) => void;
   }
 }
 window.cleanupTheme = (dark, accent) => {
@@ -32,6 +36,9 @@ window.cleanupTheme = (dark, accent) => {
 };
 function TaskMenu() {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [count, setCount] = useState(2);
+  const [expanded, setExpanded] = useState(false);
+  window.cleanupMenuTasks = setCount;
   return (
     <>
       <button type="button" onClick={(event) => setAnchor(event.currentTarget)}>
@@ -41,17 +48,55 @@ function TaskMenu() {
         open={Boolean(anchor)}
         presentation="popover"
         anchor={anchor}
-        width={392}
-        className="weq-workspace-menu is-compact"
+        width={expanded ? 1000 : 392}
+        className={`weq-workspace-menu ${expanded ? 'is-expanded' : 'is-compact'}`}
         onClose={() => setAnchor(null)}
         title="任务"
       >
-        <CurrentTaskList
-          layout="compact"
-          exports={[task, { ...task, id: 'menu-running', status: 'running' }]}
-          cleanupBinding={{ expectedAccountUin: 'fixture', expectedAccountConfigId: 'fixture' }}
-          renderExport={(item) => <p>{item.name}</p>}
-        />
+        <div className="weq-workspace-menu-body">
+          <div
+            data-retained-panel
+            style={{ display: 'flex', flex: 1, minHeight: 0, flexDirection: 'column' }}
+          >
+            <div className="weq-export-tool is-tasks">
+              <div className="weq-task-workspace">
+                <CurrentTaskList
+                  layout={expanded ? 'split' : 'compact'}
+                  toolbarAction={
+                    <button
+                      type="button"
+                      className="weq-workspace-control"
+                      title="打开完整任务面板"
+                      aria-label="打开完整任务面板"
+                      onClick={() => setExpanded(!expanded)}
+                    >
+                      <Maximize2 size={16} />
+                    </button>
+                  }
+                  exports={Array.from({ length: count }, (_, index) => ({
+                    ...task,
+                    id: `menu-${index}`,
+                    status: index === 0 ? 'completed' : 'running',
+                  }))}
+                  cleanupBinding={{
+                    expectedAccountUin: 'fixture',
+                    expectedAccountConfigId: 'fixture',
+                  }}
+                  renderExport={(item) => <p>{item.name}</p>}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+        <nav className="weq-workspace-actions" aria-label="内容工具">
+          {['分析', '导出', '查看', '合成'].map((label) => (
+            <button key={label} type="button">
+              <ListTodo />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="weq-workspace-controls">合成底栏</div>
       </Modal>
     </>
   );
@@ -61,6 +106,12 @@ createRoot(document.getElementById('root')!).render(
     <style>{`html,body,#root{margin:0;min-height:100%;background:var(--background)}main{max-width:680px;margin:16px auto;background:var(--weq-chat-bg)}`}</style>
     <main>
       <TaskMenu />
+      {new URLSearchParams(location.search).has('empty-gallery') ? (
+        <>
+          <EmptyState compact title="暂无任务" icon={<ListTodo />} />
+          <EmptyState title="暂无会话" />
+        </>
+      ) : null}
       <CurrentTaskList
         exports={[
           task,

@@ -15,6 +15,7 @@ import {
   FolderOpen,
   ExternalLink,
   FileCheck,
+  ListTodo,
   Pause,
   Play,
   RotateCw,
@@ -58,6 +59,7 @@ import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { IS_WEB } from '../../lib/target';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
+import { EmptyState } from '../EmptyState';
 
 export interface ExportTaskActions {
   pause: (task: UiTask) => unknown;
@@ -79,6 +81,7 @@ export function CurrentTaskList({
   autoSelectId,
   layout = 'inline',
   onOpenDetail,
+  toolbarAction,
   cleanupBinding,
   exportActions,
 }: {
@@ -90,6 +93,7 @@ export function CurrentTaskList({
   autoSelectId?: string | null;
   layout?: 'inline' | 'compact' | 'split';
   onOpenDetail?: () => void;
+  toolbarAction?: ReactNode;
   cleanupBinding?: { expectedAccountUin: string; expectedAccountConfigId: string } | null;
   exportActions?: ExportTaskActions;
 }) {
@@ -770,11 +774,17 @@ export function CurrentTaskList({
     }
   };
   return (
-    <section className={`weq-current-tasks is-${layout}`} aria-label="当前任务列表">
+    <section
+      className={`weq-current-tasks is-${layout}${!items.length ? ' is-empty' : ''}`}
+      aria-label="当前任务列表"
+    >
       <header className="weq-current-tasks-head">
-        <span>
-          {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
-        </span>
+        <div className="weq-current-tasks-summary">
+          <span>
+            {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
+          </span>
+          {toolbarAction}
+        </div>
         <div className="weq-current-tasks-actions">
           <button
             type="button"
@@ -810,37 +820,39 @@ export function CurrentTaskList({
         </p>
       ) : null}
       {!items.length && !hasError ? (
-        <p className="weq-current-tasks-empty">{loading ? '读取任务中…' : '暂无任务'}</p>
+        <EmptyState compact icon={<ListTodo />} title={loading ? '读取任务中…' : '暂无任务'} />
       ) : null}
-      <div className="weq-current-task-columns">
-        <div className="weq-current-task-list">
-          {ordered.map((task) => (
-            <Fragment
-              key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
-            >
-              <LongTaskRow
-                task={task}
-                active={task.id === selectedId}
-                showQuickActions={layout === 'compact'}
-                onSelect={() => {
-                  setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
-                  if (layout === 'compact') onOpenDetail?.();
-                }}
-              />
-              {layout === 'inline' && task.id === selectedId ? (
-                <div className="weq-long-task-detail">{task.detail}</div>
-              ) : null}
-            </Fragment>
-          ))}
-        </div>
-        {layout === 'split' ? (
-          <div className="weq-current-task-details" aria-label="任务步骤详情">
-            {ordered.find((task) => task.id === selectedId)?.detail ?? (
-              <p className="weq-workspace-empty">请选择任务</p>
-            )}
+      {items.length ? (
+        <div className="weq-current-task-columns">
+          <div className="weq-current-task-list">
+            {ordered.map((task) => (
+              <Fragment
+                key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
+              >
+                <LongTaskRow
+                  task={task}
+                  active={task.id === selectedId}
+                  showQuickActions={layout === 'compact'}
+                  onSelect={() => {
+                    setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
+                    if (layout === 'compact') onOpenDetail?.();
+                  }}
+                />
+                {layout === 'inline' && task.id === selectedId ? (
+                  <div className="weq-long-task-detail">{task.detail}</div>
+                ) : null}
+              </Fragment>
+            ))}
           </div>
-        ) : null}
-      </div>
+          {layout === 'split' ? (
+            <div className="weq-current-task-details" aria-label="任务步骤详情">
+              {ordered.find((task) => task.id === selectedId)?.detail ?? (
+                <EmptyState compact icon={<ListTodo />} title="请选择任务" />
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -52,6 +52,83 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/completed-task-cleanup.html`,
   );
   if (output) await mkdir(output, { recursive: true });
+  for (const [dark, width, height, accent] of [
+    [false, 1000, 800, '#075c30'],
+    [true, 1000, 800, '#fff3a1'],
+    [false, 360, 640, '#b53358'],
+    [true, 360, 420, '#73cab8'],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.evaluate(([dark, accent]) => window.cleanupTheme(dark, accent), [dark, accent]);
+    await page.getByRole('button', { name: '打开任务菜单', exact: true }).click();
+    const menu = page.locator('.weq-workspace-menu');
+    const heights = [];
+    for (const count of [0, 1, 24]) {
+      await page.evaluate((count) => window.cleanupMenuTasks(count), count);
+      await menu.getByText(`${count} 项任务`, { exact: false }).waitFor();
+      const bounds = await menu.boundingBox();
+      heights.push(bounds.height);
+      assert.ok(bounds.height <= Math.min(560, height - 32) + 1, '菜单只限制最大高度');
+      assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= height + 1, '菜单不超出视口');
+      const expand = menu.getByRole('button', { name: '打开完整任务面板', exact: true });
+      const summary = await menu.locator('.weq-current-tasks-summary > span').boundingBox();
+      const expandBounds = await expand.boundingBox();
+      assert.ok(expandBounds.x >= summary.x + summary.width, '展开按钮紧邻数量右侧');
+      assert.ok(
+        Math.abs(expandBounds.y + expandBounds.height / 2 - summary.y - summary.height / 2) < 2,
+        '展开按钮与数量垂直居中',
+      );
+      assert.equal(
+        await menu.locator('.weq-workspace-menu-head').count(),
+        0,
+        '紧凑列表没有重复标题',
+      );
+      if (count === 0) {
+        assert.equal(await menu.locator('.weq-empty-state svg').count(), 1);
+        assert.equal(await menu.getByText('请选择任务', { exact: true }).count(), 0);
+        const empty = await menu.locator('.weq-empty-state').boundingBox();
+        assert.ok(
+          Math.abs(empty.x + empty.width / 2 - bounds.x - bounds.width / 2) < 2,
+          '空态居中',
+        );
+      }
+      if (count === 24) {
+        const scrolling = await menu.locator('.weq-current-tasks').evaluate((element) => ({
+          client: element.clientHeight,
+          scroll: element.scrollHeight,
+          overflow: getComputedStyle(element).overflowY,
+        }));
+        assert.ok(scrolling.scroll > scrolling.client, '多任务滚动而不是撑高菜单');
+        assert.equal(scrolling.overflow, 'auto');
+        assert.ok(await menu.locator('.weq-workspace-actions').isVisible(), '底部工具保持可见');
+      }
+      if (output)
+        await page.screenshot({
+          path: resolve(
+            output,
+            `task-menu-${dark ? 'dark' : 'light'}-${width}-${height}-${count}.png`,
+          ),
+        });
+    }
+    assert.ok(heights[0] < 360, '空菜单不再固定占满 560px');
+    assert.ok(heights[1] < heights[0], '一条任务按实际内容收缩');
+    assert.ok(heights[2] > heights[1], '任务增加时菜单自然增高');
+    await page.evaluate(() => window.cleanupMenuTasks(0));
+    await menu.getByText('暂无任务', { exact: true }).waitFor();
+    await menu.getByRole('button', { name: '打开完整任务面板', exact: true }).click();
+    assert.equal(
+      await menu.getByText('请选择任务', { exact: true }).count(),
+      0,
+      '空完整面板不显示第二个空态',
+    );
+    await page.keyboard.press('Escape');
+    // 再次点击同一入口收起，保留其余清理回归的紧凑布局。
+    await page.getByRole('button', { name: '打开任务菜单', exact: true }).click();
+    await menu.getByRole('button', { name: '打开完整任务面板', exact: true }).click();
+    await page.keyboard.press('Escape');
+  }
+  await page.evaluate(() => window.cleanupMenuTasks(2));
   await page.setViewportSize({ width: 1000, height: 800 });
   await page.getByRole('button', { name: '打开任务菜单', exact: true }).click();
   // 保留真实入场动画，等待其完成后检查可见性和命中层级。
@@ -172,7 +249,7 @@ try {
   }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(
-    '任务清除：4 组深浅主题、主题色、桌面/窄屏确认框、错误提示及成功横幅自动消失检查通过',
+    '任务菜单：4 组深浅主题、主题色、桌面/窄屏/矮窗口的空态、内容高度、24 项任务滚动及展开检查通过；任务清除确认框、错误提示及成功横幅回归通过',
   );
 } finally {
   await browser?.close();

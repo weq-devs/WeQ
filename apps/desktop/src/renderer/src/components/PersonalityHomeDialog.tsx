@@ -19,6 +19,7 @@
 
 import { useContext, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
+import { EmptyState } from './EmptyState';
 import { Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
 import { openMediaPreview } from './mediaPreviewStore';
@@ -137,9 +138,13 @@ export function PersonalityHomeDialog({
         role="region"
         aria-label={`${profile.name} 的个性装扮`}
       >
-        <p className="weq-profile-empty" role="status">
-          {dress.error ? `个性装扮读取失败：${dress.error.message}` : '暂无个性装扮'}
-        </p>
+        {dress.error ? (
+          <p className="weq-profile-empty" role="status">
+            个性装扮读取失败：{dress.error.message}
+          </p>
+        ) : (
+          <EmptyState compact icon={<Sparkles />} title="暂无个性装扮" />
+        )}
       </section>
     );
 

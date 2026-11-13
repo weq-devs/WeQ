@@ -15,6 +15,7 @@ import { MutualMarkLevelDialog } from './MutualMarkLevelDialog';
 import { trpc } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
 import { OverlayLayer } from './OverlayLayer';
+import { EmptyState } from './EmptyState';
 import { useTabActive } from './RetainedTabs';
 import { useViewState } from '../state/view';
 import type { ProfileExtInfo } from '../im-template/template/types';
@@ -220,7 +221,9 @@ export function MutualMarkDialog({
         </div>
       ) : (
         <div className="weq-mutual-body">
-          {categories.length === 0 ? <p className="weq-mutual-status">暂无互动标识</p> : null}
+          {categories.length === 0 ? (
+            <EmptyState compact icon={<Award />} title="暂无互动标识" />
+          ) : null}
           {data.totalNum > 0 ? (
             <p className="weq-mutual-summary">
               共 {data.totalNum} 个标识 · 已点亮 {data.lightUpNum} · 稀有 {data.rarityNum}

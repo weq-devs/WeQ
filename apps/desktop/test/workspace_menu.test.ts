@@ -1,4 +1,4 @@
-import { act, createElement as h, useEffect, useState } from 'react';
+import { act, createElement as h, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -54,8 +54,21 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/views/ExportView', () => ({
-  ExportTool: ({ taskLayout, onTaskExpand }: { taskLayout: string; onTaskExpand?: () => void }) =>
-    h('button', { onClick: onTaskExpand, 'data-task-layout': taskLayout }, '合成任务'),
+  ExportTool: ({
+    taskLayout,
+    onTaskExpand,
+    taskToolbarAction,
+  }: {
+    taskLayout: string;
+    onTaskExpand?: () => void;
+    taskToolbarAction?: ReactNode;
+  }) =>
+    h(
+      'div',
+      null,
+      taskToolbarAction,
+      h('button', { onClick: onTaskExpand, 'data-task-layout': taskLayout }, '合成任务'),
+    ),
 }));
 vi.mock('../src/renderer/src/views/ExportViewer', () => ({ ExportViewer: () => null }));
 vi.mock('../src/renderer/src/views/analysis/AnalysisTool', () => ({ AnalysisTool: () => null }));
@@ -277,11 +290,11 @@ describe('统一竖向工作菜单', () => {
       act(() => useUpdateStore.setState({ available: true }));
       expect(trigger().querySelector('.is-finished')).not.toBeNull();
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('1');
-      expect(head()?.querySelector('.weq-workspace-dot')).toBeNull();
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       act(() => useWorkspaceMenu.getState().setAssistant('running'));
       expect(trigger().querySelector('.is-running')).not.toBeNull();
       expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
-      expect(head()?.querySelector('.is-running')).toBeNull();
+      expect(head()?.querySelector('.is-running') ?? null).toBeNull();
       const output = process.env.WEQ_WORKSPACE_LAYOUT_DIR;
       if (output) {
         mkdirSync(output, { recursive: true });
@@ -296,7 +309,7 @@ describe('统一竖向工作菜单', () => {
       act(() => useWorkspaceMenu.getState().setAssistant('finished'));
       // 助手未读与版本更新都汇总到菜单按钮，菜单头操作不带状态点。
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('2');
-      expect(head()?.querySelector('.weq-workspace-dot')).toBeNull();
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       fixture.exports = [
         { id: 'a', status: 'running' },
         { id: 'b', status: 'completed' },
@@ -306,7 +319,7 @@ describe('统一竖向工作菜单', () => {
       expect(useWorkspaceMenu.getState()).toMatchObject({ running: 1, finished: 2, failed: 1 });
       expect(trigger().querySelector('.is-running')).not.toBeNull();
       expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
-      expect(head()?.querySelector('.weq-workspace-dot')).toBeNull();
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       fixture.exports = [
         { id: 'a', status: 'completed' },
         { id: 'b', status: 'completed' },
@@ -317,11 +330,11 @@ describe('统一竖向工作菜单', () => {
       // 已完成任务 2 + 助手未读 1 + 版本更新 1。
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('5');
       act(() => useWorkspaceMenu.getState().readTasks());
-      expect(head()?.querySelector('.weq-workspace-dot')).toBeNull();
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('2');
       fixture.exports = [];
       render();
-      expect(head()?.querySelector('.weq-workspace-dot')).toBeNull();
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       expect(trigger().querySelector('.is-finished')).not.toBeNull();
     } finally {
       act(() => root.unmount());
@@ -368,6 +381,8 @@ describe('统一竖向工作菜单', () => {
       // 菜单里只有任务面板：紧凑布局展开成完整面板再收起，仍复用同一棵子树。
       const compact = document.querySelector('[data-task-layout="compact"]');
       expect(compact).not.toBeNull();
+      expect(document.querySelector('.weq-workspace-menu-head')).toBeNull();
+      expect(button('打开完整任务面板')).toBeDefined();
       act(() => compact!.click());
       expect(document.querySelector('.weq-workspace-menu')?.getAttribute('aria-modal')).toBe(
         'true',

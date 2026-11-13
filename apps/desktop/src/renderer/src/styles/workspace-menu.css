@@ -67,13 +67,25 @@ html[data-theme='dark'] {
   letter-spacing: 0;
 }
 
-.weq-workspace-menu.is-compact {
-  height: min(560px, calc(100dvh - 32px));
+.weq-workspace-menu.is-compact,
+.weq-dialog-layer.is-anchored-popover[tabindex] > .weq-workspace-menu.is-compact {
+  height: auto;
+  max-height: min(560px, calc(100dvh - 32px));
+  overflow: hidden;
 }
 
-.weq-dialog-layer.is-anchored-popover[tabindex] > .weq-workspace-menu.is-compact {
-  height: min(560px, calc(100dvh - 32px));
-  overflow: hidden;
+.weq-workspace-menu.is-compact .weq-current-tasks {
+  flex: 0 1 auto;
+  overflow-y: auto;
+}
+
+.weq-workspace-menu.is-compact .weq-current-task-columns {
+  flex: none;
+  overflow: visible;
+}
+
+.weq-workspace-menu.is-expanded .weq-current-tasks.is-empty > .weq-empty-state {
+  flex: 1;
 }
 
 .weq-workspace-menu.is-expanded {

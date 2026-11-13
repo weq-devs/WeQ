@@ -16,6 +16,18 @@
   border-bottom: 1px solid var(--weq-border-subtle);
   font-size: 12px;
   color: var(--weq-fg-secondary);
+  flex: none;
+}
+
+.weq-current-tasks-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.weq-current-tasks-summary > span {
+  overflow-wrap: anywhere;
 }
 
 .weq-current-tasks-actions {
@@ -53,7 +65,6 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
   background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
 }
 
-.weq-current-tasks-empty,
 .weq-current-tasks-notice {
   margin: 0;
   padding: 12px;

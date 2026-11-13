@@ -431,17 +431,17 @@ export function WorkspaceTools({
         onClose={closeWorkspace}
         width={expanded ? 1100 : 392}
         className={`weq-workspace-menu${expanded ? ' is-expanded' : ' is-compact'}`}
-        labelledBy="weq-workspace-menu-title"
+        labelledBy={expanded ? 'weq-workspace-menu-title' : undefined}
       >
-        <header className="weq-workspace-menu-head">
-          <h2 id="weq-workspace-menu-title">任务</h2>
-          {!mobile && (
-            <button
-              type="button"
-              title={expanded ? '收起到菜单' : '打开完整面板'}
-              aria-label={expanded ? '收起到菜单' : '打开完整任务面板'}
-              onClick={() => {
-                if (expanded) {
+        {expanded ? (
+          <header className="weq-workspace-menu-head">
+            <h2 id="weq-workspace-menu-title">任务</h2>
+            {!mobile && (
+              <button
+                type="button"
+                title="收起到菜单"
+                aria-label="收起到菜单"
+                onClick={() => {
                   if (!anchor) {
                     const trigger =
                       lastAnchor.current ??
@@ -451,23 +451,19 @@ export function WorkspaceTools({
                     if (trigger) useWorkspaceMenu.getState().toggle(trigger);
                   }
                   setExpanded(false);
-                } else {
-                  setExpanded(true);
-                }
-              }}
-            >
-              {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
-          )}
-          {running ? <small>{running} 项进行中</small> : null}
-          <div className="weq-workspace-menu-head-actions">
-            {expanded ? (
+                }}
+              >
+                <Minimize2 size={16} />
+              </button>
+            )}
+            {running ? <small>{running} 项进行中</small> : null}
+            <div className="weq-workspace-menu-head-actions">
               <button type="button" title="关闭" aria-label="关闭完整面板" onClick={closeWorkspace}>
                 <X size={18} />
               </button>
-            ) : null}
-          </div>
-        </header>
+            </div>
+          </header>
+        ) : null}
         <div className="weq-workspace-menu-body">
           <RetainedTabs snapshotKey="workspace-tools" activeKey="tasks">
             {!hidden && (anchor || expanded) ? (
@@ -480,6 +476,19 @@ export function WorkspaceTools({
                   surface="tasks"
                   taskLayout={expanded ? 'split' : 'compact'}
                   onTaskExpand={() => setExpanded(true)}
+                  taskToolbarAction={
+                    !expanded && !mobile ? (
+                      <button
+                        type="button"
+                        className="weq-workspace-control"
+                        title="打开完整任务面板"
+                        aria-label="打开完整任务面板"
+                        onClick={() => setExpanded(true)}
+                      >
+                        <Maximize2 size={16} />
+                      </button>
+                    ) : null
+                  }
                   onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
                   onOpenClone={(id) => leave(() => onOpenClone?.(id))}
                 />

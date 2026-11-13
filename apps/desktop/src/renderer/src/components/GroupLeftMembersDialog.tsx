@@ -7,7 +7,8 @@
  */
 
 import type { ReactElement } from 'react';
-import { X } from 'lucide-react';
+import { UserRoundMinus, X } from 'lucide-react';
+import { EmptyState } from './EmptyState';
 import { Avatar, GroupMembersSkeleton } from '../im-template/template/primitives';
 import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
@@ -71,7 +72,7 @@ export function GroupLeftMembersDialog({
           ) : loading && rows.length === 0 ? (
             <GroupMembersSkeleton rows={8} />
           ) : rows.length === 0 ? (
-            <p className={cn('placeholder-text')}>暂无已退群成员</p>
+            <EmptyState compact icon={<UserRoundMinus />} title="暂无已退群成员" />
           ) : (
             rows.map((member) => (
               <div className={cn('group-info-member-row')} key={member.id}>

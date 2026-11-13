@@ -20,6 +20,7 @@ import { trpc, client } from '../../trpc/client';
 import { AvatarPathDialog } from './AvatarPathDialog';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
+import { EmptyState } from '../../components/EmptyState';
 import { CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 import { useTabActive } from '../../components/RetainedTabs';
@@ -115,7 +116,7 @@ function AvatarGrid({ scope }: { scope: AvatarScope }): ReactElement {
     return <GridSkeleton />;
   }
   if (!loading && entries.length === 0 && done) {
-    return <div className="weq-cache-grid-state">该分类暂无头像缓存</div>;
+    return <EmptyState icon={<UsersRound />} title="该分类暂无头像缓存" />;
   }
 
   return (

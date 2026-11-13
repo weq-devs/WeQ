@@ -9,6 +9,7 @@
 
 import { useId, type ReactNode } from 'react';
 import { CopyButton } from '../CopyButton';
+import { EmptyState } from '../EmptyState';
 import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './ContactFieldHistory';
 import '../../styles/profile-workspace.css';
 
@@ -179,5 +180,5 @@ export function ContactInlineError({
 
 /** 空态：一句话说明 + 可选操作，不用「未知 / 暂不支持」占位。 */
 export function ContactEmptyState({ children }: { children: ReactNode }) {
-  return <p className="weq-profile-empty">{children}</p>;
+  return <EmptyState compact title={children} />;
 }

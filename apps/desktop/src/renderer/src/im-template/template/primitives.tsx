@@ -64,23 +64,7 @@ export function Avatar({
   );
 }
 
-export function EmptyState({
-  title,
-  body,
-  icon,
-}: {
-  title: string;
-  body: string;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <div className={cn('empty-state')}>
-      {icon}
-      <strong>{title}</strong>
-      <span>{body}</span>
-    </div>
-  );
-}
+export { EmptyState } from '../../components/EmptyState';
 
 export function LoadingState({ text = '加载中...' }: { text?: string }) {
   return (

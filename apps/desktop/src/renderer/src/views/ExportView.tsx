@@ -388,12 +388,14 @@ function ExportToolBody({
   onAuthorizationChange,
   taskLayout = 'inline',
   onTaskExpand,
+  taskToolbarAction,
   onNewSchedule,
   databaseTarget,
 }: {
   surface?: 'export' | 'tasks';
   taskLayout?: 'inline' | 'compact' | 'split';
   onTaskExpand?: () => void;
+  taskToolbarAction?: ReactNode;
   onNewSchedule?: () => void;
   initialSelection?: ContentSelection;
   databaseTarget?: DatabaseExportTarget;
@@ -2665,6 +2667,7 @@ function ExportToolBody({
                   browserDownload: IS_WEB ? downloadInBrowser : undefined,
                 }}
                 layout={taskLayout}
+                toolbarAction={taskToolbarAction}
                 onOpenDetail={() => {
                   setTaskTab('tasks');
                   onTaskExpand?.();
