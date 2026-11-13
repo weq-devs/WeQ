@@ -86,14 +86,18 @@ it('按会话导出不预取消息，只有启用精确选择才读取当前会�
     await act(async () => {});
     expect(rpc.query).not.toHaveBeenCalled();
     await act(async () => {
-      host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+      [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+        .find((button) => button.textContent === '精确选择')!
+        .click();
     });
     expect(rpc.query).toHaveBeenCalledOnce();
     expect(rpc.query).toHaveBeenCalledWith(
       expect.objectContaining({ conv: 'u_fixture', limit: 50 }),
     );
     await act(async () => {
-      host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+      [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+        .find((button) => button.textContent === '按条件')!
+        .click();
     });
     expect(rpc.query).toHaveBeenCalledOnce();
   } finally {

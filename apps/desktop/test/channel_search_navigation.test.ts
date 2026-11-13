@@ -10,19 +10,28 @@ import {
 import { createTemplateDemoData } from './support/templateDemoData';
 
 const rpc = vi.hoisted(() => ({ sessions: vi.fn(), latest: vi.fn(), around: vi.fn() }));
-vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: {
-    account: {
-      guildDirectListSessions: { query: rpc.sessions },
-      guildDirectLatest: { query: rpc.latest },
-      guildDirectAround: { query: rpc.around },
-      guildDirectBefore: { query: vi.fn(async () => []) },
+vi.mock('../src/renderer/src/trpc/client', () => {
+  const auxiliary = (): unknown =>
+    new Proxy(() => auxiliary(), {
+      get: (_target, key) =>
+        key === 'useQuery'
+          ? () => ({ data: undefined })
+          : key === 'useMutation'
+            ? () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isLoading: false })
+            : auxiliary(),
+    });
+  return {
+    client: {
+      account: {
+        guildDirectListSessions: { query: rpc.sessions },
+        guildDirectLatest: { query: rpc.latest },
+        guildDirectAround: { query: rpc.around },
+        guildDirectBefore: { query: vi.fn(async () => []) },
+      },
     },
-  },
-  trpc: {
-    account: { dressup: { resolveMsgDecoration: { useQuery: () => ({ data: undefined }) } } },
-  },
-}));
+    trpc: auxiliary(),
+  };
+});
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/views/ExternalSiteView', () => ({
   ExternalSiteView: () => h('div', { 'data-channel-site': true }, '频道网站'),
@@ -143,22 +152,35 @@ describe('统一主聊天区域的频道搜索', () => {
       await f.render(mainChat(searchTarget('first', 'request-1'), changed));
       expect(f.host.querySelector('.weq-guild-direct.is-chat-only')).not.toBeNull();
       expect(f.host.querySelector('.weq-guild-direct-side')).toBeNull();
-      expect(f.host.querySelector('[data-guild-msg-id="first-message"]')).not.toBeNull();
+      expect(f.host.querySelector('[data-message-id="first-message"]')).not.toBeNull();
       expect(changed).toHaveBeenLastCalledWith('first');
       await f.render(null);
       expect(f.host.querySelector('.weq-guild-direct')).toBeNull();
       await f.render(mainChat(searchTarget('first', 'request-2'), changed));
-      expect(f.host.querySelector('[data-guild-msg-id="first-message"]')).not.toBeNull();
+      expect(f.host.querySelector('[data-message-id="first-message"]')).not.toBeNull();
       expect(rpc.around).toHaveBeenCalledTimes(2);
       await f.render(mainChat(searchTarget('second', 'request-3'), changed));
-      expect(f.host.querySelector('[data-guild-msg-id="second-message"]')).not.toBeNull();
-      expect(f.host.querySelector('[data-guild-msg-id="first-message"]')).toBeNull();
+      expect(f.host.querySelector('[data-message-id="second-message"]')).not.toBeNull();
+      expect(f.host.querySelector('[data-message-id="first-message"]')).toBeNull();
       expect(changed).toHaveBeenLastCalledWith('second');
       expect(rpc.around).toHaveBeenLastCalledWith({
         nodeId: 'second',
         msgId: 'second-message',
         msgSeq: '3',
       });
+      expect(rpc.latest).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+
+  it('同一条搜索命中在当前会话再次请求时重新定位，不复用旧跳转', async () => {
+    const f = fixture();
+    try {
+      await f.render(mainChat(searchTarget('first', 'repeat-1')));
+      expect(rpc.around).toHaveBeenCalledTimes(1);
+      await f.render(mainChat(searchTarget('first', 'repeat-2')));
+      expect(rpc.around).toHaveBeenCalledTimes(2);
       expect(rpc.latest).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -184,10 +206,10 @@ describe('统一主聊天区域的频道搜索', () => {
     const f = fixture();
     try {
       await f.render(mainChat(searchTarget('first', 'request-missing-message')));
-      expect(f.host.textContent).toContain('消息读取失败');
       expect(f.host.textContent).toContain('无法读取指定消息');
-      expect(f.host.querySelector('[title="搜索命中的消息已删除或本地不可用。"]')).not.toBeNull();
-      expect(f.host.querySelector('[data-guild-msg-id]')).toBeNull();
+      expect(f.host.textContent).toContain('搜索命中的消息已删除或本地不可用');
+      expect(f.host.querySelector('[aria-label="重新读取消息"]')).not.toBeNull();
+      expect(f.host.querySelector('[data-message-id]')).toBeNull();
       expect(rpc.latest).not.toHaveBeenCalled();
     } finally {
       f.close();

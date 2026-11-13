@@ -11,10 +11,12 @@ import type { MessageRenderer } from '../src/renderer/src/im-template/template/m
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { useUpdateStore } from '../src/renderer/src/state/update';
+import * as mentionClipboard from '../src/renderer/src/lib/mentionClipboard';
 import {
   ContentSelectionProvider,
   useCurrentContentSelection,
   useContentExportRequest,
+  useContentMultiSelect,
 } from '../src/renderer/src/state/contentSelection';
 
 const rpc = vi.hoisted(() => ({
@@ -50,23 +52,33 @@ const rpc = vi.hoisted(() => ({
       senderTinyId: '42',
       sendType: '0',
       sendTime: '1700000000',
-      elements: [] as unknown[],
+      elements: [{ type: 'text', data: { textContent: '合成频道消息' } }] as unknown[],
     },
   ]),
 }));
-vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: {
-    account: {
-      guildDirectListSessions: { query: rpc.sessions },
-      guildDirectLatest: { query: rpc.latest },
-      guildDirectAround: { query: rpc.around },
-      guildDirectBefore: { query: vi.fn(async () => []) },
+vi.mock('../src/renderer/src/trpc/client', () => {
+  // 频道数据仍走下方显式 RPC；共用聊天模板的辅助查询保持无数据。
+  const auxiliary = (): unknown =>
+    new Proxy(() => auxiliary(), {
+      get: (_target, key) =>
+        key === 'useQuery'
+          ? () => ({ data: undefined })
+          : key === 'useMutation'
+            ? () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isLoading: false })
+            : auxiliary(),
+    });
+  return {
+    client: {
+      account: {
+        guildDirectListSessions: { query: rpc.sessions },
+        guildDirectLatest: { query: rpc.latest },
+        guildDirectAround: { query: rpc.around },
+        guildDirectBefore: { query: vi.fn(async () => []) },
+      },
     },
-  },
-  trpc: {
-    account: { dressup: { resolveMsgDecoration: { useQuery: () => ({ data: undefined }) } } },
-  },
-}));
+    trpc: auxiliary(),
+  };
+});
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/views/ExternalSiteView', () => ({
   ExternalSiteView: () =>
@@ -74,9 +86,19 @@ vi.mock('../src/renderer/src/views/ExternalSiteView', () => ({
 }));
 
 beforeEach(() => vi.stubGlobal('localStorage', new Storage()));
+
+function SelectionMode({ nodeId }: { nodeId: string }) {
+  const selection = useContentMultiSelect({ kind: 'guild-direct', container: nodeId });
+  return createElement(
+    'button',
+    { 'data-enter-selection': true, onClick: () => selection.setSelectionMode(true) },
+    '进入多选',
+  );
+}
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) {
@@ -113,8 +135,7 @@ function mainChat(
 
 describe('主聊天区域的频道私聊', () => {
   it('频道所选消息可复制和导出，各会话分别保留自己的选区', async () => {
-    const writeText = vi.fn(async () => {});
-    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const copy = vi.spyOn(mentionClipboard, 'writeMentionClipboard').mockResolvedValue(true);
     rpc.sessions.mockResolvedValueOnce(
       ['a', 'b'].map((nodeId) => ({
         nodeId,
@@ -134,55 +155,65 @@ describe('主聊天区域的频道私聊', () => {
       );
     }
     const renderNode = (nodeId: string) =>
-      createElement(ContentSelectionProvider, null, mainChat(nodeId), createElement(ExportProbe));
+      createElement(
+        ContentSelectionProvider,
+        null,
+        mainChat(nodeId),
+        createElement(ExportProbe),
+        createElement(SelectionMode, { nodeId }),
+      );
     const f = mount(renderNode('a'));
     try {
       await act(async () => {});
       expect(f.host.querySelector('.weq-guild-direct-side')).toBeNull();
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
-      act(() => f.host.querySelector<HTMLElement>('.weq-guild-direct-msg')!.click());
+      act(() => f.host.querySelector<HTMLButtonElement>('[data-enter-selection]')!.click());
+      act(() => f.host.querySelector<HTMLElement>('[data-message-id]')!.click());
       expect(f.host.querySelector('[aria-label="导出所选消息"]')).not.toBeNull();
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选消息"]')!.click());
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选消息"]')!.click(),
+      );
       expect(
         JSON.parse(f.host.querySelector('[data-export-request]')!.textContent!).selection,
       ).toEqual({
         owner: { kind: 'guild-direct', container: 'a' },
         scope: { type: 'items', ids: ['synthetic-message'] },
       });
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="复制所选消息"]')!.click());
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="复制"]')!.click());
       await act(async () =>
-        document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click(),
+        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+          .find((button) => button.textContent === '纯文本')!
+          .click(),
       );
-      expect(writeText).toHaveBeenCalledOnce();
+      expect(copy).toHaveBeenCalledOnce();
+      expect(copy.mock.calls[0]![0].text).toContain('合成频道消息');
       expect(f.host.querySelector('[aria-label="撤回所选消息"]')).toBeNull();
       await act(async () => f.render(renderNode('b')));
       expect(f.host.querySelector('.is-selected')).toBeNull();
       await act(async () => f.render(renderNode('a')));
-      expect(f.host.querySelectorAll('.weq-guild-direct-msg[aria-selected="true"]')).toHaveLength(
-        1,
-      );
-      expect(
-        f.host.querySelectorAll('.weq-guild-direct-msg .message-line.is-selected'),
-      ).toHaveLength(1);
+      expect(f.host.querySelectorAll('.message-line.is-selected')).toHaveLength(1);
+      expect(f.host.querySelectorAll('.message-line.is-selected')).toHaveLength(1);
       expect(f.host.querySelector('.weq-guild-direct-msg.is-selected')).toBeNull();
-      expect(f.host.querySelector('[aria-label="退出消息多选"]')).not.toBeNull();
+      expect(f.host.querySelector('[aria-label="退出多选"]')).not.toBeNull();
     } finally {
       f.close();
     }
   });
-  it('频道无有效时间的记录不伪造 1970 年分隔日期', async () => {
-    rpc.latest.mockResolvedValueOnce([
-      { msgId: '1', msgSeq: '0', senderTinyId: '42', sendType: '0', sendTime: '0', elements: [] },
-    ]);
-    const f = mount(mainChat());
-    try {
-      await act(async () => {});
-      expect(f.host.querySelector('.message-time-divider')).toBeNull();
-      expect(f.host.textContent).not.toContain('1970');
-    } finally {
-      f.close();
-    }
-  });
+  it.each(['0', '-1', '', 'invalid'])(
+    '频道时间 %s 无效时不伪造 1970 年分隔日期',
+    async (sendTime) => {
+      rpc.latest.mockResolvedValueOnce([
+        { msgId: '1', msgSeq: '0', senderTinyId: '42', sendType: '0', sendTime, elements: [] },
+      ]);
+      const f = mount(mainChat());
+      try {
+        await act(async () => {});
+        expect(f.host.querySelector('.message-time-divider')).toBeNull();
+        expect(f.host.textContent).not.toContain('1970');
+      } finally {
+        f.close();
+      }
+    },
+  );
   it('频道搜索按 nodeId/seq/msgId 直接读取历史窗口，不退回最新页', async () => {
     rpc.sessions.mockResolvedValueOnce([
       {
@@ -216,15 +247,15 @@ describe('主聊天区域的频道私聊', () => {
       expect(rpc.latest).not.toHaveBeenCalled();
       expect(
         f.host
-          .querySelector('.weq-guild-direct-msg.is-search-hit')
-          ?.getAttribute('data-guild-msg-id'),
+          .querySelector('[data-message-id="9007199254740993"]')
+          ?.getAttribute('data-message-id'),
       ).toBe('9007199254740993');
       await act(async () => {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
       expect(scroll).toHaveBeenCalledOnce();
       await act(async () =>
-        f.host.querySelector('.weq-guild-direct-msgs')!.dispatchEvent(new Event('scroll')),
+        f.host.querySelector('.message-scroll')!.dispatchEvent(new Event('scroll')),
       );
       await act(async () => {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -240,12 +271,12 @@ describe('主聊天区域的频道私聊', () => {
     const f = mount(mainChat());
     try {
       await act(async () => {});
-      expect(f.host.textContent).toContain('消息读取失败');
+      expect(f.host.textContent).toContain('合成读取失败');
       await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('[aria-label="重试读取消息"]')!.click(),
+        f.host.querySelector<HTMLButtonElement>('[aria-label="重新读取消息"]')!.click(),
       );
-      expect(f.host.querySelector('[aria-label="重试读取消息"]')).toBeNull();
-      expect(f.host.querySelectorAll('.weq-guild-direct-msg')).toHaveLength(1);
+      expect(f.host.querySelector('[aria-label="重新读取消息"]')).toBeNull();
+      expect(f.host.querySelectorAll('.message-line[data-message-id]')).toHaveLength(1);
     } finally {
       f.close();
     }
@@ -269,12 +300,18 @@ describe('主聊天区域的频道私聊', () => {
       );
     }
     const f = mount(
-      createElement(ContentSelectionProvider, null, mainChat(), createElement(Probe)),
+      createElement(
+        ContentSelectionProvider,
+        null,
+        mainChat(),
+        createElement(Probe),
+        createElement(SelectionMode, { nodeId: 'synthetic-node' }),
+      ),
     );
     try {
       await act(async () => {});
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
-      const rows = f.host.querySelectorAll<HTMLElement>('.weq-guild-direct-msg');
+      act(() => f.host.querySelector<HTMLButtonElement>('[data-enter-selection]')!.click());
+      const rows = f.host.querySelectorAll<HTMLElement>('.message-line[data-message-id]');
       act(() => {
         rows[0]!.click();
         rows[2]!.click();
@@ -283,12 +320,8 @@ describe('主聊天区域的频道私聊', () => {
         owner: { kind: 'guild-direct', container: 'synthetic-node' },
         scope: { type: 'items', ids: ['1', '3'] },
       });
-      expect(f.host.querySelectorAll('.weq-guild-direct-msg[aria-selected="true"]')).toHaveLength(
-        2,
-      );
-      expect(
-        f.host.querySelectorAll('.weq-guild-direct-msg .message-line.is-selected'),
-      ).toHaveLength(2);
+      expect(f.host.querySelectorAll('.message-line.is-selected')).toHaveLength(2);
+      expect(f.host.querySelectorAll('.message-line.is-selected')).toHaveLength(2);
       expect(f.host.querySelector('.weq-guild-direct-msg.is-selected')).toBeNull();
       act(() =>
         rows[0]!.dispatchEvent(
@@ -300,15 +333,15 @@ describe('主聊天区域的频道私聊', () => {
         '3',
         '2',
       ]);
-      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="退出消息多选"]')!.click());
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="退出多选"]')!.click());
       expect(f.host.querySelector('output')!.textContent).toBe('null');
-      expect(f.host.querySelector('.weq-guild-direct-msg[aria-selected="true"]')).toBeNull();
-      expect(f.host.querySelector('.weq-guild-direct-msg .message-line.is-selected')).toBeNull();
+      expect(f.host.querySelector('.message-line.is-selected')).toBeNull();
+      expect(f.host.querySelector('.message-line.is-selected')).toBeNull();
     } finally {
       f.close();
     }
   });
-  it('主区域chatOnly不再挂载独立侧栏，外层侧栏宽度为零时正文仍占满宽度', async () => {
+  it('主区域chatOnly直接使用共用聊天布局，外层侧栏宽度为零时不挂载独立侧栏', async () => {
     const style = document.createElement('style');
     style.textContent = readFileSync(
       resolve(__dirname, '../src/renderer/src/styles/channel.css'),
@@ -323,12 +356,9 @@ describe('主聊天区域的频道私聊', () => {
       expect(f.host.querySelector('.weq-guild-direct.is-chat-only')).not.toBeNull();
       expect(f.host.querySelector('.weq-guild-direct-side')).toBeNull();
       expect(f.host.querySelector('.weq-guild-direct-item')).toBeNull();
-      expect(window.getComputedStyle(f.host.querySelector('.weq-guild-direct-chat')!).width).toBe(
-        '100%',
-      );
-      expect(window.getComputedStyle(f.host.querySelector('.weq-guild-direct-chat')!).display).toBe(
-        'flex',
-      );
+      expect(
+        f.host.querySelector('.weq-guild-direct-body > .chat-pane.without-composer'),
+      ).not.toBeNull();
     } finally {
       f.close();
       style.remove();

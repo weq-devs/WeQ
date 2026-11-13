@@ -103,7 +103,7 @@ function MediaThumb({ item, video = false }: { item: PreviewMedia; video?: boole
   );
 }
 
-interface FeedDialogProps {
+export interface FeedDialogProps {
   target: FeedTarget;
   binding: QQWriteBinding;
   groupName: string;

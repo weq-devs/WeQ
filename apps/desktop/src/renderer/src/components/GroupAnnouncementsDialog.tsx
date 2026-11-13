@@ -7,7 +7,7 @@ import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
 import type { GroupBulletinWire } from '../lib/groupNotices';
 export type { GroupBulletinWire, GroupBulletinImage } from '../lib/groupNotices';
 
-interface GroupAnnouncementsProps {
+export interface GroupAnnouncementsProps {
   embedded?: boolean;
   anchor?: HTMLElement | null;
   presentation?: GroupFeaturePresentation;

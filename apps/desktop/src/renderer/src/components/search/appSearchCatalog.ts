@@ -81,6 +81,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['chat-interaction', '隐藏正在输入状态', '正在输入', '打字状态', '向对方展示输入状态'],
   ['startup', '开机自动启动 WeQ', '自启动'],
   ['startup', '自启时显示窗口', '启动显示窗口', '隐藏启动'],
+  ['startup', '启动后打开', '默认页面', '启动页面'],
   ['call-recording', '录音来源', '录制内容', '录音模式', '双方混合', '仅本端', '仅对方'],
   ['call-recording', '同时录电脑声音', '系统音频'],
   ['call-recording', '保存位置', '录音目录'],

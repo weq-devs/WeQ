@@ -169,9 +169,9 @@ it('未保存密钥也能打开并自动获取，没有独立密钥按钮', asyn
 it('自动启用完整功能与自动进入同一行，复用账号内设置', async () => {
   f.settings.autoAttachQq = true;
   await mount('existing');
-  const options = host.querySelectorAll<HTMLInputElement>('.weq-login-options input');
+  const options = host.querySelectorAll<HTMLButtonElement>('.weq-login-options [role="switch"]');
   expect(options).toHaveLength(2);
-  expect(options[1]!.checked).toBe(true);
+  expect(options[1]!.getAttribute('aria-checked')).toBe('true');
   await act(async () => options[1]!.click());
   expect(f.setAttach).toHaveBeenCalledWith({ enabled: false });
   f.settings.autoAttachQq = false;

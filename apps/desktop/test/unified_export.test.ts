@@ -975,7 +975,7 @@ describe('统一导出实际界面', () => {
         click(f.host, '夹具确认导出');
       });
       click(f.host, '夹具关闭配置');
-      act(() => f.host.querySelector<HTMLInputElement>('.weq-export-contact-mode input')!.click());
+      click(f.host, '按条件');
       expect(fixture.startContacts).not.toHaveBeenCalled();
       f.setActive(false);
       await act(async () => {

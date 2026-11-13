@@ -190,8 +190,10 @@ describe('电脑端远程连接面板', () => {
       { onInvite },
     );
     expect(document.querySelector('#weq-remote-auth-key')).toBeNull();
-    const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-    expect(checkbox.checked).toBe(false);
+    const checkbox = container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="嵌入 Tailscale Key"]',
+    )!;
+    expect(checkbox.getAttribute('aria-checked')).toBe('false');
     const generate = () =>
       [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('生成配对码'))!;
     await act(async () => checkbox.click());
@@ -255,7 +257,12 @@ describe('电脑端远程连接面板', () => {
     expect(hint).toContain('内网穿透');
     expect(hint).toContain('App 已内置 Tailscale');
     expect(hint).toContain('Key 加入电脑所在的 Tailscale 网络');
-    expect(container.querySelector('input[type="checkbox"]')?.getAttribute('title')).toBe(hint);
+    expect(
+      container
+        .querySelector('[role="switch"][aria-label="嵌入 Tailscale Key"]')
+        ?.closest('[title]')
+        ?.getAttribute('title'),
+    ).toBe(hint);
   });
 
   it('并列展示局域网和 WeQ 专用节点，不采用系统 Tailscale 的地址', async () => {
@@ -290,7 +297,9 @@ describe('电脑端远程连接面板', () => {
       tailscaleEnabled: true,
       network: { state: 'online', addresses: ['https://192.168.1.8:7691'] },
     });
-    const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const checkbox = container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="嵌入 Tailscale Key"]',
+    )!;
     await act(async () => checkbox.click());
     expect(container.textContent).toContain('请先启动并登录');
     expect(

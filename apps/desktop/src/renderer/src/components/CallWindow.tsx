@@ -42,7 +42,7 @@ import '../styles/call.css';
 import '../styles/call-recorder.css';
 import '../styles/call-video.css';
 
-interface CallInfo {
+export interface CallInfo {
   state: CallState;
   roomId: string | null;
   peerUin: string;

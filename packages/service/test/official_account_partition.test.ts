@@ -45,7 +45,7 @@ it.each([0n, 42n, 9007199254740993n])(
         targetUin: '10002',
         avatarUrl: null,
         sendTime: 30n,
-        prompt: '合成公众号摘要',
+        prompt: '[ARK 卡片]\n合成公众号摘要',
       },
     ]);
     expect(f.latest).toHaveBeenLastCalledWith({ sortNo }, 1);
@@ -84,7 +84,7 @@ it.each(['missing', 'failed'])('公众号映射 %s 时保留 UID 回退与目录
   expect(summaries[0]).toMatchObject({
     displayName: '目录名称',
     targetUin: '10001',
-    prompt: '合成公众号摘要',
+    prompt: '[ARK 卡片]\n合成公众号摘要',
   });
   await f.service.listArkFeed(peerUid, 5, '10');
   expect(f.calendar).toHaveBeenLastCalledWith({ uid: peerUid }, 10n);

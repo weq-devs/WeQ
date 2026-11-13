@@ -1,11 +1,14 @@
 import { act, createElement as h } from 'react';
 import { createQueryRoot as createRoot } from './support/query_root';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileCard';
 import { CloneMemberProfileCard } from '../src/renderer/src/views/agentlab/CloneMemberProfileCard';
+import { GapMessagesModal } from '../src/renderer/src/components/lazyMainPanels';
+
+beforeAll(() => GapMessagesModal.preload());
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { cloneQueries } from './browser/clone-conversation.stub';
 import {

@@ -54,7 +54,7 @@ describe('功能与设置搜索界面', () => {
     try {
       act(() => root.render(h(SearchDropdown, props)));
       expect(host.querySelectorAll('.weq-app-search [role="option"]')).toHaveLength(6);
-      act(() => host.querySelector<HTMLButtonElement>('.weq-app-search-expand')!.click());
+      act(() => host.querySelector<HTMLButtonElement>('.weq-app-search .weq-search-more')!.click());
       const count = host.querySelectorAll('.weq-app-search [role="option"]').length;
       expect(count).toBeGreaterThan(6);
       act(() =>

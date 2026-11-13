@@ -279,7 +279,9 @@ const transientAssistantSteps = new Set<AssistantStep['kind']>([
   'reset',
   'remove_turn',
 ]);
-function isPersistedAssistantStep(step: AssistantStep): step is AssistantProcessStep { return !transientAssistantSteps.has(step.kind); }
+function isPersistedAssistantStep(step: AssistantStep): step is AssistantProcessStep {
+  return !transientAssistantSteps.has(step.kind);
+}
 
 /** report 文件类型 → 扩展名 / MIME。单一事实源，写盘与读取都走它。 */
 const ARTIFACT_KIND = {
@@ -967,9 +969,7 @@ export class AssistantService {
       text,
       status,
       ts: Date.now(),
-      steps: mailbox.steps
-        .slice(mailbox.stepOffset)
-        .filter(isPersistedAssistantStep),
+      steps: mailbox.steps.slice(mailbox.stepOffset).filter(isPersistedAssistantStep),
     };
     this.conversations.upsert(this.bucketId(sessionId), turn);
     this.publish({
@@ -1128,8 +1128,7 @@ export class AssistantService {
       steps.push(step);
     };
     // text_delta / reasoning_delta 是逐字碎片，不入库（会重复且臃肿）；落库只保留过程性 step。
-    const persistable = (): AssistantStep[] =>
-      steps.filter(isPersistedAssistantStep);
+    const persistable = (): AssistantProcessStep[] => steps.filter(isPersistedAssistantStep);
     const collectToolsUsed = (): string[] => [
       ...new Set(
         steps
@@ -1314,8 +1313,7 @@ export class AssistantService {
     const record = (step: AssistantStep): void => {
       steps.push(step);
     };
-    const persistable = (): AssistantStep[] =>
-      steps.filter(isPersistedAssistantStep);
+    const persistable = (): AssistantProcessStep[] => steps.filter(isPersistedAssistantStep);
     const state: AssistantRunState = {
       taskId: mailbox?.taskId ?? snapshot.taskId,
       assistantMessageId: mailbox?.currentMessageId ?? snapshot.assistantMessageId,

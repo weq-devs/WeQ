@@ -245,6 +245,8 @@ export function GuildDirectDialog({
             user={selfUser}
             renderers={renderers}
             anchorId={searchTarget?.msgId || undefined}
+            anchorSeq={searchTarget?.msgSeq}
+            anchorRevision={searchTarget?.revision}
             onBack={chatOnly ? onClose : () => setNodeId(null)}
             sourceDetails={[
               { label: '频道', value: selected.guildName },
@@ -253,7 +255,15 @@ export function GuildDirectDialog({
             ]}
           />
         ) : (
-          <div className="weq-guild-direct-empty">选择会话查看频道私聊</div>
+          <div
+            className="weq-guild-direct-empty"
+            role={error || (searchTarget && !loading) ? 'alert' : 'status'}
+          >
+            {error ||
+              (searchTarget && !loading
+                ? '搜索命中的会话已删除或本地不可用'
+                : '选择会话查看频道私聊')}
+          </div>
         )}
       </div>
     </div>

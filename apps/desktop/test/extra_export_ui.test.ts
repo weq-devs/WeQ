@@ -127,12 +127,12 @@ async function botForm() {
 it('联系人页分段依次为空间、都导出、相册，支持单独导出任意一项', async () => {
   const change = vi.fn();
   const host = await mount(h(QzoneContentSelector, { value: 'both', onChange: change }));
-  expect([...host.querySelectorAll('[role="tab"]')].map((node) => node.textContent)).toEqual([
+  expect([...host.querySelectorAll('[role="radio"]')].map((node) => node.textContent)).toEqual([
     '空间',
     '都导出',
     '相册',
   ]);
-  expect(host.querySelector('[aria-selected="true"]')?.textContent).toBe('都导出');
+  expect(host.querySelector('[aria-checked="true"]')?.textContent).toBe('都导出');
   await click(host, '相册');
   expect(change).toHaveBeenLastCalledWith('albums');
   await click(host, '空间');

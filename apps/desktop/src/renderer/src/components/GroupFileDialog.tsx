@@ -16,7 +16,7 @@ import '../styles/group-media.css';
 import { useExportReportDialog } from '../views/export/ExportReportControl';
 import { GroupResourceNavigation } from './GroupResourceNavigation';
 
-interface Props {
+export interface Props {
   embedded?: boolean;
   standalone?: boolean;
   groupCode: string;

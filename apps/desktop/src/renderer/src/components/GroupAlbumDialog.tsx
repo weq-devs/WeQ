@@ -51,7 +51,7 @@ type MediaState =
   | { status: 'loading'; album: GroupAlbumWire; items: AlbumMediaWire[]; error: string | null }
   | { status: 'ready'; album: GroupAlbumWire; items: AlbumMediaWire[]; error: string | null };
 
-interface GroupAlbumDialogProps {
+export interface GroupAlbumDialogProps {
   embedded?: boolean;
   standalone?: boolean;
   groupCode: string;

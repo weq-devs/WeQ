@@ -111,7 +111,7 @@ describe('全局搜索号码范围', () => {
         [...panel.querySelectorAll('.weq-search-scope button')]
           .map((button) => button.textContent)
           .slice(0, 4),
-      ).toEqual(['全部', 'QQ', '克隆', 'WeQ 助手']);
+      ).toEqual(['清空', 'QQ', '克隆', 'WeQ 助手']);
       expect(panel.textContent).toContain('合成好友1');
       expect(panel.textContent).toContain('QQ 在线能力未就绪');
       expect(scope('QQ').getAttribute('aria-pressed')).toBe('true');
@@ -136,7 +136,7 @@ describe('全局搜索号码范围', () => {
       expect(scope('全部').getAttribute('aria-pressed')).toBe('mixed');
       act(() => scope('全部').click());
       expect(scope('QQ').getAttribute('aria-pressed')).toBe('true');
-      act(() => scope('全部').click());
+      act(() => scope('清空').click());
       expect(scope('QQ').getAttribute('aria-pressed')).toBe('false');
       expect(panel.textContent).toContain('未选择搜索范围');
       act(() => scope('全部').click());

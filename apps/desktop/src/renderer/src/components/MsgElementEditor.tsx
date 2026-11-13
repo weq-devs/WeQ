@@ -9,7 +9,7 @@ import { cn } from '../im-template/template/classNames';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { useToast } from './Toast';
 
-interface Props {
+export interface Props {
   msgId: string;
   msgSeq?: number;
   elements: any[];

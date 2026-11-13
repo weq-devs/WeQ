@@ -56,6 +56,8 @@ export function ReadonlyConversationPane({
   user,
   renderers = renderersDefault,
   anchorId,
+  anchorSeq,
+  anchorRevision,
   onBack,
   sourceDetails = [],
   onEditMessage,
@@ -65,6 +67,8 @@ export function ReadonlyConversationPane({
   user: User;
   renderers?: MessageRenderer[];
   anchorId?: string;
+  anchorSeq?: string;
+  anchorRevision?: string;
   onBack: () => void;
   sourceDetails?: Array<{ label: string; value: string }>;
   onEditMessage?: (id: string) => void;
@@ -120,8 +124,10 @@ export function ReadonlyConversationPane({
             const result = await client.account.guildDirectAround.query({
               nodeId: target.nodeId,
               msgId: anchor,
-              msgSeq: '0',
+              msgSeq: anchor === anchorId ? (anchorSeq ?? '0') : '0',
             });
+            if (!result.found)
+              throw new Error('无法读取指定消息：搜索命中的消息已删除或本地不可用。');
             items = result.items.slice().reverse();
           } else
             items =
@@ -202,7 +208,7 @@ export function ReadonlyConversationPane({
         }
       }
     },
-    [key, target, cache],
+    [key, target, cache, anchorId, anchorSeq],
   );
   useEffect(() => {
     const cached = cache.read<Wire[]>(`readonly:${key}`);
@@ -220,7 +226,7 @@ export function ReadonlyConversationPane({
       request.current++;
       latest.current.loading = false;
     };
-  }, [key, anchorId, cache, fetchPage]);
+  }, [key, anchorId, anchorRevision, cache, fetchPage]);
   const messages = useMemo<Message[]>(() => {
     for (const row of rows) seedMessageBubbles(row.cachedBubbles);
     return rows.map((row) => {
@@ -238,7 +244,7 @@ export function ReadonlyConversationPane({
         body: content(row.elements),
         senderId: mine ? user.id : peer.id,
         sender: mine ? user : peer,
-        createdAt: unixDate(row.sendTime)?.toISOString() ?? new Date(0).toISOString(),
+        createdAt: Number(row.sendTime) > 0 ? (unixDate(row.sendTime)?.toISOString() ?? '') : '',
         qqElements: row.elements as Message['qqElements'],
         decoration: row.decoration
           ? { ...row.decoration, cachedBubble: messageBubble(row.decoration.bubbleId) }

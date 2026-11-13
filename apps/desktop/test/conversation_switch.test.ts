@@ -11,7 +11,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { MainView } from '../src/renderer/src/views/MainView';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useViewState } from '../src/renderer/src/state/view';
@@ -20,11 +20,14 @@ import type { ChatSidebarContent } from '../src/renderer/src/im-template/templat
 import type { MessagePageStage } from '../src/shared/message_read';
 import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import type { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
+import { GapMessagesModal as LazyGapMessagesModal } from '../src/renderer/src/components/lazyMainPanels';
 import * as replyPreview from '../src/renderer/src/lib/replyPreview';
 import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
 import { timelineViewport } from '../src/renderer/src/lib/timelineViewport';
 import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession';
+
+beforeAll(() => LazyGapMessagesModal.preload());
 
 vi.mock('../src/renderer/src/hooks/useRecentContactQueries', async () => {
   const { trpc } = await import('../src/renderer/src/trpc/client');

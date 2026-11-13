@@ -467,7 +467,7 @@ describe('搜索范围与失败界面', () => {
       [...host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent);
     try {
       render();
-      expect(order()).toEqual(['文件', '联系人', '空间']);
+      expect(order()).toEqual(['文件', '联系人']);
       expect(host.querySelectorAll('[data-search-category="file"]')).toHaveLength(1);
       expect(reads).toBe(hidden.length);
       reads = 0;
@@ -475,7 +475,7 @@ describe('搜索范围与失败界面', () => {
       render();
       expect(reads).toBe(0);
       render('报告的作者');
-      expect(order()).toEqual(['联系人', '文件', '空间']);
+      expect(order()).toEqual(['联系人', '文件']);
       render('报告的作者', { ...initial, files: [] });
       expect(host.querySelectorAll('[data-search-category="file"]')).toHaveLength(0);
       expect(host.textContent).not.toContain('合成相册');
@@ -606,7 +606,7 @@ describe('搜索范围与失败界面', () => {
       expect(all.getAttribute('aria-pressed')).toBe('mixed');
       expect(
         [...host.querySelectorAll('.weq-search-section-name')].map((item) => item.textContent),
-      ).toEqual(['联系人', '文件']);
+      ).toEqual(['联系人']);
       expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="重试联系人搜索"]')!.click());
       expect(retry).toHaveBeenCalledOnce();
