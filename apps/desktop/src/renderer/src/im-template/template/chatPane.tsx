@@ -11,8 +11,14 @@ import {
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { ConversationSettingsButton } from '../../components/ConversationSettingsButton';
 import { GroupCallComingSoon } from '../../components/GroupCallComingSoon';
-import { GiftMallPanel } from '../../components/gift/GiftMallPanel';
-import { GroupGiftPanel } from '../../components/gift/GroupGiftPanel';
+import {
+  GiftMallPanel,
+  GroupGiftPanel,
+  ArkPanel,
+  RedPacketPanel,
+  LocationCardPanel,
+  LocationSharePanel,
+} from './lazyComposerPanels';
 import { ChatHeader } from '../../components/ChatHeader';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls';
@@ -206,13 +212,11 @@ import {
   quoteFromMessage,
   type ComposerQuote,
 } from './composerQuote';
-import { ArkPanel } from './arkPanel';
-import { LocationCardPanel, type LocationCardPayload } from './locationCardPanel';
+import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
-import { RedPacketPanel, type RedPacketDraft } from './redPacketPanel';
-import { LocationSharePanel } from './locationSharePanel';
+import type { RedPacketDraft } from './redPacketPanel';
 import {
   pokeEmojiToken,
   randomFaceToken,

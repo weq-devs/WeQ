@@ -74,6 +74,7 @@ export default defineConfig({
           const script = /\.[cm]?js$/.test(pnpm);
           execFileSync(script ? process.execPath : pnpm, script ? [pnpm, ...args] : args, {
             cwd: resolve(import.meta.dirname, '../..'),
+            env: { ...process.env, NODE_ENV: 'production' },
             stdio: 'inherit',
             windowsHide: true,
             shell: process.platform === 'win32' && pnpm.endsWith('.cmd'),

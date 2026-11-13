@@ -86,7 +86,9 @@ it('完整修复 UI 挂在系统子文档，重复请求聚焦并保留原账号
   const root = createRoot(host);
   try {
     act(() => root.render(repairHost()));
-    act(() => useDbRepairWindow.getState().open({ uin: '10001', name: '合成账号', avatarUrl: '' }));
+    await act(async () =>
+      useDbRepairWindow.getState().open({ uin: '10001', name: '合成账号', avatarUrl: '' }),
+    );
     expect(open).toHaveBeenCalledWith(
       'about:blank',
       'weq-db-repair',
