@@ -2,6 +2,8 @@
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { webRequestText } from './http';
 import { parseQzoneCallback } from './qzone';
+import { parse } from '@babel/parser';
+import { parse as parseHtml, type DefaultTreeAdapterMap } from 'parse5';
 
 const WEB_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
@@ -22,6 +24,82 @@ function object(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function callbackPath(value: unknown): string {
+  const node = object(value);
+  if (node.type === 'Identifier' && typeof node.name === 'string') return node.name;
+  if (node.type !== 'MemberExpression') return '';
+  const property = object(node.property);
+  const name = node.computed
+    ? property.type === 'StringLiteral'
+      ? property.value
+      : ''
+    : property.type === 'Identifier'
+      ? property.name
+      : '';
+  return typeof name === 'string' ? `${callbackPath(node.object)}.${name}` : '';
+}
+
+/** fs 是 HTML 表单回执；只提取已知回调的对象实参，不执行页面脚本。 */
+function responsePayload(text: string): unknown {
+  if (!text.trimStart().startsWith('<')) return parseQzoneCallback<unknown>(text);
+  const scripts: string[] = [];
+  const collect = (node: DefaultTreeAdapterMap['node'], depth: number): void => {
+    if (depth > 128) return;
+    if ('tagName' in node && node.tagName === 'script') {
+      if (!node.attrs.some((attr) => attr.name === 'src'))
+        scripts.push(
+          node.childNodes.map((child) => ('value' in child ? child.value : '')).join(''),
+        );
+      return;
+    }
+    if ('childNodes' in node) for (const child of node.childNodes) collect(child, depth + 1);
+  };
+  collect(parseHtml(text), 0);
+  const callbacks: string[] = [];
+  for (const source of scripts) {
+    let ast: unknown;
+    try {
+      ast = parse(source, { sourceType: 'script' });
+    } catch {
+      continue;
+    }
+    const visit = (value: unknown, depth: number): void => {
+      if (depth > 128) return;
+      if (Array.isArray(value)) {
+        for (const child of value) visit(child, depth + 1);
+        return;
+      }
+      const node = object(value);
+      if (
+        node.type === 'CallExpression' &&
+        [
+          'frameElement.callback',
+          'parent.frameElement.callback',
+          'window.frameElement.callback',
+        ].includes(callbackPath(node.callee))
+      ) {
+        const args = Array.isArray(node.arguments) ? node.arguments : [];
+        const argument = object(args[0]);
+        if (
+          args.length !== 1 ||
+          argument.type !== 'ObjectExpression' ||
+          typeof argument.start !== 'number' ||
+          typeof argument.end !== 'number'
+        )
+          throw new Error('空间表单回执无法解析，结果未确认，请核对后刷新。');
+        callbacks.push(source.slice(argument.start, argument.end));
+        return;
+      }
+      for (const child of Object.values(node))
+        if (child !== null && typeof child === 'object') visit(child, depth + 1);
+    };
+    visit(ast, 0);
+  }
+  if (callbacks.length !== 1)
+    throw new Error('空间响应缺少明确的操作回执，结果未确认，请核对后刷新。');
+  return parseQzoneCallback<unknown>(callbacks[0]!);
 }
 
 async function post(
@@ -49,9 +127,7 @@ async function post(
       },
     },
   );
-  if (/<(?:!doctype|html|body)\b/i.test(text))
-    throw new Error('空间返回了网页而非操作回执，请重新登录后核对结果。');
-  const response = object(parseQzoneCallback<unknown>(text));
+  const response = object(responsePayload(text));
   const result = object(response.result),
     data = object(response.data);
   for (const layer of [response, result, data]) {

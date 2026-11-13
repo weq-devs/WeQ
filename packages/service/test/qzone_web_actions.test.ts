@@ -102,7 +102,41 @@ it('即使登录网页含有 code=0 的脚本也不当成功', async () => {
     'fetch',
     vi.fn(async () => new Response('<html><script>window.config={code:0}</script></html>')),
   );
-  await expect(forwardQzoneMsg(cred, '10004', 'post', '')).rejects.toThrow('网页');
+  await expect(forwardQzoneMsg(cred, '10004', 'post', '')).rejects.toThrow('未确认');
+});
+it.each([
+  '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>document.domain="qq.com";frameElement.callback({result:{code:0,msg:"ok"}});</script></body></html>',
+  '<html><body><script>var unrelated={code:-1};try { parent.frameElement.callback({code:0}); } catch (e) {}</script></body></html>',
+])('正常 HTML FormSender 回执不误报登录失效，且只发送一次', async (html) => {
+  const fetch = vi.fn(async () => new Response(html));
+  vi.stubGlobal('fetch', fetch);
+  await expect(forwardQzoneMsg(cred, '10004', 'post', '')).resolves.toBeUndefined();
+  expect(fetch).toHaveBeenCalledOnce();
+});
+it.each([
+  '<html><body>login</body></html>',
+  '<html><script>var text="frameElement.callback({code:0})";</script></html>',
+  '<html><script>// frameElement.callback({code:0})</script></html>',
+  '<html><script>other.callback({code:0});</script></html>',
+  '<html><script>frameElement.callback({code:0});frameElement.callback({code:-1});</script></html>',
+  '<html><script>frameElement.callback({code:evil()});</script></html>',
+])('HTML 中未知／伪回调不当成功，也不要求重新登录', async (html) => {
+  const fetch = vi.fn(async () => new Response(html));
+  vi.stubGlobal('fetch', fetch);
+  await expect(forwardQzoneMsg(cred, '10004', 'post', '')).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledOnce();
+});
+it('HTML 错误回执保留真实业务错误，JSON 字段包含 HTML 字样不误判', async () => {
+  const fetch = vi.fn(
+    async () =>
+      new Response(
+        '<html><script>frameElement.callback({code:-1,message:"合成业务错误"});</script></html>',
+      ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  await expect(forwardQzoneMsg(cred, '10004', 'post', '')).rejects.toThrow('合成业务错误');
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, message: '<html>字样' })));
+  await expect(forwardQzoneMsg(cred, '10004', 'post', '')).resolves.toBeUndefined();
 });
 it('仅显式票据拒绝换票一次，每次发包前重新校验账号，限流不重发', async () => {
   const fetch = transport();
