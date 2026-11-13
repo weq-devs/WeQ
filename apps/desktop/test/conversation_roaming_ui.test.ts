@@ -18,11 +18,15 @@ import { RoamingBackfillPanel } from '../src/renderer/src/components/RoamingBack
 const fixture = vi.hoisted(() => ({
   plan: vi.fn(),
   contacts: vi.fn(),
+  readError: false,
+  invalidate: vi.fn(),
   planCallbacks: {} as { onSuccess?: () => void; onError?: (e: { message: string }) => void },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({ account: { roamingBackfill: { list: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({
+      account: { roamingBackfill: { list: { invalidate: fixture.invalidate } } },
+    }),
     account: {
       listConversationsWithCount: { useQuery: fixture.contacts },
       // 固定范围的真人头像要按 uid 补一次资料；日期密度用导出页日历。
@@ -32,6 +36,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         list: {
           useQuery: () => ({
             data: { historyVersion: 2, supportsImmediateStart: true, jobs: [], online: true },
+            error: fixture.readError ? new Error('合成任务状态读取失败') : null,
+            isFetching: false,
           }),
         },
         plan: {
@@ -50,6 +56,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 afterEach(() => {
   vi.clearAllMocks();
+  fixture.readError = false;
   vi.unstubAllGlobals();
 });
 
@@ -385,6 +392,20 @@ describe('会话底部多选栏', () => {
 });
 
 describe('漫游目标范围', () => {
+  it('任务状态自动更新，正常时不显示刷新，读取失败才提供原位重试', () => {
+    const f = mount(h(RoamingBackfillPanel, { surface: 'tasks' }));
+    try {
+      expect(button(f.host, '刷新任务状态')).toBeNull();
+      expect(button(f.host, '重试读取任务状态')).toBeNull();
+      fixture.readError = true;
+      f.render(h(RoamingBackfillPanel, { surface: 'tasks' }));
+      expect(f.host.textContent).toContain('合成任务状态读取失败');
+      act(() => button(f.host, '重试读取任务状态').click());
+      expect(fixture.invalidate).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
   it('一次开始自动检查并拉取，成功后转交任务面板，配置页不重复展示任务', () => {
     const submitted = vi.fn();
     const f = mount(

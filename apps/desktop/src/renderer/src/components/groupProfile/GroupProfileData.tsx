@@ -1,4 +1,3 @@
-import { RefreshCw } from 'lucide-react';
 import type { useGroupProfile } from '../../hooks/useGroupProfile';
 import { ContactInlineError, ContactRow, ContactSection } from '../contactProfile/ContactRow';
 import { GroupCardContent } from './GroupCardContent';
@@ -33,21 +32,7 @@ export function GroupProfileData({
         onOpenMember={onOpenMember}
       />
       {!data.conversation.generated ? (
-        <ContactSection
-          title="群状态"
-          action={
-            <button
-              type="button"
-              className="weq-profile-section-action"
-              title="刷新群状态"
-              aria-label="刷新群状态"
-              disabled={data.extendedRefreshing}
-              onClick={data.refreshExtended}
-            >
-              <RefreshCw size={14} />
-            </button>
-          }
-        >
+        <ContactSection title="群状态">
           <ContactRow
             label="群等级"
             historyField="grade"

@@ -237,13 +237,6 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
         onNavigate(uin, name);
       }
     : undefined;
-  const refresh = () => {
-    setCursor(undefined);
-    setRevision((value) => value + 1);
-    setPreviewId(null);
-    autoOpened.current = false;
-    setMediaError(null);
-  };
   return (
     <OverlayLayer
       presentation="sidecar"
@@ -289,16 +282,6 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
               >
                 <Images size={17} />
               </button>
-              <button
-                type="button"
-                className="group-album-tool"
-                aria-label="刷新动态"
-                title="刷新动态"
-                disabled={loading || !activity.enabled}
-                onClick={refresh}
-              >
-                <RefreshCw size={17} />
-              </button>
             </div>
           </div>
           {error ? (
@@ -319,6 +302,19 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
           {mediaError ? (
             <p className="group-album-read-error" role="alert">
               {mediaError}
+              <button
+                type="button"
+                className="group-album-tool"
+                aria-label="重试读取动态媒体"
+                title="重试读取动态媒体"
+                disabled={loading || !activity.enabled}
+                onClick={() => {
+                  setCursor(undefined);
+                  setRevision((value) => value + 1);
+                }}
+              >
+                <RefreshCw size={15} />
+              </button>
             </p>
           ) : null}
           {!activity.enabled ? (

@@ -399,7 +399,8 @@ it('媒体暂缺后刷新可重新定位，不因旧失败永久跳过自动预�
     }),
   );
   expect(document.body.textContent).toContain('未找到卡片指定的媒体');
-  await click(button('刷新动态'));
+  expect(document.querySelector('[aria-label="刷新动态"]')).toBeNull();
+  await click(button('重试读取动态媒体'));
   expect(document.querySelector('[aria-label="群相册动态媒体预览"] img')?.getAttribute('src')).toBe(
     albumMediaUrl(page().media[1]!.url),
   );

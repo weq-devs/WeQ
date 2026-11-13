@@ -153,7 +153,7 @@ it('查询失败独立显示错误与重试，不显示首次使用空状态', (
   const host = fixture();
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('读取失败');
   expect(host.textContent).not.toContain('所选时段暂无 API 请求');
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="刷新用量"]')!.click());
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="重试读取用量"]')!.click());
   expect(state.refetch).toHaveBeenCalledOnce();
 });
 
@@ -165,12 +165,14 @@ it('能力检测显示中文名称，切换范围提交真实查询参数', () =
   expect(state.queryInput).toEqual({ period: '24h' });
 });
 
-it('空记录保留时间选择和刷新，不再引导用户构建克隆', () => {
+it('空记录保留时间选择，不显示常驻刷新或引导用户构建克隆', () => {
   state.empty = true;
   const host = fixture();
   expect(host.textContent).toContain('所选时段暂无 API 请求');
   expect(host.textContent).not.toContain('构建克隆或');
   expect(host.querySelectorAll('input[type="radio"]').length).toBe(4);
+  expect(host.querySelector('[aria-label="刷新用量"]')).toBeNull();
+  expect(host.querySelector('[aria-label="重试读取用量"]')).toBeNull();
 });
 
 it('本地账本在离线时仍可读取，不依赖网络在线标记', () => {

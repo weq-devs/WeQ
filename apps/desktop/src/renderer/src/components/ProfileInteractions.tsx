@@ -5,6 +5,7 @@ import {
   ImagePlus,
   MessageCircle,
   Reply,
+  RotateCw,
   Send,
   ThumbsUp,
   Trash2,
@@ -28,6 +29,7 @@ import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import { chooseBrowserFiles, stageAccountFile } from '../lib/accountFilePicker';
 import { profileLikeSummary } from '../lib/profileInteractionPresentation';
 import { mergeExtrasPages, nextExtrasCursor } from '../lib/profileExtrasPages';
+import { usePhotoUploadReadback } from '../hooks/usePhotoUploadReadback';
 import '../styles/profile-interactions.css';
 import '../styles/qzone-interactions.css';
 
@@ -504,6 +506,20 @@ export function PersonalityPhotoUploader({
 }) {
   const op = useOperation(online);
   const [files, setFiles] = useState<UploadItem[]>([]);
+  const readback = usePhotoUploadReadback(
+    JSON.stringify([input.expectedAccountUin, input.expectedAccountConfigId, input.uin, label.id]),
+    files
+      .filter(
+        (row) =>
+          row.state === 'done' &&
+          row.photoId &&
+          row.message !== '已上传' &&
+          !label.photos.some((photo) => photo.id === row.photoId),
+      )
+      .map((row) => row.photoId!),
+    online && !op.pending,
+    refresh,
+  );
   useEffect(() => {
     const observed = new Set(label.photos.map((photo) => photo.id));
     setFiles((rows) => {
@@ -628,18 +644,19 @@ export function PersonalityPhotoUploader({
           </li>
         ))}
       </ul>
-      {files.some((row) => row.state === 'done') ? (
-        <button
-          type="button"
-          disabled={op.pending}
-          onClick={() =>
-            void op.run(async () => {
-              await refresh();
-            })
-          }
-        >
-          刷新相册
-        </button>
+      {readback.exhausted ? (
+        <p role="status">
+          照片已上传，相册暂未确认更新。
+          <button
+            type="button"
+            title="重试核对相册"
+            aria-label="重试核对相册"
+            disabled={!online || op.pending}
+            onClick={readback.retry}
+          >
+            <RotateCw size={14} />
+          </button>
+        </p>
       ) : null}
       {op.error ? <p role="status">{op.error}</p> : null}
     </div>

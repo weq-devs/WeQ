@@ -322,15 +322,6 @@ export function RoamingBackfillPanel({
             </span>
           ) : null}
           <span className="weq-roaming-statusline-spacer" />
-          <button
-            type="button"
-            className="weq-roaming-iconbtn"
-            title="刷新任务状态"
-            aria-label="刷新任务状态"
-            onClick={refresh}
-          >
-            <RefreshCw size={14} />
-          </button>
         </div>
         {staleBackend ? (
           <p role="alert" className="weq-roaming-notice is-error">
@@ -342,6 +333,18 @@ export function RoamingBackfillPanel({
           <p role="alert" className="weq-roaming-notice is-error">
             <CircleAlert size={14} />
             {error ?? state.error?.message}
+            {state.error ? (
+              <button
+                type="button"
+                className="weq-roaming-iconbtn"
+                title="重试读取任务状态"
+                aria-label="重试读取任务状态"
+                disabled={!autoRefresh.enabled || state.isFetching}
+                onClick={refresh}
+              >
+                <RefreshCw size={14} />
+              </button>
+            ) : null}
           </p>
         ) : null}
         {!fixed && contacts.error ? (

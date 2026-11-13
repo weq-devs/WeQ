@@ -6,6 +6,7 @@ import { useTabActive } from '../components/RetainedTabs';
 import type { GroupConversation, GroupMember } from '../im-template/template/types';
 import { avatarFromUin } from '../lib/avatarResolver';
 import { PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';
+import { useQQAutoRefresh } from './useQQAutoRefresh';
 import { mergeGroupPreviewMembers } from '../lib/groupPreviewMembers';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
@@ -80,6 +81,7 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
     enabled,
   });
   const forceExtended = useRef(false);
+  const extendedRefresh = useQQAutoRefresh(enabled);
   const extended = useQuery({
     queryKey: ['group-profile-joined-at', key, conversation.id],
     queryFn: () => {
@@ -92,8 +94,8 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
         ...(force ? { force: true } : {}),
       });
     },
-    enabled,
     ...PROFILE_QUERY_OPTIONS,
+    ...extendedRefresh,
     staleTime: 5 * 60_000,
   });
   const joinedAt =
@@ -146,7 +148,7 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
     extendedRefreshing: extended.isFetching,
     extendedError: extended.error ? '群扩展资料读取失败，保留已有内容' : extended.data?.error,
     refreshExtended: () => {
-      if (!enabled || extended.isFetching) return;
+      if (!extendedRefresh.enabled || extended.isFetching) return;
       forceExtended.current = true;
       void extended.refetch();
     },

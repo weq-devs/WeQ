@@ -54,6 +54,8 @@ try {
     for (const theme of ['light', 'dark']) {
       await page.goto(url);
       await page.locator('.weq-usage-summary').waitFor();
+      assert.equal(await page.getByRole('button', { name: '刷新用量' }).count(), 0);
+      assert.equal(await page.getByRole('button', { name: '重试读取用量' }).count(), 0);
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.setProperty(
@@ -90,7 +92,8 @@ try {
     if (kind === 'error' || kind === 'stale') {
       await page.getByRole('alert').waitFor();
       assert.equal(await page.locator('.weq-usage-summary').count(), kind === 'stale' ? 1 : 0);
-      await page.getByRole('button', { name: '刷新用量' }).click();
+      if (output) await page.screenshot({ path: resolve(output, `${kind}.png`), fullPage: true });
+      await page.getByRole('button', { name: '重试读取用量' }).click();
       await page.locator('.weq-usage-summary').waitFor();
       assert.equal(await page.getByRole('alert').count(), 0);
     } else if (kind === 'empty') {
@@ -104,12 +107,12 @@ try {
       await page.getByText('已删除或不可用的克隆').waitFor();
     } else {
       await page.getByRole('status').waitFor();
-      assert.equal(await page.getByRole('button', { name: '刷新用量' }).isDisabled(), true);
+      assert.equal(await page.getByRole('button', { name: '重试读取用量' }).count(), 0);
     }
   }
   assert.deepEqual(errors, []);
   console.log(
-    'API 用量：8 组尺寸／主题与 6 种状态通过，含筛选、趋势切换、键盘提示、刷新和已删除克隆。',
+    'API 用量：8 组尺寸／主题与 6 种状态通过，含筛选、趋势切换、键盘提示、仅失败重试和已删除克隆。',
   );
 } finally {
   await browser?.close();

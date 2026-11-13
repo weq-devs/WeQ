@@ -493,21 +493,20 @@ export function UsagePanel(): ReactElement {
             </label>
           ))}
         </fieldset>
-        <button
-          type="button"
-          className="weq-usage-refresh"
-          aria-label="刷新用量"
-          title="刷新用量"
-          disabled={stats.isFetching}
-          onClick={() => void stats.refetch()}
-        >
-          <RotateCw size={16} aria-hidden="true" />
-        </button>
       </div>
       {stats.isError ? (
         <div className="weq-usage-error" role="alert">
-          用量读取失败：{stats.error.message}。请刷新重试。
-          {stats.data ? '当前显示上次读取的记录。' : ''}
+          用量读取失败：{stats.error.message}。{stats.data ? '当前显示上次读取的记录。' : ''}
+          <button
+            type="button"
+            className="weq-usage-refresh"
+            aria-label="重试读取用量"
+            title="重试读取用量"
+            disabled={!autoRefresh.enabled || stats.isFetching}
+            onClick={() => void stats.refetch()}
+          >
+            <RotateCw size={16} aria-hidden="true" />
+          </button>
         </div>
       ) : null}
       {stats.data ? (
