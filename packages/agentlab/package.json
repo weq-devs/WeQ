@@ -10,6 +10,7 @@
     "./ocr/worker": "./src/ocr/worker.ts",
     ".": "./src/index.ts",
     "./generation": "./src/generation.ts",
+    "./model-metadata": "./src/model_metadata.ts",
     "./model-selection": "./src/model_selection.ts"
   },
   "scripts": {

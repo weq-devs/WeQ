@@ -2,8 +2,34 @@
 
 export type AgentLabModelCapability = 'chat' | 'embedding' | 'vision';
 
+export type ModelMetadataStatus = 'supported' | 'unsupported' | 'unknown';
+export interface ModelReasoningControl {
+  kind: 'effort' | 'toggle' | 'budget' | 'adaptive';
+  /** 服务商原始字段路径；不当作其他协议的请求参数。 */
+  source: string;
+  values?: Array<string | number | boolean> | null;
+  default?: string | number | boolean | null;
+  min?: number;
+  max?: number;
+}
+export interface ModelMetadata {
+  capabilities: Record<AgentLabModelCapability, ModelMetadataStatus>;
+  reasoning: {
+    supported?: boolean;
+    mandatory?: boolean;
+    controls: ModelReasoningControl[];
+  };
+  /** 原始模型对象，不含请求认证信息。 */
+  raw: Record<string, unknown>;
+  source: string;
+  fetchedAt: number;
+  error?: string;
+}
+
 export interface AgentLabProviderModel {
   reasoningEfforts?: string[];
+  metadata?: ModelMetadata;
+  overrides?: { capabilities?: AgentLabModelCapability[]; reasoning?: boolean };
   /** 发给 API 的模型 id */
   id: string;
   /** 展示名（可选，默认用 id） */

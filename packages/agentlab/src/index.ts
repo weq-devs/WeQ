@@ -1,5 +1,6 @@
 export { AGENTLAB_PROVIDER_CATALOG, findCatalogEntry } from './catalog';
 export { detectModelCapabilities, type CapabilityProbeResult } from './capability_probe';
+export { detectModelReasoning, type ReasoningProbeResult } from './capability_probe';
 export { modelEndpointIdentity } from './model_identity';
 export {
   isDefaultModelSelection,

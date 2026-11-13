@@ -48,7 +48,27 @@ const proxy = (path = ''): unknown =>
           refetch: async () => ({ data: data[path] }),
         });
       if (key === 'useMutation')
-        return () => ({ isLoading: false, mutateAsync: async () => undefined });
+        return () => ({
+          isLoading: false,
+          mutateAsync: async (input: { modelIds?: string[] }) =>
+            path === 'bootstrap.fetchAgentLabModels'
+              ? (input.modelIds ?? []).map((id) => ({
+                  id,
+                  capabilities: ['chat'],
+                  metadata: {
+                    capabilities: {
+                      chat: 'supported',
+                      embedding: 'unsupported',
+                      vision: 'unsupported',
+                    },
+                    reasoning: { supported: false, controls: [] },
+                    raw: {},
+                    source: 'fixture',
+                    fetchedAt: 1,
+                  },
+                }))
+              : undefined,
+        });
       if (key === 'useSubscription') return () => {};
       return proxy(path ? `${path}.${String(key)}` : String(key));
     },

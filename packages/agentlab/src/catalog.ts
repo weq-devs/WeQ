@@ -96,6 +96,20 @@ export const AGENTLAB_PROVIDER_CATALOG: AgentLabProviderCatalogEntry[] = [
     ],
   },
   {
+    vendor: 'lmstudio',
+    label: 'LM Studio（本地）',
+    baseUrl: 'http://localhost:1234/v1',
+    apiKeyHint: '本地服务的 API Token',
+    models: [],
+  },
+  {
+    vendor: 'omlx',
+    label: 'oMLX（本地）',
+    baseUrl: 'http://localhost:8000/v1',
+    apiKeyHint: '本地服务的 API Key',
+    models: [],
+  },
+  {
     vendor: 'openai-compatible',
     label: 'OpenAI 兼容（自定义）',
     baseUrl: '',

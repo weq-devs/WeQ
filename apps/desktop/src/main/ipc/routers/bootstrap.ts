@@ -2157,6 +2157,8 @@ export const bootstrapRouter = router({
       z.object({
         baseUrl: z.string().min(1),
         apiKey: z.string().default(''),
+        vendor: z.string().optional(),
+        modelIds: z.array(z.string().min(1)).max(1000).optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -2179,6 +2181,45 @@ export const bootstrapRouter = router({
               label: z.string().optional(),
               capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])),
               reasoningEfforts: z.array(z.string().min(1).max(64)).max(32).optional(),
+              overrides: z
+                .object({
+                  capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])).optional(),
+                  reasoning: z.boolean().optional(),
+                })
+                .optional(),
+              metadata: z
+                .object({
+                  capabilities: z.object({
+                    chat: z.enum(['supported', 'unsupported', 'unknown']),
+                    embedding: z.enum(['supported', 'unsupported', 'unknown']),
+                    vision: z.enum(['supported', 'unsupported', 'unknown']),
+                  }),
+                  reasoning: z.object({
+                    supported: z.boolean().optional(),
+                    mandatory: z.boolean().optional(),
+                    controls: z.array(
+                      z.object({
+                        kind: z.enum(['effort', 'toggle', 'budget', 'adaptive']),
+                        source: z.string(),
+                        values: z
+                          .array(z.union([z.string(), z.number(), z.boolean()]))
+                          .nullable()
+                          .optional(),
+                        default: z
+                          .union([z.string(), z.number(), z.boolean()])
+                          .nullable()
+                          .optional(),
+                        min: z.number().optional(),
+                        max: z.number().optional(),
+                      }),
+                    ),
+                  }),
+                  raw: z.record(z.unknown()),
+                  source: z.string(),
+                  fetchedAt: z.number(),
+                  error: z.string().optional(),
+                })
+                .optional(),
             }),
           )
           .default([]),
@@ -2217,6 +2258,8 @@ export const bootstrapRouter = router({
         model: z.string().min(1),
         providerId: z.string().min(1).optional(),
         providerName: z.string().optional(),
+        capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])).optional(),
+        reasoning: z.boolean().optional(),
       }),
     )
     .mutation(({ input }) => requireBootstrap().agentLabConfig.detectCapabilities(input)),

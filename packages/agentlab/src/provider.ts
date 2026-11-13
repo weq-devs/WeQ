@@ -21,6 +21,8 @@ function normalizeModel(input: AgentLabProviderModel): AgentLabProviderModel {
   return {
     id: input.id.trim(),
     label: input.label?.trim() || undefined,
+    ...(input.metadata ? { metadata: input.metadata } : {}),
+    ...(input.overrides ? { overrides: input.overrides } : {}),
     capabilities: Array.isArray(input.capabilities) ? capabilities : ['chat'],
     ...(input.reasoningEfforts === undefined
       ? {}

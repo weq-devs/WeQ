@@ -24,6 +24,80 @@ function fixture() {
   };
 }
 describe('多 provider 持久化与调用隔离', () => {
+  it('元数据读取不发推理，原始控制、默认值与手改标记跨重启保留', async () => {
+    const f = fixture();
+    const raw = {
+      id: 'alias',
+      kind: 'chat',
+      chat: {
+        modalities: { input: ['text', 'image'] },
+        reasoning: { effort: { supported: ['low', 'custom'], default: 'custom' } },
+      },
+    };
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ data: [raw] })));
+    vi.stubGlobal('fetch', fetch);
+    const input = {
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic',
+      vendor: 'openai-compatible',
+    };
+    const models = await f.service.fetchModels({ ...input, modelIds: ['alias'] });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      `${input.baseUrl}/models`,
+      expect.objectContaining({ method: 'GET' }),
+    );
+    f.service.saveProvider({
+      ...input,
+      id: 'p',
+      name: 'p',
+      models: models.map((model) => ({
+        ...model,
+        reasoningEfforts: ['manual'],
+        overrides: { reasoning: true },
+      })),
+    });
+    const saved = f.reload().getProvider('p')!.models[0]!;
+    expect(saved).toMatchObject({
+      reasoningEfforts: ['manual'],
+      overrides: { reasoning: true },
+      metadata: {
+        raw,
+        reasoning: { controls: [{ default: 'custom', values: ['low', 'custom'] }] },
+      },
+    });
+    expect(
+      f.reload().resolveEndpoint({ providerId: 'p', model: 'alias' }).reasoningEfforts,
+    ).toEqual(['manual']);
+  });
+
+  it('缺失能力和思考按调用清单探测，空能力清单不触发额外请求', async () => {
+    const f = fixture();
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: { message: "reasoning_effort allowed values: ['low', 'custom']" },
+          }),
+          { status: 400 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const result = await f.service.detectCapabilities({
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic',
+      model: 'alias',
+      capabilities: [],
+      reasoning: true,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      capabilities: [],
+      reasoning: { status: 'supported', reasoning: { controls: [{ values: ['low', 'custom'] }] } },
+    });
+    expect(f.service.listProviders()).toEqual([]);
+  });
+
   it('连接测试和能力检测保留草稿的配置身份，未保存配置也可记账', async () => {
     const f = fixture();
     const updates: AgentLabUsage[] = [];

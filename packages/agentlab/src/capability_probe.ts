@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { ApiHttpError, requestApiJson } from './api_usage';
 import { embedTexts, pickMessageText } from './http';
-import type { AgentLabEndpoint, AgentLabModelCapability } from './types';
+import type { AgentLabEndpoint, AgentLabModelCapability, ModelMetadata } from './types';
 
 export interface CapabilityProbeResult {
   capability: AgentLabModelCapability;
@@ -40,9 +40,10 @@ function explicitlyUnsupported(error: unknown, capability: AgentLabModelCapabili
 /** 使用最小合成输入探测；只认有效输出，暂时性错误保持未确定。 */
 export async function detectModelCapabilities(
   endpoint: AgentLabEndpoint,
+  capabilities: AgentLabModelCapability[] = ['chat', 'embedding', 'vision'],
 ): Promise<CapabilityProbeResult[]> {
   const results: CapabilityProbeResult[] = [];
-  for (const capability of ['chat', 'embedding', 'vision'] as const) {
+  for (const capability of capabilities) {
     const probe = {
       ...endpoint,
       kind: capability,
@@ -109,4 +110,56 @@ export async function detectModelCapabilities(
     }
   }
   return results;
+}
+
+export interface ReasoningProbeResult {
+  status: 'supported' | 'unsupported' | 'unknown';
+  detail: string;
+  reasoning?: ModelMetadata['reasoning'];
+}
+
+/** 非法哨兵只用于请求端点返回合法枚举；请求成功不代表参数确实被采用。 */
+export async function detectModelReasoning(
+  endpoint: AgentLabEndpoint,
+): Promise<ReasoningProbeResult> {
+  try {
+    await requestApiJson(endpoint, '/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
+      body: JSON.stringify({
+        model: endpoint.model,
+        messages: [{ role: 'user', content: 'Reply OK.' }],
+        max_tokens: 256,
+        reasoning_effort: '__weq_probe__',
+      }),
+    });
+    return { status: 'unknown', detail: '接口接受请求，但无法确认思考参数是否被采用或合法档位' };
+  } catch (error) {
+    const detail = (error instanceof Error ? error.message : String(error))
+      .replaceAll(endpoint.apiKey || '\0', '[已隐藏]')
+      .slice(0, 1000);
+    if (
+      error instanceof ApiHttpError &&
+      [400, 422].includes(error.status) &&
+      /reasoning[_ .-]?effort/i.test(error.detail)
+    ) {
+      const match = error.detail.match(
+        /(?:supported|allowed|valid|expected|permitted|合法|可选)[^\n[\]:]{0,80}(?:\s*[:=]\s*)?\[([^\]]+)\]/i,
+      );
+      const values = match?.[1]
+        ?.match(/['"]([^'"]+)['"]/g)
+        ?.map((item) => item.slice(1, -1))
+        .filter((item) => item !== '__weq_probe__');
+      if (values?.length)
+        return {
+          status: 'supported',
+          detail: `接口返回合法档位：${values.join(', ')}`,
+          reasoning: {
+            supported: true,
+            controls: [{ kind: 'effort', source: 'probe.reasoning_effort', values }],
+          },
+        };
+    }
+    return { status: 'unknown', detail };
+  }
 }

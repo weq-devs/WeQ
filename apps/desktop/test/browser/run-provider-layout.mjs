@@ -90,7 +90,7 @@ try {
         const model = page.getByLabel('模型 1 ID', { exact: true });
         await model.fill('Qwen3.6-35B-A3B-4bit-with-a-long-model-identifier');
         const remove = page.getByRole('button', { name: '删除模型 1', exact: true });
-        const detect = page.getByRole('button', { name: '自动检测模型 1 能力', exact: true });
+        const detect = page.getByRole('button', { name: '检测模型 1 能力与思考', exact: true });
         const reasoning = page.getByLabel('模型 1 思考档位', { exact: true });
         const idBox = await model.boundingBox();
         const removeBox = await remove.boundingBox();
@@ -100,20 +100,31 @@ try {
         const capabilitiesBox = await capabilities.boundingBox();
         await page.screenshot({ path: resolve(output, `${width}-${theme}-${style}.png`) });
         assert.ok(removeBox.width <= 36, '删除模型应保持图标按钮宽度');
-        assert.ok(Math.abs(idBox.y - removeBox.y) < 4, '删除按钮应与模型 ID 同行');
-        assert.ok(detectBox.width <= 90, '能力检测按钮应按精简文案紧凑显示');
-        assert.ok(detectBox.y > reasoningBox.y, '检测能力应位于思考档位下方');
-        assert.equal(await detect.textContent(), '检测能力');
-        assert.equal(await reasoning.getAttribute('placeholder'), '思考档位（逗号分隔）');
-        if (width >= 640) {
-          assert.ok(Math.abs(reasoningBox.y - idBox.y) < 4, '思考档位与模型 ID 应同行');
-          assert.ok(Math.abs(detectBox.y - capabilitiesBox.y) < 4, '检测按钮与能力选项应同行');
-          assert.ok(idBox.x + idBox.width <= reasoningBox.x, '模型 ID 在左、思考档位在右');
-        }
-        assert.ok(detectBox.x + detectBox.width <= capabilitiesBox.x, '检测按钮在左、能力选项在右');
         assert.ok(
-          Math.abs(capabilitiesBox.x + capabilitiesBox.width - (removeBox.x + removeBox.width)) < 2,
-          '能力选项应右对齐',
+          Math.abs(
+            removeBox.y +
+              removeBox.height / 2 -
+              (idBox.y + capabilitiesBox.y + capabilitiesBox.height) / 2,
+          ) < 3,
+          '删除按钮应跨两行垂直居中',
+        );
+        assert.ok(detectBox.width <= 30, '检测只显示图标');
+        assert.ok(reasoningBox.y > idBox.y, '思考档位位于第二行');
+        assert.equal((await detect.textContent()).trim(), '');
+        assert.ok(Math.abs(detectBox.y - reasoningBox.y) < 4, '检测与思考档位同行');
+        assert.ok(Math.abs(detectBox.y - capabilitiesBox.y) < 4, '检测与能力选项同行');
+        assert.ok(detectBox.x + detectBox.width <= reasoningBox.x, '检测图标在最左侧');
+        assert.ok(
+          reasoningBox.x + reasoningBox.width <= capabilitiesBox.x,
+          '思考框位于检测与能力之间',
+        );
+        assert.ok(
+          idBox.width >= capabilitiesBox.x + capabilitiesBox.width - idBox.x - 2,
+          '第一行模型 ID 占满内容宽度',
+        );
+        assert.ok(
+          capabilitiesBox.x + capabilitiesBox.width <= removeBox.x,
+          '删除按钮独立占据最右列',
         );
         assert.equal(await capabilities.getByRole('checkbox').count(), 0);
         assert.equal(await capabilities.getByRole('button').count(), 3);
@@ -128,10 +139,9 @@ try {
         const content = await detect.evaluate((node) => {
           const button = node.getBoundingClientRect();
           const icon = node.querySelector('svg').getBoundingClientRect();
-          const text = node.querySelector('span').getBoundingClientRect();
-          const right = text.width ? text.right : icon.right;
-          const top = text.height ? Math.min(icon.top, text.top) : icon.top;
-          const bottom = text.height ? Math.max(icon.bottom, text.bottom) : icon.bottom;
+          const right = icon.right;
+          const top = icon.top;
+          const bottom = icon.bottom;
           return {
             x: (icon.left + right - button.left - button.right) / 2,
             y: (top + bottom - button.top - button.bottom) / 2,

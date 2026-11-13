@@ -5,6 +5,7 @@ import {
   resolveEndpoint,
   testChatEndpoint,
   detectModelCapabilities,
+  detectModelReasoning,
   validateProviderConfig,
   isDefaultModelSelection,
   modelEndpointIdentity,
@@ -180,10 +181,15 @@ export class AgentLabConfigService {
    * 按填入的 base_url (+ api_key) 拉取厂商可用模型列表（参考 MaiBot 的 /models 代理）。
    * 不要求先保存 provider：直接拿表单里的值请求，方便「边填边拉」。
    */
-  async fetchModels(input: { baseUrl: string; apiKey?: string }): Promise<AgentLabProviderModel[]> {
+  async fetchModels(input: {
+    baseUrl: string;
+    apiKey?: string;
+    vendor?: string;
+    modelIds?: string[];
+  }): Promise<AgentLabProviderModel[]> {
     const baseUrl = input.baseUrl.trim();
     if (!baseUrl) throw new Error('请先填写 Base URL。');
-    return fetchProviderModels({ baseUrl, apiKey: input.apiKey });
+    return fetchProviderModels({ ...input, baseUrl });
   }
 
   /**
@@ -222,6 +228,8 @@ export class AgentLabConfigService {
     model: string;
     providerId?: string;
     providerName?: string;
+    capabilities?: AgentLabModelCapability[];
+    reasoning?: boolean;
   }) {
     const baseUrl = input.baseUrl
       .trim()
@@ -229,14 +237,19 @@ export class AgentLabConfigService {
       .replace(/\/chat\/completions$/, '');
     if (!/^https?:\/\//i.test(baseUrl)) throw new Error('请填写有效的 Base URL。');
     if (!input.model.trim()) throw new Error('请先填写模型 ID。');
-    return detectModelCapabilities({
+    const endpoint: AgentLabEndpoint = {
       baseUrl,
       apiKey: input.apiKey.trim(),
       model: input.model.trim(),
       providerId: input.providerId,
       providerName: input.providerName,
       onUsage: this.onUsage,
-    });
+      feature: 'capability-test',
+      timeoutMs: 30_000,
+    };
+    const capabilities = await detectModelCapabilities(endpoint, input.capabilities);
+    const reasoning = input.reasoning ? await detectModelReasoning(endpoint) : undefined;
+    return { capabilities, reasoning };
   }
 
   saveProvider(
