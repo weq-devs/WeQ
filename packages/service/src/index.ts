@@ -48,7 +48,10 @@ export type {
 } from './bootstrap/attach';
 export { runUnprivilegedAttach } from './bootstrap/attach_flow';
 export type { DirectAttachFailure, AttachFlowDeps } from './bootstrap/attach_flow';
-export { CredentialRepairRequiredError } from './common/credential_repair';
+export {
+  CredentialRepairRequiredError,
+  DebugReadUnavailableError,
+} from './common/credential_repair';
 export type { OnlineCredentialIssue } from './common/credential_repair';
 
 export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';

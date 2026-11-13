@@ -14,6 +14,14 @@ export class CredentialRepairRequiredError extends Error {
   }
 }
 
+/** 当前进程的调试签名不可读；后台可重试，但需要先切换到可调试的 QQ。 */
+export class DebugReadUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DebugReadUnavailableError';
+  }
+}
+
 /** 监视器向界面暴露的“凭据暂不可用且需要用户处理”的原因。 */
 export interface OnlineCredentialIssue {
   title: string;

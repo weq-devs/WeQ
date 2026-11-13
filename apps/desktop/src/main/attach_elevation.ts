@@ -50,7 +50,12 @@
  * reads in-process and needs no elevation.
  */
 
-import { CredentialRepairRequiredError, createCachedAttachHook, runOwnedChild } from '@weq/service';
+import {
+  CredentialRepairRequiredError,
+  DebugReadUnavailableError,
+  createCachedAttachHook,
+  runOwnedChild,
+} from '@weq/service';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { resolveNtHelperPath, type NtHelperBinding, type SessionMaterial } from '@weq/native';
@@ -488,7 +493,7 @@ export function createLinuxAttachHook(
           errorMessage: error instanceof Error ? error.message : String(error),
         });
       }
-      throw new Error(SIP_ENABLED_MESSAGE);
+      throw new DebugReadUnavailableError(SIP_ENABLED_MESSAGE);
     }
     const material = isRoot
       ? await (() => {

@@ -4,7 +4,10 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService } from '../src/account/user_config';
 import { createCachedAttachHook, type AttachHook } from '../src/bootstrap/attach';
 import { AccountMonitorService } from '../src/account/monitor';
-import { CredentialRepairRequiredError } from '../src/common/credential_repair';
+import {
+  CredentialRepairRequiredError,
+  DebugReadUnavailableError,
+} from '../src/common/credential_repair';
 import { registerSsoSession } from '../src/account/sso_session';
 import { getLogger } from '../src/common/logger';
 
@@ -237,6 +240,20 @@ describe('account monitor authorization and SSO readiness', () => {
     await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
     await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
     expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('调试权限被拒后结束进入中，保留后台重试及副本引导', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValue(new DebugReadUnavailableError('请启动 QQ 调试副本'));
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(f.monitor.credentialIssue).toBeNull();
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(f.hook.ensure.mock.calls.length).toBeGreaterThan(1);
+    expect(f.monitor.credentialsPending).toBe(false);
     f.monitor.stop();
   });
 

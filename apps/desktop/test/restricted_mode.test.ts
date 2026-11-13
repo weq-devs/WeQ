@@ -95,6 +95,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             path: '/synthetic/QQ-WeQ.app',
             readerReady: false,
             runningPids: mock.debugPids,
+            sourceRunningPids: [],
             message: '合成副本状态',
           },
           refetch: mock.refetch,

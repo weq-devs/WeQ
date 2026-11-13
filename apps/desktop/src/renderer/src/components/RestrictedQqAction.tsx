@@ -39,7 +39,9 @@ export function RestrictedQqAction({
   }, []);
   const data = status.data;
   const running = Boolean(data?.runningPids.length);
-  const working = pending || busy || Boolean(data && data.phase !== 'idle');
+  const canSwitch = Boolean(data?.sourceRunningPids?.length);
+  const copyWorking = pending || Boolean(data && data.phase !== 'idle');
+  const working = copyWorking || (!needsQq && busy);
   const prepare = data?.state === 'missing' || data?.state === 'invalid';
   const blocked =
     needsQq &&
@@ -57,17 +59,17 @@ export function RestrictedQqAction({
           : running
             ? '登录其他账号'
             : '打开 QQ';
-  async function run(activate = false) {
-    if (locked.current || working) return;
+  async function run(action: 'open' | 'activate' | 'switch' = 'open') {
+    if (locked.current || copyWorking || (action === 'open' && working)) return;
     locked.current = true;
     setPending(true);
     setError('');
     try {
-      if (!needsQq && !activate) await onEnable();
+      if (!needsQq && action === 'open') await onEnable();
       else {
-        await client.bootstrap.qqDebugCopyAction.mutate({ action: activate ? 'activate' : 'open' });
+        await client.bootstrap.qqDebugCopyAction.mutate({ action });
         if (!mounted.current) return;
-        if (!activate) {
+        if (action !== 'activate') {
           setWaiting(true);
           await onOpened();
         }
@@ -113,6 +115,21 @@ export function RestrictedQqAction({
           )}
           {label}
         </button>
+        {canSwitch && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={
+              copyWorking ||
+              data?.state === 'unmanaged' ||
+              (prepare && (!data?.sourceVersion || running))
+            }
+            onClick={() => void run('switch')}
+          >
+            <RefreshCw size={14} />
+            退出普通 QQ 并打开副本
+          </button>
+        )}
         <details className="weq-restricted-more">
           <summary>更多</summary>
           <div className="weq-restricted-actions">
@@ -120,19 +137,14 @@ export function RestrictedQqAction({
               <button
                 type="button"
                 className="weq-set-btn"
-                disabled={working || data?.state === 'invalid'}
-                onClick={() => void run(true)}
+                disabled={copyWorking || data?.state === 'invalid'}
+                onClick={() => void run('activate')}
               >
                 <Play size={14} />
                 打开已有 QQ 窗口
               </button>
             )}
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={working}
-              onClick={() => setSettingsOpen(true)}
-            >
+            <button type="button" className="weq-set-btn" onClick={() => setSettingsOpen(true)}>
               <Settings size={14} />
               副本设置
             </button>

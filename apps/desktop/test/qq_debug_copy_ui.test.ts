@@ -41,6 +41,7 @@ beforeEach(() => {
     version: null,
     readerReady: true,
     runningPids: [],
+    sourceRunningPids: [],
     message: '尚未创建 QQ 调试副本。',
   };
   f.error = null;
@@ -269,7 +270,7 @@ it('打开系统设置或复制失败保留引导并显示错误，不执行权�
   expect(f.action).not.toHaveBeenCalled();
 });
 
-async function mountAction(needsQq = true) {
+async function mountAction(needsQq = true, busy = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -277,9 +278,7 @@ async function mountAction(needsQq = true) {
   const onEnable = vi.fn(async () => {});
   const onRetry = vi.fn(async () => {});
   await act(async () =>
-    root.render(
-      createElement(RestrictedQqAction, { needsQq, busy: false, onOpened, onEnable, onRetry }),
-    ),
+    root.render(createElement(RestrictedQqAction, { needsQq, busy, onOpened, onEnable, onRetry })),
   );
   close = () => {
     act(() => root.unmount());
@@ -293,6 +292,40 @@ async function mountAction(needsQq = true) {
     primary: () => host.querySelector<HTMLButtonElement>('.weq-restricted-actions > button')!,
   };
 }
+it('凭据启用期间仍可打开副本设置与独立的副本启动操作', async () => {
+  const v = await mountAction(true, true);
+  expect(v.primary().disabled).toBe(false);
+  const settings = [...v.host.querySelectorAll('button')].find(
+    (button) => button.textContent === '副本设置',
+  )!;
+  expect(settings.disabled).toBe(false);
+  await act(async () => settings.click());
+  expect(document.querySelector('.weq-qq-debug-modal')).not.toBeNull();
+});
+it('副本后台操作期间仍可查看设置，但不能重复启动', async () => {
+  f.data!.phase = 'signing';
+  const v = await mountAction();
+  expect(v.primary().disabled).toBe(true);
+  const settings = [...v.host.querySelectorAll('button')].find(
+    (button) => button.textContent === '副本设置',
+  )!;
+  expect(settings.disabled).toBe(false);
+  await act(async () => settings.click());
+  expect(document.querySelector('.weq-qq-debug-modal')).not.toBeNull();
+});
+it('普通 QQ 在线且凭据读取中仍提供明确的切换副本入口', async () => {
+  f.data!.state = 'ready';
+  f.data!.sourceRunningPids = [51];
+  const v = await mountAction(false, true);
+  const button = [...v.host.querySelectorAll('button')].find(
+    (item) => item.textContent === '退出普通 QQ 并打开副本',
+  )!;
+  expect(button).toBeDefined();
+  expect(button.disabled).toBe(false);
+  await act(async () => button.click());
+  expect(f.action).toHaveBeenCalledWith({ action: 'switch' });
+  expect(v.onOpened).toHaveBeenCalledOnce();
+});
 it.each([
   ['missing', [], '准备并打开 QQ'],
   ['ready', [], '打开 QQ'],

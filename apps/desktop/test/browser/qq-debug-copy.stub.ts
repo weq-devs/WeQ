@@ -4,6 +4,7 @@ import { trpc as baseTrpc, client as baseClient } from './qq-data-access-trpc.st
 import type { OnlineAccess } from '../../src/renderer/src/lib/restrictedMode';
 
 const offline = new URLSearchParams(location.search).has('offline');
+const recovery = new URLSearchParams(location.search).has('recovery');
 let onlineAccess: OnlineAccess = {
   source: { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic' },
   qqOnline: !offline,
@@ -24,6 +25,7 @@ let data: QqDebugCopyStatus = {
   version: null,
   readerReady: true,
   runningPids: [],
+  sourceRunningPids: [],
   message: '尚未创建 QQ 调试副本。',
 };
 const listeners = new Set<() => void>();
@@ -53,7 +55,7 @@ const debugTrpc = {
     },
   },
   bootstrap: {
-    ...(offline
+    ...(offline || recovery
       ? {
           qqDataAccess: {
             useQuery: () => ({
@@ -105,7 +107,7 @@ const debugClient = {
       mutate: async ({ action }: { action: QqDebugCopyAction }) => {
         if (
           action === 'prepare' ||
-          (action === 'open' && ['missing', 'invalid'].includes(data.state))
+          (['open', 'switch'].includes(action) && ['missing', 'invalid'].includes(data.state))
         )
           setFixture({
             state: 'ready',
@@ -113,6 +115,7 @@ const debugClient = {
             message: '副本签名与调试权限已就绪；启动并登录后检查在线凭据。',
           });
         if (action === 'launch' || action === 'open') setFixture({ runningPids: [42] });
+        if (action === 'switch') setFixture({ sourceRunningPids: [], runningPids: [42] });
         if (action === 'remove') setFixture({ state: 'missing', version: null, runningPids: [] });
         return data;
       },

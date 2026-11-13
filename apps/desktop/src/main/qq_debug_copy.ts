@@ -132,6 +132,28 @@ export class QqDebugCopyManager {
   private async pids(): Promise<number[]> {
     return debugCopyPids(await this.command('/bin/ps', ['-axo', 'pid=,comm=']), this.path);
   }
+  private async sourcePids(source: string): Promise<number[]> {
+    const executable = join(source, 'Contents/MacOS/QQ');
+    return (await this.command('/bin/ps', ['-axo', 'pid=,comm='])).split('\n').flatMap((line) => {
+      const match = /^\s*([1-9]\d*)\s+(.+?)\s*$/.exec(line);
+      return match?.[2] === executable ? [Number(match[1])] : [];
+    });
+  }
+  private async quitSource(): Promise<void> {
+    const source = this.options.source();
+    if (!source || resolve(source) === resolve(this.path))
+      throw new Error('未能确认普通 QQ 的安装位置，请重新检查。');
+    await this.version(source);
+    const pids = await this.sourcePids(source);
+    this.phase = 'quitting';
+    // 仅显式切换时请求原安装主进程退出，不匹配同名应用、不升级为 SIGKILL。
+    if (pids.length) await this.command('/bin/kill', ['-TERM', ...pids.map(String)]);
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (!(await this.sourcePids(source)).length) return;
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error('普通 QQ 尚未退出，未启动调试副本。请完成 QQ 中的退出操作后重试。');
+  }
   private async stopped(): Promise<void> {
     if ((await this.pids()).length)
       throw new Error('QQ 调试副本正在运行，请先从副本菜单退出 QQ，再重试；不会自动退出其他 QQ。');
@@ -188,6 +210,7 @@ export class QqDebugCopyManager {
       version: null,
       readerReady: false,
       runningPids: [],
+      sourceRunningPids: [],
       message: supported ? '尚未创建 QQ 调试副本。' : '请在运行 QQ 的 Mac 桌面端管理调试副本。',
     };
     if (!supported) return result;
@@ -202,6 +225,7 @@ export class QqDebugCopyManager {
       result.sourcePath = source;
       try {
         result.sourceVersion = await this.version(source);
+        result.sourceRunningPids = await this.sourcePids(source);
       } catch (error) {
         result.message = error instanceof Error ? error.message : String(error);
       }
@@ -259,7 +283,7 @@ export class QqDebugCopyManager {
         if (present) await this.removeCopy();
       } else {
         this.phase = 'verifying';
-        if (action === 'open') {
+        if (action === 'open' || action === 'switch') {
           if (!present) await this.prepare(false);
           else {
             try {
@@ -270,7 +294,13 @@ export class QqDebugCopyManager {
             }
           }
         } else await this.verify(this.path);
-        if (action === 'launch' || action === 'open' || action === 'activate') {
+        if (action === 'switch') await this.quitSource();
+        if (
+          action === 'launch' ||
+          action === 'open' ||
+          action === 'activate' ||
+          action === 'switch'
+        ) {
           this.phase = 'launching';
           const env = { ...process.env };
           delete env.ELECTRON_RUN_AS_NODE;

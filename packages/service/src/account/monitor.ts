@@ -36,6 +36,7 @@ import { getLogger, logErrorContext } from '../common/logger';
 import { canReuseSessionMaterial, isCompleteSessionMaterial } from '../common/session_material';
 import {
   CredentialRepairRequiredError,
+  DebugReadUnavailableError,
   type OnlineCredentialIssue,
 } from '../common/credential_repair';
 
@@ -727,6 +728,7 @@ export class AccountMonitorService {
   private deferHarvest(pid: number, error: unknown, credentialsPending = true): void {
     const failures = (this.harvestRetry?.pid === pid ? this.harvestRetry.failures : 0) + 1;
     const repair = error instanceof CredentialRepairRequiredError;
+    if (error instanceof DebugReadUnavailableError) credentialsPending = false;
     if (repair) {
       // 助手存在但需要修复：保留后台重试（修复后能自动恢复），但不再把界面
       // 挂在“正在启用完整功能”上，直接把可操作原因交给受限模式。
