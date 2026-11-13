@@ -357,11 +357,102 @@ test('local 按目标编译、移除发布时间戳、保持成套验证，源�
   assert.equal(await exists(join(target, '.weq-dev-build-lock')), false);
 });
 
-test('local 编译失败和编译期间源码变化不替换、不取发布版，并释放构建锁', async (t) => {
+test('local 编译失败复用通过校验的现有构建，不改来源记录，下次启动仍重试编译', async (t) => {
+  for (const local of [false, true]) {
+    const { root, source, directory, platform } = await sourceFixture(t);
+    await fill(root, platform, 'old');
+    const old = await marker(root, platform, local ? { localBuild: { commit: 'old' } } : {});
+    await writeJson(join(root, 'native/.installed.json'), old);
+    if (!local) for (const path of nativeFiles(platform).slice(1)) await rm(join(root, path));
+    const target = join(directory, 'target');
+    let builds = 0;
+    let verifications = 0;
+    const logs = [];
+    const options = {
+      unused: noop,
+      log: (...args) => logs.push(args),
+      verify: async (bundle, repo, flags) => {
+        assert.equal(bundle, root);
+        assert.equal(repo, root);
+        assert.equal(flags.local, local);
+        verifications++;
+      },
+      run: async (command, args, flags) => {
+        if (command === 'git') return runCommand(command, args, flags);
+        assert.equal(command, 'cargo', '不下载发布版');
+        if (args[0] === 'metadata') return JSON.stringify({ target_directory: target });
+        if (args[0] === 'run') return fakeDressPack(args, flags);
+        builds++;
+        throw new Error('compile failed');
+      },
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await prepareNative(root, { mode: 'local', source, jobs: 2 }, options);
+      assert.deepEqual(await readJson(join(root, 'native/.installed.json')), old);
+      assert.equal(await exists(join(target, '.weq-dev-build-lock')), false);
+    }
+    assert.equal(builds, 2);
+    assert.equal(verifications, 2);
+    assert(
+      logs.some(
+        ([message, level]) => /compile failed.*复用现有构建/.test(message) && level === 'warn',
+      ),
+    );
+  }
+});
+
+test('local 构建准备失败也可复用；没有可用旧构建或主动中止时保留原错误', async (t) => {
+  for (const state of [
+    'valid',
+    'missing',
+    'corrupt',
+    'dress-missing',
+    'expired',
+    'unloadable',
+    'cancelled',
+    'terminated',
+  ]) {
+    const { root, source, platform } = await sourceFixture(t);
+    await fill(root, platform, 'old');
+    const old = await marker(root, platform, {
+      ...(state === 'expired' ? { expiresAt: '2020-01-01T00:00:00Z' } : {}),
+      ...(state === 'dress-missing' ? { localBuild: { commit: 'old' } } : {}),
+    });
+    if (state !== 'missing') await writeJson(join(root, 'native/.installed.json'), old);
+    if (state === 'corrupt') await writeFile(join(root, nativeFiles(platform)[0]), 'broken');
+    if (state === 'dress-missing') await rm(join(root, 'resources/dress/widget.dat'));
+    const failure = Object.assign(new Error('cargo unavailable'), {
+      exitCode: state === 'cancelled' ? 130 : state === 'terminated' ? 143 : 1,
+    });
+    let verifications = 0;
+    const prepare = () =>
+      prepareNative(
+        root,
+        { mode: 'local', source, jobs: 2 },
+        {
+          unused: noop,
+          log: silent,
+          run: async (command, args, options) => {
+            if (command === 'git') return runCommand(command, args, options);
+            throw failure;
+          },
+          verify: async () => {
+            verifications++;
+            if (state === 'unloadable') throw new Error('cannot load');
+          },
+        },
+      );
+    if (state === 'valid') await prepare();
+    else await assert.rejects(prepare(), (error) => error === failure);
+    assert.equal(verifications, ['valid', 'unloadable'].includes(state) ? 1 : 0);
+  }
+});
+
+test('local 无可用旧构建时编译失败、编译期间源码变化不替换，并释放构建锁', async (t) => {
   for (const changed of [false, true]) {
     const { root, source, directory, platform } = await sourceFixture(t);
     await fill(root, platform, 'old');
-    const old = await marker(root, platform);
+    const old = await marker(root, platform, changed ? {} : { expiresAt: '2020-01-01T00:00:00Z' });
     await writeJson(join(root, 'native/.installed.json'), old);
     const target = join(directory, 'target');
     const run = async (command, args, options) => {
@@ -373,7 +464,16 @@ test('local 编译失败和编译期间源码变化不替换、不取发布版�
       else throw new Error('compile failed');
     };
     await assert.rejects(
-      prepareNative(root, { mode: 'local', source, jobs: 2 }, { run, log: silent, unused: noop }),
+      prepareNative(
+        root,
+        { mode: 'local', source, jobs: 2 },
+        {
+          run,
+          log: silent,
+          unused: noop,
+          verify: async () => assert.fail('编译失败后的过期产物及输入变化均不尝试加载旧构建'),
+        },
+      ),
       changed ? /输入发生变化/ : /compile failed/,
     );
     assert.equal(await bundleMatches(root, old, platform), true);

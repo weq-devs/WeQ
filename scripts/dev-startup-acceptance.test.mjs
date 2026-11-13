@@ -7,9 +7,11 @@ import {
   bundleMatches,
   installNativeBundle,
   nativePlatform,
+  prepareNative,
   verifyNativeBundle,
 } from './dev-native.mjs';
 import { hashFile, writeJson } from './dev-prepare.mjs';
+import { runCommand } from './dev-process.mjs';
 
 const kinds = ['font', 'bubble', 'widget'];
 
@@ -93,4 +95,42 @@ test('release 安装只记录真实 native 文件，不删除或覆盖旧装扮�
       await readFile(join(data.root, `resources/dress/${kind}.dat`), 'utf8'),
       `legacy ${kind}`,
     );
+});
+
+test('local 编译失败后的旧发布构建通过真实验证子进程后继续，加载失败则保留编译错误', async (t) => {
+  const data = await fixture(t, false);
+  await installNativeBundle({
+    ...data,
+    marker: { tag: 'release-fixture' },
+    withDress: false,
+    verify: (bundle, root, flags) => verifyNativeBundle(bundle, root, { ...data, ...flags }),
+    unused: async () => {},
+  });
+  const source = join(data.root, 'source');
+  await mkdir(source);
+  await writeFile(join(source, 'Cargo.toml'), 'fixture');
+  const failure = new Error('cargo unavailable');
+  const options = {
+    ...data,
+    log: () => {},
+    unused: async () => {},
+    run: async (command) => {
+      if (command === 'git') return '';
+      throw failure;
+    },
+    verify: (bundle, root, flags) =>
+      verifyNativeBundle(bundle, root, { ...flags, run: runCommand }),
+  };
+  await prepareNative(data.root, { mode: 'local', source }, options);
+  const installed = join(data.root, data.platform.directory, 'nt_helper.node');
+  await writeFile(installed, "throw new Error('load failed');");
+  await writeJson(join(data.root, 'native/.installed.json'), {
+    files: [
+      { path: `${data.platform.directory}/nt_helper.node`, sha256: await hashFile(installed) },
+    ],
+  });
+  await assert.rejects(
+    prepareNative(data.root, { mode: 'local', source }, options),
+    (error) => error === failure,
+  );
 });

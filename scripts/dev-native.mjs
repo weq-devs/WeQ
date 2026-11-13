@@ -290,87 +290,111 @@ export async function prepareNative(
     };
     delete buildEnv.BUILD_TIMESTAMP;
     delete buildEnv.CARGO_BUILD_TARGET;
-    const metadata = JSON.parse(
-      await run('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], {
-        cwd: source,
-        env: buildEnv,
-        capture: true,
-      }),
-    );
-    const target = metadata.target_directory;
-    await mkdir(target, { recursive: true });
-    const lock = join(target, '.weq-dev-build-lock');
-    // 同一 native 源码的装扮缓存和编译目录跨 WeQ checkout 共用。
-    const release = await acquireProcessLock(lock);
-    let staging;
+    let building = true;
     try {
-      const commit = (
-        await run('git', ['rev-parse', 'HEAD'], { cwd: source, capture: true })
-      ).trim();
-      const dress = await prepareDress(source, target, commit, config.jobs, {
-        run,
-        env: buildEnv,
-        log,
-      });
-      buildEnv.DRESS_KEY_SEED = dress.seed;
-      const started = performance.now();
-      log(`正在编译本地 native（${commit.slice(0, 7)}；装扮资源已独立准备）`, 'info', 'native');
-      await run(
-        'cargo',
-        [
-          'build',
-          '--release',
-          '--locked',
-          '--lib',
-          '--target',
-          platform.target,
-          '-j',
-          String(config.jobs),
-        ],
-        { cwd: source, env: buildEnv, log, scope: 'native' },
+      const metadata = JSON.parse(
+        await run('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], {
+          cwd: source,
+          env: buildEnv,
+          capture: true,
+        }),
       );
-      if (sourceFingerprint !== (await nativeSourceFingerprint(source, options)))
-        throw new Error('编译期间 native 输入发生变化，未安装，请重试');
-      staging = await mkdtemp(join(target, '.weq-dev-native-'));
-      for (const path of nativeFiles(platform))
-        await mkdir(dirname(join(staging, path)), { recursive: true });
-      await copy(
-        join(target, platform.target, 'release', platform.library),
-        join(staging, platform.directory, 'nt_helper.node'),
-      );
-      for (const kind of kinds)
-        await copy(
-          join(dress.directory, `${kind}.dat`),
-          join(staging, `resources/dress/${kind}.dat`),
+      const target = metadata.target_directory;
+      await mkdir(target, { recursive: true });
+      const lock = join(target, '.weq-dev-build-lock');
+      // 同一 native 源码的装扮缓存和编译目录跨 WeQ checkout 共用。
+      const release = await acquireProcessLock(lock);
+      let staging;
+      try {
+        const commit = (
+          await run('git', ['rev-parse', 'HEAD'], { cwd: source, capture: true })
+        ).trim();
+        const dress = await prepareDress(source, target, commit, config.jobs, {
+          run,
+          env: buildEnv,
+          log,
+        });
+        buildEnv.DRESS_KEY_SEED = dress.seed;
+        const started = performance.now();
+        log(`正在编译本地 native（${commit.slice(0, 7)}；装扮资源已独立准备）`, 'info', 'native');
+        await run(
+          'cargo',
+          [
+            'build',
+            '--release',
+            '--locked',
+            '--lib',
+            '--target',
+            platform.target,
+            '-j',
+            String(config.jobs),
+          ],
+          { cwd: source, env: buildEnv, log, scope: 'native' },
         );
-      const localBuild = {
-        source,
-        sourceFingerprint,
-        commit,
-        platform: platform.key,
-        pairedDress: true,
-        dressFingerprint: dress.fingerprint,
-        dressSeed: dress.seed,
-        isDev: true,
-        installedAt: new Date().toISOString(),
-      };
-      await install({
-        bundle: staging,
-        root,
-        marker: { ...marker, localBuild },
-        platform,
-        local: true,
-        verify: (bundle, root, flags) => verify(bundle, root, { ...options, ...flags }),
-        unused,
-      });
+        building = false;
+        if (sourceFingerprint !== (await nativeSourceFingerprint(source, options)))
+          throw new Error('编译期间 native 输入发生变化，未安装，请重试');
+        staging = await mkdtemp(join(target, '.weq-dev-native-'));
+        for (const path of nativeFiles(platform))
+          await mkdir(dirname(join(staging, path)), { recursive: true });
+        await copy(
+          join(target, platform.target, 'release', platform.library),
+          join(staging, platform.directory, 'nt_helper.node'),
+        );
+        for (const kind of kinds)
+          await copy(
+            join(dress.directory, `${kind}.dat`),
+            join(staging, `resources/dress/${kind}.dat`),
+          );
+        const localBuild = {
+          source,
+          sourceFingerprint,
+          commit,
+          platform: platform.key,
+          pairedDress: true,
+          dressFingerprint: dress.fingerprint,
+          dressSeed: dress.seed,
+          isDev: true,
+          installedAt: new Date().toISOString(),
+        };
+        await install({
+          bundle: staging,
+          root,
+          marker: { ...marker, localBuild },
+          platform,
+          local: true,
+          verify: (bundle, root, flags) => verify(bundle, root, { ...options, ...flags }),
+          unused,
+        });
+        log(
+          `本地 native 编译、验证及配套资源安装完成（耗时 ${((performance.now() - started) / 1000).toFixed(1)}s）`,
+          'info',
+          'native',
+        );
+      } finally {
+        if (staging) await rm(staging, { recursive: true, force: true });
+        await release();
+      }
+    } catch (error) {
+      if (!building || [130, 143].includes(error.exitCode)) throw error;
+      const local = Boolean(marker?.localBuild);
+      try {
+        if (
+          (!local && manifestValidity(marker).expired) ||
+          !(await bundleMatches(root, marker, platform, { withDress: local }))
+        )
+          throw new Error('没有完整且有效的已安装构建');
+        await verify(root, root, { ...options, local });
+      } catch (fallbackError) {
+        if ([130, 143].includes(fallbackError.exitCode)) throw fallbackError;
+        log(`现有 native 无法复用：${fallbackError.message}`, 'warn', 'native');
+        throw error;
+      }
       log(
-        `本地 native 编译、验证及配套资源安装完成（耗时 ${((performance.now() - started) / 1000).toFixed(1)}s）`,
-        'info',
+        `本地 native 编译失败：${error.message}；复用现有构建继续启动（未包含本次源码改动）`,
+        'warn',
         'native',
       );
-    } finally {
-      if (staging) await rm(staging, { recursive: true, force: true });
-      await release();
     }
     return;
   }
