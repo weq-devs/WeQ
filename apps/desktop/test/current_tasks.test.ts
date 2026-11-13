@@ -16,6 +16,8 @@ import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks'
 import type { BackgroundTask } from '../src/shared/background_task';
 import { TaskQuickActions } from '../src/renderer/src/components/tasks/TaskQuickActions';
 import { useToast } from '../src/renderer/src/components/Toast';
+import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
+import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
 
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
@@ -174,6 +176,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 
 afterEach(() => {
+  useDbRepairWindow.getState().dismiss();
   useToast.setState({ toasts: [], leaving: [] });
   for (const task of localBackgroundTasks.snapshot()) {
     localBackgroundTasks.finish(task.id, 'cancelled');
@@ -212,6 +215,81 @@ async function clickQuick(row: Element, label: string) {
 }
 
 describe('统一当前任务', () => {
+  it('体检跳转只对带明确目标和账号的桌面任务显示，不按名称猜测', () => {
+    const task: BackgroundTask = {
+      id: 'checkup-task',
+      kind: 'database',
+      name: '数据库体检 · synthetic.db',
+      status: 'running',
+      actions: [],
+      startedAt: 1,
+      updatedAt: 1,
+      scope: { uin: fixture.accountId },
+    };
+    expect(backgroundTaskNavigation(task)).toBeNull();
+    task.destination = 'db-checkup';
+    expect(backgroundTaskNavigation({ ...task, scope: undefined })).toBeNull();
+    expect(backgroundTaskNavigation(task)).not.toBeNull();
+    fixture.web = true;
+    expect(backgroundTaskNavigation(task)).toBeNull();
+  });
+  it.each(['running', 'completed', 'failed'] as const)(
+    '数据库体检任务在 %s 状态可从快捷列表和详情打开原账号体检窗口',
+    async (status) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      fixture.background = [
+        {
+          id: 'checkup-task',
+          kind: 'database',
+          name: '数据库体检 · synthetic.db',
+          destination: 'db-checkup',
+          scope: { uin: fixture.accountId },
+          status,
+          actions: [],
+          startedAt: 1,
+          updatedAt: 1,
+        },
+      ];
+      const host = document.createElement('div');
+      const root = createRoot(host);
+      const expand = vi.fn();
+      try {
+        for (const layout of ['compact', 'inline'] as const) {
+          act(() =>
+            root.render(
+              h(CurrentTaskList, {
+                layout,
+                exports: [],
+                renderExport: () => null,
+                onOpenDetail: expand,
+              }),
+            ),
+          );
+          const row = [
+            ...host.querySelectorAll(
+              layout === 'compact' ? '.weq-long-task-entry' : '.weq-long-task',
+            ),
+          ].find((item) => item.textContent?.includes('数据库体检'))!;
+          if (layout === 'compact') await clickQuick(row, '打开数据库体检');
+          else {
+            act(() => (row as HTMLButtonElement).click());
+            const open = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+              (button) => button.textContent?.trim() === '打开数据库体检',
+            );
+            expect(open).toBeDefined();
+            act(() => open!.click());
+          }
+          expect(useDbRepairWindow.getState().request?.uin).toBe(fixture.accountId);
+          useDbRepairWindow.getState().dismiss();
+        }
+        expect(expand).not.toHaveBeenCalled();
+        expect(fixture.taskAct).not.toHaveBeenCalled();
+      } finally {
+        act(() => root.unmount());
+      }
+    },
+  );
+
   it('更多菜单执行中禁止重复提交，错误反馈后可重试，移除组件关闭浮层', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

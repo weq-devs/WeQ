@@ -24,6 +24,7 @@ import { useDialog } from '../Dialog';
 import type { TaskLogLine } from '../TaskLogConsole';
 import { CalendarTaskDetails } from '../CalendarTaskDetails';
 import { ContactTaskStages } from './ContactTaskStages';
+import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import '../../styles/export.css';
 import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
@@ -85,6 +86,7 @@ function TaskDetails({
   refresh: () => Promise<unknown>;
 }) {
   const { task } = entry;
+  const navigation = backgroundTaskNavigation(task);
   const hostDetails = trpc.backgroundTasks.details.useQuery(
     { id: task.id, scope, updatedAt: task.updatedAt },
     {
@@ -163,6 +165,16 @@ function TaskDetails({
         </div>
       ) : null}
       <div className="weq-long-task-actions">
+        {navigation ? (
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft"
+            onClick={() => navigation.run()}
+          >
+            {navigation.icon}
+            {navigation.label}
+          </button>
+        ) : null}
         {task.download ? (
           <a
             className="weq-set-btn weq-set-btn-soft"

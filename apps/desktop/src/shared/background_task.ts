@@ -23,6 +23,7 @@ export interface BackgroundTask {
   kind: BackgroundTaskKind;
   name: string;
   scope?: BackgroundTaskScope;
+  destination?: 'db-checkup';
   status: BackgroundTaskStatus;
   statusLabel?: string;
   progress?: number;
@@ -79,7 +80,7 @@ export class BackgroundTaskRegistry {
     return () => this.listeners.delete(listener);
   };
 
-  start(input: Pick<BackgroundTask, 'name' | 'kind' | 'scope'> & TaskPatch) {
+  start(input: Pick<BackgroundTask, 'name' | 'kind' | 'scope' | 'destination'> & TaskPatch) {
     const now = Date.now();
     const task: BackgroundTask = {
       ...input,

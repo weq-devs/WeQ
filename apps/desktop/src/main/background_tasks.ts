@@ -7,7 +7,7 @@ export function taskError(error: unknown): string {
 }
 
 export async function runBackgroundTask<T>(
-  input: Pick<BackgroundTask, 'kind' | 'name' | 'scope'>,
+  input: Pick<BackgroundTask, 'kind' | 'name' | 'scope' | 'destination'>,
   work: (id: string) => Promise<T> | T,
   result: (
     value: T,

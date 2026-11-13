@@ -4,6 +4,7 @@ import { CurrentTaskList } from '../../src/renderer/src/components/tasks/Current
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { localBackgroundTasks } from '../../src/renderer/src/state/backgroundTasks';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
+import { useViewState } from '../../src/renderer/src/state/view';
 import type { BackgroundTaskKind } from '../../src/shared/background_task';
 import type { UiTask } from '../../src/renderer/src/views/export/TaskList';
 import '../../src/renderer/src/styles/index.css';
@@ -20,12 +21,16 @@ const fixtures: [BackgroundTaskKind, string][] = [
   ['album-upload', '群相册长文件名-video-with-a-long-filename-for-layout-testing.mp4'],
   ['resource', '资源扫描与清理'],
 ];
+useViewState.setState({ openedUin: 'synthetic' });
 for (const [kind, name] of fixtures) {
   const id = localBackgroundTasks.start({
     kind,
     name,
     progress: kind === 'model' ? 42 : undefined,
     note: '合成数据，不发出网络请求',
+    ...(kind === 'database'
+      ? { destination: 'db-checkup' as const, scope: { uin: 'synthetic' } }
+      : {}),
   });
   if (kind === 'forward') {
     localBackgroundTasks.setActions(id, [

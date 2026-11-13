@@ -57,6 +57,7 @@ import {
 import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { IS_WEB } from '../../lib/target';
+import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 
 export interface ExportTaskActions {
   pause: (task: UiTask) => unknown;
@@ -624,6 +625,8 @@ export function CurrentTaskList({
         await background.query.refetch();
       },
     }));
+    const navigation = backgroundTaskNavigation(task);
+    if (navigation) actions.unshift(navigation);
     if (task.status !== 'running')
       actions.push({
         id: 'remove',
