@@ -11,15 +11,8 @@ import {
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { ConversationSettingsButton } from '../../components/ConversationSettingsButton';
 import { GroupCallComingSoon } from '../../components/GroupCallComingSoon';
-import {
-  GiftMallPanel,
-  GroupGiftPanel,
-  FlashComposer,
-  ArkPanel,
-  RedPacketPanel,
-  LocationCardPanel,
-  LocationSharePanel,
-} from './lazyComposerPanels';
+import { GiftMallPanel } from '../../components/gift/GiftMallPanel';
+import { GroupGiftPanel } from '../../components/gift/GroupGiftPanel';
 import { ChatHeader } from '../../components/ChatHeader';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls';
@@ -174,7 +167,7 @@ import {
   collectFiles,
 } from './composerMediaStage';
 import { VoicePanel, type TtsSpeechResult } from './voicePanel';
-import type { FlashSendPayload } from './flashComposer';
+import { FlashComposer, type FlashSendPayload } from './flashComposer';
 
 /**
  * 闪照「选图即发」的载荷：一张图的本地句柄（路径优先、字节兜底）。
@@ -213,11 +206,13 @@ import {
   quoteFromMessage,
   type ComposerQuote,
 } from './composerQuote';
-import type { LocationCardPayload } from './locationCardPanel';
+import { ArkPanel } from './arkPanel';
+import { LocationCardPanel, type LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { AiVoicePanel, aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel';
 import { bounceEmojiToken, type BounceEmojiDraft } from './bounceEmojiPanel';
-import type { RedPacketDraft } from './redPacketPanel';
+import { RedPacketPanel, type RedPacketDraft } from './redPacketPanel';
+import { LocationSharePanel } from './locationSharePanel';
 import {
   pokeEmojiToken,
   randomFaceToken,
