@@ -274,7 +274,7 @@ describe('开发构建摘要', () => {
       expect(sink.mock.calls).toHaveLength(2);
       expect(sink.mock.calls[0]![0]).toContain('内置 Web 构建开始');
       expect(sink.mock.calls[1]![0]).toContain('内置 Web 构建完成');
-      expect(sink.mock.calls[1]![0]).toContain('产物数 121');
+      expect(sink.mock.calls[1]![0]).not.toContain('产物数');
       expect(sink.mock.calls.flat().join('')).not.toContain('fixture-');
       sink.mockClear();
       await writeFile(join(directory, 'entry.js'), 'export const = ;');
@@ -304,7 +304,8 @@ describe('开发构建摘要', () => {
     );
     hook(plugin, 'closeBundle');
     expect(sink.mock.calls).toHaveLength(6);
-    expect(sink.mock.calls.flat().join('')).toContain('耗时 2.4s  产物数 1000');
+    expect(sink.mock.calls.flat().join('')).toContain('耗时 2.4s');
+    expect(sink.mock.calls.flat().join('')).not.toContain('产物数');
     expect(sink.mock.calls.flat().join('')).toContain('位置 fixture.ts:3');
   });
   it('构建失败不产生完成摘要，热更新去重但保留每次记录及不同路径', () => {
@@ -327,6 +328,27 @@ describe('开发构建摘要', () => {
     expect(developmentViteLogging('web', { WEQ_DEV_CONSOLE: '1', WEQ_LOG_LEVEL: 'debug' })).toEqual(
       { config: {}, plugins: [] },
     );
+  });
+  it('已知动态导入告警按构建汇总、去重并重置，未知格式和其他告警不吞掉', () => {
+    const sink = vi.fn();
+    const logging = developmentViteLogging('web', { WEQ_DEV_CONSOLE: '1' }, sink);
+    const plugin = logging.plugins[0]!;
+    const logger = logging.config.customLogger!;
+    hook(plugin, 'buildStart');
+    const warning = (path: string) =>
+      `[INEFFECTIVE_DYNAMIC_IMPORT] ${path} is dynamically imported by long/path.ts but also statically imported by other/path.ts, dynamic import will not move module into another chunk.`;
+    logger.warn(warning('../../db/index.ts'));
+    logger.warn(warning('../../db/index.ts'));
+    logger.warn(warning('src/ai_images.ts'));
+    hook(plugin, 'closeBundle');
+    expect(sink.mock.calls).toHaveLength(2);
+    expect(sink.mock.calls[1]![0]).toContain('2 项动态导入未形成分包：index.ts、ai_images.ts');
+    expect(sink.mock.calls[1]![0]).not.toContain('long/path');
+    hook(plugin, 'buildStart');
+    hook(plugin, 'closeBundle');
+    expect(sink.mock.calls).toHaveLength(3);
+    logger.warn('[INEFFECTIVE_DYNAMIC_IMPORT] unknown format\nfixture.ts:3');
+    expect(sink.mock.calls.flat().join('')).toContain('fixture.ts:3');
   });
   it('默认压缩大包建议，插件计时合并为单行，其他告警仍保留定位', () => {
     const sink = vi.fn();

@@ -916,7 +916,6 @@ void app.whenReady().then(async () => {
   // 意图感知本地引擎（Laya ONNX worker）：bridge 认识 Electron（userData 路径、
   // fork），同样从这里注入控制面；web 端不注入，localAvailable 恒为 false。
   setIntentSenseLocalEngine(getIntentSenseLocalEngine());
-  logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();
   registerAvatarProtocol();

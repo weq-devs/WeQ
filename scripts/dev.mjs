@@ -48,6 +48,7 @@ export async function startDevelopment({
   delete childEnv.ELECTRON_RUN_AS_NODE;
   delete childEnv.ELECTRON_OVERRIDE_DIST_PATH;
   const options = { env: childEnv, log, run };
+  const started = performance.now();
   // 在依赖安装与任何替换前检查当前仓库，避免维护仍在使用的开发环境。
   await unused(repo, options);
   await dependencies(repo, options);
@@ -72,7 +73,9 @@ export async function startDevelopment({
     !launchArgs.some((arg) => arg === '--user-data-dir' || arg.startsWith('--user-data-dir='))
   )
     launchArgs.push(`--user-data-dir=${config.userDataDir}`);
-  log('开发环境已就绪，正在启动 WeQ');
+  log(
+    `依赖准备完成，开始开发构建（依赖、Electron、native、网络助手及机器人运行时已就绪；耗时 ${((performance.now() - started) / 1000).toFixed(1)}s）`,
+  );
   // 继续使用现有宿主准备、内置 Web 构建、Vite 热更新及进程树清理。
   const status = await launch(launchArgs, childEnv, executable);
   if (status)

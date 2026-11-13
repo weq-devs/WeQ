@@ -39,5 +39,8 @@ export function advanceStartup(stage: StartupStage, fraction = 0): void {
 }
 
 export function finishStartup(): void {
+  const current = useStartupProgress.getState();
+  if (!current.active || current.stage !== 'ready') return;
   useStartupProgress.setState({ active: false });
+  window.weq?.debugLog?.('info', '应用已就绪', { scope: 'desktop-main', event: 'app-ready' });
 }

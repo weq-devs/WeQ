@@ -14,7 +14,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { measureMessageWork, recordMessagePartition, recordMessageWork } from '@weq/db';
+import { decodeBody, measureMessageWork, recordMessagePartition, recordMessageWork } from '@weq/db';
 import type {
   C2cMsg,
   GroupMsg,
@@ -587,8 +587,6 @@ export class MsgService {
   async getRawElements(
     msgId: bigint,
   ): Promise<{ elements: Element[]; kind: 'c2c' | 'group' } | null> {
-    const { decodeBody } = await import('@weq/db');
-
     // c2c / dataline / 服务号(118) 三张表都是 C2cMsgDb（同一 wire shape），
     // 服务号消息物理存在 service_assistant_msg_table，漏查会导致「服务号 ARK
     // 消息右键修改」永远 getRawElements 返回 null（编辑框打不开）。
@@ -677,7 +675,6 @@ export class MsgService {
    * false when the row / element isn't found, or when the value is unchanged.
    */
   async setPttTranscript(msgId: bigint, fileName: string, text: string): Promise<boolean> {
-    const { decodeBody } = await import('@weq/db');
     for (const db of [
       this.session.c2cMsgs,
       this.session.datalineMsgs,

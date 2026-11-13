@@ -184,7 +184,7 @@ export async function prepareDependencies(
     previous?.fingerprint === state.fingerprint &&
     previous.installation === state.installation
   ) {
-    log('项目依赖已就绪', 'info', 'dependencies');
+    log('项目依赖已就绪', 'debug', 'dependencies');
     return;
   }
   log('正在补齐项目依赖（遵循锁文件，优先使用缓存）', 'info', 'dependencies');
@@ -228,7 +228,7 @@ export async function prepareBot(
         previous.fingerprint === (await fingerprint(previous.inputs)) &&
         previous.sha256 === (await hashFile(artifact))
       ) {
-        log('机器人运行时已就绪', 'info', 'build');
+        log('机器人运行时已就绪', 'debug', 'build');
         return;
       }
     } catch (error) {
@@ -236,6 +236,7 @@ export async function prepareBot(
     }
   }
   log('正在构建机器人运行时', 'info', 'build');
+  const started = performance.now();
   await mkdir(dirname(metaPath), { recursive: true });
   const [command, args] = pnpmCommand(['run', 'build:bot', `--metafile=${metaPath}`], env);
   await run(command, args, { cwd: root, env, log, scope: 'build' });
@@ -247,6 +248,11 @@ export async function prepareBot(
     fingerprint: await fingerprint(meta.inputs),
     sha256: await hashFile(artifact),
   });
+  log(
+    `机器人运行时构建完成（耗时 ${((performance.now() - started) / 1000).toFixed(1)}s）`,
+    'info',
+    'build',
+  );
 }
 
 export async function prepareElectron(
@@ -257,7 +263,7 @@ export async function prepareElectron(
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_OVERRIDE_DIST_PATH;
   const directory = electronPackage(root);
-  log('正在检查 Electron 运行时', 'info', 'electron');
+  log('正在检查 Electron 运行时', 'debug', 'electron');
   // Electron 自己的安装器处理平台路径、版本、缓存和镜像，不复制其判定规则。
   await run(process.execPath, [join(directory, 'install.js')], {
     cwd: root,
@@ -340,7 +346,7 @@ export async function prepareNetwork(
     (await exists(helper)) &&
     previous.sha256 === (await hashFile(helper))
   ) {
-    log('网络辅助程序已就绪', 'info', 'network');
+    log('网络辅助程序已就绪', 'debug', 'network');
     return helper;
   }
   log('正在准备网络辅助程序（需要 Go 工具链）', 'info', 'network');

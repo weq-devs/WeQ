@@ -6,6 +6,7 @@ import {
   STARTUP_STAGES,
   startupPercent,
   advanceStartup,
+  finishStartup,
   useStartupProgress,
 } from '../src/renderer/src/state/startupProgress';
 import { useViewState } from '../src/renderer/src/state/view';
@@ -28,6 +29,22 @@ beforeEach(() => {
     percent: STARTUP_STAGES.resources.percent,
   });
   useViewState.setState({ view: 'main', homeStage: 'home' });
+});
+
+it('首屏完成绘制后才报告应用就绪，提前及重复完成不重复记日志', () => {
+  const debugLog = vi.fn();
+  vi.stubGlobal('weq', { debugLog });
+  finishStartup();
+  expect(debugLog).not.toHaveBeenCalled();
+  expect(useStartupProgress.getState().active).toBe(true);
+  advanceStartup('ready');
+  finishStartup();
+  finishStartup();
+  expect(debugLog).toHaveBeenCalledTimes(1);
+  expect(debugLog).toHaveBeenCalledWith('info', '应用已就绪', {
+    scope: 'desktop-main',
+    event: 'app-ready',
+  });
 });
 afterEach(() => {
   vi.restoreAllMocks();

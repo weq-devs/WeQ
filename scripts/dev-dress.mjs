@@ -70,12 +70,13 @@ export async function prepareDress(source, target, commit, jobs, { run, env, log
     /^[a-f0-9]{40}$/.test(previous.seed ?? '') &&
     (await dressMatches(directory, previous.seed))
   ) {
-    log('装扮输入未变化，复用独立打包缓存', 'info', 'native');
+    log('装扮输入未变化，复用独立打包缓存', 'debug', 'native');
     return { directory, seed: previous.seed, fingerprint };
   }
   const staging = await mkdtemp(join(target, '.weq-dev-dress-'));
   const output = join(staging, 'output');
   try {
+    const started = performance.now();
     log('正在独立加工装扮资源（仅输入或打包工具变化时执行）', 'info', 'native');
     await run(
       'cargo',
@@ -99,6 +100,11 @@ export async function prepareDress(source, target, commit, jobs, { run, env, log
     await writeJson(join(output, '.weq-dev.json'), { fingerprint, seed: commit });
     await rm(directory, { recursive: true, force: true });
     await rename(output, directory);
+    log(
+      `装扮资源准备完成（耗时 ${((performance.now() - started) / 1000).toFixed(1)}s）`,
+      'info',
+      'native',
+    );
     return { directory, seed: commit, fingerprint };
   } finally {
     await rm(staging, { recursive: true, force: true });

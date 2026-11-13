@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -395,6 +395,64 @@ test('命令执行保留失败退出码、缺失工具及参数，失败输出�
     { encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } },
   );
   assert.equal(text, '00:05:06 INFO  app  ready\n         at fixture\n');
+});
+
+test('默认收起 Cargo 过程和命令回显，保留诊断续行；debug 保留原始输出', () => {
+  const text =
+    '   Compiling libc v1.0\n    Finished `release` profile in 1s\n     Running `target/tool /tmp/random`\n$ node scripts/build-bot.mjs --metafile=/tmp/meta\nwarning: unused function\n  --> src/lib.rs:3:8\n   |\n3 | fn unused() {}\nwarning: `fixture` (bin "fixture") generated 1 warning\nerror[E000]: broken\n  --> src/lib.rs:8:1\nunknown output\n';
+  const lines = [];
+  const output = commandOutput((...row) => lines.push(row), 'native', { env: {} });
+  output.write(Buffer.from(text));
+  output.end();
+  assert.equal(lines.length, 7);
+  assert.equal(lines[0][1], 'warn');
+  assert.equal(lines[1][1], 'warn');
+  assert.equal(lines[4][1], 'error');
+  assert.equal(lines[5][1], 'error');
+  assert.equal(lines[6][0], 'unknown output');
+  assert(
+    !lines.some(([line]) => /Compiling|Finished|Running|metafile|generated 1 warning/.test(line)),
+  );
+  const raw = [];
+  const debug = commandOutput((...row) => raw.push(row), 'native', {
+    env: { WEQ_LOG_LEVEL: 'debug' },
+  });
+  debug.write(Buffer.from(text));
+  debug.end();
+  assert.equal(raw.length, text.trim().split('\n').length);
+  const other = [];
+  const unknown = commandOutput((...row) => other.push(row), 'network', { env: {} });
+  unknown.write(Buffer.from('Running network check\nDownloading helper\n'));
+  unknown.end();
+  assert.equal(other.length, 2);
+});
+
+test('安静构建期间低频报告进度，退出后停止计时且原始错误保留', {
+  skip: process.platform === 'win32',
+}, async (t) => {
+  const root = await fixture(t);
+  const cargo = join(root, 'cargo');
+  await writeFile(
+    cargo,
+    `#!${process.execPath}\nsetTimeout(() => { console.error('error: fixture build failure'); process.exitCode = 7; }, 120);\n`,
+  );
+  await chmod(cargo, 0o755);
+  const lines = [];
+  await assert.rejects(
+    runCommand('cargo', ['build'], {
+      env: { ...process.env, PATH: `${root}:${process.env.PATH}`, WEQ_LOG_LEVEL: 'info' },
+      progressIntervalMs: 20,
+      log: (...row) => lines.push(row),
+    }),
+    (error) => error.exitCode === 7,
+  );
+  assert(lines.some(([text]) => text.includes('构建任务仍在进行')));
+  assert(
+    lines.some(([text, level]) => text === 'error: fixture build failure' && level === 'error'),
+  );
+  const count = lines.length;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(lines.length, count);
 });
 
 test('只终止本次启动的子进程组，SIGTERM 返回 143', {

@@ -279,7 +279,7 @@ export async function prepareNative(
       (await bundleMatches(root, marker, platform))
     ) {
       await verify(root, root, { ...options, local: true });
-      log('本地 native 与源码一致，复用现有构建', 'info', 'native');
+      log('本地 native 与源码一致，复用现有构建', 'debug', 'native');
       return;
     }
     await unused(root, options);
@@ -313,6 +313,7 @@ export async function prepareNative(
         log,
       });
       buildEnv.DRESS_KEY_SEED = dress.seed;
+      const started = performance.now();
       log(`正在编译本地 native（${commit.slice(0, 7)}；装扮资源已独立准备）`, 'info', 'native');
       await run(
         'cargo',
@@ -362,7 +363,11 @@ export async function prepareNative(
         verify: (bundle, root, flags) => verify(bundle, root, { ...options, ...flags }),
         unused,
       });
-      log('本地 native 编译、验证及配套资源安装完成', 'info', 'native');
+      log(
+        `本地 native 编译、验证及配套资源安装完成（耗时 ${((performance.now() - started) / 1000).toFixed(1)}s）`,
+        'info',
+        'native',
+      );
     } finally {
       if (staging) await rm(staging, { recursive: true, force: true });
       await release();
@@ -394,7 +399,7 @@ export async function prepareNative(
         `native ${tag} 已过期，请验证并升级项目版本锚；重新下载同一版本不会延长有效期`,
       );
     await verify(root, root, { ...options, local: false });
-    log(`发布版 native 已就绪（${tag}）`, 'info', 'native');
+    log(`发布版 native 已就绪（${tag}）`, 'debug', 'native');
     return;
   }
   await unused(root, options);

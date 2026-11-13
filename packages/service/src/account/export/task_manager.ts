@@ -42,6 +42,7 @@ import { sourceValue } from './archive_value';
 import { writeArchiveView } from './archive_view_writer';
 import { sha256, type ExportProfile, type ArchiveOptions } from './archive';
 import { finalizeArchiveMessages } from './archive_finalize';
+import { readArchiveHeader, scanArchiveFile } from './archive_stream';
 import {
   selectedResourceEntries,
   writeResourceDirectoryArchive,
@@ -1538,7 +1539,6 @@ export class ExportTaskManager extends EventEmitter {
         const format = Object.entries(task.archiveTargets).find(
           ([, path]) => path === selected,
         )![0] as 'json' | 'jsonl' | 'jsonl.gz';
-        const { readArchiveHeader } = await import('./archive_stream');
         task.archiveId = String((await readArchiveHeader(selected, format)).archiveId);
       }
     }
@@ -5849,7 +5849,6 @@ export class ExportTaskManager extends EventEmitter {
     });
     try {
       if (task.archiveId && task.incrementalSupport && !task.journalPath) {
-        const { scanArchiveFile } = await import('./archive_stream');
         const formats = task.formats ?? [task.format];
         const paths = this.exportFilePaths(task, task.outputDirectory ?? dirname(task.filePath!));
         const hashes: Record<string, string> = {};

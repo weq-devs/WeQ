@@ -1,5 +1,6 @@
 import type { Logger, Plugin } from 'vite';
 import { stripVTControlCharacters } from 'node:util';
+import { basename } from 'node:path';
 import { developmentRecord, summarizeDevelopmentBuildWarning } from './development_console';
 
 export function developmentViteLogging(
@@ -21,6 +22,7 @@ export function developmentViteLogging(
   let building = target !== 'renderer';
   const warned = new Set<string>();
   const errors = new WeakSet<object>();
+  const ineffectiveImports = new Set<string>();
   const write = (level: 'info' | 'warn' | 'error', text: string) => {
     const lines = stripVTControlCharacters(text).trim().split(/\r?\n/);
     const message = lines.shift() ?? '';
@@ -44,7 +46,13 @@ export function developmentViteLogging(
     },
     warn(text) {
       logger.hasWarned = true;
-      write('warn', summarizeDevelopmentBuildWarning(stripVTControlCharacters(text)));
+      const clean = stripVTControlCharacters(text);
+      const ineffective =
+        /^\[INEFFECTIVE_DYNAMIC_IMPORT\] (.+?) is dynamically imported by [\s\S]+dynamic import will not move module into another chunk\.?\s*$/.exec(
+          clean,
+        );
+      if (ineffective) ineffectiveImports.add(ineffective[1]!);
+      else write('warn', summarizeDevelopmentBuildWarning(clean));
     },
     warnOnce(text) {
       if (!warned.has(text)) {
@@ -67,19 +75,26 @@ export function developmentViteLogging(
     name: `weq-development-summary-${target}`,
     buildStart() {
       building = true;
+      ineffectiveImports.clear();
       started = now();
       write('info', `${title}开始`);
     },
-    writeBundle(_options, bundle) {
+    writeBundle() {
       sink(
         developmentRecord('info', `${title}完成`, {
           scope,
           durationMs: Math.round(now() - started),
-          artifactCount: Object.keys(bundle).length,
         }),
       );
     },
     closeBundle() {
+      if (ineffectiveImports.size) {
+        write(
+          'warn',
+          `${ineffectiveImports.size} 项动态导入未形成分包：${[...ineffectiveImports].map((path) => basename(path)).join('、')}（完整引用链见 debug 日志）`,
+        );
+        ineffectiveImports.clear();
+      }
       building = false;
     },
   };
