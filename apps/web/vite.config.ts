@@ -44,7 +44,6 @@ export default defineConfig({
     outDir: resolve(process.env.WEQ_WEB_DIST ?? resolve(import.meta.dirname, 'dist'), 'public'),
     emptyOutDir: true,
     rollupOptions: {
-      ...chunkBudget.options,
       input: { index: resolve(RENDERER, 'index.html') },
       output: {
         // 聊天模板与业务状态存在交叉引用，分包后仍按源码顺序初始化。

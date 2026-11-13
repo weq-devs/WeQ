@@ -16,6 +16,10 @@ async function fixture({
   growLate = false,
   earlyNativeWarning = false,
   write = true,
+  directNativeWarning = '',
+  compactWarning = false,
+  once = false,
+  customLogger = createLogger('silent'),
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'weq-chunk-budget-'));
   const entry = join(root, 'entry.js');
@@ -36,15 +40,33 @@ async function fixture({
     ],
     [helper, 'export const tag = Math.random();'],
   ]);
-  const logger = createLogger('silent');
+  const logger = customLogger;
   const warnings = vi.spyOn(logger, 'warn');
+  const warningsOnce = vi.spyOn(logger, 'warnOnce');
   const info = vi.spyOn(logger, 'info');
+  const nativeWarning = compactWarning
+    ? '部分构建块压缩后超过 500 kB'
+    : '\x1b[33m[plugin builtin:vite-reporter] \n(!) Some chunks are larger than 500 kB after minification. Consider:\x1b[0m';
+  const emitNative = () => (once ? logger.warnOnce(nativeWarning) : logger.warn(nativeWarning));
   const plugin: Plugin = {
     name: 'chunk-budget-fixture',
     resolveId: (id) => (sources.has(id) ? id : null),
     load: (id) => sources.get(id),
     buildStart() {
       if (unrelated) this.warn('fixture-unrelated');
+      if (directNativeWarning === 'before') emitNative();
+    },
+    writeBundle: {
+      order: 'post',
+      handler() {
+        if (directNativeWarning === 'after') emitNative();
+      },
+    },
+    closeBundle: {
+      order: 'post',
+      handler() {
+        if (directNativeWarning === 'closed') emitNative();
+      },
     },
     generateBundle: {
       order: 'post',
@@ -86,7 +108,9 @@ async function fixture({
       },
     });
     return {
-      warnings: warnings.mock.calls.map(([text]) => text).join('\n'),
+      warnings: [...warnings.mock.calls, ...warningsOnce.mock.calls]
+        .map(([text]) => text)
+        .join('\n'),
       info: info.mock.calls.map(([text]) => text).join('\n'),
       hasWarned: logger.hasWarned,
     };
@@ -143,35 +167,85 @@ it('预算检查未执行时不吞掉先到的原生告警', async () => {
   expect(output.hasWarned).toBe(true);
 });
 
-it('真实 Vite CLI 开发摘要不输出预期语法提示或原生大包误报', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'weq-web-cli-budget-'));
-  try {
-    const result = spawnSync(
-      process.execPath,
-      [resolve(__dirname, '../../web/node_modules/vite/bin/vite.js'), 'build'],
-      {
-        cwd: resolve(__dirname, '../../web'),
-        env: {
-          ...process.env,
-          NODE_ENV: 'production',
-          WEQ_DEV_CONSOLE: '1',
-          WEQ_LOG_LEVEL: 'info',
-          WEQ_WEB_DIST: directory,
+it.each(['before', 'after', 'closed'])(
+  '原生警告直接进入 logger（%s）也由预算检查统一处理',
+  async (directNativeWarning) => {
+    const output = await fixture({ directNativeWarning });
+    expect(output.warnings).toBe('');
+    expect(output.hasWarned).toBe(false);
+  },
+);
+
+it('已被压成中文摘要的原生警告也不重复输出', async () => {
+  const output = await fixture({ directNativeWarning: 'after', compactWarning: true });
+  expect(output.warnings).toBe('');
+  expect(output.hasWarned).toBe(false);
+});
+
+it('logger.warnOnce 的原生大包警告也不重复输出', async () => {
+  const output = await fixture({ directNativeWarning: 'after', once: true });
+  expect(output.warnings).toBe('');
+  expect(output.hasWarned).toBe(false);
+});
+
+it('复用 logger 的下一次构建仍保留未检查的原生警告', async () => {
+  const logger = createLogger('silent');
+  await fixture({ customLogger: logger });
+  expect(logger.hasWarned).toBe(false);
+  await fixture({ customLogger: logger, directNativeWarning: 'before', write: false });
+  expect(logger.hasWarned).toBe(true);
+});
+
+it('直接进入 logger 但未执行预算检查的警告仍保留', async () => {
+  const output = await fixture({ directNativeWarning: 'before', write: false });
+  expect(output.warnings).toContain('Some chunks are larger');
+  expect(output.hasWarned).toBe(true);
+});
+
+it.each(['cli', 'desktop'] as const)(
+  '真实 %s 启动链路不输出预期语法提示或原生大包误报',
+  async (target) => {
+    const directory = await mkdtemp(join(tmpdir(), 'weq-web-cli-budget-'));
+    try {
+      const result = spawnSync(
+        process.execPath,
+        target === 'cli'
+          ? [resolve(__dirname, '../../web/node_modules/vite/bin/vite.js'), 'build']
+          : [
+              '--input-type=module',
+              '-e',
+              `
+          const {config}=await (await import('electron-vite')).loadConfigFromFile({command:'serve',mode:'development'});
+          const plugin=config.main.plugins.find(p=>p?.name==='weq-remote-web-assets');
+          await plugin.buildStart();
+        `,
+            ],
+        {
+          cwd: target === 'cli' ? resolve(__dirname, '../../web') : resolve(__dirname, '..'),
+          env: {
+            ...process.env,
+            NODE_ENV: target === 'cli' ? 'production' : 'development',
+            npm_execpath: process.env.npm_execpath ?? 'pnpm',
+            WEQ_DEV_CONSOLE: '1',
+            WEQ_LOG_LEVEL: 'info',
+            WEQ_WEB_DIST: directory,
+          },
+          encoding: 'utf8',
+          timeout: 60_000,
+          maxBuffer: 4 * 1024 * 1024,
         },
-        encoding: 'utf8',
-        timeout: 60_000,
-        maxBuffer: 4 * 1024 * 1024,
-      },
-    );
-    const output = result.stdout + result.stderr;
-    expect(result.error).toBeUndefined();
-    expect(result.status, output).toBe(0);
-    expect(output).toContain('内置 Web 构建完成');
-    expect(output).not.toContain('按需语法资源');
-    expect(output).not.toContain('Some chunks are larger');
-    expect(output).not.toContain('部分构建块压缩后超过');
-    expect(output).not.toContain('构建块超出体积预算');
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-}, 70_000);
+      );
+      const output = result.stdout + result.stderr;
+      expect(result.error).toBeUndefined();
+      expect(result.status, output).toBe(0);
+      expect(output).toContain('内置 Web 构建完成');
+      expect(output).not.toContain('按需语法资源');
+      expect(output).not.toContain('Some chunks are larger');
+      expect(output).not.toContain('部分构建块压缩后超过');
+      expect(output).not.toContain('构建块超出体积预算');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+  70_000,
+);
