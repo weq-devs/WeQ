@@ -55,7 +55,7 @@ try {
     await page.evaluate((group) => window.noticeQa.render(group), group);
     await page.waitForSelector('.notice-card-request');
     const time = page.locator('.notice-meta time').first();
-    if ((await time.textContent()) !== '2026/11/07 00:00:37')
+    if ((await time.textContent()) !== '2026-11-07 00:00:37')
       throw new Error('通知时间未显示完整的北京时间与秒数');
     await page.evaluate((group) => window.noticeQa.mountActions(group), group);
     await page.waitForSelector('.notice-request-buttons');
@@ -70,6 +70,22 @@ try {
         }, theme);
         const result = await page.evaluate(() => {
           const cards = [...document.querySelectorAll('.notice-card-request')];
+          const brokenIdentities = cards.filter((card) => {
+            const identity = card.querySelector('.notice-identity');
+            const avatar = identity.querySelector('.avatar').getBoundingClientRect();
+            const name = identity.querySelector('.notice-who').getBoundingClientRect();
+            const bounds = identity.getBoundingClientRect();
+            const copy = card.querySelector('.notice-copy').getBoundingClientRect();
+            const meta = card.querySelector('.notice-meta').getBoundingClientRect();
+            return (
+              bounds.width < avatar.width + 24 ||
+              name.height > avatar.height + 1 ||
+              name.left < avatar.right ||
+              name.right > bounds.right + 1 ||
+              bounds.right > meta.left + 1 ||
+              bounds.bottom > copy.top + 1
+            );
+          });
           const clipped = cards.filter((card) => {
             const rect = card.getBoundingClientRect();
             const timeClipped = [...card.querySelectorAll('time')].some((time) => {
@@ -104,6 +120,7 @@ try {
           list.scrollTop = list.scrollHeight;
           const last = cards.at(-1).getBoundingClientRect();
           return {
+            brokenIdentities: brokenIdentities.length,
             clipped: clipped.length,
             count: cards.length,
             scrollable: list.scrollHeight > list.clientHeight,
@@ -123,6 +140,7 @@ try {
           };
         });
         if (
+          result.brokenIdentities ||
           result.clipped ||
           result.overflow ||
           result.count !== 12 ||

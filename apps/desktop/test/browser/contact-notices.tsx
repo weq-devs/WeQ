@@ -28,7 +28,7 @@ const requests: ContactRequest[] = Array.from({ length: 12 }, (_, index) => ({
     username: 'synthetic',
     identityLabel: 'QQ',
     identityValue: '10001',
-    displayName: '合成联系人',
+    displayName: index % 2 ? '合成长昵称与LongName'.repeat(8) : '合成联系人',
     avatarUrl: null,
   },
   status: 'pending',

@@ -165,35 +165,6 @@
   grid-row: 1 / 3;
   align-self: center;
 }
-.weq-notice-dialog .notice-card-request:has(> .notice-identity) {
-  grid-template-columns: 32px minmax(0, 1fr) 76px;
-  gap: 4px 10px;
-}
-.weq-notice-dialog .notice-identity {
-  grid-column: 1 / 3;
-  width: fit-content;
-  max-width: 100%;
-  height: auto;
-  min-height: 32px;
-  gap: 10px;
-  justify-content: flex-start;
-  border-radius: 4px;
-  text-align: left;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.weq-notice-dialog .notice-identity .avatar {
-  flex-shrink: 0;
-}
-.weq-notice-dialog .notice-card-request > .notice-copy {
-  grid-column: 2;
-}
-.weq-notice-dialog .notice-card-request > .notice-meta {
-  grid-column: 3;
-  grid-row: 1 / 3;
-}
 .weq-number-lookup-result:has(.weq-number-lookup-identity) {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);

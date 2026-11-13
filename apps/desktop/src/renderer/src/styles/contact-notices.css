@@ -87,6 +87,47 @@
   outline-offset: 2px;
 }
 
+/* 身份区跨头像和正文两列，不继承单独头像按钮的固定尺寸。 */
+.weq-notice-dialog .notice-card-request:has(> .notice-identity) {
+  grid-template-columns: 32px minmax(0, 1fr) 76px;
+  gap: 4px 10px;
+}
+
+.weq-notice-dialog .notice-avatar-button.notice-identity {
+  grid-column: 1 / 3;
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  gap: 10px;
+  justify-content: flex-start;
+  border-radius: 4px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-notice-dialog .notice-identity .avatar {
+  flex-shrink: 0;
+}
+
+.weq-notice-dialog .notice-identity .notice-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-notice-dialog .notice-card-request > .notice-copy {
+  grid-column: 2;
+}
+
+.weq-notice-dialog .notice-card-request > .notice-meta {
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+
 .weq-notice-dialog .notice-copy,
 .weq-notice-dialog .notice-meta {
   display: grid;
