@@ -84,7 +84,7 @@ import {
   PRIVATE_PTT_RKEY_TYPE,
   GROUP_PTT_RKEY_TYPE,
 } from './media_download';
-import { TokenUsageStore, type TokenStats } from './agentlab_usage';
+import { TokenUsageStore, type TokenStats, type ApiUsagePeriod } from './agentlab_usage';
 import { ConversationStore, type ConversationTurn } from './agentlab_conversation';
 import {
   AgentLabSessionStore,
@@ -1070,9 +1070,9 @@ export class AgentLabService extends EventEmitter {
     return false;
   }
 
-  /** token 用量统计（主页图表用）。 */
-  getTokenStats(global?: TokenUsageStore): TokenStats {
-    return this.usage.getStats(global);
+  /** 通用 API 用量页；按范围合并当前账号与应用全局请求。 */
+  getTokenStats(global?: TokenUsageStore, period?: ApiUsagePeriod): TokenStats {
+    return this.usage.getStats(global, period);
   }
 
   /** 与某克隆体的历史对话（持久化，刷新不丢）。 */

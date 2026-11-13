@@ -151,7 +151,13 @@ export class AgentLabConfigService {
    * 设置页「测试连通性」：直接用表单里的 base_url / api_key / 某个 chat 模型探活，
    * 不要求先保存。返回 { ok, error?, reply? }，错误里带 HTTP 状态码与响应体（模型/key 一目了然）。
    */
-  async testEndpoint(input: { baseUrl: string; apiKey: string; model: string }): Promise<{
+  async testEndpoint(input: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    providerId?: string;
+    providerName?: string;
+  }): Promise<{
     ok: boolean;
     error?: string;
     reply?: string;
@@ -163,13 +169,21 @@ export class AgentLabConfigService {
       baseUrl,
       apiKey: input.apiKey.trim(),
       model: input.model.trim(),
+      providerId: input.providerId,
+      providerName: input.providerName,
       feature: 'connection-test',
       onUsage: this.onUsage,
     };
     return testChatEndpoint(endpoint);
   }
 
-  async detectCapabilities(input: { baseUrl: string; apiKey: string; model: string }) {
+  async detectCapabilities(input: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    providerId?: string;
+    providerName?: string;
+  }) {
     const baseUrl = input.baseUrl
       .trim()
       .replace(/\/+$/, '')
@@ -180,6 +194,8 @@ export class AgentLabConfigService {
       baseUrl,
       apiKey: input.apiKey.trim(),
       model: input.model.trim(),
+      providerId: input.providerId,
+      providerName: input.providerName,
       onUsage: this.onUsage,
     });
   }

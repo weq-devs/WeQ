@@ -65,6 +65,8 @@ export function beginApiUsage(endpoint: AgentLabEndpoint, stream = false) {
     startedAt: Date.now(),
     status: 'pending',
     model: endpoint.model,
+    providerId: endpoint.providerId,
+    providerName: endpoint.providerName,
     kind: endpoint.kind ?? 'chat',
     feature: endpoint.feature,
     stream,

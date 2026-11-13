@@ -1,18 +1,356 @@
-.weq-usage-accounting-status {
+/* 近 24 小时折线图 */
+.weq-usage-line {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+}
+.weq-usage-line-body {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+.weq-usage-line-yaxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 3px 0 19px;
+}
+.weq-usage-line-yaxis span {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--weq-fg-muted);
+}
+.weq-usage-line-plot {
+  position: relative;
+  min-width: 0;
+}
+.weq-usage-line-svg {
+  width: 100%;
+  height: 140px;
+  display: block;
+}
+.weq-usage-grid {
+  stroke: var(--weq-border-subtle);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.55;
+}
+.weq-usage-grid-axis {
+  opacity: 0.75;
+}
+.weq-usage-line-stroke {
+  stroke: var(--weq-accent-effective);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.weq-usage-line-area {
+  fill: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  stroke: none;
+}
+.weq-usage-line-cursor {
+  stroke: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.weq-usage-line-dot {
+  fill: var(--weq-bg-surface);
+  stroke: var(--weq-accent-effective);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transition:
+    transform 160ms ease,
+    fill 160ms ease;
+  transform-origin: center;
+  transform-box: fill-box;
+  cursor: pointer;
+}
+.weq-usage-line-dot:hover,
+.weq-usage-line-dot.is-active {
+  fill: var(--weq-accent-effective);
+  transform: scale(1.08);
+}
+.weq-usage-line-tooltip {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 88px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-border-subtle));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 96%, transparent);
+  box-shadow: 0 10px 28px -20px rgba(0, 0, 0, 0.35);
+  transform: translate(-50%, calc(-100% - 10px));
+  pointer-events: none;
+}
+.weq-usage-line-tooltip strong {
+  font-size: 11.5px;
+  color: var(--weq-fg-primary);
+}
+.weq-usage-line-tooltip span {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+.weq-usage-line-axis {
+  position: relative;
+  height: 16px;
+}
+.weq-usage-line-axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  text-align: center;
+  font-size: 9.5px;
+  color: var(--weq-fg-muted);
+  white-space: nowrap;
+}
+
+.weq-api-usage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 20px;
+  padding: 0;
+  color: var(--weq-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-usage-toolbar,
+.weq-usage-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.weq-usage-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: start;
+}
+
+.weq-usage-segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weq-usage-segments label {
+  position: relative;
+  cursor: pointer;
+}
+
+.weq-usage-segments input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.weq-usage-segments span {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 4px;
   color: var(--weq-fg-secondary);
   font-size: 12px;
+  line-height: 20px;
+}
+
+.weq-usage-segments input:checked + span {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, var(--weq-bg-surface));
+  box-shadow: inset 0 -2px var(--weq-accent-effective);
+}
+
+.weq-usage-segments label:hover span,
+.weq-usage-refresh:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, var(--weq-bg-surface));
+}
+
+.weq-usage-refresh {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.weq-usage-refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.weq-usage-pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-usage-segments input:focus-visible + span,
+.weq-api-usage :is(button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+
+.weq-usage-scope,
+.weq-usage-retention,
+.weq-usage-personas,
+.weq-usage-io small {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.65;
   overflow-wrap: anywhere;
+}
+
+.weq-usage-scope p,
+.weq-usage-retention p {
+  margin: 0;
+}
+
+.weq-usage-retention summary,
+.weq-usage-personas summary {
+  width: fit-content;
+  max-width: 100%;
+  cursor: pointer;
+  color: var(--weq-fg-primary);
+}
+
+.weq-usage-retention[open] summary,
+.weq-usage-personas[open] summary {
+  margin-bottom: 10px;
+}
+
+.weq-usage-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 16px 0;
+  border-block: 1px solid var(--weq-border-subtle);
+}
+
+.weq-usage-summary div,
+.weq-usage-io div {
+  min-width: 0;
+}
+
+.weq-usage-summary dt,
+.weq-usage-status dt,
+.weq-usage-io dt {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-usage-summary dd,
+.weq-usage-io dd {
+  margin: 4px 0 0;
+  color: var(--weq-fg-primary);
+  font-size: 20px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.weq-usage-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 0;
+}
+
+.weq-usage-status div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.weq-usage-status dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+.weq-usage-io {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+
+.weq-usage-placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 36px 0;
+  color: var(--weq-fg-secondary);
+  text-align: center;
+}
+
+.weq-usage-placeholder h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.weq-usage-error {
+  padding: 12px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.weq-api-usage .weq-usage-section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 12px;
+}
+
+.weq-api-usage h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+}
+
+.weq-api-usage .weq-usage-line {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding-inline: 0;
 }
 
 .weq-usage-accounting-table {
   min-width: 0;
   overflow-x: auto;
+  scrollbar-color: var(--weq-border-strong) transparent;
 }
 
 .weq-usage-accounting-table table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  table-layout: fixed;
 }
 
 .weq-usage-accounting-table th,
@@ -20,14 +358,74 @@
   padding: 8px;
   border-bottom: 1px solid var(--weq-border-subtle);
   text-align: right;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
 }
 
 .weq-usage-accounting-table th:first-child {
   text-align: left;
+  width: 48%;
+}
+
+.weq-usage-accounting-table thead th {
+  font-weight: 500;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-usage-accounting-table tbody th {
+  font-weight: 500;
+}
+
+.weq-usage-accounting-table tbody tr:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+}
+
+.weq-usage-accounting-table small,
+.weq-usage-model-name {
+  display: block;
+  margin-top: 3px;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.weq-api-usage .weq-usage-line-tooltip {
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+}
+
+html[data-theme='dark'] .weq-api-usage {
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] .weq-usage-segments input:checked + span {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, var(--weq-bg-surface));
 }
 
 html[data-theme='dark'] .weq-usage-accounting-table th,
 html[data-theme='dark'] .weq-usage-accounting-table td {
   border-color: var(--weq-border-strong);
+}
+
+@media (max-width: 600px) {
+  .weq-usage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .weq-usage-accounting-table th,
+  .weq-usage-accounting-table td {
+    padding: 8px 4px;
+  }
+
+  .weq-usage-accounting-table th:first-child {
+    width: 42%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-api-usage .weq-usage-line-area,
+  .weq-api-usage .weq-usage-line-dot {
+    animation: none;
+    transition: none;
+  }
 }

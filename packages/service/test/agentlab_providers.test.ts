@@ -1,13 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AgentLabUsage } from '@weq/agentlab';
 import type { Platform } from '@weq/platform';
 import { AgentLabConfigService } from '../src/bootstrap/agentlab_config';
 import { UserConfigService } from '../src/bootstrap/user_config';
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.unstubAllGlobals();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
@@ -22,6 +24,41 @@ function fixture() {
   };
 }
 describe('多 provider 持久化与调用隔离', () => {
+  it('连接测试和能力检测保留草稿的配置身份，未保存配置也可记账', async () => {
+    const f = fixture();
+    const updates: AgentLabUsage[] = [];
+    const service = new AgentLabConfigService(f.config, (usage) => updates.push(usage));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: 'OK' } }],
+              usage: { total_tokens: 2 },
+            }),
+          ),
+      ),
+    );
+    const input = {
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic',
+      model: 'synthetic',
+      providerId: 'draft-id',
+      providerName: '草稿服务',
+    };
+    await service.testEndpoint(input);
+    await service.detectCapabilities(input);
+    expect(updates.length).toBeGreaterThan(0);
+    expect(
+      updates.every(
+        (u) => u.providerId === input.providerId && u.providerName === input.providerName,
+      ),
+    ).toBe(true);
+    expect(updates.some((u) => u.feature === 'connection-test')).toBe(true);
+    expect(updates.some((u) => u.feature === 'capability-test')).toBe(true);
+    expect(f.service.listProviders()).toHaveLength(0);
+  });
   it('慢模型期限跨重启生效，旧客户端编辑不清除，非法期限不覆盖配置', () => {
     const f = fixture();
     const provider = {

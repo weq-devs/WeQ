@@ -2160,6 +2160,8 @@ export const bootstrapRouter = router({
         baseUrl: z.string().min(1),
         apiKey: z.string().default(''),
         model: z.string().min(1),
+        providerId: z.string().min(1).optional(),
+        providerName: z.string().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -2172,6 +2174,8 @@ export const bootstrapRouter = router({
         baseUrl: z.string().min(1),
         apiKey: z.string().default(''),
         model: z.string().min(1),
+        providerId: z.string().min(1).optional(),
+        providerName: z.string().optional(),
       }),
     )
     .mutation(({ input }) => requireBootstrap().agentLabConfig.detectCapabilities(input)),

@@ -149,3 +149,101 @@ it('旧账目仍读取，非法计数不会污染汇总；账号账本互不混�
   });
   expect(b.store.getStats()).toMatchObject({ totalCalls: 1, totalTokens: 100 });
 });
+
+it('同名模型按服务商及 API／TTS 配置身份分开，旧记录保持未知来源', () => {
+  const f = fixture();
+  for (const [requestId, providerId, kind] of [
+    ['a', 'first', 'chat'],
+    ['b', 'second', 'chat'],
+    ['c', 'first', 'speech'],
+    ['legacy', undefined, 'chat'],
+  ] as const) {
+    f.store.record({
+      ...entry,
+      requestId,
+      providerId,
+      providerName: '同名配置',
+      kind,
+      totalTokens: 3,
+    });
+  }
+  const stats = f.store.getStats();
+  expect(stats.byModel).toHaveLength(4);
+  expect(new Set(stats.byModel.map((row) => row.key)).size).toBe(4);
+  expect(stats.byModel.find((row) => row.providerId === null)).toMatchObject({
+    providerName: null,
+    calls: 1,
+    tokens: 3,
+  });
+});
+
+it('时间筛选同时作用于全局／账号、状态、分组和趋势，按北京时间包含当天', () => {
+  const now = Date.parse('2026-11-13T04:30:00+08:00');
+  const f = fixture(),
+    global = fixture();
+  f.store.record({
+    ...entry,
+    requestId: 'old',
+    ts: Date.parse('2026-11-06T23:59:59+08:00'),
+    totalTokens: 100,
+  });
+  f.store.record({
+    ...entry,
+    requestId: 'edge',
+    ts: Date.parse('2026-11-07T00:00:00+08:00'),
+    totalTokens: 5,
+    status: 'failed',
+  });
+  global.store.record({ ...entry, requestId: 'global', ts: now, totalTokens: null });
+  const stats = f.store.getStats(global.store, '7d', now);
+  expect(stats).toMatchObject({
+    totalCalls: 2,
+    totalTokens: 5,
+    globalCalls: 1,
+    accountCalls: 1,
+    unknownCalls: 1,
+    failedCalls: 1,
+  });
+  expect(stats.byFeature[0]).toMatchObject({ calls: 2, tokens: 5 });
+  expect(stats.byDay).toHaveLength(7);
+  expect(stats.byDay[0]).toMatchObject({ day: '2026-11-07', calls: 1, tokens: 5 });
+  expect(stats.byDay.at(-1)).toMatchObject({ day: '2026-11-13', calls: 1, unknownCalls: 1 });
+  expect(f.store.getStats(global.store, '24h', now)).toMatchObject({
+    totalCalls: 1,
+    totalTokens: 0,
+  });
+  expect(f.store.getStats(global.store, 'retained', now).totalCalls).toBe(3);
+});
+
+it('保留上限与最早记录对外可见，不将截断后的总量冒充历史累计', () => {
+  const seed = Array.from({ length: 5001 }, (_, i) => ({
+    ...entry,
+    requestId: `r-${i}`,
+    ts: entry.ts + i,
+    totalTokens: 1,
+  }));
+  const f = fixture(seed);
+  expect(f.store.getStats()).toMatchObject({
+    totalCalls: 5000,
+    ledgers: [
+      {
+        source: 'account',
+        retainedCalls: 5000,
+        limit: 5000,
+        atCapacity: true,
+        firstRecordAt: entry.ts + 1,
+      },
+    ],
+  });
+});
+
+it('损坏账本的读取错误不伪装成零请求，不覆盖原件', () => {
+  const f = fixture();
+  const path = join(dirs.at(-1)!, 'broken.json');
+  writeFileSync(path, '{broken');
+  const broken = new TokenUsageStore(path);
+  expect(() => broken.getStats()).toThrow('API 用量记录读取失败');
+  broken.record(entry);
+  expect(readFileSync(path, 'utf8')).toBe('{broken');
+  expect(f.store.getStats().totalCalls).toBe(0);
+});

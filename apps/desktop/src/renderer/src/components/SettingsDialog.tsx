@@ -859,17 +859,10 @@ function SettingsContent({
 }
 
 function ModelUsageSection(): ReactElement {
-  const active = useTabActive();
-  const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, { enabled: active });
-  const names = new Map((personas.data ?? []).map((persona) => [persona.id, persona.name]));
   return (
     <div className="weq-settings-model-usage">
       <SectionHeader title="API 用量" icon={<Activity size={16} strokeWidth={1.8} />} />
-      <UsagePanel
-        personaCount={names.size}
-        resolveName={(id) => names.get(id) ?? '已删除的克隆'}
-        hasPersona={(id) => id === '__assistant__' || names.has(id)}
-      />
+      <UsagePanel />
     </div>
   );
 }

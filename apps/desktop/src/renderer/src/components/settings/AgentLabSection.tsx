@@ -368,6 +368,8 @@ export function AgentLabSection(): ReactElement {
       if (!confirmed || formRef.current !== snapshot) return;
       setDetectingModel(index);
       const results = await client.bootstrap.detectAgentLabModelCapabilities.mutate({
+        providerId: snapshot.id,
+        providerName: snapshot.name.trim() || 'API',
         baseUrl: snapshot.baseUrl.trim(),
         apiKey: snapshot.apiKey.trim(),
         model: model.id.trim(),
@@ -460,7 +462,13 @@ export function AgentLabSection(): ReactElement {
       });
       return;
     }
-    const input = { baseUrl: form.baseUrl.trim(), apiKey: form.apiKey.trim(), model: chatModel };
+    const input = {
+      baseUrl: form.baseUrl.trim(),
+      apiKey: form.apiKey.trim(),
+      model: chatModel,
+      providerId: form.id,
+      providerName: form.name.trim() || 'API',
+    };
     const label = `${form.name.trim() || 'API'} · ${form.id.slice(-8)} · ${chatModel}`;
     void runConnectionTest(testKey, label, async () => {
       const res = await client.bootstrap.testAgentLabProvider.mutate(input);

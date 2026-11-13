@@ -759,6 +759,8 @@ export class TtsService {
       signal: opts.signal,
       endpoint: {
         baseUrl: cfg.baseUrl,
+        providerId: cfg.id,
+        providerName: cfg.name,
         apiKey: '',
         model: (opts.refClip ? cfg.cloneModel : cfg.model) || `tts:${cfg.vendor}`,
         kind: 'speech',

@@ -63,6 +63,9 @@ export interface AgentLabModels {
 export interface AgentLabUsage {
   requestId?: string;
   startedAt?: number;
+  /** 请求开始时的配置身份与名称；旧记录缺省时不猜补。 */
+  providerId?: string;
+  providerName?: string;
   status?: 'pending' | 'success' | 'failed' | 'cancelled' | 'interrupted';
   feature?: string;
   stream?: boolean;

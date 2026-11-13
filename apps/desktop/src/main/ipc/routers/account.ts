@@ -2681,10 +2681,15 @@ export const accountRouter = router({
       });
     }),
 
-  /** AgentLab token 用量统计（主页图表）。 */
-  getAgentLabTokenStats: procedure.query(() => {
-    return requireServices().agentLab.getTokenStats(getAppContext().bootstrap?.apiUsage);
-  }),
+  /** 当前账号与应用全局 API 用量；无参数兼容旧客户端。 */
+  getAgentLabTokenStats: procedure
+    .input(z.object({ period: z.enum(['24h', '7d', '30d', 'retained']) }).optional())
+    .query(({ input }) => {
+      return requireServices().agentLab.getTokenStats(
+        getAppContext().bootstrap?.apiUsage,
+        input?.period,
+      );
+    }),
 
   /** 系统表情清单（faceId + 外显文字），前端把克隆体回复里的 /捂脸 渲染成表情图。 */
   getSystemFaces: procedure.query(() => {

@@ -237,6 +237,8 @@ describe('多 API provider 配置', () => {
       expect.anything(),
     );
     expect(state.detectCapabilities).toHaveBeenCalledWith({
+      providerId: state.providers[0]!.id,
+      providerName: state.providers[0]!.name,
       baseUrl: state.providers[0]!.baseUrl,
       apiKey: state.providers[0]!.apiKey,
       model: 'shared-model',
