@@ -30,6 +30,7 @@ import type {
 } from '../../src/renderer/src/im-template/template/types';
 import { fixturePrivileges, qa, useFixture } from './contact-card.stub';
 import '../../src/renderer/src/styles/index.css';
+import '../../src/renderer/src/im-template/styles.css';
 import '../../src/renderer/src/styles/contact-profile.css';
 
 const sample: Contact = {

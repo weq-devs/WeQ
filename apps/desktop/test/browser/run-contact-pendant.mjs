@@ -16,6 +16,7 @@ const baseline = process.env.WEQ_CONTACT_PENDANT_BASELINE === '1';
 const server = await createServer({
   configFile: false,
   root,
+  cacheDir: resolve(root, 'node_modules/.vite-contact-pendant'),
   plugins: [
     react(),
     tailwind(),
@@ -99,7 +100,11 @@ try {
           );
         }, theme);
         for (const surface of ['card', 'page']) {
-          if (surface === 'page') await page.locator('.weq-contact-card .weq-profile-name').click();
+          if (surface === 'page') {
+            await page.getByRole('button', { name: '打开完整资料页', exact: true }).click();
+            await page.locator('.weq-contact-profile-content').waitFor();
+            assert.equal(await page.locator('.weq-contact-card').count(), 0);
+          }
           const button = page.locator('.weq-contact-identity .weq-profile-avatar');
           await button.waitFor().catch(async (error) => {
             console.error({
