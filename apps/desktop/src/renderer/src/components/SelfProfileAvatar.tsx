@@ -2,15 +2,17 @@ import { useContext, type ReactNode } from 'react';
 import { Avatar } from '../im-template/template/primitives';
 import type { User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
-import { ProfileNavigationContext } from '../lib/profileNavigation';
+import { ProfileNavigationContext, type ProfileGroup } from '../lib/profileNavigation';
 import '../styles/identity-links.css';
 
 export function SelfProfileAvatar({
   user,
+  group,
   className = 'weq-title-profile-avatar',
   children,
 }: {
   user: User;
+  group?: ProfileGroup;
   className?: string;
   children?: ReactNode;
 }) {
@@ -24,12 +26,12 @@ export function SelfProfileAvatar({
       aria-haspopup="dialog"
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
-        open?.(
-          user,
+        const anchor =
           event.detail === 0
             ? { x: rect.right, y: rect.bottom }
-            : { x: event.clientX, y: event.clientY },
-        );
+            : { x: event.clientX, y: event.clientY };
+        if (group) open?.(user, anchor, group);
+        else open?.(user, anchor);
       }}
     >
       <Avatar name={displayUserName(user)} avatarUrl={user.avatarUrl} seed={user.identityValue} />

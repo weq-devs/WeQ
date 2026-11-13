@@ -11829,6 +11829,11 @@ function MainWorkspace(): ReactElement {
         <ConvContext.Provider value={isGroup ? (selectedConversation?.id ?? '') : ''}>
           <ChatShell
             user={user}
+            selfProfileGroup={
+              messagesTabActive && selectedConversation?.type === 'group'
+                ? { code: selectedConversation.id, name: selectedConversation.group.name }
+                : undefined
+            }
             view={sidebarView}
             activeRailItem={
               settingsOpen || maintenanceTool ? 'settings' : dressUpOpen ? 'dressup' : undefined

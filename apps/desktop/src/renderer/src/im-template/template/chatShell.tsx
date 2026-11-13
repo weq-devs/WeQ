@@ -18,9 +18,11 @@ import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntim
 import { MobileRootPreviews } from '../../components/MobileRootPreviews';
 import { RemoteShellMenuButton } from '../../components/RemoteShellMenus';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
+import type { ProfileGroup } from '../../lib/profileNavigation';
 
 export function ChatShell({
   user,
+  selfProfileGroup,
   view,
   query,
   contactTab,
@@ -62,6 +64,7 @@ export function ChatShell({
   activeRailItem,
 }: {
   user: User;
+  selfProfileGroup?: ProfileGroup;
   view: MainView;
   query: string;
   contactTab: ContactTab;
@@ -158,6 +161,7 @@ export function ChatShell({
     >
       <TitleBar
         user={user}
+        group={selfProfileGroup}
         windowOnly={!IS_WEB && singleColumn}
         homeActive={view === 'home'}
         onGoHome={onGoHome}
@@ -178,6 +182,7 @@ export function ChatShell({
       {sharedShell && (
         <MobileWebNavigation
           user={user}
+          selfProfileGroup={selfProfileGroup}
           view={view}
           hidden={mobileDetail}
           query={query}

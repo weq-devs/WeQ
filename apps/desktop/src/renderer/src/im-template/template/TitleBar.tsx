@@ -13,15 +13,18 @@ import logoUrl from '@resources/brand/logo.png';
 import { cn } from './classNames';
 import { DesktopOnly } from '../../lib/target';
 import { useWindowControls } from '../../hooks/useWindowControls';
+import type { ProfileGroup } from '../../lib/profileNavigation';
 
 export function TitleBar({
   user,
+  group,
   homeActive = false,
   onGoHome,
   search,
   windowOnly = false,
 }: {
   user: User;
+  group?: ProfileGroup;
   homeActive?: boolean;
   onGoHome?: () => void;
   search?: ReactNode;
@@ -52,7 +55,7 @@ export function TitleBar({
       </button>
       {!windowOnly && (
         <div className="app-title-bar-user">
-          <SelfProfileAvatar key={`${user.id}:${user.identityValue}`} user={user}>
+          <SelfProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} group={group}>
             <span className="app-title-bar-nick">{displayUserName(user)}</span>
           </SelfProfileAvatar>
           {/* 会员徽标：独立兄弟节点，不嵌进昵称 —— 那个 span 自带 ellipsis 会把它裁掉。 */}

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
 import { SelfProfileAvatar } from './SelfProfileAvatar';
+import type { ProfileGroup } from '../lib/profileNavigation';
 import type { MainView, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
@@ -38,6 +39,7 @@ import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
   user,
+  selfProfileGroup,
   view,
   hidden,
   query,
@@ -54,6 +56,7 @@ export function MobileWebNavigation({
   onOpenCollection,
 }: {
   user: User;
+  selfProfileGroup?: ProfileGroup;
   view: MainView;
   hidden: boolean;
   query: string;
@@ -142,7 +145,7 @@ export function MobileWebNavigation({
     <div className="weq-mobile-navigation" inert={hidden} aria-hidden={hidden}>
       <header className="weq-mobile-header">
         <div className="weq-mobile-self-identity">
-          <SelfProfileAvatar user={user} className="weq-mobile-account">
+          <SelfProfileAvatar user={user} group={selfProfileGroup} className="weq-mobile-account">
             <strong title={displayUserName(user)}>{displayUserName(user)}</strong>
           </SelfProfileAvatar>
           <div className="weq-mobile-identity">
