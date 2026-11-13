@@ -151,7 +151,15 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-directory-scope-menu,
     .weq-merged-popover,
     .conversation-details,
-    .group-info-panel:not(:where(.weq-contact-profile-content > *, .weq-group-profile-members > *)),
+    /* 群聊右侧资料栏是聊天画布的一部分，不是弹层：保持透明，让 --chat-surface
+     * 连续铺过去。资料页里的群资料面板也排除（它们各自有透明覆写）。 */
+    .group-info-panel:not(
+      :where(
+        .chat-pane > .group-info-panel,
+        .weq-contact-profile-content > *,
+        .weq-group-profile-members > *
+      )
+    ),
     .weq-select,
     .weq-provider-modal
   ) {
