@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Send, ThumbsUp, Trash2 } from 'lucide-react';
 import type { QQWriteBinding, QQWriteOutcome } from '../../hooks/useQQWriteSession';
-import { client } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
 import {
@@ -221,6 +221,16 @@ function GroupAlbumMediaActionsBody({
   const likeReady =
     /^\d+$/.test(uploaderUin) && Number.isSafeInteger(uploadTime) && uploadTime >= 0;
   const deletionId = deleteMediaId === undefined ? mediaId : deleteMediaId;
+  const permissions = trpc.account.qqActions.groupPermissions.useQuery(
+    { ...a.binding!, groupId },
+    { enabled: a.available, staleTime: 30_000, retry: false },
+  );
+  const canDelete = Boolean(
+    permissions.data &&
+      !permissions.error &&
+      (permissions.data.canManage ||
+        (permissions.data.selfUin && uploaderUin === permissions.data.selfUin)),
+  );
   return (
     <div className="weq-qq-media-actions">
       <div className="weq-qq-action-bar">
@@ -244,36 +254,38 @@ function GroupAlbumMediaActionsBody({
             })
           }
         />
-        <ActionIcon
-          label="删除相册媒体"
-          disabled={a.disabled || !deletionId}
-          onClick={() =>
-            void a.perform(
-              (b) =>
-                client.account.qqActions.albumMedia.mutate({
-                  ...b,
-                  ...base,
-                  mediaId: deletionId,
-                  action: 'delete',
-                }),
-              async () => onChanged(),
-              '从 QQ 群相册删除这项媒体？不能撤销。',
-              {
-                readback: async () => {
-                  const rows = await client.account.listGroupAlbumMedia.query({
-                    groupCode: String(groupId),
-                    albumId,
-                  });
-                  return !rows.some(
-                    (row) => row.image?.lloc === mediaId || row.video?.id === mediaId,
-                  );
+        {canDelete && (
+          <ActionIcon
+            label="删除相册媒体"
+            disabled={a.disabled || !deletionId}
+            onClick={() =>
+              void a.perform(
+                (b) =>
+                  client.account.qqActions.albumMedia.mutate({
+                    ...b,
+                    ...base,
+                    mediaId: deletionId,
+                    action: 'delete',
+                  }),
+                async () => onChanged(),
+                '从 QQ 群相册删除这项媒体？不能撤销。',
+                {
+                  readback: async () => {
+                    const rows = await client.account.listGroupAlbumMedia.query({
+                      groupCode: String(groupId),
+                      albumId,
+                    });
+                    return !rows.some(
+                      (row) => row.image?.lloc === mediaId || row.video?.id === mediaId,
+                    );
+                  },
                 },
-              },
-            )
-          }
-        >
-          <Trash2 size={14} />
-        </ActionIcon>
+              )
+            }
+          >
+            <Trash2 size={14} />
+          </ActionIcon>
+        )}
       </div>
       <div className="weq-qq-action-bar">
         <input
@@ -370,13 +382,12 @@ function QzoneWriteActionsBody({
     };
   }, []);
   async function sendComment() {
-    if (commentRunning.current || a.disabled || !content.trim() || (replyTarget && picture)) return;
+    if (replyTarget || commentRunning.current || a.disabled || !content.trim()) return;
     commentRunning.current = true;
     setCommentPending(true);
     const submittedContent = content;
     const submittedPicture = picture;
     const submittedRevision = draftRevision.current;
-    const submittedTarget = replyTarget;
     const sentAt = Math.floor(Date.now() / 1000);
     let accepted = false;
     try {
@@ -387,8 +398,7 @@ function QzoneWriteActionsBody({
             hostUin,
             tid,
             time,
-            action: submittedTarget ? 'reply' : 'comment',
-            targetCommentId: submittedTarget?.id,
+            action: 'comment',
             content: submittedContent,
             imagePath: submittedPicture?.path,
           });
@@ -420,12 +430,8 @@ function QzoneWriteActionsBody({
             return result.comments.some(
               (entry) =>
                 entry.uin === a.binding!.expectedAccountUin &&
-                (submittedTarget
-                  ? entry.isReply && entry.parentCommentId === submittedTarget.rootId
-                  : !entry.isReply) &&
-                (entry.content === submittedContent ||
-                  (submittedTarget &&
-                    entry.content.replace(/^@\{[^}]*\}\s*/, '') === submittedContent)) &&
+                !entry.isReply &&
+                entry.content === submittedContent &&
                 entry.time >= sentAt - 5,
             );
           },
@@ -479,7 +485,8 @@ function QzoneWriteActionsBody({
           回复 {replyTarget.nickname}{' '}
           <button type="button" disabled={commentPending} onClick={onCancelReply}>
             取消
-          </button>
+          </button>{' '}
+          · 定向回复尚未打通，暂不能发送。
         </p>
       ) : null}
       {picture && (
@@ -526,9 +533,7 @@ function QzoneWriteActionsBody({
         />
         <ActionIcon
           label={replyTarget ? '发送说说回复' : '发送说说评论'}
-          disabled={
-            Boolean(replyTarget && picture) || a.disabled || commentPending || !content.trim()
-          }
+          disabled={Boolean(replyTarget) || a.disabled || commentPending || !content.trim()}
           onClick={() => void sendComment()}
         >
           {commentPending ? (

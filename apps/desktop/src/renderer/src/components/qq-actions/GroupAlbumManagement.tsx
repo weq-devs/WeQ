@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Trash2, Save, X } from 'lucide-react';
-import { client } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import { Modal } from '../Dialog';
 import { ActionIcon, useQQAction, withQQAccountScope } from './shared';
 import type { GroupAlbumWire } from '../GroupAlbumDialog';
@@ -16,6 +16,18 @@ function GroupAlbumManagementBody({
   onChanged: () => void;
 }) {
   const a = useQQAction(`album-management:${groupCode}:${album?.id ?? ''}`);
+  const permissions = trpc.account.qqActions.groupPermissions.useQuery(
+    { ...a.binding!, groupId: Number(groupCode) },
+    { enabled: a.available && Boolean(album), staleTime: 30_000, retry: false },
+  );
+  const canManage = Boolean(
+    permissions.data &&
+      !permissions.error &&
+      (permissions.data.canManage ||
+        (permissions.data.selfUin &&
+          album &&
+          String(album.createUin) === permissions.data.selfUin)),
+  );
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -71,25 +83,28 @@ function GroupAlbumManagementBody({
     );
     if (ok && live.current) setEditing(false);
   }
+  if (album && !canManage) return null;
   return (
     <div className="weq-qq-action-bar">
       {/* 带文字的入口：资料页里一个孤零零的「+」看不出是新建相册。 */}
-      <button
-        type="button"
-        className="weq-set-btn"
-        aria-label={album ? '编辑相册' : '新建相册'}
-        title={album ? '编辑相册' : '新建相册'}
-        disabled={a.disabled}
-        onClick={() => {
-          setTitle(album?.title ?? '');
-          setDescription(album?.desc.trim() ?? '');
-          setEditing(true);
-        }}
-      >
-        {album ? <Pencil size={15} /> : <Plus size={15} />}
-        {album ? '编辑相册' : '新建相册'}
-      </button>
-      {album && (
+      {(!album || canManage) && (
+        <button
+          type="button"
+          className="weq-set-btn"
+          aria-label={album ? '编辑相册' : '新建相册'}
+          title={album ? '编辑相册' : '新建相册'}
+          disabled={a.disabled}
+          onClick={() => {
+            setTitle(album?.title ?? '');
+            setDescription(album?.desc.trim() ?? '');
+            setEditing(true);
+          }}
+        >
+          {album ? <Pencil size={15} /> : <Plus size={15} />}
+          {album ? '编辑相册' : '新建相册'}
+        </button>
+      )}
+      {album && canManage && (
         <ActionIcon
           label="删除相册"
           disabled={a.disabled}
@@ -100,7 +115,7 @@ function GroupAlbumManagementBody({
           <Trash2 size={16} />
         </ActionIcon>
       )}
-      {editing && (
+      {editing && (!album || canManage) && (
         <Modal
           centered
           width={440}

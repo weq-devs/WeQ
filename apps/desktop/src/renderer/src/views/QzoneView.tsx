@@ -52,7 +52,7 @@ import {
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
-import { ActionFeedback, useQQAction, withQQAccountScope } from '../components/qq-actions/shared';
+import { withQQAccountScope } from '../components/qq-actions/shared';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { QzoneEmoji } from '../components/QzoneEmoji';
@@ -1396,7 +1396,15 @@ function Post({
         const result = await completeQzonePostText(
           next,
           () =>
-            run((requestId) => client.account.qzone.detail.query({ ...input, requestId }), true),
+            run(
+              (requestId) =>
+                client.account.qzone.detail.query({
+                  ...input,
+                  time: ownTextNeeded && sourcePost.time > 0 ? sourcePost.time : undefined,
+                  requestId,
+                }),
+              true,
+            ),
           (partial) => {
             if (!live) return;
             completedRef.current = { signature: sourceSignature, post: partial };
@@ -1663,14 +1671,6 @@ function PostActionsBody({
     nickname: string;
     rootId: string;
   } | null>(null);
-  const forwardAction = useQQAction(`qzone-forward:${hostUin}:${post.tid}`);
-  const [nativeDetail, setNativeDetail] = useState<{
-    content?: string;
-    commentCount?: number;
-    likeCount?: number;
-  } | null>(null);
-  const [nativePending, setNativePending] = useState(false);
-  const [nativeError, setNativeError] = useState('');
   const [commentDraft, setCommentDraft] = useState('');
   const [commentPicture, setCommentPicture] = useState<{ path: string; fileName: string } | null>(
     null,
@@ -1849,34 +1849,6 @@ function PostActionsBody({
           评论 {commentCount ?? '?'}
         </button>
         <QzoneForwardAction onClick={() => setForwardOpen(true)} />
-        {post.time > 0 ? (
-          <button
-            type="button"
-            title="读取原生详情"
-            aria-label="读取原生详情"
-            disabled={nativePending || readsPaused}
-            onClick={() => {
-              setNativePending(true);
-              setNativeError('');
-              void run((requestId) =>
-                client.account.qzone.nativeDetail.query({
-                  selfUin,
-                  hostUin,
-                  tid: post.tid,
-                  time: post.time,
-                  requestId,
-                }),
-              )
-                .then((detail) => {
-                  setNativeDetail(detail);
-                })
-                .catch((error: unknown) => setNativeError(errorText(error)))
-                .finally(() => setNativePending(false));
-            }}
-          >
-            <RefreshCw size={14} className={nativePending ? 'weq-spin' : undefined} />
-          </button>
-        ) : null}
         <span title={likeError || '浏览量（非去重访客数）'}>
           <Eye size={16} />
           浏览量 {likes?.reportedViewCount ?? '?'}
@@ -1896,26 +1868,6 @@ function PostActionsBody({
           </button>
         )}
       </div>
-      {nativeError ? (
-        <p className="weq-qzn-error" role="alert">
-          {nativeError}
-        </p>
-      ) : null}
-      {nativeDetail ? (
-        <details open>
-          <summary>
-            原生详情 · {nativeDetail.likeCount ?? '?'} 人赞过 · {nativeDetail.commentCount ?? '?'}{' '}
-            条评论
-          </summary>
-          {nativeDetail.content !== undefined ? (
-            <p className="weq-qzn-content">
-              <QzoneText content={nativeDetail.content} onSpace={onSpace} />
-            </p>
-          ) : (
-            <p className="weq-qzn-status">正文包含尚未识别的内容。</p>
-          )}
-        </details>
-      ) : null}
       {likeError && (
         <p className="weq-qzn-status" role="status">
           互动数据暂未校准：{likeError}
@@ -1955,28 +1907,8 @@ function PostActionsBody({
         <QzoneForwardDialog
           previousContent={post.content ?? ''}
           onClose={() => setForwardOpen(false)}
-          disabled={forwardAction.disabled}
-          submit={
-            !forwardAction.available
-              ? undefined
-              : async (reason) => {
-                  let accepted = false;
-                  const ok = await forwardAction.perform(async (binding) => {
-                    const result = await client.account.qqActions.qzoneForward.mutate({
-                      ...binding,
-                      hostUin,
-                      tid: post.tid,
-                      reason,
-                    });
-                    accepted = result.state === 'accepted' || result.state === 'confirmed';
-                    return result;
-                  });
-                  if (!ok || !accepted) throw new Error('转发未确认，请核对自己的空间后再试。');
-                }
-          }
-          unavailableReason="当前账号暂不能提交转发。"
+          unavailableReason="常规说说转发尚未打通，暂不能发送。"
         >
-          <ActionFeedback action={forwardAction} />
           <strong>
             <QzoneName content={hostUin} uin={hostUin} />
           </strong>

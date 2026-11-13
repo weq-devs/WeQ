@@ -5,6 +5,7 @@ interface PostDetail {
   contentHasMore: boolean | null;
   repost: QzoneEmotion['repost'] | null;
   repostHasMore: boolean | null;
+  contentSource?: 'native';
 }
 
 export { qzoneImageCompletionScope } from '@weq/service/qzone-media';
@@ -34,7 +35,10 @@ export async function completeQzonePostText(
         detail.content.length >= post.content.length || detail.contentHasMore === false
           ? detail.content
           : post.content,
-      contentTruncated: detail.contentHasMore === true,
+      contentTruncated:
+        detail.contentSource === 'native' && detail.contentHasMore === null
+          ? post.contentTruncated
+          : detail.contentHasMore === true,
     };
     const sameRepost = Boolean(
       post.repost &&
@@ -55,7 +59,14 @@ export async function completeQzonePostText(
     }
     onProgress(post);
     const more = detail.contentHasMore === true || (sameRepost && detail.repostHasMore === true);
-    if (!more) return { post, issue: null };
+    if (!more)
+      return {
+        post,
+        issue:
+          detail.contentSource === 'native' && post.contentTruncated
+            ? '正文已补充，完整性尚未确认'
+            : null,
+      };
     const signature = JSON.stringify([
       detail.content,
       detail.contentHasMore,

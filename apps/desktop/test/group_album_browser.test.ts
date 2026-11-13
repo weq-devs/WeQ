@@ -18,6 +18,9 @@ const state = vi.hoisted(() => {
   vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
   return {
     configId: 'source-a',
+    permissions: { canManage: false, selfUin: '10001' } as
+      | { canManage: boolean; selfUin: string }
+      | undefined,
     web: false,
     albums: vi.fn(async (_input: unknown): Promise<GroupAlbumWire[]> => []),
     media: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
@@ -62,6 +65,9 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
+      qqActions: {
+        groupPermissions: { useQuery: () => ({ data: state.permissions, error: null }) },
+      },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
       ocrChatImage: { useMutation: () => ({ mutateAsync: vi.fn() }) },
@@ -114,6 +120,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
   useViewState.setState({ openedUin: '10001' });
   state.configId = 'source-a';
+  state.permissions = { canManage: false, selfUin: '10001' };
   state.web = false;
   state.albums.mockReset().mockResolvedValue([album('a', '合成相册甲'), album('b', '合成相册乙')]);
   state.media.mockReset().mockResolvedValue([picture('photo-a'), picture('video-b', 'video')]);
@@ -211,6 +218,34 @@ function capture(name: string) {
     `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;height:100%;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}</style>${clone.outerHTML}</html>`,
   );
 }
+it('普通成员不显示别人的相册或媒体删除，权限未知也不显示', async () => {
+  const otherAlbum = { ...album('a'), createUin: 10002 };
+  state.albums.mockResolvedValue([otherAlbum]);
+  state.media.mockResolvedValue([{ ...picture('other'), uploader: '10002' }]);
+  const view = await mount();
+  await openFirst();
+  expect(document.querySelector('[aria-label="删除相册"]')).toBeNull();
+  expect(document.querySelector('[aria-label="编辑相册"]')).toBeNull();
+  capture('non-manager');
+  await act(async () => button('预览 other.jpg').click());
+  expect(document.querySelector('[aria-label="删除相册媒体"]')).toBeNull();
+  state.permissions = undefined;
+  await act(async () => view.update());
+  expect(document.querySelector('[aria-label="删除相册媒体"]')).toBeNull();
+});
+it('管理员可管理他人相册，创建者保留自己相册的管理入口', async () => {
+  state.albums.mockResolvedValue([{ ...album('a'), createUin: 10002 }]);
+  state.permissions = { canManage: true, selfUin: '10001' };
+  await mount();
+  await openFirst();
+  expect(document.querySelector('[aria-label="删除相册"]')).not.toBeNull();
+});
+it('普通成员仍能管理自己创建的相册', async () => {
+  await mount();
+  await openFirst();
+  expect(document.querySelector('[aria-label="删除相册"]')).not.toBeNull();
+  expect(document.querySelector('[aria-label="编辑相册"]')).not.toBeNull();
+});
 it('独立相册只使用目录面包屑，不叠加旧返回导航', async () => {
   await mount({ standalone: true });
   expect(document.querySelector('[aria-label="群相册目录"]')).not.toBeNull();

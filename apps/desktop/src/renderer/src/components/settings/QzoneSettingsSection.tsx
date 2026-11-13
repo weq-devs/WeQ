@@ -5,7 +5,6 @@ import { QzonePaginationSettings } from './QzonePaginationSettings';
 import { QzonePublicRefreshSettings } from './QzonePublicRefreshSettings';
 import { QzoneFriendPermissions } from '../qq-actions/QzoneFriendPermissions';
 import { SegmentedControl } from '../SegmentedControl';
-import { QzoneTailSettings } from '../qq-actions/QzoneTailSettings';
 
 export function QzoneSettingsSection() {
   const settings = trpc.bootstrap.getSettings.useQuery();
@@ -61,7 +60,6 @@ export function QzoneSettingsSection() {
         {save.error ? <p className="weq-qzn-error">{save.error.message}</p> : null}
       </Card>
       <QzoneFriendPermissions />
-      <QzoneTailSettings />
     </div>
   );
 }

@@ -24,6 +24,21 @@ const detail = (content: string, contentHasMore: boolean | null) => ({
 });
 
 describe('visible Qzone body continuation', () => {
+  it('原生正文补充直接更新原帖，不清除尚未确认的截断状态或重复拉取', async () => {
+    const read = vi.fn(async () => ({
+      ...detail('原生补充正文', null),
+      contentSource: 'native' as const,
+    }));
+    const result = await completeQzonePostText(
+      source(),
+      read,
+      () => {},
+      () => true,
+    );
+    expect(result.post).toMatchObject({ content: '原生补充正文', contentTruncated: true });
+    expect(result.issue).toContain('完整性');
+    expect(read).toHaveBeenCalledOnce();
+  });
   it('places borrowed original media completion in the repost scope', () => {
     const post = source();
     post.images = ['same'];

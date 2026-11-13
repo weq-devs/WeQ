@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AccountSession } from '@weq/account';
+import { GetQzoneFeedMediaDetail } from '@weq/protocol';
+import { WebQueryService } from '../src/account/web';
+import { WebCredentialProvider } from '../src/account/web/credential';
 import { getQzoneFeeds, mapMsgList } from '../src/account/web/qzone';
 import {
   fetchQzonePostDetail,
   fetchQzonePostImages,
   parseQzonePostDetail,
   parseQzonePostImages,
+  supplementQzonePostDetail,
 } from '../src/account/web/qzone_detail';
 import {
   fetchQzoneRelated,
@@ -24,9 +29,59 @@ function mockBody(value: unknown) {
   vi.stubGlobal('fetch', fetch);
   return fetch;
 }
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe('post completion', () => {
+  it('Web 已返回完整正文时不等待原生请求，避免拖慢已有详情', async () => {
+    vi.spyOn(WebCredentialProvider.prototype, 'forDomain').mockResolvedValue(cred);
+    vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail').mockImplementation(
+      () => new Promise(() => {}),
+    );
+    mockBody({ code: 0, content: '完整正文', has_more_con: 0 });
+    const service = new WebQueryService(
+      { ptFetchCredentials: vi.fn(), sendPacket: vi.fn() },
+      { context: { uin: '10001' } } as unknown as AccountSession,
+      () => 1,
+    );
+    expect(
+      (await service.getQzonePostDetail('10001', 'post', undefined, undefined, 123)).content,
+    ).toBe('完整正文');
+  });
+  it('已确认完整的 Web 正文优先，不用更长的旧原生片段覆盖', () => {
+    const web = parseQzonePostDetail(
+      jsonp({ code: 0, content: '完整', has_more_con: 0 }),
+      '10001',
+      'post',
+    );
+    expect(
+      supplementQzonePostDetail(web, { mediaTypes: [], content: '更长但可能过期的原生文本' }),
+    ).toBe(web);
+  });
+  it('截断或 Web 失败时采用更长原生正文，但不伪造完整性和整帖元数据', () => {
+    const web = parseQzonePostDetail(
+      jsonp({ code: 0, content: '片段', has_more_con: 1 }),
+      '10001',
+      'post',
+    );
+    expect(
+      supplementQzonePostDetail(web, { mediaTypes: [], content: '已补充的正文片段' }),
+    ).toMatchObject({
+      content: '已补充的正文片段',
+      contentSource: 'native',
+      contentHasMore: null,
+      contentComplete: false,
+    });
+    expect(supplementQzonePostDetail(null, { mediaTypes: [], content: '原生正文' })).toMatchObject({
+      post: null,
+      content: '原生正文',
+      contentComplete: false,
+    });
+    expect(supplementQzonePostDetail(web, { mediaTypes: [], content: '短' })).toBe(web);
+    expect(supplementQzonePostDetail(null, { mediaTypes: [] })).toBeNull();
+  });
   it('provides a full visible post for related activity without exposing native wire fields', () => {
     const result = parseQzonePostDetail(
       jsonp({

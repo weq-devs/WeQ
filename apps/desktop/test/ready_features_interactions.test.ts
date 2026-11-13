@@ -125,6 +125,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
         getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.config } }) },
         qqActions: {
+          groupPermissions: {
+            useQuery: () => ({ data: { canManage: false, selfUin: '10001' }, error: null }),
+          },
           qzoneFriendPermissionList: {
             useQuery: ({ kind }: { kind: 'blocked' | 'hidden' }) => ({
               data: state.permissions[kind],

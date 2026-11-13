@@ -47,16 +47,6 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
-  nativeDetail: procedure
-    .input(post.extend({ time: z.number().int().positive() }))
-    .query(({ input }) =>
-      request(input, (services, signal) =>
-        services.webQuery.getQzoneNativeDetail(input.hostUin, input.tid, input.time, signal),
-      ),
-    ),
-  tails: procedure
-    .input(read)
-    .query(({ input }) => request(input, (services) => services.webQuery.getQzoneTailOptions())),
   mediaTypes: procedure
     .input(post.extend({ time: z.number().int().positive() }))
     .query(({ input }) =>
@@ -64,20 +54,28 @@ export const qzoneRouter = router({
         services.webQuery.getQzoneMediaTypes(input.hostUin, input.tid, input.time, signal),
       ),
     ),
-  detail: procedure.input(post).query(({ input }) =>
-    request(input, async (services, signal) => {
-      const detail = await services.webQuery.getQzonePostDetail(input.hostUin, input.tid, signal);
-      if (detail.post)
-        rememberQzonePosts(
-          services.contentSearch,
+  detail: procedure
+    .input(post.extend({ time: z.number().int().positive().optional() }))
+    .query(({ input }) =>
+      request(input, async (services, signal) => {
+        const detail = await services.webQuery.getQzonePostDetail(
           input.hostUin,
-          [{ ...detail.post, content: detail.content }],
-          '',
-          true,
+          input.tid,
+          signal,
+          undefined,
+          input.time,
         );
-      return detail;
-    }),
-  ),
+        if (detail.post)
+          rememberQzonePosts(
+            services.contentSearch,
+            input.hostUin,
+            [{ ...detail.post, content: detail.content }],
+            '',
+            true,
+          );
+        return detail;
+      }),
+    ),
   images: procedure
     .input(post)
     .query(({ input }) =>
