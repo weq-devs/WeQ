@@ -1,10 +1,9 @@
 import { useMemo } from 'react';
-import type { Conversation, GroupMember, Message, User } from '../im-template/template/types';
+import type { Conversation, Message, User } from '../im-template/template/types';
 import { DOMParser, type Node } from '@xmldom/xmldom';
-import { displayUserName } from '../im-template/template/user';
 import { SELF_LABEL, isSelfIdentity, selfIdentityValues } from '../lib/selfIdentity';
 import { GrayTipPerson } from './GrayTipPerson';
-import { createGrayTipPersonKey } from '../lib/grayTipProfile';
+import { createGrayTipNameResolver, createGrayTipPersonKey } from '../lib/grayTipProfile';
 import littleIconUrl from '@resources/img/little_icon.png';
 
 interface GrayTipPokeMessageProps {
@@ -67,15 +66,15 @@ function buildNameResolver(data: GrayTipPokeMessageProps['element']['data']) {
     const key = String(item?.key ?? '').trim();
     if (key) attrs.set(key, String(item?.value ?? '').trim());
   }
-  return (uid: string, personIndex: number, uinHint?: string): string => {
+  return (uid: string, personIndex: number, uinHint?: string): string[] => {
     const known = uid ? byUid.get(uid) : undefined;
-    if (known) return known;
-    return (
-      attrs.get(`nick_str${personIndex + 1}`) ||
-      attrs.get(`uin_str${personIndex + 1}`) ||
-      (uinHint ?? '') ||
-      uid
-    );
+    return [
+      known || '',
+      attrs.get(`nick_str${personIndex + 1}`) || '',
+      attrs.get(`uin_str${personIndex + 1}`) || '',
+      uinHint || '',
+      uid,
+    ];
   };
 }
 
@@ -134,35 +133,12 @@ export function GrayTipPokeMessage({
     // 「自己」的身份串集合：灰条里我这半可能只带 uid（uin 属性里塞的也是 uid），
     // 只认 uin 会漏判，统一收进集合再比对。
     const self = new Set(selfIdentityValues(user));
+    const personName = createGrayTipNameResolver(conversation, message);
     if (grayTipXmlContent) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(grayTipXmlContent, 'text/xml');
       const gtip = doc.getElementsByTagName('gtip')[0];
       if (!gtip) return null;
-
-      const memberMap = new Map<string, GroupMember>();
-      if (message?.sender) {
-        memberMap.set(message.sender.id, message.sender as GroupMember);
-        if (message.sender.identityValue) {
-          memberMap.set(message.sender.identityValue, message.sender as GroupMember);
-        }
-      }
-      if (conversation?.type === 'group') {
-        conversation.members.forEach((m) => {
-          memberMap.set(m.id, m);
-          if (m.identityValue) {
-            memberMap.set(m.identityValue, m);
-          }
-        });
-      } else if (conversation?.type === 'direct') {
-        memberMap.set(conversation.otherUser.id, conversation.otherUser as GroupMember);
-        if (conversation.otherUser.identityValue) {
-          memberMap.set(
-            conversation.otherUser.identityValue,
-            conversation.otherUser as GroupMember,
-          );
-        }
-      }
 
       const resolveName = buildNameResolver(element.data);
       let personIndex = 0;
@@ -173,15 +149,14 @@ export function GrayTipPokeMessage({
           const uid = getNodeValue(node, 'uid');
           const jp = getNodeValue(node, 'jp');
           const key = uin || uid || jp;
-          const member = key ? memberMap.get(key) : undefined;
           // 自己那一半直接写「你」；其余人成员表命中就用群名片，否则退到灰条自带的
           // nm，再退到元素自带的 actionInitiator/Target 昵称 / `uin_str{N}`，最后才是裸 id。
           const name = isSelfPerson(self, [uin, uid, jp])
             ? SELF_LABEL
-            : (member ? displayUserName(member) : '') ||
-              getNodeValue(node, 'nm') ||
-              resolveName(key, personIndex, jp) ||
-              key;
+            : personName(
+                [uin, uid, jp],
+                [getNodeValue(node, 'nm'), ...resolveName(uid || key, personIndex, jp)],
+              );
           personIndex += 1;
           return (
             <GrayTipPerson
@@ -226,30 +201,6 @@ export function GrayTipPokeMessage({
     if (tipJson) {
       try {
         const data = JSON.parse(tipJson) as { items?: TipJsonItem[] };
-        const memberMap = new Map<string, GroupMember>();
-        if (message?.sender) {
-          memberMap.set(message.sender.id, message.sender as GroupMember);
-          if (message.sender.identityValue) {
-            memberMap.set(message.sender.identityValue, message.sender as GroupMember);
-          }
-        }
-        if (conversation?.type === 'group') {
-          conversation.members.forEach((m) => {
-            memberMap.set(m.id, m);
-            if (m.identityValue) {
-              memberMap.set(m.identityValue, m);
-            }
-          });
-        } else if (conversation?.type === 'direct') {
-          memberMap.set(conversation.otherUser.id, conversation.otherUser as GroupMember);
-          if (conversation.otherUser.identityValue) {
-            memberMap.set(
-              conversation.otherUser.identityValue,
-              conversation.otherUser as GroupMember,
-            );
-          }
-        }
-
         const resolveName = buildNameResolver(element.data);
         let personIndex = 0;
         const personKey = createGrayTipPersonKey();
@@ -274,15 +225,13 @@ export function GrayTipPokeMessage({
                     {item.nm || txt}
                   </span>
                 );
-              const member = key ? memberMap.get(key) : undefined;
               // 自己那一半直接写「你」（同 XML 分支）。
-              const name = isSelfPerson(self, [item.uin, item.uid])
+              const name = isSelfPerson(self, identities)
                 ? SELF_LABEL
-                : (member ? displayUserName(member) : '') ||
-                  item.nm ||
-                  txt ||
-                  resolveName(key, personIndex, item.uin) ||
-                  '';
+                : personName(
+                    identities.filter((value): value is string => typeof value === 'string'),
+                    [item.nm || '', txt, ...resolveName(key, personIndex, item.uin)],
+                  );
               personIndex += 1;
               if (name) {
                 return (

@@ -115,7 +115,12 @@ import {
 } from '../lib/outgoingAcknowledgment';
 import { avatarFromGroupCode, avatarFromUin, resolveAvatar } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import { previewNodes, previewNodesToText, groupTipText } from '../lib/conversationPreview';
+import {
+  previewNodes,
+  previewNodesToText,
+  previewIdentityIds,
+  groupTipText,
+} from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
 import {
@@ -1981,24 +1986,7 @@ function extractGrayTipUids(elements: unknown[]): string[] {
     const { type, data = {} } = element as RenderElementWire;
 
     if (type === 'grayTipPoke' || type === 'grayTipXml') {
-      const xml = typeof data.grayTipXmlContent === 'string' ? data.grayTipXmlContent : '';
-      if (xml) {
-        const re = /uin="([^"]+)"/g;
-        let match = re.exec(xml);
-        while (match !== null) {
-          pushUid(match[1]);
-          match = re.exec(xml);
-        }
-      }
-      const tipJson = typeof data.tipJson === 'string' ? data.tipJson : '';
-      if (tipJson) {
-        try {
-          const parsed = JSON.parse(tipJson);
-          for (const item of parsed.items ?? []) pushUid(item?.uin);
-        } catch {
-          /* malformed tipJson — nothing to extract */
-        }
-      }
+      for (const identity of previewIdentityIds({ ...data, kind: type })) pushUid(identity);
     } else if (type === 'grayTipGroup') {
       const mute = data.muteInfo as
         | { operator?: { uid?: unknown }; mutedUser?: { uid?: unknown } }

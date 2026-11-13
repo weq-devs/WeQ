@@ -100,6 +100,67 @@ it('戳一戳灰条中同名的两个人分别打开自己的名片', () => {
   );
 });
 
+it.each(['grayTipPoke', 'grayTipXml'] as const)('%s 按所有身份别名查找本地名称', (type) => {
+  const f = mount(
+    h(type === 'grayTipPoke' ? GrayTipPokeMessage : GrayTipXmlMessage, {
+      conversation: group,
+      message,
+      element: {
+        type,
+        data: {
+          grayTipXmlContent: '<gtip><qq uin="99999" uid="u_bob" nm="u_bob"/></gtip>',
+        },
+      },
+    }),
+  );
+  expect(f.host.textContent).toBe('同名');
+});
+
+it.each(['xml', 'json'])('%s 中的 UID 占位不覆盖人物快照或附加昵称', (format) => {
+  const f = mount(
+    h(GrayTipPokeMessage, {
+      conversation: { ...group, members: [] },
+      element: {
+        type: 'grayTipPoke',
+        data: {
+          ...(format === 'xml'
+            ? { grayTipXmlContent: '<gtip><qq uin="u_unloaded" nm="u_unloaded"/></gtip>' }
+            : {
+                tipJson: JSON.stringify({
+                  items: [{ type: 'qq', uid: 'u_unloaded', txt: 'u_unloaded' }],
+                }),
+              }),
+          actionInitiator: { uid: 'u_unloaded', nickname: 'u_unloaded' },
+          actionAttributes: [{ key: 'nick_str1', value: '消息中的昵称' }],
+        },
+      },
+    }),
+  );
+  expect(f.host.textContent).toBe('消息中的昵称');
+});
+
+it('JSON 参数中的自己显示为你，其他参与者可通过 UID 别名匹配', () => {
+  const f = mount(
+    h(GrayTipPokeMessage, {
+      conversation: { ...group, members: [{ ...bob, id: 'member:10003', uid: 'u_bob' }] },
+      user: self,
+      element: {
+        type: 'grayTipPoke',
+        data: {
+          tipJson: JSON.stringify({
+            items: [
+              { type: 'url', param: ['u_self'], txt: 'u_self' },
+              { type: 'nor', txt: '戳了戳' },
+              { type: 'qq', uid: 'u_bob', txt: 'u_bob' },
+            ],
+          }),
+        },
+      },
+    }),
+  );
+  expect(f.host.textContent).toBe('你戳了戳同名');
+});
+
 it('群提示使用明确的 user1Uid，不按昵称或消息发送人猜测身份', () => {
   const f = mount(
     h(GrayTipGroupMessage, {

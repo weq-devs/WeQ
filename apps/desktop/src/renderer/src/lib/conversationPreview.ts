@@ -297,6 +297,7 @@ interface TipJsonItem {
   uid?: string;
   uin?: string;
   nm?: string;
+  param?: string[];
 }
 
 /** tipJson → 节点。与 gtip XML 等价的 JSON 编码，字段名一一对应。 */
@@ -314,7 +315,15 @@ function parseTipJson(raw: string, names: NameLookup): PreviewNode[] {
   for (const item of items) {
     if (!item || typeof item !== 'object') continue;
     if (item.type === 'qq' || item.type === 'url') {
-      const uid = str(item.uid) || str(item.uin);
+      const param = Array.isArray(item.param) ? str(item.param[0]) : '';
+      const uid =
+        str(item.uid) ||
+        str(item.uin) ||
+        (item.type === 'qq' || param.startsWith('u_') ? param : '');
+      if (item.type === 'url' && !uid) {
+        pushText(nodes, str(item.nm) || str(item.txt));
+        continue;
+      }
       const name = names.resolve(uid, personIndex++, str(item.uin), str(item.nm)) || str(item.txt);
       if (name) pushText(nodes, name);
     } else {
@@ -396,7 +405,10 @@ export function previewIdentityIds(preview: unknown, senderUid = ''): string[] {
     if (str(el.grayTipXmlContent)) {
       const doc = new DOMParser().parseFromString(str(el.grayTipXmlContent), 'text/xml');
       for (const node of Array.from(doc.getElementsByTagName('qq'))) {
-        if (attr(node, 'uin')) ids.add(attr(node, 'uin'));
+        for (const key of ['uin', 'uid', 'jp']) {
+          const value = attr(node, key);
+          if (value.startsWith('u_') || /^\d+$/.test(value)) ids.add(value);
+        }
       }
     }
     if (str(el.tipJson)) {
@@ -404,8 +416,12 @@ export function previewIdentityIds(preview: unknown, senderUid = ''): string[] {
       if (Array.isArray(items))
         for (const item of items) {
           if (!item || typeof item !== 'object') continue;
-          const id = str(item.uid) || str(item.uin);
-          if (item.type === 'qq' && id) ids.add(id);
+          if (item.type !== 'qq' && item.type !== 'url') continue;
+          const param = Array.isArray(item.param) ? str(item.param[0]) : '';
+          for (const value of [str(item.uid), str(item.uin), param]) {
+            if (value.startsWith('u_') || (item.type === 'qq' && /^\d+$/.test(value)))
+              ids.add(value);
+          }
         }
     }
   } catch {
