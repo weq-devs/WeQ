@@ -4130,7 +4130,7 @@ function MainWorkspace(): ReactElement {
     [buddies.data, categoryById, onlineStatusByUid, profileByUid, botUids],
   );
   const relationshipDirectory = useMemo(() => {
-    const friends = new Map<string, { categoryName?: string | null }>();
+    const friends = new Map<string, Contact>();
     for (const contact of buddyContacts) {
       friends.set(contact.id, contact);
       if (contact.identityLabel === 'QQ') friends.set(contact.identityValue, contact);

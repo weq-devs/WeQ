@@ -9,10 +9,13 @@
  * 按原比例落下去才像一面墙。卡片与图都刻意放大 —— 这一栏的主角是礼物本身。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Gift as GiftIcon, Loader2, WifiOff } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { giftImageUrl } from '../../lib/resourceUrl';
+import { RelationshipDirectoryContext } from '../../lib/contactRelationship';
+import { profileTargetUser, type ProfileTarget } from '../../lib/profileNavigation';
+import { ProfileAvatar } from '../ProfileAvatar';
 import '../../styles/gift-wall.css';
 
 type WallItem = {
@@ -28,6 +31,29 @@ type WallItem = {
 const SKELETON_KEYS = Array.from({ length: 8 }, (_, index) => `gift-wall-skel-${index}`);
 
 export function GiftWall() {
+  const directory = useContext(RelationshipDirectoryContext);
+  const peopleByName = useMemo(() => {
+    const people = new Map<string, ProfileTarget | null>();
+    // QQ 礼物墙只给昵称；完整好友目录里唯一匹配才提供名片入口。
+    if (!directory?.friendsComplete) return people;
+    for (const [identity, person] of directory.friends) {
+      const target: ProfileTarget = {
+        identity: person.id || identity,
+        uin: person.identityLabel === 'QQ' ? person.identityValue : undefined,
+        name: person.nick || person.displayName || '',
+        avatarUrl: person.avatarUrl,
+      };
+      if (!profileTargetUser(target)) continue;
+      for (const name of [person.nick, person.remark]) {
+        if (!name) continue;
+        const previous = people.get(name);
+        if (previous === undefined) people.set(name, target);
+        else if (previous?.identity !== target.identity || previous?.uin !== target.uin)
+          people.set(name, null);
+      }
+    }
+    return people;
+  }, [directory]);
   const [isSend, setIsSend] = useState(false);
   const [items, setItems] = useState<WallItem[]>([]);
   const [isEnd, setIsEnd] = useState(false);
@@ -141,6 +167,7 @@ export function GiftWall() {
                   key={item.orderNum || `${item.giftId}-${item.time}`}
                   item={item}
                   isSend={isSend}
+                  person={peopleByName.get(item.nick) ?? undefined}
                 />
               ))}
             </div>
@@ -164,7 +191,15 @@ export function GiftWall() {
 }
 
 /** 一张墙卡：图占满宽度、原比例，下面是名字 + 对方 + 时间。 */
-function WallCard({ item, isSend }: { item: WallItem; isSend: boolean }) {
+function WallCard({
+  item,
+  isSend,
+  person,
+}: {
+  item: WallItem;
+  isSend: boolean;
+  person?: ProfileTarget;
+}) {
   const src = giftImageUrl(item.staticPic ?? '');
   return (
     <div className="weq-gift-wall-card">
@@ -182,7 +217,23 @@ function WallCard({ item, isSend }: { item: WallItem; isSend: boolean }) {
         <span className="weq-gift-wall-meta-main">
           <strong title={item.giftName}>{item.giftName}</strong>
           <small title={`${isSend ? '送给' : '来自'} ${item.nick} · ${item.time}`}>
-            {isSend ? '送给' : '来自'} {item.nick || '神秘好友'} · {item.time}
+            <span>{isSend ? '送给' : '来自'}</span>{' '}
+            <span
+              className="weq-gift-wall-person"
+              onClickCapture={(event) => {
+                const selection = event.currentTarget.ownerDocument.getSelection();
+                if (
+                  selection &&
+                  !selection.isCollapsed &&
+                  selection.rangeCount > 0 &&
+                  selection.getRangeAt(0).intersectsNode(event.currentTarget)
+                )
+                  event.stopPropagation();
+              }}
+            >
+              <ProfileAvatar target={person}>{item.nick || '神秘好友'}</ProfileAvatar>
+            </span>{' '}
+            <span className="weq-gift-wall-time">· {item.time}</span>
           </small>
         </span>
         <span className="weq-gift-wall-price">{item.giftPrice}</span>

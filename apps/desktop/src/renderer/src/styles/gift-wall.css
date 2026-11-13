@@ -143,11 +143,44 @@ html[data-theme='dark'] .weq-gift-wall-media {
 }
 
 .weq-gift-wall-meta-main small {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
   color: var(--weq-fg-muted);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.weq-gift-wall-meta-main small > span:first-child {
+  flex: none;
+}
+
+.weq-gift-wall-person,
+.weq-gift-wall-time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weq-gift-wall-person .weq-profile-avatar-button {
+  display: inline;
+  border-radius: 0;
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+  line-height: inherit;
+  vertical-align: baseline;
+  user-select: text;
+}
+
+.weq-gift-wall-person .weq-profile-avatar-button:hover,
+.weq-gift-wall-person .weq-profile-avatar-button:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.weq-gift-wall-person .weq-profile-avatar-button:focus-visible {
+  outline-offset: 0;
 }
 
 .weq-gift-wall-price {
