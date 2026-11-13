@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ModelStore, type ModelEntry } from '../src/common/model_store';
+import { ModelStore, type ModelDownloadProgress, type ModelEntry } from '../src/common/model_store';
 
 const bytes = Buffer.from('golden');
 const digest = createHash('sha256').update(bytes).digest('hex');
@@ -105,4 +106,123 @@ it('HTTP 416、坏哈希和同名目录均不能发布成功回执', async () =>
   await mkdir(file);
   expect(store.getModelStatus('fixture')!.downloaded).toBe(false);
   expect(await store.verifyModel('fixture')).toBe(false);
+});
+
+it('多文件下载的状态和进度回调共用累计字节与固定总量，复用后续文件也不跳退', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-model-progress-'));
+  roots.push(root);
+  const files = [Buffer.alloc(6, 1), Buffer.alloc(3, 2), Buffer.alloc(2, 3)];
+  class FixtureStore extends ModelStore<ModelEntry> {
+    constructor() {
+      super(root, [
+        {
+          id: 'bundle',
+          sizeBytes: 11,
+          files: files.map((data, index) => ({
+            key: String(index),
+            name: `${index}.bin`,
+            url: `https://example.invalid/${index}`,
+            // 故意不用字节权重，避免测试与实现共用未经验证的加权前提。
+            weight: 1 / files.length,
+            sizeBytes: data.length,
+            sha256: createHash('sha256').update(data).digest('hex'),
+          })),
+        },
+      ]);
+    }
+  }
+  const store = new FixtureStore();
+  await mkdir(store.resolveModelDir('bundle'));
+  await writeFile(join(store.resolveModelDir('bundle'), '2.bin'), files[2]!);
+  const fetcher = vi.fn(async (url: string) => {
+    const data = files[Number(new URL(url).pathname.slice(1))]!;
+    return new Response(data, { headers: { 'content-length': String(data.length), etag: '"v1"' } });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const progress: ModelDownloadProgress[] = [];
+  let pausedBetweenFiles = false;
+  store.on('progress', (event: ModelDownloadProgress) => {
+    progress.push(event);
+    if (
+      !pausedBetweenFiles &&
+      event.downloadedBytes === 8 &&
+      existsSync(join(store.resolveModelDir('bundle'), '0.bin'))
+    ) {
+      pausedBetweenFiles = true;
+      store.pauseDownload('bundle');
+      store.continueDownload('bundle');
+    }
+  });
+  expect(await store.downloadModel('bundle')).toEqual({ success: true });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(pausedBetweenFiles).toBe(true);
+  expect(progress.some((event) => event.paused)).toBe(true);
+  expect(progress.every((event) => event.totalBytes === 11)).toBe(true);
+  expect(
+    progress.every(
+      (event, index) =>
+        index === 0 || event.downloadedBytes >= progress[index - 1]!.downloadedBytes,
+    ),
+  ).toBe(true);
+  for (const event of progress)
+    expect(event.percent).toBeCloseTo((event.downloadedBytes / 11) * 100);
+  expect(progress.some((event) => event.downloadedBytes === 8)).toBe(true);
+  expect(progress.at(-1)).toMatchObject({ downloadedBytes: 11, percent: 100, done: true });
+});
+
+it('服务器忽略续传并从头返回时进度保持不回退，失败终态也保留已显示进度', async () => {
+  const { store, file } = await fixture();
+  await writeFile(`${file}.part`, bytes.subarray(0, 3));
+  await writeFile(
+    `${file}.resume.json`,
+    JSON.stringify({
+      url: 'https://example.invalid/model',
+      validator: '"v1"',
+      total: bytes.length,
+    }),
+  );
+  const fetcher = vi.fn(
+    async (_url: string, _options: { headers: Record<string, string> }) =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(bytes.subarray(0, 2));
+            controller.enqueue(bytes.subarray(2));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { 'content-length': String(bytes.length), etag: '"v1"' } },
+      ),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const progress: ModelDownloadProgress[] = [];
+  store.on('progress', (event: ModelDownloadProgress) => progress.push(event));
+  expect(await store.downloadModel('fixture')).toEqual({ success: true });
+  expect(fetcher.mock.calls[0]![1].headers.Range).toBe('bytes=3-');
+  expect(progress.some((event) => event.downloadedBytes === 3)).toBe(true);
+  expect(
+    progress.every(
+      (event, index) =>
+        index === 0 || event.downloadedBytes >= progress[index - 1]!.downloadedBytes,
+    ),
+  ).toBe(true);
+  expect(await readFile(file)).toEqual(bytes);
+
+  await rm(file);
+  progress.length = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(bytes.subarray(0, 3), { headers: { 'content-length': String(bytes.length) } }),
+    ),
+  );
+  expect((await store.downloadModel('fixture')).success).toBe(false);
+  expect(progress.at(-1)).toMatchObject({
+    downloadedBytes: 3,
+    totalBytes: 6,
+    percent: 50,
+    error: expect.any(String),
+  });
+  expect(progress.some((event) => event.done)).toBe(false);
 });

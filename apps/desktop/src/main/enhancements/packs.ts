@@ -237,10 +237,14 @@ export class EnhancementPacks {
   private async prepare(pack: EnhancementPackDefinition, download: boolean): Promise<void> {
     await this.loaded;
     let completed = 0;
-    const total = this.plan([pack.id]).downloadBytes;
-    for (const id of pack.components) {
+    const budgets = pack.components.map((id) => this.components.get(id)!.state().downloadBytes);
+    const total = budgets.reduce((sum, bytes) => sum + bytes, 0);
+    for (const [index, id] of pack.components.entries()) {
       const component = this.components.get(id)!;
-      const missing = component.state().downloadBytes;
+      const missing = budgets[index]!;
+      const base = completed;
+      let received = 0;
+      let reporting = true;
       this.operations.set(pack.id, {
         phase: download ? 'downloading' : 'checking',
         received: completed,
@@ -255,22 +259,30 @@ export class EnhancementPacks {
         await component.check?.();
         continue;
       }
-      let task = this.componentTasks.get(id);
-      if (!task) {
-        task = component
-          .ensure((progress) => {
-            this.operations.set(pack.id, {
-              phase: 'downloading',
-              received: completed + Math.min(missing, progress.received),
-              total,
-              paused: progress.paused,
-              note: progress.note,
-            });
-          })
-          .finally(() => this.componentTasks.delete(id));
-        this.componentTasks.set(id, task);
+      try {
+        let task = this.componentTasks.get(id);
+        if (!task) {
+          task = component
+            .ensure((progress) => {
+              if (!reporting) return;
+              if (Number.isFinite(progress.received))
+                received = Math.max(received, Math.min(missing, progress.received));
+              this.operations.set(pack.id, {
+                phase: 'downloading',
+                received: base + received,
+                total,
+                paused: progress.paused,
+                note: progress.note,
+              });
+            })
+            .finally(() => this.componentTasks.delete(id));
+          this.componentTasks.set(id, task);
+        }
+        await task;
+      } finally {
+        // 上一组件的迟到事件不能覆盖新阶段、校验或失败状态。
+        reporting = false;
       }
-      await task;
       completed += missing;
     }
     this.operations.set(pack.id, {

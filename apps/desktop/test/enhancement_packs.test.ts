@@ -169,3 +169,44 @@ it('已安装能力的兼容引擎更新由程序协调，不把模型重新下�
   expect(f.components.get('engine:onnx')!.ensure).toHaveBeenCalledTimes(2);
   expect((await f.packs.list()).find((pack) => pack.id === 'text')!.ready).toBe(true);
 });
+
+it('组件暂停、续传与切换阶段保持固定预算和单调进度，旧回调不覆盖后续阶段', async () => {
+  const f = await fixture();
+  const observed: Array<{ received: number; total: number; paused?: boolean; phase: string }> = [];
+  const capture = async () => {
+    const operation = (await f.packs.list()).find((pack) => pack.id === 'text')!.operation!;
+    observed.push({ ...operation });
+    return operation;
+  };
+  let late = (_progress: { received: number; total: number }) => {};
+  f.components.get('engine:onnx')!.ensure = async (report) => {
+    late = report;
+    report({ received: 15, total: 20 });
+    await capture();
+    report({ received: 0, total: 20, paused: true });
+    expect(await capture()).toMatchObject({ received: 15, paused: true });
+    report({ received: 10, total: 10, paused: false });
+    await capture();
+    // 其他组件状态更新不能改变本次计划已确定的预算。
+    f.state.get('text-model')!.downloadBytes = 40;
+  };
+  f.components.get('text-model')!.ensure = async (report) => {
+    expect(await capture()).toMatchObject({ received: 20, total: 120 });
+    report({ received: 30, total: 40 });
+    await capture();
+    late({ received: 0, total: 20 });
+    expect(await capture()).toMatchObject({ received: 50, total: 120 });
+    report({ received: 5, total: 100 });
+    await capture();
+  };
+  f.packs.start(['text']);
+  await f.packs.wait();
+  await capture();
+  expect(observed.every((operation) => operation.total === 120)).toBe(true);
+  expect(
+    observed.every(
+      (operation, index) => index === 0 || operation.received >= observed[index - 1]!.received,
+    ),
+  ).toBe(true);
+  expect(observed.at(-1)).toMatchObject({ received: 120, phase: 'ready' });
+});

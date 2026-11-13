@@ -219,6 +219,26 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
 
     const task = (async (): Promise<{ success: boolean; error?: string }> => {
       const dir = this.resolveModelDir(id);
+      let completedBytes = 0;
+      let displayedBytes = 0;
+      let fileDownloading = false;
+      let paused = false;
+      let pauseReasons: string[] = [];
+      const report = (received: number, patch: Partial<ModelDownloadProgress> = {}) => {
+        // 状态回调只包含当前文件；两条事件流统一为整套模型的累计字节。
+        // 续传被服务器重置时保持已显示进度，待实际下载追上，不伪造成功终态。
+        displayedBytes = Math.max(displayedBytes, received);
+        this.emitProgress({
+          id,
+          percent: model.sizeBytes ? (displayedBytes / model.sizeBytes) * 100 : 0,
+          downloadedBytes: displayedBytes,
+          totalBytes: model.sizeBytes,
+          speed: 0,
+          paused,
+          pauseReasons,
+          ...patch,
+        });
+      };
       const transfer = new ManagedDownload({
         batch: true,
         total: model.sizeBytes,
@@ -230,84 +250,55 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
           }
         },
         state: (state) => {
-          this.emitProgress({
-            id,
-            percent: state.total ? (state.received / state.total) * 100 : 0,
-            downloadedBytes: state.received,
-            totalBytes: state.total,
-            speed: 0,
-            paused: state.paused,
-            pauseReasons: state.reasons,
-          });
+          paused = state.paused;
+          pauseReasons = state.reasons;
+          report(completedBytes + (fileDownloading ? state.received : 0));
         },
       });
       this.transfers.set(id, transfer);
       try {
         mkdirSync(dir, { recursive: true });
-        this.emitProgress({
-          id,
-          percent: 0,
-          downloadedBytes: 0,
-          totalBytes: model.sizeBytes,
-          speed: 0,
-        });
-
-        // Cumulative completed weight from already-finished files, so the
-        // overall percentage is monotonic across the multi-file download.
-        let baseWeight = 0;
+        report(0);
+        const reusable = new Set<string>();
+        // 复用的文件可能排在后面，先计入基线，避免它们被重复计作本次下载量。
+        for (const file of model.files) {
+          const target = join(dir, file.name);
+          if (await this.validFile(target, file)) {
+            reusable.add(file.key);
+            completedBytes += statSync(target).size;
+          }
+        }
+        report(completedBytes);
         for (const f of model.files) {
           const target = join(dir, f.name);
-          if (await this.validFile(target, f)) {
-            baseWeight += f.weight;
-            continue;
-          }
+          if (reusable.has(f.key)) continue;
           mkdirSync(dirname(target), { recursive: true });
-          await this.downloadToFile(
-            f.url,
-            target,
-            (downloaded, total, speed) => {
-              const filePercent = total ? downloaded / total : 0;
-              const percent = (baseWeight + filePercent * f.weight) * 100;
-              this.emitProgress({
-                id,
-                percent,
-                downloadedBytes:
-                  model.files.slice(0, model.files.indexOf(f)).reduce((sum, completed) => {
-                    try {
-                      return sum + statSync(join(dir, completed.name)).size;
-                    } catch {
-                      return sum;
-                    }
-                  }, 0) + downloaded,
-                totalBytes: model.sizeBytes,
-                speed,
-              });
-            },
-            transfer,
-          );
-          baseWeight += f.weight;
+          fileDownloading = true;
+          try {
+            await this.downloadToFile(
+              f.url,
+              target,
+              (downloaded, _total, speed) => report(completedBytes + downloaded, { speed }),
+              transfer,
+            );
+          } finally {
+            fileDownloading = false;
+          }
+          completedBytes += statSync(target).size;
+          report(completedBytes);
         }
 
-        this.emitProgress({
-          id,
+        report(this.bytesOnDisk(dir, model), {
           percent: 100,
-          downloadedBytes: this.bytesOnDisk(dir, model),
-          totalBytes: model.sizeBytes,
-          speed: 0,
           done: true,
+          paused: false,
+          pauseReasons: [],
         });
         return { success: true };
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         // 完整文件和带验证信息的分段保留，重试不重复下载已完成部分。
-        this.emitProgress({
-          id,
-          percent: 0,
-          downloadedBytes: 0,
-          totalBytes: model.sizeBytes,
-          speed: 0,
-          error,
-        });
+        report(displayedBytes, { error, paused: false, pauseReasons: [] });
         return { success: false, error };
       } finally {
         this.transfers.delete(id);

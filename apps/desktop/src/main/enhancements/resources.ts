@@ -142,12 +142,12 @@ export function createEnhancementResources(
         };
       },
       ensure: async (report) => {
-        const initial = store.getModelStatus(id)!.sizeOnDisk;
+        const initial = model.sizeBytes - component.state().downloadBytes;
         const progress = (p: ModelDownloadProgress) => {
           if (p.id === id)
             report({
               received: Math.max(0, p.downloadedBytes - initial),
-              total: p.totalBytes,
+              total: p.totalBytes - initial,
               paused: p.paused,
               note: p.paused ? '下载已暂停' : '下载模型文件',
             });
@@ -200,13 +200,15 @@ export function createEnhancementResources(
       };
     },
     ensure: async (report) => {
+      const initial =
+        LAYA_BUNDLE_BYTES - components.get('model:laya-multilingual')!.state().downloadBytes;
       await downloadLayaBundle({
         destDir: layaDir,
         mirror: userConfig.getSharedPreference('intent').hfMirror ?? true,
         onProgress: (p) =>
           report({
-            received: p.received,
-            total: p.total,
+            received: Math.max(0, p.received - initial),
+            total: p.total - initial,
             paused: p.paused,
             note: '准备意图与画像模型',
           }),
