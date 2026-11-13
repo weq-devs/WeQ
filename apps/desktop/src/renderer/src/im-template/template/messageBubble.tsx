@@ -539,7 +539,10 @@ export function MessageBubble({
               ) : null}
             </span>
           ) : null}
-          <MessageProvenance message={message} />
+          <MessageProvenance
+            message={message}
+            precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
+          />
         </div>
         {repeatAction ? (
           <div className="weq-repeat-content">

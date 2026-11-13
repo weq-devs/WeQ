@@ -1,3 +1,5 @@
+import { TimeLabel } from './TimeLabel';
+import * as timeFormat from '@weq/time';
 /**
  * GuildDirectDialog — QQ 频道内的本地私聊查看器。
  *
@@ -122,19 +124,9 @@ function toIsoTime(seconds: string): string {
 }
 
 function formatListTime(seconds: string): string {
-  const secs = Number(seconds);
-  if (!Number.isFinite(secs) || secs <= 0) return '';
-  const d = new Date(secs * 1000);
-  if (!Number.isFinite(d.getTime())) return '';
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  if (sameDay) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`;
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  return Number(seconds) > 0
+    ? timeFormat.formatConversationTime(timeFormat.unixDate(seconds), Date.now(), 'channel')
+    : '';
 }
 
 /** 会话列表预览（40051）→ 纯文本；频道元素常不带正文，可能为空串。 */
@@ -740,9 +732,14 @@ export function GuildDirectDialog({
                               </span>
                             ) : null}
                           </span>
-                          <time className="weq-guild-direct-item-time">
+                          <TimeLabel
+                            className="weq-guild-direct-item-time"
+                            value={
+                              Number(session.lastTime) > 0 ? Number(session.lastTime) * 1000 : null
+                            }
+                          >
                             {formatListTime(session.lastTime)}
-                          </time>
+                          </TimeLabel>
                         </span>
                         <span className="weq-guild-direct-item-preview">
                           {previewText || '（无本地预览）'}

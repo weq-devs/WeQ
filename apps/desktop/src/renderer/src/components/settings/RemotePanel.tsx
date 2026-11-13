@@ -1,3 +1,5 @@
+import { eventTimeFormatter, formatRelativeTime } from '@weq/time';
+import { TimeLabel } from '../TimeLabel';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTabActive } from '../RetainedTabs';
 import {
@@ -29,36 +31,17 @@ import {
   type RemoteConnectionInfo,
 } from '../../../../shared/remote_device';
 
-const deviceTime = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
+const deviceTime = eventTimeFormatter;
 
 function DeviceTime({ value, now }: { value: number | null; now?: number }) {
   if (value === null || !Number.isFinite(value) || Math.abs(value) > 8.64e15)
     return <span>暂无记录</span>;
   const full = deviceTime.format(value);
-  const elapsed = now === undefined ? null : Math.max(0, now - value);
-  const text =
-    elapsed === null
-      ? full
-      : elapsed < 60_000
-        ? '刚刚'
-        : elapsed < 3_600_000
-          ? `${Math.floor(elapsed / 60_000)} 分钟前`
-          : elapsed < 86_400_000
-            ? `${Math.floor(elapsed / 3_600_000)} 小时前`
-            : full;
+  const text = now === undefined ? full : formatRelativeTime(value, now, 1);
   return (
-    <time dateTime={new Date(value).toISOString()} title={`${full}（北京时间）`}>
+    <TimeLabel value={value} precision="millisecond">
       {text}
-    </time>
+    </TimeLabel>
   );
 }
 

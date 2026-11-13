@@ -1,16 +1,10 @@
+import { TimeLabel } from '../TimeLabel';
+import { eventTimeFormatter } from '@weq/time';
 import { useLayoutEffect, useRef } from 'react';
 import { Lightbulb, RefreshCw } from 'lucide-react';
 import type { ReplySuggestionHistoryEntry } from '@weq/service';
 
-const timestamp = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+const timestamp = eventTimeFormatter;
 
 export function ReplySuggestionHistory({
   history,
@@ -134,9 +128,9 @@ export function ReplySuggestionHistory({
                 aria-label="查看本轮推荐详情"
                 onClick={(event) => onDetails(entry.id, event.currentTarget)}
               >
-                <time dateTime={new Date(entry.createdAt).toISOString()}>
+                <TimeLabel value={entry.createdAt} precision="millisecond">
                   {timestamp.format(entry.createdAt)}
-                </time>
+                </TimeLabel>
               </button>
             </div>
           ))

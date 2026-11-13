@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 import { resolveAvatar } from './avatarResolver';
@@ -32,20 +33,10 @@ export interface GroupNoticeEntry {
   readNum?: number;
 }
 function localDate(value: string): string {
-  // 无时区的本地格式保留原日期，不猜成 UTC 再做时区平移。
-  const local = /^(\d{4})-(\d{2})-(\d{2})(?:[ T]|$)/.exec(value);
-  if (local && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)) return `${local[1]}/${local[2]}/${local[3]}`;
-  const time = Date.parse(value);
-  return Number.isFinite(time) && time > 0 ? dateText(time) : '';
+  return timeFormat.formatDateTime(value);
 }
 function dateText(time: number): string {
-  if (!Number.isFinite(time) || time <= 0 || time > 8.64e15) return '';
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(time));
+  return Number.isFinite(time) && time > 0 ? timeFormat.formatDateTime(time) : '';
 }
 export function decodeGroupBulletinText(text: string): string {
   const textarea = document.createElement('textarea');

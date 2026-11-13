@@ -1,3 +1,5 @@
+import { TimeLabel } from './TimeLabel';
+import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { trpc } from '../trpc/client';
@@ -6,12 +8,7 @@ import { useTabActive } from './RetainedTabs';
 import '../styles/contact-history.css';
 import { contactHistorySection, type ContactWorkspaceSection } from '../lib/contactWorkspace';
 
-const time = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  dateStyle: 'medium',
-  timeStyle: 'medium',
-  hourCycle: 'h23',
-});
+const _time = eventTimeFormatter;
 const labels: Record<string, string> = {
   getProfile: '个人资料',
   getBuddy: '好友资料',
@@ -343,7 +340,7 @@ function HistoryQuery({
                 onClick={() => setSelected(selected === row.id ? null : row.id)}
               >
                 <strong>{categoryName(row.category)}</strong>
-                <time>{time.format(row.first_at)}</time>
+                <TimeLabel value={row.first_at} precision="millisecond" />
                 <span>
                   {sourceLabel[row.source] ?? row.source} ·{' '}
                   {row.completeness === 'complete'
@@ -353,7 +350,9 @@ function HistoryQuery({
                       : '已取得字段'}
                 </span>
                 {row.last_at > row.first_at ? (
-                  <span>最近观察 {time.format(row.last_at)}</span>
+                  <span>
+                    最近观察 <TimeLabel value={row.last_at} precision="millisecond" />
+                  </span>
                 ) : null}
               </button>
               {selected === row.id ? (

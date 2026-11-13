@@ -1,3 +1,5 @@
+import { TimeLabel } from '../../components/TimeLabel';
+import * as timeFormat from '@weq/time';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CalendarDays, Play, RotateCw, Search, Users } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
@@ -59,17 +61,7 @@ type Choice = {
 
 /** 「最近聊过」的相对时间标签，避免列表里一堆绝对日期。 */
 function relativeTime(seconds: number): string {
-  if (!seconds) return '';
-  const day = new Date(seconds * 1000);
-  const diff = Date.now() - day.getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} 天前`;
-  return beijingDay(day);
+  return seconds ? timeFormat.formatRelativeTime(timeFormat.unixDate(seconds)) : '';
 }
 
 function ObjectPicker({
@@ -168,7 +160,9 @@ function ObjectPicker({
                 </span>
                 {item.lastMessageTime ? (
                   <span className="weq-analysis-choice-time">
-                    {relativeTime(item.lastMessageTime)}
+                    <TimeLabel value={item.lastMessageTime * 1000}>
+                      {relativeTime(item.lastMessageTime)}
+                    </TimeLabel>
                   </span>
                 ) : null}
               </button>

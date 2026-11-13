@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -25,9 +26,7 @@ import { chooseBrowserFile, stageAccountFile } from '../lib/accountFilePicker';
 
 type Source = Extract<ViewerScanEvent, { kind: 'source' }>['source'];
 const time = (seconds: number) =>
-  seconds
-    ? new Date(seconds * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
-    : '时间未知';
+  seconds ? eventTimeFormatter.format(new Date(seconds * 1000)) : '时间未知';
 
 function Part({
   part,

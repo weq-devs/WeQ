@@ -51,8 +51,8 @@ function rangeForPreset(preset: RangePreset): TimeRange {
 const PRESET_HINTS: Record<RangePreset, { single: string; scheduled: string }> = {
   all: { single: '不限制时间', scheduled: '每次触发都导出全量消息' },
   today: {
-    single: '今天的 00:00 ~ 23:59',
-    scheduled: '每次触发 = 当天 00:00 ~ 23:59（按触发日滚动）',
+    single: '今天的 00:00:00 ~ 23:59:59（北京时间）',
+    scheduled: '每次触发 = 当天 00:00:00 ~ 23:59:59（北京时间）（按触发日滚动）',
   },
   '7d': {
     single: '今天往前 7 天（含今天）',

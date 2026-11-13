@@ -241,6 +241,9 @@ importers:
       '@weq/service':
         specifier: workspace:*
         version: link:../../packages/service
+      '@weq/time':
+        specifier: workspace:*
+        version: link:../../packages/time
       '@xmldom/xmldom':
         specifier: ^0.9.12
         version: 0.9.12
@@ -443,6 +446,9 @@ importers:
       '@weq/service':
         specifier: workspace:*
         version: link:../../packages/service
+      '@weq/time':
+        specifier: workspace:*
+        version: link:../../packages/time
       archiver:
         specifier: 5.3.2
         version: 5.3.2
@@ -513,6 +519,10 @@ importers:
         version: 22.19.20
 
   packages/agentlab:
+    dependencies:
+      '@weq/time':
+        specifier: workspace:*
+        version: link:../time
     devDependencies:
       '@types/node':
         specifier: ^22.10.6
@@ -526,6 +536,9 @@ importers:
       '@weq/agentlab':
         specifier: workspace:*
         version: link:../agentlab
+      '@weq/time':
+        specifier: workspace:*
+        version: link:../time
       ws:
         specifier: ^8.18.0
         version: 8.21.0
@@ -617,6 +630,9 @@ importers:
       '@weq/native':
         specifier: workspace:*
         version: link:../native
+      '@weq/time':
+        specifier: workspace:*
+        version: link:../time
     devDependencies:
       '@types/node':
         specifier: ^22.10.6
@@ -660,6 +676,9 @@ importers:
       '@weq/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@weq/time':
+        specifier: workspace:*
+        version: link:../time
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -730,6 +749,8 @@ importers:
       '@weq/native':
         specifier: workspace:*
         version: link:../native
+
+  packages/time: {}
 
   packages/web-runtime:
     dependencies:

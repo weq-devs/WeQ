@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, History, RotateCcw, X } from 'lucide-react';
 import type { HistoricalAvatar } from '@weq/protocol';
@@ -12,16 +13,7 @@ import { extrasPageWarning, mergeExtrasPages, nextExtrasCursor } from '../lib/pr
 import { sortHistoricalAvatars } from '../lib/avatarHistory';
 import '../styles/avatar-history.css';
 
-const formatter = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+const formatter = eventTimeFormatter;
 export const avatarHistoryTime = (value: number | null) =>
   value === null ? '未知' : formatter.format(value * 1000);
 

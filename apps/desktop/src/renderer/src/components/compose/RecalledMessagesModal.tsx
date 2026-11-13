@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * RecalledMessagesModal — the "撤回列表": browse the messages that were recalled
  * in one conversation while anti-recall was protecting it.
@@ -40,10 +41,7 @@ type RecallInfo = { revokeUid: string; sameSender: boolean; recallTs: number };
 
 /** Format a unix-second recall timestamp as a short local date-time. */
 function formatRecallTime(ts: number): string {
-  if (!ts) return '';
-  const d = new Date(ts * 1000);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return ts > 0 ? timeFormat.formatUnixTime(ts) : '';
 }
 
 /** A recalled message plus the labels/keys the header + filters need. */

@@ -1,3 +1,5 @@
+import { formatDateTime } from '@weq/time';
+import { TimeLabel } from '../../components/TimeLabel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { usePageState } from '../../components/PageSnapshots';
@@ -543,14 +545,7 @@ export function MailPage({
   }
   const allChecked = page.items.length > 0 && page.items.every((item) => checked.includes(item.id));
   // 上次查询时间在宽屏放文件夹列底部，窄屏放顶栏，用户始终能判断「刚才查过」。
-  const syncText = status.lastSync
-    ? `更新于 ${new Date(status.lastSync).toLocaleTimeString('zh-CN', {
-        timeZone: 'Asia/Shanghai',
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-      })}`
-    : '尚未同步';
+  const syncText = status.lastSync ? `更新于 ${formatDateTime(status.lastSync)}` : '尚未同步';
   const snippets = useMemo(
     () => new Map(page.items.map((item) => [item.id, plainMailText(item.snippet)])),
     [page.items],
@@ -575,7 +570,11 @@ export function MailPage({
             <span className="weq-mail-sensitive">{selfEmail}</span>
           </div>
         </div>
-        <span className="weq-mail-sync-state weq-mail-sync-state-compact">{syncText}</span>
+        <span className="weq-mail-sync-state weq-mail-sync-state-compact">
+          <TimeLabel value={status.lastSync} precision="millisecond">
+            {syncText}
+          </TimeLabel>
+        </span>
         <div className="weq-mail-top-actions">
           <button
             type="button"
@@ -704,7 +703,11 @@ export function MailPage({
                 </button>
               );
             })}
-            <div className="weq-mail-sync-state">{syncText}</div>
+            <div className="weq-mail-sync-state">
+              <TimeLabel value={status.lastSync} precision="millisecond">
+                {syncText}
+              </TimeLabel>
+            </div>
           </nav>
           <section className="weq-mail-list" aria-label="邮件列表">
             <form
@@ -835,7 +838,9 @@ export function MailPage({
                           ) : null}
                           {item.sender.name || item.sender.email || '发件人'}
                         </strong>
-                        <time>{formatMailTime(item.time, true)}</time>
+                        <TimeLabel value={item.time * 1000}>
+                          {formatMailTime(item.time, true)}
+                        </TimeLabel>
                       </div>
                       <span className="weq-mail-row-subject">
                         {item.draft ? <FilePenLine size={13} /> : null}
@@ -1011,7 +1016,7 @@ export function MailPage({
                       {detail.cc.length ? <p>抄送：{addressText(detail.cc)}</p> : null}
                       {detail.bcc.length ? <p>密送：{addressText(detail.bcc)}</p> : null}
                     </details>
-                    <time>{formatMailTime(detail.time)}</time>
+                    <TimeLabel value={detail.time * 1000} />
                   </header>
                   {detail.thread ? (
                     <div className="weq-mail-thread">
@@ -1029,7 +1034,7 @@ export function MailPage({
                             {item.sender.name || item.sender.email || '发件人'}
                           </strong>
                           <span data-privacy-sensitive>{item.subject || '无主题'}</span>
-                          <time>{formatMailTime(item.time)}</time>
+                          <TimeLabel value={item.time * 1000} />
                         </button>
                       ))}
                     </div>

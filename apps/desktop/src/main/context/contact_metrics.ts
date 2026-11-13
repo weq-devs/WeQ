@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { join } from 'node:path';
 import {
   ContactMetricsService,
@@ -54,11 +55,7 @@ function formatMetrics(row: ContactMetricRows[string]) {
       {
         值:
           key === 'addedAt' && typeof cell.value === 'number'
-            ? new Intl.DateTimeFormat('zh-CN', {
-                timeZone: 'Asia/Shanghai',
-                dateStyle: 'medium',
-                timeStyle: 'medium',
-              }).format(cell.value * 1000)
+            ? eventTimeFormatter.format(cell.value * 1000)
             : key === 'direction'
               ? cell.value === 'incoming'
                 ? '对方添加我'

@@ -1,3 +1,4 @@
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 右下角可展开横幅，完成态停留时间由全局设置控制。
  *
@@ -347,10 +348,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
     const text = [textOf(toast.title).trim(), textOf(toast.detail).trim()]
       .filter(Boolean)
       .join('\n\n');
-    const occurredAt = new Date(toast.occurredAt).toLocaleString('sv-SE', {
-      timeZone: 'Asia/Shanghai',
-      hour12: false,
-    });
+    const occurredAt = eventTimeFormatter.format(new Date(toast.occurredAt));
     const ok = await copyText(
       isFailure
         ? [

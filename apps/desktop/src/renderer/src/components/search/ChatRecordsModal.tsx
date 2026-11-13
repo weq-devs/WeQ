@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
@@ -839,14 +840,5 @@ function formatTime(sendTimeSeconds: string): string {
   if (!Number.isFinite(secs) || secs <= 0) return '';
   const d = new Date(secs * 1000);
   if (!Number.isFinite(d.getTime())) return '时间未核验';
-  return `${new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).format(d)} +08`;
+  return `${eventTimeFormatter.format(d)} +08`;
 }

@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { DurationLabel } from './TimeLabel';
 import {
   Clock,
   Cloud,
@@ -24,7 +25,6 @@ import {
   HourlyBarChart,
   WordCloud,
   formatDate,
-  formatDuration,
   formatNumber,
 } from './analyticsCharts';
 import { useAnalyticsExport } from './useAnalyticsExport';
@@ -79,15 +79,21 @@ function ReplyCard({
         <div className="ba-reply-rows">
           <div>
             <small>最快</small>
-            <strong>{formatDuration(stats.fastestSec)}</strong>
+            <strong>
+              <DurationLabel seconds={stats.fastestSec} />
+            </strong>
           </div>
           <div>
             <small>平均</small>
-            <strong>{formatDuration(stats.avgSec)}</strong>
+            <strong>
+              <DurationLabel seconds={stats.avgSec} />
+            </strong>
           </div>
           <div>
             <small>最慢</small>
-            <strong>{formatDuration(stats.slowestSec)}</strong>
+            <strong>
+              <DurationLabel seconds={stats.slowestSec} />
+            </strong>
           </div>
         </div>
       ) : (

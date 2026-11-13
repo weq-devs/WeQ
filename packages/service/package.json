@@ -81,7 +81,8 @@
     "srcset": "5.0.3",
     "tough-cookie": "6.0.2",
     "unified": "11.0.5",
-    "ws": "8.21.0"
+    "ws": "8.21.0",
+    "@weq/time": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",

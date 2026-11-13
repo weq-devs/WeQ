@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 修复报告（人读 markdown）。
  *
@@ -24,7 +25,7 @@ const LAYOUT_LABEL: Record<'qq' | 'standard', string> = {
   standard: 'standard SQLite（保留页 262145）',
 };
 
-function pad(value: number): string {
+function _pad(value: number): string {
   return String(value).padStart(2, '0');
 }
 
@@ -35,17 +36,11 @@ function formatBytes(bytes: number | null): string {
 }
 
 function formatDuration(ms: number | null): string {
-  if (ms === null) return '—';
-  return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${Math.round(ms)} ms`;
+  return ms === null ? '—' : timeFormat.formatDuration(ms / 1000, 'elapsed');
 }
 
 function formatLocalTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-  );
+  return timeFormat.formatDateTime(iso, 'millisecond') || iso;
 }
 
 function listOrDash(values: readonly number[]): string {

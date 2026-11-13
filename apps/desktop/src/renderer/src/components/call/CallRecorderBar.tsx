@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 录音状态条 / 录音结果卡片。
  *
@@ -126,7 +127,5 @@ export function CallRecordingCard({
 }
 
 export function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return timeFormat.formatDuration(Math.max(0, seconds), 'call');
 }

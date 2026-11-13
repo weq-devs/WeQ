@@ -991,7 +991,7 @@ export function ChatPane({
       avatarMenu && conversation?.type === 'group' && !conversation.generated
         ? conversation.group.identityValue
         : '',
-    uid: avatarMenu ? groupTargetUid(avatarMenu.sender) ?? '' : '',
+    uid: avatarMenu ? (groupTargetUid(avatarMenu.sender) ?? '') : '',
     name: avatarMenu ? displayUserName(avatarMenu.sender) : '',
     role: unmuteMember?.role,
     muteUntil: unmuteMember?.muteUntil,
@@ -5923,7 +5923,12 @@ export function ChatPane({
                 out.push(
                   <Fragment key={message.id}>
                     {shouldShowMessageTime(previous, message) ? (
-                      <MessageTimeDivider value={message.createdAt} />
+                      <MessageTimeDivider
+                        value={message.createdAt}
+                        precision={
+                          conversation.generated || message.optimistic ? 'millisecond' : 'second'
+                        }
+                      />
                     ) : null}
                     <MessageRow
                       message={message}
@@ -7262,11 +7267,7 @@ export function ChatPane({
             !conversation?.generated && Boolean(avatarMenuFlags?.showMute) && unmuteAction.muted
           }
           unmuteBlockedReason={
-            unmuteAction.available
-              ? null
-              : unmuteAction.busy
-                ? '正在解除禁言'
-                : '当前无法解除禁言'
+            unmuteAction.available ? null : unmuteAction.busy ? '正在解除禁言' : '当前无法解除禁言'
           }
           showSetAdmin={!generated && (avatarMenuFlags?.showSetAdmin ?? false)}
           showUnsetAdmin={!generated && (avatarMenuFlags?.showUnsetAdmin ?? false)}

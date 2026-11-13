@@ -1,3 +1,5 @@
+import * as timeFormat from '@weq/time';
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 设置 → 账号基础.
  *
@@ -116,15 +118,17 @@ function KeyValueRow({
 }
 
 /** "3 小时 / 12 分钟后过期" or "已过期", from create + ttl (both unix seconds). */
-function formatExpiry(createTime: number, ttlSeconds: number): { text: string; expired: boolean } {
-  const expiryMs = (createTime + ttlSeconds) * 1000;
-  const leftMs = expiryMs - Date.now();
-  if (leftMs <= 0) return { text: '已过期', expired: true };
-  const mins = Math.floor(leftMs / 60000);
-  if (mins < 60) return { text: `${mins} 分钟后过期`, expired: false };
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return { text: `${hours} 小时后过期`, expired: false };
-  return { text: `${Math.floor(hours / 24)} 天后过期`, expired: false };
+export function formatExpiry(
+  createTime: number,
+  ttlSeconds: number,
+): { text: string; expired: boolean } {
+  const at = (createTime + ttlSeconds) * 1000;
+  const expired = at <= Date.now();
+  if (!Number.isFinite(at) || createTime <= 0) return { text: '到期时间未知', expired };
+  return {
+    text: `${timeFormat.formatDateTime(at)}（${expired ? '已过期' : timeFormat.formatRelativeTime(at)}）`,
+    expired,
+  };
 }
 
 export function AccountBasicsSection({
@@ -514,7 +518,7 @@ export function AccountBasicsSection({
             )}
             {cfg?.rkeyUpdatedAt ? (
               <p className="weq-set-note">
-                最近更新：{new Date(cfg.rkeyUpdatedAt).toLocaleString('zh-CN')}
+                最近更新：{eventTimeFormatter.format(new Date(cfg.rkeyUpdatedAt))}
               </p>
             ) : null}
           </Card>

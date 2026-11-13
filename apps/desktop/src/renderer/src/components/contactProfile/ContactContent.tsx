@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { Fragment, useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, Building2, ChevronDown } from 'lucide-react';
@@ -620,7 +621,7 @@ function memberDate(value?: string | null) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isFinite(date.getTime()) && date.getUTCFullYear() > 2000
-    ? date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+    ? eventTimeFormatter.format(date)
     : null;
 }
 

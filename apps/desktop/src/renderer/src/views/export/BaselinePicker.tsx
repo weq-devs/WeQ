@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FolderOpen, RefreshCw, X } from 'lucide-react';
 import { OverlayLayer } from '../../components/OverlayLayer';
@@ -8,15 +9,7 @@ import { useRemoteClient } from '../../lib/remoteClient';
 type Entry = Awaited<ReturnType<typeof client.account.listExportBaselines.query>>['items'][number];
 export type BaselineSelection = { directory: string; byConversation: Record<string, string> };
 const keyFor = (target: { kind: string; conv: string }) => `${target.kind}:${target.conv}`;
-const date = (milliseconds: number) =>
-  new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(milliseconds);
+const date = (milliseconds: number) => eventTimeFormatter.format(milliseconds);
 
 export function BaselinePicker({
   initialDirectory,

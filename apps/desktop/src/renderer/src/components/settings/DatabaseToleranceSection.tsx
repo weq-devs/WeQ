@@ -1,3 +1,5 @@
+import * as timeFormat from '@weq/time';
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 设置 → 数据库宽容（salvage）。
  *
@@ -121,12 +123,9 @@ function baseName(path: string): string {
   return index >= 0 ? path.slice(index + 1) : path;
 }
 
-/** `2026-09-19T03:04:05.678Z` → `09-19 03:04`（本机时区）。 */
+/** 容错记录的完整北京时间；非法值保留原文供诊断。 */
 function shortTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return timeFormat.formatDateTime(iso) || iso;
 }
 
 export function DatabaseToleranceSection({
@@ -384,8 +383,8 @@ export function DatabaseToleranceSection({
               <p className="weq-set-note">
                 <ShieldCheck size={12} strokeWidth={1.9} aria-hidden />
                 <span>
-                  已于 {new Date(grantedAt).toLocaleString()} 授权，在本机对该账号持续生效；
-                  随时可以在这里回到级别 0。
+                  已于 {eventTimeFormatter.format(new Date(grantedAt))}{' '}
+                  授权，在本机对该账号持续生效； 随时可以在这里回到级别 0。
                 </span>
               </p>
             ) : (

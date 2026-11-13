@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * native 组件过期时的阻断弹窗。
  *
@@ -33,14 +34,7 @@ function fmtSpeed(bps: number): string {
 
 /** 「2026-10-16 08:39」；无效返回 null。 */
 function fmtDateTime(sec: number | null | undefined): string | null {
-  if (!sec) return null;
-  const at = new Date(sec * 1000);
-  if (Number.isNaN(at.getTime())) return null;
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return (
-    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ` +
-    `${pad(at.getHours())}:${pad(at.getMinutes())}`
-  );
+  return sec ? timeFormat.formatUnixTime(sec) || null : null;
 }
 
 export interface NativeExpiredDialogProps {

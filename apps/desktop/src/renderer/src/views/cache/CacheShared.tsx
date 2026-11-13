@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * Shared bits for the 本地资源 (cache) view: formatting helpers, the file-browser
  * toolbar + offset-paged infinite-scroll hook, the cursor-paged infinite-scroll
@@ -87,10 +88,7 @@ export function fmtBytes(bytes: number): string {
 }
 
 export function fmtDate(ms: number): string {
-  if (!ms) return '';
-  const d = new Date(ms);
-  const pad = (x: number): string => String(x).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return ms ? timeFormat.formatDateTime(ms) : '';
 }
 
 /** The category is an image kind — used to decide whether to try an inline preview. */

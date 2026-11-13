@@ -1,3 +1,4 @@
+import { browserTimeSource } from '@weq/time';
 /**
  * WebUI 单文件前端（内嵌进 bot.mjs，产物零额外文件）。
  *
@@ -25,7 +26,8 @@ export function renderAppHtml(botName: string): string {
 <div id="bg-aurora" aria-hidden="true"></div>
 <div id="app"></div>
 <script>window.__BOT_NAME__ = ${JSON.stringify(botName)};</script>
-<script>${JS}</script>
+<script>${browserTimeSource}
+${JS}</script>
 </body>
 </html>`;
 }
@@ -494,10 +496,7 @@ const JS = `
   }
   function fmtInt(n) { return (n || 0).toLocaleString('en-US'); }
   function dur(ms) {
-    var s = Math.floor(ms / 1000), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
-    if (d > 0) return d + '天 ' + h + '小时';
-    if (h > 0) return h + '小时 ' + m + '分';
-    return m + '分钟';
+    return formatDuration(Math.max(0, ms / 1000), 'approximate');
   }
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
@@ -619,7 +618,7 @@ const JS = `
         row('brain', '生成回复轮数', fmtInt(s.totals.repliesGenerated)) + '</div>';
       html += '<div class="card"><div class="card-title">' + ic('clock', 15) + ' 运行状态</div>' +
         row('clock', '本次已运行', dur(s.now - s.startedAt)) +
-        row('clock', '累计起始', new Date(s.firstStartedAt).toLocaleDateString('zh-CN')) +
+        row('clock', '累计起始', formatDateTime(s.firstStartedAt, 'millisecond')) +
         row('msg', '收发合计', fmtInt(s.totals.messagesIn + s.totals.messagesOut)) + '</div>';
       html += '</div>';
 

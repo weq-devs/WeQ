@@ -1,3 +1,5 @@
+import { formatDateTime } from '@weq/time';
+import { TimeLabel } from '../TimeLabel';
 import { useState } from 'react';
 import { Mail } from 'lucide-react';
 import { trpc } from '../../trpc/client';
@@ -12,12 +14,7 @@ import { useNumericSettingDraft } from './useNumericSettingDraft';
 
 function lastSyncText(lastSync: number | null | undefined): string | null {
   if (!lastSync) return null;
-  return new Date(lastSync).toLocaleTimeString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTime(lastSync);
 }
 
 export function MailSettingsSection() {
@@ -86,7 +83,17 @@ export function MailSettingsSection() {
               <>
                 默认 1 分钟，可设 1–{MAX_MAIL_POLL_INTERVAL_MINUTES}{' '}
                 分钟。按这个间隔在后台查询新邮件， 与是否已有未读无关；改动后立即生效。
-                {lastSync ? <>上次查询：{lastSync}。</> : '还没有查询过。'}
+                {lastSync ? (
+                  <>
+                    上次查询：
+                    <TimeLabel value={preferences.data?.lastSync} precision="millisecond">
+                      {lastSync}
+                    </TimeLabel>
+                    。
+                  </>
+                ) : (
+                  '还没有查询过。'
+                )}
               </>
             }
             control={

@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * Message picker — lists a conversation's recent messages (via account.listLatest)
  * rendered faithfully with QqMessageContent, and lets the user click one. Used
@@ -74,9 +75,5 @@ export function MessagePicker({
 }
 
 function fmtTime(sec: string): string {
-  const n = Number(sec);
-  if (!Number.isFinite(n) || n <= 0) return '';
-  const d = new Date(n * 1000);
-  const pad = (x: number) => String(x).padStart(2, '0');
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return Number(sec) > 0 ? timeFormat.formatUnixTime(sec) : '';
 }

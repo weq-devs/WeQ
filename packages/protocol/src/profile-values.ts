@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /** QQ 资料职业目录，供编辑选项与缓存资料展示共用。 */
 export const QQ_PROFESSIONS = [
   '计算机／互联网／通信',
@@ -40,16 +41,7 @@ export function chineseZodiacText(value: unknown): string | null {
   return code === null ? null : (animals[code - 1] ?? `生肖（编号 ${code}）`);
 }
 
-const timestamps = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+const timestamps = eventTimeFormatter;
 
 /** profile_info_v6.24104 为 Unix 秒；拒绝毫秒值及超出四位年份的值。 */
 export function profileTimeSeconds(value: unknown): number | null {

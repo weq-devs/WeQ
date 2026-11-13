@@ -1,3 +1,4 @@
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useContext, useId, useRef, useState, type ReactNode } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { History, X } from 'lucide-react';
@@ -212,10 +213,7 @@ function FieldHistoryDialog({
               .flatMap((page) => page.rows)
               .map((row) => (
                 <li key={row.id}>
-                  <time>
-                    观察于{' '}
-                    {new Date(row.first_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
-                  </time>
+                  <time>观察于 {eventTimeFormatter.format(new Date(row.first_at))}</time>
                   {field === 'avatar' ? (
                     <ContactHistoryAvatar value={row.value} />
                   ) : (

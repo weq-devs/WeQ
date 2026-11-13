@@ -1,3 +1,4 @@
+import { dateFormatter } from '@weq/time';
 /**
  * 红包封面展柜 —— 个性装扮里的「红包封面」一栏。
  *
@@ -75,7 +76,7 @@ export function RedPackSkinWall(): ReactElement {
   const updated = useMemo(() => {
     if (!generatedAt) return '';
     try {
-      return new Date(generatedAt * 1000).toLocaleDateString('zh-CN');
+      return dateFormatter.format(new Date(generatedAt * 1000));
     } catch {
       return '';
     }

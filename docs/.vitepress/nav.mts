@@ -189,6 +189,7 @@ export const developSidebar = [
       { text: '开发者入口', link: '/develop/' },
       { text: '测试约定', link: '/develop/testing' },
       { text: '开发控制台日志', link: '/develop/development-console-logging' },
+      { text: '时间日期格式', link: '/develop/datetime-formatting' },
       { text: '原生二进制与资源分发', link: '/develop/native-artifacts' },
       { text: '一行命令开发启动', link: '/develop/dev-startup' },
       { text: '长期授权集成', link: '/develop/long-term-authorization' },

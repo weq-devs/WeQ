@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * Renderers for QQ rich-media message elements: image, video, file, voice
  * (ptt) and market-face sticker. Bytes are streamed from the main process via
@@ -1125,10 +1126,7 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
 // ---- helpers ------------------------------------------------------------
 
 function formatDuration(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, '0')}`;
+  return timeFormat.formatDuration(Math.max(0, seconds), 'media');
 }
 
 /** Evenly downsample an envelope to `count` bars (averaging buckets). */

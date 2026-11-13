@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import type { GroupProfileExtras } from '@weq/protocol';
 
 /**
@@ -10,12 +11,7 @@ import type { GroupProfileExtras } from '@weq/protocol';
  */
 export type GroupProfileRow = readonly [label: string, value: string, technical?: boolean];
 
-const joinedDate = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  dateStyle: 'short',
-  timeStyle: 'medium',
-  hourCycle: 'h23',
-});
+const joinedDate = eventTimeFormatter;
 export function groupJoinedDate(value?: number | null): string | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 1 && value <= 0xffffffff
     ? joinedDate.format(value * 1000)

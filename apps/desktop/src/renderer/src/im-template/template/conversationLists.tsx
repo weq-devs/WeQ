@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { TimeLabel } from '../../components/TimeLabel';
 import { occupationText } from '@weq/protocol/profile-values';
 import {
   BellOff,
@@ -935,7 +936,7 @@ export function ConversationList({
                         title="隐藏会话"
                       />
                     ) : null}
-                    {formatConversationTime(updatedAt)}
+                    <TimeLabel value={updatedAt}>{formatConversationTime(updatedAt)}</TimeLabel>
                   </span>
                   {unreadCount &&
                   (conversation.mergedKind !== 'groupAssistant' ||

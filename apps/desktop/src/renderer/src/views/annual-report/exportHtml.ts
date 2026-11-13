@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 年度报告 → 自包含 HTML。一份产物三种用途：
  *   - 直接保存为 .html 在浏览器里看；
@@ -1091,7 +1092,7 @@ function sparkSlide(data: Record<string, unknown>): string {
       : `
     <div class="sp-kicker">
       <span>${escapeHtml(isAllTimeYear(year) ? '历史以来' : `${year} 年`)} · 全部私聊里，最滚烫的一天</span>
-      <span class="sp-kicker-date">${top.year} 年 ${top.month} 月 ${top.day} 日</span>
+      <span class="sp-kicker-date">${timeFormat.formatPartialDate(top)}</span>
     </div>
     <div class="sp-say">你和 <b>${escapeHtml(top.peerName)}</b></div>
     <div class="sp-hero">
@@ -2370,10 +2371,7 @@ function qzoneQuote(value: unknown): string {
 
 /** `N月M日` / `YYYY年N月M日` —— 与屏幕版时光胶片同一份时间语言。 */
 function qzoneDay(sec: number, withYear: boolean): string {
-  if (!sec) return '';
-  const { year, month, day } = reportCalendarParts(new Date(sec * 1000));
-  const label = `${month}月${day}日`;
-  return withYear ? `${year}年${label}` : label;
+  return sec ? timeFormat.formatChineseDate(timeFormat.unixDate(sec), withYear) : '';
 }
 
 /** QQ 空间回忆页的导出版。 */

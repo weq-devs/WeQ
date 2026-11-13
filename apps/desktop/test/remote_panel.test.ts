@@ -128,7 +128,7 @@ describe('电脑端远程连接面板', () => {
     };
     await render({ ...base, devices: [device] });
     expect(container.textContent).toContain('近期活跃');
-    expect(container.textContent).toContain('2026/11/12 12:00:00');
+    expect(container.textContent).toContain('2026-11-12 12:00:00');
     expect(container.textContent).toContain('刚刚');
     const details = container.querySelector('details')!;
     expect(details.open).toBe(false);

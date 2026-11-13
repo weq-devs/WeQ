@@ -1,3 +1,4 @@
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArchiveRestore, Download, FolderOpen, RefreshCw, Upload, X } from 'lucide-react';
 import type {
@@ -75,10 +76,7 @@ function Summary({ value }: { value: WeqBackupSummary }) {
     <>
       <div className="weq-backup-summary">
         <span>
-          {new Date(value.createdAt).toLocaleString('zh-CN', {
-            timeZone: 'Asia/Shanghai',
-            hour12: false,
-          })}
+          {eventTimeFormatter.format(new Date(value.createdAt))}
           （北京时间）
         </span>
         {value.parts.map((part) => (

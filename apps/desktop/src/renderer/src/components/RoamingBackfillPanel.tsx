@@ -1,3 +1,5 @@
+import { TimeLabel } from './TimeLabel';
+import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarRange,
@@ -66,8 +68,7 @@ const jobGlyph = {
   cancelled: CircleSlash,
   failed: CircleAlert,
 } as const;
-const atBeijing = (at: number) =>
-  new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+const atBeijing = (at: number) => eventTimeFormatter.format(new Date(at));
 const dayBefore = (days: number) => beijingDay(new Date(Date.now() - days * 86_400_000));
 
 /** 快捷区间：0 = 不限；其余按北京时间「含今天」往前推。 */
@@ -694,7 +695,9 @@ export function RoamingBackfillPanel({
                         </strong>
                         <small>
                           <Clock3 size={12} />
-                          {atBeijing(job.createdAt)}
+                          <TimeLabel value={job.createdAt} precision="millisecond">
+                            {atBeijing(job.createdAt)}
+                          </TimeLabel>
                           <Users size={12} />
                           {job.targets.length} 个会话
                         </small>

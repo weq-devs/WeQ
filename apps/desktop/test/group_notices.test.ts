@@ -38,7 +38,7 @@ it('仅按公告 ID 合并，在线正文和图片更新同一项，保留本地
 it('在线空页或部分页不删除本地历史，也不按相同正文误认另一条公告', () => {
   expect(mergeGroupNotices([local], [])[0]).toMatchObject({
     text: '本地 & 正文',
-    date: '2026/10/20',
+    date: '2026-10-20 01:30:00',
   });
   expect(mergeGroupNotices([local], [])[0]!.noticeId).toBeUndefined();
   expect(
@@ -57,8 +57,8 @@ it('远端秒级时间用北京时间，本地无时区日期保留原值，异�
       [],
       [{ ...online, publishTime: Date.parse('2026-10-19T18:00:00Z') / 1000 }],
     )[0]!.date,
-  ).toBe('2026/10/20');
-  expect(mergeGroupNotices([local])[0]!.date).toBe('2026/10/20');
+  ).toBe('2026-10-20 02:00:00');
+  expect(mergeGroupNotices([local])[0]!.date).toBe('2026-10-20 01:30:00');
   expect(mergeGroupNotices([], [{ ...online, publishTime: Number.MAX_VALUE }])[0]!.date).toBe('');
 });
 it('在线与本地正文都解码换行和空格，不把正文作为 HTML 渲染或反复解码', () => {

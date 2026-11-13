@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 空间页与空友爱看共用的展示件。
  *
@@ -59,7 +60,7 @@ export function useNearViewport(
 }
 
 export function timeText(time: number): string {
-  return time ? new Date(time * 1000).toLocaleString('zh-CN', { hour12: false }) : '';
+  return time ? eventTimeFormatter.format(new Date(time * 1000)) : '';
 }
 
 export function LoadingStatus({ text = '正在加载…' }: { text?: string }) {

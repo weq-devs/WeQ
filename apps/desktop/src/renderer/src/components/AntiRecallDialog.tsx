@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 防撤回：设置来源展示页内摘要，选择与记录按需打开工具。
  *
@@ -110,16 +111,7 @@ function sameIds(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean
 
 /** 时间戳（unix 秒）→ 「今天 12:30」/「8/12 12:30」。 */
 function formatWhen(ts: number): string {
-  if (!ts) return '';
-  const d = new Date(ts * 1000);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  return sameDay ? `今天 ${time}` : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+  return ts > 0 ? timeFormat.formatUnixTime(ts) : '';
 }
 
 export function AntiRecallDialog({

@@ -1,15 +1,7 @@
+import { eventTimeFormatter } from '@weq/time';
 import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
 
-const noticeTime = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+const noticeTime = eventTimeFormatter;
 
 export function formatNoticeTimestamp(value: string): string {
   const time = Date.parse(value);

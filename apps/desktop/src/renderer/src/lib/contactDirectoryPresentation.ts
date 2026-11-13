@@ -1,3 +1,5 @@
+import { formatDate } from '@weq/time';
+import { preciseTimeFormatter as eventTimeFormatter, clockFormatter } from '@weq/time';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import { profileTimeText } from '@weq/protocol/profile-values';
 import type { Contact, GroupConversation } from '../im-template/template/types';
@@ -14,32 +16,14 @@ import {
 type SortDetail = { text: string; title?: string };
 type MetricCell = NonNullable<ContactMetricRows[string][ContactMetric]> & { partial?: boolean };
 const numbers = new Intl.NumberFormat('zh-CN');
-const dates = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-const updatedTimes = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  dateStyle: 'short',
-  timeStyle: 'short',
-});
-const addedTimes = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+
+const updatedTimes = eventTimeFormatter;
+const addedTimes = clockFormatter;
 function dateLabel(milliseconds: number) {
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
   const date = new Date(milliseconds);
   if (!Number.isFinite(date.getTime())) return null;
-  const parts = dates.formatToParts(date);
-  return ['year', 'month', 'day']
-    .map((type) => parts.find((part) => part.type === type)?.value)
-    .join('-');
+  return formatDate(date);
 }
 function numericValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;

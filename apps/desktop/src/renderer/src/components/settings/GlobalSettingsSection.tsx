@@ -1,3 +1,4 @@
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 设置 → 全局设置.
  *
@@ -55,7 +56,7 @@ function backupDescription(item: StorageUsageItem): string | null {
   const { at, status } = item.backup;
   const date =
     at && /(?:Z|[+-]\d{2}:\d{2})$/.test(at) && Number.isFinite(Date.parse(at))
-      ? `${new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`
+      ? `${eventTimeFormatter.format(new Date(at))}（北京时间）`
       : at || '时间未知';
   return `${date} · ${status === 'linked' ? '已关联修复记录' : status === 'orphan' ? '无关联修复记录' : '未识别备份'}`;
 }

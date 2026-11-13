@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 合并转发预览窗口 — floating, movable, closable window stack.
  *
@@ -284,15 +285,7 @@ function senderAvatarFromUin(uin: string | undefined): string | null {
 }
 
 function formatForwardTime(seconds: string | undefined): string {
-  const secs = Number(seconds ?? 0);
-  if (!Number.isFinite(secs) || secs <= 0) return '';
-  const d = new Date(secs * 1000);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+  return Number(seconds) > 0 ? timeFormat.formatUnixTime(seconds) : '';
 }
 
 function clamp(v: number, lo: number, hi: number): number {

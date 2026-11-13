@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /**
  * QQ 空间（说说）导出器 —— 目标可以是好友或自己的空间。
  *
@@ -518,16 +519,7 @@ export async function fetchQzoneEmotionRange(
 /** 秒级时间戳 → `YYYY-MM-DD HH:mm:ss`（北京时间）。 */
 function fmtTime(sec: number): string {
   if (!sec) return '';
-  return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(new Date(sec * 1000));
+  return eventTimeFormatter.format(new Date(sec * 1000));
 }
 
 /** 带互动字段的说说（导出形态；未拉互动时两个字段缺失，等同 QzoneEmotion）。 */

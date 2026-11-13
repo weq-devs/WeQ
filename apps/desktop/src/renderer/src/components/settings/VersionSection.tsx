@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 设置 → 版本.
  *
@@ -22,22 +23,13 @@ import logoUrl from '@resources/brand/logo.png';
 
 /** ISO → 「2026-10-16 08:39」本地时间；无效返回 null。 */
 function fmtDateTime(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return null;
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return (
-    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ` +
-    `${pad(at.getHours())}:${pad(at.getMinutes())}`
-  );
+  return iso ? timeFormat.formatDateTime(iso) || null : null;
 }
 
 /** 剩余时间文案（天 / 小时）；已过期为负。 */
 function fmtRemaining(expireMs: number): string {
-  const days = (expireMs - Date.now()) / 86_400_000;
-  if (days <= 0) return `已过期 ${Math.abs(days).toFixed(1)} 天`;
-  if (days < 1) return `不足 1 天（${(days * 24).toFixed(1)} 小时）`;
-  return `${days.toFixed(1)} 天`;
+  const delta = expireMs - Date.now();
+  return `${delta <= 0 ? '已过期 ' : ''}${timeFormat.formatDuration(Math.abs(delta) / 1000, 'approximate')}`;
 }
 
 export function VersionSection(): ReactElement {

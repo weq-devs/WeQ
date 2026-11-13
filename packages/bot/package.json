@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@weq/agentlab": "workspace:*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@weq/time": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",

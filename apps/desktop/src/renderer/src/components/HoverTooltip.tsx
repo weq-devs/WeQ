@@ -204,6 +204,19 @@ export function HoverTooltip() {
         )
       )
         keyboardNavigation = true;
+      if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof window.Element) {
+        const next = event.target.closest('[data-time-detail]');
+        if (next) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (owner === next && visible) clear();
+          else {
+            const bounds = next.getBoundingClientRect();
+            enter(next, bounds.left, bounds.bottom + 8);
+          }
+          return;
+        }
+      }
       if (shouldDismissHoverHint(event)) clear();
     };
     const pointerDown = (event: PointerEvent): void => {
@@ -229,6 +242,18 @@ export function HoverTooltip() {
         touchEnd();
     };
     const touchClick = (event: MouseEvent): void => {
+      const next =
+        event.target instanceof window.Element ? event.target.closest('[data-time-detail]') : null;
+      if (next) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (owner === next && visible) clear();
+        else {
+          const bounds = next.getBoundingClientRect();
+          enter(next, bounds.left, bounds.bottom + 8);
+        }
+        return;
+      }
       if (!consumedTouch) return;
       consumedTouch = false;
       event.preventDefault();

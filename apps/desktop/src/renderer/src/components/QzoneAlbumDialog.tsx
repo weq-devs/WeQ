@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * QzoneAlbumDialog — 左栏「更多功能 → 空间相册」查看器（大灯箱卡片）。
  *
@@ -75,10 +76,7 @@ function photoKey(photo: QzoneAlbumPhotoWire): string {
 
 /** 秒级时间戳 → `YYYY-MM-DD`（媒体格子的日期角标）。 */
 function fmtDay(sec: number): string {
-  if (!sec) return '';
-  const d = new Date(sec * 1000);
-  const p = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return sec > 0 ? timeFormat.formatDate(timeFormat.unixDate(sec)) : '';
 }
 
 /** 延时 skeleton 包装（快速加载不闪骨架，与导出中心同款）。 */

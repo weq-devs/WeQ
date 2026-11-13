@@ -1,3 +1,5 @@
+import * as timeFormat from '@weq/time';
+import { eventTimeFormatter } from '@weq/time';
 /** 统一导出工具：内容选择与执行配置；任务工具独立管理执行结果和计划。 */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
@@ -283,11 +285,7 @@ interface CollectionItemWire {
 
 /** 秒 → `M:SS` / `S"`（0/空留空）。 */
 function fmtSeconds(sec: number): string {
-  if (!sec || sec <= 0) return '';
-  const s = Math.round(sec);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `${s}"`;
+  return sec > 0 ? timeFormat.formatDuration(sec) : '';
 }
 
 /** QQ 空间导出格式收窄：html 直通，其余非 txt 一律回退 json。 */
@@ -358,7 +356,10 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
 
 export function ExportTool(props: Parameters<typeof ExportToolBody>[0]): ReactElement {
   const selection = props.initialSelection;
-  if (props.surface !== 'tasks' && selection?.owner.kind === 'conversation-batch')
+  if (
+    props.surface !== 'tasks' &&
+    (selection?.owner.kind === 'conversation-batch' || selection?.owner.conversationTarget)
+  )
     return (
       <ConversationBatchExportPane
         initialSelection={selection}
@@ -2927,9 +2928,7 @@ function collectionKindIcon(kind: string, size = 15): ReactElement {
 
 /** 收藏时间 → `YYYY/MM/DD`（预览行尾注）。 */
 function fmtCollectDay(ms: number): string {
-  if (!ms) return '';
-  const d = new Date(ms);
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  return ms ? timeFormat.formatDate(ms) : '';
 }
 
 /**
@@ -3100,18 +3099,11 @@ function CollectionScope({
   );
 }
 
-/** Format unix seconds as `MM/DD HH:mm` for the schedule row. */
+/** 定时运行记录按北京时间显示完整日期与时分秒。 */
 function fmtRunAt(sec: number | null): string {
   if (sec == null) return '—';
   const d = new Date(sec * 1000);
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(d);
+  return eventTimeFormatter.format(d);
 }
 
 /** Compact relative-time hint for the "下次运行" label. */

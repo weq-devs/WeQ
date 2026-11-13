@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { useId, useRef, useState } from 'react';
 import {
   ArrowDown,
@@ -101,15 +102,7 @@ const queryOptions = {
   refetchOnWindowFocus: false,
   refetchOnMount: true,
 };
-const date = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-});
+const date = eventTimeFormatter;
 function time(value: number | null) {
   return value === null ? '' : date.format(value * 1000);
 }

@@ -1,3 +1,4 @@
+import { calendarParts, formatPartialDate } from '@weq/time';
 import {
   birthdayMonthDay,
   cachedConstellation,
@@ -23,21 +24,13 @@ export interface BirthRange {
 
 type BirthReference = { year: number; monthDay: number };
 
-const calendar = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-
 let cachedReference: { day: number; value: BirthReference } | undefined;
 
 export function birthReference(now = new Date()): BirthReference {
   const day = Math.floor((now.getTime() + 8 * 60 * 60 * 1000) / 86400000);
   if (cachedReference?.day === day) return cachedReference.value;
-  const parts = calendar.formatToParts(now);
-  const part = (type: string) => Number(parts.find((item) => item.type === type)!.value);
-  const value = { year: part('year'), monthDay: part('month') * 100 + part('day') };
+  const parts = calendarParts(now)!;
+  const value = { year: parts.year, monthDay: parts.month * 100 + parts.day };
   cachedReference = { day, value };
   return value;
 }
@@ -174,7 +167,7 @@ function inferRanges(
 export type ContactBirth = ReturnType<typeof contactBirth>;
 
 function monthDayText(value: number) {
-  return `${Math.floor(value / 100)} 月 ${value % 100} 日`;
+  return formatPartialDate({ month: Math.floor(value / 100), day: value % 100 });
 }
 
 export function birthRangeText(birth: ContactBirth) {
@@ -182,7 +175,7 @@ export function birthRangeText(birth: ContactBirth) {
   if (!birth.ranges.length) return null;
   return `推断生日：${birth.ranges
     .map((range) => {
-      const prefix = range.year === null ? '' : `${range.year} 年 `;
+      const prefix = range.year === null ? '' : `${range.year}年`;
       return `${prefix}${monthDayText(range.start)}${range.start === range.end ? '' : `至${monthDayText(range.end)}`}`;
     })
     .join('；')}`;
@@ -190,11 +183,11 @@ export function birthRangeText(birth: ContactBirth) {
 
 export function contactBirthdayText(birth: ContactBirth) {
   if (birth.inference === 'none' && birth.month !== null && birth.day !== null)
-    return `${birth.year ? `${birth.year} 年 ` : ''}${birth.month} 月 ${birth.day} 日`;
+    return formatPartialDate(birth);
   if (!birth.constellation) return null;
   const year = birth.year ?? birth.inferredYear;
   return [
-    year ? `${year} 年${birth.inferredYear !== null ? '（推断）' : ''}` : null,
+    year ? `${year}年${birth.inferredYear !== null ? '（推断）' : ''}` : null,
     birth.constellation.name,
   ]
     .filter(Boolean)

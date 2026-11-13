@@ -1,3 +1,4 @@
+import * as timeFormat from '../packages/time/src/index.mjs';
 /**
  * 拉取 / 校验 nt_helper 原生产物（5 个平台的 `nt_helper.node` 与权限助手）。
  *
@@ -215,11 +216,9 @@ function humanBytes(bytes) {
 }
 
 function fmtTime(sec) {
-  if (!Number.isFinite(sec) || sec < 0 || sec > 86400) return '--';
-  if (sec < 60) return `${sec.toFixed(0)}s`;
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  return `${m}m${String(s).padStart(2, '0')}s`;
+  return !Number.isFinite(sec) || sec < 0 || sec > 86400
+    ? '--'
+    : timeFormat.formatDuration(sec, 'countdown');
 }
 
 /**

@@ -1,3 +1,4 @@
+import { dateFormatter, clockFormatter } from '@weq/time';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarCheck, Loader2, RotateCw } from 'lucide-react';
@@ -24,12 +25,7 @@ export function GroupReadTools({
   const cache = useQueryClient();
   const a = useQQAction(`group-read:${groupId}`),
     [open, setOpen] = useState(false);
-  const today = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
+  const today = dateFormatter.format(new Date());
   const [day, setDay] = useState(today);
   const listRef = useRef<HTMLUListElement>(null);
   const autoRefresh = useQQAutoRefresh(
@@ -206,13 +202,7 @@ export function GroupReadTools({
                   <QqAvatar uin={valid ? uin : undefined} size={22} />
                   <span>{name}</span>
                 </ProfileAvatar>
-                <time>
-                  {new Intl.DateTimeFormat('zh-CN', {
-                    timeZone: 'Asia/Shanghai',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }).format(new Date(p.time * 1000))}
-                </time>
+                <time>{clockFormatter.format(new Date(p.time * 1000))}</time>
               </li>
             );
           })}

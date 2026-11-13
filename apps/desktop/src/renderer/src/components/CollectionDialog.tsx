@@ -1,3 +1,6 @@
+import { TimeLabel } from './TimeLabel';
+import * as timeFormat from '@weq/time';
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 我的收藏 —— QQ favorites lightbox.
  *
@@ -211,24 +214,14 @@ function humanSize(raw: string): string {
 function humanTime(ms: number): string {
   if (!ms) return '';
   try {
-    return new Date(ms).toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return eventTimeFormatter.format(new Date(ms));
   } catch {
     return '';
   }
 }
 
 function humanSeconds(sec: number): string {
-  if (!sec || sec <= 0) return '';
-  const s = Math.round(sec);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `${s}"`;
+  return sec > 0 ? timeFormat.formatDuration(sec) : '';
 }
 
 function hostOf(url: string): string {
@@ -572,7 +565,9 @@ function CollectionCard({
         <CardBody it={it} />
       </div>
       <footer className="weq-col-card-foot">
-        <span>{humanTime(it.collectTime)}</span>
+        <TimeLabel value={it.collectTime} precision="millisecond">
+          {humanTime(it.collectTime)}
+        </TimeLabel>
         <button type="button" className="weq-col-detail-open" onClick={() => onOpen(it)}>
           查看详情
           <ChevronRight size={12} />
@@ -1267,7 +1262,7 @@ export function CollectionDialog({
                   <span>{selected.authorName || '未知'}</span>
                 </ProfileAvatar>
                 {selected.groupName ? <span>{selected.groupName}</span> : null}
-                <time>{humanTime(selected.collectTime)}</time>
+                <TimeLabel value={selected.collectTime} precision="millisecond" />
               </div>
               {detailLoading ? (
                 <div className="weq-collection-state">

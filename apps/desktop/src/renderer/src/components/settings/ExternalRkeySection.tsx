@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 设置 → 外部 RKEY 服务器.
  *
@@ -61,15 +62,19 @@ function errMsg(e: unknown): string {
 }
 
 /** unix 秒 → 「x 小时/分钟后过期」或「已过期」。 */
-function formatCacheExpiry(expiredTime: number | undefined): { text: string; expired: boolean } {
+export function formatCacheExpiry(expiredTime: number | undefined): {
+  text: string;
+  expired: boolean;
+} {
   if (expiredTime == null) return { text: '尚未拉取 rkey', expired: false };
-  const leftMs = expiredTime * 1000 - Date.now();
-  if (leftMs <= 0) return { text: '缓存 rkey 已过期，下次下载自动重拉', expired: true };
-  const mins = Math.floor(leftMs / 60000);
-  if (mins < 60) return { text: `缓存 rkey ${mins} 分钟后过期`, expired: false };
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return { text: `缓存 rkey ${hours} 小时后过期`, expired: false };
-  return { text: `缓存 rkey ${Math.floor(hours / 24)} 天后过期`, expired: false };
+  const at = expiredTime * 1000;
+  const expired = at <= Date.now();
+  if (!Number.isFinite(at) || expiredTime <= 0)
+    return { text: '缓存 rkey 未提供有效到期时间，下次下载时重新检查', expired };
+  return {
+    text: `缓存 rkey ${timeFormat.formatDateTime(at)}（${expired ? '已过期，下次下载自动重拉' : timeFormat.formatRelativeTime(at)}）`,
+    expired,
+  };
 }
 
 export function ExternalRkeySection(): ReactElement {

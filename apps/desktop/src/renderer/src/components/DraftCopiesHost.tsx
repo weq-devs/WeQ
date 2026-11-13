@@ -1,3 +1,5 @@
+import { TimeLabel } from './TimeLabel';
+import { eventTimeFormatter } from '@weq/time';
 import { Modal } from './Dialog';
 import { useDraftCopies } from '../lib/draftPersistence';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -57,14 +59,7 @@ function summaryOf(text: string | null): string {
 
 function timeLabel(createdAt: number | null): string {
   if (!createdAt) return '保存时间未知';
-  return new Date(createdAt).toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  return eventTimeFormatter.format(new Date(createdAt));
 }
 
 function DraftModal({
@@ -143,7 +138,9 @@ export function DraftCopiesHost() {
                     <header className="weq-draft-copy-head">
                       <strong>{sourceLabel(source)}</strong>
                       <time dateTime={createdAt ? new Date(createdAt).toISOString() : undefined}>
-                        {timeLabel(createdAt)}
+                        <TimeLabel value={createdAt || null} precision="millisecond">
+                          {timeLabel(createdAt)}
+                        </TimeLabel>
                       </time>
                     </header>
                     {expanded && text ? (

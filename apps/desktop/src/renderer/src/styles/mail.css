@@ -180,7 +180,7 @@ html[data-theme='dark'] .weq-mail-workspace {
   padding: 20px 10px 0;
   color: var(--weq-fg-muted);
   font-size: 11px;
-  white-space: nowrap;
+  white-space: normal;
 }
 /* 宽屏用文件夹列底部那一条，顶栏里的紧凑副本只在窄屏出现。 */
 .weq-mail-sync-state-compact {
@@ -859,7 +859,7 @@ html[data-privacy] .weq-mail-text-editor {
     padding: 0 6px;
     color: var(--weq-fg-muted);
     font-size: 11px;
-    white-space: nowrap;
+    white-space: normal;
   }
   .weq-mail-brand span {
     max-width: 170px;

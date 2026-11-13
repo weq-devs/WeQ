@@ -75,7 +75,7 @@ try {
           theme,
         );
         await page.getByText('我的入群时间', { exact: true }).first().waitFor();
-        const label = page.getByText('2024/1/1 00:00:07', { exact: true }).first();
+        const label = page.getByText('2024-01-01 00:00:07', { exact: true }).first();
         await label.waitFor();
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
@@ -88,7 +88,10 @@ try {
       }
   }
   await page.evaluate(() => window.groupCardQa.switch());
-  await page.getByText('2024/1/1 00:00:07', { exact: true }).first().waitFor({ state: 'detached' });
+  await page
+    .getByText('2024-01-01 00:00:07', { exact: true })
+    .first()
+    .waitFor({ state: 'detached' });
   assert.equal(
     (await page.evaluate(() => window.groupCardCalls)).includes('account.listGroupMembers'),
     false,

@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * Transport-agnostic tool registry.
  *
@@ -281,39 +282,26 @@ function msgIdsOf(row: {
   };
 }
 
-const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
+const _pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
 
-/** epoch 秒 → 本地「MM-DD HH:mm」，给足时间感又不浪费 token。 */
+/** epoch 秒 → 完整北京日期与时分秒。 */
 function fmtTime(sec: bigint | number): string {
-  const d = new Date(Number(sec) * 1000);
-  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return Number(sec) > 0 ? timeFormat.formatUnixTime(sec) : '';
 }
 
-/** epoch 秒 → 本地「HH:mm」（单日内的精简时间）。 */
+/** 单日消息也返回完整的北京时间，避免复制后失去日期与秒。 */
 function hhmm(sec: bigint | number): string {
-  const d = new Date(Number(sec) * 1000);
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return fmtTime(sec);
 }
 
-/** epoch 秒 → 本地「YYYY-MM-DD」（只到日，给建群时间等）。 */
+/** epoch 秒 → 北京日期，供日期范围和聚合标签使用。 */
 function fmtDate(sec: bigint | number): string {
-  const d = new Date(Number(sec) * 1000);
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  return timeFormat.formatDate(timeFormat.unixDate(sec));
 }
 
 /** 秒数 → 精简中文时长（如「3天」「5小时」「12分钟」「刚刚」）。给「距今多久/间隔多久」用。 */
 function humanDuration(sec: number): string {
-  const s = Math.max(0, Math.floor(sec));
-  if (s < 60) return '刚刚';
-  const min = Math.floor(s / 60);
-  if (min < 60) return `${min}分钟`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}小时`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}天`;
-  const mon = Math.floor(day / 30);
-  if (mon < 12) return `${mon}个月`;
-  return `${Math.floor(day / 365)}年`;
+  return sec < 60 ? '刚刚' : timeFormat.formatDuration(sec, 'approximate');
 }
 
 /** 容错解析翻页游标（模型回传，可能带空格/非法字符）；解析失败视作「无游标」而非抛错。 */
@@ -338,28 +326,13 @@ function rangeLabel(days: number, windowStart: number | null): string {
 const RANK_COVERAGE = '仅基于本地已同步的聊天记录统计；未漫游/未拉取的历史不计入。';
 
 /**
- * 解析「某天」为本地 [startSec, endSec) 半开窗口（秒），默认今天。
+ * 解析「某天」为北京 [startSec, endSec) 半开窗口（秒），默认今天。
  * date 形如 YYYY-MM-DD；非法时抛出可读错误。给「今日/某天」类工具单一事实源。
  */
 function dayWindow(date?: string): { startSec: number; endSec: number; label: string } {
-  let d: Date;
-  const raw = (date ?? '').trim();
-  if (raw) {
-    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
-    if (!m)
-      throw new Error(`无效日期：${date}（应为 YYYY-MM-DD，例如 2026-06-30；不传则默认今天）`);
-    d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    if (Number.isNaN(d.getTime())) throw new Error(`无效日期：${date}`);
-  } else {
-    const now = new Date();
-    d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  }
-  const startSec = Math.floor(d.getTime() / 1000);
-  return {
-    startSec,
-    endSec: startSec + 86400,
-    label: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
-  };
+  const result = timeFormat.calendarDayWindow(date);
+  if (!result) throw new Error('无效日期：应为有效的 YYYY-MM-DD 北京日期');
+  return result;
 }
 
 /**
@@ -370,19 +343,11 @@ function rangeWindow(
   start: string,
   end: string,
 ): { startSec: number; endSec: number; label: string } {
-  const parse = (s: string): Date => {
-    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec((s ?? '').trim());
-    if (!m) throw new Error(`无效日期：${s}（应为 YYYY-MM-DD，例如 2026-06-30）`);
-    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    if (Number.isNaN(d.getTime())) throw new Error(`无效日期：${s}`);
-    return d;
-  };
-  const a = parse(start);
-  const b = parse(end);
-  const startSec = Math.floor(a.getTime() / 1000);
-  const endSec = Math.floor(b.getTime() / 1000) + 86400; // end 含当天
-  if (endSec <= startSec) throw new Error(`区间起止颠倒：${start} ~ ${end}（结束应不早于开始）`);
-  return { startSec, endSec, label: `${fmtDate(startSec)} ~ ${fmtDate(endSec - 86400)}` };
+  if (!start.trim() || !end.trim()) throw new Error('区间起止日期不能为空');
+  const a = dayWindow(start),
+    b = dayWindow(end);
+  if (b.endSec <= a.startSec) throw new Error('区间结束日期不能早于开始日期');
+  return { startSec: a.startSec, endSec: b.endSec, label: `${a.label} ~ ${b.label}` };
 }
 
 /**
@@ -546,9 +511,7 @@ async function accountDbFile(dbName: string): Promise<{
 
 /** epoch 毫秒 → YYYY-MM-DD（收藏时间展示用）。 */
 function fmtMsDate(ms: bigint | number): string {
-  const d = new Date(Number(ms));
-  if (Number.isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  return Number(ms) > 0 ? timeFormat.formatDateTime(Number(ms), 'millisecond') : '';
 }
 
 /**
@@ -682,33 +645,20 @@ function dressFromArgs(args: {
  * 返回 unix 秒；无法解析时抛可读错误。
  */
 function parseSignupDeadline(input: string): number {
-  const s = input.trim();
-  if (/^\d{10}$/.test(s)) return Number(s);
-  const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-  if (m) {
-    const [, y, mo, d, h, mi, sec] = m;
-    const utc = Date.UTC(
-      Number(y),
-      Number(mo) - 1,
-      Number(d),
-      Number(h),
-      Number(mi),
-      Number(sec ?? '0'),
-    );
-    return Math.floor(utc / 1000) - 8 * 3600; // 当地日期时间 = 东八区(+08:00)
-  }
-  const ms = Date.parse(s);
-  if (Number.isNaN(ms)) {
-    throw new Error(
-      `deadline 无法解析：${input}（可用 "2026-10-10 00:00"、带时区的 ISO 串，或 10 位 unix 秒）`,
-    );
-  }
-  return Math.floor(ms / 1000);
+  const text = input.trim();
+  if (/^\d{10}$/.test(text)) return Number(text);
+  const m = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  const wall = m
+    ? `${m[1]}-${m[2]!.padStart(2, '0')}-${m[3]!.padStart(2, '0')}T${m[4]!.padStart(2, '0')}:${m[5]}:${m[6] ?? '00'}`
+    : null;
+  const date = m ? (wall === null ? null : timeFormat.timeDate(wall)) : timeFormat.timeDate(text);
+  if (!date) throw new Error('deadline 日期时间无效，请使用北京时间或带时区的 ISO 日期时间');
+  return Math.floor(date.getTime() / 1000);
 }
 
 /** unix 秒 → 东八区可读串（回显用）。 */
 function formatCst(unixSeconds: number): string {
-  return new Date((unixSeconds + 8 * 3600) * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  return timeFormat.formatUnixTime(unixSeconds);
 }
 
 export const AI_TOOLS: AiTool[] = [
@@ -1385,8 +1335,14 @@ export const AI_TOOLS: AiTool[] = [
         remark: w.remark,
         gender: w.gender === 1 ? '男' : w.gender === 2 ? '女' : '未知',
         ...(w.age ? { age: w.age } : {}),
-        ...(w.birthYear
-          ? { birthday: `${w.birthYear}-${pad2(w.birthMonth)}-${pad2(w.birthDay)}` }
+        ...(w.birthYear || w.birthMonth || w.birthDay
+          ? {
+              birthday: timeFormat.formatPartialDate({
+                year: w.birthYear,
+                month: w.birthMonth,
+                day: w.birthDay,
+              }),
+            }
           : {}),
         ...(w.signature ? { signature: w.signature } : {}),
         intimacy: w.intimacy,
@@ -1426,7 +1382,7 @@ export const AI_TOOLS: AiTool[] = [
         ownerUid: w.ownerUid,
         memberCount: w.memberCount,
         maxMemberCount: w.maxMemberCount,
-        ...(w.createTime ? { created: fmtDate(w.createTime) } : {}),
+        ...(w.createTime ? { created: fmtTime(w.createTime) } : {}),
         ...(w.description ? { description: w.description } : {}),
         ...(w.pinnedAnnounce ? { pinnedAnnounce: w.pinnedAnnounce } : {}),
         ...(w.remark ? { remark: w.remark } : {}),
@@ -1609,8 +1565,8 @@ export const AI_TOOLS: AiTool[] = [
       // 最长沉默期：相邻两个「有消息日期」之间的最大间隔（天）。
       let longestSilence = { days: 0, from: '', to: '' };
       for (let i = 1; i < daily.length; i++) {
-        const prev = new Date(`${daily[i - 1]!.date}T00:00:00`).getTime();
-        const cur = new Date(`${daily[i]!.date}T00:00:00`).getTime();
+        const prev = timeFormat.timeDate(daily[i - 1]!.date)!.getTime();
+        const cur = timeFormat.timeDate(daily[i]!.date)!.getTime();
         const gap = Math.round((cur - prev) / dayMs);
         if (gap > longestSilence.days)
           longestSilence = { days: gap, from: daily[i - 1]!.date, to: daily[i]!.date };
@@ -1619,7 +1575,7 @@ export const AI_TOOLS: AiTool[] = [
       // 近 30 / 90 天消息量（用 daily 求和，省去再扫库）。
       const since = (d: number): number => {
         const cut = new Date(now - d * dayMs);
-        const cutYmd = `${cut.getFullYear()}-${pad2(cut.getMonth() + 1)}-${pad2(cut.getDate())}`;
+        const cutYmd = timeFormat.formatDate(cut);
         return daily.filter((x) => x.date >= cutYmd).reduce((s, x) => s + x.count, 0);
       };
       const last30 = since(30);
@@ -1642,8 +1598,8 @@ export const AI_TOOLS: AiTool[] = [
         name: nameByUid[uid] || uid,
         found: true,
         coverage: RANK_COVERAGE,
-        firstChat: fmtDate(first),
-        lastChat: fmtDate(last),
+        firstChat: fmtTime(first),
+        lastChat: fmtTime(last),
         daysSinceLastChat: daysSinceLast,
         totalMessages: a.statistics.totalMessages,
         sentVsReceived: { mine: a.statistics.selfMessages, peer: a.statistics.peerMessages },
@@ -1878,8 +1834,8 @@ export const AI_TOOLS: AiTool[] = [
               myCount += 1;
               if (sec < myFirstSec) myFirstSec = sec;
               if (sec > myLastSec) myLastSec = sec;
-              hourly[new Date(sec * 1000).getHours()] =
-                (hourly[new Date(sec * 1000).getHours()] ?? 0) + 1;
+              hourly[timeFormat.calendarParts(sec * 1000)!.hour] =
+                (hourly[timeFormat.calendarParts(sec * 1000)!.hour] ?? 0) + 1;
             }
           }
           const name =
@@ -2170,7 +2126,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '读取【某个会话】在【某一天】的逐条消息，按时间正序返回——用于「今天/某天和 XX 聊了什么」做话题归纳，或回看某天群里的讨论。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。date 默认今天，可传 YYYY-MM-DD。' +
-      '每条为精简形：time（HH:mm）、sender 发送者昵称、mine 是否本人、text 文本；间隔较大时附 gap（距上一条多久）。' +
+      '每条为精简形：time（北京时间完整日期与时分秒）、sender 发送者昵称、mine 是否本人、text 文本；间隔较大时附 gap（距上一条多久）。' +
       '需要 msgId/msgSeq 供 get_message_details 回查时把 includeIds 设为 true。' +
       '\n【局限】只在该会话最近若干条里筛当天；查很久以前的某天可能扫不到（返回 coverage 会点明），那种情况改用 inspect_timeline 的 readWindows 找活跃日、或直接读最近的日期。',
     input: z.object({
@@ -2786,6 +2742,34 @@ export const AI_TOOLS: AiTool[] = [
     },
   }),
 
+  tool({
+    name: 'analyze_chat_image',
+    description:
+      '读取指定聊天消息的真实图片并分析内容。遵循 WeQ 助手的图片处理偏好及默认视觉模型；视觉不可用时回退 OCR，最终失败会明确返回未能读取。imageIndex 从 0 开始；question 可指定需要查看的细节。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']),
+      conv: z.string().min(1),
+      msgId: z.string().regex(/^[0-9]+$/),
+      imageIndex: z.number().int().nonnegative().default(0),
+      question: z.string().max(4000).optional(),
+    }),
+    run: async ({ kind, conv, msgId, imageIndex, question }) => {
+      const svc = services();
+      const result = await accountImagePort.prepare({
+        feature: 'assistant',
+        text: question ?? '',
+        question,
+        images: [{ id: `${msgId}:${imageIndex}`, chat: { kind, conv, msgId, index: imageIndex } }],
+      });
+      if (services() !== svc) throw new Error('账号已切换');
+      return {
+        ok: result.outcomes.every((image) => image.status !== 'failed'),
+        text: result.text,
+        images: result.outcomes,
+      };
+    },
+  }),
+
   // ── 图片文字识别（在线接口 / 本地离线模型） ────────────────────────────
   // 与灯箱（`account.ocrChatImage`）同一套策略：**在线优先、本地兜底**，两条腿都产出
   // 同构的 blocks。区别只在取图：外部调用者没有渲染层的 `weq-media://` 地址，所以图片
@@ -2832,12 +2816,12 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '识别【图片里的文字】，**返回值明确标出这次走的是在线接口还是本地离线模型**。' +
       '\n遵循全局「OCR 前先筛图」设置：开启时先筛图，无文字则返回 source=filter / skipped=true；筛图不可用或失败时继续 OCR，命中识别缓存则直接复用。' +
-      '\n【两条腿】① 在线：把图片的 CDN 地址交给 QQ 的图片文字识别接口（OIDB 0xe07_0），精度更好，但需要该账号 QQ 在线、未开完全离线、物料齐全，且 QQ 的图片链接只保留约 9 天（过期图必然失败）。' +
+      '\n【两条腿】① 在线：把图片的 CDN 地址交给 QQ 的图片文字识别接口（OIDB 0xe07_0），精度更好，但需要该账号 QQ 在线、未开完全离线且物料齐全；服务端链接可能失效或临时下载失败。' +
       '② 本地：用 WeQ 里已下载的 PP-OCR 离线模型在本机推理（设置 → 模型与识别 → 图片识别），不把图片发到任何服务，但精度略低一档、CPU 推理较慢。' +
       '\n【怎么选】engine 默认 auto = 在线可用就先走在线，在线失败或不可用再回退本地；也可以指定 online / local 只走那一条（不可用时直接报错，不会偷偷换腿）。先调 get_ocr_status 看两条腿的可用性。' +
       '\n【结果怎么看】`source`（`online` / `local`）+ `engine`（中文说明用的哪条腿）+ `offline`（`true` 即本地离线模型）三者标出实际通道；`notes` 说明中途有没有回退、以及为什么没用在线；`text` 是识别出的整段文字，`lineCount` 是段数，`boxes`（可选）带每段的像素坐标框。' +
       '\n【怎么定图】给 kind + conv + msgId（msgId 来自 get_messages 的 includeIds 输出）定位聊天里的图片，同一条消息多张图时用 imageIndex 指定第几张（0 起）；也可以直接给 path —— 本机图片文件（绝对路径或 ~/ 开头）。注意 path 那种图**只能走本地模型**：在线那条腿要的是聊天图片的 fileToken，本机文件里没有。' +
-      '\n【本机路径这条腿的前提】本地模型只解决「像素 → 文字」，图本身得取得到：走消息定位时读的是 QQ 本机媒体缓存（聊天里没下载过 / 被清理过的图取不到，会如实报错）。' +
+      '\n【取图】复用 QQ 本机缓存、外部 chatpic 与完整下载服务的既有回退，含已配置的外部 rkey；QQ 离线不等于无法取图。识别缓存优先，真实取图失败及仍可用的识别通道分别记录。' +
       '\n只读：不写数据库、不上传文件（在线那条腿只是把图片的 CDN 地址报给腾讯自己的识别服务）。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).optional().describe('会话类型（数据线设备 uid 也按 c2c）'),
@@ -2882,6 +2866,7 @@ export const AI_TOOLS: AiTool[] = [
       /** 聊天图片的文件名 / 元素 md5（缓存键用；给 path 时外面传的是路径）。 */
       let fileName = '';
       let picMd5 = '';
+      let downloadQuery: URLSearchParams | undefined;
 
       if (!path) {
         if (!kind || !conv || !msgId) {
@@ -2947,6 +2932,14 @@ export const AI_TOOLS: AiTool[] = [
           width: Number(pic.data.imgWidth ?? 0),
           height: Number(pic.data.imgHeight ?? 0),
         };
+        downloadQuery = new URLSearchParams({
+          name: fileName,
+          t: String(Number(row.sendTime)),
+          token: online.fileToken,
+          md5: picMd5,
+          orig: String(pic.data.originalUrl ?? ''),
+          recv: isEmoji ? '1' : '0',
+        });
       }
 
       // ── 2) 排腿：auto = 在线优先 + 本地兜底；显式指定就只走那一条 ────────
@@ -3034,6 +3027,25 @@ export const AI_TOOLS: AiTool[] = [
         if (online && !blocker) legs.push('online');
         else notes.push(blocker ?? '这张图来自本机文件，没有在线接口需要的 fileToken');
         legs.push('local');
+      }
+
+      if (
+        !localPath &&
+        downloadQuery &&
+        (legs.includes('online') || (legs.includes('local') && local))
+      ) {
+        try {
+          const image = await resolveChatImageFile(downloadQuery);
+          localPath = image.path;
+          localVariant = image.variant;
+          notes.push(
+            localPath
+              ? '已通过现有取图链路取回图片。'
+              : '完整取图链路未能取回图片，将继续尝试可用的 OCR 通道。',
+          );
+        } catch (error) {
+          notes.push(`取图未成功：${error instanceof Error ? error.message : String(error)}`);
+        }
       }
 
       // ── 3) 依次尝试，第一个成功的就是本次用的腿 ─────────────────────────
@@ -4745,7 +4757,7 @@ export const AI_TOOLS: AiTool[] = [
             name: a.name,
             mediaCount: a.mediaCount,
             ...(a.coverUrl ? { coverUrl: a.coverUrl } : {}),
-            createTime: a.createTime ? fmtDate(BigInt(a.createTime)) : '',
+            createTime: a.createTime ? fmtTime(BigInt(a.createTime)) : '',
           })),
         };
       }
@@ -5410,3 +5422,5 @@ export const AI_TOOLS: AiTool[] = [
     },
   }),
 ];
+import { accountImagePort } from '../ai_images';
+import { resolveChatImageFile } from '../media_protocol';

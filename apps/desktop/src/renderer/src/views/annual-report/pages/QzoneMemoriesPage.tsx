@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 import {
   useCallback,
   useEffect,
@@ -18,7 +19,7 @@ function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
 }
 
-const MONTHS = [
+const _MONTHS = [
   '一月',
   '二月',
   '三月',
@@ -34,10 +35,7 @@ const MONTHS = [
 ];
 
 function fmtMonthDay(sec: number, withYear = false): string {
-  if (!sec) return '';
-  const { year, month, day } = reportCalendarParts(new Date(sec * 1000));
-  const label = `${MONTHS[month - 1]}${day}日`;
-  return withYear ? `${year}年${label}` : label;
+  return sec ? timeFormat.formatChineseDate(timeFormat.unixDate(sec), withYear) : '';
 }
 
 /** 说说富文本里的提及/表情 token 只做安全文本展示；长文截成一句有回忆感的摘录。 */

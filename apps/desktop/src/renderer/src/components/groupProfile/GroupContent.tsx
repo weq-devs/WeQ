@@ -1,3 +1,4 @@
+import { preciseTimeFormatter as eventTimeFormatter, formatDateTime, timeDate } from '@weq/time';
 import { useContext, useState } from 'react';
 import { CalendarDays, Copy, RefreshCw, Users } from 'lucide-react';
 import type { GroupConversation, GroupMember } from '../../im-template/template/types';
@@ -14,15 +15,9 @@ import { mergeGroupPreviewMembers } from '../../lib/groupPreviewMembers';
 import { QQProfileField } from '../QQProfileField';
 import { groupJoinedDate } from '../../lib/groupProfileRows';
 
-const createdDate = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
 export function groupCreationDate(value?: string | null) {
-  const time = value ? Date.parse(value) : NaN;
-  return Number.isFinite(time) && time > 0 ? createdDate.format(time) : '';
+  const date = timeDate(value);
+  return date && date.getTime() > 0 ? formatDateTime(value) : '';
 }
 
 /** 群标签：普通标签与自定义标签合并成一行 chip，与联系人名片的标签同一视觉。 */
@@ -224,7 +219,7 @@ export function GroupFreezeNotice({
       role="status"
       title={
         freeze?.updatedAt
-          ? `缓存更新于 ${new Date(freeze.updatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`
+          ? `缓存更新于 ${eventTimeFormatter.format(new Date(freeze.updatedAt))}`
           : undefined
       }
     >

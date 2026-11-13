@@ -1,4 +1,5 @@
 // @ts-nocheck
+import * as timeFormat from '@weq/time';
 /**
  * 红包灯箱 —— 三态共用同一张卡片，尺寸固定不跳动：
  *
@@ -102,10 +103,7 @@ function isExpectedDetailMiss(message: string): boolean {
 }
 
 function formatTime(sec: number): string {
-  if (!sec) return '';
-  const d = new Date(sec * 1000);
-  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return sec > 0 ? timeFormat.formatUnixTime(sec) : '';
 }
 
 // ---- store ----------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { GroupProfileExtras } from '@weq/protocol';
@@ -13,12 +14,7 @@ import {
 } from './contactProfile/ContactRow';
 import '../styles/group-extended-profile.css';
 
-const updated = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  dateStyle: 'short',
-  timeStyle: 'short',
-  hourCycle: 'h23',
-});
+const updated = eventTimeFormatter;
 
 export function GroupExtendedProfile({ groupCode }: { groupCode: string }) {
   const session = useGroupReadScope();

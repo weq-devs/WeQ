@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { createHmac, randomBytes } from 'node:crypto';
 import type { RuntimeLogger } from '@weq/agentlab';
 
@@ -7,16 +8,7 @@ export interface BotLoggingConfig {
 }
 export const BOT_CONTENT_DEBUG_MAX_MS = 30 * 60 * 1000;
 export const BOT_CONTENT_LOG_LIMIT = 512;
-const time = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
+const time = eventTimeFormatter;
 const numbers = new Set([
   'textLen',
   'bytes',

@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { useContext, useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
@@ -129,11 +130,7 @@ function CommentRows({
           qzone || reply || remove ? (
             <div className={qzone ? 'weq-qzn-comment-meta' : 'weq-profile-comment-tools'}>
               {qzone && item.time ? (
-                <time>
-                  {new Date(item.time * 1000).toLocaleString('zh-CN', {
-                    timeZone: 'Asia/Shanghai',
-                  })}
-                </time>
+                <time>{eventTimeFormatter.format(new Date(item.time * 1000))}</time>
               ) : null}
               {reply ? (
                 <button

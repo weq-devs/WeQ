@@ -1,3 +1,5 @@
+import { TimeLabel } from '../../components/TimeLabel';
+import { eventTimeFormatter } from '@weq/time';
 import { useState } from 'react';
 import { FolderOpen, Trash2 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
@@ -61,11 +63,9 @@ export function AnalysisHistory({ enabled }: { enabled: boolean }) {
                 </span>
                 <small>
                   {report.request.period} ·{' '}
-                  <time dateTime={new Date(report.updatedAt).toISOString()}>
-                    {new Date(report.updatedAt).toLocaleString('zh-CN', {
-                      timeZone: 'Asia/Shanghai',
-                    })}
-                  </time>
+                  <TimeLabel value={report.updatedAt} precision="millisecond">
+                    {eventTimeFormatter.format(new Date(report.updatedAt))}
+                  </TimeLabel>
                 </small>
               </span>
               <span className="weq-analysis-choice-time">{reportStatus[report.status]}</span>

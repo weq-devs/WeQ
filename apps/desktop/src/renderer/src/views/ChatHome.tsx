@@ -1,3 +1,4 @@
+import { calendarParts } from '@weq/time';
 /**
  * 聊天页门面（无选中会话时的落地页）——「个性装扮」版。
  *
@@ -32,7 +33,7 @@ const EMPTY_VERSES: Verse[] = [];
 
 /** 按当前时刻给英文问候语。 */
 function greetWord(): string {
-  const h = new Date().getHours();
+  const h = calendarParts(Date.now())!.hour;
   if (h < 5) return 'Good night';
   if (h < 11) return 'Good morning';
   if (h < 13) return 'Hello';

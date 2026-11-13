@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { CompositionButton } from './CompositionButton';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -669,11 +670,7 @@ export function CompositionWorkspace({
                         </CompositionButton>
                         <span>
                           {entry.nodes.length} 条 ·{' '}
-                          {new Intl.DateTimeFormat('zh-CN', {
-                            timeZone: 'Asia/Shanghai',
-                            dateStyle: 'short',
-                            timeStyle: 'short',
-                          }).format(new Date(entry.updatedAt * 1000))}
+                          {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
                         </span>
                         <p data-privacy-sensitive>{compositionText(entry)}</p>
                         <div className="weq-composition-entry-actions">

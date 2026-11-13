@@ -1,3 +1,4 @@
+import { preciseTimeFormatter, formatDuration } from '@weq/time';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { ChevronDown, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
@@ -5,17 +6,8 @@ import { Modal } from '../Dialog';
 import { TaskLogConsole, type TaskLogLine } from '../TaskLogConsole';
 import '../../styles/reply-suggestion-details.css';
 
-const timestamp = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
-const duration = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(2)} s`);
+const timestamp = preciseTimeFormatter;
+const duration = (ms: number) => formatDuration(ms / 1000, 'elapsed');
 
 export function ReplySuggestionDetailsPanel({
   kind,

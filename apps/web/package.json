@@ -30,7 +30,8 @@
     "sharp": "^0.35.5",
     "superjson": "^2.2.2",
     "ws": "^8.18.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@weq/time": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",

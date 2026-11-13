@@ -9,23 +9,23 @@ afterEach(() => vi.unstubAllGlobals());
 it.each([
   [
     { age: 16, extInfo: { constellation: 1 } },
-    '2010 年（推断） · 水瓶座',
-    '推断生日：2010 年 1 月 20 日至2 月 18 日',
+    '2010年（推断） · 水瓶座',
+    '推断生日：2010年1月20日至2月18日',
   ],
   [
     { birthYear: 2010, birthDay: 25, extInfo: { constellation: 1 } },
-    '2010 年 · 水瓶座',
-    '推断生日：2010 年 1 月 25 日',
+    '2010年 · 水瓶座',
+    '推断生日：2010年1月25日',
   ],
   [
     { birthYear: 1905, extInfo: { constellation: 2 } },
-    '1905 年 · 双鱼座',
-    '推断生日：1905 年 2 月 19 日至3 月 20 日',
+    '1905年 · 双鱼座',
+    '推断生日：1905年2月19日至3月20日',
   ],
-  [{ extInfo: { constellation: 1 } }, '水瓶座', '推断生日：1 月 20 日至2 月 18 日'],
+  [{ extInfo: { constellation: 1 } }, '水瓶座', '推断生日：1月20日至2月18日'],
   [
     { birthYear: 2010, age: 40, extInfo: { constellation: 12 } },
-    '2010 年 · 摩羯座',
+    '2010年 · 摩羯座',
     '星座与现有生日或年龄资料不一致，未采用推断结果',
   ],
 ] as const)(
@@ -66,7 +66,7 @@ it('完整生日仍直接展示，不出现推断详情', () => {
         }),
       ),
     );
-    expect(host.textContent).toBe('生日2010 年 1 月 20 日');
+    expect(host.textContent).toBe('生日2010年1月20日');
     expect(host.querySelector('details')).toBeNull();
   } finally {
     act(() => root.unmount());

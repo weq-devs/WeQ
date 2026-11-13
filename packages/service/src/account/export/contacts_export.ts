@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 联系人导出器 —— 导出**好友列表**或**某群的成员列表**为 json / jsonl / csv / xlsx /
  * txt（好友额外支持 vcard 电子名片）。
@@ -224,15 +225,7 @@ function birthdayText(y: number, m: number, d: number): string {
   return `${y || 0}-${p(m || 0)}-${p(d || 0)}`;
 }
 
-const CONTACT_TIME = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
+const CONTACT_TIME = eventTimeFormatter;
 
 /** 秒级时间戳按北京时间显示；超出日期范围的值原样保留，不伪造日期。 */
 function timeText(sec: number): string {

@@ -1,3 +1,9 @@
+import { formatDateTimeInput, parseDateTimeInput } from '@weq/time';
+import {
+  preciseTimeFormatter as eventTimeFormatter,
+  dateFormatter,
+  clockFormatter,
+} from '@weq/time';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { area, line, scaleLinear, scaleTime } from 'd3';
 import {
@@ -31,10 +37,9 @@ const metricLabels: Record<MonitorMetric, string> = {
   externalBytes: 'JS 外部内存',
   eventLoopP95Ms: '事件循环 P95',
 };
-const time = (at: number) =>
-  new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
-const dateInput = (at: number) => new Date(at + 8 * 3600_000).toISOString().slice(0, 16);
-const fromInput = (value: string) => Date.parse(`${value}:00+08:00`);
+const time = (at: number) => eventTimeFormatter.format(new Date(at));
+const dateInput = (at: number) => formatDateTimeInput(at, 'minute');
+const fromInput = (value: string) => parseDateTimeInput(value) ?? Number.NaN;
 function valueLabel(value: number | null | undefined, metric: MonitorMetric) {
   if (value === null || value === undefined) return '不可用';
   if (metric === 'cpuPercent') return `${value.toFixed(1)}%`;
@@ -352,16 +357,8 @@ function Chart({
         {x.ticks(width < 400 ? 3 : 4).map((tick) => (
           <text key={+tick} x={x(tick)} y={height - 5} textAnchor="middle">
             {to - from > 86400_000
-              ? tick.toLocaleDateString('zh-CN', {
-                  timeZone: 'Asia/Shanghai',
-                  month: 'numeric',
-                  day: 'numeric',
-                })
-              : tick.toLocaleTimeString('zh-CN', {
-                  timeZone: 'Asia/Shanghai',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
+              ? dateFormatter.format(tick).slice(5)
+              : clockFormatter.format(tick).slice(0, 5)}
           </text>
         ))}
       </svg>

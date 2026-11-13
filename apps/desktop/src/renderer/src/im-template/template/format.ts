@@ -1,10 +1,8 @@
-﻿// @ts-nocheck
+// @ts-nocheck
+import * as timeFormat from '@weq/time';
+import { dateFormatter } from '@weq/time';
 export function formatProfileDate(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(value));
+  return dateFormatter.format(new Date(value));
 }
 
 /**
@@ -17,12 +15,5 @@ export function formatProfileDate(value: string) {
  * 都用它，所以放在这里共用，别在两边各抄一份。
  */
 export function formatShortDate(value: string | null | undefined) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime()) || date.getTime() <= 0) return '';
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
+  return value && new Date(value).getTime() > 0 ? timeFormat.formatDateTime(value) : '';
 }

@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * DeletedMessagesModal — the "删除列表": browse the messages WeQ deleted in one
  * conversation and bring any of them back.
@@ -43,11 +44,7 @@ type DeletedKind = 'weq' | 'qq';
 
 /** Format an ISO message timestamp as a short local date-time. */
 function formatMessageTime(iso: string | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return timeFormat.formatDateTime(iso);
 }
 
 /** A deleted message plus the labels/keys the header + filters need. */

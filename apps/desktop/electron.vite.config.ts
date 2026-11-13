@@ -35,6 +35,7 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/service/bad-pages',
   '@weq/service/search-index-retirement',
   '@weq/types',
+  '@weq/time',
   'satori',
   // 备份探测 worker 位于 asar 外，校验协议需随共享 chunks 一起打包。
   'zod',

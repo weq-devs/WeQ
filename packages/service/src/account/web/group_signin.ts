@@ -1,3 +1,4 @@
+import { formatDate } from '@weq/time';
 /**
  * 群打卡列表 — `qun.qq.com/v2/signin/trpc/GetDaySignedList`。
  *
@@ -52,10 +53,7 @@ export interface FetchDaySignedListParams {
 
 /** `YYYYMMDD`（本地时区），endpoint 要的形式。 */
 export function dayYmd(date: Date = new Date()): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}${m}${d}`;
+  return formatDate(date).replaceAll('-', '');
 }
 
 /**

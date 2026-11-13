@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Film, Images, Loader2, RefreshCw, X } from 'lucide-react';
 import type { GroupAlbumFeedPage, GroupAlbumFeedComment } from '@weq/service';
@@ -17,15 +18,7 @@ import '../styles/group-album-browser.css';
 import '../styles/group-album-feed.css';
 
 type FeedTarget = Extract<GroupAlbumCardTarget, { kind: 'feed' }>;
-const dateFormat = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
+const dateFormat = eventTimeFormatter;
 const date = (value: number | null) => {
   const timestamp = value ? new Date(value * 1000) : null;
   return timestamp && Number.isFinite(timestamp.getTime()) ? dateFormat.format(timestamp) : '';

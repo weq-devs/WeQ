@@ -1,3 +1,4 @@
+import { TimeLabel } from '../TimeLabel';
 import { formatConversationTime, formatConversationTimestamp } from '../../lib/conversationTime';
 import { conversationActivityTime } from '@weq/service/conversation-order';
 import {
@@ -779,7 +780,7 @@ export function MergedSessionPanel({
                           {pinned ? (
                             <Pin size={12} aria-label="置顶" className="row-pinned" />
                           ) : null}
-                          {time}
+                          <TimeLabel value={conv.updatedAt}>{time}</TimeLabel>
                         </span>
                         {unreadCount > 0 ? (
                           <span
@@ -795,7 +796,11 @@ export function MergedSessionPanel({
                     <div className="weq-merged-popover-item-main">
                       <div className="weq-merged-popover-item-top">
                         <div className="weq-merged-popover-item-name">{name}</div>
-                        {time && <div className="weq-merged-popover-item-time">{time}</div>}
+                        {time && (
+                          <div className="weq-merged-popover-item-time">
+                            <TimeLabel value={conv.updatedAt}>{time}</TimeLabel>
+                          </div>
+                        )}
                       </div>
                       {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
                     </div>

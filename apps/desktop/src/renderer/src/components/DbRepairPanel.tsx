@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 设置 → 数据维护 → 维护工具 → 数据库修复。
  *
@@ -284,11 +285,7 @@ function errMsg(error: unknown): string {
 }
 
 function shortTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return `${stamp} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return timeFormat.formatDateTime(iso, 'millisecond') || iso;
 }
 
 /** 记录状态 → 徽章。失败原因、替换和还原结果以具体报告为准。 */

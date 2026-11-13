@@ -22,10 +22,10 @@ it('明确零值正常显示，未知不冒充零值，不添加统计时间窗�
   expect(groupProfileRows(null)).toEqual([]);
 });
 it('本人时间按北京时间显示，旧缓存和无效占位不显示日期', () => {
-  expect(groupJoinedDate(1704038407)).toBe('2024/1/1 00:00:07');
+  expect(groupJoinedDate(1704038407)).toBe('2024-01-01 00:00:07');
   expect(groupProfileRows({ ...base, joinedAt: 1704038407 })[0]).toEqual([
     '我的入群时间',
-    '2024/1/1 00:00:07',
+    '2024-01-01 00:00:07',
   ]);
   for (const value of [undefined, null, 0, 1, Number.NaN, 0x100000000])
     expect(groupJoinedDate(value)).toBeNull();

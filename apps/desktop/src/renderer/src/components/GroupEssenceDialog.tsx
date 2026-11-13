@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { useRef, type ReactElement } from 'react';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import { FileText, RefreshCw, X } from 'lucide-react';
@@ -243,11 +244,7 @@ function formatShortDate(value: string | null | undefined): string {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime()) || date.getTime() <= 0) return '';
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
+  return eventTimeFormatter.format(date);
 }
 
 function formatFileSize(size: number | string | undefined): string {

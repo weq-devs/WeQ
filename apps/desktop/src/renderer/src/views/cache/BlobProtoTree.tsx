@@ -1,3 +1,4 @@
+import { formatDateTime } from '@weq/time';
 /**
  * Protobuf tree for the BLOB lightbox — the schema-free decoder rendered as an
  * editable outline.
@@ -282,7 +283,9 @@ function valueHint(value: PbValue): string | null {
       const n = Number(value.text);
       if (!Number.isFinite(n)) return null;
       const d = new Date(value.unit === 'sec' ? n * 1000 : n);
-      return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
+      return Number.isNaN(d.getTime())
+        ? null
+        : `${formatDateTime(d, value.unit === 'sec' ? 'second' : 'millisecond')}（北京时间，按 Unix ${value.unit === 'sec' ? '秒' : '毫秒'}解释）`;
     }
     case 'zigzag':
       return 'zigzag';

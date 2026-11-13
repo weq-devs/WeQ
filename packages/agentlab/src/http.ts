@@ -1,3 +1,4 @@
+import { calendarParts, formatClock } from '@weq/time';
 import type {
   AgentLabChatAction,
   AgentLabChatRequest,
@@ -193,12 +194,8 @@ function pickLengthLean(burst: number): string {
  * 没有它，模型会以为永远是训练语料里的那个时间，答非所问。
  */
 function describeNow(now: Date): string {
-  const y = now.getFullYear();
-  const mo = now.getMonth() + 1;
-  const d = now.getDate();
-  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getDay()];
-  const h = now.getHours();
-  const min = now.getMinutes();
+  const { year: y, month: mo, day: d, weekday, hour: h } = calendarParts(now)!;
+  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][weekday];
   const period =
     h < 5
       ? '凌晨'
@@ -215,9 +212,8 @@ function describeNow(now: Date): string {
                 : h < 23
                   ? '晚上'
                   : '深夜';
-  const hh = String(h).padStart(2, '0');
-  const mm = String(min).padStart(2, '0');
-  return `现在是 ${y}年${mo}月${d}日 ${week} ${period} ${hh}:${mm}。`;
+
+  return `现在是 ${y}年${mo}月${d}日 ${week} ${period} ${formatClock(now)}（北京时间）。`;
 }
 
 /** 每轮低概率挑一条备用表达风格（没有 / 没抽中就返回 undefined，保持平时语气）。 */
