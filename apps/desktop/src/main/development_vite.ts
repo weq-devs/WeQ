@@ -1,7 +1,11 @@
 import type { Logger, Plugin } from 'vite';
 import { stripVTControlCharacters } from 'node:util';
 import { basename } from 'node:path';
-import { developmentRecord, summarizeDevelopmentBuildWarning } from './development_console';
+import {
+  developmentRecord,
+  isDevelopmentBuildTiming,
+  summarizeDevelopmentBuildWarning,
+} from './development_console';
 
 export function developmentViteLogging(
   target: 'main' | 'preload' | 'web' | 'renderer',
@@ -45,8 +49,9 @@ export function developmentViteLogging(
       else if (clean) write('info', clean);
     },
     warn(text) {
-      logger.hasWarned = true;
       const clean = stripVTControlCharacters(text);
+      if (isDevelopmentBuildTiming(clean)) return;
+      logger.hasWarned = true;
       const ineffective =
         /^\[INEFFECTIVE_DYNAMIC_IMPORT\] (.+?) is dynamically imported by [\s\S]+dynamic import will not move module into another chunk\.?\s*$/.exec(
           clean,

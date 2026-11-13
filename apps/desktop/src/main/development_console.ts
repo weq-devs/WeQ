@@ -46,14 +46,18 @@ function benignSystemInputDiagnostic(message: string): boolean {
   );
 }
 
+const pluginTimingPattern =
+  /\[PLUGIN_TIMINGS\] JavaScript callbacks ran for ([\d.]+s) of this ([\d.]+s) build \(([^)]+)\)\./;
+
+export function isDevelopmentBuildTiming(text: string): boolean {
+  return pluginTimingPattern.test(text);
+}
+
 /** 已知构建警告压成摘要，其他警告和定位仍原样输出。 */
 export function summarizeDevelopmentBuildWarning(text: string): string {
   const chunk = /Some chunks are larger than ([\d.]+\s*kB) after minification/.exec(text);
   if (chunk) return `部分构建块压缩后超过 ${chunk[1]}`;
-  const timing =
-    /\[PLUGIN_TIMINGS\] JavaScript callbacks ran for ([\d.]+s) of this ([\d.]+s) build \(([^)]+)\)\./.exec(
-      text,
-    );
+  const timing = pluginTimingPattern.exec(text);
   if (!timing) return text;
   const names: Record<string, string> = {
     'weq-remote-web-assets': 'Web 资源',
@@ -90,10 +94,12 @@ export function createDevelopmentOutput(
     if (!text.trim()) return;
     const debug = process.env.WEQ_LOG_LEVEL === 'debug';
     if (timingReport && (timingBoilerplate(text) || /^\s*- plugin /.test(text))) {
-      if (debug || !timingBoilerplate(text)) sink(`         ${text.trim()}\n`);
+      if (debug) sink(`         ${text.trim()}\n`);
       return;
     }
-    if (!/^ {9}\S/.test(text)) timingReport = text.includes('[PLUGIN_TIMINGS]');
+    const buildTiming = isDevelopmentBuildTiming(text);
+    if (!/^ {9}\S/.test(text)) timingReport = buildTiming;
+    if (buildTiming && !debug) return;
     if (
       process.env.WEQ_LOG_LEVEL !== 'debug' &&
       /^(?:-----|electron (?:main process|preload scripts) (?:re)?built successfully)$/.test(
@@ -121,11 +127,13 @@ export function createDevelopmentOutput(
         : (lifecycle[text.trim()] ?? text);
     if (continuation || /^\s+at\s|^\s*\^/.test(text)) sink(`         ${text}\n`);
     else {
-      const level = /\b(?:error|fatal|failed)\b/i.test(message)
-        ? 'error'
-        : timingReport || /\bwarn(?:ing)?\b/i.test(message)
-          ? 'warn'
-          : 'info';
+      const level = buildTiming
+        ? 'debug'
+        : /\b(?:error|fatal|failed)\b/i.test(message)
+          ? 'error'
+          : text.includes('[PLUGIN_TIMINGS]') || /\bwarn(?:ing)?\b/i.test(message)
+            ? 'warn'
+            : 'info';
       sink(
         developmentRecord(
           level,

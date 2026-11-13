@@ -114,14 +114,12 @@ describe('开发进程输出', () => {
     output.write('\x1b[32m12:34:56 INFO  startup  ready\x1b[0m\n');
     expect(sink).toHaveBeenCalledWith('12:34:56 INFO  startup  ready\n');
   });
-  it('插件计时的独立输出行接续原告警，不变成 INFO，且不吞掉后续消息', () => {
+  it('普通日志收起插件计时及明细，不吞掉后续警告', () => {
     vi.stubEnv('WEQ_LOG_LEVEL', 'info');
     onTestFinished(() => vi.unstubAllEnvs());
     const lines: string[] = [];
     const output = createDevelopmentOutput((line) => lines.push(line), false);
-    output.write(
-      '12:34:56 WARN  vite-main  [PLUGIN_TIMINGS] 插件回调累计 6.5s / 构建 7.3s（88%）\n',
-    );
+    output.write('[PLUGIN_TIMINGS] JavaScript callbacks ran for 6.5s of this 7.3s build (88%).\n');
     output.write('The slowest callbacks, timed inside each callback:\n');
     output.write('- plugin weq-remote-web-assets buildStart (66%, 4.8s, 1 call)\n');
     output.write('Additional callback time came from callbacks under 1s.\n');
@@ -130,13 +128,10 @@ describe('开发进程输出', () => {
     );
     output.write('unrelated warning\n');
     output.end();
-    expect(lines).toHaveLength(3);
-    expect(lines[1]).toBe(
-      '         - plugin weq-remote-web-assets buildStart (66%, 4.8s, 1 call)\n',
-    );
-    expect(lines[2]).toContain('WARN  dev-process');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('WARN  dev-process');
   });
-  it('DEBUG 保留插件计时原文，明细仍接续原告警', () => {
+  it('DEBUG 保留插件计时原文和明细，计时不再标为 WARN', () => {
     vi.stubEnv('WEQ_LOG_LEVEL', 'debug');
     onTestFinished(() => vi.unstubAllEnvs());
     const lines: string[] = [];
@@ -146,9 +141,10 @@ describe('开发进程输出', () => {
     output.write('- plugin vite:esm-shim renderChunk (19%, 1.4s, 48 calls)\n');
     output.end();
     expect(lines.join('')).toContain('JavaScript callbacks ran for 6.5s');
+    expect(lines[0]).toContain('DEBUG dev-process');
     expect(lines[1]).toBe('         Additional callback time came from callbacks under 1s.\n');
     expect(lines[2]).toContain('         - plugin vite:esm-shim');
-    expect(lines.join('')).not.toContain('INFO');
+    expect(lines.join('')).not.toContain('WARN');
   });
   it('子进程真实失败与无法启动均返回非零，退出刷新尾行', async () => {
     const sink = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -350,7 +346,7 @@ describe('开发构建摘要', () => {
     logger.warn('[INEFFECTIVE_DYNAMIC_IMPORT] unknown format\nfixture.ts:3');
     expect(sink.mock.calls.flat().join('')).toContain('fixture.ts:3');
   });
-  it('默认压缩大包建议，插件计时合并为单行，其他告警仍保留定位', () => {
+  it('默认压缩大包建议并收起插件计时，其他告警仍保留定位', () => {
     const sink = vi.fn();
     const logger = developmentViteLogging('main', { WEQ_DEV_CONSOLE: '1' }, sink).config
       .customLogger!;
@@ -358,21 +354,16 @@ describe('开发构建摘要', () => {
       '[plugin builtin:vite-reporter]\n\n(!) Some chunks are larger than 500 kB after minification. Consider:\n- Using dynamic import() to code-split the application\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.',
     );
     expect(sink.mock.calls).toHaveLength(1);
+    expect(sink.mock.calls[0]![0]).toContain('WARN  vite-main');
     expect(sink.mock.calls[0]![0]).toContain('部分构建块压缩后超过 500 kB');
     sink.mockClear();
     logger.warn(
       '[PLUGIN_TIMINGS] JavaScript callbacks ran for 6.3s of this 7.1s build (90%).\n\nThe slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):\n\n- plugin weq-remote-web-assets buildStart (69%, 4.9s, 1 call)\n\n- plugin vite:esm-shim renderChunk (17%, 1.2s, 48 calls)\nAdditional callback time came from callbacks under 1s.\nSee https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.',
     );
-    expect(sink.mock.calls).toHaveLength(1);
+    expect(sink).not.toHaveBeenCalled();
+    logger.warn('[PLUGIN_TIMINGS] unknown timing format\nfixture.ts:4');
     expect(sink.mock.calls[0]![0]).toContain('WARN  vite-main');
-    expect(sink.mock.calls[0]![0]).toContain(
-      '构建 7.1s，插件 6.3s（90%）：Web 资源 4.9s，ESM 兼容 1.2s\n',
-    );
-    const lines: string[] = [];
-    const output = createDevelopmentOutput((line) => lines.push(line), false);
-    output.write(sink.mock.calls[0]![0]);
-    output.end();
-    expect(lines).toEqual([sink.mock.calls[0]![0]]);
+    expect(sink.mock.calls.flat().join('')).toContain('fixture.ts:4');
     logger.warn('unrelated warning\nfixture.ts:3');
     expect(sink.mock.calls.at(-1)![0]).toContain('fixture.ts:3');
   });
