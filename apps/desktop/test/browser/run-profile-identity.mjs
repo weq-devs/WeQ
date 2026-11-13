@@ -12,7 +12,12 @@ const output = process.env.WEQ_PROFILE_IDENTITY_ARTIFACTS;
 const server = await createServer({
   configFile: false,
   root,
-  cacheDir: resolve(root, 'node_modules/.vite-profile-identity'),
+  cacheDir: resolve(
+    root,
+    process.env.WEQ_PROFILE_IDENTITY_TOUCH
+      ? 'node_modules/.vite-profile-identity-touch'
+      : 'node_modules/.vite-profile-identity',
+  ),
   plugins: [react(), tailwind()],
   resolve: {
     alias: [
@@ -36,7 +41,12 @@ try {
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  const page = await browser.newPage();
+  const page = await browser.newPage({
+    hasTouch: Boolean(process.env.WEQ_PROFILE_IDENTITY_TOUCH),
+  });
+  const widths = process.env.WEQ_PROFILE_IDENTITY_WIDTHS?.split(',').map(Number) ?? [
+    320, 390, 420, 421, 760, 800, 1180,
+  ];
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) =>
@@ -47,15 +57,19 @@ try {
     ? ['popover']
     : ['embedded', 'popover'];
   let cases = 0;
-  for (const width of [320, 390, 760, 800, 1180]) {
+  for (const width of widths) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark', 'system']) {
       await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
       for (const surface of surfaces) {
         for (const name of ['long', 'unbroken', 'short']) {
           const layouts = [];
-          for (const kind of ['group', 'friend']) {
+          for (const variant of ['group', 'group-controls', 'friend', 'friend-controls']) {
+            const kind = variant.startsWith('friend') ? 'friend' : 'group';
+            const controls = variant.endsWith('-controls');
+            if (controls && surface === 'embedded') continue;
             const params = new URLSearchParams();
+            if (controls) params.set('controls', '');
             if (kind === 'friend') params.set('friend', '');
             if (surface === 'popover') params.set('popover', '');
             if (name !== 'long') params.set(name, '');
@@ -86,6 +100,18 @@ try {
                   nowrap: getComputedStyle(title).whiteSpace === 'nowrap',
                   pageOverflow: document.documentElement.scrollWidth > innerWidth + 1,
                   dialogOverflow: dialog.scrollWidth > dialog.clientWidth + 1,
+                  controlsOverlap: Array.from(
+                    dialog.querySelectorAll('.weq-profile-card-controls > button'),
+                  ).some((button) => {
+                    const control = bounds(button);
+                    const name = bounds(title);
+                    return (
+                      name.left < control.right + 8 &&
+                      name.right > control.left - 8 &&
+                      name.top < control.bottom + 8 &&
+                      name.bottom > control.top - 8
+                    );
+                  }),
                   avatarX: bounds(avatar).x - bounds(dialog).x,
                   titleX: bounds(title).x - bounds(dialog).x,
                   heroWidth: bounds(hero).width,
@@ -97,11 +123,31 @@ try {
                     : false,
                 };
               });
-            const label = `${width}/${theme}/${surface}/${name}/${kind}`;
+            const label = `${width}/${theme}/${surface}/${name}/${variant}`;
             assert.equal(result.clipped, false, `${label}: 名称被截断`);
             assert.equal(result.nowrap, false, `${label}: 名称不能换行`);
             assert.equal(result.pageOverflow, false, `${label}: 页面横向溢出`);
             assert.equal(result.dialogOverflow, false, `${label}: 资料横向溢出`);
+            assert.equal(result.controlsOverlap, false, `${label}: 名称与右上角按钮热区重叠`);
+            if (surface === 'popover') {
+              if (controls) {
+                await page
+                  .getByRole('button', {
+                    name: kind === 'group' ? '打开完整群资料' : '打开完整资料页',
+                    exact: true,
+                  })
+                  .click();
+                assert.equal(await page.evaluate(() => window.profileIdentityQa.expands), 1);
+              }
+              const closes = await page.evaluate(() => window.profileIdentityQa.closes);
+              await page
+                .getByRole('button', {
+                  name: kind === 'group' ? '关闭群资料' : '关闭',
+                  exact: true,
+                })
+                .click();
+              assert.equal(await page.evaluate(() => window.profileIdentityQa.closes), closes + 1);
+            }
             if (surface === 'embedded') {
               assert.equal(result.actions, true, `${label}: 未使用统一操作区`);
               assert.equal(result.actionsOverlap, false, `${label}: 操作与身份信息重叠`);

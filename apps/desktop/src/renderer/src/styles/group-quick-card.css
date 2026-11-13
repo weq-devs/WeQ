@@ -198,7 +198,13 @@
 
 @media (max-width: 420px), (pointer: coarse) {
   .weq-group-quick-card.weq-contact-card .weq-profile-hero.weq-group-quick-identity {
-    margin-top: 16px;
+    margin-top: 24px;
     padding-inline-end: 0;
+  }
+}
+
+@media (pointer: coarse) {
+  .weq-group-quick-card.weq-contact-card .weq-profile-hero.weq-group-quick-identity {
+    margin-top: 32px;
   }
 }

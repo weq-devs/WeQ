@@ -12,6 +12,11 @@
  * 拉成 480px，这里用同等优先级的专属选择器把名片尺寸收回归属名片自己：桌面 390 / 圆角 14
  * / 内距 22-16-14。窄屏用 max-width 收边，不会满宽。
  */
+.weq-contact-card {
+  --weq-profile-card-control-size: 28px;
+  --weq-profile-card-controls-inset: var(--weq-profile-card-control-size);
+}
+
 .weq-nonmodal-layer[tabindex] > .weq-member-pop.weq-contact-card,
 .weq-contact-card {
   box-sizing: border-box;
@@ -26,11 +31,12 @@
 }
 
 .weq-contact-card .weq-profile-hero {
-  padding-inline-end: 28px;
+  padding-inline-end: var(--weq-profile-card-controls-inset);
 }
 
-.weq-contact-card:has(> .weq-profile-card-controls > button:nth-child(2)) .weq-profile-hero {
-  padding-inline-end: 72px;
+/* 群名片的操作区位于内容容器内，不一定是卡片的直接子元素。 */
+.weq-contact-card:has(.weq-profile-card-controls > button:nth-child(2)) {
+  --weq-profile-card-controls-inset: calc(var(--weq-profile-card-control-size) * 2 + 16px);
 }
 
 .weq-profile-card-controls {
@@ -48,8 +54,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--weq-profile-card-control-size);
+  height: var(--weq-profile-card-control-size);
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -693,9 +699,8 @@ html[data-theme='dark'] .weq-profile-dialog.weq-contact-profile-v2 {
     height: 44px;
   }
 
-  .weq-profile-card-controls > button {
-    width: 36px;
-    height: 36px;
+  .weq-contact-card {
+    --weq-profile-card-control-size: 36px;
   }
 
   .weq-contact-actions .weq-contact-primary,
