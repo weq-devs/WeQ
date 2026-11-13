@@ -280,6 +280,15 @@ function Fixture() {
                         <button type="button" onClick={() => setView('settings')}>
                           名片设置
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTab('portrait');
+                            setView('page');
+                          }}
+                        >
+                          打开互动画像
+                        </button>
                       </nav>
                       <div className="fixture-body">
                         {view === 'card' ? (

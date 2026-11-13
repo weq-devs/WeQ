@@ -19,6 +19,7 @@ export function ProfileWorkspace<K extends string>({
   onSelect,
   render,
   showTitle = true,
+  scrollTarget,
 }: {
   label: string;
   sections: ReadonlyArray<readonly [K, string]>;
@@ -26,6 +27,7 @@ export function ProfileWorkspace<K extends string>({
   onSelect: (key: K) => void;
   render: (key: K) => ReactNode;
   showTitle?: boolean;
+  scrollTarget?: string;
 }) {
   const [visited, setVisited] = useState<Set<K>>(() => new Set([selected]));
   const scroll = useRef<HTMLDivElement>(null);
@@ -71,6 +73,20 @@ export function ProfileWorkspace<K extends string>({
       positions.current.set(selected, node.scrollTop);
     };
   }, [selected]);
+  useLayoutEffect(() => {
+    const node = scroll.current;
+    if (!node || !scrollTarget) return;
+    const target = [...node.querySelectorAll<HTMLElement>('[data-profile-anchor]')].find(
+      (element) => element.dataset.profileAnchor === scrollTarget && !element.closest('[hidden]'),
+    );
+    if (!target) return;
+    const padding = Number.parseFloat(getComputedStyle(node).paddingTop) || 0;
+    node.scrollTop +=
+      target.getBoundingClientRect().top -
+      node.getBoundingClientRect().top -
+      node.clientTop -
+      padding;
+  }, [selected, scrollTarget]);
   function select(key: K) {
     if (key === selected) return;
     void closing.confirmLeave(() => {

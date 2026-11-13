@@ -101,6 +101,7 @@ export function ContactSection({
   hideTitle = false,
   fields = false,
   prominent = false,
+  anchor,
   children,
 }: {
   title: string;
@@ -113,10 +114,12 @@ export function ContactSection({
    */
   fields?: boolean;
   prominent?: boolean;
+  anchor?: string;
   children: ReactNode;
 }) {
   return (
     <section
+      data-profile-anchor={anchor}
       className={`weq-profile-section-block${fields ? ' weq-profile-section-block--fields' : ''}${prominent ? ' weq-profile-section-block--prominent' : ''}`}
     >
       {hideTitle && !action ? null : (

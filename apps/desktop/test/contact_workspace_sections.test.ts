@@ -100,6 +100,21 @@ function render(tab?: ContactWorkspaceTab) {
   );
   return host;
 }
+it('画像入口定位到画像分区，普通关系页不强制滚动', () => {
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function () {
+      return { top: this.getAttribute('data-profile-anchor') === 'portrait' ? 360 : 0 } as DOMRect;
+    });
+  try {
+    const normal = render('marks');
+    expect(normal.querySelector('.weq-profile-workspace-body')?.scrollTop).toBe(0);
+    const portrait = render('portrait');
+    expect(portrait.querySelector('.weq-profile-workspace-body')?.scrollTop).toBe(360);
+  } finally {
+    bounds.mockRestore();
+  }
+});
 it('默认显示四页，不提前挂载历史、问答或画像', () => {
   const host = render();
   expect(

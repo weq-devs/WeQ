@@ -122,7 +122,7 @@ export function ContactWorkspace({
             </ContactSection>
           ) : null}
           {hasUid ? (
-            <ContactSection title="互动画像" prominent>
+            <ContactSection title="互动画像" prominent anchor="portrait">
               <Portrait contact={contact} />
             </ContactSection>
           ) : null}
@@ -151,6 +151,7 @@ export function ContactWorkspace({
       label="联系人详情分区"
       sections={options}
       selected={selected}
+      scrollTarget={requested === 'portrait' ? 'portrait' : undefined}
       onSelect={select}
       render={panel}
     />
