@@ -79,6 +79,12 @@ try {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${base}/unified-conversation.html?kind=${kind}`);
         await page.locator('.chat-pane .chat-header').waitFor();
+        if (kind === 'assistant') {
+          for (const name of ['新建会话', '清空当前对话']) {
+            if (await page.getByRole('button', { name, exact: true }).count())
+              throw new Error(`助手会话工具栏不应显示「${name}」`);
+          }
+        }
         await page.locator('.message-line').first().waitFor();
         await page.evaluate((value) => window.unifiedTheme(value), theme);
         await page.waitForTimeout(100);

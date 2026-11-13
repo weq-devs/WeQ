@@ -1,6 +1,6 @@
 /** 助手数据与运行控制适配；可见界面全部由 ChatPane 提供。 */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Play, Plus, Square, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Play, Square, X } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { ChatPane } from '../../im-template/template/chatPane';
 import type { Message } from '../../im-template/template/types';
@@ -14,7 +14,6 @@ import type { GeneratedSearchHit } from '../../components/search/types';
 import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
 import { AiImageComposer } from '../../components/AiImageComposer';
 import { aiImageDraft, parseAiImageDraft, changeAiImageDraftText, type AiImageAssetRef } from '../../lib/aiImageDraft';
-import { useAppDialog } from '../../lib/dialogUtils';
 import { AssistantReplyContent, type AssistantReplyActions } from './AssistantReplyContent';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { timeDate } from '@weq/time';
@@ -70,7 +69,6 @@ export function AssistantPanel({
   headless?: boolean;
 }) {
   const utils = trpc.useUtils();
-  const dialog = useAppDialog();
   const [currentId, setCurrentId] = useState(sessionId);
   const idRef = useRef(currentId);
   idRef.current = currentId;
@@ -260,27 +258,6 @@ export function AssistantPanel({
       await utils.account.assistantQueue.invalidate();
     } catch (reason) {
       setStopping(false);
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
-  }
-  async function clearCurrentConversation() {
-    const owner = bindingRef.current;
-    const id = idRef.current;
-    if (
-      !owner ||
-      !(await dialog.confirm('清空对话', '清空当前会话的消息和排队内容？', {
-        okLabel: '清空',
-        tone: 'warning',
-      }))
-    )
-      return;
-    try {
-      if (id) await client.account.clearAssistantConversation.mutate({ ...owner, sessionId: id });
-      setTurns([]);
-      void utils.account.assistantQueue.invalidate();
-      void utils.account.getAssistantResumeState.invalidate();
-      if (id) void utils.account.getAssistantConversation.invalidate({ sessionId: id });
-    } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
@@ -496,29 +473,6 @@ export function AssistantPanel({
             settingsLabel="助手设置"
             onSearchChatRecords={() => setSearch(true)}
             jumpRequest={jump}
-            headerActions={
-              <>
-                <button
-                  type="button"
-                  className="icon-button"
-                  title="新建会话"
-                  aria-label="新建会话"
-                  onClick={onBack}
-                >
-                  <Plus size={16} />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  title="清空当前对话"
-                  aria-label="清空当前对话"
-                  disabled={!binding || sending}
-                  onClick={() => void clearCurrentConversation()}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </>
-            }
             timelineNotice={
               turns.length === 0 ? (
                 <div className="weq-conversation-notice">
