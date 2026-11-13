@@ -667,6 +667,11 @@ export interface AccountSessionMaterial {
    */
   secToken?: string;
   /**
+   * token 的过期时间（Unix 秒）。Linux 的会话物料表能顺带读到；
+   * 距过期不足 300 s 时主动重扫，没有这一项时退回「pid 变了才重扫」。
+   */
+  secTokenExpire?: number;
+  /**
    * 读到这份物料时 QQ 的 pid。用来判断「这份缓存是不是仍属于当前那个 QQ 进程」
    * —— 本地凭据齐全时直接拿它登记 SSO（不读内存、不提权）；pid 对不上说明 QQ
    * 重启过、旧密钥已随旧进程失效，回退到读内存。
