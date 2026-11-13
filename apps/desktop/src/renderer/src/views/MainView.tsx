@@ -2908,7 +2908,6 @@ function MainWorkspace(): ReactElement {
     const unknownRefresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
       refreshRecentHead();
-      await refreshWindow();
       return true;
     }, 1000);
     const sub = client.account.onDbChanged.subscribe(binding, {
@@ -2917,6 +2916,8 @@ function MainWorkspace(): ReactElement {
         if (!IS_WEB && notice?.at) recordMessagePhase('observedToRenderer', Date.now() - notice.at);
         dbRevisionRef.current += 1;
         conversationWindows.markDirty();
+        // 灰条可共用旧序号且不改变未读数；正文不等待一秒目录校准。
+        void refreshWindow();
         // Read watermarks can change while recent contacts remain identical.
         unknownRefresh.request();
         metadataRefresh.request();

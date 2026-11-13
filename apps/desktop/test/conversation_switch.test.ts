@@ -371,6 +371,69 @@ afterEach(() => {
 });
 
 it.each(['10001', 'u_peer'])(
+  '会话 %s 的同序号戳一戳灰条不等待未读变化或一秒目录校准',
+  async (id) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    useViewState.getState().setOpenedUin('90001');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const original: TestMessage = {
+      msgId: 'original',
+      msgSeq: '1',
+      sendTime: '1794200000',
+      senderUid: 'u_peer',
+      senderUin: '20001',
+      elements: [{ type: 'text', data: { textContent: '原消息' } }],
+    };
+    const poke: TestMessage = {
+      ...original,
+      msgId: 'poke',
+      sendTime: '1794200001',
+      elements: [
+        {
+          type: 'grayTipPoke',
+          data: {
+            grayTipXmlContent: '<gtip><nor txt="你戳了戳好友"/></gtip>',
+          },
+        },
+      ],
+    };
+    try {
+      await act(async () =>
+        root.render(
+          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+        ),
+      );
+      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+          .find((button) => button.textContent === id)!
+          .click(),
+      );
+      await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [original] }));
+      expect(f.messages.map((row) => row.msgId)).toEqual(['original']);
+      await act(async () => {
+        f.refreshRows = [poke, original];
+        f.dbChanged!();
+      });
+      expect(f.messages.map((row) => row.msgId)).toEqual(['original', 'poke']);
+      expect(host.textContent).toContain('你戳了戳好友');
+      // 后续重复通知仍按稳定 ID 合并，不能把同序号灰条追加两遍。
+      await act(async () => f.dbChanged!());
+      expect(f.messages.map((row) => row.msgId)).toEqual(['original', 'poke']);
+    } finally {
+      act(() => root.unmount());
+      client.clear();
+      host.remove();
+    }
+  },
+);
+
+it.each(['10001', 'u_peer'])(
   '会话 %s 首屏完成与阅读设置更新交错时，采用完整缓存并结束底部加载',
   async (id) => {
     vi.useFakeTimers();
