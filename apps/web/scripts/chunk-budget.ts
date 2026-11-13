@@ -9,16 +9,22 @@ const GRAMMAR_BUDGETS = { cpp: 700_000, 'emacs-lisp': 900_000 };
 export function webChunkBudget() {
   let config: ResolvedConfig;
   let measured = false;
-  let expected: string[] = [];
+  let closed = false;
+  let pending: (() => void)[] = [];
   const options: Rolldown.RolldownOptions = {
     onLog(level, log, handler) {
       if (
-        measured &&
         level === 'warn' &&
         log.plugin === 'builtin:vite-reporter' &&
         /^\s*\(!\) Some chunks are larger than [\d.]+ kB after minification\./.test(log.message)
-      )
-        return;
+      ) {
+        if (measured) return;
+        if (!closed) {
+          // 原生 reporter 可能先到；最终未执行预算检查时仍交回原来的告警处理。
+          pending.push(() => handler(level, log));
+          return;
+        }
+      }
       handler(level, log);
     },
   };
@@ -30,7 +36,8 @@ export function webChunkBudget() {
     },
     buildStart() {
       measured = false;
-      expected = [];
+      closed = false;
+      pending = [];
     },
     writeBundle: {
       order: 'pre',
@@ -68,12 +75,10 @@ export function webChunkBudget() {
                 : null;
           const grammarBudget =
             family && !eager.has(chunk.fileName) ? GRAMMAR_BUDGETS[family] : null;
-          const description = `${chunk.name} ${(bytes / 1000).toFixed(1)} kB`;
-          if (grammarBudget && bytes <= grammarBudget) expected.push(description);
-          else
-            this.warn(
-              `构建块超出体积预算：${chunk.fileName} ${(bytes / 1000).toFixed(1)} kB > ${(grammarBudget ?? defaultBudget) / 1000} kB`,
-            );
+          if (grammarBudget && bytes <= grammarBudget) continue;
+          this.warn(
+            `构建块超出体积预算：${chunk.fileName} ${(bytes / 1000).toFixed(1)} kB > ${(grammarBudget ?? defaultBudget) / 1000} kB`,
+          );
         }
         measured = true;
       },
@@ -81,8 +86,9 @@ export function webChunkBudget() {
     closeBundle: {
       order: 'post',
       handler() {
-        if (expected.length)
-          config.logger.info(`按需语法资源：${expected.join('、')}（独立体积预算内）`);
+        closed = true;
+        if (!measured) for (const warn of pending) warn();
+        pending = [];
       },
     },
   };

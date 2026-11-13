@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { mkdtemp, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build, createLogger, type Plugin } from 'vite';
@@ -13,6 +14,8 @@ async function fixture({
   forged = false,
   unrelated = false,
   growLate = false,
+  earlyNativeWarning = false,
+  write = true,
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'weq-chunk-budget-'));
   const entry = join(root, 'entry.js');
@@ -61,8 +64,21 @@ async function fixture({
       root,
       customLogger: logger,
       logLevel: 'warn',
-      plugins: [plugin],
+      plugins: [
+        plugin,
+        ...(earlyNativeWarning
+          ? [
+              {
+                name: 'builtin:vite-reporter',
+                buildStart() {
+                  this.warn('(!) Some chunks are larger than 500 kB after minification. Consider:');
+                },
+              } satisfies Plugin,
+            ]
+          : []),
+      ],
       build: {
+        write,
         outDir: join(root, 'out'),
         emptyOutDir: true,
         reportCompressedSize: false,
@@ -80,13 +96,12 @@ async function fixture({
 }
 
 it.each(['cpp', 'emacs-lisp'])(
-  '已知按需语法 %s 在独立预算内只记 INFO，不标记构建警告',
+  '已知按需语法 %s 在独立预算内保持静默，不标记构建警告',
   async (language) => {
     const output = await fixture({ language });
     expect(output.warnings).toBe('');
     expect(output.hasWarned).toBe(false);
-    expect(output.info).toContain('按需语法资源');
-    expect(output.info).toContain(language);
+    expect(output.info).not.toContain('按需语法资源');
   },
 );
 
@@ -108,3 +123,55 @@ it('已知语法不掩盖其他构建警告', async () => {
   expect(output.warnings).toContain('fixture-unrelated');
   expect(output.warnings).not.toContain('Some chunks are larger');
 });
+
+it('原生警告先于预算检查到达时等待最终检查，正常资源保持静默', async () => {
+  const output = await fixture({ earlyNativeWarning: true });
+  expect(output.warnings).toBe('');
+  expect(output.hasWarned).toBe(false);
+  expect(output.info).not.toContain('按需语法资源');
+});
+
+it('原生警告先到但确实存在超预算业务块时保留明确告警', async () => {
+  const output = await fixture({ earlyNativeWarning: true, forged: true });
+  expect(output.warnings).toContain('构建块超出体积预算');
+  expect(output.warnings).not.toContain('Some chunks are larger');
+});
+
+it('预算检查未执行时不吞掉先到的原生告警', async () => {
+  const output = await fixture({ earlyNativeWarning: true, write: false });
+  expect(output.warnings).toContain('Some chunks are larger');
+  expect(output.hasWarned).toBe(true);
+});
+
+it('真实 Vite CLI 开发摘要不输出预期语法提示或原生大包误报', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'weq-web-cli-budget-'));
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [resolve(__dirname, '../../web/node_modules/vite/bin/vite.js'), 'build'],
+      {
+        cwd: resolve(__dirname, '../../web'),
+        env: {
+          ...process.env,
+          NODE_ENV: 'production',
+          WEQ_DEV_CONSOLE: '1',
+          WEQ_LOG_LEVEL: 'info',
+          WEQ_WEB_DIST: directory,
+        },
+        encoding: 'utf8',
+        timeout: 60_000,
+        maxBuffer: 4 * 1024 * 1024,
+      },
+    );
+    const output = result.stdout + result.stderr;
+    expect(result.error).toBeUndefined();
+    expect(result.status, output).toBe(0);
+    expect(output).toContain('内置 Web 构建完成');
+    expect(output).not.toContain('按需语法资源');
+    expect(output).not.toContain('Some chunks are larger');
+    expect(output).not.toContain('部分构建块压缩后超过');
+    expect(output).not.toContain('构建块超出体积预算');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 70_000);
