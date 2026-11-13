@@ -254,16 +254,15 @@ export function RemotePanel({
               {qr ? <RefreshCw size={14} /> : <QrCode size={14} />}
               生成配对码
             </button>
-            <label className="weq-remote-consent" title={TAILSCALE_KEY_HINT}>
-              <input
-                type="checkbox"
-                title={TAILSCALE_KEY_HINT}
+            <span className="weq-remote-consent" title={TAILSCALE_KEY_HINT}>
+              <Toggle
+                label="嵌入 Tailscale Key"
                 checked={embedKey}
                 disabled={busy}
-                onChange={(event) => setEmbedKey(event.target.checked)}
+                onChange={setEmbedKey}
               />
               嵌入 Tailscale Key
-            </label>
+            </span>
           </div>
           {embedKey && !tailscaleAddress ? (
             <p className="weq-remote-muted">请先启动并登录上方的 WeQ 专用 Tailscale 服务。</p>

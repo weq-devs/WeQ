@@ -31,6 +31,8 @@ import { SqlConsole } from './SqlConsole';
 import { InlineSkeleton, TreeSkeleton } from './CacheSkeleton';
 import { useTabActive } from '../../components/RetainedTabs';
 import { useRemoteClient } from '../../lib/remoteClient';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { CheckPill } from '../../components/settings/controls';
 
 type SubTab = 'data' | 'sql';
 
@@ -224,31 +226,19 @@ export function DbExplorer({
       {/* 右面板：数据 / SQL + 编辑模式 */}
       <section className="weq-cache-panel">
         <header className="weq-cache-panel-head">
-          <div className="weq-cache-subtabs">
-            <button
-              type="button"
-              className={`weq-cache-subtab${subTab === 'data' ? ' is-on' : ''}`}
-              onClick={() => setSubTab('data')}
-            >
-              数据
-            </button>
-            <button
-              type="button"
-              className={`weq-cache-subtab${subTab === 'sql' ? ' is-on' : ''}`}
-              onClick={() => setSubTab('sql')}
-            >
-              SQL
-            </button>
-          </div>
+          <SegmentedControl<'data' | 'sql'>
+            label="数据视图"
+            value={subTab}
+            onChange={setSubTab}
+            options={[
+              { value: 'data', label: '数据' },
+              { value: 'sql', label: 'SQL' },
+            ]}
+          />
           {!remote && (
-            <label className="weq-cache-editmode">
-              <input
-                type="checkbox"
-                checked={editable}
-                onChange={(e) => setEditable(e.target.checked)}
-              />
-              <span>编辑模式</span>
-            </label>
+            <CheckPill checked={editable} onChange={setEditable}>
+              编辑模式
+            </CheckPill>
           )}
           {onExport ? (
             <button

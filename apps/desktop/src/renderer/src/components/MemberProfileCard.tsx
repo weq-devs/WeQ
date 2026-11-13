@@ -120,29 +120,33 @@ export function MemberProfileCard({
             <ProfileCardControls onExpand={openProfile} onClose={onClose} />
             {previewContent || (
               <>
-                <ContactIdentity
-                  key={`identity:${identityKey}`}
-                  person={person}
-                  settings={settings}
-                  cardBody
-                  pendant={settings.ready && settings.visible.pendant}
-                />
-                {!localClone ? (
-                  <ContactContent
-                    key={`content:${identityKey}`}
+                {/* 只有正文滚动，底部操作条是卡片 footer：正文在操作条上方干净裁切，
+                    任何滚动位置都不会出现「半截字段行压在按钮上」的观感。 */}
+                <div className="weq-contact-card-body">
+                  <ContactIdentity
+                    key={`identity:${identityKey}`}
                     person={person}
                     settings={settings}
-                    onNavigate={onClose}
-                    localOnly={!settings.ready}
-                    leading={
-                      <ContactGroupContent
-                        person={person}
-                        settings={settings}
-                        onNavigate={onClose}
-                      />
-                    }
+                    cardBody
+                    pendant={settings.ready && settings.visible.pendant}
                   />
-                ) : null}
+                  {!localClone ? (
+                    <ContactContent
+                      key={`content:${identityKey}`}
+                      person={person}
+                      settings={settings}
+                      onNavigate={onClose}
+                      localOnly={!settings.ready}
+                      leading={
+                        <ContactGroupContent
+                          person={person}
+                          settings={settings}
+                          onNavigate={onClose}
+                        />
+                      }
+                    />
+                  ) : null}
+                </div>
                 <ContactActions
                   key={`actions:${identityKey}`}
                   person={person}

@@ -10,6 +10,7 @@
 import type { ReactElement } from 'react';
 import type { RangePreset, TimeRange } from './types';
 import { MessageCalendar } from '../../components/MessageCalendar';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import {
   beijingDay,
   daySeconds,
@@ -137,34 +138,32 @@ export function TimeRangePicker({
           「自定义」是固定区间，不会滚动。
         </p>
       ) : null}
-      <div className="weq-exp-range-presets">
-        {PRESETS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            className={`weq-exp-chip${value.preset === p.value ? ' is-on' : ''}`}
-            onClick={() => pickPreset(p.value)}
-            title={PRESET_HINTS[p.value][mode]}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
+      {/* 预设区间与别处的单选一样走共享分段控件，不再另写一排胶囊按钮。 */}
+      <SegmentedControl<RangePreset>
+        label="时间范围"
+        value={value.preset}
+        options={PRESETS.map((p) => ({
+          value: p.value,
+          label: p.label,
+          title: PRESET_HINTS[p.value][mode],
+        }))}
+        onChange={pickPreset}
+      />
 
-      <div className="weq-exp-range-summary">
-        <span className="weq-exp-range-summary-main">
-          <span>{fmtDay(value.start)}</span>
-          <span className="weq-exp-range-arrow">→</span>
-          <span>{fmtDay(value.end)}</span>
-        </span>
-        {value.preset !== 'all' ? (
+      {value.preset === 'all' ? (
+        <p className="weq-exp-range-note">全部时间：统计已保存的本地记录，不限起止日期。</p>
+      ) : (
+        <div className="weq-exp-range-summary">
+          <span className="weq-exp-range-summary-main">
+            <span>{fmtDay(value.start)}</span>
+            <span className="weq-exp-range-arrow">→</span>
+            <span>{fmtDay(value.end)}</span>
+          </span>
           <button type="button" className="weq-exp-range-clear" onClick={resetAll}>
-            不限
+            改为全部时间
           </button>
-        ) : (
-          <span className="weq-exp-range-tag">全部时间</span>
-        )}
-      </div>
+        </div>
+      )}
 
       <MessageCalendar
         days={calendar.data}

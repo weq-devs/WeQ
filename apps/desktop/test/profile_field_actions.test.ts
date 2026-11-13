@@ -32,14 +32,16 @@ afterEach(() => {
 });
 it.each(['QQ', 'QID', 'UID'])('只有标识字段 %s 提供点击复制', (label) => {
   const host = render(label);
-  expect(host.querySelector(`[aria-label="复制${label}"]`)?.textContent).toBe('合成内容');
+  expect(host.querySelector(`[aria-label="复制 ${label}"]`)?.textContent).toBe('合成内容');
 });
 it.each(['昵称', '性别', '年龄', '邮箱', '公司', '个人说明', '群号', 'ID'])(
-  '只读字段 %s 为纯文本，即使传入 copyValue 也不复制',
+  '只读字段 %s 点值即复制（不额外渲染图标按钮）',
   (label) => {
     const host = render(label);
-    expect(host.querySelector('button')).toBeNull();
-    expect(host.textContent).toContain('合成内容');
+    const button = host.querySelector('button');
+    expect(button?.getAttribute('aria-label')).toBe(`复制 ${label}`);
+    expect(host.querySelector('svg')).toBeNull();
+    expect(button?.textContent).toBe('合成内容');
   },
 );
 it('关联对话框的字段点击打开，不走复制', () => {

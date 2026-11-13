@@ -112,7 +112,11 @@ it('全部适用操作直接常驻，打开会话、预览、空间和分析仍�
       '查看空间',
       '聊天分析',
     ]);
-    expect(buttons.every((button) => button.className === 'weq-contact-secondary')).toBe(true);
+    // 主操作（打开会话）是填充按钮，其余是描边按钮，权重分层。
+    expect(buttons[0]!.className).toBe('weq-contact-primary');
+    expect(buttons.slice(1).every((button) => button.className === 'weq-contact-secondary')).toBe(
+      true,
+    );
     expect(host.querySelector('details')).toBeNull();
     for (const label of ['查看消息', '更多操作', '预览空间', '赞资料卡'])
       expect(host.textContent).not.toContain(label);
@@ -157,7 +161,7 @@ it('没有历史会话时仍显示发起会话，不额外展示不适用操作'
       expect(host.textContent).toBe('发起会话');
     });
     expect(host.querySelectorAll('button')).toHaveLength(1);
-    expect(host.querySelector('button')?.className).toBe('weq-contact-secondary');
+    expect(host.querySelector('button')?.className).toBe('weq-contact-primary');
   } finally {
     act(() => root.unmount());
   }

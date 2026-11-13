@@ -271,7 +271,9 @@ export function LoginAccountPanel(): ReactElement {
             <span>正在读取登录记录…</span>
           </div>
         ) : error && !overview ? (
-          <div className="weq-login-acc-state is-error">{error}</div>
+          <div className="weq-login-acc-state is-error" role="alert" title={error}>
+            读取登录记录失败，请确认 QQ 已安装、数据目录可访问后重试。
+          </div>
         ) : accounts.length === 0 ? (
           <div className="weq-login-acc-state">没有读到任何登录记录，请先在 QQ 里登录过账号。</div>
         ) : (
@@ -375,7 +377,11 @@ export function LoginAccountPanel(): ReactElement {
         )}
       </div>
 
-      {error && overview ? <div className="weq-login-acc-inline-error">{error}</div> : null}
+      {error && overview ? (
+        <div className="weq-login-acc-inline-error" role="alert" title={error}>
+          读取登录记录失败，请确认 QQ 已安装、数据目录可访问后重试。
+        </div>
+      ) : null}
 
       <p className="weq-login-acc-foot">
         <KeyRound size={12} strokeWidth={1.9} />

@@ -449,6 +449,20 @@ export function SearchDropdown({
               !appEnabled) ? (
               <div className="weq-search-empty">未选择搜索范围</div>
             ) : null}
+            {!quickLoading &&
+            !slowLoading &&
+            !(lookupEnabled && isLookupNumber(numberLookupKeyword)) &&
+            !orderedCategories.some((category) =>
+              category === 'app'
+                ? appEntries.length > 0
+                : Boolean(sections.get(category)?.hits?.length),
+            ) &&
+            !orderedCategories.some(
+              (category) =>
+                category !== 'app' && (sections.get(category)?.loading || failedFor(category)),
+            ) ? (
+              <div className="weq-search-empty">没有找到相关内容</div>
+            ) : null}
             {lookupEnabled && isLookupNumber(numberLookupKeyword) ? (
               <NumberLookupResults
                 keyword={numberLookupKeyword}
@@ -474,6 +488,10 @@ export function SearchDropdown({
               const section = sections.get(category)!;
               const hits = section.hits;
               const failed = failedFor(category);
+              // 多类同时选中时不再为每个空分类渲染一条「无结果」标题，
+              // 只在用户收窄到单一类型时给明确空态；全部为空时由下方统一兜底。
+              if (!failed && !section.loading && !hits?.length && categories.length > 1)
+                return null;
               return (
                 <div className="weq-search-section" key={category}>
                   <div className="weq-search-section-header">

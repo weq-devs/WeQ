@@ -153,6 +153,21 @@ html[data-theme='dark'] body .weq-set-chk:not(.is-on):not(:disabled) {
   background: var(--weq-bg-elevated);
 }
 
+/* 卡片标题区：标题 + 一句说明，说明与页头 desc 同字号同颜色。 */
+.weq-set-card-heading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.weq-set-card-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
 /* 卡片 head 的状态位：保存中/已保存/失败重试固定在这里，不再占用行描述位置。 */
 .weq-set-card-status {
   display: inline-flex;
@@ -259,4 +274,44 @@ html[data-theme='dark'] .weq-settings-preset-preview.is-bg-telegram {
       color-mix(in srgb, var(--weq-accent-effective) 7%, #181c21),
       color-mix(in srgb, var(--weq-accent-effective) 3.4%, #14171b)
     );
+}
+
+/* 存储管理列表：条目之间只用 hairline 分隔，不再套一层描边卡片。 */
+.weq-storage-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+  min-width: 0;
+}
+
+.weq-storage-item + .weq-storage-item {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-storage-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-storage-item-head .weq-set-chk {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-storage-item-head .weq-set-cache-size {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-storage-item .weq-storage-path {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }

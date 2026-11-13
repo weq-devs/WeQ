@@ -17,6 +17,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { Minimize2, Power } from 'lucide-react';
 import { Modal } from './Dialog';
+import { CheckPill } from './settings/controls';
 import { trpc } from '../trpc/client';
 import '../styles/close-confirm.css';
 
@@ -133,15 +134,12 @@ export function CloseConfirmDialog(): ReactElement | null {
           </button>
         </div>
 
-        <label className="weq-close-remember">
-          <input
-            type="checkbox"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          <span className="weq-close-remember-box" aria-hidden />
-          <span className="weq-close-remember-txt">不再询问，下次直接按本次选择处理</span>
-        </label>
+        {/* 复用设置页的 CheckPill，避免再维护一套自绘复选框皮肤。 */}
+        <div className="weq-close-remember">
+          <CheckPill checked={remember} onChange={setRemember}>
+            不再询问，下次直接按本次选择处理
+          </CheckPill>
+        </div>
 
         <div className="weq-close-foot">
           <button type="button" className="weq-action-soft" onClick={() => void respond('cancel')}>

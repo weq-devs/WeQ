@@ -185,12 +185,15 @@ export function MutualMarkDialog({
         </button>
       ) : null}
 
-      <header className="weq-mutual-head">
-        <h2>互动标识</h2>
-        <p>
-          {name} <span className="weq-number">{uin}</span>
-        </p>
-      </header>
+      {/* 内嵌进资料页时，分区标题（互动标识）与身份区已经在这里，不再重复一遍标题和 QQ 号。 */}
+      {embedded ? null : (
+        <header className="weq-mutual-head">
+          <h2>互动标识</h2>
+          <p>
+            {name} <span className="weq-number">{uin}</span>
+          </p>
+        </header>
+      )}
 
       {!onlineReady && localMarks.length ? (
         <div className="weq-mutual-body">

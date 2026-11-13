@@ -64,13 +64,13 @@ html[data-theme='dark'] .weq-mail-workspace {
   outline-offset: 1px;
 }
 .weq-mail-workspace button.weq-mail-primary {
-  background: color-mix(in srgb, var(--weq-accent-effective) 20%, var(--weq-bg-surface));
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 65%, var(--weq-border-subtle));
-  color: var(--weq-fg-primary);
+  background: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-on, var(--primary-foreground));
   font-weight: 600;
 }
 .weq-mail-workspace button.weq-mail-primary:not(:disabled):hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 30%, var(--weq-bg-surface));
+  background: var(--weq-accent-hover, var(--weq-accent-effective));
 }
 .weq-mail-workspace input,
 .weq-mail-workspace textarea {
@@ -113,6 +113,7 @@ html[data-theme='dark'] .weq-mail-workspace {
   line-height: 24px;
   margin: 0;
   font-weight: 650;
+  white-space: nowrap;
 }
 .weq-mail-brand span {
   display: block;
@@ -238,12 +239,8 @@ html[data-theme='dark'] .weq-mail-workspace {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-.weq-mail-list-heading label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.weq-mail-list-heading .weq-set-chk {
   margin-left: auto;
-  color: var(--weq-fg-secondary);
   flex-shrink: 0;
 }
 .weq-mail-list-tools {
@@ -840,6 +837,12 @@ html[data-privacy] .weq-mail-text-editor {
     overflow-y: hidden;
     border-right: none;
     border-bottom: 1px solid var(--weq-border-subtle);
+    scrollbar-width: none;
+    /* 窄屏文件夹是一行横滑：右缘渐隐提示还有未显示的文件夹。 */
+    mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  }
+  .weq-mail-folders::-webkit-scrollbar {
+    display: none;
   }
   .weq-mail-folders button {
     min-height: 34px;
@@ -859,7 +862,14 @@ html[data-privacy] .weq-mail-text-editor {
     padding: 0 6px;
     color: var(--weq-fg-muted);
     font-size: 11px;
-    white-space: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 45%;
+    min-width: 0;
+  }
+  .weq-mail-sync-state-compact time {
+    white-space: nowrap;
   }
   .weq-mail-brand span {
     max-width: 170px;
@@ -903,11 +913,12 @@ html[data-privacy] .weq-mail-text-editor {
     min-width: 32px;
     max-width: 100%;
   }
+  /* 窄屏顶栏放不下「写邮件」文字：保留图标主按钮，标签交给 aria-label。 */
   .weq-mail-primary > span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: none;
+  }
+  .weq-mail-primary {
+    padding: 6px 9px;
   }
   .weq-mail-layout {
     grid-template-columns: minmax(0, 1fr);

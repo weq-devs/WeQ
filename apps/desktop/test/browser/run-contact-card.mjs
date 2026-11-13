@@ -240,10 +240,18 @@ try {
       }),
     );
     await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
-    assert.equal(await card.getByTitle('复制邮箱', { exact: true }).count(), 0);
+    // 用户规则：不可编辑字段点值即复制，不额外渲染复制图标按钮。
     const email = card.locator('[data-profile-field="email"] .weq-profile-data-value');
     assert.equal(await email.innerText(), 'sample@example.invalid');
-    assert.equal(await email.locator('button').count(), 0);
+    assert.equal(await email.locator('button').count(), 1);
+    assert.equal(await email.locator('button svg').count(), 0);
+    await email.locator('button').click();
+    assert.equal(
+      await page.evaluate(() => navigator.clipboard.readText()),
+      'sample@example.invalid',
+    );
+    await card.locator('.weq-copy-feedback').waitFor();
+    await card.locator('.weq-copy-feedback').waitFor({ state: 'detached' });
     const previousSettings = await page.evaluate(() => {
       const qa = window.contactCardQa;
       const previous = qa.settings;
@@ -340,8 +348,10 @@ try {
           layout.length === 5 &&
             layout.every((item) => item.direction === 'row' && item.centered && item.fits),
         );
-        for (const item of layout)
-          assert.deepEqual(item.appearance, layout[0].appearance, '所有操作按钮样式应一致');
+        // 主操作（打开会话）填充、其余描边：主次各自内部样式一致。
+        assert.notEqual(layout[0].appearance.background, layout[1].appearance.background);
+        for (const item of layout.slice(1))
+          assert.deepEqual(item.appearance, layout[1].appearance, '所有次操作按钮样式应一致');
         const bounds = await card.boundingBox();
         assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
         const expandBounds = await card

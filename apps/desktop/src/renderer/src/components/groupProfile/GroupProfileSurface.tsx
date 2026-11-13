@@ -106,7 +106,7 @@ function GroupProfileBody({
   const chatAction = canChat ? (
     <button
       type="button"
-      className="weq-contact-secondary"
+      className="weq-contact-primary"
       onClick={() => {
         if (!embedded) close();
         if (onOpenChat) onOpenChat();
@@ -180,14 +180,33 @@ function GroupProfileBody({
                   expandLabel="打开完整群资料"
                   closeLabel="关闭群资料"
                 />
-                <GroupCardIdentity
-                  conversation={conversation}
-                  metrics={data.metrics}
-                  extended={data.extended}
-                />
+                {/* 快速名片同样只让正文滚动，操作条做 footer。 */}
+                <div className="weq-contact-card-body">
+                  <GroupCardIdentity
+                    conversation={conversation}
+                    metrics={data.metrics}
+                    extended={data.extended}
+                  />
+                  {data.profileError ? (
+                    <ContactInlineError
+                      message={data.profileError}
+                      retrying={data.profileRefreshing}
+                      onRetry={() => void data.retryProfile()}
+                    />
+                  ) : null}
+                  <GroupCardContent
+                    key={`${data.scope}:${conversation.id}`}
+                    conversation={conversation}
+                    metrics={data.metrics}
+                    joinedAt={data.joinedAt}
+                    ownerUid={data.ownerUid}
+                    memberCountKnown={data.memberCountKnown}
+                    onOpenMember={openMember}
+                  />
+                </div>
               </>
             )}
-            {data.profileError && !previewContent ? (
+            {embedded && data.profileError && !previewContent ? (
               <ContactInlineError
                 message={data.profileError}
                 retrying={data.profileRefreshing}
@@ -204,17 +223,7 @@ function GroupProfileBody({
                 data={data}
                 onOpenMember={openMember}
               />
-            ) : (
-              <GroupCardContent
-                key={`${data.scope}:${conversation.id}`}
-                conversation={conversation}
-                metrics={data.metrics}
-                joinedAt={data.joinedAt}
-                ownerUid={data.ownerUid}
-                memberCountKnown={data.memberCountKnown}
-                onOpenMember={openMember}
-              />
-            )}
+            ) : null}
             {/* 完整资料页的操作已在页头渲染；这里再来一条会重复操作，并因吸底样式
             压在正文与视口边缘上，所以只在快速名片里保留底部操作行。 */}
             {!embedded && (canChat || canPreview) ? (

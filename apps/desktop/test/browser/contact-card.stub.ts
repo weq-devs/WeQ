@@ -64,19 +64,22 @@ const result = (data?: unknown) => ({
   refetch: async () => ({ data }),
 });
 function value(path: string, input: Record<string, unknown>) {
-  if (path === 'account.qqWrite.memberDetails')
+  if (path === 'account.qqWrite.memberDetails') {
+    // 成员详情必须按群返回：否则切换群聊后在线读回会用上一个群的昵称/头衔覆盖当前群。
+    const second = Number((input as { groupId?: number }).groupId) === 10004;
     return {
       uid: 'u_sample',
       uin: '10002',
       nick: '林同学',
-      card: '群内小林',
-      adminFlag: 0,
-      joinTime: 1725120000,
+      card: second ? '第二群昵称' : '群内小林',
+      adminFlag: second ? 1 : 0,
+      joinTime: second ? 1725206400 : 1725120000,
       lastSpeakTime: 1725217445,
       muteUntil: qa.muted ? 1893427200 : 0,
-      memberLevel: 8,
-      customTitle: '',
+      memberLevel: second ? 12 : 8,
+      customTitle: second ? '第二群头衔' : '',
     };
+  }
   if (path === 'account.conversationBoundary')
     return { msgId: '101', msgSeq: '51', sendTime: 1725120000 };
   if (path === 'account.browseConversation')

@@ -27,7 +27,6 @@ import {
 } from 'react';
 import { z } from 'zod';
 import { usePageState } from '../../components/PageSnapshots';
-import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   CalendarClock,
   Check,
@@ -36,7 +35,6 @@ import {
   Image as ImageIcon,
   Loader2,
   ListFilter,
-  RefreshCw,
   UserRound,
   Undo2,
   X,
@@ -68,7 +66,8 @@ import {
 } from '@weq/service/export-content';
 import { exportContentPolicyInput } from '../../../../shared/export_content';
 import '../../styles/chat-export-continuation.css';
-import { Segmented } from './widgets';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { CheckPillGroup } from '../../components/settings/controls';
 import { TimeRangePicker } from './TimeRangePicker';
 import type { CalendarTarget } from '../../lib/messageCalendar';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
@@ -513,9 +512,9 @@ export function ExportLightbox({
           : isMessageFlow
             ? {
                 ...opts,
-                ocrConcurrency: settings?.ocr.onlineConcurrency ?? opts.ocrConcurrency,
+                ocrConcurrency: settings?.ocr?.onlineConcurrency ?? opts.ocrConcurrency,
                 onlineConcurrency:
-                  settings?.voiceTranscribe.onlineConcurrency ?? opts.onlineConcurrency,
+                  settings?.voiceTranscribe?.onlineConcurrency ?? opts.onlineConcurrency,
                 chatlab: selectedChatlab,
                 content: selectedContent,
                 ...exportContentFlags(selectedContent),
@@ -575,19 +574,6 @@ export function ExportLightbox({
       patch({ chatlab: false });
     }
   }
-  const formatSelection = useMultiSelection({
-    enabled: !hidden,
-    ids: formatOptions
-      .filter((format) => !opts.chatlab || format.value === 'json' || format.value === 'jsonl')
-      .map((format) => format.value),
-    selected: new Set(formats),
-    disabled: submitting,
-    onChange: (next) => {
-      setFormats(formatOptions.map((format) => format.value).filter((value) => next.has(value)));
-    },
-    onExit: onClose,
-  });
-
   const imageRecognition = isMessageFlow ? (
     <div className="weq-exp-image-recognition">
       <Row
@@ -854,25 +840,15 @@ export function ExportLightbox({
                 {/* 导出格式（多选；相册的格式仍走外部选择器） */}
                 {!isAlbum ? (
                   <Card title="导出格式" action={opts.chatlab ? undefined : <ExportFormatHint />}>
-                    <div className="weq-exp-format-grid" {...formatSelection.rootProps}>
-                      {formatOptions.map((f) => {
-                        const on = formats.includes(f.value);
-                        const blocked = opts.chatlab && f.value !== 'json' && f.value !== 'jsonl';
-                        return (
-                          <button
-                            key={f.value}
-                            type="button"
-                            className={`weq-exp-format${on ? ' is-on' : ''}${blocked ? ' is-blocked' : ''}`}
-                            {...formatSelection.itemProps(f.value, blocked)}
-                            aria-pressed={on}
-                            disabled={blocked}
-                          >
-                            {on ? <Check size={13} /> : null}
-                            {f.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <CheckPillGroup<ExportFormat>
+                      options={formatOptions.map((f) => ({ value: f.value, label: f.label }))}
+                      selected={formats}
+                      onChange={(next) => setFormats(next)}
+                      optionDisabled={(value) =>
+                        opts.chatlab && value !== 'json' && value !== 'jsonl'
+                      }
+                      disabled={submitting}
+                    />
                     <p className="weq-exp-block-hint">
                       {isMessageFlow
                         ? '多选时每个格式各产出一份消息文件，媒体资源只导出一份，不会重复。'
@@ -1016,14 +992,13 @@ export function ExportLightbox({
                 {/* 定时设置 */}
                 {isScheduled ? (
                   <Card title="定时设置">
-                    <Segmented
+                    <SegmentedControl<Schedule['mode']>
+                      label="定时方式"
                       value={schedule.mode}
-                      onChange={(mode) =>
-                        setSchedule((s) => ({ ...s, mode: mode as Schedule['mode'] }))
-                      }
+                      onChange={(mode) => setSchedule((s) => ({ ...s, mode }))}
                       options={[
-                        { value: 'daily', label: '每天定时', icon: <CalendarClock size={13} /> },
-                        { value: 'interval', label: '间隔执行', icon: <RefreshCw size={13} /> },
+                        { value: 'daily', label: '每天定时' },
+                        { value: 'interval', label: '间隔执行' },
                       ]}
                     />
                     {schedule.mode === 'daily' ? (

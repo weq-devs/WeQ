@@ -444,7 +444,7 @@ html:where([data-weq-layout='single'])[data-density='compact']
 }
 .weq-style-option[aria-checked='true'] {
   border-color: var(--weq-accent-ink);
-  outline: 1px solid var(--weq-accent-ink);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 .weq-style-option:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);

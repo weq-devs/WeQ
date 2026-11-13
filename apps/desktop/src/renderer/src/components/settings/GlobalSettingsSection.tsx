@@ -38,7 +38,14 @@ import { useToast } from '../Toast';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
-import { Card, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
+import {
+  Card,
+  CheckPill,
+  Row,
+  SectionHeader,
+  Toggle,
+  SettingsNavigateContext,
+} from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { MessageNotificationRows } from './MessageNotificationRows';
@@ -216,27 +223,29 @@ export function GlobalSettingsSection({
     disabled: cleanupBusy || cacheUsage.isFetching,
   });
 
+  // 存储条目：勾选用设置页统一的 CheckPill，不再用原生复选框 + 内层描边卡片。
   const storageItem = (item: StorageUsageItem, members: StorageUsageItem[]) => (
-    <label key={item.id} className="weq-set-cache-item" {...cacheMulti.itemProps(item.id)}>
-      <input
-        type="checkbox"
-        aria-label={item.label}
-        checked={pickedCats.has(item.id)}
-        readOnly
-        disabled={cleanupBusy || cacheUsage.isFetching}
-      />
-      <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+    <div key={item.id} className="weq-storage-item" data-cache-id={item.id}>
+      <div className="weq-storage-item-head">
+        <CheckPill
+          checked={pickedCats.has(item.id)}
+          disabled={cleanupBusy || cacheUsage.isFetching || !item.clearable}
+          onChange={() => cacheMulti.toggle(item.id)}
+        >
+          <HardDrive size={13} strokeWidth={1.8} aria-hidden />
+          {item.label}
+        </CheckPill>
+        <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
+      </div>
       <span className="weq-storage-detail">
-        <span>{item.label}</span>
         {item.backup && <small>{backupDescription(item)}</small>}
         {item.category === 'program-backups' && <small>{item.reason}</small>}
         <small>{item.confirmation ?? item.reason}</small>
         <small className="weq-storage-path">
-          {members.map((member) => member.path).join('\n')}
+          {[...new Set(members.map((member) => member.path))].join('\n')}
         </small>
       </span>
-      <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
-    </label>
+    </div>
   );
 
   async function onClearWeqCache(explicitTargets?: StorageUsageItem[]): Promise<void> {
@@ -635,13 +644,14 @@ export function GlobalSettingsSection({
             <div className="weq-set-btn-group weq-storage-toolbar-buttons">
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
                 title="刷新存储占用"
                 aria-label="刷新存储占用"
                 disabled={cacheUsage.isFetching || cleanupBusy}
                 onClick={() => void cacheUsage.refetch()}
               >
                 <RotateCcw size={14} aria-hidden />
+                刷新占用
               </button>
             </div>
           </div>
@@ -776,7 +786,7 @@ export function GlobalSettingsSection({
       )}
 
       {section === 'logs' && (
-        <Card title="日志" icon={<ScrollText size={15} strokeWidth={1.8} />} remoteUnsupported>
+        <Card title="日志文件" icon={<ScrollText size={15} strokeWidth={1.8} />} remoteUnsupported>
           <Row
             label="日志保留时长"
             desc={

@@ -27,6 +27,8 @@ import type {
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { SectionHeader } from './controls';
+import { useDialog } from '../Dialog';
+import { SegmentedControl } from '../SegmentedControl';
 import '../../styles/performance-monitor.css';
 
 const labels = { off: '关闭', light: '轻量记录', full: '完整记录' } as const;
@@ -375,6 +377,7 @@ function Chart({
 
 export default function PerformanceMonitor() {
   const active = useTabActive();
+  const dialog = useDialog();
   const container = useRef<HTMLDivElement>(null);
   const [buckets, setBuckets] = useState(400);
   const [chartWidth, setChartWidth] = useState(720);
@@ -472,13 +475,14 @@ export default function PerformanceMonitor() {
       current &&
       (settings.retentionDays < current.retentionDays ||
         settings.capacityMiB < current.capacityMiB);
-    if (
-      smaller &&
-      !window.confirm(
-        `保存策略将删除超出 ${settings.retentionDays} 天或 ${settings.capacityMiB} MiB 的最旧历史。当前最早记录：${status.data?.oldest ? time(status.data.oldest) : '无'}。确定应用？`,
-      )
-    )
-      return;
+    if (smaller) {
+      const ok = await dialog.confirm(
+        '应用更小的保存策略？',
+        `保存后会删除超出 ${settings.retentionDays} 天或 ${settings.capacityMiB} MiB 的最旧历史。当前最早记录：${status.data?.oldest ? time(status.data.oldest) : '无'}。`,
+        { okLabel: '应用并删除', cancelLabel: '取消', tone: 'warning' },
+      );
+      if (!ok) return;
+    }
     try {
       await configure.mutateAsync({
         mode,
@@ -557,35 +561,34 @@ export default function PerformanceMonitor() {
         </div>
       ) : null}
       <div className="weq-perf-toolbar">
-        <div role="group" aria-label="记录档位" className="weq-perf-modes">
-          {(['off', 'light', 'full'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              aria-pressed={status.data?.settings.mode === mode}
-              disabled={busy || !settings}
-              onClick={() => void apply(mode)}
-            >
-              {labels[mode]}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl<'off' | 'light' | 'full'>
+          label="记录档位"
+          value={status.data?.settings.mode ?? null}
+          disabled={busy || !settings}
+          onChange={(mode) => void apply(mode)}
+          options={[
+            { value: 'off', label: labels.off },
+            { value: 'light', label: labels.light },
+            { value: 'full', label: labels.full },
+          ]}
+        />
         <label>
           完整档时长
-          <select
-            aria-label="完整档时长"
+          <SegmentedControl<string>
+            label="完整档时长"
             value={duration}
-            onChange={(event) => {
-              setDuration(event.target.value);
+            onChange={(value) => {
+              setDuration(value);
               setDurationDirty(true);
               if (settings?.mode === 'full') setDraft({ ...settings, mode: 'full' });
             }}
-          >
-            <option value="15">15 分钟</option>
-            <option value="60">一小时</option>
-            <option value="240">四小时</option>
-            <option value="continuous">持续</option>
-          </select>
+            options={[
+              { value: '15', label: '15 分钟' },
+              { value: '60', label: '一小时' },
+              { value: '240', label: '四小时' },
+              { value: 'continuous', label: '持续' },
+            ]}
+          />
         </label>
         {durationDirty && settings?.mode === 'full' ? (
           <button type="button" disabled={busy} onClick={() => void apply()}>
@@ -599,29 +602,28 @@ export default function PerformanceMonitor() {
         </p>
       ) : null}
       <div className="weq-perf-toolbar">
-        <label>
-          时间范围
-          <select
-            aria-label="时间范围"
-            value={live ? String(hours) : 'custom'}
-            onChange={(event) => {
-              if (event.target.value === 'custom') {
-                freeze();
-                return;
-              }
-              setHours(Number(event.target.value));
-              setLive(true);
-            }}
-          >
-            <option value="1">最近一小时</option>
-            <option value="24">最近一天</option>
-            <option value="168">最近一周</option>
-            <option value="custom">自定义</option>
-          </select>
-        </label>
+        <SegmentedControl<string>
+          label="时间范围"
+          value={live ? String(hours) : 'custom'}
+          onChange={(value) => {
+            if (value === 'custom') {
+              freeze();
+              return;
+            }
+            setHours(Number(value));
+            setLive(true);
+          }}
+          options={[
+            { value: '1', label: '最近一小时' },
+            { value: '24', label: '最近一天' },
+            { value: '168', label: '最近一周' },
+            { value: 'custom', label: '自定义' },
+          ]}
+        />
         <label>
           进程
           <select
+            className="weq-set-input"
             aria-label="进程"
             value={processKey}
             onChange={(event) => setProcessKey(event.target.value)}
@@ -640,6 +642,7 @@ export default function PerformanceMonitor() {
         <div className="weq-perf-tools">
           <button
             type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             title="上一时间段"
             aria-label="上一时间段"
             onClick={() => move(range.from - range.to)}
@@ -648,6 +651,7 @@ export default function PerformanceMonitor() {
           </button>
           <button
             type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             title="下一时间段"
             aria-label="下一时间段"
             onClick={() => move(range.to - range.from)}
@@ -656,17 +660,25 @@ export default function PerformanceMonitor() {
           </button>
           <button
             type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             title="放大时间轴"
             aria-label="放大时间轴"
             onClick={() => zoom(0.5)}
           >
             <ZoomIn size={16} />
           </button>
-          <button type="button" title="缩小时间轴" aria-label="缩小时间轴" onClick={() => zoom(2)}>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            title="缩小时间轴"
+            aria-label="缩小时间轴"
+            onClick={() => zoom(2)}
+          >
             <ZoomOut size={16} />
           </button>
           <button
             type="button"
+            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             title={live ? '暂停跟随' : '跟随最新'}
             aria-label={live ? '暂停跟随' : '跟随最新'}
             onClick={() => (live ? freeze() : setLive(true))}
@@ -753,6 +765,7 @@ export default function PerformanceMonitor() {
         <div className="weq-perf-toolbar">
           <h3>采样明细</h3>
           <select
+            className="weq-set-input"
             aria-label="明细类别"
             value={category}
             onChange={(event) => setCategory(event.target.value)}
@@ -832,28 +845,28 @@ export default function PerformanceMonitor() {
         <div className="weq-perf-toolbar">
           <label>
             保存时长
-            <select
-              aria-label="保存时长"
+            <SegmentedControl<string>
+              label="保存时长"
               value={
                 settings && [1, 3, 7, 14, 30].includes(settings.retentionDays)
-                  ? settings.retentionDays
+                  ? String(settings.retentionDays)
                   : 'custom'
               }
-              onChange={(event) =>
+              onChange={(value) =>
                 settings &&
                 setDraft({
                   ...settings,
-                  retentionDays: event.target.value === 'custom' ? 8 : Number(event.target.value),
+                  retentionDays: value === 'custom' ? 8 : Number(value),
                 })
               }
-            >
-              {[1, 3, 7, 14, 30].map((days) => (
-                <option key={days} value={days}>
-                  {days} 天
-                </option>
-              ))}
-              <option value="custom">自定义</option>
-            </select>
+              options={[
+                ...[1, 3, 7, 14, 30].map((days) => ({
+                  value: String(days),
+                  label: `${days} 天`,
+                })),
+                { value: 'custom', label: '自定义' },
+              ]}
+            />
           </label>
           {settings && ![1, 3, 7, 14, 30].includes(settings.retentionDays) ? (
             <label>
@@ -872,23 +885,21 @@ export default function PerformanceMonitor() {
           ) : null}
           <label>
             容量上限
-            <select
-              aria-label="容量上限"
-              value={settings?.capacityMiB ?? 128}
-              onChange={(event) =>
+            <SegmentedControl<string>
+              label="容量上限"
+              value={String(settings?.capacityMiB ?? 128)}
+              onChange={(value) =>
                 settings &&
                 setDraft({
                   ...settings,
-                  capacityMiB: Number(event.target.value) as MonitorSettings['capacityMiB'],
+                  capacityMiB: Number(value) as MonitorSettings['capacityMiB'],
                 })
               }
-            >
-              {[64, 128, 256, 512].map((size) => (
-                <option key={size} value={size}>
-                  {size} MiB
-                </option>
-              ))}
-            </select>
+              options={[64, 128, 256, 512].map((size) => ({
+                value: String(size),
+                label: `${size} MiB`,
+              }))}
+            />
           </label>
           <button type="button" disabled={busy || !draft} onClick={() => void apply()}>
             应用
@@ -925,7 +936,12 @@ export default function PerformanceMonitor() {
             type="button"
             disabled={busy}
             onClick={async () => {
-              if (!window.confirm('确定清空此宿主的全部性能历史？此操作不可撤销。')) return;
+              const ok = await dialog.confirm(
+                '清空性能历史？',
+                '会删除此宿主的全部性能采样记录，此操作不可撤销。',
+                { okLabel: '清空历史', cancelLabel: '取消', tone: 'error' },
+              );
+              if (!ok) return;
               try {
                 await clear.mutateAsync(true);
                 setSelected(null);

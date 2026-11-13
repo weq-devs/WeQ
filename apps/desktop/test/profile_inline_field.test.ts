@@ -216,7 +216,8 @@ it('离线已有内容为纯文本；读取失败有重试且不写入', async (
   render();
   expect(button('编辑备注')).toBeNull();
   expect(host.textContent).toContain('旧备注');
-  expect(host.querySelector('[aria-label="复制备注"]')).toBeNull();
+  // 不可编辑时点值即复制（用户规则），不再额外挂复制图标。
+  expect(button('复制 备注').textContent).toBe('旧备注');
   mock.online = true;
   mock.readError = true;
   render();

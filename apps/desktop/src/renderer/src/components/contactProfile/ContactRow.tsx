@@ -55,10 +55,12 @@ export function ContactRow({
   const hasHistory = useContactFieldHistoryAvailable(label, historyField);
   const blank = empty ?? isBlank(children ?? value);
   const content = blank ? '暂无当前资料' : (children ?? value);
-  const text = ['QQ', 'QID', 'UID'].includes(label)
-    ? (copyValue ??
-      (typeof content === 'string' || typeof content === 'number' ? String(content) : undefined))
-    : undefined;
+  // 用户规则：字段不显示复制/编辑按钮；可编辑时点值进入编辑，不可编辑时点值复制。
+  // 纯文本/数字值一律可点复制（结构化内容如标签、图片、按钮不复制）。
+  const text = blank
+    ? undefined
+    : (copyValue ??
+      (typeof content === 'string' || typeof content === 'number' ? String(content) : undefined));
   if (blank && !hasHistory) return null;
   const className = `weq-profile-data-row${valueClassName ? ` ${valueClassName}` : ''}`;
   return (
@@ -90,8 +92,8 @@ export function ContactRow({
           <CopyButton
             text={text}
             className="weq-profile-data-action"
-            title={(copyValue !== undefined ? activateTitle : undefined) ?? `复制${label}`}
-            aria-label={`复制${label}`}
+            title={(copyValue !== undefined ? activateTitle : undefined) ?? `复制 ${label}`}
+            aria-label={`复制 ${label}`}
           >
             {content}
           </CopyButton>

@@ -82,7 +82,10 @@ export function ContactFieldSort<K extends string>({
             >
               <GripVertical size={14} aria-hidden />
             </button>
-          ) : null}
+          ) : (
+            // 不参与排序的分区也保留把手位，避免各行文字左缩进不一致。
+            <span className="weq-contact-sort-handle is-placeholder" aria-hidden />
+          )}
           <span className="weq-contact-sort-label">{labels(key)}</span>
           {control(key)}
         </li>

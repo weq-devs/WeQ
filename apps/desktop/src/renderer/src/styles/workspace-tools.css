@@ -9,7 +9,7 @@
   height: 32px;
   margin-right: 4px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 6px;
   transition:
     width 160ms ease,
     border-color 160ms ease,
@@ -44,7 +44,7 @@
   background: transparent;
   color: var(--weq-fg-primary);
   font: inherit;
-  /* 输入框默认继承浏览器 16px；标题栏搜索与侧栏搜索（13.5px）保持同一档。 */
+  /* 输入框默认继承浏览器 16px；标题栏搜索统一到 13px 的控件字号档。 */
   font-size: 13px;
   outline-offset: 3px;
   opacity: 0;
@@ -62,7 +62,7 @@
 }
 
 .weq-titlebar-search > .weq-titlebar-search-clear {
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .weq-titlebar-search > .weq-titlebar-search-clear:hover {
@@ -398,7 +398,7 @@
   border-bottom: 1px solid var(--weq-border-subtle);
   background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
   color: var(--weq-fg-primary);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 .weq-exp-source-glyph {
   display: grid;
@@ -613,7 +613,7 @@ html[data-theme='dark'] .weq-tools-modal {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
 }
 .weq-export-tool .weq-exp-search input {
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .weq-export-tool .weq-exp-tools {
   margin: 0 12px 8px;

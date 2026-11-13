@@ -70,3 +70,14 @@ html[data-theme='dark'] .weq-segmented {
 html[data-theme='dark'] .weq-segmented > button[aria-checked='true'] {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 75%, var(--foreground));
 }
+
+/* 分段项内的「图标 + 文字」排布，与设置页其它控件保持同一 gap。 */
+.weq-set-seg-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-set-seg-label > svg {
+  flex: none;
+}

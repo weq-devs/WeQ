@@ -30,8 +30,6 @@ import {
   Search,
   Smile,
   Trash2,
-  Users,
-  UserRound,
   X,
   Zap,
 } from 'lucide-react';
@@ -48,7 +46,8 @@ import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
 import { classifyChatType, datalineName, toChatTypeNumber } from '@weq/codec';
 import type { ExportPresets } from '@weq/service';
-import { Segmented } from './export/widgets';
+import { SegmentedControl } from '../components/SegmentedControl';
+import { CheckPill } from '../components/settings/controls';
 import { ChipsSkeleton, PickerListSkeleton, ScheduleListSkeleton } from './export/ExportSkeleton';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
@@ -2087,12 +2086,13 @@ function ExportToolBody({
 
             {mode === 'full' && !editingList ? (
               <div className="weq-export-execution">
-                <Segmented<'now' | 'scheduled'>
+                <SegmentedControl<'now' | 'scheduled'>
+                  label="导出方式"
                   value={execution}
                   onChange={setExecution}
                   options={[
-                    { value: 'now', label: '立即导出', icon: <Play size={13} /> },
-                    { value: 'scheduled', label: '定时执行', icon: <CalendarClock size={13} /> },
+                    { value: 'now', label: '立即导出' },
+                    { value: 'scheduled', label: '定时执行' },
                   ]}
                 />
                 {execution === 'scheduled' &&
@@ -2292,13 +2292,14 @@ function ExportToolBody({
               ) : mode === 'contacts' ? (
                 <div className="weq-exp-contacts">
                   <div className="weq-exp-contacts-switch">
-                    <Segmented<'friends' | 'group' | 'groups'>
+                    <SegmentedControl<'friends' | 'group' | 'groups'>
+                      label="名单类型"
                       value={contactScope}
                       onChange={setContactScope}
                       options={[
-                        { value: 'friends', label: '联系人名单', icon: <UserRound size={13} /> },
-                        { value: 'groups', label: '群聊名单', icon: <Users size={13} /> },
-                        { value: 'group', label: '群成员名单', icon: <Users size={13} /> },
+                        { value: 'friends', label: '联系人名单' },
+                        { value: 'groups', label: '群聊名单' },
+                        { value: 'group', label: '群成员名单' },
                       ]}
                     />
                   </div>
@@ -2471,11 +2472,11 @@ function ExportToolBody({
                 ) : showFormatChips ? (
                   <div className="weq-exp-foot-format">
                     <span className="weq-exp-foot-label">格式</span>
-                    <Segmented<ExportFormat>
+                    <SegmentedControl<ExportFormat>
+                      label="导出格式"
                       value={format}
                       onChange={setFormat}
                       options={formatOptions}
-                      small
                     />
                     <StructuredExportControls
                       onRequireJson={() => setFormat('json')}
@@ -2555,7 +2556,8 @@ function ExportToolBody({
         <div className={`weq-task-workspace is-${taskLayout}`}>
           {taskLayout !== 'compact' ? (
             <div className="weq-task-workspace-tabs">
-              <Segmented<'tasks' | 'schedules'>
+              <SegmentedControl<'tasks' | 'schedules'>
+                label="任务视图"
                 value={taskTab}
                 onChange={setTaskTab}
                 options={[
@@ -2866,7 +2868,7 @@ function CategoryChips({
         <div className="weq-exp-cats-list">
           <button
             type="button"
-            className={`weq-exp-chip${allActive ? ' is-active' : ''}`}
+            className={`weq-exp-chip${allActive ? ' is-on' : ''}`}
             onClick={() => onChange(new Set())}
           >
             全部好友 <b>{total}</b>
@@ -2875,7 +2877,7 @@ function CategoryChips({
             <button
               key={c.id}
               type="button"
-              className={`weq-exp-chip${selected.has(c.id) ? ' is-active' : ''}`}
+              className={`weq-exp-chip${selected.has(c.id) ? ' is-on' : ''}`}
               {...multi.itemProps(c.id)}
             >
               {c.name} <b>{c.count}</b>
@@ -3004,7 +3006,7 @@ function CollectionScope({
           <div className="weq-exp-cats-list">
             <button
               type="button"
-              className={`weq-exp-chip${allActive ? ' is-active' : ''}`}
+              className={`weq-exp-chip${allActive ? ' is-on' : ''}`}
               onClick={() => onChange(new Set())}
             >
               全部收藏 <b>{total}</b>
@@ -3013,7 +3015,7 @@ function CollectionScope({
               <button
                 key={k.id}
                 type="button"
-                className={`weq-exp-chip${selected.has(k.id) ? ' is-active' : ''}`}
+                className={`weq-exp-chip${selected.has(k.id) ? ' is-on' : ''}`}
                 {...typesMulti.itemProps(k.id)}
               >
                 {k.label} <b>{counts[k.id] ?? 0}</b>
@@ -3028,18 +3030,16 @@ function CollectionScope({
           <strong>{allActive ? '全部收藏' : '所选类型'}</strong>
           <small>{loading ? '加载中…' : `${fmtCount(filtered.length)} 条`}</small>
         </div>
-        <label className="weq-message-scope-mode">
-          <input
-            type="checkbox"
+        <div className="weq-message-scope-mode">
+          <CheckPill
             checked={selectedIds !== undefined}
-            onChange={(event) => onSelectedIdsChange(event.target.checked ? [] : undefined)}
-          />
-          <span>
+            onChange={(next) => onSelectedIdsChange(next ? [] : undefined)}
+          >
             {selectedIds === undefined
               ? '导出全部筛选结果'
               : `精确选中 ${selectedIds.length} 条收藏`}
-          </span>
-        </label>
+          </CheckPill>
+        </div>
         <div className="weq-exp-search">
           <Search size={15} aria-hidden />
           <input

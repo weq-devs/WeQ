@@ -115,6 +115,8 @@ function ContactProfilePage({
                 }
                 actions={
                   <ContactActions
+                    /* 群内操作（本群发言 / 聊天分析）属于「群内资料」分页的上下文操作，
+                       页头再放一次会和分页里的操作条重复；快速名片没有分页，才由名片承载。 */
                     hideGroup
                     key={JSON.stringify([...scope, person.id, person.identityValue])}
                     onNavigate={(action) => {

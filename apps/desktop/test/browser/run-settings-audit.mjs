@@ -50,9 +50,60 @@ const DIAG = `
   const cards = [...body.querySelectorAll('.weq-set-card')].map((card) => ({
     id: card.dataset.settingId || null,
     title: text(card.querySelector('.weq-set-card-title')),
+    desc: text(card.querySelector('.weq-set-card-desc')),
     icon: Boolean(card.querySelector('.weq-set-card-icon')),
     reset: Boolean(card.querySelector('.weq-settings-reset-button')),
   }));
+  // 单行卡片重复标题：卡片标题与其中某个行 label 完全相同时，读起来像同一句话写了两遍。
+  const duplicatedCardRow = [];
+  for (const card of body.querySelectorAll('.weq-set-card')) {
+    const title = text(card.querySelector('.weq-set-card-title'));
+    if (!title) continue;
+    for (const row of card.querySelectorAll('.weq-set-row')) {
+      const label = text(row.querySelector('.weq-set-row-label'));
+      if (label && label === title) duplicatedCardRow.push(title);
+    }
+  }
+  const px = (value) => Math.round(Number.parseFloat(value) * 10) / 10;
+  const metric = (name) => {
+    const node = body.querySelector(name);
+    if (!node) return null;
+    const style = getComputedStyle(node);
+    return {
+      fontSize: px(style.fontSize),
+      gap: px(style.gap),
+      padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]
+        .map(px)
+        .join(' '),
+      radius: px(style.borderRadius),
+      border: style.borderTopWidth,
+    };
+  };
+  const cardBoxes = [...body.querySelectorAll('.weq-set-card')].map((card) =>
+    card.getBoundingClientRect(),
+  );
+  const cardGaps = [];
+  for (let i = 1; i < cardBoxes.length; i += 1) {
+    const gap = Math.round((cardBoxes[i].top - cardBoxes[i - 1].bottom) * 10) / 10;
+    if (gap > -1) cardGaps.push(gap);
+  }
+  const headOverlap = [];
+  for (const head of body.querySelectorAll('.weq-set-head, .weq-set-card-head')) {
+    const title = head.querySelector('.weq-set-title, .weq-set-card-title');
+    const action = head.querySelector('.weq-settings-page-reset, .weq-set-card-action');
+    if (!title || !action) continue;
+    const a = title.getBoundingClientRect();
+    const b = action.getBoundingClientRect();
+    if (a.right > b.left + 0.5 && b.right > a.left + 0.5 && a.bottom > b.top && b.bottom > a.top)
+      headOverlap.push(text(title));
+  }
+  const halfPixel = [
+    ...new Set(
+      [...body.querySelectorAll('*')]
+        .filter((node) => px(getComputedStyle(node).fontSize) % 1 !== 0)
+        .map((node) => (node.className || node.tagName) + '@' + px(getComputedStyle(node).fontSize)),
+    ),
+  ].slice(0, 20);
   const headers = [...body.querySelectorAll('.weq-set-head')].map((head) => ({
     title: text(head.querySelector('.weq-set-title')),
     desc: text(head.querySelector('.weq-set-desc')),
@@ -70,6 +121,24 @@ const DIAG = `
     cards,
     rows,
     autosave,
+    duplicatedCardRow: [...new Set(duplicatedCardRow)],
+    cardGaps: [...new Set(cardGaps)].sort((a, b) => a - b),
+    metrics: {
+      card: metric('.weq-set-card'),
+      cardTitle: metric('.weq-set-card-title'),
+      rowLabel: metric('.weq-set-row-label'),
+      rowDesc: metric('.weq-set-row-desc'),
+      headTitle: metric('.weq-set-title'),
+    },
+    rowHeights: [
+      ...new Set(
+        [...body.querySelectorAll('.weq-set-row')].map((row) =>
+          Math.round(row.getBoundingClientRect().height),
+        ),
+      ),
+    ].sort((a, b) => a - b),
+    headOverlap,
+    halfPixel,
     stray: [...new Set(stray)].sort(),
     overflowX: body.scrollWidth - body.clientWidth,
     bodyClass: body.className,
@@ -164,6 +233,39 @@ try {
       }
     }
   }
+
+  // ---- 1b. 版式一致性断言（41 页全量） ----
+  const layoutProblems = [];
+  for (const page of report.pages) {
+    const where = `${page.group}/${page.section}`;
+    if (page.overflowX > 0) layoutProblems.push(`${where} 横向溢出 ${page.overflowX}px`);
+    if (page.duplicatedCardRow.length)
+      layoutProblems.push(`${where} 卡片标题与行 label 重复：${page.duplicatedCardRow.join('、')}`);
+    if (page.headOverlap.length)
+      layoutProblems.push(`${where} 页头/卡片标题与右侧操作重叠：${page.headOverlap.join('、')}`);
+    const card = page.metrics.card;
+    if (card) {
+      if (card.radius !== 8) layoutProblems.push(`${where} 卡片圆角 ${card.radius}px ≠ 8px`);
+      if (card.padding !== '14 16 14 16')
+        layoutProblems.push(`${where} 卡片内边距 ${card.padding} ≠ 14 16 14 16`);
+      if (card.gap !== 10) layoutProblems.push(`${where} 卡片内间距 ${card.gap}px ≠ 10px`);
+    }
+    if (page.metrics.cardTitle && page.metrics.cardTitle.fontSize !== 13)
+      layoutProblems.push(`${where} 卡片标题字号 ${page.metrics.cardTitle.fontSize}px ≠ 13px`);
+    if (page.metrics.rowLabel && page.metrics.rowLabel.fontSize !== 14)
+      layoutProblems.push(`${where} 行 label 字号 ${page.metrics.rowLabel.fontSize}px ≠ 14px`);
+    if (page.metrics.rowDesc && page.metrics.rowDesc.fontSize !== 12)
+      layoutProblems.push(`${where} 行说明字号 ${page.metrics.rowDesc.fontSize}px ≠ 12px`);
+    if (page.metrics.headTitle && page.metrics.headTitle.fontSize !== 16)
+      layoutProblems.push(`${where} 页标题字号 ${page.metrics.headTitle.fontSize}px ≠ 16px`);
+    // 同类间距相等：一页内的卡片间距只能有一个值（单卡片页除外）。
+    // > 64px 的是跨区块（多个 .weq-set 分组）之间的留白，单独统计，不算同类间距。
+    const cardGaps = page.cardGaps.filter((gap) => gap <= 64);
+    if (new Set(cardGaps).size > 1)
+      layoutProblems.push(`${where} 卡片间距不相等：${cardGaps.join('/')}px`);
+  }
+  assert.deepEqual(layoutProblems, [], `设置页版式不一致：\n${layoutProblems.join('\n')}`);
+  report.layoutProblems = layoutProblems;
 
   // ---- 2. 390：分类页 + 关键页 ----
   for (const theme of ['light', 'dark']) {

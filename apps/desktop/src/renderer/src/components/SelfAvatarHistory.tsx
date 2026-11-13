@@ -15,7 +15,7 @@ import '../styles/avatar-history.css';
 
 const formatter = eventTimeFormatter;
 export const avatarHistoryTime = (value: number | null) =>
-  value === null ? '未知' : formatter.format(value * 1000);
+  value === null ? '时间未记录' : formatter.format(value * 1000);
 
 export function SelfAvatarHistory() {
   const session = useQQWriteSession('self-avatar-history');

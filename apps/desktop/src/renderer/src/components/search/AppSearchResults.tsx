@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronDown, Settings2 } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
 import { highlightText } from './SearchResultCard';
 import { searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
 import '../../styles/app-search.css';
@@ -20,7 +20,11 @@ export function AppSearchResults({
     <div className="weq-search-section weq-app-search">
       <div className="weq-search-section-header">
         <span className="weq-search-section-name">功能与设置</span>
-        <span className="weq-app-search-count">{entries.length}</span>
+        {!expanded && entries.length > 6 ? (
+          <button type="button" className="weq-search-more" onClick={onExpand}>
+            更多
+          </button>
+        ) : null}
       </div>
       {!entries.length ? <div className="weq-search-empty">无结果</div> : null}
       {(expanded ? entries : entries.slice(0, 6)).map((entry) => (
@@ -39,15 +43,8 @@ export function AppSearchResults({
             <span className="weq-search-name">{highlightText(entry.title, keyword)}</span>
             <span className="weq-search-snippet">{entry.path}</span>
           </span>
-          <ArrowRight size={14} className="weq-app-search-arrow" aria-hidden />
         </button>
       ))}
-      {entries.length > 6 && !expanded ? (
-        <button type="button" className="weq-app-search-expand" onClick={onExpand}>
-          <ChevronDown size={14} />
-          更多功能与设置（{entries.length - 6}）
-        </button>
-      ) : null}
     </div>
   );
 }

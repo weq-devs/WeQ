@@ -40,6 +40,7 @@ import type {
 } from '@weq/service/mail';
 import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
 import { useDialog } from '../../components/Dialog';
+import { CheckPill } from '../../components/settings/controls';
 import { useToast } from '../../components/Toast';
 import { usePrivacyStore } from '../../state/privacy';
 import type { MailApi } from './api';
@@ -571,9 +572,13 @@ export function MailPage({
           </div>
         </div>
         <span className="weq-mail-sync-state weq-mail-sync-state-compact">
-          <TimeLabel value={status.lastSync} precision="millisecond">
-            {syncText}
-          </TimeLabel>
+          {status.lastSync ? (
+            <TimeLabel value={status.lastSync} precision="minute">
+              {syncText}
+            </TimeLabel>
+          ) : (
+            syncText
+          )}
         </span>
         <div className="weq-mail-top-actions">
           <button
@@ -704,9 +709,13 @@ export function MailPage({
               );
             })}
             <div className="weq-mail-sync-state">
-              <TimeLabel value={status.lastSync} precision="millisecond">
-                {syncText}
-              </TimeLabel>
+              {status.lastSync ? (
+                <TimeLabel value={status.lastSync} precision="millisecond">
+                  {syncText}
+                </TimeLabel>
+              ) : (
+                syncText
+              )}
             </div>
           </nav>
           <section className="weq-mail-list" aria-label="邮件列表">
@@ -752,18 +761,16 @@ export function MailPage({
             <header className="weq-mail-list-heading">
               <h2>{keyword ? '搜索结果' : selectedFolder?.name || '邮件'}</h2>
               <span>{page.total}</span>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={unreadOnly}
-                  onChange={(event) => {
-                    setUnreadOnly(event.target.checked);
-                    setPageNumber(0);
-                    clearChecked();
-                  }}
-                />
-                未读
-              </label>
+              <CheckPill
+                checked={unreadOnly}
+                onChange={(next) => {
+                  setUnreadOnly(next);
+                  setPageNumber(0);
+                  clearChecked();
+                }}
+              >
+                仅看未读
+              </CheckPill>
             </header>
             <div className="weq-mail-list-tools">
               <input

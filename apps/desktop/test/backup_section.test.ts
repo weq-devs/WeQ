@@ -198,13 +198,17 @@ it('按页重置注明服务停用范围，目录默认保留且显式选择后�
   await ui.click('恢复本页默认设置');
   const modal = document.querySelector('[role="dialog"]')!;
   expect(modal.textContent).toContain('将停用：Web 服务');
-  const select = modal.querySelectorAll<HTMLSelectElement>('select');
-  expect([...select].map((node) => node.value)).toEqual(['keep']);
+  // 目录处置改成设置页统一的分段控件（保留当前 / 恢复默认），不再是原生下拉。
+  const group = modal.querySelector<HTMLElement>('[role="radiogroup"][aria-label="缓存目录"]')!;
+  expect(group.textContent).toContain('保留当前');
+  expect(group.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain(
+    '保留当前',
+  );
   await act(async () => {
-    for (const node of select) {
-      node.value = 'reset';
-      node.dispatchEvent(new Event('change', { bubbles: true }));
-    }
+    const resetChoice = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+      (node) => node.textContent?.includes('恢复默认'),
+    )!;
+    resetChoice.click();
   });
   expect(modal.textContent).toContain('不迁移或删除已有文件');
   await ui.click('确认恢复默认');

@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { RotateCcw, Loader2 } from 'lucide-react';
 import { Modal } from '../Dialog';
+import { SegmentedControl } from '../SegmentedControl';
 import { client, trpc } from '../../trpc/client';
 import { DEFAULT_THEME_SETTINGS as themeDefaults, useThemeStore } from '../../state/theme';
 import {
@@ -349,21 +350,22 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                         {item.label}
                         <small>{formatResetValue(item.current, item.id)}</small>
                       </span>
-                      <select
-                        aria-label={item.label}
-                        disabled={busy}
+                      <SegmentedControl<'keep' | 'reset'>
+                        label={item.label}
                         value={directories.includes(item.id) ? 'reset' : 'keep'}
-                        onChange={(event) =>
+                        disabled={busy}
+                        onChange={(choice) =>
                           setDirectories((before) =>
-                            event.target.value === 'reset'
+                            choice === 'reset'
                               ? [...before, item.id]
                               : before.filter((id) => id !== item.id),
                           )
                         }
-                      >
-                        <option value="keep">保留当前</option>
-                        <option value="reset">恢复默认</option>
-                      </select>
+                        options={[
+                          { value: 'keep', label: '保留当前' },
+                          { value: 'reset', label: '恢复默认' },
+                        ]}
+                      />
                     </label>
                   ))}
               </div>

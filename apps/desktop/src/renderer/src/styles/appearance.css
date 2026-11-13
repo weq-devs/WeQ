@@ -241,3 +241,25 @@ html[data-theme] .contact-row .row-main .contact-card-nickname {
 html[data-theme] .app-shell :is(.conversation-row, .contact-row, .rail-tab) {
   transition-property: box-shadow, border-color;
 }
+
+/* 主题色滑杆：每根滑杆带可见名称与当前值，不再只有无障碍标签。 */
+.weq-cp-bar-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 10px;
+}
+
+.weq-cp-bar-label {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+}
+
+.weq-cp-bar-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  text-align: right;
+  white-space: nowrap;
+}

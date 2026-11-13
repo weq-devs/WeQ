@@ -27,6 +27,8 @@ import {
   FolderSearch,
   KeyRound,
   Plug,
+  Radio,
+  Zap,
   RefreshCw,
   Smartphone,
   Trash2,
@@ -631,7 +633,7 @@ export function AccountBasicsSection({
 
       {/* Realtime / db watch */}
       {page === 'account' && (
-        <Card title="实时监听" resetId="realtime">
+        <Card title="实时监听" icon={<Radio size={15} strokeWidth={1.8} />} resetId="realtime">
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -669,7 +671,11 @@ export function AccountBasicsSection({
               <QqDebugCopy />
             </Card>
           )}
-          <Card title="自动进入完整模式" resetId="attach">
+          <Card
+          title="自动进入完整模式"
+          icon={<Zap size={15} strokeWidth={1.8} />}
+          resetId="attach"
+        >
             <Row
               settingId="auto-full-mode"
               label={

@@ -137,7 +137,7 @@ try {
       if (cell.state !== 'empty') {
         assert.equal(
           await page.locator('.weq-profile-subtitle').filter({ hasText: '群内资料' }).textContent(),
-          `群内资料（${cell.state === 'long' ? '一个名字特别长的群聊用来测试群上下文标题换行' : '合成群'}）`,
+          `群内资料 · ${cell.state === 'long' ? '一个名字特别长的群聊用来测试群上下文标题换行' : '合成群'}`,
         );
         for (const field of ['company', 'description', 'email'])
           assert.ok(
@@ -211,7 +211,7 @@ try {
       page.evaluate(() => document.querySelector('.weq-member-pop')?.innerText ?? '');
     const initial = await read();
     assert.ok(initial.includes('QID'), 'QID 默认开，应在名片身份区');
-    assert.match(await page.locator('.weq-contact-meta').last().innerText(), /QID/);
+    assert.match(await page.locator('.weq-contact-identity-body').last().innerText(), /QID/);
     assert.ok(!initial.includes('UID'), 'UID 默认关，不应在名片正文');
     await page.screenshot({
       path: resolve(output, `card-qid-on-1280-${theme}.png`),
@@ -225,7 +225,7 @@ try {
     const toggled = await read();
     assert.ok(!toggled.includes('QID'), '关闭 QID 后名片不应出现');
     assert.ok(toggled.includes('UID'), '开启 UID 后身份区应出现');
-    assert.match(await page.locator('.weq-contact-meta').last().innerText(), /UID/);
+    assert.match(await page.locator('.weq-contact-identity-body').last().innerText(), /UID/);
     assert.equal(await page.locator('[data-profile-field="uid"]').count(), 0);
     await page.screenshot({
       path: resolve(output, `card-qid-off-1280-${theme}.png`),
@@ -240,8 +240,8 @@ try {
     });
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
-      const numbers = page.locator('.weq-contact-meta').last();
-      await numbers.getByRole('button', { name: '复制 UID', exact: true }).waitFor();
+      const numbers = page.locator('.weq-contact-identity-body').last();
+      await numbers.getByTitle('复制 UID', { exact: true }).waitFor();
       assert.match(await numbers.innerText(), /QQ.*QID.*UID/s);
       assert.ok(
         await numbers.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
@@ -258,13 +258,14 @@ try {
       document.querySelector('.audit-tools button:nth-child(2)')?.click();
     });
     await page.waitForTimeout(400);
-    await page.locator('.weq-profile-tech > summary').click();
-    const tech = await page.evaluate(
-      () => document.querySelector('.weq-profile-tech')?.innerText ?? '',
+    // 四页资料工作区不再输出「技术详情」块：QID/UID 就是身份区的可选字段行，
+    // 关掉开关后两边都不再出现，不会出现「关不掉」的常驻技术字段。
+    assert.equal(await page.locator('.weq-profile-tech').count(), 0, '资料页不再有技术详情块');
+    assert.ok(
+      !(await page.locator('.weq-contact-identity-body').last().innerText()).includes('UID'),
+      '关闭 UID 后身份区不再显示',
     );
-    assert.ok(!tech.includes('QID') && tech.includes('UID'), '技术详情只保留 UID');
-    assert.match(await page.locator('.weq-contact-meta').last().innerText(), /QID/);
-    report[`qidTechnical:${theme}`] = tech.replace(/\s+/g, ' ').slice(0, 80);
+    report[`uidHidden:${theme}`] = true;
     await page.close();
   }
 
@@ -285,7 +286,7 @@ try {
   {
     const { page } = await open('view=card&state=default');
     await page.locator('.weq-member-pop').waitFor();
-    const signature = page.locator('.weq-contact-signature p');
+    const signature = page.locator('.weq-contact-signature-value');
     const box = await signature.boundingBox();
     await page.mouse.move(box.x + 4, box.y + 6);
     await page.mouse.down();
@@ -335,16 +336,14 @@ try {
         headings: [...card.querySelectorAll('.weq-profile-name, .weq-profile-id')].map((n) =>
           n.textContent.trim().slice(0, 24),
         ),
-        labelledRows: [...card.querySelectorAll('.weq-profile-row')].map((row) => ({
-          label: row.querySelector('.weq-profile-row-label')?.textContent?.trim() ?? null,
-          value: (
-            row.querySelector('.weq-profile-row-value, .weq-contact-value')?.textContent ?? ''
-          )
+        labelledRows: [...card.querySelectorAll('.weq-profile-data-row')].map((row) => ({
+          label: row.querySelector('.weq-profile-data-label')?.textContent?.trim() ?? null,
+          value: (row.querySelector('.weq-profile-data-value')?.textContent ?? '')
             .trim()
             .slice(0, 22),
         })),
         gridTemplate: (() => {
-          const row = card.querySelector('.weq-contact-content .weq-profile-row');
+          const row = card.querySelector('.weq-profile-data-row');
           return row ? getComputedStyle(row).gridTemplateColumns : null;
         })(),
         avatar: (() => {
@@ -357,7 +356,7 @@ try {
       };
     });
     // 关闭按钮位置与焦点恢复
-    const closeButton = page.locator('.weq-profile-close');
+    const closeButton = page.locator('.weq-profile-card-controls button:last-child');
     report.closeButton = await closeButton.evaluate((node) => {
       const rect = node.getBoundingClientRect();
       const card = node.closest('.weq-member-pop').getBoundingClientRect();
@@ -386,9 +385,10 @@ try {
         .locator('.weq-contact-sort-item .weq-contact-sort-label')
         .allTextContents();
     const before = await sortIds();
-    const up = page.getByRole('button', { name: /^上移/ }).nth(2);
-    await up.focus();
-    await page.keyboard.press('Enter');
+    // 排序交互现在是「拖动把手 + 方向键」，不再有上移/下移按钮。
+    const handle = page.locator('.weq-contact-sort-handle:not(.is-placeholder)').nth(1);
+    await handle.focus();
+    await page.keyboard.press('ArrowUp');
     await page.waitForTimeout(250);
     const after = await sortIds();
     report.keyboardSort = {
@@ -397,10 +397,9 @@ try {
       changed: JSON.stringify(before) !== JSON.stringify(after),
       focusKept: await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
     };
-    // 把手方向键排序
-    const handle = page.locator('.weq-contact-sort-handle').nth(3);
-    await handle.focus();
-    await page.keyboard.press('ArrowUp');
+    const second = page.locator('.weq-contact-sort-handle:not(.is-placeholder)').nth(2);
+    await second.focus();
+    await page.keyboard.press('ArrowDown');
     await page.waitForTimeout(200);
     report.handleArrowSort = { changed: JSON.stringify(await sortIds()) !== JSON.stringify(after) };
     // 与其它设置对比：SectionHeader / Card / Row / Toggle
@@ -470,12 +469,12 @@ try {
       await page.locator('.weq-profile-directory-tabs').waitFor();
       const tabsVisible = await page.locator('.weq-profile-directory-tabs').isVisible();
       const options = await page.locator('.weq-profile-directory-tab').allTextContents();
-      await page.getByRole('tab', { name: '详细资料', exact: true }).click();
+      await page.getByRole('tab', { name: '群内资料', exact: true }).click();
       await page.waitForTimeout(200);
       report[`narrowPage:${width}`] = {
         selectVisible: tabsVisible,
         options,
-        title: await page.locator('.weq-contact-section-title').first().textContent(),
+        title: await page.locator('.weq-profile-group-picker label').first().textContent(),
         overflow: await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         toolbarFocusable: await page.locator('.weq-profile-page-toolbar button').count(),
       };
@@ -504,19 +503,19 @@ try {
     report[`pageLong:${width}`] = await page.evaluate(() => {
       const body = document.querySelector('.weq-contact-workspace-body');
       const title = document.querySelector('.weq-contact-section-title');
-      const row = document.querySelector('.weq-contact-content .weq-profile-row');
+      const row = document.querySelector('.weq-profile-data-row');
       return {
         bodyWidth: body ? Math.round(body.getBoundingClientRect().width) : null,
         titleFont: title ? getComputedStyle(title).fontSize : null,
         grid: row ? getComputedStyle(row).gridTemplateColumns : null,
-        toolbarText: document.querySelector('.weq-contact-page-toolbar')?.textContent?.trim(),
+        toolbarText: document.querySelector('.weq-profile-page-toolbar')?.textContent?.trim(),
         headings: [
           ...document.querySelectorAll(
             '.weq-contact-profile-v2 h1,.weq-contact-profile-v2 h2,.weq-contact-profile-v2 h3',
           ),
         ].map((n) => `${n.tagName}:${n.textContent.trim().slice(0, 16)}`),
         lineLength: (() => {
-          const node = document.querySelector('.weq-contact-content');
+          const node = document.querySelector('.weq-profile-workspace-body');
           if (!node) return null;
           const style = getComputedStyle(node);
           return {

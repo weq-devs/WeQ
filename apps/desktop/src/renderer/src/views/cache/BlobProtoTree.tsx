@@ -1,4 +1,5 @@
 import { formatDateTime } from '@weq/time';
+import { SegmentedControl } from '../../components/SegmentedControl';
 /**
  * Protobuf tree for the BLOB lightbox — the schema-free decoder rendered as an
  * editable outline.
@@ -354,17 +355,12 @@ function AddField({
           }
         }}
       />
-      <select
-        className="weq-pb-add-wire"
+      <SegmentedControl<WireType>
+        label="字段类型"
         value={wire}
-        onChange={(e) => setWire(Number(e.target.value) as WireType)}
-      >
-        {WIRE_CHOICES.map((w) => (
-          <option key={w} value={w}>
-            {WIRE_LABELS[w]}
-          </option>
-        ))}
-      </select>
+        onChange={setWire}
+        options={WIRE_CHOICES.map((w) => ({ value: w, label: WIRE_LABELS[w] }))}
+      />
       <button type="button" className="weq-pb-add-btn" onClick={submit} disabled={!valid}>
         添加字段
       </button>

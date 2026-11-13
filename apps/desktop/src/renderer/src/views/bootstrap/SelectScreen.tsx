@@ -223,7 +223,15 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                 </div>
                 {accountQuery.error && (
                   <div className="weq-select-error" role="alert">
-                    读取账号失败：{accountQuery.error.message}
+                    <span>读取账号失败，请确认 QQ 数据目录可访问后重试。</span>
+                    <button
+                      type="button"
+                      className="weq-action-soft"
+                      disabled={busy || accountQuery.isFetching}
+                      onClick={() => void accountQuery.refetch()}
+                    >
+                      重试
+                    </button>
                   </div>
                 )}
                 {accountQuery.isLoading ? (

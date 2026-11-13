@@ -1,13 +1,14 @@
 import { TimeLabel } from '../../components/TimeLabel';
 import * as timeFormat from '@weq/time';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, CalendarDays, Play, RotateCw, Search, Users } from 'lucide-react';
+import { ArrowLeft, Play, RotateCw, Search, Users } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useTabActive } from '../../components/RetainedTabs';
 import { WindowedList } from '../../components/WindowedList';
 import { QqAvatar } from '../../components/QqAvatar';
 import { useViewState } from '../../state/view';
 import { AnalysisHistory } from './AnalysisHistory';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { createMediaId } from '../../im-template/template/composerMedia';
 import { MessageCalendar } from '../../components/MessageCalendar';
 import { beijingDay } from '../../lib/messageCalendar';
@@ -511,27 +512,18 @@ function AnalysisToolForm({
           ) : (
             <section className="weq-analysis-card">
               <h3>时间范围</h3>
-              <div className="weq-analysis-time-modes">
-                <button
-                  type="button"
-                  aria-pressed={timeMode === 'all'}
-                  className={timeMode === 'all' ? 'is-on' : ''}
-                  onClick={() => setTimeMode('all')}
-                >
-                  全部本地历史
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={timeMode === 'dates'}
-                  className={timeMode === 'dates' ? 'is-on' : ''}
-                  onClick={() => {
-                    setTimeMode('dates');
-                    if (!start) setStart(beijingDay());
-                  }}
-                >
-                  <CalendarDays size={13} /> 指定日期
-                </button>
-              </div>
+              <SegmentedControl<'all' | 'dates'>
+                label="时间范围"
+                value={timeMode}
+                onChange={(mode) => {
+                  setTimeMode(mode);
+                  if (mode === 'dates' && !start) setStart(beijingDay());
+                }}
+                options={[
+                  { value: 'all', label: '全部本地历史' },
+                  { value: 'dates', label: '指定日期' },
+                ]}
+              />
               <select
                 className="weq-analysis-kind-native"
                 aria-label="分析时间范围"

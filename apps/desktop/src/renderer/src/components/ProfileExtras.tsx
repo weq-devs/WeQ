@@ -179,14 +179,14 @@ function ExtrasBody({
             </span>
             <strong aria-live="polite">
               {usable
-                ? (usable.score ?? '未知')
+                ? (usable.score ?? '未记录')
                 : !online
                   ? '暂不可读取'
                   : energy.isFetching
                     ? '读取中'
                     : energy.error
                       ? '暂不可读取'
-                      : '未知'}
+                      : '未读取'}
             </strong>
             {energy.error && online ? (
               <button

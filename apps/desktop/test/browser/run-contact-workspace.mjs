@@ -119,18 +119,18 @@ try {
   await page.getByTitle('查看教育经历', { exact: true }).click();
   await popover('教育经历');
   await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
-  await page.getByRole('button', { name: '显示公司历史', exact: true }).click();
-  const history = await popover('公司历史');
-  await history.getByText('以前的工作室', { exact: true }).waitFor();
-  assert.ok(
-    (
-      await page.evaluate(() =>
-        window.contactCardQa.calls.filter((call) => call.path.endsWith('fieldVersions')),
-      )
-    ).every((call) => call.input.field === 'company'),
+  // WeQ 自建逐项资料历史已撤下（CONTACT_HISTORY_DISPLAY_ENABLED=false）：正文不出现历史入口。
+  assert.equal(
+    await page.getByRole('button', { name: /^显示.+历史$/ }).count(),
+    0,
+    '资料历史撤下后不应再渲染历史入口',
   );
-  await history.getByRole('button', { name: '关闭历史', exact: true }).click();
-  assert.equal(await page.getByRole('button', { name: '显示邮箱历史', exact: true }).count(), 0);
+  assert.equal(
+    await page.evaluate(() =>
+      window.contactCardQa.calls.some((call) => call.path.endsWith('fieldVersions')),
+    ),
+    false,
+  );
   await page.evaluate(() => {
     window.contactCardQa.profileEnabled = true;
     window.contactCardQa.notify();
@@ -152,27 +152,26 @@ try {
   await page.getByText('第二群昵称', { exact: true }).waitFor();
   assert.equal(
     await page
-      .locator('.weq-profile-group-target')
+      .locator('.weq-profile-group-actions')
       .getByRole('button', { name: '本群发言', exact: true })
       .count(),
     1,
   );
   assert.equal(
     await page
-      .locator('.weq-profile-group-target')
+      .locator('.weq-profile-group-actions')
       .getByRole('button', { name: '聊天分析', exact: true })
       .count(),
     1,
   );
-  await page.getByRole('button', { name: '显示群昵称历史', exact: true }).click();
-  await popover('群昵称历史');
-  const groupHistory = await page.evaluate(() =>
-    window.contactCardQa.calls.filter((call) => call.path.endsWith('fieldVersions')).at(-1),
+  // 资料历史已撤下：切群后不再出现任何逐项历史入口，也没有 fieldVersions 调用。
+  assert.equal(await page.getByRole('button', { name: /^显示.+历史$/ }).count(), 0);
+  assert.equal(
+    await page.evaluate(() =>
+      window.contactCardQa.calls.some((call) => call.path.endsWith('fieldVersions')),
+    ),
+    false,
   );
-  assert.equal(groupHistory.input.entity, 'group:10004');
-  assert.equal(groupHistory.input.field, 'card');
-  assert.ok(groupHistory.input.memberUid);
-  await page.getByRole('button', { name: '关闭历史', exact: true }).click();
   await page.getByRole('button', { name: '本群发言', exact: true }).click();
   await page.getByText('合成本群发言', { exact: true }).waitFor();
   assert.equal(await page.locator('.weq-contact-speech').count(), 0);
@@ -288,26 +287,8 @@ try {
       await popover('共同群 1');
       await page.keyboard.press('Escape');
       await select('个人资料');
-      await page.getByRole('button', { name: '显示公司历史', exact: true }).click();
-      await popover('公司历史');
-      if (output)
-        await page.screenshot({ path: resolve(output, `${width}-${theme}-field-history.png`) });
-      await page.keyboard.press('Escape');
-      await page.getByRole('button', { name: '显示头像历史', exact: true }).click();
-      const avatarHistory = await popover('头像历史');
-      await avatarHistory.locator('img').first().waitFor();
-      await page.waitForFunction(() => {
-        const images = [...document.querySelectorAll('.weq-field-history-body img')];
-        return (
-          images.length === 2 && images.every((image) => image.complete && image.naturalWidth > 0)
-        );
-      });
-      if (output)
-        await page.screenshot({ path: resolve(output, `${width}-${theme}-avatar-history.png`) });
-      await avatarHistory
-        .getByRole('button', { name: '查看历史头像', exact: true })
-        .first()
-        .click();
+      // 资料历史已撤下：这里只确认正文仍能正常渲染（见上方的历史入口断言）。
+      await page.locator('.weq-profile-section-block').first().waitFor();
       const avatarPreview = page.getByRole('dialog', { name: '历史头像预览', exact: true });
       await avatarPreview.waitFor();
       await page.keyboard.press('Escape');

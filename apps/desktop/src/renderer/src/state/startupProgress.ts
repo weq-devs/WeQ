@@ -2,13 +2,13 @@ import { create } from 'zustand';
 
 /** 固定权重表示启动阶段，不推测剩余秒数；阶段内有真实计数时按比例推进。 */
 export const STARTUP_STAGES = {
-  resources: { percent: 5, end: 10, label: '正在加载启动界面' },
-  restore: { percent: 10, end: 20, label: '正在检查恢复状态' },
-  environment: { percent: 20, end: 35, label: '正在检查启动环境' },
+  resources: { percent: 5, end: 10, label: '正在启动 WeQ' },
+  restore: { percent: 10, end: 20, label: '正在恢复上次状态' },
+  environment: { percent: 20, end: 35, label: '正在检查运行环境' },
   account: { percent: 35, end: 55, label: '正在打开账号' },
   identity: { percent: 55, end: 80, label: '正在准备账号资料' },
-  workspace: { percent: 80, end: 90, label: '正在加载会话界面' },
-  painting: { percent: 90, end: 99, label: '正在绘制 WeQ 界面' },
+  workspace: { percent: 80, end: 90, label: '正在加载会话列表' },
+  painting: { percent: 90, end: 99, label: '正在显示界面' },
   ready: { percent: 100, end: 100, label: '启动完成' },
 } as const;
 export type StartupStage = keyof typeof STARTUP_STAGES;

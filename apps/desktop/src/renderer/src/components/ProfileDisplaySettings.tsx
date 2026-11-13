@@ -186,7 +186,7 @@ export function ProfileDisplayControl({
       : state?.saved
         ? '已保存'
         : !context.available
-          ? '暂不可在线修改'
+          ? '当前不可修改'
           : context.error
             ? '读取失败'
             : !setting
@@ -194,11 +194,11 @@ export function ProfileDisplayControl({
                 ? '读取中'
                 : '尚未读取'
               : setting.status === 'missing'
-                ? '未返回此项'
+                ? 'QQ 未返回这项'
                 : setting.status === 'unknown'
-                  ? `未知状态（${setting.raw}）`
+                  ? '当前设置无法识别'
                   : setting.status === 'incomplete'
-                    ? '尚未完整返回'
+                    ? '读取不完整'
                     : '');
   return (
     <div

@@ -10,6 +10,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { LoadingIndicator } from '../../components/LoadingIndicator';
+import { CheckPillGroup } from '../../components/settings/controls';
 import type { ExportAuthorizationIndicatorState } from './authorization';
 import { ExportLightbox, type LightboxResult } from './ExportLightbox';
 import { StructuredExportControls } from './StructuredExportControls';
@@ -158,26 +159,15 @@ export function ConversationBatchExportPane({
             onChange={(range) => setOptions((current) => ({ ...current, range }))}
             mode="single"
           />
-          <div className="weq-conversation-batch-formats" role="group" aria-label="导出格式">
-            {FULL_FORMATS.filter((format) =>
-              (BACKEND_FORMATS as readonly string[]).includes(format.value),
-            ).map((format) => (
-              <label key={format.value}>
-                <input
-                  type="checkbox"
-                  checked={formats.includes(format.value)}
-                  disabled={busy}
-                  onChange={(event) =>
-                    setFormats((current) =>
-                      event.target.checked
-                        ? [...current, format.value]
-                        : current.filter((value) => value !== format.value),
-                    )
-                  }
-                />
-                {format.label}
-              </label>
-            ))}
+          <div className="weq-conversation-batch-formats">
+            <CheckPillGroup<ExportFormat>
+              options={FULL_FORMATS.filter((format) =>
+                (BACKEND_FORMATS as readonly string[]).includes(format.value),
+              ).map((format) => ({ value: format.value, label: format.label }))}
+              selected={formats}
+              onChange={setFormats}
+              disabled={busy}
+            />
           </div>
           <StructuredExportControls
             domain="generatedParameters"

@@ -57,10 +57,13 @@
   gap: 4px;
 }
 
-.weq-contact-profile-v2 .weq-profile-card-actions {
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-card-actions {
   position: static;
   margin-inline: 0;
+  margin-top: 0;
   margin-bottom: 0;
+  padding: 0;
+  border: 0;
   border-radius: 0;
   background: transparent;
 }
@@ -94,17 +97,12 @@
   gap: 6px;
 }
 
-.weq-contact-profile-v2
-  .weq-profile-section-block--prominent
-  > .weq-profile-section-head
-  .weq-profile-subtitle {
-  font-size: 16px;
-  line-height: 1.5;
-}
+/* 分区标题统一 13px（见 profile-workspace.css 的 .weq-profile-subtitle）；
+   prominent 只表示「这是本章的独立分区」（上方有分割线），不再放大字号抢层级。 */
 
 .weq-contact-profile-v2 .weq-contact-marks .weq-mutual-grid {
-  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 20px;
 }
 
 .weq-contact-profile-v2 .weq-contact-marks .weq-mutual-cell {
@@ -322,12 +320,14 @@
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 10px 12px;
+  margin-bottom: 18px;
 }
 
 .weq-profile-group-picker label {
-  color: var(--weq-fg-secondary);
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .weq-profile-group-target {
@@ -339,8 +339,17 @@
 }
 
 .weq-profile-group-target select {
-  flex: 1 1 180px;
+  /* 窄屏优先和「群名片」按钮同处一行：允许收缩，不强行换行成三行。 */
+  flex: 1 1 200px;
   width: auto;
+  min-width: 0;
+  max-width: 320px;
+}
+
+/* 群操作单独占一行，和上面的选择框左对齐，不再挤在同一行里换行错位。 */
+.weq-profile-group-actions {
+  grid-column: 2;
+  min-width: 0;
 }
 
 .weq-contact-group-workspace .weq-profile-group-target .weq-contact-actions {
@@ -350,21 +359,30 @@
   border: 0;
 }
 
-.weq-profile-group-target .weq-contact-actions button {
-  min-height: 38px;
+.weq-contact-group-workspace .weq-profile-group-actions .weq-contact-actions {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weq-profile-group-target .weq-contact-actions button,
+.weq-profile-group-actions .weq-contact-actions button {
+  min-height: 32px;
 }
 
 .weq-profile-group-link {
   display: inline-flex;
-  flex: 0 0 38px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  height: 38px;
-  padding: 0;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--weq-border-strong);
   border-radius: 6px;
   background: transparent;
   color: var(--weq-fg-secondary);
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -376,13 +394,14 @@
 .weq-profile-group-picker select {
   width: 100%;
   min-width: 0;
-  min-height: 38px;
-  padding: 6px 10px;
+  min-height: 32px;
+  padding: 4px 8px;
   border: 1px solid var(--weq-border-strong);
   border-radius: 6px;
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
   font: inherit;
+  font-size: 13px;
   text-overflow: ellipsis;
   color-scheme: light;
 }
@@ -393,7 +412,6 @@ html[data-theme='dark'] .weq-profile-group-picker select {
 
 .weq-contact-group-workspace .weq-contact-actions {
   justify-content: flex-start;
-  margin-top: 16px;
   padding-inline: 0;
 }
 

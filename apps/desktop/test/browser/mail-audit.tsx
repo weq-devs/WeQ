@@ -133,14 +133,14 @@ const status =
             state: 'ready' as const,
             unread: 0,
             notifications: false,
-            lastSync: 1763000000,
+            lastSync: 1763000000000,
             error: null,
           }
         : {
             state: 'ready' as const,
             unread: 4,
             notifications: true,
-            lastSync: 1763000000,
+            lastSync: 1763000000000,
             error: null,
           };
 

@@ -282,6 +282,10 @@ html[data-theme='dark'] .weq-profile-directory-tab[aria-selected='true'] {
 
 .weq-profile-data-value > .weq-profile-privileges {
   justify-content: flex-start;
+  /* 特权图标 22px、行文字行高 20.8px：把容器收到 21px 并居中，图标与字段名同一水平中线
+     （此前差 0.6px，看起来像图标比字段名低一点）。 */
+  align-items: center;
+  height: 21px;
   margin-top: 0;
 }
 

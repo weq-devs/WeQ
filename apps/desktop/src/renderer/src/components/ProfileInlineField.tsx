@@ -78,6 +78,7 @@ export function ProfileInlineField({
         <span>{label}</span>
         {options ? (
           <select
+            className="weq-set-select"
             aria-label={label}
             value={draft}
             disabled={locked}

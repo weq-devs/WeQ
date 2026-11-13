@@ -50,7 +50,6 @@ import {
   SALVAGE_EXPERIMENTAL_NOTE,
   SALVAGE_EXPERIMENTAL_TAG,
   SALVAGE_SKIPPED_SPAN_CAVEAT,
-  salvageLevelCopy,
   salvageLevelToast,
   salvageLevelsAscending,
 } from '@weq/service/db-tolerance-copy';
@@ -167,7 +166,6 @@ export function DatabaseToleranceSection({
   const entries = (tolerance.data?.entries ?? []) as LedgerEntryView[];
   const hasLedger = Boolean(summary && summary.total > 0);
   const quarantined = (quarantine.data ?? []) as QuarantineEntryView[];
-  const current = salvageLevelCopy(level);
 
   const changeLevel = async (next: number): Promise<void> => {
     setPendingLossy(null);
@@ -260,36 +258,29 @@ export function DatabaseToleranceSection({
       />
 
       {page === 'policy' && (
-        <>
-          {/* 口径说明统一收进可展开块：默认不占版面，要看时点开。 */}
-          <details className="weq-set-details">
-            <summary>
-              <ChevronDown size={13} aria-hidden />
-              容错是什么、覆盖哪些功能
-            </summary>
-            <div className="weq-set-details-body">
-              <p>
-                严格（级别 0）之外还有三级容错：级别 1 只换访问路径（<strong>不丢数据</strong>），
-                级别 2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
-                再允许放弃读不动的整张表。
-              </p>
-              <p>{SALVAGE_EXPERIMENTAL_NOTE}</p>
-              <p className="weq-set-warnbox">
-                <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
-                <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
-              </p>
-            </div>
-          </details>
-
-          <Card
-            title="容错级别"
+        <Card
+          title="容错级别"
             icon={<ShieldCheck size={15} strokeWidth={1.8} />}
-            action={
-              <span className="weq-set-badge weq-set-badge-ok" title={current.scope}>
-                当前 · {current.title}
-              </span>
-            }
           >
+            {/* 口径说明收进卡内可展开块：默认不占版面，要看时点开。 */}
+            <details className="weq-set-details">
+              <summary>
+                <ChevronDown size={13} aria-hidden />
+                容错是什么、覆盖哪些功能
+              </summary>
+              <div className="weq-set-details-body">
+                <p>
+                  严格（级别 0）之外还有三级容错：级别 1 只换访问路径（<strong>不丢数据</strong>），
+                  级别 2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
+                  再允许放弃读不动的整张表。
+                </p>
+                <p>{SALVAGE_EXPERIMENTAL_NOTE}</p>
+                <p className="weq-set-warnbox">
+                  <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+                  <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
+                </p>
+              </div>
+            </details>
             <div className="weq-set-levels" role="radiogroup" aria-label="数据库容错级别">
               {salvageLevelsAscending().map((copy) => {
                 const active = copy.level === level;
@@ -395,8 +386,7 @@ export function DatabaseToleranceSection({
                 </span>
               </p>
             )}
-          </Card>
-        </>
+        </Card>
       )}
       {page === 'damage' && (
         <Card

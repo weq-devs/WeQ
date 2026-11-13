@@ -68,6 +68,8 @@ import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { ComponentAppearance } from './settings/ComponentAppearance';
+import { SegmentedControl } from './SegmentedControl';
+import { PanelLoading } from './LoadingIndicator';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
@@ -137,7 +139,6 @@ export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
 import { useUpdateStore } from '../state/update';
-import { SettingsResetButton } from './settings/SettingsReset';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -276,7 +277,14 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '性能监视',
     icon: <Activity size={16} />,
     render: () => (
-      <Suspense fallback={<p>正在加载性能监视…</p>}>
+      <Suspense
+        fallback={
+          <div className="weq-set">
+            <SectionHeader title="性能监视" icon={<Activity size={16} />} />
+            <PanelLoading />
+          </div>
+        }
+      >
         <PerformanceMonitor />
       </Suspense>
     ),
@@ -983,53 +991,32 @@ function AppearanceSection({
 
       {page === 'theme' && (
         <>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <span className="weq-settings-appearance-title">
-                  <span className="weq-set-card-icon" aria-hidden>
-                    <Sun size={15} strokeWidth={1.8} />
-                  </span>
-                  <strong>基础模式</strong>
-                </span>
-                <span>控制浅色、深色与跟随系统</span>
-              </div>
-              <SettingsResetButton card="theme-mode" />
-            </div>
+          <Card
+            title="基础模式"
+            desc="控制浅色、深色与跟随系统"
+            icon={<Sun size={15} strokeWidth={1.8} />}
+            resetId="theme-mode"
+          >
             <ThemeModeSwitcher value={preference} onChange={setPreference} />
-          </div>
+          </Card>
 
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <span className="weq-settings-appearance-title">
-                  <span className="weq-set-card-icon" aria-hidden>
-                    <Palette size={15} strokeWidth={1.8} />
-                  </span>
-                  <strong>主题色</strong>
-                </span>
-                <span>拖动色相条或输入色值挑选主色，界面主色、描边与按钮都会跟随</span>
-              </div>
-              <SettingsResetButton card="theme-accent" />
-            </div>
+          <Card
+            title="主题色"
+            desc="色相决定颜色，明度决定深浅；界面主色、描边与按钮都会跟随"
+            icon={<Palette size={15} strokeWidth={1.8} />}
+            resetId="theme-accent"
+          >
             <ColorPicker value={accent} onChange={setAccent} />
-          </div>
+          </Card>
 
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <span className="weq-settings-appearance-title">
-                  <span className="weq-set-card-icon" aria-hidden>
-                    <ImageIcon size={15} strokeWidth={1.8} />
-                  </span>
-                  <strong>界面背景</strong>
-                </span>
-                <span>给聊天、联系人与导出页切换不同画布质感</span>
-              </div>
-              <SettingsResetButton card="theme-background" />
-            </div>
+          <Card
+            title="界面背景"
+            desc="给聊天、联系人与导出页切换不同画布质感"
+            icon={<ImageIcon size={15} strokeWidth={1.8} />}
+            resetId="theme-background"
+          >
             <ThemeBackgroundRow value={background} onChange={setBackground} />
-          </div>
+          </Card>
 
           <ComponentAppearance />
         </>
@@ -1375,32 +1362,46 @@ function ThemeModeSwitcher({
   value: ThemePreference;
   onChange: (next: ThemePreference) => void;
 }) {
-  const options: Array<{ value: ThemePreference; label: string; icon: ReactNode }> = [
-    { value: 'light', label: '浅色', icon: <Sun size={14} /> },
-    { value: 'dark', label: '深色', icon: <Moon size={14} /> },
-    { value: 'system', label: '跟随系统', icon: <Monitor size={14} /> },
+  const options: Array<{ value: ThemePreference; label: ReactNode; title: string }> = [
+    {
+      value: 'light',
+      label: (
+        <span className="weq-set-seg-label">
+          <Sun size={14} aria-hidden />
+          浅色
+        </span>
+      ),
+      title: '浅色',
+    },
+    {
+      value: 'dark',
+      label: (
+        <span className="weq-set-seg-label">
+          <Moon size={14} aria-hidden />
+          深色
+        </span>
+      ),
+      title: '深色',
+    },
+    {
+      value: 'system',
+      label: (
+        <span className="weq-set-seg-label">
+          <Monitor size={14} aria-hidden />
+          跟随系统
+        </span>
+      ),
+      title: '跟随系统',
+    },
   ];
 
   return (
-    <div className="weq-settings-theme-switch-inner" role="radiogroup" aria-label="主题模式">
-      {options.map((option) => {
-        const active = value === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            className={`weq-settings-theme-option${active ? ' is-active' : ''}`}
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(option.value)}
-          >
-            <span className="weq-settings-theme-option-icon">{option.icon}</span>
-            <span className="weq-settings-theme-option-label">{option.label}</span>
-            {active ? <Check size={14} /> : null}
-          </button>
-        );
-      })}
-    </div>
+    <SegmentedControl<ThemePreference>
+      label="主题模式"
+      value={value}
+      options={options}
+      onChange={onChange}
+    />
   );
 }
 
@@ -1524,29 +1525,37 @@ function ColorPicker({
         <span className="weq-cp-preview-hex">{effective.toUpperCase()}</span>
       </div>
 
-      <div
-        className="weq-cp-bar weq-cp-hue"
-        role="slider"
-        aria-label="色相"
-        aria-valuemin={0}
-        aria-valuemax={360}
-        aria-valuenow={Math.round(hsl.h)}
-        onPointerDown={(e) => trackBar(e, pickHue)}
-      >
-        <span className="weq-cp-thumb" style={{ left: `${huePct}%` }} />
+      <div className="weq-cp-bar-row">
+        <span className="weq-cp-bar-label">色相</span>
+        <div
+          className="weq-cp-bar weq-cp-hue"
+          role="slider"
+          aria-label="色相"
+          aria-valuemin={0}
+          aria-valuemax={360}
+          aria-valuenow={Math.round(hsl.h)}
+          onPointerDown={(e) => trackBar(e, pickHue)}
+        >
+          <span className="weq-cp-thumb" style={{ left: `${huePct}%` }} />
+        </div>
+        <span className="weq-cp-bar-value">{Math.round(hsl.h)}°</span>
       </div>
 
-      <div
-        className="weq-cp-bar weq-cp-light"
-        role="slider"
-        aria-label="明度"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(lightFraction * 100)}
-        style={{ background: lightGradient }}
-        onPointerDown={(e) => trackBar(e, pickLight)}
-      >
-        <span className="weq-cp-thumb" style={{ left: `${lightFraction * 100}%` }} />
+      <div className="weq-cp-bar-row">
+        <span className="weq-cp-bar-label">明度</span>
+        <div
+          className="weq-cp-bar weq-cp-light"
+          role="slider"
+          aria-label="明度"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(lightFraction * 100)}
+          style={{ background: lightGradient }}
+          onPointerDown={(e) => trackBar(e, pickLight)}
+        >
+          <span className="weq-cp-thumb" style={{ left: `${lightFraction * 100}%` }} />
+        </div>
+        <span className="weq-cp-bar-value">{Math.round(hsl.l * 100)}%</span>
       </div>
 
       <div className="weq-cp-row">

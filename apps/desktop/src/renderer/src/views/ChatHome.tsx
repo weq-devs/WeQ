@@ -31,15 +31,15 @@ interface Verse {
 
 const EMPTY_VERSES: Verse[] = [];
 
-/** 按当前时刻给英文问候语。 */
+/** 按当前时刻给中文问候语（全站界面文案用中文，不混英文招呼）。 */
 function greetWord(): string {
   const h = calendarParts(Date.now())!.hour;
-  if (h < 5) return 'Good night';
-  if (h < 11) return 'Good morning';
-  if (h < 13) return 'Hello';
-  if (h < 18) return 'Good afternoon';
-  if (h < 23) return 'Good evening';
-  return 'Good night';
+  if (h < 5) return '夜深了';
+  if (h < 11) return '早上好';
+  if (h < 13) return '中午好';
+  if (h < 18) return '下午好';
+  if (h < 23) return '晚上好';
+  return '夜深了';
 }
 
 /**
@@ -131,7 +131,7 @@ export function ChatHome({
         !blocked.some((word) => `${verse.text}\n${verse.from}`.toLowerCase().includes(word)),
     );
   }, [verses, home.blockedWords]);
-  const name = nickname?.trim() || 'there';
+  const name = nickname?.trim() || '';
 
   const widgetUrl = dressUrl(dress?.widgetUrl ?? '');
   const cardUrl = dressUrl(dress?.cardUrl ?? '');
@@ -162,8 +162,8 @@ export function ChatHome({
             </div>
             {home.showGreeting && (
               <h1 className="weq-chathome-greet">
-                <span className="weq-chathome-greet-hi">{greetWord()},</span>
-                <span className="weq-chathome-greet-name">{name}</span>
+                <span className="weq-chathome-greet-hi">{greetWord()}</span>
+                {name ? <span className="weq-chathome-greet-name">{name}</span> : null}
               </h1>
             )}
           </div>

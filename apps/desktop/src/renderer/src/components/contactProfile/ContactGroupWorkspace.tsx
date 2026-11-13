@@ -134,6 +134,7 @@ function GroupWorkspace({
             <label htmlFor={`contact-group-${uid}`}>群聊</label>
             <div className="weq-profile-group-target">
               <select
+                className="weq-set-select"
                 id={`contact-group-${uid}`}
                 value={code ?? ''}
                 disabled={!codes.length}
@@ -185,11 +186,16 @@ function GroupWorkspace({
                     });
                   }}
                 >
-                  <ExternalLink size={16} />
+                  <ExternalLink size={14} />
+                  群名片
                 </button>
               ) : null}
-              {code ? <ContactActions key={code} person={person} groupOnly /> : null}
             </div>
+            {code ? (
+              <div className="weq-profile-group-actions">
+                <ContactActions key={code} person={person} groupOnly />
+              </div>
+            ) : null}
           </div>
           {groups.error ? (
             <ContactInlineError

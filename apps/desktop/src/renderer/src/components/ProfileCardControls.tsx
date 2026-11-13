@@ -14,7 +14,7 @@ export function ProfileCardControls({
   closeLabel?: string;
 }) {
   return (
-    <div className="weq-profile-card-controls">
+    <header className="weq-profile-card-controls">
       {onExpand ? (
         <button type="button" title={expandLabel} aria-label={expandLabel} onClick={onExpand}>
           <Maximize2 size={16} aria-hidden />
@@ -23,6 +23,6 @@ export function ProfileCardControls({
       <button type="button" title={closeLabel} aria-label={closeLabel} onClick={onClose}>
         <X size={16} aria-hidden />
       </button>
-    </div>
+    </header>
   );
 }

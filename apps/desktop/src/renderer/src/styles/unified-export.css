@@ -192,17 +192,6 @@ html[data-theme='dark'] .weq-export-contact-outside > button {
   border-color: var(--weq-border-strong);
 }
 
-.weq-export-tool .weq-exp-seg {
-  border-radius: 6px;
-}
-.weq-export-tool .weq-exp-seg button {
-  color: var(--weq-fg-secondary);
-}
-.weq-export-tool .weq-exp-seg button.is-active {
-  background: var(--weq-bg-surface);
-  color: var(--weq-accent-effective);
-  box-shadow: var(--weq-shadow-soft);
-}
 .weq-export-tool .weq-exp-primary,
 html[data-theme='dark'] .weq-export-tool .weq-exp-primary,
 .weq-export-tool .weq-exp-primary:hover:not(:disabled),
@@ -328,11 +317,6 @@ html[data-theme='dark'] .weq-export-tool .weq-exp-sched-card {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .weq-export-tool .weq-exp-seg button {
-    transition: none;
-  }
-}
 .weq-qzone-scope-row {
   display: flex;
   align-items: center;

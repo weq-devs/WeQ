@@ -83,6 +83,7 @@ export function SectionHeader({
   icon,
   titleClassName,
   badge,
+  actions,
   pageReset = true,
 }: {
   title: string;
@@ -91,6 +92,8 @@ export function SectionHeader({
   titleClassName?: string;
   /** 标题旁的固定说明（例如「自动保存」），只描述保存方式，不放操作。 */
   badge?: ReactNode;
+  /** 页头右侧的常驻操作（主操作不折叠进菜单）。 */
+  actions?: ReactNode;
   pageReset?: boolean;
 }): ReactElement {
   const scope = useContext(SettingsScopeContext);
@@ -107,14 +110,19 @@ export function SectionHeader({
         <SettingsScopeBadge />
         {badge ? <span className="weq-set-badge">{badge}</span> : null}
       </div>
-      {reset && pageReset ? (
+      {actions || (reset && pageReset) ? (
         <div
           className="weq-settings-page-reset"
           data-setting-id={
-            reset.page === 'startup' ? 'weq-config-management' : `settings-reset-${reset.page}`
+            reset && pageReset
+              ? reset.page === 'startup'
+                ? 'weq-config-management'
+                : `settings-reset-${reset.page}`
+              : undefined
           }
         >
-          <SettingsResetButton />
+          {actions}
+          {reset && pageReset ? <SettingsResetButton /> : null}
         </div>
       ) : null}
       {desc ? <p className="weq-set-desc">{desc}</p> : null}
@@ -127,6 +135,7 @@ export function SectionHeader({
 export function Card({
   settingId,
   title,
+  desc,
   icon,
   action,
   resetId,
@@ -135,6 +144,8 @@ export function Card({
 }: {
   settingId?: string;
   title?: string;
+  /** 卡片标题下的一句说明，与页头 `SectionHeader` 的 desc 同一套字号/颜色。 */
+  desc?: ReactNode;
   /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
   icon?: ReactNode;
   action?: ReactNode;
@@ -167,18 +178,21 @@ export function Card({
       <section className="weq-set-card" data-setting-id={settingId}>
         {title || action || card ? (
           <div className="weq-set-card-head">
-            {title ? (
-              <div className="weq-set-card-title">
-                {icon ? (
-                  <span className="weq-set-card-icon" aria-hidden>
-                    {icon}
-                  </span>
-                ) : null}
-                {title}
-              </div>
-            ) : (
-              <span />
-            )}
+            <div className="weq-set-card-heading">
+              {title ? (
+                <div className="weq-set-card-title">
+                  {icon ? (
+                    <span className="weq-set-card-icon" aria-hidden>
+                      {icon}
+                    </span>
+                  ) : null}
+                  {title}
+                </div>
+              ) : (
+                <span />
+              )}
+              {desc ? <p className="weq-set-card-desc">{desc}</p> : null}
+            </div>
             <div className="weq-set-card-action">
               <span className="weq-set-card-status" ref={setStatusSlot} />
               {action}
@@ -262,11 +276,14 @@ export function CheckPillGroup<T extends string>({
   selected,
   onChange,
   disabled = false,
+  optionDisabled,
 }: {
   options: readonly { value: T; label: ReactNode }[];
   selected: readonly T[];
   onChange: (next: T[]) => void;
   disabled?: boolean;
+  /** 单个选项不可用（例如当前范围不支持该格式），仍展示但不可勾选。 */
+  optionDisabled?: (value: T) => boolean;
 }) {
   const multi = useMultiSelection({
     ids: options.map((option) => option.value),
@@ -280,9 +297,9 @@ export function CheckPillGroup<T extends string>({
         <CheckPill
           key={option.value}
           checked={selected.includes(option.value)}
-          disabled={disabled}
+          disabled={disabled || (optionDisabled?.(option.value) ?? false)}
           onChange={() => multi.toggle(option.value)}
-          {...multi.itemProps(option.value)}
+          {...multi.itemProps(option.value, optionDisabled?.(option.value) ?? false)}
         >
           {option.label}
         </CheckPill>

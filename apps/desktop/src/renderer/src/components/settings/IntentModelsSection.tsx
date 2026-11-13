@@ -3,7 +3,7 @@ import { Download, Play } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
-import { QueryError, Row } from './controls';
+import { QueryError, Row, Toggle } from './controls';
 
 /** 全局资源管理与按账号的意图功能开关分开，未打开账号也可以下载。 */
 export function IntentModelsSection(): ReactElement {
@@ -129,12 +129,11 @@ export function IntentModelsSection(): ReactElement {
           <Row
             label="hf-mirror.com 镜像"
             control={
-              <input
-                type="checkbox"
-                aria-label="使用下载镜像"
+              <Toggle
+                label="使用下载镜像"
                 checked={mirror}
                 disabled={busy}
-                onChange={(event) => setMirror(event.target.checked)}
+                onChange={setMirror}
               />
             }
           />

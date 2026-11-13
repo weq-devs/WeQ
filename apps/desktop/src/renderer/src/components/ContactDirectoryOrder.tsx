@@ -14,6 +14,7 @@ export function ContactDirectoryOrder({
         <label>
           分组依据
           <select
+            className="weq-set-select"
             value={order.preferences.grouping}
             onChange={(event) => order.change({ grouping: event.target.value })}
           >
@@ -27,6 +28,7 @@ export function ContactDirectoryOrder({
         <label>
           排序依据
           <select
+            className="weq-set-select"
             value={order.preferences.sort}
             title={order.sortOptions[order.preferences.sort as keyof typeof order.sortOptions]}
             onChange={(event) => order.change({ sort: event.target.value })}

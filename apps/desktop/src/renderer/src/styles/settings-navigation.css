@@ -97,7 +97,7 @@ html[data-theme='dark'] .weq-settings-dialog .weq-settings-nav-item.is-active {
 }
 
 .weq-settings-body > :not(:first-child) {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .weq-settings-scope,

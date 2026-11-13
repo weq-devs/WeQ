@@ -772,7 +772,7 @@ export function ContactGroupContent({
   );
   if (full) return <>{body}</>;
   return (
-    <ContactSection title={`群内资料${context.groupName ? `（${context.groupName}）` : ''}`}>
+    <ContactSection title={context.groupName ? `群内资料 · ${context.groupName}` : '群内资料'}>
       {body}
     </ContactSection>
   );
@@ -811,7 +811,7 @@ export function ContactContent({
   onSection?: (section: ContactWorkspaceTab) => void;
   onNavigate?: () => void;
   localOnly?: boolean;
-  /** 名片宿主可以把「群内资料」等分区放在基本信息之前。 */
+  /** 名片宿主的补充分区（群内资料）：插在「与我的关系」之后，与资料页分页同序。 */
   leading?: ReactNode;
   /** 设置页预览：只渲染内容，不提供跳转。 */
   preview?: boolean;
@@ -1058,6 +1058,7 @@ export function ContactContent({
   const fieldGroup = contactCardFieldGroup;
   const ordered = (full && fields ? fields : settings.order).filter(
     (key) =>
+      // 编号与当前状态由身份区承载（QID / UID 是身份区的可选项），正文不再重复一次。
       key !== 'qid' &&
       key !== 'uid' &&
       key !== 'status' &&
@@ -1065,7 +1066,7 @@ export function ContactContent({
       enabled(key) &&
       (!localOnly || !automaticFields.includes(key)),
   );
-  // 编号与当前状态已由身份区承载，正文不重复。
+  // 编号与当前状态已由身份区承载，正文不重复（否则资料页会把 UID 显示两遍）。
   const buckets = {
     basic: ordered.filter(
       (key) => fieldGroup(key) === 'basic' || (full && fieldGroup(key) === 'identity'),
@@ -1077,11 +1078,11 @@ export function ContactContent({
     tech: full ? ordered.filter((key) => fieldGroup(key) === 'tech') : [],
   };
   const blocks: Array<{ key: keyof typeof buckets; title: string; rows: ReactNode[] }> = [
-    { key: 'basic', title: full ? '基本信息' : '个人资料', rows: [] },
-    { key: 'social', title: full ? '互动与关系' : '与我的关系', rows: [] },
+    { key: 'basic', title: '个人资料', rows: [] },
+    { key: 'social', title: '与我的关系', rows: [] },
     { key: 'display', title: '个性展示', rows: [] },
     { key: 'account', title: 'QQ 账号', rows: [] },
-    { key: 'bot', title: full ? '其他与机器人' : '机器人信息', rows: [] },
+    { key: 'bot', title: '机器人信息', rows: [] },
     { key: 'tech', title: '技术详情', rows: [] },
   ];
   for (const block of blocks)
@@ -1116,18 +1117,31 @@ export function ContactContent({
       ) : null}
       {titled.length || leading ? (
         <div className="weq-profile-data weq-contact-sections">
-          {leading}
-          {titled.map((block) =>
-            sectioned ? (
-              <ContactSection key={block.key} title={block.title} fields>
-                {block.rows}
-              </ContactSection>
-            ) : (
-              <ContactSection key={block.key} title={block.title} hideTitle fields>
-                {block.rows}
-              </ContactSection>
-            ),
-          )}
+          {(() => {
+            // 群内资料跟在「个人资料 / 与我的关系」之后，和资料页四个分页同序；
+            // 名片宿主通过 leading 传入，不再顶到最前面。
+            const nodes = titled.map((block) =>
+              sectioned ? (
+                <ContactSection key={block.key} title={block.title} fields>
+                  {block.rows}
+                </ContactSection>
+              ) : (
+                <ContactSection key={block.key} title={block.title} hideTitle fields>
+                  {block.rows}
+                </ContactSection>
+              ),
+            );
+            if (!leading) return nodes;
+            let anchor = -1;
+            for (const [index, block] of titled.entries())
+              if (block.key === 'social' || block.key === 'basic') anchor = index;
+            const at = titled.length ? anchor + 1 : 0;
+            return [
+              ...nodes.slice(0, at),
+              <Fragment key="leading">{leading}</Fragment>,
+              ...nodes.slice(at),
+            ];
+          })()}
           {techRows.length ? (
             <ContactTechnicalDetails>{techRows}</ContactTechnicalDetails>
           ) : techBlock ? (

@@ -18,6 +18,8 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { ArrowRight, KeyRound, Loader2, QrCode, Settings2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { Modal, useDialog } from '../../components/Dialog';
+import { Toggle } from '../../components/settings/controls';
+import { IS_MAC } from '../../lib/target';
 import type { AutoEnterTarget } from '@weq/service';
 import { accountSource } from './AccountSelector';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -391,6 +393,11 @@ export function LoginPanel({
     }
   }
 
+  /** 「自动启用完整功能」的说明：窄/矮窗口里收成 title，不在页面上占行。 */
+  const fullModeHint = IS_MAC
+    ? '开启后自动读取 QQ 进程采集凭证；SIP 开启时改用「QQ 调试副本」。'
+    : '开启后自动读取登录中的 QQ 进程，采集 rKey / ClientKey 等凭证以启用在线能力。';
+
   function onAction(): void {
     if (!working) void enter();
   }
@@ -513,26 +520,30 @@ export function LoginPanel({
             </Modal>
           )}
 
+          {/* 开关复用设置页的 Toggle：启动页是用户第一眼，控件形态与设置页一致。 */}
           <div className="weq-login-options">
-            <label className="weq-auto-enter">
-              <input
-                type="checkbox"
+            <div className="weq-login-option">
+              <span className="weq-login-option-label">下次打开自动进入该账号</span>
+              <Toggle
                 checked={autoEnter}
                 disabled={working}
-                onChange={(e) => setAutoChoice({ key: choiceKey, value: e.target.checked })}
+                onChange={(next) => setAutoChoice({ key: choiceKey, value: next })}
+                label="下次打开自动进入该账号"
               />
-              <span>下次打开自动进入该账号</span>
-            </label>
-            <label className="weq-auto-enter">
-              <input
-                type="checkbox"
+            </div>
+            <div className="weq-login-option">
+              <span className="weq-login-option-label" title={fullModeHint}>
+                自动启用完整功能
+              </span>
+              <Toggle
                 checked={settings.data?.autoAttachQq ?? false}
                 disabled={working || !settings.data || autoAttach.isLoading}
-                onChange={(e) => autoAttach.mutate({ enabled: e.target.checked })}
+                onChange={(next) => autoAttach.mutate({ enabled: next })}
+                label="自动启用完整功能"
               />
-              <span>自动启用完整功能</span>
-            </label>
+            </div>
           </div>
+          <p className="weq-login-options-hint">{fullModeHint}</p>
         </>
       ) : null}
       {mode === 'new' && (

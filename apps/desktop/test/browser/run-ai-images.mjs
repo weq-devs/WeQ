@@ -108,15 +108,23 @@ try {
             '推荐回复',
             '互动画像',
           ]) {
-            const select = page.getByLabel(`${label} 图片处理偏好`);
+            const group = page.getByRole('radiogroup', { name: `${label} 图片处理偏好` });
             assert.equal(
-              await select.locator('option[value="placeholder"]').count(),
+              await group.getByRole('radio', { name: '文字占位', exact: true }).count(),
               ['WeQ 助手', '克隆聊天'].includes(label) ? 0 : 1,
             );
-            await select.selectOption('ocr');
-            assert.equal(await select.inputValue(), 'ocr');
-            await select.selectOption('vision');
-            assert.equal(await select.inputValue(), 'vision');
+            await group.getByRole('radio', { name: 'OCR', exact: true }).click();
+            assert.equal(
+              await group.getByRole('radio', { name: 'OCR', exact: true }).getAttribute('aria-checked'),
+              'true',
+            );
+            await group.getByRole('radio', { name: '视觉模型', exact: true }).click();
+            assert.equal(
+              await group
+                .getByRole('radio', { name: '视觉模型', exact: true })
+                .getAttribute('aria-checked'),
+              'true',
+            );
           }
         } else {
           const file = page.locator('.weq-ai-attachments > input[type="file"]');

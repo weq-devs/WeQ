@@ -41,7 +41,9 @@ export function ProfilePageHeader({
 }) {
   return (
     <>
-      <div className="weq-profile-page-toolbar">
+      {/* 用 header 而不是 div：surfaceEscape 把 header 视为「页头 chrome」，
+          打开页面时焦点交给面板容器，不会给右上角的设置/关闭按钮画上焦点框。 */}
+      <header className="weq-profile-page-toolbar">
         <strong>{title}</strong>
         {conversationSettings ? (
           <ProfileConversationSettingsButton request={conversationSettings} />
@@ -55,7 +57,7 @@ export function ProfilePageHeader({
         >
           <X size={18} />
         </button>
-      </div>
+      </header>
       <header
         className={`weq-profile-page-header${layout === 'split' ? ' weq-profile-page-header--split' : ''}`}
       >

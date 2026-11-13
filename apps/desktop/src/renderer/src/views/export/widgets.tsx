@@ -3,40 +3,9 @@
  * follows the rest of weq: #0099ff accent, thin borders, small radii.
  */
 
-import { useState, type ReactElement, type ReactNode } from 'react';
+import { useState, type ReactElement } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ShimmerImage } from '../../components/ShimmerImage';
-
-/** Segmented control (single choice). Mirrors the relation-graph segmented. */
-export function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-  small,
-}: {
-  value: T;
-  onChange: (next: T) => void;
-  options: Array<{ value: T; label: ReactNode; icon?: ReactNode }>;
-  small?: boolean;
-}): ReactElement {
-  return (
-    <div className={`weq-exp-seg${small ? ' is-small' : ''}`} role="tablist">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          role="tab"
-          aria-selected={opt.value === value}
-          className={opt.value === value ? 'is-active' : ''}
-          onClick={() => onChange(opt.value)}
-        >
-          {opt.icon}
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /** Spinning loader glyph at a given pixel size. */
 export function Spinner({ size = 16 }: { size?: number }): ReactElement {

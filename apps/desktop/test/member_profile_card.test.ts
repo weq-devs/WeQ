@@ -330,12 +330,13 @@ describe('群成员资料卡浮层', () => {
       expect(row.textContent).toContain(text);
       expect(row.closest('section')?.querySelector('h3')?.textContent).toBe('个人资料');
     }
-    expect(
-      layer().querySelector('[data-profile-field="company"] [aria-label="复制公司"]'),
-    ).toBeNull();
-    expect(
-      layer().querySelector('[data-profile-field="description"] [aria-label="复制个人说明"]'),
-    ).toBeNull();
+    // 不再有「查看详细资料」的跳转入口；点值只做复制（用户规则：不额外放复制按钮）。
+    for (const field of ['company', 'description', 'email']) {
+      const scope = layer().querySelector(`[data-profile-field="${field}"]`)!;
+      const actions = [...scope.querySelectorAll('button')];
+      expect(actions.some((el) => /查看|详细资料/.test(el.textContent ?? ''))).toBe(false);
+      expect(actions.some((el) => el.getAttribute('aria-label')?.startsWith('复制'))).toBe(true);
+    }
     expect(layer().querySelector('.weq-contact-clamp')).toBeNull();
     expect(
       [...layer().querySelectorAll('button')].some((el) => el.textContent === '详细资料'),
@@ -365,13 +366,16 @@ describe('群成员资料卡浮层', () => {
     const heading = [...layer().querySelectorAll('h3')].find((el) =>
       el.textContent?.startsWith('群内资料'),
     )!;
-    expect(heading.textContent).toBe('群内资料（合成群）');
+    expect(heading.textContent).toBe('群内资料 · 合成群');
     expect(heading.parentElement?.querySelector('.weq-profile-section-note')).toBeNull();
     const container = heading.closest('section')?.parentElement;
     expect(container?.classList.contains('weq-contact-sections')).toBe(true);
     expect(container?.querySelector('[data-profile-field="company"]')).not.toBeNull();
-    expect(container?.firstElementChild).toBe(heading.closest('section'));
-    expect(container?.children[1]?.querySelector('h3')?.textContent).toBe('个人资料');
+    // 群内资料不再顶到名片最前面：跟资料页四个分页同序（个人资料 / 与我的关系 → 群内资料）。
+    const titles = [...(container?.querySelectorAll('.weq-profile-subtitle') ?? [])].map(
+      (node) => node.textContent,
+    );
+    expect(titles.indexOf('群内资料 · 合成群')).toBeGreaterThan(titles.indexOf('个人资料'));
   });
   it('身份正文按备注、QQ、QID、UID、签名分行，状态仍位于昵称旁', async () => {
     preferences.uid = true;
@@ -459,9 +463,10 @@ describe('群成员资料卡浮层', () => {
     expect(host.querySelector('[data-profile-field="signature"]')?.textContent).toContain(
       '资料页原签名',
     );
+    // 分区名与名片统一（此前资料页叫「基本信息 / 互动与关系」，同一份数据两个名字）。
     expect([...host.querySelectorAll('h3')].map((node) => node.textContent)).toEqual([
-      '基本信息',
-      '互动与关系',
+      '个人资料',
+      '与我的关系',
     ]);
     expect(host.querySelector('.weq-profile-tech')?.textContent).toContain(MEMBER.id);
     await act(async () =>

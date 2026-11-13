@@ -1,5 +1,14 @@
-import { Fragment, useContext, useState } from 'react';
-import { UserRound } from 'lucide-react';
+import { Fragment, useContext, useState, type ReactNode } from 'react';
+import {
+  AtSign,
+  Bot,
+  HeartHandshake,
+  IdCard,
+  ListChecks,
+  Sparkles,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import {
   CONTACT_CARD_FIELDS,
   CONTACT_GROUP_FIELDS,
@@ -18,10 +27,20 @@ import {
 } from '../../lib/contactCardSections';
 import { trpc } from '../../trpc/client';
 import { AutoSave } from './AutoSave';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, SectionHeader, Toggle } from './controls';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
 import { ContactFieldSort } from './contactCard/ContactFieldSort';
 import '../../styles/contact-card.css';
+
+/** 每个分区一个 15px 图标，与其它设置卡片的「图标 + 标题」版式一致。 */
+const sectionIcons: Record<string, ReactNode> = {
+  identity: <UserRound size={15} strokeWidth={1.8} />,
+  basic: <IdCard size={15} strokeWidth={1.8} />,
+  social: <HeartHandshake size={15} strokeWidth={1.8} />,
+  display: <Sparkles size={15} strokeWidth={1.8} />,
+  account: <AtSign size={15} strokeWidth={1.8} />,
+  bot: <Bot size={15} strokeWidth={1.8} />,
+};
 
 const cardLabels = new Map<string, string>(CONTACT_CARD_FIELDS.map(([key, label]) => [key, label]));
 const groupLabels = new Map<string, string>(
@@ -61,13 +80,14 @@ export function ContactCardSettings() {
         <SectionHeader
           title="联系人名片"
           icon={<UserRound size={16} strokeWidth={1.8} />}
-          desc="可点击顶部头像预览效果"
+          desc="控制联系人与群名片上显示哪些字段、按什么顺序显示；拖动行首把手可调整顺序。"
         />
-        <Row
-          settingId="contact-card-all"
-          label="全部字段"
+        <Card
+          title="全部字段"
+          icon={<ListChecks size={15} strokeWidth={1.8} />}
           desc={`共 ${allFields.length} 个字段，已显示 ${visibleCount} 个。`}
-          control={
+          settingId="contact-card-all"
+          action={
             <span className="weq-contact-toggle-all">
               <button
                 type="button"
@@ -104,7 +124,11 @@ export function ContactCardSettings() {
         />
         {CONTACT_CARD_SECTIONS.map((section) => (
           <Fragment key={section.key}>
-            <Card title={section.title} settingId={`contact-card-${section.key}-fields`}>
+            <Card
+              title={section.title}
+              icon={sectionIcons[section.key]}
+              settingId={`contact-card-${section.key}-fields`}
+            >
               <ContactFieldSort
                 id={`contact-card-${section.key}-sort`}
                 title={section.title}
@@ -129,7 +153,11 @@ export function ContactCardSettings() {
               />
             </Card>
             {section.key === 'identity' ? (
-              <Card title="群内资料" settingId="contact-card-group-fields">
+              <Card
+                title="群内资料"
+                icon={<Users size={15} strokeWidth={1.8} />}
+                settingId="contact-card-group-fields"
+              >
                 <ContactFieldSort
                   id="contact-card-group-sort"
                   title="群内资料"

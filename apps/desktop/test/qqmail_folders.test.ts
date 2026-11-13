@@ -590,7 +590,7 @@ describe('邮箱修饰键多选', () => {
         if (action === '收件箱')
           f.host.querySelector<HTMLButtonElement>('.weq-mail-folders [title="收件箱"]')!.click();
         else if (action === '未读')
-          f.host.querySelector<HTMLInputElement>('.weq-mail-list-heading input')!.click();
+          f.host.querySelector<HTMLButtonElement>('.weq-mail-list-heading [role="checkbox"]')!.click();
         else if (action === '搜索')
           f.host
             .querySelector<HTMLFormElement>('.weq-mail-search')!

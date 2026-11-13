@@ -299,7 +299,21 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   ];
   return (
     <div className="weq-set weq-backup" aria-busy={Boolean(busy)}>
-      <SectionHeader icon={<ArchiveRestore size={17} />} title="配置备份与恢复" />
+      <SectionHeader
+        icon={<ArchiveRestore size={17} />}
+        title="配置备份与恢复"
+        actions={
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={Boolean(busy)}
+            onClick={() => void act('正在读取', () => refresh())}
+          >
+            <RefreshCw size={14} />
+            刷新状态
+          </button>
+        }
+      />
       <p className="weq-set-note">
         备份不加密，可能包含 API 密钥、账号数据库密钥、克隆对话和记忆。请妥善保管；不包含 QQ
         原始数据库、漫游缓存或本机应用锁密钥。
@@ -314,17 +328,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           {busy}
         </p>
       ) : null}
-      <div className="weq-backup-actions">
-        <button
-          type="button"
-          className="weq-set-btn"
-          disabled={Boolean(busy)}
-          onClick={() => void act('正在读取', () => refresh())}
-        >
-          <RefreshCw size={14} />
-          刷新状态
-        </button>
-      </div>
       {result ? (
         <Card
           title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}

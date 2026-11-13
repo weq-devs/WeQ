@@ -115,11 +115,12 @@ html[data-theme='dark']
   z-index: 0;
 }
 
+/* 数字角标只压在入口右上角，不能整块盖住图标本体。 */
 .app-shell .rail-nav .rail-message-entry > .rail-message-badge {
   position: absolute;
   z-index: 1;
-  top: 0;
-  right: -2px;
+  top: -2px;
+  right: -6px;
 }
 
 html .app-shell .rail-nav :is(.rail-message-badge, .rail-badge-mail),
