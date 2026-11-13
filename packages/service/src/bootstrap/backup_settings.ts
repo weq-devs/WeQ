@@ -341,9 +341,9 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
       home,
       'settings.home',
       [],
-      ['showTags', 'showGreeting', 'showHitokoto', 'blockedWords'],
+      ['preferQqShow', 'showTags', 'showGreeting', 'showHitokoto', 'blockedWords'],
     );
-    for (const key of ['showTags', 'showGreeting', 'showHitokoto'])
+    for (const key of ['preferQqShow', 'showTags', 'showGreeting', 'showHitokoto'])
       if (page[key] !== undefined && typeof page[key] !== 'boolean') fail(`settings.home.${key}`);
     if (Object.hasOwn(page, 'blockedWords')) {
       if (!Array.isArray(page.blockedWords) || page.blockedWords.length > 1000)

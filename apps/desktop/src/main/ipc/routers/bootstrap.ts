@@ -678,6 +678,7 @@ export const bootstrapRouter = router({
   setHomeSettings: procedure
     .input(
       z.object({
+        preferQqShow: z.boolean().optional(),
         showTags: z.boolean().optional(),
         showGreeting: z.boolean().optional(),
         showHitokoto: z.boolean().optional(),

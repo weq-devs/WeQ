@@ -159,6 +159,7 @@ describe('个性主页', () => {
     config.setSettings({
       home: {
         ...DEFAULT_HOME_SETTINGS,
+        preferQqShow: false,
         showTags: false,
         blockedWords: [' ABC ', 'abc', '', '剧透'],
       },
@@ -166,6 +167,7 @@ describe('个性主页', () => {
     config.setSettings({ preferCdn: false });
     expect(new UserConfigService(platform).getSettings().home).toEqual({
       ...DEFAULT_HOME_SETTINGS,
+      preferQqShow: false,
       showTags: false,
       blockedWords: ['ABC', '剧透'],
     });
@@ -173,7 +175,12 @@ describe('个性主页', () => {
 
   it('损坏或缺少的字段回落默认值，不把 false 吞掉', () => {
     expect(
-      normalizeHomeSettings({ showGreeting: false, showTags: 'false', blockedWords: [42, '  '] }),
+      normalizeHomeSettings({
+        preferQqShow: 'false',
+        showGreeting: false,
+        showTags: 'false',
+        blockedWords: [42, '  '],
+      }),
     ).toEqual({
       ...DEFAULT_HOME_SETTINGS,
       showGreeting: false,
@@ -183,13 +190,15 @@ describe('个性主页', () => {
   it('主页偏好随全局设置备份，屏蔽词数组可校验并拒绝损坏数据', () => {
     const backup = snapshotWeqSettings({
       ...DEFAULT_APP_SETTINGS,
-      home: { ...DEFAULT_HOME_SETTINGS, blockedWords: ['剧透'] },
+      home: { ...DEFAULT_HOME_SETTINGS, preferQqShow: false, blockedWords: ['剧透'] },
     });
     expect(backup.home.blockedWords).toEqual(['剧透']);
+    expect(backup.home.preferQqShow).toBe(false);
     expect(() => validateWeqAppSettings(backup)).not.toThrow();
     for (const home of [
       { blockedWords: [42] },
       { showTags: 'false' },
+      { preferQqShow: 'false' },
       { blockedWords: ['x'.repeat(201)] },
     ])
       expect(() => validateWeqAppSettings({ home })).toThrow('settings.home');

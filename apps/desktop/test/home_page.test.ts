@@ -8,10 +8,24 @@ import { SETTINGS_GROUPS } from '../src/renderer/src/components/settings/navigat
 import { searchAppEntries } from '../src/renderer/src/components/search/appSearchCatalog';
 
 const fixture = vi.hoisted(() => ({
-  home: { showTags: true, showGreeting: true, showHitokoto: true, blockedWords: [] as string[] },
+  home: {
+    preferQqShow: true,
+    showTags: true,
+    showGreeting: true,
+    showHitokoto: true,
+    blockedWords: [] as string[],
+  },
+  qqShow: { hasShow: false, url: '', expiresAt: 1 },
+  qqShowEnabled: false,
   save: vi.fn(),
   invalidate: vi.fn(),
   sampleEnabled: false,
+}));
+vi.mock('../src/renderer/src/hooks/useContactCard', () => ({
+  useContactQqShow: (_: string, enabled: boolean) => {
+    fixture.qqShowEnabled = enabled;
+    return { data: fixture.qqShow };
+  },
 }));
 vi.mock('../src/renderer/src/components/dressPieces', () => ({
   AvatarOrb: () => createElement('div', { 'data-avatar': true }),
@@ -49,6 +63,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.home = { ...DEFAULT_HOME_SETTINGS, blockedWords: [] };
+  fixture.qqShow = { hasShow: false, url: '', expiresAt: 1 };
   fixture.save.mockReset().mockImplementation(async (patch) => {
     fixture.home = { ...fixture.home, ...patch };
     return fixture.home;
@@ -84,7 +99,13 @@ describe('主页显示与偏好', () => {
       const cards = view.host.querySelectorAll('.weq-set-card');
       expect(cards).toHaveLength(1);
       expect(cards[0]!.querySelector('.weq-set-card-title')?.textContent).toBe('主页');
-      for (const id of ['home-tags', 'home-greeting', 'home-hitokoto', 'home-blocked-words']) {
+      for (const id of [
+        'home-prefer-qqshow',
+        'home-tags',
+        'home-greeting',
+        'home-hitokoto',
+        'home-blocked-words',
+      ]) {
         expect(cards[0]!.querySelector(`[data-setting-id="${id}"]`)).not.toBeNull();
       }
       expect(cards[0]!.querySelector('.weq-set-card')).toBeNull();
@@ -102,6 +123,74 @@ describe('主页显示与偏好', () => {
       section: 'startup',
       settingId: 'home-blocked-words',
     });
+    expect(searchAppEntries('优先展示 QQ 秀')[0]?.target).toMatchObject({
+      section: 'startup',
+      settingId: 'home-prefer-qqshow',
+    });
+  });
+  it('QQ 秀加载前保留头像，加载后在原标签环中央展示，关闭后恢复头像', () => {
+    fixture.qqShow = {
+      hasShow: true,
+      url: 'https://images.qqshow.gtimg.com/fixture.png',
+      expiresAt: 1,
+    };
+    const view = mount(ChatHome);
+    try {
+      const stage = view.host.querySelector('.weq-chathome-stage');
+      const tags = stage!.querySelector('[data-tags]');
+      const image = stage!.querySelector<HTMLImageElement>('.weq-chathome-qqshow')!;
+      expect(image.hidden).toBe(true);
+      expect(stage!.querySelector('[data-avatar]')).not.toBeNull();
+      act(() => image.dispatchEvent(new Event('load')));
+      expect(image.hidden).toBe(false);
+      expect(stage!.querySelector('[data-avatar]')).toBeNull();
+      expect(stage!.querySelector('[data-tags]')).toBe(tags);
+      fixture.home = { ...fixture.home, preferQqShow: false };
+      view.render();
+      expect(fixture.qqShowEnabled).toBe(false);
+      expect(stage!.querySelector('.weq-chathome-qqshow')).toBeNull();
+      expect(stage!.querySelector('[data-avatar]')).not.toBeNull();
+    } finally {
+      view.close();
+    }
+  });
+  it('没有 QQ 秀、图片失败及切换形象时均保留头像，不让失败状态污染新图片', () => {
+    const view = mount(ChatHome);
+    try {
+      expect(view.host.querySelector('.weq-chathome-qqshow')).toBeNull();
+      fixture.qqShow = {
+        hasShow: true,
+        url: 'https://images.qqshow.gtimg.com/one.png',
+        expiresAt: 1,
+      };
+      view.render();
+      const image = view.host.querySelector('.weq-chathome-qqshow')!;
+      act(() => image.dispatchEvent(new Event('error')));
+      expect(view.host.querySelector('.weq-chathome-qqshow')).toBeNull();
+      expect(view.host.querySelector('[data-avatar]')).not.toBeNull();
+      fixture.qqShow = { ...fixture.qqShow, url: 'https://images.qqshow.gtimg.com/two.png' };
+      view.render();
+      const next = view.host.querySelector<HTMLImageElement>('.weq-chathome-qqshow')!;
+      act(() => next.dispatchEvent(new Event('load')));
+      expect(next.hidden).toBe(false);
+      fixture.qqShow = { ...fixture.qqShow, url: 'https://images.qqshow.gtimg.com/three.png' };
+      view.render();
+      expect(view.host.querySelector<HTMLImageElement>('.weq-chathome-qqshow')!.hidden).toBe(true);
+      expect(view.host.querySelector('[data-avatar]')).not.toBeNull();
+    } finally {
+      view.close();
+    }
+  });
+  it('QQ 秀开关仅保存主页偏好，不修改聊天头像开关', async () => {
+    const view = mount(HomeSettingsSection);
+    try {
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('[aria-label="优先展示 QQ 秀"]')!.click(),
+      );
+      expect(fixture.save).toHaveBeenLastCalledWith({ preferQqShow: false });
+    } finally {
+      view.close();
+    }
   });
   it('有个性标签仍显示一言，三个开关独立生效', () => {
     const view = mount(ChatHome);

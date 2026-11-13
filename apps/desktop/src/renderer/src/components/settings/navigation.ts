@@ -259,6 +259,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ...(
     [
       ['home-tags', '个性标签'],
+      ['home-prefer-qqshow', '优先展示 QQ 秀'],
       ['home-greeting', '问候语'],
       ['home-hitokoto', '一言'],
       ['home-blocked-words', '一言屏蔽词'],

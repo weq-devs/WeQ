@@ -19,7 +19,9 @@ import { calendarParts } from '@weq/time';
 import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_HOME_SETTINGS } from '@weq/service/home-settings';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from '../components/dressPieces';
-import { dressUrl } from '../lib/resourceUrl';
+import { dressUrl, qqShowUrl } from '../lib/resourceUrl';
+import { useContactQqShow } from '../hooks/useContactCard';
+import { useViewState } from '../state/view';
 import { useThemeStore } from '../state/theme';
 import { trpc } from '../trpc/client';
 import '../styles/home-layout.css';
@@ -108,6 +110,15 @@ export function ChatHome({
   useThemeStore((s) => s.resolved);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, { refetchOnWindowFocus: false });
   const home = settings.data?.home ?? DEFAULT_HOME_SETTINGS;
+  const uin = useViewState((s) => s.openedUin) ?? '';
+  const qqShow = useContactQqShow(uin, home.preferQqShow);
+  const showSource =
+    home.preferQqShow && qqShow.data?.hasShow && qqShow.data.url
+      ? qqShowUrl(qqShow.data.url, qqShow.data.expiresAt)
+      : '';
+  const [loadedShow, setLoadedShow] = useState('');
+  const [failedShow, setFailedShow] = useState('');
+  const showReady = Boolean(showSource && loadedShow === showSource && failedShow !== showSource);
   const dressQuery = trpc.account.getHomeDress.useQuery(undefined, {
     refetchOnWindowFocus: false,
     // 首次进入时 fetchHomeDress 可能还在后台写入，轮询直到拿到数据
@@ -152,12 +163,26 @@ export function ChatHome({
         <div className="weq-chathome-inner">
           <div className="weq-chathome-hero">
             <div className="weq-chathome-stage">
-              <AvatarOrb
-                avatarUrl={selfAvatarUrl}
-                nickname={name}
-                widgetUrl={widgetUrl}
-                refreshOnFocus
-              />
+              {!showReady && (
+                <AvatarOrb
+                  avatarUrl={selfAvatarUrl}
+                  nickname={name}
+                  widgetUrl={widgetUrl}
+                  refreshOnFocus
+                />
+              )}
+              {showSource && failedShow !== showSource && (
+                <img
+                  key={showSource}
+                  className="weq-chathome-qqshow"
+                  src={showSource}
+                  alt={name ? `${name}的 QQ 秀` : 'QQ 秀'}
+                  hidden={!showReady}
+                  draggable={false}
+                  onLoad={() => setLoadedShow(showSource)}
+                  onError={() => setFailedShow(showSource)}
+                />
+              )}
               <TagRing tags={tags} radiusPad={32} contained />
             </div>
             {home.showGreeting && (

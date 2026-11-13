@@ -1,9 +1,18 @@
+import { DEFAULT_HOME_SETTINGS } from '@weq/service/home-settings';
+
+const mode = new URLSearchParams(location.search).get('show');
+export function useContactQqShow() {
+  return {
+    data: { hasShow: Boolean(mode && mode !== 'none'), url: '/fixture-qqshow.png', expiresAt: 1 },
+  };
+}
+
 export const trpc = {
   bootstrap: {
     getSettings: {
       useQuery: () => ({
         data: {
-          home: { showTags: true, showGreeting: true, showHitokoto: true, blockedWords: [] },
+          home: { ...DEFAULT_HOME_SETTINGS, preferQqShow: mode !== 'off' },
         },
       }),
     },

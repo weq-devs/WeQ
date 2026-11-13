@@ -737,6 +737,7 @@ describe('设置归位后的实际页面', () => {
         'startup-enabled',
         'startup-page',
         'home-settings',
+        'home-prefer-qqshow',
         'home-tags',
         'home-greeting',
         'home-hitokoto',
@@ -751,6 +752,7 @@ describe('设置归位后的实际页面', () => {
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
       ).toBe('home-settings');
       for (const [item, id] of [
+        ['优先展示 QQ 秀', 'home-prefer-qqshow'],
         ['个性标签', 'home-tags'],
         ['问候语', 'home-greeting'],
         ['一言', 'home-hitokoto'],

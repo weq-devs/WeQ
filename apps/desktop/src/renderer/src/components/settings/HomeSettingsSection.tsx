@@ -67,6 +67,7 @@ export function HomeSettingsSection() {
       <Card title="主页" icon={<House size={16} strokeWidth={1.8} />}>
         {(
           [
+            ['preferQqShow', '优先展示 QQ 秀', 'home-prefer-qqshow'],
             ['showTags', '个性标签', 'home-tags'],
             ['showGreeting', '问候语', 'home-greeting'],
             ['showHitokoto', '一言', 'home-hitokoto'],
