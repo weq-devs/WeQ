@@ -217,28 +217,66 @@ export function GlobalSettingsSection({
     disabled: cleanupBusy || cacheUsage.isFetching,
   });
 
-  // 存储条目：勾选用设置页统一的 CheckPill，不再用原生复选框 + 内层描边卡片。
   const storageItem = (item: StorageUsageItem, members: StorageUsageItem[]) => (
-    <div key={item.id} className="weq-storage-item" data-cache-id={item.id}>
+    <div
+      key={item.id}
+      className={`weq-storage-item${item.clearable ? '' : ' is-readonly'}`}
+      data-cache-id={item.id}
+    >
       <div className="weq-storage-item-head">
-        <CheckPill
-          checked={pickedCats.has(item.id)}
-          disabled={cleanupBusy || cacheUsage.isFetching || !item.clearable}
-          onChange={() => cacheMulti.toggle(item.id)}
-        >
-          <HardDrive size={13} strokeWidth={1.8} aria-hidden />
-          {item.label}
-        </CheckPill>
-        <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
+        {item.clearable ? (
+          <CheckPill
+            checked={pickedCats.has(item.id)}
+            disabled={cleanupBusy || cacheUsage.isFetching}
+            onChange={() => cacheMulti.toggle(item.id)}
+          >
+            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+            <span>{item.label}</span>
+          </CheckPill>
+        ) : (
+          <span className="weq-storage-item-label">
+            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+            <span>{item.label}</span>
+          </span>
+        )}
+        <span className="weq-set-cache-size weq-number">
+          {item.incomplete ? '至少 ' : ''}
+          {formatBytes(item.bytes)}
+        </span>
       </div>
-      <span className="weq-storage-detail">
+      <div className="weq-storage-detail">
         {item.backup && <small>{backupDescription(item)}</small>}
         {item.category === 'program-backups' && <small>{item.reason}</small>}
         <small>{item.confirmation ?? item.reason}</small>
         <small className="weq-storage-path">
           {[...new Set(members.map((member) => member.path))].join('\n')}
         </small>
-      </span>
+        {!item.clearable && (
+          <div className="weq-set-btn-group weq-storage-item-actions">
+            {item.management === 'repair' && navigate && (
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                onClick={() => navigate('database-repair')}
+              >
+                数据库修复
+              </button>
+            )}
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+              onClick={() =>
+                void client.bootstrap.revealStorageItem
+                  .mutate({ id: item.id })
+                  .catch((error: unknown) => showError('定位失败', errMsg(error)))
+              }
+            >
+              <FolderOpen size={14} aria-hidden />
+              定位
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -711,46 +749,7 @@ export function GlobalSettingsSection({
                       </span>
                     </summary>
                     <div className="weq-storage-entries">
-                      {group.entries.map(({ item, members }) =>
-                        item.clearable ? (
-                          storageItem(item, members)
-                        ) : (
-                          <div key={item.id} className="weq-set-cache-item is-readonly">
-                            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-                            <span className="weq-storage-detail">
-                              <span>{item.label}</span>
-                              {item.backup && <small>{backupDescription(item)}</small>}
-                              <small>{item.reason}</small>
-                              <small className="weq-storage-path">{item.path}</small>
-                              {item.management === 'repair' && navigate && (
-                                <button
-                                  type="button"
-                                  className="weq-set-btn weq-set-btn-sm"
-                                  onClick={() => navigate('database-repair')}
-                                >
-                                  数据库修复
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="weq-set-btn weq-set-btn-sm"
-                                onClick={() =>
-                                  void client.bootstrap.revealStorageItem
-                                    .mutate({ id: item.id })
-                                    .catch((error: unknown) => showError('定位失败', errMsg(error)))
-                                }
-                              >
-                                <FolderOpen size={14} aria-hidden />
-                                定位
-                              </button>
-                            </span>
-                            <span className="weq-set-cache-size weq-number">
-                              {item.incomplete ? '至少 ' : ''}
-                              {formatBytes(item.bytes)}
-                            </span>
-                          </div>
-                        ),
-                      )}
+                      {group.entries.map(({ item, members }) => storageItem(item, members))}
                       {group.items.length === 0 && (
                         <div className="weq-set-empty">系统辅助文件</div>
                       )}

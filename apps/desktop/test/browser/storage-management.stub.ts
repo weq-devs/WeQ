@@ -1,4 +1,5 @@
 import type { StorageUsageItem } from '@weq/service';
+import type { PreferencePatch } from '@weq/service/client-preferences';
 
 const base = {
   bytes: 2048,
@@ -8,6 +9,26 @@ const base = {
   management: 'cleanup' as const,
 };
 export const storageItems: StorageUsageItem[] = [
+  {
+    ...base,
+    id: 'logs',
+    path: '/synthetic/Application Support/WeQ/logs',
+    label: '运行日志',
+    bytes: 3.4 * 1024 ** 3,
+    category: 'persistent',
+    action: 'data',
+    confirmation: '将删除运行日志，已发生问题的排查证据无法恢复。',
+  },
+  {
+    ...base,
+    id: 'models',
+    path: '/synthetic/Application Support/WeQ/models',
+    label: '本地模型',
+    bytes: 902 * 1024 ** 2,
+    category: 'persistent',
+    clearable: false,
+    reason: '由增强包管理',
+  },
   {
     ...base,
     id: 'anti_recall',
@@ -104,7 +125,12 @@ const proxy = (path: string[] = []): unknown =>
     get: (_target, key) =>
       key === 'useQuery'
         ? () => ({
-            data: path.at(-1) === 'listStorageUsage' ? storageItems : undefined,
+            data:
+              path.at(-1) === 'listStorageUsage'
+                ? storageItems
+                : path.at(-1) === 'storageCleanupResult'
+                  ? { cleared: ['one', 'two'], failed: [], freedBytes: 1.7 * 1024 ** 3 }
+                  : undefined,
             isLoading: false,
             isFetching: false,
             refetch: async () => ({}),
@@ -115,8 +141,16 @@ const proxy = (path: string[] = []): unknown =>
               isLoading: false,
             })
           : key === 'mutate'
-            ? async () => ({ ok: true })
+            ? async (patch: PreferencePatch) => {
+                if (path.join('.') === 'clientState.patch') {
+                  Object.assign(preferences, patch);
+                  return { revision: ++revision, values: { ...preferences }, records: {} };
+                }
+                return { ok: true };
+              }
             : proxy([...path, String(key)]),
   });
+const preferences: PreferencePatch = {};
+let revision = 0;
 export const trpc = proxy();
 export const client = proxy();
