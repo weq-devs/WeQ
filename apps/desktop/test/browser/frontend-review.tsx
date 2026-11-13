@@ -20,7 +20,7 @@ Object.assign(window, {
       useThemeStore.getState().setComponentStyle(style);
     },
     contrast: () => {
-      const button = document.querySelector('.weq-contact-primary')!;
+      const button = document.querySelector('.weq-contact-secondary')!;
       const css = getComputedStyle(button);
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1;
@@ -48,7 +48,7 @@ function Fixture() {
   return (
     <main style={{ maxWidth: 720, margin: 'auto', padding: 12, boxSizing: 'border-box' }}>
       <div className="weq-contact-actions">
-        <button type="button" className="weq-contact-primary weq-set-btn">
+        <button type="button" className="weq-contact-secondary">
           <MessageSquare size={14} />
           打开会话
         </button>

@@ -251,7 +251,7 @@
   border-top: 1px solid var(--weq-border-subtle);
 }
 
-/* 主操作/次操作按钮的视觉全部来自 .weq-contact-primary / .weq-contact-secondary（contact-card.css），
+/* 操作按钮的视觉统一来自 .weq-contact-secondary（contact-card.css），
    这里只纠正群名字片的宽度继承，别覆盖它们的圆角、内距与颜色。 */
 .weq-group-card-actions .weq-profile-perhome {
   flex: 0 0 auto;
