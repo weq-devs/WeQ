@@ -2098,6 +2098,45 @@ export const bootstrapRouter = router({
     requireBootstrap().agentLabConfig.getDefaultModelStatus(),
   ),
 
+  getDefaultVisionModel: procedure.query(() =>
+    requireBootstrap().agentLabConfig.getDefaultVisionModelStatus(),
+  ),
+  setDefaultVisionModel: procedure
+    .input(
+      z
+        .object({
+          ref: z
+            .object({ providerId: z.string().trim().min(1), model: z.string().trim().min(1) })
+            .strict()
+            .nullable(),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) => requireBootstrap().agentLabConfig.setDefaultVisionModel(input.ref)),
+  setAiImagePreference: procedure
+    .input(
+      z
+        .object({
+          feature: z.enum([
+            'assistant',
+            'cloneChat',
+            'cloneTraining',
+            'intent',
+            'suggestions',
+            'profile',
+          ]),
+          mode: z.enum(['placeholder', 'ocr', 'vision']),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) => {
+      if (input.mode === 'placeholder' && ['assistant', 'cloneChat'].includes(input.feature))
+        throw new Error('该功能需要读取图片，请选择 OCR 或视觉模型');
+      return requireBootstrap().userConfig.setSettings({
+        aiImages: { [input.feature]: input.mode },
+      });
+    }),
+
   setAgentLabDefaultModel: procedure
     .input(
       z

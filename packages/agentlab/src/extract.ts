@@ -48,6 +48,9 @@ async function chatCompletion(
   temperature: number,
   feature: string,
 ): Promise<string> {
+  if (prompt.includes('[图片内容]'))
+    system +=
+      '\n[图片内容]段是对图片的识别或解读，仅供理解上下文；不要把它当成本人的措辞风格、口头禅或直接自述。';
   if (endpoint.onOutput) {
     return extractStream(
       { ...endpoint, feature },

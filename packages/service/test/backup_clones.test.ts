@@ -92,6 +92,26 @@ it('外部 MP3 参考语音保留真实格式，不误写成 WAV', () => {
 });
 
 describe('克隆备份的真实文件与资产关系', () => {
+  it('图片附件与不透明引用一起备份，不写死原机器路径', () => {
+    const f = fixture();
+    const name = 'a'.repeat(64) + '.png';
+    mkdirSync(join(f.account, 'images'));
+    writeFileSync(join(f.account, 'images', name), png);
+    save(join(f.account, 'conversations.json'), {
+      assistant: [
+        { role: 'user', text: '', ts: 1, images: [{ id: name, path: `ai-image:${name}` }] },
+      ],
+    });
+    const snapshot = snapshotWeqClones(f.agentlab);
+    const restored = readWeqBackup(buildWeqBackup(snapshot.files));
+    expect(
+      restored.files.find((file) => file.path === `clones/${scope}/images/${name}`)?.data,
+    ).toEqual(png);
+    expect(
+      restored.files.find((file) => file.path.endsWith('/conversations.json'))?.data.toString(),
+    ).toContain(`ai-image:${name}`);
+    expect(snapshot.warnings).toEqual([]);
+  });
   it('保留会话、记忆和生成语音，外部表情／参考语音变为包内相对引用且原件不变', () => {
     const f = fixture();
     const image = join(f.root, 'external-image.png');

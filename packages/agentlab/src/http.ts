@@ -771,7 +771,7 @@ export async function runPersonaChat(
     !!req.voiceEnabled,
     req.relationNote,
   );
-  const messages = [
+  const messages: Array<{ role: string; content: string | AiContentPart[] }> = [
     { role: 'system', content: system },
     // 历史里的内部表情标记 [[sticker:md5]] 脱敏成 [表情]，否则模型会照着历史模仿、
     // 把这个内部格式（连带真实 md5）原样吐回来。
@@ -788,18 +788,29 @@ export async function runPersonaChat(
       content: `【你决定接这句话】原因：${replyReason}。就顺着这个念头自然地开口，别在回复里复述或解释这个原因。`,
     });
   }
-  messages.push({ role: 'user', content: req.input });
+  messages.push({ role: 'user', content: req.inputContent ?? req.input });
 
-  const data = await postJson<{
-    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-    usage?: OpenAiUsage;
-  }>(chat, '/chat/completions', {
-    model: chat.model,
-    // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
-    temperature: generation.temperature ?? 0.7 + willing.score * 0.2,
-    ...(generation.maxOutputTokens > 0 ? { max_tokens: generation.maxOutputTokens } : {}),
-    messages,
-  });
+  const request = () =>
+    postJson<{
+      choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      usage?: OpenAiUsage;
+    }>(chat, '/chat/completions', {
+      model: chat.model,
+      // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
+      temperature: generation.temperature ?? 0.7 + willing.score * 0.2,
+      ...(generation.maxOutputTokens > 0 ? { max_tokens: generation.maxOutputTokens } : {}),
+      messages,
+    });
+  let data: Awaited<ReturnType<typeof request>>;
+  try {
+    data = await request();
+  } catch (error) {
+    chat.signal?.throwIfAborted();
+    if (!req.fallbackImageInput || (error instanceof Error && error.name === 'AbortError'))
+      throw error;
+    messages[messages.length - 1] = { role: 'user', content: await req.fallbackImageInput() };
+    data = await request();
+  }
   const raw = pickMessageText(data.choices?.[0]?.message);
   if (!raw) {
     throw new Error('AgentLab chat 返回为空');
@@ -854,3 +865,4 @@ export async function runPersonaChat(
   };
 }
 import { normalizeCloneGeneration } from './generation';
+import type { AiContentPart } from './images';

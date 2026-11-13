@@ -38,6 +38,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { avatarResponse } from './avatar_response';
+import { aiImageAssetPath } from './ai_images';
 import { viewerMedia } from './export_viewer';
 import { fileResponse as streamFile } from './file_response';
 import { withCors } from './protocol_response';
@@ -496,6 +497,37 @@ async function giftRemoteResponse(src: string): Promise<Response> {
  * Serve one `weq-media://` request. Pure `Request`→`Response`, so the web app
  * can mount it on a plain HTTP route (see `apps/web`) without Electron.
  */
+export async function resolveChatImageFile(
+  q: URLSearchParams,
+  check = () => mediaBinding.getStore()?.(),
+) {
+  check();
+  const services = getAppContext().services;
+  if (!services) throw new Error('账号尚未打开');
+  const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
+  const { source, thumb } = await services.fileSearch.findFile(
+    Number(q.get('t') ?? '0'),
+    q.get('name') ?? '',
+    picType,
+    q.get('md5') ?? undefined,
+  );
+  check();
+  const path =
+    q.get('v') === 'thumb'
+      ? (thumb ?? source)
+      : q.get('v') === 'original' && picType !== 'emoji'
+        ? source
+        : (source ?? thumb);
+  if (path) return { path, variant: path === source ? ('original' as const) : ('thumb' as const) };
+  const backup = resolveChatpicFallback(q.get('md5') ?? '', q.get('v') === 'original');
+  if (backup) return { path: backup, variant: 'unknown' as const };
+  const downloaded = await services.mediaDownload.download(q.get('token') ?? '', {
+    originalUrl: q.get('orig') ?? '',
+  });
+  check();
+  return { path: downloaded, variant: 'downloaded' as const };
+}
+
 export async function handleMediaRequest(request: Request, check?: () => void): Promise<Response> {
   try {
     const serve = () =>
@@ -643,6 +675,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       return notFound('no account session');
     }
     if (!services) return notFound('no account session');
+    if (kind === 'ai-image') {
+      return fileResponse(aiImageAssetPath(q.get('id') ?? ''));
+    }
 
     // 装扮字体:清单里记的 ttf 绝对路径。放在这里(而不是 weq-asset)是因为
     // weq-asset 只服务仓库的 resources/ 树,读不了账号缓存目录。
@@ -716,32 +751,12 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           // pic subType 1 = received animated emoji: lives under Emoji/emoji-recv
           // with no "original"; the displayable image comes back as `thumb`.
           const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
-          const { source, thumb } = await services.fileSearch.findFile(
-            tMs,
-            name,
-            picType,
-            q.get('md5') ?? undefined,
-          );
-          mediaBinding.getStore()?.();
-          const path = wantThumb
-            ? (thumb ?? source)
-            : q.get('v') === 'original' && picType !== 'emoji'
-              ? source
-              : (source ?? thumb);
+          const { path } = await resolveChatImageFile(q);
           const respond = (path: string) =>
             wantThumb && picType !== 'emoji'
               ? chatImageResponse(path, currentRequest.getStore(), mediaBinding.getStore())
               : fileResponse(path);
-          if (path) return respond(path);
-          // 本地 miss → 外部安卓 chatpic 备份兜底（按 md5 寻址），再不行才走 CDN。
-          const chatpicFile = resolveChatpicFallback(q.get('md5') ?? '', q.get('v') === 'original');
-          if (chatpicFile) return respond(chatpicFile);
-          // Missing on disk → CDN: digit token → originalUrl (no rkey); else rkey.
-          const dl = await services.mediaDownload.download(token, {
-            originalUrl: q.get('orig') ?? '',
-          });
-          mediaBinding.getStore()?.();
-          return dl ? respond(dl) : notFound('pic not found');
+          return path ? respond(path) : notFound('pic not found');
         }
         case 'video': {
           // ?v=thumb → cover image (rkey is fine for covers); otherwise →

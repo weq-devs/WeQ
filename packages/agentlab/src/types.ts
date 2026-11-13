@@ -362,6 +362,8 @@ export interface AgentLabStoredPair {
 export interface AgentLabChatTurn {
   role: 'user' | 'assistant';
   text: string;
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
 }
 
 export interface AgentLabChatRequest {
@@ -369,6 +371,8 @@ export interface AgentLabChatRequest {
   pairs: AgentLabStoredPair[];
   history: AgentLabChatTurn[];
   input: string;
+  inputContent?: string | AiContentPart[];
+  fallbackImageInput?: () => Promise<string>;
   /** 克隆体对当前对方的记忆（service 注入；命中的会在结果里回报以便记账衰减）。 */
   memories?: AgentLabMemoryItem[];
   /** 对话反思笔记（service 注入）：用户纠正 + 历次对话摘要。 */
@@ -401,6 +405,8 @@ export type AgentLabChatAction =
   | { kind: 'voice'; text: string };
 
 export interface AgentLabChatResult {
+  imageRefs?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
   /** 完整回复文本（分条用 \n 连接，落库/few-shot 用）。 */
   text: string;
   /** 分条后的纯文字消息（不含表情/语音；few-shot/兜底用）。 */
@@ -460,6 +466,9 @@ export interface AgentLabGroupMember {
  * 前端复用同一套四叉渲染，只是按 senderId 分气泡。
  */
 export interface AgentLabGroupMessage {
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
+  imageContext?: string;
   id: string;
   groupId: string;
   /** 发送者 memberId（persona 的 personaId 或 user 的 uin）。 */
@@ -542,3 +551,4 @@ export interface AgentLabRelationStore {
     now: number,
   ): AgentLabRelation;
 }
+import type { AiImageRef, AiImageOutcome, AiContentPart } from './images';

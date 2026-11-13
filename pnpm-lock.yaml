@@ -501,6 +501,9 @@ importers:
       vitepress:
         specifier: ^1.6.4
         version: 1.6.4(@algolia/client-search@5.63.0)(@types/node@22.19.20)(lightningcss@1.33.0)(postcss@8.5.32)(qrcode@1.5.4)(search-insights@2.17.3)(typescript@5.9.3)
+      vue:
+        specifier: 3.5.45
+        version: 3.5.45(typescript@5.9.3)
 
   packages/account:
     dependencies:
@@ -536,6 +539,9 @@ importers:
       '@weq/agentlab':
         specifier: workspace:*
         version: link:../agentlab
+      '@weq/service':
+        specifier: workspace:*
+        version: link:../service
       '@weq/time':
         specifier: workspace:*
         version: link:../time
@@ -552,6 +558,13 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(happy-dom@21.0.1)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.33.0)(supports-color@7.2.0)
+    optionalDependencies:
+      onnxruntime-node:
+        specifier: 1.30.0
+        version: 1.30.0
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@22.19.20)
 
   packages/codec:
     dependencies:

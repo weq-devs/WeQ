@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   prefilterEnabled: true,
   filterModel: null as { modelId: string } | null,
   runFilter: vi.fn(),
+  retrieveImage: vi.fn(),
 }));
 
 // 只换掉平台能力判定：真模块里的注册表 / 缓存照旧（下面还直接 import 了 OcrResultCache）。
@@ -70,6 +71,7 @@ vi.mock('../src/main/ocr/local', () => ({
   resolveLocalOcrFilterModel: () => mocks.filterModel,
   runLocalOcrFilterFile: mocks.runFilter,
 }));
+vi.mock('../src/main/media_protocol', () => ({ resolveChatImageFile: mocks.retrieveImage }));
 
 import { AI_TOOLS } from '../src/main/mcp/tools';
 import { OcrResultCache } from '@weq/service';
@@ -114,6 +116,7 @@ beforeEach(() => {
   mocks.prefilterEnabled = true;
   mocks.filterModel = null;
   mocks.runFilter.mockResolvedValue({ ok: true, hasText: false, modelId: 'filter' });
+  mocks.retrieveImage.mockResolvedValue({ path: null, variant: 'unknown' });
   mocks.pic = {
     type: 'pic',
     data: {
@@ -149,6 +152,20 @@ afterEach(() => {
 });
 
 describe('ocr_image_text', () => {
+  it('QQ 离线且本机无缓存时仍调用完整取图链路，再使用本地 OCR', async () => {
+    mocks.record = { ...readyRecord, qqOnline: false };
+    mocks.localModel = { modelId: 'ppocr-v5-mobile', paths: {} };
+    mocks.findFile.mockResolvedValue({ source: null, thumb: null });
+    mocks.retrieveImage.mockResolvedValueOnce({
+      path: '/synthetic/downloaded.png',
+      variant: 'downloaded',
+    });
+    const result = await ocr({ kind: 'group', conv: '123', msgId: '1' });
+    expect(result).toMatchObject({ ok: true, source: 'local', text: '本地结果' });
+    expect(mocks.retrieveImage).toHaveBeenCalledOnce();
+    expect(mocks.runLocalOcr).toHaveBeenCalledWith('/synthetic/downloaded.png', mocks.localModel);
+    expect(mocks.recognize).not.toHaveBeenCalled();
+  });
   it('全局开启时先筛图，无文字不发起在线或本地 OCR', async () => {
     mocks.pic = {
       type: 'pic',

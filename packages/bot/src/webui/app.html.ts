@@ -797,6 +797,14 @@ const JS = `
         '<button data-v="heuristic" class="' + (c.features.groupReplyMode === 'heuristic' ? 'active' : '') + '">启发式</button></div></div>' +
       '</div>';
 
+    var imageConfig = c.images || { mode: 'vision', prefilterEnabled: true };
+    html += '<div class="section-h">图片处理</div><div class="card">' +
+      '<div class="form-row"><label>图片处理偏好</label><select class="input" id="cfg-image-mode"><option value="ocr"' + (imageConfig.mode === 'ocr' ? ' selected' : '') + '>OCR</option><option value="vision"' + (imageConfig.mode !== 'ocr' ? ' selected' : '') + '>视觉模型</option></select></div>' +
+      '<div class="form-row"><label>视觉服务商</label><select class="input" id="cfg-image-provider"><option value="">未选择</option>' + c.llmProviders.map(function(p) { return '<option value="' + esc(p.id) + '"' + (imageConfig.visionModel && imageConfig.visionModel.providerId === p.id ? ' selected' : '') + '>' + esc(p.id) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="form-row"><label>视觉模型</label><input class="input" id="cfg-image-model" value="' + esc(imageConfig.visionModel ? imageConfig.visionModel.model : '') + '" /></div>' +
+      swRow('cfg-image-prefilter', 'OCR 前先筛图', '手动文字识别除外；筛图不可用时继续 OCR', imageConfig.prefilterEnabled !== false) +
+      '<div id="image-model-resources"></div></div>';
+
     // ── LLM 服务商 ──
     html += '<div class="section-h">' + ic('cpu', 15) + ' LLM 服务商</div><div class="card"><div class="form-grid">';
     c.llmProviders.forEach(function (p, i) {
@@ -857,6 +865,7 @@ const JS = `
       adapter: { type: val('cfg-ad-type'), wsUrl: val('cfg-ad-wsurl'), token: val('cfg-ad-token') },
       selfId: val('cfg-selfid'),
       features: { voice: sw('cfg-ft-voice'), groupChat: sw('cfg-ft-group'), groupReplyMode: segV },
+      images: { mode: val('cfg-image-mode') || 'vision', prefilterEnabled: sw('cfg-image-prefilter'), visionModel: val('cfg-image-provider') && val('cfg-image-model') ? { providerId: val('cfg-image-provider'), model: val('cfg-image-model') } : null, ocrModelId: settingsDraft.images ? settingsDraft.images.ocrModelId : undefined, filterModelId: settingsDraft.images ? settingsDraft.images.filterModelId : undefined },
       webui: { enabled: sw('cfg-wu-enabled'), port: Number(val('cfg-wu-port')) || 0 },
       llmProviders: [],
       ttsProviders: [],
@@ -880,6 +889,7 @@ const JS = `
       adapter: settingsDraft.adapter,
       selfId: settingsDraft.selfId,
       features: settingsDraft.features,
+      images: settingsDraft.images,
       webui: settingsDraft.webui,
       llmProviders: settingsDraft.llmProviders,
       ttsProviders: settingsDraft.ttsProviders,
@@ -892,6 +902,25 @@ const JS = `
   }
 
   function bindSettings(view) {
+    function loadImageResources() {
+      var box = document.getElementById('image-model-resources');
+      if (!box) return;
+      api('/api/image-models').then(function(r) {
+        box.innerHTML = (r.models || []).map(function(m) {
+          return '<div class="switch-row"><div class="sw-label"><b>' + esc(m.name) + '</b><span>' + (m.kind === 'filter' ? '筛图模型' : '识别模型') + ' · ' + esc(m.sizeLabel) + '</span></div><button class="sh-btn image-model-action" data-model="' + esc(m.id) + '" data-action="' + (m.downloaded ? 'delete' : 'download') + '">' + ic(m.downloaded ? 'trash' : 'download', 13) + (m.downloaded ? ' 删除' : ' 下载') + '</button></div>';
+        }).join('');
+        box.querySelectorAll('.image-model-action').forEach(function(button) {
+          button.onclick = function() {
+            button.disabled = true;
+            apiSend('/api/image-models', 'POST', { id: button.getAttribute('data-model'), action: button.getAttribute('data-action') }).then(function(res) {
+              if (!res.ok) throw new Error(res.j.error || '资源操作失败');
+              loadImageResources();
+            }).catch(function(e) { toast(e.message, 'err'); button.disabled = false; });
+          };
+        });
+      }).catch(function(e) { box.textContent = e.message || '资源状态读取失败'; });
+    }
+    loadImageResources();
     // 开关点击
     view.querySelectorAll('.switch').forEach(function (sw) {
       sw.onclick = function () {

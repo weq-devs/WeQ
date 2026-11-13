@@ -51,6 +51,7 @@ export interface AssistantToolSpec {
 }
 
 export interface AssistantTools {
+  images?: AiImagePort;
   /** 内置 + 外部 MCP 工具的合并规格（外部列举是异步的，故允许 Promise）。 */
   specs: (options?: {
     permissionMode?: 'sandbox' | 'unrestricted';
@@ -419,6 +420,9 @@ const TOOL_RESULT_CAP = 8000;
 const STEP_PREVIEW_CAP = 4000;
 
 interface ApiMessage {
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
+  imageReport?: string;
   role: string;
   content?: unknown;
   tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
@@ -462,6 +466,7 @@ export class AssistantService {
   }
   /** 按实际模型记住不支持 reasoning_effort 的端点，不影响切换后的其他模型。 */
   private readonly reasoningUnsupported = new Set<string>();
+  private readonly nonReplayErrors = new WeakSet<object>();
   private readonly permissionRuns = new Set<AbortController>();
   private readonly sessionRuns = new Map<
     string,
@@ -688,9 +693,10 @@ export class AssistantService {
     text: string,
     onStep?: (step: AssistantStep) => void,
     signal?: AbortSignal,
+    images?: AiImageRef[],
   ): Promise<{ text: string; steps: AssistantStep[] }> {
     return this.runForSession(sessionId, signal, (runSignal) =>
-      this.chatRun(sessionId, text, onStep, runSignal),
+      this.chatRun(sessionId, text, onStep, runSignal, images),
     );
   }
 
@@ -699,6 +705,7 @@ export class AssistantService {
     text: string,
     onStep?: (step: AssistantStep) => void,
     signal?: AbortSignal,
+    images?: AiImageRef[],
   ): Promise<{ text: string; steps: AssistantStep[] }> {
     if (!this.config.model) throw new Error('请先在助手设置里选择聊天模型。');
     const session = this.sessions.find((s) => s.id === sessionId);
@@ -748,8 +755,8 @@ export class AssistantService {
       basePrompt,
       messages: [
         { role: 'system', content: basePrompt },
-        ...prior.map((t) => ({ role: t.role, content: t.text })),
-        { role: 'user', content: text },
+        ...prior.map((t) => ({ role: t.role, content: t.text, images: t.images })),
+        { role: 'user', content: text, images },
       ],
       workspace: { notes: [] },
       summary: '',
@@ -763,7 +770,18 @@ export class AssistantService {
       const now = Date.now();
       const toolsUsed = collectToolsUsed();
       this.conversations.append(this.bucketId(sessionId), [
-        { role: 'user', text, ts: now },
+        {
+          role: 'user',
+          text,
+          ts: now,
+          ...(images?.length
+            ? {
+                images,
+                imageOutcomes: state.messages.find((message) => message.images === images)
+                  ?.imageOutcomes,
+              }
+            : {}),
+        },
         {
           role: 'assistant',
           text: reply,
@@ -795,7 +813,18 @@ export class AssistantService {
         const reply = streamed.trim() || '（已停止）';
         const toolsUsed = collectToolsUsed();
         this.conversations.append(this.bucketId(sessionId), [
-          { role: 'user', text, ts: now },
+          {
+            role: 'user',
+            text,
+            ts: now,
+            ...(images?.length
+              ? {
+                  images,
+                  imageOutcomes: state.messages.find((message) => message.images === images)
+                    ?.imageOutcomes,
+                }
+              : {}),
+          },
           {
             role: 'assistant',
             text: reply,
@@ -1041,16 +1070,85 @@ export class AssistantService {
         throwIfAborted(ac.signal);
         // 每轮发送前先做上下文压缩（长会话/多工具循环的 token 预算管理）。
         await this.compressIfNeeded(state, endpoint, emit, ac.signal);
-        const roundMessages = this.buildRoundMessages(state, capabilityGuidance);
+        const sourceMessages = this.buildRoundMessages(state, capabilityGuidance);
+        const prepareMessages = async (forceOcr = false): Promise<ApiMessage[]> => {
+          const result: ApiMessage[] = [];
+          for (const message of sourceMessages) {
+            const {
+              images: refs,
+              imageOutcomes: _outcomes,
+              imageReport: _report,
+              ...plain
+            } = message;
+            if (!refs?.length || !this.tools?.images) {
+              result.push(plain);
+              continue;
+            }
+            const prepared = await this.tools.images.prepare({
+              feature: 'assistant',
+              text: String(message.content ?? ''),
+              images: refs,
+              endpoint,
+              direct: !forceOcr,
+              signal: ac.signal,
+              forceOcr,
+            });
+            if (forceOcr)
+              for (const outcome of prepared.outcomes)
+                outcome.notes.unshift('视觉请求失败，本次已回退 OCR。');
+            message.imageOutcomes = prepared.outcomes;
+            if ('taskId' in state && typeof state.taskId === 'string')
+              this.conversations.patchImageOutcomes(
+                this.bucketId(sessionId),
+                state.taskId,
+                String(message.content ?? ''),
+                refs,
+                prepared.outcomes,
+              );
+            result.push({ ...plain, content: prepared.content });
+            const notes = prepared.outcomes.flatMap((outcome) => outcome.notes);
+            const report = notes.join('\n');
+            if (report && message.imageReport !== report)
+              record({ kind: 'thinking', text: report });
+            message.imageReport = report;
+          }
+          return result;
+        };
+        let roundMessages = await prepareMessages();
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
         const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
-        const { content, toolCalls } = await this.callApiStream(
-          endpoint,
-          roundMessages,
-          allowTools ? specs : [],
-          emit,
-          ac.signal,
-        );
+        let emitted = false;
+        const stream = () =>
+          this.callApiStream(
+            endpoint,
+            roundMessages,
+            allowTools ? specs : [],
+            (step) => {
+              if (step.kind === 'text_delta' || step.kind === 'reasoning_delta') emitted = true;
+              emit(step);
+            },
+            ac.signal,
+          );
+        let response: Awaited<ReturnType<typeof stream>>;
+        try {
+          response = await stream();
+        } catch (error) {
+          ac.signal.throwIfAborted();
+          const direct = roundMessages.some(
+            (message) =>
+              Array.isArray(message.content) &&
+              message.content.some((part: { type?: string }) => part.type === 'image_url'),
+          );
+          if (
+            emitted ||
+            !direct ||
+            (error !== null && typeof error === 'object' && this.nonReplayErrors.has(error))
+          )
+            throw error;
+          roundMessages = await prepareMessages(true);
+          response = await stream();
+        }
+        const { content, toolCalls } = response;
 
         if (allowTools && toolCalls?.length) {
           // 模型在调用工具前给出的思路 → 已随 text_delta 流式到达前端；这里只补一条 thinking 落库。
@@ -1733,6 +1831,12 @@ export class AssistantService {
           await reader.cancel().catch(() => {});
           return true;
         }
+        if (
+          (content || reasoning || toolSlots.size > 0) &&
+          error !== null &&
+          typeof error === 'object'
+        )
+          this.nonReplayErrors.add(error);
         throw error;
       } finally {
         reader.releaseLock();
@@ -2190,3 +2294,5 @@ function httpErrorMessage(status: number, detail: string): string {
   if (status >= 500) return `模型服务暂时不可用（${status}），请稍后重试。${tail}`;
   return `WeQ 助手接口调用失败: HTTP ${status}${tail}`;
 }
+
+import type { AiImagePort, AiImageRef, AiImageOutcome } from '@weq/agentlab';

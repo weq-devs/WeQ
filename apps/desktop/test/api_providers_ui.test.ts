@@ -62,6 +62,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
       }),
       bootstrap: {
+        getDefaultVisionModel: {
+          useQuery: () => ({ data: { ref: null, available: false, error: null } }),
+        },
+        setDefaultVisionModel: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
         getAgentLabDefaultModel: {
           useQuery: () => ({
             data: { ref: null, available: false, error: null },

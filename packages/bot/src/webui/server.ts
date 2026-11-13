@@ -26,8 +26,10 @@ import type { RuntimeLogger } from '@weq/agentlab';
 import type { BotConfig } from '../config';
 import type { StatsStore } from '../stats';
 import { renderAppHtml } from './app.html';
+import type { OcrModelService } from '@weq/service/ocr-models';
 
 export interface WebUiDeps {
+  imageModels?: OcrModelService;
   port: number;
   /** 访问密钥（hex）。 */
   key: string;
@@ -151,6 +153,7 @@ function readConfigFile(configPath: string): BotConfig | null {
 /** /api/config GET 的返回结构：可编辑字段 + 打码 key。绝不返回明文 apiKey。 */
 function buildConfigPayload(cfg: BotConfig): unknown {
   return {
+    images: cfg.images ?? { mode: 'vision', visionModel: null, prefilterEnabled: true },
     adapter: {
       type: cfg.adapter.type,
       wsUrl: cfg.adapter.wsUrl,
@@ -244,6 +247,30 @@ function readBody(req: IncomingMessage, limit = 4096): Promise<string> {
  * 规则：只动白名单字段；apiKey 含 •（打码）则保留原值，否则视为新 key。返回错误文案或 null。
  */
 function applyConfigPatch(cfg: BotConfig, body: Record<string, unknown>): string | null {
+  if (body.images !== undefined) {
+    const images = body.images as BotConfig['images'];
+    if (!images || (images.mode !== 'ocr' && images.mode !== 'vision')) return '图片处理偏好无效';
+    if (images.prefilterEnabled !== undefined && typeof images.prefilterEnabled !== 'boolean')
+      return '筛图开关无效';
+    if (
+      images.visionModel &&
+      (typeof images.visionModel.providerId !== 'string' ||
+        typeof images.visionModel.model !== 'string' ||
+        !cfg.llmProviders.some((p) => p.id === images.visionModel!.providerId))
+    )
+      return '视觉模型引用无效';
+    if (images.ocrModelId !== undefined && typeof images.ocrModelId !== 'string')
+      return '识别模型无效';
+    if (images.filterModelId !== undefined && typeof images.filterModelId !== 'string')
+      return '筛图模型无效';
+    cfg.images = {
+      mode: images.mode,
+      visionModel: images.visionModel,
+      prefilterEnabled: images.prefilterEnabled,
+      ocrModelId: images.ocrModelId,
+      filterModelId: images.filterModelId,
+    };
+  }
   // adapter
   const ad = body.adapter as Record<string, unknown> | undefined;
   if (ad !== undefined) {
@@ -529,6 +556,32 @@ export function startWebUi(deps: WebUiDeps): Promise<WebUiHandle> {
         return;
       }
       // 读配置（打码 key）。未提供 configPath（如内存态使用）则 404。
+      if (method === 'GET' && url === '/api/image-models') {
+        sendJson(res, 200, { models: deps.imageModels?.listModels() ?? [] });
+        return;
+      }
+      if (method === 'POST' && url === '/api/image-models') {
+        if (!deps.imageModels) {
+          sendJson(res, 503, { error: '未配置本地图片识别资源' });
+          return;
+        }
+        const body = JSON.parse(await readBody(req, 4096)) as { id?: unknown; action?: unknown };
+        if (
+          typeof body.id !== 'string' ||
+          !deps.imageModels.listModels().some((model) => model.id === body.id)
+        ) {
+          sendJson(res, 400, { error: '模型不存在' });
+          return;
+        }
+        if (body.action === 'download') {
+          const result = await deps.imageModels.downloadModel(body.id);
+          sendJson(res, result.success ? 200 : 500, result);
+        } else if (body.action === 'delete') {
+          const removed = deps.imageModels.deleteModel(body.id);
+          sendJson(res, removed ? 200 : 409, { ok: removed });
+        } else sendJson(res, 400, { error: '资源操作无效' });
+        return;
+      }
       if (method === 'GET' && url === '/api/config') {
         if (!deps.configPath) {
           sendJson(res, 404, { error: '当前实例未挂载 config.json' });

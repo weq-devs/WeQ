@@ -44,6 +44,43 @@ export class AgentLabConfigService {
     return this.userConfig.getSettings().agentLab.defaultModel;
   }
 
+  getDefaultVisionModelStatus() {
+    const ref = this.userConfig.getSettings().agentLab.defaultVisionModel;
+    if (!ref) return { ref: null, available: false, error: null };
+    try {
+      this.resolveVisionEndpoint();
+      return { ref, available: true, error: null };
+    } catch (error) {
+      return {
+        ref,
+        available: false,
+        error: error instanceof Error ? error.message : '视觉模型不可用',
+      };
+    }
+  }
+
+  resolveVisionEndpoint(): AgentLabEndpoint | null {
+    const ref = this.userConfig.getSettings().agentLab.defaultVisionModel;
+    if (!ref) return null;
+    const provider = this.getProvider(ref.providerId);
+    const model = provider?.models.find((model) => model.id === ref.model);
+    if (!provider || !model || model.capabilities?.includes('vision') === false)
+      throw new Error('默认视觉模型不可用或不支持图片');
+    validateProviderConfig(provider);
+    return this.resolveEndpoint(ref, 'vision');
+  }
+
+  setDefaultVisionModel(ref: AgentLabModelRef | null) {
+    if (ref) {
+      const provider = this.getProvider(ref.providerId);
+      const model = provider?.models.find((model) => model.id === ref.model);
+      if (!model || model.capabilities?.includes('vision') === false)
+        throw new Error('请选择支持视觉能力的模型');
+    }
+    this.userConfig.setSettings({ agentLab: { defaultVisionModel: ref } });
+    return this.getDefaultVisionModelStatus();
+  }
+
   getDefaultModelStatus() {
     const ref = this.getDefaultModel();
     if (!ref) return { ref: null, available: false, error: null };
@@ -125,6 +162,8 @@ export class AgentLabConfigService {
     const provider = this.getProvider(ref.providerId);
     if (!provider) throw new Error(`找不到 AgentLab provider: ${ref.providerId}`);
     if (!ref.model?.trim()) throw new Error('未选择模型');
+    if (!provider.models.some((model) => model.id === ref.model))
+      throw new Error(`已保存的模型不再可用：${ref.model}`);
     return {
       ...resolveEndpoint(provider, ref),
       providerId: provider.id,

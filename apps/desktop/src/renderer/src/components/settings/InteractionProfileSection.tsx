@@ -33,6 +33,7 @@ export function InteractionProfileSection() {
   }
   return (
     <AiFeatureSettingsLayout
+      imageFeature="profile"
       settings={settings}
       title="互动画像"
       error={status.error}

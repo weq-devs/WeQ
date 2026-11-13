@@ -55,6 +55,10 @@ export function assistantCapabilityGuidance(
     '图片文字先 get_ocr_status，再 ocr_image_text；按 source / engine / offline 说明实际走在线还是本地识别，不把自动回退说成始终离线，本地路径只能走本地模型。',
   );
   add(
+    ['analyze_chat_image'],
+    '理解照片、截图布局或图表时用 analyze_chat_image 读取真实图片，可用 question 指定问题；遵循助手的图片处理偏好。按返回结果说明视觉、OCR 回退或未读状态，不把未读取的图片说成已经看懂。',
+  );
+  add(
     ['list_dataline_conversations', 'get_dataline_messages'],
     '「我的手机／电脑／平板传过什么」先 list_dataline_conversations，再 get_dataline_messages；使用设备伪 uid，不套普通好友私聊方向。',
   );

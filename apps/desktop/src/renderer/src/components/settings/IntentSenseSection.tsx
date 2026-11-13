@@ -41,6 +41,7 @@ export function IntentSenseSection() {
 
   return (
     <AiFeatureSettingsLayout
+      imageFeature="intent"
       settings={settings}
       title="意图感知"
       error={status.error}

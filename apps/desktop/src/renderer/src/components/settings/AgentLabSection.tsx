@@ -31,6 +31,7 @@ import {
 } from '../../lib/connectionTestTask';
 import { useToast } from '../Toast';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
+import { DefaultVisionModelRow } from './AiImageSettings';
 import '../../styles/provider-settings.css';
 
 type Capability = 'chat' | 'embedding' | 'vision';
@@ -525,6 +526,7 @@ export function AgentLabSection(): ReactElement {
         }
       >
         <DefaultApiModelRow />
+        <DefaultVisionModelRow />
         <div className="weq-set-card-title">已保存的服务商</div>
         {providers.error ? (
           <QueryError

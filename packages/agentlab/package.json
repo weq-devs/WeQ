@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./images": "./src/images.ts",
+    "./ocr/pipeline": "./src/ocr/pipeline.ts",
+    "./ocr/filter": "./src/ocr/filter.ts",
+    "./ocr/worker": "./src/ocr/worker.ts",
     ".": "./src/index.ts",
     "./generation": "./src/generation.ts",
     "./model-selection": "./src/model_selection.ts"

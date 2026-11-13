@@ -6,11 +6,14 @@
  */
 
 import type { AssistantStep } from './assistant';
+import type { AiImageRef, AiImageOutcome } from '@weq/agentlab';
 import { createHash, randomUUID } from 'node:crypto';
 import { JsonStore } from '../common/json_store';
 import { hasCloneMessageIdCollision, uniqueCloneMessageIds } from './clone_message_identity';
 
 export interface ConversationTurn {
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
   /** 历史数据可缺省；通过 ConversationStore 读取后始终有稳定身份。 */
   id?: string;
   role: 'user' | 'assistant';
@@ -130,6 +133,31 @@ export class ConversationStore {
       !this.unbounded.has(agentId) && next.length > MAX_CONVERSATION_TURNS
         ? next.slice(next.length - MAX_CONVERSATION_TURNS)
         : next;
+    this.store.save();
+  }
+
+  patchImageOutcomes(
+    agentId: string,
+    taskId: string,
+    text: string,
+    images: AiImageRef[],
+    outcomes: AiImageOutcome[],
+  ): void {
+    const turns = this.get(agentId);
+    const index = turns.findLastIndex(
+      (turn) =>
+        turn.role === 'user' &&
+        'taskId' in turn &&
+        turn.taskId === taskId &&
+        turn.text === text &&
+        turn.images?.length === images.length &&
+        images.every((image, offset) => turn.images?.[offset]?.id === image.id),
+    );
+    const current = turns[index];
+    if (!current || JSON.stringify(current.imageOutcomes) === JSON.stringify(outcomes)) return;
+    this.store.data[agentId] = turns.map((turn, offset) =>
+      offset === index ? { ...turn, imageOutcomes: outcomes } : turn,
+    );
     this.store.save();
   }
 

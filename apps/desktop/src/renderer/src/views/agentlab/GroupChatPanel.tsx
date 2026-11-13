@@ -14,6 +14,9 @@ import { ChatPane } from '../../im-template/template/chatPane';
 import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import { trpc, client } from '../../trpc/client';
+import { AiImageComposer, AiImageGallery } from '../../components/AiImageComposer';
+import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraft';
+import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -88,6 +91,7 @@ export function GroupChatPanel({
 
   const [history, setHistory] = useState<AgentLabGroupMessage[]>([]);
   const [input, setInput] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [addingMembers, setAddingMembers] = useState(false);
@@ -102,6 +106,7 @@ export function GroupChatPanel({
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
   const viewId = `virtual:clone:group:${groupId}`;
+  const sharedDraft = useSharedAssistantDraft(viewId, input, setInput, !legacy);
   const user = useMemo(() => cloneChatUser('self', '我', selfUin), [selfUin]);
 
   const members = detail.data?.members ?? [];
@@ -141,11 +146,26 @@ export function GroupChatPanel({
     if (searchTarget && conversation.isFetching) return;
     if (!data || data.length === 0) return;
     const missing = data.filter((m) => !seenIds.current.has(m.id));
-    if (missing.length === 0) return;
     missing.forEach((m) => {
       seenIds.current.add(m.id);
     });
-    setHistory((prev) => [...prev, ...missing].sort((a, b) => a.ts - b.ts));
+    const incoming = new Map(
+      data
+        .slice(-16)
+        .filter((message) => message.imageOutcomes)
+        .map((message) => [message.id, message]),
+    );
+    setHistory((prev) => {
+      let updated = false;
+      const merged = prev.map((message) => {
+        const fresh = incoming.get(message.id);
+        if (!fresh || JSON.stringify(fresh.imageOutcomes) === JSON.stringify(message.imageOutcomes))
+          return message;
+        updated = true;
+        return { ...message, imageOutcomes: fresh.imageOutcomes };
+      });
+      return updated || missing.length ? [...merged, ...missing].sort((a, b) => a.ts - b.ts) : prev;
+    });
   }, [conversation.data, conversation.isFetching, searchTarget]);
 
   // 订阅处理器里要用 dialog / utils，但它们每次渲染都是新对象；直接进依赖会让订阅
@@ -188,7 +208,10 @@ export function GroupChatPanel({
   async function onSend(body: string): Promise<void> {
     if (legacy) return;
     const text = cloneChatInput(body, faceDescToId).trim();
-    if (!text || busy) return;
+    const images = parseAiImageDraft(input).images;
+    if ((!text && !images.length) || busy || imageUploading) return;
+    const submitted = input;
+    const clearSubmittedDraft = sharedDraft.prepareSubmitted(submitted);
     setJumpRequest(undefined);
     // 文本里出现 @某克隆体名 → 定向 @；一个都没有 → 全体应答（后端逻辑）。
     const mentions = personaMembers
@@ -197,7 +220,8 @@ export function GroupChatPanel({
     setInput('');
     setBusy(true);
     try {
-      await send.mutateAsync({ groupId, text, mentions });
+      await send.mutateAsync({ groupId, text, images, mentions });
+      void clearSubmittedDraft().catch(() => {});
       // 用户消息与所有回复都由 onGroupChatEvent 流式送达，这里不做乐观插入（避免重复）。
       // 发送完成后立刻从磁盘刷一次：漏掉的事件对应的消息已落库，合并 effect 会按 id 补齐。
       void utils.account.getAgentLabGroupConversation.invalidate({
@@ -206,6 +230,7 @@ export function GroupChatPanel({
     } catch (e) {
       setBusy(false);
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
+      setInput((current) => current || submitted);
       throw e;
     } finally {
       // 事件漏发或生成失败时，也从落库消息恢复主列表的活动时间和预览。
@@ -393,8 +418,8 @@ export function GroupChatPanel({
     [history, viewId, user, metaFor, nameById],
   );
   const sourceMessages = useMemo(
-    () => new Map(history.map((message) => [message.id, message])),
-    [history],
+    () => new Map(history.map((message, index) => [messages[index]?.id ?? message.id, message])),
+    [history, messages],
   );
   const renderers = useMemo<MessageRenderer[]>(
     () => [
@@ -407,16 +432,21 @@ export function GroupChatPanel({
             ? metaFor(source.senderId, source.senderKind, nameById.get(source.senderId) ?? '克隆体')
             : undefined;
           return (
-            <AgentMessageContent
-              text={message.body}
-              personaId={mine ? undefined : source?.senderId}
-              faces={meta?.faces}
-              sourceSession={{
-                id: source?.sourceSessionId,
-                title: source?.sourceSessionTitle,
-                messageId: source?.sourceMessageId,
-              }}
-            />
+            <>
+              <AiImageGallery images={source?.images} outcomes={source?.imageOutcomes} />
+              {(source?.text ?? message.body) ? (
+                <AgentMessageContent
+                  text={source?.text ?? message.body}
+                  personaId={mine ? undefined : source?.senderId}
+                  faces={meta?.faces}
+                  sourceSession={{
+                    id: source?.sourceSessionId,
+                    title: source?.sourceSessionTitle,
+                    messageId: source?.sourceMessageId,
+                  }}
+                />
+              ) : null}
+            </>
           );
         },
       },
@@ -425,40 +455,55 @@ export function GroupChatPanel({
   );
   return (
     <>
-      <ChatPane
-        loadError={conversation.isError ? '记录加载失败' : undefined}
-        user={user}
-        conversation={chatConversation}
-        onKickGroupMember={(_conversation, sender) => {
-          const member = members.find(
-            (item) => item.kind === 'persona' && `virtual:${item.memberId}` === sender.id,
-          );
-          if (member) void onKickMember(member.memberId);
+      <AiImageComposer
+        fill
+        value={input}
+        setValue={setInput}
+        disabled={legacy || busy}
+        onBusyChange={setImageUploading}
+        onSendImages={() => {
+          void onSend(parseAiImageDraft(input).text).catch(() => {});
         }}
-        groupMemberSearch={memberSearch}
-        onGroupMemberSearchChange={setMemberSearchKeyword}
-        onAddGroupMember={() => {
-          setAddingMembers(true);
-        }}
-        profileLoading={detail.isLoading}
-        groupMembersError={detail.isError ? '群成员加载失败' : undefined}
-        messages={messages}
-        messageRenderers={renderers}
-        loading={Boolean(conversation.isFetching && !history.length)}
-        preference={undefined}
-        draft={input}
-        onDraftChange={(_id, value) => setInput(value)}
-        onDraftClear={() => setInput('')}
-        onSend={onSend}
-        onBack={onBack}
-        sendAvailable={!legacy && !busy}
-        readOnly={legacy}
-        sendBlockedReason={legacy ? '旧版对话（只读）' : '克隆体正在回复'}
-        settingsLabel="克隆群聊设置"
-        onOpenConversationSettings={() => setMembersOpen(true)}
-        onSearchChatRecords={() => setSearchOpen(true)}
-        jumpRequest={jumpRequest}
-      />
+      >
+        <ChatPane
+          loadError={conversation.isError ? '记录加载失败' : undefined}
+          user={user}
+          conversation={chatConversation}
+          onKickGroupMember={(_conversation, sender) => {
+            const member = members.find(
+              (item) => item.kind === 'persona' && `virtual:${item.memberId}` === sender.id,
+            );
+            if (member) void onKickMember(member.memberId);
+          }}
+          groupMemberSearch={memberSearch}
+          onGroupMemberSearchChange={setMemberSearchKeyword}
+          onAddGroupMember={() => {
+            setAddingMembers(true);
+          }}
+          profileLoading={detail.isLoading}
+          groupMembersError={detail.isError ? '群成员加载失败' : undefined}
+          messages={messages}
+          messageRenderers={renderers}
+          loading={Boolean(conversation.isFetching && !history.length)}
+          preference={undefined}
+          draft={parseAiImageDraft(input).text}
+          onDraftChange={(_id, value) =>
+            setInput((current) => changeAiImageDraftText(current, value))
+          }
+          onDraftClear={() => setInput('')}
+          onSend={onSend}
+          onBack={onBack}
+          sendAvailable={!legacy && !busy && !imageUploading}
+          readOnly={legacy}
+          sendBlockedReason={
+            legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
+          }
+          settingsLabel="克隆群聊设置"
+          onOpenConversationSettings={() => setMembersOpen(true)}
+          onSearchChatRecords={() => setSearchOpen(true)}
+          jumpRequest={jumpRequest}
+        />
+      </AiImageComposer>
       {searchOpen ? (
         <ChatRecordsModal
           fixed

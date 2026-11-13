@@ -13,6 +13,7 @@ import {
   SHARED_PREFERENCE_DEFINITIONS,
 } from '../common/shared_preferences';
 import type { AssistantConfig } from '../account/assistant';
+import { DEFAULT_ASSISTANT_CONFIG, mergeAssistantConfig } from '../account/assistant';
 
 export type WeqAppBackupSettings = Omit<
   AppSettings,
@@ -251,23 +252,22 @@ export function validateSharedPreferences(value: unknown): asserts value is Shar
 }
 
 function validateSharedAssistant(value: unknown): void {
-  const row = fields(
-    value,
-    'api.sharedAssistant',
-    [],
-    ['permissionMode', 'model', 'customPrompt', 'reasoningEffort', 'mcpServers'],
-  );
+  const row = fields(value, 'api.sharedAssistant', [], Object.keys(DEFAULT_ASSISTANT_CONFIG));
   strings(row, 'api.sharedAssistant', [], ['customPrompt', 'mcpServers']);
   if (
     row.permissionMode !== undefined &&
     !['sandbox', 'unrestricted'].includes(String(row.permissionMode))
   )
     fail('api.sharedAssistant.permissionMode');
-  if (
-    row.reasoningEffort !== undefined &&
-    !['off', 'low', 'medium', 'high'].includes(String(row.reasoningEffort))
-  )
+  if (row.reasoningEffort !== undefined && typeof row.reasoningEffort !== 'string')
     fail('api.sharedAssistant.reasoningEffort');
+  try {
+    mergeAssistantConfig({}, { ...row, confirmUnrestricted: true } as AssistantConfig & {
+      confirmUnrestricted: boolean;
+    });
+  } catch {
+    fail('api.sharedAssistant');
+  }
   if (row.model !== undefined) {
     const model = record(row.model, 'api.sharedAssistant.model');
     if (model.useDefault === true) fields(model, 'api.sharedAssistant.model', ['useDefault']);
@@ -301,6 +301,15 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     fail('settings.updateCheckIntervalMinutes');
   if (qqShowCacheDays !== undefined) number(qqShowCacheDays, 'settings.qqShowCacheDays', 1, 365);
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
+  if (input.aiImages !== undefined) {
+    for (const [feature, mode] of Object.entries(record(input.aiImages, 'settings.aiImages'))) {
+      if (
+        !['placeholder', 'ocr', 'vision'].includes(String(mode)) ||
+        (mode === 'placeholder' && (feature === 'assistant' || feature === 'cloneChat'))
+      )
+        fail(`settings.aiImages.${feature}`);
+    }
+  }
   if (sharedPreferences !== undefined) validateSharedPreferences(sharedPreferences);
   if (contactCard !== undefined) {
     const card = fields(
@@ -511,7 +520,20 @@ export function validateWeqApiSettings(
   );
   if (api.sharedAssistant !== undefined) validateSharedAssistant(api.sharedAssistant);
   if (api.agentLab !== undefined) {
-    const agent = fields(api.agentLab, 'api.agentLab', ['providers'], ['defaultModel']);
+    const agent = fields(
+      api.agentLab,
+      'api.agentLab',
+      ['providers'],
+      ['defaultModel', 'defaultVisionModel'],
+    );
+    if (agent.defaultVisionModel !== undefined && agent.defaultVisionModel !== null) {
+      const ref = fields(agent.defaultVisionModel, 'api.agentLab.defaultVisionModel', [
+        'providerId',
+        'model',
+      ]);
+      string(ref.providerId, 'api.agentLab.defaultVisionModel.providerId', true);
+      string(ref.model, 'api.agentLab.defaultVisionModel.model', true);
+    }
     if (agent.defaultModel !== undefined && agent.defaultModel !== null) {
       const ref = fields(agent.defaultModel, 'api.agentLab.defaultModel', ['providerId', 'model']);
       string(ref.providerId, 'api.agentLab.defaultModel.providerId', true);

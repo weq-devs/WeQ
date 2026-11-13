@@ -11,6 +11,7 @@ import {
 import { trpc } from '../../trpc/client';
 import { Row, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
+import { AiImagePreferenceSetting } from './AiImageSettings';
 import { useCloneSettingsSection } from '../../views/agentlab/cloneSettingsDraft';
 import { useDialog } from '../Dialog';
 
@@ -76,6 +77,7 @@ export function CloneGenerationPanel({
   }
   return (
     <div className="weq-set weq-clone-generation">
+      <AiImagePreferenceSetting feature="cloneChat" />
       <Row
         label="聊天 API 模型"
         desc="生成回复时会将本轮消息、所选历史与参考语料发送至该服务商。"

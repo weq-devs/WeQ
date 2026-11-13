@@ -16,6 +16,7 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentLabModels, AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
+import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
 import { ArrowLeft, Check, Search, Sparkles, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { qqAvatarUrl } from '../../components/QqAvatar';
@@ -306,6 +307,7 @@ export function NewCloneModal({
                 emptyLabel="请选择聊天模型"
               />
             </label>
+            <AiImagePreferenceSetting feature="cloneTraining" />
             <label className="weq-agentlab-field">
               <span>向量模型（可选，配了才做相似检索）</span>
               <ApiModelSelect

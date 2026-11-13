@@ -1413,7 +1413,9 @@ export function initAppContext(fileRoot?: string): AppContext {
   const agentLabMedia = (
     fileSearch: FileSearchService,
     mediaDownload: MediaDownloadService,
+    expectedAccount: AccountSession,
   ): import('@weq/service').AgentLabMediaDeps => ({
+    images: createAccountImagePort(expectedAccount),
     fileSearch,
     mediaDownload,
     transcribe: transcribeSilk,
@@ -1849,7 +1851,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           agentlabRoot,
           resolveAgentEndpoint,
           // Thing 1: 注入媒体/语音能力，蒸馏期补全表情包 + 转录语音。
-          agentLabMedia(fileSearch, mediaDownload),
+          agentLabMedia(fileSearch, mediaDownload, session),
           tokenUsage,
           conversations,
           // 语音合成（克隆体发语音 / 语音克隆）：provider 从全局语音配置取。
@@ -1868,6 +1870,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            images: createAccountImagePort(session),
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
@@ -2091,6 +2094,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               ['conversationOverrides'],
             ),
             resolveEndpoint: resolveAgentEndpoint,
+            images: createAccountImagePort(session),
             localEngine: getActiveIntentSenseLocalEngine(),
             legacyLocalModelId: userConfig.getLocalModelId('intent'),
             gapHistory,
@@ -2732,7 +2736,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           agentlabRoot,
           resolveAgentEndpoint,
           // 静态账号也注入：媒体寻址可能命中不到（无 nt_data），会优雅降级。
-          agentLabMedia(fileSearch, mediaDownload),
+          agentLabMedia(fileSearch, mediaDownload, session),
           tokenUsage,
           conversations,
           {
@@ -2750,6 +2754,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            images: createAccountImagePort(session),
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
@@ -2946,6 +2951,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               ['conversationOverrides'],
             ),
             resolveEndpoint: resolveAgentEndpoint,
+            images: createAccountImagePort(session),
             localEngine: getActiveIntentSenseLocalEngine(),
             legacyLocalModelId: userConfig.getLocalModelId('intent'),
             gapHistory,
@@ -3563,3 +3569,5 @@ export async function rescanSigner(): Promise<SignerWarmupResult | null> {
   );
   return signerWarmup;
 }
+
+import { createAccountImagePort } from '../ai_images';

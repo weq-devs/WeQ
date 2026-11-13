@@ -112,6 +112,7 @@ export type EndpointResolver = (
  * 镜像 ExportTaskManager 的注入方式（silk 解码 / sherpa 转录是 app 侧 native）。
  */
 export interface AgentLabMediaDeps {
+  images?: AiImagePort;
   fileSearch: FileSearchService;
   mediaDownload: MediaDownloadService;
   /** silk → 文本（内部自己解码成 16k wav 再跑识别）。 */
@@ -378,6 +379,7 @@ export class AgentLabService extends EventEmitter {
         }
       : undefined;
     this.runtime = new AgentRuntime({
+      images: this.media?.images,
       rootDir,
       store: this.store,
       endpoints: this.resolveEndpoint,
@@ -689,7 +691,7 @@ export class AgentLabService extends EventEmitter {
     return messages.slice(-limit).map((m) => {
       if (m.senderId === personaId) return { role: 'assistant', text: m.text };
       const name = nameById.get(m.senderId) ?? '某人';
-      return { role: 'user', text: `「${name}」：${m.text}` };
+      return { role: 'user', text: `「${name}」：${m.text}`, images: m.images };
     });
   }
 
@@ -706,7 +708,13 @@ export class AgentLabService extends EventEmitter {
    * 意愿闸的存在感/冷却惩罚。某轮没人接话就收摊。onMessage 逐条流式回调。
    */
   async sendGroupMessage(
-    input: { groupId: string; text: string; mentions?: string[]; sessionId?: string },
+    input: {
+      groupId: string;
+      text: string;
+      images?: AiImageRef[];
+      mentions?: string[];
+      sessionId?: string;
+    },
     onMessage: (message: AgentLabGroupMessage) => void,
   ): Promise<{ messages: AgentLabGroupMessage[] }> {
     return this.conversationRuns.start([{ kind: 'group', id: input.groupId }], (signal) =>
@@ -715,7 +723,7 @@ export class AgentLabService extends EventEmitter {
   }
 
   private async runGroupMessage(
-    input: { groupId: string; text: string; mentions?: string[] },
+    input: { groupId: string; text: string; images?: AiImageRef[]; mentions?: string[] },
     onMessage: (message: AgentLabGroupMessage) => void,
     signal: AbortSignal,
   ): Promise<{ messages: AgentLabGroupMessage[] }> {
@@ -741,6 +749,7 @@ export class AgentLabService extends EventEmitter {
       senderId: selfId,
       senderKind: 'user',
       text: input.text,
+      images: input.images,
       ts: now,
       mentions,
     };
@@ -759,6 +768,29 @@ export class AgentLabService extends EventEmitter {
       signal.throwIfAborted();
       if (totalReplies >= AgentLabService.GROUP_MAX_REPLIES_PER_TURN) break;
       const roundBase = this.groups.listMessages(input.groupId);
+      if (this.media?.images)
+        for (const message of roundBase.slice(-16)) {
+          if (message.images?.length) {
+            const prepared = await this.media.images.prepare({
+              feature: 'cloneChat',
+              text: message.text,
+              images: message.images,
+              signal,
+            });
+            this.groups.patchImageAnalysis(
+              input.groupId,
+              message.id,
+              prepared.text,
+              prepared.outcomes,
+            );
+            const index = roundBase.indexOf(message);
+            roundBase[index] = {
+              ...message,
+              imageContext: prepared.text,
+              imageOutcomes: prepared.outcomes,
+            };
+          }
+        }
       const recent8 = roundBase.slice(-8);
 
       // 本轮候选：第 0 轮定向（@）则只有被 @ 的；否则排除上一轮刚开过口的（防连续刷屏兜底）。
@@ -813,7 +845,7 @@ export class AgentLabService extends EventEmitter {
                       trigger.senderKind === 'user'
                         ? '我'
                         : (nameById.get(trigger.senderId) ?? '某人'),
-                    currentText: trigger.text,
+                    currentText: trigger.imageContext ?? trigger.text,
                     relationNote: rel ? describeRelationTone(rel) : undefined,
                     memories: this.memories
                       .getAbout(member.memberId, [trigger.senderId], trigger.senderKind === 'user')
@@ -866,7 +898,7 @@ export class AgentLabService extends EventEmitter {
       .slice(-limit)
       .map(
         (m) =>
-          `${m.senderKind === 'user' ? '我' : (nameById.get(m.senderId) ?? '某人')}: ${m.text.slice(0, 80)}`,
+          `${m.senderKind === 'user' ? '我' : (nameById.get(m.senderId) ?? '某人')}: ${(m.imageContext ?? m.text).slice(0, 800)}`,
       )
       .join('\n');
   }
@@ -930,7 +962,9 @@ export class AgentLabService extends EventEmitter {
       const triggerName =
         members.find((m) => m.memberId === trigger.senderId)?.displayName ?? '某人';
       const inputText =
-        trigger.senderKind === 'user' ? trigger.text : `「${triggerName}」：${trigger.text}`;
+        trigger.senderKind === 'user'
+          ? (trigger.imageContext ?? trigger.text)
+          : `「${triggerName}」：${trigger.text}`;
 
       await sleep(delayMs); // 越想回越快开口
       signal.throwIfAborted();
@@ -1084,6 +1118,23 @@ export class AgentLabService extends EventEmitter {
   clearConversation(personaId: string): void {
     this.mergePersonaConversations(personaId);
     this.conversations.clear(personaId);
+  }
+
+  /** 共用图片请求仍计入当前账号，并保留场景与克隆体归属。 */
+  recordImageUsage(usage: AgentLabUsage, context: { feature: string; personaId?: string }): void {
+    this.usage.record({
+      ...usage,
+      ts: usage.startedAt ?? Date.now(),
+      personaId: context.personaId,
+      scope:
+        context.feature === 'assistant'
+          ? 'assistant'
+          : context.feature === 'cloneChat'
+            ? 'chat'
+            : context.feature === 'cloneTraining'
+              ? 'build'
+              : (usage.feature ?? context.feature),
+    });
   }
 
   /** 解析端点并挂上 token 记账回调（按任务类型 + 归属 persona/场景）。 */
@@ -1469,15 +1520,36 @@ export class AgentLabService extends EventEmitter {
     selfName: string,
     peerName: string,
     voiceClips: VoiceClipCandidate[],
+    personaId?: string,
+    signal?: AbortSignal,
   ): Promise<AgentLabMessage[]> {
     const canTranscribe = !!this.media?.transcribe && (this.media.voiceReady?.() ?? false);
     let transcribed = 0;
     const out: AgentLabMessage[] = [];
     for (const msg of rawMsgs) {
+      signal?.throwIfAborted();
       const role = msg.senderUin.toString() === selfUin ? 'user' : 'assistant';
       const ts = Number(msg.sendTime) * 1000;
       const modality = detectModality(msg.elements);
       let text = textFromElements(msg.elements);
+      if (this.media?.images && msg.elements.some((element) => element.kind === 'pic')) {
+        const images = messageImageRefs(
+          msg.elements,
+          'c2c',
+          msg.targetUid,
+          msg.msgId.toString(),
+          ts,
+        );
+        text = textFromElements(msg.elements.filter((element) => element.kind !== 'pic'));
+        const prepared = await this.media.images.prepare({
+          feature: 'cloneTraining',
+          personaId,
+          text,
+          images,
+          signal,
+        });
+        text = trainingImageText(text, prepared.outcomes);
+      }
       if (modality === 'voice' && canTranscribe && transcribed < VOICE_TRANSCRIBE_CAP) {
         const res = await this.transcribePtt(msg.elements, ts);
         if (res.spoken) {
@@ -1749,7 +1821,11 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** 私聊语料不足时去好友所在群学风格：只取 TA 自己的发言，受多重上限约束。 */
-  private async collectGroupStyleMessages(targetUid: string): Promise<AgentLabMessage[]> {
+  private async collectGroupStyleMessages(
+    targetUid: string,
+    personaId?: string,
+    signal?: AbortSignal,
+  ): Promise<AgentLabMessage[]> {
     const groups = await this.session.groupMembers.listUserGroups(targetUid, 50);
     const picked = [...groups]
       .sort((a, b) => b.lastSpeakTime - a.lastSpeakTime)
@@ -1777,7 +1853,26 @@ export class AgentLabService extends EventEmitter {
         beforeSeq = oldest.msgSeq;
         for (const m of page) {
           if (m.senderUid !== targetUid) continue;
-          const text = textFromElements(m.elements);
+          signal?.throwIfAborted();
+          let text = textFromElements(m.elements);
+          if (this.media?.images && m.elements.some((element) => element.kind === 'pic')) {
+            const images = messageImageRefs(
+              m.elements,
+              'group',
+              String(groupCode),
+              m.msgId.toString(),
+              Number(m.sendTime) * 1000,
+            );
+            text = textFromElements(m.elements.filter((element) => element.kind !== 'pic'));
+            const prepared = await this.media.images.prepare({
+              feature: 'cloneTraining',
+              personaId,
+              text,
+              images,
+              signal,
+            });
+            text = trainingImageText(text, prepared.outcomes);
+          }
           if (!isMeaningful(text)) continue;
           out.push({ role: 'assistant', text, ts: Number(m.sendTime) * 1000, modality: 'text' });
           taken += 1;
@@ -1913,9 +2008,17 @@ export class AgentLabService extends EventEmitter {
     chatEndpoint.signal?.throwIfAborted();
 
     // 2) 映射成语料（顺手把语音转录成文本，并收集 TA 的干净语音做克隆参考）。
-    this.emitProgress(input.personaId, '整理语料 / 转录语音', 28);
+    this.emitProgress(input.personaId, '整理语料 / 图片分析 / 转录语音', 28);
     const voiceClips: VoiceClipCandidate[] = [];
-    const messages = await this.mapC2cMessages(rawMsgs, selfUin, selfName, peerName, voiceClips);
+    const messages = await this.mapC2cMessages(
+      rawMsgs,
+      selfUin,
+      selfName,
+      peerName,
+      voiceClips,
+      input.personaId,
+      chatEndpoint.signal,
+    );
     chatEndpoint.signal?.throwIfAborted();
 
     // 3) 表情包 + 系统表情白名单（只看好友自己的消息）。
@@ -1936,7 +2039,7 @@ export class AgentLabService extends EventEmitter {
       this.emitProgress(input.personaId, '私聊语料不足，群里补采风格', 50);
     }
     const groupStyleMessages = needGroup
-      ? await this.collectGroupStyleMessages(input.targetUid)
+      ? await this.collectGroupStyleMessages(input.targetUid, input.personaId, chatEndpoint.signal)
       : [];
 
     // 语音参考兜底（group 模式）：语音不分私聊/群聊、一视同仁——只要还没攒够参考音频就继续补。
@@ -2194,6 +2297,7 @@ export class AgentLabService extends EventEmitter {
     personaId: string;
     history: AgentLabChatTurn[];
     text: string;
+    images?: AiImageRef[];
     sessionId?: string;
   }) {
     return this.conversationRuns.start(
@@ -2203,7 +2307,8 @@ export class AgentLabService extends EventEmitter {
         const result = await this.runtime.chat({
           personaId: input.personaId,
           text: input.text,
-          history: input.history,
+          images: input.images,
+          history: this.conversations.get(input.personaId),
           signal,
         });
         return { ...result, sessionId: undefined };
@@ -2216,3 +2321,5 @@ export class AgentLabService extends EventEmitter {
     return sortNo !== undefined ? { sortNo } : { uid: targetUid };
   }
 }
+import type { AiImagePort, AiImageRef } from '@weq/agentlab';
+import { messageImageRefs, trainingImageText } from '../common/ai_message_images';

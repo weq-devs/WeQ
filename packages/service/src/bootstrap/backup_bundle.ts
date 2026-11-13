@@ -105,6 +105,7 @@ export function weqBackupPart(path: string): WeqBackupPart {
       if (name === 'reports' && /^[\p{L}\p{M}\p{N}_-]{1,200}\.(html|md|txt)$/u.test(asset))
         return 'clones';
       if (name === 'stickers' && /^[0-9a-f]{1,64}\.png$/i.test(asset)) return 'clones';
+      if (name === 'images' && /^[0-9a-f]{64}\.(png|jpeg|webp|gif)$/i.test(asset)) return 'clones';
       if ((name === 'voice' || name === 'agentvoice') && /^[0-9a-f]{1,64}\.(wav|mp3)$/i.test(asset))
         return 'clones';
     }
@@ -174,7 +175,7 @@ export function parseWeqBackupJson(data: Buffer): unknown {
 }
 
 export function validateWeqCloneAsset(path: string, data: Buffer): void {
-  if (path.includes('/stickers/')) {
+  if (path.includes('/stickers/') || path.includes('/images/')) {
     if (!sniffImageExt(data)) throw new Error('克隆表情资产不是支持的图片文件');
   } else if (path.endsWith('.wav')) {
     if (

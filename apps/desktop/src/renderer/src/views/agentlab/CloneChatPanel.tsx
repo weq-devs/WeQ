@@ -9,6 +9,10 @@ import { ChatPane } from '../../im-template/template/chatPane';
 import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import { trpc } from '../../trpc/client';
+import { AiImageComposer, AiImageGallery } from '../../components/AiImageComposer';
+import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraft';
+import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
+import type { AiImageRef, AiImageOutcome } from '@weq/agentlab';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { AgentMessageContent, inputFaceContext, type FaceContext } from './ChatBubble';
 import {
@@ -32,6 +36,8 @@ export interface ClonePersonaLite {
 }
 
 interface ChatTurn {
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
   id?: string;
   role: 'user' | 'assistant';
   text: string;
@@ -84,6 +90,7 @@ export function CloneChatPanel({
 
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
   const [animating, setAnimating] = useState(false);
   const seeded = useRef(false);
   const lastPersisted = useRef(conversation.data);
@@ -92,6 +99,7 @@ export function CloneChatPanel({
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
   const viewId = `virtual:clone:persona:${personaId}`;
+  const sharedDraft = useSharedAssistantDraft(viewId, input, setInput, !legacy);
   const user = useMemo(() => cloneChatUser('self', '我', selfUin), [selfUin]);
   const peer = useMemo(
     () => cloneChatUser(personaId, persona.name, clonedUin, true),
@@ -119,8 +127,8 @@ export function CloneChatPanel({
     [history, viewId, user, peer],
   );
   const sourceMessages = useMemo(
-    () => new Map(history.map((message) => [message.id, message])),
-    [history],
+    () => new Map(history.map((message, index) => [messages[index]?.id ?? message.id, message])),
+    [history, messages],
   );
   const renderers = useMemo<MessageRenderer[]>(
     () => [
@@ -128,16 +136,24 @@ export function CloneChatPanel({
         id: 'generated-content',
         match: () => true,
         render: ({ message, mine }) => (
-          <AgentMessageContent
-            text={message.body}
-            faces={mine ? userFaces : faces}
-            personaId={mine ? undefined : personaId}
-            sourceSession={{
-              id: sourceMessages.get(message.id)?.sourceSessionId,
-              title: sourceMessages.get(message.id)?.sourceSessionTitle,
-              messageId: sourceMessages.get(message.id)?.sourceMessageId,
-            }}
-          />
+          <>
+            <AiImageGallery
+              images={sourceMessages.get(message.id)?.images}
+              outcomes={sourceMessages.get(message.id)?.imageOutcomes}
+            />
+            {(sourceMessages.get(message.id)?.text ?? message.body) ? (
+              <AgentMessageContent
+                text={sourceMessages.get(message.id)?.text ?? message.body}
+                faces={mine ? userFaces : faces}
+                personaId={mine ? undefined : personaId}
+                sourceSession={{
+                  id: sourceMessages.get(message.id)?.sourceSessionId,
+                  title: sourceMessages.get(message.id)?.sourceSessionTitle,
+                  messageId: sourceMessages.get(message.id)?.sourceMessageId,
+                }}
+              />
+            ) : null}
+          </>
         ),
       },
     ],
@@ -159,16 +175,25 @@ export function CloneChatPanel({
   }, [conversation.data, conversation.isFetching, searchTarget, animating]);
 
   async function onSend(body: string): Promise<void> {
-    if (legacy || !personaId || chat.isLoading || animating) return;
+    if (legacy || !personaId || chat.isLoading || animating || imageUploading) return;
     const text = cloneChatInput(body, faces?.descToId ?? new Map()).trim();
-    if (!text) return;
+    const images = parseAiImageDraft(input).images;
+    if (!text && !images.length) return;
+    const submitted = input;
+    const clearSubmittedDraft = sharedDraft.prepareSubmitted(submitted);
     setJumpRequest(undefined);
     setAnimating(true);
     setInput('');
-    const nextHistory = [...history, { role: 'user' as const, text, ts: Date.now() }];
+    const nextHistory = [...history, { role: 'user' as const, text, images, ts: Date.now() }];
     setHistory(nextHistory);
     try {
-      const result = await chat.mutateAsync({ personaId, text, history });
+      const result = await chat.mutateAsync({
+        personaId,
+        text,
+        images,
+        history: history.map(({ role, text }) => ({ role, text: text || '[图片]' })),
+      });
+      void clearSubmittedDraft().catch(() => {});
       // 首句标题 / 时间刷新由后端落库，这里让列表跟上。
       void utils.account.listAgentLabPersonas.invalidate();
       // 发言意愿对私聊生效且这次「懒得回」：只保留用户这条，不加回复气泡。
@@ -203,6 +228,7 @@ export function CloneChatPanel({
       void utils.account.listAgentLabPersonas.invalidate();
       dialog.error('发送失败', error instanceof Error ? error.message : String(error));
       setHistory(history);
+      setInput((current) => current || submitted);
       throw error;
     } finally {
       setAnimating(false);
@@ -212,27 +238,42 @@ export function CloneChatPanel({
 
   return (
     <>
-      <ChatPane
-        loadError={conversation.isError ? '记录加载失败' : undefined}
-        user={user}
-        conversation={chatConversation}
-        messages={messages}
-        messageRenderers={renderers}
-        loading={Boolean(conversation.isFetching && !history.length)}
-        preference={undefined}
-        draft={input}
-        onDraftChange={(_id, value) => setInput(value)}
-        onDraftClear={() => setInput('')}
-        onSend={onSend}
-        onBack={onBack}
-        sendAvailable={!legacy && !chat.isLoading && !animating}
-        readOnly={legacy}
-        sendBlockedReason={legacy ? '旧版对话（只读）' : '克隆体正在回复'}
-        settingsLabel="克隆体设置"
-        onOpenConversationSettings={onOpenSettings}
-        onSearchChatRecords={() => setSearchOpen(true)}
-        jumpRequest={jumpRequest}
-      />
+      <AiImageComposer
+        fill
+        value={input}
+        setValue={setInput}
+        disabled={legacy || chat.isLoading || animating}
+        onBusyChange={setImageUploading}
+        onSendImages={() => {
+          void onSend(parseAiImageDraft(input).text).catch(() => {});
+        }}
+      >
+        <ChatPane
+          loadError={conversation.isError ? '记录加载失败' : undefined}
+          user={user}
+          conversation={chatConversation}
+          messages={messages}
+          messageRenderers={renderers}
+          loading={Boolean(conversation.isFetching && !history.length)}
+          preference={undefined}
+          draft={parseAiImageDraft(input).text}
+          onDraftChange={(_id, value) =>
+            setInput((current) => changeAiImageDraftText(current, value))
+          }
+          onDraftClear={() => setInput('')}
+          onSend={onSend}
+          onBack={onBack}
+          sendAvailable={!legacy && !chat.isLoading && !animating && !imageUploading}
+          readOnly={legacy}
+          sendBlockedReason={
+            legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
+          }
+          settingsLabel="克隆体设置"
+          onOpenConversationSettings={onOpenSettings}
+          onSearchChatRecords={() => setSearchOpen(true)}
+          jumpRequest={jumpRequest}
+        />
+      </AiImageComposer>
       {searchOpen ? (
         <ChatRecordsModal
           fixed

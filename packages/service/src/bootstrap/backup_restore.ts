@@ -622,6 +622,12 @@ function configPlan(
         value.agentLab.defaultModel === undefined ||
         (choice.conflict === 'skip' && previous.defaultModel !== undefined);
       const defaultModel = preserveDefault ? previous.defaultModel : value.agentLab.defaultModel;
+      const preserveVision =
+        value.agentLab.defaultVisionModel === undefined ||
+        (choice.conflict === 'skip' && previous.defaultVisionModel !== undefined);
+      const defaultVisionModel = preserveVision
+        ? previous.defaultVisionModel
+        : value.agentLab.defaultVisionModel;
       settings.agentLab = {
         providers: mergeRows(
           previous.providers,
@@ -631,9 +637,12 @@ function configPlan(
           'api:llm',
         ),
         ...(defaultModel !== undefined ? { defaultModel } : {}),
+        ...(defaultVisionModel !== undefined ? { defaultVisionModel } : {}),
       };
       if (value.agentLab.defaultModel !== undefined && preserveDefault)
         skipped.push('api:llm-default');
+      if (value.agentLab.defaultVisionModel !== undefined && preserveVision)
+        skipped.push('api:llm-default-vision');
     }
     if (value.ttsProviders !== undefined) {
       settings.voiceTranscribe = merge(base.voiceTranscribe, {

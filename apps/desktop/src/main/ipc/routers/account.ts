@@ -1924,6 +1924,10 @@ export const accountRouter = router({
       }),
     )
     .mutation(({ input }) => saveAnalyticsFromWeb(input)),
+  retainAiImage: procedure
+    .input(z.object({ path: z.string().min(1) }).strict())
+    .mutation(({ input }) => retainAiImage(input.path)),
+
   pickedFileStart: procedure
     .input(
       browserFileBinding.extend({
@@ -2188,7 +2192,19 @@ export const accountRouter = router({
     .input(
       z.object({
         personaId: agentLabPersonaId,
-        text: z.string().min(1),
+        text: z.string(),
+        images: z
+          .array(
+            z
+              .object({
+                id: z.string().min(1),
+                path: z.string().min(1),
+                name: z.string().optional(),
+              })
+              .strict(),
+          )
+          .max(32)
+          .optional(),
         sessionId: z.string().optional(),
         history: z
           .array(
@@ -2201,9 +2217,11 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
       return requireServices().agentLab.chat({
         personaId: input.personaId,
         text: input.text,
+        images: input.images,
         history: input.history,
         sessionId: input.sessionId,
       });
@@ -2334,6 +2352,7 @@ export const accountRouter = router({
         models.vision,
         models.voiceClone,
         visionModel,
+        requireBootstrap().userConfig.getSettings().agentLab.defaultVisionModel,
       ]) {
         if (m?.providerId) llmIds.add(m.providerId);
       }
@@ -2384,6 +2403,16 @@ export const accountRouter = router({
         },
         webuiPort: input.webuiPort,
         visionModel,
+        images: {
+          mode:
+            requireBootstrap().userConfig.getSettings().aiImages.cloneChat === 'ocr'
+              ? ('ocr' as const)
+              : ('vision' as const),
+          visionModel: requireBootstrap().userConfig.getSettings().agentLab.defaultVisionModel,
+          prefilterEnabled: requireBootstrap().userConfig.getSettings().ocr.prefilterEnabled,
+          ocrModelId: requireBootstrap().userConfig.getSettings().modelResources.ocr,
+          filterModelId: requireBootstrap().userConfig.getSettings().modelResources.filter,
+        },
       });
       const settings = ctx.bootstrap?.userConfig.getSettings();
       const policy = await prepareExportDestination(
@@ -2576,18 +2605,37 @@ export const accountRouter = router({
     .input(
       z.object({
         groupId: z.string().min(1),
-        text: z.string().min(1),
+        text: z.string(),
+        images: z
+          .array(
+            z
+              .object({
+                id: z.string().min(1),
+                path: z.string().min(1),
+                name: z.string().optional(),
+              })
+              .strict(),
+          )
+          .max(32)
+          .optional(),
         mentions: z.array(z.string().min(1)).default([]),
         sessionId: z.string().optional(),
       }),
     )
     .mutation(({ input }) => {
+      if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
       const svc = requireServices().agentLab;
       const groupRunId = randomUUID();
       const groupId = input.groupId;
       void svc
         .sendGroupMessage(
-          { groupId, text: input.text, mentions: input.mentions, sessionId: input.sessionId },
+          {
+            groupId,
+            text: input.text,
+            images: input.images,
+            mentions: input.mentions,
+            sessionId: input.sessionId,
+          },
           (message) =>
             groupChatBus.emit('event', {
               groupRunId,
@@ -2816,8 +2864,26 @@ export const accountRouter = router({
    * chat() 内部已把异常先 emit 成 `error` step 再抛出，故这里吞掉 rejection。
    */
   chatWithAssistant: procedure
-    .input(z.object({ sessionId: z.string().min(1), text: z.string().min(1) }))
+    .input(
+      z.object({
+        sessionId: z.string().min(1),
+        text: z.string(),
+        images: z
+          .array(
+            z
+              .object({
+                id: z.string().min(1),
+                path: z.string().min(1),
+                name: z.string().optional(),
+              })
+              .strict(),
+          )
+          .max(32)
+          .optional(),
+      }),
+    )
     .mutation(({ input }) => {
+      if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
       const assistant = requireServices().assistant;
       const state = currentDraftState();
       const runId = randomUUID();
@@ -2830,6 +2896,7 @@ export const accountRouter = router({
           input.text,
           (step) => assistantBus.emit('step', { runId, step } satisfies AssistantStreamEvent),
           ac.signal,
+          input.images,
         )
         .catch(() => {})
         .finally(() => {
@@ -9057,7 +9124,9 @@ function latestGeneratedActivity(
   const last = rows.at(-1);
   // 还没有消息时（刚建的空会话）用会话的创建/更新时间，别落到 0。
   if (!last) return { lastMessageTime: sessionTime, preview: '', previewMine: false };
-  const text = 'text' in last ? last.text : ((last as { text?: string }).text ?? '');
+  const text =
+    ('text' in last ? last.text : ((last as { text?: string }).text ?? '')) ||
+    ('images' in last && Array.isArray(last.images) && last.images.length ? '[图片]' : '');
   const mine = 'role' in last ? last.role === 'user' : last.senderKind === 'user';
   return {
     lastMessageTime: Math.round(last.ts / 1000),
@@ -9070,3 +9139,5 @@ function latestGeneratedActivity(
   };
 }
 import { CLONE_GENERATION, type CloneGenerationKey } from '@weq/agentlab';
+
+import { retainAiImage } from '../../ai_images';

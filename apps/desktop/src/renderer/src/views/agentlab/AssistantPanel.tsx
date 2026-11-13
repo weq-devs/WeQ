@@ -69,8 +69,14 @@ import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import { assistantResultVersion } from '../../lib/workspaceReadState';
 import { PageSnapshotScope } from '../../components/PageSnapshots';
 import { PageScrollSnapshot } from '../../components/PageScrollSnapshot';
+import { AiImageComposer, AiImageGallery } from '../../components/AiImageComposer';
+import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraft';
+import type { AiImageRef, AiImageOutcome } from '@weq/agentlab';
+import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
 
 interface Turn {
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
   id?: string;
   role: 'user' | 'assistant';
   text: string;
@@ -398,6 +404,7 @@ export function AssistantSettings({ onClose }: { onClose: () => void }): ReactEl
           <strong>WeQ 助手设置</strong>
         </header>
         <div className="weq-clone-config">
+          <AiImagePreferenceSetting feature="assistant" />
           <label className="weq-agentlab-field">
             <span>权限模式</span>
             <select
@@ -574,6 +581,7 @@ export function AssistantPanel({
   const saveConfig = trpc.account.setAssistantConfig.useMutation();
 
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [imageUploading, setImageUploading] = useState(false);
   const [requestFailed, setRequestFailed] = useState(false);
   const [input, setInput] = useState(() =>
     draftAccount ? readAssistantDraft(draftAccount, sessionId) : '',
@@ -713,6 +721,8 @@ export function AssistantPanel({
           role: t.role,
           text: t.text,
           steps: t.steps,
+          images: t.images,
+          imageOutcomes: t.imageOutcomes,
         })),
       );
       seeded.current = true;
@@ -805,7 +815,7 @@ export function AssistantPanel({
   async function onSend(preset?: string): Promise<void> {
     setSearchMessageId(null);
     const raw = preset ?? input;
-    if (!raw.trim() || busy) return;
+    if (!raw.trim() || busy || imageUploading) return;
     // 没配聊天模型时后端会直接抛错、且这条 rejection 被路由吞掉（不会 emit error
     // 事件），前端就会永久转圈。发送前先拦下来，给出可操作的提示而不是加载动画。
     if (!assistantConfig.data?.model) {
@@ -820,7 +830,9 @@ export function AssistantPanel({
       );
       return;
     }
-    const text = raw.trim();
+    const imageDraft = parseAiImageDraft(raw);
+    const text = imageDraft.text.trim();
+    const images = imageDraft.images;
     const clearSubmittedDraft = sharedDraft.prepareSubmitted(raw);
     setRequestFailed(false);
     if (!preset) {
@@ -831,7 +843,7 @@ export function AssistantPanel({
     stickRef.current = true;
     setTurns((prev) => [
       ...prev,
-      { role: 'user', text },
+      { role: 'user', text, images },
       { role: 'assistant', text: '', steps: [], running: true },
     ]);
     try {
@@ -849,7 +861,7 @@ export function AssistantPanel({
       }
       // 新问题会取代上次中断的任务（后端已清掉断点快照），刷新“继续回答”状态。
       void utils.account.getAssistantResumeState.invalidate({ sessionId: id });
-      const { runId } = await send.mutateAsync({ sessionId: id, text });
+      const { runId } = await send.mutateAsync({ sessionId: id, text, images });
       runIdRef.current = runId;
       if (!preset) void clearSubmittedDraft().catch(() => {});
     } catch (e) {
@@ -857,7 +869,7 @@ export function AssistantPanel({
       setRequestFailed(true);
       // 回滚刚加入的两条。
       setTurns((prev) => prev.slice(0, -2));
-      if (!preset) setInput(text);
+      if (!preset) setInput(raw);
     }
   }
 
@@ -1078,7 +1090,12 @@ export function AssistantPanel({
                 className={`weq-generated-message${t.id === searchMessageId ? ' is-search-hit' : ''}${selection.selected(t.id) ? ' is-selected' : ''}`}
               >
                 {t.role === 'user' ? (
-                  <ChatBubble mine name="我" uin={selfProfile.data?.uin} text={t.text} />
+                  <div className="weq-ai-user-message">
+                    <AiImageGallery images={t.images} outcomes={t.imageOutcomes} />
+                    {t.text ? (
+                      <ChatBubble mine name="我" uin={selfProfile.data?.uin} text={t.text} />
+                    ) : null}
+                  </div>
                 ) : (
                   <AssistantBubble turn={t} />
                 )}
@@ -1087,84 +1104,91 @@ export function AssistantPanel({
           )}
         </div>
 
-        <div className="weq-asst-composer">
-          {!compact ? (
-            <div className="weq-asst-composer-tools">
-              <ComposerSelect
-                icon={<Cpu size={13} />}
-                title="聊天模型"
-                placeholder="选择模型…"
-                value={modelSel}
-                groups={modelGroups}
-                disabled={busy || saveConfig.isLoading}
-                onChange={(v) => void onQuickConfig({ modelKey: v })}
+        <AiImageComposer
+          value={input}
+          setValue={setInput}
+          disabled={busy}
+          onBusyChange={setImageUploading}
+        >
+          <div className="weq-asst-composer">
+            {!compact ? (
+              <div className="weq-asst-composer-tools">
+                <ComposerSelect
+                  icon={<Cpu size={13} />}
+                  title="聊天模型"
+                  placeholder="选择模型…"
+                  value={modelSel}
+                  groups={modelGroups}
+                  disabled={busy || saveConfig.isLoading}
+                  onChange={(v) => void onQuickConfig({ modelKey: v })}
+                />
+                <ComposerSelect
+                  icon={<Brain size={13} />}
+                  title="思考等级"
+                  placeholder="思考等级"
+                  value={effort}
+                  groups={[
+                    {
+                      label: '',
+                      options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+                    },
+                  ]}
+                  disabled={busy || saveConfig.isLoading}
+                  onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
+                />
+              </div>
+            ) : null}
+            <div className="weq-agentlab-composer weq-asst-composer-row">
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={parseAiImageDraft(input).text}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setInput((current) => changeAiImageDraftText(current, value));
+                  autoGrowTextarea(e.currentTarget);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void onSend();
+                  }
+                }}
+                placeholder="发送消息…"
+                disabled={busy}
               />
-              <ComposerSelect
-                icon={<Brain size={13} />}
-                title="思考等级"
-                placeholder="思考等级"
-                value={effort}
-                groups={[
-                  {
-                    label: '',
-                    options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-                  },
-                ]}
-                disabled={busy || saveConfig.isLoading}
-                onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
-              />
+              {busy ? (
+                <button
+                  className="weq-set-btn weq-asst-stop-btn"
+                  onClick={() => void onStop()}
+                  disabled={stopping}
+                  aria-busy={stopping}
+                  title={stopping ? '正在停止本轮任务…' : '停止本轮任务'}
+                >
+                  {stopping ? (
+                    <>
+                      <Loader2 size={13} strokeWidth={2.4} className="weq-asst-spin" /> 停止中…
+                    </>
+                  ) : (
+                    <>
+                      <Square size={13} strokeWidth={2.6} /> 停止
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  className="weq-set-btn"
+                  title="发送消息"
+                  aria-label="发送消息"
+                  onClick={() => void onSend()}
+                  disabled={!input.trim() || imageUploading}
+                >
+                  <Send size={14} /> {compact ? null : '发送'}
+                </button>
+              )}
             </div>
-          ) : null}
-          <div className="weq-agentlab-composer weq-asst-composer-row">
-            <textarea
-              ref={inputRef}
-              rows={1}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                autoGrowTextarea(e.currentTarget);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void onSend();
-                }
-              }}
-              placeholder="发送消息…"
-              disabled={busy}
-            />
-            {busy ? (
-              <button
-                className="weq-set-btn weq-asst-stop-btn"
-                onClick={() => void onStop()}
-                disabled={stopping}
-                aria-busy={stopping}
-                title={stopping ? '正在停止本轮任务…' : '停止本轮任务'}
-              >
-                {stopping ? (
-                  <>
-                    <Loader2 size={13} strokeWidth={2.4} className="weq-asst-spin" /> 停止中…
-                  </>
-                ) : (
-                  <>
-                    <Square size={13} strokeWidth={2.6} /> 停止
-                  </>
-                )}
-              </button>
-            ) : (
-              <button
-                className="weq-set-btn"
-                title="发送消息"
-                aria-label="发送消息"
-                onClick={() => void onSend()}
-                disabled={!input.trim()}
-              >
-                <Send size={14} /> {compact ? null : '发送'}
-              </button>
-            )}
           </div>
-        </div>
-
+        </AiImageComposer>
         {settingsOpen ? <AssistantSettings onClose={() => setSettingsOpen(false)} /> : null}
       </PageScrollSnapshot>
     </PageSnapshotScope>

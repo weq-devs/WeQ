@@ -140,3 +140,5 @@ export {
 export { isUnsupportedTemperature } from './temperature_fallback';
 export { CLONE_GENERATION, CLONE_GENERATION_KEYS, normalizeCloneGeneration } from './generation';
 export type { AgentLabGenerationConfig, CloneGenerationKey } from './generation';
+export * from './images';
+export { imageDescriptionCache } from './image_cache';

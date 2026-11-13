@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     "./assistant-config": "./src/account/assistant_config.ts",
+    "./ocr-models": "./src/common/ocr_models.ts",
+    "./ocr-cache": "./src/common/ocr_cache.ts",
     "./shared-preferences": "./src/common/shared_preferences.ts",
     "./console-output": "./src/common/console_output.ts",
     "./contact-card": "./src/common/contact_card.ts",
@@ -68,6 +70,7 @@
     "@weq/native": "workspace:*",
     "@weq/platform": "workspace:*",
     "@weq/protocol": "workspace:*",
+    "@weq/time": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "es-module-lexer": "1.7.0",
@@ -81,8 +84,7 @@
     "srcset": "5.0.3",
     "tough-cookie": "6.0.2",
     "unified": "11.0.5",
-    "ws": "8.21.0",
-    "@weq/time": "workspace:*"
+    "ws": "8.21.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",

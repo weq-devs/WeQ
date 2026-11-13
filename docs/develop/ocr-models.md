@@ -11,6 +11,18 @@
 > 通用仓库 [`model_store.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/service/src/common/model_store.ts)、
 > 设置页 `apps/desktop/src/renderer/src/components/settings/OcrModelsSection.tsx`。
 
+## 共用 AI 图片处理
+
+图文输入、图片引用、处理状态和回退策略由 [`packages/agentlab/src/images.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/agentlab/src/images.ts) 提供；宿主通过 `AiImagePort` 注入取图、OCR、默认视觉模型及配置修订信息。`aiImages` 保存各功能偏好，`agentLab.defaultVisionModel` 保存唯一的默认视觉模型引用。策略或相关模型变化仅使对应功能的派生缓存失效。
+
+OCR 的数值管线、筛图判据与 worker 协议统一位于 [`packages/agentlab/src/ocr`](https://github.com/weq-devs/WeQ/tree/dev/packages/agentlab/src/ocr)，桌面旧入口仅重导出；Bot 使用同一 worker，`sharp` 与 `onnxruntime-node` 只在本地推理时按需加载。`pnpm build:bot` 同时构建 Bot 与独立 OCR worker。
+
+宿主取图复用媒体协议的 `resolveChatImageFile`，包含本机缓存、外部 chatpic 与完整下载服务的既有回退，不以 QQ 离线为由跳过在线取图。上传附件按内容寻址保存在账号的 AgentLab `images/` 目录，消息与草稿只存 `ai-image:` 引用，随克隆／助手数据备份并可迁移恢复；请求时才构造图像 Data URL，不将其写入历史或断点。
+
+图片预处理单实例并发上限为四个；通用描述以内容和模型身份缓存，内存最多 256 条、磁盘约 512 条并在七天后过期。指定问题的图片回答不使用或污染通用描述缓存。直接图文调用失败时只能在未收到正文、推理或工具片段前回退 OCR；取消不触发回退。
+
+Bot 的图片输入保留 OneBot `image` 消息段的 `file` 和 `url`，先尝试 URL，失败后调用 `get_image`，优先使用其 URL，兼容同机可访问的文件路径。依据 [OneBot 消息段规范](https://github.com/botuniverse/onebot-11/blob/master/message/segment.md)及 [NapCat `get_image` 实现与示例](https://github.com/NapNeko/NapCatQQ/blob/main/packages/napcat-onebot/action/example/FileActionsExamples.ts)核验；不假定 Bot 与适配器共享文件系统。
+
 ## 一、为什么选 PP-OCR
 
 在线那条线（OIDB 0xe07_0，见 [`packages/protocol/src/oidb/misc/ocr-image.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/protocol/src/oidb/misc/ocr-image.ts)）

@@ -31,6 +31,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     }),
     bootstrap: {
+      getSettings: { useQuery: () => ({ data: { aiImages: { profile: 'placeholder' } } }) },
+      setAiImagePreference: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       getAgentLabDefaultModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
       downloadLocalModel: { useMutation: () => ({ isLoading: false }) },
       listAgentLabProviders: {

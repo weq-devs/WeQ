@@ -4,6 +4,8 @@ import { useTabActive } from '../RetainedTabs';
 import { Card, QueryError, SectionHeader } from './controls';
 import { AiFeatureSettingsContext, type useAiFeatureSettings } from './useAiFeatureSettings';
 import '../../styles/model-settings.css';
+import type { AiImageFeature } from '@weq/agentlab';
+import { AiImagePreferenceSetting } from './AiImageSettings';
 
 export function AiFeatureSettingsLayout({
   title,
@@ -14,6 +16,7 @@ export function AiFeatureSettingsLayout({
   model,
   children,
   settings,
+  imageFeature,
 }: {
   title: string;
   error?: { message: string } | null;
@@ -23,6 +26,7 @@ export function AiFeatureSettingsLayout({
   model: ReactNode;
   children: (inactive: boolean) => ReactNode;
   settings: ReturnType<typeof useAiFeatureSettings>;
+  imageFeature?: AiImageFeature;
 }) {
   const active = useTabActive();
   return (
@@ -39,6 +43,7 @@ export function AiFeatureSettingsLayout({
       <Card title="功能与模型" icon={<Settings2 size={15} strokeWidth={1.8} />}>
         {basic}
         {model}
+        {imageFeature ? <AiImagePreferenceSetting feature={imageFeature} /> : null}
       </Card>
       <AiFeatureSettingsContext.Provider value={settings}>
         {children(!active)}

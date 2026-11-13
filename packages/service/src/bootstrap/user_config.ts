@@ -35,6 +35,7 @@ import {
 import { DEFAULT_SERVICE_PORTS } from '../common/service_ports';
 import { DEFAULT_CONTACT_CARD, normalizeContactCard } from '../common/contact_card';
 import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
+import { normalizeImagePreferences, type AiImagePreferences } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
 import {
@@ -692,6 +693,7 @@ export interface WeqAssistantConfig {
 export interface AgentLabSettings {
   providers: AgentLabProviderConfig[];
   defaultModel: AgentLabModelRef | null;
+  defaultVisionModel: AgentLabModelRef | null;
 }
 
 /**
@@ -775,6 +777,7 @@ export interface AppSettings {
   oneBot: OneBotConfig;
   weqAssistant: WeqAssistantConfig;
   agentLab: AgentLabSettings;
+  aiImages: AiImagePreferences;
   /** 点击关闭按钮时的行为。默认 'tray'（最小化到托盘，后台服务继续运行）。 */
   windowCloseBehavior: WindowCloseBehavior;
   /** macOS / Linux 使用右上角仿 Windows 窗口按钮，账号选择页不受影响。 */
@@ -1171,7 +1174,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   },
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: DEFAULT_SERVICE_PORTS['weq-assistant'] },
-  agentLab: { providers: [], defaultModel: null },
+  agentLab: { providers: [], defaultModel: null, defaultVisionModel: null },
+  aiImages: normalizeImagePreferences(null),
   windowCloseBehavior: 'tray',
   windowsStyleControls: false,
   renderTextMarkdown: true,
@@ -2041,7 +2045,9 @@ export class UserConfigService {
       agentLab: {
         providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
         defaultModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultModel),
+        defaultVisionModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultVisionModel),
       },
+      aiImages: normalizeImagePreferences(s?.aiImages),
     };
   }
 
@@ -2239,7 +2245,12 @@ export class UserConfigService {
           patch.agentLab?.defaultModel !== undefined
             ? normalizeAgentLabDefaultModel(patch.agentLab.defaultModel)
             : current.agentLab.defaultModel,
+        defaultVisionModel:
+          patch.agentLab?.defaultVisionModel !== undefined
+            ? normalizeAgentLabDefaultModel(patch.agentLab.defaultVisionModel)
+            : current.agentLab.defaultVisionModel,
       },
+      aiImages: normalizeImagePreferences({ ...current.aiImages, ...patch.aiImages }),
     };
     this.write({ settings: next });
     qzonePaginationLimiter.configure(next.qzonePagination);

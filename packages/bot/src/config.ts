@@ -64,6 +64,13 @@ export interface WebUiConfig {
 }
 
 export interface BotConfig {
+  images?: {
+    mode: 'ocr' | 'vision';
+    visionModel?: { providerId: string; model: string } | null;
+    prefilterEnabled?: boolean;
+    ocrModelId?: string;
+    filterModelId?: string;
+  };
   logging?: BotLoggingConfig;
   queue?: {
     /** 同时处理的会话数，默认 4。 */

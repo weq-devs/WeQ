@@ -136,6 +136,34 @@ export class JsonGroupStore implements AgentLabGroupStore {
     this.persist();
   }
 
+  patchImageAnalysis(
+    groupId: string,
+    messageId: string,
+    imageContext: string,
+    imageOutcomes: NonNullable<AgentLabGroupMessage['imageOutcomes']>,
+  ): void {
+    const messages = this.data.messages[groupId] ?? [];
+    const index = messages.findIndex((message) => message.id === messageId);
+    const current = messages[index];
+    if (!current) return;
+    const key = (outcomes: typeof imageOutcomes = []) =>
+      JSON.stringify(
+        outcomes.map(({ id, mode, status, text, notes }) => ({
+          id,
+          mode,
+          status,
+          text,
+          fallback: notes.some((note) => note.includes('回退 OCR')),
+        })),
+      );
+    if (current.imageContext === imageContext && key(current.imageOutcomes) === key(imageOutcomes))
+      return;
+    this.data.messages[groupId] = messages.map((message, offset) =>
+      offset === index ? { ...message, imageContext, imageOutcomes } : message,
+    );
+    this.persist();
+  }
+
   /** 先保存合并结果，再由调用方移除旧分桶；重复迁移按稳定消息身份幂等。 */
   mergeMessages(groupId: string, additions: AgentLabGroupMessage[]): void {
     this.store.assertReadable();

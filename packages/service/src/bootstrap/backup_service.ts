@@ -273,6 +273,7 @@ export class WeqBackupService {
       hasApi:
         api.agentLab.providers.length > 0 ||
         api.agentLab.defaultModel !== null ||
+        api.agentLab.defaultVisionModel !== null ||
         api.ttsProviders.length > 0 ||
         api.mcp.enabled ||
         Boolean(api.mcp.token) ||

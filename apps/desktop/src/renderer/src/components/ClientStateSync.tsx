@@ -39,6 +39,7 @@ export function ClientStateSync() {
           })
           .catch(() => {});
         void utils.bootstrap.getSettings.invalidate();
+        void utils.bootstrap.getDefaultVisionModel.invalidate();
         void utils.settings.invalidate();
         void utils.account.intentSense.getStatus.invalidate();
         void utils.account.antiRecall.getStatus.invalidate();

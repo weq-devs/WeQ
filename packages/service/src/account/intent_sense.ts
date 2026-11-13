@@ -428,6 +428,8 @@ function elementsToSenseText(elements: SenseElement[]): string {
     } else if (el.kind === 'face') {
       const t = String(el.faceText ?? '').trim();
       if (t) parts.push(t);
+    } else if (el.kind === 'pic') {
+      parts.push('[图片]');
     }
   }
   return parts.join(' ').trim();
@@ -543,6 +545,7 @@ function normalizeCacheFile(
 }
 
 export interface IntentSenseOptions {
+  images?: AiImagePort;
   preferences?: PreferencePersistence<IntentSenseConfig>;
   /** 旧画像跟随本地意图资源时，一次性固化当前选择。 */
   legacyLocalModelId?: string;
@@ -652,6 +655,7 @@ export function normalizeIntentSenseConfig(
 }
 
 export class IntentSenseService {
+  private readonly imageRevisions = new Map<AiImageFeature, string>();
   private analysisRevision = 0;
   private suggestionRevision = 0;
   private profileRevision = 0;
@@ -715,7 +719,8 @@ export class IntentSenseService {
       this.configStore.save();
     this.profileService = new InteractionProfileService(
       () => this.config,
-      (kind, peerUid, limit) => this.loadMessages(kind, peerUid, limit),
+      (kind, peerUid, limit) =>
+        this.loadMessages(kind, peerUid, limit, undefined, undefined, 'profile'),
       (ref) => this.endpoint(ref),
       {
         localEngine: this.opts.localEngine,
@@ -744,12 +749,32 @@ export class IntentSenseService {
   }
 
   private analysisModelIdentity(): string | undefined {
-    return this.config.engine === 'api' && isDefaultModelSelection(this.config.providerRef)
-      ? this.defaultIdentity(this.config.providerRef)
-      : undefined;
+    const model =
+      this.config.engine === 'api' ? this.defaultIdentity(this.config.providerRef) : 'local';
+    return this.opts.images
+      ? JSON.stringify([model, this.opts.images.revision?.('intent')])
+      : this.config.engine === 'api' && isDefaultModelSelection(this.config.providerRef)
+        ? model
+        : undefined;
   }
 
   private syncDefaultModels(): void {
+    for (const feature of ['intent', 'suggestions', 'profile'] as const) {
+      const revision = this.opts.images?.revision?.(feature) ?? '';
+      const previous = this.imageRevisions.get(feature);
+      this.imageRevisions.set(feature, revision);
+      if (previous === undefined || previous === revision) continue;
+      if (feature === 'intent') this.clearCache();
+      if (feature === 'suggestions') {
+        this.suggestionRevision++;
+        this.suggestionCache.clear();
+        this.suggestionInFlight.clear();
+      }
+      if (feature === 'profile') {
+        this.profileRevision++;
+        this.profileService.invalidate();
+      }
+    }
     const bindings: Array<[string, AgentLabModelSelection | null]> = [
       ['analysis', this.config.engine === 'api' ? this.config.providerRef : null],
       ['suggestion', this.config.suggestionProviderRef],
@@ -1100,6 +1125,7 @@ export class IntentSenseService {
     msgId: string,
     options?: { manual?: boolean },
   ): Promise<IntentSenseResult | null> {
+    this.syncDefaultModels();
     if (!this.effectiveFor(kind, conv)) return null;
     if (this.config.analysisMode === 'manual' && !options?.manual) return null;
     const revision = this.analysisRevision;
@@ -1120,10 +1146,16 @@ export class IntentSenseService {
     let row: SenseRow | undefined;
     let context: IntentContextTurn[] = [];
     if (idx >= 0) {
-      row = recent[idx];
-      context = extractContextBefore(recent, idx, contextMessages, this.config);
+      const selected = await this.prepareImageRows(
+        recent.slice(Math.max(0, idx - contextMessages), idx + 1),
+        kind,
+        conv,
+        'intent',
+      );
+      row = selected.at(-1);
+      context = extractContextBefore(selected, selected.length - 1, contextMessages, this.config);
     } else {
-      const rows = await this.loadMessages(kind, conv, 1, [msgId]);
+      const rows = await this.loadMessages(kind, conv, 1, [msgId], undefined, 'intent');
       row = rows[0];
       const roaming = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):-?\d+$/.exec(msgId);
       if (row && roaming && contextMessages > 0) {
@@ -1134,9 +1166,15 @@ export class IntentSenseService {
           undefined,
           BigInt(roaming[1]!),
         );
+        const selected = await this.prepareImageRows(
+          before.slice(-contextMessages),
+          kind,
+          conv,
+          'intent',
+        );
         context = extractContextBefore(
-          [...before, row],
-          before.length,
+          [...selected, row],
+          selected.length,
           contextMessages,
           this.config,
         );
@@ -1224,7 +1262,14 @@ export class IntentSenseService {
         )
         .map((r) => r.msgId),
     );
-    const rows = await this.loadMessages(kind, conv, limit + contextMessages);
+    const rows = await this.loadMessages(
+      kind,
+      conv,
+      limit + contextMessages,
+      undefined,
+      undefined,
+      'intent',
+    );
     if (!current()) return { cached: 0, analyzed: 0, failed: 0, skipped: 'config-changed' };
     if (rows.at(-1)?.mine && !this.config.analyzeAfterSelf)
       return { cached: 0, analyzed: 0, failed: 0, skipped: 'disabled' };
@@ -1812,7 +1857,15 @@ export class IntentSenseService {
           this.config.conversationOverrides[key] !== false
         );
       };
-      const rows = await this.loadMessages(kind, conv, contextMessages + 1);
+      const rows = await this.loadMessages(
+        kind,
+        conv,
+        contextMessages + 1,
+        undefined,
+        undefined,
+        'suggestions',
+        controller.signal,
+      );
       if (!current()) return [];
       if (rows.length === 0) return [];
       const last = rows[rows.length - 1] as SenseRow;
@@ -2150,6 +2203,38 @@ export class IntentSenseService {
     return people;
   }
 
+  private async prepareImageRows(
+    rows: SenseRow[],
+    kind: IntentConversationKind,
+    conv: string,
+    feature: AiImageFeature,
+    signal?: AbortSignal,
+  ): Promise<SenseRow[]> {
+    if (!this.opts.images) return rows;
+    const prepared: SenseRow[] = [];
+    for (const row of rows) {
+      const images = messageImageRefs(row.elementsRaw, kind, conv, row.msgId, row.sendTime * 1000);
+      prepared.push(
+        images.length
+          ? {
+              ...row,
+              text: (
+                await this.opts.images.prepare({
+                  feature,
+                  text: elementsToSenseText(
+                    row.elementsRaw.filter((element) => element.kind !== 'pic'),
+                  ),
+                  images,
+                  signal,
+                })
+              ).text,
+            }
+          : row,
+      );
+    }
+    return prepared;
+  }
+
   /** 读最近 limit 条（或指定 msgId 集），返回时间升序、带分析文本与 mine 标记的行。 */
   private async loadMessages(
     kind: IntentConversationKind,
@@ -2157,7 +2242,12 @@ export class IntentSenseService {
     limit: number,
     onlyMsgIds?: string[],
     beforeSeq?: bigint,
+    feature?: AiImageFeature,
+    signal?: AbortSignal,
   ): Promise<SenseRow[]> {
+    const prepareRows = async (rows: SenseRow[]) => {
+      return feature ? this.prepareImageRows(rows, kind, conv, feature, signal) : rows;
+    };
     const toRow = (m: C2cMsg | GroupMsg): SenseRow => {
       const mine =
         kind === 'c2c'
@@ -2178,6 +2268,7 @@ export class IntentSenseService {
       const elements = message.elements.map(
         (element): SenseElement => ({
           kind: element.type,
+          ...(element.type === 'pic' ? { ...element.data } : {}),
           ...(element.type === 'text' || element.type === 'at'
             ? {
                 textContent: element.data.textContent,
@@ -2244,7 +2335,7 @@ export class IntentSenseService {
         const message = messages.find((message) => message.sense.msgId === msgId);
         if (message) result.push(message.sense);
       }
-      return result;
+      return prepareRows(result);
     }
     const msgs =
       kind === 'c2c'
@@ -2254,7 +2345,7 @@ export class IntentSenseService {
         : beforeSeq === undefined
           ? await this.session.groupMsgs.listLatest(conv, limit)
           : await this.session.groupMsgs.listBefore(conv, beforeSeq, limit);
-    if (!this.opts.gapHistory) return msgs.map(toRow).reverse();
+    if (!this.opts.gapHistory) return prepareRows(msgs.map(toRow).reverse());
     const local: SenseTimelineRow[] = msgs.map((message) => ({
       msgId: message.msgId.toString(),
       msgSeq: message.msgSeq.toString(),
@@ -2265,9 +2356,11 @@ export class IntentSenseService {
     }));
     const max = beforeSeq === undefined ? 0xffffffff : Number(beforeSeq - 1n);
     const roaming = await cached(1, Math.min(max, 0xffffffff), limit);
-    return mergeRoamingTimeline(kind, local, roaming, { descending: true, limit })
-      .reverse()
-      .map((message) => message.sense);
+    return prepareRows(
+      mergeRoamingTimeline(kind, local, roaming, { descending: true, limit })
+        .reverse()
+        .map((message) => message.sense),
+    );
   }
 
   private c2cPartition(peerUid: string): C2cPartition {
@@ -2334,3 +2427,5 @@ interface SenseTimelineRow extends TimelineRow {
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────────
+import type { AiImagePort, AiImageFeature } from '@weq/agentlab';
+import { messageImageRefs } from '../common/ai_message_images';

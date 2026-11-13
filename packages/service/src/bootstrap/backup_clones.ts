@@ -187,7 +187,7 @@ export function snapshotWeqClones(
       }
       add(path, Buffer.from(JSON.stringify(value)));
     }
-    for (const kind of ['stickers', 'voice', 'agentvoice', 'assistant_runs', 'reports']) {
+    for (const kind of ['stickers', 'voice', 'agentvoice', 'images', 'assistant_runs', 'reports']) {
       for (const name of directoryEntries(join(directory, kind))) {
         const path = `${prefix}/${kind}/${name}`;
         // 不收集模型、未知资源或目录中的数据库；只保留实际运行时可寻址的资产。
@@ -199,7 +199,7 @@ export function snapshotWeqClones(
         }
         if (assetCache.has(`${kind}\0${resolve(directory, kind, name)}`)) continue;
         const content = readWeqBackupFile(join(directory, kind, name));
-        if (kind === 'stickers' || kind === 'voice' || kind === 'agentvoice')
+        if (kind === 'stickers' || kind === 'voice' || kind === 'agentvoice' || kind === 'images')
           validateWeqCloneAsset(path, content);
         add(path, content);
       }

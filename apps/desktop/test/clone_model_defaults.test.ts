@@ -17,7 +17,10 @@ vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     bootstrap: {
+      getSettings: { useQuery: () => ({ data: { aiImages: { cloneTraining: 'placeholder' } } }) },
+      setAiImagePreference: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       listAgentLabProviders: {
         useQuery: () => ({
           data: [
