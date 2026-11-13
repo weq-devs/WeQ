@@ -329,7 +329,7 @@ describe('多 API provider 配置', () => {
     ]);
     const f = mount();
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
-    await act(async () => f.button('自动检测能力').click());
+    await act(async () => f.button('检测能力').click());
     expect(state.confirm).toHaveBeenCalledWith(
       '自动检测能力',
       expect.stringContaining('不包含聊天记录'),
@@ -355,7 +355,7 @@ describe('多 API provider 配置', () => {
     const f = mount();
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
     state.confirm.mockResolvedValueOnce(false);
-    await act(async () => f.button('自动检测能力').click());
+    await act(async () => f.button('检测能力').click());
     expect(state.detectCapabilities).not.toHaveBeenCalled();
     let reject!: (error: Error) => void;
     state.detectCapabilities.mockImplementation(
@@ -364,7 +364,7 @@ describe('多 API provider 配置', () => {
           reject = fail;
         }),
     );
-    await act(async () => f.button('自动检测能力').click());
+    await act(async () => f.button('检测能力').click());
     expect(f.host.querySelector('fieldset')?.disabled).toBe(true);
     expect(f.button('保存服务商').disabled).toBe(true);
     await act(async () => reject(new Error('合成网络错误')));
@@ -383,7 +383,7 @@ describe('多 API provider 配置', () => {
     );
     const f = mount();
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
-    await act(async () => f.button('自动检测能力').click());
+    await act(async () => f.button('检测能力').click());
     f.set('[aria-label="API Key"]', 'synthetic-new-key');
     await act(async () =>
       finish([{ capability: 'chat', status: 'unsupported', detail: '旧端点结果' }]),

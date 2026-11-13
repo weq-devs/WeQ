@@ -78,15 +78,16 @@ try {
         await page.screenshot({ path: resolve(output, `${width}-${theme}-${style}.png`) });
         assert.ok(removeBox.width <= 36, '删除模型应保持图标按钮宽度');
         assert.ok(Math.abs(idBox.y - removeBox.y) < 4, '删除按钮应与模型 ID 同行');
-        assert.ok(detectBox.width <= 140, '能力检测按钮不应拉伸填满网格');
-        assert.ok(reasoningBox.y > idBox.y, '思考档位应位于模型 ID 下方');
+        assert.ok(detectBox.width <= 90, '能力检测按钮应按精简文案紧凑显示');
+        assert.ok(detectBox.y > reasoningBox.y, '检测能力应位于思考档位下方');
+        assert.equal(await detect.textContent(), '检测能力');
+        assert.equal(await reasoning.getAttribute('placeholder'), '思考档位（逗号分隔）');
         if (width >= 640) {
-          assert.ok(Math.abs(reasoningBox.y - capabilitiesBox.y) < 4, '思考档位与能力选项应同行');
-          assert.ok(
-            reasoningBox.x + reasoningBox.width <= capabilitiesBox.x,
-            '思考档位在左、能力选项在右',
-          );
+          assert.ok(Math.abs(reasoningBox.y - idBox.y) < 4, '思考档位与模型 ID 应同行');
+          assert.ok(Math.abs(detectBox.y - capabilitiesBox.y) < 4, '检测按钮与能力选项应同行');
+          assert.ok(idBox.x + idBox.width <= reasoningBox.x, '模型 ID 在左、思考档位在右');
         }
+        assert.ok(detectBox.x + detectBox.width <= capabilitiesBox.x, '检测按钮在左、能力选项在右');
         assert.ok(
           Math.abs(capabilitiesBox.x + capabilitiesBox.width - (removeBox.x + removeBox.width)) < 2,
           '能力选项应右对齐',

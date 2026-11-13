@@ -818,36 +818,11 @@ export function AgentLabSection(): ReactElement {
                         onChange={(e) => updateModel(index, { id: e.target.value })}
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-provider-model-detect"
-                        onClick={() => void onDetectCapabilities(index)}
-                        disabled={
-                          detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
-                        }
-                        aria-label={`自动检测模型 ${index + 1} 能力`}
-                        title="自动检测能力"
-                      >
-                        {detectingModel === index ? (
-                          <Loader2 size={12} className="weq-spin" />
-                        ) : (
-                          <FlaskConical size={12} />
-                        )}
-                        <span>{detectingModel === index ? '检测中' : '自动检测能力'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="weq-set-iconbtn weq-provider-model-remove"
-                        onClick={() => removeModel(index)}
-                        aria-label={`删除模型 ${index + 1}`}
-                        title={`删除模型 ${index + 1}`}
-                      >
-                        <X size={14} />
-                      </button>
                       <input
                         className="weq-set-input weq-provider-model-reasoning"
                         aria-label={`模型 ${index + 1} 思考档位`}
-                        placeholder="可选思考档位，逗号分隔；留空使用 low、medium、high"
+                        placeholder="思考档位（逗号分隔）"
+                        title="可选思考档位，逗号分隔；留空使用 low、medium、high"
                         value={
                           model.reasoningEffortsText ?? model.reasoningEfforts?.join(', ') ?? ''
                         }
@@ -857,6 +832,32 @@ export function AgentLabSection(): ReactElement {
                           })
                         }
                       />
+                      <button
+                        type="button"
+                        className="weq-set-iconbtn weq-provider-model-remove"
+                        onClick={() => removeModel(index)}
+                        aria-label={`删除模型 ${index + 1}`}
+                        title={`删除模型 ${index + 1}`}
+                      >
+                        <X size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-provider-model-detect"
+                        onClick={() => void onDetectCapabilities(index)}
+                        disabled={
+                          detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
+                        }
+                        aria-label={`自动检测模型 ${index + 1} 能力`}
+                        title="自动检测聊天、向量与视觉能力"
+                      >
+                        {detectingModel === index ? (
+                          <Loader2 size={12} className="weq-spin" />
+                        ) : (
+                          <FlaskConical size={12} />
+                        )}
+                        <span>{detectingModel === index ? '检测中' : '检测能力'}</span>
+                      </button>
                       <div
                         className="weq-search-scope weq-provider-model-capabilities"
                         role="group"
