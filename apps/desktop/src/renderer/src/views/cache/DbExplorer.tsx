@@ -12,7 +12,7 @@
  * Service). Nothing here decrypts or opens files directly.
  */
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Database,
   Table2,
@@ -33,6 +33,7 @@ import { useTabActive } from '../../components/RetainedTabs';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { CheckPill } from '../../components/settings/controls';
+import { useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';
 
 type SubTab = 'data' | 'sql';
 
@@ -69,6 +70,8 @@ export function DbExplorer({
   });
   const [dbPath, setDbPath] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const picker = useRef<HTMLDivElement>(null);
+  useSurfaceEscapeDismissal(picker, () => setPickerOpen(false), active && pickerOpen);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [subTab, setSubTab] = useState<SubTab>('data');
   const [editable, setEditable] = useState(false);
@@ -164,7 +167,12 @@ export function DbExplorer({
               <PanelLeftClose size={16} />
             </button>
             {pickerOpen ? (
-              <div className="weq-cache-dbpick-menu" role="listbox">
+              <div
+                ref={picker}
+                data-weq-escape-surface
+                className="weq-cache-dbpick-menu"
+                role="listbox"
+              >
                 {dbList.map((db) => (
                   <button
                     key={db.path}

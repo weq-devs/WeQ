@@ -24,6 +24,7 @@ import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { useOverlayLayer } from '../../lib/overlayStack';
+import { useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';
 import {
   Braces,
   CalendarClock,
@@ -157,6 +158,7 @@ function ContactSearch({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLSpanElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
   /** 下拉挂到 `document.body`，向 overlayStack 领一个盖住面板的层级（见下面 place 注释）。 */
   const layer = useOverlayLayer(tabActive && open);
   /**
@@ -195,6 +197,11 @@ function ContactSearch({
       )
       .slice(0, 8);
   }, [entries, query]);
+  useSurfaceEscapeDismissal(
+    listRef,
+    () => setOpen(false),
+    tabActive && open && results.length > 0 && Boolean(anchor),
+  );
 
   useLayoutEffect(() => {
     if (!tabActive) return;
@@ -290,6 +297,8 @@ function ContactSearch({
       {tabActive && open && anchor && results.length > 0
         ? createPortal(
             <ul
+              ref={listRef}
+              data-weq-escape-surface
               className={cn('ark-contact-list')}
               role="listbox"
               style={{
@@ -584,7 +593,12 @@ export function ArkPanel({
       role="dialog"
       aria-label="发送 Ark 卡片"
       onKeyDown={(event) => {
-        if (event.key === 'Escape') {
+        if (
+          event.key === 'Escape' &&
+          !event.defaultPrevented &&
+          !event.nativeEvent.isComposing &&
+          event.keyCode !== 229
+        ) {
           event.stopPropagation();
           onClose();
         }

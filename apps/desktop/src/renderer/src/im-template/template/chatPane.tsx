@@ -61,6 +61,7 @@ import { selectionGapId, parseSelectionGap, type SelectionGap } from '../../lib/
 import { createSelectionGapIndex } from '../../lib/selectionGapIndex';
 import { hasActiveModal } from '../../lib/overlayStack';
 import { topSurface } from '../../lib/surfaceEscape';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
 import { useAtAllMention } from '../../hooks/useAtAllMention';
 import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention';
@@ -7579,7 +7580,7 @@ export function ChatPane({
   );
 }
 
-function ConfirmDialog({
+export function ConfirmDialog({
   title,
   onCancel,
   onConfirm,
@@ -7589,7 +7590,11 @@ function ConfirmDialog({
   onConfirm: () => void;
 }) {
   return (
-    <div className={cn('confirm-dialog-scrim')} role="presentation">
+    <OverlayLayer
+      className={cn('confirm-dialog-scrim')}
+      onClose={onCancel}
+      dismissOnOutside={false}
+    >
       <section
         className={cn('confirm-dialog')}
         role="alertdialog"
@@ -7606,7 +7611,7 @@ function ConfirmDialog({
           </button>
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

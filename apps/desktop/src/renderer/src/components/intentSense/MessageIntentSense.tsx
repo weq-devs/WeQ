@@ -18,6 +18,7 @@ import { useRenderDocument } from '../../lib/renderDocument';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { intentPopoverPosition } from '../../lib/intentPopoverPosition';
 import { shouldDismissHoverHint } from '../../lib/hoverHint';
+import { useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';
 import { useTabActive } from '../RetainedTabs';
 import {
   Award,
@@ -356,6 +357,16 @@ export function MessageIntentSense({
   }, [msgId, ctx?.conv, ctx?.kind, hoverActive]);
 
   const showPopover = hoverActive && anchor !== null && (!!result || !unavailable);
+  useSurfaceEscapeDismissal(
+    popoverRef,
+    () => {
+      if (openTimer.current) clearTimeout(openTimer.current);
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+      openTimer.current = closeTimer.current = null;
+      setAnchor(null);
+    },
+    showPopover,
+  );
   const layer = useOverlayLayer(showPopover);
   useLayoutEffect(() => {
     const popover = popoverRef.current;
@@ -399,7 +410,7 @@ export function MessageIntentSense({
     const view = ownerDocument.defaultView;
     const dismiss = (): void => setAnchor(null);
     const keydown = (event: KeyboardEvent): void => {
-      if (shouldDismissHoverHint(event)) dismiss();
+      if (event.key !== 'Escape' && shouldDismissHoverHint(event)) dismiss();
     };
     ownerDocument.addEventListener('scroll', dismiss, true);
     ownerDocument.addEventListener('pointerdown', dismiss, true);
@@ -507,6 +518,7 @@ export function MessageIntentSense({
         ? createPortal(
             <div
               ref={popoverRef}
+              data-weq-escape-surface
               id={tooltipId}
               className="weq-intent-popover"
               style={{

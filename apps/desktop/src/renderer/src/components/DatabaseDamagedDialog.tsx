@@ -40,6 +40,7 @@ import { Modal } from './Dialog';
 import { useToast } from './Toast';
 import { client } from '../trpc/client';
 import { isRemoteClient } from '../lib/remoteClient';
+import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 
 /** 与主进程 `AccountForcedClosedEvent` 对齐的渲染层视图。 */
 export interface DatabaseDamagedEvent {
@@ -106,6 +107,7 @@ export function DatabaseDamagedDialog({
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  useSurfaceEscapeDismissal(menuRef, () => setMenuOpen(false), Boolean(event) && menuOpen);
 
   if (!event) return null;
 
@@ -255,7 +257,7 @@ export function DatabaseDamagedDialog({
         </div>
 
         <div className="weq-dialog-foot weq-db-damaged-foot">
-          <div className="weq-db-feedback-wrap" ref={menuRef}>
+          <div className="weq-db-feedback-wrap">
             <button
               type="button"
               className="weq-action-soft"
@@ -266,7 +268,13 @@ export function DatabaseDamagedDialog({
               反馈问题{busy ? '…' : ''}
             </button>
             {menuOpen ? (
-              <div className="weq-db-feedback-menu">
+              <div
+                ref={menuRef}
+                data-weq-escape-surface
+                className="weq-db-feedback-menu"
+                role="menu"
+                aria-label="反馈问题"
+              >
                 <button type="button" onClick={() => void reportFeedback('github')}>
                   GitHub Issue
                 </button>

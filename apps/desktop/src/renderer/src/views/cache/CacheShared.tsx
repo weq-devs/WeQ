@@ -38,6 +38,7 @@ import type { FileCategory, FileSortKey, FileSortOrder } from '@weq/service';
 import { FooterSkeleton } from './CacheSkeleton';
 import { EmptyState } from '../../components/EmptyState';
 import { useTabActive } from '../../components/RetainedTabs';
+import { OverlayLayer } from '../../components/OverlayLayer';
 
 /** 重扫完成后重读资源数据，分类和筛选控件本身不重建。 */
 export const ResourceRevisionContext = createContext(0);
@@ -539,10 +540,11 @@ export function BlobDialog({
   children: ReactNode;
 }): ReactElement {
   return (
-    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-blob-overlay" onClose={onClose}>
       <div
         className={cn('weq-blob-dialog', dialogClass)}
         role="dialog"
+        aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="weq-blob-head">
@@ -556,7 +558,7 @@ export function BlobDialog({
         </header>
         <div className={cn('weq-blob-body', bodyClass)}>{children}</div>
       </div>
-    </div>
+    </OverlayLayer>
   );
 }
 

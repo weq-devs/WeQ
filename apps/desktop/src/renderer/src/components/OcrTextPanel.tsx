@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy, LogOut, X } from 'lucide-react';
 import type { OcrBlock } from '@weq/protocol';
+import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 
 /** 面板与视口边缘的最小间距（拖动时的夹取边界）。 */
 const EDGE = 12;
@@ -30,6 +31,7 @@ export interface OcrTextPanelProps {
 
 export function OcrTextPanel({ blocks, source, cached, onExit }: OcrTextPanelProps): ReactElement {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  useSurfaceEscapeDismissal(panelRef, onExit, true);
   const [pos, setPos] = useState(() => ({
     x: Math.max(EDGE, window.innerWidth - PANEL_WIDTH - 28),
     y: 96,
@@ -90,6 +92,7 @@ export function OcrTextPanel({ blocks, source, cached, onExit }: OcrTextPanelPro
   return (
     <div
       ref={panelRef}
+      data-weq-escape-surface
       className="weq-ocr-panel"
       style={{ left: pos.x, top: pos.y }}
       onMouseDown={(event) => event.stopPropagation()}

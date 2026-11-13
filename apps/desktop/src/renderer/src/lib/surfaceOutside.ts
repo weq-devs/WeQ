@@ -40,8 +40,9 @@ export function useSurfaceOutside(
     const document = element.ownerDocument;
     const outside = (event: PointerEvent) => {
       if (event.button > 0 || event.defaultPrevented) return;
-      if (!eventSurfaces.has(event)) eventSurfaces.set(event, topSurface(document));
-      if (eventSurfaces.get(event) !== surfaceRoot(element)) return;
+      // 仅声明 Esc 优先级的子菜单不改变原有指针关闭归属。
+      if (!eventSurfaces.has(event)) eventSurfaces.set(event, topSurface(document, false));
+      if (eventSurfaces.get(event) !== surfaceRoot(element, false)) return;
       const target = event.target as Node | null;
       if (!target || anchor?.contains(target)) return;
       if (element.contains(target) && (!scrim || target !== element)) return;
