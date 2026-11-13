@@ -1863,7 +1863,14 @@ function PostActionsBody({
           <MessageCircle size={16} />
           评论 {commentCount ?? '?'}
         </button>
-        <QzoneForwardAction onClick={() => setForwardOpen(true)} />
+        <QzoneForwardAction
+          key={`${selfUin}:${hostUin}:${post.tid}:${refresh}`}
+          onClick={() => setForwardOpen(true)}
+          target={{ selfUin, hostUin, tid: post.tid }}
+          onSpace={onSpace}
+          paused={readsPaused}
+          renderContent={(content) => <QzoneText content={content} onSpace={onSpace} />}
+        />
         <span title={likeError || '浏览量（非去重访客数）'}>
           <Eye size={16} />
           浏览量 {likes?.reportedViewCount ?? '?'}

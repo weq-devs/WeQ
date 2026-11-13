@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   })),
   detail: vi.fn(),
   posts: vi.fn(),
+  forwards: vi.fn(),
   summary: vi.fn(async (_input: unknown) => ({
     likes: {
       likes: [] as { uin: string; nickname: string }[],
@@ -97,6 +98,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         stats: { query: async () => ({ postCount: 1, photoCount: 0 }) },
         people: { query: async () => ({}) },
         summary: { query: state.summary },
+        forwards: { query: state.forwards },
         interactions: { query: state.interactions },
         nativeDetail: { query: state.nativeDetail },
         detail: { query: state.detail },
@@ -125,6 +127,20 @@ beforeEach(() => {
   state.autoReadback = false;
   state.write.mockReset().mockResolvedValue({ state: 'accepted' });
   state.forward.mockReset().mockResolvedValue({ state: 'accepted' });
+  state.forwards.mockReset().mockResolvedValue({
+    forwards: [0, 1, 2].map((index) => ({
+      key: `forward-${index}`,
+      uin: String(10002 + index),
+      nickname: `合成转发者${index}`,
+      content: `合成转发语${index}`,
+      isFriend: true,
+    })),
+    reportedTotal: 3,
+    rawCount: 3,
+    hasMore: false,
+    nextCursor: null,
+    stopReason: 'complete',
+  });
   state.pickImage.mockClear();
   state.nativeDetail.mockClear();
   state.detail.mockReset();
@@ -561,15 +577,21 @@ it('转发弹窗上方预填引用并将光标定位开头，下方保留原动�
   expect(await state.readback!()).toBe(true);
 });
 
-it('转发悬停显示名单浮层，已有转发计数也保持问号，不请求假接口或发起转发', async () => {
+it('转发悬停读取真实名单并校准数量，不沿用旧 Web 计数或发起转发', async () => {
   const view = await mount();
   const button = view.host.querySelector<HTMLButtonElement>('[title="转发"]')!;
   expect(button.textContent).toContain('转发 ?');
   expect(button.textContent).not.toContain('37');
+  expect(state.forwards).not.toHaveBeenCalled();
   await act(async () => button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
-  expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain('暂无可信数据');
+  expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain('合成转发语0');
+  expect(button.textContent).toContain('转发 3');
+  expect(state.forwards).toHaveBeenCalledWith(
+    expect.objectContaining({ selfUin: '10001', hostUin: '10001', tid: 'post-a', cursor: null }),
+  );
   expect(document.querySelector('[aria-label="转发语"]')).toBeNull();
   expect(state.write).not.toHaveBeenCalled();
+  expect(state.forward).not.toHaveBeenCalled();
 });
 
 it('通知头像与昵称分开，动作文字和摘要共用同一内容列', async () => {

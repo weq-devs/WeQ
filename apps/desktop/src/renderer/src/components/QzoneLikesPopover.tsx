@@ -9,10 +9,12 @@ export function QzoneLikesPopover({
   trigger,
   children,
   label = '点赞列表',
+  openOnClick = false,
 }: {
   trigger: ReactNode;
   children?: ReactNode;
   label?: string;
+  openOnClick?: boolean;
 }) {
   const document = useRenderDocument();
   const anchor = useRef<HTMLDivElement>(null);
@@ -78,6 +80,7 @@ export function QzoneLikesPopover({
         onMouseEnter={show}
         onMouseLeave={leave}
         onFocus={show}
+        onClick={openOnClick ? show : undefined}
         onBlur={(event) => blur(event.relatedTarget)}
       >
         {trigger}

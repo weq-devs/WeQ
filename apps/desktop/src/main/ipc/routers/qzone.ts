@@ -203,10 +203,20 @@ export const qzoneRouter = router({
       ),
     ),
   forwards: procedure
-    .input(post.extend({ offset: z.number().int().min(0).max(100_000) }))
+    .input(
+      post.extend({
+        cursor: z
+          .object({
+            attachInfo: z.string().min(1).max(8192),
+            previousPageKey: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .nullable()
+          .default(null),
+      }),
+    )
     .query(({ input }) =>
       request(input, (services, signal) =>
-        services.webQuery.getQzoneForwardPage(input.hostUin, input.tid, input.offset, signal),
+        services.webQuery.getQzoneForwardPage(input.hostUin, input.tid, input.cursor, signal),
       ),
     ),
   feedCounts: procedure

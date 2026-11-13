@@ -107,7 +107,7 @@ import {
   supplementQzoneComments,
   inclusiveQzoneCommentCount,
 } from './qzone_comments';
-import { fetchQzoneForwardPage } from './qzone_forwards';
+import { fetchQzoneForwardPage, type QzoneForwardCursor } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
 import { fetchQzoneContentCounts, fetchQzoneVisitorStats } from './qzone_stats';
 import {
@@ -760,9 +760,14 @@ export class WebQueryService {
     }
   }
 
-  async getQzoneForwardPage(targetUin: string, tid: string, offset = 0, signal?: AbortSignal) {
+  async getQzoneForwardPage(
+    targetUin: string,
+    tid: string,
+    cursor: QzoneForwardCursor | null = null,
+    signal?: AbortSignal,
+  ) {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
-      fetchQzoneForwardPage(cred, targetUin, tid, offset, signal),
+      fetchQzoneForwardPage(cred, targetUin, tid, cursor, signal),
     );
   }
 

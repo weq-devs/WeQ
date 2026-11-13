@@ -1,20 +1,26 @@
-/** Read-only retweet pages from Qzone's official RetweetListViewModel. */
+import { createHash } from 'node:crypto';
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
-import { parseQzoneCallback } from './qzone';
+import { parseQzoneJson } from './qzone';
 import { webRequestText, WebRequestError } from './http';
 
 export interface QzoneForward {
-  tid: string;
+  key: string;
   uin: string;
   nickname: string;
   content: string;
-  time: number | null;
+  isFriend: boolean;
+}
+export interface QzoneForwardCursor {
+  attachInfo: string;
+  previousPageKey: string;
 }
 export interface QzoneForwardPage {
   forwards: QzoneForward[];
   reportedTotal: number | null;
-  visibleTotal: number | null;
-  nextOffset: number | null;
+  rawCount: number;
+  hasMore: boolean;
+  nextCursor: QzoneForwardCursor | null;
+  stopReason: 'complete' | 'repeated-page' | 'repeated-cursor' | null;
 }
 function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -30,14 +36,26 @@ function invalid(): never {
   throw new WebRequestError('decode', '转发名单响应格式无效。');
 }
 
-/** The official list uses post[].owner, not rtlist (which describes a retweet chain). */
+function ordered(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(ordered);
+  const record = object(value);
+  return record
+    ? Object.fromEntries(
+        Object.keys(record)
+          .sort()
+          .map((key) => [key, ordered(record[key])]),
+      )
+    : value;
+}
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+
+/** 对比完整原始页，保留行顺序；游标变化不代表服务端确实返回了新页。 */
 export function parseQzoneForwardPage(
   value: unknown,
-  offset: number,
-  pageSize: number,
+  cursor: QzoneForwardCursor | null = null,
 ): QzoneForwardPage {
   const root = object(value);
-  const code = root?.code ?? object(root?.result)?.code;
+  const code = root?.ret;
   if (typeof code !== 'number') return invalid();
   if ([-3000, -4009, -10001, -10003].includes(code))
     throw new WebAuthError('转发名单票据已失效。', code);
@@ -46,98 +64,108 @@ export function parseQzoneForwardPage(
       code === -10000 ? 'rate-limit' : 'http',
       `转发名单服务错误（${code}）。`,
     );
-  const reportedTotal = count(root!.total);
-  const visibleTotal = count(root!.total4show);
+  const data = object(root?.data);
+  const rows = data?.list;
+  const friendNum = count(data?.friend_num);
+  const reportedTotal = count(data?.total_num);
   if (
-    (root!.total !== undefined && reportedTotal === null) ||
-    (root!.total4show !== undefined && visibleTotal === null)
+    !data ||
+    !Array.isArray(rows) ||
+    friendNum === null ||
+    friendNum > rows.length ||
+    (data.total_num !== undefined && reportedTotal === null) ||
+    ![0, 1, false, true].includes(data.hasmore as number | boolean)
   )
     return invalid();
-  const rows =
-    (root!.post === undefined || root!.post === null) &&
-    reportedTotal === 0 &&
-    (visibleTotal === null || visibleTotal === 0)
-      ? []
-      : root!.post;
-  // A missing list is not proof that no one forwarded the post.
-  if (!Array.isArray(rows)) return invalid();
+  const hasMore = data.hasmore === 1 || data.hasmore === true;
+  const pageKey = hash(JSON.stringify(ordered(rows)));
   const forwards: QzoneForward[] = [];
   const seen = new Set<string>();
-  for (const raw of rows) {
+  for (const [index, raw] of rows.entries()) {
     const row = object(raw),
-      owner = object(row?.owner);
-    const uin = String(owner?.uin ?? '');
-    const tid = String(row?.t2_tid ?? '');
-    if (
-      !row ||
-      !owner ||
-      !/^[1-9]\d{4,19}$/.test(uin) ||
-      !/^[a-zA-Z0-9_-]{1,128}$/.test(tid) ||
-      typeof row.content !== 'string'
-    )
+      user = object(row?.user);
+    const uin = String(user?.uin ?? '');
+    if (!row || !user || !/^[1-9]\d{4,19}$/.test(uin) || typeof row.forward_text !== 'string')
       return invalid();
-    const key = `${uin}:${tid}`;
+    // 此接口没有转发帖 ID；保留同一用户不同转发语。
+    const key = hash(JSON.stringify([uin, row.forward_text]));
     if (seen.has(key)) continue;
     seen.add(key);
     forwards.push({
-      tid,
+      key,
       uin,
-      nickname: typeof owner.name === 'string' ? owner.name : '',
-      content: row.content,
-      time: count(row.createTime),
+      nickname: typeof user.nickname === 'string' ? user.nickname : '',
+      content: row.forward_text,
+      isFriend: index < friendNum,
     });
   }
-  const total = visibleTotal ?? reportedTotal;
-  const next = offset + rows.length;
+  const repeated = rows.length > 0 && cursor?.previousPageKey === pageKey;
+  const repeatedCursor =
+    hasMore && typeof data.attach_info === 'string' && data.attach_info === cursor?.attachInfo;
+  const stopReason = !hasMore
+    ? 'complete'
+    : repeated
+      ? 'repeated-page'
+      : repeatedCursor
+        ? 'repeated-cursor'
+        : null;
+  if (
+    !stopReason &&
+    (typeof data.attach_info !== 'string' ||
+      !data.attach_info ||
+      data.attach_info.length > 8192 ||
+      rows.length === 0)
+  )
+    return invalid();
   return {
-    forwards,
+    forwards: repeated ? [] : forwards,
     reportedTotal,
-    visibleTotal,
-    nextOffset: rows.length === pageSize && (total === null || next < total) ? next : null,
+    rawCount: rows.length,
+    hasMore,
+    nextCursor: stopReason
+      ? null
+      : { attachInfo: data.attach_info as string, previousPageKey: pageKey },
+    stopReason,
   };
 }
 
+/** Android 普通说说名单使用 URL 业务键；请求 uin 是登录者，不是原帖作者。 */
 export async function fetchQzoneForwardPage(
   cred: WebCredential,
   owner: string,
   tid: string,
-  offset = 0,
+  cursor: QzoneForwardCursor | null = null,
   signal?: AbortSignal,
 ): Promise<QzoneForwardPage> {
+  signal?.throwIfAborted();
   if (
     !/^[1-9]\d{4,19}$/.test(owner) ||
     !/^[a-zA-Z0-9_-]{1,128}$/.test(tid) ||
-    !Number.isSafeInteger(offset) ||
-    offset < 0 ||
-    offset > 100_000
+    (cursor &&
+      (!cursor.attachInfo ||
+        cursor.attachInfo.length > 8192 ||
+        !/^[a-f0-9]{64}$/.test(cursor.previousPageKey)))
   )
     throw new Error('转发名单目标无效。');
-  const pageSize = 20;
-  // Official read parameters: qzs.qq.com/qzone/app/controls/retweetList/
-  // retweetListViewModel/retweetListViewModel_3.0.js; request wrapper in moodRequest_3.0.js.
   const params = new URLSearchParams({
-    t1_source: '1',
-    uin: owner,
-    tid,
-    pos: String(offset),
-    count: String(pageSize),
-    show: '1',
-    code_version: '1',
-    format: 'jsonp',
-    out_charset: 'UTF-8',
+    uin: cred.uin,
+    unikey: `http://user.qzone.qq.com/${owner}/mood/${tid}_forward`,
+    attach_info: cursor?.attachInfo ?? '',
+    format: 'json',
+    inCharset: 'utf-8',
+    outCharset: 'utf-8',
     g_tk: String(computeBkn(cred.pskey || cred.skey)),
   });
   const text = await webRequestText(
-    'https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_get_fullrelay_v6?' +
-      params,
+    `https://h5.qzone.qq.com/webapp/json/mobile_extra_protocol/getForwardList?${params}`,
     {
       cookie: cookieHeader(cred),
       signal,
       timeoutMs: 10_000,
       maxResponseBytes: 2 * 1024 * 1024,
-      headers: { Referer: `https://user.qzone.qq.com/${owner}` },
+      headers: { Referer: 'https://h5.qzone.qq.com/' },
     },
   );
   signal?.throwIfAborted();
-  return parseQzoneForwardPage(parseQzoneCallback(text), offset, pageSize);
+  return parseQzoneForwardPage(parseQzoneJson(text), cursor);
 }
