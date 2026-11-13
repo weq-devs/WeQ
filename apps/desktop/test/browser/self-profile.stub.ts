@@ -281,6 +281,26 @@ export const trpc = withFallback({
 });
 export const client = withFallback({
   account: {
+    giftMall: {
+      wall: {
+        query: async ({ isSend }: { isSend: boolean }) => ({
+          giftsList: [
+            {
+              giftId: 1,
+              giftName: isSend ? '合成送出礼物' : '合成收到礼物',
+              staticPic: '',
+              giftPrice: 100,
+              time: '2026-11-14',
+              nick: '合成联系人',
+              orderNum: 'synthetic-order',
+            },
+          ],
+          extInfo: '',
+          beginTime: 0,
+          isEnd: true,
+        }),
+      },
+    },
     qqWrite: { onlineStatus: { mutate } },
     pickedFileStart: { mutate: async () => ({ id: 'synthetic-upload' }) },
     pickedFileChunk: {

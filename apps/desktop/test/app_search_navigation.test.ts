@@ -83,6 +83,26 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it.each([
+    ['礼物墙', 'giftwall'],
+    ['我的资料', undefined],
+  ])('%s 直达本人资料，不再打开装扮商城', (query, tab) => {
+    const user = { id: 'self:10001', identityValue: '10001', displayName: '本人' };
+    const context = {
+      ...navigationContext(),
+      user,
+      shell: { view: 'messages', openContactDetails: vi.fn() },
+      flushAllDirtyDrafts: vi.fn(),
+      setMemberCard: vi.fn(),
+      setPrivatePreview: vi.fn(),
+    };
+    const entry = searchAppEntries(query!)[0]!;
+    expect(entry.target).toEqual({ kind: 'self-profile', ...(tab ? { tab } : {}) });
+    searchHandler(context)(entry);
+    expect(context.shell.openContactDetails).toHaveBeenCalledWith({ ...user, createdAt: '' }, tab);
+    expect(context.flushAllDirtyDrafts).toHaveBeenCalledOnce();
+    expect(context.setDressUpOpen).not.toHaveBeenCalledWith(true);
+  });
   it('导航确认未放行时不切换工具或清除设置现场', () => {
     const context = {
       ...navigationContext(),

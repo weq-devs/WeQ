@@ -70,6 +70,42 @@ try {
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/self-profile.html`;
   await page.goto(url);
   await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
+  await page.getByRole('region', { name: '我的资料', exact: true }).waitFor();
+  assert.equal(await page.getByText('与我的关系', { exact: true }).count(), 0);
+  assert.equal(await page.locator('.weq-gift-wall').count(), 0, '点击前不挂载礼物墙');
+  for (const width of [1180, 390, 320]) {
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.getByRole(width > 760 ? 'button' : 'tab', { name: '礼物墙', exact: true }).click();
+      await page.getByText('合成收到礼物', { exact: true }).waitFor();
+      await page.getByRole('radio', { name: '送出的礼物', exact: true }).click();
+      await page.getByText('合成送出礼物', { exact: true }).waitFor();
+      assert.equal(
+        await page
+          .getByRole('radio', { name: '送出的礼物', exact: true })
+          .getAttribute('aria-checked'),
+        'true',
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+        false,
+      );
+      if (output)
+        await page.screenshot({
+          path: resolve(output, `${width}-${theme}-giftwall.png`),
+          animations: 'disabled',
+        });
+      await page.getByRole('radio', { name: '收到的礼物', exact: true }).click();
+      await page.getByText('合成收到礼物', { exact: true }).waitFor();
+      await page
+        .getByRole(width > 760 ? 'button' : 'tab', { name: '个人资料', exact: true })
+        .click();
+    }
+  }
+  await page.setViewportSize({ width: 1180, height: 850 });
   const nickname = page.getByRole('button', { name: '编辑QQ 昵称', exact: true });
   assert.equal(await nickname.textContent(), '合成名片昵称');
   assert.equal(await nickname.locator('svg').count(), 0);
@@ -455,6 +491,11 @@ try {
   await page.getByRole('button', { name: '关闭历史头像' }).click();
   await page.goto(`${url}?other`);
   await page.getByRole('region', { name: '联系人资料', exact: true }).waitFor();
+  assert.equal(
+    await page.getByText('礼物墙', { exact: true }).count(),
+    0,
+    '他人资料不展示本人礼物墙',
+  );
   assert.equal(await statusTrigger.count(), 0, '他人状态仍为只读');
   assert.equal(await page.locator('.weq-self-field').count(), 0, 'other profiles stay read-only');
   assert.equal(await page.getByRole('button', { name: '历史头像', exact: true }).count(), 0);

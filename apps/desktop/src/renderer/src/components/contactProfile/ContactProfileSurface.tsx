@@ -12,6 +12,7 @@ import { ProfilePageHeader } from './ProfilePageHeader';
 import { toPersonalityProfile } from '../../im-template/template/profilePanes';
 import { ContactFieldHistoryProvider } from './ContactFieldHistory';
 import { GroupSpeechPreviewContext, ProfilePreviewSourceContext } from '../../lib/chatNavigation';
+import { usePersonRelationship } from '../../lib/contactRelationship';
 
 export function ContactProfileSurface({
   contact,
@@ -59,6 +60,8 @@ function ContactProfilePage({
   previewContent,
 }: Parameters<typeof ContactProfileSurface>[0]) {
   const { profile, scope } = useContactProfile(contact);
+  const relationship = usePersonRelationship(profile);
+  const title = relationship === 'self' ? '我的资料' : '联系人资料';
   const settings = useContactCardSettings();
   const closing = useDraftClose(onClose, null);
   const preview = useContext(GroupSpeechPreviewContext);
@@ -88,11 +91,11 @@ function ContactProfilePage({
             tabIndex={-1}
             className={`weq-profile-dialog weq-contact-profile-content weq-contact-profile-v2${previewContent ? ' is-previewing-chat' : ''}`}
             role="region"
-            aria-label="联系人资料"
+            aria-label={title}
           >
             {!previewContent ? (
               <ProfilePageHeader
-                title="联系人资料"
+                title={title}
                 conversationSettings={
                   !person.clone && /^u_/.test(person.uid || person.id)
                     ? {

@@ -11591,6 +11591,11 @@ function MainWorkspace(): ReactElement {
         setSpecialChat(null);
         shell.switchView('agentlab');
       } else handleCreateClone();
+    } else if (target.kind === 'self-profile') {
+      if (shell.view === 'messages') flushAllDirtyDrafts();
+      setMemberCard(null);
+      setPrivatePreview(null);
+      shell.openContactDetails({ ...user, createdAt: '' }, target.tab);
     } else if (target.kind === 'composition') compositionWindow.open();
     else if (target.kind === 'dressup') {
       setDressUpEmojiTarget(null);

@@ -4,6 +4,7 @@ import type { Contact } from '../im-template/template/types';
 import type { ContactWorkspaceTab } from '../lib/profileNavigation';
 import {
   CONTACT_WORKSPACE_SECTIONS,
+  SELF_WORKSPACE_SECTIONS,
   contactWorkspaceSection,
   type ContactWorkspaceSection,
 } from '../lib/contactWorkspace';
@@ -21,6 +22,7 @@ import { useSelfProfileFields } from './SelfProfileFields';
 import { ProfileDisplayEntry, ProfileDisplaySettingField } from './ProfileDisplaySettings';
 import { ProfileWorkspace } from './ProfileWorkspace';
 import { ContactDressRow } from './contactProfile/ContactDressRow';
+import { GiftWall } from './gift/GiftWall';
 import '../styles/contact-card.css';
 import '../styles/contact-workspace.css';
 
@@ -48,7 +50,9 @@ export function ContactWorkspace({
     !contact.clone;
   const hasUid = /^u_/.test(contact.uid || contact.id) && !contact.clone;
   const human = hasQQ && contact.kind !== 'bot' && !contact.extInfo?.isEnterprise;
-  const options = CONTACT_WORKSPACE_SECTIONS.filter(
+  const isSelf = relationship === 'self';
+  const sections = isSelf ? SELF_WORKSPACE_SECTIONS : CONTACT_WORKSPACE_SECTIONS;
+  const options = sections.filter(
     ([key]) => key !== 'group' || hasUid || Boolean(contact.profileContext),
   );
   const requested = tab ?? localTab;
@@ -74,6 +78,7 @@ export function ContactWorkspace({
     );
   }
   function panel(key: ContactWorkspaceSection) {
+    if (key === 'giftwall') return isSelf ? <GiftWall /> : null;
     if (key === 'profile')
       return (
         <>
@@ -145,7 +150,7 @@ export function ContactWorkspace({
   return (
     <ProfileWorkspace
       showTitle={false}
-      label="联系人详情分区"
+      label={isSelf ? '我的资料分区' : '联系人详情分区'}
       sections={options}
       selected={selected}
       scrollTarget={requested === 'portrait' ? 'portrait' : undefined}

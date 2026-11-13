@@ -1,5 +1,5 @@
 /**
- * 我的礼物墙 —— 个性装扮页里的「我的礼物墙」分栏。
+ * 我的礼物墙 —— 本人资料页里的「礼物墙」分栏。
  *
  * 数据来自 `GiftMall/GetSendRecvWallListV2`：`is_send` 决定看收到的还是送出的，
  * 翻页靠响应里的 `extInfo` + `beginTime` 原样回传（首页 `beginTime` 取当前秒级时间戳，

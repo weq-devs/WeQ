@@ -2,6 +2,7 @@ import { searchNameRank, type ConversationScope } from '@weq/service/search-poli
 import type { MainView } from '../../im-template/template/types';
 import type { ExportMode } from '../../views/export/types';
 import type { DressKind } from '../DressUpDialog';
+import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import { AI_SETTING_ITEMS } from '../settings/aiSettingsCatalog';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
@@ -29,6 +30,7 @@ export type AppSearchTarget =
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
   | { kind: 'dressup'; dressKind?: DressKind }
+  | { kind: 'self-profile'; tab?: ContactWorkspaceTab }
   | { kind: 'clone-create'; group?: boolean };
 
 export interface AppSearchEntry {
@@ -273,6 +275,11 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
   feature('WeQ 助手', { kind: 'tool', tool: 'assistant' }, 'AI 助手', '智能助手'),
   feature('合成聊天记录', { kind: 'composition' }, '合并转发'),
   feature('个性装扮', { kind: 'dressup' }, '装扮商城'),
+  feature('我的资料', { kind: 'self-profile' }, '本人资料', '个人资料'),
+  {
+    ...feature('礼物墙', { kind: 'self-profile', tab: 'giftwall' }, '我的礼物墙', '礼物'),
+    path: '我的资料 / 礼物墙',
+  },
   ...(
     [
       ['气泡商城', 'bubble', '聊天气泡', '气泡'],
@@ -281,7 +288,6 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
       ['通话背景', 'callbg'],
       ['QQ 聊天背景', 'background', '聊天背景商城'],
       ['商城表情', 'emoji', '表情商城'],
-      ['我的礼物墙', 'giftwall', '礼物墙', '礼物'],
       ['红包封面', 'redpack', '红包皮肤', '红包'],
     ] as const
   ).map(([title, dressKind, ...aliases]) =>

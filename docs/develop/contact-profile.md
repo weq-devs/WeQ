@@ -27,6 +27,8 @@
 
 资料页章节采用共享目录容器，保留同一对象的章节、分页和滚动位置。`lib/contactWorkspace.ts` 定义四个内容页及旧导航映射：`details/signatures/history/edit` 归入 `profile`，`portrait` 归入 `marks`，`questions` 归入 `personality`。旧教育、签名、历史章节只定位个人资料，不恢复已移除的独立入口；学校、签名、项目历史在实际触发点旁打开详情。本人编辑及对外展示设置与名片偏好分开。
 
+本人身份复用 `usePersonRelationship` 判断，页头和区域名称为「我的资料」；目录使用 `SELF_WORKSPACE_SECTIONS`，依次为个人资料、群内资料、个性展示、礼物墙，不显示「与我的关系」。礼物墙复用 `GiftWall` 的收发切换与游标分页，首次选中才挂载，不在个性装扮中保留入口；全局搜索通过 `self-profile` 目标和 `giftwall` 标签直达本人资料。他人资料仍使用原四页结构，不展示本人的礼物；不适用的旧标签回到个人资料。本人浏览器回归 `run-self-profile.mjs` 同时覆盖礼物墙的深浅主题、宽窄屏及收发切换。
+
 `ProfileDisclosure` 仅用于问答、本人编辑等仍需折叠的内容，收起保留现场并通过 `TabActivity` 暂停读取。互动画像随关系页直接挂载，不再折叠。`ProfileExtraDialog` 的教育和签名、共同群名单、项目历史使用显式锚点及 `presentation=popover`、`anchorPlacement=side`；QQ 秀展柜与本人头像历史同样支持锚点，保留原分页、互动与关闭行为。`ContactDressRow` 仅输出真实装扮素材，不复用带头像和 QQ 秀的个性主页舞台。
 
 ### 项目级历史（展示暂撤下）

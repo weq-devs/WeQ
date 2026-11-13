@@ -5,6 +5,11 @@ import { ContactWorkspace } from '../src/renderer/src/components/ContactWorkspac
 import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
 import type { Contact } from '../src/renderer/src/im-template/template/types';
 import type { ContactWorkspaceTab } from '../src/renderer/src/lib/profileNavigation';
+import { RelationshipDirectoryContext } from '../src/renderer/src/lib/contactRelationship';
+
+vi.mock('../src/renderer/src/components/gift/GiftWall', () => ({
+  GiftWall: () => h(Activity, { name: '礼物墙内容' }),
+}));
 
 vi.mock('../src/renderer/src/components/contactProfile/ContactContent', () => ({
   ContactContent: () => h('p', null, '当前资料'),
@@ -77,25 +82,36 @@ afterEach(() => {
   roots.length = 0;
   document.body.innerHTML = '';
 });
-function render(tab?: ContactWorkspaceTab) {
+function render(tab?: ContactWorkspaceTab, self = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   roots.push(root);
   act(() =>
     root.render(
-      h(ContactWorkspace, {
-        contact,
-        tab,
-        personalityProfile: {
-          name: '测试',
-          avatarUrl: null,
-          interests: [],
-          privileges: [],
-          album: [],
+      h(
+        RelationshipDirectoryContext.Provider,
+        {
+          value: {
+            selfUid: self ? contact.uid : 'u_self',
+            friends: new Map(),
+            friendsComplete: false,
+            groups: new Map(),
+          },
         },
-        onNavigateAway: vi.fn(),
-      }),
+        h(ContactWorkspace, {
+          contact,
+          tab,
+          personalityProfile: {
+            name: '测试',
+            avatarUrl: null,
+            interests: [],
+            privileges: [],
+            album: [],
+          },
+          onNavigateAway: vi.fn(),
+        }),
+      ),
     ),
   );
   return host;
@@ -125,6 +141,35 @@ it('默认显示四页，不提前挂载历史、问答或画像', () => {
   expect(host.textContent).not.toContain('questions');
   expect(host.textContent).not.toContain('签名历史');
   expect(host.querySelector('.weq-profile-tech')).toBeNull();
+});
+it('本人资料移除关系页，礼物墙位于最后且点击前不挂载', () => {
+  const host = render(undefined, true);
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button')];
+  expect(tabs.map((node) => node.textContent)).toEqual([
+    '个人资料',
+    '群内资料',
+    '个性展示',
+    '礼物墙',
+  ]);
+  expect(host.textContent).not.toContain('礼物墙内容');
+  act(() => tabs.at(-1)!.click());
+  expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('礼物墙');
+  expect(host.querySelector('[data-active]')?.getAttribute('data-active')).toBe('true');
+  expect(host.textContent).not.toContain('与我的关系');
+});
+it.each(['marks', 'portrait'] as const)('本人旧入口 %s 不恢复关系页或画像', (tab) => {
+  const host = render(tab, true);
+  expect(host.querySelector('[aria-current="page"]')?.textContent).toBe('个人资料');
+  expect(host.textContent).not.toContain('画像内容');
+  expect(host.textContent).not.toContain('与我的关系');
+});
+it('礼物墙直达只对本人显示，不能在他人资料里展示本人的礼物', () => {
+  const mine = render('giftwall', true);
+  expect(mine.querySelector('[aria-current="page"]')?.textContent).toBe('礼物墙');
+  expect(mine.textContent).toContain('礼物墙内容');
+  const other = render('giftwall');
+  expect(other.querySelector('[aria-current="page"]')?.textContent).toBe('个人资料');
+  expect(other.textContent).not.toContain('礼物墙');
 });
 it.each([
   ['portrait', '与我的关系', '画像内容'],
