@@ -63,7 +63,30 @@ try {
           },
           { theme, style },
         );
-        await page.locator('.weq-agentlab-provider-item').click();
+        const provider = page.locator('.weq-agentlab-provider-item');
+        await provider.waitFor();
+        const heading = await provider.locator('.weq-agentlab-provider-name').evaluate((node) => {
+          const icon = node.querySelector('svg').getBoundingClientRect();
+          const text = [...node.childNodes].find(
+            (child) => child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+          );
+          const range = document.createRange();
+          range.selectNodeContents(text);
+          const name = range.getBoundingClientRect();
+          return {
+            icon: { right: icon.right, y: icon.y, height: icon.height },
+            name: { x: name.x, y: name.y, height: name.height },
+          };
+        });
+        assert.ok(heading.icon.right <= heading.name.x, '服务商图标应在名称左侧');
+        assert.ok(
+          Math.abs(
+            heading.icon.y + heading.icon.height / 2 - heading.name.y - heading.name.height / 2,
+          ) <= 2,
+          '服务商图标与名称应同行居中',
+        );
+        await page.screenshot({ path: resolve(output, `list-${width}-${theme}-${style}.png`) });
+        await provider.click();
         const model = page.getByLabel('模型 1 ID', { exact: true });
         await model.fill('Qwen3.6-35B-A3B-4bit-with-a-long-model-identifier');
         const remove = page.getByRole('button', { name: '删除模型 1', exact: true });

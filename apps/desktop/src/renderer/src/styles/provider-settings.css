@@ -16,6 +16,15 @@
   overflow-wrap: anywhere;
 }
 
+.weq-agentlab-provider-name {
+  display: flex;
+  align-items: center;
+}
+
+.weq-agentlab-provider-name > svg {
+  flex-shrink: 0;
+}
+
 html[data-theme] .weq-modal.weq-provider-window {
   display: flex;
   max-height: calc(100dvh - 32px);
