@@ -5,6 +5,7 @@ import { qa as displayQa } from './profile-display.stub';
 import { ContactProfileDialog } from '../../src/renderer/src/im-template/template/profilePanes';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
+import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 
@@ -20,6 +21,19 @@ const directory = {
 function Fixture() {
   const { data } = trpc.account.getSelfProfile.useQuery();
   const params = new URLSearchParams(location.search);
+  const contact = {
+    ...data,
+    id: params.has('other') ? 'u_other' : 'u_self',
+    uid: params.has('other') ? 'u_other' : 'u_self',
+    username: data.nick,
+    identityLabel: 'QQ',
+    identityValue: params.has('other') ? '10002' : data.uin,
+    displayName: data.nick,
+    avatarUrl: '/_avatar/synthetic',
+    createdAt: '',
+  };
+  if (params.has('member'))
+    return <MemberProfileCard member={contact} anchor={{ x: 100, y: 80 }} onClose={() => {}} />;
   return (
     <main
       className="weq-self-profile-page"
@@ -28,17 +42,7 @@ function Fixture() {
       <ContactProfileDialog
         embedded={!params.has('popover')}
         onClose={() => {}}
-        contact={{
-          ...data,
-          id: params.has('other') ? 'u_other' : 'u_self',
-          uid: params.has('other') ? 'u_other' : 'u_self',
-          username: data.nick,
-          identityLabel: 'QQ',
-          identityValue: params.has('other') ? '10002' : data.uin,
-          displayName: data.nick,
-          avatarUrl: '/_avatar/synthetic',
-          createdAt: '',
-        }}
+        contact={contact}
       />
     </main>
   );

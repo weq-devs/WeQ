@@ -10,10 +10,6 @@ import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigat
 vi.mock('../src/renderer/src/components/settings/EditableSelfProfile', () => ({
   useEditableSelfProfileFields: () => ({ fields: {}, feedback: null }),
 }));
-vi.mock('../src/renderer/src/components/SelfAvatarHistory', () => ({
-  SelfAvatarHistory: () => h('button', null, '历史头像'),
-}));
-
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
   useDialog: (selector: (s: { confirm: () => Promise<boolean> }) => unknown) =>
@@ -332,6 +328,54 @@ describe('个人资料编辑入口', () => {
     await act(async () => finish({ path: '/synthetic/avatar.png' }));
     expect(state.mutate).not.toHaveBeenCalled();
     expect(avatarButton().disabled).toBe(false);
+  });
+  it('取消选图不写入，选图失败显示错误并恢复按钮', async () => {
+    const f = fixture();
+    const button = () => f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!;
+    await act(async () => button().click());
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(button().disabled).toBe(false);
+    state.pick.mockRejectedValueOnce(new Error('合成选图错误'));
+    await act(async () => button().click());
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toBe('合成选图错误');
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(button().disabled).toBe(false);
+  });
+  it('关闭头像对话框后，迟到的选图结果不再提交', async () => {
+    let finish!: (file: { path: string }) => void;
+    state.pick.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const f = fixture();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!.click());
+    cleanup.pop()!();
+    await act(async () => finish({ path: '/synthetic/late-avatar.png' }));
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('头像请求已提交后关闭对话框，完成时仍刷新原账号的头像历史', async () => {
+    let finish!: (value: { state: 'accepted' }) => void;
+    state.pick.mockResolvedValueOnce({ path: '/synthetic/avatar.png' });
+    state.mutate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const f = fixture();
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledOnce();
+    cleanup.pop()!();
+    state.invalidate.mockClear();
+    await act(async () => finish({ state: 'accepted' }));
+    expect(state.invalidate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+    });
   });
   it('共享控制层提供独立字段，不再生成重复身份区和基本资料分组', () => {
     const f = fixture();

@@ -2,6 +2,7 @@ import { SelfProfileProvider } from '../../src/renderer/src/components/settings/
 import { useSelfProfileFields } from '../../src/renderer/src/components/SelfProfileFields';
 import { SelfProfileEditingContext } from '../../src/renderer/src/components/SelfProfileField';
 import { SelfSignatureComposer } from '../../src/renderer/src/components/SelfSignatureComposer';
+import { SelfAvatarChange } from '../../src/renderer/src/components/SelfAvatarHistory';
 
 export function SelfProfileFixture({ editable = true }: { editable?: boolean }) {
   return h(
@@ -16,14 +17,7 @@ function Fields() {
     'div',
     null,
     self.feedback,
-    self.avatarAction
-      ? h('button', {
-          'aria-label': '更换头像',
-          disabled: self.avatarAction.disabled,
-          onClick: self.avatarAction.onClick,
-        })
-      : null,
-    self.avatarHistory,
+    h(SelfAvatarChange),
     h(SelfSignatureComposer, { uin: self.uin }),
     ...Object.entries(self.fields)
       .filter(([key]) => key !== 'signature')

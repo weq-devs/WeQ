@@ -32,8 +32,6 @@ export type SelfProfileFields = Partial<
 export const SelfProfileFieldsContext = createContext<{
   fields: SelfProfileFields;
   uin: string;
-  avatarAction?: { onClick: () => void; disabled: boolean; busy: boolean };
-  avatarHistory: ReactNode;
   feedback: ReactNode;
 } | null>(null);
 

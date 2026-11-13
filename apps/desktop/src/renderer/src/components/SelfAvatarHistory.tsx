@@ -1,6 +1,6 @@
 import { eventTimeFormatter } from '@weq/time';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, ArrowUpWideNarrow, History, RotateCcw, X } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ArrowDownWideNarrow, ArrowUpWideNarrow, ImagePlus, RotateCcw, X } from 'lucide-react';
 import type { HistoricalAvatar } from '@weq/protocol';
 import { Modal } from './Dialog';
 import { MediaPreview } from './MediaPreview';
@@ -11,13 +11,23 @@ import { trpc } from '../trpc/client';
 import { avatarFetchUrl } from '../lib/resourceUrl';
 import { extrasPageWarning, mergeExtrasPages, nextExtrasCursor } from '../lib/profileExtrasPages';
 import { sortHistoricalAvatars } from '../lib/avatarHistory';
+import { pickAccountFile } from '../lib/accountFilePicker';
+import { refreshUserAvatar } from '../hooks/useAvatarUrl';
 import '../styles/avatar-history.css';
 
 const formatter = eventTimeFormatter;
 export const avatarHistoryTime = (value: number | null) =>
   value === null ? '时间未记录' : formatter.format(value * 1000);
 
-export function SelfAvatarHistory() {
+export function SelfAvatarHistory({
+  uin,
+  children,
+  className,
+}: {
+  uin: string;
+  children?: ReactNode;
+  className?: string;
+}) {
   const session = useQQWriteSession('self-avatar-history');
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
@@ -26,14 +36,17 @@ export function SelfAvatarHistory() {
     <>
       <button
         ref={anchor}
-        className="weq-avatar-history-entry"
+        className={className}
         type="button"
-        onClick={() => setOpen(true)}
+        title="历史头像"
+        aria-label="历史头像"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
       >
-        <History size={15} />
-        历史头像
+        {children}
       </button>
-      {open && session.binding ? (
+      {open && session.binding?.expectedAccountUin === uin ? (
         <AvatarHistoryDialog
           key={identity}
           binding={session.binding}
@@ -115,6 +128,9 @@ export function AvatarHistoryDialog({
         </button>
       </header>
       <div className="weq-avatar-history-toolbar">
+        <SelfAvatarChange
+          key={`${binding.expectedAccountUin}:${binding.expectedAccountConfigId}`}
+        />
         <SegmentedControl
           label="头像排序时间"
           value={field}
@@ -204,6 +220,72 @@ export function AvatarHistoryDialog({
         />
       ) : null}
     </Modal>
+  );
+}
+
+/** 对话框自行绑定账号，名片无需挂载整页资料编辑器。 */
+export function SelfAvatarChange() {
+  const session = useQQWriteSession('self-avatar-change');
+  const utils = trpc.useUtils();
+  const avatar = trpc.account.qqWrite.selfAvatar.useMutation();
+  const [picking, setPicking] = useState(false);
+  const [error, setError] = useState('');
+  const identity = `${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}`;
+  const currentIdentity = useRef<string | null>(identity);
+  const running = useRef(false);
+  currentIdentity.current = identity;
+  useEffect(() => {
+    currentIdentity.current = identity;
+    setError('');
+    return () => {
+      currentIdentity.current = null;
+    };
+  }, [identity]);
+  async function pickAvatar() {
+    if (!session.available || session.busy || running.current) return;
+    const capturedIdentity = identity;
+    running.current = true;
+    setPicking(true);
+    setError('');
+    try {
+      const file = await pickAccountFile('image', session.binding ?? undefined);
+      if (!file || currentIdentity.current !== capturedIdentity) return;
+      await session.run(
+        async (binding) => {
+          const outcome = await avatar.mutateAsync({ ...binding, source: file.path });
+          // 已提交的请求关闭对话框后仍可能完成，按原账号刷新缓存。
+          refreshUserAvatar(binding.expectedAccountUin);
+          void Promise.all([
+            utils.account.getSelfProfile.invalidate(),
+            utils.account.profileExtras.avatarHistory.invalidate(binding),
+          ]).catch(() => {});
+          return outcome;
+        },
+        () => utils.account.getSelfProfile.invalidate(),
+        { backgroundRefresh: true },
+      );
+    } catch (cause) {
+      if (currentIdentity.current === capturedIdentity)
+        setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      running.current = false;
+      if (currentIdentity.current !== null) setPicking(false);
+    }
+  }
+  return (
+    <div className="weq-avatar-history-change">
+      <button
+        type="button"
+        aria-label="更换头像"
+        disabled={!session.available || session.busy || picking}
+        aria-busy={picking || session.busy || undefined}
+        onClick={() => void pickAvatar()}
+      >
+        <ImagePlus size={16} />
+        更换头像
+      </button>
+      {error ? <p role="alert">{error}</p> : null}
+    </div>
   );
 }
 function HistoryThumbnail({ item }: { item: HistoricalAvatar }) {

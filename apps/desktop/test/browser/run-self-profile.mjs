@@ -75,6 +75,13 @@ try {
   assert.equal(await nickname.locator('svg').count(), 0);
   assert.equal(await nickname.locator('button').count(), 0);
   assert.equal(await page.locator('button button').count(), 0, '字段内没有嵌套操作按钮');
+  assert.equal(await page.getByRole('button', { name: '更换头像', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '历史头像', exact: true }).count(), 1);
+  assert.equal(
+    await page.getByRole('button', { name: '历史头像', exact: true }).getAttribute('class'),
+    'weq-profile-avatar',
+    '头像本身是历史入口，不新增独立按钮',
+  );
   assert.equal(await page.getByText('编辑资料与展示设置', { exact: true }).count(), 0);
   assert.equal(await page.locator('[data-profile-display-mode]').count(), 0);
   assert.equal(await page.getByRole('button', { name: '复制昵称', exact: true }).count(), 0);
@@ -221,6 +228,13 @@ try {
       await page.getByRole('button', { name: '关闭资料详情', exact: true }).click();
       await page.getByRole('button', { name: '历史头像', exact: true }).click();
       await page.getByText('共 4 个头像', { exact: true }).waitFor();
+      assert.equal(
+        await page
+          .getByRole('dialog', { name: '历史头像', exact: true })
+          .getByRole('button', { name: '更换头像', exact: true })
+          .isEnabled(),
+        true,
+      );
       const dates = () => page.locator('.weq-avatar-history-grid article dl').allTextContents();
       assert.ok((await dates())[0].includes('2001'));
       await page.getByRole('radio', { name: '最早使用时间', exact: true }).click();
@@ -253,6 +267,28 @@ try {
         escapeOnlyTop: true,
       });
     }
+  // 暂不可写时仍允许从头像打开历史，并预览已加载图片。
+  for (const state of ['offline', 'busy']) {
+    await page.evaluate((state) => {
+      window.selfProfileQa.online(state !== 'offline');
+      window.selfProfileQa.busy(state === 'busy');
+    }, state);
+    const trigger = page.getByRole('button', { name: '历史头像', exact: true });
+    assert.equal(await trigger.isEnabled(), true);
+    await trigger.click();
+    assert.equal(
+      await page.getByRole('button', { name: '更换头像', exact: true }).isDisabled(),
+      true,
+    );
+    await page.locator('.weq-avatar-history-image').first().click();
+    await page.locator('.weq-unified-preview').waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '关闭历史头像' }).click();
+  }
+  await page.evaluate(() => {
+    window.selfProfileQa.online(true);
+    window.selfProfileQa.busy(false);
+  });
   await page.getByRole('button', { name: '历史头像', exact: true }).click();
   await page.evaluate(() => window.selfProfileQa.failHistory());
   await page.getByRole('button', { name: '重试', exact: true }).waitFor();
@@ -274,6 +310,21 @@ try {
     0,
     'compact self card stays read-only',
   );
+  await page.getByRole('button', { name: '历史头像', exact: true }).click();
+  const avatarDialog = page.getByRole('dialog', { name: '历史头像', exact: true });
+  await avatarDialog.waitFor();
+  const chooserPromise = page.waitForEvent('filechooser');
+  await avatarDialog.getByRole('button', { name: '更换头像', exact: true }).click();
+  await (await chooserPromise).setFiles({
+    name: 'avatar.png',
+    mimeType: 'image/png',
+    buffer: image,
+  });
+  await page.waitForFunction(() => window.selfProfileQa.avatarRefreshes() === 1);
+  assert.deepEqual(await page.evaluate(() => window.selfProfileQa.avatarSources()), [
+    '/synthetic/new-avatar.png',
+  ]);
+  await page.getByRole('button', { name: '关闭历史头像' }).click();
   await page.getByRole('button', { name: '查看个性签名', exact: true }).click();
   await page.getByRole('dialog', { name: '个性签名', exact: true }).waitFor();
   assert.equal(await page.getByPlaceholder('新签名', { exact: true }).inputValue(), '');
@@ -289,9 +340,17 @@ try {
   await page.waitForFunction(
     () => document.querySelector('input[aria-label="个性签名"]')?.value === '',
   );
+  await page.goto(`${url}?member`);
+  await page.getByRole('dialog', { name: '用户资料', exact: true }).waitFor();
+  await page.getByRole('button', { name: '历史头像', exact: true }).click();
+  await page.getByRole('dialog', { name: '历史头像', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '更换头像', exact: true }).isEnabled(), true);
+  await page.getByRole('button', { name: '关闭历史头像' }).click();
   await page.goto(`${url}?other`);
   await page.getByRole('region', { name: '联系人资料', exact: true }).waitFor();
   assert.equal(await page.locator('.weq-self-field').count(), 0, 'other profiles stay read-only');
+  assert.equal(await page.getByRole('button', { name: '历史头像', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '查看头像', exact: true }).count(), 1);
   await page.getByRole('button', { name: '查看个性签名', exact: true }).click();
   await page.getByRole('dialog', { name: '个性签名', exact: true }).waitFor();
   assert.equal(
@@ -303,11 +362,12 @@ try {
     await page
       .locator('[aria-label^="复制"]')
       .evaluateAll((buttons) =>
-        buttons.every((button) =>
-          ['复制QQ', '复制QID', '复制UID'].includes(button.getAttribute('aria-label')),
+        buttons.every(
+          (button) => !button.querySelector('svg, button') && Boolean(button.textContent?.trim()),
         ),
       ),
     true,
+    '只读字段直接点击内容复制，不额外显示复制图标或嵌套按钮',
   );
   assert.deepEqual(errors, []);
   if (output)

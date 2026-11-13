@@ -59,6 +59,7 @@ import { useGroupMemberTimeNavigation } from '../../hooks/useGroupMemberTimeNavi
 import { previewMemberView } from '../../hooks/useGroupProfile';
 import { SelfProfileSlot, useSelfProfileFields } from '../SelfProfileFields';
 import { ProfileDisplayEntry } from '../ProfileDisplaySettings';
+import { SelfAvatarHistory } from '../SelfAvatarHistory';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
@@ -133,34 +134,42 @@ export function ContactIdentity({
   const signatureTime = settings?.visible.signatureUpdated
     ? profileTimeText(person.sigUpdateTime)
     : null;
+  const avatarClass = `weq-profile-avatar${person.clone ? ' weq-clone-profile-avatar' : ''}`;
+  const avatarContent = (
+    <>
+      <Avatar name={title} avatarUrl={person.avatarUrl} seed={person.identityValue} />
+      {person.clone ? <VirtualConversationBadge /> : null}
+      {pendant && !person.clone && ['QQ', 'UIN'].includes(person.identityLabel) ? (
+        <ContactPendant person={person} />
+      ) : null}
+    </>
+  );
   return (
     <>
       <div className="weq-profile-hero weq-contact-identity" data-privacy-sensitive>
         <div className={self ? 'weq-self-identity-avatar' : 'weq-profile-avatar-pass'}>
-          <button
-            type="button"
-            className={`weq-profile-avatar${person.clone ? ' weq-clone-profile-avatar' : ''}`}
-            title={self?.avatarAction ? '更换头像' : '查看头像'}
-            aria-label={self?.avatarAction ? '更换头像' : '查看头像'}
-            disabled={self?.avatarAction?.disabled}
-            aria-busy={self?.avatarAction?.busy || undefined}
-            onClick={() =>
-              self?.avatarAction
-                ? self.avatarAction.onClick()
-                : person.avatarUrl &&
-                  openMediaPreview({
-                    items: [
-                      { key: person.avatarUrl, kind: 'image', src: person.avatarUrl, title: title },
-                    ],
-                  })
-            }
-          >
-            <Avatar name={title} avatarUrl={person.avatarUrl} seed={person.identityValue} />
-            {person.clone ? <VirtualConversationBadge /> : null}
-            {pendant && !person.clone && ['QQ', 'UIN'].includes(person.identityLabel) ? (
-              <ContactPendant person={person} />
-            ) : null}
-          </button>
+          {relationship === 'self' && !person.clone ? (
+            <SelfAvatarHistory uin={person.identityValue} className={avatarClass}>
+              {avatarContent}
+            </SelfAvatarHistory>
+          ) : (
+            <button
+              type="button"
+              className={avatarClass}
+              title="查看头像"
+              aria-label="查看头像"
+              onClick={() =>
+                person.avatarUrl &&
+                openMediaPreview({
+                  items: [
+                    { key: person.avatarUrl, kind: 'image', src: person.avatarUrl, title: title },
+                  ],
+                })
+              }
+            >
+              {avatarContent}
+            </button>
+          )}
         </div>
         <ContactFieldHistoryButton field="avatar" label="头像" />
         <div className="weq-profile-heading">
@@ -279,7 +288,6 @@ export function ContactIdentity({
             <>
               <SelfProfileSlot field="status" />
               <SelfProfileSlot field="extendedStatus" />
-              {self.avatarHistory}
             </>
           ) : null}
         </div>

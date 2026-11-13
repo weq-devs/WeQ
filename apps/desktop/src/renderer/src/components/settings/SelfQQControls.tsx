@@ -11,17 +11,14 @@ import {
   X,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { pickAccountFile } from '../../lib/accountFilePicker';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
-import { refreshUserAvatar } from '../../hooks/useAvatarUrl';
 import { Row } from './controls';
 import {
   DisplaySelfProfileField as SelfProfileField,
   ProfileDisplayEntry,
 } from '../ProfileDisplaySettings';
 import { contactBirth } from '../../lib/contactBirth';
-import { SelfAvatarHistory } from '../SelfAvatarHistory';
 import { FacePicker } from '../compose/FacePicker';
 import { FaceEmoji } from '../FaceEmoji';
 import '../../styles/self-profile-editor.css';
@@ -68,12 +65,9 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
     { ...session.binding! },
     { enabled: session.available, retry: false, staleTime: 60_000 },
   );
-  const avatar = trpc.account.qqWrite.selfAvatar.useMutation();
   const online = trpc.account.qqWrite.onlineStatus.useMutation();
   const faces = trpc.account.getSystemFaces.useQuery(undefined, { staleTime: 60_000 });
-  const [picking, setPicking] = useState(false);
   const [error, setError] = useState('');
-  const [feedbackField, setFeedbackField] = useState('QQ 状态');
   const [wording, setWording] = useState('');
   const [faceId, setFaceId] = useState('');
   const [choosingFace, setChoosingFace] = useState(false);
@@ -88,7 +82,6 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
     setFaceId('');
     setChoosingFace(false);
     setError('');
-    setFeedbackField('QQ 状态');
     setSyncIdentity(null);
     previousCustom.current = { wording: '', faceId: '' };
   }, [identityKey]);
@@ -121,7 +114,7 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
       utils.account.getOnlineStatus.invalidate(),
     ]).catch(() => {});
   }, [syncing, identityKey, profile.dataUpdatedAt, utils]);
-  const disabled = !session.available || session.busy || picking;
+  const disabled = !session.available || session.busy;
   useEffect(() => {
     if (choosingFace && !disabled) facePanel.current?.scrollIntoView({ block: 'nearest' });
   }, [choosingFace, disabled]);
@@ -134,7 +127,6 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
     field = 'QQ 状态',
     matches?: (data: NonNullable<typeof profile.data>) => boolean,
   ) => {
-    setFeedbackField(field);
     const ok = await session.run(action, refresh, {
       backgroundRefresh: true,
       requireReadback: Boolean(matches),
@@ -171,29 +163,6 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
       },
     );
   }
-  async function pickAvatar() {
-    const capturedIdentity = identityKey;
-    setPicking(true);
-    setError('');
-    try {
-      const file = await pickAccountFile('image', session.binding ?? undefined);
-      if (file && currentIdentity.current === capturedIdentity) {
-        const saved = await act(
-          (binding) => avatar.mutateAsync({ ...binding, source: file.path }),
-          '头像',
-        );
-        if (saved && session.binding && currentIdentity.current === capturedIdentity) {
-          refreshUserAvatar(session.binding.expectedAccountUin);
-          await utils.account.profileExtras.avatarHistory.invalidate();
-        }
-      }
-    } catch (cause) {
-      if (currentIdentity.current === capturedIdentity)
-        setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPicking(false);
-    }
-  }
   const statusFaces = (faces.data ?? []).filter(
     (face) =>
       face.emojiType === 1 && Number.isInteger(face.id) && face.id >= 0 && face.id <= 0xffffffff,
@@ -212,7 +181,7 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
           className="weq-set-iconbtn"
           aria-label="重试读取 QQ 资料"
           title="重试读取"
-          disabled={session.busy || picking || profile.isFetching}
+          disabled={session.busy || profile.isFetching}
           onClick={() => {
             setError('');
             void refresh().catch((cause: unknown) =>
@@ -481,14 +450,6 @@ export function SelfProfileProvider({ children }: { children: ReactNode }) {
       value={{
         fields,
         uin: session.binding?.expectedAccountUin ?? '',
-        avatarAction: session.available
-          ? {
-              onClick: () => void pickAvatar(),
-              disabled,
-              busy: picking || (session.busy && feedbackField === '头像'),
-            }
-          : undefined,
-        avatarHistory: <SelfAvatarHistory />,
         feedback,
       }}
     >

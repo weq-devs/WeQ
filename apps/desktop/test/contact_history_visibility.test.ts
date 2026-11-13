@@ -39,7 +39,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
+    useUtils: () => ({}),
     account: {
+      qqWrite: { selfAvatar: { useMutation: () => ({}) } },
       contactMetrics: { history: { categories: { useQuery: rpc.categories } } },
       profileExtras: {
         energy: { useQuery: () => ({ data: undefined }) },
@@ -160,7 +162,7 @@ it('QQ 原生签名历史仍按需打开，并使用原签名历史接口', asyn
   expect(rpc.summary).not.toHaveBeenCalled();
 });
 it('QQ 原生本人头像历史仍按需打开，并显示原头像历史接口的结果', async () => {
-  const host = await render(h(SelfAvatarHistory));
+  const host = await render(h(SelfAvatarHistory, { uin: '10001' }, '当前头像'));
   expect(rpc.avatars).not.toHaveBeenCalled();
   await act(async () => host.querySelector<HTMLButtonElement>('button')!.click());
   expect(rpc.avatars).toHaveBeenCalledWith(
@@ -168,6 +170,7 @@ it('QQ 原生本人头像历史仍按需打开，并显示原头像历史接口�
     expect.anything(),
   );
   expect(document.querySelector('[aria-label="关闭历史头像"]')).not.toBeNull();
+  expect(document.querySelector('[role="dialog"] [aria-label="更换头像"]')).not.toBeNull();
   expect(document.querySelectorAll('.weq-avatar-history-grid img')).toHaveLength(1);
   expect(rpc.summary).not.toHaveBeenCalled();
 });

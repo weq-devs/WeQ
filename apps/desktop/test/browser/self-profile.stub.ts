@@ -4,6 +4,9 @@ let revision = 0;
 let pageCount = 0;
 let failed = false;
 let online = true;
+let busy = false;
+const avatarSources: string[] = [];
+let avatarRefreshes = 0;
 let fetching = false;
 let requests = 0;
 let writes = 0;
@@ -167,8 +170,9 @@ function useHistory(_input: unknown, opts: { enabled: boolean }) {
     },
   };
 }
-const mutate = async (input: { patch?: Record<string, unknown> }) => {
+const mutate = async (input: { patch?: Record<string, unknown>; source?: string }) => {
   writes++;
+  if (input.source) avatarSources.push(input.source);
   if (input.patch) {
     Object.assign(profile, input.patch.nickname ? { nick: input.patch.nickname } : input.patch);
     Object.assign(extra, input.patch);
@@ -186,7 +190,14 @@ export const trpc = withFallback({
     account: {
       getSelfProfile: invalidation,
       getOnlineStatus: invalidation,
-      profileExtras: { signatureHistory: invalidation },
+      profileExtras: {
+        signatureHistory: invalidation,
+        avatarHistory: {
+          invalidate: async () => {
+            avatarRefreshes++;
+          },
+        },
+      },
     },
   }),
   account: {
@@ -224,13 +235,24 @@ export const trpc = withFallback({
     },
   },
 });
-export const client = withFallback({ account: { qqWrite: { onlineStatus: { mutate } } } });
+export const client = withFallback({
+  account: {
+    qqWrite: { onlineStatus: { mutate } },
+    pickedFileStart: { mutate: async () => ({ id: 'synthetic-upload' }) },
+    pickedFileChunk: {
+      mutate: async (input: { offset: number; base64: string }) => ({
+        offset: input.offset + atob(input.base64).length,
+      }),
+    },
+    pickedFileFinish: { mutate: async () => ({ path: '/synthetic/new-avatar.png' }) },
+  },
+});
 export function useQQWriteSession() {
   useData();
   return {
     binding: { expectedAccountUin: account, expectedAccountConfigId: 'fixture' },
     available: online,
-    busy: false,
+    busy,
     run: async (
       action: (binding: unknown) => Promise<unknown>,
       _refresh?: unknown,
@@ -243,6 +265,12 @@ export function useQQWriteSession() {
   };
 }
 export const qa = {
+  avatarSources: () => avatarSources,
+  avatarRefreshes: () => avatarRefreshes,
+  busy: (value: boolean) => {
+    busy = value;
+    changed();
+  },
   requests: () => requests,
   writes: () => writes,
   failSave: (value: boolean) => {
