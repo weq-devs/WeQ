@@ -2961,7 +2961,7 @@ function FeedTimeline({
   });
   return (
     <div {...feedMulti.rootProps} className="weq-qzn-timeline">
-      {kind === 'friends' && feedReferences.size > 0 ? (
+      {kind === 'friends' && feedReferences.size > 0 && feedSelection.selectionMode ? (
         <ContentReferenceToolbar
           owner={feedOwner}
           selection={feedSelection}
