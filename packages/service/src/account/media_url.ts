@@ -429,12 +429,15 @@ export interface DownloadOptions {
   /** 生成成果的静态依赖可包含样式及脚本；聊天媒体默认仍拒绝文本响应。 */
   allowText?: boolean;
   /** 宿主网络栈（桌面沿用 Electron 代理）；缺省使用当前 fetch。 */
-  fetcher?: (url: string, options: { signal: AbortSignal }) => Promise<Response>;
+  fetcher?: (
+    url: string,
+    options: { signal: AbortSignal; headers?: Record<string, string> },
+  ) => Promise<Response>;
   onProgress?: (downloadedBytes: number, totalBytes: number) => void;
   attempts?: number;
 }
 
-function mediaSignature(bytes: Buffer, kind: 'image' | 'video'): boolean {
+export function mediaSignature(bytes: Buffer, kind: 'image' | 'video'): boolean {
   const png = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
   const gif = /^(GIF87a|GIF89a)/.test(bytes.toString('ascii', 0, 6));

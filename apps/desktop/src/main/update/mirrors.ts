@@ -258,6 +258,7 @@ async function measureBandwidth(base: string, fileName: string): Promise<number 
 export async function resolveBestMirror(
   timeoutMs = SCREEN_TIMEOUT_MS,
   includePrerelease = false,
+  sample = true,
 ): Promise<BestMirror> {
   const release = await resolveUpdateRelease(includePrerelease, MANIFEST);
   // Phase 1: screen every mirror. Most of the wall-clock cost is the slow tail
@@ -268,7 +269,11 @@ export async function resolveBestMirror(
   const earlyOk = (await firstNFulfilled(probes, SPEED_PROBE_COUNT)).sort((a, b) => a.ms - b.ms);
   // Kick off bandwidth probes now; they keep running while the tail settles.
   const earlyCandidates = earlyOk.slice(0, SPEED_PROBE_COUNT);
-  const earlySpeeds = Promise.all(earlyCandidates.map((c) => measureBandwidth(c.base, c.fileName)));
+  const earlySpeeds = Promise.all(
+    earlyCandidates.map((c) =>
+      sample ? measureBandwidth(c.base, c.fileName) : Promise.resolve(null),
+    ),
+  );
 
   // Now wait for the rest of Phase 1 so the fallback list stays complete.
   const settled = await Promise.allSettled(probes);
@@ -286,7 +291,7 @@ export async function resolveBestMirror(
   const earlyBps = await earlySpeeds;
   const speeds = candidates.map((c) => {
     const i = earlyCandidates.findIndex((e) => e.base === c.base);
-    if (i === -1) return measureBandwidth(c.base, c.fileName);
+    if (i === -1) return sample ? measureBandwidth(c.base, c.fileName) : Promise.resolve(null);
     return Promise.resolve(earlyBps[i] ?? null);
   });
   const measuredSpeeds = await Promise.all(speeds);

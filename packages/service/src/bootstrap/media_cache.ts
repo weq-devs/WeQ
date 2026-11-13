@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { UserConfigService } from './user_config';
+import { scopedNetworkAllowed } from '../common/network_scope';
 
 /** Cache subdirectory for organizing different media types. */
 export type CacheSubdir =
@@ -137,6 +138,21 @@ export class MediaCacheService {
    * into a 4xx/5xx so the renderer falls back to its default glyph).
    */
   async get(url: string, subdir: CacheSubdir = 'avatar', ttl?: number): Promise<MediaBlob> {
+    if (
+      !scopedNetworkAllowed(
+        subdir === 'avatar'
+          ? 'avatar'
+          : ['dress', 'qqshow', 'redpack'].includes(subdir)
+            ? 'dress'
+            : subdir === 'linkpreview'
+              ? 'link-preview'
+              : undefined,
+      )
+    ) {
+      const local = await this.getLocal(url, subdir);
+      if (local) return local;
+      throw new Error('省流量模式已暂缓自动加载');
+    }
     if (!isHttpUrl(url)) {
       throw new Error(`refusing to cache non-http url: ${url}`);
     }

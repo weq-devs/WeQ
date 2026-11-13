@@ -61,6 +61,7 @@ import {
 } from '../common/zip';
 import { buildLocalBubbleSkin, type BubbleSkin, type MessageBubbleSkin } from './bubble_skin';
 import { downloadUrlToFile } from './media_url';
+import { scopedNetworkAllowed } from '../common/network_scope';
 import { getDressIndexStore, type DressIndexKind, type DressIndexStore } from './dress_index';
 
 /**
@@ -345,6 +346,7 @@ export class DressSharedCache {
       };
     }
 
+    if (!scopedNetworkAllowed('dress')) return null;
     const pid = this.resolvePid();
     if (!pid) {
       this.logger.warn('bubble needs online instance', {
@@ -693,6 +695,7 @@ export class DressSharedCache {
       }
     }
 
+    if (!scopedNetworkAllowed('dress')) throw new Error('省流量模式已暂缓自动下载字体');
     const pid = this.resolvePid();
     if (!pid) {
       throw new Error('下载字体需要登录该账号的 QQ 客户端（字体资源只能通过在线实例换取）');
@@ -815,6 +818,7 @@ export class DressSharedCache {
       });
     }
 
+    if (!scopedNetworkAllowed('dress')) return null;
     const pid = this.resolvePid();
     if (!pid) return null;
 
@@ -1025,7 +1029,7 @@ export class DressSharedCache {
   async bubbleConfigFile(itemId: number, localOnly = false): Promise<Buffer | null> {
     const cached = join(this.bubblesDir, `${itemId}-config.json`);
     if (existsSync(cached)) return readFileSync(cached);
-    if (localOnly) return null;
+    if (localOnly || !scopedNetworkAllowed('dress')) return null;
     const local = await this.resourceUrl('bubble', itemId, 'config.json');
     let url = local?.url ?? null;
     if (!url) {
@@ -1060,7 +1064,7 @@ export class DressSharedCache {
   async pendantStaticFile(itemId: number, localOnly = false): Promise<string | null> {
     const dest = join(this.pendantsDir, `${itemId}-static.png`);
     if (existsSync(dest)) return dest;
-    if (localOnly) return null;
+    if (localOnly || !scopedNetworkAllowed('dress')) return null;
 
     const local = await this.resourceUrl('widget', itemId, 'aio_50.png');
     let url = local?.url ?? null;

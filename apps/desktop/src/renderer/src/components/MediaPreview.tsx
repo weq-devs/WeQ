@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { ChevronLeft, ChevronRight, Copy, RotateCw } from 'lucide-react';
 import { compareMessageOrder } from '@weq/codec';
+import { interactiveMediaUrl } from '../lib/resourceUrl';
 import { MediaPreviewShell } from './MediaPreviewShell';
 import {
   MediaLoadStatus,
@@ -234,7 +235,7 @@ function MediaPreviewItem({
   const current = resolved?.key === item.key ? resolved : item;
   const sources = [...new Set([current.src, ...(item.fallbackSources ?? [])].filter(Boolean))];
   const source = sources[sourceIndex] ?? '';
-  const src = resourceForRenderDocument(source, ownerDocument);
+  const src = resourceForRenderDocument(interactiveMediaUrl(source), ownerDocument);
   const zoom = useZoomPan(`${item.key}:${attempt}`, {
     clickZoom: current.kind === 'image',
   });

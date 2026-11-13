@@ -7,6 +7,8 @@
 
 import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
+import { networkScope } from '@weq/service/network-scope';
+import { transferRestricted } from '@weq/service/transfer-policy';
 import { withHost, logRequest, type HostBridge } from '@weq/service';
 import { maintenanceProcedures, runtimeMaintenance } from '../runtime_maintenance';
 import { pickedBrowserFiles } from '../browser_files';
@@ -16,6 +18,7 @@ import {
 } from '../../shared/remote_capabilities';
 
 export interface RpcContext {
+  networkClientId?: string;
   authorize?: () => void;
   host?: HostBridge;
 }
@@ -34,7 +37,15 @@ export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) =
       ctx.authorize?.();
       if (ctx.host?.remoteClient && remoteProcedureUnavailable(path, rawInput))
         throw new TRPCError({ code: 'FORBIDDEN', message: REMOTE_UNSUPPORTED_MESSAGE });
-      const invoke = () => (ctx.host ? withHost(ctx.host, () => next()) : next());
+      const invoke = () =>
+        networkScope.run(
+          {
+            clientId: ctx.networkClientId,
+            restricted: transferRestricted(ctx.networkClientId),
+            intent: type === 'mutation' ? 'interactive' : 'prefetch',
+          },
+          () => (ctx.host ? withHost(ctx.host, () => next()) : next()),
+        );
       const run = () =>
         type === 'subscription' ? invoke() : pickedBrowserFiles.withPaths(rawInput, invoke);
       return type === 'subscription' ||

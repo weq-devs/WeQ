@@ -808,6 +808,9 @@ void app.whenReady().then(async () => {
   });
   if (isQuitting) return;
   initAppContext();
+  void import('./data_saver')
+    .then(({ refreshTransferPolicy }) => refreshTransferPolicy())
+    .catch(() => undefined);
   const userConfig = getAppContext().bootstrap?.userConfig;
   installUpdateActions({
     getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,

@@ -18,6 +18,7 @@ import {
 } from '@trpc/client';
 import type { AppRouter } from '../../../shared/router';
 import { useWebConnection } from '../state/webConnection';
+import { networkClientId } from '../lib/dataSaver';
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
@@ -55,6 +56,7 @@ const independentReads = new Set([
 
 export function createLinks(): TRPCLink<AppRouter>[] {
   const httpOptions = {
+    headers: () => ({ 'x-weq-client-id': networkClientId }),
     url: '/trpc',
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       const res = await fetch(input, { ...init, credentials: 'same-origin' });

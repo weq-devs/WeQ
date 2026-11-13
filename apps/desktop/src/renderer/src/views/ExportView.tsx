@@ -985,6 +985,7 @@ function ExportToolBody({
       filePath: t.filePath,
       bundleDir: t.bundleDir,
       canResume: t.canResume,
+      networkPaused: t.networkPaused,
       journalPath: t.journalPath,
       canIncremental: t.canIncremental,
       canFinalize: t.canFinalize,

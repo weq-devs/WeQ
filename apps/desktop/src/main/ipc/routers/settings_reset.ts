@@ -13,6 +13,8 @@ import { updateRouter } from './update';
 import { sharedSettingsRouter, sharedMailPreferences } from './shared_settings';
 import { sharedIntentStatus } from './intent_sense';
 import { sharedAntiRecallStatus } from './anti_recall';
+import { clientStateRouter } from './client_state';
+import { dataSaverBehaviorDefaults } from '@weq/service/data-saver';
 import {
   remoteResetCardAvailable,
   remoteSettingAvailable,
@@ -265,6 +267,23 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     b.setSuppressDbDamageReminder({ suppressed }),
   );
   app('cdn', 'preferCdn', '优先 CDN', (enabled) => b.setPreferCdn({ enabled }));
+  if (selected.has('data-saver')) {
+    const saverDefaults = { dataSaverMode: 'auto' as const, ...dataSaverBehaviorDefaults };
+    const saverCurrent = config.getSharedPreference('client');
+    add(
+      'data-saver',
+      'preferences',
+      '省流量模式与行为',
+      Object.fromEntries(
+        Object.entries(saverDefaults).map(([key, value]) => [
+          key,
+          saverCurrent[key as keyof typeof saverDefaults] ?? value,
+        ]),
+      ),
+      saverDefaults,
+      () => clientStateRouter.createCaller(ctx).patch(saverDefaults),
+    );
+  }
   add('rkey', 'enabled', '外部 RKEY 启用目标', current.externalRkey.enabledServerId, null, () =>
     b.setExternalRkeyEnabled({ serverId: null }),
   );

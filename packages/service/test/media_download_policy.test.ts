@@ -60,6 +60,27 @@ it('未允许时缓存凭据及原始 URL 都不发请求，允许后下载，�
   expect(await f.service.download('123')).toBe(path);
   expect(f.fetch).toHaveBeenCalledOnce();
 });
+it('小图只请求实际提供的地址，缓存可复用，体积超限不回退原图', async () => {
+  const f = await fixture();
+  f.allow(true);
+  f.fetch.mockResolvedValueOnce(
+    new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } }),
+  );
+  const url = 'https://multimedia.nt.qq.com.cn/download?fileid=synthetic&spec=198';
+  const path = await f.service.thumbnail(url);
+  expect(path).toBeTruthy();
+  expect(f.fetch).toHaveBeenCalledWith(url, expect.anything());
+  expect(await f.service.thumbnail(url)).toBe(path);
+  expect(f.fetch).toHaveBeenCalledOnce();
+  f.fetch.mockResolvedValueOnce(
+    new Response(new Uint8Array([1]), {
+      headers: { 'Content-Type': 'image/png', 'Content-Length': String(1024 * 1024) },
+    }),
+  );
+  expect(await f.service.thumbnail(`${url}&other=1`)).toBeNull();
+  expect(f.fetch).toHaveBeenCalledTimes(2);
+  expect(f.external.resolveRkeys).not.toHaveBeenCalled();
+});
 it('请求途中失活不发布旧媒体，也不启动外部 rKey 回退或重试', async () => {
   const f = await fixture();
   f.allow(true);

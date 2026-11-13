@@ -1,7 +1,10 @@
 import type { ModelDownloadProgress } from '@weq/service';
 import { backgroundTasks, runBackgroundTask } from './background_tasks';
+import { transferBehavior } from '@weq/service/network-scope';
 
 interface ModelStore {
+  pauseDownload(id: string): void;
+  continueDownload(id: string): void;
   on(event: 'progress', handler: (progress: ModelDownloadProgress) => void): unknown;
   off(event: 'progress', handler: (progress: ModelDownloadProgress) => void): unknown;
   downloadModel(id: string): Promise<{ success: boolean; error?: string }>;
@@ -22,9 +25,26 @@ export function trackModelDownload(store: ModelStore, id: string, label: string)
     async (taskId) => {
       const progress = (p: ModelDownloadProgress) => {
         if (p.id !== id) return;
+        if (p.paused) {
+          backgroundTasks.finish(taskId, 'paused', {
+            statusLabel: p.pauseReasons?.includes('user') ? '已暂停' : '省流量模式已暂停',
+          });
+          backgroundTasks.setActions(taskId, [
+            { id: 'continue', label: '继续下载', run: () => store.continueDownload(id) },
+          ]);
+        } else {
+          backgroundTasks.resume(taskId);
+          backgroundTasks.setActions(taskId, [
+            { id: 'pause', label: '暂停', run: () => store.pauseDownload(id) },
+          ]);
+        }
         backgroundTasks.update(taskId, {
           progress: p.percent,
-          note: `${(p.downloadedBytes / 1024 / 1024).toFixed(1)} / ${(p.totalBytes / 1024 / 1024).toFixed(1)} MiB`,
+          note: p.paused
+            ? p.pauseReasons?.includes('user') || !transferBehavior().dataSaverAutoResume
+              ? '等待手动继续'
+              : '限制解除后自动继续，或手动继续此任务'
+            : `${(p.downloadedBytes / 1024 / 1024).toFixed(1)} / ${(p.totalBytes / 1024 / 1024).toFixed(1)} MiB`,
         });
       };
       store.on('progress', progress);

@@ -746,6 +746,12 @@ export interface QqUnreadSnapshot {
 }
 
 export interface NtHelperBinding {
+  getNetworkCost?(): Promise<{
+    known: boolean;
+    constrained: boolean;
+    metered: boolean;
+    source: string;
+  }>;
   /** 可选：旧产物缺少导出时继续使用数据库未读。 */
   getQqUnreadCapability?(): QqUnreadCapability;
   readQqUnreadCounts?(options: QqUnreadReadOptions): Promise<QqUnreadSnapshot>;

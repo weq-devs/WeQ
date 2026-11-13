@@ -96,7 +96,7 @@ it('添加表情的原图请求不上传普通缩略图，但保留接收表情�
   const download = vi.fn(async () => null);
   state.services = {
     fileSearch: { findFile: async () => ({ source: null, thumb }) },
-    mediaDownload: { download },
+    mediaDownload: { download, cachedFile: () => null },
   };
   const url = 'weq-media://pic?t=1&name=received.gif&token=token&v=original';
   expect((await handleMediaRequest(new Request(url))).status).toBe(404);
@@ -117,7 +117,7 @@ it('严格原图请求不从安卓备份的 chatimg/chatthumb 降级，仍可使
   }
   state.services = {
     fileSearch: { findFile: async () => ({ source: null, thumb: null }) },
-    mediaDownload: { download: async () => null },
+    mediaDownload: { download: async () => null, cachedFile: () => null },
   };
   const url = `weq-media://pic?md5=${md5}&v=original`;
   expect((await handleMediaRequest(new Request(url))).status).toBe(404);

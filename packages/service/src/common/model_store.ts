@@ -1,5 +1,5 @@
 /**
- * ModelStore — 本地模型文件的通用仓库：注册表 + 下载（多线程分片 / 单线程流式）
+ * ModelStore — 本地模型文件的通用仓库：注册表 + 受控流式下载与续传
  * + 进度事件 + 状态查询 + 删除。
  *
  * 抽这一层的理由：语音转录（`voice_transcribe.ts`）和图片文字识别
@@ -10,29 +10,18 @@
  * 存储约定：`<modelsRoot>/<id>/<file.name>`。`id` 全局唯一，直接当目录名；
  * **故意不放在 cache 目录下** —— 「清空缓存」不该把几百 MB 的模型一起清掉。
  *
- * 下载：服务端支持 Range 且文件 ≥ 2 MB 走 4 线程分片，否则退回单线程流式。
+ * 下载：策略暂停时中止网络请求；资源身份与 Range 校验通过后续写临时文件。
  * 整个仓库共用一条 `'progress'` 事件流（{@link ModelDownloadProgress}），按 id
  * 区分；下载终态必发一条（`done: true` 或 `error`）。IPC 层把它转成 tRPC 订阅。
  *
- * 零原生：纯 Node（`fs` / `http` / `https`）。真正的推理引擎住在 app 侧（语音是
+ * 零原生：纯 Node（`fs` / `fetch`）。真正的推理引擎住在 app 侧（语音是
  * `apps/desktop/src/main/transcribe/`）。
  */
 
 import { EventEmitter } from 'node:events';
-import {
-  existsSync,
-  mkdirSync,
-  statSync,
-  unlinkSync,
-  rmSync,
-  createWriteStream,
-  openSync,
-  writeSync,
-  closeSync,
-} from 'node:fs';
+import { ManagedDownload } from './managed_download';
+import { existsSync, mkdirSync, statSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import * as https from 'node:https';
-import * as http from 'node:http';
 
 /** One downloadable file within a model (the on-disk name + its source URL). */
 export interface ModelFile {
@@ -68,6 +57,8 @@ export interface ModelDiskState {
 
 /** Progress payload emitted during a download. */
 export interface ModelDownloadProgress {
+  paused?: boolean;
+  pauseReasons?: string[];
   /** Model id being downloaded. */
   id: string;
   /** 0–100. */
@@ -88,12 +79,14 @@ const COMMON_HEADERS = {
   Referer: 'https://modelscope.cn/',
 } as const;
 
-/** 低于这个体积就单线程拉 —— 开 4 个连接省下的时间还不如握手多。 */
-const MULTITHREAD_MIN_BYTES = 2 * 1024 * 1024;
-/** 分片数。 */
-const MULTITHREAD_CHUNKS = 4;
-
 export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
+  private readonly transfers = new Map<string, ManagedDownload>();
+  pauseDownload(id: string) {
+    this.transfers.get(id)?.pause();
+  }
+  continueDownload(id: string) {
+    this.transfers.get(id)?.continue();
+  }
   private readonly modelsRoot: string;
   private readonly entries: readonly T[];
   /** In-flight downloads keyed by model id (de-dupes concurrent requests). */
@@ -187,6 +180,22 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
 
     const task = (async (): Promise<{ success: boolean; error?: string }> => {
       const dir = this.resolveModelDir(id);
+      const transfer = new ManagedDownload({
+        batch: true,
+        total: model.sizeBytes,
+        state: (state) => {
+          this.emitProgress({
+            id,
+            percent: state.total ? (state.received / state.total) * 100 : 0,
+            downloadedBytes: state.received,
+            totalBytes: state.total,
+            speed: 0,
+            paused: state.paused,
+            pauseReasons: state.reasons,
+          });
+        },
+      });
+      this.transfers.set(id, transfer);
       try {
         mkdirSync(dir, { recursive: true });
         this.emitProgress({
@@ -202,17 +211,26 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         let baseWeight = 0;
         for (const f of model.files) {
           const target = join(dir, f.name);
-          await this.downloadToFile(f.url, target, f.key, (downloaded, total, speed) => {
-            const filePercent = total ? downloaded / total : 0;
-            const percent = (baseWeight + filePercent * f.weight) * 100;
-            this.emitProgress({
-              id,
-              percent,
-              downloadedBytes: this.bytesOnDisk(dir, model),
-              totalBytes: model.sizeBytes,
-              speed,
-            });
-          });
+          if (existsSync(target)) {
+            baseWeight += f.weight;
+            continue;
+          }
+          await this.downloadToFile(
+            f.url,
+            target,
+            (downloaded, total, speed) => {
+              const filePercent = total ? downloaded / total : 0;
+              const percent = (baseWeight + filePercent * f.weight) * 100;
+              this.emitProgress({
+                id,
+                percent,
+                downloadedBytes: this.bytesOnDisk(dir, model),
+                totalBytes: model.sizeBytes,
+                speed,
+              });
+            },
+            transfer,
+          );
           baseWeight += f.weight;
         }
 
@@ -227,15 +245,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         return { success: true };
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
-        // Clean up partial files so a retry starts clean.
-        for (const f of model.files) {
-          const p = join(dir, f.name);
-          try {
-            if (existsSync(p)) unlinkSync(p);
-          } catch {
-            /* ignore */
-          }
-        }
+        // 完整文件和带验证信息的分段保留，重试不重复下载已完成部分。
         this.emitProgress({
           id,
           percent: 0,
@@ -246,6 +256,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         });
         return { success: false, error };
       } finally {
+        this.transfers.delete(id);
         this.downloadTasks.delete(id);
       }
     })();
@@ -275,216 +286,12 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
     return sum;
   }
 
-  /**
-   * Download a single file, using a 4-thread ranged download when the server
-   * supports it (and the file is large enough), else a single-thread stream.
-   * Ported from the WeFlow reference implementation.
-   */
-  private async downloadToFile(
+  private downloadToFile(
     url: string,
-    targetPath: string,
-    label: string,
-    onProgress?: (downloaded: number, total: number, speed: number) => void,
+    target: string,
+    progress: (received: number, total: number, speed: number) => void,
+    transfer: ManagedDownload,
   ): Promise<void> {
-    if (existsSync(targetPath)) unlinkSync(targetPath);
-
-    let probe: { totalSize: number; acceptRanges: boolean; finalUrl: string };
-    try {
-      probe = await this.probeUrl(url);
-    } catch {
-      return this.downloadSingleThread(url, targetPath, onProgress);
-    }
-
-    const { totalSize, acceptRanges, finalUrl } = probe;
-    if (totalSize < MULTITHREAD_MIN_BYTES || !acceptRanges) {
-      return this.downloadSingleThread(finalUrl, targetPath, onProgress);
-    }
-
-    const threadCount = MULTITHREAD_CHUNKS;
-    const chunkSize = Math.ceil(totalSize / threadCount);
-    const fd = openSync(targetPath, 'w');
-
-    let downloadedTotal = 0;
-    let lastDownloaded = 0;
-    let lastTime = Date.now();
-
-    const speedTimer = setInterval(() => {
-      const now = Date.now();
-      const dur = (now - lastTime) / 1000;
-      if (dur > 0) {
-        const speed = (downloadedTotal - lastDownloaded) / dur;
-        lastDownloaded = downloadedTotal;
-        lastTime = now;
-        onProgress?.(downloadedTotal, totalSize, speed);
-      }
-    }, 1000);
-
-    try {
-      const promises: Promise<void>[] = [];
-      for (let i = 0; i < threadCount; i += 1) {
-        const start = i * chunkSize;
-        const end = i === threadCount - 1 ? totalSize - 1 : (i + 1) * chunkSize - 1;
-        promises.push(
-          this.downloadChunk(finalUrl, fd, start, end, (bytes) => {
-            downloadedTotal += bytes;
-          }),
-        );
-      }
-      await Promise.all(promises);
-      onProgress?.(totalSize, totalSize, 0);
-    } catch (err) {
-      throw new Error(
-        `${label} 多线程下载失败: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      clearInterval(speedTimer);
-      closeSync(fd);
-    }
-  }
-
-  private probeUrl(
-    url: string,
-    remainingRedirects = 5,
-  ): Promise<{ totalSize: number; acceptRanges: boolean; finalUrl: string }> {
-    return new Promise((resolve, reject) => {
-      const protocol = url.startsWith('https') ? https : http;
-      const req = protocol.get(
-        url,
-        { headers: { ...COMMON_HEADERS, Range: 'bytes=0-0' } },
-        (res) => {
-          if ([301, 302, 303, 307, 308].includes(res.statusCode ?? 0)) {
-            const location = res.headers.location;
-            if (location && remainingRedirects > 0) {
-              const next = new URL(location, url).href;
-              res.destroy();
-              this.probeUrl(next, remainingRedirects - 1)
-                .then(resolve)
-                .catch(reject);
-              return;
-            }
-          }
-          if (res.statusCode !== 206 && res.statusCode !== 200) {
-            reject(new Error(`Probe failed: HTTP ${res.statusCode}`));
-            res.destroy();
-            return;
-          }
-          const contentRange = res.headers['content-range'];
-          let totalSize = 0;
-          if (contentRange) {
-            const parts = contentRange.split('/');
-            totalSize = parseInt(parts[parts.length - 1] ?? '0', 10);
-          } else {
-            totalSize = parseInt(res.headers['content-length'] ?? '0', 10);
-          }
-          const acceptRanges = res.headers['accept-ranges'] === 'bytes' || Boolean(contentRange);
-          resolve({ totalSize, acceptRanges, finalUrl: url });
-          res.destroy();
-        },
-      );
-      req.on('error', reject);
-    });
-  }
-
-  private downloadChunk(
-    url: string,
-    fd: number,
-    start: number,
-    end: number,
-    onData: (bytes: number) => void,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const protocol = url.startsWith('https') ? https : http;
-      const req = protocol.get(
-        url,
-        { headers: { ...COMMON_HEADERS, Range: `bytes=${start}-${end}` } },
-        (res) => {
-          if (res.statusCode !== 206) {
-            reject(new Error(`Chunk download failed: HTTP ${res.statusCode}`));
-            res.destroy();
-            return;
-          }
-          let offset = start;
-          res.on('data', (chunk: Buffer) => {
-            try {
-              writeSync(fd, chunk, 0, chunk.length, offset);
-              offset += chunk.length;
-              onData(chunk.length);
-            } catch (err) {
-              reject(err);
-              res.destroy();
-            }
-          });
-          res.on('end', () => resolve());
-          res.on('error', reject);
-        },
-      );
-      req.on('error', reject);
-    });
-  }
-
-  private downloadSingleThread(
-    url: string,
-    targetPath: string,
-    onProgress?: (downloaded: number, total: number, speed: number) => void,
-    remainingRedirects = 5,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const protocol = url.startsWith('https') ? https : http;
-      const req = protocol.get(url, { headers: COMMON_HEADERS }, (res) => {
-        if ([301, 302, 303, 307, 308].includes(res.statusCode ?? 0)) {
-          const location = res.headers.location;
-          if (location && remainingRedirects > 0) {
-            const next = new URL(location, url).href;
-            res.destroy();
-            this.downloadSingleThread(next, targetPath, onProgress, remainingRedirects - 1)
-              .then(resolve)
-              .catch(reject);
-            return;
-          }
-        }
-        if (res.statusCode !== 200) {
-          reject(new Error(`Download failed: HTTP ${res.statusCode}`));
-          res.destroy();
-          return;
-        }
-        const total = Number(res.headers['content-length'] ?? 0) || 0;
-        let downloaded = 0;
-        let lastDownloaded = 0;
-        let lastTime = Date.now();
-        const speedTimer = setInterval(() => {
-          const now = Date.now();
-          const dur = (now - lastTime) / 1000;
-          if (dur > 0) {
-            const speed = (downloaded - lastDownloaded) / dur;
-            lastDownloaded = downloaded;
-            lastTime = now;
-            onProgress?.(downloaded, total, speed);
-          }
-        }, 1000);
-
-        const writer = createWriteStream(targetPath);
-        res.on('data', (chunk: Buffer) => {
-          downloaded += chunk.length;
-        });
-        writer.on('finish', () => {
-          clearInterval(speedTimer);
-          writer.close();
-          onProgress?.(total || downloaded, total || downloaded, 0);
-          resolve();
-        });
-        writer.on('error', (err) => {
-          clearInterval(speedTimer);
-          writer.destroy();
-          reject(err);
-        });
-        res.on('error', (err) => {
-          clearInterval(speedTimer);
-          writer.destroy();
-          reject(err);
-        });
-        res.pipe(writer);
-      });
-      req.on('error', reject);
-    });
+    return transfer.file(url, target, COMMON_HEADERS, progress);
   }
 }

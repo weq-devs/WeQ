@@ -187,10 +187,10 @@ export function CurrentTaskList({
           secondary: true,
           run: () => exportActions.report!(task),
         });
-      if (task.status === 'running')
+      if (task.status === 'running' || task.networkPaused)
         actions.push({
           id: 'pause',
-          label: '暂停',
+          label: task.networkPaused ? '保持暂停' : '暂停',
           icon: <Pause size={14} />,
           run: () => exportActions.pause(task),
         });
@@ -234,17 +234,19 @@ export function CurrentTaskList({
       name: task.name,
       kind: taskTypeLabel(task),
       status: saving ? 'running' : saveFailed ? 'failed' : task.status,
-      statusLabel: saving
-        ? '保存中'
-        : saveFailed
-          ? '保存未完成'
-          : task.status === 'completed'
-            ? missing
-              ? '完成 · 资源缺失'
-              : task.save?.path
-                ? '已保存'
-                : '待保存'
-            : undefined,
+      statusLabel: task.networkPaused
+        ? '省流量模式已暂停'
+        : saving
+          ? '保存中'
+          : saveFailed
+            ? '保存未完成'
+            : task.status === 'completed'
+              ? missing
+                ? '完成 · 资源缺失'
+                : task.save?.path
+                  ? '已保存'
+                  : '待保存'
+              : undefined,
       progress: saving || saveFailed ? undefined : taskPct(task),
       note: task.error || task.save?.error,
       icon: taskIcon(task),

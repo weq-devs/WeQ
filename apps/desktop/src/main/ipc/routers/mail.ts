@@ -193,6 +193,7 @@ export const mailRouter = router({
       const fileName = exportOutputFileName(output);
       return services.exportManager.startResourceExport({
         kind: 'mail-attachment',
+        networkTransfer: { bytes: attachment.size },
         name,
         output,
         savePolicy: input.savePolicy,

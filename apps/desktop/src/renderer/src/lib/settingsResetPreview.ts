@@ -114,6 +114,43 @@ export interface ResetPreviewLine {
   text: string;
 }
 export function describeSettingsReset(item: SettingsResetItem): ResetPreviewLine[] {
+  if (item.id === 'data-saver:preferences') {
+    const current = item.current as Record<string, unknown>;
+    const next = item.defaultValue as Record<string, unknown>;
+    const names = {
+      dataSaverMode: '省流量模式',
+      dataSaverImageLoading: '聊天图片自动加载',
+      dataSaverAvatars: '自动加载未缓存的头像',
+      dataSaverEmoji: '自动下载表情图片',
+      dataSaverDress: '自动下载个性装扮',
+      dataSaverVideoCovers: '自动加载视频封面',
+      dataSaverPrefetch: '预加载屏幕外媒体',
+      dataSaverLinkPreviews: '自动获取链接预览',
+      dataSaverPauseBatch: '暂停联网批量任务',
+      dataSaverPauseLarge: '暂停大文件下载',
+      dataSaverLargeMiB: '大文件暂停阈值',
+      dataSaverAutoResume: '限制解除后自动继续任务',
+    };
+    const modeNames: Record<string, string> = {
+      auto: '跟随系统',
+      always: '开启',
+      never: '关闭',
+      none: '不自动加载',
+      thumbnail: '仅小图',
+      original: '原图',
+    };
+    const format = (key: string, value: unknown) =>
+      typeof value === 'string'
+        ? (modeNames[value] ?? value)
+        : formatResetValue(value, `data-saver:${key}`);
+    const lines = Object.entries(names)
+      .filter(([key]) => current[key] !== next[key])
+      .map(([key, label]) => ({
+        label,
+        text: `${format(key, current[key])} → ${format(key, next[key])}`,
+      }));
+    return lines.length ? lines : [{ label: '已是默认', text: '省流量模式与行为均为默认设置' }];
+  }
   if (item.id === 'contact-card:contactCard') {
     const current = normalizeContactCard(item.current);
     const next = normalizeContactCard(item.defaultValue);

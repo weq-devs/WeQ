@@ -24,6 +24,7 @@ import { observePlaceholderAnimation } from '../lib/placeholderAnimation';
 import { useTabActive } from './RetainedTabs';
 import { ChatImageCacheContext } from './ChatImageCacheProvider';
 import '../styles/chat-image-preview.css';
+import { useDataSaver } from '../lib/dataSaver';
 
 const noSubscription = () => () => {};
 
@@ -36,6 +37,7 @@ export function ShimmerImage({
   ...rest
 }: ImgHTMLAttributes<HTMLImageElement> & { suspendOffscreen?: boolean }): ReactElement {
   const [loaded, setLoaded] = useState(false);
+  const noPrefetch = useDataSaver((state) => state.enabled && !state.behavior.dataSaverPrefetch);
   const [failed, setFailed] = useState(false);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const ownerDocument = useRenderDocument();
@@ -88,7 +90,7 @@ export function ShimmerImage({
             intersecting = entries.some((entry) => entry.isIntersecting);
             update();
           },
-          { rootMargin: '200px' },
+          { rootMargin: noPrefetch ? '0px' : '200px' },
         )
       : null;
     observer?.observe(image);
@@ -98,7 +100,7 @@ export function ShimmerImage({
       observer?.disconnect();
       doc.removeEventListener('visibilitychange', update);
     };
-  }, [suspendOffscreen, tabActive, ownerDocument, image]);
+  }, [suspendOffscreen, tabActive, ownerDocument, image, noPrefetch]);
 
   // src 变化（首次挂载 / 失败回退换源）时重置；已缓存完成的直接显示，避免闪一下。
   useLayoutEffect(() => {

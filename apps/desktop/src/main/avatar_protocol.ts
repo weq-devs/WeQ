@@ -19,6 +19,8 @@
 import { getAppContext } from './context/app_context';
 import { imagePreview } from './image_preview';
 import { avatarResponse } from './avatar_response';
+import { networkScope } from '@weq/service/network-scope';
+import { hostDataSaver } from './data_saver';
 
 export const AVATAR_SCHEME = 'weq-avatar';
 
@@ -53,17 +55,23 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
     return new Response('native unavailable', { status: 503 });
   }
   const cache = ctx.bootstrap.avatarCache;
+  const restricted = url.searchParams.get('ds') === '1' || (await hostDataSaver());
+  const get = (ttl?: number) =>
+    networkScope.run(
+      {
+        restricted,
+        intent: url.searchParams.get('intent') === 'interactive' ? 'interactive' : 'prefetch',
+        resource: 'avatar',
+      },
+      () => cache.get(src, 'avatar', ttl),
+    );
 
   try {
     if (url.searchParams.get('preview') === '1') {
-      const data = await imagePreview(async () => (await cache.get(src, 'avatar')).data);
+      const data = await imagePreview(async () => (await get()).data);
       return avatarResponse({ data, contentType: 'image/webp' }, request);
     }
-    const blob = await ctx.bootstrap.avatarCache.get(
-      src,
-      'avatar',
-      url.searchParams.get('_weq_avatar_remote') === '1' ? 0 : undefined,
-    );
+    const blob = await get(url.searchParams.get('_weq_avatar_remote') === '1' ? 0 : undefined);
     if (blob.data.length === 0) {
       return new Response('avatar empty', { status: 502 });
     }

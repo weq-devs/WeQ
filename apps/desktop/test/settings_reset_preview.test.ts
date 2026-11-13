@@ -15,6 +15,26 @@ const item = (id: string, current: unknown, defaultValue: unknown): SettingsRese
 });
 
 describe('恢复默认设置的可读预览', () => {
+  it('省流量卡片按中文设置名展示实际变化，不输出内部字段', () => {
+    const defaults = {
+      dataSaverMode: 'auto',
+      dataSaverImageLoading: 'thumbnail',
+      dataSaverLargeMiB: 10,
+      dataSaverDress: false,
+    };
+    expect(
+      describeSettingsReset(
+        item(
+          'data-saver:preferences',
+          { ...defaults, dataSaverMode: 'always', dataSaverLargeMiB: 25 },
+          defaults,
+        ),
+      ),
+    ).toEqual([
+      { label: '省流量模式', text: '开启 → 跟随系统' },
+      { label: '大文件暂停阈值', text: '25 MiB → 10 MiB' },
+    ]);
+  });
   it('名片只列出实际改变的中文字段和分区顺序', () => {
     const current = structuredClone(DEFAULT_CONTACT_CARD);
     current.visible.constellation = true;

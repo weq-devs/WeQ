@@ -94,6 +94,9 @@ async function main(): Promise<void> {
 
   setHost(createWebHost({ exportDir: EXPORT_DIR, version: VERSION }));
   initAppContext();
+  void import('@weq/desktop/main/data_saver')
+    .then(({ refreshTransferPolicy }) => refreshTransferPolicy())
+    .catch(() => undefined);
   const performanceMonitor = installPerformanceMonitor(
     DATA_DIR,
     createNodeCollector(performanceDatabaseDetails),

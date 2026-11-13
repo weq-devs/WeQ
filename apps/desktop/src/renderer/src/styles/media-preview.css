@@ -86,3 +86,24 @@
     width: 44px;
   }
 }
+.qq-media-missing.qq-media-deferred {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.qq-media-deferred:hover:not(:disabled),
+.qq-media-deferred:focus-visible {
+  border-color: var(--weq-accent-effective);
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+html[data-theme='dark'] .qq-media-missing.qq-media-deferred {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+  color: var(--weq-fg-primary);
+}

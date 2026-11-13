@@ -5,6 +5,7 @@ import {
   type SearchPreferences,
 } from '../account/search_policy';
 import { isDirectoryPreference } from './contact_directory_preferences';
+import { dataSaverBehaviorDefaults } from './data_saver';
 export {
   accountOrderDefaults,
   FRIEND_SORTS,
@@ -16,6 +17,8 @@ export {
 export const MAX_SHARED_DRAFT_IMAGE_BYTES = 32 * 1024 * 1024;
 
 export const preferenceDefaults = {
+  ...dataSaverBehaviorDefaults,
+  dataSaverMode: 'auto' as import('./data_saver').DataSaverMode,
   contactOrder: {} as Record<string, unknown>,
   preference: 'system',
   privacyMode: false,
@@ -86,7 +89,13 @@ export function validatePreferencePatch(value: unknown): asserts value is Prefer
   if (!isRecord(value)) throw new Error('偏好必须是对象');
   for (const [key, entry] of Object.entries(value)) {
     let valid = false;
-    if (key === 'preference') valid = ['system', 'light', 'dark'].includes(String(entry));
+    if (key === 'dataSaverMode') valid = ['auto', 'always', 'never'].includes(String(entry));
+    else if (key === 'dataSaverImageLoading')
+      valid = ['none', 'thumbnail', 'original'].includes(String(entry));
+    else if (key === 'dataSaverLargeMiB')
+      valid =
+        typeof entry === 'number' && Number.isInteger(entry) && entry >= 1 && entry <= 1048576;
+    else if (key === 'preference') valid = ['system', 'light', 'dark'].includes(String(entry));
     else if (key === 'accent')
       valid = typeof entry === 'string' && (entry === '' || /^#[\da-f]{6}$/i.test(entry));
     else if (key === 'background')

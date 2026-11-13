@@ -38,14 +38,7 @@ import { useToast } from '../Toast';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
-import {
-  Card,
-  CheckPill,
-  Row,
-  SectionHeader,
-  Toggle,
-  SettingsNavigateContext,
-} from './controls';
+import { Card, CheckPill, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { MessageNotificationRows } from './MessageNotificationRows';
@@ -53,6 +46,7 @@ import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
 import { supportsWindowsStyleControls } from '../../../../shared/window_controls';
 import '../../styles/storage-management.css';
+import { DataSaverSettings } from './DataSaverSettings';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -600,6 +594,7 @@ export function GlobalSettingsSection({
         </Card>
       )}
 
+      {section === 'network' && <DataSaverSettings />}
       {section === 'network' && (
         <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
           <Row

@@ -530,6 +530,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['storage', 'remote', 'resource-loading'],
   },
   {
+    id: 'data-saver',
+    section: 'resource-loading',
+    label: '省流量模式',
+    aliases: ['低数据模式', '计费网络', '节省流量'],
+    from: ['resource-loading'],
+  },
+  {
     id: 'typing-status',
     section: 'chat-interaction',
     label: '隐藏正在输入状态',

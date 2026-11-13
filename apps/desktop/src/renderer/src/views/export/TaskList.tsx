@@ -108,6 +108,7 @@ function completionSummary(stages: UiStage[] | undefined): {
 }
 
 export interface UiTask {
+  networkPaused?: boolean;
   resource?: import('@weq/service').ExportTask['resource'];
   save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
@@ -511,17 +512,19 @@ function TaskDetail({
           ) : (
             <StatusIcon status={t.status} />
           )}
-          {t.isFinalizing
-            ? '收尾中'
-            : t.status === 'paused' && t.partialReady
-              ? '已收尾'
-              : t.status === 'paused' && !t.canResume
-                ? pauseDraining
-                  ? '暂停收尾中'
-                  : '暂停中'
-                : t.status === 'completed' && resourceMissing
-                  ? '已完成 · 资源缺失'
-                  : STATUS_LABEL[t.status]}
+          {t.networkPaused
+            ? '省流量模式已暂停'
+            : t.isFinalizing
+              ? '收尾中'
+              : t.status === 'paused' && t.partialReady
+                ? '已收尾'
+                : t.status === 'paused' && !t.canResume
+                  ? pauseDraining
+                    ? '暂停收尾中'
+                    : '暂停中'
+                  : t.status === 'completed' && resourceMissing
+                    ? '已完成 · 资源缺失'
+                    : STATUS_LABEL[t.status]}
         </span>
         <strong className="weq-exp-detail-overall">{overall}%</strong>
         <div className="weq-exp-detail-actions">

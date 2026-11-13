@@ -12,6 +12,8 @@ import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { validateMcpConfig } from '../../mcp/external';
 import { listScreenWidgets } from './dressup';
+import { refreshTransferPolicy } from '../../data_saver';
+import { updateClientNetwork } from '@weq/service/transfer-policy';
 
 export const assistantSettingsProcedures = {
   getConfig: procedure.query(
@@ -70,6 +72,24 @@ export function sharedMailPreferences() {
 }
 
 export const sharedSettingsRouter = router({
+  networkCost: procedure
+    .input(
+      z
+        .object({
+          clientId: z.string().regex(/^[\w-]{1,80}$/),
+          cost: z.object({
+            state: z.enum(['restricted', 'unrestricted', 'unknown']),
+            constrained: z.boolean(),
+            metered: z.boolean(),
+            source: z.string().max(80),
+          }),
+        })
+        .optional(),
+    )
+    .query(({ input }) => {
+      if (input) updateClientNetwork(input.clientId, input.cost);
+      return refreshTransferPolicy();
+    }),
   dress: router({
     get: procedure.query(() => {
       const owner = requireBootstrap().userConfig;

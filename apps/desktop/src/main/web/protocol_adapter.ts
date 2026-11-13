@@ -37,6 +37,7 @@ export function toProtocolRequest(
   const path = slash === -1 ? '' : pathPart.slice(slash);
 
   const headers = new Headers();
+  headers.set('x-weq-web', '1');
   for (const name of ['range', 'if-modified-since', 'if-none-match'] as const) {
     const value = req.headers[name];
     if (typeof value === 'string') headers.set(name, value);
@@ -65,6 +66,9 @@ export async function writeResponse(res: ServerResponse, out: Response): Promise
       res.destroy();
       resolve();
     });
-    res.on('close', resolve);
+    res.on('close', () => {
+      nodeStream.destroy();
+      resolve();
+    });
   });
 }

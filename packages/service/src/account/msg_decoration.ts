@@ -32,6 +32,7 @@ import type { DressService } from './dress_service';
 import type { BubbleSkin } from './bubble_skin';
 import type { FontDerived } from './dress_shared_cache';
 import { getLogger, logErrorContext } from '../common/logger';
+import { scopedNetworkAllowed } from '../common/network_scope';
 
 const WIDGET_BASE = 'https://tianquan.gtimg.cn/faceAddon/item';
 
@@ -127,7 +128,8 @@ export class MsgDecorationCacheService {
           }),
         )
         .then((final) => {
-          this.widgetResolved.set(widgetId, final);
+          if (final.animated || scopedNetworkAllowed('dress'))
+            this.widgetResolved.set(widgetId, final);
           this.widgetPending.delete(widgetId);
           return final;
         });
@@ -144,12 +146,12 @@ export class MsgDecorationCacheService {
       pending = this.dressInstall
         .fetchBubble(itemId)
         .then((skin) => {
-          this.bubbleResolved.set(itemId, skin);
+          if (skin || scopedNetworkAllowed('dress')) this.bubbleResolved.set(itemId, skin);
           this.bubblePending.delete(itemId);
           return skin;
         })
         .catch(() => {
-          this.bubbleResolved.set(itemId, null);
+          if (scopedNetworkAllowed('dress')) this.bubbleResolved.set(itemId, null);
           this.bubblePending.delete(itemId);
           return null;
         });
@@ -190,7 +192,7 @@ export class MsgDecorationCacheService {
           return entry;
         })
         .catch((e) => {
-          this.fontResolved.set(itemId, null);
+          if (scopedNetworkAllowed('dress')) this.fontResolved.set(itemId, null);
           this.fontPending.delete(itemId);
           this.logger.warn('msg font resolve failed', {
             event: 'msg-font-resolve-failed',

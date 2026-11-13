@@ -16,6 +16,16 @@
  */
 
 import { app } from 'electron';
+import { TransferGate, shouldPauseTransfer } from '@weq/service/data-saver';
+import { transferBehavior } from '@weq/service/network-scope';
+import {
+  transferOwner,
+  transferRestricted,
+  transferCanResume,
+  watchTransferPolicy,
+} from '@weq/service/transfer-policy';
+import { refreshTransferPolicy, hostDataSaver } from '../data_saver';
+import { backgroundTasks } from '../background_tasks';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 import { UpdateCheckScheduler } from './scheduler';
 import { existsSync } from 'node:fs';
@@ -42,6 +52,9 @@ import {
 } from './state';
 
 const { autoUpdater } = electronUpdater;
+let cancelDownload: (() => void) | undefined;
+let updateGate: TransferGate | undefined;
+let updateSizePolicy: ((bytes: number) => void) | undefined;
 
 let lastCheckedAt = 0;
 const CHECK_TTL_MS = 5 * 60_000;
@@ -115,7 +128,7 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
   // Let the UI show "testing N mirrors…" instead of a blank 4–6s wait: this is
   // the slow phase (every dead mirror burns its full screen timeout).
   updateBus.emit('event', { kind: 'checking', mirrors: FILE_MIRRORS.length } satisfies UpdateEvent);
-  const best = await resolveBestMirror(undefined, includePrerelease);
+  const best = await resolveBestMirror(undefined, includePrerelease, !(await hostDataSaver()));
   if (revision !== preferenceRevision) throw new Error('更新检查选项已改变，请重新检查');
   const hasUpdate = isNewer(best.version, current);
   const state: UpdateState = {
@@ -225,7 +238,17 @@ function attemptDownload(base: string): Promise<void> {
       .checkForUpdates()
       .then((result) => {
         if (!result?.updateInfo) throw new Error('未获取到更新信息');
-        return autoUpdater.downloadUpdate();
+        const token = result.cancellationToken;
+        if (!token) throw new Error('更新器未提供可取消的下载任务');
+        cancelDownload = () => token.cancel();
+        const sizes = result.updateInfo.files?.map((file) => file.size ?? 0) ?? [];
+        const size = Math.max(0, ...sizes);
+        if (size > 0) updateSizePolicy?.(size);
+        if (updateGate?.paused) {
+          token.cancel();
+          throw new Error('省流量模式已暂停');
+        }
+        return autoUpdater.downloadUpdate(token);
       })
       .then(() => finish())
       .catch((e: unknown) => finish(e instanceof Error ? e : new Error(String(e))));
@@ -246,12 +269,84 @@ export async function startDownload(): Promise<void> {
   downloading = true;
   downloaded = false;
   try {
-    await downloadUpdate();
+    await refreshTransferPolicy();
   } catch (error) {
+    downloading = false;
+    throw error;
+  }
+  const owner = transferOwner();
+  const gate = new TransferGate();
+  updateGate = gate;
+  const taskId = backgroundTasks.start({ kind: 'update', name: '下载 WeQ 更新' });
+  let total = 0;
+  let received = 0;
+  let policyPaused = false;
+  const updatePolicy = () => {
+    const behavior = transferBehavior();
+    const restricted = transferRestricted(owner) || (policyPaused && !transferCanResume(owner));
+    policyPaused = restricted;
+    const blocked = shouldPauseTransfer(restricted, false, total, received, behavior);
+    if (!blocked && gate.pauseReasons.includes('network') && !behavior.dataSaverAutoResume)
+      gate.restrict('resume-required', true);
+    if (!blocked && behavior.dataSaverAutoResume) gate.restrict('resume-required', false);
+    gate.restrict('network', blocked);
+    if (gate.paused) {
+      cancelDownload?.();
+      backgroundTasks.finish(taskId, 'paused', {
+        statusLabel: gate.pauseReasons.includes('user') ? '已暂停' : '省流量模式已暂停',
+      });
+      backgroundTasks.setActions(taskId, [
+        {
+          id: 'continue',
+          label: '继续下载',
+          run: () => {
+            gate.continue();
+            updatePolicy();
+          },
+        },
+      ]);
+    } else {
+      backgroundTasks.resume(taskId);
+      backgroundTasks.setActions(taskId, [
+        {
+          id: 'pause',
+          label: '暂停',
+          run: () => {
+            gate.pause();
+            updatePolicy();
+          },
+        },
+      ]);
+    }
+  };
+  const progressPolicy = (progress: UpdateProgress) => {
+    total = progress.total;
+    received = progress.transferred;
+    updatePolicy();
+  };
+  updateSizePolicy = (bytes) => {
+    total = bytes;
+    updatePolicy();
+  };
+  updateBus.on('progress', progressPolicy);
+  const unwatch = watchTransferPolicy(updatePolicy);
+  updatePolicy();
+  try {
+    await downloadUpdate();
+    backgroundTasks.finish(taskId, 'completed');
+  } catch (error) {
+    backgroundTasks.resume(taskId);
+    backgroundTasks.finish(taskId, 'failed', { note: String(error) });
     const message = error instanceof Error ? error.message : String(error);
     updateBus.emit('event', { kind: 'error', message } satisfies UpdateEvent);
     throw error;
   } finally {
+    unwatch();
+    updateBus.off('progress', progressPolicy);
+    cancelDownload = undefined;
+    updateGate = undefined;
+    updateSizePolicy = undefined;
+    backgroundTasks.setActions(taskId, []);
     downloading = false;
   }
 }
@@ -284,7 +379,15 @@ async function downloadUpdate(): Promise<void> {
         latest: state?.latest ?? '',
         hasUpdate: true,
       } satisfies UpdateEvent);
-      await attemptDownload(base);
+      for (;;) {
+        await updateGate?.wait();
+        try {
+          await attemptDownload(base);
+          break;
+        } catch (error) {
+          if (!updateGate?.paused) throw error;
+        }
+      }
       success = true;
       break;
     } catch (e) {

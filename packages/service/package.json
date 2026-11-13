@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./data-saver": "./src/common/data_saver.ts",
+    "./network-scope": "./src/common/network_scope.ts",
+    "./transfer-policy": "./src/common/transfer_policy.ts",
+    "./managed-download": "./src/common/managed_download.ts",
     "./assistant-config": "./src/account/assistant_config.ts",
     "./ocr-models": "./src/common/ocr_models.ts",
     "./ocr-cache": "./src/common/ocr_cache.ts",

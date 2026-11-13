@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
+import { dataSaverActive, useDataSaver } from '../lib/dataSaver';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
 import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
 import { WebBusinessCache } from '../components/WebBusinessCache';
@@ -2673,6 +2674,7 @@ function MainWorkspace(): ReactElement {
         ),
       version: () => dbRevisionRef.current,
       canPrefetch: (target) =>
+        (!IS_WEB || !dataSaverActive() || useDataSaver.getState().behavior.dataSaverPrefetch) &&
         conversationWindows.canPrefetch(
           conversationWindowKey(messageScope, target.kind, target.conv),
         ),

@@ -82,6 +82,13 @@ import { createExportWriter } from './stream_utils';
 import { MessageAudit, type MessageCoverage } from './message_audit';
 import { exportReport, exportReportHtml, supportsExportReport } from './export_report';
 import { exportOptionsHash, fileSha256, roamingDigest, messageSelectionHash } from './resume';
+import { networkScope, transferBehavior } from '../../common/network_scope';
+import {
+  transferRestricted,
+  transferCanResume,
+  transferOwner,
+  watchTransferPolicy,
+} from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
 import { findExportBaseline, listExportBaselines } from './baseline';
 import { prepareDirectOutput, type DirectOutput } from './direct_output';
@@ -357,6 +364,9 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  networkClientId?: string;
+  networkPaused?: boolean;
+  networkOverride?: boolean;
   /** 自动调度等后台任务保留记录，但不在创建时展开任务列表。 */
   autoOpenTaskList?: boolean;
   content?: ExportContentPolicy;
@@ -376,6 +386,7 @@ export interface ExportTask {
   includeIntegrityReport?: boolean;
   /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
   resource?: {
+    networkTransfer?: { batch?: boolean; bytes?: number };
     kind:
       | 'group-albums'
       | 'group-files'
@@ -637,6 +648,7 @@ export class ExportTaskManager extends EventEmitter {
   private queue: Promise<void> = Promise.resolve();
   private persistPath: string;
   private outputSaves = new Map<string, Promise<string>>();
+  private networkRunners = new Map<string, () => Promise<void>>();
 
   constructor(
     private msgs: MsgService,
@@ -647,6 +659,12 @@ export class ExportTaskManager extends EventEmitter {
     super();
     this.persistPath = join(cacheDir, 'export_tasks.json');
     this.loadTasks();
+    const weak = new WeakRef(this);
+    const unwatch = watchTransferPolicy(() => {
+      const owner = weak.deref();
+      if (owner) owner.applyNetworkPolicy();
+      else unwatch();
+    });
     queueMicrotask(() => {
       for (const task of this.tasks.values()) {
         if (task.status === 'completed' && task.save?.status === 'pending')
@@ -679,6 +697,7 @@ export class ExportTaskManager extends EventEmitter {
             error: t.save.status === 'saved' ? undefined : '请重新选择保存位置。',
           };
         }
+        t.networkOverride = false;
         if (t.status === 'running' || t.status === 'pending') {
           t.status = 'paused'; // crashed or queued tasks require explicit continuation
           if (t.resource)
@@ -791,8 +810,91 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   /** 排队执行一个任务运行器（并发 1；异常吞掉，由 runXTask 内部 catch 处理）。 */
-  private enqueue(run: () => Promise<void>): void {
-    this.queue = this.queue.then(run).catch(() => undefined);
+  private enqueue(run: () => Promise<void>, id: string): void {
+    this.queue = this.queue
+      .then(() => {
+        const task = this.tasks.get(id);
+        return networkScope.run(
+          {
+            clientId: task?.networkClientId,
+            restricted: transferRestricted(task?.networkClientId),
+            intent: task?.networkOverride ? 'interactive' : 'batch',
+            override: task?.networkOverride,
+          },
+          run,
+        );
+      })
+      .catch(() => undefined);
+  }
+
+  private networkTask(task: ExportTask): boolean {
+    const behavior = transferBehavior();
+    const media = task.media;
+    const resource = task.resource;
+    const network = resource?.networkTransfer;
+    return Boolean(
+      (behavior.dataSaverPauseBatch &&
+        (task.qzone ||
+          task.collection ||
+          task.marketpack ||
+          task.completeAvatar ||
+          media?.completeMedia ||
+          media?.completeMessages ||
+          media?.completeDress ||
+          media?.onlineTranscribe)) ||
+        (network
+          ? (network.batch && behavior.dataSaverPauseBatch) ||
+            (behavior.dataSaverPauseLarge &&
+              (network.bytes ?? 0) >= behavior.dataSaverLargeMiB * 1024 * 1024)
+          : behavior.dataSaverPauseBatch &&
+            resource &&
+            (['group-albums', 'qzone-albums', 'mail-messages'].includes(resource.kind) ||
+              (resource.kind === 'group-files' && !resource.output))),
+    );
+  }
+
+  private deferForNetwork(id: string): boolean {
+    const task = this.tasks.get(id);
+    if (
+      !task ||
+      !this.networkTask(task) ||
+      task.networkOverride ||
+      !transferRestricted(task.networkClientId)
+    )
+      return false;
+    if (task.status === 'running') this.pauseTask(id);
+    if (task.status === 'pending') task.status = 'paused';
+    if (task.status === 'paused') {
+      task.networkPaused = true;
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: 'paused',
+        progress: task.progress,
+        current: task.current,
+        message: transferBehavior().dataSaverAutoResume
+          ? '省流量模式已暂停，限制解除后自动继续'
+          : '省流量模式已暂停，请手动继续',
+      });
+    }
+    return true;
+  }
+
+  private applyNetworkPolicy() {
+    for (const task of this.tasks.values()) {
+      if (
+        task.networkPaused &&
+        transferBehavior().dataSaverAutoResume &&
+        (!this.networkTask(task) || transferCanResume(task.networkClientId))
+      ) {
+        this.resumeTask(task.id, false, true);
+      } else if (
+        (task.status === 'running' || task.status === 'pending') &&
+        !task.networkOverride
+      ) {
+        this.deferForNetwork(task.id);
+      }
+    }
   }
 
   override emit(event: 'progress', data: TaskProgress): boolean {
@@ -804,6 +906,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   private registerTask(task: ExportTask, policy?: ExportSavePolicy): void {
+    task.networkClientId = transferOwner();
     const resolved = copyExportSavePolicy(
       policy ?? this.deps.exportSavePolicy?.() ?? { mode: 'before' },
     );
@@ -1036,7 +1139,11 @@ export class ExportTaskManager extends EventEmitter {
           ...(canResume
             ? {
                 resumeMode:
-                  task.contacts || task.generated || task.qzone || task.collection
+                  task.contacts ||
+                  task.generated ||
+                  task.qzone ||
+                  task.collection ||
+                  this.networkRunners.has(task.id)
                     ? 'restart'
                     : 'checkpoint',
               }
@@ -1287,7 +1394,7 @@ export class ExportTaskManager extends EventEmitter {
       this.registerTask(task, opts.savePolicy);
       this.log(id, 'task', `任务已创建：本地生成对话「${opts.name}」`);
       this.saveTasks();
-      this.enqueue(() => this.runGeneratedTask(id));
+      this.enqueue(() => this.runGeneratedTask(id), id);
       return id;
     }
 
@@ -1315,7 +1422,7 @@ export class ExportTaskManager extends EventEmitter {
       this.registerTask(colTask, opts.savePolicy);
       this.log(id, 'task', `任务已创建：导出收藏「${opts.name}」（${opts.format}）`);
       this.saveTasks();
-      this.enqueue(() => this.runCollectionTask(id));
+      this.enqueue(() => this.runCollectionTask(id), id);
       return id;
     }
 
@@ -1360,7 +1467,7 @@ export class ExportTaskManager extends EventEmitter {
       this.registerTask(cTask, opts.savePolicy);
       this.log(id, 'task', `任务已创建：导出联系人「${opts.name}」（${opts.format}）`);
       this.saveTasks();
-      this.enqueue(() => this.runContactsTask(id));
+      this.enqueue(() => this.runContactsTask(id), id);
       return id;
     }
 
@@ -1400,7 +1507,7 @@ export class ExportTaskManager extends EventEmitter {
       this.registerTask(qTask, opts.savePolicy);
       this.log(id, 'task', `任务已创建：导出 QQ 空间「${opts.name}」（${opts.format}）`);
       this.saveTasks();
-      this.enqueue(() => this.runQzoneTask(id));
+      this.enqueue(() => this.runQzoneTask(id), id);
       return id;
     }
 
@@ -1545,7 +1652,7 @@ export class ExportTaskManager extends EventEmitter {
     this.registerTask(task, opts.savePolicy);
     this.log(id, 'task', `任务已创建：导出「${opts.name}」（${opts.format}）`);
     this.saveTasks();
-    this.enqueue(() => this.runTask(id));
+    this.enqueue(() => this.runTask(id), id);
     return id;
   }
 
@@ -1579,12 +1686,14 @@ export class ExportTaskManager extends EventEmitter {
     this.registerTask(task, savePolicy);
     this.log(id, 'task', `任务已创建：商城表情下载 ${packs.length} 套`);
     this.saveTasks();
-    this.enqueue(() => this.runMarketPackTask(id));
+    this.networkRunners.set(id, () => this.runMarketPackTask(id));
+    this.enqueue(this.networkRunners.get(id)!, id);
     return id;
   }
 
   /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
   async startResourceExport(opts: {
+    networkTransfer?: { batch?: boolean; bytes?: number };
     archive?: ArchiveOptions;
     name: string;
     includeIntegrityReport?: boolean;
@@ -1619,6 +1728,7 @@ export class ExportTaskManager extends EventEmitter {
       name: opts.name,
       format: opts.archive?.formats?.[0] ?? 'json',
       resource: {
+        networkTransfer: opts.networkTransfer,
         kind: opts.kind,
         ...(output ? { output } : {}),
         ...(opts.sourceKey ? { sourceKey: opts.sourceKey } : {}),
@@ -1657,7 +1767,8 @@ export class ExportTaskManager extends EventEmitter {
     this.log(id, 'task', `资源任务已创建：${task.name}`);
     this.saveTasks();
     const run = opts.run;
-    this.enqueue(() => this.runResourceTask(task, run, opts.onPublished));
+    this.networkRunners.set(id, () => this.runResourceTask(task, run, opts.onPublished));
+    this.enqueue(this.networkRunners.get(id)!, id);
     return id;
   }
 
@@ -1666,6 +1777,7 @@ export class ExportTaskManager extends EventEmitter {
     run: (context: ResourceExportRunContext) => Promise<ResourceExportSummary>,
     onPublished?: (directory: string) => void,
   ): Promise<void> {
+    if (this.deferForNetwork(task.id)) return;
     if (this.tasks.get(task.id) !== task || task.status !== 'pending') return;
     const abort = new AbortController();
     this.abortControllers.set(task.id, abort);
@@ -1847,7 +1959,8 @@ export class ExportTaskManager extends EventEmitter {
     this.registerTask(task, savePolicy);
     this.log(id, 'task', `任务已创建：导出表情包（${name}）`);
     this.saveTasks();
-    this.enqueue(() => this.runEmojiPackTask(id));
+    this.networkRunners.set(id, () => this.runEmojiPackTask(id));
+    this.enqueue(this.networkRunners.get(id)!, id);
     return id;
   }
 
@@ -2042,6 +2155,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   private async runTask(id: string): Promise<void> {
+    if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
 
@@ -3763,6 +3877,7 @@ export class ExportTaskManager extends EventEmitter {
    * `deps.qzone`。含 html 格式时强制下载配图。
    */
   private async runQzoneTask(id: string): Promise<void> {
+    if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
 
@@ -4047,6 +4162,7 @@ export class ExportTaskManager extends EventEmitter {
    * `contacts.scope==='group'` 时 `conv` 为群号，拉取能力走注入的 `deps.contacts`。
    */
   private async runContactsTask(id: string): Promise<void> {
+    if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
 
@@ -4323,6 +4439,7 @@ export class ExportTaskManager extends EventEmitter {
 
   /** 只写任务创建时的生成记录快照，不回读模型或真实 QQ 消息源。 */
   private async runGeneratedTask(id: string): Promise<void> {
+    if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task?.generated || task.status === 'cancelled') return;
     task.status = 'running';
@@ -4511,6 +4628,7 @@ export class ExportTaskManager extends EventEmitter {
 
   /** 收藏独立读取、写表，不复用聊天消息源。 */
   private async runCollectionTask(id: string): Promise<void> {
+    if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
 
@@ -4652,6 +4770,7 @@ export class ExportTaskManager extends EventEmitter {
    * `deps.marketpack`（桥接 EmojiService）。单 `sticker` 阶段跨所有包累计进度。
    */
   private async runMarketPackTask(id: string): Promise<void> {
+    if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
 
@@ -4825,6 +4944,7 @@ export class ExportTaskManager extends EventEmitter {
    * 所有来源共用一个 bundle 目录，各自一个子文件夹。
    */
   private async runEmojiPackTask(id: string): Promise<void> {
+    if (this.deferForNetwork(id)) return;
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
 
@@ -5763,7 +5883,14 @@ export class ExportTaskManager extends EventEmitter {
 
   pauseTask(id: string): boolean {
     const task = this.tasks.get(id);
+    if (task?.status === 'paused' && task.networkPaused) {
+      task.networkPaused = false;
+      this.saveTasks();
+      return true;
+    }
     if (task?.status !== 'running') return false;
+    task.networkPaused = false;
+    task.networkOverride = false;
     this.abortControllers.get(id)?.abort();
     task.status = 'paused';
     task.updatedAt = Date.now();
@@ -5789,6 +5916,8 @@ export class ExportTaskManager extends EventEmitter {
 
   private canResume(task: ExportTask): boolean {
     if (this.finalizing.has(task.id) || this.outputSaves.has(task.id)) return false;
+    if (task.networkPaused && this.networkRunners.has(task.id))
+      return task.status === 'paused' && !this.abortControllers.has(task.id);
     if (
       task.generated &&
       task.status === 'completed' &&
@@ -5933,7 +6062,7 @@ export class ExportTaskManager extends EventEmitter {
     );
   }
 
-  resumeTask(id: string, incremental = false): boolean {
+  resumeTask(id: string, incremental = false, automatic = false): boolean {
     const task = this.tasks.get(id);
     if (
       !task ||
@@ -5942,6 +6071,16 @@ export class ExportTaskManager extends EventEmitter {
         !this.canResume(task))
     )
       return false;
+    task.networkPaused = false;
+    if (!automatic) task.networkOverride = true;
+    const networkRunner = this.networkRunners.get(id);
+    if (networkRunner) {
+      task.status = 'pending';
+      task.error = undefined;
+      this.saveTasks();
+      this.enqueue(networkRunner, id);
+      return true;
+    }
     if (
       task.generated &&
       task.status === 'completed' &&
@@ -6073,16 +6212,18 @@ export class ExportTaskManager extends EventEmitter {
       }
     }
     this.saveTasks();
-    this.enqueue(() =>
-      task.generated
-        ? this.runGeneratedTask(id)
-        : task.qzone
-          ? this.runQzoneTask(id)
-          : task.contacts
-            ? this.runContactsTask(id)
-            : task.collection
-              ? this.runCollectionTask(id)
-              : this.runTask(id),
+    this.enqueue(
+      () =>
+        task.generated
+          ? this.runGeneratedTask(id)
+          : task.qzone
+            ? this.runQzoneTask(id)
+            : task.contacts
+              ? this.runContactsTask(id)
+              : task.collection
+                ? this.runCollectionTask(id)
+                : this.runTask(id),
+      id,
     );
     return true;
   }
