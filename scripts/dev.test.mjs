@@ -319,7 +319,8 @@ const path = require('node:path');
 const arg = process.env.WEQ_BOT_METAFILE;
 require('node:assert/strict').equal(process.argv.length, 2);
 require('node:assert/strict').equal(path.basename(arg ?? ''), 'bot-meta.json');
-require('node:assert/strict').equal(fs.realpathSync(path.dirname(arg)), fs.realpathSync('.weq-dev'));
+// Windows TEMP 可能使用 8.3 短路径，普通 realpathSync 不会统一长短别名。
+require('node:assert/strict').equal(fs.realpathSync.native(path.dirname(arg)), fs.realpathSync.native('.weq-dev'));
 fs.mkdirSync('resources/bot-runtime', { recursive: true });
 fs.writeFileSync('resources/bot-runtime/bot.mjs', 'fixture');
 fs.writeFileSync(arg, JSON.stringify({ inputs: { 'entry.js': {} } }));
