@@ -50,14 +50,23 @@ const server = await createServer({
     fs: { allow: [resolve(root, '../..')] },
   },
 });
-// 合成素材的圆孔与主页的 58 / 152 头像比例一致，不依赖网络或真实账号。
+// QQ 装扮页 widget-face 使用 scale(.6)，custom-widget 占满同一舞台。
+// 来源：https://zb.vip.qq.com/v2/pages/aioDressPage 的 widget-cube 样式。
+// 合成圆孔遵循上游比例，不从待测 CSS 反推，避免与实现共享错误前提。
 const widget = process.env.WEQ_CONTACT_PENDANT_IMAGE
   ? await readFile(process.env.WEQ_CONTACT_PENDANT_IMAGE)
   : await sharp(
       Buffer.from(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="430" height="430"><circle cx="215" cy="215" r="92" fill="none" stroke="#e04a70" stroke-width="18"/><path d="M310 90L350 130L310 170L270 130Z" fill="#21a38b"/></svg>',
+        '<svg xmlns="http://www.w3.org/2000/svg" width="430" height="430"><circle cx="215" cy="215" r="138" fill="none" stroke="#e04a70" stroke-width="18"/><path d="M310 90L350 130L310 170L270 130Z" fill="#21a38b"/></svg>',
       ),
     )
+      .png()
+      .toBuffer();
+const avatarImage = process.env.WEQ_CONTACT_PENDANT_AVATAR
+  ? await readFile(process.env.WEQ_CONTACT_PENDANT_AVATAR)
+  : await sharp({
+      create: { width: 100, height: 100, channels: 4, background: '#85b9a2' },
+    })
       .png()
       .toBuffer();
 let browser;
@@ -83,6 +92,9 @@ try {
       return route.fulfill({ status: 404, body: '' });
     return route.fulfill({ contentType: 'image/png', body: widget });
   });
+  await page.route('**/resources/qqlevel/penguin.png', (route) =>
+    route.fulfill({ contentType: 'image/png', body: avatarImage }),
+  );
   if (output) await mkdir(output, { recursive: true });
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-card.html`;
   let cases = 0;
@@ -118,6 +130,7 @@ try {
           });
           if (variant === 'pendant')
             await button.locator('.weq-contact-pendant').evaluate((image) => image.decode());
+          await button.locator('.avatar img').evaluate((image) => image.decode());
           if (variant === 'broken') {
             await page.waitForFunction(() =>
               window.contactCardQa.calls.some((call) => call.path === 'account.dressup.peerHome'),
@@ -144,6 +157,19 @@ try {
             };
           });
           const label = `${width}/${theme}/${variant}/${surface}`;
+          if (output) {
+            await page.screenshot({ path: resolve(output, `${label.replaceAll('/', '-')}.png`) });
+            if (layout.art)
+              await page.screenshot({
+                path: resolve(output, `${label.replaceAll('/', '-')}-avatar.png`),
+                clip: {
+                  x: layout.art.x - 4,
+                  y: layout.art.y - 4,
+                  width: layout.art.width + 8,
+                  height: layout.art.height + 8,
+                },
+              });
+          }
           assert.equal(layout.overflow, false, `${label}: 横向溢出`);
           assert.equal(layout.button.width, 64, `${label}: 按钮占位变化`);
           if (variant === 'pendant') {
@@ -152,7 +178,7 @@ try {
             if (layout.imageRadius)
               assert.equal(layout.imageRadius, '50%', `${label}: 图片不是圆形`);
             assert.ok(
-              Math.abs(layout.art.width / layout.avatar.width - 152 / 58) < 0.02,
+              Math.abs(layout.avatar.width / layout.art.width - 0.6) < 0.01,
               `${label}: 挂件与头像比例不匹配`,
             );
             for (const axis of ['x', 'y']) {
@@ -176,8 +202,6 @@ try {
             assert.equal(layout.avatar.width, 64, `${label}: 普通头像尺寸变化`);
             assert.equal(layout.radius, '14px', `${label}: 普通头像形状变化`);
           }
-          if (output)
-            await page.screenshot({ path: resolve(output, `${label.replaceAll('/', '-')}.png`) });
           cases++;
         }
       }

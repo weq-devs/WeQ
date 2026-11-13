@@ -247,7 +247,8 @@
   pointer-events: none;
 }
 
-/* 与个性主页使用同一素材比例：头像占舞台 58%，挂件占 152%，两者同心。 */
+/* 挂件预览与 QQ 装扮页一致：头像直径为挂件图片的 60%，两者同心。
+ * 挂件占按钮的 152%，头像也按这个尺寸换算，不能套用主页的特殊缩放。 */
 .weq-contact-identity .weq-profile-avatar:has(.weq-contact-pendant) {
   display: inline-grid;
   place-items: center;
@@ -257,8 +258,8 @@
 }
 
 .weq-contact-identity .weq-profile-avatar:has(.weq-contact-pendant) .avatar {
-  width: 58%;
-  height: 58%;
+  width: calc(152% * 0.6);
+  height: calc(152% * 0.6);
   border-radius: 50%;
 }
 
