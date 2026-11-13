@@ -71,15 +71,17 @@ export function MediaPreview(options: MediaPreviewOptions) {
   const [older, setOlder] = useState(options.hasOlder ?? false);
   const [newer, setNewer] = useState(options.hasNewer ?? false);
   const [pending, setPending] = useState<'older' | 'newer' | null>(null);
-  const [pageError, setPageError] = useState<'older' | 'newer' | null>(null);
+  const [pageErrors, setPageErrors] = useState<Array<'older' | 'newer'>>([]);
   const [pageNotice, setPageNotice] = useState('');
   const live = useRef(true);
   const pageRequest = useRef(0);
+  const pageLoading = useRef(new Map<'older' | 'newer', number>());
   useEffect(() => {
     live.current = true;
     return () => {
       live.current = false;
       pageRequest.current++;
+      pageLoading.current.clear();
     };
   }, []);
   useEffect(() => {
@@ -117,6 +119,55 @@ export function MediaPreview(options: MediaPreviewOptions) {
       },
     };
   }, [originalItem]);
+  const readPage = useCallback(
+    async (direction: 'older' | 'newer', navigate: boolean) => {
+      if (
+        !options.loadPage ||
+        pageLoading.current.has(direction) ||
+        (navigate && pageLoading.current.size > 0)
+      )
+        return;
+      const request = pageRequest.current;
+      pageLoading.current.set(direction, request);
+      if (navigate) setPending(direction);
+      setPageErrors((previous) => previous.filter((entry) => entry !== direction));
+      try {
+        const page = await options.loadPage(direction);
+        if (!live.current || request !== pageRequest.current) return;
+        const additions = page.items.filter((entry) => !items.some((old) => old.key === entry.key));
+        setItems((previous) =>
+          direction === 'older'
+            ? mergePreviewMedia(additions, previous)
+            : mergePreviewMedia(previous, additions),
+        );
+        (direction === 'older' ? setOlder : setNewer)(page.hasMore);
+        if (navigate) {
+          const next = direction === 'older' ? additions.at(-1) : additions[0];
+          if (next) setKey(next.key);
+          else
+            setPageNotice(
+              page.hasMore
+                ? `本批没有新媒体，仍可继续查找${direction === 'older' ? '更早' : '更新'}的媒体`
+                : `没有${direction === 'older' ? '更早' : '更新'}的媒体`,
+            );
+        }
+      } catch {
+        if (live.current && request === pageRequest.current)
+          setPageErrors((previous) => [...previous, direction]);
+      } finally {
+        if (pageLoading.current.get(direction) === request) pageLoading.current.delete(direction);
+        if (navigate && live.current && request === pageRequest.current) setPending(null);
+      }
+    },
+    [items, options.loadPage],
+  );
+  useEffect(() => {
+    if (!options.prefetchAdjacent || currentIndex < 0) return;
+    // 提前准备邻项，空批次沿游标继续；未知或已到头的方向不冒充可点击媒体。
+    if (currentIndex <= 1 && older && !pageErrors.includes('older')) void readPage('older', false);
+    if (currentIndex >= items.length - 2 && newer && !pageErrors.includes('newer'))
+      void readPage('newer', false);
+  }, [options.prefetchAdjacent, currentIndex, items.length, older, newer, pageErrors, readPage]);
   async function move(direction: 'older' | 'newer') {
     if (pending) return;
     setPageNotice('');
@@ -125,37 +176,12 @@ export function MediaPreview(options: MediaPreviewOptions) {
       setKey(adjacent.key);
       return;
     }
-    if (!options.loadPage || !(direction === 'older' ? older : newer)) return;
-    const request = ++pageRequest.current;
-    setPending(direction);
-    setPageError(null);
-    try {
-      const page = await options.loadPage(direction);
-      if (!live.current || request !== pageRequest.current) return;
-      const additions = page.items.filter((entry) => !items.some((old) => old.key === entry.key));
-      setItems((previous) =>
-        direction === 'older'
-          ? mergePreviewMedia(additions, previous)
-          : mergePreviewMedia(previous, additions),
-      );
-      (direction === 'older' ? setOlder : setNewer)(page.hasMore);
-      const next = direction === 'older' ? additions.at(-1) : additions[0];
-      if (next) setKey(next.key);
-      else
-        setPageNotice(
-          page.hasMore
-            ? `本批没有新媒体，仍可继续查找${direction === 'older' ? '更早' : '更新'}的媒体`
-            : `没有${direction === 'older' ? '更早' : '更新'}的媒体`,
-        );
-    } catch {
-      if (live.current && request === pageRequest.current) setPageError(direction);
-    } finally {
-      if (live.current && request === pageRequest.current) setPending(null);
-    }
+    if (options.prefetchAdjacent || !(direction === 'older' ? older : newer)) return;
+    await readPage(direction, true);
   }
   const close = useCallback(() => onClose(), [onClose]);
   if (!item) return null;
-  const multi = items.length > 1 || older || newer;
+  const multi = items.length > 1 || older || newer || options.prefetchAdjacent;
   return (
     <RenderDocumentContext.Provider value={ownerDocument}>
       <MediaPreviewItem
@@ -173,22 +199,26 @@ export function MediaPreview(options: MediaPreviewOptions) {
           </>
         }
         onMove={multi ? (direction) => void move(direction) : undefined}
-        canOlder={!pending && (currentIndex > 0 || older)}
-        canNewer={!pending && (currentIndex < items.length - 1 || newer)}
+        canOlder={!pending && (currentIndex > 0 || (!options.prefetchAdjacent && older))}
+        canNewer={
+          !pending && (currentIndex < items.length - 1 || (!options.prefetchAdjacent && newer))
+        }
         business={
           <>
             {pending ? <p role="status">正在加载更多媒体…</p> : null}
             {!pending && pageNotice ? <p role="status">{pageNotice}</p> : null}
-            {pageError ? (
+            {pageErrors.map((direction) => (
               <button
+                key={direction}
                 type="button"
                 className="weq-lightbox-action"
-                onClick={() => void move(pageError)}
+                aria-label={`重试加载${direction === 'older' ? '更早' : '更新'}的媒体`}
+                onClick={() => void readPage(direction, !options.prefetchAdjacent)}
               >
                 <RotateCw size={16} />
                 加载失败，重试
               </button>
-            ) : null}
+            ))}
             {options.renderActions?.(item)}
           </>
         }

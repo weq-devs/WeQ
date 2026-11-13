@@ -18,6 +18,7 @@ import '../../src/renderer/src/lib/inputModality';
 
 ensureThemeInitialized();
 Object.assign(window, { mediaTheme: useThemeStore });
+const emptyPreviewPage = async () => ({ items: [], hasMore: false });
 function View() {
   const [gallery, setGallery] = useState<PreviewMedia[] | null>(null);
   return (
@@ -147,6 +148,10 @@ function View() {
       {gallery ? (
         <MediaPreview
           items={gallery}
+          hasOlder
+          hasNewer
+          prefetchAdjacent
+          loadPage={emptyPreviewPage}
           onClose={() => setGallery(null)}
           renderActions={() => (
             <>

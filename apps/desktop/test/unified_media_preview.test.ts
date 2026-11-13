@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
@@ -164,6 +164,118 @@ it('稀疏空页继续前进，分页错误可以原地重试', async () => {
   expect(document.querySelector('video')).not.toBeNull();
   expect(page).toHaveBeenCalledTimes(3);
 });
+it('聊天首尾在点击前置灰，后台越过空媒体页且不切换当前项', async () => {
+  let finish!: (value: { items: PreviewMedia[]; hasMore: boolean }) => void;
+  const page = vi.fn((direction: 'older' | 'newer') =>
+    direction === 'older'
+      ? Promise.resolve({ items: [], hasMore: false })
+      : new Promise<{ items: PreviewMedia[]; hasMore: boolean }>((resolve) => {
+          finish = resolve;
+        }),
+  );
+  await act(async () =>
+    root.render(
+      h(MediaPreview, {
+        items: [items[0]!],
+        hasOlder: true,
+        hasNewer: true,
+        prefetchAdjacent: true,
+        loadPage: page,
+        onClose: vi.fn(),
+      }),
+    ),
+  );
+  expect(button('上一项媒体').disabled).toBe(true);
+  expect(button('下一项媒体').disabled).toBe(true);
+  key('ArrowRight');
+  expect(page).toHaveBeenCalledTimes(2);
+  await act(async () => finish({ items: [], hasMore: true }));
+  expect(page).toHaveBeenCalledTimes(3);
+  expect(button('下一项媒体').disabled).toBe(true);
+  await act(async () => finish({ items: [items[1]!], hasMore: false }));
+  expect(document.querySelector('img')?.src).toBe(items[0]!.src);
+  expect(button('下一项媒体').disabled).toBe(false);
+  act(() => button('下一项媒体').click());
+  expect(document.querySelector('video')?.src).toBe(items[1]!.src);
+  expect(button('下一项媒体').disabled).toBe(true);
+  expect(button('上一项媒体').disabled).toBe(false);
+  key('ArrowRight');
+  expect(page).toHaveBeenCalledTimes(3);
+  expect(document.querySelector('.weq-preview-business')?.textContent).not.toContain('没有');
+  await act(async () =>
+    root.render(
+      h(MediaPreview, {
+        items: [items[0]!, items[1]!, items[2]!],
+        hasOlder: true,
+        hasNewer: true,
+        prefetchAdjacent: true,
+        loadPage: page,
+        onClose: vi.fn(),
+      }),
+    ),
+  );
+  expect(button('下一项媒体').disabled).toBe(false);
+  expect(document.querySelector('video')?.src).toBe(items[1]!.src);
+  act(() => button('下一项媒体').click());
+  expect(document.querySelector('img')?.src).toBe(items[2]!.src);
+  expect(button('下一项媒体').disabled).toBe(true);
+  expect(page).toHaveBeenCalledTimes(3);
+});
+it('相邻媒体后台读取失败可重试，重试不移动当前项', async () => {
+  const page = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('fixture'))
+    .mockResolvedValueOnce({ items: [items[1]!], hasMore: false });
+  await act(async () =>
+    root.render(
+      h(MediaPreview, {
+        items: [items[0]!],
+        hasNewer: true,
+        prefetchAdjacent: true,
+        loadPage: page,
+        onClose: vi.fn(),
+      }),
+    ),
+  );
+  expect(button('下一项媒体').disabled).toBe(true);
+  expect(page).toHaveBeenCalledTimes(1);
+  const retry = [...document.querySelectorAll('button')].find((item) =>
+    item.textContent?.includes('加载失败'),
+  )!;
+  await act(async () => retry.click());
+  expect(document.querySelector('img')?.src).toBe(items[0]!.src);
+  expect(button('下一项媒体').disabled).toBe(false);
+  expect(page).toHaveBeenCalledTimes(2);
+});
+it('开发严格模式的迟到分页不覆盖当前边界，关闭后不再继续读空页', async () => {
+  const finish: Array<(value: { items: PreviewMedia[]; hasMore: boolean }) => void> = [];
+  const page = vi.fn(
+    () =>
+      new Promise<{ items: PreviewMedia[]; hasMore: boolean }>((resolve) => finish.push(resolve)),
+  );
+  await act(async () =>
+    root.render(
+      h(
+        StrictMode,
+        null,
+        h(MediaPreview, {
+          items: [items[0]!],
+          hasNewer: true,
+          prefetchAdjacent: true,
+          loadPage: page,
+          onClose: vi.fn(),
+        }),
+      ),
+    ),
+  );
+  expect(page).toHaveBeenCalledTimes(2);
+  await act(async () => finish[0]!({ items: [items[1]!], hasMore: true }));
+  expect(button('下一项媒体').disabled).toBe(true);
+  await act(async () => root.render(null));
+  await act(async () => finish[1]!({ items: [], hasMore: true }));
+  expect(page).toHaveBeenCalledTimes(2);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
 it('同文档图片和视频预览互相替换', () => {
   act(() => root.render(h(MediaPreviewHost)));
   act(() =>
@@ -323,11 +435,14 @@ it('真实消息渲染入口接入混排、双向分页、实时追加和账号�
       elements: [{ type: 'video', data: { fileToken: 'video', fileName: 'video.webm' } }],
     },
   ];
-  mocks.page.mockResolvedValue({
-    items: [{ msgId: '1', msgSeq: '1', sendTime: '1', elements: [picture] }],
+  mocks.page.mockImplementation(async ({ direction }: { direction: 'older' | 'newer' }) => ({
+    items:
+      direction === 'older'
+        ? [{ msgId: '1', msgSeq: '1', sendTime: '1', elements: [picture] }]
+        : [],
     hasMore: false,
     cursor: { msgSeq: '1', sendTime: '1', msgId: '1' },
-  });
+  }));
   const scene = (entries: typeof messages) =>
     h(
       'div',
@@ -356,7 +471,7 @@ it('真实消息渲染入口接入混排、双向分页、实时追加和账号�
     '[aria-label="查看图片：fixture.png"]',
   )!;
   await act(async () => trigger.click());
-  expect(document.querySelector('.weq-preview-count')?.textContent).toContain('1 / 2');
+  expect(document.querySelector('.weq-preview-count')?.textContent).toContain('2 / 3');
   await act(async () => button('上一项媒体').click());
   expect(mocks.page.mock.calls[0]![0]).toMatchObject({
     conv: 'u_peer',
@@ -365,15 +480,23 @@ it('真实消息渲染入口接入混排、双向分页、实时追加和账号�
     expectedAccountConfigId: 'fixture-a',
   });
   expect(document.querySelector('.weq-preview-count')?.textContent).toContain('1 / 3');
+  expect(button('上一项媒体').disabled).toBe(true);
   await act(async () =>
     root.render(
-      scene([...messages, { msgId: '30', msgSeq: '30', sendTime: '30', elements: [picture] }]),
+      scene([
+        { msgId: '0', msgSeq: '0', sendTime: '0', elements: [picture] },
+        ...messages,
+        { msgId: '30', msgSeq: '30', sendTime: '30', elements: [picture] },
+      ]),
     ),
   );
-  expect(document.querySelector('.weq-preview-count')?.textContent).toContain('1 / 4');
+  expect(document.querySelector('.weq-preview-count')?.textContent).toContain('2 / 5');
+  expect(button('上一项媒体').disabled).toBe(false);
   await act(async () => button('下一项媒体').click());
   await act(async () => button('下一项媒体').click());
   expect(document.querySelector('.weq-unified-preview video')).not.toBeNull();
+  await act(async () => button('下一项媒体').click());
+  expect(button('下一项媒体').disabled).toBe(true);
   mocks.configId = 'fixture-b';
   await act(async () => root.render(scene(messages)));
   expect(document.querySelector('[role="dialog"]')).toBeNull();

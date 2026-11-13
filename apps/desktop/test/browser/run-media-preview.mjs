@@ -214,6 +214,14 @@ try {
       await page.getByRole('button', { name: '打开混排', exact: true }).click();
       await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
       assert.equal(await page.locator('.weq-preview-count').textContent(), '1 / 2');
+      assert.equal(
+        await page.getByRole('button', { name: '上一项媒体', exact: true }).isDisabled(),
+        true,
+      );
+      assert.equal(
+        await page.getByRole('button', { name: '下一项媒体', exact: true }).isEnabled(),
+        true,
+      );
       const viewport = await page.locator('.weq-preview-viewport').boundingBox();
       await page.mouse.click(viewport.x + 5, viewport.y + 10);
       assert.equal(await page.getByRole('dialog').count(), 1);
@@ -222,6 +230,13 @@ try {
         () => document.querySelector('.weq-unified-preview video')?.readyState >= 2,
       );
       assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 2');
+      assert.equal(
+        await page.getByRole('button', { name: '下一项媒体', exact: true }).isDisabled(),
+        true,
+      );
+      await page.keyboard.press('ArrowRight');
+      assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 2');
+      assert.equal(await page.getByText('没有更新的媒体', { exact: true }).count(), 0);
       const comment = page.getByRole('textbox', { name: '媒体评论' });
       await comment.focus();
       await page.keyboard.press('ArrowLeft');
@@ -231,11 +246,20 @@ try {
         () => document.querySelector('.weq-preview-count')?.textContent === '2 / 3',
       );
       assert.equal(await page.locator('.weq-preview-count').textContent(), '2 / 3');
+      assert.equal(
+        await page.getByRole('button', { name: '下一项媒体', exact: true }).isEnabled(),
+        true,
+      );
       await fits();
       if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-mixed.png`) });
       await page.getByRole('button', { name: '下一项媒体', exact: true }).click();
       await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
       assert.equal(await page.locator('.weq-preview-count').textContent(), '3 / 3');
+      const next = page.getByRole('button', { name: '下一项媒体', exact: true });
+      assert.equal(await next.isDisabled(), true);
+      assert.equal(await next.evaluate((el) => getComputedStyle(el).opacity), '0.3');
+      if (output)
+        await page.screenshot({ path: resolve(output, `${theme}-${width}-boundary.png`) });
       await close();
       await page.getByRole('button', { name: '打开表情包', exact: true }).click();
       await page.locator('.weq-mface-lb-cell').click();

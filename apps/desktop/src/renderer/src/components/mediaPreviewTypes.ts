@@ -41,6 +41,7 @@ export interface MediaPreviewOptions {
   onClose: () => void;
   renderActions?: (item: PreviewMedia) => ReactNode;
   loadPage?: (direction: 'older' | 'newer') => Promise<PreviewPage>;
+  prefetchAdjacent?: boolean;
   hasOlder?: boolean;
   hasNewer?: boolean;
 }

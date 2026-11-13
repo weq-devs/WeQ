@@ -185,6 +185,7 @@ export function ChatMediaGallery({
         },
         hasOlder: canPage,
         hasNewer: canPage,
+        prefetchAdjacent: canPage,
         loadPage:
           canPage && binding
             ? async (direction) => {
