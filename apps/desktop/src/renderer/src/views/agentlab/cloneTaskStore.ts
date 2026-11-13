@@ -87,8 +87,10 @@ function ensureProgressSub(): void {
   const sub = client.account.onAgentLabBuildProgress.subscribe(undefined, {
     onData: (p: AgentLabBuildProgress) => {
       if (p.error) return;
+      if (!p.output)
+        pending = pending.filter((event) => event.output || event.personaId !== p.personaId);
       pending.push(p);
-      if (p.output?.status !== 'running') flush();
+      if (p.done || (p.output && p.output.status !== 'running')) flush();
       else timer ??= setTimeout(flush, 80);
     },
     onError: () => {

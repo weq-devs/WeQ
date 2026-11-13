@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import type { C2cMsg } from '@weq/db';
-import { AgentLabStore, GROUP_SUPPLEMENT_THRESHOLD } from '@weq/agentlab';
-import { AgentLabService } from '../src/account/agentlab';
+import { AgentLabStore, GROUP_SUPPLEMENT_THRESHOLD, type AiImagePort } from '@weq/agentlab';
+import { AgentLabService, type AgentLabBuildProgress } from '../src/account/agentlab';
 import { makeBackupPersona } from './fixtures/backup_persona';
 import { buildWeqBackup, readWeqBackup } from '../src/bootstrap/backup_bundle';
 import { validateWeqBackupData } from '../src/bootstrap/backup_data';
@@ -49,7 +49,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(media?: ConstructorParameters<typeof AgentLabService>[3]) {
   const root = mkdtempSync(join(tmpdir(), 'weq-clone-refresh-'));
   roots.push(root);
   const store = new AgentLabStore(root);
@@ -64,6 +64,8 @@ function fixture() {
   };
   store.savePersona({ persona, pairs: [] });
   const messages = Array.from({ length: (GROUP_SUPPLEMENT_THRESHOLD + 1) * 2 }, (_, index) => ({
+    msgId: BigInt(index + 1),
+    targetUid: persona.sourceId,
     msgSeq: BigInt(index + 1),
     senderUin: index % 2 ? 10002n : 10001n,
     sendTime: BigInt(1000 + index * 60),
@@ -78,13 +80,77 @@ function fixture() {
     profileInfo: { getProfileByUin: async () => null, getProfile: async () => null },
     c2cMsgs: { listLatest: latest, listBefore: async () => [] },
   } as unknown as AccountSession;
-  const service = new AgentLabService(session, root, () => ({
-    baseUrl: 'https://synthetic.invalid',
-    apiKey: 'synthetic',
-    model: 'synthetic',
-  }));
+  const service = new AgentLabService(
+    session,
+    root,
+    () => ({
+      baseUrl: 'https://synthetic.invalid',
+      apiKey: 'synthetic',
+      model: 'synthetic',
+    }),
+    media,
+  );
   return { root, store, persona, service, latest, messages };
 }
+
+it('整理语料上报消息计数及图片处理阶段，并转发图片模型输出', async () => {
+  const prepare = vi.fn<AiImagePort['prepare']>(async (input) => {
+    input.onProgress?.({ stage: 'vision', text: '正在请求视觉模型 fixture 返回' });
+    input.onOutput?.({
+      requestId: 'image-fixture',
+      feature: 'cloneTraining-image',
+      model: 'fixture',
+      status: 'running',
+      channel: 'content',
+      text: '合成图片输出',
+    });
+    return { text: '', content: '', outcomes: [] };
+  });
+  const f = fixture({ images: { prepare } } as unknown as ConstructorParameters<
+    typeof AgentLabService
+  >[3]);
+  f.messages[0]!.elements.push({
+    kind: 'pic',
+    fileName: 'fixture.png',
+  } as C2cMsg['elements'][number]);
+  const progress: AgentLabBuildProgress[] = [];
+  f.service.on('build-progress', (p) => progress.push(p));
+  await f.service.refreshFromC2c(f.persona.id);
+  expect(prepare).toHaveBeenCalled();
+  expect(
+    progress.some(
+      (p) =>
+        p.phase.includes('正在请求视觉模型 fixture 返回') &&
+        p.phase.includes(`/${f.messages.length}`),
+    ),
+  ).toBe(true);
+  expect(progress).toContainEqual(
+    expect.objectContaining({ output: expect.objectContaining({ text: '合成图片输出' }) }),
+  );
+  expect(
+    progress.some((p) => p.phase.includes(`整理语料 ${f.messages.length}/${f.messages.length}`)),
+  ).toBe(true);
+});
+
+it('纯文本语料按时间片让出事件循环，交互回调能在提炼前执行', async () => {
+  const f = fixture();
+  let time = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => (time += 4));
+  let serviced = false;
+  const interaction = new Promise<void>((resolve) =>
+    setImmediate(() => {
+      serviced = true;
+      resolve();
+    }),
+  );
+  mocks.card.mockImplementationOnce(async () => {
+    expect(serviced).toBe(true);
+    return makeBackupPersona().profile.card;
+  });
+  await f.service.refreshFromC2c(f.persona.id);
+  await interaction;
+  expect(mocks.card).toHaveBeenCalledOnce();
+});
 
 it('关键提炼失败时取消并等待兄弟请求结束，错误携带具体原因且保留旧画像', async () => {
   const f = fixture();

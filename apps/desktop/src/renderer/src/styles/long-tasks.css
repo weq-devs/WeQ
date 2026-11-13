@@ -180,6 +180,22 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
   flex: none;
 }
 
+.weq-long-task.is-running .weq-long-task-state svg {
+  animation: weq-long-task-spin 900ms linear infinite;
+}
+
+@keyframes weq-long-task-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-long-task.is-running .weq-long-task-state svg {
+    animation: none;
+  }
+}
+
 .weq-long-task-state small {
   font-size: 11px;
   font-variant-numeric: tabular-nums;

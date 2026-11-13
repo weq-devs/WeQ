@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ModelRequestLog } from '../../src/renderer/src/components/ModelRequestLog';
 import { suggestionLogBlocks } from '../../src/renderer/src/lib/modelRequestLog';
 import { CloneTaskLog } from '../../src/renderer/src/views/agentlab/CloneTaskLog';
+import { LongTaskRow } from '../../src/renderer/src/components/tasks/LongTaskRow';
 import { TaskLogConsole, type TaskLogLine } from '../../src/renderer/src/components/TaskLogConsole';
 import { TaskLogDisclosure } from '../../src/renderer/src/components/TaskLogDisclosure';
 import { appendCloneOutput } from '../../src/renderer/src/views/agentlab/cloneTaskOutput';
@@ -156,6 +157,21 @@ createRoot(document.getElementById('root')!).render(
       boxSizing: 'border-box',
     }}
   >
+    <LongTaskRow
+      active
+      onSelect={() => {}}
+      task={{
+        id: 'preparing',
+        name: '合成克隆',
+        kind: '好友克隆',
+        status: 'running',
+        progress: 28,
+        note: '整理语料 12/100 · 正在请求视觉模型返回',
+        icon: null,
+        detail: null,
+      }}
+    />
+    <CloneTaskLog task={{ personaId: 'preparing', status: 'running' } as CloneTask} />
     <CloneTaskLog task={task} />
     <SuggestionLogFixture />
     <h3>导出日志</h3>

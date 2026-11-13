@@ -28,6 +28,32 @@ function fixture(mode: 'placeholder' | 'ocr' | 'vision' = 'vision') {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('共用 AI 图片处理', () => {
+  it('训练图片将视觉增量接入调用方输出，缓存命中不伪造输出', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response('data: {"choices":[{"delta":{"content":"合成画面"}}]}\n\ndata: [DONE]\n\n', {
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const f = fixture();
+    const onOutput = vi.fn();
+    const input = { feature: 'cloneTraining' as const, text: '', images: [image], onOutput };
+    const result = await f.processor.prepare(input);
+    expect(result.outcomes[0]?.text).toBe('合成画面');
+    expect(onOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feature: 'cloneTraining-image',
+        channel: 'content',
+        text: '合成画面',
+      }),
+    );
+    expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string).stream).toBe(true);
+    onOutput.mockClear();
+    await f.processor.prepare(input);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(onOutput).not.toHaveBeenCalled();
+  });
   it('视觉阶段按真实取图、缓存、模型等待及完成上报，缓存命中不冒充模型请求', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

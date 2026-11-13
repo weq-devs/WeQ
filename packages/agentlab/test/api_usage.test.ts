@@ -146,3 +146,18 @@ it('记账回调抛错不改变实际请求结果，不诱导重试', async () =
     ),
   ).resolves.toEqual({ ok: true });
 });
+it('无用量变化的流式帧不重复写账本，真实变化及结束仍上报', () => {
+  const onUsage = vi.fn();
+  const usage = beginApiUsage(
+    { baseUrl: 'https://fixture.invalid', apiKey: 'fixture', model: 'fixture', onUsage },
+    true,
+  );
+  for (let i = 0; i < 1000; i++) usage.report({ choices: [{ delta: { content: '字' } }] });
+  expect(onUsage).toHaveBeenCalledTimes(1);
+  usage.report({ usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+  usage.report({ usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+  expect(onUsage).toHaveBeenCalledTimes(2);
+  usage.finish('success');
+  expect(onUsage).toHaveBeenCalledTimes(3);
+  expect(onUsage.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'success', totalTokens: 15 });
+});

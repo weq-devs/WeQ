@@ -7,6 +7,7 @@ import { CurrentTaskList } from '../src/renderer/src/components/tasks/CurrentTas
 import {
   dismissCloneTask,
   getCloneTasks,
+  subscribeCloneTasks,
   startCloneTask,
 } from '../src/renderer/src/views/agentlab/cloneTaskStore';
 import type { StartCloneArgs } from '../src/renderer/src/views/agentlab/NewCloneModal';
@@ -51,11 +52,42 @@ beforeEach(() => {
   useViewState.setState({ openedUin: 'fixture-a' });
 });
 afterEach(() => {
+  vi.useRealTimers();
   dispose();
   dispose = () => {};
   for (const task of getCloneTasks()) dismissCloneTask(task.personaId);
   useViewState.setState({ openedUin: null });
   vi.unstubAllGlobals();
+});
+it('密集语料进度合并刷新，保留最后计数，不反复驱动整页更新', async () => {
+  vi.useFakeTimers();
+  let finish!: () => void;
+  mocks.build.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = startCloneTask(args('progress-fixture'));
+  const changed = vi.fn();
+  const unsubscribe = subscribeCloneTasks(changed);
+  try {
+    const handler = mocks.subscribe.mock.calls[0]![1];
+    for (let index = 0; index < 1000; index++)
+      handler.onData({
+        personaId: 'progress-fixture',
+        phase: `整理语料 ${index}/1000`,
+        percent: 30,
+      });
+    expect(changed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(80);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(getCloneTasks()[0]?.phase).toBe('整理语料 999/1000');
+  } finally {
+    unsubscribe();
+    finish();
+    await pending;
+  }
 });
 function args(id: string): StartCloneArgs {
   return {

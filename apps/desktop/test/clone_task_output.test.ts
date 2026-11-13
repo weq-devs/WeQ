@@ -17,6 +17,24 @@ afterEach(() => {
 });
 const event = { requestId: 'a', feature: '画像卡', model: 'fixture', status: 'running' as const };
 
+it('语料准备尚无模型请求时显示准备状态，不只留下空输出', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  dispose = () => act(() => root.unmount());
+  act(() =>
+    root.render(
+      h(CloneTaskLog, {
+        task: {
+          status: 'running',
+          phase: '整理语料 1/100 · 正在读取图片',
+        } as CloneTask,
+      }),
+    ),
+  );
+  expect(host.textContent).toContain('尚未产生模型输出，任务仍在处理中');
+});
+
 it('并发输出按请求 ID 分开，文本和保留请求数有界，更新不改变原快照', () => {
   const first = appendCloneOutput([], { ...event, channel: 'content', text: '甲' });
   const second = appendCloneOutput(first, {

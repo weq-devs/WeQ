@@ -84,6 +84,16 @@ try {
       },
       [theme, accent, background],
     );
+    const spinner = page.locator('.weq-long-task-state svg');
+    assert.equal(await spinner.evaluate((node) => getComputedStyle(node).animationName), 'none');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const transforms = await spinner.evaluate(async (node) => {
+      const before = getComputedStyle(node).transform;
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return [before, getComputedStyle(node).transform];
+    });
+    assert.notEqual(transforms[0], transforms[1], '运行中的任务圆圈必须实际旋转');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.getByRole('radio').nth(1).click();
     await page.getByRole('alert').filter({ hasText: '合成模型请求超时' }).waitFor();
     await page.getByText('推理输出', { exact: true }).click();

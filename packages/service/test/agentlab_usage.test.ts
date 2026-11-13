@@ -1,11 +1,14 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import { beginApiUsage } from '@weq/agentlab';
+import { JsonStore } from '../src/common/json_store';
 import { TokenUsageStore, type TokenUsageRecord } from '../src/account/agentlab_usage';
 
 const dirs: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 function fixture(seed?: unknown[]) {
@@ -27,6 +30,35 @@ const entry: TokenUsageRecord = {
   completionTokens: null,
   totalTokens: null,
 };
+
+it('满额账本处理两千帧流式输出只落盘开始、真实用量和结束三次', () => {
+  const f = fixture(
+    Array.from({ length: 4999 }, (_, index) => ({
+      ...entry,
+      requestId: `history-${index}`,
+      status: 'success',
+    })),
+  );
+  const saves = vi.spyOn(JsonStore.prototype, 'save');
+  const usage = beginApiUsage(
+    {
+      baseUrl: 'https://fixture.invalid',
+      apiKey: 'fixture',
+      model: 'fixture',
+      onUsage: (record) => f.store.record({ ...record, ts: record.startedAt!, scope: 'build' }),
+    },
+    true,
+  );
+  for (let index = 0; index < 2000; index++)
+    usage.report({ choices: [{ delta: { content: '合成片段' } }] });
+  expect(saves).toHaveBeenCalledOnce();
+  usage.report({ usage: { prompt_tokens: 10, completion_tokens: 2000, total_tokens: 2010 } });
+  usage.finish('success');
+  expect(saves).toHaveBeenCalledTimes(3);
+  const rows = JSON.parse(readFileSync(f.path, 'utf8'));
+  expect(rows).toHaveLength(5000);
+  expect(rows.at(-1)).toMatchObject({ status: 'success', totalTokens: 2010 });
+});
 
 it('同一请求的 pending、usage、结束与重复回调只计一次，重试独立计数', () => {
   const f = fixture();

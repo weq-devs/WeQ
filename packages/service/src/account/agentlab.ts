@@ -1143,12 +1143,7 @@ export class AgentLabService extends EventEmitter {
         ? {
             onOutput: (output: AgentLabModelOutput) => {
               if (!ctx.personaId) return;
-              this.emit('build-progress', {
-                personaId: ctx.personaId,
-                phase: '模型输出',
-                percent: 0,
-                output,
-              } satisfies AgentLabBuildProgress);
+              this.emitBuildOutput(ctx.personaId, output);
             },
           }
         : {}),
@@ -1162,7 +1157,17 @@ export class AgentLabService extends EventEmitter {
     };
   }
 
-  /** Emit one build-progress event (consumed by the onAgentLabBuildProgress subscription). */
+  /** 模型增量沿构建订阅发送，由前端按 output 分路。 */
+  private emitBuildOutput(personaId: string, output: AgentLabModelOutput): void {
+    this.emit('build-progress', {
+      personaId,
+      phase: '模型输出',
+      percent: 0,
+      output,
+    } satisfies AgentLabBuildProgress);
+  }
+
+  /** 发送构建阶段与进度。 */
   private emitProgress(
     personaId: string,
     phase: string,
@@ -1511,8 +1516,23 @@ export class AgentLabService extends EventEmitter {
     const canTranscribe = !!this.media?.transcribe && (this.media.voiceReady?.() ?? false);
     let transcribed = 0;
     const out: AgentLabMessage[] = [];
-    for (const msg of rawMsgs) {
+    let lastYield = performance.now();
+    const report = (index: number, detail?: string) => {
+      if (personaId)
+        this.emitProgress(
+          personaId,
+          `整理语料 ${index}/${rawMsgs.length}${detail ? ` · ${detail}` : ''}`,
+          28 + (index / Math.max(1, rawMsgs.length)) * 13,
+        );
+    };
+    for (const [index, msg] of rawMsgs.entries()) {
+      // 缓存命中与纯文本不会等待 I/O，避免整批微任务饿死交互请求。
+      if (performance.now() - lastYield >= 8) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        lastYield = performance.now();
+      }
       signal?.throwIfAborted();
+      if (index % 100 === 0) report(index);
       const role = msg.senderUin.toString() === selfUin ? 'user' : 'assistant';
       const ts = Number(msg.sendTime) * 1000;
       const modality = detectModality(msg.elements);
@@ -1541,6 +1561,8 @@ export class AgentLabService extends EventEmitter {
             text,
             images: [image],
             signal,
+            onProgress: (progress) => report(index + 1, progress.text),
+            onOutput: personaId ? (output) => this.emitBuildOutput(personaId, output) : undefined,
           });
           const outcome = prepared.outcomes[0];
           if (outcome) {
@@ -1551,7 +1573,9 @@ export class AgentLabService extends EventEmitter {
         text = trainingImageText(text, outcomes);
       }
       if (modality === 'voice' && canTranscribe && transcribed < VOICE_TRANSCRIBE_CAP) {
+        report(index + 1, '正在转录语音');
         const res = await this.transcribePtt(msg.elements, ts);
+        report(index + 1, res.spoken ? '语音转录完成' : '语音未能转录，保留占位');
         if (res.spoken) {
           text = text.includes('[语音]')
             ? text.replace('[语音]', `[语音]${res.spoken}`)
@@ -1572,6 +1596,7 @@ export class AgentLabService extends EventEmitter {
       if (!text) continue;
       out.push({ role, text, ts, senderName: role === 'user' ? selfName : peerName, modality });
     }
+    report(rawMsgs.length);
     return out;
   }
 

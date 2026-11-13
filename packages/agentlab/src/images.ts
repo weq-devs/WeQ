@@ -1,6 +1,7 @@
 import type { AgentLabEndpoint } from './types';
 import { requestApiJson } from './api_usage';
 import { pickMessageText } from './http';
+import { requestChatCompletionStream } from './extract_stream';
 
 export const AI_IMAGE_DEFAULTS = {
   assistant: 'vision',
@@ -66,6 +67,7 @@ export interface AiImagePort {
     forceOcr?: boolean;
     question?: string;
     onProgress?(progress: AiImageProgress): void;
+    onOutput?: AgentLabEndpoint['onOutput'];
   }): Promise<AiPreparedInput>;
   revision?(feature?: AiImageFeature): string;
 }
@@ -89,30 +91,35 @@ export async function visionImageCompletion(
   images: string[],
   system = '结合用户问题理解图片，如实描述可见内容与文字。无法确定的细节明确说明，不编造。',
 ): Promise<string> {
-  const data = await requestApiJson<{
-    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-  }>(
-    { ...endpoint, kind: 'vision', feature: endpoint.feature ?? 'image-analysis' },
-    '/chat/completions',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-      body: JSON.stringify({
-        model: endpoint.model,
-        messages: [
-          { role: 'system', content: system },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text },
-              ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
-            ],
-          },
-        ],
-      }),
-      signal: endpoint.signal,
-    },
-  );
+  const target: AgentLabEndpoint = {
+    ...endpoint,
+    kind: 'vision',
+    feature: endpoint.feature ?? 'image-analysis',
+  };
+  const request: RequestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
+    body: JSON.stringify({
+      model: endpoint.model,
+      ...(endpoint.onOutput ? { stream: true, stream_options: { include_usage: true } } : {}),
+      messages: [
+        { role: 'system', content: system },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text },
+            ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+          ],
+        },
+      ],
+    }),
+    signal: endpoint.signal,
+  };
+  const data = endpoint.onOutput
+    ? await requestChatCompletionStream(target, request)
+    : await requestApiJson<{
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      }>(target, '/chat/completions', request);
   const result = pickMessageText(data.choices?.[0]?.message).trim();
   if (!result) throw new Error('视觉模型未返回图片解读');
   return result;
@@ -248,7 +255,12 @@ export class AiImageProcessor implements AiImagePort {
             );
             if (!pending) {
               pending = visionImageCompletion(
-                { ...endpoint, signal: input.signal, feature: `${input.feature}-image` },
+                {
+                  ...endpoint,
+                  signal: input.signal,
+                  feature: `${input.feature}-image`,
+                  onOutput: input.onOutput ?? endpoint.onOutput,
+                },
                 input.question ||
                   '描述这张图片的可见内容、布局及图中文字；保留图表数据和截图中的关键信息。',
                 [loaded.dataUrl],

@@ -39,7 +39,9 @@ export function CloneTaskLog({ task }: { task: CloneTask }) {
     <section className="weq-clone-task-log" aria-label="克隆任务日志">
       <h3>模型输出</h3>
       {!log ? (
-        <p className="text-muted-foreground">暂无模型输出</p>
+        <p className="text-muted-foreground">
+          {task.status === 'running' ? '尚未产生模型输出，任务仍在处理中…' : '暂无模型输出'}
+        </p>
       ) : (
         <>
           {logs.length > 1 ? (
