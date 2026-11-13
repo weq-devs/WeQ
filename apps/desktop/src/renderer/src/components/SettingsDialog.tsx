@@ -868,7 +868,7 @@ function SettingsContent({
 
 function ModelUsageSection(): ReactElement {
   return (
-    <div className="weq-settings-model-usage">
+    <div className="weq-set weq-settings-model-usage">
       <SectionHeader title="API 用量" icon={<Activity size={16} strokeWidth={1.8} />} />
       <UsagePanel />
     </div>

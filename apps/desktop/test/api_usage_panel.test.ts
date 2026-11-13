@@ -161,7 +161,7 @@ it('能力检测显示中文名称，切换范围提交真实查询参数', () =
   state.feature = 'capability-test';
   const host = fixture();
   expect(host.querySelector('tbody th')?.textContent).toBe('模型能力检测');
-  act(() => host.querySelector<HTMLInputElement>('input[value="24h"]')!.click());
+  act(() => host.querySelector<HTMLButtonElement>('[role="radio"]')!.click());
   expect(state.queryInput).toEqual({ period: '24h' });
 });
 
@@ -170,9 +170,26 @@ it('空记录保留时间选择，不显示常驻刷新或引导用户构建克�
   const host = fixture();
   expect(host.textContent).toContain('所选时段暂无 API 请求');
   expect(host.textContent).not.toContain('构建克隆或');
-  expect(host.querySelectorAll('input[type="radio"]').length).toBe(4);
+  expect(host.querySelectorAll('[role="radio"]').length).toBe(4);
   expect(host.querySelector('[aria-label="刷新用量"]')).toBeNull();
   expect(host.querySelector('[aria-label="重试读取用量"]')).toBeNull();
+});
+
+it('范围与趋势复用设置页分段控件，方向键切换范围', () => {
+  state.empty = false;
+  const host = fixture();
+  const groups = host.querySelectorAll('.weq-segmented[role="radiogroup"]');
+  expect([...groups].map((group) => group.getAttribute('aria-label'))).toEqual([
+    '统计范围',
+    '趋势指标',
+  ]);
+  const selected = groups[0].querySelector<HTMLButtonElement>('[aria-checked="true"]')!;
+  act(() => {
+    selected.focus();
+    selected.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  });
+  expect(state.queryInput).toEqual({ period: '30d' });
+  expect(document.activeElement?.textContent).toBe('近 30 天');
 });
 
 it('本地账本在离线时仍可读取，不依赖网络在线标记', () => {

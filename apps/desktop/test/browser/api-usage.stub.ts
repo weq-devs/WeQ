@@ -3,6 +3,7 @@ import type { UsageStats } from '../../src/renderer/src/views/agentlab/UsagePane
 
 const now = Date.parse('2026-11-13T08:30:00+08:00');
 const kind = new URLSearchParams(location.search).get('case');
+export const client = {};
 function data(period: UsageStats['period']): UsageStats {
   const bucket = { calls: 10, tokens: 2000, unknownCalls: 2 };
   const unknown = kind === 'unknown';

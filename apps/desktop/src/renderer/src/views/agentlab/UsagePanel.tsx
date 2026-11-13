@@ -1,11 +1,13 @@
 /** 通用 API 用量：记录范围、请求状态、趋势与功能／服务商明细。 */
 import { useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { Activity, RotateCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Activity, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDateTime } from '@weq/time';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../shared/router';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { QueryError } from '../../components/settings/controls';
 import '../../styles/api-usage.css';
 
 export type UsageStats = inferRouterOutputs<AppRouter>['account']['getAgentLabTokenStats'];
@@ -202,7 +204,7 @@ function UsageTable({ title, children }: { title: string; children: ReactNode })
   const currentPage = Math.min(page, lastPage);
   return (
     <section className="weq-usage-section">
-      <h4>{title}</h4>
+      <h4 className="weq-set-card-title">{title}</h4>
       <div className="weq-usage-accounting-table" tabIndex={0} role="region" aria-label={title}>
         <table>
           <thead>
@@ -307,37 +309,39 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
     d.totalCalls - d.failedCalls - d.cancelledCalls - d.pendingCalls - d.interruptedCalls;
   return (
     <>
-      <div className="weq-usage-scope">
-        <p>
-          {start === null ? (
-            '暂无保留记录'
-          ) : (
-            <>
-              {formatDateTime(start)} 至 {formatDateTime(d.range.until)}（北京时间）
-            </>
-          )}
-        </p>
-        <p>
-          当前账号 {d.accountCalls} 次 · 应用全局 {d.globalCalls} 次（模型测试与语音服务）
-        </p>
-      </div>
-      <details className="weq-usage-retention">
-        <summary>
-          每份账本最多保留 {d.ledgers[0]?.limit ?? 5000} 条
-          {d.ledgers.some((ledger) => ledger.atCapacity) ? ' · 已达保留上限' : ''}
-        </summary>
-        {d.ledgers.map((ledger) => (
-          <p key={ledger.source}>
-            {ledger.source === 'account' ? '当前账号' : '应用全局'}：保留 {ledger.retainedCalls} /{' '}
-            {ledger.limit} 条
-            {ledger.firstRecordAt !== null ? (
-              <>，最早 {formatDateTime(ledger.firstRecordAt)}</>
-            ) : null}
-            {ledger.atCapacity ? '。已达保留上限，可能已有更早记录被移出。' : '。'}
+      <div className="weq-usage-records">
+        <div className="weq-usage-scope">
+          <p>
+            {start === null ? (
+              '暂无保留记录'
+            ) : (
+              <>
+                {formatDateTime(start)} 至 {formatDateTime(d.range.until)}（北京时间）
+              </>
+            )}
           </p>
-        ))}
-        <p>总量仅汇总保留记录；本地推理不计入。未知用量不按零估算，token 不换算费用。</p>
-      </details>
+          <p>
+            当前账号 {d.accountCalls} 次 · 应用全局 {d.globalCalls} 次（模型测试与语音服务）
+          </p>
+        </div>
+        <details className="weq-usage-retention">
+          <summary>
+            每份账本最多保留 {d.ledgers[0]?.limit ?? 5000} 条
+            {d.ledgers.some((ledger) => ledger.atCapacity) ? ' · 已达保留上限' : ''}
+          </summary>
+          {d.ledgers.map((ledger) => (
+            <p key={ledger.source}>
+              {ledger.source === 'account' ? '当前账号' : '应用全局'}：保留 {ledger.retainedCalls} /{' '}
+              {ledger.limit} 条
+              {ledger.firstRecordAt !== null ? (
+                <>，最早 {formatDateTime(ledger.firstRecordAt)}</>
+              ) : null}
+              {ledger.atCapacity ? '。已达保留上限，可能已有更早记录被移出。' : '。'}
+            </p>
+          ))}
+          <p>总量仅汇总保留记录；本地推理不计入。未知用量不按零估算，token 不换算费用。</p>
+        </details>
+      </div>
       {d.totalCalls === 0 ? (
         <div className="weq-usage-placeholder">
           <Activity size={28} aria-hidden="true" />
@@ -385,27 +389,18 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
           </dl>
           <section className="weq-usage-section">
             <div className="weq-usage-section-heading">
-              <h4>{d.period === 'retained' ? '近 30 天趋势' : '用量趋势'}</h4>
-              <fieldset className="weq-usage-segments">
-                <legend className="sr-only">趋势指标</legend>
-                {(
-                  [
-                    ['tokens', '已知 token'],
-                    ['calls', '请求次数'],
-                  ] as const
-                ).map(([value, label]) => (
-                  <label key={value}>
-                    <input
-                      type="radio"
-                      name="usage-metric"
-                      value={value}
-                      checked={metric === value}
-                      onChange={() => setMetric(value)}
-                    />
-                    <span>{label}</span>
-                  </label>
-                ))}
-              </fieldset>
+              <h4 className="weq-set-card-title">
+                {d.period === 'retained' ? '近 30 天趋势' : '用量趋势'}
+              </h4>
+              <SegmentedControl
+                label="趋势指标"
+                value={metric}
+                options={[
+                  { value: 'tokens', label: '已知 token' },
+                  { value: 'calls', label: '请求次数' },
+                ]}
+                onChange={setMetric}
+              />
             </div>
             <HourLine data={points} metric={metric} daily={d.period !== '24h'} />
           </section>
@@ -433,7 +428,7 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             ))}
           </UsageTable>
           <section className="weq-usage-section">
-            <h4>已知输入 / 输出 token</h4>
+            <h4 className="weq-set-card-title">已知输入 / 输出 token</h4>
             <dl className="weq-usage-io">
               <div>
                 <dt>输入</dt>
@@ -478,41 +473,22 @@ export function UsagePanel(): ReactElement {
   return (
     <div className="weq-usage weq-api-usage" aria-busy={stats.isFetching}>
       <div className="weq-usage-toolbar">
-        <fieldset className="weq-usage-segments">
-          <legend className="sr-only">统计范围</legend>
-          {PERIODS.map(({ value, label }) => (
-            <label key={value}>
-              <input
-                type="radio"
-                name="usage-period"
-                value={value}
-                checked={period === value}
-                onChange={() => setPeriod(value)}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </fieldset>
+        <SegmentedControl label="统计范围" value={period} options={PERIODS} onChange={setPeriod} />
       </div>
       {stats.isError ? (
-        <div className="weq-usage-error" role="alert">
-          用量读取失败：{stats.error.message}。{stats.data ? '当前显示上次读取的记录。' : ''}
-          <button
-            type="button"
-            className="weq-usage-refresh"
-            aria-label="重试读取用量"
-            title="重试读取用量"
-            disabled={!autoRefresh.enabled || stats.isFetching}
-            onClick={() => void stats.refetch()}
-          >
-            <RotateCw size={16} aria-hidden="true" />
-          </button>
-        </div>
+        <QueryError
+          message={`用量读取失败：${stats.error.message}。${stats.data ? '当前显示上次读取的记录。' : ''}`}
+          retryLabel="重试读取用量"
+          retrying={!autoRefresh.enabled || stats.isFetching}
+          onRetry={() => void stats.refetch()}
+        />
       ) : null}
       {stats.data ? (
         <UsageReport data={stats.data} />
       ) : stats.isLoading ? (
-        <p role="status">加载用量统计中…</p>
+        <p className="weq-set-note" role="status">
+          加载用量统计中…
+        </p>
       ) : null}
     </div>
   );

@@ -1,12 +1,9 @@
-/* 近 24 小时折线图 */
+/* 用量趋势共用绘图区；外层由所在页面负责分组。 */
 .weq-usage-line {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 12px 6px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+  padding: 10px 0 6px;
 }
 .weq-usage-line-body {
   display: grid;
@@ -83,10 +80,10 @@
   gap: 2px;
   min-width: 88px;
   padding: 7px 9px;
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-border-subtle));
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--weq-bg-surface) 96%, transparent);
-  box-shadow: 0 10px 28px -20px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-soft);
   transform: translate(-50%, calc(-100% - 10px));
   pointer-events: none;
 }
@@ -115,9 +112,10 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 20px;
+  gap: 12px;
   padding: 0;
   color: var(--weq-fg-primary);
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -131,50 +129,6 @@
   min-width: 0;
 }
 
-.weq-usage-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  align-items: start;
-}
-
-.weq-usage-segments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.weq-usage-segments label {
-  position: relative;
-  cursor: pointer;
-}
-
-.weq-usage-segments input {
-  position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
-}
-
-.weq-usage-segments span {
-  display: block;
-  padding: 7px 10px;
-  border-radius: 4px;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  line-height: 20px;
-}
-
-.weq-usage-segments input:checked + span {
-  color: var(--weq-fg-primary);
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, var(--weq-bg-surface));
-  box-shadow: inset 0 -2px var(--weq-accent-effective);
-}
-
-.weq-usage-segments label:hover span,
 .weq-usage-refresh:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective) 9%, var(--weq-bg-surface));
 }
@@ -185,8 +139,8 @@
   flex: 0 0 34px;
   width: 34px;
   height: 34px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 4px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
   cursor: pointer;
@@ -206,7 +160,6 @@
   color: var(--weq-fg-secondary);
 }
 
-.weq-usage-segments input:focus-visible + span,
 .weq-api-usage :is(button, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 3px;
@@ -227,6 +180,11 @@
   margin: 0;
 }
 
+.weq-usage-records {
+  display: grid;
+  gap: 8px;
+}
+
 .weq-usage-retention summary,
 .weq-usage-personas summary {
   width: fit-content;
@@ -245,7 +203,7 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin: 0;
-  padding: 16px 0;
+  padding: 14px 0;
   border-block: 1px solid var(--weq-border-subtle);
 }
 
@@ -273,7 +231,7 @@
 .weq-usage-status {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 24px;
+  gap: 8px 20px;
   margin: 0;
 }
 
@@ -309,21 +267,13 @@
   font-size: 14px;
 }
 
-.weq-usage-error {
-  padding: 12px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 4px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-
 .weq-api-usage .weq-usage-section {
   display: flex;
   flex-direction: column;
   min-width: 0;
   gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .weq-api-usage h4 {
@@ -331,13 +281,6 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--weq-fg-primary);
-}
-
-.weq-api-usage .weq-usage-line {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding-inline: 0;
 }
 
 .weq-usage-accounting-table {
@@ -355,7 +298,7 @@
 
 .weq-usage-accounting-table th,
 .weq-usage-accounting-table td {
-  padding: 8px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--weq-border-subtle);
   text-align: right;
   overflow-wrap: anywhere;
@@ -370,6 +313,7 @@
 .weq-usage-accounting-table thead th {
   font-weight: 500;
   color: var(--weq-fg-secondary);
+  background: color-mix(in srgb, var(--weq-bg-surface) 70%, var(--muted));
 }
 
 .weq-usage-accounting-table tbody th {
@@ -377,7 +321,11 @@
 }
 
 .weq-usage-accounting-table tbody tr:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+  background: var(--muted);
+}
+
+.weq-usage-accounting-table tbody tr:last-child > * {
+  border-bottom: 0;
 }
 
 .weq-usage-accounting-table small,
@@ -389,22 +337,8 @@
   font-weight: 400;
 }
 
-.weq-api-usage .weq-usage-line-tooltip {
-  border-radius: 4px;
-  background: var(--weq-bg-surface);
-}
-
-html[data-theme='dark'] .weq-api-usage {
-  color: var(--weq-fg-primary);
-}
-
-html[data-theme='dark'] .weq-usage-segments input:checked + span {
-  background: color-mix(in srgb, var(--weq-accent-effective) 20%, var(--weq-bg-surface));
-}
-
-html[data-theme='dark'] .weq-usage-accounting-table th,
-html[data-theme='dark'] .weq-usage-accounting-table td {
-  border-color: var(--weq-border-strong);
+html[data-theme='dark'] .weq-usage-accounting-table thead th {
+  background: color-mix(in srgb, var(--weq-bg-elevated) 70%, var(--muted));
 }
 
 @media (max-width: 600px) {

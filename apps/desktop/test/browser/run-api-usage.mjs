@@ -76,11 +76,21 @@ try {
       await page.getByText('请求次数', { exact: true }).last().click();
       await page.locator('.weq-usage-line-dot').nth(1).focus();
       await page.locator('.weq-usage-line-tooltip').waitFor();
-      await page.getByLabel('近 24 小时', { exact: true }).check();
+      assert.equal(await page.locator('.weq-usage-segments').count(), 0);
+      await page.getByRole('radio', { name: '近 24 小时', exact: true }).click();
       assert.equal(await page.locator('.weq-usage-line-dot').count(), 24);
-      await page.getByLabel('全部保留记录', { exact: true }).check();
+      await page.getByRole('radio', { name: '全部保留记录', exact: true }).click();
       await page.getByText('近 30 天趋势', { exact: true }).waitFor();
-      await page.getByLabel('近 7 天', { exact: true }).check();
+      await page.getByRole('radio', { name: '近 7 天', exact: true }).click();
+      await page.getByRole('radio', { name: '近 7 天', exact: true }).press('ArrowRight');
+      await page.getByRole('radio', { name: '近 30 天', exact: true }).waitFor();
+      assert.equal(
+        await page
+          .getByRole('radio', { name: '近 30 天', exact: true })
+          .getAttribute('aria-checked'),
+        'true',
+      );
+      await page.getByRole('radio', { name: '近 7 天', exact: true }).click();
       await page.getByText('每份账本最多保留', { exact: false }).click();
       if (output)
         await page.screenshot({ path: resolve(output, `${width}-${theme}.png`), fullPage: true });
