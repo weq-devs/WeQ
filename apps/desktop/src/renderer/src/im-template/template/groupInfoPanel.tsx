@@ -366,7 +366,7 @@ export function GroupInfoPanel({
       >
         {layout === 'sidebar' ? (
           <>
-            <strong>群公告</strong>
+            <strong>公告</strong>
             <span
               className="weq-group-summary-text"
               data-privacy-sensitive={Boolean(announcement) || undefined}
