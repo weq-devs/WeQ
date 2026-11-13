@@ -162,12 +162,15 @@ async function reply(path: string, input: Record<string, unknown>) {
   if (path === 'account.getGroupEssencePageWithContent') return { complete: true, messages: [] };
   if (path === 'account.qqActions.groupReadTools')
     return {
-      signed: Array.from({ length: 20 }, (_, index) => ({
-        userId: 10001 + index,
-        nick: `成员 ${index + 1}`,
-        rank: index + 1,
-        time: 1794528000 + index * 60,
-      })),
+      signed: Array.from(
+        { length: Math.min(100, Math.max(0, 120 - Number(input.offset ?? 0))) },
+        (_, index) => ({
+          userId: 10001 + Number(input.offset ?? 0) + index,
+          nick: `成员 ${Number(input.offset ?? 0) + index + 1}`,
+          rank: Number(input.offset ?? 0) + index + 1,
+          time: 1794528000 + (Number(input.offset ?? 0) + index) * 60,
+        }),
+      ),
       atAll: { canAtAll: false, remainCountForUin: 0, remainCountForGroup: 0 },
     };
   if (path === 'account.contactMetrics.history.status')

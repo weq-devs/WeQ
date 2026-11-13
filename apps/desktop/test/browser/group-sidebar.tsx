@@ -8,6 +8,7 @@ import { GroupEssenceDialog } from '../../src/renderer/src/components/GroupEssen
 import { GroupTodos } from '../../src/renderer/src/components/qq-actions/GroupActions';
 import { useGroupResourceWindows } from '../../src/renderer/src/hooks/useGroupResourceWindows';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
+import { ProfileNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import type { GroupConversation } from '../../src/renderer/src/im-template/template/types';
@@ -136,7 +137,10 @@ function App() {
           groups: new Map([['12345', { listed: true, role: 'member' }]]),
         }}
       >
-        <style>{`
+        <ProfileNavigationContext.Provider
+          value={(user) => setOpenedMember(user.id || user.identityValue)}
+        >
+          <style>{`
           html,body,#root{height:100%;margin:0;min-width:0}
           .qa-group-layout{height:100dvh;display:flex;min-width:0;overflow:hidden;background:var(--weq-chat-bg,var(--weq-bg-surface));color:var(--weq-fg-primary);font-family:system-ui}
           .qa-group-chat{display:flex;flex:1;min-width:0;flex-direction:column;justify-content:space-between}
@@ -149,113 +153,114 @@ function App() {
           .qa-group-rail>.group-info-panel{width:100%;min-width:0}
           @media(max-width:760px){.qa-group-chat{display:none}.qa-group-rail{width:100%}.qa-group-rail>.group-info-panel{display:flex}}
         `}</style>
-        <main className="qa-group-layout">
-          <section className="qa-group-chat" aria-label="聊天">
-            <header className="qa-chat-header">{current.group.name}</header>
-            <p className="qa-chat-message">周六晚上八点见。</p>
-            <div className="qa-chat-input">
-              <input aria-label="消息输入" placeholder="发送消息" />
-              <button type="button" onClick={() => setChatClicks((value) => value + 1)}>
-                发送
-              </button>
+          <main className="qa-group-layout">
+            <section className="qa-group-chat" aria-label="聊天">
+              <header className="qa-chat-header">{current.group.name}</header>
+              <p className="qa-chat-message">周六晚上八点见。</p>
+              <div className="qa-chat-input">
+                <input aria-label="消息输入" placeholder="发送消息" />
+                <button type="button" onClick={() => setChatClicks((value) => value + 1)}>
+                  发送
+                </button>
+              </div>
+            </section>
+            <div className="qa-group-rail">
+              <GroupInfoPanel
+                conversation={current}
+                layout="sidebar"
+                onOpenDetail={() => undefined}
+                onOpenMember={(member) => setOpenedMember(member.id)}
+                onOpenAnnouncements={(anchor) => open('announcements', anchor)}
+                onOpenEssence={(anchor) => open('essence', anchor)}
+                onOpenAlbums={() =>
+                  resourceWindows.open({ kind: 'albums', groupCode, groupName: current.group.name })
+                }
+                onOpenFiles={() =>
+                  resourceWindows.open({ kind: 'files', groupCode, groupName: current.group.name })
+                }
+                onOpenSign={(anchor) => open('sign', anchor)}
+                onOpenLeftMembers={() => undefined}
+                onAddMember={() => undefined}
+                onClose={narrow ? close : undefined}
+                activeFeature={feature?.kind}
+                onLoadMoreMembers={() => setMemberLoads((value) => value + 1)}
+                onRetryMembers={() => setError(null)}
+                loadingError={error}
+                memberSearch={{
+                  keyword,
+                  members: results,
+                  total: results.length,
+                  loading: false,
+                  loadingMore: false,
+                  hasMore: false,
+                  error: null,
+                }}
+                onMemberSearchChange={setKeyword}
+                groupTodos={
+                  <GroupTodos
+                    groupId={Number(groupCode)}
+                    groupName={current.group.name}
+                    embedded
+                    popoverOpen={feature?.kind === 'todos'}
+                    onPopoverOpenChange={(opened, anchor) =>
+                      opened ? open('todos', anchor) : close()
+                    }
+                    onJumpToMessage={(sequence) => setJumped(Number(sequence))}
+                  />
+                }
+              />
             </div>
-          </section>
-          <div className="qa-group-rail">
-            <GroupInfoPanel
-              conversation={current}
-              layout="sidebar"
-              onOpenDetail={() => undefined}
-              onOpenMember={(member) => setOpenedMember(member.id)}
-              onOpenAnnouncements={(anchor) => open('announcements', anchor)}
-              onOpenEssence={(anchor) => open('essence', anchor)}
-              onOpenAlbums={() =>
-                resourceWindows.open({ kind: 'albums', groupCode, groupName: current.group.name })
-              }
-              onOpenFiles={() =>
-                resourceWindows.open({ kind: 'files', groupCode, groupName: current.group.name })
-              }
-              onOpenSign={(anchor) => open('sign', anchor)}
-              onOpenLeftMembers={() => undefined}
-              onAddMember={() => undefined}
-              onClose={narrow ? close : undefined}
-              activeFeature={feature?.kind}
-              onLoadMoreMembers={() => setMemberLoads((value) => value + 1)}
-              onRetryMembers={() => setError(null)}
-              loadingError={error}
-              memberSearch={{
-                keyword,
-                members: results,
-                total: results.length,
-                loading: false,
-                loadingMore: false,
-                hasMore: false,
-                error: null,
-              }}
-              onMemberSearchChange={setKeyword}
-              groupTodos={
-                <GroupTodos
-                  groupId={Number(groupCode)}
-                  groupName={current.group.name}
-                  embedded
-                  popoverOpen={feature?.kind === 'todos'}
-                  onPopoverOpenChange={(opened, anchor) =>
-                    opened ? open('todos', anchor) : close()
-                  }
-                  onJumpToMessage={(sequence) => setJumped(Number(sequence))}
-                />
-              }
+            <output
+              hidden
+              data-chat-clicks={chatClicks}
+              data-member-loads={memberLoads}
+              data-opened-member={openedMember}
+              data-jumped={jumped ?? ''}
             />
-          </div>
-          <output
-            hidden
-            data-chat-clicks={chatClicks}
-            data-member-loads={memberLoads}
-            data-opened-member={openedMember}
-            data-jumped={jumped ?? ''}
-          />
-        </main>
-        {resourceWindows.windows}
-        {feature?.kind === 'announcements' ? (
-          <GroupAnnouncementsDialog
-            groupCode={conversation.id}
-            groupName={conversation.group.name}
-            currentAnnouncement={conversation.group.announcement}
-            bulletins={conversation.group.bulletins}
-            presentation="popover"
-            anchor={feature.anchor}
-            onClose={close}
-          />
-        ) : null}
-        {feature?.kind === 'sign' ? (
-          <GroupSignDialog
-            groupCode={conversation.id}
-            groupName={conversation.group.name}
-            presentation="popover"
-            anchor={feature.anchor}
-            onClose={close}
-          />
-        ) : null}
-        {feature?.kind === 'essence' ? (
-          <GroupEssenceDialog
-            groupCode={conversation.id}
-            groupName={conversation.group.name}
-            presentation="popover"
-            anchor={feature.anchor}
-            essenceMessages={[
-              {
-                id: 'essence-1',
-                msgSeq: 815,
-                senderName: '成员 1',
-                operatorName: '管理员',
-                createdAt: '2026-11-13T08:00:00+08:00',
-                active: true,
-                content: [{ type: 1, text: '周六晚上八点见。' }],
-              },
-            ]}
-            onJumpToMessage={setJumped}
-            onClose={close}
-          />
-        ) : null}
+          </main>
+          {resourceWindows.windows}
+          {feature?.kind === 'announcements' ? (
+            <GroupAnnouncementsDialog
+              groupCode={conversation.id}
+              groupName={conversation.group.name}
+              currentAnnouncement={conversation.group.announcement}
+              bulletins={conversation.group.bulletins}
+              presentation="popover"
+              anchor={feature.anchor}
+              onClose={close}
+            />
+          ) : null}
+          {feature?.kind === 'sign' ? (
+            <GroupSignDialog
+              groupCode={conversation.id}
+              groupName={conversation.group.name}
+              presentation="popover"
+              anchor={feature.anchor}
+              onClose={close}
+            />
+          ) : null}
+          {feature?.kind === 'essence' ? (
+            <GroupEssenceDialog
+              groupCode={conversation.id}
+              groupName={conversation.group.name}
+              presentation="popover"
+              anchor={feature.anchor}
+              essenceMessages={[
+                {
+                  id: 'essence-1',
+                  msgSeq: 815,
+                  senderName: '成员 1',
+                  operatorName: '管理员',
+                  createdAt: '2026-11-13T08:00:00+08:00',
+                  active: true,
+                  content: [{ type: 1, text: '周六晚上八点见。' }],
+                },
+              ]}
+              onJumpToMessage={setJumped}
+              onClose={close}
+            />
+          ) : null}
+        </ProfileNavigationContext.Provider>
       </RelationshipDirectoryContext.Provider>
     </QueryClientProvider>
   );

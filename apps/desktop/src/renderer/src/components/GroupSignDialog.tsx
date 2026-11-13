@@ -45,7 +45,12 @@ function GroupSignDialogBody({
           </button>
         </header>
         <div className="weq-group-sign-body">
-          <GroupReadTools key={groupCode} groupId={Number(groupCode)} signing />
+          <GroupReadTools
+            key={groupCode}
+            groupId={Number(groupCode)}
+            groupName={groupName}
+            signing
+          />
         </div>
       </section>
     </GroupFeatureSurface>

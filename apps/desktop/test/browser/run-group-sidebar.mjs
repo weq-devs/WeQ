@@ -186,6 +186,42 @@ try {
   await page.getByRole('button', { name: '打卡', exact: true }).click();
   await popover(page).waitFor();
   await page.getByLabel('打卡日期', { exact: true }).waitFor();
+  await page.waitForFunction(
+    () => document.querySelectorAll('.weq-group-sign-list > li').length === 100,
+  );
+  assert.equal(await page.getByLabel('下一页打卡记录', { exact: true }).count(), 0);
+  assert.equal(
+    await popover(page)
+      .getByText(/第 \d+ 页/)
+      .count(),
+    0,
+  );
+  await page.getByRole('button', { name: '查看 成员 1 的名片', exact: true }).click();
+  const memberPosition = await page
+    .locator('.weq-group-sign-list > li')
+    .first()
+    .evaluate((row) => ({
+      row: row.getBoundingClientRect().left,
+      avatar: row.querySelector('.weq-group-sign-member > :first-child').getBoundingClientRect()
+        .left,
+    }));
+  assert.ok(
+    memberPosition.avatar - memberPosition.row < 40,
+    'member avatar is not aligned with the list',
+  );
+  await page.waitForFunction(
+    () => document.querySelector('output')?.getAttribute('data-opened-member') === '10001',
+  );
+  await page.getByRole('list', { name: '打卡成员列表' }).evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll('.weq-group-sign-list > li').length === 120,
+  );
+  await page.getByRole('list', { name: '打卡成员列表' }).evaluate((element) => {
+    element.scrollTop = 0;
+  });
   await checkPopoverFits(page, 'sign-popover');
   await shot(page, 'sign-popover-light');
   await setTheme(page, 'dark');
