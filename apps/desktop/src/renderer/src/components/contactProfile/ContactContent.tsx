@@ -55,6 +55,7 @@ import { ContactFieldHistoryButton, useContactFieldHistoryAvailable } from './Co
 import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { CalendarNavigationContext } from '../../lib/calendarNavigation';
 import { useGroupMemberTimeNavigation } from '../../hooks/useGroupMemberTimeNavigation';
+import { previewMemberView } from '../../hooks/useGroupProfile';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
@@ -637,11 +638,44 @@ export function ContactGroupContent({
 }) {
   const context = person.profileContext;
   const relationship = useGroupRelationship({ id: context?.groupCode });
+  const cachedMember = { ...person, ...context?.member };
+  const action = useGroupMemberUnmute({
+    groupCode: context?.groupCode ?? '',
+    uid: person.uid || person.id,
+    name: displayUserName(person),
+    role: cachedMember.role,
+    muteUntil: cachedMember.muteUntil,
+  });
+  const freshMember = action.member ? previewMemberView(action.member) : null;
+  const member = freshMember
+    ? {
+        ...cachedMember,
+        ...freshMember,
+        role: cachedMember.role === 'owner' ? ('owner' as const) : freshMember.role,
+        joinedAt: freshMember.joinedAt || cachedMember.joinedAt,
+        lastSpeakAt: freshMember.lastSpeakAt || cachedMember.lastSpeakAt,
+        levelName: cachedMember.levelName,
+      }
+    : cachedMember;
   const navigate = useContext(CalendarNavigationContext);
-  const locate = useGroupMemberTimeNavigation(person, navigate, onNavigate);
+  const locate = useGroupMemberTimeNavigation(
+    {
+      ...person,
+      profileContext: context
+        ? {
+            ...context,
+            member: {
+              ...context.member,
+              joinedAt: member.joinedAt,
+              lastSpeakAt: member.lastSpeakAt,
+            },
+          }
+        : undefined,
+    },
+    navigate,
+    onNavigate,
+  );
   if (!context) return null;
-  const member = { ...person, ...context.member };
-  const muted = member.muteUntil && new Date(member.muteUntil).getTime() > Date.now();
   const groupLevel = member.memberLevel
     ? `Lv.${member.memberLevel}${member.levelName ? ` · ${member.levelName}` : ''}`
     : member.levelName;
@@ -650,11 +684,10 @@ export function ContactGroupContent({
     joinedAt: memberDate(member.joinedAt),
     lastSpeakAt: memberDate(member.lastSpeakAt),
   };
-  const rows = settings.groupOrder
-    .filter((key) => full || settings.visible[key])
-    .map((key) => (
+  const visibleOrder = settings.groupOrder.filter((key) => full || settings.visible[key]);
+  const rows = visibleOrder.map((key) => (
+    <Fragment key={key}>
       <ContactRow
-        key={key}
         label={{ groupLevel: '群等级', joinedAt: '入群时间', lastSpeakAt: '最后群发言' }[key]}
         value={optional[key]}
         onActivate={
@@ -662,7 +695,9 @@ export function ContactGroupContent({
         }
         activateTitle={key === 'joinedAt' ? '定位到入群时间' : '定位到最后群发言'}
       />
-    ));
+      {key === 'lastSpeakAt' ? <MemberMuteUntil action={action} /> : null}
+    </Fragment>
+  ));
   const body = (
     <>
       {relationship === 'nonmember' || member.leftGroup ? (
@@ -682,8 +717,8 @@ export function ContactGroupContent({
         value={member.role ? { owner: '群主', admin: '管理员', member: '成员' }[member.role] : null}
       />
       {member.leftGroup ? <ContactEmptyState>已退出这个群</ContactEmptyState> : null}
-      {muted ? <MemberMuteUntil groupCode={context.groupCode} person={person} /> : null}
       {rows}
+      {!visibleOrder.includes('lastSpeakAt') ? <MemberMuteUntil action={action} /> : null}
     </>
   );
   if (full) return <>{body}</>;
@@ -694,21 +729,15 @@ export function ContactGroupContent({
   );
 }
 
-function MemberMuteUntil({ groupCode, person }: { groupCode: string; person: ProfilePerson }) {
-  const member = { ...person, ...person.profileContext?.member };
-  const action = useGroupMemberUnmute({
-    groupCode,
-    uid: person.uid || person.id,
-    name: displayUserName(person),
-    role: member.role,
-    muteUntil: member.muteUntil,
-  });
+function MemberMuteUntil({ action }: { action: ReturnType<typeof useGroupMemberUnmute> }) {
   if (!action.muted) return null;
   return (
     <ContactRow
       label="禁言截止"
       value={memberDate(new Date(action.until).toISOString())}
-      onActivate={action.available ? (anchor) => void action.unmute(anchor.ownerDocument) : undefined}
+      onActivate={
+        action.available ? (anchor) => void action.unmute(anchor.ownerDocument) : undefined
+      }
       activateTitle="解除禁言"
     />
   );

@@ -20,6 +20,7 @@ const rpc = vi.hoisted(() => ({
   until: 2000000000,
   available: true,
   run: vi.fn(),
+  details: vi.fn(),
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
@@ -46,7 +47,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       qqWrite: {
         memberDetails: {
-          useQuery: () => ({ data: { uid: 'u_peer', muteUntil: rpc.until }, refetch: rpc.refetch }),
+          useQuery: (input: unknown, options: unknown) => {
+            rpc.details(input, options);
+            return { data: { uid: 'u_peer', muteUntil: rpc.until }, refetch: rpc.refetch };
+          },
         },
         groupMemberMute: { useMutation: () => ({ mutateAsync: rpc.mute }) },
       },
@@ -76,14 +80,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderUnmute() {
+function renderUnmute(role: 'owner' | 'member' = 'owner', targetRole: 'member' | null = 'member') {
   let action: ReturnType<typeof useGroupMemberUnmute>;
   function Harness() {
     action = useGroupMemberUnmute({
       groupCode: '123',
       uid: 'u_peer',
       name: '合成成员',
-      role: 'member',
+      role: targetRole ?? undefined,
     });
     return null;
   }
@@ -94,7 +98,7 @@ function renderUnmute() {
         {
           value: {
             selfUid: 'u_self',
-            groups: new Map([['123', { listed: true, role: 'owner' }]]),
+            groups: new Map([['123', { listed: true, role }]]),
             friends: new Map(),
             friendsComplete: true,
           },
@@ -105,6 +109,21 @@ function renderUnmute() {
   );
   return action!;
 }
+
+it('普通成员和离线账号也自动读本地禁言资料，但不能解除禁言', () => {
+  rpc.available = false;
+  const action = renderUnmute('member');
+  expect(rpc.details).toHaveBeenLastCalledWith(
+    { ...binding, groupId: 123, uid: 'u_peer' },
+    expect.objectContaining({ enabled: true }),
+  );
+  expect(action.muted).toBe(true);
+  expect(action.available).toBe(false);
+});
+
+it('未加载的成员补全角色后，群主也能直接解除其禁言', () => {
+  expect(renderUnmute('owner', null).available).toBe(true);
+});
 
 it('解除前确认，发送零时长，读回同一成员', async () => {
   const action = renderUnmute();

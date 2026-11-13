@@ -22,7 +22,7 @@ export const qa = {
   groupName: '合成群',
   groupRemark: '群备注',
   categoryId: 1,
-  role: 'owner',
+  role: 'owner' as 'owner' | 'admin' | 'member',
   failWrite: false,
   preferencesReady: !new URLSearchParams(location.search).has('preferences-loading'),
   failLabels: false,
@@ -65,7 +65,18 @@ const result = (data?: unknown) => ({
 });
 function value(path: string, input: Record<string, unknown>) {
   if (path === 'account.qqWrite.memberDetails')
-    return { uid: 'u_sample', muteUntil: qa.muted ? 1893427200 : 0 };
+    return {
+      uid: 'u_sample',
+      uin: '10002',
+      nick: '林同学',
+      card: '群内小林',
+      adminFlag: 0,
+      joinTime: 1725120000,
+      lastSpeakTime: 1725217445,
+      muteUntil: qa.muted ? 1893427200 : 0,
+      memberLevel: 8,
+      customTitle: '',
+    };
   if (path === 'account.conversationBoundary')
     return { msgId: '101', msgSeq: '51', sendTime: 1725120000 };
   if (path === 'account.browseConversation')

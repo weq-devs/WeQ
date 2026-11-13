@@ -120,6 +120,34 @@ it('群提示使用明确的 user1Uid，不按昵称或消息发送人猜测身�
   expect(f.open.mock.calls[0]![0]).toMatchObject({ id: 'u_bob', identityValue: '10003' });
 });
 
+it('灰条名片首帧保留精确匹配成员的群内资料，不借用同名发送人的资料', () => {
+  const member = {
+    ...bob,
+    joinedAt: '2024-09-01T00:00:00+08:00',
+    lastSpeakAt: '2024-09-02T03:04:05+08:00',
+    memberLevel: 8,
+    customTitle: '合成头衔',
+    muteUntil: '2030-01-01T00:00:00+08:00',
+  };
+  const f = mount(
+    h(GrayTipXmlMessage, {
+      conversation: { ...group, members: [alice, member] },
+      message,
+      element: {
+        type: 'grayTipXml',
+        data: { grayTipXmlContent: '<gtip><qq uin="10003" nm="同名"/></gtip>' },
+      },
+    }),
+  );
+  act(() => f.people()[0]!.click());
+  expect(f.open.mock.calls[0]![0]).toMatchObject({
+    id: bob.id,
+    profileContext: { groupCode: group.id, groupName: group.group.name, member },
+  });
+  const unknown = grayTipProfileTarget(['u_unknown'], '同名', group, message);
+  expect(unknown?.member).toBeUndefined();
+});
+
 it('XML 灰条支持 UID、明确 QQ 号和未加载的用户，不把数字当作 UID', () => {
   const f = mount(
     h(GrayTipXmlMessage, {

@@ -20,6 +20,7 @@ const preferences = vi.hoisted(() => ({
   extraDetails: false,
   uid: false,
   occupation: false,
+  memberDetails: null as Record<string, unknown> | null,
 }));
 
 // 卡片会拉 tRPC 补全陌生人资料 —— 单测不建 ipc 链接，给个死数据桩。
@@ -66,7 +67,10 @@ vi.mock('@renderer/trpc/client', () => ({
       getOnlineStatus: { useQuery: () => ({ data: undefined }) },
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source' } }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
-      qqWrite: {},
+      qqWrite: {
+        memberDetails: { useQuery: () => ({ data: preferences.memberDetails }) },
+        groupMemberMute: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+      },
       profileExtras: {
         energy: { useQuery: () => ({ data: undefined }) },
         signatureHistory: {
@@ -555,6 +559,35 @@ describe('群成员资料卡浮层', () => {
     expect(layer().textContent).not.toContain('入群时间');
     expect(layer().textContent).not.toContain('最后群发言');
   });
+  it('打开名片自动补全群内资料，禁言截止紧随最后群发言；普通成员也能查看', async () => {
+    preferences.memberDetails = {
+      uid: MEMBER.id,
+      uin: MEMBER.identityValue,
+      nick: '成员昵称',
+      card: '群昵称',
+      adminFlag: 0,
+      joinTime: 1725120000,
+      lastSpeakTime: 1725217445,
+      muteUntil: 1893427200,
+      memberLevel: 8,
+      customTitle: '合成头衔',
+    };
+    await mountCard(() => {}, undefined, MEMBER, '20001', {
+      friends: new Map(),
+      friendsComplete: true,
+      groups: new Map([['20001', { listed: true, role: 'member' }]]),
+    });
+    const section = [...layer().querySelectorAll('.weq-profile-section-block')].find((node) =>
+      node.querySelector('h3')?.textContent?.startsWith('群内资料'),
+    )!;
+    const labels = [...section.querySelectorAll('.weq-profile-data-label')].map(
+      (node) => node.textContent,
+    );
+    expect(labels).toContain('入群时间');
+    expect(section.textContent).toContain('Lv.8');
+    expect(labels.slice(-2)).toEqual(['最后群发言', '禁言截止']);
+    expect(section.querySelector('[title="解除禁言"]')).toBeNull();
+  });
   it('各入口补全资料后以真实昵称为主标题，不使用备注或群昵称', async () => {
     vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce({
       uid: MEMBER.id,
@@ -775,6 +808,7 @@ describe('群成员资料卡浮层', () => {
     preferences.extraDetails = false;
     preferences.uid = false;
     preferences.occupation = false;
+    preferences.memberDetails = null;
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
   });

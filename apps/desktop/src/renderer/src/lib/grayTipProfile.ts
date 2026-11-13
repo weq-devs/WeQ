@@ -63,7 +63,12 @@ export function grayTipProfileTarget(
     name,
     avatarUrl: matches[0]?.avatarUrl,
     ...(conversation?.type === 'group' && /^[1-9]\d*$/.test(code)
-      ? { group: { code, name: conversation.group.name } }
+      ? {
+          group: { code, name: conversation.group.name },
+          member: conversation.members.find((person) =>
+            values(person).some((value) => keys.includes(value)),
+          ),
+        }
       : {}),
   };
 }

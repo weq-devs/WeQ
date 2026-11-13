@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 import { z } from 'zod';
-import type { Contact, GroupConversation, User } from '../im-template/template/types';
+import type { Contact, GroupConversation, GroupMember, User } from '../im-template/template/types';
 import { avatarFromUin } from './avatarResolver';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
 
@@ -15,6 +15,7 @@ export type ProfileTarget = {
   name: string;
   avatarUrl?: string | null;
   group?: ProfileGroup;
+  member?: Partial<GroupMember>;
 };
 
 /** 群公告等来源可能返回 UID 或 QQ 号，不能把数字身份伪造成 UID。 */
@@ -30,6 +31,15 @@ export function profileTargetUser(target: ProfileTarget): User | null {
     identityValue: uin || uid,
     displayName: target.name || uin || uid,
     avatarUrl: target.avatarUrl || avatarFromUin(uin),
+    ...(target.group && target.member
+      ? {
+          profileContext: {
+            groupCode: target.group.code,
+            groupName: target.group.name,
+            member: target.member,
+          },
+        }
+      : {}),
   };
 }
 

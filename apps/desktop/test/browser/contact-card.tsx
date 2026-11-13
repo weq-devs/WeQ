@@ -6,6 +6,7 @@ import { ContactProfileDialog } from '../../src/renderer/src/im-template/templat
 import { ContactCardSettings } from '../../src/renderer/src/components/settings/ContactCardSettings';
 import {
   ContactWorkspaceNavigationContext,
+  ProfileNavigationContext,
   type ContactWorkspaceTab,
 } from '../../src/renderer/src/lib/profileNavigation';
 import { ConversationDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
@@ -20,6 +21,7 @@ import { QzoneNavigationContext } from '../../src/renderer/src/lib/qzoneNavigati
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { CalendarNavigationContext } from '../../src/renderer/src/lib/calendarNavigation';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { GrayTipXmlMessage } from '../../src/renderer/src/components/GrayTipXmlMessage';
 import { useViewState } from '../../src/renderer/src/state/view';
 import type {
   Contact,
@@ -81,13 +83,14 @@ const sample: Contact = {
   },
 };
 const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+const grayTip = new URLSearchParams(location.search).has('gray-tip');
 Object.assign(window, { contactCardQa: qa });
 function Fixture() {
   useFixture();
   useEffect(() => {
     useViewState.setState({ openedUin: qa.account });
   }, [qa.account]);
-  const [view, setView] = useState('card');
+  const [view, setView] = useState(grayTip ? 'closed' : 'card');
   const [person, setPerson] = useState(sample);
   const [tab, setTab] = useState<ContactWorkspaceTab>('profile');
   const [preview, setPreview] = useState<{
@@ -187,7 +190,7 @@ function Fixture() {
                   ...person.profileContext,
                   member: {
                     ...person.profileContext.member,
-                    muteUntil: qa.muted ? '2030-01-01T00:00:00+08:00' : null,
+                    muteUntil: !grayTip && qa.muted ? '2030-01-01T00:00:00+08:00' : null,
                   },
                 }
               : undefined,
@@ -206,7 +209,7 @@ function Fixture() {
             selfUid: 'u_self',
             friends: new Map(qa.mode === 'friend' ? [[target.id, {}]] : []),
             friendsComplete: true,
-            groups: new Map([['10003', { listed: qa.inGroup, role: 'owner' }]]),
+            groups: new Map([['10003', { listed: qa.inGroup, role: qa.role }]]),
           }}
         >
           <ConversationDirectoryContext.Provider
@@ -238,6 +241,35 @@ function Fixture() {
                   >
                     <main className="contact-fixture">
                       <nav className="fixture-tools">
+                        {grayTip ? (
+                          <ProfileNavigationContext.Provider
+                            value={(user, _anchor, group) => {
+                              setPerson({
+                                ...user,
+                                createdAt: '',
+                                profileContext: group
+                                  ? { groupCode: group.code, groupName: group.name }
+                                  : undefined,
+                              });
+                              setView('card');
+                            }}
+                          >
+                            <GrayTipXmlMessage
+                              conversation={sharedGroupConversation({
+                                code: '10003',
+                                name: '合成群',
+                                avatar: '',
+                              })}
+                              element={{
+                                type: 'grayTipXml',
+                                data: {
+                                  grayTipXmlContent:
+                                    '<gtip><qq uin="u_sample" nm="林同学"/></gtip>',
+                                },
+                              }}
+                            />
+                          </ProfileNavigationContext.Provider>
+                        ) : null}
                         <button type="button" onClick={() => setView('card')}>
                           打开名片
                         </button>

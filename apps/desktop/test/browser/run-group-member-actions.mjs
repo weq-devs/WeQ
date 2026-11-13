@@ -48,7 +48,7 @@ try {
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark']) {
-      await page.goto(url);
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
       await page.locator('.weq-member-pop').waitFor();
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
@@ -99,11 +99,36 @@ try {
       assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
       if (output)
         await page.screenshot({ path: resolve(output, `member-times-${theme}-${width}.png`) });
+
+      await page.goto(`${url}?gray-tip`, { waitUntil: 'domcontentloaded' });
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.setProperty('--weq-accent-effective', '#137b55');
+        window.contactCardQa.muted = true;
+        window.contactCardQa.role = 'member';
+        window.contactCardQa.online = false;
+        window.contactCardQa.notify();
+      }, theme);
+      await page.getByRole('button', { name: '查看 林同学 的名片' }).click();
+      await card.waitFor();
+      const groupSection = card
+        .locator('.weq-profile-section-block')
+        .filter({ hasText: '群内资料' });
+      await groupSection.getByText('禁言截止', { exact: true }).waitFor();
+      const labels = await groupSection.locator('.weq-profile-data-label').allTextContents();
+      assert.ok(labels.includes('入群时间'));
+      assert.ok(labels.includes('群等级'));
+      assert.deepEqual(labels.slice(-2), ['最后群发言', '禁言截止']);
+      assert.equal(await card.getByTitle('解除禁言', { exact: true }).count(), 0);
+      const grayBounds = await card.boundingBox();
+      assert.ok(grayBounds.x >= 0 && grayBounds.x + grayBounds.width <= width);
+      if (output)
+        await page.screenshot({ path: resolve(output, `gray-tip-member-${theme}-${width}.png`) });
     }
   }
   assert.deepEqual(errors, []);
   console.log(
-    'Passed: member unmute confirmation, cancel, readback, both time jumps; light/dark at 1280/390px.',
+    'Passed: member unmute confirmation, cancel, readback, both time jumps, gray-tip automatic member details and mute ordering; light/dark at 1280/390px.',
   );
 } finally {
   await browser?.close();
