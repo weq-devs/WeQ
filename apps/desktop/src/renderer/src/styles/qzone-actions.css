@@ -177,7 +177,9 @@
 }
 .weq-qzn-forward-dialog h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 .weq-qzn-forward-dialog textarea {
   display: block;

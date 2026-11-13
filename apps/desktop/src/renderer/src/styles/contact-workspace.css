@@ -228,6 +228,8 @@
 .weq-field-history-header h3 {
   margin: 0;
   font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .weq-field-history-body {

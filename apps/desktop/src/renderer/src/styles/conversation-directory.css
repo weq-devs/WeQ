@@ -291,6 +291,8 @@ html[data-theme='dark'] .weq-directory-scope-menu {
 .weq-conversation-action-confirm h3 {
   margin: 0 0 12px;
   font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 .weq-conversation-action-confirm ul {
   max-height: 240px;

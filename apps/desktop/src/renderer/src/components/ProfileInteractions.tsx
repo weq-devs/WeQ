@@ -276,12 +276,17 @@ export function SignatureInteractions({
               </p>
             ) : null}
             {likes.error ? (
-              <button type="button" onClick={() => void likes.refetch()}>
+              <button
+                className="weq-set-btn weq-set-btn-soft"
+                type="button"
+                onClick={() => void likes.refetch()}
+              >
                 重试读取点赞人
               </button>
             ) : null}
             {likes.hasNextPage && !likes.error ? (
               <button
+                className="weq-set-btn weq-set-btn-soft"
                 type="button"
                 disabled={likes.isFetching}
                 onClick={() => void likes.fetchNextPage()}
@@ -465,12 +470,17 @@ function QuestionDetail({
       <CommentRows items={items} />
       {detail.isFetching || more.isFetching ? <p role="status">读取中…</p> : null}
       {detail.error ? (
-        <button type="button" onClick={() => void detail.refetch()}>
+        <button
+          className="weq-set-btn weq-set-btn-soft"
+          type="button"
+          onClick={() => void detail.refetch()}
+        >
           重试读取评论
         </button>
       ) : null}
       {more.error || more.hasNextPage ? (
         <button
+          className="weq-set-btn weq-set-btn-soft"
           type="button"
           disabled={more.isFetching}
           onClick={() =>
@@ -588,6 +598,7 @@ export function PersonalityPhotoUploader({
     <div className="weq-profile-photo-upload">
       <div className="weq-profile-interaction-bar">
         <button
+          className="weq-set-btn weq-set-btn-soft"
           type="button"
           disabled={!online || op.pending}
           onClick={() =>
@@ -616,6 +627,7 @@ export function PersonalityPhotoUploader({
         </button>
         {files.some((row) => row.state === 'ready' || row.state === 'failed') ? (
           <button
+            className="weq-set-btn"
             type="button"
             disabled={!online || op.pending}
             onClick={() => void op.run(upload)}

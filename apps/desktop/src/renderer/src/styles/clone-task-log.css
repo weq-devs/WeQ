@@ -8,6 +8,8 @@
 .weq-clone-task-log h3 {
   margin: 0 0 10px;
   font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 .weq-clone-task-log .weq-segmented {
   max-height: 160px;

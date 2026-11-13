@@ -365,7 +365,12 @@ function PageStatus({
       ) : error ? (
         <>
           <span>读取失败</span>
-          <button type="button" disabled={!online} onClick={retry}>
+          <button
+            className="weq-set-btn weq-set-btn-soft"
+            type="button"
+            disabled={!online}
+            onClick={retry}
+          >
             <RotateCcw size={14} />
             重试
           </button>
@@ -401,7 +406,12 @@ function More({
         <p role="status">本页读取失败，已加载内容保留。</p>
       ) : null}
       {hasMore || error || warning || loading ? (
-        <button type="button" disabled={!online || loading} onClick={load}>
+        <button
+          className="weq-set-btn weq-set-btn-soft"
+          type="button"
+          disabled={!online || loading}
+          onClick={load}
+        >
           {error || warning ? <RotateCcw size={14} /> : <ArrowDown size={14} />}
           {loading ? '读取中…' : error || warning ? '重试本页' : '加载更多'}
         </button>

@@ -82,6 +82,8 @@
 }
 .group-feed-discussion-head h3 {
   font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
   margin: 0;
   color: var(--weq-fg-primary);
 }

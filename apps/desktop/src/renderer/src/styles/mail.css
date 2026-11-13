@@ -606,6 +606,8 @@ html[data-theme='dark'] .weq-mail-workspace {
 }
 .weq-mail-connection h2 {
   font-size: 18px;
+  font-weight: 600;
+  line-height: 1.5;
   color: var(--weq-fg-primary);
   margin: 0;
 }

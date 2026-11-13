@@ -27,6 +27,8 @@
 }
 .weq-friend-directory-editor h3 {
   font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
   margin: 0;
 }
 .weq-friend-directory-editor form {
@@ -49,26 +51,16 @@
   border: 1px solid var(--border);
   border-radius: 6px;
 }
-.weq-friend-directory-editor button {
-  display: inline-flex;
-  align-items: center;
+.weq-friend-directory-editor .weq-set-btn {
   justify-content: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--foreground);
-  background: var(--background);
-}
-.weq-friend-directory-editor button:disabled {
-  opacity: 0.5;
+  min-height: 32px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .weq-friend-directory-editor footer {
   justify-content: flex-end;
-}
-.weq-friend-directory-editor button[type='submit'] {
-  color: var(--foreground);
-  border-color: var(--weq-accent-effective);
+  flex-wrap: wrap;
 }
 .contact-cat {
   position: relative;

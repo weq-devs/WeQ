@@ -166,7 +166,12 @@ export function AvatarHistoryDialog({
         {query.error || warning ? (
           <div className="weq-avatar-history-error" role="status">
             <span>{warning || '读取失败，已加载头像保留。'}</span>
-            <button type="button" disabled={!online || query.isFetching} onClick={retry}>
+            <button
+              className="weq-set-btn weq-set-btn-soft"
+              type="button"
+              disabled={!online || query.isFetching}
+              onClick={retry}
+            >
               <RotateCcw size={14} />
               重试
             </button>
@@ -275,6 +280,7 @@ export function SelfAvatarChange() {
   return (
     <div className="weq-avatar-history-change">
       <button
+        className="weq-set-btn"
         type="button"
         aria-label="更换头像"
         disabled={!session.available || session.busy || picking}

@@ -287,10 +287,17 @@ function useInfiniteQuery(kind: string) {
   };
 }
 export const trpc = {
+  useUtils: () => ({
+    account: { profileExtras: { signatureHistory: { invalidate: async () => {} } } },
+  }),
   bootstrap: {
     getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
   },
   account: {
+    qqWrite: {
+      selfProfile: { useMutation: () => ({ mutateAsync: () => mutate('selfProfile') }) },
+      selfState: { useQuery: () => ({ refetch: async () => ({ data: null, error: null }) }) },
+    },
     getAccountConfig: {
       useQuery: () => ({ data: { uin: account, configId: 'fixture' }, isLoading: false }),
     },

@@ -3,11 +3,13 @@ import { ProfileExtras, ProfileLabelAlbum } from '../../src/renderer/src/compone
 import { qa, trpc, useQQWriteSession } from './profile-extras.stub';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { useViewState } from '../../src/renderer/src/state/view';
+import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { ProfileNavigationContext } from '../../src/renderer/src/lib/profileNavigation';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 
-Object.assign(window, { profileExtrasQa: qa });
+ensureThemeInitialized();
+Object.assign(window, { profileExtrasQa: qa, profileExtrasTheme: useThemeStore });
 useViewState.setState({ openedUin: '10001' });
 function LabelFixture() {
   const session = useQQWriteSession();

@@ -289,7 +289,7 @@ async function run() {
               await page.getByRole('button', { name: '关闭资料详情' }).click();
               await page.getByRole('button', { name: '教育经历', exact: true }).click();
               if (mode === 'ready') {
-                assert.equal(await page.locator('.weq-education-list article').count(), 2);
+                assert.equal(await page.locator('.weq-education-record').count(), 2);
                 assert.ok(
                   (await page.locator('.weq-extras-content').textContent()).includes(
                     '2019 年入学 · 2023 年毕业',
@@ -299,7 +299,7 @@ async function run() {
               const educationOverflow = await page.evaluate(() =>
                 [
                   ...document.querySelectorAll(
-                    '.weq-extras-dialog, .weq-extras-content, .weq-education-list article, .weq-education-list h3, .weq-education-list p',
+                    '.weq-extras-dialog, .weq-extras-content, .weq-education-record, .weq-education-record .weq-profile-data-value',
                   ),
                 ].some((element) => element.scrollWidth > element.clientWidth + 2),
               );
@@ -314,29 +314,32 @@ async function run() {
               await page.getByRole('button', { name: '关闭资料详情' }).click();
               await page.getByRole('button', { name: '详细资料', exact: true }).click();
               if (mode === 'ready') {
-                assert.equal(await page.locator('.weq-profile-details-list article').count(), 3);
+                assert.equal(
+                  await page.locator('.weq-extras-content .weq-profile-data-row').count(),
+                  3,
+                );
                 assert.ok(
-                  (await page.locator('.weq-profile-details-list').textContent()).includes(
-                    '第二行说明',
-                  ),
+                  (
+                    await page.locator('.weq-extras-content .weq-profile-data').textContent()
+                  ).includes('第二行说明'),
                 );
               }
               if (mode === 'empty') {
                 assert.ok(
-                  (await page.locator('.weq-profile-details-list').textContent()).includes(
-                    '未填写',
-                  ),
+                  (
+                    await page.locator('.weq-extras-content .weq-profile-data').textContent()
+                  ).includes('未填写'),
                 );
                 assert.ok(
-                  (await page.locator('.weq-profile-details-list').textContent()).includes(
-                    '未返回',
-                  ),
+                  (
+                    await page.locator('.weq-extras-content .weq-profile-data').textContent()
+                  ).includes('未返回'),
                 );
               }
               const detailsOverflow = await page.evaluate(() =>
                 [
                   ...document.querySelectorAll(
-                    '.weq-extras-dialog, .weq-extras-content, .weq-profile-details-list article, .weq-profile-details-list p',
+                    '.weq-extras-dialog, .weq-extras-content, .weq-profile-data-row, .weq-profile-data-value',
                   ),
                 ].some((element) => element.scrollWidth > element.clientWidth + 2),
               );
@@ -484,6 +487,35 @@ async function run() {
       { name: 'fixture-two.png', mimeType: 'image/png', buffer: Buffer.from('two') },
     ]);
     await page.getByText('fixture-two.png', { exact: true }).waitFor();
+    for (const width of [320, 1180]) {
+      await page.setViewportSize({ width, height: 850 });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((theme) => {
+          const store = window.profileExtrasTheme.getState();
+          store.setPreference(theme);
+          store.setAccent('#a82555');
+        }, theme);
+        const buttons = page.locator('.weq-profile-interaction-bar').last();
+        const appearances = await buttons.locator('button').evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const style = getComputedStyle(node);
+            return { color: style.color, background: style.backgroundColor, size: style.fontSize };
+          }),
+        );
+        assert.equal(appearances.length, 2);
+        assert.equal(appearances[0].size, '13px');
+        assert.equal(appearances[1].size, '13px');
+        assert.notEqual(appearances[0].background, appearances[1].background);
+        assert.equal(
+          await buttons.evaluate((node) => node.scrollWidth > node.clientWidth + 1),
+          false,
+        );
+        if (output)
+          await page.screenshot({
+            path: resolve(output, `${width}-${theme}-photo-upload-ready.png`),
+          });
+      }
+    }
     await page.evaluate(() => window.profileExtrasQa.failNext('personalityPhotoUpload'));
     await page.getByRole('button', { name: '上传', exact: true }).click();
     await page.getByRole('button', { name: '上传待完成照片', exact: true }).waitFor();

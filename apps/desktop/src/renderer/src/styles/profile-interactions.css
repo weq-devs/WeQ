@@ -10,8 +10,8 @@
   align-items: center;
   gap: 8px;
 }
-.weq-profile-interactions button,
-.weq-profile-photo-upload button {
+.weq-profile-interactions button:not(:where(.weq-set-btn)),
+.weq-profile-photo-upload button:not(:where(.weq-set-btn)) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -25,13 +25,13 @@
   font: inherit;
   cursor: pointer;
 }
-.weq-profile-interactions button:hover,
-.weq-profile-photo-upload button:hover {
+.weq-profile-interactions button:not(:where(.weq-set-btn)):hover,
+.weq-profile-photo-upload button:not(:where(.weq-set-btn)):hover {
   color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
-.weq-profile-interactions button:disabled,
-.weq-profile-photo-upload button:disabled {
+.weq-profile-interactions button:not(:where(.weq-set-btn)):disabled,
+.weq-profile-photo-upload button:not(:where(.weq-set-btn)):disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -147,6 +147,13 @@
   border-bottom: 1px solid var(--weq-border-subtle);
   margin-bottom: 12px;
   font-size: 13px;
+}
+.weq-profile-photo-upload .weq-set-btn {
+  min-height: 32px;
+  max-width: 100%;
+  justify-content: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .weq-profile-upload-list {
   list-style: none;

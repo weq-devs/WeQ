@@ -31,8 +31,8 @@
 .weq-extras-links button,
 .weq-extras-header button,
 .weq-extras-energy button,
-.weq-extras-more button,
-.weq-extras-status button {
+.weq-extras-more button:not(:where(.weq-set-btn)),
+.weq-extras-status button:not(:where(.weq-set-btn)) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -63,7 +63,7 @@
 .weq-extras-summary button:hover,
 .weq-extras-history:hover,
 .weq-extras-header button:hover,
-.weq-extras-more button:hover {
+.weq-extras-more button:not(:where(.weq-set-btn)):hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
 .weq-extras-dialog {
@@ -86,6 +86,7 @@
 .weq-extras-header h2 {
   font-size: 16px;
   font-weight: 600;
+  line-height: 1.5;
   margin: 0;
 }
 .weq-extras-content {
@@ -150,6 +151,11 @@
 }
 .weq-extras-more p {
   margin: 4px 0;
+}
+.weq-extras-status .weq-set-btn,
+.weq-extras-more .weq-set-btn {
+  min-height: 30px;
+  font-size: 12px;
 }
 .weq-extras-photo-error {
   display: flex;

@@ -40,6 +40,8 @@
 .weq-reference-export h3 {
   margin: 0 auto 0 0;
   font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 .weq-reference-export .weq-reference-export-head {
   margin: 0 0 12px;

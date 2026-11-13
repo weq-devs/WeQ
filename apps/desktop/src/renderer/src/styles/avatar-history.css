@@ -1,4 +1,5 @@
-.weq-avatar-history-dialog button {
+.weq-avatar-history-header > button,
+.weq-avatar-history-toolbar > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -9,9 +10,12 @@
   color: var(--weq-fg-primary);
   cursor: pointer;
   min-height: 32px;
+  min-width: 32px;
   padding: 6px;
+  flex-shrink: 0;
 }
-.weq-avatar-history-dialog button:hover {
+.weq-avatar-history-header > button:hover,
+.weq-avatar-history-toolbar > button:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 .weq-avatar-history-dialog button:focus-visible {
@@ -42,6 +46,10 @@
 .weq-avatar-history-header h2 {
   margin: 0;
   font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .weq-avatar-history-toolbar {
   display: flex;
@@ -62,6 +70,22 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+.weq-avatar-history-change > .weq-set-btn {
+  min-height: 32px;
+  justify-content: center;
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, var(--weq-border-strong));
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+  font-weight: 600;
+}
+.weq-avatar-history-change > .weq-set-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
+}
+.weq-avatar-history-change > .weq-set-btn:disabled {
+  background: var(--muted);
+  border-color: var(--weq-border-subtle);
+  color: var(--muted-foreground);
 }
 .weq-avatar-history-change p {
   margin: 0;
@@ -96,6 +120,12 @@
   padding: 0;
   overflow: hidden;
   background: var(--weq-bg-elevated);
+  border: 0;
+  border-radius: 4px;
+  align-items: center;
+  justify-content: center;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
 }
 .weq-avatar-history-image img {
   max-width: 100%;
@@ -122,8 +152,15 @@
 html[data-theme='dark'] .weq-avatar-history-dialog {
   border-color: var(--weq-border-strong);
 }
-html[data-theme='dark'] .weq-avatar-history-dialog button:hover {
+html[data-theme='dark'] .weq-avatar-history-header > button:hover,
+html[data-theme='dark'] .weq-avatar-history-toolbar > button:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+html[data-theme='dark'] .weq-avatar-history-change > .weq-set-btn:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, var(--weq-bg-surface));
+}
+html[data-theme='dark'] .weq-avatar-history-change > .weq-set-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 24%, var(--weq-bg-surface));
 }
 @media (max-width: 420px) {
   .weq-avatar-history-grid {
