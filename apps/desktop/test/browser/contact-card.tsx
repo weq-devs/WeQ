@@ -67,7 +67,12 @@ const sample: Contact = {
     city: '厦门',
     privileges: fixturePrivileges,
     interactMarks: [],
-    album: [],
+    album: new URLSearchParams(location.search).has('photos')
+      ? Array.from({ length: 4 }, (_, index) => ({
+          photoId: `fixture-${index}`,
+          urls: [{ url: `https://fixture.invalid/photo-${index}.png` }],
+        }))
+      : [],
   },
   profileContext: {
     groupCode: '10003',

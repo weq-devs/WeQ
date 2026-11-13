@@ -15,6 +15,13 @@
 .weq-contact-card {
   --weq-profile-card-control-size: 28px;
   --weq-profile-card-controls-inset: var(--weq-profile-card-control-size);
+  --weq-contact-scrollbar-thumb: color-mix(in srgb, var(--weq-fg-primary) 22%, transparent);
+  --weq-contact-scrollbar-hover: color-mix(in srgb, var(--weq-fg-primary) 36%, transparent);
+}
+
+html[data-theme='dark'] .weq-contact-card {
+  --weq-contact-scrollbar-thumb: color-mix(in srgb, var(--weq-fg-primary) 30%, transparent);
+  --weq-contact-scrollbar-hover: color-mix(in srgb, var(--weq-fg-primary) 44%, transparent);
 }
 
 .weq-nonmodal-layer[tabindex] > .weq-member-pop.weq-contact-card,
@@ -465,16 +472,46 @@
   padding-bottom: 0;
 }
 
-.weq-member-pop.weq-contact-card:not(.weq-group-page) > .weq-contact-card-body {
+.weq-member-pop.weq-contact-card:not(.weq-group-page) > .weq-contact-card-body,
+.weq-member-pop.weq-contact-card:not(.weq-group-page)
+  > .weq-group-page-content
+  > .weq-contact-card-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-bottom: 10px;
+  /* 滚动条向卡片右内距借位，留槽之外再隔开正文，避免遮住标签和照片。 */
+  margin-inline-end: -8px;
+  padding: 0 8px 10px 0;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  /* 覆盖全局原生细滚动条，使用下方有明确槽宽的 Chromium 样式。 */
+  scrollbar-color: auto !important;
 }
 
-.weq-member-pop.weq-contact-card:not(.weq-group-page) > .weq-profile-card-actions {
+.weq-contact-card .weq-contact-card-body::-webkit-scrollbar {
+  width: 12px;
+}
+
+.weq-contact-card .weq-contact-card-body::-webkit-scrollbar-thumb {
+  border: 3px solid transparent !important;
+  box-shadow: inset 0 0 0 999px var(--weq-contact-scrollbar-thumb) !important;
+}
+
+.weq-contact-card .weq-contact-card-body::-webkit-scrollbar-thumb:hover,
+.weq-contact-card .weq-contact-card-body::-webkit-scrollbar-thumb:active {
+  box-shadow: inset 0 0 0 999px var(--weq-contact-scrollbar-hover) !important;
+}
+
+.weq-contact-card-body .weq-profile-album {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.weq-member-pop.weq-contact-card:not(.weq-group-page) > .weq-profile-card-actions,
+.weq-member-pop.weq-contact-card:not(.weq-group-page)
+  > .weq-group-page-content
+  > .weq-profile-card-actions {
   position: static;
   flex: 0 0 auto;
   margin: 0 -16px;
