@@ -5,8 +5,7 @@ import {
 } from '../lib/groupAlbumNavigation';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
-import { GroupAlbumDialog } from './GroupAlbumDialog';
-import { GroupAlbumFeedDialog } from './GroupAlbumFeedDialog';
+import { GroupAlbumDialog, GroupAlbumFeedDialog } from './lazyMainPanels';
 import { useToast } from './Toast';
 
 export interface GroupAlbumCardRequest extends QQWriteBinding {

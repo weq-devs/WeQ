@@ -56,7 +56,7 @@ it('真实 Web 构建将工具和聊天附属面板留在按需分块，不进�
       const visited=new Set();
       const visit=c=>{if(visited.has(c.fileName))return;visited.add(c.fileName);for(const name of c.imports){const next=chunks.find(c=>c.fileName===name);if(next)visit(next);}};
       for(const chunk of chunks.filter(c=>c.isEntry||c.facadeModuleId?.endsWith('MainView.tsx')))visit(chunk);
-      console.log(JSON.stringify({initial:chunks.filter(c=>visited.has(c.fileName)).flatMap(c=>Object.keys(c.modules)),all:chunks.flatMap(c=>Object.keys(c.modules))}));`,
+      console.log(JSON.stringify({initial:chunks.filter(c=>visited.has(c.fileName)).flatMap(c=>Object.keys(c.modules)),all:chunks.flatMap(c=>Object.keys(c.modules)),large:chunks.filter(c=>Buffer.byteLength(c.code)>500000).map(c=>({name:c.name,bytes:Buffer.byteLength(c.code),modules:Object.keys(c.modules)}))}));`,
     ],
     {
       cwd: resolve(__dirname, '../../web'),
@@ -68,7 +68,11 @@ it('真实 Web 构建将工具和聊天附属面板留在按需分块，不进�
   );
   expect(child.error).toBeUndefined();
   expect(child.status, child.stderr).toBe(0);
-  const modules: { initial: string[]; all: string[] } = JSON.parse(child.stdout);
+  const modules: {
+    initial: string[];
+    all: string[];
+    large: { name: string; bytes: number; modules: string[] }[];
+  } = JSON.parse(child.stdout);
   for (const suffix of [
     '/components/DbRepairPanel.tsx',
     '/components/CapturePanel.tsx',
@@ -80,6 +84,14 @@ it('真实 Web 构建将工具和聊天附属面板留在按需分块，不进�
     '/template/redPacketPanel.tsx',
     '/template/locationCardPanel.tsx',
     '/template/locationSharePanel.tsx',
+    '/views/MailView.tsx',
+    '/components/mergeForward/CompositionWorkspace.tsx',
+    '/components/mergeForward/MergeForwardDialog.tsx',
+    '/components/compose/AddMessageModal.tsx',
+    '/components/compose/DeletedMessagesModal.tsx',
+    '/components/compose/GapMessagesModal.tsx',
+    '/components/compose/RecalledMessagesModal.tsx',
+    '/components/search/ChatRecordsModal.tsx',
   ]) {
     expect(
       modules.all.some((id) => id.replaceAll('\\', '/').endsWith(suffix)),
@@ -91,5 +103,13 @@ it('真实 Web 构建将工具和聊天附属面板留在按需分块，不进�
         suffix,
       )
       .toBe(false);
+  }
+  for (const chunk of modules.large) {
+    expect
+      .soft(
+        chunk.modules.every((id) => /node_modules[\\/]@shikijs[\\/]langs[\\/]/.test(id)),
+        `${chunk.name}: ${chunk.bytes} bytes，业务脚本必须低于 500 kB`,
+      )
+      .toBe(true);
   }
 }, 50_000);

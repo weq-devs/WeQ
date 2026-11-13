@@ -93,7 +93,6 @@ import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
-import { CallWindow } from '../components/CallWindow';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
@@ -254,15 +253,40 @@ import {
 } from '../components/lazyWorkspaces';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
 import { useRecalledMessages } from '../hooks/useRecalledMessages';
-import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
-import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
-import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNavigation';
-import { GroupFileDialog } from '../components/GroupFileDialog';
 import {
+  QzoneAlbumDialog,
+  GroupAlbumDialog,
+  GroupFileDialog,
+  GroupSignDialog,
+  GroupEssenceDialog,
+  GroupLeftMembersDialog,
+  AddMessageModal,
+  MergeForwardDialog,
+  CompositionWorkspace,
+  DeletedMessagesModal,
+  RecalledMessagesModal,
+  GapMessagesModal,
+  ChatRecordsModal,
+  MailWorkspace,
+  SequentialForwardDialog,
+  MsgElementEditor,
+  SearchResultsPanel,
+  WorkspaceTools,
+  ChatHome,
+  CallWindow,
+  OfficialConversationPane,
+  ContactNoticeDialog,
+  GroupNoticeDialog,
   GroupAnnouncementsDialog,
-  type GroupBulletinWire,
-} from '../components/GroupAnnouncementsDialog';
-import { GroupSignDialog } from '../components/GroupSignDialog';
+  ConversationSettingsDialog,
+  QQRemarkDialog,
+  GroupMemberKickDialog,
+  GroupMemberRenameDialog,
+  GroupMemberTitleDialog,
+  ConversationOverviewCalendar,
+} from '../components/lazyMainPanels';
+import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNavigation';
+import type { GroupBulletinWire } from '../components/GroupAnnouncementsDialog';
 import { GroupTodos } from '../components/qq-actions/GroupActions';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import { useCaptureWindow } from '../state/captureWindow';
@@ -273,39 +297,24 @@ import {
   ESSENCE_RECEIPT_TTL,
   useQQEssence,
 } from '../state/qqEssence';
-import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
 import type { GroupInfoDetail, GroupSidebarFeature } from '../im-template/template/groupInfoPanel';
-import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import {
   ConversationSettingsNavigationContext,
   GroupResourceNavigationContext,
   type ConversationSettingsRequest,
 } from '../lib/conversationSettingsNavigation';
-import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
 import { RelationshipDirectoryContext } from '../lib/contactRelationship';
-import { GroupEssenceDialog } from '../components/GroupEssenceDialog';
 import {
   projectGroupEssence,
   hasCompleteEssenceSnapshot,
   GROUP_ESSENCE_ONLINE_LIMIT,
 } from '../lib/groupEssenceProjection';
-import {
-  GroupMemberKickDialog,
-  GroupMemberRenameDialog,
-  GroupMemberTitleDialog,
-} from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { GroupProfileDialog } from '../im-template/template/profilePanes';
 import { sharedGroupConversation } from '../components/ark/groupShareCard';
 import { openRedBagQrcode } from '../components/RedBagQrcodeDialog';
-import {
-  GroupLeftMembersDialog,
-  type GroupLeftMemberRow,
-} from '../components/GroupLeftMembersDialog';
-import { AddMessageModal } from '../components/compose/AddMessageModal';
-import { MergeForwardDialog } from '../components/mergeForward/MergeForwardDialog';
-import { CompositionWorkspace } from '../components/mergeForward/CompositionWorkspace';
+import type { GroupLeftMemberRow } from '../components/GroupLeftMembersDialog';
 import type { CompositionBinding } from '../components/mergeForward/workspaceModel';
 import { useCompositionWindow } from '../hooks/useCompositionWindow';
 import { useGroupResourceWindows } from '../hooks/useGroupResourceWindows';
@@ -329,10 +338,6 @@ import {
   type MfTarget,
 } from '../components/mergeForward/model';
 import type { MfPerson } from '../components/mergeForward/SenderPicker';
-import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
-import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
-import { GapMessagesModal } from '../components/compose/GapMessagesModal';
-import { SearchResultsPanel } from '../components/search/SearchResultsPanel';
 import { isGeneratedSearchHit, isContentSearchHit } from '../components/search/types';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchPreferences } from '../hooks/useSearchPreferences';
@@ -345,14 +350,12 @@ import type { RoamingTarget, MessageBubbleSkin } from '@weq/service';
 import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
 import { createMediaId } from '../im-template/template/composerMedia';
-import { ChatRecordsModal } from '../components/search/ChatRecordsModal';
 import type {
   ChatRecordSearchHit,
   GeneratedSearchHit,
   SearchHit,
   ContentSearchTarget,
 } from '../components/search/types';
-import { SequentialForwardDialog } from '../components/SequentialForwardDialog';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
@@ -378,12 +381,10 @@ import { conversationBatchSelection } from '../../../shared/content_selection';
 import { displayUserName } from '../im-template/template/user';
 import { isDatalineUid } from '@weq/codec';
 import type { CalendarTarget as OverviewCalendarTarget } from '@weq/service/conversation-calendar';
-import { ConversationOverviewCalendar } from '../components/ConversationOverviewCalendar';
 import { CalendarNavigationContext, type CalendarNavigate } from '../lib/calendarNavigation';
 import { conversationListSearchText } from '../lib/conversationListSearchText';
 import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
-import { WorkspaceTools } from '../components/WorkspaceTools';
 import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
 import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
@@ -398,7 +399,6 @@ import {
   type ProfileChatTarget,
 } from '../lib/chatNavigation';
 import { readProfilePreviewPage, type ProfilePreviewCursor } from '../lib/profileMessagePreview';
-import { MailWorkspace } from './MailView';
 import { RetainedTabs } from '../components/RetainedTabs';
 import { PageSnapshots, usePageState } from '../components/PageSnapshots';
 import { pageValue } from '../lib/pageSnapshots';
@@ -409,7 +409,6 @@ import {
   QzoneProfileContext,
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
-import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
   ChatShell,
@@ -478,9 +477,7 @@ import {
   type ReplyJumpTarget,
 } from '../components/QqMessageContent';
 import type { SetEmojiItem } from '@weq/codec';
-import { MsgElementEditor } from '../components/MsgElementEditor';
 import { flashTransferTitle } from '../components/QqFlashTransfer';
-import { OfficialConversationPane } from '../components/OfficialConversationPane';
 import {
   DatabaseDamagedDialog,
   type DatabaseDamagedEvent,

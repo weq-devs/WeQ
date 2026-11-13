@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import { Eye, X } from 'lucide-react';
 import { Modal } from './Dialog';
-import { GapMessagesModal } from './compose/GapMessagesModal';
+import { GapMessagesModal } from './lazyMainPanels';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import type { MessageRenderer } from '../im-template/template/messageRenderers';
 import type { MessageBatchAction, partitionMessageBatch } from '../lib/messageBatchAction';

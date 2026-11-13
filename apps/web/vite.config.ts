@@ -44,6 +44,8 @@ export default defineConfig({
     rollupOptions: {
       input: { index: resolve(RENDERER, 'index.html') },
       output: {
+        // 聊天模板与业务状态存在交叉引用，分包后仍按源码顺序初始化。
+        strictExecutionOrder: true,
         codeSplitting: {
           groups: [
             {
@@ -52,6 +54,24 @@ export default defineConfig({
               priority: 20,
             },
             { name: 'icons', test: /node_modules[\\/]lucide-react[\\/]/, priority: 10 },
+            {
+              name: 'html-parser',
+              test: /node_modules[\\/](?:parse5|entities)[\\/]/,
+              priority: 10,
+            },
+            {
+              name: 'chat-ui',
+              test: /src[\\/]renderer[\\/]src[\\/]im-template[\\/]template[\\/](?!(?:arkPanel|redPacketPanel|locationCardPanel|locationSharePanel|lazyComposerPanels)\.)/,
+              includeDependenciesRecursively: false,
+              maxSize: 350_000,
+              priority: 10,
+            },
+            {
+              name: 'timeline-virtualizer',
+              test: /node_modules[\\/]@tanstack[\\/](?:virtual-core|react-virtual)[\\/]/,
+              includeDependenciesRecursively: false,
+              priority: 10,
+            },
           ],
         },
       },
