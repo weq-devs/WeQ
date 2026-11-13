@@ -54,6 +54,9 @@ try {
     [390, 844],
   ]) {
     await page.setViewportSize({ width, height });
+    await page.evaluate((width) => {
+      document.documentElement.dataset.weqLayout = width <= 760 ? 'single' : 'wide';
+    }, width);
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => window.shellQa.theme.getState().setPreference(theme), theme);
       await page.waitForTimeout(60);
@@ -98,6 +101,25 @@ try {
           restriction: box('.weq-titlebar-restriction'),
           rail: box('.app-rail'),
           buttons,
+          badges: [...document.querySelectorAll('.app-rail .rail-badge')].map((badge) => {
+            const rect = badge.getBoundingClientRect();
+            const parent = badge.parentElement.getBoundingClientRect();
+            let unclipped = true;
+            for (let node = badge.parentElement; node; node = node.parentElement) {
+              const style = getComputedStyle(node);
+              const clip = node.getBoundingClientRect();
+              if (style.overflowX !== 'visible')
+                unclipped &&= rect.left >= clip.left && rect.right <= clip.right;
+              if (style.overflowY !== 'visible')
+                unclipped &&= rect.top >= clip.top && rect.bottom <= clip.bottom;
+            }
+            return {
+              className: badge.className,
+              top: rect.top - parent.top,
+              right: parent.right - rect.right,
+              unclipped,
+            };
+          }),
           greet: box('.weq-chathome-greet'),
         };
       });
@@ -120,6 +142,18 @@ try {
   );
   assert.equal(strokes.size, 1, '左侧 rail 线框图标线宽必须一致');
   for (const row of report) assert.equal(row.overflow, false, `${row.width} 不能横向溢出`);
+  for (const row of report) {
+    assert.ok(row.badges.length >= 3, '必须覆盖消息、联系人及邮箱角标');
+    for (const badge of row.badges) {
+      assert.equal(
+        badge.unclipped,
+        true,
+        `${row.width}/${row.theme}/${badge.className} 不能被裁切`,
+      );
+      assert.equal(badge.top, row.width <= 760 ? 2 : 4, '角标顶部统一内收');
+      assert.ok(badge.right >= 4, '角标右侧必须留出空间');
+    }
+  }
   console.log(JSON.stringify({ report, errors }, null, 1));
 } finally {
   await browser?.close();

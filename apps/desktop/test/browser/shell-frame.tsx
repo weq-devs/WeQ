@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import type { CSSProperties } from 'react';
 import { AppRail } from '../../src/renderer/src/im-template/template/rail';
 import { TitleBar } from '../../src/renderer/src/im-template/template/TitleBar';
 import { TitleBarSearch } from '../../src/renderer/src/components/TitleBarSearch';
@@ -27,7 +28,10 @@ Object.assign(window, { shellQa: { theme: useThemeStore, view: useViewState } })
 
 const view = 'messages' as const;
 createRoot(document.getElementById('root')!).render(
-  <div className="app-shell-root is-mac is-desktop-shell" style={{ height: '100dvh' }}>
+  <div
+    className="app-shell-root is-mac is-desktop-shell"
+    style={{ height: '100dvh', '--sidebar-width': '280px' } as CSSProperties}
+  >
     <TitleBar
       user={user}
       homeActive
@@ -36,6 +40,7 @@ createRoot(document.getElementById('root')!).render(
     />
     <div className="app-shell">
       <AppRail
+        hideAvatar
         user={user}
         view={view}
         onViewChange={() => {}}
