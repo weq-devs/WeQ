@@ -142,7 +142,8 @@ try {
     window.contactCardQa.online = false;
     window.contactCardQa.notify();
   });
-  assert.equal(await button('编辑好友分组').isDisabled(), true);
+  assert.equal(await button('编辑好友分组').count(), 0);
+  assert.ok((await page.locator('.weq-contact-identity').textContent()).includes('同学'));
   await page.evaluate(() => {
     window.contactCardQa.online = true;
     window.contactCardQa.mode = 'nonfriend';

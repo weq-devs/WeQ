@@ -38,8 +38,8 @@ export function QQProfileField(props: Props) {
     null,
   );
   const value = saved?.scope === scope && saved.previous === initial ? saved.value : initial;
-  if (editing === scope)
-    return (
+  const fieldEditor =
+    editing === scope ? (
       <QQProfileFieldEditor
         key={scope}
         {...props}
@@ -53,7 +53,7 @@ export function QQProfileField(props: Props) {
           setEditing(null);
         }}
       />
-    );
+    ) : null;
   const trigger = !session.available ? (
     value || null
   ) : (
@@ -78,10 +78,10 @@ export function QQProfileField(props: Props) {
     </button>
   );
   return inline ? (
-    trigger
+    (fieldEditor ?? trigger)
   ) : (
     <ContactRow label={label} valueClassName={valueClassName}>
-      {trigger}
+      {fieldEditor ?? trigger}
     </ContactRow>
   );
 }
@@ -183,6 +183,7 @@ function QQProfileFieldEditor({
           label={label}
           initial={initial}
           initialEditing
+          inline
           editable
           disabled={!session.available || session.busy || Boolean(error)}
           maxLength={field === 'groupName' ? 256 : 1024}

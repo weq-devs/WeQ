@@ -247,6 +247,7 @@ try {
   await page.getByRole('button', { name: '保存QQ 昵称', exact: true }).click();
   await page.getByRole('button', { name: '编辑QQ 昵称', exact: true }).waitFor();
   await page.getByRole('button', { name: '编辑公司', exact: true }).click();
+  await page.getByRole('button', { name: '编辑公司展示范围', exact: true }).click();
   await page.locator('[data-display-field="company"] [aria-checked="true"]').waitFor();
   const companyRange = page.locator('[data-display-field="company"]');
   await companyRange.getByRole('radio', { name: '仅好友', exact: true }).click();
@@ -258,6 +259,7 @@ try {
   assert.equal(await page.locator('[data-display-field]').count(), 0);
   await page.getByRole('button', { name: '编辑公司', exact: true }).click();
   await page.getByRole('textbox', { name: '公司', exact: true }).fill('只提交一次的公司');
+  await page.getByRole('button', { name: '编辑公司展示范围', exact: true }).click();
   await page
     .locator('[data-display-field="company"]')
     .getByRole('radio', { name: '不可见', exact: true })

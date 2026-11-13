@@ -1,19 +1,26 @@
 .weq-profile-display-control {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: start;
   gap: 2px;
   min-width: 0;
   max-width: 100%;
-  padding-block: 6px;
+  flex: 0 1 auto;
+  padding: 0;
+  white-space: normal;
 }
 .weq-profile-display-control .weq-segmented {
+  box-sizing: border-box;
   flex-wrap: nowrap;
   width: 202px;
   max-width: 100%;
+  padding: 2px;
+  border-radius: 4px;
 }
 .weq-profile-display-control .weq-segmented > button {
-  padding: 4px 7px;
-  min-height: 30px;
+  padding: 3px 5px;
+  min-height: 28px;
+  border-radius: 3px;
   white-space: nowrap;
 }
 .weq-profile-display-status {
@@ -25,6 +32,32 @@
   line-height: 1.5;
   color: var(--weq-fg-secondary);
   overflow-wrap: anywhere;
+}
+.weq-profile-display-status:empty {
+  display: none;
+}
+.weq-profile-display-summary {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.733;
+  white-space: nowrap;
+  user-select: text;
+}
+button.weq-profile-display-summary {
+  cursor: pointer;
+}
+button.weq-profile-display-summary:hover {
+  color: var(--weq-accent-effective);
+}
+button.weq-profile-display-summary:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 .weq-profile-display-status[data-error] {
   color: var(--destructive);

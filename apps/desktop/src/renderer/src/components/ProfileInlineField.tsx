@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { ContactRow } from './contactProfile/ContactRow';
 import '../styles/group-member-edit.css';
+import '../styles/profile-field-editor.css';
 
 /** 名片资料共用的原行编辑器，保存失败时保留输入。 */
 export function ProfileInlineField({
@@ -17,6 +18,7 @@ export function ProfileInlineField({
   valueClassName,
   options,
   onCancel,
+  inline = false,
 }: {
   label: string;
   initial: string;
@@ -30,6 +32,7 @@ export function ProfileInlineField({
   valueClassName?: string;
   options?: readonly { value: string; label: string }[];
   onCancel?: () => void;
+  inline?: boolean;
 }) {
   const [editing, setEditing] = useState(initialEditing);
   const [draft, setDraft] = useState(initial);
@@ -49,33 +52,39 @@ export function ProfileInlineField({
     setEditing(false);
     onCancel?.();
   }
-  return editing && editable ? (
-    <form
-      className="weq-member-inline-field"
-      data-qq-action
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || event.defaultPrevented) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (!running.current) cancel();
-      }}
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (locked || running.current || (!allowEmpty && !draft.trim())) return;
-        running.current = true;
-        setSaving(true);
-        void onSave(draft)
-          .then((ok) => {
-            if (ok) setEditing(false);
-          })
-          .finally(() => {
-            running.current = false;
-            setSaving(false);
-          });
-      }}
-    >
-      <label>
-        <span>{label}</span>
+  const content =
+    editing && editable ? (
+      <form
+        className="weq-member-inline-field"
+        data-qq-action
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) {
+            if (event.key === 'Enter') event.preventDefault();
+            return;
+          }
+          if (event.key !== 'Escape' || event.defaultPrevented) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (!running.current) cancel();
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (locked || running.current || (!allowEmpty && !draft.trim())) return;
+          running.current = true;
+          setSaving(true);
+          void onSave(draft)
+            .then((ok) => {
+              if (ok) {
+                restoreFocus.current = true;
+                setEditing(false);
+              }
+            })
+            .finally(() => {
+              running.current = false;
+              setSaving(false);
+            });
+        }}
+      >
         {options ? (
           <select
             className="weq-set-select"
@@ -107,56 +116,60 @@ export function ProfileInlineField({
             onChange={(event) => setDraft(event.target.value)}
           />
         )}
-      </label>
+        <span className="weq-profile-field-actions">
+          <button
+            type="submit"
+            className="weq-profile-field-tool weq-profile-field-save"
+            aria-label={`保存${label}`}
+            title={`保存${label}`}
+            disabled={
+              locked ||
+              (!allowEmpty && !draft.trim()) ||
+              Boolean(options && !options.some((option) => option.value === draft))
+            }
+          >
+            <Check size={14} />
+          </button>
+          <button
+            type="button"
+            className="weq-profile-field-tool"
+            aria-label={`取消编辑${label}`}
+            title="取消编辑"
+            disabled={locked}
+            onClick={cancel}
+          >
+            <X size={14} />
+          </button>
+        </span>
+      </form>
+    ) : editable && !locked ? (
       <button
-        type="submit"
-        className="weq-profile-row-copy"
-        aria-label={`保存${label}`}
-        title={`保存${label}`}
-        disabled={
-          locked ||
-          (!allowEmpty && !draft.trim()) ||
-          Boolean(options && !options.some((option) => option.value === draft))
-        }
-      >
-        <Check size={14} />
-      </button>
-      <button
+        ref={trigger}
         type="button"
-        className="weq-profile-row-copy"
-        aria-label={`取消编辑${label}`}
-        title="取消编辑"
+        className="weq-contact-value"
+        aria-label={`编辑${label}`}
+        title={`编辑${label}`}
         disabled={locked}
-        onClick={cancel}
+        onClick={(event) => {
+          const selection = event.currentTarget.ownerDocument.getSelection();
+          if (selection?.toString() && event.currentTarget.contains(selection.anchorNode)) return;
+          setDraft(initial);
+          setEditing(true);
+        }}
       >
-        <X size={14} />
+        {options?.find((option) => option.value === initial)?.label ||
+          initial ||
+          placeholder ||
+          `设置${label}`}
       </button>
-    </form>
+    ) : (
+      options?.find((option) => option.value === initial)?.label || initial || null
+    );
+  return inline ? (
+    content
   ) : (
     <ContactRow label={label} valueClassName={valueClassName}>
-      {editable && !locked ? (
-        <button
-          ref={trigger}
-          type="button"
-          className="weq-contact-value"
-          aria-label={`编辑${label}`}
-          title={`编辑${label}`}
-          disabled={locked}
-          onClick={(event) => {
-            const selection = event.currentTarget.ownerDocument.getSelection();
-            if (selection?.toString() && event.currentTarget.contains(selection.anchorNode)) return;
-            setDraft(initial);
-            setEditing(true);
-          }}
-        >
-          {options?.find((option) => option.value === initial)?.label ||
-            initial ||
-            placeholder ||
-            `设置${label}`}
-        </button>
-      ) : (
-        options?.find((option) => option.value === initial)?.label || initial || null
-      )}
+      {content}
     </ContactRow>
   );
 }

@@ -8,7 +8,7 @@ import {
 import { QQWriteTextRow } from '../src/renderer/src/components/QQWriteControls';
 
 const cleanups: (() => void)[] = [];
-function fixture(save = vi.fn(async () => true)) {
+function fixture(save = vi.fn(async () => true), multiline = false) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -28,6 +28,7 @@ function fixture(save = vi.fn(async () => true)) {
             initial: '原值',
             disabled: false,
             onSave: save,
+            multiline,
           }),
         ),
       ),
@@ -55,13 +56,60 @@ it('默认显示资料而不是表单，取消不提交，重开恢复原值', a
   expect(trigger.querySelector('button')).toBeNull();
   expect(f.host.textContent).toContain('原值');
   expect(f.host.querySelector('input')).toBeNull();
+  const label = f.host.querySelector('.weq-profile-data-label');
   await f.click('编辑昵称');
+  expect(f.host.querySelector('.weq-profile-data-label')).toBe(label);
+  expect(f.host.querySelector('.weq-set-row-label')).toBeNull();
+  expect(f.host.querySelector('.weq-profile-data-value input')).not.toBeNull();
+  expect(f.host.querySelector('.weq-profile-field-actions [aria-label="保存昵称"]')).not.toBeNull();
   expect(f.host.querySelector('input')).not.toBeNull();
   await f.click('取消编辑昵称');
   expect(f.save).not.toHaveBeenCalled();
   expect(f.host.querySelector('input')).toBeNull();
   await f.click('编辑昵称');
   expect(f.host.querySelector('input')?.value).toBe('原值');
+});
+
+it('Enter 保存单行输入，输入法确认不提交', async () => {
+  const f = fixture();
+  await f.click('编辑昵称');
+  const input = f.host.querySelector('input')!;
+  act(() =>
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }),
+    ),
+  );
+  expect(f.save).not.toHaveBeenCalled();
+  await act(async () =>
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(f.save).toHaveBeenCalledOnce();
+  expect(f.host.querySelector('input')).toBeNull();
+});
+it('多行输入 Enter 保留换行语义，Ctrl+Enter 才保存', async () => {
+  const f = fixture(
+    vi.fn(async () => true),
+    true,
+  );
+  await f.click('编辑昵称');
+  const input = f.host.querySelector('textarea')!;
+  const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  act(() => input.dispatchEvent(enter));
+  expect(enter.defaultPrevented).toBe(false);
+  expect(f.save).not.toHaveBeenCalled();
+  await act(async () =>
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  expect(f.save).toHaveBeenCalledOnce();
 });
 it('拖选字段文字不进入编辑；键盘点击仍可编辑', async () => {
   const f = fixture();

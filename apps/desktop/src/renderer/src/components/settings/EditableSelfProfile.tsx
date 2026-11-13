@@ -1,9 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
-import { Save, MapPin, Cake, Mail, BriefcaseBusiness, RefreshCw, FileText } from 'lucide-react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import {
+  Check,
+  Save,
+  MapPin,
+  Cake,
+  Mail,
+  BriefcaseBusiness,
+  RefreshCw,
+  FileText,
+} from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { QQWriteTextRow, QQWriteSelectRow } from '../QQWriteControls';
-import { Row } from './controls';
+import {
+  ProfileEditorRow,
+  ProfileEditorAction,
+  ProfileFieldEditorContext,
+} from '../ProfileFieldEditor';
 import { withQQAccountScope } from '../qq-actions/shared';
 import { useSelfProfileSave } from '../SelfProfileField';
 import { DisplaySelfProfileField as SelfProfileField } from '../ProfileDisplaySettings';
@@ -30,6 +43,7 @@ export function RegionEditor({
   onSave: (value: string[]) => Promise<boolean>;
 }) {
   const saveField = useSelfProfileSave();
+  const inlineEditor = useContext(ProfileFieldEditorContext);
   const [path, setPath] = useState<Array<string | null>>(
     value ?? Array.from({ length: layers }, () => null),
   );
@@ -54,7 +68,7 @@ export function RegionEditor({
       (value, index) => value !== null && menus[index]?.some((node) => node.code === value),
     );
   return (
-    <Row
+    <ProfileEditorRow
       label={
         <span className="weq-set-row-icon">
           <MapPin size={14} />
@@ -93,18 +107,22 @@ export function RegionEditor({
               ))}
             </select>
           ))}
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            title={`保存${label}`}
-            aria-label={`保存${label}`}
-            disabled={disabled || !valid}
-            onClick={() => {
-              if (valid) void saveField(() => onSave(path as string[]));
-            }}
-          >
-            <Save size={16} />
-          </button>
+          <ProfileEditorAction>
+            <button
+              type="button"
+              className={
+                inlineEditor ? 'weq-profile-field-tool weq-profile-field-save' : 'weq-set-iconbtn'
+              }
+              title={`保存${label}`}
+              aria-label={`保存${label}`}
+              disabled={disabled || inlineEditor?.disabled || !valid}
+              onClick={() => {
+                if (valid) void saveField(() => onSave(path as string[]));
+              }}
+            >
+              {inlineEditor ? <Check size={14} /> : <Save size={16} />}
+            </button>
+          </ProfileEditorAction>
         </div>
       }
     />
@@ -375,8 +393,9 @@ function BirthdayEditor({
 }) {
   const [value, setValue] = useState(initial);
   const saveField = useSelfProfileSave();
+  const inlineEditor = useContext(ProfileFieldEditorContext);
   return (
-    <Row
+    <ProfileEditorRow
       label={
         <span className="weq-set-row-icon">
           <Cake size={14} />
@@ -384,7 +403,7 @@ function BirthdayEditor({
         </span>
       }
       control={
-        <div className="weq-profile-region-editor">
+        <div className="weq-profile-region-editor weq-profile-birthday-editor">
           <input
             type="date"
             aria-label="公历生日"
@@ -392,15 +411,20 @@ function BirthdayEditor({
             disabled={disabled}
             onChange={(event) => setValue(event.target.value)}
           />
-          <button
-            type="button"
-            title="保存生日"
-            aria-label="保存生日"
-            disabled={disabled || !value}
-            onClick={() => void saveField(() => onSave(value))}
-          >
-            <Save size={16} />
-          </button>
+          <ProfileEditorAction>
+            <button
+              type="button"
+              className={
+                inlineEditor ? 'weq-profile-field-tool weq-profile-field-save' : 'weq-set-iconbtn'
+              }
+              title="保存生日"
+              aria-label="保存生日"
+              disabled={disabled || inlineEditor?.disabled || !value}
+              onClick={() => void saveField(() => onSave(value))}
+            >
+              {inlineEditor ? <Check size={14} /> : <Save size={16} />}
+            </button>
+          </ProfileEditorAction>
         </div>
       }
     />

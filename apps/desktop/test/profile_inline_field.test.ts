@@ -166,7 +166,10 @@ afterEach(() => {
 it('首屏不读写备注，点击后在原行编辑，取消不保存', async () => {
   render();
   expect(mock.reads).not.toHaveBeenCalled();
+  const label = host.querySelector('.weq-profile-data-label');
   await click('编辑备注');
+  expect(host.querySelector('.weq-profile-data-label')).toBe(label);
+  expect(host.querySelector('.weq-member-inline-field label')).toBeNull();
   expect(host.querySelector('input')?.value).toBe('旧备注');
   expect(host.querySelector('[role="dialog"]')).toBeNull();
   await fill('未保存');

@@ -82,7 +82,9 @@ function fixture(provider = true) {
   });
   const click = (label: string) =>
     act(() => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click());
-  const choose = (field: string, value: string) =>
+  const choose = (field: string, value: string) => {
+    if (!host.querySelector(`[data-display-field="${field}"] [role="radio"]`))
+      click(`编辑${field === 'company' ? '公司' : field === 'age' ? '年龄' : '学校'}展示范围`);
     act(() => {
       [
         ...host.querySelectorAll<HTMLButtonElement>(
@@ -92,6 +94,7 @@ function fixture(provider = true) {
         .find((button) => button.textContent === value)!
         .click();
     });
+  };
   return { host, render, click, choose };
 }
 beforeEach(() => {
@@ -127,14 +130,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('普通展示不读范围、不显示全局开关；只展开正在编辑的字段', () => {
+it('范围批量读取并以括号显示；内容编辑不会展开范围控件', () => {
   const f = fixture();
-  expect(state.enabled.every((enabled) => !enabled)).toBe(true);
+  expect(state.enabled.every(Boolean)).toBe(true);
+  expect(f.host.querySelector('[aria-label="编辑公司展示范围"]')?.textContent).toBe('（所有人）');
   expect(f.host.querySelector('[data-profile-display-mode]')).toBeNull();
   expect(f.host.querySelector('[role="radiogroup"]')).toBeNull();
   f.click('编辑公司');
   expect(state.enabled.at(-1)).toBe(true);
-  expect(f.host.querySelectorAll('[role="radiogroup"]')).toHaveLength(1);
+  expect(f.host.querySelectorAll('[role="radiogroup"]')).toHaveLength(0);
   expect(f.host.querySelector('[data-display-field="age"]')).toBeNull();
   expect(f.host.textContent).toContain('21 岁');
 });
@@ -146,6 +150,7 @@ it('选择范围只改草稿；取消不写入，重新编辑恢复已确认值'
   expect(state.content).not.toHaveBeenCalled();
   f.click('取消编辑公司');
   f.click('编辑公司');
+  f.click('编辑公司展示范围');
   expect(f.host.querySelector('[aria-checked="true"][role="radio"]')?.textContent).toBe('所有人');
 });
 it('内容与展示范围顺序保存，全部成功才退出编辑', async () => {
@@ -195,7 +200,7 @@ it('只改内容不写范围，只有范围可改的字段也有保存与取消'
   f.click('编辑公司');
   await act(async () => f.click('保存公司'));
   expect(state.mutate).not.toHaveBeenCalled();
-  f.click('编辑年龄');
+  f.click('编辑年龄展示范围');
   f.choose('age', '不可见');
   expect(state.mutate).not.toHaveBeenCalled();
   expect(f.host.querySelector('[aria-label="取消编辑年龄"]')).not.toBeNull();
@@ -232,6 +237,7 @@ it.each(['unknown', 'missing', 'incomplete'] as const)(
     };
     const f = fixture();
     f.click('编辑公司');
+    f.click('编辑公司展示范围');
     expect(f.host.querySelector('[aria-checked="true"][role="radio"]')).toBeNull();
     expect(f.host.querySelectorAll('[role="radio"]:not(:disabled)')).toHaveLength(0);
     await act(async () => f.click('保存公司'));
@@ -244,6 +250,7 @@ it('范围读取失败仍可独立保存内容', async () => {
   state.settings = [];
   const f = fixture();
   f.click('编辑公司');
+  f.click('编辑公司展示范围');
   expect(f.host.textContent).toContain('读取失败');
   await act(async () => f.click('保存公司'));
   expect(state.content).toHaveBeenCalledTimes(1);
@@ -258,7 +265,7 @@ it('切换数据源退出编辑，忽略旧保存回包', async () => {
       }),
   );
   const f = fixture();
-  f.click('编辑年龄');
+  f.click('编辑年龄展示范围');
   f.choose('age', '仅好友');
   await act(async () => f.click('保存年龄'));
   state.config = 'b';
@@ -272,7 +279,7 @@ it('切换数据源退出编辑，忽略旧保存回包', async () => {
     }),
   );
   expect(f.host.querySelector('[role="radiogroup"]')).toBeNull();
-  f.click('编辑年龄');
+  f.click('编辑年龄展示范围');
   expect(f.host.querySelector('[aria-checked="true"][role="radio"]')?.textContent).toBe('所有人');
 });
 it('离线保持正文；没有本人上下文时不提供展示范围操作', () => {
@@ -280,8 +287,46 @@ it('离线保持正文；没有本人上下文时不提供展示范围操作', (
   const f = fixture();
   expect(f.host.textContent).toContain('21 岁');
   expect(f.host.querySelector('[aria-label="编辑年龄"]')).toBeNull();
+  expect(f.host.querySelector('[aria-label="编辑年龄展示范围"]')).toBeNull();
   const other = fixture(false);
   expect(other.host.querySelector('[aria-label="编辑年龄"]')).toBeNull();
+});
+
+it('范围可以独立编辑保存，不挂载内容控件或提交内容', async () => {
+  const f = fixture();
+  const label = f.host.querySelector('.weq-profile-data-label');
+  f.click('编辑公司展示范围');
+  expect(f.host.querySelector('input')).toBeNull();
+  expect(f.host.querySelector('.weq-profile-data-label')).toBe(label);
+  f.choose('company', '仅好友');
+  expect(f.host.querySelectorAll('[aria-label="保存公司"]')).toHaveLength(1);
+  await act(async () => f.click('保存公司'));
+  expect(state.content).not.toHaveBeenCalled();
+  expect(state.mutate).toHaveBeenCalledOnce();
+  expect(f.host.querySelector('[aria-label="编辑公司展示范围"]')?.textContent).toBe('（仅好友）');
+});
+
+it('先编辑范围再打开内容仍保留范围草稿且只有一组操作', async () => {
+  const f = fixture();
+  f.choose('company', '仅好友');
+  f.click('编辑公司');
+  expect(f.host.querySelector('[aria-checked="true"][role="radio"]')?.textContent).toBe('仅好友');
+  expect(f.host.querySelectorAll('[aria-label="保存公司"]')).toHaveLength(1);
+  expect(f.host.querySelector('.weq-profile-field-actions [aria-label="保存公司"]')).not.toBeNull();
+  await act(async () => f.click('保存公司'));
+  expect(state.content).toHaveBeenCalledOnce();
+  expect(state.mutate).toHaveBeenCalledOnce();
+});
+it('范围无法识别时仅禁用保存，取消仍可用', () => {
+  state.settings[0] = { field: 'company', raw: 99, value: null, status: 'unknown' };
+  const f = fixture();
+  f.click('编辑公司展示范围');
+  expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存公司"]')?.disabled).toBe(true);
+  expect(f.host.querySelector<HTMLButtonElement>('[aria-label="取消编辑公司"]')?.disabled).toBe(
+    false,
+  );
+  f.click('取消编辑公司');
+  expect(f.host.querySelector('[role="radiogroup"]')).toBeNull();
 });
 it('Escape 取消整个字段草稿，不冒泡关闭页面并恢复焦点', () => {
   const f = fixture();
@@ -291,5 +336,5 @@ it('Escape 取消整个字段草稿，不冒泡关闭页面并恢复焦点', () 
   act(() => f.host.querySelector('[aria-label="公司"]')!.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(true);
   expect(state.mutate).not.toHaveBeenCalled();
-  expect(document.activeElement).toBe(f.host.querySelector('[aria-label="编辑公司"]'));
+  expect(document.activeElement).toBe(f.host.querySelector('[aria-label="编辑公司展示范围"]'));
 });

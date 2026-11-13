@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from 'react';
-import { Check, Loader2, RotateCcw, Save } from 'lucide-react';
+import { Check, Loader2, RotateCcw } from 'lucide-react';
 import {
   PROFILE_DISPLAY_FIELDS,
   type ProfileDisplayField,
@@ -30,7 +30,6 @@ interface DisplayContext {
   loading: boolean;
   error: string | null;
   fields: Partial<Record<ProfileDisplayField, FieldState>>;
-  request: () => void;
   save: (field: ProfileDisplayField, value: number) => Promise<boolean>;
   refresh: () => void;
 }
@@ -63,7 +62,6 @@ function Controller({
   session: ReturnType<typeof useQQWriteSession>;
   children: ReactNode;
 }) {
-  const [enabled, enable] = useState(false);
   const [overrides, setOverrides] = useState<DisplayContext['fields']>({});
   const pending = useRef(new Set<ProfileDisplayField>());
   const versions = useRef(new Map<ProfileDisplayField, number>());
@@ -80,7 +78,7 @@ function Controller({
   }, []);
   const available = session.available && session.binding?.expectedAccountUin === uin;
   const query = trpc.account.qqWrite.selfProfileDisplaySettings.useQuery(session.binding!, {
-    enabled: enabled && available,
+    enabled: available,
     retry: false,
     staleTime: Infinity,
     cacheTime: 0,
@@ -95,7 +93,7 @@ function Controller({
     fields[field as ProfileDisplayField] = state;
   const current = () => mounted.current && latest.current === identity;
   async function save(field: ProfileDisplayField, value: number) {
-    if (!available || !enabled || pending.current.has(field) || !session.binding) return false;
+    if (!available || pending.current.has(field) || !session.binding) return false;
     const previous = fields[field]?.setting;
     if (previous?.status !== 'known') return false;
     if (previous.value === value) return true;
@@ -153,7 +151,6 @@ function Controller({
         loading: query.isFetching,
         error: query.error?.message ?? null,
         fields,
-        request: () => enable(true),
         save,
         refresh: () => {
           void refresh();
@@ -247,19 +244,34 @@ export function DisplaySelfProfileField({
 }: ComponentProps<typeof SelfProfileField> & { displayField?: ProfileDisplayField }) {
   const context = useContext(Context);
   const [editing, setEditing] = useState(false);
+  const [rangeEditing, setRangeEditing] = useState(false);
   const [draft, setDraft] = useState<number | null>(null);
   const [partial, setPartial] = useState(false);
   const setting = displayField ? context?.fields[displayField]?.setting : undefined;
   const value = draft ?? (setting?.status === 'known' ? setting.value : null);
+  const definition = displayField ? PROFILE_DISPLAY_FIELDS[displayField] : undefined;
+  const summary =
+    setting?.status === 'known'
+      ? (definition?.options.find((option) => option.value === setting.value)?.label ?? '无法识别')
+      : context?.error
+        ? '读取失败'
+        : context?.loading
+          ? '读取中'
+          : setting
+            ? '无法读取'
+            : '未读取';
   return (
     <SelfProfileField
       {...props}
       onEditingChange={(next) => {
         setEditing(next);
+        props.onEditingChange?.(next);
+      }}
+      onClose={() => {
+        setRangeEditing(false);
         setDraft(null);
         setPartial(false);
-        if (next && displayField) context?.request();
-        props.onEditingChange?.(next);
+        props.onClose?.();
       }}
       afterSave={async () => {
         if (props.afterSave && !(await props.afterSave())) return false;
@@ -268,9 +280,11 @@ export function DisplaySelfProfileField({
         setPartial(!ok);
         return ok;
       }}
-      editorFooter={
-        editing && displayField ? (
-          <>
+      auxiliaryEditing={rangeEditing}
+      auxiliarySaveDisabled={!context?.available || setting?.status !== 'known'}
+      auxiliary={
+        displayField && context ? (
+          rangeEditing ? (
             <ProfileDisplayControl
               field={displayField}
               value={value}
@@ -279,7 +293,33 @@ export function DisplaySelfProfileField({
                 setPartial(false);
               }}
             />
+          ) : context.available ? (
+            <button
+              type="button"
+              className="weq-profile-display-summary"
+              aria-label={`编辑${definition?.label}展示范围`}
+              title={`编辑${definition?.label}展示范围`}
+              onClick={(event) => {
+                const selection = event.currentTarget.ownerDocument.getSelection();
+                if (selection?.toString() && event.currentTarget.contains(selection.anchorNode))
+                  return;
+                setRangeEditing(true);
+              }}
+            >
+              （{summary}）
+            </button>
+          ) : setting?.status === 'known' ? (
+            <span className="weq-profile-display-summary">（{summary}）</span>
+          ) : null
+        ) : (
+          props.auxiliary
+        )
+      }
+      editorFooter={
+        (editing || rangeEditing) && displayField ? (
+          <>
             {partial ? <p role="alert">展示范围尚未保存。请重试保存或重新读取。</p> : null}
+            {props.editorFooter}
           </>
         ) : (
           props.editorFooter
@@ -308,18 +348,9 @@ export function ProfileDisplayEntry({
       displayField={field}
       disabled={!context.available}
       unframed={unframed}
+      valueHasAction
     >
-      {(save) => (
-        <button
-          type="button"
-          className="weq-set-iconbtn"
-          title={`保存${PROFILE_DISPLAY_FIELDS[field].label}`}
-          aria-label={`保存${PROFILE_DISPLAY_FIELDS[field].label}`}
-          onClick={() => void save(async () => true)}
-        >
-          <Save size={16} />
-        </button>
-      )}
+      {null}
     </DisplaySelfProfileField>
   );
 }

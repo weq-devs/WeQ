@@ -170,22 +170,9 @@
 }
 
 .weq-group-quick-name-editor .weq-member-inline-field {
-  flex-wrap: wrap;
   width: 100%;
   font-size: 13px;
   font-weight: 400;
-}
-
-.weq-group-quick-name-editor .weq-member-inline-field label {
-  flex: 1 0 100%;
-}
-
-.weq-group-quick-name-editor .weq-member-inline-field label > span {
-  display: none;
-}
-
-.weq-group-quick-name-editor .weq-member-inline-field input {
-  min-height: 36px;
 }
 
 .weq-group-quick-card .weq-group-quick-sections .weq-profile-section-block {

@@ -15,6 +15,7 @@
 - `ProfileWorkspace` 负责目录与章节：宽屏 `weq-profile-directory` 竖目录，窄屏为 `weq-profile-directory-tabs` 横向章节条。联系人传入 `showTitle=false`，不在正文重复标签标题；互动标识和画像用 `ContactSection.prominent` 输出同级标题及分割线，其余分区沿用普通小标题。
 - 样式归属：目录、工作区、行模型、共用技术详情组件只在 `styles/profile-workspace.css`；`styles/contact-card.css` 只保留名片壳、身份区、操作区、群上下文与设置页专属部分。当前状态复用聊天顶栏的 `OnlineStatus`；QQ、QID、UID、签名使用分行身份正文，沿用名片开关，四页正文不重复。联系人资料页不再挂载技术详情组件。
 - `ProfileInlineField` 共用群昵称、头衔、备注及分组的原行表单；`QQProfileField` 延迟挂载备注／分组／群名的在线状态读取，复用 `qqWrite` 与账号绑定。备注、群名和分组写入需读回确认才退出表单，失败保留草稿；分组使用下拉控件，群名称仅对群主／管理员提供，标题的资料导航行为不变。保存后刷新名片名称与群详情的独立查询缓存，不写入会话名称投影。
+- 编辑继续使用 `ContactRow` 的标签和值列，不替换标签或嵌入设置页行模型。`ProfileEditorRow` 在本人字段上下文中只输出内容控件，`ProfileEditorAction` 将已有提交按钮投到当前字段唯一的操作组，离开该上下文仍保留原设置表单。`SelfProfileField` 与 `ProfileInlineField` 共用 `profile-field-editor.css` 的控件及保存／取消样式；地区网格只包含地区选择，窄处按内容列宽换行。本人展示范围批量读取后以括号显示，点击才展开分段控件；范围草稿与内容草稿入口独立，共用一次保存和失败重试协调。
 
 ## 数据与加载
 
@@ -62,3 +63,5 @@ UID 仅在开启该字段时进入身份区。`styles/contact-workspace.css` 承
 四页资料工作区回归入口为 `apps/desktop/test/browser/run-contact-workspace.mjs`，沿用相同浏览器环境变量，以 `WEQ_CONTACT_WORKSPACE_QA` 指定截图和检查记录目录；覆盖教育／共同群／项目历史旁侧弹窗、QQ 秀顺序与对齐、紧凑标识、常驻画像、切群及所选群发言、四种宽度与深浅主题。模型与页内测试为 `contact_workspace_model.test.ts`、`contact_workspace_sections.test.ts`、`contact_field_history_ui.test.ts`；项目历史 worker 回归在 service 的 `contact_field_history.test.ts`，原始留存回归在 `contact_history.test.ts`。
 
 原行编辑定向测试为 `profile_inline_field.test.ts` 与 `group_member_inline_edit.test.ts`；浏览器入口 `apps/desktop/test/browser/run-profile-inline.mjs` 使用同一运行时环境变量，以 `WEQ_PROFILE_INLINE_QA` 指定截图目录，覆盖备注保存／清空／取消、分组、群名称、失败草稿及深浅主题窄屏布局，所有写入均为合成桩。
+
+本人字段与范围回归为 `self_profile_field.test.ts`、`profile_display_settings.test.ts`；`run-profile-field-editor.mjs` 用 `WEQ_PROFILE_FIELD_QA` 输出截图，覆盖 1180／390／320px 深浅主题的标签节点及样式稳定、输入／地区／多行布局、统一操作尺寸、仅改范围、两种编辑顺序、部分成功重试和键盘焦点。`run-self-profile.mjs` 与 `run-profile-display.mjs` 继续验证现有本人资料和展示设置路径。

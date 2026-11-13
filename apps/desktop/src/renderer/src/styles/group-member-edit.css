@@ -51,36 +51,18 @@ html[data-theme='dark'] .weq-qq-member-edit-title {
 .weq-member-inline-field {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-width: 0;
-  padding: 6px 0;
-}
-.weq-member-inline-field label {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-.weq-member-inline-field label > span {
-  display: flex;
-  flex: 0 0 76px;
-  align-items: center;
   gap: 6px;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  white-space: normal;
 }
 .weq-member-inline-field input,
 .weq-member-inline-field select {
   width: 0;
   flex: 1;
   min-width: 0;
-  padding: 5px 6px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 4px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-  font: inherit;
 }
 .weq-member-inline-field input:focus-visible,
 .weq-member-inline-field select:focus-visible {

@@ -56,13 +56,11 @@ try {
   await page.getByRole('button', { name: '编辑性别', exact: true }).waitFor();
   assert.equal(await modeButton.count(), 0);
   assert.equal(await page.getByRole('switch').count(), 0);
-  assert.equal(await page.evaluate(() => window.profileDisplayQa.calls()), 0);
+  await page.getByRole('button', { name: '编辑性别展示范围', exact: true }).waitFor();
   await page.getByRole('button', { name: '编辑性别', exact: true }).click();
+  assert.equal(await page.locator('[data-display-field="gender"]').count(), 0);
+  await page.getByRole('button', { name: '编辑性别展示范围', exact: true }).click();
   assert.ok((await page.locator('main').textContent()).includes('合成名片昵称'));
-  assert.equal(
-    await page.locator('[data-display-field="gender"] [aria-checked="true"]').count(),
-    0,
-  );
   await page.locator('[data-display-field="gender"] [aria-checked="true"]').waitFor();
   assert.equal(await page.evaluate(() => window.profileDisplayQa.calls()), 1);
   const gender = page.locator('[data-display-field="gender"]');
@@ -73,6 +71,7 @@ try {
   assert.equal(await page.evaluate(() => window.profileDisplayQa.writes()), 1);
   await page.evaluate(() => window.profileDisplayQa.mismatch(true));
   await page.getByRole('button', { name: '编辑性别', exact: true }).click();
+  await page.getByRole('button', { name: '编辑性别展示范围', exact: true }).click();
   await gender.getByRole('radio', { name: '不可见', exact: true }).click();
   await page.getByRole('button', { name: '保存性别', exact: true }).click();
   await gender.getByText('读回状态与选择不一致，请重新读取核对').waitFor();
@@ -85,6 +84,7 @@ try {
   await page.waitForTimeout(350);
   await page.getByRole('button', { name: '取消编辑性别', exact: true }).click();
   await page.getByRole('button', { name: '编辑公司', exact: true }).click();
+  await page.getByRole('button', { name: '编辑公司展示范围', exact: true }).click();
   const education = page.locator('[data-display-field="company"]');
   assert.equal(await education.count(), 1);
   await page.evaluate(() => window.profileDisplayQa.mismatch(false));
@@ -93,6 +93,8 @@ try {
   await page.getByRole('button', { name: '编辑公司', exact: true }).waitFor();
   await page.getByRole('button', { name: '编辑公司', exact: true }).click();
   await page.getByRole('button', { name: '编辑性别', exact: true }).click();
+  await page.getByRole('button', { name: '编辑公司展示范围', exact: true }).click();
+  await page.getByRole('button', { name: '编辑性别展示范围', exact: true }).click();
   assert.equal(await education.locator('[aria-checked="true"]').count(), 1);
   if (output) await mkdir(output, { recursive: true });
   for (const width of [1180, 390, 320])
@@ -133,6 +135,7 @@ try {
   await page.getByRole('button', { name: '取消编辑公司', exact: true }).click();
   assert.equal(await page.locator('[data-display-field]').count(), 0);
   await page.getByRole('button', { name: '编辑性别', exact: true }).click();
+  await page.getByRole('button', { name: '编辑性别展示范围', exact: true }).click();
   await gender.getByRole('radio', { name: '仅好友', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   assert.equal(await page.evaluate(() => window.profileDisplayQa.writes()), 3);

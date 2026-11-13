@@ -63,28 +63,11 @@
   flex: 1;
   min-width: 0;
 }
-.weq-self-field-cancel {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  min-width: 28px;
-  min-height: 28px;
-  padding: 4px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  cursor: pointer;
-}
-.weq-self-field-display > button:hover,
-.weq-self-field-cancel:hover {
+.weq-self-field-display > button:hover {
   color: var(--weq-fg-primary);
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
-.weq-self-field-display > button:focus-visible,
-.weq-self-field-cancel:focus-visible {
+.weq-self-field-display > button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
@@ -94,7 +77,6 @@
 }
 .weq-self-field-editor {
   min-width: 0;
-  padding: 6px 0 10px;
 }
 .weq-self-field-inputs {
   min-width: 0;
@@ -102,37 +84,10 @@
   padding: 0;
   border: 0;
 }
-.weq-self-field-editor .weq-set-row {
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  padding: 4px 0;
-  border: 0;
-}
-.weq-self-field-editor .weq-set-row-ctrl {
-  flex: 1 1 220px;
-  min-width: 0;
-  max-width: 100%;
-}
 .weq-self-field-editor :is(.weq-qq-write-field, .weq-profile-region-editor) {
   width: 100%;
   min-width: 0;
 }
-.weq-self-field-cancel {
-  margin-top: 4px;
-  font-size: 12px;
-}
-html[data-theme='dark'] .weq-self-field-display > button:hover,
-html[data-theme='dark'] .weq-self-field-cancel:hover {
+html[data-theme='dark'] .weq-self-field-display > button:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
-}
-@media (max-width: 600px) {
-  .weq-self-field .weq-profile-region-editor {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .weq-self-field .weq-profile-region-editor select {
-    width: 100%;
-    min-width: 0;
-  }
 }
