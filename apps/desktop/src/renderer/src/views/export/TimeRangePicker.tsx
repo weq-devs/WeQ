@@ -10,7 +10,6 @@
 import type { ReactElement } from 'react';
 import type { RangePreset, TimeRange } from './types';
 import { MessageCalendar } from '../../components/MessageCalendar';
-import { SegmentedControl } from '../../components/SegmentedControl';
 import {
   beijingDay,
   daySeconds,
@@ -139,16 +138,18 @@ export function TimeRangePicker({
         </p>
       ) : null}
       {/* 预设区间与别处的单选一样走共享分段控件，不再另写一排胶囊按钮。 */}
-      <SegmentedControl<RangePreset>
-        label="时间范围"
+      <select
+        className="weq-set-input"
+        aria-label="时间范围"
         value={value.preset}
-        options={PRESETS.map((p) => ({
-          value: p.value,
-          label: p.label,
-          title: PRESET_HINTS[p.value][mode],
-        }))}
-        onChange={pickPreset}
-      />
+        onChange={(event) => pickPreset(event.target.value as RangePreset)}
+      >
+        {PRESETS.map((preset) => (
+          <option key={preset.value} value={preset.value} title={PRESET_HINTS[preset.value][mode]}>
+            {preset.label}
+          </option>
+        ))}
+      </select>
 
       {value.preset === 'all' ? (
         <p className="weq-exp-range-note">全部时间：统计已保存的本地记录，不限起止日期。</p>

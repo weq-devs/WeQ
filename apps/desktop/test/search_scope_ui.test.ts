@@ -95,12 +95,12 @@ describe('搜索范围选择工具栏', () => {
       const buttons = [...f.scope().querySelectorAll<HTMLButtonElement>('button')];
       expect(buttons).toHaveLength(SEARCH_CATEGORY_ORDER.length + 6);
       expect(buttons.map((button) => button.textContent)).toEqual([
-        '全部',
+        '清空',
         'QQ',
         '克隆',
         'WeQ 助手',
         '功能与设置',
-        '全部',
+        '清空',
         '联系人',
         '群聊',
         '聊天记录',
@@ -137,7 +137,9 @@ describe('搜索范围选择工具栏', () => {
       expect(all.getAttribute('aria-pressed')).toBe('false');
       expect(document.querySelector('.weq-search-empty')).toBeNull();
       f.render('合成');
-      expect(document.querySelector('.weq-search-empty')?.textContent).toBe('未选择搜索范围');
+      expect(document.querySelectorAll('.weq-search-empty')).toHaveLength(1);
+      expect(document.querySelector('.weq-search-empty')?.textContent).toContain('未选择搜索范围');
+      expect(document.body.textContent).not.toContain('没有找到相关内容');
       expect(document.querySelector('.weq-app-search')).toBeNull();
       act(() => all.click());
       expect(all.getAttribute('aria-pressed')).toBe('true');

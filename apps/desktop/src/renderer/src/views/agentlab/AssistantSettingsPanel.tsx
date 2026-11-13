@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useId, useRef, useState } from 'react';
 import {
   Brain,
   Cpu,
@@ -9,7 +9,10 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import type { AssistantConfig } from '@weq/service';
-import { ASSISTANT_PARAMETER_DEFAULTS } from '@weq/service/assistant-config';
+import {
+  ASSISTANT_PARAMETER_DEFAULTS,
+  validateAssistantParameters,
+} from '@weq/service/assistant-config';
 import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
@@ -17,6 +20,25 @@ import { AiImagePreferenceSetting } from '../../components/settings/AiImageSetti
 import { Row } from '../../components/settings/controls';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
+import '../../styles/assistant-settings.css';
+
+const AssistantFields = createContext<{
+  register: (id: string, value: SettingsSection<AssistantConfig> | null) => void;
+  flush: () => Promise<boolean>;
+} | null>(null);
+function useAssistantField(id: string, value: unknown, patch: AssistantConfig, valid: boolean) {
+  const form = useContext(AssistantFields);
+  const snapshot = JSON.stringify(value);
+  const serializedPatch = JSON.stringify(patch);
+  const current = useRef(patch);
+  current.current = patch;
+  useEffect(() => {
+    form?.register(id, { snapshot, patch: current.current, valid });
+  }, [form?.register, id, snapshot, serializedPatch, valid]);
+  return form;
+}
 
 export const ASSISTANT_SEND_MODES = [
   { value: 'interrupt', label: '立即补充' },
@@ -29,7 +51,20 @@ function useAssistantParameters() {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
   const [error, setError] = useState('');
-  const save = async (patch: AssistantConfig) => {
+  const [optimistic, setOptimistic] = useState<AssistantConfig>({});
+  const pending = useRef<AssistantConfig>({});
+  const clearPending = (patch: AssistantConfig) => {
+    const next = { ...pending.current };
+    for (const key of Object.keys(patch) as Array<keyof AssistantConfig>) {
+      if (JSON.stringify(next[key]) === JSON.stringify(patch[key])) delete next[key];
+    }
+    pending.current = next;
+    setOptimistic(next);
+  };
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const failed = useRef<AssistantConfig | null>(null);
+  const performSave = async (input: AssistantConfig) => {
+    let patch = input;
     setError('');
     try {
       let confirmUnrestricted = false;
@@ -42,20 +77,42 @@ function useAssistantParameters() {
           '助手将以当前系统用户的权限执行操作，包括运行命令和修改外部文件。',
           { okLabel: '开启任意权限', cancelLabel: '取消', tone: 'warning' },
         );
-        if (!confirmUnrestricted) return;
+        if (!confirmUnrestricted) {
+          clearPending({ permissionMode: patch.permissionMode });
+          patch = { ...patch };
+          delete patch.permissionMode;
+          if (!Object.keys(patch).length) {
+            failed.current = null;
+            return;
+          }
+        }
       }
       const next = await mutation.mutateAsync({ ...patch, confirmUnrestricted });
       utils.account.getAssistantConfig.setData(undefined, next);
+      clearPending(patch);
+      failed.current = null;
     } catch (reason) {
+      failed.current = patch;
       setError(reason instanceof Error ? reason.message : String(reason));
       throw reason;
     }
   };
+  const save = (patch: AssistantConfig) => {
+    pending.current = { ...pending.current, ...patch };
+    setOptimistic(pending.current);
+    const operation = queue.current
+      .catch(() => {})
+      .then(() => performSave({ ...failed.current, ...patch }));
+    queue.current = operation;
+    return operation;
+  };
   return {
-    data: query.data,
+    data: query.data ? { ...query.data, ...optimistic } : undefined,
     saving: mutation.isLoading,
     error: error || query.error?.message,
     save,
+    settle: () => queue.current,
+    retry: () => (failed.current ? save(failed.current) : Promise.resolve()),
   };
 }
 function EffortSelect({
@@ -82,7 +139,6 @@ function EffortSelect({
     ...(declared ?? ['low', 'medium', 'high']).filter((item) => item !== 'off'),
   ];
   if (!values.includes(value)) values.push(value);
-  const labels: Record<string, string> = { off: '跟随模型', low: '低', medium: '中', high: '高' };
   return (
     <select
       aria-label="思考等级"
@@ -92,7 +148,7 @@ function EffortSelect({
     >
       {values.map((effort) => (
         <option value={effort} key={effort}>
-          {labels[effort] ?? effort}
+          {effort === 'off' ? '不指定' : effort}
         </option>
       ))}
     </select>
@@ -102,19 +158,25 @@ export const AssistantQuickTools = memo(function AssistantQuickTools() {
   const { data, save, saving, error } = useAssistantParameters();
   return (
     <div className="weq-conversation-tools">
-      <ApiModelSelect
-        label="聊天模型"
-        value={data?.model ?? { useDefault: true }}
-        disabled={!data || saving}
-        onChange={(model) => {
-          if (model) void save({ model }).catch(() => {});
-        }}
-      />
-      <EffortSelect
-        value={data?.reasoningEffort ?? 'off'}
-        onChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
-        disabled={!data || saving}
-      />
+      <span className="weq-assistant-parameter">
+        <span>模型</span>
+        <ApiModelSelect
+          label="聊天模型"
+          value={data?.model ?? { useDefault: true }}
+          disabled={!data || saving}
+          onChange={(model) => {
+            if (model) void save({ model }).catch(() => {});
+          }}
+        />
+      </span>
+      <label className="weq-assistant-parameter">
+        <span>思考</span>
+        <EffortSelect
+          value={data?.reasoningEffort ?? 'off'}
+          onChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
+          disabled={!data || saving}
+        />
+      </label>
       {error ? (
         <span role="alert">{error}</span>
       ) : saving ? (
@@ -127,20 +189,19 @@ function NumberSetting({
   name,
   label,
   value,
-  onSave,
   nullable = false,
   scale = 1,
 }: {
   name: keyof typeof ASSISTANT_PARAMETER_DEFAULTS;
   label: string;
   value: number | null;
-  onSave: (value: number | null) => Promise<void>;
   nullable?: boolean;
   scale?: number;
 }) {
   const [draft, setDraft] = useState(value === null ? '' : String(value / scale));
-  const [error, setError] = useState('');
+  const [automatic, setAutomatic] = useState(value === null);
   const focused = useRef(false);
+  const prior = useRef(value);
   const lastValue = useRef(
     value ??
       (ASSISTANT_PARAMETER_DEFAULTS[name] as number | null) ??
@@ -150,53 +211,82 @@ function NumberSetting({
     if (typeof value === 'number') lastValue.current = value;
   }, [value]);
   useEffect(() => {
-    if (!focused.current) setDraft(value === null ? '' : String(value / scale));
+    const old = prior.current;
+    setDraft((current) =>
+      current === (old === null ? '' : String(old / scale))
+        ? value === null
+          ? ''
+          : String(value / scale)
+        : current,
+    );
+    setAutomatic((current) => (current === (old === null) ? value === null : current));
+    prior.current = value;
   }, [value, scale]);
-  async function save(next: number | null) {
-    try {
-      await onSave(next);
-      setError('');
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
+  const next = automatic ? null : Number(draft) * scale;
+  let error = '';
+  try {
+    if (!automatic && !draft.trim()) throw new Error('请输入数值');
+    validateAssistantParameters({ [name]: next });
+  } catch (reason) {
+    error = reason instanceof Error ? reason.message : String(reason);
   }
+  const form = useAssistantField(name, { draft, automatic }, { [name]: next }, !error);
+  useEffect(() => {
+    if (typeof next === 'number' && !error) lastValue.current = next;
+  }, [next, error]);
+  const immediate = () => setTimeout(() => void form?.flush(), 0);
   return (
     <Row
       label={label}
       control={
         <div className="weq-conversation-tools">
-          <input
-            className="weq-set-input weq-number"
-            type="number"
-            step="any"
-            aria-label={label}
-            value={draft}
-            disabled={value === null}
-            onFocus={() => {
-              focused.current = true;
-            }}
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={() => {
-              focused.current = false;
-              if (draft.trim() && Number(draft) * scale !== value) void save(Number(draft) * scale);
-            }}
-          />
           {nullable ? (
-            <label>
-              <input
-                type="checkbox"
-                checked={value === null}
-                onChange={(event) => void save(event.target.checked ? null : lastValue.current)}
-              />
-              {name === 'temperature' || name === 'maxOutputTokens' ? '跟随模型' : '不限制'}
-            </label>
+            <SegmentedControl
+              label={`${label}模式`}
+              value={automatic ? 'auto' : 'custom'}
+              options={[
+                {
+                  value: 'auto',
+                  label:
+                    name === 'temperature' || name === 'maxOutputTokens' ? '跟随模型' : '不限制',
+                },
+                { value: 'custom', label: '自定义' },
+              ]}
+              onChange={(mode) => {
+                setAutomatic(mode === 'auto');
+                if (mode === 'custom') setDraft(String(lastValue.current / scale));
+                immediate();
+              }}
+            />
+          ) : null}
+          {!automatic ? (
+            <input
+              className="weq-set-input weq-number"
+              type="number"
+              step="any"
+              aria-label={label}
+              value={draft}
+              onFocus={() => {
+                focused.current = true;
+              }}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={() => {
+                focused.current = false;
+                void form?.flush();
+              }}
+            />
           ) : null}
           <button
             type="button"
             className="weq-set-iconbtn"
             title={`恢复${label}默认值`}
             aria-label={`恢复${label}默认值`}
-            onClick={() => void save(ASSISTANT_PARAMETER_DEFAULTS[name] as number | null)}
+            onClick={() => {
+              const fallback = ASSISTANT_PARAMETER_DEFAULTS[name] as number | null;
+              setAutomatic(fallback === null);
+              setDraft(fallback === null ? '' : String(fallback / scale));
+              immediate();
+            }}
           >
             <RotateCcw size={14} />
           </button>
@@ -209,65 +299,67 @@ function NumberSetting({
 function TextSetting({
   label,
   value,
-  onSave,
+  name,
 }: {
   label: string;
   value: string;
-  onSave: (value: string) => Promise<void>;
+  name: 'customPrompt' | 'mcpServers';
 }) {
   const [draft, setDraft] = useState(value);
-  const [error, setError] = useState('');
+  const id = useId();
+  let error = '';
+  if (name === 'mcpServers' && draft.trim().startsWith('{')) {
+    try {
+      JSON.parse(draft);
+    } catch {
+      error = 'MCP 配置 JSON 格式无效，请检查括号、引号和逗号';
+    }
+  }
+  const form = useAssistantField(name, draft, { [name]: draft }, !error);
   const prior = useRef(value);
   useEffect(() => {
     const previous = prior.current;
     setDraft((current) => (current === previous ? value : current));
     prior.current = value;
   }, [value]);
-  const save = async () => {
-    try {
-      await onSave(draft);
-      setError('');
-    } catch (reason) {
-      setError(String(reason));
-    }
-  };
   return (
-    <label className="weq-agentlab-field">
-      <span>{label}</span>
+    <div className="weq-agentlab-field">
+      <div className="weq-setting-field-head">
+        <label htmlFor={id}>{label}</label>
+        <button
+          type="button"
+          className="weq-set-iconbtn"
+          title={`恢复${label}默认值`}
+          aria-label={`恢复${label}默认值`}
+          onClick={() => {
+            setDraft('');
+            setTimeout(() => void form?.flush(), 0);
+          }}
+        >
+          <RotateCcw size={14} />
+        </button>
+      </div>
       <textarea
+        id={id}
+        aria-invalid={Boolean(error)}
         rows={5}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
-          if (draft !== value) void save();
+          void form?.flush();
         }}
       />
-      <button
-        type="button"
-        className="weq-set-iconbtn"
-        title={`恢复${label}默认值`}
-        aria-label={`恢复${label}默认值`}
-        onClick={() => {
-          setDraft('');
-          void onSave('').catch((reason) => setError(String(reason)));
-        }}
-      >
-        <RotateCcw size={14} />
-      </button>
-      {error ? (
-        <span role="alert">
-          {error}
-          <button type="button" onClick={() => void save()}>
-            重试保存
-          </button>
-        </span>
-      ) : null}
-    </label>
+      {error ? <span role="alert">{error}</span> : null}
+    </div>
   );
 }
 
 export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
-  const { data, save, saving, error } = useAssistantParameters();
+  const { data, save, saving, error, settle, retry } = useAssistantParameters();
+  const form = useSettingsAutosave<AssistantConfig>(async (patch) => {
+    validateAssistantParameters({ ...ASSISTANT_PARAMETER_DEFAULTS, ...data, ...patch });
+    await save(patch);
+  });
   const [section, setSection] = useState('model');
   const config = { ...ASSISTANT_PARAMETER_DEFAULTS, ...data };
   const fields: Array<{
@@ -301,35 +393,60 @@ export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
     { name: 'summaryTokens', label: '摘要 Token 上限', section: 'context' },
   ];
   return (
-    <ConversationSettingsFrame
-      title="助手设置"
-      subtitle="WeQ 助手"
-      value={section}
-      onValueChange={setSection}
-      onClose={onClose}
-      sections={[
-        { id: 'model', label: '模型与生成', icon: <Cpu size={16} /> },
-        { id: 'execution', label: '任务执行', icon: <Settings2 size={16} /> },
-        { id: 'context', label: '上下文管理', icon: <Brain size={16} /> },
-        { id: 'tools', label: '提示与工具', icon: <SlidersHorizontal size={16} /> },
-        { id: 'images', label: '图片处理', icon: <Image size={16} /> },
-        { id: 'sending', label: '运行中发送', icon: <ListOrdered size={16} /> },
-      ]}
-    >
-      <div className="weq-cvs-body-scroll">
-        <div role="status">
-          {saving ? (
-            '保存中…'
-          ) : error ? (
-            <span role="alert">{error}</span>
-          ) : data ? (
-            '已保存'
-          ) : (
-            '读取中…'
-          )}
-        </div>
-        {section === 'model' ? (
-          <>
+    <AssistantFields.Provider value={{ register: form.register, flush: form.flush }}>
+      <ConversationSettingsFrame
+        title="助手设置"
+        subtitle="WeQ 助手"
+        value={section}
+        onValueChange={(next) => {
+          void form.flush();
+          setSection(next);
+        }}
+        onClose={() =>
+          void form.flush().then(async (ok) => {
+            if (ok) {
+              try {
+                await settle();
+                onClose();
+              } catch {
+                /* 保留失败草稿。 */
+              }
+            }
+          })
+        }
+        sections={[
+          { id: 'model', label: '模型与生成', icon: <Cpu size={16} /> },
+          { id: 'execution', label: '任务执行', icon: <Settings2 size={16} /> },
+          { id: 'context', label: '上下文管理', icon: <Brain size={16} /> },
+          { id: 'tools', label: '提示与工具', icon: <SlidersHorizontal size={16} /> },
+          { id: 'images', label: '图片处理', icon: <Image size={16} /> },
+          { id: 'sending', label: '运行中发送', icon: <ListOrdered size={16} /> },
+        ]}
+      >
+        <div className="weq-cvs-body-scroll">
+          <div role="status">
+            {saving ? (
+              '保存中…'
+            ) : error || form.error ? (
+              <span role="alert">
+                保存失败：{error || form.error}
+                <button
+                  type="button"
+                  disabled={saving || form.saving}
+                  onClick={() =>
+                    void (form.dirty || form.error ? form.flush() : retry()).catch(() => {})
+                  }
+                >
+                  重试保存
+                </button>
+              </span>
+            ) : data ? (
+              form.status
+            ) : (
+              '读取中…'
+            )}
+          </div>
+          <div hidden={section !== 'model'}>
             <Row
               label="聊天模型"
               control={
@@ -352,73 +469,70 @@ export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
                 />
               }
             />
-          </>
-        ) : null}
-        {fields
-          .filter((field) => field.section === section)
-          .map((field) => (
-            <NumberSetting
-              key={field.name}
-              {...field}
-              value={config[field.name] as number | null}
-              onSave={(value) => save({ [field.name]: value })}
-            />
+          </div>
+          {fields.map((field) => (
+            <div key={field.name} hidden={field.section !== section}>
+              <NumberSetting {...field} value={config[field.name] as number | null} />
+            </div>
           ))}
-        {section === 'tools' ? (
-          <>
+          <div hidden={section !== 'tools'}>
             <Row
               label="运行模式"
               control={
-                <select
-                  aria-label="运行模式"
-                  value={data?.permissionMode ?? 'sandbox'}
-                  onChange={(event) =>
-                    void save({
-                      permissionMode: event.target.value as 'sandbox' | 'unrestricted',
-                    }).catch(() => {})
-                  }
-                >
-                  <option value="sandbox">沙箱模式</option>
-                  <option value="unrestricted">任意权限</option>
-                </select>
+                <div>
+                  <SegmentedControl
+                    label="运行模式"
+                    value={data?.permissionMode ?? 'sandbox'}
+                    onChange={(permissionMode) =>
+                      void save({
+                        permissionMode,
+                      }).catch(() => {})
+                    }
+                    options={[
+                      { value: 'sandbox', label: '沙箱模式' },
+                      { value: 'unrestricted', label: '任意权限' },
+                    ]}
+                  />
+                  <small>
+                    {data?.permissionMode === 'unrestricted'
+                      ? '以当前系统用户权限执行操作。'
+                      : '在沙箱中执行任务。'}
+                  </small>
+                </div>
               }
             />
-            <TextSetting
-              label="额外提示词"
-              value={data?.customPrompt ?? ''}
-              onSave={(customPrompt) => save({ customPrompt })}
+            <TextSetting label="额外提示词" value={data?.customPrompt ?? ''} name="customPrompt" />
+            <TextSetting label="外部 MCP 服务器" value={data?.mcpServers ?? ''} name="mcpServers" />
+          </div>
+          {section === 'images' ? <AiImagePreferenceSetting feature="assistant" /> : null}
+          {section === 'sending' ? (
+            <Row
+              label="运行中默认发送方式"
+              control={
+                <div>
+                  <SegmentedControl
+                    label="运行中默认发送方式"
+                    value={data?.sendMode ?? 'interrupt'}
+                    onChange={(sendMode) =>
+                      void save({
+                        sendMode,
+                      }).catch(() => {})
+                    }
+                    options={ASSISTANT_SEND_MODES}
+                  />
+                  <small>
+                    {data?.sendMode === 'queue'
+                      ? '当前任务完成后，按顺序启动独立任务。'
+                      : data?.sendMode === 'boundary'
+                        ? '当前模型调用与工具批次结束后补入当前任务。'
+                        : '中断当前模型请求，工具收尾后带补充继续。'}
+                  </small>
+                </div>
+              }
             />
-            <TextSetting
-              label="外部 MCP 服务器"
-              value={data?.mcpServers ?? ''}
-              onSave={(mcpServers) => save({ mcpServers })}
-            />
-          </>
-        ) : null}
-        {section === 'images' ? <AiImagePreferenceSetting feature="assistant" /> : null}
-        {section === 'sending' ? (
-          <Row
-            label="运行中默认发送方式"
-            control={
-              <select
-                aria-label="运行中默认发送方式"
-                value={data?.sendMode ?? 'interrupt'}
-                onChange={(event) =>
-                  void save({
-                    sendMode: event.target.value as 'interrupt' | 'boundary' | 'queue',
-                  }).catch(() => {})
-                }
-              >
-                {ASSISTANT_SEND_MODES.map((mode) => (
-                  <option key={mode.value} value={mode.value}>
-                    {mode.label}
-                  </option>
-                ))}
-              </select>
-            }
-          />
-        ) : null}
-      </div>
-    </ConversationSettingsFrame>
+          ) : null}
+        </div>
+      </ConversationSettingsFrame>
+    </AssistantFields.Provider>
   );
 }

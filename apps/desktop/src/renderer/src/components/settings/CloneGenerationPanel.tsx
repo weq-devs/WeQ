@@ -50,6 +50,13 @@ export function CloneGenerationPanel({
   const generation = Object.fromEntries(
     CLONE_GENERATION_KEYS.map((key) => [key, Number(draft[key])]),
   ) as Omit<AgentLabGenerationConfig, 'temperature'>;
+  const invalidQuantity = (key: (typeof CLONE_GENERATION_KEYS)[number]) => {
+    const rule = CLONE_GENERATION[key];
+    const value = Number(draft[key]);
+    return (
+      !draft[key]?.trim() || !Number.isSafeInteger(value) || value < rule.min || value > rule.max
+    );
+  };
   const guard = useCloneSettingsSection(
     'generation',
     { model, draft, adaptive, temperature },
@@ -103,20 +110,28 @@ export function CloneGenerationPanel({
               label={CLONE_GENERATION[key].label}
               desc={`${CLONE_GENERATION_HELP[key]} 默认 ${CLONE_GENERATION[key].default}；范围 ${CLONE_GENERATION[key].min}–${CLONE_GENERATION[key].max}。`}
               control={
-                <input
-                  className="weq-set-input"
-                  type="number"
-                  aria-label={CLONE_GENERATION[key].label}
-                  min={CLONE_GENERATION[key].min}
-                  max={CLONE_GENERATION[key].max}
-                  step={1}
-                  value={draft[key] ?? ''}
-                  disabled={update.isLoading}
-                  onChange={(event) =>
-                    setDraft((value) => ({ ...value, [key]: event.target.value }))
-                  }
-                  style={{ width: 110 }}
-                />
+                <div>
+                  <input
+                    className="weq-set-input"
+                    type="number"
+                    aria-label={CLONE_GENERATION[key].label}
+                    aria-invalid={invalidQuantity(key)}
+                    min={CLONE_GENERATION[key].min}
+                    max={CLONE_GENERATION[key].max}
+                    step={1}
+                    value={draft[key] ?? ''}
+                    disabled={update.isLoading}
+                    onChange={(event) =>
+                      setDraft((value) => ({ ...value, [key]: event.target.value }))
+                    }
+                    style={{ width: 110 }}
+                  />
+                  {invalidQuantity(key) ? (
+                    <small role="alert">
+                      请输入 {CLONE_GENERATION[key].min}–{CLONE_GENERATION[key].max} 的整数。
+                    </small>
+                  ) : null}
+                </div>
               }
             />
           </Fragment>

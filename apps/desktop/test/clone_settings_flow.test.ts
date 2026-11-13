@@ -53,11 +53,15 @@ vi.mock('../src/renderer/src/components/settings/ApiModelSelect', () => ({
 }));
 
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
   f.update.mockResolvedValue({ id: 'p' });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 const persona = {
   id: 'p',
@@ -113,10 +117,10 @@ function fixture() {
   };
 }
 
-it('分类分清画像、回复和管理；跨页草稿只在统一保存时一次提交，语音开关不再立即写库', async () => {
+it('分类保留草稿，跨页补交配置，语音切换自动保存而不显示手动保存按钮', async () => {
   const t = fixture();
   try {
-    expect(t.button('保存更改').disabled).toBe(true);
+    expect(t.button('保存更改')).toBeUndefined();
     expect(t.pane().textContent).toContain('所有私聊和群聊');
     expect(t.pane().querySelector('.weq-cvs-nav')?.textContent).not.toContain('训练参数');
     expect(t.button('删除克隆体')).toBeUndefined();
@@ -133,16 +137,14 @@ it('分类分清画像、回复和管理；跨页草稿只在统一保存时一�
     const willing = t.pane().querySelector<HTMLInputElement>('input[type="range"]')!;
     t.change(willing, '75');
     act(() => t.button('语音').click());
-    const voiceToggle = [...t.pane().querySelectorAll('label')]
-      .find((label) => label.textContent?.includes('开启语音克隆'))!
-      .querySelector<HTMLInputElement>('input')!;
+    const voiceToggle = t
+      .pane()
+      .querySelector<HTMLButtonElement>('[role="switch"][aria-label="开启语音克隆"]')!;
     act(() => voiceToggle.click());
-    expect(f.update).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(500));
     act(() => t.button('人格与画像').click());
     expect(t.pane().querySelector('textarea')!.value).toBe('新提示');
-    await act(async () => t.button('保存更改').click());
-    expect(f.update).toHaveBeenCalledOnce();
-    expect(f.update).toHaveBeenCalledWith(
+    expect(Object.assign({}, ...f.update.mock.calls.map(([patch]) => patch))).toEqual(
       expect.objectContaining({
         personaId: 'p',
         customPrompt: '新提示',
@@ -152,8 +154,8 @@ it('分类分清画像、回复和管理；跨页草稿只在统一保存时一�
         willing: expect.objectContaining({ level: 75 }),
       }),
     );
-    expect(t.saved).toHaveBeenCalledOnce();
-    expect(t.button('保存更改').disabled).toBe(true);
+    expect(t.saved).toHaveBeenCalled();
+    expect(t.button('保存更改')).toBeUndefined();
     await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
     expect(t.close).toHaveBeenCalledOnce();
     expect(f.confirm).not.toHaveBeenCalled();
@@ -162,7 +164,7 @@ it('分类分清画像、回复和管理；跨页草稿只在统一保存时一�
   }
 });
 
-it('无效参数不能保存；失败保留跨页草稿和离开保护，重试成功后只发送修改过的配置', async () => {
+it('无效参数阻止关闭；失败保留跨页草稿，重试成功后只发送修改过的配置', async () => {
   const t = fixture();
   try {
     act(() => t.button('回复设置').click());
@@ -171,22 +173,21 @@ it('无效参数不能保存；失败保留跨页草稿和离开保护，重试�
       .pane()
       .querySelector<HTMLInputElement>(`[aria-label="${CLONE_GENERATION[key].label}"]`)!;
     t.change(input, '');
-    expect(t.button('保存更改').disabled).toBe(true);
+    await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
+    expect(t.close).not.toHaveBeenCalled();
+    expect(f.update).not.toHaveBeenCalled();
     t.change(input, String(CLONE_GENERATION[key].default));
-    expect(t.button('保存更改').disabled).toBe(true);
     act(() => t.button('人格与画像').click());
     t.change(t.pane().querySelector('textarea')!, '重试提示');
     f.update.mockRejectedValueOnce(new Error('合成失败'));
-    await act(async () => t.button('保存更改').click());
-    expect(t.button('保存更改').disabled).toBe(false);
-    expect(f.error).toHaveBeenCalledWith('保存失败', '合成失败');
     await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
-    expect(f.confirm).toHaveBeenCalledOnce();
+    expect(t.pane().textContent).toContain('合成失败');
+    expect(f.confirm).not.toHaveBeenCalled();
     expect(t.close).not.toHaveBeenCalled();
     expect(t.pane().querySelector('textarea')!.value).toBe('重试提示');
-    await act(async () => t.button('保存更改').click());
+    await act(async () => t.button('重试保存').click());
     expect(f.update).toHaveBeenLastCalledWith({ personaId: 'p', customPrompt: '重试提示' });
-    expect(t.button('保存更改').disabled).toBe(true);
+    expect(t.pane().textContent).toContain('已保存');
     act(() => t.button('克隆体管理').click());
     await act(async () => t.button('删除克隆体').click());
     expect(t.remove).toHaveBeenCalledOnce();
@@ -195,7 +196,7 @@ it('无效参数不能保存；失败保留跨页草稿和离开保护，重试�
   }
 });
 
-it('保存期间锁定配置和关闭动作；后端返回不存在时不误报成功、不清掉草稿', async () => {
+it('保存期间允许继续编辑，关闭等候回执；对象不存在时不误报成功或清掉草稿', async () => {
   const t = fixture();
   try {
     t.change(t.pane().querySelector('textarea')!, '在途修改');
@@ -206,18 +207,18 @@ it('保存期间锁定配置和关闭动作；后端返回不存在时不误报�
           finish = resolve;
         }),
     );
-    act(() => t.button('保存更改').click());
-    expect(t.button('保存中…').disabled).toBe(true);
-    expect(t.pane().querySelector('fieldset')!.disabled).toBe(true);
     await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
+    expect(t.pane().textContent).toContain('保存中');
+    expect(t.pane().querySelector('fieldset')!.disabled).toBe(false);
+    t.change(t.pane().querySelector('textarea')!, '在途的新修改');
     expect(t.close).not.toHaveBeenCalled();
     expect(f.confirm).not.toHaveBeenCalled();
     await act(async () => finish(null));
     expect(t.saved).not.toHaveBeenCalled();
     expect(f.success).not.toHaveBeenCalled();
-    expect(f.error).toHaveBeenCalledWith('保存失败', '克隆体已不存在');
-    expect(t.pane().querySelector('textarea')!.value).toBe('在途修改');
-    expect(t.button('保存更改').disabled).toBe(false);
+    expect(t.pane().textContent).toContain('克隆体已不存在');
+    expect(t.pane().querySelector('textarea')!.value).toBe('在途的新修改');
+    expect(t.button('重试保存').disabled).toBe(false);
   } finally {
     t.dispose();
   }

@@ -3,6 +3,8 @@ import { ChevronDown, Search } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { previewNodes, previewNodesToText } from '../../lib/conversationPreview';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { useExactSelectionMode } from './useExactSelectionMode';
 
 interface MessageChoice {
   msgId: string;
@@ -29,6 +31,7 @@ export function MessageScopePicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const exact = selected !== undefined;
+  const changeMode = useExactSelectionMode(`${kind}:${conv}`, selected, onChange);
   useEffect(() => {
     if (!exact) {
       setRows([]);
@@ -105,16 +108,20 @@ export function MessageScopePicker({
   });
   return (
     <section className="weq-message-scope" aria-label="消息选择" {...multi.rootProps}>
-      <label className="weq-message-scope-mode">
-        <input
-          type="checkbox"
-          checked={selected !== undefined}
-          onChange={(event) => onChange(event.target.checked ? [] : undefined)}
+      <div className="weq-message-scope-mode">
+        <SegmentedControl
+          label="消息导出范围"
+          value={exact ? 'exact' : 'condition'}
+          onChange={changeMode}
+          options={[
+            { value: 'condition', label: '按条件' },
+            { value: 'exact', label: '精确选择' },
+          ]}
         />
         <span>
           {selected === undefined ? '按会话及条件导出' : `仅导出已选 ${selected.length} 条消息`}
         </span>
-      </label>
+      </div>
       {selected !== undefined ? (
         <>
           {kind !== 'guild' ? (

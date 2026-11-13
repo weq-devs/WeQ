@@ -13,7 +13,12 @@ import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
 import { AiImageComposer } from '../../components/AiImageComposer';
-import { aiImageDraft, parseAiImageDraft, changeAiImageDraftText, type AiImageAssetRef } from '../../lib/aiImageDraft';
+import {
+  aiImageDraft,
+  parseAiImageDraft,
+  changeAiImageDraftText,
+  type AiImageAssetRef,
+} from '../../lib/aiImageDraft';
 import { AssistantReplyContent, type AssistantReplyActions } from './AssistantReplyContent';
 import { useStableCallback } from '../../hooks/useStableCallback';
 import { timeDate } from '@weq/time';
@@ -38,11 +43,34 @@ interface AssistantViewMessage extends Message {
   assistantActions?: AssistantReplyActions;
 }
 
-const QueueTextEditor = memo(function QueueTextEditor({ id, label, value, onSave }: { id: string; label: string; value: string; onSave: (id: string, value: string) => void }) {
+const QueueTextEditor = memo(function QueueTextEditor({
+  id,
+  label,
+  value,
+  onSave,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onSave: (id: string, value: string) => void;
+}) {
   const [draft, setDraft] = useState(value);
   const previous = useRef(value);
-  useEffect(() => { const prior = previous.current; setDraft((current) => current === prior ? value : current); previous.current = value; }, [value]);
-  return <textarea aria-label={label} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => { if (draft !== value) onSave(id, draft); }} />;
+  useEffect(() => {
+    const prior = previous.current;
+    setDraft((current) => (current === prior ? value : current));
+    previous.current = value;
+  }, [value]);
+  return (
+    <textarea
+      aria-label={label}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft !== value) onSave(id, draft);
+      }}
+    />
+  );
 });
 
 export function AssistantPanel({
@@ -261,14 +289,29 @@ export function AssistantPanel({
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }
-  const editQueuedMessage = useStableCallback(async (requestId: string, patch: { text?: string; beforeId?: string; cancel?: boolean }) => {
-    const owner = bindingRef.current; const sessionId = idRef.current;
-    if (!owner || !sessionId) return;
-    try { setError(''); await client.account.editAssistantQueue.mutate({ ...owner, sessionId, requestId, ...patch }); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { void utils.account.assistantQueue.invalidate(); }
+  const editQueuedMessage = useStableCallback(
+    async (requestId: string, patch: { text?: string; beforeId?: string; cancel?: boolean }) => {
+      const owner = bindingRef.current;
+      const sessionId = idRef.current;
+      if (!owner || !sessionId) return;
+      try {
+        setError('');
+        await client.account.editAssistantQueue.mutate({
+          ...owner,
+          sessionId,
+          requestId,
+          ...patch,
+        });
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        void utils.account.assistantQueue.invalidate();
+      }
+    },
+  );
+  const saveQueuedText = useStableCallback((id: string, value: string) => {
+    void editQueuedMessage(id, { text: value });
   });
-  const saveQueuedText = useStableCallback((id: string, value: string) => { void editQueuedMessage(id, { text: value }); });
   async function send(body: string, preset = false) {
     if (!binding || sending || imageUploading) return;
     const text = cloneChatInput(body, new Map());
@@ -359,9 +402,12 @@ export function AssistantPanel({
     const question = turns.findLast((turn) => turn.role === 'user');
     if (question) {
       const images = question.images ?? [];
-      const assets = images.filter((image): image is AiImageAssetRef => typeof image.path === 'string');
+      const assets = images.filter(
+        (image): image is AiImageAssetRef => typeof image.path === 'string',
+      );
       setInput(aiImageDraft(question.text, assets));
-      if (assets.length !== images.length) setError('原消息中的聊天图片引用仍保留在历史中，本次编辑仅带入已保存附件。');
+      if (assets.length !== images.length)
+        setError('原消息中的聊天图片引用仍保留在历史中，本次编辑仅带入已保存附件。');
     }
   });
   const lastAssistant = turns.findLast((turn) => turn.role === 'assistant');
@@ -432,7 +478,7 @@ export function AssistantPanel({
         onBusyChange={setImageUploading}
         onSendImages={() => void send(parseAiImageDraft(input).text)}
       >
-        {(attachments) => (
+        {(attachments, imageButton) => (
           <ChatPane
             user={user}
             conversation={chat}
@@ -469,6 +515,8 @@ export function AssistantPanel({
             onBack={onBackToDirectory ?? onBack}
             hasExternalAttachments={parseAiImageDraft(input).images.length > 0}
             composerAttachments={attachments}
+            composerToolbar={imageButton}
+            composerParameters={<AssistantQuickTools />}
             onOpenConversationSettings={() => setSettings(true)}
             settingsLabel="助手设置"
             onSearchChatRecords={() => setSearch(true)}
@@ -491,7 +539,6 @@ export function AssistantPanel({
             }
             composerTools={
               <>
-                <AssistantQuickTools />
                 {resume.data?.resumable && !running && !recoveryId ? (
                   <button
                     type="button"
@@ -519,14 +566,23 @@ export function AssistantPanel({
                   <div className="weq-assistant-queue" aria-label="待处理消息">
                     {waiting.map((item, index) => (
                       <div key={item.requestId}>
-                        <QueueTextEditor id={item.requestId} label={`待处理消息 ${index + 1}`} value={item.text} onSave={saveQueuedText} />
+                        <QueueTextEditor
+                          id={item.requestId}
+                          label={`待处理消息 ${index + 1}`}
+                          value={item.text}
+                          onSave={saveQueuedText}
+                        />
                         {index ? (
                           <button
                             type="button"
                             className="icon-button"
                             title="上移消息"
                             aria-label="上移消息"
-                            onClick={() => void editQueuedMessage(item.requestId, { beforeId: waiting[index - 1]!.requestId })}
+                            onClick={() =>
+                              void editQueuedMessage(item.requestId, {
+                                beforeId: waiting[index - 1]!.requestId,
+                              })
+                            }
                           >
                             <ArrowUp size={14} />
                           </button>
@@ -537,7 +593,11 @@ export function AssistantPanel({
                             className="icon-button"
                             title="下移消息"
                             aria-label="下移消息"
-                            onClick={() => void editQueuedMessage(waiting[index + 1]!.requestId, { beforeId: item.requestId })}
+                            onClick={() =>
+                              void editQueuedMessage(waiting[index + 1]!.requestId, {
+                                beforeId: item.requestId,
+                              })
+                            }
                           >
                             <ArrowDown size={14} />
                           </button>

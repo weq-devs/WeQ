@@ -11,14 +11,13 @@
  * 正则实现，不碰 WebAssembly，天然绕开这条 CSP，且不必放宽应用的脚本安全边界。
  *
  * 异步接线：shiki 建实例、加载主题/语言都是异步的，而 streamdown 的 `highlight()` 要求
- * 同步返回（返回 null 表示「还没好」，就绪后走 callback 回填）。本模块因此维护一个惰性
+ * 同步返回（就绪后可走 callback 回填）。本模块因此维护一个惰性
  * 单例 + 「已加载语言」集合：主题与语言都就绪就同步出结果，否则触发后台加载、先返回
- * null，加载完成再用 callback 把该代码块补上色。语言按需动态 import，避免把上百种语法
+ * 原文 token，加载完成再用 callback 把该代码块补上色。语言按需动态 import，避免把上百种语法
  * 全量打进包里。
  */
 
-import { createHighlighterCore, type HighlighterCore } from 'shiki/core';
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
+import type { HighlighterCore } from 'shiki/core';
 import { bundledLanguages } from 'shiki/langs';
 import type {
   BundledLanguage,
@@ -78,18 +77,24 @@ function normalizeLang(raw: string): string {
 /** 惰性拿到 highlighter 单例（纯 JS 引擎 + 预载双主题，不含任何语言语法）。 */
 function getHighlighter(): Promise<HighlighterCore> {
   if (!highlighterPromise) {
-    highlighterPromise = createHighlighterCore({
-      themes: [
-        import('shiki/themes/github-light.mjs').then((m) => m.default),
-        import('shiki/themes/github-dark.mjs').then((m) => m.default),
-      ],
-      langs: [],
-      // 纯 JS 正则引擎：不加载 onig.wasm，规避 CSP `script-src 'self'`。
-      engine: createJavaScriptRegexEngine(),
-    }).then((hl) => {
-      highlighter = hl;
-      return hl;
-    });
+    highlighterPromise = Promise.all([
+      import('shiki/core'),
+      import('shiki/engine/javascript'),
+      import('shiki/themes/github-light.mjs'),
+      import('shiki/themes/github-dark.mjs'),
+    ])
+      .then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }, light, dark]) =>
+        createHighlighterCore({
+          themes: [light.default, dark.default],
+          langs: [],
+          // 纯 JS 正则引擎：不加载 onig.wasm，规避 CSP `script-src 'self'`。
+          engine: createJavaScriptRegexEngine(),
+        }),
+      )
+      .then((hl) => {
+        highlighter = hl;
+        return hl;
+      });
   }
   return highlighterPromise;
 }
@@ -115,16 +120,18 @@ function ensureLang(lang: string, onReady: () => void): boolean {
       }
     })();
     loadingLangs.set(lang, p);
-    void p.then(onReady);
   }
+  void loadingLangs.get(lang)?.then(onReady);
   return false;
 }
 
-/** 语言/主题未就绪时的占位返回（纯文本、无 token 上色）。 */
-const EMPTY_RESULT = { tokens: [] as never[], bg: undefined, fg: undefined, rootStyle: undefined };
+/** 加载期间也返回逐行原文，不能用空 token 代替正文。 */
+function plainResult(code: string) {
+  return { tokens: code.split('\n').map((content) => [{ content }]) };
+}
 
 /**
- * 核心高亮：主题+语言都就绪则同步返回 shiki 结果，否则返回 null 并在就绪后经 callback 回填。
+ * 核心高亮：主题+语言就绪则同步返回 shiki 结果，否则先返回原文并在就绪后经 callback 回填。
  * 抽成独立函数（而非插件对象方法）以便未就绪时的 callback 稳定地自引用。
  */
 function doHighlight(
@@ -133,28 +140,37 @@ function doHighlight(
 ): ReturnType<NonNullable<CodeHighlighterPlugin['highlight']>> {
   // highlighter 实例还没建好：建好后重新触发一次高亮。
   if (!highlighter) {
-    void getHighlighter().then(() => callback?.(doHighlight(options) ?? EMPTY_RESULT));
-    return null;
+    void getHighlighter()
+      .then(() => {
+        const result = doHighlight(options, callback);
+        if (result) callback?.(result);
+      })
+      .catch(() => callback?.(plainResult(options.code)));
+    return plainResult(options.code);
   }
 
   const lang = normalizeLang(options.language);
   // 语言语法未就绪：加载完再回填。
-  if (!ensureLang(lang, () => callback?.(doHighlight(options) ?? EMPTY_RESULT))) {
-    return null;
+  if (!ensureLang(lang, () => callback?.(doHighlight(options) ?? plainResult(options.code)))) {
+    return plainResult(options.code);
   }
 
   // 主题与语言都就绪：同步 tokenize，返回 shiki 结果（结构即 HighlightResult）。
-  const result = highlighter.codeToTokens(options.code, {
-    lang: lang === 'text' ? 'text' : (lang as BundledLanguage),
-    themes: { light: LIGHT_THEME, dark: DARK_THEME },
-    defaultColor: false, // 输出 --shiki-light/--shiki-dark 变量，交给 dark: 工具类切换。
-  });
-  return {
-    tokens: result.tokens,
-    bg: result.bg,
-    fg: result.fg,
-    rootStyle: result.rootStyle,
-  };
+  try {
+    const result = highlighter.codeToTokens(options.code, {
+      lang: lang === 'text' ? 'text' : (lang as BundledLanguage),
+      themes: { light: LIGHT_THEME, dark: DARK_THEME },
+      defaultColor: false, // 输出 --shiki-light/--shiki-dark 变量，交给 dark: 工具类切换。
+    });
+    return {
+      tokens: result.tokens,
+      bg: result.bg,
+      fg: result.fg,
+      rootStyle: result.rootStyle,
+    };
+  } catch {
+    return plainResult(options.code);
+  }
 }
 
 /**

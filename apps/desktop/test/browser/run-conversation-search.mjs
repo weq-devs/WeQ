@@ -51,7 +51,8 @@ try {
     await page.goto(
       `http://127.0.0.1:${server.httpServer.address().port}/test/browser/conversation-search.html`,
     );
-    await page.getByRole('group', { name: '搜索来源', exact: true }).waitFor();
+    await page.locator('[aria-label="搜索来源"]').waitFor({ state: 'attached' });
+    if (width === 390) await page.locator('.weq-search-filter-toggle').click();
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;

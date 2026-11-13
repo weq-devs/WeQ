@@ -88,6 +88,30 @@ try {
         await page.locator('.message-line').first().waitFor();
         await page.evaluate((value) => window.unifiedTheme(value), theme);
         await page.waitForTimeout(100);
+        if (kind === 'assistant') {
+          const tools = await page.locator('.composer-tools').evaluate((node) => {
+            const rect = (selector) => node.querySelector(selector).getBoundingClientRect();
+            const emoji = rect('[title="表情"]');
+            const image = rect('[aria-label="添加图片"]');
+            const parameters = rect('.weq-assistant-parameters');
+            const model = rect('.weq-api-model-field select');
+            const toolbar = node.getBoundingClientRect();
+            return {
+              ordered: emoji.right <= image.left && image.right <= parameters.left,
+              aligned:
+                Math.abs(emoji.top + emoji.height / 2 - parameters.top - parameters.height / 2) < 2,
+              right:
+                Math.abs(
+                  parameters.right -
+                    toolbar.right +
+                    Number.parseFloat(getComputedStyle(node).paddingRight),
+                ) < 2,
+              modelWidth: model.width,
+            };
+          });
+          if (!tools.ordered || !tools.aligned || !tools.right || tools.modelWidth > 156)
+            throw new Error(JSON.stringify({ kind, width, theme, tools }));
+        }
         const layout = await page.evaluate(() => {
           const bounds = (selector) => document.querySelector(selector)?.getBoundingClientRect();
           const header = bounds('.chat-header');
@@ -139,7 +163,10 @@ try {
             throw new Error('输入区不应提供逐条发送模式切换');
           await openAssistantSettings();
           await page.locator('.weq-cvs-nav-item').filter({ hasText: '运行中发送' }).click();
-          await page.getByLabel('运行中默认发送方式', { exact: true }).selectOption('queue');
+          await page
+            .getByRole('radiogroup', { name: '运行中默认发送方式', exact: true })
+            .getByRole('radio', { name: '排队发送', exact: true })
+            .click();
           await page.locator('.weq-cvs-close').click();
           await page.locator('.composer-editor').fill('排队的问题');
           await page.locator('.composer-editor').press('Enter');

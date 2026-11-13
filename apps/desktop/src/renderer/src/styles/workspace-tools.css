@@ -330,6 +330,27 @@
   padding: 8px 16px 10px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
+.weq-exp-pane {
+  container-type: inline-size;
+}
+@container (max-width: 640px) {
+  .weq-exp-kinds > button {
+    display: none;
+  }
+  .weq-exp-kinds .weq-exp-kind-native {
+    position: static;
+    width: 100%;
+    height: 34px;
+    margin: 0;
+    padding: 4px 8px;
+    clip-path: none;
+    white-space: normal;
+    border: 1px solid var(--weq-border-subtle);
+    border-radius: 6px;
+    background: var(--weq-bg-surface);
+    color: var(--weq-fg-primary);
+  }
+}
 /* 种类条已经紧跟面板头，两者之间的分隔线只留一条。 */
 .weq-exp-pane-head + .weq-exp-kinds {
   border-top: 0;
