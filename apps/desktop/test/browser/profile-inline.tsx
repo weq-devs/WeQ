@@ -5,7 +5,7 @@ import {
   ContactIdentity,
   ContactContent,
 } from '../../src/renderer/src/components/contactProfile/ContactContent';
-import { GroupIdentity } from '../../src/renderer/src/components/groupProfile/GroupContent';
+import { GroupCardIdentity } from '../../src/renderer/src/components/groupProfile/GroupCardContent';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { qa, useFixture } from './contact-card.stub';
 import { useSurfaceEscape } from '../../src/renderer/src/lib/surfaceEscape';
@@ -82,7 +82,7 @@ function Fixture() {
           }}
         >
           {group ? (
-            <GroupIdentity conversation={conversation} />
+            <GroupCardIdentity conversation={conversation} metrics={null} />
           ) : (
             <>
               <ContactIdentity person={person} settings={qa.settings} />

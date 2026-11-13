@@ -35,7 +35,7 @@ export function SelfProfileField({
   disabled?: boolean;
   children: ReactNode | ((save: Save) => ReactNode);
   onCancel?: () => void;
-  renderValue?: (value: ReactNode) => ReactNode;
+  renderValue?: (value: ReactNode, editable: boolean) => ReactNode;
   inline?: boolean;
   afterSave?: () => Promise<boolean>;
   editorFooter?: ReactNode;
@@ -92,7 +92,7 @@ export function SelfProfileField({
       unframed ||
       (!renderValue && typeof value !== 'string' && typeof value !== 'number' && value != null),
   );
-  const content = renderValue ? renderValue(value) : (value ?? '尚未读取');
+  const content = renderValue ? renderValue(value, canEdit && !structured) : (value ?? '尚未读取');
   const display = (
     <div className="weq-self-field-display">
       {canEdit && !structured ? (

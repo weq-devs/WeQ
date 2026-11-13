@@ -5,6 +5,7 @@ import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { ProfileInlineField } from './ProfileInlineField';
 import { ContactInlineError, ContactRow } from './contactProfile/ContactRow';
 import { QQWriteResult } from './QQWriteControls';
+import { CopyButton } from './CopyButton';
 
 type Field = 'friendRemark' | 'groupRemark' | 'groupName' | 'friendCategory';
 type Props = {
@@ -55,7 +56,18 @@ export function QQProfileField(props: Props) {
       />
     );
   const trigger = !session.available ? (
-    value || null
+    inline && value ? (
+      <CopyButton
+        text={value}
+        className="weq-contact-value"
+        title={`复制${field === 'groupName' ? '群名' : label}`}
+        aria-label={`复制${field === 'groupName' ? '群名' : label}`}
+      >
+        {value}
+      </CopyButton>
+    ) : (
+      value || null
+    )
   ) : (
     <button
       ref={triggerRef}

@@ -49,7 +49,7 @@ export function SelfProfileSlot({
 }: {
   field: SelfProfileKey;
   children?: ReactNode;
-  renderValue?: (value: ReactNode) => ReactNode;
+  renderValue?: (value: ReactNode, editable: boolean) => ReactNode;
   inline?: boolean;
   valueHasAction?: boolean;
 }) {

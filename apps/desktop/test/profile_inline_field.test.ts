@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QQProfileField } from '../src/renderer/src/components/QQProfileField';
 import { ProfileInlineField } from '../src/renderer/src/components/ProfileInlineField';
+import { copyTextToClipboard } from '../src/renderer/src/im-template/template/clipboard';
+
+vi.mock('../src/renderer/src/im-template/template/clipboard', () => ({
+  copyTextToClipboard: vi.fn(async () => true),
+}));
 
 const mock = vi.hoisted(() => ({
   binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source' },
@@ -238,6 +243,24 @@ it('群名称拒绝空白，普通成员读回后不出现编辑框', async () =
   await click('编辑群名称');
   expect(host.querySelector('input')).toBeNull();
   expect(host.textContent).toContain('当前不能修改群名称');
+});
+it('群标题离线时点击复制，恢复在线后原地编辑且不预读', async () => {
+  mock.online = false;
+  render('groupName', '原群名', true);
+  const name = button('复制群名');
+  expect(name).not.toBeNull();
+  expect(name?.getAttribute('title')).toBe('复制群名');
+  await click('复制群名');
+  expect(copyTextToClipboard).toHaveBeenLastCalledWith('原群名', document);
+  expect(name.textContent).toContain('已复制');
+  expect(mock.reads).not.toHaveBeenCalled();
+  expect(mock.writes).not.toHaveBeenCalled();
+  mock.online = true;
+  render('groupName', '原群名', true);
+  expect(button('复制群名')).toBeNull();
+  expect(mock.reads).not.toHaveBeenCalled();
+  await click('编辑群名称');
+  expect(host.querySelector('input')?.value).toBe('原群名');
 });
 it('好友分组原行下拉选择并核对所选分组', async () => {
   render('friendCategory', '朋友');

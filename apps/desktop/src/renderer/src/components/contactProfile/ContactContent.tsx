@@ -104,6 +104,19 @@ export function ContactIdentity({
   const title = person.clone
     ? person.displayName
     : names?.name || person.nick?.trim() || person.identityValue || person.username;
+  const renderName = (value: ReactNode, editable = false) =>
+    editable ? (
+      <span className="weq-profile-name weq-contact-name">{value}</span>
+    ) : (
+      <CopyButton
+        text={typeof value === 'string' ? value : title}
+        className="weq-profile-name weq-contact-name weq-profile-name-copy"
+        title="复制昵称"
+        aria-label="复制昵称"
+      >
+        {value}
+      </CopyButton>
+    );
   const identity = person.clone ? person.id.replace(/^virtual:/, '') : person.identityValue;
   const identityLabel = person.clone ? 'ID' : person.identityLabel;
   const editableRemark =
@@ -174,14 +187,8 @@ export function ContactIdentity({
         <ContactFieldHistoryButton field="avatar" label="头像" />
         <div className="weq-profile-heading">
           <div className="weq-contact-title-line">
-            <SelfProfileSlot
-              field="nickname"
-              inline
-              renderValue={(value) => (
-                <span className="weq-profile-name weq-contact-name">{value}</span>
-              )}
-            >
-              <span className="weq-profile-name weq-contact-name">{title}</span>
+            <SelfProfileSlot field="nickname" inline renderValue={renderName}>
+              {renderName(title)}
             </SelfProfileSlot>
             <ContactFieldHistoryButton field="nick" label="昵称" />
             {showStatus && !self ? (

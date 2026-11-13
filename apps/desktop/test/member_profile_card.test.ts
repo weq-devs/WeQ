@@ -162,6 +162,7 @@ import {
   profileTargetUser,
 } from '@renderer/lib/profileNavigation';
 import { client, trpc } from '@renderer/trpc/client';
+import { copyTextToClipboard } from '@renderer/im-template/template/clipboard';
 import {
   contactCardFieldGroup,
   ContactContent,
@@ -424,6 +425,36 @@ describe('群成员资料卡浮层', () => {
   ] as const)('名片字段 %s 归入 %s', (field, group) => {
     expect(contactCardFieldGroup(field)).toBe(group);
   });
+  it.each([false, true])(
+    '昵称在名片正文 %s 中点击复制，不复制备注或打开编辑器',
+    async (cardBody) => {
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      roots.push(root);
+      hosts.push(host);
+      await act(async () =>
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+            createElement(ContactIdentity, {
+              person: { ...MEMBER, nick: '合成昵称', remark: '不应复制的备注' },
+              cardBody,
+            }),
+          ),
+        ),
+      );
+      const name = host.querySelector<HTMLButtonElement>('[aria-label="复制昵称"]');
+      expect(name).not.toBeNull();
+      expect(name?.getAttribute('title')).toBe('复制昵称');
+      expect(name?.querySelector('svg, button')).toBeNull();
+      await act(async () => name!.click());
+      expect(copyTextToClipboard).toHaveBeenLastCalledWith('合成昵称', document);
+      expect(name?.querySelector('[role="status"]')?.textContent).toBe('已复制');
+      expect(host.querySelector('input')).toBeNull();
+    },
+  );
   it('浮层重新分区不改变完整资料页的身份区、正文与原分区', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -753,14 +784,14 @@ describe('群成员资料卡浮层', () => {
     );
   });
 
-  it('他人昵称显示纯文本，不复制或进入详情；展开按钮仍可进入详情', async () => {
+  it('他人昵称点击复制不进入详情；展开按钮仍可进入详情', async () => {
     await mountCard(() => {}, undefined, { ...MEMBER, nick: '合成昵称' });
     const title = layer().querySelector<HTMLElement>('.weq-profile-name')!;
     await act(async () => title.click());
-    const { copyTextToClipboard } = await import('@renderer/im-template/template/clipboard');
-    expect(copyTextToClipboard).not.toHaveBeenCalled();
-    expect(title.tagName).toBe('SPAN');
-    expect(title.textContent).toBe('合成昵称');
+    expect(copyTextToClipboard).toHaveBeenLastCalledWith('合成昵称', document);
+    expect(title.tagName).toBe('BUTTON');
+    expect(title.textContent).toContain('合成昵称');
+    expect(title.querySelector('[role="status"]')?.textContent).toBe('已复制');
     expect(expandContact).not.toHaveBeenCalled();
     act(() => layer().querySelector<HTMLButtonElement>('[aria-label="打开完整资料页"]')!.click());
     expect(expandContact).toHaveBeenCalledOnce();
