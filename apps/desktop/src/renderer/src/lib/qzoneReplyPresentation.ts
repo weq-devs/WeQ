@@ -16,7 +16,11 @@ export function qzoneReplyPresentation<T extends ReplyText>(comment: T, parentUi
     ? recipient === comment.replyToUin
     : automatic || recipient === parentUin;
   if (!matches) return comment;
-  const nickname = prefix[2]!.replace(/,(?:who|type|uin):.*$/, '');
+  const nickname = prefix[2]!
+    .replace(/,(?:who|type|uin):.*$/, '')
+    .replace(/%(25|2C|7D|7B|3A)/gi, (code) =>
+      String.fromCharCode(Number.parseInt(code.slice(1), 16)),
+    );
   return {
     ...comment,
     content: comment.content.slice(prefix[0].length),

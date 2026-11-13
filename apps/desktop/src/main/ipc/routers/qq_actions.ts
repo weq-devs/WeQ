@@ -1020,7 +1020,15 @@ export function createQQActionsRouter(
         binding.extend({
           hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
           tid: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-          action: z.enum(['like', 'unlike', 'comment']),
+          action: z.enum(['like', 'unlike', 'comment', 'reply']),
+          replyTarget: z
+            .object({
+              rootId: z.string().regex(/^\d{1,20}$/),
+              rootUin: z.string().regex(/^[1-9]\d{4,19}$/),
+              uin: z.string().regex(/^[1-9]\d{4,19}$/),
+              nickname: z.string().max(512),
+            })
+            .optional(),
           content: text.optional(),
           time: z.number().int().nonnegative().safe().default(0),
           imagePath: id.optional(),
@@ -1028,9 +1036,24 @@ export function createQQActionsRouter(
       )
       .mutation(({ input: i }) =>
         write(i, async (s, current) => {
-          if (i.action !== 'comment')
+          if (i.action === 'like' || i.action === 'unlike')
             return s.webQuery.setQzoneLike(i.hostUin, i.tid, i.action === 'like', i.time, current);
           if (!i.content) throw new Error('评论不能为空');
+          if (i.action === 'comment' && i.replyTarget) throw new Error('回复不能作为一级评论提交');
+          if (i.action === 'reply') {
+            const target = i.replyTarget;
+            if (!target) throw new Error('请选择回复目标');
+            let imageUrl: string | undefined;
+            if (i.imagePath) {
+              const picture = await s.webQuery.uploadQzoneImage(
+                Buffer.from(await image(s, i.imagePath, current)).toString('base64'),
+                current,
+              );
+              current();
+              imageUrl = picture.url;
+            }
+            return s.webQuery.replyQzone(i.hostUin, i.tid, target, i.content, imageUrl, current);
+          }
           if (!i.imagePath)
             return s.webQuery.commentQzone(
               i.hostUin,
@@ -1048,6 +1071,17 @@ export function createQQActionsRouter(
           // 评论 richval 接受图片直链，不是发表说说的逗号分隔图片元数据。
           return s.webQuery.commentQzone(i.hostUin, i.tid, i.content, 1, picture.url, current);
         }),
+      ),
+    qzoneForward: procedure
+      .input(
+        binding.extend({
+          hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
+          tid: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+          reason: z.string().max(4096),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, (s, current) => s.webQuery.forwardQzone(i.hostUin, i.tid, i.reason, current)),
       ),
     inputStatus: procedure
       .input(binding.extend({ uid, eventType: z.literal(1) }))

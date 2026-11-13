@@ -11,7 +11,7 @@ export function QzoneForwardDialog({
   onClose,
   submit,
   disabled = false,
-  unavailableReason = '常规说说转发接口尚未接入，文案可编辑，暂不能发送。',
+  unavailableReason = '当前动态暂不能转发。',
 }: {
   previousContent: string;
   children: ReactNode;

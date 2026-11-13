@@ -92,6 +92,7 @@ import {
   type QzoneUgcRight,
 } from './qzone_publish';
 import { setQzoneLike, commentQzoneMsg, type QzoneCommentResult } from './qzone';
+import { replyQzoneMsg, forwardQzoneMsg, type QzoneReplyTarget } from './qzone_write_actions';
 import {
   collectQzoneInteractions,
   fetchQzoneLikes,
@@ -938,6 +939,36 @@ export class WebQueryService {
       this.creds,
       QZONE_DOMAIN,
       (c) => setQzoneLike(c, targetUin, tid, like, abstime),
+      beforeSend,
+    );
+  }
+
+  async replyQzone(
+    hostUin: string,
+    tid: string,
+    target: QzoneReplyTarget,
+    content: string,
+    imageUrl?: string,
+    beforeSend?: () => void,
+  ): Promise<void> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (cred) => replyQzoneMsg(cred, hostUin, tid, target, content, imageUrl),
+      beforeSend,
+    );
+  }
+
+  async forwardQzone(
+    hostUin: string,
+    tid: string,
+    reason: string,
+    beforeSend?: () => void,
+  ): Promise<void> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (cred) => forwardQzoneMsg(cred, hostUin, tid, reason),
       beforeSend,
     );
   }

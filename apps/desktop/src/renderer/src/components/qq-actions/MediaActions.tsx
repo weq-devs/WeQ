@@ -4,6 +4,8 @@ import type { QQWriteBinding, QQWriteOutcome } from '../../hooks/useQQWriteSessi
 import { client, trpc } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
+import type { QzoneReplyTarget } from '../../lib/qzoneActions';
+import { qzoneReplyPresentation } from '../../lib/qzoneReplyPresentation';
 import {
   ActionFeedback,
   ActionIcon,
@@ -354,7 +356,7 @@ function QzoneWriteActionsBody({
   onCommentAccepted?: () => void;
   mode?: 'like' | 'comment';
   likeCount?: number | null;
-  replyTarget?: { id: string; nickname: string; rootId: string } | null;
+  replyTarget?: QzoneReplyTarget | null;
   onCancelReply?: () => void;
   draftContent?: string;
   onDraftContentChange?: (content: string) => void;
@@ -382,12 +384,13 @@ function QzoneWriteActionsBody({
     };
   }, []);
   async function sendComment() {
-    if (replyTarget || commentRunning.current || a.disabled || !content.trim()) return;
+    if (commentRunning.current || a.disabled || !content.trim()) return;
     commentRunning.current = true;
     setCommentPending(true);
     const submittedContent = content;
     const submittedPicture = picture;
     const submittedRevision = draftRevision.current;
+    const submittedTarget = replyTarget;
     const sentAt = Math.floor(Date.now() / 1000);
     let accepted = false;
     try {
@@ -398,7 +401,15 @@ function QzoneWriteActionsBody({
             hostUin,
             tid,
             time,
-            action: 'comment',
+            action: submittedTarget ? 'reply' : 'comment',
+            replyTarget: submittedTarget
+              ? {
+                  rootId: submittedTarget.rootId,
+                  rootUin: submittedTarget.rootUin,
+                  uin: submittedTarget.uin,
+                  nickname: submittedTarget.nickname,
+                }
+              : undefined,
             content: submittedContent,
             imagePath: submittedPicture?.path,
           });
@@ -427,13 +438,21 @@ function QzoneWriteActionsBody({
               structuredOnly: true,
               requestId: crypto.randomUUID(),
             });
-            return result.comments.some(
-              (entry) =>
+            return result.comments.some((source) => {
+              const entry = submittedTarget
+                ? qzoneReplyPresentation(source, submittedTarget.rootUin)
+                : source;
+              return (
                 entry.uin === a.binding!.expectedAccountUin &&
-                !entry.isReply &&
+                (submittedTarget
+                  ? entry.isReply &&
+                    entry.parentCommentId === submittedTarget.rootId &&
+                    entry.replyToUin === submittedTarget.uin
+                  : !entry.isReply) &&
                 entry.content === submittedContent &&
-                entry.time >= sentAt - 5,
-            );
+                entry.time >= sentAt - 5
+              );
+            });
           },
         },
       );
@@ -485,8 +504,7 @@ function QzoneWriteActionsBody({
           回复 {replyTarget.nickname}{' '}
           <button type="button" disabled={commentPending} onClick={onCancelReply}>
             取消
-          </button>{' '}
-          · 定向回复尚未打通，暂不能发送。
+          </button>
         </p>
       ) : null}
       {picture && (
@@ -521,7 +539,7 @@ function QzoneWriteActionsBody({
           }}
         />
         <ImageAction
-          disabled={a.disabled || Boolean(replyTarget)}
+          disabled={a.disabled}
           onClick={() =>
             void a.pickImage().then((f) => {
               if (f) {
@@ -533,7 +551,7 @@ function QzoneWriteActionsBody({
         />
         <ActionIcon
           label={replyTarget ? '发送说说回复' : '发送说说评论'}
-          disabled={Boolean(replyTarget) || a.disabled || commentPending || !content.trim()}
+          disabled={a.disabled || commentPending || !content.trim()}
           onClick={() => void sendComment()}
         >
           {commentPending ? (

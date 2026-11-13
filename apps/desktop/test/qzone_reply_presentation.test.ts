@@ -36,6 +36,14 @@ describe('Qzone reply recipient presentation', () => {
     expect(qzoneReplyPresentation(original).content).toBe('@{uin:10002,nick:真正提及} 正文');
     expect(original.content).toContain('被回复人,who:1');
   });
+  it('还原 Web 回复目标的语法转义，不二次解码昵称中的百分号', () => {
+    expect(
+      qzoneReplyPresentation(
+        reply('@{uin:10003,nick:甲%2C%7B%7D%3A%252C,who:1,auto:1}正文'),
+        '10001',
+      ),
+    ).toMatchObject({ content: '正文', replyToUin: '10003', replyToNickname: '甲,{}:%2C' });
+  });
   it('does not guess unrelated leading mentions or override conflicting recipient metadata', () => {
     const authored = reply('@{uin:10003,nick:真正提及} 正文');
     expect(qzoneReplyPresentation(authored, '10001')).toBe(authored);

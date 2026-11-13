@@ -11,6 +11,7 @@ import type { QzoneInteraction } from '../src/renderer/src/views/qzone_types';
 const state = vi.hoisted(() => ({
   configId: 'source-a',
   refreshWait: null as Promise<void> | null,
+  readback: undefined as (() => Promise<boolean>) | undefined,
   write: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   forward: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   pickImage: vi.fn(async () => ({ path: '/synthetic/image.png', fileName: '合成图片.png' })),
@@ -51,7 +52,9 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     run: async (
       action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
+      options?: { readback?: () => Promise<boolean> },
     ) => {
+      state.readback = options?.readback;
       const configId = state.configId;
       try {
         await action({ expectedAccountUin: '10001', expectedAccountConfigId: configId });
@@ -107,6 +110,7 @@ beforeEach(() => {
   );
   state.configId = 'source-a';
   state.refreshWait = null;
+  state.readback = undefined;
   state.write.mockReset().mockResolvedValue({ state: 'accepted' });
   state.forward.mockReset().mockResolvedValue({ state: 'accepted' });
   state.pickImage.mockClear();
@@ -437,8 +441,41 @@ it('转发弹窗上方预填引用并将光标定位开头，下方保留原动�
   await act(async () =>
     document.querySelector<HTMLButtonElement>('.weq-qzn-forward-dialog .weq-qzn-primary')!.click(),
   );
-  expect(state.forward).not.toHaveBeenCalled();
-  expect(document.querySelector('.weq-qzn-forward-dialog')!.textContent).toContain('尚未打通');
+  expect(state.forward).toHaveBeenCalledWith(
+    expect.objectContaining({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      hostUin: '10001',
+      tid: 'post-a',
+      reason: '//：合成说说',
+    }),
+  );
+  expect(document.querySelector('.weq-qzn-forward-dialog')).toBeNull();
+  expect(await state.readback!()).toBe(false);
+  state.posts.mockResolvedValueOnce({
+    total: 1,
+    nickname: '合成空间',
+    list: [
+      {
+        tid: 'new-forward',
+        content: '//：合成说说',
+        time: Math.floor(Date.now() / 1000),
+        images: [],
+        videos: [],
+        isPrivate: false,
+        commentNum: 0,
+        repost: {
+          tid: 'post-a',
+          uin: '10001',
+          nickname: '合成空间',
+          content: '合成说说',
+          images: [],
+          videos: [],
+        },
+      },
+    ],
+  });
+  expect(await state.readback!()).toBe(true);
 });
 
 it('转发悬停显示名单浮层，已有转发计数也保持问号，不请求假接口或发起转发', async () => {
@@ -496,7 +533,7 @@ it('与我相关自动读取五页即停，向上滚动不续页，向下滚动�
   expect(state.related).toHaveBeenCalledTimes(10);
 });
 
-it('定向回复未打通时仍保留目标与草稿，但不能误发为一级评论', async () => {
+it('定向回复保留根身份与实际目标，切换目标不丢草稿，未确认不清空', async () => {
   state.interactions.mockResolvedValue({
     comments: [
       {
@@ -548,7 +585,7 @@ it('定向回复未打通时仍保留目标与草稿，但不能误发为一级�
   expect(replyInput.closest('.is-reply')?.textContent).toContain('二级回复');
   expect(replyInput.value).toBe('保留草稿');
   expect(view.host.querySelectorAll('.weq-qzn-comment-composer')).toHaveLength(1);
-  expect(view.button('发送说说回复').disabled).toBe(true);
+  expect(view.button('发送说说回复').disabled).toBe(false);
   expect(view.host.querySelector<HTMLImageElement>('.weq-qq-action-image img')?.alt).toBe(
     '合成图片.png',
   );
@@ -571,8 +608,41 @@ it('定向回复未打通时仍保留目标与草稿，但不能误发为一级�
   expect(view.host.querySelector<HTMLInputElement>('[aria-label="说说回复"]')!.value).toBe(
     '保留草稿',
   );
-  expect(view.button('发送说说回复').disabled).toBe(true);
-  expect(state.write).not.toHaveBeenCalled();
+  expect(view.button('发送说说回复').disabled).toBe(false);
+  expect(state.write).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'reply',
+      content: '保留草稿',
+      hostUin: '10001',
+      tid: 'post-a',
+      replyTarget: { rootId: '1', rootUin: '10002', uin: '10003', nickname: '回复者' },
+    }),
+  );
+  const recent = {
+    id: '1_r_3_10001',
+    parentCommentId: '1',
+    replyId: '3',
+    uin: '10001',
+    nickname: '自己',
+    content: '保留草稿',
+    time: Math.floor(Date.now() / 1000),
+    isReply: true,
+    images: [],
+  };
+  state.interactions.mockResolvedValueOnce({
+    comments: [{ ...recent, replyToUin: '10002' }],
+    likes: [],
+    commentCountInclusive: 1,
+    fieldCoverage: { comments: 'observed' },
+  });
+  expect(await state.readback!()).toBe(false);
+  state.interactions.mockResolvedValueOnce({
+    comments: [{ ...recent, replyToUin: '10003' }],
+    likes: [],
+    commentCountInclusive: 1,
+    fieldCoverage: { comments: 'observed' },
+  });
+  expect(await state.readback!()).toBe(true);
 });
 
 it('移除原生详情对照按钮和重复正文，正常浏览不新增详情读取', async () => {
@@ -618,16 +688,16 @@ it('截断正文在原帖内按需补充，并带准确时间定位且保留未�
   expect(view.button('读取原生详情')).toBeNull();
 });
 
-it('撤下超时原生写入后，转发编辑不触发旧 mutation', async () => {
+it('转发结果未确认时保留文案和弹窗，不自动重复提交', async () => {
   const view = await mount();
   state.forward.mockResolvedValueOnce({ state: 'unconfirmed' });
   await act(async () => view.host.querySelector<HTMLButtonElement>('[title="转发"]')!.click());
   await act(async () =>
     document.querySelector<HTMLButtonElement>('.weq-qzn-forward-dialog .weq-qzn-primary')!.click(),
   );
-  expect(state.forward).not.toHaveBeenCalled();
+  expect(state.forward).toHaveBeenCalledOnce();
   expect(document.querySelector<HTMLTextAreaElement>('[aria-label="转发语"]')!.value).toBe(
     '//：合成说说',
   );
-  expect(document.querySelector('.weq-qzn-forward-dialog')!.textContent).toContain('尚未打通');
+  expect(document.querySelector('.weq-qzn-forward-dialog')!.textContent).toContain('未确认');
 });

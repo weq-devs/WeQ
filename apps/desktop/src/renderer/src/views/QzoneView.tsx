@@ -85,12 +85,12 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzonePublicPane } from './QzonePublicView';
-import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
+import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
-import { QzoneRelatedRound } from '../lib/qzoneActions';
+import { QzoneRelatedRound, type QzoneReplyTarget } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
@@ -1666,11 +1666,7 @@ function PostActionsBody({
     focusComment ? 'comments' : null,
   );
   const [forwardOpen, setForwardOpen] = useState(false);
-  const [replyTarget, setReplyTarget] = useState<{
-    id: string;
-    nickname: string;
-    rootId: string;
-  } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<QzoneReplyTarget | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentPicture, setCommentPicture] = useState<{ path: string; fileName: string } | null>(
     null,
@@ -1889,11 +1885,13 @@ function PostActionsBody({
           writeRevision={writeRevision}
           writePending={likePending}
           renderReply={(comment) => (replyTarget?.id === comment.id ? composer : null)}
-          onReply={(comment) => {
+          onReply={(comment, root) => {
             setReplyTarget({
               id: comment.id,
+              uin: comment.uin,
               nickname: comment.nickname || comment.uin,
-              rootId: comment.parentCommentId || comment.id,
+              rootId: root.id,
+              rootUin: root.uin,
             });
             requestAnimationFrame(() => {
               const input = ref.current?.querySelector<HTMLInputElement>('[aria-label="说说回复"]');
@@ -1904,10 +1902,12 @@ function PostActionsBody({
         />
       ) : null}
       {forwardOpen ? (
-        <QzoneForwardDialog
+        <QzonePostForwardDialog
+          selfUin={selfUin}
+          hostUin={hostUin}
+          tid={post.tid}
           previousContent={post.content ?? ''}
           onClose={() => setForwardOpen(false)}
-          unavailableReason="常规说说转发尚未打通，暂不能发送。"
         >
           <strong>
             <QzoneName content={hostUin} uin={hostUin} />
@@ -1930,7 +1930,7 @@ function PostActionsBody({
               <QzoneMediaGrid images={post.repost.images} videos={post.repost.videos} />
             </section>
           ) : null}
-        </QzoneForwardDialog>
+        </QzonePostForwardDialog>
       ) : null}
     </div>
   );
@@ -2100,7 +2100,10 @@ function Interaction({
   readComments?: () => Promise<QzoneInteraction>;
   writeRevision?: number;
   writePending?: boolean;
-  onReply?: (comment: QzoneInteraction['comments'][number]) => void;
+  onReply?: (
+    comment: QzoneInteraction['comments'][number],
+    root: QzoneInteraction['comments'][number],
+  ) => void;
   renderReply?: (comment: QzoneInteraction['comments'][number]) => ReactNode;
 }) {
   const focusRef = useRef<HTMLDivElement>(null);
@@ -2270,6 +2273,9 @@ function Interaction({
   );
   const focusedComment = focusComment ? relatedCommentTarget(focusComment, result!.comments) : null;
   const renderComment = (source: QzoneInteraction['comments'][number]) => {
+    const root = source.isReply
+      ? roots.find((entry) => entry.id === source.parentCommentId)
+      : source;
     const comment = qzoneReplyPresentation(
       source,
       roots.find((root) => root.id === source.parentCommentId)?.uin,
@@ -2324,7 +2330,7 @@ function Interaction({
           <Pictures images={comment.images} />
           <div className="weq-qzn-comment-meta">
             <time>{timeText(comment.time)}</time>
-            <button type="button" onClick={() => onReply?.(source)}>
+            <button type="button" disabled={!root} onClick={() => root && onReply?.(source, root)}>
               回复
             </button>
           </div>
