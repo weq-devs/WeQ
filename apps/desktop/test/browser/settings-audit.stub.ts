@@ -77,29 +77,6 @@ const data: Record<string, unknown> = {
     hasMore: false,
   },
   'account.qzone.feeds': { feeds: [], hasMore: false },
-  'clientState.draftCopies': [
-    {
-      key: 'copy:0f6a1d2c-1111-4aaa-8bbb-000000000001',
-      version: 'v1',
-      value: {
-        source: 'chat:c2c:10001:20002',
-        content: { text: '这是被自动保留的聊天草稿副本内容，用来覆盖别人同时保存造成的版本差异。' },
-        createdAt: 1762984800000,
-      },
-    },
-    {
-      key: 'copy:0f6a1d2c-2222-4aaa-8bbb-000000000002',
-      version: 'v1',
-      value: {
-        source: 'assistant:draft:研讨会议纪要',
-        content: { text: '助手草稿副本：今天讨论的结论汇总。' },
-        createdAt: 1762981200000,
-      },
-    },
-  ],
-  'clientState.draft': {
-    value: '这是完整草稿内容，用于查看全文时替换预览。',
-  },
   'bootstrap.backupInventory': {
     canPickFile: false,
     canRestart: false,
@@ -135,6 +112,7 @@ function proxy(path = ''): unknown {
   return new Proxy(noop, {
     apply: () => proxy(path),
     get: (_target, key) => {
+      if (key === 'useUtils') return () => utils;
       if (key === 'useQuery')
         return () => {
           if (!results.has(path))
@@ -160,5 +138,6 @@ function proxy(path = ''): unknown {
     },
   });
 }
+const utils = proxy();
 export const trpc = proxy();
 export const client = proxy();

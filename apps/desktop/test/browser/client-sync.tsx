@@ -5,7 +5,6 @@ import { client, trpc } from '../../src/renderer/src/trpc/client';
 import { ClientStateSync } from '../../src/renderer/src/components/ClientStateSync';
 import { SharedDisplayToggle } from '../../src/renderer/src/components/settings/SharedDisplayToggle';
 import { usePrivacyStore } from '../../src/renderer/src/state/privacy';
-import { DraftCopiesHost } from '../../src/renderer/src/components/DraftCopiesHost';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import {
   useClientPreferences,
@@ -13,7 +12,7 @@ import {
   initializePreferences,
   sharedAccountRecords,
 } from '../../src/renderer/src/lib/clientPreferences';
-import { openDraftCopies, resolveDraftSave } from '../../src/renderer/src/lib/draftPersistence';
+import { resolveDraftSave } from '../../src/renderer/src/lib/draftPersistence';
 import { useViewState } from '../../src/renderer/src/state/view';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/client-sync.css';
@@ -29,7 +28,6 @@ Object.assign(window, {
     preferenceValue,
     initializePreferences,
     resolveDraftSave,
-    openDraftCopies,
     privacy: usePrivacyStore,
   },
 });
@@ -51,7 +49,6 @@ function Fixture() {
   return (
     <main className="sync-fixture">
       <ClientStateSync />
-      <DraftCopiesHost />
       <section>
         <h1>主题与背景</h1>
         <label>

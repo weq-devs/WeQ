@@ -31,7 +31,6 @@ import {
   preloadWorkspace,
 } from './lazyWorkspaces';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
-import { openDraftCopies, useDraftCopies } from '../lib/draftPersistence';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
 import { trpc } from '../trpc/client';
 import {
@@ -116,7 +115,6 @@ export function WorkspaceTools({
   const closeMenu = useWorkspaceMenu((state) => state.close);
   const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
   const syncTasks = useWorkspaceMenu((state) => state.syncTasks);
-  const draftCopies = useDraftCopies((state) => state.copiesCount);
   const [expanded, setExpanded] = useState(false);
   const lastAnchor = useRef<HTMLElement | null>(null);
   if (anchor) lastAnchor.current = anchor;
@@ -463,16 +461,6 @@ export function WorkspaceTools({
           )}
           {running ? <small>{running} 项进行中</small> : null}
           <div className="weq-workspace-menu-head-actions">
-            {draftCopies > 0 && (
-              <button
-                type="button"
-                title={`草稿副本（${draftCopies}）`}
-                aria-label="草稿副本"
-                onClick={openDraftCopies}
-              >
-                <FileStack size={17} />
-              </button>
-            )}
             {expanded ? (
               <button type="button" title="关闭" aria-label="关闭完整面板" onClick={closeWorkspace}>
                 <X size={18} />

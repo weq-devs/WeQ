@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,6 +16,70 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it.each([false, true])(
+    '清理旧副本及容量记录，保留正式草稿与其他文件（分文件：%s）',
+    (external) => {
+      const state = store();
+      const root = join(state.path, '..', 'client-state-drafts');
+      mkdirSync(root);
+      const file = (key: string) =>
+        join(root, `${createHash('sha256').update(key).digest('hex')}.json`);
+      const draft = { version: 'draft-v1', value: '正文' };
+      const copy = { version: 'copy-v1', value: { content: '旧内容' } };
+      const drafts = {
+        'assistant:new': draft,
+        'copy:old': copy,
+        'copy:deleted': { version: 'v2', value: null },
+      };
+      for (const [key, value] of Object.entries(drafts))
+        writeFileSync(file(key), JSON.stringify({ key, ...value }));
+      rmSync(file('copy:deleted'));
+      writeFileSync(join(root, 'unrelated.json'), 'untouched');
+      writeFileSync(
+        state.path,
+        JSON.stringify({
+          epoch: 'fixture',
+          revision: 1,
+          values: { background: 'grid' },
+          records: { pins: { '123': true } },
+          externalDrafts: external,
+          drafts: external
+            ? Object.fromEntries(
+                Object.entries(drafts).map(([key, value]) => [key, { ...value, value: null }]),
+              )
+            : drafts,
+          draftBytes: {
+            'assistant:new': 100,
+            'copy:old': 32 * 1024 * 1024,
+            'copy:deleted': 50,
+            'copy:orphan': 100,
+          },
+        }),
+      );
+      expect(state.draft('assistant:new')).toEqual(draft);
+      const backup = state.exportState();
+      expect(Object.keys(backup.drafts)).toEqual(['assistant:new']);
+      expect(state.snapshot()).toMatchObject({
+        values: { background: 'grid' },
+        records: { pins: { '123': true } },
+      });
+      const persisted = JSON.parse(readFileSync(state.path, 'utf8'));
+      expect(persisted.draftBytes).toEqual({ 'assistant:new': 100 });
+      expect(existsSync(file('copy:old'))).toBe(false);
+      expect(existsSync(file('copy:deleted'))).toBe(false);
+      expect(existsSync(file('assistant:new'))).toBe(true);
+      expect(readFileSync(join(root, 'unrelated.json'), 'utf8')).toBe('untouched');
+      const after = readFileSync(state.path, 'utf8');
+      new ClientStateStore(state.path).snapshot();
+      expect(readFileSync(state.path, 'utf8')).toBe(after);
+      expect(state.saveDraft('assistant:new', '继续编辑', draft.version).ok).toBe(true);
+    },
+  );
+  it('旧客户端不能再创建副本草稿', () => {
+    const state = store();
+    expect(() => state.saveDraft('copy:legacy', { content: 'old' }, null)).toThrow('标识无效');
+    expect(Object.keys(state.exportState().drafts)).toEqual([]);
+  });
   it('悬停保持会话位置默认关闭，保存后跨端持久共享且只接受布尔值', () => {
     const state = store();
     expect(preferenceDefaults.keepConversationPositionOnHover).toBe(false);

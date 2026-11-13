@@ -90,7 +90,6 @@ export function ClientStateSync() {
           void utils.account.listDrafts.invalidate();
           void utils.mergeForward.workspaceDrafts.invalidate();
           void utils.mergeForward.archiveList.invalidate();
-          void utils.clientState.draftCopies.invalidate();
           void utils.account.listAssistantSessions.invalidate();
         } else refresh();
       },

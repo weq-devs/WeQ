@@ -16,7 +16,6 @@ import {
 } from 'react';
 import { useViewState } from './state/view';
 import { ClientStateSync } from './components/ClientStateSync';
-import { DraftCopiesHost } from './components/DraftCopiesHost';
 import {
   effectiveDisplaySettings,
   preferenceValue,
@@ -235,7 +234,6 @@ export default function App(): ReactElement {
   return (
     <CdnProvider accountOpen={view === 'main' && !switching}>
       <ClientStateSync />
-      <DraftCopiesHost />
       <TextMarkdownProvider cacheScope={view === 'main' && !switching ? (openedUin ?? '') : ''}>
         <SelfPendantProvider accountOpen={view === 'main' && !switching}>
           {/* 生效挂件与自己的静态挂件同层级广播,也必须盖住转发窗口。 */}

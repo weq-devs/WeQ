@@ -27,7 +27,7 @@ try {
     format: 'esm',
     bundle: true,
     banner: {
-      js: 'import {createRequire} from "node:module"; const require=createRequire(import.meta.url);',
+      js: 'import {createRequire as fixtureCreateRequire} from "node:module"; const require=fixtureCreateRequire(import.meta.url);',
     },
     plugins: [
       {
@@ -132,7 +132,15 @@ try {
   const pageErrors = [];
   for (const page of [desktop, ...pages])
     page.on('pageerror', (error) => pageErrors.push(error.message));
-  await desktop.waitForFunction(() => window.syncQa?.preferences.getState().ready);
+  try {
+    await desktop.waitForFunction(() => window.syncQa?.preferences.getState().ready);
+  } catch (error) {
+    console.error('桌面测试初始化失败', {
+      pageErrors,
+      state: await desktop.evaluate(() => window.syncQa?.preferences.getState()),
+    });
+    throw error;
+  }
   await Promise.all(pages.map((page) => page.goto(webUrl)));
   await Promise.all(
     pages.map((page) => page.waitForFunction(() => window.syncQa?.preferences.getState().ready)),
@@ -242,41 +250,14 @@ try {
   assert.equal(savedDraft.local, true);
   assert.equal(savedDraft.current.value, '第二端草稿');
   assert.equal(await pages[1].locator('.weq-modal').count(), 0, '自动保存不弹出对话框');
-  await pages[1].evaluate(() => window.syncQa.openDraftCopies());
-  await pages[1].getByRole('textbox', { name: '草稿副本', exact: true }).waitFor();
-  assert.equal(
-    await pages[1]
-      .locator('.weq-modal')
-      .evaluate((element) => element.scrollWidth <= element.clientWidth),
-    true,
-    '副本对话框横向溢出',
-  );
-  await pages[1].screenshot({ path: join(artifacts, 'copies-320.png') });
-  await pages[1].keyboard.press('Escape');
-  assert.equal(
-    await pages[0].evaluate(() =>
-      window.syncQa.client.clientState.draftCopies
-        .query({ expectedAccountUin: '10001', expectedAccountConfigId: '10001_fixture' })
-        .then((rows) => rows.length),
-    ),
-    1,
-  );
-  const preservedCopies = await pages[0].evaluate(() =>
-    window.syncQa.client.clientState.draftCopies.query({
+  const sharedDraft = await pages[0].evaluate(() =>
+    window.syncQa.client.clientState.draft.query({
       expectedAccountUin: '10001',
       expectedAccountConfigId: '10001_fixture',
+      key: 'assistant:fixture',
     }),
   );
-  const preserved = await pages[0].evaluate(
-    (key) =>
-      window.syncQa.client.clientState.draft.query({
-        expectedAccountUin: '10001',
-        expectedAccountConfigId: '10001_fixture',
-        key,
-      }),
-    preservedCopies[0].key,
-  );
-  assert.equal(preserved.value.content, '第一端草稿');
+  assert.equal(sharedDraft.value, '第二端草稿');
   const clearedDraft = await pages[0].evaluate(
     (expectedVersion) =>
       window.syncQa.client.clientState.saveDraft.mutate({

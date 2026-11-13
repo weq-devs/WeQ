@@ -269,7 +269,7 @@ describe('统一竖向工作菜单', () => {
         ),
       );
     const trigger = () => host.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger')!;
-    // 菜单头部只剩草稿副本与关闭；助手侧状态已并入菜单按钮的汇总标记。
+    // 菜单头部仅保留关闭；助手侧状态已并入菜单按钮的汇总标记。
     const head = () => document.querySelector('.weq-workspace-menu-head-actions');
     try {
       render();

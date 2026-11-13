@@ -37,6 +37,19 @@ beforeEach(() => {
   context.assistantSessions = [];
 });
 afterEach(() => rmSync(context.root, { recursive: true, force: true }));
+it('移除副本查询接口，旧客户端也不能通过保存接口重建副本', async () => {
+  expect(clientStateRouter._def.procedures).not.toHaveProperty('draftCopies');
+  const client = clientStateRouter.createCaller({});
+  await expect(
+    client.saveDraft({
+      expectedAccountUin: context.uin,
+      expectedAccountConfigId: context.configId,
+      key: 'copy:legacy',
+      value: { content: '旧端副本' },
+      expectedVersion: null,
+    }),
+  ).rejects.toThrow('标识无效');
+});
 it('助手永久删除后的迟到草稿写入不能恢复内容，不影响未删除会话', async () => {
   const client = clientStateRouter.createCaller({});
   const binding = { expectedAccountUin: context.uin, expectedAccountConfigId: context.configId };

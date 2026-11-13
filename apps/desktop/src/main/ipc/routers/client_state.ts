@@ -264,9 +264,6 @@ export const clientStateRouter = router({
       trustSharedDraftMedia(draft.value);
       return draft;
     }),
-  draftCopies: procedure
-    .input(clientAccountBinding)
-    .query(({ input }) => boundClientState(input).copies()),
   saveDraft: procedure
     .input(
       clientAccountBinding.extend({
