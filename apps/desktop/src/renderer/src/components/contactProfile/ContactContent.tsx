@@ -60,6 +60,7 @@ import { previewMemberView } from '../../hooks/useGroupProfile';
 import { SelfProfileSlot, useSelfProfileFields } from '../SelfProfileFields';
 import { ProfileDisplayEntry } from '../ProfileDisplaySettings';
 import { SelfAvatarHistory } from '../SelfAvatarHistory';
+import { SelfOnlineStatus } from '../SelfOnlineStatus';
 
 export { contactCardFieldGroup, type ContactCardGroup } from '../../lib/contactCardSections';
 
@@ -114,10 +115,17 @@ export function ContactIdentity({
   const showStatus = !person.clone && settings?.visible.status !== false;
   const onlineStatus = person.onlineStatus?.trim();
   const customStatus = person.customStatus?.trim();
+  const selfStatus = self?.fields.status?.props.value;
+  const selfExtendedStatus = self?.fields.extendedStatus?.props.value;
+  const selfStatusText = [selfStatus, selfExtendedStatus]
+    .filter((value) => typeof value === 'string' && value !== '未设置')
+    .join(' · ');
   const fallbackStatus =
-    onlineStatus && customStatus && !onlineStatus.includes(customStatus)
+    (onlineStatus && customStatus && !onlineStatus.includes(customStatus)
       ? `${onlineStatus} · ${customStatus}`
-      : onlineStatus || customStatus;
+      : onlineStatus || customStatus) ||
+    selfStatusText ||
+    (self ? '尚未读取' : undefined);
   const remarks =
     remark || editableRemark ? (
       <div className="weq-contact-remarks">
@@ -181,16 +189,18 @@ export function ContactIdentity({
               {renderName(title)}
             </SelfProfileSlot>
             <ContactFieldHistoryButton field="nick" label="昵称" />
-            {showStatus && !self ? (
-              /^u_/.test(person.uid || person.id) ? (
-                <OnlineStatus
-                  uid={person.uid || person.id}
-                  showBaseStatus
-                  fallbackText={fallbackStatus}
-                />
-              ) : (
-                <span className="weq-contact-status">{fallbackStatus}</span>
-              )
+            {showStatus ? (
+              <SelfOnlineStatus>
+                {/^u_/.test(person.uid || person.id) ? (
+                  <OnlineStatus
+                    uid={person.uid || person.id}
+                    showBaseStatus
+                    fallbackText={fallbackStatus}
+                  />
+                ) : (
+                  <span className="weq-contact-status">{fallbackStatus}</span>
+                )}
+              </SelfOnlineStatus>
             ) : null}
             {showStatus && !self ? (
               <ContactFieldHistoryButton field="status" label="在线状态" />
@@ -280,12 +290,6 @@ export function ContactIdentity({
                 }
               />
             )
-          ) : null}
-          {self ? (
-            <>
-              <SelfProfileSlot field="status" />
-              <SelfProfileSlot field="extendedStatus" />
-            </>
           ) : null}
         </div>
       ) : (

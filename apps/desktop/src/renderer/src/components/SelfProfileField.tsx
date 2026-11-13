@@ -29,6 +29,7 @@ export function SelfProfileField({
   onEditingChange,
   unframed = false,
   valueHasAction = false,
+  editorOnly = false,
 }: {
   label: string;
   value: ReactNode;
@@ -42,8 +43,10 @@ export function SelfProfileField({
   onEditingChange?: (editing: boolean) => void;
   unframed?: boolean;
   valueHasAction?: boolean;
+  /** 复用字段编辑器到独立浮层，由浮层提供关闭入口。 */
+  editorOnly?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(editorOnly);
   const editable = useContext(SelfProfileEditingContext);
   const [pending, setPending] = useState(false);
   const mounted = useRef(true);
@@ -58,9 +61,9 @@ export function SelfProfileField({
     };
   }, []);
   useEffect(() => {
-    if (editing)
+    if (editing && !editorOnly)
       editor.current?.querySelector<HTMLElement>('input, textarea, select, button')?.focus();
-  }, [editing]);
+  }, [editing, editorOnly]);
   useLayoutEffect(() => {
     if (!editing && restoreFocus.current) {
       restoreFocus.current = false;
@@ -148,20 +151,22 @@ export function SelfProfileField({
             </SaveContext.Provider>
             {editorFooter}
           </fieldset>
-          <button
-            type="button"
-            className="weq-self-field-cancel"
-            title={`取消编辑${label}`}
-            aria-label={`取消编辑${label}`}
-            disabled={pending}
-            onClick={() => {
-              onCancel?.();
-              close();
-            }}
-          >
-            <X size={14} />
-            <span>取消</span>
-          </button>
+          {!editorOnly && (
+            <button
+              type="button"
+              className="weq-self-field-cancel"
+              title={`取消编辑${label}`}
+              aria-label={`取消编辑${label}`}
+              disabled={pending}
+              onClick={() => {
+                onCancel?.();
+                close();
+              }}
+            >
+              <X size={14} />
+              <span>取消</span>
+            </button>
+          )}
         </div>
       )}
     </div>

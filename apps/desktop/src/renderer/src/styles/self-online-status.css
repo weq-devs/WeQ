@@ -1,0 +1,78 @@
+.weq-self-online-status {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.weq-self-online-status > span {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.weq-self-online-status > span > span {
+  min-width: 0;
+}
+.weq-self-online-status:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.weq-self-status-layer.weq-nonmodal-layer[tabindex] > .weq-self-status-dialog {
+  width: min(360px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  padding: 14px;
+  border-radius: 8px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+}
+.weq-self-status-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.weq-self-status-dialog h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.weq-self-status-dialog .weq-self-field-editor {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.weq-self-status-dialog .weq-set-row {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 6px;
+}
+.weq-self-status-dialog .weq-self-field-editor .weq-set-row-main,
+.weq-self-status-dialog .weq-self-field-editor .weq-set-row-ctrl {
+  flex: 0 1 auto;
+}
+.weq-self-status-dialog .weq-self-field-editor .weq-set-row-ctrl {
+  width: 100%;
+  max-width: none;
+}
+.weq-self-status-dialog .weq-qq-write-field,
+.weq-self-status-dialog .weq-qq-write-custom {
+  min-width: 0;
+  width: 100%;
+}
+.weq-self-status-dialog .weq-qq-write-input {
+  min-width: 0;
+}
+html[data-theme='dark'] .weq-self-status-dialog {
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}

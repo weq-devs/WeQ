@@ -122,9 +122,10 @@ const pages = () =>
         page(avatars.slice(0, 2), 1600000000),
         ...(pageCount > 1 ? [page([avatars[1]!, ...avatars.slice(2)], null)] : []),
       ];
+let onlineStatus = { type: 10, subType: 0 };
 const state = () => ({
   profile: { ...profile, uin: account },
-  status: { type: 10, subType: 0 },
+  status: onlineStatus,
   statusError: null,
   statusOptions: [
     { value: 10, label: '在线' },
@@ -170,9 +171,16 @@ function useHistory(_input: unknown, opts: { enabled: boolean }) {
     },
   };
 }
-const mutate = async (input: { patch?: Record<string, unknown>; source?: string }) => {
+const mutate = async (input: {
+  patch?: Record<string, unknown>;
+  source?: string;
+  status?: number;
+  extStatus?: number;
+}) => {
   writes++;
   if (input.source) avatarSources.push(input.source);
+  if (input.status !== undefined)
+    onlineStatus = { type: input.status, subType: input.extStatus ?? 0 };
   if (input.patch) {
     Object.assign(profile, input.patch.nickname ? { nick: input.patch.nickname } : input.patch);
     Object.assign(extra, input.patch);

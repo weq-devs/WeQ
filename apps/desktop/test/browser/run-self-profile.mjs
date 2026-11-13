@@ -74,6 +74,57 @@ try {
   assert.equal(await nickname.textContent(), '合成名片昵称');
   assert.equal(await nickname.locator('svg').count(), 0);
   assert.equal(await nickname.locator('button').count(), 0);
+  const statusTrigger = page.getByRole('button', { name: '编辑在线状态', exact: true });
+  assert.equal(await statusTrigger.locator('..').getAttribute('class'), 'weq-contact-title-line');
+  assert.ok((await statusTrigger.textContent()).includes('在线'));
+  assert.equal(await page.locator('[data-profile-field="扩展在线状态"]').count(), 0);
+  await statusTrigger.click();
+  const statusDialog = page.getByRole('dialog', { name: '修改在线状态', exact: true });
+  await statusDialog.waitFor();
+  assert.equal(
+    await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).count(),
+    1,
+  );
+  assert.equal(
+    await statusDialog.getByRole('combobox', { name: '扩展在线状态', exact: true }).count(),
+    1,
+  );
+  assert.equal(await page.evaluate(() => window.selfProfileQa.writes()), 0);
+  await page.keyboard.press('Escape');
+  await statusDialog.waitFor({ state: 'detached' });
+  assert.equal(await statusTrigger.evaluate((node) => node === document.activeElement), true);
+  await statusTrigger.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    node.click();
+  });
+  assert.equal(await statusDialog.count(), 0, '拖选状态文字不打开编辑器');
+  await page.evaluate(() => document.getSelection().removeAllRanges());
+  await statusTrigger.click();
+  await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).selectOption('30');
+  await page.evaluate(() => window.selfProfileQa.failSave(true));
+  await statusDialog.getByRole('button', { name: '保存在线状态', exact: true }).click();
+  assert.equal(
+    await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).inputValue(),
+    '30',
+    '保存失败保留选择',
+  );
+  await page.evaluate(() => window.selfProfileQa.failSave(false));
+  await statusDialog.getByRole('button', { name: '保存在线状态', exact: true }).click();
+  await statusDialog.waitFor({ state: 'detached' });
+  assert.ok((await statusTrigger.textContent()).includes('离开'));
+  await statusTrigger.click();
+  await statusDialog
+    .getByRole('combobox', { name: '扩展在线状态', exact: true })
+    .selectOption('1018');
+  await statusDialog.getByRole('button', { name: '保存扩展在线状态', exact: true }).click();
+  await statusDialog.waitFor({ state: 'detached' });
+  assert.ok((await statusTrigger.textContent()).includes('学习中'));
+  await statusTrigger.click();
+  await page.mouse.click(1000, 700);
+  await statusDialog.waitFor({ state: 'detached' });
   assert.equal(await page.locator('button button').count(), 0, '字段内没有嵌套操作按钮');
   assert.equal(await page.getByRole('button', { name: '更换头像', exact: true }).count(), 0);
   assert.equal(await page.getByRole('button', { name: '历史头像', exact: true }).count(), 1);
@@ -214,6 +265,46 @@ try {
         );
       assert.deepEqual(await overflow(), [], `${width}/${theme}: card overflow`);
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-card.png`) });
+      await statusTrigger.click();
+      await statusDialog.waitFor();
+      await page.locator('.weq-self-status-layer.is-anchored-popover').waitFor();
+      const statusBox = await statusDialog.boundingBox();
+      if (output && (statusBox.x < 7 || statusBox.x + statusBox.width > width - 7))
+        await page.screenshot({
+          path: resolve(output, `${width}-${theme}-status-placement-failure.png`),
+        });
+      assert.ok(
+        statusBox.width <= 360 && statusBox.height < 500,
+        `${width}/${theme}: 状态浮层保持紧凑 ${JSON.stringify(statusBox)}`,
+      );
+      assert.ok(
+        statusBox.x >= 7 && statusBox.x + statusBox.width <= width - 7,
+        `${width}/${theme}: 状态浮层贴屏 ${JSON.stringify(statusBox)}`,
+      );
+      if (width === 1180) {
+        const triggerBox = await statusTrigger.boundingBox();
+        assert.ok(statusBox.x >= triggerBox.x + triggerBox.width + 7, '宽屏浮层位于状态旁边');
+      }
+      assert.equal(
+        await statusDialog.evaluate((el) => el.scrollWidth <= el.clientWidth + 2),
+        true,
+        `${width}/${theme}: 状态浮层不溢出`,
+      );
+      await statusDialog
+        .getByRole('combobox', { name: '扩展在线状态', exact: true })
+        .selectOption('2000');
+      await statusDialog
+        .getByRole('textbox', { name: '自定义状态文字', exact: true })
+        .fill('尚未保存的状态');
+      if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}-status.png`) });
+      await page.getByRole('button', { name: '关闭在线状态', exact: true }).click();
+      await statusTrigger.click();
+      assert.equal(
+        await statusDialog.getByRole('textbox', { name: '自定义状态文字', exact: true }).count(),
+        0,
+        '关闭后不保留未提交状态',
+      );
+      await page.getByRole('button', { name: '关闭在线状态', exact: true }).click();
       await page.getByRole('button', { name: '查看个性签名', exact: true }).click();
       const signatureDialog = page.getByRole('dialog', { name: '个性签名', exact: true });
       await signatureDialog.waitFor();
@@ -273,6 +364,7 @@ try {
       window.selfProfileQa.online(state !== 'offline');
       window.selfProfileQa.busy(state === 'busy');
     }, state);
+    assert.equal(await page.getByRole('button', { name: '编辑在线状态', exact: true }).count(), 0);
     const trigger = page.getByRole('button', { name: '历史头像', exact: true });
     assert.equal(await trigger.isEnabled(), true);
     await trigger.click();
