@@ -16,6 +16,7 @@ import { SETTINGS_PAGE_LABELS } from './navigation';
 import '../../styles/settings-reset.css';
 import { changePreference, preferenceValue } from '../../lib/clientPreferences';
 import { preferenceDefaults, type PreferenceKey } from '@weq/service/client-preferences';
+import { describeSettingsReset, formatResetValue } from '../../lib/settingsResetPreview';
 
 interface LocalEntry extends SettingsResetItem {
   apply: () => void | Promise<void>;
@@ -108,51 +109,6 @@ function localEntries(target: SettingsResetTarget): LocalEntry[] {
 }
 const differs = (item: SettingsResetItem) =>
   JSON.stringify(item.current) !== JSON.stringify(item.defaultValue);
-function display(value: unknown): string {
-  if (value === true) return '开启';
-  if (value === false) return '关闭';
-  if (value === '' || value === null || value === undefined) return '默认／未设置';
-  if (Array.isArray(value)) return value.length ? value.map(display).join('、') : '空列表';
-  if (typeof value === 'object') {
-    const data = value as Record<string, unknown>;
-    if ('windowSeconds' in data && 'maxPages' in data)
-      return `${data.windowSeconds} 秒内最多 ${data.maxPages} 页`;
-    if ('debounceMs' in data) return `防抖 ${data.debounceMs} 毫秒，阈值 ${data.massThreshold}`;
-    if ('showTags' in data)
-      return `标签${display(data.showTags)}，问候语${display(data.showGreeting)}，一言${display(data.showHitokoto)}；屏蔽词：${display(data.blockedWords)}`;
-    if (data.useDefault) return '使用默认模型';
-    if (typeof data.model === 'string') return `${data.providerId} · ${data.model}`;
-    return typeof data.name === 'string' ? data.name : JSON.stringify(value);
-  }
-  const labels: Record<string, string> = {
-    off: '关闭',
-    all: '永久全选',
-    selected: '按会话选择',
-    api: 'API 模型',
-    local: '本地模型',
-    heuristic: '本地统计',
-    auto: '自动',
-    manual: '手动',
-    mixed: '双方混合',
-    self: '仅本端',
-    peer: '仅对方',
-    home: '主页',
-    messages: '消息',
-    last: '上次页面',
-    space: '空间',
-    profile: '名片',
-    totp: '验证器',
-    system: '系统默认',
-    tray: '最小化到托盘',
-    quit: '退出',
-    ask: '每次询问',
-    comfortable: '舒适',
-    compact: '紧凑',
-    plain: '纯净',
-    qqnt: 'QQ NT',
-  };
-  return typeof value === 'string' ? (labels[value] ?? value) : String(value);
-}
 export function SettingsResetButton({ card }: { card?: SettingsResetCardId }) {
   const context = useContext(SettingsResetContext);
   if (!context) return null;
@@ -375,11 +331,14 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                         {item.label}
                         <small>{item.scope}</small>
                       </strong>
-                      <span>
-                        {differs(item)
-                          ? `${display(item.current)} → ${display(item.defaultValue)}`
-                          : `已是默认：${display(item.defaultValue)}`}
-                      </span>
+                      <dl className="weq-settings-reset-preview">
+                        {describeSettingsReset(item).map((line) => (
+                          <div key={line.label}>
+                            <dt>{line.label}</dt>
+                            <dd>{line.text}</dd>
+                          </div>
+                        ))}
+                      </dl>
                     </div>
                   ))}
                 {dialog.items
@@ -388,7 +347,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                     <label key={item.id} className="weq-defaults-row">
                       <span>
                         {item.label}
-                        <small>{display(item.current)}</small>
+                        <small>{formatResetValue(item.current, item.id)}</small>
                       </span>
                       <select
                         aria-label={item.label}

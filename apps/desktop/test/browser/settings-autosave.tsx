@@ -25,8 +25,8 @@ function App() {
   const [page, setPage] = useState('qzone');
   return (
     <main style={{ maxWidth: 850, margin: '0 auto', padding: 16 }}>
-      <nav style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-        {['qzone', 'call-recording', 'appearance'].map((id) => (
+      <nav style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+        {['qzone', 'call-recording', 'appearance', 'contact-card'].map((id) => (
           <button type="button" className="weq-set-btn" key={id} onClick={() => setPage(id)}>
             {id}
           </button>
@@ -50,6 +50,8 @@ function App() {
                 <Card title="只读信息">当前状态正常</Card>
                 <SectionHeader title="嵌入分区" pageReset={false} />
               </div>
+            ) : page === 'contact-card' ? (
+              <SectionHeader title="联系人名片" />
             ) : page === 'call-recording' ? (
               <CallRecordingSection />
             ) : (

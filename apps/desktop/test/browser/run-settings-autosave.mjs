@@ -89,10 +89,10 @@ try {
   });
   await page.getByRole('button', { name: '重试保存' }).click();
   await page.waitForFunction(() => window.autosaveQa.settings.qzonePagination.windowSeconds === 17);
-  await page.getByRole('button', { name: '恢复在线翻页限速默认设置' }).click();
+  await page.getByRole('button', { name: '恢复本页默认设置' }).click();
   await page.getByRole('button', { name: '取消', exact: true }).click();
   assert.equal(await input.inputValue(), '17');
-  await page.getByRole('button', { name: '恢复在线翻页限速默认设置' }).click();
+  await page.getByRole('button', { name: '恢复本页默认设置' }).click();
   await page.getByRole('button', { name: '确认恢复默认' }).click();
   await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
   assert.equal(await input.inputValue(), '10');
@@ -176,7 +176,10 @@ try {
       cases++;
     }
   await page.getByRole('button', { name: 'call-recording', exact: true }).click();
-  await page.getByRole('button', { name: '恢复保存位置默认设置' }).click();
+  await page.getByRole('heading', { name: '通话录音', exact: true }).waitFor();
+  await page.getByRole('button', { name: '恢复本页默认设置' }).click();
+  await page.screenshot({ path: resolve(output, 'directory-preview.png'), fullPage: true });
+  assert.deepEqual(await page.locator('.weq-settings-reset-detail pre').allTextContents(), []);
   assert.equal(await page.getByRole('combobox', { name: '通话录音目录' }).inputValue(), 'keep');
   assert.equal(await page.getByRole('button', { name: '确认恢复默认' }).isDisabled(), true);
   await page.getByRole('combobox', { name: '通话录音目录' }).selectOption('reset');
@@ -184,6 +187,39 @@ try {
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('button', { name: 'appearance', exact: true }).click();
   assert.equal(await page.getByRole('button', { name: '恢复本页默认设置' }).count(), 1);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'contact-card', exact: true }).click();
+  for (const width of [1280, 390, 320])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((theme) => {
+        window.themeQa.getState().setPreference(theme);
+        window.themeQa.getState().setAccent(theme === 'light' ? '#086b40' : '#f6d54a');
+      }, theme);
+      await page.getByRole('button', { name: '恢复本页默认设置' }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.getByText('将隐藏', { exact: true }).waitFor();
+      const text = await dialog.innerText();
+      assert.match(text, /签名更新时间、星座、生肖、血型/);
+      assert.doesNotMatch(text, /signatureUpdated|"visible"|true|false/);
+      assert.equal(
+        await page.evaluate(() => {
+          const dialog = document.querySelector('[role="dialog"]');
+          const rect = dialog.getBoundingClientRect();
+          return (
+            rect.left >= 0 && rect.right <= innerWidth && dialog.scrollWidth <= dialog.clientWidth
+          );
+        }),
+        true,
+        `${width}/${theme}: 名片恢复预览无横向溢出`,
+      );
+      await page.screenshot({
+        path: resolve(output, `contact-card-${theme}-${width}.png`),
+        fullPage: true,
+      });
+      await page.getByRole('button', { name: '取消', exact: true }).click();
+      cases++;
+    }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors, output }, null, 2));
 } finally {

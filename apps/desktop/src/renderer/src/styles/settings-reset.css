@@ -44,10 +44,23 @@
   font-weight: 400;
   color: var(--weq-fg-secondary);
 }
-.weq-settings-reset-item > span {
-  display: block;
+.weq-settings-reset-preview {
+  margin: 6px 0 0;
   font-size: 12px;
+  line-height: 1.6;
+}
+.weq-settings-reset-preview > div {
+  display: grid;
+  grid-template-columns: minmax(0, 76px) minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+.weq-settings-reset-preview dt {
   color: var(--weq-fg-secondary);
+}
+.weq-settings-reset-preview dd {
+  margin: 0;
+  color: var(--weq-fg-primary);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

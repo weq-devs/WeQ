@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { SettingsResetTarget, SettingsResetItem } from '../../src/shared/settings_reset';
+import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
+import { preferenceDefaults } from '@weq/service/client-preferences';
 const listeners = new Set<() => void>();
 const DEFAULT_QZONE_PAGINATION = { windowSeconds: 10, maxPages: 5 };
 let version = 0;
@@ -10,8 +12,15 @@ const notify = () => {
   });
 };
 export const state = {
+  preferences: structuredClone(preferenceDefaults),
   settings: {
     qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
+    contactCard: {
+      ...structuredClone(DEFAULT_CONTACT_CARD),
+      visible: Object.fromEntries(
+        Object.keys(DEFAULT_CONTACT_CARD.visible).map((key) => [key, true]),
+      ),
+    },
     callRecording: {
       mode: 'mixed',
       systemAudio: false,
@@ -24,6 +33,16 @@ export const state = {
   fail: false,
 };
 function items(target: SettingsResetTarget): SettingsResetItem[] {
+  if (target.page === 'contact-card')
+    return [
+      {
+        id: 'contact-card:contactCard',
+        label: '名片显示与顺序',
+        scope: '全局',
+        current: state.settings.contactCard,
+        defaultValue: DEFAULT_CONTACT_CARD,
+      },
+    ];
   if (target.page === 'qzone')
     return [
       {
@@ -51,6 +70,11 @@ async function mutate(path: string, input: unknown) {
   state.calls.push({ path, input });
   if (state.delay) await new Promise((resolve) => setTimeout(resolve, state.delay));
   if (state.fail) throw new Error('合成写入失败');
+  if (path === 'clientState.patch') {
+    Object.assign(state.preferences, input);
+    notify();
+    return { revision: version, values: state.preferences, records: {} };
+  }
   if (path === 'bootstrap.setQzonePagination')
     state.settings.qzonePagination = input as typeof state.settings.qzonePagination;
   if (path === 'bootstrap.setCallRecording') Object.assign(state.settings.callRecording, input);
