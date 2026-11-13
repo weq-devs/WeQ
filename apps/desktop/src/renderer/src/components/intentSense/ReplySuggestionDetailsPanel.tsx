@@ -3,7 +3,9 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { ChevronDown, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { Modal } from '../Dialog';
-import { TaskLogConsole, type TaskLogLine } from '../TaskLogConsole';
+import type { TaskLogLine } from '../TaskLogConsole';
+import { ModelRequestLog } from '../ModelRequestLog';
+import { suggestionLogBlocks } from '../../lib/modelRequestLog';
 import '../../styles/reply-suggestion-details.css';
 
 const timestamp = preciseTimeFormatter;
@@ -62,6 +64,7 @@ export function ReplySuggestionDetailsPanel({
     if (value.trace.error) add('请求错误 / 回退原因', value.trace.error, 'error');
     return result;
   }, [value]);
+  const blocks = useMemo(() => suggestionLogBlocks(lines), [lines]);
   return (
     <Modal
       presentation="popover"
@@ -219,7 +222,7 @@ export function ReplySuggestionDetailsPanel({
               </button>
               {logOpen ? (
                 lines.length ? (
-                  <TaskLogConsole lines={lines} collapsed={false} scrollable autoFollow={running} />
+                  <ModelRequestLog blocks={blocks} running={running} />
                 ) : (
                   <p>未记录</p>
                 )

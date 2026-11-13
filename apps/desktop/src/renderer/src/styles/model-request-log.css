@@ -1,0 +1,104 @@
+@import './log-console-palette.css';
+
+.weq-model-log {
+  max-height: min(360px, 45dvh);
+  min-width: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--weq-log-muted) var(--weq-log-bg);
+  border: 1px solid var(--weq-log-border);
+  border-radius: 6px;
+  background: var(--weq-log-bg);
+  color: var(--weq-log-fg);
+  font:
+    12px / 1.65 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0;
+  tab-size: 2;
+}
+.weq-model-log-block {
+  padding: 8px 10px;
+}
+.weq-model-log-block + .weq-model-log-block {
+  border-top: 1px solid var(--weq-log-border);
+}
+.weq-model-log-block header,
+.weq-model-log-block summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  color: var(--weq-log-fg);
+  font-weight: 600;
+}
+.weq-model-log-block summary {
+  display: list-item;
+  cursor: pointer;
+}
+.weq-model-log-block time {
+  margin-right: 8px;
+  color: var(--weq-log-muted);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.weq-model-log pre {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  min-height: 0;
+  max-height: none;
+  width: auto;
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.weq-model-log code {
+  font: inherit;
+}
+.weq-model-log-token {
+  color: var(--shiki-dark, inherit);
+}
+.weq-model-log-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.weq-model-log-tools button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--weq-log-fg);
+  background: transparent;
+  cursor: pointer;
+}
+.weq-model-log-tools button:hover,
+.weq-model-log-tools button[aria-pressed='true'] {
+  background: var(--weq-log-border);
+}
+.weq-model-log:focus-visible,
+.weq-model-log :is(button, summary):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+.weq-model-log-block.is-error {
+  color: var(--weq-log-error);
+}
+.weq-model-log-block.is-warn {
+  color: var(--weq-log-warn);
+}
+.weq-model-log-empty {
+  padding: 10px;
+  color: var(--weq-log-muted);
+}

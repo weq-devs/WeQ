@@ -1,4 +1,7 @@
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ModelRequestLog } from '../../src/renderer/src/components/ModelRequestLog';
+import { suggestionLogBlocks } from '../../src/renderer/src/lib/modelRequestLog';
 import { CloneTaskLog } from '../../src/renderer/src/views/agentlab/CloneTaskLog';
 import { TaskLogConsole, type TaskLogLine } from '../../src/renderer/src/components/TaskLogConsole';
 import { TaskLogDisclosure } from '../../src/renderer/src/components/TaskLogDisclosure';
@@ -56,6 +59,92 @@ const lines: TaskLogLine[] = Array.from({ length: 20 }, (_, seq) => ({
   level: seq % 3 === 0 ? 'error' : seq % 3 === 1 ? 'warn' : 'info',
   text: `合成任务记录 ${seq}：${'日志内容'.repeat(12)}`,
 }));
+
+const modelText = JSON.stringify({
+  summary: '确认时间与安排',
+  replies: [
+    { text: '有空，明天下午见。', tone: '自然' },
+    { text: '合成很长的推荐内容'.repeat(35), tone: '轻松' },
+  ],
+});
+function SuggestionLogFixture() {
+  const [running, setRunning] = useState(false);
+  const [text, setText] = useState(modelText);
+  const logs: TaskLogLine[] = [
+    {
+      seq: 1,
+      ts: 1000,
+      stage: 'System Prompt',
+      text: 'System Prompt\n合成系统提示词',
+      level: 'info',
+    },
+    {
+      seq: 2,
+      ts: 1001,
+      stage: 'User Prompt',
+      text: 'User Prompt\n' + JSON.stringify({ messages: [{ text: '明天有空吗？' }] }),
+      level: 'info',
+    },
+    { seq: 3, ts: 1002, stage: '推理输出', text: '合成推理片段', level: 'info' },
+    { seq: 4, ts: 1003, stage: '模型正文', text, level: 'info' },
+    ...(!running
+      ? [
+          {
+            seq: 5,
+            ts: 1004,
+            stage: '响应汇总',
+            text: JSON.stringify({ choices: [{ message: { content: text } }] }),
+            level: 'info' as const,
+          },
+        ]
+      : []),
+  ];
+  return (
+    <section data-suggestion-log>
+      <h3>推荐回复日志</h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <button
+          type="button"
+          className="weq-set-btn"
+          onClick={() => {
+            setRunning(true);
+            setText('{"summary":');
+          }}
+        >
+          模拟开始
+        </button>
+        <button
+          type="button"
+          className="weq-set-btn"
+          onClick={() => setText((previous) => previous + '"正在接收"')}
+        >
+          模拟片段
+        </button>
+        <button
+          type="button"
+          className="weq-set-btn"
+          onClick={() => {
+            setRunning(true);
+            setText('合成流式长输出\n'.repeat(160));
+          }}
+        >
+          模拟长输出
+        </button>
+        <button
+          type="button"
+          className="weq-set-btn"
+          onClick={() => {
+            setText(modelText);
+            setRunning(false);
+          }}
+        >
+          模拟完成
+        </button>
+      </div>
+      <ModelRequestLog blocks={suggestionLogBlocks(logs)} running={running} />
+    </section>
+  );
+}
 createRoot(document.getElementById('root')!).render(
   <main
     style={{
@@ -68,6 +157,7 @@ createRoot(document.getElementById('root')!).render(
     }}
   >
     <CloneTaskLog task={task} />
+    <SuggestionLogFixture />
     <h3>导出日志</h3>
     <TaskLogConsole lines={lines} collapsed={false} appearance="export" />
     <h3>请求日志</h3>

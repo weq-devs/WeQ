@@ -395,6 +395,124 @@ describe('IntentSenseService', () => {
     );
   });
 
+  it.each(['complete', 'interrupt', 'stop', 'config'] as const)(
+    '推荐回复流式日志在 %s 时保留正文和推理，候选仅在完整成功后提交',
+    async (action) => {
+      let stream!: ReadableStreamDefaultController<Uint8Array>;
+      const cancel = vi.fn();
+      const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          stream: true,
+          stream_options: { include_usage: true },
+        });
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller;
+            },
+            cancel,
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        );
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const onUsage = vi.fn();
+      const session = makeSession([textMsg(1n, 'u_peer', '合成问题', 1000)]);
+      const svc = new IntentSenseService(session, dir, {
+        resolveEndpoint: () => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'secret',
+          model: 'requested',
+          onUsage,
+        }),
+      });
+      await svc.setConfig({
+        suggestionsEnabled: true,
+        suggestionFallbackEnabled: false,
+        suggestionProviderRef: { providerId: 'p', model: 'requested' },
+      });
+      const pending = svc.getSuggestionRound('c2c', 'u_peer');
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      const id = svc.getSuggestionDetails('c2c', 'u_peer')!.progress!.id;
+      const send = (value: unknown) =>
+        stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\r\n\r\n`));
+      send({ model: 'actual', choices: [{ delta: { reasoning_content: '分析'.repeat(20_000) } }] });
+      send({ choices: [{ delta: { content: '{"summary":"确认时间",' } }] });
+      await vi.waitFor(() =>
+        expect(svc.getSuggestionDetails('c2c', 'u_peer', id)?.progress?.stage).toBe('接收模型输出'),
+      );
+      await vi.waitFor(() =>
+        expect(
+          svc
+            .getSuggestionDetails('c2c', 'u_peer', id)
+            ?.trace?.logs?.find((line) => line.stage === '模型正文'),
+        ).toBeDefined(),
+      );
+      const live = svc.getSuggestionDetails('c2c', 'u_peer', id)!;
+      expect(live.entry?.suggestions).toEqual([]);
+      expect(svc.getSuggestionHistory('c2c', 'u_peer')).toEqual([]);
+      const reasoning = live.trace!.logs!.find((line) => line.stage === '推理输出')!;
+      expect(reasoning.text).toContain('仅保留最近输出');
+      expect(reasoning.text.length).toBeLessThan(32_100);
+      const parts = ['"replies":', '[{"text":"有空"}]}'];
+      for (const content of parts) send({ choices: [{ delta: { content } }] });
+      await vi.waitFor(() =>
+        expect(
+          svc
+            .getSuggestionDetails('c2c', 'u_peer', id)
+            ?.trace?.logs?.find((line) => line.stage === '模型正文')?.text,
+        ).toContain('有空'),
+      );
+      expect(live.trace!.logs!.filter((line) => line.stage === '模型正文')).toHaveLength(1);
+      if (action === 'stop') svc.stopSuggestions('c2c', 'u_peer');
+      else if (action === 'config') {
+        const before = live.trace!.logs!.find((line) => line.stage === '模型正文')!.text;
+        await svc.setConfig({ suggestionContextMessages: 1 });
+        send({ choices: [{ delta: { content: '不应写入旧日志' } }] });
+        stream.enqueue(new TextEncoder().encode('data: [DONE]\r\n\r\n'));
+        expect(live.trace!.logs!.find((line) => line.stage === '模型正文')!.text).toBe(before);
+      } else if (action === 'interrupt') stream.close();
+      else {
+        send({ choices: [{ delta: {}, finish_reason: 'stop' }] });
+        send({ choices: [], usage: { prompt_tokens: 40 } });
+        send({ choices: [], usage: { completion_tokens: 20, total_tokens: 60 } });
+        stream.enqueue(new TextEncoder().encode('data: [DONE]\r\n\r\n'));
+      }
+      const round = await pending;
+      const final = svc.getSuggestionDetails('c2c', 'u_peer', id)!;
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(JSON.stringify(final)).not.toContain('secret');
+      if (action === 'complete') {
+        expect(round?.suggestions).toEqual([{ text: '有空', tone: undefined }]);
+        expect(round?.generation).toMatchObject({
+          model: 'actual',
+          usage: { promptTokens: 40, completionTokens: 20, totalTokens: 60 },
+        });
+        expect(final.progress?.status).toBe('completed');
+        expect(
+          new IntentSenseService(session, dir).getSuggestionDetails('c2c', 'u_peer', id)?.trace
+            ?.logs,
+        ).toEqual(final.trace?.logs);
+      } else {
+        expect(round).toBeNull();
+        expect(final.progress?.status).toBe(action === 'interrupt' ? 'failed' : 'stopped');
+        expect(svc.getSuggestionHistory('c2c', 'u_peer')).toEqual([]);
+        if (action === 'interrupt') expect(final.trace?.error).toContain('中断');
+      }
+      if (action !== 'interrupt') expect(cancel).toHaveBeenCalled();
+      expect(onUsage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status:
+            action === 'complete' || action === 'config'
+              ? 'success'
+              : action === 'interrupt'
+                ? 'failed'
+                : 'cancelled',
+        }),
+      );
+    },
+  );
+
   it('本地候选不冒充模型概括，旧历史缺少详情仍可读取', async () => {
     const session = makeSession([textMsg(1n, 'u_peer', '你好', 1000)]);
     const svc = new IntentSenseService(session, dir);
@@ -1759,12 +1877,9 @@ describe('IntentSenseService', () => {
     const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
       requests.push(JSON.parse(body.messages[1]!.content));
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: '{"replies":[{"text":"合成建议"}]}' } }],
-        }),
-      };
+      return Response.json({
+        choices: [{ message: { content: '{"replies":[{"text":"合成建议"}]}' } }],
+      });
     });
     vi.stubGlobal('fetch', fetchMock);
     const svc = new IntentSenseService(makeSession(msgs), dir, {
@@ -1830,12 +1945,11 @@ describe('IntentSenseService', () => {
           getMembersByUins: vi.fn(async () => []),
         },
       });
-      const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => ({
-        ok: true,
-        json: async () => ({
+      const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+        Response.json({
           choices: [{ message: { content: '{"replies":[{"text":"合成推荐"}]}' } }],
         }),
-      }));
+      );
       vi.stubGlobal('fetch', fetchMock);
       const svc = new IntentSenseService(session, dir, {
         resolveEndpoint: (ref) => ({
@@ -1896,9 +2010,8 @@ describe('IntentSenseService', () => {
   it('手动换一批绕过候选缓存和自己发送后自动推荐开关，但不覆盖功能及会话开关', async () => {
     const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
     let batch = 0;
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
+    const fetchMock = vi.fn(async () =>
+      Response.json({
         choices: [
           {
             message: {
@@ -1909,7 +2022,7 @@ describe('IntentSenseService', () => {
           },
         ],
       }),
-    }));
+    );
     vi.stubGlobal('fetch', fetchMock);
     const svc = new IntentSenseService(makeSession(msgs), dir, {
       resolveEndpoint: (ref) => ({
@@ -1947,12 +2060,9 @@ describe('IntentSenseService', () => {
     '手动换一批在 %s 改变后仅配置失效或关闭会话才丢弃结果',
     async (change) => {
       const msgs = [textMsg(1n, 'u_self', '合成自己消息', 1000)];
-      const response = {
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
-        }),
-      };
+      const response = Response.json({
+        choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
+      });
       let finish!: (value: typeof response) => void;
       const fetchMock = vi.fn(
         () =>
@@ -2012,12 +2122,11 @@ describe('IntentSenseService', () => {
 
   it('自己发送后不返回上一轮推荐、不发新推荐请求；下次对方发言才重新生成', async () => {
     const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
+    const fetchMock = vi.fn(async () =>
+      Response.json({
         choices: [{ message: { content: '{"replies":[{"text":"合成推荐"}]}' } }],
       }),
-    }));
+    );
     vi.stubGlobal('fetch', fetchMock);
     const svc = new IntentSenseService(makeSession(msgs), dir, {
       resolveEndpoint: (ref) => ({
@@ -2046,12 +2155,9 @@ describe('IntentSenseService', () => {
     '推荐请求期间收到 %s 新消息不丢弃在途结果，历史保留本轮实际输入',
     async (sender) => {
       const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
-      const response = {
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
-        }),
-      };
+      const response = Response.json({
+        choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
+      });
       let finish!: (value: typeof response) => void;
       const fetchMock = vi.fn(
         () =>
@@ -2392,12 +2498,10 @@ describe('IntentSenseService', () => {
     });
     expect(await oldAnalysis).toBeNull();
     expect(svc.listMessageAnalyses('c2c', 'u_peer')).toEqual([]);
-    const response = (text: string) => ({
-      ok: true,
-      json: async () => ({
+    const response = (text: string) =>
+      Response.json({
         choices: [{ message: { content: JSON.stringify({ replies: [{ text }] }) } }],
-      }),
-    });
+      });
     let finishReply!: (value: ReturnType<typeof response>) => void;
     const fetchMock = vi
       .fn()
@@ -2407,7 +2511,7 @@ describe('IntentSenseService', () => {
             finishReply = resolve;
           }),
       )
-      .mockResolvedValue(response('新建议'));
+      .mockImplementation(async () => response('新建议'));
     vi.stubGlobal('fetch', fetchMock);
     await svc.setConfig({
       engine: 'api',
@@ -2977,12 +3081,9 @@ describe('IntentSenseService', () => {
     const msgs = [textMsg(1n, 'u_peer', '明天下午一起去打羽毛球吗？', 1000)];
     const fetchMock = vi.fn(async () => {
       await new Promise((r) => setTimeout(r, 20));
-      return {
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: '{"replies":[{"text":"好啊，几点去？"}]}' } }],
-        }),
-      };
+      return Response.json({
+        choices: [{ message: { content: '{"replies":[{"text":"好啊，几点去？"}]}' } }],
+      });
     });
     vi.stubGlobal('fetch', fetchMock);
 

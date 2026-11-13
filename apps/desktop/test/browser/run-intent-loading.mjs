@@ -79,7 +79,9 @@ try {
       });
     });
   const detailsBeside = (label) =>
-    page.getByLabel(label, { exact: true }).evaluate((anchor) => {
+    page.getByLabel(label, { exact: true }).evaluate(async (anchor) => {
+      // 窄屏重排后等待 ResizeObserver 的锚点定位完成，不读取中间帧。
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const card = document.querySelector('.weq-int-round-details');
       const rect = card.getBoundingClientRect();
       const trigger = anchor.getBoundingClientRect();
@@ -118,19 +120,25 @@ try {
       }, theme);
       await page.getByLabel('查看当前推荐详情', { exact: true }).click();
       const panel = page.locator('.weq-int-round-details');
-      await panel.getByText('等待模型返回', { exact: true }).waitFor();
+      await panel
+        .getByRole('status')
+        .filter({ hasText: /^等待模型返回$/ })
+        .waitFor();
       assert.ok((await panel.getByRole('log').textContent()).includes('已发送推荐请求'));
       assert.equal(
         await detailsBeside('查看当前推荐详情'),
         true,
-        `${width}/${theme}: 生成中详情不越界`,
+        `${width}/${theme}: 生成中详情不越界 ${JSON.stringify(await panel.evaluate((node) => ({ rect: node.getBoundingClientRect().toJSON(), viewport: [innerWidth, innerHeight] })))}`,
       );
       if (output && width !== 320)
         await page.screenshot({
           path: resolve(output, `recommendation-live-${width}-${theme}.png`),
         });
       await page.evaluate(() => window.intentQa.setMode('ready'));
-      await panel.getByText('生成完成', { exact: true }).waitFor();
+      await panel
+        .getByRole('status')
+        .filter({ hasText: /^生成完成$/ })
+        .waitFor();
       assert.ok((await panel.getByRole('log').textContent()).includes('本轮生成完成'));
       assert.ok(
         (await panel.locator('.weq-int-round-summary').textContent()).includes('双方正在聊日常'),
@@ -183,10 +191,10 @@ try {
   );
   await page.getByRole('button', { name: '请求日志', exact: true }).click();
   assert.ok(
-    (await page.locator('.weq-int-round-log .weq-exp-log').textContent()).includes('User Prompt'),
+    (await page.locator('.weq-int-round-log .weq-model-log').textContent()).includes('User Prompt'),
   );
   assert.equal(
-    await page.locator('.weq-int-round-log .weq-exp-log').evaluate((node) => node.scrollTop),
+    await page.locator('.weq-int-round-log .weq-model-log').evaluate((node) => node.scrollTop),
     0,
   );
   if (output) await page.screenshot({ path: resolve(output, 'recommendation-details.png') });

@@ -29,6 +29,7 @@ import { mergeRoamingTimeline, timelineRowKey, type TimelineRow } from '../commo
 import {
   pickMessageText,
   requestApiJson,
+  requestChatCompletionStream,
   parseApiUsage,
   normalizeModelSelection,
   modelSelectionKey,
@@ -2028,35 +2029,61 @@ export class IntentSenseService {
       log('User Prompt', `User Prompt\n${prompt.user}`);
       log('等待模型返回', `已发送推荐请求，等待模型 ${model} 返回。`);
       const requestStarted = performance.now();
+      const outputLogs = new Map<string, NonNullable<ReplySuggestionTrace['logs']>[number]>();
       try {
-        const body = await requestApiJson<{
-          model?: string;
-          choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-        }>({ ...endpoint, baseUrl, feature: 'reply-suggestion' }, '/chat/completions', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${endpoint.apiKey}`,
+        const body = await requestChatCompletionStream(
+          {
+            ...endpoint,
+            baseUrl,
+            feature: 'reply-suggestion',
+            onOutput: (output) => {
+              if (!currentRevision() || !output.channel || !output.text) return;
+              const stage = output.channel === 'content' ? '模型正文' : '推理输出';
+              let line = outputLogs.get(stage);
+              if (!line) {
+                log(stage, '');
+                line = trace.logs!.at(-1)!;
+                outputLogs.set(stage, line);
+              }
+              // 更新同一日志块，只保留尾部；不为每个 token 新建日志或落盘。
+              const text = line.text + output.text;
+              line.text =
+                text.length > 32_000 ? `（仅保留最近输出）\n${text.slice(-32_000)}` : text;
+              details.progress = {
+                ...details.progress!,
+                stage: '接收模型输出',
+                updatedAt: Date.now(),
+              };
+            },
           },
-          body: JSON.stringify({
-            model: endpoint.model,
-            temperature: this.config.suggestionTemperature,
-            messages: [
-              { role: 'system', content: prompt.system },
-              { role: 'user', content: prompt.user },
-            ],
-          }),
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
-          ]),
-        });
+          {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${endpoint.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: endpoint.model,
+              temperature: this.config.suggestionTemperature,
+              stream: true,
+              stream_options: { include_usage: true },
+              messages: [
+                { role: 'system', content: prompt.system },
+                { role: 'user', content: prompt.user },
+              ],
+            }),
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
+            ]),
+          },
+        );
         if (!current()) return [];
         requestDurationMs = Math.round(performance.now() - requestStarted);
         if (details.entry?.generation)
           details.entry.generation.requestDurationMs = requestDurationMs;
         trace.response = JSON.stringify(body);
-        log('原始返回', `原始返回\n${trace.response}`);
+        log('响应汇总', trace.response);
         if (typeof body.model === 'string' && body.model.trim()) model = body.model;
         usage = parseApiUsage(body);
         this.lastSuggestionApiError = null;

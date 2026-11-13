@@ -139,6 +139,7 @@ export {
   DEFAULT_API_TIMEOUT_MS,
 } from './api_usage';
 export { isUnsupportedTemperature } from './temperature_fallback';
+export { requestChatCompletionStream } from './extract_stream';
 export { CLONE_GENERATION, CLONE_GENERATION_KEYS, normalizeCloneGeneration } from './generation';
 export type { AgentLabGenerationConfig, CloneGenerationKey } from './generation';
 export * from './images';

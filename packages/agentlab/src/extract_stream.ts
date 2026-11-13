@@ -10,6 +10,8 @@ import {
 import { isUnsupportedTemperature, withoutTemperature } from './temperature_fallback';
 
 interface CompletionChunk {
+  model?: string;
+  usage?: Record<string, unknown>;
   choices?: Array<{
     index?: number;
     delta?: { content?: string; reasoning_content?: string };
@@ -18,8 +20,17 @@ interface CompletionChunk {
   }>;
 }
 
-/** 提炼与 JSON 请求共用期限、记账和温度回退；不重发已开始输出的请求。 */
-export function extractStream(endpoint: AgentLabEndpoint, init: RequestInit): Promise<string> {
+export interface StreamCompletionResponse {
+  model?: string;
+  choices: Array<{ message: { content: string; reasoning_content?: string } }>;
+  usage?: Record<string, unknown>;
+}
+
+/** 共用期限、记账和温度回退；不重发已开始输出的请求，完成后返回响应汇总。 */
+export function requestChatCompletionStream(
+  endpoint: AgentLabEndpoint,
+  init: RequestInit,
+): Promise<StreamCompletionResponse> {
   return withApiDeadline(endpoint, init, async (request) => {
     const requestId = randomUUID();
     const emit = (event: Omit<AgentLabModelOutput, 'requestId' | 'feature' | 'model'>) => {
@@ -38,6 +49,8 @@ export function extractStream(endpoint: AgentLabEndpoint, init: RequestInit): Pr
     let content = '';
     let reasoning = '';
     let outputSize = 0;
+    let model: string | undefined;
+    let tokenUsage: Record<string, unknown> | undefined;
     const append = (channel: 'content' | 'reasoning', text: unknown) => {
       if (typeof text !== 'string' || !text) return;
       outputSize += text.length;
@@ -46,7 +59,10 @@ export function extractStream(endpoint: AgentLabEndpoint, init: RequestInit): Pr
       else reasoning += text;
       emit({ status: 'running', channel, text });
     };
-    const attempt = async (input: typeof request, retried = false): Promise<string> => {
+    const attempt = async (
+      input: typeof request,
+      retried = false,
+    ): Promise<StreamCompletionResponse> => {
       const { response, usage, temperatureOmitted } = await fetchApi(
         endpoint,
         '/chat/completions',
@@ -65,6 +81,9 @@ export function extractStream(endpoint: AgentLabEndpoint, init: RequestInit): Pr
         }
         const chunk = JSON.parse(raw) as CompletionChunk;
         usage.report(chunk);
+        if (typeof chunk.model === 'string' && chunk.model.trim()) model = chunk.model;
+        if (chunk.usage && typeof chunk.usage === 'object' && !Array.isArray(chunk.usage))
+          tokenUsage = { ...tokenUsage, ...chunk.usage };
         temperatureRejected = isUnsupportedTemperature(chunk, 200);
         const error = apiErrorMessage(chunk);
         if (error || temperatureRejected)
@@ -135,7 +154,13 @@ export function extractStream(endpoint: AgentLabEndpoint, init: RequestInit): Pr
           } else if (!stream) consume(buffer, true);
           if (!complete) throw new Error('模型流式响应中断，未收到完成标记');
           usage.finish('success');
-          return content.trim() ? content : reasoning;
+          return {
+            model,
+            choices: [
+              { message: { content, ...(reasoning ? { reasoning_content: reasoning } : {}) } },
+            ],
+            usage: tokenUsage,
+          };
         } finally {
           input.signal.removeEventListener('abort', cancel);
         }
@@ -173,4 +198,13 @@ export function extractStream(endpoint: AgentLabEndpoint, init: RequestInit): Pr
       throw error;
     }
   });
+}
+
+export async function extractStream(
+  endpoint: AgentLabEndpoint,
+  init: RequestInit,
+): Promise<string> {
+  const result = await requestChatCompletionStream(endpoint, init);
+  const message = result.choices[0]!.message;
+  return message.content.trim() ? message.content : (message.reasoning_content ?? '');
 }

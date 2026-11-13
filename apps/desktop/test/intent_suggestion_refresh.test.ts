@@ -226,8 +226,8 @@ it('相同候选仍按轮次 ID 区分，正式详情和历史日期打开对应
     expect(panel.textContent).toContain('第一轮概括');
     expect(panel.textContent).toContain('model-first');
     act(() => panel.querySelector<HTMLButtonElement>('.weq-int-round-log-toggle')!.click());
-    expect(panel.querySelector('.weq-exp-log')?.textContent).toContain('实际系统提示词');
-    expect(panel.querySelector('.weq-exp-log')?.textContent).toContain('实际输入消息');
+    expect(panel.querySelector('.weq-model-log')?.textContent).toContain('实际系统提示词');
+    expect(panel.querySelector('.weq-model-log')?.textContent).toContain('实际输入消息');
     act(() => panel.querySelector<HTMLButtonElement>('[aria-label="关闭推荐详情"]')!.click());
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="查看本轮推荐详情"]')!.click());
     expect(fixture.detailQuery.mock.calls.at(-1)?.[0].id).toBe('second');
