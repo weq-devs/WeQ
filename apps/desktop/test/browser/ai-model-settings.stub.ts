@@ -24,9 +24,16 @@ const data: Record<string, unknown> = {
     {
       id: 'fixture',
       name: '合成服务商',
+      vendor: 'custom',
+      baseUrl: 'https://api.example.invalid/v1',
+      apiKey: 'synthetic-key',
       models: [{ id: 'gpt-fixture-long-model-name', capabilities: ['chat'] }],
     },
   ],
+  'bootstrap.getAgentLabCatalog': [
+    { vendor: 'custom', label: 'OpenAI 兼容（自定义）', baseUrl: '', models: [] },
+  ],
+  'bootstrap.getDefaultVisionModel': { ref: null, available: false },
   'bootstrap.localModelResources': { selected: { intent: 'auto' } },
   'bootstrap.getLocalEngine': { available: false, models: [] },
 };

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { IntentSenseSection } from '../../src/renderer/src/components/settings/IntentSenseSection';
 import { InteractionProfileSection } from '../../src/renderer/src/components/settings/InteractionProfileSection';
 import { ReplySuggestionsSection } from '../../src/renderer/src/components/settings/ReplySuggestionsSection';
+import { AgentLabSection } from '../../src/renderer/src/components/settings/AgentLabSection';
 import { PageSnapshots } from '../../src/renderer/src/components/PageSnapshots';
 import { RetainedTabs } from '../../src/renderer/src/components/RetainedTabs';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
@@ -15,6 +16,7 @@ const pages = {
   意图感知: IntentSenseSection,
   互动画像: InteractionProfileSection,
   推荐回复: ReplySuggestionsSection,
+  'API 配置': AgentLabSection,
 };
 function Fixture() {
   const [page, setPage] = useState<keyof typeof pages>('意图感知');

@@ -23,6 +23,7 @@ html[data-theme] .weq-modal.weq-provider-window {
 }
 
 html[data-theme] .weq-provider-window > .weq-provider-modal {
+  container: provider-form / inline-size;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
@@ -104,16 +105,37 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
 
 .weq-provider-model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content 112px 30px;
+  grid-template-columns: minmax(0, 1fr) 80px 30px;
+  grid-template-areas:
+    'model model remove'
+    'capabilities detect detect'
+    'reasoning reasoning reasoning'
+    'results results results';
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   padding: 8px 10px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
 }
 
+.weq-provider-model-id {
+  grid-area: model;
+}
+
+.weq-provider-model-remove {
+  grid-area: remove;
+  justify-self: end;
+  width: 30px;
+  height: 30px;
+}
+
+.weq-provider-model-reasoning {
+  grid-area: reasoning;
+}
+
 .weq-provider-model-capabilities {
+  grid-area: capabilities;
   min-width: 0;
 }
 
@@ -121,7 +143,8 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
   flex-wrap: nowrap;
 }
 
-.weq-provider-model-row > .weq-set-btn {
+.weq-provider-model-detect {
+  grid-area: detect;
   width: 100%;
   padding-inline: 0;
   white-space: nowrap;
@@ -133,7 +156,7 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
 }
 
 .weq-provider-probe-results {
-  grid-column: 1 / -1;
+  grid-area: results;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -162,13 +185,14 @@ html[data-theme='dark'] .weq-provider-window > .weq-provider-modal {
   background: var(--weq-bg-elevated);
 }
 
-@media (max-width: 640px) {
+@container provider-form (max-width: 440px) {
   .weq-provider-model-row {
-    grid-template-columns: minmax(0, 1fr) 30px 30px;
-  }
-
-  .weq-provider-model-row > .weq-set-input {
-    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) 30px;
+    grid-template-areas:
+      'model remove'
+      'capabilities detect'
+      'reasoning reasoning'
+      'results results';
   }
 
   .weq-provider-model-detect > span {

@@ -820,12 +820,21 @@ export function AgentLabSection(): ReactElement {
                       className="weq-provider-model-row"
                     >
                       <input
-                        className="weq-set-input"
+                        className="weq-set-input weq-provider-model-id"
                         aria-label={`模型 ${index + 1} ID`}
                         value={model.id}
                         onChange={(e) => updateModel(index, { id: e.target.value })}
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
+                      <button
+                        type="button"
+                        className="weq-set-iconbtn weq-provider-model-remove"
+                        onClick={() => removeModel(index)}
+                        aria-label={`删除模型 ${index + 1}`}
+                        title={`删除模型 ${index + 1}`}
+                      >
+                        <X size={14} />
+                      </button>
                       <div className="weq-provider-model-capabilities">
                         <CheckPillGroup
                           options={CAPABILITIES}
@@ -833,20 +842,6 @@ export function AgentLabSection(): ReactElement {
                           onChange={(capabilities) => updateModel(index, { capabilities })}
                         />
                       </div>
-                      <input
-                        className="weq-set-input"
-                        style={{ gridColumn: '1 / -1' }}
-                        aria-label={`模型 ${index + 1} 思考档位`}
-                        placeholder="可选思考档位，逗号分隔；留空使用低、中、高"
-                        value={
-                          model.reasoningEffortsText ?? model.reasoningEfforts?.join(', ') ?? ''
-                        }
-                        onChange={(event) =>
-                          updateModel(index, {
-                            reasoningEffortsText: event.target.value,
-                          })
-                        }
-                      />
                       <button
                         type="button"
                         className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-provider-model-detect"
@@ -864,15 +859,19 @@ export function AgentLabSection(): ReactElement {
                         )}
                         <span>{detectingModel === index ? '检测中' : '自动检测能力'}</span>
                       </button>
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                        onClick={() => removeModel(index)}
-                        aria-label={`删除模型 ${index + 1}`}
-                        title={`删除模型 ${index + 1}`}
-                      >
-                        <X size={12} />
-                      </button>
+                      <input
+                        className="weq-set-input weq-provider-model-reasoning"
+                        aria-label={`模型 ${index + 1} 思考档位`}
+                        placeholder="可选思考档位，逗号分隔；留空使用 low、medium、high"
+                        value={
+                          model.reasoningEffortsText ?? model.reasoningEfforts?.join(', ') ?? ''
+                        }
+                        onChange={(event) =>
+                          updateModel(index, {
+                            reasoningEffortsText: event.target.value,
+                          })
+                        }
+                      />
                       {model.probe ? (
                         <ul className="weq-provider-probe-results" aria-live="polite">
                           {model.probe.map((result) => (
