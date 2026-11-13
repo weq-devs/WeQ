@@ -11,6 +11,7 @@ import { trpc } from '../trpc/client';
 import { dressFontUrl } from '../lib/resourceUrl';
 import { fontFaces } from '../lib/fontFaces';
 import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
+import '../styles/message-decoration-card.css';
 
 interface MessageDecorationCardProps {
   decoration: {
@@ -211,10 +212,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
       <section
         ref={cardRef}
         className="weq-profile-dialog weq-decoration-card weq-anim-pop"
-        style={{
-          maxWidth: '800px',
-          width: '90%',
-        }}
+        data-decoration-count={items.length}
         role="dialog"
         aria-label="消息装扮"
         onMouseDown={(e) => e.stopPropagation()}
