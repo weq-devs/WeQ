@@ -237,6 +237,8 @@ try {
   assert.equal(await button('编辑公司展示范围').textContent(), '（仅好友）');
   assert.equal(await page.evaluate(() => window.selfProfileQa.writes()), before);
   await button('编辑公司展示范围').click();
+  assert.equal(await company.locator('.weq-profile-display-status').textContent(), '');
+  assert.equal(await company.locator('.weq-profile-display-status svg').count(), 0);
   await company.getByRole('radio', { name: '不可见', exact: true }).click();
   await button('编辑公司').click();
   assert.equal(

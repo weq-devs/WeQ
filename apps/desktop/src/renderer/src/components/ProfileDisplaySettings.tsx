@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from 'react';
-import { Check, Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, RotateCcw } from 'lucide-react';
 import {
   PROFILE_DISPLAY_FIELDS,
   type ProfileDisplayField,
@@ -23,7 +23,6 @@ interface FieldState {
   setting?: ProfileDisplaySetting;
   pending?: boolean;
   error?: string;
-  saved?: boolean;
 }
 interface DisplayContext {
   available: boolean;
@@ -109,7 +108,6 @@ function Controller({
         ...states,
         [field]: {
           setting: result.setting ?? previous,
-          saved: result.state === 'confirmed' || result.state === 'unchanged',
           error: result.error ?? undefined,
         },
       }));
@@ -180,23 +178,21 @@ export function ProfileDisplayControl({
     state?.error ??
     (state?.pending
       ? '保存中'
-      : state?.saved
-        ? '已保存'
-        : !context.available
-          ? '当前不可修改'
-          : context.error
-            ? '读取失败'
-            : !setting
-              ? context.loading
-                ? '读取中'
-                : '尚未读取'
-              : setting.status === 'missing'
-                ? 'QQ 未返回这项'
-                : setting.status === 'unknown'
-                  ? '当前设置无法识别'
-                  : setting.status === 'incomplete'
-                    ? '读取不完整'
-                    : '');
+      : !context.available
+        ? '当前不可修改'
+        : context.error
+          ? '读取失败'
+          : !setting
+            ? context.loading
+              ? '读取中'
+              : '尚未读取'
+            : setting.status === 'missing'
+              ? 'QQ 未返回这项'
+              : setting.status === 'unknown'
+                ? '当前设置无法识别'
+                : setting.status === 'incomplete'
+                  ? '读取不完整'
+                  : '');
   return (
     <div
       className="weq-profile-display-control"
@@ -215,11 +211,7 @@ export function ProfileDisplayControl({
         role="status"
         data-error={Boolean(state?.error) || undefined}
       >
-        {state?.pending ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : state?.saved ? (
-          <Check size={12} />
-        ) : null}
+        {state?.pending ? <Loader2 size={12} className="animate-spin" /> : null}
         {status}
         {(state?.error || context.error || setting?.status !== 'known') && (
           <button

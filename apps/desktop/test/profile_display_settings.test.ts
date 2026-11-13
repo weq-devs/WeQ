@@ -317,6 +317,18 @@ it('范围可以独立编辑保存，不挂载内容控件或提交内容', asyn
   expect(f.host.querySelector('[aria-label="编辑公司展示范围"]')?.textContent).toBe('（仅好友）');
 });
 
+it('范围保存后重新编辑不显示成功文字或成功图标', async () => {
+  const f = fixture();
+  f.click('编辑公司展示范围');
+  f.choose('company', '仅好友');
+  await act(async () => f.click('保存公司'));
+  f.click('编辑公司展示范围');
+  const status = f.host.querySelector('[data-display-field="company"] .weq-profile-display-status');
+  expect(status?.textContent).toBe('');
+  expect(status?.querySelector('svg')).toBeNull();
+  expect(f.host.querySelector('[aria-checked="true"][role="radio"]')?.textContent).toBe('仅好友');
+});
+
 it('先编辑范围再打开内容仍保留范围草稿且只有一组操作', async () => {
   const f = fixture();
   f.choose('company', '仅好友');
