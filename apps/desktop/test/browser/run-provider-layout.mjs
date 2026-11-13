@@ -73,11 +73,50 @@ try {
         const removeBox = await remove.boundingBox();
         const detectBox = await detect.boundingBox();
         const reasoningBox = await reasoning.boundingBox();
+        const capabilities = page.getByRole('group', { name: '模型 1 能力', exact: true });
+        const capabilitiesBox = await capabilities.boundingBox();
         await page.screenshot({ path: resolve(output, `${width}-${theme}-${style}.png`) });
         assert.ok(removeBox.width <= 36, '删除模型应保持图标按钮宽度');
         assert.ok(Math.abs(idBox.y - removeBox.y) < 4, '删除按钮应与模型 ID 同行');
         assert.ok(detectBox.width <= 140, '能力检测按钮不应拉伸填满网格');
-        assert.ok(reasoningBox.y > detectBox.y, '思考档位应位于能力配置下方');
+        assert.ok(reasoningBox.y > idBox.y, '思考档位应位于模型 ID 下方');
+        if (width >= 640) {
+          assert.ok(Math.abs(reasoningBox.y - capabilitiesBox.y) < 4, '思考档位与能力选项应同行');
+          assert.ok(
+            reasoningBox.x + reasoningBox.width <= capabilitiesBox.x,
+            '思考档位在左、能力选项在右',
+          );
+        }
+        assert.ok(
+          Math.abs(capabilitiesBox.x + capabilitiesBox.width - (removeBox.x + removeBox.width)) < 2,
+          '能力选项应右对齐',
+        );
+        assert.equal(await capabilities.getByRole('checkbox').count(), 0);
+        assert.equal(await capabilities.getByRole('button').count(), 3);
+        const chat = capabilities.getByRole('button', { name: '聊天', exact: true });
+        const vision = capabilities.getByRole('button', { name: '视觉', exact: true });
+        assert.equal(await chat.getAttribute('aria-pressed'), 'true');
+        await vision.click();
+        assert.equal(await vision.getAttribute('aria-pressed'), 'true');
+        assert.equal(await chat.getAttribute('aria-pressed'), 'true');
+        await vision.press('Space');
+        assert.equal(await vision.getAttribute('aria-pressed'), 'false');
+        const content = await detect.evaluate((node) => {
+          const button = node.getBoundingClientRect();
+          const icon = node.querySelector('svg').getBoundingClientRect();
+          const text = node.querySelector('span').getBoundingClientRect();
+          const right = text.width ? text.right : icon.right;
+          const top = text.height ? Math.min(icon.top, text.top) : icon.top;
+          const bottom = text.height ? Math.max(icon.bottom, text.bottom) : icon.bottom;
+          return {
+            x: (icon.left + right - button.left - button.right) / 2,
+            y: (top + bottom - button.top - button.bottom) / 2,
+          };
+        });
+        assert.ok(
+          Math.abs(content.x) <= 2 && Math.abs(content.y) <= 2,
+          `检测按钮内容应居中 ${JSON.stringify(content)}`,
+        );
         assert.equal(
           await page
             .locator('.weq-provider-modal')

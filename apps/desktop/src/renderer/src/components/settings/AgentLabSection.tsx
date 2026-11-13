@@ -6,7 +6,10 @@ import {
   CheckCheck,
   DownloadCloud,
   FlaskConical,
+  Image,
+  Layers,
   Loader2,
+  MessageSquare,
   Plus,
   Save,
   Server,
@@ -14,6 +17,7 @@ import {
   Square,
   Trash2,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
@@ -30,13 +34,14 @@ import {
 import { useToast } from '../Toast';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
 import { DefaultVisionModelRow } from './AiImageSettings';
+import '../../styles/search-scope.css';
 import '../../styles/provider-settings.css';
 
 type Capability = 'chat' | 'embedding' | 'vision';
-const CAPABILITIES: { value: Capability; label: string }[] = [
-  { value: 'chat', label: '聊天' },
-  { value: 'embedding', label: '向量' },
-  { value: 'vision', label: '视觉' },
+const CAPABILITIES: { value: Capability; label: string; Icon: LucideIcon }[] = [
+  { value: 'chat', label: '聊天', Icon: MessageSquare },
+  { value: 'embedding', label: '向量', Icon: Layers },
+  { value: 'vision', label: '视觉', Icon: Image },
 ];
 
 type ModelForm = {
@@ -815,22 +820,6 @@ export function AgentLabSection(): ReactElement {
                       />
                       <button
                         type="button"
-                        className="weq-set-iconbtn weq-provider-model-remove"
-                        onClick={() => removeModel(index)}
-                        aria-label={`删除模型 ${index + 1}`}
-                        title={`删除模型 ${index + 1}`}
-                      >
-                        <X size={14} />
-                      </button>
-                      <div className="weq-provider-model-capabilities">
-                        <CheckPillGroup
-                          options={CAPABILITIES}
-                          selected={model.capabilities}
-                          onChange={(capabilities) => updateModel(index, { capabilities })}
-                        />
-                      </div>
-                      <button
-                        type="button"
                         className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-provider-model-detect"
                         onClick={() => void onDetectCapabilities(index)}
                         disabled={
@@ -846,6 +835,15 @@ export function AgentLabSection(): ReactElement {
                         )}
                         <span>{detectingModel === index ? '检测中' : '自动检测能力'}</span>
                       </button>
+                      <button
+                        type="button"
+                        className="weq-set-iconbtn weq-provider-model-remove"
+                        onClick={() => removeModel(index)}
+                        aria-label={`删除模型 ${index + 1}`}
+                        title={`删除模型 ${index + 1}`}
+                      >
+                        <X size={14} />
+                      </button>
                       <input
                         className="weq-set-input weq-provider-model-reasoning"
                         aria-label={`模型 ${index + 1} 思考档位`}
@@ -859,6 +857,29 @@ export function AgentLabSection(): ReactElement {
                           })
                         }
                       />
+                      <div
+                        className="weq-search-scope weq-provider-model-capabilities"
+                        role="group"
+                        aria-label={`模型 ${index + 1} 能力`}
+                      >
+                        {CAPABILITIES.map(({ value, label, Icon }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={model.capabilities.includes(value)}
+                            onClick={() =>
+                              updateModel(index, {
+                                capabilities: model.capabilities.includes(value)
+                                  ? model.capabilities.filter((item) => item !== value)
+                                  : [...model.capabilities, value],
+                              })
+                            }
+                          >
+                            <Icon size={14} aria-hidden />
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                       {model.probe ? (
                         <ul className="weq-provider-probe-results" aria-live="polite">
                           {model.probe.map((result) => (

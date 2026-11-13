@@ -237,6 +237,34 @@ function mount(tts = false) {
   return { host, render, button, set, close };
 }
 describe('多 API provider 配置', () => {
+  it('能力使用独立多选按钮，切换与保存保留其他能力和思考档位', async () => {
+    const f = mount();
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    const group = f.host.querySelector('[aria-label="模型 1 能力"]')!;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.querySelector('[role="checkbox"]')).toBeNull();
+    const buttons = [...group.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['聊天', '向量', '视觉']);
+    expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+      'true',
+      'false',
+      'false',
+    ]);
+    f.set('[aria-label="模型 1 思考档位"]', 'low, high');
+    act(() => buttons[2]!.click());
+    act(() => buttons[1]!.click());
+    act(() => buttons[0]!.click());
+    expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+      'false',
+      'true',
+      'true',
+    ]);
+    await act(async () => f.button('保存服务商').click());
+    expect(state.save.mock.calls[0]![0].models[0]).toMatchObject({
+      capabilities: ['vision', 'embedding'],
+      reasoningEfforts: ['low', 'high'],
+    });
+  });
   it.each([false, true])('%s 未修改或改回原值时关闭不确认，也不留下页面草稿', async (tts) => {
     const f = mount(tts);
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());

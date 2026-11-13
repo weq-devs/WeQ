@@ -105,11 +105,10 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
 
 .weq-provider-model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 80px 30px;
+  grid-template-columns: minmax(0, 1fr) max-content 30px;
   grid-template-areas:
-    'model model remove'
-    'capabilities detect detect'
-    'reasoning reasoning reasoning'
+    'model detect remove'
+    'reasoning capabilities capabilities'
     'results results results';
   align-items: center;
   gap: 8px;
@@ -136,18 +135,34 @@ html[data-theme] .weq-provider-window > .weq-provider-modal {
 
 .weq-provider-model-capabilities {
   grid-area: capabilities;
-  min-width: 0;
-}
-
-.weq-provider-model-capabilities .weq-set-pill-group {
+  justify-self: end;
+  justify-content: flex-end;
   flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
 }
 
-.weq-provider-model-detect {
-  grid-area: detect;
-  width: 100%;
-  padding-inline: 0;
+.weq-provider-model-capabilities button {
   white-space: nowrap;
+}
+
+.weq-provider-window .weq-provider-model-detect {
+  grid-area: detect;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  gap: 6px;
+  width: 118px;
+  padding: 5px 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.weq-provider-model-detect > :is(svg, span) {
+  flex: none;
 }
 
 .weq-provider-fields {
@@ -187,22 +202,25 @@ html[data-theme='dark'] .weq-provider-window > .weq-provider-modal {
 
 @container provider-form (max-width: 440px) {
   .weq-provider-model-row {
-    grid-template-columns: minmax(0, 1fr) 30px;
+    grid-template-columns: 30px minmax(0, 1fr) 30px;
     grid-template-areas:
-      'model remove'
-      'capabilities detect'
-      'reasoning reasoning'
-      'results results';
+      'model model remove'
+      'reasoning reasoning reasoning'
+      'detect capabilities capabilities'
+      'results results results';
   }
 
   .weq-provider-model-detect > span {
     display: none;
   }
 
-  .weq-provider-model-capabilities .weq-set-chk {
-    gap: 4px;
-    padding-inline: 4px;
-    white-space: nowrap;
+  .weq-provider-window .weq-provider-model-detect {
+    width: 30px;
+    padding: 0;
+  }
+
+  .weq-provider-model-capabilities button {
+    padding-inline: 6px;
   }
 }
 
