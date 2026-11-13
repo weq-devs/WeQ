@@ -30,7 +30,7 @@ jobs:
           node-version: 22
       # 有意不先安装项目依赖：启动器必须能从全新 clone 进入准备流程。
       - name: Test dependency-free development bootstrap
-        run: pnpm exec node --test scripts/dev.test.mjs scripts/dev-native.test.mjs scripts/prepare-remote-network.test.mjs scripts/prepare-dev-electron.test.mjs
+        run: pnpm exec node --test scripts/dev.test.mjs scripts/dev-web.test.mjs scripts/dev-native.test.mjs scripts/prepare-remote-network.test.mjs scripts/prepare-dev-electron.test.mjs
 
   lint:
     runs-on: ubuntu-latest

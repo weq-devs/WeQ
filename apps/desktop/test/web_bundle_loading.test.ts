@@ -27,7 +27,12 @@ it('桌面开发中的内置 Web 子构建使用 production，不修改父进程
       ],
       {
         cwd: resolve(__dirname, '..'),
-        env: { ...process.env, NODE_ENV: 'development', WEQ_BUILD_FIXTURE: 'preserved' },
+        env: {
+          ...process.env,
+          NODE_ENV: 'development',
+          NODE_ENV_ELECTRON_VITE: 'production',
+          WEQ_BUILD_FIXTURE: 'preserved',
+        },
         encoding: 'utf8',
         timeout: 15_000,
       },
@@ -55,8 +60,10 @@ it('真实 Web 构建将工具和聊天附属面板留在按需分块，不进�
       const chunks=result.output.filter(c=>c.type==='chunk');
       const visited=new Set();
       const visit=c=>{if(visited.has(c.fileName))return;visited.add(c.fileName);for(const name of c.imports){const next=chunks.find(c=>c.fileName===name);if(next)visit(next);}};
-      for(const chunk of chunks.filter(c=>c.isEntry||c.facadeModuleId?.endsWith('MainView.tsx')))visit(chunk);
-      console.log(JSON.stringify({initial:chunks.filter(c=>visited.has(c.fileName)).flatMap(c=>Object.keys(c.modules)),all:chunks.flatMap(c=>Object.keys(c.modules)),large:chunks.filter(c=>Buffer.byteLength(c.code)>500000).map(c=>({name:c.name,bytes:Buffer.byteLength(c.code),modules:Object.keys(c.modules)}))}));`,
+      for(const chunk of chunks.filter(c=>c.isEntry))visit(chunk);
+      const firstScreen=chunks.filter(c=>visited.has(c.fileName)).flatMap(c=>Object.keys(c.modules));
+      for(const chunk of chunks.filter(c=>c.facadeModuleId?.endsWith('MainView.tsx')))visit(chunk);
+      console.log(JSON.stringify({firstScreen,initial:chunks.filter(c=>visited.has(c.fileName)).flatMap(c=>Object.keys(c.modules)),all:chunks.flatMap(c=>Object.keys(c.modules)),large:chunks.filter(c=>Buffer.byteLength(c.code)>500000).map(c=>({name:c.name,bytes:Buffer.byteLength(c.code),modules:Object.keys(c.modules)}))}));`,
     ],
     {
       cwd: resolve(__dirname, '../../web'),
@@ -69,12 +76,24 @@ it('真实 Web 构建将工具和聊天附属面板留在按需分块，不进�
   expect(child.error).toBeUndefined();
   expect(child.status, child.stderr).toBe(0);
   const modules: {
+    firstScreen: string[];
     initial: string[];
     all: string[];
     large: { name: string; bytes: number; modules: string[] }[];
   } = JSON.parse(child.stdout);
   for (const suffix of [
+    '/views/MainView.tsx',
+    '/components/QqMessageContent.tsx',
+    '/components/ForwardWindowContent.tsx',
+  ]) {
+    expect(
+      modules.firstScreen.some((id) => id.replaceAll('\\', '/').endsWith(suffix)),
+      `首屏不得提前载入 ${suffix}`,
+    ).toBe(false);
+  }
+  for (const suffix of [
     '/components/DbRepairPanel.tsx',
+    '/components/ForwardWindowContent.tsx',
     '/components/CapturePanel.tsx',
     '/components/UdpCapturePanel.tsx',
     '/components/gift/GiftMallPanel.tsx',

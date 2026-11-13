@@ -72,10 +72,9 @@ import { DEFAULT_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { RendererRecoveryNotice } from './components/RendererRecoveryNotice';
 import { RemoteStartupReporter } from './components/RemoteStartupReporter';
 import { StartupProgressReporter } from './components/StartupProgressReporter';
+import { loadMainWorkspace } from './lib/mainWorkspaceLoader';
 
-const MainView = lazy(() =>
-  import('./views/MainView').then((module) => ({ default: module.MainView })),
-);
+const MainView = lazy(loadMainWorkspace);
 
 /**
  * 把两个「气泡渲染」开关广播给所有消息气泡：纯文本 Markdown、链接预览卡片。

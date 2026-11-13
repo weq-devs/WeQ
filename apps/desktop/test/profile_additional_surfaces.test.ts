@@ -301,7 +301,7 @@ it('红包上方存在名片浮层时 Escape 不关闭底层红包，关闭浮�
 
 it('转发发送者按记录身份查看，不套用外层群；缺少身份无按钮', async () => {
   const f = await fixture(h(ForwardWindowHost));
-  act(() =>
+  await act(async () =>
     openForwardWindow({
       title: '合成转发',
       kind: 'group',
@@ -319,6 +319,7 @@ it('转发发送者按记录身份查看，不套用外层群；缺少身份无�
       ],
     }),
   );
+  await act(async () => vi.dynamicImportSettled());
   const avatars = buttons(document.querySelector('.weq-forward-window')!);
   capture(document.querySelector('.weq-forward-window')!, 'forward');
   expect(avatars).toHaveLength(1);

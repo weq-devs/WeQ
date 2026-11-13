@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { prepareWebAssets } from '../../scripts/dev-web.mjs';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -66,19 +66,9 @@ export default defineConfig({
       ...mainLogging.plugins,
       {
         name: 'weq-remote-web-assets',
-        buildStart() {
+        async buildStart() {
           if (remoteWebBuilt) return;
-          const pnpm = process.env.npm_execpath;
-          if (!pnpm) throw new Error('请通过 pnpm 运行桌面构建，以同时构建内置 Web 页面。');
-          const args = ['--filter', '@weq/web', 'exec', 'vite', 'build'];
-          const script = /\.[cm]?js$/.test(pnpm);
-          execFileSync(script ? process.execPath : pnpm, script ? [pnpm, ...args] : args, {
-            cwd: resolve(import.meta.dirname, '../..'),
-            env: { ...process.env, NODE_ENV: 'production' },
-            stdio: 'inherit',
-            windowsHide: true,
-            shell: process.platform === 'win32' && pnpm.endsWith('.cmd'),
-          });
+          await prepareWebAssets(resolve(import.meta.dirname, '../..'));
           remoteWebBuilt = true;
         },
       },

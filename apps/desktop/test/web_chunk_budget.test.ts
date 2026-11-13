@@ -225,6 +225,7 @@ it.each(['cli', 'desktop'] as const)(
           env: {
             ...process.env,
             NODE_ENV: target === 'cli' ? 'production' : 'development',
+            NODE_ENV_ELECTRON_VITE: 'production',
             npm_execpath: process.env.npm_execpath ?? 'pnpm',
             WEQ_DEV_CONSOLE: '1',
             WEQ_LOG_LEVEL: 'info',

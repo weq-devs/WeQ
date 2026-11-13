@@ -41,6 +41,7 @@ export default defineConfig({
     },
   },
   build: {
+    manifest: process.env.WEQ_DEV_WEB_CACHE === '1',
     outDir: resolve(process.env.WEQ_WEB_DIST ?? resolve(import.meta.dirname, 'dist'), 'public'),
     emptyOutDir: true,
     rollupOptions: {
@@ -63,7 +64,8 @@ export default defineConfig({
             },
             {
               name: 'chat-ui',
-              test: /src[\\/]renderer[\\/]src[\\/]im-template[\\/]template[\\/](?!(?:arkPanel|redPacketPanel|locationCardPanel|locationSharePanel|lazyComposerPanels)\.)/,
+              // 首页共用的小工具不能把整个聊天分组带入首屏。
+              test: /src[\\/]renderer[\\/]src[\\/]im-template[\\/]template[\\/](?!(?:arkPanel|redPacketPanel|locationCardPanel|locationSharePanel|lazyComposerPanels|classNames|conversationDisplay|messageGap|modalUtils|user)\.)/,
               includeDependenciesRecursively: false,
               maxSize: 350_000,
               priority: 10,
