@@ -69,7 +69,7 @@ describe('visible Qzone body continuation', () => {
     post.images = [];
     expect(qzoneImageCompletionScope(post)).toBe('post');
   });
-  it.each([null, false])('stops without a warning when more=%s', async (more) => {
+  it.each([null, false])('未知正文标记保留未确认、明确完成才清除截断：%s', async (more) => {
     const read = vi.fn(async () => detail('full body', more));
     const result = await completeQzonePostText(
       source(),
@@ -79,8 +79,8 @@ describe('visible Qzone body continuation', () => {
     );
     expect(read).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
-      post: { content: 'full body', contentTruncated: false },
-      issue: null,
+      post: { content: 'full body', contentTruncated: more === null },
+      issue: more === null ? '正文完整性尚未确认' : null,
     });
   });
   it('automatically continues only on explicit more, replacing whole bodies in place', async () => {
@@ -98,7 +98,7 @@ describe('visible Qzone body continuation', () => {
     expect(progress.mock.calls.map(([post]) => post.content)).toEqual(['ab', 'abc']);
     expect(original.content).toBe('a');
   });
-  it('also stops quietly when a continuing response omits its flag', async () => {
+  it('后续响应缺失完整性标记时停止循环，但保留未确认状态', async () => {
     const read = vi
       .fn()
       .mockResolvedValueOnce(detail('ab', true))
@@ -110,8 +110,36 @@ describe('visible Qzone body continuation', () => {
         () => {},
         () => true,
       ),
-    ).toMatchObject({ issue: null });
+    ).toMatchObject({ post: { contentTruncated: true }, issue: '正文完整性尚未确认' });
     expect(read).toHaveBeenCalledTimes(2);
+  });
+  it('原帖已完整而转发原文状态未知时，不误清原文截断状态', async () => {
+    const post = source();
+    post.contentTruncated = false;
+    const original = {
+      tid: 'original',
+      uin: '10002',
+      nickname: '原作者',
+      content: '原文',
+      images: [],
+      videos: [],
+      contentTruncated: true,
+    };
+    post.repost = original;
+    const read = vi.fn(async () => ({
+      ...detail('完整正文', false),
+      repost: { ...original, content: '原文补充' },
+      repostHasMore: null,
+    }));
+    const result = await completeQzonePostText(
+      post,
+      read,
+      () => {},
+      () => true,
+    );
+    expect(result.post.repost).toMatchObject({ content: '原文补充', contentTruncated: true });
+    expect(result.issue).toBe('正文完整性尚未确认');
+    expect(read).toHaveBeenCalledOnce();
   });
   it('stops repeated and cycling bodies without discarding the longest observed text', async () => {
     const read = vi

@@ -29,26 +29,134 @@ function mockBody(value: unknown) {
   vi.stubGlobal('fetch', fetch);
   return fetch;
 }
+function detailService() {
+  vi.spyOn(WebCredentialProvider.prototype, 'forDomain').mockResolvedValue(cred);
+  return new WebQueryService(
+    { ptFetchCredentials: vi.fn(), sendPacket: vi.fn() },
+    { context: { uin: '10001' } } as unknown as AccountSession,
+    () => 1,
+  );
+}
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe('post completion', () => {
-  it('Web 已返回完整正文时不等待原生请求，避免拖慢已有详情', async () => {
-    vi.spyOn(WebCredentialProvider.prototype, 'forDomain').mockResolvedValue(cred);
-    vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail').mockImplementation(
-      () => new Promise(() => {}),
-    );
+  it('Web 已返回完整正文时不调用原生请求', async () => {
+    const service = detailService();
+    const native = vi
+      .spyOn(GetQzoneFeedMediaDetail, 'invokeDetail')
+      .mockImplementation(() => new Promise(() => {}));
     mockBody({ code: 0, content: '完整正文', has_more_con: 0 });
-    const service = new WebQueryService(
-      { ptFetchCredentials: vi.fn(), sendPacket: vi.fn() },
-      { context: { uin: '10001' } } as unknown as AccountSession,
-      () => 1,
-    );
     expect(
       (await service.getQzonePostDetail('10001', 'post', undefined, undefined, 123)).content,
     ).toBe('完整正文');
+    expect(native).not.toHaveBeenCalled();
+  });
+  it('Web 尚未结束时不启动原生，确认截断后才补充', async () => {
+    const service = detailService();
+    const native = vi
+      .spyOn(GetQzoneFeedMediaDetail, 'invokeDetail')
+      .mockResolvedValue({ mediaTypes: [], content: '原生补充的正文' });
+    let finish!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const task = service.getQzonePostDetail('10001', 'post', undefined, undefined, 123);
+    try {
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+      expect(native).not.toHaveBeenCalled();
+    } finally {
+      finish(new Response(jsonp({ code: 0, content: '片段', has_more_con: 1 })));
+      await task;
+    }
+    expect(await task).toMatchObject({
+      content: '原生补充的正文',
+      contentSource: 'native',
+      contentComplete: false,
+    });
+    expect(native).toHaveBeenCalledOnce();
+  });
+  it('Web 失败后才回退原生，并保留未知完整性', async () => {
+    const service = detailService();
+    const native = vi
+      .spyOn(GetQzoneFeedMediaDetail, 'invokeDetail')
+      .mockResolvedValue({ mediaTypes: [], content: '原生正文' });
+    const fetch = mockBody({ code: -1 });
+    expect(
+      await service.getQzonePostDetail('10001', 'post', undefined, undefined, 123),
+    ).toMatchObject({ content: '原生正文', contentSource: 'native', contentComplete: false });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(native).toHaveBeenCalledOnce();
+  });
+  it('Web 未给完整性标记时可以补充，但不据此认定全文', async () => {
+    const service = detailService();
+    vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail').mockResolvedValue({
+      mediaTypes: [],
+      content: '原生更长正文',
+    });
+    mockBody({ code: 0, content: '片段' });
+    expect(
+      await service.getQzonePostDetail('10001', 'post', undefined, undefined, 123),
+    ).toMatchObject({ content: '原生更长正文', contentHasMore: null, contentComplete: false });
+  });
+  it('原生回退失败保留 Web 已读正文；双方失败保留原 Web 错误', async () => {
+    const service = detailService();
+    const native = vi
+      .spyOn(GetQzoneFeedMediaDetail, 'invokeDetail')
+      .mockRejectedValue(new Error('synthetic native failure'));
+    mockBody({ code: 0, content: '已读片段', has_more_con: 1 });
+    expect(
+      await service.getQzonePostDetail('10001', 'post', undefined, undefined, 123),
+    ).toMatchObject({ content: '已读片段', contentHasMore: true });
+    mockBody({ code: -1 });
+    await expect(
+      service.getQzonePostDetail('10001', 'post', undefined, undefined, 123),
+    ).rejects.toThrow('暂时无法补全这条说说');
+    expect(native).toHaveBeenCalledOnce();
+  });
+  it.each([undefined, 0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    '缺少有效时间定位 %s 不尝试原生回退',
+    async (time) => {
+      const service = detailService();
+      const native = vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail');
+      mockBody({ code: 0, content: '片段', has_more_con: 1 });
+      expect(
+        (await service.getQzonePostDetail('10001', 'post', undefined, undefined, time)).content,
+      ).toBe('片段');
+      expect(native).not.toHaveBeenCalled();
+    },
+  );
+  it('Web 读取被取消时不发起原生回退', async () => {
+    const service = detailService();
+    const native = vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail');
+    const fetch = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal('fetch', fetch);
+    const controller = new AbortController();
+    const task = service.getQzonePostDetail('10001', 'post', controller.signal, undefined, 123);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    controller.abort(new Error('synthetic cancellation'));
+    await expect(task).rejects.toThrow();
+    expect(native).not.toHaveBeenCalled();
+  });
+  it('已取消的详情读取不取票、不发 HTTP 或原生请求', async () => {
+    const service = detailService();
+    const credentials = vi.spyOn(WebCredentialProvider.prototype, 'forDomain');
+    const native = vi.spyOn(GetQzoneFeedMediaDetail, 'invokeDetail');
+    const fetch = mockBody({ code: 0, content: '完整', has_more_con: 0 });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      service.getQzonePostDetail('10001', 'post', controller.signal, undefined, 123),
+    ).rejects.toThrow();
+    expect(credentials).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(native).not.toHaveBeenCalled();
   });
   it('已确认完整的 Web 正文优先，不用更长的旧原生片段覆盖', () => {
     const web = parseQzonePostDetail(

@@ -10,7 +10,7 @@ interface PostDetail {
 
 export { qzoneImageCompletionScope } from '@weq/service/qzone-media';
 
-/** R02 returns a whole body, not appendable chunks or a verified page cursor. */
+/** 补全返回整段正文；仅显式更多才续读，未知状态保留但不循环请求。 */
 export async function completeQzonePostText(
   source: QzoneEmotion,
   read: () => Promise<PostDetail>,
@@ -35,10 +35,7 @@ export async function completeQzonePostText(
         detail.content.length >= post.content.length || detail.contentHasMore === false
           ? detail.content
           : post.content,
-      contentTruncated:
-        detail.contentSource === 'native' && detail.contentHasMore === null
-          ? post.contentTruncated
-          : detail.contentHasMore === true,
+      contentTruncated: detail.contentHasMore ?? post.contentTruncated,
     };
     const sameRepost = Boolean(
       post.repost &&
@@ -54,19 +51,17 @@ export async function completeQzonePostText(
           detail.repostHasMore === false
             ? detail.repost.content
             : post.repost.content,
-        contentTruncated: detail.repostHasMore === true,
+        contentTruncated: detail.repostHasMore ?? post.repost.contentTruncated,
       };
     }
     onProgress(post);
     const more = detail.contentHasMore === true || (sameRepost && detail.repostHasMore === true);
-    if (!more)
-      return {
-        post,
-        issue:
-          detail.contentSource === 'native' && post.contentTruncated
-            ? '正文已补充，完整性尚未确认'
-            : null,
-      };
+    if (!more) {
+      const uncertain =
+        (detail.contentHasMore === null && post.contentTruncated === true) ||
+        (sameRepost && detail.repostHasMore === null && post.repost?.contentTruncated === true);
+      return { post, issue: uncertain ? '正文完整性尚未确认' : null };
+    }
     const signature = JSON.stringify([
       detail.content,
       detail.contentHasMore,

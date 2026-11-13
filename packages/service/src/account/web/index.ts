@@ -596,14 +596,12 @@ export class WebQueryService {
     captureRaw?: (text: string) => Promise<void>,
     time?: number,
   ) {
-    if (!time)
+    signal?.throwIfAborted();
+    if (time === undefined || !Number.isSafeInteger(time) || time <= 0)
       return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
         fetchQzonePostDetail(cred, targetUin, tid, signal, captureRaw),
       );
     let webError: unknown;
-    const nativeTask = this.mediaTypes
-      ? this.getQzoneNativeDetail(targetUin, tid, time, signal).catch(() => null)
-      : Promise.resolve(null);
     const web = await withRetry(this.creds, QZONE_DOMAIN, (cred) =>
       fetchQzonePostDetail(cred, targetUin, tid, signal, captureRaw),
     ).catch((error: unknown) => {
@@ -612,7 +610,9 @@ export class WebQueryService {
     });
     signal?.throwIfAborted();
     if (web?.contentHasMore === false) return web;
-    const native = await nativeTask;
+    const native = this.mediaTypes
+      ? await this.getQzoneNativeDetail(targetUin, tid, time, signal).catch(() => null)
+      : null;
     signal?.throwIfAborted();
     const result = supplementQzonePostDetail(web, native);
     if (!result) throw webError ?? new Error('暂时无法读取说说详情。');
