@@ -10,6 +10,6 @@
   },
   "scripts": {
     "test": "node test/run.mjs",
-    "typecheck": "node --check src/index.mjs"
+    "typecheck": "tsc --noEmit"
   }
 }
