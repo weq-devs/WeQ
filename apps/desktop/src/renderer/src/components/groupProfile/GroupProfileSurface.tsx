@@ -114,7 +114,7 @@ function GroupProfileBody({
       }}
     >
       <MessageSquare size={14} />
-      查看消息
+      {embedded ? '打开会话' : '查看消息'}
     </button>
   ) : null;
   const previewAction = canPreview ? (
@@ -128,15 +128,13 @@ function GroupProfileBody({
     </button>
   ) : null;
   const pageActions = embedded ? (
-    <div className="weq-group-profile-operation-area">
-      <nav className="weq-group-card-actions weq-contact-actions" aria-label="群操作">
-        {chatAction}
-        {previewAction}
-      </nav>
-      {!conversation.generated ? (
-        <GroupProfileFeatures conversation={conversation} scope={data.scope} {...location} />
-      ) : null}
-    </div>
+    <nav
+      className="weq-profile-actions weq-contact-actions weq-profile-card-actions"
+      aria-label="群操作"
+    >
+      {chatAction}
+      {previewAction}
+    </nav>
   ) : null;
   const content = (
     <>
@@ -195,6 +193,9 @@ function GroupProfileBody({
                 retrying={data.profileRefreshing}
                 onRetry={() => void data.retryProfile()}
               />
+            ) : null}
+            {embedded && !conversation.generated ? (
+              <GroupProfileFeatures conversation={conversation} scope={data.scope} {...location} />
             ) : null}
             {embedded ? (
               <GroupWorkspace

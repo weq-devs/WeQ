@@ -265,20 +265,16 @@ try {
   assert.equal(await search.inputValue(), '成员3');
   await search.fill('');
   await memberPanel.locator('.group-info-member-row').first().waitFor();
-  for (const label of ['公告', '待办', '精华', '打卡']) {
-    await page.getByRole('button', { name: `查看群${label}`, exact: true }).click();
-    const feature = page.locator('.weq-group-feature-layer');
-    await feature.waitFor();
-    const featureBounds = await feature.locator(':scope > :first-child').boundingBox();
-    assert.ok(featureBounds && featureBounds.width <= 440 && featureBounds.x >= 0);
-    assert.ok(
-      (await feature.getByRole('button', { name: new RegExp(`关闭群${label}`) }).count()) >= 1,
+  for (const label of ['公告', '待办', '相册', '文件', '精华', '打卡'])
+    assert.equal(
+      await page.getByRole('button', { name: `查看群${label}`, exact: true }).count(),
+      0,
     );
-    await page.keyboard.press('Escape');
-    await feature.waitFor({ state: 'detached' });
-    assert.equal(await page.locator('.weq-group-profile-columns').isVisible(), true);
-  }
-  for (const width of [1180, 390, 320])
+  assert.deepEqual(await page.locator('.weq-profile-page-actions button').allTextContents(), [
+    '打开会话',
+    '预览消息',
+  ]);
+  for (const width of [1180, 800, 600, 561, 560, 390, 320])
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate((theme) => {
@@ -309,7 +305,25 @@ try {
           .evaluate((element) => element.scrollWidth > element.clientWidth + 1),
         false,
       );
-      if (width > 720) {
+      const alignment = await page.evaluate(() => {
+        const bounds = (selector) => {
+          const box = document.querySelector(selector).getBoundingClientRect();
+          return { x: box.x, width: box.width };
+        };
+        return {
+          identity: bounds('.weq-profile-page-identity'),
+          actions: bounds('.weq-profile-page-actions'),
+          information: bounds('.weq-group-profile-information'),
+          members: bounds('.weq-group-profile-members'),
+          memberSearch: bounds('.weq-group-profile-members .group-info-member-search'),
+          memberHeading: bounds('.weq-group-profile-members .group-info-heading'),
+        };
+      });
+      assert.deepEqual(alignment.identity, alignment.information);
+      assert.deepEqual(alignment.actions, alignment.members);
+      assert.deepEqual(alignment.actions, alignment.memberSearch);
+      assert.deepEqual(alignment.actions, alignment.memberHeading);
+      if (width > 560) {
         const information = page.locator('.weq-group-profile-information');
         const before = await memberPanel.boundingBox();
         await information.evaluate((element) => {
@@ -362,12 +376,14 @@ try {
       'no-heavy-card-requests',
       'nested-return',
       'continuous-profile-without-directory',
+      'no-group-feature-button-grid',
+      'upper-and-lower-column-alignment',
       'profile-settings-button-before-close',
       'settings-and-preview-return-preserve-search',
       'independent-member-scrolling',
       'shared-self-join-time-in-card-and-profile',
       'member-search',
-      'six-responsive-theme-captures',
+      'fourteen-responsive-theme-captures',
       'long-names-remain-navigable',
     ],
     calls: await page.evaluate(() => window.groupCardCalls),

@@ -74,12 +74,10 @@ function mount(section?: GroupWorkspaceTab) {
   });
   return { host, openResource, openSettings };
 }
-it('正文不铺开群内容，六个紧凑入口按需打开', () => {
+it('默认资料页不渲染群功能按钮或群内容，旧定位仍可独立使用', () => {
   const { host } = mount();
-  expect(host.querySelectorAll('button')).toHaveLength(6);
+  expect(host.querySelectorAll('button')).toHaveLength(0);
   expect(host.querySelector('[data-feature-body]')).toBeNull();
-  act(() => host.querySelector<HTMLButtonElement>('[data-feature="announcements"]')!.click());
-  expect(host.querySelector('[data-feature-body]')?.getAttribute('data-feature-body')).toBe('公告');
 });
 it.each(['albums', 'files'] as const)('旧 %s 定位进入同一资源宿主并保留目标参数', (section) => {
   const { openResource, host } = mount(section);

@@ -35,7 +35,7 @@ try {
   });
   const errors = [];
   let cases = 0;
-  for (const width of [390, 1180]) {
+  for (const width of [390, 600, 800, 1180]) {
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     const page = await context.newPage();
     page.on('pageerror', (error) => errors.push(error.message));
@@ -44,6 +44,7 @@ try {
     );
     await page.emulateMedia({ reducedMotion: 'reduce' });
     for (const theme of ['light', 'dark']) {
+      let contactHeaderLayout;
       for (const kind of ['friend', 'group']) {
         await page.goto(
           `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-identity.html?short&${kind === 'friend' ? 'friend' : 'group'}`,
@@ -61,6 +62,32 @@ try {
         );
         const box = await close.boundingBox();
         assert.ok(box && box.x >= 0 && box.x + box.width <= width && box.y >= 0);
+        const headerLayout = await page
+          .locator('.weq-profile-page-header--split')
+          .evaluate((element) => {
+            const style = getComputedStyle(element);
+            const identity = getComputedStyle(element.querySelector('.weq-contact-identity'));
+            const button = getComputedStyle(element.querySelector('.weq-contact-secondary'));
+            return {
+              columns: style.gridTemplateColumns,
+              gap: style.gap,
+              padding: style.padding,
+              maxHeight: style.maxHeight,
+              overflow: style.overflow,
+              identityAlignment: identity.alignItems,
+              buttonHeight: button.height,
+              buttonPadding: button.padding,
+              buttonBorder: button.border,
+              buttonRadius: button.borderRadius,
+            };
+          });
+        if (kind === 'friend') contactHeaderLayout = headerLayout;
+        else
+          assert.deepEqual(
+            headerLayout,
+            contactHeaderLayout,
+            `群与联系人页头布局不一致：${width}/${theme}`,
+          );
         const settings = page.getByRole('button', { name: '会话设置', exact: true });
         const settingsBox = await settings.boundingBox();
         assert.ok(settingsBox && settingsBox.x + settingsBox.width <= box.x);

@@ -435,7 +435,7 @@ it.each(['friend', 'group'] as const)(
         expect(host.querySelectorAll('.weq-group-preview-avatars button')).toHaveLength(0);
         expect(host.querySelector('.weq-group-profile-information')).not.toBeNull();
         expect(host.querySelector('.weq-group-profile-members')).not.toBeNull();
-        expect(host.querySelector('[aria-label="查看群文件"]')).not.toBeNull();
+        expect(host.querySelector('[aria-label="查看群文件"]')).toBeNull();
         expect(host.querySelector('.weq-profile-directory')).toBeNull();
       }
       // 联系人与群的页头共用 ProfilePageHeader，关闭按钮 aria-label 为「关闭资料 / 关闭群资料」。
@@ -621,7 +621,7 @@ it.each([true, false])('群资料 embedded=%s 提供统一消息操作并原位�
     )!;
   try {
     act(() => root.render(h(Harness)));
-    expect(button('查看消息')).toBeDefined();
+    expect(button(embedded ? '打开会话' : '查看消息')).toBeDefined();
     act(() => button('预览消息').click());
     expect(preview).toHaveBeenCalledWith(groupFixture);
     expect(document.querySelector('[aria-label="合成群消息预览"]')).not.toBeNull();
@@ -632,7 +632,7 @@ it.each([true, false])('群资料 embedded=%s 提供统一消息操作并原位�
     act(() => button('返回资料').click());
     expect(document.querySelector('.is-previewing-chat')).toBeNull();
     if (embedded) expect(host.querySelector('.weq-group-profile-columns')).not.toBeNull();
-    act(() => button('查看消息').click());
+    act(() => button(embedded ? '打开会话' : '查看消息').click());
     expect(open).toHaveBeenCalledWith({ kind: 'group', conversation: groupFixture });
     expect(close).toHaveBeenCalledTimes(embedded ? 0 : 1);
   } finally {

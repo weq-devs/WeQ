@@ -1,5 +1,4 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { Bell, CalendarCheck, CheckSquare, Files, Images, Star } from 'lucide-react';
 import type { GroupConversation } from '../../im-template/template/types';
 import type { GroupWorkspaceTab } from '../../lib/profileNavigation';
 import {
@@ -14,16 +13,10 @@ import { GroupTodos } from '../qq-actions/GroupActions';
 import { ConversationSettingsDialog } from '../ConversationSettingsDialog';
 import { GroupProfileEssence } from './GroupWorkspace';
 
-const features = [
-  ['announcements', '公告', Bell],
-  ['todos', '待办', CheckSquare],
-  ['albums', '相册', Images],
-  ['files', '文件', Files],
-  ['essence', '精华', Star],
-  ['sign', '打卡', CalendarCheck],
-] as const;
-type Feature = (typeof features)[number][0];
+const features = ['announcements', 'todos', 'albums', 'files', 'essence', 'sign'] as const;
+type Feature = (typeof features)[number];
 
+/** 仅兼容旧的群内容定位；资料页不再放置群功能按钮。 */
 export function GroupProfileFeatures({
   conversation,
   scope,
@@ -43,7 +36,7 @@ export function GroupProfileFeatures({
   const settings = useContext(ConversationSettingsNavigationContext);
   const fallback = useGroupResourceWindows({ ownerKey: scope });
   const active = useTabActive();
-  const root = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLSpanElement>(null);
   const handled = useRef('');
   const [feature, setFeature] = useState<{
     kind: Feature | 'management';
@@ -89,13 +82,15 @@ export function GroupProfileFeatures({
     if (handled.current === key) return;
     handled.current = key;
     const kind = section === 'content' ? 'announcements' : section;
-    if (kind === 'management' || features.some(([id]) => id === kind)) {
+    if (kind === 'management' || features.some((id) => id === kind)) {
       const anchor =
         kind === 'management'
           ? root.current
               ?.closest('.weq-group-page')
               ?.querySelector<HTMLElement>('[aria-label="会话设置"]')
-          : root.current?.querySelector<HTMLElement>(`[data-feature="${kind}"]`);
+          : root.current
+              ?.closest('.weq-group-page')
+              ?.querySelector<HTMLElement>('.weq-profile-page-actions');
       openRef.current(kind as Feature | 'management', anchor ?? null);
     }
   }, [active, scope, conversation.id, section, albumId, folderId, fileId]);
@@ -108,21 +103,7 @@ export function GroupProfileFeatures({
     onClose: close,
   };
   return (
-    <div ref={root} className="weq-group-profile-features" aria-label="群功能">
-      {features.map(([kind, label, Icon]) => (
-        <button
-          key={kind}
-          type="button"
-          className="weq-contact-secondary"
-          data-feature={kind}
-          title={`查看群${label}`}
-          aria-label={`查看群${label}`}
-          onClick={(event) => open(kind, event.currentTarget)}
-        >
-          <Icon size={14} />
-          {label}
-        </button>
-      ))}
+    <span ref={root} className="weq-group-profile-location">
       {feature?.kind === 'announcements' ? (
         <GroupAnnouncementsDialog
           {...props}
@@ -159,6 +140,6 @@ export function GroupProfileFeatures({
         />
       ) : null}
       {resources ? null : fallback.windows}
-    </div>
+    </span>
   );
 }
