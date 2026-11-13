@@ -133,6 +133,7 @@ export function SetEmojiReactions({
       <div
         ref={reactionsRef}
         className={cn('msg-reactions')}
+        style={{ gridTemplateColumns: `repeat(${Math.min(displayItems.length, 7)}, max-content)` }}
         // 回应人名单独立处理手势，不再触发父消息的长按或右键菜单。
         onPointerDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => {
