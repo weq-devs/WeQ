@@ -190,10 +190,10 @@
   gap: 7px;
   flex: none;
   padding: 8px 16px;
-  border: 1px solid var(--weq-accent-effective);
+  border: 1px solid var(--weq-accent-solid);
   border-radius: 9px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;

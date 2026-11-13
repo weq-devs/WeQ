@@ -196,9 +196,9 @@ html[data-theme='dark'] .weq-export-contact-outside > button {
 html[data-theme='dark'] .weq-export-tool .weq-exp-primary,
 .weq-export-tool .weq-exp-primary:hover:not(:disabled),
 html[data-theme='dark'] .weq-export-tool .weq-exp-primary:hover:not(:disabled) {
-  background: var(--weq-accent-effective);
-  border-color: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 .weq-export-tool .weq-exp-primary:disabled,
 html[data-theme='dark'] .weq-export-tool .weq-exp-primary:disabled {

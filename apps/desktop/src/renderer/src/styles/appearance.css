@@ -144,7 +144,7 @@ html[data-theme]
     .weq-mf-primary,
     .weq-ft-btn-primary
   ):hover:not(:disabled) {
-  background: var(--weq-accent-solid-hover, var(--weq-accent-effective));
+  background: var(--weq-accent-solid-hover, var(--weq-accent-solid));
   filter: none;
 }
 

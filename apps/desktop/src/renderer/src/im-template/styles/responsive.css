@@ -1250,8 +1250,8 @@
 :where(html[data-weq-layout='single'])
   .mobile-composer-expanded-tools
   .composer-send-expanded:not(:disabled) {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 :where(html[data-weq-layout='single'])
@@ -1267,8 +1267,8 @@
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .mobile-composer-expanded-tools
   .composer-send-expanded:not(:disabled) {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark']

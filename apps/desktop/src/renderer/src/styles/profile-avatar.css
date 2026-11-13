@@ -88,8 +88,8 @@
   place-items: center;
   border: 1.5px solid var(--weq-bg-surface);
   border-radius: 50%;
-  background: color-mix(in srgb, var(--weq-accent-effective) 82%, var(--weq-bg-surface));
-  color: #fff;
+  background: color-mix(in srgb, var(--weq-accent-solid) 82%, var(--weq-bg-surface));
+  color: var(--weq-accent-solid-foreground, #ffffff);
   opacity: 0;
   transform: scale(0.8);
   transition:

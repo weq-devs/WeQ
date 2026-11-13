@@ -213,8 +213,8 @@
   align-items: center;
   padding: 8px 14px;
   border-radius: 6px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 html[data-theme='dark'] .weq-qzn-like-popover {
   background: var(--popover);

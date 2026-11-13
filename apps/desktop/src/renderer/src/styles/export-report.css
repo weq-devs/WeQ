@@ -154,9 +154,9 @@
 }
 
 .weq-export-report-button.is-primary {
-  border: 1px solid var(--weq-accent-effective);
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
+  border: 1px solid var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
 }
 
 .weq-export-report-button:focus-visible {

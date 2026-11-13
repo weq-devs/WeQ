@@ -33,8 +33,8 @@
   height: 28px;
   flex: none;
   border-radius: 8px;
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
 }
 .weq-login-acc-identity-text {
   display: flex;

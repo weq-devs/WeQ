@@ -250,11 +250,11 @@ html[data-theme='dark'] .weq-group-bug {
 }
 
 .weq-group-bug-btn-primary {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   height: 32px;
   padding: 0 16px;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-solid) 32%, transparent);
 }
 
 .weq-group-bug-btn-primary:hover:not(:disabled) {

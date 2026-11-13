@@ -369,9 +369,9 @@ html[data-theme='dark'] .weq-call-self-video {
 .weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-btn.is-off,
 .weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-btn.is-off,
 .weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-btn.is-off {
-  background: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 70%, transparent);
-  color: #fff;
+  background: color-mix(in srgb, var(--weq-accent-solid) 45%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-solid) 70%, transparent);
+  color: var(--weq-accent-solid-foreground, #ffffff);
 }
 
 /* 挂断键保持固定红，但去掉深色投影（黑底上看不见）。 */

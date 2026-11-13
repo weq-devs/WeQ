@@ -226,7 +226,7 @@ html[data-theme='dark'] .weq-generated-export-row:has(input:checked) {
   color: var(--primary-foreground, #fff);
   background: linear-gradient(
     135deg,
-    var(--weq-accent-effective),
-    color-mix(in srgb, var(--weq-accent-effective) 50%, #53ce90)
+    var(--weq-accent-solid),
+    color-mix(in srgb, var(--weq-accent-solid) 50%, #53ce90)
   );
 }

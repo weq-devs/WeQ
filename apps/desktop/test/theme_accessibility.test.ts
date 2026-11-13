@@ -33,6 +33,7 @@ import { buildPalette, mix as assistantMix } from '../src/main/weq_assistant/the
 import {
   DEFAULT_DARK_ACCENT,
   accentColors,
+  apcaLc,
   contrastRatio,
   mix,
   normalizeHex,
@@ -47,12 +48,14 @@ afterEach(() => {
 });
 
 describe('主题可读色', () => {
-  it('截图紫色与中间亮度灰色为实心操作派生更强对比，但不改写主色', () => {
+  it('中亮度强调色的实心控件改用白字并压深底色，但不改写主色', () => {
     for (const accent of ['#8b5cf6', '#767676', '#777777']) {
       const colors = accentColors(accent, 'light');
       expect(colors.accent).toBe(accent);
-      expect(contrastRatio(colors.solid, colors.onSolid)).toBeGreaterThanOrEqual(7);
-      expect(contrastRatio(colors.solidHover, colors.onSolid)).toBeGreaterThanOrEqual(7);
+      expect(colors.onSolid).toBe('#ffffff');
+      expect(contrastRatio(colors.solid, colors.onSolid)).toBeGreaterThanOrEqual(4.5);
+      expect(Math.abs(apcaLc(colors.onSolid, colors.solid))).toBeGreaterThanOrEqual(60);
+      expect(contrastRatio(colors.solidHover, colors.onSolid)).toBeGreaterThanOrEqual(4.5);
     }
   });
   it('助手封面与跳转页复用同一混色和可读强调字，不改用户原色', () => {
@@ -179,8 +182,15 @@ describe('主题可读色', () => {
             expect(colors.accent).toBe(input);
             expect(contrastRatio(input, colors.onAccent)).toBeGreaterThanOrEqual(4.5);
             expect(contrastRatio(colors.hover, colors.onAccent)).toBeGreaterThanOrEqual(4.5);
-            expect(contrastRatio(colors.solid, colors.onSolid)).toBeGreaterThanOrEqual(7);
-            expect(contrastRatio(colors.solidHover, colors.onSolid)).toBeGreaterThanOrEqual(7);
+            if (mode === 'light') {
+              // 浅色实心控件按 APCA 60 与 WCAG 4.5 双门槛派生，不再要求 7:1。
+              expect(contrastRatio(colors.solid, colors.onSolid)).toBeGreaterThanOrEqual(4.5);
+              expect(Math.abs(apcaLc(colors.onSolid, colors.solid))).toBeGreaterThanOrEqual(60);
+              expect(contrastRatio(colors.solidHover, colors.onSolid)).toBeGreaterThanOrEqual(4.5);
+            } else {
+              expect(contrastRatio(colors.solid, colors.onSolid)).toBeGreaterThanOrEqual(7);
+              expect(contrastRatio(colors.solidHover, colors.onSolid)).toBeGreaterThanOrEqual(7);
+            }
             const surface = mode === 'dark' ? '#363636' : '#f7f7f7';
             expect(contrastRatio(colors.ink, surface)).toBeGreaterThanOrEqual(4.5);
             expect(contrastRatio(colors.ink, mix(surface, input, 0.18))).toBeGreaterThanOrEqual(

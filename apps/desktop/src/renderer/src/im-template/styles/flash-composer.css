@@ -289,8 +289,8 @@
 }
 
 .flash-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
 }
 

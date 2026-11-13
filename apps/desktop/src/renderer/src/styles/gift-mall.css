@@ -295,8 +295,8 @@ html[data-theme='dark'] .weq-gift-dialog {
   left: 8px;
   padding: 2px 7px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
-  color: #fff;
+  background: color-mix(in srgb, var(--weq-accent-solid) 88%, #000);
+  color: var(--weq-accent-solid-foreground, #ffffff);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -676,12 +676,12 @@ html[data-theme='dark'] .weq-gift-detail-result.is-ok {
   padding: 9px 20px;
   border: 0;
   border-radius: 999px;
-  background: var(--weq-accent-effective);
-  color: #fff;
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, #ffffff);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--weq-accent-solid) 28%, transparent);
 }
 
 .weq-gift-send:hover:not(:disabled) {

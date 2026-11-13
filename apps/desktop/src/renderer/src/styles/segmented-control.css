@@ -44,9 +44,9 @@
 }
 
 .weq-segmented > button[aria-checked='true'] {
-  background: var(--weq-accent-effective);
-  border-color: var(--weq-accent-effective);
-  color: var(--weq-accent-on, var(--primary-foreground));
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--weq-accent-solid-foreground, var(--primary-foreground)));
 }
 
 .weq-segmented > button:hover:not(:disabled):not([aria-checked='true']) {

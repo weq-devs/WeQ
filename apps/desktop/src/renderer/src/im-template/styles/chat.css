@@ -919,13 +919,13 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
 
 .message-action-button.primary {
   border-color: transparent;
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #12a8ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .message-action-button.primary:hover,
 .message-action-button.primary:focus-visible {
-  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 88%, black);
+  background: color-mix(in srgb, var(--weq-accent-solid, #12a8ff) 88%, black);
 }
 
 .message-action-button.danger {
@@ -2440,8 +2440,8 @@ html[data-theme='dark'] .member-role-badge.admin {
   gap: 6px;
   padding: 0 13px;
   border-radius: 7px;
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 13px;
   white-space: nowrap;
   line-height: 1;

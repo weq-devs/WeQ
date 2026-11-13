@@ -95,8 +95,8 @@
 }
 
 .weq-dress-kind.is-active {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 600;
 }
 
@@ -198,8 +198,8 @@
 
 .weq-dress-chip.is-active {
   border-color: transparent;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 600;
 }
 
@@ -243,8 +243,8 @@
 }
 
 .weq-dress-scope-btn.is-active {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 600;
 }
 
@@ -447,8 +447,8 @@
 }
 
 .weq-dress-use:hover:not(:disabled) {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-dress-use:disabled {
@@ -823,8 +823,8 @@ html[data-theme='dark'] .weq-dress-save {
   height: 20px;
   place-items: center;
   border-radius: 50%;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-dress-opacity {

@@ -2404,11 +2404,11 @@ html[data-theme='dark'] .weq-mface-detail-nav {
     background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   }
   .weq-entry-card.is-primary .weq-entry-icon {
-    color: #ffffff;
+    color: var(--weq-accent-solid-foreground, #ffffff);
     background: linear-gradient(
       140deg,
-      color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-      var(--weq-accent-effective)
+      color-mix(in srgb, var(--weq-accent-solid) 78%, white),
+      var(--weq-accent-solid)
     );
   }
   .weq-entry-text {
@@ -6099,9 +6099,9 @@ html[data-theme='dark'] .weq-set-agent-tag {
 }
 
 .weq-set-agent-item.is-on .weq-set-agent-chk {
-  border-color: var(--weq-accent-effective);
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  border-color: var(--weq-accent-solid);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-set-agent-main {
@@ -7378,10 +7378,10 @@ html[data-theme='dark'] .weq-set-mirror b {
   border-color: transparent;
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--weq-accent-effective) 78%, white),
-    var(--weq-accent-effective)
+    color-mix(in srgb, var(--weq-accent-solid) 78%, white),
+    var(--weq-accent-solid)
   );
-  color: #ffffff;
+  color: var(--weq-accent-solid-foreground, #ffffff);
   box-shadow: 0 6px 14px -7px rgba(0, 122, 204, 0.6);
 }
 
@@ -7999,8 +7999,8 @@ html[data-theme='dark'] .group-info-member-row.is-clickable:hover {
 
 /* 待处理需要更强的存在感：实心底 + 反白字。已同意/已拒绝一律淡色，用描边虚实区分。 */
 .app-shell .notice-card-request .notice-state.is-pending {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .app-shell .notice-card-request .notice-state.is-agreed {
@@ -9523,8 +9523,8 @@ html[data-theme='dark'] .weq-call-recording-play {
 .weq-group-receipt-dialog-tag {
   font-size: 11px;
   font-weight: 600;
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
   border-radius: 4px;
   padding: 2px 7px;
   letter-spacing: 0.3px;
@@ -10580,11 +10580,11 @@ html[data-theme='dark'] .weq-forward-bubble {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--weq-accent-solid-foreground, #ffffff);
   background: linear-gradient(
     135deg,
-    var(--weq-accent-effective),
-    color-mix(in srgb, var(--weq-accent-effective) 50%, #53ce90)
+    var(--weq-accent-solid),
+    color-mix(in srgb, var(--weq-accent-solid) 50%, #53ce90)
   );
 }
 
@@ -12895,8 +12895,8 @@ html[data-theme='dark'] .weq-provider-modal {
 }
 
 .weq-perhome-show-switch button.is-active {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 /* 有名片背景时切换胶囊跟着转亮。 */
@@ -13200,8 +13200,8 @@ html[data-theme='dark'] .weq-provider-modal {
  */
 .weq-profile-perhome.is-analytics {
   border-color: transparent;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 600;
 }
 
@@ -14165,13 +14165,13 @@ html[data-theme='dark'] .weq-provider-modal {
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  color: #fff;
+  color: var(--weq-accent-solid-foreground, #ffffff);
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--weq-accent-effective) 92%, white),
-    var(--weq-accent-effective)
+    color-mix(in srgb, var(--weq-accent-solid) 92%, white),
+    var(--weq-accent-solid)
   );
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-solid) 60%, black 6%);
   border-radius: 6px;
   cursor: pointer;
   transition:
@@ -14547,8 +14547,8 @@ html[data-theme='dark'] .weq-provider-modal {
 }
 .weq-collection-chip.is-active {
   border-color: transparent;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 .weq-collection-chip-n {
   font-size: 11px;
@@ -14991,8 +14991,8 @@ html[data-theme='dark'] .weq-provider-modal {
   width: 40px;
   height: 40px;
   border-radius: 9px;
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
 }
 .weq-col-loc-meta {
   display: flex;
@@ -15217,8 +15217,8 @@ html[data-theme='dark'] .weq-collection-state {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
 }
 
 .weq-wtools-nav-list {
@@ -15670,8 +15670,8 @@ html[data-theme='dark'] .weq-collection-state {
   padding: 5px 11px;
   border: 0;
   border-radius: 7px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -16068,12 +16068,12 @@ html[data-theme='dark'] .weq-wtools-hex-ascii {
   padding: 8px 16px;
   border: 0;
   border-radius: 9px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-solid) 28%, transparent);
   transition:
     filter 0.15s,
     opacity 0.15s,
@@ -16298,8 +16298,8 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
   padding: 7px 16px;
   border: 0;
   border-radius: 9px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -16387,8 +16387,8 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
   padding: 5px 12px;
   border: 0;
   border-radius: 7px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -16793,13 +16793,13 @@ html[data-theme='dark'] .weq-cap {
 }
 .weq-cap-btn.is-primary {
   border-color: transparent;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 600;
 }
 .weq-cap-btn.is-primary:hover:not(:disabled) {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   filter: brightness(1.07);
 }
 .weq-cap-btn.is-primary.is-pause {
@@ -17592,8 +17592,8 @@ html[data-theme='dark'] .weq-rp-body {
 
 .weq-rp-step.is-active .weq-rp-step-dot {
   border-color: transparent;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-rp-step.is-done .weq-rp-step-dot {
@@ -17861,8 +17861,8 @@ html[data-theme='dark'] .weq-rp-body {
 
 .weq-rp-db.is-busy .weq-rp-db-icon,
 .weq-rp-pick.is-active .weq-rp-pick-icon {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-rp-db-name,
@@ -19135,11 +19135,11 @@ html[data-theme='dark'] .weq-asst-select-pop {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--weq-accent-solid-foreground, #ffffff);
   background: linear-gradient(
     135deg,
-    var(--weq-accent-effective),
-    color-mix(in srgb, var(--weq-accent-effective) 50%, #53ce90)
+    var(--weq-accent-solid),
+    color-mix(in srgb, var(--weq-accent-solid) 50%, #53ce90)
   );
   box-shadow: var(--weq-shadow-soft);
   margin-bottom: 4px;
@@ -19266,13 +19266,13 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
   font-size: 11px;
   font-weight: 500;
   line-height: 1.7;
-  color: #fff;
+  color: var(--weq-accent-solid-foreground, #ffffff);
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--weq-accent-effective) 92%, white),
-    var(--weq-accent-effective)
+    color-mix(in srgb, var(--weq-accent-solid) 92%, white),
+    var(--weq-accent-solid)
   );
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 60%, black 6%);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-solid) 60%, black 6%);
   border-radius: 6px;
   cursor: pointer;
   pointer-events: auto;
@@ -22644,8 +22644,8 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
 }
 
 .weq-guild-direct-body {
@@ -22848,8 +22848,8 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
 }
 
 .weq-qzone-album-body {
@@ -23228,8 +23228,8 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   padding: 5px 14px;
   border: none;
   border-radius: 999px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font: inherit;
   font-size: 12px;
   font-weight: 550;
@@ -23567,13 +23567,13 @@ html.weq-theme-ripple::view-transition-new(root) {
 
 .weq-mf-primary {
   border: 1px solid transparent;
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-solid) 30%, transparent);
 }
 
 .weq-mf-primary:hover:not(:disabled) {
-  background: var(--weq-accent-hover, var(--weq-accent-effective));
+  background: var(--weq-accent-hover, var(--weq-accent-solid));
 }
 
 .weq-mf-primary:active:not(:disabled) {
@@ -24662,14 +24662,14 @@ html[data-theme='dark'] .weq-mf-preview {
   padding: 4px 12px;
   border: 1px solid transparent;
   border-radius: 999px;
-  color: var(--primary-foreground);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 12px;
-  background: var(--weq-accent-effective);
+  background: var(--weq-accent-solid);
   cursor: pointer;
 }
 
 .weq-mf-nested-done:hover {
-  background: var(--weq-accent-hover, var(--weq-accent-effective));
+  background: var(--weq-accent-hover, var(--weq-accent-solid));
 }
 
 /* 嵌在聊天记录里的编辑器：靠外层的工具栏进出，内层不再重复头部。 */
@@ -25017,8 +25017,8 @@ html[data-theme='dark'] .weq-mf-preview {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  color: var(--primary-foreground);
-  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
 }
 
 .weq-mf-mall-name {
@@ -26024,8 +26024,8 @@ html[data-theme='dark'] .weq-mf-mall-card {
   padding: 0.34rem 0.9rem;
   border: none;
   border-radius: 0.4rem;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;

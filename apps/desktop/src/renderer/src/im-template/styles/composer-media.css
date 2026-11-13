@@ -474,15 +474,15 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   border-radius: 50%;
   background: radial-gradient(
     circle at 34% 26%,
-    color-mix(in srgb, var(--weq-accent-effective, #0099ff) 68%, #ffffff),
-    var(--weq-accent-effective, #0099ff) 72%
+    color-mix(in srgb, var(--weq-accent-solid, #0099ff) 68%, #ffffff),
+    var(--weq-accent-solid, #0099ff) 72%
   );
-  color: #ffffff;
+  color: var(--weq-accent-solid-foreground, #ffffff);
   cursor: pointer;
   user-select: none;
   touch-action: none;
   box-shadow:
-    0 12px 28px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 40%, transparent),
+    0 12px 28px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 40%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.42);
   transition:
     transform 150ms ease,
@@ -655,8 +655,8 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   cursor: pointer;
   transition:
     transform 140ms ease,
@@ -849,10 +849,10 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 }
 
 .voice-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .voice-btn.primary:hover:not(:disabled) {
@@ -1166,10 +1166,10 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 }
 
 .link-card-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .link-card-btn.primary:hover:not(:disabled) {
@@ -1737,8 +1737,8 @@ html[data-theme='dark'] .link-card-preview-card {
 
 /* 正在播的那条：实心主题色 + 轻微呼吸，扫一眼就知道是哪条在响。 */
 .ai-voice-chip-play.is-playing {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   animation: ai-voice-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1797,10 +1797,10 @@ html[data-theme='dark'] .link-card-preview-card {
 }
 
 .ai-voice-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .ai-voice-btn.primary:hover:not(:disabled) {
@@ -2329,10 +2329,10 @@ html[data-theme='dark'] .ai-voice-chip {
 }
 
 .bounce-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .bounce-btn.primary:hover:not(:disabled) {
@@ -2766,10 +2766,10 @@ html[data-theme='dark'] .bounce-search {
 }
 
 .poke-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .poke-btn.primary:hover:not(:disabled) {
@@ -3385,10 +3385,10 @@ html[data-theme='dark'] .poke-combo-btn {
 }
 
 .redpacket-btn.primary {
-  background: var(--weq-accent-effective, #0099ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #0099ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
 .redpacket-btn.primary:hover:not(:disabled) {

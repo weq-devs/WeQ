@@ -64,14 +64,14 @@
 /* 主操作（OCR）+ 已出结果时的「眼镜」：跟主题色绑定。 */
 .weq-lightbox-action-primary,
 .weq-lightbox-action-accent {
-  background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 82%, transparent);
-  color: #fff;
+  background: color-mix(in srgb, var(--weq-accent-solid, #4c8dff) 82%, transparent);
+  color: var(--weq-accent-solid-foreground, #ffffff);
 }
 
 .weq-lightbox-action-primary:hover:not(:disabled),
 .weq-lightbox-action-accent:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 100%, transparent);
-  color: #fff;
+  background: color-mix(in srgb, var(--weq-accent-solid, #4c8dff) 100%, transparent);
+  color: var(--weq-accent-solid-foreground, #ffffff);
 }
 
 .weq-lightbox-action-sep {
@@ -287,8 +287,8 @@ html[data-theme='dark'] .weq-ocr-cover {
 }
 
 .weq-ocr-row-copy:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 30%, transparent);
-  color: #fff;
+  background: color-mix(in srgb, var(--weq-accent-solid, #4c8dff) 30%, transparent);
+  color: var(--weq-accent-solid-foreground, #ffffff);
 }
 
 .weq-ocr-panel-foot {
@@ -324,11 +324,11 @@ html[data-theme='dark'] .weq-ocr-cover {
 }
 
 .weq-ocr-panel-btn-primary {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 55%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective, #4c8dff) 78%, transparent);
-  color: #fff;
+  border-color: color-mix(in srgb, var(--weq-accent-solid, #4c8dff) 55%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-solid, #4c8dff) 78%, transparent);
+  color: var(--weq-accent-solid-foreground, #ffffff);
 }
 
 .weq-ocr-panel-btn-primary:hover {
-  background: var(--weq-accent-effective, #4c8dff);
+  background: var(--weq-accent-solid, #4c8dff);
 }

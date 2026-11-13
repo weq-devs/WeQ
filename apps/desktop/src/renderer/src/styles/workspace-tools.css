@@ -612,9 +612,9 @@ html[data-theme='dark'] .weq-tools-modal {
   color: transparent;
 }
 .weq-export-tool .weq-exp-row.is-on .weq-exp-row-check {
-  color: var(--primary-foreground);
-  border-color: var(--weq-accent-effective);
-  background: var(--weq-accent-effective);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  border-color: var(--weq-accent-solid);
+  background: var(--weq-accent-solid);
 }
 .weq-export-tool .weq-exp-avatar {
   border-radius: 50%;

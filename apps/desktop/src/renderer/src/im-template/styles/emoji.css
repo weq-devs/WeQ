@@ -321,8 +321,8 @@
 }
 
 .emoji-chip.active {
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #12a8ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .emoji-chip em {
@@ -355,8 +355,8 @@
   margin-left: auto;
   padding: 3px 10px;
   border-radius: 999px;
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #12a8ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 12px;
   font-weight: 500;
 }
@@ -1399,8 +1399,8 @@ html[data-theme='dark'] .qq-flash-cover {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
-  background: var(--weq-accent-effective, #12a8ff);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, #12a8ff);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 11px;
   line-height: 1;
 }

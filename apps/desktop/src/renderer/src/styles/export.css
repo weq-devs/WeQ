@@ -43,8 +43,8 @@
 }
 
 .weq-exp-mode.is-active .weq-exp-mode-icon {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-exp-mode.is-active .weq-exp-mode-text strong {
@@ -136,8 +136,8 @@
   flex: none;
   border: 0;
   border-radius: 9px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -600,9 +600,9 @@
 }
 
 .weq-exp-btn.is-primary {
-  border-color: var(--weq-accent-effective);
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  border-color: var(--weq-accent-solid);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 .weq-exp-btn.is-primary:hover:not(:disabled) {
@@ -1245,8 +1245,8 @@
 }
 
 .weq-exp-cal-cell.is-end {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   border-radius: 7px;
   font-weight: 600;
 }
@@ -3496,8 +3496,8 @@ html[data-theme='dark'] .weq-exp-skel-sched-card {
   padding: 8px 20px;
   border: 0;
   border-radius: 9px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
