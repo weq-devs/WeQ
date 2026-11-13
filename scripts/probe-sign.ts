@@ -1,16 +1,20 @@
 /**
  * 探测「QQ 自己给哪些命令签名」——**只连 pipe，不注入**。
  *
- * 前提：QQ 已被 SnowLuma/nnphook 的 Linux hook 注入并上线（socket 形如
- * `<runtime-dir>/mojo.<pid>.control.sock`）。本脚本不负责注入，只做两件事：
+ * 前提：QQ 已被 SnowLuma/nnphook 的 hook 注入并上线。本脚本不负责注入，只做两件事：
  *
- *   1. 通过 hook 的 control socket 发 `sendRequest`，让 **QQ 本体**组帧发出。
+ *   1. 通过 hook 的 control pipe 发 `sendRequest`，让 **QQ 本体**组帧发出。
  *      签名不签由 QQ 决定，我们不干预 —— 这正是要测的东西。
  *   2. 同时用 `nt_helper.startCapture` 抓网卡，把 QQ 刚发出去的那一帧解出来，
  *      看 SSO reserved 里有没有 tag 24（`SecInfo = SecSign + SecToken + SecExtra`）。
  *
  * 为什么不用 `scripts/sso_send.ts`：那条路经 nt_helper 自建 SSO 连接，签名是
  * nt_helper 自己塞的（只有 SecSign、token/extra 恒空），测不到 QQ 的行为。
+ *
+ * 传输层按平台分：Linux / macOS 是 Unix socket（`mojo.<pid>.control.sock`），
+ * Windows 是命名管道（`\\.\pipe\mojo.<pid>.control`）。两边帧格式完全一致
+ * （nnphook `apps/qq/common/pipe_protocol.hpp`），所以客户端只有「地址怎么拼」
+ * 和「pid 怎么发现」不同。
  *
  * 用法：
  *   pnpm tsx scripts/probe-sign.ts                       # 扫内置命令表
@@ -21,7 +25,8 @@
  *   # 断连模式下探测：发包前一刻砍掉 QQ 的 MSF 长连接，并在等待窗口内持续压制
  *   sudo pnpm tsx scripts/probe-sign.ts --disconnect --cmd MessageSvc.PbSendMsg
  *
- * 权限：抓包要 root 或 `CAP_NET_RAW`（Linux）；`--disconnect` 走 `ss -K`，也要 root。
+ * 权限：抓包要 root 或 `CAP_NET_RAW`（Linux）、管理员 + Npcap（Windows）；
+ * `--disconnect` 走 `ss -K`（Linux），也要 root，Windows 上不支持。
  */
 
 import { createConnection, type Socket } from 'node:net';
@@ -672,6 +677,41 @@ function discoverPid(): number | null {
   return null;
 }
 
+// ─────────────────────────── Windows 命名管道 ───────────────────────────
+
+/**
+ * Windows 侧的 hook 传输是命名管道，不是 Unix socket：
+ * `\\.\pipe\mojo.<pid>.control`（`qq_hook_ipc.cpp:make_pipe_name`）。
+ *
+ * 枚举 `\\.\pipe\` 能直接列出所有管道，所以 pid 发现比 Linux 更直接 ——
+ * 不用猜 runtime 目录，也不用读别的进程。
+ */
+function windowsControlPipe(pid: number): string {
+  return `\\\\.\\pipe\\mojo.${pid}.control`;
+}
+
+/**
+ * 列出本机所有 `mojo.<pid>.control` 管道对应的 pid。
+ *
+ * 管道名里的 `mojo` 是产品默认前缀；`NNP_ANTI_DETECT` 构建会改成 `ipc-`，
+ * 两种都认。QQ 本体自己也有一堆 `mojo.<a>.<b>.<digits>` 形式的 Chromium IPC
+ * 管道（尾巴是纯数字），靠结尾必须是 `.control` 把它们排除掉。
+ */
+function listWindowsHookPids(): number[] {
+  let entries: string[];
+  try {
+    entries = readdirSync('\\\\.\\pipe\\');
+  } catch {
+    return [];
+  }
+  const pids: number[] = [];
+  for (const name of entries) {
+    const match = /^(?:mojo|ipc-)\.(\d+)\.control$/.exec(name);
+    if (match) pids.push(Number(match[1]));
+  }
+  return pids.sort((a, b) => a - b);
+}
+
 async function probeOne(
   pipe: PipeClient,
   nt: NtHelperBinding,
@@ -768,23 +808,39 @@ async function probeOne(
 }
 
 async function main(): Promise<void> {
+  const isWindows = process.platform === 'win32';
+
   const explicitPid = opt('--pid');
-  const pid = explicitPid ? Number(explicitPid) : discoverPid();
+  // 自动发现时取**最大** pid：QQ 重开过的话旧的 control pipe 可能还挂着（进程
+  // 已死但句柄没回收前仍可见），最新的那个才是当前会话。
+  const windowsPids = isWindows ? listWindowsHookPids() : [];
+  const pid = explicitPid
+    ? Number(explicitPid)
+    : isWindows
+      ? windowsPids.length > 0
+        ? windowsPids[windowsPids.length - 1]!
+        : null
+      : discoverPid();
   if (!pid || !Number.isInteger(pid) || pid <= 0) {
     fail(
       '找不到运行中的 hook pipe。请先让 QQ 被注入并上线，或用 --pid 指定；' +
-        `已查找目录：${findRuntimeDirs().join(', ')}`,
+        (isWindows
+          ? 'Windows 上请确认 QQ 已被注入（`\\\\.\\pipe\\mojo.<pid>.control` 应存在）'
+          : `已查找目录：${findRuntimeDirs().join(', ')}`),
     );
   }
 
+  // Linux/macOS 是 Unix socket 路径；Windows 是命名管道名（不能拼目录）。
   const runtimeDir = opt('--runtime-dir');
-  const controlPath = runtimeDir
-    ? (findControlSocketInDir(runtimeDir, pid) ?? `${runtimeDir}/mojo.${pid}.control.sock`)
-    : (findControlSocket(pid) ??
-      fail(
-        `找不到 pid=${pid} 的 hook control socket；` +
-          `已查找目录：${findRuntimeDirs().join(', ')}`,
-      ));
+  const controlPath = isWindows
+    ? windowsControlPipe(pid)
+    : runtimeDir
+      ? (findControlSocketInDir(runtimeDir, pid) ?? `${runtimeDir}/mojo.${pid}.control.sock`)
+      : (findControlSocket(pid) ??
+        fail(
+          `找不到 pid=${pid} 的 hook control socket；` +
+            `已查找目录：${findRuntimeDirs().join(', ')}`,
+        ));
 
   const loaded = loadNativeSafe();
   if (!loaded.ok) fail(`native 加载失败（先跑 \`pnpm native:fetch\`）：${loaded.message}`);

@@ -63,6 +63,12 @@ Windows 在上述 19 条之外还会签 23 条（见 issue #126 与
 改了 `needSign` 或新增命令后，跑 `pnpm sign:probe`（或 `pnpm tsx scripts/probe-sign.ts
 --cmd <命令>`）复核，别照抄白名单；有平台差异时一定要分别在对应平台跑。
 
+**探测脚本的平台差异**：`probe-sign.ts` 两边都能跑，传输层自动按平台选——
+Linux/macOS 走 Unix socket（`mojo.<pid>.control.sock`），Windows 走命名管道
+（`\\.\pipe\mojo.<pid>.control`，pid 直接枚举 `\\.\pipe\` 发现）。Windows 前提是
+QQ 已注入 hook、装了 Npcap 且以管理员身份运行；`--disconnect`（砍 MSF 长连接看
+断连时是否仍签）只有 Linux 实现。
+
 动态 subCommand 的命令（`FetchGroupRequests` / `SetGroupRequest` / `SetReaction` /
 `SetPeerPin` / `GroupTodo`）在分发时无法按 sub 分别判定，所以要按实际会签情况整族标注。
 
