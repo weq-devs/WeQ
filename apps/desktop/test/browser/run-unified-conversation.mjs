@@ -80,6 +80,11 @@ try {
         await page.goto(`${base}/unified-conversation.html?kind=${kind}`);
         await page.locator('.chat-pane .chat-header').waitFor();
         if (kind === 'assistant') {
+          const fonts = await page
+            .locator('.weq-assistant-parameter select')
+            .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontSize));
+          if (fonts.length !== 2 || fonts[0] !== fonts[1])
+            throw new Error(`助手模型与思考强度菜单字号不一致：${fonts.join(', ')}`);
           for (const name of ['新建会话', '清空当前对话']) {
             if (await page.getByRole('button', { name, exact: true }).count())
               throw new Error(`助手会话工具栏不应显示「${name}」`);

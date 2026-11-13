@@ -50,6 +50,7 @@ it('助手实际控制器直接渲染共用页、编辑器和六组自动保存�
     expect(host.querySelector('.weq-asst-composer')).toBeNull();
     expect(host.querySelector('[aria-label="运行中发送方式"]')).toBeNull();
     const effort = host.querySelector<HTMLSelectElement>('select[aria-label="思考等级"]')!;
+    expect(effort.classList.contains('weq-set-input')).toBe(true);
     expect([...effort.options].map((option) => option.value)).toEqual(['off', 'minimal', 'high']);
     expect([...effort.options].map((option) => option.textContent)).toEqual([
       '不指定',

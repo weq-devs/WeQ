@@ -141,6 +141,7 @@ function EffortSelect({
   if (!values.includes(value)) values.push(value);
   return (
     <select
+      className="weq-set-input"
       aria-label="思考等级"
       value={value}
       onChange={(event) => onChange(event.target.value)}
