@@ -267,6 +267,7 @@ interface RawEmotion {
   rt_tid?: string;
   rt_uin?: string | number;
   rt_uinname?: string;
+  rt_createTime?: string;
   rt_con?: string | { content?: string };
   rt_pic?: RawPic[];
   rt_video?: RawTopVideo[];
@@ -329,6 +330,8 @@ export interface QzoneEmotion {
     tid: string;
     uin: string;
     nickname: string;
+    /** 接口提供的原帖时间文字，保留其实际精度与相对日期。 */
+    timeLabel?: string;
     content: string;
     images: string[];
     videos: QzoneEmotionVideo[];
@@ -470,6 +473,9 @@ export function mapMsgList(data: RawMsgListRet): QzoneMsgListResult {
                 tid: String(e.rt_tid ?? ''),
                 uin: String(e.rt_uin ?? ''),
                 nickname: typeof e.rt_uinname === 'string' ? e.rt_uinname : '',
+                ...(typeof e.rt_createTime === 'string' && e.rt_createTime.trim()
+                  ? { timeLabel: e.rt_createTime.trim() }
+                  : {}),
                 content: originalContent,
                 contentTruncated:
                   e.rt_has_more_con === true ||

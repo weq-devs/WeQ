@@ -41,7 +41,16 @@ const state = vi.hoisted(() => ({
   settings: vi.fn(async () => ({ qzoneForwardQuotePrevious: true })),
   related: vi.fn(),
 }));
-vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
+vi.mock('../src/renderer/src/components/QqAvatar', () => ({
+  QqAvatar: ({ size }: { size: number }) =>
+    h('img', {
+      src: `/@fs${resolve('../../resources/fileicon/image.png')}`,
+      alt: '',
+      width: size,
+      height: size,
+      style: { width: size, height: size },
+    }),
+}));
 vi.mock('../src/renderer/src/lib/accountFilePicker', () => ({ pickAccountFile: state.pickImage }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
@@ -221,8 +230,8 @@ function capture(host: HTMLElement, name = 'feedback') {
   const directory = process.env.WEQ_QZONE_FEEDBACK_LAYOUT;
   if (!directory) return;
   mkdirSync(directory, { recursive: true });
-  const post = host.querySelector('.weq-qzn-post')!;
-  const styles = ['index', 'qzone', 'qq-actions', 'qq-write', 'qzone-actions']
+  const post = host.querySelector('.weq-qzn-post, .weq-qzn-related-card')!;
+  const styles = ['index', 'qzone', 'qq-actions', 'qq-write', 'qzone-actions', 'identity-links']
     .map(
       (name) =>
         `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src/styles', `${name}.css`)}">`,
@@ -233,6 +242,77 @@ function capture(host: HTMLElement, name = 'feedback') {
     `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}.qa-post{padding:16px;max-width:700px}</style><body><main class="weq-qzn"><section class="qa-post">${post.outerHTML}</section></main>${document.querySelector('.weq-dialog-layer')?.outerHTML ?? ''}${document.querySelector('.weq-qzn-like-layer')?.outerHTML ?? ''}<script type="module">import {useThemeStore} from '/@fs${resolve('src/renderer/src/state/theme.ts')}';window.qaTheme=useThemeStore;</script></body></html>`,
   );
 }
+it.each(['短昵称', 'VeryLongNicknameWithoutAnySpaces'.repeat(4)])(
+  '作者和原帖使用两列身份区，回复为同一文字行：%s',
+  async (nickname) => {
+    state.posts.mockResolvedValue({
+      total: 1,
+      list: [
+        {
+          tid: 'post-a',
+          content: '合成说说',
+          time: 1794000000,
+          images: [],
+          videos: [],
+          commentNum: 2,
+          isPrivate: false,
+          repost: {
+            tid: 'original',
+            uin: '10002',
+            nickname,
+            content: '原帖正文',
+            images: [],
+            videos: [],
+            timeLabel: '2026年11月04日',
+          },
+        },
+      ],
+    });
+    state.interactions.mockResolvedValue({
+      comments: [
+        {
+          id: '1',
+          uin: '10002',
+          nickname: '评论者',
+          content: '一级评论',
+          time: 1794000001,
+          images: [],
+          isReply: false,
+        },
+        {
+          id: '2',
+          parentCommentId: '1',
+          replyId: '2',
+          uin: '10003',
+          nickname,
+          content: '测试回复正文',
+          replyToUin: '10002',
+          replyToNickname: '评论者',
+          time: 1794000002,
+          images: [],
+          isReply: true,
+        },
+      ],
+      likes: [],
+      commentCountInclusive: 2,
+      fieldCoverage: { comments: 'observed' },
+    });
+    const view = await mount();
+    await openComments(view.host);
+    for (const header of view.host.querySelectorAll('.weq-qzn-person-header')) {
+      expect(header.querySelectorAll('button')).toHaveLength(2);
+      expect(header.querySelector('button time')).toBeNull();
+    }
+    const original = view.host.querySelector('.weq-qzn-repost')!;
+    expect(original.querySelector('time')?.textContent).toBe('2026年11月04日');
+    const reply = view.host.querySelector('.weq-qzn-comment.is-reply')!;
+    expect(reply.querySelector(':scope > .weq-qzn-profile-avatar')).not.toBeNull();
+    expect(reply.querySelector('.weq-qzn-comment-line')?.textContent).toBe(
+      `${nickname} 回复 评论者：测试回复正文`,
+    );
+    capture(view.host, nickname === '短昵称' ? 'identity' : 'identity-long');
+  },
+);
 it('点赞立即高亮并更新数量，受理后即使远端仍为原值也重新校准', async () => {
   const view = await mount();
   const pending = deferred<QQWriteOutcome>();
@@ -487,6 +567,44 @@ it('转发悬停显示名单浮层，已有转发计数也保持问号，不请�
   expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain('暂无可信数据');
   expect(document.querySelector('[aria-label="转发语"]')).toBeNull();
   expect(state.write).not.toHaveBeenCalled();
+});
+
+it('通知头像与昵称分开，动作文字和摘要共用同一内容列', async () => {
+  state.related.mockResolvedValue({
+    feeds: [
+      {
+        uin: '10002',
+        nickname: '通知好友',
+        appid: 311,
+        time: 1794000000,
+        key: 'notice',
+        html: '<div class="f-single-head"><div class="f-nick"><a href="https://user.qzone.qq.com/10002">通知好友</a><span class="state">评论了我的说说</span></div></div><div class="f-info">说说内容摘要</div>',
+      },
+    ],
+    hasMore: false,
+  });
+  const view = await mount();
+  const related = [
+    ...view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-navigation button'),
+  ].find((button) => button.textContent === '与我相关')!;
+  await act(async () => related.click());
+  await act(async () => {
+    [...view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-related-tabs button')]
+      .find((button) => button.textContent?.startsWith('评论'))!
+      .click();
+  });
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(view.host.querySelector('.weq-qzn-related-card > summary')).not.toBeNull(),
+    );
+  });
+  const summary = view.host.querySelector('.weq-qzn-related-card > summary')!;
+  expect(summary.querySelector(':scope > .weq-qzn-profile-avatar')).not.toBeNull();
+  expect(summary.querySelector('.weq-qzn-related-action-line > button')?.textContent).toBe(
+    '通知好友',
+  );
+  expect(summary.querySelector('.weq-qzn-identity-link')).toBeNull();
+  capture(view.host, 'identity-related');
 });
 
 it('与我相关自动读取五页即停，向上滚动不续页，向下滚动才开始下一轮', async () => {

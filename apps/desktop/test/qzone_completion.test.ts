@@ -24,6 +24,33 @@ const detail = (content: string, contentHasMore: boolean | null) => ({
 });
 
 describe('visible Qzone body continuation', () => {
+  it('补全同一原帖时更新时间，后续缺失字段不擦除已读时间', async () => {
+    const post = source();
+    post.repost = {
+      tid: 'original',
+      uin: '10002',
+      nickname: '原作者',
+      content: '原文',
+      images: [],
+      videos: [],
+    };
+    const first = await completeQzonePostText(
+      post,
+      async () => ({
+        ...detail('正文', false),
+        repost: { ...post.repost!, timeLabel: '2026年11月04日' },
+      }),
+      () => {},
+      () => true,
+    );
+    const next = await completeQzonePostText(
+      first.post,
+      async () => ({ ...detail('正文', false), repost: post.repost! }),
+      () => {},
+      () => true,
+    );
+    expect(next.post.repost?.timeLabel).toBe('2026年11月04日');
+  });
   it('原生正文补充直接更新原帖，不清除尚未确认的截断状态或重复拉取', async () => {
     const read = vi.fn(async () => ({
       ...detail('原生补充正文', null),

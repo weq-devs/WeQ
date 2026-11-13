@@ -108,12 +108,14 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
       ),
     ),
   );
-  const avatar = host.querySelector<HTMLButtonElement>('.weq-qzn-identity-link')!;
+  const avatar = host.querySelector<HTMLButtonElement>(
+    '.weq-qzn-person-header > .weq-qzn-profile-avatar',
+  )!;
   act(() => avatar.click());
   expect(space).toHaveBeenCalledWith('10002', '原作者');
   expect(profile).not.toHaveBeenCalled();
   space.mockClear();
-  act(() => host.querySelector<HTMLButtonElement>('.weq-qzn-public-name')!.click());
+  act(() => host.querySelector<HTMLButtonElement>('.weq-qzn-person-info > button')!.click());
   expect(space).toHaveBeenCalledWith('10002', '原作者');
   expect(profile).not.toHaveBeenCalled();
   const actions = host.querySelector('.weq-qzn-actions')!;

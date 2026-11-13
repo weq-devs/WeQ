@@ -42,6 +42,7 @@ import { pageValue } from '../lib/pageSnapshots';
 import {
   QzonePersonIdentity,
   QzonePersonButton,
+  QzonePersonHeader,
   QzoneProfileAvatar,
 } from '../components/QzoneProfileAvatar';
 import {
@@ -1499,15 +1500,20 @@ function Post({
       className={`weq-qzn-post${selected ? ' is-selected' : ''}`}
     >
       <div className="weq-qzn-post-head">
-        <div>
-          <QzonePersonIdentity uin={hostUin} nickname={nickname} onSpace={onSpace} size={34}>
-            <QzoneName content={nickname} uin={hostUin} />
-          </QzonePersonIdentity>
-          <time dateTime={new Date(post.time * 1000).toISOString()}>
-            {timeText(post.time)}
-            {post.isPrivate ? ' · 仅自己可见' : ''}
-          </time>
-        </div>
+        <QzonePersonHeader
+          uin={hostUin}
+          nickname={nickname}
+          onSpace={onSpace}
+          size={34}
+          time={
+            <time dateTime={new Date(post.time * 1000).toISOString()}>
+              {timeText(post.time)}
+              {post.isPrivate ? ' · 仅自己可见' : ''}
+            </time>
+          }
+        >
+          <QzoneName content={nickname} uin={hostUin} />
+        </QzonePersonHeader>
       </div>
       {post.content.trim() ? (
         <p className="weq-qzn-content">
@@ -1569,21 +1575,24 @@ function Repost({
   return (
     <section className="weq-qzn-repost" aria-label="原帖">
       <div className="weq-qzn-repost-author">
-        {validUin ? (
-          <QzonePersonIdentity
-            size={26}
-            className="weq-qzn-person"
-            uin={original.uin}
-            nickname={original.nickname}
-            onSpace={onSpace}
-          >
-            <QzoneName content={original.nickname || original.uin} uin={original.uin} />
-          </QzonePersonIdentity>
-        ) : (
-          <strong>
-            <QzoneName content={original.nickname || '原作者'} />
-          </strong>
-        )}
+        <QzonePersonHeader
+          size={26}
+          uin={validUin ? original.uin : null}
+          nickname={original.nickname || original.uin || '原作者'}
+          onSpace={onSpace}
+          time={
+            original.time ? (
+              <time>{timeText(original.time)}</time>
+            ) : original.timeLabel ? (
+              <time>{original.timeLabel}</time>
+            ) : null
+          }
+        >
+          <QzoneName
+            content={original.nickname || original.uin || '原作者'}
+            uin={validUin ? original.uin : undefined}
+          />
+        </QzonePersonHeader>
       </div>
       {original.content.trim() ? (
         <p className="weq-qzn-content">
@@ -1909,21 +1918,33 @@ function PostActionsBody({
           previousContent={post.content ?? ''}
           onClose={() => setForwardOpen(false)}
         >
-          <strong>
+          <QzonePersonHeader
+            uin={hostUin}
+            nickname={hostUin}
+            size={34}
+            onSpace={onSpace}
+            time={post.time > 0 ? <time>{timeText(post.time)}</time> : null}
+          >
             <QzoneName content={hostUin} uin={hostUin} />
-          </strong>
+          </QzonePersonHeader>
           <p className="weq-qzn-content">
             <QzoneText content={post.content ?? ''} onSpace={onSpace} />
           </p>
           <QzoneMediaGrid images={post.images ?? []} videos={post.videos ?? []} />
           {post.repost ? (
             <section className="weq-qzn-repost">
-              <strong>
+              <QzonePersonHeader
+                uin={/^[1-9]\d{4,19}$/.test(post.repost.uin) ? post.repost.uin : null}
+                nickname={post.repost.nickname || post.repost.uin || '原作者'}
+                size={26}
+                onSpace={onSpace}
+                time={post.repost.timeLabel ? <time>{post.repost.timeLabel}</time> : null}
+              >
                 <QzoneName
                   content={post.repost.nickname || post.repost.uin}
                   uin={post.repost.uin}
                 />
-              </strong>
+              </QzonePersonHeader>
               <p className="weq-qzn-content">
                 <QzoneText content={post.repost.content} onSpace={onSpace} />
               </p>
@@ -2286,47 +2307,49 @@ function Interaction({
         ref={focusedComment?.id === comment.id ? focusRef : undefined}
         key={comment.id}
       >
+        <QzoneProfileAvatar
+          size={26}
+          uin={comment.uin}
+          nickname={comment.nickname}
+          onSpace={onSpace}
+        />
         <div>
-          <QzonePersonIdentity
-            size={26}
-            className="weq-qzn-person"
-            uin={comment.uin}
-            nickname={comment.nickname}
-            onSpace={onSpace}
-          >
-            <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
-          </QzonePersonIdentity>
-          {comment.isReply ? (
-            <span>
-              {' '}
-              回复{' '}
-              {comment.replyToUin ? (
-                <QzonePersonButton
-                  className="weq-qzn-person"
-                  uin={comment.replyToUin}
-                  nickname={comment.replyToNickname}
-                  onSpace={onSpace}
-                >
-                  <QzoneName
-                    content={comment.replyToNickname || comment.replyToUin}
+          <div className="weq-qzn-comment-line">
+            <QzonePersonButton uin={comment.uin} nickname={comment.nickname} onSpace={onSpace}>
+              <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
+            </QzonePersonButton>
+            {comment.isReply ? (
+              <span>
+                {' '}
+                回复{' '}
+                {comment.replyToUin ? (
+                  <QzonePersonButton
                     uin={comment.replyToUin}
-                  />
-                </QzonePersonButton>
-              ) : (
-                <QzoneName content={comment.replyToNickname || ''} uin={comment.replyToUin} />
-              )}
-              ：
-            </span>
-          ) : null}
-          {comment.isReply ? (
-            <span className="weq-qzn-reply-message">
-              <QzoneText content={comment.content} onSpace={onSpace} />
-            </span>
-          ) : (
+                    nickname={comment.replyToNickname}
+                    onSpace={onSpace}
+                  >
+                    <QzoneName
+                      content={comment.replyToNickname || comment.replyToUin}
+                      uin={comment.replyToUin}
+                    />
+                  </QzonePersonButton>
+                ) : (
+                  <QzoneName content={comment.replyToNickname || ''} uin={comment.replyToUin} />
+                )}
+                ：
+              </span>
+            ) : null}
+            {comment.isReply ? (
+              <span className="weq-qzn-reply-message">
+                <QzoneText content={comment.content} onSpace={onSpace} />
+              </span>
+            ) : null}
+          </div>
+          {!comment.isReply ? (
             <p>
               <QzoneText content={comment.content} onSpace={onSpace} />
             </p>
-          )}
+          ) : null}
           <Pictures images={comment.images} />
           <div className="weq-qzn-comment-meta">
             <time>{timeText(comment.time)}</time>
@@ -3219,19 +3242,27 @@ function RelatedCard({
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary>
-        {!activity.actorUin ? <Icon size={24} className="weq-qzn-related-icon" /> : null}
+        {activity.actorUin ? (
+          <QzoneProfileAvatar
+            size={34}
+            uin={activity.actorUin}
+            nickname={activity.actorName}
+            onSpace={onSpace}
+          />
+        ) : (
+          <Icon size={24} className="weq-qzn-related-icon" />
+        )}
         <span className="weq-qzn-related-summary">
           <span className="weq-qzn-related-action-line">
             {activity.actorUin ? (
-              <QzonePersonIdentity
-                size={34}
+              <QzonePersonButton
                 className="weq-qzn-related-name"
                 uin={activity.actorUin}
                 nickname={activity.actorName}
                 onSpace={onSpace}
               >
                 <span className="weq-qzn-name">{activity.actorName || activity.actorUin}</span>
-              </QzonePersonIdentity>
+              </QzonePersonButton>
             ) : null}
             <span title={relatedActionLine(activity)}>{relatedActionLine(activity)}</span>
           </span>
@@ -3364,17 +3395,15 @@ function FeedCard({
   return (
     <article ref={ref} className="weq-qzn-post" key={`${feed.uin}:${feed.appid}:${feed.key}`}>
       <div className="weq-qzn-post-head">
-        <div>
-          <QzonePersonIdentity
-            uin={String(feed.uin)}
-            nickname={feed.nickname}
-            onSpace={onSpace}
-            size={34}
-          >
-            <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
-          </QzonePersonIdentity>
-          <time>{timeText(feed.time)}</time>
-        </div>
+        <QzonePersonHeader
+          uin={String(feed.uin)}
+          nickname={feed.nickname}
+          onSpace={onSpace}
+          size={34}
+          time={<time>{timeText(feed.time)}</time>}
+        >
+          <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
+        </QzonePersonHeader>
         <span className="weq-qzn-feed-kind">
           {(
             { 311: '说说', 2: '日志', 4: '相册', 202: '分享', 216: '动态' } as Record<

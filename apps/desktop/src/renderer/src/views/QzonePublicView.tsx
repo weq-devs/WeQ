@@ -37,7 +37,7 @@ import { client } from '../trpc/client';
 import { normalizeQzonePublicRefreshCooldown } from '@weq/service/qzone-public-settings';
 import { PageDataCache } from '../lib/pageDataCache';
 import { QqAvatar } from '../components/QqAvatar';
-import { QzonePersonIdentity } from '../components/QzoneProfileAvatar';
+import { QzonePersonIdentity, QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { QzoneEmoji } from '../components/QzoneEmoji';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
@@ -669,26 +669,14 @@ function PublicFeedCard({
   return (
     <article className="weq-qzn-post weq-qzn-public-post">
       <header className="weq-qzn-post-head">
-        <div>
-          {canOpenSpace ? (
-            <QzonePersonIdentity
-              size={36}
-              url={view.author.portrait}
-              className="weq-qzn-public-name"
-              uin={view.author.uin}
-              nickname={authorLabel}
-              onSpace={onSpace}
-            >
-              {authorLabel}
-            </QzonePersonIdentity>
-          ) : (
-            <span className="weq-qzn-identity-link">
-              <QqAvatar uin={null} url={view.author.portrait} size={36} />
-              <strong className="weq-qzn-public-name">{authorLabel}</strong>
-            </span>
-          )}
-          <time>{timeText(view.time)}</time>
-        </div>
+        <QzonePersonHeader
+          size={36}
+          url={view.author.portrait}
+          uin={canOpenSpace ? view.author.uin : null}
+          nickname={authorLabel}
+          onSpace={onSpace}
+          time={<time>{timeText(view.time)}</time>}
+        />
         {view.author.canFollow && capabilities.canFollow ? (
           <button
             type="button"
@@ -793,7 +781,14 @@ function PublicFeedCard({
               : undefined
           }
         >
-          <strong>{authorLabel}</strong>
+          <QzonePersonHeader
+            uin={canOpenSpace ? view.author.uin : null}
+            nickname={authorLabel}
+            url={view.author.portrait}
+            size={36}
+            onSpace={onSpace}
+            time={<time>{timeText(view.time)}</time>}
+          />
           <p className="weq-qzn-content">
             <PublicText content={view.text} />
           </p>

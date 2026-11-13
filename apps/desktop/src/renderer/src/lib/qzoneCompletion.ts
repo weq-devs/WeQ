@@ -46,6 +46,7 @@ export async function completeQzonePostText(
     if (sameRepost && post.repost && detail.repost) {
       post.repost = {
         ...post.repost,
+        ...(detail.repost.timeLabel ? { timeLabel: detail.repost.timeLabel } : {}),
         content:
           detail.repost.content.length >= post.repost.content.length ||
           detail.repostHasMore === false

@@ -43,6 +43,24 @@ afterEach(() => {
 });
 
 describe('post completion', () => {
+  it.each(['2026年11月04日', '前天10:05'])(
+    '保留原帖接口给出的时间文字 %s，不借用转发者时间',
+    (label) => {
+      const raw = {
+        tid: 'forward',
+        created_time: 1794000000,
+        rt_tid: 'original',
+        rt_createTime: label,
+      };
+      expect(mapMsgList({ msglist: [raw] }).list[0]?.repost).toMatchObject({ timeLabel: label });
+      expect(
+        parseQzonePostDetail(jsonp({ code: 0, content: '', ...raw }), '10001', 'forward').repost,
+      ).toMatchObject({ timeLabel: label });
+      expect(
+        mapMsgList({ msglist: [{ ...raw, rt_createTime: undefined }] }).list[0]?.repost,
+      ).not.toHaveProperty('timeLabel');
+    },
+  );
   it('Web 已返回完整正文时不调用原生请求', async () => {
     const service = detailService();
     const native = vi

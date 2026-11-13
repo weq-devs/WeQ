@@ -11,8 +11,9 @@
 }
 
 .weq-qzn-public-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
   overflow-wrap: anywhere;
 }
 

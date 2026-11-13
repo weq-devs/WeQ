@@ -134,11 +134,8 @@
   align-items: center;
   gap: 10px;
 }
-.weq-qzn-post-head > div {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
+.weq-qzn-post-head > .weq-qzn-person-header {
+  min-width: 0;
 }
 .weq-qzn-post-head strong {
   font-size: 14px;
@@ -555,12 +552,40 @@
   min-height: 1px;
 }
 
-.weq-qzn button.weq-qzn-person {
+.weq-qzn button.weq-qzn-person,
+.weq-qzn-person-info > .weq-qzn-name {
   padding: 0;
-  font-size: inherit;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--primary);
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
   vertical-align: baseline;
+}
+.weq-qzn-person-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.weq-qzn-person-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-qzn-person-info > time {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.weq-qzn-comment-line {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.weq-qzn-comment-line button.weq-qzn-person-link {
+  display: inline;
+  line-height: inherit;
 }
 
 .weq-qzn-name .weq-qzn-emoji {
@@ -765,7 +790,7 @@
 .weq-qzn-related-detail dd {
   margin: 0;
 }
-.weq-qzn-related-detail button {
+.weq-qzn-related-detail button:not(.weq-qzn-person-link) {
   max-width: 100%;
   overflow-wrap: anywhere;
   text-align: left;

@@ -26,7 +26,7 @@ export function QzonePersonButton({
   return (
     <button
       type="button"
-      className={className}
+      className={`weq-qzn-person-link${className ? ` ${className}` : ''}`}
       style={style}
       aria-label={showProfile ? `查看 ${nickname || uin} 的资料` : `进入 ${nickname || uin} 的空间`}
       disabled={showProfile ? !openProfile : !openSpace}
@@ -51,6 +51,45 @@ export function QzonePersonButton({
     >
       {children}
     </button>
+  );
+}
+
+/** 头像与昵称同路由，昵称和时间作为一组与头像垂直居中。 */
+export function QzonePersonHeader({
+  uin,
+  nickname,
+  url,
+  size,
+  onSpace,
+  children,
+  time,
+}: {
+  uin?: string | null;
+  nickname: string;
+  url?: string | null;
+  size: number;
+  onSpace?: (uin: string, nickname?: string) => void;
+  children?: ReactNode;
+  time?: ReactNode;
+}) {
+  return (
+    <div className="weq-qzn-person-header">
+      {uin ? (
+        <QzoneProfileAvatar uin={uin} nickname={nickname} url={url} size={size} onSpace={onSpace} />
+      ) : (
+        <QqAvatar uin={null} url={url} size={size} />
+      )}
+      <div className="weq-qzn-person-info">
+        {uin ? (
+          <QzonePersonButton uin={uin} nickname={nickname} onSpace={onSpace}>
+            {children ?? <span className="weq-qzn-name">{nickname}</span>}
+          </QzonePersonButton>
+        ) : (
+          <span className="weq-qzn-name">{children ?? nickname}</span>
+        )}
+        {time}
+      </div>
+    </div>
   );
 }
 
