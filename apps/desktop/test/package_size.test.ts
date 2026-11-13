@@ -60,6 +60,7 @@ const { load } = appBuilderRequire('js-yaml') as { load: (source: string) => unk
 type BuildFiles = { files?: (string | { filter: string[] })[] };
 type Config = BuildFiles &
   Record<'mac' | 'win' | 'linux', BuildFiles> & {
+    electronLanguages: string[];
     asarUnpack: string[];
     extraResources: { from: string; to: string }[];
   };
@@ -87,6 +88,10 @@ const { getNodeModuleFileMatcher, getMainFileMatchers, getFileMatchers } = build
 const { Arch } = builderRequire('electron-builder') as { Arch: Record<string, number> };
 
 describe('桌面发行包瘦身', () => {
+  it('仅保留中英文，macOS 使用实际的 lproj 名称', () => {
+    expect(config.electronLanguages).toEqual(['en-US', 'en-GB', 'zh-CN', 'zh-TW']);
+    expect(rawConfig.mac).toHaveProperty('electronLanguages', ['en', 'en_GB', 'zh_CN', 'zh_TW']);
+  });
   it('转写 JS 包与平台原生绑定共同解包，不再额外复制到不相邻的目录', () => {
     const unpack = getFileMatchers(config, 'asarUnpack', '/fixture/package', {
       defaultSrc: desktop,
@@ -266,6 +271,14 @@ describe('桌面发行包瘦身', () => {
         ];
         try {
           for (const name of candidates) mkdirSync(join(modules, name), { recursive: true });
+          const frameworkResources = join(
+            resources,
+            '../Frameworks/Electron Framework.framework/Resources',
+          );
+          if (platform === 'mac') {
+            for (const language of ['en', 'en_GB', 'zh_CN', 'zh_TW', 'ja'])
+              mkdirSync(join(frameworkResources, `${language}.lproj`), { recursive: true });
+          }
           const dress = join(resources, 'resources/dress');
           mkdirSync(dress, { recursive: true });
           writeFileSync(
@@ -277,8 +290,19 @@ describe('桌面发行包瘦身', () => {
             electronPlatformName:
               platform === 'mac' ? 'darwin' : platform === 'win' ? 'win32' : 'linux',
             arch: Arch[arch],
-            packager: { appInfo: { productFilename: 'weQ' } },
+            packager: {
+              appInfo: { productFilename: 'weQ' },
+              config,
+              platformSpecificBuildOptions: rawConfig[platform],
+            },
           });
+          if (platform === 'mac')
+            expect(readdirSync(frameworkResources).sort()).toEqual([
+              'en.lproj',
+              'en_GB.lproj',
+              'zh_CN.lproj',
+              'zh_TW.lproj',
+            ]);
           for (const name of candidates) {
             const expected = name.includes('resvg-js-darwin-')
               ? platform === 'mac' && name.endsWith(`-${arch}`)

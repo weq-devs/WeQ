@@ -25,6 +25,18 @@ const require = createRequire(new URL('../apps/desktop/package.json', import.met
 const { Arch } = require('electron-builder');
 const ts = require('typescript');
 
+/** electron-builder 25 只裁剪应用资源目录，补上 macOS Framework 内的语言包。 */
+export function pruneMacFrameworkLanguages(directory, languages) {
+  if (!languages?.length || !existsSync(directory)) return;
+  const entries = readdirSync(directory).filter((name) => name.endsWith('.lproj'));
+  if (!entries.some((name) => languages.includes(name.slice(0, -6))))
+    throw new Error('Electron Framework 语言配置未匹配任何语言包');
+  for (const name of entries) {
+    if (!languages.includes(name.slice(0, -6)))
+      rmSync(join(directory, name), { recursive: true, force: true });
+  }
+}
+
 function fileHash(file) {
   const hash = createHash('sha256');
   const buffer = Buffer.alloc(1024 * 1024);
@@ -171,6 +183,11 @@ export function trimDesktopPackage(context) {
   }
   pruneWorkerChunks(join(resources, 'out/main'));
   if (platform === 'darwin') {
+    pruneMacFrameworkLanguages(
+      join(resources, '../Frameworks/Electron Framework.framework/Resources'),
+      context.packager.platformSpecificBuildOptions?.electronLanguages ??
+        context.packager.config?.electronLanguages,
+    );
     deduplicateOnnxLibraries(
       join(resources, 'node_modules/onnxruntime-node/bin/napi-v6/darwin', arch),
     );

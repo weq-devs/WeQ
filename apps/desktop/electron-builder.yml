@@ -1,5 +1,10 @@
 appId: app.weq.desktop
 productName: weQ
+electronLanguages:
+  - en-US
+  - en-GB
+  - zh-CN
+  - zh-TW
 copyright: Copyright © 2026 weQ contributors
 directories:
   output: release/${version}
@@ -220,6 +225,11 @@ linux:
 # 首次仍需按「隐私与安全性 → 仍要打开」放行。所有 macOS 更新均使用官方 Release
 # 哈希验证和退出后安装助手；固定证书不改变安装方式。
 mac:
+  electronLanguages:
+    - en
+    - en_GB
+    - zh_CN
+    - zh_TW
   icon: ../../resources/brand/logo.png
   sign: ../../scripts/sign-macos.mjs
   # 仅主进程读取 QQ 调试副本；渲染子进程沿用默认继承权限。

@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -15,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import {
   deduplicateOnnxLibraries,
+  pruneMacFrameworkLanguages,
   pruneWorkerChunks,
 } from '../../../scripts/trim-desktop-package.mjs';
 
@@ -26,6 +28,35 @@ function fixture(run: (directory: string) => void) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+describe('macOS Framework 语言裁剪', () => {
+  it('保留中英文及非语言资源，重复执行结果不变', () => {
+    fixture((directory) => {
+      const languages = ['en', 'en_GB', 'zh_CN', 'zh_TW'];
+      for (const name of [...languages, 'ja', 'fr', 'de']) {
+        mkdirSync(join(directory, `${name}.lproj`));
+        writeFileSync(join(directory, `${name}.lproj/locale.pak`), name);
+      }
+      writeFileSync(join(directory, 'icudtl.dat'), 'keep');
+      for (let i = 0; i < 2; i++) {
+        pruneMacFrameworkLanguages(directory, languages);
+        expect(readdirSync(directory).sort()).toEqual(
+          [...languages.map((name) => `${name}.lproj`), 'icudtl.dat'].sort(),
+        );
+      }
+    });
+  });
+
+  it('无配置或目录缺失时不处理，语言名全不匹配时在删除前报错', () => {
+    fixture((directory) => {
+      mkdirSync(join(directory, 'en.lproj'));
+      pruneMacFrameworkLanguages(directory, undefined);
+      pruneMacFrameworkLanguages(join(directory, 'missing'), ['en']);
+      expect(() => pruneMacFrameworkLanguages(directory, ['en-US'])).toThrow('未匹配');
+      expect(existsSync(join(directory, 'en.lproj'))).toBe(true);
+    });
+  });
+});
 
 describe('同版本 ONNX 动态库去重', () => {
   for (const [version, alias] of [
