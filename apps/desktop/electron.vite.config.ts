@@ -158,6 +158,8 @@ export default defineConfig({
     ...rendererLogging.config,
     clearScreen: false,
     root: resolve(import.meta.dirname, 'src/renderer'),
+    // Web 复用 renderer 源码，但不能覆盖桌面进程仍在使用的预构建分块。
+    cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-desktop'),
     plugins: [...rendererLogging.plugins, react(), tailwindcss()],
     resolve: {
       alias: {

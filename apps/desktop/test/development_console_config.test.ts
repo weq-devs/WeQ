@@ -37,6 +37,31 @@ it('Vite 配置不再依赖打包加载器注入的 __dirname', () => {
     expect(readFileSync(resolve(__dirname, path), 'utf8')).not.toMatch(/\b__dirname\b/);
   }
 });
+it('桌面与 Web 复用源码时使用独立的依赖缓存，避免互相删除懒加载分块', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import assert from 'node:assert/strict';
+       import { resolveConfig } from 'vite';
+       import { loadConfigFromFile } from 'electron-vite';
+       const { config } = await loadConfigFromFile({ command: 'serve', mode: 'development' });
+       const desktop = await resolveConfig({ ...config.renderer, configFile: false }, 'serve');
+       const web = await resolveConfig({ configFile: '../web/vite.config.ts' }, 'serve');
+       assert.equal(desktop.root, web.root);
+       assert.notEqual(desktop.cacheDir, web.cacheDir, '两个目标不能覆盖彼此的预构建缓存');`,
+    ],
+    {
+      cwd: resolve(__dirname, '..'),
+      env: { ...process.env, WEQ_DEV_CONSOLE: '0' },
+      encoding: 'utf8',
+      timeout: 15_000,
+    },
+  );
+  expect(result.error).toBeUndefined();
+  expect(result.status, result.stderr).toBe(0);
+}, 20_000);
 it.each([
   [
     'desktop',

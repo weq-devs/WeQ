@@ -26,6 +26,7 @@ export default defineConfig({
   ...logging.config,
   clearScreen: false,
   root: RENDERER,
+  cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-web'),
   plugins: [...logging.plugins, react(), tailwindcss()],
   define: {
     'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web'),
