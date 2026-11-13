@@ -1,11 +1,12 @@
 import { act, createElement as h, createRef, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { makeSolidPng } from '@weq/protocol';
-import { GroupFileActions } from '../src/renderer/src/components/qq-actions/GroupFileActions';
+import { GroupFileManager } from '../src/renderer/src/components/GroupFileManager';
 import { GroupNoticeActions } from '../src/renderer/src/components/qq-actions/GroupNoticeActions';
 import {
   GroupAlbumMediaActions,
@@ -29,7 +30,7 @@ import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/Pro
 import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weq/protocol';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { GroupSignDialog } from '../src/renderer/src/components/GroupSignDialog';
 import {
   MessageTodoAction,
@@ -125,6 +126,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         qzone: { likes: { query: vi.fn(async () => ({ likes: [], coverage: 'complete' })) } },
         dressup: { peerStats: { query: async () => ({ likeCount: 100 }) } },
         listAllGroups: { query: async () => [] },
+        getGroupMembersByUids: { query: async () => [] },
+        getGroupMembersByUins: { query: async () => [] },
+        getProfilesByUids: { query: async () => [] },
+        getProfileByUin: { query: async () => null },
         listGroupAlbumMedia: { query: async () => [] },
         pickSendFile: { mutate: state.picker },
         sendFile: {
@@ -196,6 +201,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
       }),
       account: {
+        dressup: { peerStats: { useQuery: () => ({ data: { likeCount: 100 } }) } },
+        contactMetrics: {
+          snapshot: { useQuery: () => ({ data: { rows: {} } }) },
+          changed: { useSubscription: () => undefined },
+        },
         getAccountConfig: {
           useQuery: () => ({ data: { uin: '10001', configId: state.configId } }),
         },
@@ -207,7 +217,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               useQuery: (input?: { kind?: string }) => ({
                 data: state.data[`${name}:${input?.kind}`] ?? state.data[name],
                 isLoading: false,
-                isFetching: false,
+                isFetching: Boolean(state.data[`fetching:${name}`]),
                 error: state.data[`error:${name}`],
                 refetch: async () => {
                   if (name === 'groupJoinSettings') await state.refreshJoin();
@@ -256,10 +266,13 @@ function fixture(render: () => ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const update = () => act(() => root.render(render()));
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const update = () =>
+    act(() => root.render(h(QueryClientProvider, { client: queryClient }, render())));
   update();
   cleanups.push(() => {
     act(() => root.unmount());
+    queryClient.clear();
     host.remove();
   });
   const button = (label: string) =>
@@ -326,6 +339,71 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('公告轻浮窗关闭后自动恢复草稿，账号与数据源不串稿', async () => {
+    let visible = true;
+    const close = vi.fn(() => {
+      visible = false;
+    });
+    const f = fixture(() =>
+      visible
+        ? h(GroupAnnouncementsDialog, {
+            groupCode: '123',
+            groupName: '草稿恢复合成群',
+            presentation: 'popover',
+            onClose: close,
+          })
+        : null,
+    );
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '关闭浮窗后仍保留的公告草稿');
+    await act(async () => f.button('选择图片').click());
+    await act(async () => f.button('关闭群公告').click());
+    expect(close).toHaveBeenCalledOnce();
+    expect(state.confirm).not.toHaveBeenCalled();
+    f.update();
+    visible = true;
+    f.update();
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="新公告内容"]')?.value).toBe(
+      '关闭浮窗后仍保留的公告草稿',
+    );
+    expect(f.host.querySelector('.weq-qq-action-image img')?.getAttribute('alt')).toBe('image.png');
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.querySelector('textarea')).toBeNull();
+    state.configId = 'source-a';
+    f.update();
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="新公告内容"]')?.value).toBe(
+      '关闭浮窗后仍保留的公告草稿',
+    );
+  });
+  it('公告轻浮窗发布受理后清空草稿，再次关闭不弹放弃确认', async () => {
+    let visible = true;
+    const close = vi.fn(() => {
+      visible = false;
+    });
+    const f = fixture(() =>
+      visible
+        ? h(GroupAnnouncementsDialog, {
+            groupCode: '123',
+            groupName: '已发布公告合成群',
+            presentation: 'popover',
+            onClose: close,
+          })
+        : null,
+    );
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '已受理的公告');
+    await act(async () => f.button('发布公告').click());
+    expect(f.host.querySelector('textarea')).toBeNull();
+    const confirmations = state.confirm.mock.calls.length;
+    await act(async () => f.button('关闭群公告').click());
+    expect(close).toHaveBeenCalledOnce();
+    expect(state.confirm).toHaveBeenCalledTimes(confirmations);
+    f.update();
+    visible = true;
+    f.update();
+    expect(f.host.querySelector('textarea')).toBeNull();
+  });
   it('在线列表为空时保留本地待办，点击摘要正文也能打开详情', async () => {
     state.data.todoLocalList = [
       { sequence: '321', sourceId: '321_9', text: '本地已有待办', completed: false },
@@ -478,6 +556,25 @@ describe('QQ 主动操作的实际界面', () => {
     });
     expect(close).toHaveBeenCalledOnce();
   });
+  it('已读取的空待办在后台重复读取和读取失败时保持原文案', async () => {
+    state.data.todoLocalList = [];
+    state.data.todoList = [];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    const summary = () => f.host.querySelector('.weq-todo-summary')?.textContent;
+    expect(summary()).toBe('暂无待办');
+    state.data['fetching:todoLocalList'] = true;
+    state.data['fetching:todoList'] = true;
+    f.update();
+    expect(summary()).toBe('暂无待办');
+    await act(async () => f.button('查看群待办').click());
+    expect(f.host.textContent).not.toContain('读取待办中');
+    expect(f.host.textContent).toContain('暂无群待办');
+    state.data['fetching:todoLocalList'] = false;
+    state.data['fetching:todoList'] = false;
+    state.data['error:todoLocalList'] = new Error('暂时读取失败');
+    f.update();
+    expect(summary()).toBe('暂无待办');
+  });
   it('已完成的待办不再提供重复完成操作，取消仍由群管理权限控制', async () => {
     state.data.todoList = [{ sequence: '123', text: '已完成事项', completed: true }];
     const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
@@ -532,7 +629,7 @@ describe('QQ 主动操作的实际界面', () => {
     f.update();
     expect(f.button('今日打卡').disabled).toBe(true);
   });
-  it('资料、公告、待办同一侧栏独立竖排，原待办操作与权限不变', async () => {
+  it('侧栏只留公告和待办单行摘要，原待办操作与权限不变', async () => {
     state.data.todoList = [{ sequence: '123', text: '统一入口的待办' }];
     const management = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(management.host.textContent).not.toContain('群待办');
@@ -557,12 +654,12 @@ describe('QQ 主动操作的实际界面', () => {
     );
     const sections = [...f.host.querySelectorAll('aside > section[aria-label]')];
     expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual([
-      '群资料',
       '群公告',
       '群待办',
     ]);
-    expect(sections[1].textContent).toContain('公告摘要');
-    const panel = sections[2];
+    expect(f.host.querySelector('.group-info-overview')).toBeNull();
+    expect(sections[0].textContent).toContain('公告摘要');
+    const panel = sections[1];
     expect(panel.textContent).toContain('统一入口的待办');
     expect(panel.querySelector('summary')).toBeNull();
     expect(panel.textContent).not.toContain('公告正文');
@@ -803,7 +900,7 @@ describe('QQ 主动操作的实际界面', () => {
   };
   it('群文件默认最新在前，重复点击排序项反转实际列表与方向提示', () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [
@@ -845,7 +942,7 @@ describe('QQ 主动操作的实际界面', () => {
     expect(todos.button('取消群待办')).toBeNull();
     expect(todos.button('完成待办')).not.toBeNull();
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [file, { ...file, fileId: 'other', fileName: '文件 B', uploaderUin: 10002 }],
@@ -872,7 +969,7 @@ describe('QQ 主动操作的实际界面', () => {
     state.data['listing:folder-a'] = { files: [file], folders: [] };
     const changed = vi.fn();
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [file],
@@ -904,7 +1001,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('文件上传使用当前目录，而非固定根目录', async () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [],
@@ -926,7 +1023,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('同号切换数据源销毁未保存的文件管理草稿', () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [],
@@ -943,7 +1040,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('新建文件夹编辑期间失去管理权限，保留草稿但禁止提交', async () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [],
@@ -960,7 +1057,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('目录空白处菜单就近提供上传和新建，不对空选择执行保存', async () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [],
@@ -982,7 +1079,7 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('空或损坏的拖入对象不崩溃，不改已有文件或发请求', () => {
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [file],
@@ -1011,7 +1108,7 @@ describe('QQ 主动操作的实际界面', () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
     state.data['listing:folder-a'] = { files, folders: [] };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files,
@@ -1024,7 +1121,7 @@ describe('QQ 主动操作的实际界面', () => {
     await act(async () => f.button('删除所选项目').click());
     expect(state.mutate).toHaveBeenCalledTimes(2);
     expect(f.host.querySelector('.weq-file-receipts')).toBeNull();
-    expect(f.button('删除所选项目').disabled).toBe(true);
+    expect(f.button('删除所选项目')).toBeNull();
     expect(f.host.textContent).not.toContain('结果待核对');
   });
   it('普通点击建立锚点，Shift 点击按当前排序选择连续区间', () => {
@@ -1034,7 +1131,7 @@ describe('QQ 主动操作的实际界面', () => {
       { ...file, fileId: 'file-c', fileName: '文件 C' },
     ];
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files,
@@ -1058,7 +1155,7 @@ describe('QQ 主动操作的实际界面', () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
     state.data['listing:folder-a'] = { files, folders: [] };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files,
@@ -1079,7 +1176,7 @@ describe('QQ 主动操作的实际界面', () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '已有名称' }];
     state.data['listing:folder-a'] = { files, folders: [] };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files,
@@ -1112,7 +1209,7 @@ describe('QQ 主动操作的实际界面', () => {
     };
     state.data['listing:folder-a'] = { files: [file], folders: [folder] };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [file],
@@ -1166,7 +1263,7 @@ describe('QQ 主动操作的实际界面', () => {
       modifiedTime: 0,
     };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [],
@@ -1206,7 +1303,7 @@ describe('QQ 主动操作的实际界面', () => {
       modifiedTime: 0,
     };
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: 'folder-a',
         files: [],
@@ -1236,7 +1333,7 @@ describe('QQ 主动操作的实际界面', () => {
   it('上传未知回执停止后续项，手动继续只处理尚未执行的文件', async () => {
     Reflect.set(window, 'weq', { pathForFile: (file: File) => `/local/${file.name}` });
     const f = fixture(() =>
-      h(GroupFileActions, {
+      h(GroupFileManager, {
         groupId: 123,
         directory: '/',
         files: [],
@@ -1730,12 +1827,12 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.textContent).toContain('image.png');
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('群分类不再多层折叠，退群只放在群管理菜单', async () => {
+  it('群分类直接展示，普通成员的退群操作独立可见', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector('[aria-label="群分类标签"]')).not.toBeNull();
-    expect(f.button('退出 QQ 群')).toBeNull();
-    await act(async () => f.button('群管理菜单').click());
-    expect(menuButton('退出 QQ 群')).toBeDefined();
+    expect(f.button('退出群聊')).not.toBeNull();
+    expect(f.button('群管理菜单')).toBeNull();
+    expect(f.host.textContent).toContain('其他操作');
     expect(state.mutate).not.toHaveBeenCalled();
   });
   it('目录同名且未返回数字身份时按操作名称合并显示数量，不产生重复React键', () => {

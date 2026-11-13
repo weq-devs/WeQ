@@ -119,7 +119,7 @@ function fixture(sessionId: string | null = 's') {
   };
 }
 
-it('群设置只管理成员和整个群；成员设置指向克隆体，删除整个群不删除克隆体', async () => {
+it('群设置管理成员和长期对话；成员设置指向克隆体，删除整个群不删除克隆体', async () => {
   const t = fixture();
   try {
     act(() => t.button('群设置').click());
@@ -128,6 +128,7 @@ it('群设置只管理成员和整个群；成员设置指向克隆体，删除�
     act(() => pane.querySelector<HTMLButtonElement>('[title="设置克隆体 合成成员"]')!.click());
     expect(t.memberSettings).toHaveBeenCalledWith('p');
     act(() => t.button('群聊管理').click());
+    expect(t.button('清空聊天记录')).toBeDefined();
     expect(pane.textContent).toContain('全部历史对话');
     expect(pane.textContent).toContain('不会删除成员对应的克隆体');
     f.confirm.mockResolvedValueOnce(false);
@@ -142,21 +143,18 @@ it('群设置只管理成员和整个群；成员设置指向克隆体，删除�
   }
 });
 
-it('历史菜单清空仅提交当前群对话的身份，取消时不写库', async () => {
+it('管理页清空长期对话仅提交群身份，取消时不写库', async () => {
   const t = fixture();
   try {
-    const open = () =>
-      act(() => t.host.querySelector<HTMLButtonElement>('[aria-label="切换会话"]')!.click());
-    open();
+    act(() => t.button('群设置').click());
+    act(() => t.button('群聊管理').click());
     f.confirm.mockResolvedValueOnce(false);
-    await act(async () => t.button('清空当前对话').click());
+    await act(async () => t.button('清空聊天记录').click());
     expect(f.mutate).not.toHaveBeenCalled();
-    open();
-    await act(async () => t.button('清空当前对话').click());
+    await act(async () => t.button('清空聊天记录').click());
     expect(f.mutate).toHaveBeenCalledOnce();
     expect(f.mutate).toHaveBeenCalledWith('clearAgentLabGroupConversation', {
       groupId: 'g',
-      sessionId: 's',
     });
     expect(t.newSession).not.toHaveBeenCalled();
     expect(t.deleted).not.toHaveBeenCalled();
@@ -165,11 +163,14 @@ it('历史菜单清空仅提交当前群对话的身份，取消时不写库', a
   }
 });
 
-it('未保存的新草稿不显示清空当前对话，避免误触旧会话', () => {
+it('旧草稿身份仍进入长期对话，不再提供分会话新建或切换', () => {
   const t = fixture(null);
   try {
-    act(() => t.host.querySelector<HTMLButtonElement>('[aria-label="切换会话"]')!.click());
-    expect(t.button('清空当前对话')).toBeUndefined();
+    expect(t.host.querySelector('[aria-label="切换会话"]')).toBeNull();
+    expect(t.button('新建会话')).toBeUndefined();
+    act(() => t.button('群设置').click());
+    act(() => t.button('群聊管理').click());
+    expect(t.button('清空聊天记录')).toBeDefined();
     expect(f.mutate).not.toHaveBeenCalled();
   } finally {
     t.dispose();

@@ -44,6 +44,35 @@ it.each(['popover', 'panel'] as const)('%s 小窗点外关闭，点内容不关�
   press(document.body);
   expect(close).toHaveBeenCalledOnce();
 });
+it('点外关闭未产生尾随 click 时，下一次独立按下仍能重新打开菜单', () => {
+  function Menu() {
+    const [open, setOpen] = useState(false);
+    return h(
+      'div',
+      null,
+      h('button', { 'data-trigger': true, onClick: () => setOpen(true) }, '更多'),
+      open
+        ? h(
+            OverlayLayer,
+            { presentation: 'popover', onClose: () => setOpen(false) },
+            h('div', { 'data-menu': true }, '操作'),
+          )
+        : null,
+    );
+  }
+  mount(h(Menu));
+  const trigger = document.querySelector<HTMLButtonElement>('[data-trigger]')!;
+  act(() => trigger.click());
+  expect(document.querySelector('[data-menu]')).not.toBeNull();
+  act(() =>
+    document.body.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(document.querySelector('[data-menu]')).toBeNull();
+  press(trigger);
+  expect(document.querySelector('[data-menu]')).not.toBeNull();
+});
 it('点父窗只关最上层子窗，且不触发父窗按钮', () => {
   const parent = vi.fn(),
     child = vi.fn(),

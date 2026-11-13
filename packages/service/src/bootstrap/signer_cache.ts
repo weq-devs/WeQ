@@ -101,7 +101,7 @@ function cachePath(appDataRoot: string): string {
 //
 // 发包路径（`sso_session` 的 `setSsoSession`）在 service 层深处，拿不到
 // `appDataRoot`，也不该为读一份提示去碰磁盘。预热/扫描成功后写进这里，
-// 登记会话时直接取；进程重启后由启动期预热重新填充。
+// 登记会话时直接取；macOS 启动期只恢复指纹匹配的提示，避免为预热加载错误版本。
 
 const memoryHints = new Map<string, { signCoreRva: number; vmRva: number | null }>();
 
@@ -120,6 +120,26 @@ export function getSignerHints(
 ): { signCoreRva: number; vmRva: number | null } | undefined {
   if (!wrapperPath) return undefined;
   return memoryHints.get(wrapperPath);
+}
+
+/** 仅恢复文件指纹仍匹配的 RVA 提示，不 dlopen；供 macOS 延后实际预热时使用。 */
+export function primeSignerHints(appDataRoot: string): number {
+  let count = 0;
+  for (const entry of Object.values(readSignerCache(appDataRoot).entries).slice(0, 64)) {
+    if (!entry || typeof entry.wrapperPath !== 'string') continue;
+    memoryHints.delete(entry.wrapperPath);
+    try {
+      if (!Number.isSafeInteger(entry.signCoreRva) || entry.signCoreRva <= 0) continue;
+      if (entry.vmRva !== null && (!Number.isSafeInteger(entry.vmRva) || entry.vmRva <= 0))
+        continue;
+      if (matchSignerCacheEntry(entry, entry.wrapperPath) !== 'hit') continue;
+      rememberSignerHints(entry.wrapperPath, entry.signCoreRva, entry.vmRva);
+      count++;
+    } catch {
+      /* 损坏条目不能影响其他模块的提示恢复。 */
+    }
+  }
+  return count;
 }
 
 /** 读整个缓存文件；坏文件按空缓存处理（下次写入会覆盖）。 */

@@ -1,476 +1,220 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LocalUnreadStore } from '../src/account/local_unread';
-import { UnreadInfoService } from '../src/account/unread_info';
-import type { AccountSession } from '@weq/account';
-import type { NewMessages } from '../src/account/nt_msg_hook';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { UnreadInfoSnapshot } from '@weq/db';
-import { DATALINE_UID_TO_DEVICE, ChatType } from '@weq/codec';
-import { SendType } from '@weq/codec/proto/msg/40900';
+import { LocalUnreadStore } from '../src/account/local_unread';
 
 const roots: string[] = [];
 afterEach(() => {
-  vi.useRealTimers();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-
-describe('未读服务事件与阅读', () => {
-  it('基础水位先确认已读，不等其他目标的 outgoing 扫描；未计数不冒充零', async () => {
-    const f = setup();
-    f.getUnreadInfos.mockResolvedValue([
-      { ...snapshot('9000'), msgSeq: 9000 },
-      { ...snapshot('9003'), uid: 'u_busy', msgSeq: 9000 },
-    ]);
-    const targets = [
-      { chatType: 1, uid: 'u_fixture' },
-      { chatType: 1, uid: 'u_busy' },
-    ];
-    const rows = await f.service.getUnreadInfos(targets, true);
-    expect(f.getUnreadInfos).toHaveBeenLastCalledWith(targets);
-    expect(rows[0]?.unreadCount).toBe(0);
-    expect(rows[1]?.countPending).toBe(true);
-    expect(rows[1]?.unreadCount).toBeUndefined();
-    f.getUnreadInfos.mockResolvedValue([{ ...snapshot('9000'), msgSeq: 9000 }]);
-    await f.service.setReadState([targets[0]!], true);
-    expect((await f.service.getUnreadInfos([targets[0]!], true))[0]?.unreadCount).toBe(1);
-  });
-  it('设备入站计数，电脑发出和回声不增未读，真实阅读后旧事件不复活', async () => {
-    const f = setup();
-    const phone = Object.keys(DATALINE_UID_TO_DEVICE).find(
-      (uid) => DATALINE_UID_TO_DEVICE[uid] === 'phone',
-    )!;
-    const pc = Object.keys(DATALINE_UID_TO_DEVICE).find(
-      (uid) => DATALINE_UID_TO_DEVICE[uid] === 'pc',
-    )!;
-    const chatType = ChatType.KCHATTYPEDATALINE;
-    const row = {
-      chatType,
-      uid: phone,
-      peer: `${chatType}_${phone}`,
-      latestSeq: '9000',
-      msgSeq: 9000,
-    };
-    f.getUnreadInfos.mockResolvedValue([row]);
-    await f.query();
-    const incoming = {
-      ...f.base,
-      targetUid: phone,
-      senderUid: phone,
-      sendType: BigInt(SendType.OTHER_CLIENT),
-      chatType,
-    };
-    await f.service.observeNewMessages({
-      ...f.change,
-      c2c: [],
-      dataline: [
-        incoming,
-        { ...incoming, msgSeq: 9002n, senderUid: pc, sendType: BigInt(SendType.LOCAL) },
-      ],
-    });
-    f.getUnreadInfos.mockResolvedValue([{ ...row, latestSeq: '9002' }]);
-    expect((await f.query())[0]?.unreadCount).toBe(1);
-    await f.service.observeNewMessages({ ...f.change, c2c: [], dataline: [incoming] });
-    expect((await f.query())[0]?.unreadCount).toBe(1);
-    await f.service.markLocalRead(chatType, phone, '9002');
-    await f.service.observeNewMessages({ ...f.change, c2c: [], dataline: [incoming] });
-    expect((await f.query())[0]?.unreadCount).toBe(0);
-  });
-  function setup(readOnly = false) {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-19T02:00:00+08:00'));
-    const { path } = fixture();
-    const getUnreadInfos = vi.fn(async () => [snapshot('9000')]);
-    const markRead = vi.fn(async () => false);
-    const setReadState = vi.fn(async (chatType: number, uid: string, readSeq: string) => ({
-      chatType,
-      uid,
-      existed: false,
-      before: null,
-      after: new Uint8Array([1]),
-      afterReadSeq: readSeq,
-    }));
-    const undoReadState = vi.fn(async () => true);
-    const session = {
-      context: { uin: '10001' },
-      selfUid: 'u_self',
-      unreadInfo: { getUnreadInfos, markRead, setReadState, undoReadState },
-    } as unknown as AccountSession;
-    const service = new UnreadInfoService(session, undefined, { statePath: path, readOnly });
-    const query = () => service.getUnreadInfos([{ chatType: 1, uid: 'u_fixture' }]);
-    const now = BigInt(Math.floor(Date.now() / 1000));
-    const base = {
-      msgId: 1n,
-      msgSeq: 9001n,
-      targetUid: 'u_fixture',
-      targetUin: 10002n,
-      senderUid: 'u_fixture',
-      senderUin: 10002n,
-      sendTime: now,
-      elements: [],
-    };
-    const change: NewMessages = {
-      file: {
-        dbPath: '/fixture/nt_msg.db',
-        prevTotal: 0,
-        total: 1,
-        delta: 1,
-        files: [],
-        at: Date.now(),
-      },
-      c2c: [base],
-      group: [],
-    };
-    return {
-      service,
-      query,
-      change,
-      base,
-      path,
-      markRead,
-      getUnreadInfos,
-      session,
-      now,
-      setReadState,
-      undoReadState,
-    };
-  }
-
-  it('旧消息导入、自己发送、未来时间不计数；真实新消息重复推送只记一次', async () => {
-    const f = setup();
-    await f.query();
-    await f.service.observeNewMessages({
-      ...f.change,
-      c2c: [
-        { ...f.base, msgSeq: 8999n, sendTime: f.now - 3600n },
-        { ...f.base, senderUid: 'u_self' },
-        { ...f.base, sendTime: f.now + 3600n },
-      ],
-    });
-    expect((await f.query())[0]?.unreadCount).toBe(0);
-    vi.advanceTimersByTime(120000);
-    await f.service.observeNewMessages(f.change);
-    await f.service.observeNewMessages(f.change);
-    expect((await f.query())[0]?.unreadCount).toBe(1);
-    const reopened = new UnreadInfoService(f.session, undefined, { statePath: f.path });
-    expect(
-      (await reopened.getUnreadInfos([{ chatType: 1, uid: 'u_fixture' }]))[0]?.unreadCount,
-    ).toBe(1);
-    await f.service.markReadAndReport(1, 'u_fixture', '9001');
-    expect((await f.query())[0]?.unreadCount).toBe(0);
-    expect(f.markRead).toHaveBeenCalledWith(1, 'u_fixture', '9001');
-  });
-
-  it('静态目录只写本地位置，群消息排除自己，关闭服务后不接收旧事件', async () => {
-    const f = setup(true);
-    await f.service.observeNewMessages(f.change);
-    expect((await f.query())[0]?.unreadCount).toBe(0);
-    await f.service.markReadAndReport(1, 'u_fixture', '9000');
-    expect(f.markRead).not.toHaveBeenCalled();
-    const live = setup();
-    const msg = { ...live.base, targetGroupCode: '70001' };
-    await live.service.observeNewMessages({
-      ...live.change,
-      c2c: [],
-      group: [
-        msg,
-        { ...msg, msgSeq: 9002n, senderUid: 'u_self' },
-        { ...msg, msgSeq: 9003n, senderUin: 10001n },
-      ],
-    });
-    const row = { ...snapshot('9003'), chatType: 2, uid: '70001', peer: '2_70001' };
-    live.getUnreadInfos.mockResolvedValue([row]);
-    expect((await live.query())[0]?.unreadCount).toBe(1);
-    await live.service.dispose();
-    await live.service.observeNewMessages({
-      ...live.change,
-      c2c: [],
-      group: [{ ...msg, msgSeq: 9004n }],
-    });
-    expect((await live.query())[0]?.readError).toBe(true);
-    expect(new LocalUnreadStore(live.path).resolve(row).unreadCount).toBe(1);
-  });
-
-  it('旧查询晚于阅读返回，不降低水位；损坏快照不自动标记已读', async () => {
-    const f = setup();
-    let release: ((rows: UnreadInfoSnapshot[]) => void) | undefined;
-    f.getUnreadInfos.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          release = resolve;
-        }),
-    );
-    const pending = f.query();
-    await f.service.markLocalRead(1, 'u_fixture', '9000');
-    release!([snapshot('9000', 8000)]);
-    expect((await pending)[0]?.unreadCount).toBe(0);
-    f.getUnreadInfos.mockResolvedValue([{ ...snapshot(), readError: true }]);
-    expect((await f.service.markReadAndReport(1, 'u_fixture', '9000')).report.state).toBe(
-      'unavailable',
-    );
-    expect(f.markRead).not.toHaveBeenCalled();
-  });
-
-  it('批量手动标记去重并可撤销，既不写 QQ 库也不上报', async () => {
-    const f = setup(true);
-    const rows = [
-      snapshot('9000', 8990),
-      { ...snapshot('40', 40), chatType: 2, uid: '70001', peer: '2_70001' },
-    ];
-    f.getUnreadInfos.mockResolvedValue(rows);
-    const targets = rows.map(({ chatType, uid }) => ({ chatType, uid }));
-    const result = await f.service.setReadState([...targets, targets[0]!], false);
-    expect(f.getUnreadInfos).toHaveBeenCalledWith(targets, {
-      selfUid: 'u_self',
-      selfUin: '10001',
-    });
-    expect(result.rows.map((row) => row.unreadCount)).toEqual([0, 0]);
-    expect(f.markRead).not.toHaveBeenCalled();
-    await f.service.observeNewMessages(f.change);
-    f.getUnreadInfos.mockResolvedValue([{ ...rows[0]!, latestSeq: '9001' }, rows[1]!]);
-    const undone = await f.service.undoReadState(result.undoToken);
-    expect(undone.restored).toBe(2);
-    expect(undone.rows.map((row) => row.unreadCount)).toEqual([11, 0]);
-    await expect(f.service.undoReadState(result.undoToken)).rejects.toThrow('失效');
-  });
-
-  it('读错误时整批不变，撤销失败保留重试机会，账号关闭后令牌失效', async () => {
-    const f = setup();
-    const target = [{ chatType: 1, uid: 'u_fixture' }];
-    const marked = await f.service.setReadState(target, true);
-    f.getUnreadInfos.mockResolvedValue([{ ...snapshot('9000'), readError: true }]);
-    await expect(f.service.setReadState(target, false)).rejects.toThrow('读取失败');
-    await expect(f.service.undoReadState(marked.undoToken)).rejects.toThrow('读取失败');
-    f.getUnreadInfos.mockResolvedValue([snapshot('9000')]);
-    expect((await f.query())[0]?.unreadCount).toBe(1);
-    expect((await f.service.undoReadState(marked.undoToken)).restored).toBe(1);
-    const later = await f.service.setReadState(target, true);
-    await f.service.dispose();
-    await expect(f.service.undoReadState(later.undoToken)).rejects.toThrow('失效');
-  });
-
-  it('持久化失败回滚内存标记，撤销写盘失败后仍可重试', async () => {
-    const f = setup(true);
-    const target = [{ chatType: 1, uid: 'u_fixture' }];
-    const flush = vi.spyOn(LocalUnreadStore.prototype, 'flush');
-    try {
-      flush.mockImplementationOnce(() => {
-        throw new Error('磁盘写入失败');
-      });
-      await expect(f.service.setReadState(target, true)).rejects.toThrow('磁盘写入失败');
-      expect((await f.query())[0]?.unreadCount).toBe(0);
-      const change = await f.service.setReadState(target, true);
-      flush.mockImplementationOnce(() => {
-        throw new Error('磁盘写入失败');
-      });
-      await expect(f.service.undoReadState(change.undoToken)).rejects.toThrow('磁盘写入失败');
-      expect((await f.query())[0]?.unreadCount).toBe(1);
-      expect((await f.service.undoReadState(change.undoToken)).restored).toBe(1);
-      expect((await f.query())[0]?.unreadCount).toBe(0);
-    } finally {
-      flush.mockRestore();
-    }
-  });
-
-  it('可写账号手动已读、未读和撤销写库，只读目录不写 QQ 库', async () => {
-    const f = setup();
-    const targets = [{ chatType: 1, uid: 'u_fixture' }];
-    const marked = await f.service.setReadState(targets, true);
-    expect(f.setReadState).toHaveBeenCalledWith(1, 'u_fixture', '8999', '9000', true);
-    expect((await f.service.undoReadState(marked.undoToken)).restored).toBe(1);
-    expect(f.undoReadState).toHaveBeenCalledTimes(1);
-    await f.service.setReadState(targets, false);
-    expect(f.setReadState).toHaveBeenLastCalledWith(1, 'u_fixture', '9000', '9000', false);
-    const offline = setup(true);
-    const local = await offline.service.setReadState(targets, true);
-    await offline.service.undoReadState(local.undoToken);
-    expect(offline.setReadState).not.toHaveBeenCalled();
-    expect(offline.undoReadState).not.toHaveBeenCalled();
-  });
-});
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'weq-unread-'));
+  const root = mkdtempSync(join(tmpdir(), 'weq-read-operation-'));
   roots.push(root);
-  const path = join(root, 'read.json');
-  return { path, store: new LocalUnreadStore(path) };
+  return join(root, 'unread.json');
 }
-function snapshot(latestSeq = '5000', msgSeq?: number): UnreadInfoSnapshot {
-  return { chatType: 1, uid: 'u_fixture', peer: '1_u_fixture', latestSeq, msgSeq };
+function snapshot(extra: Partial<UnreadInfoSnapshot> = {}): UnreadInfoSnapshot {
+  return { chatType: 2, uid: '70001', peer: '2_70001', latestSeq: '110', msgSeq: 90, ...extra };
 }
-const highlight = {
-  kind: 'atMe' as const,
-  rawKind: 1000,
-  msgSeq: 4999,
-  senderUid: 'u_peer',
-  sendTime: 1,
-  text: '',
-};
 
-describe('本地未读基线', () => {
-  it('QQ 已读水位滞后时扣除自己发送的序号，不清除夹在其中的入站和手动未读', () => {
-    const { store } = fixture();
-    store.resolve(snapshot('5000', 5000));
-    const sent = {
-      ...snapshot('5002', 5000),
-      outgoingSeqs: ['5000', '5001', '5002', '5002', '9999'],
-    };
-    expect(store.resolve(sent).unreadCount).toBe(0);
-    store.recordLive(1, 'u_fixture', '5003');
-    const mixed = { ...snapshot('5004', 5000), outgoingSeqs: ['5001', '5002', '5004'] };
-    expect(store.resolve(mixed).unreadCount).toBe(1);
-    store.markRead(1, 'u_fixture', '5003');
-    expect(store.resolve(mixed).unreadCount).toBe(0);
-    store.setManualRead(store.resolve(mixed), true);
+describe('QQ 小表直接投影', () => {
+  it('自发减项补齐时去重，后续入站和已有未读不被当作已读', () => {
+    const store = new LocalUnreadStore(undefined, 'u_self');
+    const own = snapshot({ latestSenderUid: 'u_self' });
+    expect(store.resolve(own)).toMatchObject({ readSeq: '90', unreadCount: 19 });
+    expect(store.resolve({ ...own, decreasedSeqs: ['110', '110'] }).unreadCount).toBe(19);
     expect(
-      store.resolve({ ...snapshot('5005', 5000), outgoingSeqs: [...mixed.outgoingSeqs, '5005'] })
+      store.resolve(
+        snapshot({ latestSeq: '111', latestSenderUid: 'u_peer', decreasedSeqs: ['110'] }),
+      ).unreadCount,
+    ).toBe(20);
+    expect(store.resolve({ ...own, markUnread: true, msgSeq: 109 }).unreadCount).toBe(1);
+  });
+  it('连续跨端自发和紧接着的回复在减项延迟时保持稳定，阅读后不影响新消息', () => {
+    const store = new LocalUnreadStore(undefined, 'u_self');
+    expect(store.resolve(snapshot({ msgSeq: 109, latestSenderUid: 'u_self' })).unreadCount).toBe(0);
+    expect(
+      store.resolve(snapshot({ msgSeq: 109, latestSeq: '111', latestSenderUid: 'u_self' }))
+        .unreadCount,
+    ).toBe(0);
+    expect(
+      store.resolve(snapshot({ msgSeq: 109, latestSeq: '112', latestSenderUid: 'u_peer' }))
         .unreadCount,
     ).toBe(1);
-    store.recordLive(1, 'u_fixture', '5006');
     expect(
-      store.resolve({ ...snapshot('5006', 5000), outgoingSeqs: [...mixed.outgoingSeqs, '5005'] })
-        .unreadCount,
-    ).toBe(2);
+      store.resolve(
+        snapshot({
+          msgSeq: 109,
+          latestSeq: '112',
+          latestSenderUid: 'u_peer',
+          decreasedSeqs: ['110', '111'],
+        }),
+      ).unreadCount,
+    ).toBe(1);
+    store.markRead(2, '70001', '112');
+    expect(
+      store.resolve(snapshot({ latestSeq: '113', latestSenderUid: 'u_peer' })).unreadCount,
+    ).toBe(1);
   });
-
-  it('手动已读即时覆盖旧快照，撤销恢复原未读且不吞掉期间的新消息', async () => {
-    const { store, path } = fixture();
-    const row = snapshot('5000', 4990);
-    const before = store.resolve(row);
-    const change = store.setManualRead(before, false);
-    expect(store.resolve(row).unreadCount).toBe(0);
-    store.recordLive(1, 'u_fixture', '5001');
-    expect(store.resolve(snapshot('5001', 4990)).unreadCount).toBe(1);
-    expect(store.restoreManualRead(1, 'u_fixture', change)).toBe(true);
-    expect(store.resolve(snapshot('5001', 4990)).unreadCount).toBe(11);
-    store.setManualRead(store.resolve(snapshot('5001', 4990)), false);
-    await store.flush();
-    expect(new LocalUnreadStore(path).resolve(snapshot('5001', 4990)).unreadCount).toBe(0);
+  it('缺发送者、缺自身身份、不同会话及设备计数均不误扣', () => {
+    const store = new LocalUnreadStore(undefined, 'u_self');
+    expect(store.resolve(snapshot({ latestSenderUid: 'u_self' })).unreadCount).toBe(19);
+    expect(store.resolve(snapshot({ chatType: 1, peer: '1_70001' })).unreadCount).toBe(20);
+    expect(
+      store.resolve(snapshot({ uid: 'other', peer: '2_other', latestSenderUid: '' })).unreadCount,
+    ).toBe(20);
+    expect(new LocalUnreadStore().resolve(snapshot({ latestSenderUid: '' })).unreadCount).toBe(20);
+    expect(
+      new LocalUnreadStore().resolve(snapshot({ latestSenderUid: 'u_self' })).unreadCount,
+    ).toBe(20);
+    expect(
+      store.resolve(
+        snapshot({ chatType: 8, peer: '8_70001', latestSenderUid: 'u_self', localUnreadCount: 3 }),
+      ).unreadCount,
+    ).toBe(3);
   });
-
-  it('手动未读跨重启保留，正常阅读后取消，过期撤销不覆盖后续操作', async () => {
-    const { store, path } = fixture();
-    const row = snapshot('5000', 5000);
+  it('阅读下限取 QQ 服务端、本地和显式操作的最大值，减项去重且只扣区间内项', () => {
+    const store = new LocalUnreadStore();
+    const row = snapshot({
+      localReadSeq: '100',
+      decreasedSeqs: ['99', '100', '102', '102', '110', '111'],
+    });
+    expect(store.resolve(row)).toMatchObject({ readSeq: '100', unreadCount: 8 });
+    store.markRead(2, '70001', '105');
+    expect(store.resolve(row)).toMatchObject({ readSeq: '105', unreadCount: 4 });
+  });
+  it('手动未读只维持最小标记，新消息和 QQ 阅读继续改变数量', () => {
+    const store = new LocalUnreadStore();
+    const row = snapshot({ msgSeq: 110 });
     const change = store.setManualRead(store.resolve(row), true);
+    expect(change.applied.readSeq).toBe('110');
     expect(store.resolve(row).unreadCount).toBe(1);
-    await store.flush();
-    expect(new LocalUnreadStore(path).resolve(row).unreadCount).toBe(1);
-    store.markRead(1, 'u_fixture', '5000');
-    expect(store.resolve(row).unreadCount).toBe(0);
-    expect(store.restoreManualRead(1, 'u_fixture', change)).toBe(false);
-    const first = store.setManualRead(store.resolve(row), true);
-    const second = store.setManualRead(store.resolve(row), false);
-    expect(store.restoreManualRead(1, 'u_fixture', first)).toBe(false);
-    expect(store.restoreManualRead(1, 'u_fixture', second)).toBe(true);
-    expect(store.resolve(row).unreadCount).toBe(1);
-  });
-
-  it('QQ 水位刷新不会自动取消手动未读，高亮只随明确阅读清除', () => {
-    const { store } = fixture();
-    const row = { ...snapshot('5000', 4990), highlights: [highlight] };
-    store.setManualRead(store.resolve(row), false);
-    expect(store.resolve(row).highlights).toBeUndefined();
-    store.setManualRead(store.resolve(row), true);
-    expect(store.resolve(snapshot('5000', 5000)).unreadCount).toBe(1);
-  });
-
-  it('缺少已读水位的历史会话首次安静对齐，导入抬高最新序号也不生成未读', () => {
-    const { store } = fixture();
-    expect(store.resolve(snapshot()).unreadCount).toBe(0);
-    expect(store.resolve(snapshot('9000')).unreadCount).toBe(0);
-    expect(store.resolve({ ...snapshot(), readError: true }).unreadCount).toBeUndefined();
-  });
-
-  it('只累计实时消息并按序号去重，重启保留未读，历史补齐不扩大数字', async () => {
-    const { store, path } = fixture();
-    store.resolve(snapshot());
-    store.recordLive(1, 'u_fixture', '5001');
-    store.recordLive(1, 'u_fixture', '5001');
-    store.recordLive(1, 'u_fixture', '5003');
-    expect(store.resolve(snapshot('9000')).unreadCount).toBe(2);
-    await store.flush();
-    const reopened = new LocalUnreadStore(path);
-    expect(reopened.resolve(snapshot('9000')).unreadCount).toBe(2);
-    expect(reopened.resolve(snapshot('9000')).readSeq).toBe('5000');
+    expect(store.resolve(snapshot({ msgSeq: 110, latestSeq: '113' })).unreadCount).toBe(3);
     expect(
-      new LocalUnreadStore(join(path, '..', 'other.json')).resolve(snapshot()).unreadCount,
+      store.resolve(snapshot({ msgSeq: 113, latestSeq: '113', markUnread: false })).unreadCount,
     ).toBe(0);
   });
-
-  it('实时事件先于首次快照或晚于快照均不丢失；阅读只清理固定水位内的消息', () => {
-    const { store } = fixture();
-    store.recordLive(1, 'u_fixture', '5001');
-    expect(store.resolve(snapshot('5001')).unreadCount).toBe(1);
-    store.markRead(1, 'u_fixture', '5001');
-    store.recordLive(1, 'u_fixture', '5002');
-    store.recordLive(1, 'u_fixture', '5001');
-    expect(store.resolve(snapshot('5002')).unreadCount).toBe(1);
-    store.markRead(1, 'u_fixture', '5000');
-    expect(store.resolve(snapshot('5002')).unreadCount).toBe(1);
+  it('数据库确认标记后 QQ 取消标志，即使阅读水位没变也立即清除本地标记', () => {
+    const store = new LocalUnreadStore(),
+      row = snapshot({ msgSeq: 110 });
+    store.setManualRead(store.resolve(row), true);
+    expect(store.resolve({ ...row, markUnread: true }).unreadCount).toBe(1);
+    expect(store.resolve({ ...row, markUnread: false }).unreadCount).toBe(0);
   });
-
-  it('缺水位仍保留明确提醒，同一消息多个提醒不重复计数，读后旧提醒不复活', async () => {
-    const { store, path } = fixture();
-    const row = {
-      ...snapshot(),
-      highlights: [highlight, { ...highlight, kind: 'replyMe' as const }],
+  it('已读操作被数据库接纳后，不遮住 QQ 后续显式手动未读', () => {
+    const store = new LocalUnreadStore();
+    store.setManualRead(store.resolve(snapshot()), false);
+    expect(store.resolve(snapshot({ msgSeq: 110, markUnread: false })).unreadCount).toBe(0);
+    expect(store.resolve(snapshot({ msgSeq: 110, markUnread: true })).unreadCount).toBe(1);
+  });
+  it('本地阅读覆盖 QQ 覆写，但不会吞掉捕获位置之后的新消息', () => {
+    const store = new LocalUnreadStore();
+    store.markRead(2, '70001', '110');
+    expect(store.resolve(snapshot()).unreadCount).toBe(0);
+    expect(store.resolve(snapshot({ latestSeq: '112', decreasedSeqs: ['111'] })).unreadCount).toBe(
+      1,
+    );
+    expect(store.resolve(snapshot({ latestSeq: '115', msgSeq: 113 })).unreadCount).toBe(2);
+  });
+  it('撤销只恢复操作前位置，期间到达的新消息仍保留', () => {
+    const store = new LocalUnreadStore();
+    const change = store.setManualRead(store.resolve(snapshot()), false);
+    expect(store.resolve(snapshot()).unreadCount).toBe(0);
+    expect(store.restoreManualRead(2, '70001', change)).toBe(true);
+    expect(store.resolve(snapshot({ latestSeq: '112' })).unreadCount).toBe(22);
+  });
+  it('后续操作使旧撤销失效，同 UID 不同会话类型不串状态', () => {
+    const store = new LocalUnreadStore();
+    const change = store.setManualRead(store.resolve(snapshot()), false);
+    store.markRead(2, '70001', '111');
+    expect(store.restoreManualRead(2, '70001', change)).toBe(false);
+    expect(store.resolve(snapshot({ chatType: 1, peer: '1_70001' })).unreadCount).toBe(20);
+  });
+  it('缺阅读位置不以历史最大序号制造巨量未读，明确标志和提醒可直接显示', () => {
+    const store = new LocalUnreadStore();
+    expect(store.resolve(snapshot({ msgSeq: undefined, latestSeq: '900000' })).unreadCount).toBe(0);
+    expect(store.resolve(snapshot({ msgSeq: undefined, markUnread: true })).unreadCount).toBe(1);
+    const hit = {
+      kind: 'atMe' as const,
+      rawKind: 1000,
+      msgSeq: 109,
+      senderUid: 'u_peer',
+      sendTime: 1,
+      text: '',
     };
-    expect(store.resolve(row)).toMatchObject({ unreadCount: 1, readSeq: '4998' });
-    store.markRead(1, 'u_fixture', '5000');
-    await store.flush();
-    expect(new LocalUnreadStore(path).resolve(row)).toMatchObject({
+    expect(store.resolve(snapshot({ msgSeq: undefined, highlights: [hit] }))).toMatchObject({
+      unreadCount: 1,
+      readSeq: undefined,
+    });
+    store.markRead(2, '70001', '110');
+    expect(store.resolve(snapshot({ highlights: [hit] }))).toMatchObject({
       unreadCount: 0,
       highlights: undefined,
     });
   });
-
-  it('可信 QQ 水位与本地阅读位置取较大者，QQ 水位后来出现或消失不恢复旧未读', () => {
-    const { store } = fixture();
-    expect(store.resolve(snapshot('5000', 4990)).unreadCount).toBe(10);
-    store.markRead(1, 'u_fixture', '4995');
-    expect(store.resolve(snapshot('5000', 4990)).unreadCount).toBe(5);
-    expect(store.resolve(snapshot('5000', 5000)).unreadCount).toBe(0);
-    expect(store.resolve(snapshot('5000', 4990)).unreadCount).toBe(0);
-    expect(store.resolve(snapshot('5000')).unreadCount).toBe(0);
-    expect(store.resolve(snapshot('5', 0)).unreadCount).toBe(0);
-    expect(
-      store.resolve({ ...snapshot('5', 0), uid: 'u_other', peer: '1_u_other' }).unreadCount,
-    ).toBe(5);
-  });
-
-  it('同 UID 的不同会话类型不串状态，损坏存储安全对齐', () => {
-    const { store, path } = fixture();
-    store.recordLive(1, 'u_fixture', '5001');
-    expect(store.resolve({ ...snapshot(), chatType: 2, peer: '2_u_fixture' }).unreadCount).toBe(0);
-    writeFileSync(path, '{broken');
-    expect(new LocalUnreadStore(path).resolve(snapshot()).unreadCount).toBe(0);
-    writeFileSync(path, JSON.stringify({ '1_u_fixture': { latestSeq: '-1', pending: ['bad'] } }));
-    expect(new LocalUnreadStore(path).resolve(snapshot()).unreadCount).toBe(0);
-  });
-
-  it('已有 QQ 水位时，最新序号刷新落后于实时事件或明确提醒也不吞掉未读', () => {
-    const { store } = fixture();
-    store.resolve(snapshot('5000', 5000));
-    store.recordLive(1, 'u_fixture', '5001');
-    expect(store.resolve(snapshot('5000', 5000)).unreadCount).toBe(1);
-    expect(
-      store.resolve({ ...snapshot('5000', 5000), highlights: [{ ...highlight, msgSeq: 5002 }] })
-        .unreadCount,
-    ).toBe(2);
-  });
-
-  it('未知基线之后 QQ 提供较旧水位，不重新计入历史，也不清掉基线内已捕获的实时提醒', async () => {
-    const { store, path } = fixture();
-    store.resolve(snapshot());
-    store.recordLive(1, 'u_fixture', '5001');
-    store.resolve(snapshot('9000'));
-    await store.flush();
-    const reopened = new LocalUnreadStore(path);
-    expect(reopened.resolve(snapshot('9000', 0))).toMatchObject({
-      unreadCount: 1,
-      readSeq: '5000',
+  it.each([8, 134])('设备类型 %s 使用独立计数，不按普通消息序号差计算', (chatType) => {
+    const store = new LocalUnreadStore();
+    const row = snapshot({
+      chatType,
+      peer: `${chatType}_70001`,
+      storedUnreadCount: chatType === 134 ? 3 : undefined,
+      localUnreadCount: chatType === 8 ? 2 : undefined,
     });
-    expect(reopened.resolve(snapshot('9000', 5001)).unreadCount).toBe(0);
-    expect(reopened.resolve(snapshot('9001', 5001)).unreadCount).toBe(1);
+    expect(store.resolve(row).unreadCount).toBe(chatType === 134 ? 3 : 2);
+    store.markRead(chatType, '70001', '110');
+    expect(store.resolve(row).unreadCount).toBe(0);
+  });
+  it('损坏快照不投影为零', () => {
+    expect(
+      new LocalUnreadStore().resolve(snapshot({ readError: true })).unreadCount,
+    ).toBeUndefined();
+  });
+});
+
+describe('只迁移显式操作', () => {
+  it('旧观察位置与 pending 不迁移，实际本地阅读和手动标记仍生效', async () => {
+    const path = fixture();
+    writeFileSync(
+      path,
+      JSON.stringify({
+        '2_70001': { sourceVersion: 1, latestSeq: '110', readSeq: '110', pending: ['109'] },
+        '1_u_read': {
+          sourceVersion: 1,
+          latestSeq: '110',
+          readSeq: '105',
+          localReadSeq: '105',
+          pending: [],
+        },
+      }),
+    );
+    const store = new LocalUnreadStore(path);
+    expect(store.resolve(snapshot()).unreadCount).toBe(20);
+    expect(
+      store.resolve(snapshot({ chatType: 1, uid: 'u_read', peer: '1_u_read' })).unreadCount,
+    ).toBe(5);
+    store.markRead(2, '70001', '108');
+    await store.flush();
+    const saved = readFileSync(path, 'utf8');
+    expect(saved).not.toContain('pending');
+    expect(saved).not.toContain('baselineSeq');
+    expect(new LocalUnreadStore(path).resolve(snapshot()).unreadCount).toBe(2);
+  });
+  it('数据库已经超过旧显式阅读时移除覆盖，不把同水位 WeQ 自己写库误作 QQ 确认', async () => {
+    const path = fixture(),
+      store = new LocalUnreadStore(path);
+    store.markRead(2, '70001', '100');
+    store.resolve(snapshot({ msgSeq: 100 }));
+    expect(store.resolve(snapshot({ msgSeq: 90 })).unreadCount).toBe(10);
+    store.resolve(snapshot({ msgSeq: 105 }));
+    await store.flush();
+    expect(JSON.parse(readFileSync(path, 'utf8'))['2_70001'].readSeq).toBeUndefined();
+  });
+  it('观察快照不创建状态文件，每个会话仅保存显式操作', async () => {
+    const store = new LocalUnreadStore();
+    for (let i = 0; i < 1300; i++) store.resolve(snapshot({ uid: String(i), peer: `2_${i}` }));
+    await store.flush();
+    store.markRead(2, '70001', '110');
+    expect(store.resolve(snapshot()).unreadCount).toBe(0);
   });
 });

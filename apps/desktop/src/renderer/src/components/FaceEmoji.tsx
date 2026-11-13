@@ -31,6 +31,7 @@ import {
   pokeFaceSize,
 } from '@renderer/lib/pokeFace';
 import { cn } from '@renderer/lib/utils';
+import { useLottiePlayback } from '../hooks/useLottiePlayback';
 import { UNICODE_FACE_MAP } from './unicodeFaceMap';
 
 /**
@@ -135,6 +136,7 @@ export function FaceEmoji({ element, size, animated, className, isSender = true 
     ];
     return (
       <FaceLottie
+        key={sources.join('|')}
         sources={sources}
         fallbackSrc={apngSrc}
         label={label}
@@ -149,6 +151,7 @@ export function FaceEmoji({ element, size, animated, className, isSender = true 
   if (animated) {
     return (
       <FaceLottie
+        key={apngSrc}
         sources={[emojiUrl(idStr, 'lottie', `${faceId}.json`)]}
         loop
         fallbackSrc={apngSrc}
@@ -226,6 +229,7 @@ function FaceLottie({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [failed, setFailed] = useState(false);
+  const bindAnimation = useLottiePlayback(containerRef, !failed);
   const sourcesKey = sources.join('|');
   // sources 每次渲染都是新数组；用 join 出来的 key 作为唯一触发源，effect 内部读 ref
   // 拿最新值，避免父组件重渲染就重放动画。
@@ -234,6 +238,7 @@ function FaceLottie({
 
   useEffect(() => {
     let destroyed = false;
+    const loading = new AbortController();
     let anim: import('lottie-web').AnimationItem | undefined;
     setFailed(false);
 
@@ -245,7 +250,7 @@ function FaceLottie({
         const [{ default: lottie }, ...payloads] = await Promise.all([
           import('lottie-web/build/player/lottie_light'),
           ...sourcesRef.current.map(async (src) => {
-            const res = await fetch(src);
+            const res = await fetch(src, { signal: loading.signal });
             if (!res.ok) throw new Error(`lottie fetch ${res.status}`);
             return (await res.json()) as unknown;
           }),
@@ -256,6 +261,7 @@ function FaceLottie({
         const playAt = (index: number) => {
           if (destroyed || !containerRef.current) return;
           const isLast = index === payloads.length - 1;
+          bindAnimation();
           anim?.destroy();
           const current = lottie.loadAnimation({
             container: containerRef.current,
@@ -263,25 +269,34 @@ function FaceLottie({
             // Only the final clip may loop (used by big animated stickers); the
             // intro→result interactive sequence never loops.
             loop: isLast ? loop : false,
-            autoplay: true,
+            autoplay: false,
             animationData: payloads[index],
           });
           anim = current;
+          bindAnimation(current);
           if (!isLast) {
             current.addEventListener('complete', () => playAt(index + 1));
           }
         };
         playAt(0);
       } catch {
-        if (!destroyed) setFailed(true);
+        loading.abort();
+        if (!destroyed) {
+          bindAnimation();
+          anim?.destroy();
+          anim = undefined;
+          setFailed(true);
+        }
       }
     })();
 
     return () => {
       destroyed = true;
+      loading.abort();
+      bindAnimation();
       anim?.destroy();
     };
-  }, [sourcesKey, loop]);
+  }, [sourcesKey, loop, bindAnimation]);
 
   if (failed) {
     return <FaceImage src={fallbackSrc} label={label} style={style} className={className} />;

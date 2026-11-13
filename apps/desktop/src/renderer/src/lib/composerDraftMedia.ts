@@ -4,6 +4,7 @@ import type { LocalMediaRef } from '../im-template/template/composerSend';
 import { elementToToken, tokenToElement } from '../im-template/template/draftElements';
 import { releaseObjectUrl } from './objectUrl';
 import { composerDraftRecovery } from './composerDraftRecovery';
+import { MAX_SHARED_DRAFT_IMAGE_BYTES } from '@weq/service/client-preferences';
 
 export interface ComposerMediaStore {
   put(key: string, file: File): Promise<void>;
@@ -75,6 +76,34 @@ export function composerAssetIds(body: string): Set<string> {
       return value ? [value.localDraftAssetId as string] : [];
     }),
   );
+}
+/** 共享前真实上传持久素材，正文不携带另一台设备无法读取的 IndexedDB 标识或 blob URL。 */
+export async function shareComposerImages(
+  account: string,
+  conversation: string,
+  body: string,
+  stage: (file: File) => Promise<string>,
+  store = mediaStore,
+): Promise<string> {
+  const replacements = new Map<string, string>();
+  const paths = new Map<string, string>();
+  for (const token of tokens(body)) {
+    const value = asset(token);
+    if (!value) continue;
+    const id = value.localDraftAssetId as string;
+    let path = paths.get(id);
+    if (!path) {
+      const file = await store.get(assetKey(account, conversation, id));
+      if (!file) throw new Error('草稿图片素材缺失，原稿仍已保留');
+      if (file.size > MAX_SHARED_DRAFT_IMAGE_BYTES)
+        throw new Error('共享草稿图片需在 32 MiB 以内，原素材仍保留在此设备');
+      path = await stage(file);
+      paths.set(id, path);
+    }
+    const { localDraftAssetId: _, localPreviewUrl: _url, ...shared } = value;
+    replacements.set(token, elementToToken({ ...shared, localPath: path }));
+  }
+  return body.replace(/\[\[chat:elem:[^\]]+\]\]/g, (token) => replacements.get(token) ?? token);
 }
 
 /** 先提交 File 的持久事务，再把带稳定素材标识的图片放进输入框。 */

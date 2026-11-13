@@ -24,7 +24,6 @@ import {
   type ConversationTurnLike,
   type MemorySink,
   type NotesSink,
-  type UsageSink,
 } from '@weq/agentlab';
 import { BotJsonFile, isDictionary, isRecord, isStrings, isNumber, own } from './json_file';
 import { openBucketed, type BucketedJsonDir } from './bucketed_store';
@@ -332,12 +331,5 @@ export class JsonRelationStore implements AgentLabRelationStore {
     this.upsert(next);
     // 与旧实现一致：返回脱钩副本（发布对象已随整树冻结，不外泄）。
     return { ...next };
-  }
-}
-
-/** bot 不统计 token（自己看厂商后台即可）；保留接口便于将来接账。 */
-export class NoopUsageStore implements UsageSink {
-  record(): void {
-    /* no-op */
   }
 }

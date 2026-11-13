@@ -26,7 +26,11 @@ export function usesMacVerifiedArchiveUpdater(): boolean {
   return process.platform === 'darwin';
 }
 
-export async function prepareMacUpdate(archive: string, version: string): Promise<MacUpdatePlan> {
+export async function prepareMacUpdate(
+  archive: string,
+  version: string,
+  includePrerelease = false,
+): Promise<MacUpdatePlan> {
   if (!semver.valid(version) || !semver.gt(version, app.getVersion()))
     throw new Error('更新版本无效或不高于当前版本');
   const response = await fetch(
@@ -39,7 +43,12 @@ export async function prepareMacUpdate(archive: string, version: string): Promis
   );
   if (!response.ok)
     throw new Error(`无法核验官方 Release（HTTP ${response.status}），未安装；请稍后重试。`);
-  const asset = officialMacArchive(await response.json(), version, basename(archive));
+  const asset = officialMacArchive(
+    await response.json(),
+    version,
+    basename(archive),
+    includePrerelease,
+  );
   await verifyMacArchive(archive, asset);
   const target = await realpath(macAppBundle(process.execPath));
   await verifyMacBundle(target, app.getVersion());

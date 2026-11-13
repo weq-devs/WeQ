@@ -1,79 +1,36 @@
 import { Minus, Square, X } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
-import { Modal } from '../../components/Dialog';
-import { SelfQQControls } from '../../components/settings/SelfQQControls';
+import type { ReactNode } from 'react';
+import { SelfProfileAvatar } from '../../components/SelfProfileAvatar';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { VipBadge } from '../../components/VipBadge';
 import { RestrictedModeIndicator } from '../../components/RestrictedMode';
 import '../../styles/self-profile.css';
 import '../../styles/titlebar-search.css';
-import { Avatar } from './primitives';
+import '../../styles/window-controls.css';
 import type { User } from './types';
 import { displayUserName } from './user';
 import logoUrl from '@resources/brand/logo.png';
 import { cn } from './classNames';
-import { DesktopOnly, IS_MAC } from '../../lib/target';
-
-function ProfileAvatar({ user }: { user: User }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        className="weq-title-profile-avatar"
-        aria-label="编辑 QQ 资料"
-        title="编辑 QQ 资料"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen(true)}
-      >
-        <Avatar name={displayUserName(user)} avatarUrl={user.avatarUrl} seed={user.identityValue} />
-      </button>
-      {open && <SelfProfileDialog onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-export function SelfProfileDialog({ onClose }: { onClose: () => void }) {
-  const titleId = useId();
-  return (
-    <Modal
-      onClose={onClose}
-      labelledBy={titleId}
-      width={560}
-      className="weq-self-profile-dialog"
-      centered
-    >
-      <header className="weq-self-profile-header">
-        <h2 id={titleId}>QQ 资料与状态</h2>
-        <button
-          type="button"
-          className="weq-set-iconbtn"
-          aria-label="关闭资料编辑"
-          title="关闭"
-          onClick={onClose}
-        >
-          <X size={18} />
-        </button>
-      </header>
-      <div className="weq-self-profile-body">
-        <SelfQQControls />
-      </div>
-    </Modal>
-  );
-}
+import { DesktopOnly } from '../../lib/target';
+import { useWindowControls } from '../../hooks/useWindowControls';
+import type { ProfileGroup } from '../../lib/profileNavigation';
 
 export function TitleBar({
   user,
+  group,
   homeActive = false,
   onGoHome,
   search,
+  windowOnly = false,
 }: {
   user: User;
+  group?: ProfileGroup;
   homeActive?: boolean;
   onGoHome?: () => void;
   search?: ReactNode;
+  windowOnly?: boolean;
 }) {
+  const controls = useWindowControls();
   const handleMinimize = () => {
     window.electron?.ipcRenderer.send('window-minimize');
   };
@@ -87,7 +44,7 @@ export function TitleBar({
   };
 
   return (
-    <div className={cn('app-title-bar', IS_MAC && 'is-mac')}>
+    <div className={cn('app-title-bar', controls === 'native' && 'has-native-controls')}>
       <button
         type="button"
         className={`app-title-bar-logo-wrap${homeActive ? ' is-active' : ''}`}
@@ -96,48 +53,51 @@ export function TitleBar({
       >
         <img src={logoUrl} className="app-title-bar-logo" alt="主页" />
       </button>
-      <div className="app-title-bar-user">
-        <ProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} />
-        <span className="app-title-bar-nick">{displayUserName(user)}</span>
-        {/* 会员徽标：独立兄弟节点，不嵌进昵称 —— 那个 span 自带 ellipsis 会把它裁掉。 */}
-        <VipBadge key={user.identityValue} />
-        {user.uid && (
-          <OnlineStatus
-            key={user.uid}
-            uid={user.uid}
-            className="weq-title-online-status"
-            refetchInterval={15_000}
-          />
-        )}
-        {user.signature && (
-          <span className="app-title-bar-signature" title={user.signature}>
-            {user.signature}
-          </span>
-        )}
-      </div>
+      {!windowOnly && (
+        <div className="app-title-bar-user">
+          <SelfProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} group={group}>
+            <span className="app-title-bar-nick">{displayUserName(user)}</span>
+          </SelfProfileAvatar>
+          {/* 会员徽标：独立兄弟节点，不嵌进昵称 —— 那个 span 自带 ellipsis 会把它裁掉。 */}
+          <VipBadge key={user.identityValue} />
+          {user.uid && (
+            <OnlineStatus
+              key={user.uid}
+              uid={user.uid}
+              selfUin={user.identityValue}
+              className="weq-title-online-status"
+              refetchInterval={15_000}
+            />
+          )}
+          {user.signature && (
+            <span className="app-title-bar-signature" title={user.signature}>
+              {user.signature}
+            </span>
+          )}
+        </div>
+      )}
       <div className="app-title-bar-drag" />
-      {search}
+      {!windowOnly && search}
       <div className="weq-titlebar-restriction">
         <div>
           <RestrictedModeIndicator persistent />
         </div>
       </div>
-      {/* macOS 有原生红黄绿三键，自绘的 最小化/最大化/关闭 会重复，隐藏掉。 */}
-      {!IS_MAC && (
-        <DesktopOnly>
+      <DesktopOnly>
+        {controls === 'windows' && (
           <div className="app-title-bar-actions">
             <button onClick={handleMinimize} title="最小化">
               <Minus size={14} />
             </button>
-            <button onClick={handleMaximize} title="全屏/还原">
+            <button onClick={handleMaximize} title="最大化/还原">
               <Square size={12} />
             </button>
             <button onClick={handleClose} className="close" title="关闭">
               <X size={16} />
             </button>
           </div>
-        </DesktopOnly>
-      )}
+        )}
+      </DesktopOnly>
     </div>
   );
 }

@@ -37,7 +37,7 @@ describe('official and service account exports', () => {
   it.each([
     ['official', iterateOfficialMessages],
     ['service', iterateServiceMessages],
-  ] as const)('preserves Ark messages in %s conversations', async (_kind, iterate) => {
+  ] as const)('preserves text and Ark messages in %s conversations', async (_kind, iterate) => {
     const rows = [
       message(1, 1, [{ type: 'text', data: { textContent: 'ordinary text' } }]),
       message(2, 2, [{ type: 'ark', data: { arkData: '{}' } }]),
@@ -50,6 +50,6 @@ describe('official and service account exports', () => {
     const exported: bigint[] = [];
     for await (const item of iterate(messageSource(rows), 'u_peer')) exported.push(item.msgId);
 
-    expect(exported).toEqual([2n, 3n, 4n]);
+    expect(exported).toEqual([1n, 2n, 3n, 4n]);
   });
 });

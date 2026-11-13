@@ -41,6 +41,21 @@ beforeEach(() => {
 });
 
 describe('导出 OCR 预检使用后台实际状态', () => {
+  it.each([null, 'downloaded-filter'])(
+    '全局关闭筛图时不预筛，也不提示下载：%s',
+    async (modelId) => {
+      mocks.access.mockResolvedValue({
+        ...(await mocks.access()),
+        ocrFilterModelId: modelId,
+        ocrPrefilterEnabled: false,
+      });
+      expect((await ocrReadiness()).filterReady).toBe(false);
+      const confirm = vi.fn();
+      expect(await preflightOcrImages({ confirm } as unknown as AppDialogApi)).toBe(true);
+      expect(confirm).not.toHaveBeenCalled();
+    },
+  );
+
   it('后台已就绪时不被旧设置快照误报为未下载', async () => {
     expect((await ocrReadiness()).filterReady).toBe(true);
     const confirm = vi.fn();
@@ -100,6 +115,7 @@ describe('导出 OCR 预检使用后台实际状态', () => {
     expect(await ocrReadiness()).toEqual({
       localReady: true,
       filterReady: true,
+      prefilterEnabled: true,
       onlineCapable: false,
       localEngineBlocker: null,
     });

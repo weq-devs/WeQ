@@ -15,17 +15,24 @@ function consumeOutsidePress(document: Document, event: PointerEvent) {
   };
   const cleanup = () => {
     document.removeEventListener('click', consumeClick, true);
+    document.removeEventListener('pointerdown', cleanup, true);
     document.defaultView?.clearTimeout(timer);
   };
   const timer = document.defaultView?.setTimeout(cleanup, 1000);
   document.addEventListener('click', consumeClick, true);
+  // WebKit 可能因 preventDefault 取消尾随 click；新的按下不属于上次手势。
+  document.addEventListener('pointerdown', cleanup, true);
 }
 
 export function useSurfaceOutside(
   ref: RefObject<HTMLElement | null>,
   onClose: (() => void) | undefined,
   active: boolean,
-  { scrim = false, anchor }: { scrim?: boolean; anchor?: HTMLElement | null } = {},
+  {
+    scrim = false,
+    anchor,
+    consume = true,
+  }: { scrim?: boolean; anchor?: HTMLElement | null; consume?: boolean } = {},
 ) {
   useEffect(() => {
     const element = ref.current;
@@ -38,10 +45,10 @@ export function useSurfaceOutside(
       const target = event.target as Node | null;
       if (!target || anchor?.contains(target)) return;
       if (element.contains(target) && (!scrim || target !== element)) return;
-      consumeOutsidePress(document, event);
+      if (consume) consumeOutsidePress(document, event);
       onClose();
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
-  }, [ref, onClose, active, scrim, anchor]);
+  }, [ref, onClose, active, scrim, anchor, consume]);
 }

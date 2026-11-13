@@ -453,192 +453,186 @@ export function applyOneBot(ctx: AppContext, config: OneBotConfig): Promise<void
           )?.message ?? [],
         convert,
       );
-      server = new OneBotServer(
-        {
-          registry,
-          readMessage,
-          async recall(message) {
+      server = new OneBotServer({
+        registry,
+        readMessage,
+        async recall(message) {
+          requireActive();
+          const loc = message.location;
+          if (!loc?.msgSeq || (message.peerType === 'c2c' && (!loc.clientSeq || !loc.random)))
+            throw new Error('消息缺少完整撤回定位信息');
+          const params = {
+            kind: message.peerType,
+            conv: loc.conv,
+            sequence: loc.msgSeq,
+            clientSequence: loc.clientSeq,
+            random: loc.random,
+            timestamp: message.time,
+          };
+          const send = () => {
             requireActive();
-            const loc = message.location;
-            if (!loc?.msgSeq || (message.peerType === 'c2c' && (!loc.clientSeq || !loc.random)))
-              throw new Error('消息缺少完整撤回定位信息');
-            const params = {
-              kind: message.peerType,
-              conv: loc.conv,
-              sequence: loc.msgSeq,
-              clientSequence: loc.clientSeq,
-              random: loc.random,
-              timestamp: message.time,
-            };
-            const send = () => {
-              requireActive();
-              return services.groupModeration.recallMessage(params);
-            };
-            if (services.antiRecall.protects(message.peerType, loc.conv))
-              await services.gapHistory.withSelfRecallProtection(params, send);
-            else await send();
-          },
-          async reaction(message, code, isSet) {
-            requireActive();
-            if (message.peerType !== 'group' || !message.location?.msgSeq)
-              throw new Error('当前仅支持对可定位的群消息贴表情');
-            if (!/^\d+$/.test(code)) throw new Error('表情 ID 无效');
-            await services.interaction.setMessageReaction({
-              groupId: message.targetId,
-              sequence: message.location.msgSeq,
-              code,
-              isSet,
-            });
-          },
-          version: () => getHost().appVersion(),
-          action(action, params) {
-            if (action === 'get_group_msg_history' || action === 'get_friend_msg_history')
-              return history(action === 'get_group_msg_history' ? 'group' : 'c2c', params);
-            if (
-              ['get_forward_msg', 'send_group_forward_msg', 'send_private_forward_msg'].includes(
-                action,
-              )
+            return services.groupModeration.recallMessage(params);
+          };
+          if (services.antiRecall.protects(message.peerType, loc.conv))
+            await services.gapHistory.withSelfRecallProtection(params, send);
+          else await send();
+        },
+        async reaction(message, code, isSet) {
+          requireActive();
+          if (message.peerType !== 'group' || !message.location?.msgSeq)
+            throw new Error('当前仅支持对可定位的群消息贴表情');
+          if (!/^\d+$/.test(code)) throw new Error('表情 ID 无效');
+          await services.interaction.setMessageReaction({
+            groupId: message.targetId,
+            sequence: message.location.msgSeq,
+            code,
+            isSet,
+          });
+        },
+        version: () => getHost().appVersion(),
+        action(action, params) {
+          if (action === 'get_group_msg_history' || action === 'get_friend_msg_history')
+            return history(action === 'get_group_msg_history' ? 'group' : 'c2c', params);
+          if (
+            ['get_forward_msg', 'send_group_forward_msg', 'send_private_forward_msg'].includes(
+              action,
             )
-              return forward(action, params);
-            return actions(action, params);
-          },
-          async status() {
-            if (!active()) return { online: false, good: false };
-            const record = services.accountConfig.getRecord();
-            const online = Boolean(record?.qqOnline && record.qqPid);
-            return { online, good: online && (await imageReady()) };
-          },
-          async self() {
-            requireActive();
-            const profile = await services.profile.getSelfProfile();
-            requireActive();
-            return {
-              user_id: Number(session.context.uin),
-              nickname: profile?.nick ?? String(session.context.uin),
-            };
-          },
-          async group(id, noCache) {
-            return groupSummary(services, id, noCache ?? false, requireActive);
-          },
-          async typing(id, event) {
-            requireActive();
-            await services.interaction.setInputStatus(id, event);
-          },
-          async send(target, segments, reply) {
-            requireActive();
-            const directory = await mkdtemp(join(tmpdir(), 'weq-onebot-'));
-            try {
-              const files = segments.filter((s) => s.type === 'file');
-              if (files.length) {
-                if (segments.length !== 1) throw new Error('文件需单独发送，不能与正文或图片混发');
-                const file = files[0]!;
-                const path = await mediaSource(file.data.file, directory, 0);
-                requireActive();
-                const outcome = await services.messageSend.sendFile({
-                  ...target,
-                  path,
-                  ...(typeof file.data.name === 'string' ? { fileName: file.data.name } : {}),
-                  ...(typeof file.data.folder === 'string' ? { folderId: file.data.folder } : {}),
-                  beforeSend: requireActive,
-                });
-                if (!outcome.ok || !outcome.sent)
-                  throw new Error(outcome.errMsg || 'QQ 拒绝发送文件');
-                requireActive();
-                return {
-                  ...target,
-                  key: `file:${target.peerType}:${target.targetId}:${outcome.fileId}:${randomBytes(8).toString('hex')}`,
-                  senderUin: Number(session.context.uin),
-                  nickname: '',
-                  time: Math.floor(Date.now() / 1000),
-                  sequence: 0,
-                  fileId: outcome.fileId,
-                  fileName: outcome.fileName,
-                  fileSize: outcome.fileSize,
-                  message: [
-                    {
-                      type: 'file',
-                      data: {
-                        file_id: outcome.fileId,
-                        name: outcome.fileName,
-                        file_size: outcome.fileSize,
-                      },
-                    },
-                  ],
-                };
-              }
-              const elements = await convert(segments, directory);
-              if (reply)
-                elements.unshift({
-                  kind: 'reply',
-                  origMsgSeq: reply.sequence,
-                  origSenderUin: reply.senderUin,
-                  origMsgTime: reply.time,
-                });
-              if (!segments.length) throw new Error('消息正文不能为空');
+          )
+            return forward(action, params);
+          return actions(action, params);
+        },
+        async status() {
+          if (!active()) return { online: false, good: false };
+          const record = services.accountConfig.getRecord();
+          const online = Boolean(record?.qqOnline && record.qqPid);
+          return { online, good: online && (await imageReady()) };
+        },
+        async self() {
+          requireActive();
+          const profile = await services.profile.getSelfProfile();
+          requireActive();
+          return {
+            user_id: Number(session.context.uin),
+            nickname: profile?.nick ?? String(session.context.uin),
+          };
+        },
+        async group(id, noCache) {
+          return groupSummary(services, id, noCache ?? false, requireActive);
+        },
+        async typing(id, event) {
+          requireActive();
+          await services.interaction.setInputStatus(id, event);
+        },
+        async send(target, segments, reply) {
+          requireActive();
+          const directory = await mkdtemp(join(tmpdir(), 'weq-onebot-'));
+          try {
+            const files = segments.filter((s) => s.type === 'file');
+            if (files.length) {
+              if (segments.length !== 1) throw new Error('文件需单独发送，不能与正文或图片混发');
+              const file = files[0]!;
+              const path = await mediaSource(file.data.file, directory, 0);
               requireActive();
-              const outcome = await services.messageSend.sendElements({
+              const outcome = await services.messageSend.sendFile({
                 ...target,
-                elements,
+                path,
+                ...(typeof file.data.name === 'string' ? { fileName: file.data.name } : {}),
+                ...(typeof file.data.folder === 'string' ? { folderId: file.data.folder } : {}),
                 beforeSend: requireActive,
               });
-              if (!outcome.ok) throw new Error(outcome.errMsg || 'QQ 拒绝发送消息');
+              if (!outcome.ok || !outcome.sent)
+                throw new Error(outcome.errMsg || 'QQ 拒绝发送文件');
               requireActive();
               return {
                 ...target,
-                key: `sent:${target.peerType}:${target.targetId}:${outcome.random}:${randomBytes(8).toString('hex')}`,
+                key: `file:${target.peerType}:${target.targetId}:${outcome.fileId}:${randomBytes(8).toString('hex')}`,
                 senderUin: Number(session.context.uin),
                 nickname: '',
-                time: outcome.timestamp,
-                sequence:
-                  target.peerType === 'group'
-                    ? outcome.groupSequence
-                    : (outcome.clientSequence ?? 0),
-                location: {
-                  conv:
-                    target.peerType === 'group'
-                      ? target.targetId
-                      : outcome.uid || session.uidMap.uidByUin(BigInt(target.targetId)) || '',
-                  msgSeq:
-                    target.peerType === 'group' ? outcome.groupSequence : outcome.privateSequence,
-                  clientSeq: outcome.clientSequence ?? 0,
-                  random: outcome.random,
-                },
-                message: segments,
+                time: Math.floor(Date.now() / 1000),
+                sequence: 0,
+                fileId: outcome.fileId,
+                fileName: outcome.fileName,
+                fileSize: outcome.fileSize,
+                message: [
+                  {
+                    type: 'file',
+                    data: {
+                      file_id: outcome.fileId,
+                      name: outcome.fileName,
+                      file_size: outcome.fileSize,
+                    },
+                  },
+                ],
               };
-            } finally {
-              await rm(directory, { recursive: true, force: true });
             }
-          },
-          subscribe(deliver) {
+            const elements = await convert(segments, directory);
+            if (reply)
+              elements.unshift({
+                kind: 'reply',
+                origMsgSeq: reply.sequence,
+                origSenderUin: reply.senderUin,
+                origMsgTime: reply.time,
+              });
+            if (!segments.length) throw new Error('消息正文不能为空');
             requireActive();
-            const watch = new DbWatchService({ intervalMs: 1000 });
-            const handle = watch.mount(
-              createNtMsgDbHook(session, {
-                onDbChanged() {},
-                async onNewMessages(change) {
-                  for (const [kind, rows] of [
-                    ['c2c', change.c2c],
-                    ['group', change.group],
-                  ] as const) {
-                    for (const row of rows) {
-                      if (!active()) return;
-                      const msg = await incoming(
-                        kind,
-                        { ...row, elements: toRenderElements(row.elements) },
-                        true,
-                      );
-                      if (msg && active()) deliver(msg);
-                    }
-                  }
-                },
-              }),
-            );
-            return () => handle.unmount();
-          },
+            const outcome = await services.messageSend.sendElements({
+              ...target,
+              elements,
+              beforeSend: requireActive,
+            });
+            if (!outcome.ok) throw new Error(outcome.errMsg || 'QQ 拒绝发送消息');
+            requireActive();
+            return {
+              ...target,
+              key: `sent:${target.peerType}:${target.targetId}:${outcome.random}:${randomBytes(8).toString('hex')}`,
+              senderUin: Number(session.context.uin),
+              nickname: '',
+              time: outcome.timestamp,
+              sequence:
+                target.peerType === 'group' ? outcome.groupSequence : (outcome.clientSequence ?? 0),
+              location: {
+                conv:
+                  target.peerType === 'group'
+                    ? target.targetId
+                    : outcome.uid || session.uidMap.uidByUin(BigInt(target.targetId)) || '',
+                msgSeq:
+                  target.peerType === 'group' ? outcome.groupSequence : outcome.privateSequence,
+                clientSeq: outcome.clientSequence ?? 0,
+                random: outcome.random,
+              },
+              message: segments,
+            };
+          } finally {
+            await rm(directory, { recursive: true, force: true });
+          }
         },
-        // 每个网络监听器单独携带令牌；第二个参数仅保留给旧调用方式。
-        undefined,
-      );
+        subscribe(deliver) {
+          requireActive();
+          const watch = new DbWatchService({ intervalMs: 1000 });
+          const handle = watch.mount(
+            createNtMsgDbHook(session, {
+              onDbChanged() {},
+              async onNewMessages(change) {
+                for (const [kind, rows] of [
+                  ['c2c', change.c2c],
+                  ['group', change.group],
+                ] as const) {
+                  for (const row of rows) {
+                    if (!active()) return;
+                    const msg = await incoming(
+                      kind,
+                      { ...row, elements: toRenderElements(row.elements) },
+                      true,
+                    );
+                    if (msg && active()) deliver(msg);
+                  }
+                }
+              },
+            }),
+          );
+          return () => handle.unmount();
+        },
+      });
       try {
         const statuses = await server.startConfigured({
           webSocketServers: webSocketServers.map(({ id, port, token }) => ({ id, port, token })),

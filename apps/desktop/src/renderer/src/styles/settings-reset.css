@@ -1,0 +1,110 @@
+.weq-set-head:has(> .weq-settings-page-reset) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+.weq-set-head:has(> .weq-settings-page-reset) > .weq-set-head-title {
+  grid-column: 1;
+  grid-row: 1;
+}
+.weq-set-head:has(> .weq-settings-page-reset) > .weq-set-desc {
+  grid-column: 1 / -1;
+}
+.weq-settings-page-reset {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+}
+.weq-set-card-head {
+  gap: 12px;
+}
+.weq-set-card-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.weq-settings-reset-items {
+  max-height: 48vh;
+  overflow-y: auto;
+  margin: 12px 0;
+}
+.weq-settings-reset-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-settings-reset-item strong {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+}
+.weq-settings-reset-item small {
+  font-weight: 400;
+  color: var(--weq-fg-secondary);
+}
+.weq-settings-reset-preview {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.weq-settings-reset-preview > div {
+  display: grid;
+  grid-template-columns: minmax(0, 76px) minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+.weq-settings-reset-preview dt {
+  color: var(--weq-fg-secondary);
+}
+.weq-settings-reset-preview dd {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.weq-settings-reset-modal .weq-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.weq-settings-reset-modal [role='alert'] {
+  color: var(--destructive);
+  overflow-wrap: anywhere;
+}
+
+/* 失败提示：给用户一句能行动的话，原始异常折叠进「技术详情」。 */
+.weq-settings-reset-error > p {
+  margin: 0 0 4px;
+  color: var(--destructive);
+}
+.weq-settings-reset-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-settings-reset-detail summary {
+  cursor: pointer;
+  color: var(--weq-fg-secondary);
+}
+.weq-settings-reset-detail pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 页头重置是带文字的软按钮，卡片级同类按钮也随之收窄，避免挤占标题。 */
+.weq-settings-page-reset .weq-set-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}

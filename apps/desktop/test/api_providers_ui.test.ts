@@ -1,5 +1,6 @@
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import { AgentLabSection } from '../src/renderer/src/components/settings/AgentLabSection';
@@ -7,6 +8,8 @@ import { ApiModelSelect } from '../src/renderer/src/components/settings/ApiModel
 import { TtsProvidersCard } from '../src/renderer/src/components/settings/VoiceTranscribeSection';
 import { providerDisplayLabels } from '../src/renderer/src/lib/providerDisplayLabels';
 import { useToast } from '../src/renderer/src/components/Toast';
+import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { pageSnapshots } from '../src/renderer/src/lib/pageSnapshots';
 
 const state = vi.hoisted(() => ({
   queryMode: 'ready',
@@ -62,6 +65,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
       }),
       bootstrap: {
+        getDefaultVisionModel: {
+          useQuery: () => ({ data: { ref: null, available: false, error: null } }),
+        },
+        setDefaultVisionModel: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
         getAgentLabDefaultModel: {
           useQuery: () => ({
             data: { ref: null, available: false, error: null },
@@ -137,6 +144,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 const cleanups: Array<() => void> = [];
 beforeEach(() => {
+  vi.stubGlobal('localStorage', new Storage());
   state.queryMode = 'ready';
   state.catalogError = false;
   state.refetch.mockClear();
@@ -198,7 +206,15 @@ function mount(tts = false) {
   document.body.append(host);
   const root = createRoot(host);
   const render = () =>
-    act(() => root.render(createElement(tts ? TtsProvidersCard : AgentLabSection)));
+    act(() =>
+      root.render(
+        createElement(
+          PageSnapshots,
+          { scope: 'provider-settings-test' },
+          createElement(tts ? TtsProvidersCard : AgentLabSection),
+        ),
+      ),
+    );
   render();
   let closed = false;
   const close = () => {
@@ -221,6 +237,89 @@ function mount(tts = false) {
   return { host, render, button, set, close };
 }
 describe('多 API provider 配置', () => {
+  it('能力使用独立多选按钮，切换与保存保留其他能力和思考档位', async () => {
+    const f = mount();
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    const group = f.host.querySelector('[aria-label="模型 1 能力"]')!;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.querySelector('[role="checkbox"]')).toBeNull();
+    const buttons = [...group.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['聊天', '向量', '视觉']);
+    expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+      'true',
+      'false',
+      'false',
+    ]);
+    f.set('[aria-label="模型 1 思考档位"]', 'low, high');
+    act(() => buttons[2]!.click());
+    act(() => buttons[1]!.click());
+    act(() => buttons[0]!.click());
+    expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+      'false',
+      'true',
+      'true',
+    ]);
+    await act(async () => f.button('保存服务商').click());
+    expect(state.save.mock.calls[0]![0].models[0]).toMatchObject({
+      capabilities: ['vision', 'embedding'],
+      reasoningEfforts: ['low', 'high'],
+    });
+  });
+  it.each([false, true])('%s 未修改或改回原值时关闭不确认，也不留下页面草稿', async (tts) => {
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(state.confirm).not.toHaveBeenCalled();
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    const original = f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value;
+    f.set('input[type="password"]', 'synthetic-edit');
+    f.set('input[type="password"]', original);
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(state.confirm).not.toHaveBeenCalled();
+    expect(f.host.querySelector('.weq-provider-modal')).toBeNull();
+  });
+  it.each([false, true])('%s 修改仅在关闭编辑器时确认，取消保留，放弃后不遗留草稿', async (tts) => {
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    f.set('input[type="password"]', 'synthetic-edit');
+    expect(state.confirm).not.toHaveBeenCalled();
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(state.confirm).toHaveBeenCalledWith(
+      '放弃未保存的修改？',
+      expect.any(String),
+      expect.anything(),
+    );
+    expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
+      'synthetic-edit',
+    );
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(f.host.querySelector('.weq-provider-modal')).toBeNull();
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).not.toBe(
+      'synthetic-edit',
+    );
+  });
+  it.each([false, true])('%s 保存后关闭不确认且不遗留页面草稿', async (tts) => {
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    f.set('input[type="password"]', 'synthetic-edit');
+    await act(async () => f.button(tts ? '保存' : '保存服务商').click());
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+    expect(state.confirm).not.toHaveBeenCalled();
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+  });
+  it.each([false, true])('%s 清除旧编辑器遗留标记，不恢复已关闭的编辑框', (tts) => {
+    const prefix = tts ? 'tts' : 'provider';
+    pageSnapshots.write(JSON.stringify(['provider-settings-test', `${prefix}:open`]), false, true);
+    pageSnapshots.write(JSON.stringify(['provider-settings-test', `${prefix}:form`]), {}, true);
+    const f = mount(tts);
+    expect(f.host.querySelector('.weq-provider-modal')).toBeNull();
+    expect(pageSnapshots.hasDrafts('provider-settings-test')).toBe(false);
+  });
   it('能力检测回填已验证与不支持项，未知项保留原选择且不自动保存', async () => {
     state.providers[0]!.models[0]!.capabilities = ['embedding', 'vision'];
     state.detectCapabilities.mockResolvedValue([
@@ -230,13 +329,15 @@ describe('多 API provider 配置', () => {
     ]);
     const f = mount();
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
-    await act(async () => f.button('自动检测能力').click());
+    await act(async () => f.button('检测能力').click());
     expect(state.confirm).toHaveBeenCalledWith(
       '自动检测能力',
       expect.stringContaining('不包含聊天记录'),
       expect.anything(),
     );
     expect(state.detectCapabilities).toHaveBeenCalledWith({
+      providerId: state.providers[0]!.id,
+      providerName: state.providers[0]!.name,
       baseUrl: state.providers[0]!.baseUrl,
       apiKey: state.providers[0]!.apiKey,
       model: 'shared-model',
@@ -246,7 +347,7 @@ describe('多 API provider 配置', () => {
     expect(f.host.textContent).toContain('视觉：未确定');
     expect(f.host.textContent).toContain('HTTP 502');
     expect(state.save).not.toHaveBeenCalled();
-    await act(async () => f.button('保存 provider').click());
+    await act(async () => f.button('保存服务商').click());
     expect(state.save.mock.calls[0]![0].models[0].capabilities).toEqual(['chat', 'vision']);
     expect(state.save.mock.calls[0]![0].models[0]).not.toHaveProperty('probe');
   });
@@ -254,7 +355,7 @@ describe('多 API provider 配置', () => {
     const f = mount();
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
     state.confirm.mockResolvedValueOnce(false);
-    await act(async () => f.button('自动检测能力').click());
+    await act(async () => f.button('检测能力').click());
     expect(state.detectCapabilities).not.toHaveBeenCalled();
     let reject!: (error: Error) => void;
     state.detectCapabilities.mockImplementation(
@@ -263,13 +364,13 @@ describe('多 API provider 配置', () => {
           reject = fail;
         }),
     );
-    await act(async () => f.button('自动检测能力').click());
+    await act(async () => f.button('检测能力').click());
     expect(f.host.querySelector('fieldset')?.disabled).toBe(true);
-    expect(f.button('保存 provider').disabled).toBe(true);
+    expect(f.button('保存服务商').disabled).toBe(true);
     await act(async () => reject(new Error('合成网络错误')));
     expect(f.host.querySelector('fieldset')?.disabled).toBe(false);
     expect(state.error).toHaveBeenCalledWith('能力检测失败', '合成网络错误');
-    await act(async () => f.button('保存 provider').click());
+    await act(async () => f.button('保存服务商').click());
     expect(state.save.mock.calls[0]![0].models[0].capabilities).toEqual(['chat']);
   });
   it('配置已变化时丢弃迟到的能力结果', async () => {
@@ -282,13 +383,13 @@ describe('多 API provider 配置', () => {
     );
     const f = mount();
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
-    await act(async () => f.button('自动检测能力').click());
+    await act(async () => f.button('检测能力').click());
     f.set('[aria-label="API Key"]', 'synthetic-new-key');
     await act(async () =>
       finish([{ capability: 'chat', status: 'unsupported', detail: '旧端点结果' }]),
     );
     expect(f.host.textContent).not.toContain('旧端点结果');
-    await act(async () => f.button('保存 provider').click());
+    await act(async () => f.button('保存服务商').click());
     expect(state.save.mock.calls[0]![0]).toMatchObject({
       apiKey: 'synthetic-new-key',
       models: [{ id: 'shared-model', capabilities: ['chat'] }],
@@ -298,11 +399,11 @@ describe('多 API provider 配置', () => {
     state.queryMode = 'loading';
     const f = mount(tts);
     expect(f.host.textContent).toContain('正在读取');
-    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有 provider');
+    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有服务商');
     state.queryMode = 'error';
     f.render();
     expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成配置读取失败');
-    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有 provider');
+    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有服务商');
     act(() => f.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
     expect(state.refetch).toHaveBeenCalledOnce();
     state.queryMode = 'stale';
@@ -312,7 +413,7 @@ describe('多 API provider 配置', () => {
     state.queryMode = 'empty';
     f.render();
     expect(f.host.querySelector('[role="alert"]')).toBeNull();
-    expect(f.host.textContent).toContain(tts ? '暂无语音合成' : '还没有 provider');
+    expect(f.host.textContent).toContain(tts ? '暂无语音合成' : '还没有服务商');
   });
   it.each([false, true])('%s 模板读取失败可重试，编辑保留原厂商与凭据', (tts) => {
     state.catalogError = true;
@@ -323,7 +424,7 @@ describe('多 API provider 配置', () => {
     expect(state.refetch).toHaveBeenCalledOnce();
     expect(
       f.host.querySelector<HTMLSelectElement>(
-        `[aria-label="${tts ? 'TTS 厂商模板' : 'API 厂商模板'}"]`,
+        `[aria-label="${tts ? 'TTS 服务商模板' : 'API 服务商模板'}"]`,
       )!.value,
     ).toBe(tts ? 'cosyvoice' : 'siliconflow');
     expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
@@ -485,12 +586,12 @@ describe('多 API provider 配置', () => {
     for (const key of ['synthetic-second-key', 'synthetic-third-key']) {
       act(() => f.button('新建').click());
       f.set('input[type="password"]', key);
-      await act(async () => f.button('保存 provider').click());
+      await act(async () => f.button('保存服务商').click());
       const saved = state.save.mock.calls.at(-1)![0] as AgentLabProviderConfig;
       created.push(saved.id);
       expect(saved.name).toBe(original.name);
       expect(state.providers.find((row) => row.id === original.id)).toEqual(original);
-      await act(async () => f.button('保存 provider').click());
+      await act(async () => f.button('保存服务商').click());
       expect((state.save.mock.calls.at(-1)![0] as AgentLabProviderConfig).id).toBe(saved.id);
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
       f.render();
@@ -508,7 +609,7 @@ describe('多 API provider 配置', () => {
     expect(state.error).not.toHaveBeenCalled();
     act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
     f.set('input[type="password"]', 'synthetic-updated-first-key');
-    await act(async () => f.button('保存 provider').click());
+    await act(async () => f.button('保存服务商').click());
     expect((state.save.mock.calls.at(-1)![0] as AgentLabProviderConfig).id).toBe(original.id);
     expect(
       state.providers.filter((row) => created.includes(row.id)).map((row) => row.apiKey),

@@ -3,6 +3,7 @@
  * 查看保留既有隔离 HTML 查看器；保存复用全局偏好与任务回执，不重新调用模型。
  */
 
+import { formatBytes } from '../../lib/format';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   Download,
@@ -22,6 +23,7 @@ import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useToast } from '../../components/Toast';
 import { IS_WEB } from '../../lib/target';
+import { presentClientDocument } from '../../components/ClientDocumentPreview';
 import '../../styles/assistant-artifact-save.css';
 
 function kindIcon(kind: AssistantArtifact['kind']): ReactElement {
@@ -36,12 +38,6 @@ function kindLabel(kind: AssistantArtifact['kind']): string {
   if (kind === 'html') return 'HTML 报告';
   if (kind === 'markdown') return 'Markdown';
   return '文本';
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifact }): ReactElement {
@@ -97,8 +93,10 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
     const expected = { ...binding },
       id = artifact.id;
     try {
-      if (isExport) await client.account.openAssistantExport.mutate({ ...expected, taskId: id });
-      else await client.account.openAssistantArtifact.mutate({ ...expected, id });
+      const result = isExport
+        ? await client.account.openAssistantExport.mutate({ ...expected, taskId: id })
+        : await client.account.openAssistantArtifact.mutate({ ...expected, id });
+      presentClientDocument(result, '助手报告');
     } catch (e) {
       if (current()) dialog.error('打开失败', e instanceof Error ? e.message : String(e));
     } finally {

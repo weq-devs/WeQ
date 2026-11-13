@@ -14,7 +14,7 @@
 
 .weq-set-onebot code {
   overflow-wrap: anywhere;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--weq-fg-primary);
 }
 
@@ -141,7 +141,7 @@
   gap: 6px;
   min-height: 18px;
   color: var(--weq-fg-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .weq-onebot-status-dot {
@@ -164,7 +164,7 @@
 .weq-onebot-server-error {
   margin: 0;
   color: var(--weq-list-alert-ink);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -186,7 +186,7 @@
   border-radius: 6px;
   background: var(--weq-bg-elevated);
   color: var(--weq-fg-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .weq-onebot-card-link:hover {
@@ -267,7 +267,7 @@
 
 .weq-onebot-inline-toggle small {
   color: var(--weq-fg-muted);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .weq-onebot-server-form-actions {

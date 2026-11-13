@@ -7,9 +7,16 @@ import type { ExportMode } from './types';
  */
 export function fixedScopeSummary(selection: ContentSelection): string {
   const owner = selection.owner;
-  const count = selection.scope.type === 'items' ? selection.scope.ids.length : null;
+  const count =
+    selection.scope.type === 'items'
+      ? selection.scope.ids.length
+      : selection.scope.type === 'references'
+        ? selection.scope.items.length
+        : null;
+  if (selection.scope.type === 'references') return `精确选中 ${count} 项内容`;
   switch (owner.kind) {
     case 'messages': {
+      if (owner.forwardTarget) return '聊天记录 · 卡片内完整消息（含嵌套记录）';
       const conv = owner.container.slice(owner.container.indexOf(':') + 1);
       return count === null ? `会话 ${conv} · 全部消息` : `会话 ${conv} · 精确选中 ${count} 条消息`;
     }
@@ -19,6 +26,8 @@ export function fixedScopeSummary(selection: ContentSelection): string {
         ? `${visible ? '当前列表' : owner.container} · 全部会话`
         : `已选 ${count} 个会话`;
     }
+    case 'conversation-batch':
+      return count === null ? '会话批量导出' : `已选 ${count} 个会话 · 按各自来源导出`;
     case 'guild-direct':
       return count === null ? '频道私聊 · 会话全部消息' : `频道私聊 · 精确选中 ${count} 条消息`;
     case 'guild-conversations':
@@ -69,8 +78,22 @@ export function initialExportMode(selection?: ContentSelection): ExportMode {
   }
 }
 
-export function initialQzoneScope(selection?: ContentSelection): { uin?: string; tids?: string[] } {
+export function initialQzoneScope(selection?: ContentSelection): {
+  uin?: string;
+  tids?: string[];
+  targets?: Record<string, string[]>;
+} {
   if (selection?.owner.kind !== 'qzone-posts') return {};
+  if (selection.scope.type === 'references') {
+    const targets: Record<string, string[]> = {};
+    for (const ref of selection.scope.items)
+      if (ref.kind === 'qzone-post') {
+        const tids = targets[ref.uin] ?? [];
+        targets[ref.uin] = tids;
+        if (!tids.includes(ref.tid)) tids.push(ref.tid);
+      }
+    return { targets };
+  }
   return {
     uin: selection.owner.container,
     ...(selection.scope.type === 'items' ? { tids: [...new Set(selection.scope.ids)] } : {}),

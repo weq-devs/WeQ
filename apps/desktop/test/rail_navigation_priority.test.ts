@@ -2,7 +2,7 @@ import { act, createElement as h, Profiler, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { MainView } from '../src/renderer/src/im-template/template/types';
 
 afterEach(() => vi.unstubAllGlobals());

@@ -9,22 +9,15 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import { ToolSurface } from '../ToolSurface';
-import { PageShell } from '../PageShell';
-import type { DbRepairAccountOption } from '../DbRepairPanel';
-import { DbRepairWindowRequest } from '../DbRepairWindow';
-import { CaptureWindowRequest } from '../CaptureWindow';
-import { CacheView } from '../../views/cache/CacheView';
-import { DbExplorer } from '../../views/cache/DbExplorer';
-import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
-import { ResourceCleanupDialog } from '../../views/cache/ResourceCleanupDialog';
 import { SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { trpc } from '../../trpc/client';
-import '../../styles/cache.css';
 import '../../styles/data-maintenance.css';
-import { WonderfulToolsDialog } from '../WonderfulToolsDialog';
-import { ExportTool } from '../../views/ExportView';
+import { useRemoteClient } from '../../lib/remoteClient';
+import { REMOTE_BLOCKED_MAINTENANCE_TOOLS } from '../../../../shared/remote_capabilities';
+
+/** 清单本身在 shared/remote_capabilities（导航、设置搜索、维护工具共用一份）。 */
+export const remoteUnsupportedTools: readonly MaintenanceTool[] = REMOTE_BLOCKED_MAINTENANCE_TOOLS;
 
 export type MaintenanceTool =
   | 'cache'
@@ -39,7 +32,7 @@ export type MaintenanceTool =
   | 'capture'
   | 'reverse';
 
-const TOOLS = [
+export const MAINTENANCE_TOOLS = [
   {
     id: 'cache',
     label: '资源查看',
@@ -115,6 +108,7 @@ export function DataMaintenanceSection({
   title?: string | null;
 }): ReactElement {
   const active = useTabActive();
+  const remote = useRemoteClient();
   const account = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: active,
     refetchOnMount: 'always',
@@ -122,8 +116,8 @@ export function DataMaintenanceSection({
     staleTime: 0,
   });
   const visibleTools = tools
-    ? tools.flatMap((id) => TOOLS.filter((tool) => tool.id === id))
-    : TOOLS.filter((tool) => tool.id !== 'login-accounts');
+    ? tools.flatMap((id) => MAINTENANCE_TOOLS.filter((tool) => tool.id === id))
+    : MAINTENANCE_TOOLS.filter((tool) => tool.id !== 'login-accounts');
   return (
     <div className="weq-set weq-data-maintenance">
       {title ? (
@@ -142,25 +136,27 @@ export function DataMaintenanceSection({
         </div>
       ) : null}
       <div className="weq-maintenance-list">
-        {visibleTools.map(({ id, label, settingId, icon: Icon, needsResources }) => {
-          const unavailable = needsResources && account.data?.static;
-          return (
-            <button
-              type="button"
-              className="weq-maintenance-entry"
-              key={id}
-              data-setting-id={settingId}
-              onClick={() => onOpen(id)}
-              disabled={!account.data || account.isFetching || account.isError || unavailable}
-              title={unavailable ? '静态账号暂不支持本地资源维护' : label}
-            >
-              <Icon size={18} aria-hidden />
-              <span>{label}</span>
-              {unavailable ? <small>静态账号不可用</small> : null}
-              <ChevronRight size={16} aria-hidden />
-            </button>
-          );
-        })}
+        {visibleTools
+          .filter(({ id }) => !remote || !remoteUnsupportedTools.includes(id))
+          .map(({ id, label, settingId, icon: Icon, needsResources }) => {
+            const unavailable = needsResources && account.data?.static;
+            return (
+              <button
+                type="button"
+                className="weq-maintenance-entry"
+                key={id}
+                data-setting-id={settingId}
+                onClick={() => onOpen(id)}
+                disabled={!account.data || account.isFetching || account.isError || unavailable}
+                title={unavailable ? '静态账号暂不支持本地资源维护' : label}
+              >
+                <Icon size={18} aria-hidden />
+                <span>{label}</span>
+                {unavailable ? <small>静态账号不可用</small> : null}
+                <ChevronRight size={16} aria-hidden />
+              </button>
+            );
+          })}
       </div>
       {!account.data && !account.isError ? (
         <div role="status" className="weq-maintenance-status">
@@ -168,74 +164,5 @@ export function DataMaintenanceSection({
         </div>
       ) : null}
     </div>
-  );
-}
-
-/** 设置来源在原页面之上打开，不替换设置工作区。 */
-export function DataMaintenanceDialog({
-  tool,
-  source,
-  account,
-  onClose,
-}: {
-  tool: MaintenanceTool | null;
-  source: string;
-  account: DbRepairAccountOption;
-  onClose: () => void;
-}): ReactElement | null {
-  if (!tool) return null;
-  if (tool === 'db-repair') return <DbRepairWindowRequest key={account.uin} account={account} />;
-  if (tool === 'capture')
-    return (
-      <CaptureWindowRequest key={source} source={source} uin={account.uin} onRequested={onClose} />
-    );
-  if (
-    tool === 'key-scan' ||
-    tool === 'other-device-key' ||
-    tool === 'login-accounts' ||
-    tool === 'reverse'
-  )
-    return (
-      <WonderfulToolsDialog
-        open
-        presentation="modal"
-        initialTool={tool}
-        tools={[tool]}
-        onClose={onClose}
-      />
-    );
-  if (tool === 'storage')
-    return <ResourceAnalyticsDialog open presentation="modal" onClose={onClose} />;
-  if (tool === 'cleanup')
-    return <ResourceCleanupDialog open presentation="modal" onClose={onClose} />;
-  const label = TOOLS.find((entry) => entry.id === tool)?.label ?? '数据与维护';
-  const flush = tool === 'database' || tool === 'cache';
-  return (
-    <ToolSurface title={label} onClose={onClose} presentation="modal">
-      {(requestClose) => (
-        <div
-          className="weq-maintenance-dialog"
-          role="region"
-          aria-labelledby="weq-maintenance-title"
-        >
-          <PageShell
-            title={label}
-            titleId="weq-maintenance-title"
-            meta={account.name || account.uin}
-            onClose={requestClose}
-          >
-            <div className={`weq-maintenance-body${flush ? ' is-flush' : ''}`}>
-              {tool === 'cache' ? (
-                <CacheView />
-              ) : tool === 'database' ? (
-                <DbExplorer />
-              ) : tool === 'db-decrypt' ? (
-                <ExportTool initialMode="database" lockMode />
-              ) : null}
-            </div>
-          </PageShell>
-        </div>
-      )}
-    </ToolSurface>
   );
 }

@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ComponentType } from 'react';
+import { PanelLoading } from '../components/LoadingIndicator';
 
 /** 导航意图与真正打开复用同一次模块请求；预热只加载代码，不发业务查询。 */
 export function lazyPanel<Props extends object>(
@@ -16,13 +17,7 @@ export function lazyPanel<Props extends object>(
   return Object.assign(
     function DeferredPanel(props: Props) {
       return (
-        <Suspense
-          fallback={
-            <div role="status" className="p-6 text-sm text-muted-foreground">
-              正在加载…
-            </div>
-          }
-        >
+        <Suspense fallback={<PanelLoading />}>
           <Component {...props} />
         </Suspense>
       );

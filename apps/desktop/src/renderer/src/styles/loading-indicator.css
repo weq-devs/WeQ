@@ -1,0 +1,49 @@
+.weq-loading-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.weq-loading-indicator > :last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-loading-indicator-spinner {
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--weq-accent-ink);
+  animation: weq-loading-indicator-spin 900ms linear infinite;
+}
+
+.weq-panel-loading {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 120px;
+  padding: 24px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+
+@keyframes weq-loading-indicator-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+[hidden] .weq-loading-indicator-spinner {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-loading-indicator-spinner {
+    animation: none;
+  }
+}

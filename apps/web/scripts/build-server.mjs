@@ -17,6 +17,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTarget, LABELS, nativeRel } from './platform.mjs';
 import { readRuntimeSource, runtimeManifest } from './runtime-deps.mjs';
+import {
+  checkDressManifest,
+  includeSharedResource,
+  verifyPackagedDressResources,
+} from '../../../scripts/dress-artifacts.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -54,6 +59,9 @@ const NATIVE_DEPS = runtimeSource.manifest.dependencies;
  */
 const ENTRIES = {
   server: join(appRoot, 'src/server/index.ts'),
+  imageWorker: join(desktopMain, 'image_worker.ts'),
+  coverWorker: join(desktopMain, 'cover_worker.ts'),
+  analysisReportsWorker: join(repoRoot, 'packages/service/src/account/analysis_reports_worker.mjs'),
   attachWorker: join(desktopMain, 'attach_worker.ts'),
   backupProbeWorker: join(desktopMain, 'backup_probe_worker.ts'),
   transcribeWorker: join(desktopMain, 'transcribe/worker.ts'),
@@ -109,11 +117,13 @@ cpSync(nativeSrc, join(dist, 'native', nativeRelPath), { recursive: true });
 
 // resources/ — brand assets etc. read at runtime.
 if (existsSync(RESOURCES_SRC)) {
+  checkDressManifest(repoRoot);
   rmSync(join(dist, 'resources'), { recursive: true, force: true });
   cpSync(RESOURCES_SRC, join(dist, 'resources'), {
     recursive: true,
-    filter: (source) => source !== join(RESOURCES_SRC, 'daemon'),
+    filter: (source) => includeSharedResource(source, RESOURCES_SRC),
   });
+  verifyPackagedDressResources(join(dist, 'resources'));
 }
 
 // A manifest so `node server.mjs` resolves `ws` without a full install.
@@ -144,7 +154,7 @@ writeFileSync(
     '环境变量：',
     '  WEQ_TOKEN       访问令牌。绑定到非本机地址时必须显式设置。',
     '  WEQ_HOST        监听地址，默认 127.0.0.1。设为 0.0.0.0 才对外可见。',
-    '  WEQ_PORT        端口，默认 7690；被占用时自动向后探测。',
+    '  WEQ_PORT        首选端口，默认 7690；最多尝试 10 个候选端口，回退跳过其他 WeQ 服务预留范围。',
     '  WEQ_EXPORT_DIR  导出目录，默认 ./weq-exports',
     '  WEQ_DATA_DIR    日志父目录，默认 ./weq-data；日志写入 logs/ 子目录',
     '',

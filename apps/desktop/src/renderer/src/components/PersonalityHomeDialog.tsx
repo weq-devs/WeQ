@@ -19,9 +19,10 @@
 
 import { useContext, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
+import { EmptyState } from './EmptyState';
 import { Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
-import { openLightbox } from './ImageLightbox';
+import { openMediaPreview } from './mediaPreviewStore';
 import {
   albumMediaUrl,
   collectionImageUrl,
@@ -30,8 +31,9 @@ import {
   resourceUrl,
 } from '../lib/resourceUrl';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
-import { trpc } from '../trpc/client';
+import { useContactDress, useContactQqShow, useContactStats } from '../hooks/useContactCard';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
+import { ProfileExtras } from './ProfileExtras';
 import { useTabActive } from './RetainedTabs';
 import botCardUrl from '@resources/img/bot.png';
 
@@ -62,6 +64,7 @@ function qqLevelIconNames(level: number): string[] {
 
 /** 与资料灯箱同一份形状（profilePanes 的 ProfileExtInfo），只取渲染要用的字段。 */
 export interface PersonalityHomeProfile {
+  isEnterprise?: boolean;
   name: string;
   avatarUrl: string | null;
   signature?: string | null;
@@ -101,38 +104,49 @@ export function PersonalityHomeDialog({
 }) {
   const active = useTabActive();
   const openSpace = useContext(QzoneNavigationContext);
-  const dress = trpc.account.dressup.peerHome.useQuery(
-    { uin },
-    // SSR 页面每次都要几秒，失败多半是票据/风控而不是抖动，重试只会让用户多等一轮。
-    { enabled: active && !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
-  );
-  const stats = trpc.account.dressup.peerStats.useQuery(
-    { uin, uid: uid ?? '' },
-    {
-      enabled: active && Boolean(uid) && !isBot,
-      retry: false,
-      refetchOnWindowFocus: false,
-      staleTime: 5 * 60_000,
-    },
-  );
-  const qqShow = trpc.account.dressup.peerQqShow.useQuery(
-    { uin },
-    // OIDB 毫秒级返回；失败多半是离线/风控，静默回退到头像+挂件即可，不打扰。
-    { enabled: active && !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
-  );
+  const dress = useContactDress(uin, active && !isBot);
+  const stats = useContactStats(uin, uid ?? '', 'level', active && !isBot && !embedded);
+  const qqShow = useContactQqShow(uin, active && !isBot);
 
   // 有 QQ 秀时默认展示全身像；切换胶囊可随时切回「头像+挂件」。
   const [showQqShow, setShowQqShow] = useState(true);
   // 全身像加载失败（CDN 挂了 / 图被删）就回退到头像，避免裂图。
   const [qqShowFailed, setQqShowFailed] = useState(false);
   const qqShowUrlValue = qqShow.data?.hasShow ? qqShow.data.url : '';
+  // 等级查询失败时 peerStats 会给出 null（获赞仍可能成功），这种半份结果不画等级行。
+  const level = stats.data?.level;
 
   const widgetUrl = dressUrl(dress.data?.widgetUrl ?? '');
   const cardUrl = isBot ? botCardUrl : dressUrl(dress.data?.cardUrl ?? '');
   const cardVideoUrl = dressUrl(dress.data?.cardVideoUrl ?? '');
   const screenUrl = dressUrl(dress.data?.screenUrl ?? '');
   const hasBackdrop = Boolean(cardUrl || cardVideoUrl);
-  const tags = profile.interests;
+  const tags = embedded ? [] : profile.interests;
+
+  if (
+    embedded &&
+    !dress.isLoading &&
+    !qqShow.isLoading &&
+    !hasBackdrop &&
+    !widgetUrl &&
+    !screenUrl &&
+    !qqShowUrlValue
+  )
+    return (
+      <section
+        className="weq-contact-personality is-empty"
+        role="region"
+        aria-label={`${profile.name} 的个性装扮`}
+      >
+        {dress.error ? (
+          <p className="weq-profile-empty" role="status">
+            个性装扮读取失败：{dress.error.message}
+          </p>
+        ) : (
+          <EmptyState compact icon={<Sparkles />} title="暂无个性装扮" />
+        )}
+      </section>
+    );
 
   const content = (
     <section
@@ -208,9 +222,14 @@ export function PersonalityHomeDialog({
           ) : null}
         </div>
 
-        <h2 className="weq-perhome-name">{profile.name}</h2>
-        {profile.signature ? <p className="weq-perhome-sign">{profile.signature}</p> : null}
-        {openSpace && /^[1-9]\d{4,19}$/.test(uin) ? (
+        {!embedded ? <h2 className="weq-perhome-name">{profile.name}</h2> : null}
+        {!embedded && profile.signature ? (
+          <p className="weq-perhome-sign">{profile.signature}</p>
+        ) : null}
+        {!embedded && !isBot && !profile.isEnterprise ? (
+          <ProfileExtras uin={uin} section="signature" />
+        ) : null}
+        {!embedded && openSpace && /^[1-9]\d{4,19}$/.test(uin) ? (
           <div className="weq-profile-actions">
             <button
               className="weq-profile-perhome"
@@ -223,16 +242,16 @@ export function PersonalityHomeDialog({
               }}
             >
               <Star size={13} />
-              {onOpenChat ? '查看私聊' : '查看空间'}
+              {onOpenChat ? '查看消息' : '查看空间'}
             </button>
           </div>
         ) : null}
 
-        {stats.data ? (
+        {level != null ? (
           <div className="weq-perhome-stats">
-            <span className="weq-perhome-stat" title={`QQ 等级 ${stats.data.level} 级`}>
+            <span className="weq-perhome-stat" title={`QQ 等级 ${level} 级`}>
               <span className="weq-perhome-level-icons">
-                {qqLevelIconNames(stats.data.level).map((name, index) => (
+                {qqLevelIconNames(level).map((name, index) => (
                   <img
                     // biome-ignore lint/suspicious/noArrayIndexKey: 同名图标可重复,位置才是稳定键
                     key={`${name}:${index}`}
@@ -241,18 +260,19 @@ export function PersonalityHomeDialog({
                   />
                 ))}
               </span>
-              <strong>Lv.{stats.data.level}</strong>
+              <strong>Lv.{level}</strong>
             </span>
           </div>
         ) : null}
 
-        {!isBot && uid ? (
+        {!embedded && !isBot && !profile.isEnterprise && uid ? (
           <div className="weq-profile-list">
             <ProfileLikesRow uid={uid} uin={uin} name={profile.name} />
           </div>
         ) : null}
+        {!embedded && !isBot && !profile.isEnterprise ? <ProfileExtras uin={uin} /> : null}
 
-        {profile.privileges.length || profile.region ? (
+        {!embedded && (profile.privileges.length || profile.region) ? (
           <div className="weq-perhome-chips">
             {profile.region ? (
               <span className="weq-perhome-chip">
@@ -280,7 +300,7 @@ export function PersonalityHomeDialog({
           </div>
         ) : null}
 
-        {profile.album.length ? (
+        {!embedded && profile.album.length ? (
           <div className="weq-perhome-album">
             {profile.album.map((photo, index) => (
               <button
@@ -289,7 +309,18 @@ export function PersonalityHomeDialog({
                 type="button"
                 className="weq-perhome-photo"
                 title="精选图片"
-                onClick={() => openLightbox(albumMediaUrl(photo.full), '精选图片')}
+                onClick={() =>
+                  openMediaPreview({
+                    items: [
+                      {
+                        key: albumMediaUrl(photo.full),
+                        kind: 'image',
+                        src: albumMediaUrl(photo.full),
+                        title: '精选图片',
+                      },
+                    ],
+                  })
+                }
               >
                 <img src={albumMediaUrl(photo.thumb)} alt="" loading="lazy" />
               </button>

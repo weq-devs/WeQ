@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
+import { IS_WEB } from '../../lib/target';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
@@ -75,13 +76,13 @@ function PendantOverlay({
   if (!widget?.animated && !staticUrl) {
     return (
       <span ref={avatarRef} style={{ display: 'inline-flex', flexShrink: 0 }}>
-        <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />
+        <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
       </span>
     );
   }
   return (
     <span ref={avatarRef} className={cn('weq-avatar-pendant')}>
-      <Avatar name={name} avatarUrl={avatarUrl} seed={seed} />
+      <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
       {widget?.animated ? (
         <span className={cn('weq-avatar-pendant-img')} aria-hidden />
       ) : (
@@ -171,7 +172,11 @@ export function MessageBubble({
   /** Restore a WeQ-deleted message (only used when `deleted`). */
   onRestore?: (msgId: string) => Promise<void>;
   onContextMenu: (event: ReactMouseEvent, message: Message) => void;
-  onLongPress: (point: { x: number; y: number }, message: Message) => void;
+  onLongPress: (
+    point: { x: number; y: number },
+    message: Message,
+    target?: EventTarget | null,
+  ) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onReedit?: (message: Message) => Promise<boolean>;
   /**
@@ -318,10 +323,11 @@ export function MessageBubble({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (selectionMode || event.pointerType === 'mouse' || event.button !== 0) {
+    if (IS_WEB || selectionMode || event.pointerType === 'mouse' || event.button !== 0) {
       return;
     }
     const startPoint = { x: event.clientX, y: event.clientY };
+    const target = event.target;
     const rect = event.currentTarget.getBoundingClientRect();
     longPressPointRef.current = startPoint;
     longPressAnchorRef.current = {
@@ -332,7 +338,7 @@ export function MessageBubble({
     longPressTimerRef.current = window.setTimeout(() => {
       const anchorPoint = longPressAnchorRef.current ?? startPoint;
       selectMessageContent();
-      onLongPress(anchorPoint, message);
+      onLongPress(anchorPoint, message, target);
       clearLongPress();
     }, 460);
   }
@@ -424,7 +430,8 @@ export function MessageBubble({
         conversation.generated && !message.generatedPending ? message.id : undefined
       }
       data-weq-select-id={selectionMode ? message.id : undefined}
-      tabIndex={selectionMode ? 0 : undefined}
+      // 普通模式给 -1：不进 Tab 顺序，但允许聊天区用方向键把焦点落到消息上。
+      tabIndex={selectionMode ? 0 : -1}
       onClickCapture={
         selectionMode && onToggleSelect
           ? (event) => {
@@ -532,7 +539,10 @@ export function MessageBubble({
               ) : null}
             </span>
           ) : null}
-          <MessageProvenance message={message} />
+          <MessageProvenance
+            message={message}
+            precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
+          />
         </div>
         {repeatAction ? (
           <div className="weq-repeat-content">

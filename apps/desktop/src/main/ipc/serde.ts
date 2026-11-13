@@ -84,6 +84,10 @@ export interface UserProfileWire {
     country?: string;
     province?: string;
     city?: string;
+    constellation?: number;
+    occupation?: number;
+    bloodType?: number;
+    zodiac?: number;
     interests: string[];
     album: Array<{
       photoId?: string;
@@ -268,6 +272,7 @@ export interface OnlineStatusWire extends FormattedOnlineStatus {}
  * and `msgSeq` (column 40003) drives the renderer's seq-window model.
  */
 export interface ChatMsgWire {
+  cachedBubbles?: import('@weq/service').MessageBubbleSkin[];
   localSent?: boolean;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';

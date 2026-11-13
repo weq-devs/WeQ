@@ -1,5 +1,6 @@
 import { getLogger, logErrorContext } from './logger';
 import { withLogOperation, currentOperationId } from './operation_log';
+import { beginRequestMetric } from '../performance/requests';
 
 const expected = new Set([
   'BAD_REQUEST',
@@ -36,6 +37,7 @@ export async function logRequest<T>(
   resultError: (result: T) => unknown = () => undefined,
 ): Promise<T> {
   return withLogOperation(async () => {
+    const finishMetric = beginRequestMetric(path);
     const began = performance.now();
     const logger = getLogger().child({ scope });
     const record = (error?: unknown, failed = error !== undefined) => {
@@ -48,11 +50,12 @@ export async function logRequest<T>(
         detail?.name === 'AbortError' ||
         (detail?.cause instanceof Error && detail.cause.name === 'AbortError') ||
         detail?.code === 'CLIENT_CLOSED_REQUEST';
+      const slowThresholdMs = path === 'bootstrap.openAccount' ? 3000 : 1000;
       const level = failed
         ? cancelled || expected.has(detail?.code ?? '')
           ? 'debug'
           : 'error'
-        : durationMs >= 1000 && (type === 'query' || type === 'mutation')
+        : durationMs >= slowThresholdMs && (type === 'query' || type === 'mutation')
           ? 'warn'
           : 'debug';
       const operationId = currentOperationId();
@@ -70,9 +73,12 @@ export async function logRequest<T>(
     };
     try {
       const result = await run();
-      record(resultError(result));
+      const error = resultError(result);
+      finishMetric(error !== undefined);
+      record(error);
       return result;
     } catch (error) {
+      finishMetric(true);
       record(error, true);
       throw error;
     }

@@ -17,7 +17,10 @@ vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     bootstrap: {
+      getSettings: { useQuery: () => ({ data: { aiImages: { cloneTraining: 'placeholder' } } }) },
+      setAiImagePreference: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       listAgentLabProviders: {
         useQuery: () => ({
           data: [
@@ -96,7 +99,10 @@ it.each([false, true])('新建克隆预选默认聊天模型，不受模型列�
       (value) => value.closest('label')?.textContent?.includes('分析 TA'),
     )!;
     act(() => checkbox.click());
-    choose('克隆视觉模型');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="克隆视觉模型"]')!.value).toBe(
+      DEFAULT_MODEL_SELECTION_KEY,
+    );
+    expect(host.querySelector('[aria-label="克隆视觉模型"] option[value=""]')).toBeNull();
     act(() => button('开始克隆').click());
     expect(start.mock.calls[1]![0].params.models).toEqual({
       chat: { useDefault: true },

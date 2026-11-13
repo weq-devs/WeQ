@@ -83,9 +83,9 @@ try {
     if (await start.isDisabled()) throw new Error('仅媒体模式仍要求选择格式');
     if (
       (await page
-        .locator('.weq-exp-format')
+        .locator('.weq-set-chk')
         .filter({ hasText: /^JSON$/ })
-        .getAttribute('aria-pressed')) !== 'false'
+        .getAttribute('aria-checked')) !== 'false'
     )
       throw new Error('取消后暗中选中了 JSON');
     await start.click();
@@ -103,9 +103,9 @@ try {
     await page.getByRole('button', { name: '选中 JSON', exact: true }).click();
     if (
       (await page
-        .locator('.weq-exp-format')
+        .locator('.weq-set-chk')
         .filter({ hasText: /^JSON$/ })
-        .getAttribute('aria-pressed')) !== 'true'
+        .getAttribute('aria-checked')) !== 'true'
     )
       throw new Error('同意后未选中 JSON');
     const groups = await page

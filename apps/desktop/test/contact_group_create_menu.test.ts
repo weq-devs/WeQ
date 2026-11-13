@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
 import { FriendDirectoryContext } from '../src/renderer/src/components/FriendDirectoryControls';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));

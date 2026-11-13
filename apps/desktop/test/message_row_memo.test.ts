@@ -3,9 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { messagePerformanceSnapshot } from '../src/renderer/src/lib/messagePerformance';
 import { useStableCallback } from '../src/renderer/src/hooks/useStableCallback';
+import { mergeRefreshedWindow } from '../src/renderer/src/lib/conversationRefresh';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -20,13 +21,15 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return { trpc: proxy(), client: proxy() };
 });
 afterEach(() => vi.unstubAllGlobals());
-it('输入草稿不重画未变消息，编辑只重画对应行', () => {
+it('输入草稿不重画未变消息，编辑和前插只重画变化行', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const demo = createTemplateDemoData();
   const conversation = demo.conversations.find((row) => row.type === 'direct')!;
   const messages = [1, 2].map((id) => ({
     id: String(id),
+    msgId: String(id),
+    msgSeq: String(id + 1),
     conversationId: conversation.id,
     senderId: conversation.otherUser.id,
     body: `fixture ${id}`,
@@ -51,16 +54,21 @@ it('输入草稿不重画未变消息，编辑只重画对应行', () => {
     const initial = messagePerformanceSnapshot().counters.rowRenders;
     act(() => root.render(h(ChatPane, { ...props, draft: 'new draft' })));
     expect(messagePerformanceSnapshot().counters.rowRenders).toBe(initial);
+    const edited = [messages[0]!, { ...messages[1]!, body: 'edited' }];
     act(() =>
       root.render(
         h(ChatPane, {
           ...props,
           draft: 'new draft',
-          messages: [messages[0]!, { ...messages[1]!, body: 'edited' }],
+          messages: edited,
         }),
       ),
     );
     expect(messagePerformanceSnapshot().counters.rowRenders).toBe(initial + 1);
+    const older = { ...messages[0]!, id: '0', msgId: '0', msgSeq: '1', body: 'older' };
+    const prepended = mergeRefreshedWindow(edited, structuredClone([older, ...edited]), 500);
+    act(() => root.render(h(ChatPane, { ...props, draft: 'new draft', messages: prepended })));
+    expect(messagePerformanceSnapshot().counters.rowRenders).toBe(initial + 2);
   } finally {
     act(() => root.unmount());
     host.remove();

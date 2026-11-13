@@ -1,0 +1,112 @@
+.composer.has-media-attachments {
+  grid-template-rows: 42px 76px minmax(0, 1fr);
+}
+
+.composer.has-media-attachments > .composer-editor {
+  grid-row: 3;
+}
+
+.composer-media-tray {
+  display: flex;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 0;
+  overflow: auto hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--weq-border-strong) transparent;
+}
+
+.composer-media-tray > .composer-single-card {
+  flex: 0 0 216px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  height: 54px;
+  padding: 7px 24px 7px 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.composer-media-tray .composer-single-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 4px;
+}
+
+.composer-media-tray .composer-single-thumb > svg {
+  width: 26px;
+  height: 26px;
+}
+
+.composer-media-tray .composer-single-info {
+  width: 100%;
+  justify-items: start;
+}
+
+.composer-media-tray .composer-single-info em {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--weq-fg-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-media-tray .composer-single-remove {
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.composer-media-tray button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+
+html[data-theme='dark'] .composer-media-tray > .composer-single-card {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+:where(html[data-weq-layout='single']) .chat-pane:has(.composer.has-media-attachments) {
+  --composer-height: calc(
+    var(--mobile-composer-editor-height, 42px) +
+    138px +
+    var(--mobile-composer-safe-bottom)
+  ) !important;
+}
+
+:where(html[data-weq-layout='single']) .composer.has-media-attachments {
+  grid-template-rows: 76px var(--mobile-composer-editor-height, 42px) 48px;
+}
+
+:where(html[data-weq-layout='single']) .composer.has-media-attachments > .composer-media-tray {
+  grid-row: 1;
+  padding-right: 0;
+}
+
+:where(html[data-weq-layout='single'])
+  .composer.has-media-attachments
+  > :is(.composer-editor, .composer-send, .mobile-composer-expand-button) {
+  grid-row: 2;
+}
+
+:where(html[data-weq-layout='single']) .composer.has-media-attachments > .composer-tools {
+  grid-row: 3;
+}
+
+:where(html[data-weq-layout='single']) .composer-media-tray > .composer-single-card {
+  padding-right: 36px;
+}
+
+:where(html[data-weq-layout='single']) .composer-media-tray .composer-single-remove {
+  top: 7px;
+  right: 0;
+  width: 32px;
+  height: 38px;
+}

@@ -14,5 +14,5 @@ type IpcBridge = {
 
 export function setWindowLayout(layout: WindowLayout): void {
   const bridge = (window as unknown as { electron?: IpcBridge }).electron;
-  void bridge?.ipcRenderer?.invoke?.('window:set-layout', layout);
+  void bridge?.ipcRenderer?.invoke?.('window:set-layout', layout).catch(() => undefined);
 }

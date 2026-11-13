@@ -8,9 +8,13 @@ import type { QQExactLookupKind } from './QQExactLookup';
 export function FriendGroupCreateMenu({
   onLookup,
   showGroup = true,
+  searching = false,
+  onCloseSearch,
 }: {
   onLookup: (kind: QQExactLookupKind) => void;
   showGroup?: boolean;
+  searching?: boolean;
+  onCloseSearch?: () => void;
 }) {
   const directory = useFriendDirectory();
   const document = useRenderDocument();
@@ -42,21 +46,24 @@ export function FriendGroupCreateMenu({
       <button
         ref={trigger}
         type="button"
-        title="添加联系人或分组"
-        aria-label="添加联系人或分组"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        title={searching ? '退出搜索联系人' : '添加联系人或分组'}
+        aria-label={searching ? '退出搜索联系人' : '添加联系人或分组'}
+        aria-haspopup={searching ? undefined : 'menu'}
+        aria-expanded={searching ? undefined : open}
+        onClick={() => {
+          if (searching) onCloseSearch?.();
+          else setOpen((value) => !value);
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'ArrowDown') {
+          if (!searching && event.key === 'ArrowDown') {
             event.preventDefault();
             setOpen(true);
           }
         }}
       >
-        <Plus size={16} />
+        <Plus size={16} className="weq-directory-add-icon" />
       </button>
-      {open && (
+      {open && !searching && (
         <div
           className="weq-directory-scope-menu"
           role="menu"

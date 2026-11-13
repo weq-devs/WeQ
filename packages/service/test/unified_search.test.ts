@@ -157,10 +157,10 @@ describe('全局搜索范围', () => {
     ];
     const coverage = { scope: 'observed-cache' as const, records: 2, limited: true, updatedAt: 10 };
     const searchContent = vi.fn(
-      (_category: string, _keyword: string, limit: number, offset: number) => ({
-        items: cached.slice(offset, offset + limit),
-        total: cached.length,
-        coverage,
+      (category: string, _keyword: string, limit: number, offset: number) => ({
+        items: category === 'groupFile' ? cached.slice(offset, offset + limit) : [],
+        total: category === 'groupFile' ? cached.length : 0,
+        coverage: category === 'groupFile' ? coverage : { ...coverage, records: 0, limited: false },
       }),
     );
     const service = new UnifiedSearchService(f.session, { searchContent });
@@ -180,7 +180,7 @@ describe('全局搜索范围', () => {
         page.items.map((hit) => ('id' in hit ? hit.id : 'msgId' in hit ? hit.msgId : '')),
       ),
     ).toEqual(['cached-exact', '1', 'cached-prefix', '2']);
-    expect(pages[0]?.coverage).toEqual(coverage);
+    expect(pages[0]?.coverage).toEqual({ ...coverage, available: true });
     expect(pages[0]?.items[0]).toEqual(cached[0]);
     searchContent.mockClear();
     await service.slowSearch('报告', 3, []);
@@ -207,8 +207,13 @@ describe('全局搜索范围', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const service = new UnifiedSearchService(f.session, {
-        searchContent: () => {
-          throw new Error('合成目录失败');
+        searchContent: (category) => {
+          if (category === 'groupFile') throw new Error('合成目录失败');
+          return {
+            items: [],
+            total: 0,
+            coverage: { scope: 'observed-cache', records: 0, limited: false, updatedAt: null },
+          };
         },
       });
       const result = await service.slowSearch('报告', 3, ['file']);
@@ -228,10 +233,15 @@ describe('全局搜索范围', () => {
         observedAt: 10,
       };
       const directoryOnly = new UnifiedSearchService(f.session, {
-        searchContent: () => ({
-          items: [cached],
-          total: 1,
-          coverage: { scope: 'observed-cache', records: 1, limited: false, updatedAt: 10 },
+        searchContent: (category) => ({
+          items: category === 'groupFile' ? [cached] : [],
+          total: category === 'groupFile' ? 1 : 0,
+          coverage: {
+            scope: 'observed-cache',
+            records: category === 'groupFile' ? 1 : 0,
+            limited: false,
+            updatedAt: 10,
+          },
         }),
       });
       const fallback = await directoryOnly.slowSearch('报告', 3, ['file']);

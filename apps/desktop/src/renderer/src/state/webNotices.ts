@@ -1,9 +1,13 @@
 import { create } from 'zustand';
+import { changePreference, preferenceValue, PREFERENCES_CHANGED } from '../lib/clientPreferences';
 
 const KEY = 'weq:web-notifications';
 function initialEnabled(): boolean {
   try {
-    return typeof localStorage !== 'undefined' && localStorage.getItem(KEY) === 'true';
+    return preferenceValue(
+      'webNotifications',
+      typeof localStorage !== 'undefined' && localStorage.getItem(KEY) === 'true',
+    );
   } catch {
     return false;
   }
@@ -18,6 +22,11 @@ export const useWebNotices = create<{ enabled: boolean; set: (enabled: boolean) 
         /* 私密浏览仍保留本次偏好。 */
       }
       set({ enabled });
+      void changePreference('webNotifications', enabled);
     },
   }),
 );
+if (typeof window !== 'undefined')
+  window.addEventListener(PREFERENCES_CHANGED, () =>
+    useWebNotices.setState({ enabled: initialEnabled() }),
+  );

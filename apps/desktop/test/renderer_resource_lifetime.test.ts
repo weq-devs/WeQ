@@ -88,6 +88,43 @@ it('快速取得后释放未加载字体，也不能绕过原生加载总量上�
   expect(fontFaces.loading()).toBe(0);
 });
 
+it('已解码字体缓存有界、按最近使用淘汰，并隔离资源版本与文档', async () => {
+  const add = vi.fn();
+  const remove = vi.fn();
+  Object.defineProperty(document, 'fonts', { configurable: true, value: { add, delete: remove } });
+  const load = vi.fn(async function (this: object) {
+    return this;
+  });
+  vi.stubGlobal(
+    'FontFace',
+    class {
+      load = load;
+    },
+  );
+  const { fontFaces, FONT_FACE_IDLE_LIMIT } = await import('../src/renderer/src/lib/fontFaces');
+  for (let i = 0; i < FONT_FACE_IDLE_LIMIT; i++) {
+    const lease = fontFaces.acquire(`cached-${i}`, `fixture:${i}`);
+    expect(await lease.ready).toBe(true);
+    lease.release();
+  }
+  const reuse = fontFaces.acquire('cached-0', 'fixture:0');
+  expect(add).toHaveBeenCalledTimes(FONT_FACE_IDLE_LIMIT + 1);
+  expect(load).toHaveBeenCalledTimes(FONT_FACE_IDLE_LIMIT);
+  reuse.release();
+  const extra = fontFaces.acquire('extra', 'fixture:extra');
+  await extra.ready;
+  extra.release();
+  expect(fontFaces.isLoaded('cached-0', 'fixture:0')).toBe(true);
+  expect(fontFaces.isLoaded('cached-1', 'fixture:1')).toBe(false);
+  expect(fontFaces.isLoaded('cached-0', 'fixture:version-2')).toBe(false);
+  const other = document.implementation.createHTMLDocument();
+  expect(fontFaces.isLoaded('cached-0', 'fixture:0', other)).toBe(false);
+  expect(fontFaces.count()).toBe(0);
+  expect(remove).toHaveBeenCalledTimes(FONT_FACE_IDLE_LIMIT + 2);
+  fontFaces.clearIdle();
+  expect(fontFaces.isLoaded('cached-0', 'fixture:0')).toBe(false);
+});
+
 it('不同消息装扮卸载后释放 pin 和规则，预热完成前卸载不回填', async () => {
   vi.stubGlobal(
     'Image',

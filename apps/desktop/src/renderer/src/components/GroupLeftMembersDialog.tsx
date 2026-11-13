@@ -7,7 +7,8 @@
  */
 
 import type { ReactElement } from 'react';
-import { X } from 'lucide-react';
+import { UserRoundMinus, X } from 'lucide-react';
+import { EmptyState } from './EmptyState';
 import { Avatar, GroupMembersSkeleton } from '../im-template/template/primitives';
 import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
@@ -71,32 +72,33 @@ export function GroupLeftMembersDialog({
           ) : loading && rows.length === 0 ? (
             <GroupMembersSkeleton rows={8} />
           ) : rows.length === 0 ? (
-            <p className={cn('placeholder-text')}>暂无已退群成员</p>
+            <EmptyState compact icon={<UserRoundMinus />} title="暂无已退群成员" />
           ) : (
             rows.map((member) => (
               <div className={cn('group-info-member-row')} key={member.id}>
-                <div className="member-avatar-wrap">
-                  <ProfileAvatar
-                    target={{
-                      identity: member.id,
-                      uin: member.identity,
-                      name: member.displayName,
-                      avatarUrl: member.avatarUrl,
-                      group: groupCode ? { code: groupCode, name: groupName } : undefined,
-                    }}
-                  >
+                <ProfileAvatar
+                  className="weq-identity-link group-left-member-identity"
+                  target={{
+                    identity: member.id,
+                    uin: member.identity,
+                    name: member.displayName,
+                    avatarUrl: member.avatarUrl,
+                    group: groupCode ? { code: groupCode, name: groupName } : undefined,
+                  }}
+                >
+                  <span className="member-avatar-wrap">
                     <Avatar
                       name={member.displayName}
                       avatarUrl={member.avatarUrl}
                       seed={member.identity}
                     />
-                  </ProfileAvatar>
-                </div>
-                <span className="member-name-text">
-                  <span className="member-name-with-badge">
-                    <span className="member-display-name">{member.displayName}</span>
                   </span>
-                </span>
+                  <span className="member-name-text">
+                    <span className="member-name-with-badge">
+                      <span className="member-display-name">{member.displayName}</span>
+                    </span>
+                  </span>
+                </ProfileAvatar>
                 <small className={cn('group-left-member-id')}>{member.identity}</small>
               </div>
             ))

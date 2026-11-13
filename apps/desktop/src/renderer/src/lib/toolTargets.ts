@@ -12,7 +12,12 @@
 import { classifyChatType } from '@weq/codec';
 import type { Contact, Conversation, GroupConversation } from '../im-template/template/types';
 import type { ContentSelection } from '../../../shared/content_selection';
-import { generatedContentIdentity } from '../../../shared/content_selection';
+import {
+  conversationBatchSelection,
+  generatedContentContainer,
+  generatedContentIdentity,
+  type GeneratedContentIdentity,
+} from '../../../shared/content_selection';
 import type { ExportMode } from '../views/export/types';
 import type { AnalysisTarget } from '../views/analysis/model';
 
@@ -20,6 +25,8 @@ import type { AnalysisTarget } from '../views/analysis/model';
 export interface WorkspaceContext {
   view: string;
   conversation?: Conversation | null;
+  specialChat?: 'assistant' | 'guild' | null;
+  assistantSessionId?: string | null;
   /** 正在浏览的具体公众号 / 服务号（ARK Feed）；没有就是合并入口。 */
   officialFeed?: { kind: 'official' | 'service'; conversationId: string; title: string } | null;
   /** 联系人页选中的好友。 */
@@ -42,30 +49,77 @@ export interface ExportEntry {
   label: string;
 }
 
+function generatedEntry(target: GeneratedContentIdentity, name: string): ExportEntry {
+  return {
+    mode: 'generated',
+    label: `导出「${name}」`,
+    selection: {
+      owner: {
+        kind: target.kind === 'assistant' ? 'assistant-messages' : 'clone-messages',
+        container: generatedContentContainer(target),
+      },
+      scope: { type: 'all' },
+    },
+    fixedScope: true,
+  };
+}
+
+function guildEntry(nodeId?: string | null): ExportEntry {
+  return nodeId
+    ? {
+        mode: 'guild',
+        label: '导出当前频道私聊',
+        selection: { owner: { kind: 'guild-direct', container: nodeId }, scope: { type: 'all' } },
+        fixedScope: true,
+      }
+    : { mode: 'guild', label: '导出频道私聊' };
+}
+
+function feedEntry(feed: NonNullable<WorkspaceContext['officialFeed']>): ExportEntry {
+  const { kind, title, conversationId } = feed;
+  if (!conversationId || conversationId.startsWith('merged:'))
+    return { mode: 'full', label: '导出聊天记录' };
+  const ownerId =
+    kind === 'service' && conversationId.startsWith('service:')
+      ? conversationId.slice('service:'.length)
+      : conversationId;
+  if (!ownerId) return { mode: 'full', label: '导出聊天记录' };
+  return {
+    mode: 'full',
+    label: `导出「${title}」`,
+    selection: conversationBatchSelection([
+      {
+        id: kind === 'service' ? `service:${ownerId}` : ownerId,
+        name: title || ownerId,
+        kind,
+        ownerId,
+      },
+    ]),
+    fixedScope: true,
+  };
+}
+
 /**
  * 主按钮的导出目标。页面上没有「当前内容」（设置、邮箱、年度报告……）时退回
  * 聊天消息的完整选择界面 —— 主按钮任何时候都能点，选哪份内容交给面板。
  */
 export function exportEntryForWorkspace(ctx: WorkspaceContext): ExportEntry {
   const conversation = ctx.conversation;
+  if (ctx.view === 'messages' && ctx.specialChat === 'assistant')
+    return ctx.assistantSessionId
+      ? generatedEntry(
+          { kind: 'assistant', ownerId: 'assistant', sessionId: ctx.assistantSessionId },
+          'WeQ 助手会话',
+        )
+      : { mode: 'generated', label: '导出 WeQ 助手会话' };
+  if (ctx.view === 'messages' && ctx.specialChat === 'guild') return guildEntry(ctx.guildNodeId);
+  if (ctx.view === 'messages' && ctx.officialFeed) return feedEntry(ctx.officialFeed);
   if (ctx.view === 'messages' && conversation) {
     const entry = exportEntryForConversation(conversation);
     if (entry) return entry;
     if (conversation.type === 'merged')
       // 聚合入口没有单一会话：仍然进聊天消息面板，由面板里自己挑。
       return { mode: 'full', label: '导出聊天记录' };
-  }
-  if (ctx.view === 'messages' && ctx.officialFeed) {
-    const conv = ctx.officialFeed.conversationId;
-    return {
-      mode: 'full',
-      label: `导出「${ctx.officialFeed.title}」`,
-      selection: {
-        owner: { kind: 'messages', container: `c2c:${conv}` },
-        scope: { type: 'all' },
-      },
-      fixedScope: true,
-    };
   }
   if (ctx.view === 'contacts') {
     // 联系人页进入的永远是联系人导出；当前选中的好友 / 群只改范围，不改种类，
@@ -99,51 +153,36 @@ export function exportEntryForWorkspace(ctx: WorkspaceContext): ExportEntry {
       selection: { owner: { kind: 'collections', container: 'all' }, scope: { type: 'all' } },
     };
   if (ctx.view === 'channel' || ctx.view === 'guild-direct') {
-    const nodeId = ctx.guildNodeId;
-    return nodeId
-      ? {
-          mode: 'guild',
-          label: '导出当前频道私聊',
-          selection: { owner: { kind: 'guild-direct', container: nodeId }, scope: { type: 'all' } },
-          fixedScope: true,
-        }
-      : { mode: 'guild', label: '导出频道私聊' };
+    return guildEntry(ctx.guildNodeId);
   }
   if (ctx.view === 'agentlab' && ctx.virtual) {
-    const container = JSON.stringify([ctx.virtual.kind, ctx.virtual.ownerId, null] satisfies [
-      string,
-      string,
-      null,
-    ]);
-    return {
-      mode: 'generated',
-      label: `导出「${ctx.virtual.name}」`,
-      selection: {
-        owner: { kind: 'clone-messages', container },
-        scope: { type: 'all' },
-      },
-      fixedScope: true,
-    };
+    return generatedEntry({ ...ctx.virtual, sessionId: null }, ctx.virtual.name);
   }
   return { mode: 'full', label: '导出聊天记录' };
 }
 
 /** 单个真实会话 → 导出入口；克隆体 / 合并入口 / 不支持的会话返回 null。 */
 export function exportEntryForConversation(conversation: Conversation): ExportEntry | null {
+  if (conversation.generated)
+    return generatedEntry(conversation.generated, conversationTitle(conversation));
+  if (conversation.directoryKind === 'guild')
+    return guildEntry(
+      conversation.id.startsWith('guild:')
+        ? conversation.id.slice('guild:'.length)
+        : conversation.id,
+    );
+  if (conversation.directoryKind === 'official' || conversation.directoryKind === 'service')
+    return feedEntry({
+      kind: conversation.directoryKind,
+      conversationId: conversation.id,
+      title: conversationTitle(conversation),
+    });
   if (conversation.id.startsWith('virtual:')) {
     const parts = conversation.id.split(':');
     const kind = parts[1];
     const ownerId = parts.slice(2).join(':');
     if ((kind === 'persona' || kind === 'group') && ownerId)
-      return {
-        mode: 'generated',
-        label: `导出「${conversationTitle(conversation)}」`,
-        selection: {
-          owner: { kind: 'clone-messages', container: JSON.stringify([kind, ownerId, null]) },
-          scope: { type: 'all' },
-        },
-        fixedScope: true,
-      };
+      return generatedEntry({ kind, ownerId, sessionId: null }, conversationTitle(conversation));
     return null;
   }
   if (conversation.type === 'group')
@@ -185,7 +224,15 @@ export function conversationTitle(conversation: Conversation): string {
  */
 export function analysisTargetForWorkspace(ctx: WorkspaceContext): AnalysisTarget | null {
   const conversation = ctx.conversation;
+  if (ctx.view === 'messages' && (ctx.specialChat || ctx.officialFeed)) return null;
   if (ctx.view === 'messages' && conversation) {
+    if (conversation.generated || conversation.id.startsWith('virtual:')) return null;
+    if (
+      conversation.directoryKind === 'official' ||
+      conversation.directoryKind === 'service' ||
+      conversation.directoryKind === 'guild'
+    )
+      return null;
     if (conversation.type === 'group') return { kind: 'group', groupCode: conversation.group.id };
     if (conversation.type === 'direct') {
       const kind =
@@ -223,7 +270,19 @@ export function selectionForWorkspace(
 ): ContentSelection | undefined {
   if (!selection) return;
   const owner = selection.owner;
-  if (ctx.view === 'messages' && owner.kind === 'conversations' && owner.container === 'main-list')
+  const specialContent =
+    ctx.specialChat ||
+    ctx.officialFeed ||
+    ctx.conversation?.generated ||
+    ctx.conversation?.directoryKind === 'official' ||
+    ctx.conversation?.directoryKind === 'service' ||
+    ctx.conversation?.directoryKind === 'guild';
+  if (
+    ctx.view === 'messages' &&
+    !specialContent &&
+    owner.kind === 'conversations' &&
+    owner.container === 'main-list'
+  )
     return selection;
   if (ctx.view === 'contacts' && owner.kind === 'contacts') return selection;
   if (ctx.view === 'agentlab' && ctx.virtual) {

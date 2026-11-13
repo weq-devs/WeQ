@@ -25,11 +25,11 @@
 }
 :is(.app-shell, .weq-conversation-list) .conversation-row .row-preview-line,
 :is(.app-shell, .weq-conversation-list) .contact-row .row-main > span {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.12;
 }
 :is(.app-shell, .weq-conversation-list) .conversation-row .row-meta {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.1;
 }
 :is(.app-shell, .weq-conversation-list) .conversation-row .row-unread,
@@ -44,11 +44,9 @@
   right: 13px;
   bottom: 10px;
 }
-@media (max-width: 760px) {
-  .weq-conversation-list {
-    --weq-conversation-row-height: 76px;
-  }
-  html[data-density='compact'] .weq-conversation-list {
-    --weq-conversation-row-height: 64px;
-  }
+:where(html[data-weq-layout='single']) .weq-conversation-list {
+  --weq-conversation-row-height: 76px;
+}
+html:where([data-weq-layout='single'])[data-density='compact'] .weq-conversation-list {
+  --weq-conversation-row-height: 64px;
 }

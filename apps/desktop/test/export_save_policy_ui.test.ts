@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => ({
   loading: false,
   missing: false,
   web: false,
+  remote: false,
   settings: {
     exportSaveMode: 'before' as ExportSavePolicy['mode'],
     defaultExportDir: '/fixture/default',
@@ -21,6 +22,7 @@ vi.mock('../src/renderer/src/lib/target', () => ({
     return fixture.web;
   },
 }));
+vi.mock('../src/renderer/src/lib/remoteClient', () => ({ useRemoteClient: () => fixture.remote }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     bootstrap: {
@@ -75,10 +77,32 @@ afterEach(() => {
     loading: false,
     missing: false,
     web: false,
+    remote: false,
   });
   fixture.settings.exportSaveMode = 'before';
   fixture.prepare.mockReset().mockImplementation(async (policy) => policy);
   vi.unstubAllGlobals();
+});
+
+it('Remote 下载不沿用电脑保存偏好，也不改写共享设置', async () => {
+  fixture.web = true;
+  fixture.remote = true;
+  fixture.settings.exportSaveMode = 'preset';
+  const before = { ...fixture.settings };
+  const f = mount();
+  try {
+    expect(f.result.policy).toEqual({ mode: 'before', directory: '.' });
+    await act(async () => {
+      await f.result.prepareSave();
+    });
+    expect(f.result.serverLocation).toBeNull();
+    expect(fixture.prepare).toHaveBeenLastCalledWith(
+      expect.objectContaining({ mode: 'before', directory: '.' }),
+    );
+    expect(fixture.settings).toEqual(before);
+  } finally {
+    f.close();
+  }
 });
 
 it('只跟随全局保存方式，不接受页面临时模式或目录覆盖，设置变化立即生效', async () => {

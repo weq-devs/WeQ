@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { expect, it } from 'vitest';
 import { firstUnreadConversation } from '../src/renderer/src/lib/unreadNavigation';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 it('定位遵循列表的置顶顺序，普通未读优先；不改变会话或未读数', () => {
   const base = createTemplateDemoData().conversations[0]!;

@@ -2,6 +2,13 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { EmojiPanel } from '../src/renderer/src/im-template/template/emojiPanel';
+vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
+  withQQAccountScope: (component: unknown) => component,
+  useQQAction: () => ({ binding: null, available: false, disabled: true }),
+}));
+vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
+  useMediaSave: () => ({ disabled: false, prompt: null }),
+}));
 vi.mock('../src/renderer/src/components/qq-actions/FavoriteBundleControls', () => ({
   FavoriteBundleControls: () =>
     h(
@@ -14,7 +21,9 @@ vi.mock('../src/renderer/src/components/qq-actions/FavoriteBundleControls', () =
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     account: {
+      qqActions: { favorites: { useQuery: () => ({ data: undefined }) } },
       emojiPanel: {
         overview: {
           useQuery: () => ({
@@ -53,6 +62,11 @@ describe('收藏表情面板', () => {
       act(() =>
         root.render(h(EmojiPanel, { panelRef: { current: null }, onSelect, onSelectSuper })),
       );
+      const defaultTab = host.querySelector<HTMLButtonElement>(
+        '.emoji-tabs button[aria-pressed="true"]',
+      );
+      expect(defaultTab?.getAttribute('aria-label')).toBe('表情');
+      expect(defaultTab?.nextElementSibling?.getAttribute('aria-label')).toBe('收藏');
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="收藏"]')!.click());
       expect(host.querySelector('[aria-label="导入收藏表情包"]')).not.toBeNull();
       expect(host.querySelector('[aria-label="导出收藏表情包"]')).not.toBeNull();

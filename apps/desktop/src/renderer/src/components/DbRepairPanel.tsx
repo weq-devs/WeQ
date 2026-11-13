@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 设置 → 数据维护 → 维护工具 → 数据库修复。
  *
@@ -30,6 +31,7 @@
  * `DatabaseDamagedEvent` 同一套做法：渲染层只认「主进程答应给的那个形状」。
  */
 
+import { formatBytesOrUnknown as formatBytes } from '../lib/format';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -282,20 +284,8 @@ function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formatBytes(bytes: number | null): string {
-  if (bytes === null) return '未知';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
 function shortTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return `${stamp} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return timeFormat.formatDateTime(iso, 'millisecond') || iso;
 }
 
 /** 记录状态 → 徽章。失败原因、替换和还原结果以具体报告为准。 */

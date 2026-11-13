@@ -4,7 +4,12 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService } from '../src/account/user_config';
 import { createCachedAttachHook, type AttachHook } from '../src/bootstrap/attach';
 import { AccountMonitorService } from '../src/account/monitor';
+import {
+  CredentialRepairRequiredError,
+  DebugReadUnavailableError,
+} from '../src/common/credential_repair';
 import { registerSsoSession } from '../src/account/sso_session';
+import { getLogger } from '../src/common/logger';
 
 const tickets = vi.hoisted(() => ({ rkeys: vi.fn(), clientKey: vi.fn(), dress: vi.fn() }));
 vi.mock('../src/account/online_ticket', () => ({
@@ -116,6 +121,188 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it.each([true, false])('重复检查已登记的凭据不重复记录复用日志：stored=%s', async (stored) => {
+    const logger = getLogger().child({});
+    const info = vi.spyOn(logger, 'info');
+    const child = vi.spyOn(getLogger(), 'child').mockReturnValueOnce(logger);
+    const f = fixture(stored);
+    child.mockRestore();
+    const reuseLogs = () =>
+      info.mock.calls.filter(([, context]) => context?.event === 'sso-session-reused');
+
+    await f.monitor.ensureCredentialsReady(42);
+    expect(reuseLogs()).toHaveLength(stored ? 1 : 0);
+    await f.monitor.ensureCredentialsReady(42);
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    expect(f.hook.ensure).toHaveBeenCalledTimes(stored ? 0 : 1);
+    expect(reuseLogs()).toHaveLength(stored ? 1 : 0);
+
+    f.record.session = { ...material, d2: 'dd', pid: 42 };
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(reuseLogs()).toHaveLength(stored ? 2 : 1);
+    f.monitor.stop();
+  });
+
+  it('复用登记失败不记录成功，重试成功后只记录一次', async () => {
+    const logger = getLogger().child({});
+    const info = vi.spyOn(logger, 'info');
+    const child = vi.spyOn(getLogger(), 'child').mockReturnValueOnce(logger);
+    const f = fixture(true);
+    child.mockRestore();
+    const reuseLogs = () =>
+      info.mock.calls.filter(([, context]) => context?.event === 'sso-session-reused');
+    f.nt.setSsoSession.mockRejectedValueOnce(new Error('登记失败'));
+
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('登记失败');
+    expect(reuseLogs()).toHaveLength(0);
+    await f.monitor.ensureCredentialsReady(42);
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.nt.setSsoSession).toHaveBeenCalledTimes(2);
+    expect(reuseLogs()).toHaveLength(1);
+    f.monitor.stop();
+  });
+
+  it('按需等待 SSO 登记，不等待或重复获取 rkey 等网络票据', async () => {
+    const f = fixture(true);
+    const registration = deferred<void>();
+    f.nt.setSsoSession.mockImplementationOnce(async () => {
+      await registration.promise;
+    });
+    const ready = vi.fn();
+    const first = f.monitor.ensureCredentialsReady(42).then(ready);
+    const second = f.monitor.ensureCredentialsReady(42);
+    await flushPromises();
+    expect(ready).not.toHaveBeenCalled();
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    registration.resolve();
+    await Promise.all([first, second]);
+    expect(ready).toHaveBeenCalledOnce();
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(tickets.rkeys).not.toHaveBeenCalled();
+    expect(tickets.clientKey).not.toHaveBeenCalled();
+    f.monitor.stop();
+  });
+
+  it('按需登记失败不放行，关闭完整模式或会话结束后也不发布凭据', async () => {
+    const f = fixture(true);
+    f.nt.setSsoSession.mockRejectedValueOnce(new Error('登记失败'));
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('登记失败');
+    f.setEnabled(false);
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('自动读取已关闭');
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    f.monitor.stop();
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('账号会话');
+  });
+
+  it('按需查询复用已在途的后台登记，不重复读内存', async () => {
+    const f = fixture();
+    const read = deferred<typeof material>();
+    f.hook.ensure.mockReturnValueOnce(read.promise);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const ready = f.monitor.ensureCredentialsReady(42);
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    read.resolve(material);
+    await ready;
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it.each(['stop', 'disable'])('等待期间会话结束或模式关闭，不放行业务查询：%s', async (action) => {
+    const f = fixture();
+    const read = deferred<typeof material>();
+    f.hook.ensure.mockReturnValueOnce(read.promise);
+    const ready = f.monitor.ensureCredentialsReady(42);
+    const rejected = expect(ready).rejects.toThrow();
+    if (action === 'stop') f.monitor.stop();
+    else f.setEnabled(false);
+    read.resolve(material);
+    await rejected;
+    expect(f.nt.setSsoSession).not.toHaveBeenCalled();
+    f.monitor.stop();
+  });
+
+  it('按需查询不撤销用户取消读取的选择', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValueOnce(new Error('已取消授权，未读取 QQ 进程内存。'));
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('按需登记被取消后，后续查询也不会重复请求读取', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValueOnce(new Error('已取消授权，未读取 QQ 进程内存。'));
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('已取消');
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('调试权限被拒后结束进入中，保留后台重试及副本引导', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValue(new DebugReadUnavailableError('请启动 QQ 调试副本'));
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(f.monitor.credentialIssue).toBeNull();
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(f.hook.ensure.mock.calls.length).toBeGreaterThan(1);
+    expect(f.monitor.credentialsPending).toBe(false);
+    f.monitor.stop();
+  });
+
+  it('长期授权需要修复时不再显示进入中，并把可操作原因交给界面', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValue(
+      new CredentialRepairRequiredError('长期授权需要修复：权限助手接口已更新，请修复后重试。'),
+    );
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(f.monitor.credentialIssue).toEqual({
+      title: '长期授权需要修复',
+      message: '长期授权需要修复：权限助手接口已更新，请修复后重试。',
+    });
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    f.monitor.stop();
+    expect(f.monitor.credentialIssue).toBeNull();
+  });
+
+  it('长期授权修复后再次成功会清掉原因并恢复进入中判定', async () => {
+    const f = fixture();
+    f.hook.ensure.mockRejectedValueOnce(
+      new CredentialRepairRequiredError('长期授权需要修复：权限助手接口已更新，请修复后重试。'),
+    );
+    await expect(f.monitor.ensureCredentialsReady(42)).rejects.toThrow('长期授权需要修复');
+    expect(f.monitor.credentialIssue).not.toBeNull();
+    await f.monitor.ensureCredentialsReady(42);
+    expect(f.monitor.credentialIssue).toBeNull();
+    expect(f.monitor.credentialsPending).toBe(false);
+    f.monitor.stop();
+  });
+
+  it('首次在线探测未完成时保持准备状态，成功后自动完成且不重读已有凭据', async () => {
+    const ready = vi.fn();
+    const f = fixture(true, ready);
+    const probe = deferred<number>();
+    f.platform.resolveQqPidAsync = () => probe.promise;
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(true);
+    expect(ready).not.toHaveBeenCalled();
+    probe.resolve(42);
+    await flushPromises();
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(ready).toHaveBeenCalledOnce();
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    f.monitor.stop();
+  });
   it('单次未发现数据库持有者不清理凭据，连续两次未发现才下线', async () => {
     const f = fixture(true);
     f.monitor.start();
@@ -156,7 +343,7 @@ describe('account monitor authorization and SSO readiness', () => {
     expect(f.record.session).toBeNull();
     f.monitor.stop();
   });
-  it('首次探测失败不信任磁盘残留在线状态，后续成功可恢复', async () => {
+  it('首次探测失败不信任残留在线状态，但确认同一进程后复用凭据自动恢复', async () => {
     const f = fixture(true);
     f.platform.resolveQqPidAsync = vi
       .fn()
@@ -165,11 +352,34 @@ describe('account monitor authorization and SSO readiness', () => {
     f.monitor.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(f.record.qqOnline).toBe(false);
-    expect(f.record.session).toBeNull();
+    expect(f.record.session).toMatchObject({ ...material, pid: 42 });
+    expect(f.nt.setSsoSession).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(5000);
     expect(f.record.qqOnline).toBe(true);
     expect(f.record.session).toMatchObject({ ...material, pid: 42 });
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
     f.monitor.stop();
+  });
+  it('首次探测异常后确认离线仍清理凭据，确认新进程则重新读取', async () => {
+    for (const pid of [null, 43]) {
+      const f = fixture(true);
+      f.platform.resolveQqPidAsync = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('探测超时'))
+        .mockResolvedValue(pid);
+      f.monitor.start();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(5000);
+      if (pid === null) {
+        expect(f.record.session).toBeNull();
+        expect(f.hook.ensure).not.toHaveBeenCalled();
+      } else {
+        expect(f.hook.ensure).toHaveBeenCalledOnce();
+        expect(f.record.session?.pid).toBe(pid);
+      }
+      f.monitor.stop();
+    }
   });
   it('空结果与探测异常交替出现也不会无限保留旧在线状态', async () => {
     const f = fixture(true);

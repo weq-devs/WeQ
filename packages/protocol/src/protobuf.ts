@@ -114,6 +114,7 @@ class Writer {
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
+const STRICT_UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 function toBigInt(v: number | bigint | string): bigint {
   return typeof v === 'bigint' ? v : BigInt(v);
@@ -256,7 +257,19 @@ export function encode(schema: ProtoMessage, obj: Record<string, unknown>): Uint
 
 class Reader {
   pos = 0;
-  constructor(private readonly data: Uint8Array) {}
+  constructor(
+    private readonly data: Uint8Array,
+    readonly strict = false,
+  ) {}
+
+  advance(length: number): void {
+    if (
+      this.strict &&
+      (!Number.isSafeInteger(length) || length < 0 || length > this.data.length - this.pos)
+    )
+      throw new Error('protobuf: truncated payload');
+    this.pos += length;
+  }
 
   get eof(): boolean {
     return this.pos >= this.data.length;
@@ -267,36 +280,45 @@ class Reader {
     let shift = 0n;
     let byte: number;
     do {
+      if (this.strict && (this.pos >= this.data.length || shift >= 70n))
+        throw new Error('protobuf: invalid or truncated varint');
       byte = this.data[this.pos++]!;
       result |= BigInt(byte & 0x7f) << shift;
       shift += 7n;
     } while (byte & 0x80);
+    if (this.strict && result > 0xffffffffffffffffn)
+      throw new Error('protobuf: varint exceeds uint64');
     return result;
   }
 
   tag(): { field: number; wire: number } {
     const t = this.varint();
-    return { field: Number(t >> 3n), wire: Number(t & 7n) };
+    const field = t >> 3n;
+    if (this.strict && (field === 0n || field > 0x1fffffffn))
+      throw new Error('protobuf: invalid field number');
+    return { field: Number(field), wire: Number(t & 7n) };
   }
 
   lenDelim(): Uint8Array {
     const len = Number(this.varint());
-    const out = this.data.subarray(this.pos, this.pos + len);
-    this.pos += len;
-    return out;
+    const start = this.pos;
+    this.advance(len);
+    return this.data.subarray(start, this.pos);
   }
 
   /** 读固定 8 字节小端（wire type 1）。 */
   fixed64(): bigint {
-    const view = new DataView(this.data.buffer, this.data.byteOffset + this.pos, 8);
-    this.pos += 8;
+    const start = this.pos;
+    this.advance(8);
+    const view = new DataView(this.data.buffer, this.data.byteOffset + start, 8);
     return view.getBigUint64(0, true);
   }
 
   /** 读固定 4 字节小端（wire type 5）。 */
   fixed32(): number {
-    const view = new DataView(this.data.buffer, this.data.byteOffset + this.pos, 4);
-    this.pos += 4;
+    const start = this.pos;
+    this.advance(4);
+    const view = new DataView(this.data.buffer, this.data.byteOffset + start, 4);
     return view.getUint32(0, true);
   }
 
@@ -306,18 +328,18 @@ class Reader {
         this.varint();
         return;
       case 1:
-        this.pos += 8;
+        this.advance(8);
         return;
       case 2: {
         // Read the length varint FIRST (it advances pos), THEN jump. Writing
         // `this.pos += Number(this.varint())` would capture the old pos on the
         // left, lose the varint's own advance, and drift by the length bytes.
         const len = Number(this.varint());
-        this.pos += len;
+        this.advance(len);
         return;
       }
       case 5:
-        this.pos += 4;
+        this.advance(4);
         return;
       default:
         throw new Error(`protobuf: unknown wire type ${wire}`);
@@ -330,7 +352,7 @@ function readScalar(r: Reader, type: ScalarType): unknown {
     case 'bool':
       return r.varint() !== 0n;
     case 'string':
-      return UTF8_DECODER.decode(r.lenDelim());
+      return (r.strict ? STRICT_UTF8_DECODER : UTF8_DECODER).decode(r.lenDelim());
     case 'bytes':
       return r.lenDelim().slice();
     case 'int32':
@@ -357,23 +379,31 @@ function unzigzag(n: bigint): bigint {
   return (n >> 1n) ^ -(n & 1n);
 }
 
-/** Decode protobuf `data` against `schema` into a plain object. */
-export function decode(schema: ProtoMessage, data: Uint8Array): Record<string, unknown> {
+/** Decode protobuf `data`; strict mode rejects truncated fields, wire mismatches and invalid UTF-8. */
+export function decode(
+  schema: ProtoMessage,
+  data: Uint8Array,
+  options: { strict?: boolean } = {},
+): Record<string, unknown> {
   const byTag = new Map<number, ProtoField>();
   for (const f of schema.fields) byTag.set(f.tag, f);
 
-  const r = new Reader(data);
+  const r = new Reader(data, options.strict);
   const out: Record<string, unknown> = {};
 
   while (!r.eof) {
     const { field, wire } = r.tag();
     const def = byTag.get(field);
+    if (options.strict && def && wire !== wireOf(def.type))
+      throw new Error('protobuf: field wire type mismatch');
     if (!def || wire !== wireOf(def.type)) {
       r.skip(wire);
       continue;
     }
 
-    const value = isMessage(def.type) ? decode(def.type, r.lenDelim()) : readScalar(r, def.type);
+    const value = isMessage(def.type)
+      ? decode(def.type, r.lenDelim(), options)
+      : readScalar(r, def.type);
 
     if (def.repeated) {
       const arr = (out[def.name] as unknown[] | undefined) ?? [];

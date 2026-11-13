@@ -79,7 +79,11 @@ export function LongTermAuthorizationSection() {
 
   const canManage = Boolean(bridge && status && status.state !== 'unavailable');
   return (
-    <Card title={development ? '长期授权（开发）' : '长期授权'} settingId="long-term-authorization">
+    <Card
+      title={development ? '长期授权（开发）' : '长期授权'}
+      icon={<ShieldCheck size={15} strokeWidth={1.8} />}
+      settingId="long-term-authorization"
+    >
       <Row
         label="本机权限助手"
         desc={

@@ -5,6 +5,7 @@ import {
   RemotePanel,
   type RemoteStatus,
 } from '../src/renderer/src/components/settings/RemotePanel';
+import { REMOTE_ACTIVITY_WINDOW } from '../src/shared/remote_device';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -106,6 +107,56 @@ describe('电脑端远程连接面板', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 
+  it('展示配对与最近访问时间、完整设备资料，活跃状态自动过期并兼容旧设备', async () => {
+    vi.useFakeTimers();
+    const now = Date.parse('2026-11-13T04:00:00Z');
+    vi.setSystemTime(now);
+    const device = {
+      id: 'device-detail',
+      name: '测试手机',
+      approvedAt: now - 86_400_000,
+      lastSeenAt: now,
+      scope: 'web:access',
+      deviceInfo: {
+        platform: 'ios' as const,
+        model: 'iPhone17,1',
+        osVersion: '26.1',
+        appVersion: '1.0.0b3',
+        appBuild: '11',
+      },
+      lastConnection: { ip: '100.64.0.7', route: 'tailscale' as const },
+    };
+    await render({ ...base, devices: [device] });
+    expect(container.textContent).toContain('近期活跃');
+    expect(container.textContent).toContain('2026-11-12 12:00:00');
+    expect(container.textContent).toContain('刚刚');
+    const details = container.querySelector('details')!;
+    expect(details.open).toBe(false);
+    await act(async () => container.querySelector('summary')?.click());
+    expect(details.open).toBe(true);
+    for (const value of [
+      'iPhone17,1',
+      '26.1',
+      '1.0.0b3 (11)',
+      '100.64.0.7',
+      'Tailscale',
+      'device-detail',
+    ])
+      expect(details.textContent).toContain(value);
+    await act(async () => vi.advanceTimersByTime(REMOTE_ACTIVITY_WINDOW + 1000));
+    expect(container.textContent).toContain('未活跃');
+    expect(container.textContent).not.toContain('近期活跃');
+    await render({
+      ...base,
+      devices: [{ id: 'old', name: '旧手机', approvedAt: 1, lastSeenAt: null }],
+    });
+    expect(container.textContent).toContain('尚未访问');
+    expect(container.textContent).toContain('未上报');
+    expect(container.textContent).toContain('暂无记录');
+    await render({ ...base, enabled: false, devices: [device] });
+    expect(container.textContent).toContain('服务已关闭');
+  });
+
   it('只有有效邀请才展示复制配对链接入口', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);
@@ -139,8 +190,10 @@ describe('电脑端远程连接面板', () => {
       { onInvite },
     );
     expect(document.querySelector('#weq-remote-auth-key')).toBeNull();
-    const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-    expect(checkbox.checked).toBe(false);
+    const checkbox = container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="嵌入 Tailscale Key"]',
+    )!;
+    expect(checkbox.getAttribute('aria-checked')).toBe('false');
     const generate = () =>
       [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('生成配对码'))!;
     await act(async () => checkbox.click());
@@ -198,9 +251,18 @@ describe('电脑端远程连接面板', () => {
         ?.click(),
     );
     expect(onTailscale).toHaveBeenCalledWith(true);
-    expect(container.textContent).toContain('内网穿透');
-    expect(container.textContent).toContain('App 已内置 Tailscale');
-    expect(container.textContent).toContain('Key 加入电脑所在的 Tailscale 网络');
+    expect(container.textContent).not.toContain('通过 Tailscale 跨网络连接');
+    const hint = container.querySelector('.weq-remote-consent')?.getAttribute('title');
+    expect(hint).toContain('通过 Tailscale 跨网络连接');
+    expect(hint).toContain('内网穿透');
+    expect(hint).toContain('App 已内置 Tailscale');
+    expect(hint).toContain('Key 加入电脑所在的 Tailscale 网络');
+    expect(
+      container
+        .querySelector('[role="switch"][aria-label="嵌入 Tailscale Key"]')
+        ?.closest('[title]')
+        ?.getAttribute('title'),
+    ).toBe(hint);
   });
 
   it('并列展示局域网和 WeQ 专用节点，不采用系统 Tailscale 的地址', async () => {
@@ -235,7 +297,9 @@ describe('电脑端远程连接面板', () => {
       tailscaleEnabled: true,
       network: { state: 'online', addresses: ['https://192.168.1.8:7691'] },
     });
-    const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const checkbox = container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="嵌入 Tailscale Key"]',
+    )!;
     await act(async () => checkbox.click());
     expect(container.textContent).toContain('请先启动并登录');
     expect(

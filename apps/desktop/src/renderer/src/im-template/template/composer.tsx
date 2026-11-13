@@ -11,10 +11,21 @@ export type ComposerMentionTrigger = {
   query: string;
 };
 
-export function insertComposerNode(editor: HTMLElement, node: Node, savedRange: Range | null) {
-  editor.focus();
+export function insertComposerNode(
+  editor: HTMLElement,
+  node: Node,
+  savedRange: Range | null,
+  focus = true,
+) {
+  if (focus) editor.focus();
 
-  const range = getComposerRange(editor, savedRange);
+  const range =
+    !focus &&
+    savedRange &&
+    isNodeInside(editor, savedRange.startContainer) &&
+    isNodeInside(editor, savedRange.endContainer)
+      ? savedRange.cloneRange()
+      : getComposerRange(editor, savedRange);
   const last = node instanceof DocumentFragment ? node.lastChild : node;
   if (!last) return;
   range.deleteContents();
@@ -22,9 +33,12 @@ export function insertComposerNode(editor: HTMLElement, node: Node, savedRange: 
   range.setStartAfter(last);
   range.collapse(true);
 
-  const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
+  if (focus) {
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+  return range;
 }
 
 function getComposerRange(editor: HTMLElement, savedRange: Range | null) {
@@ -68,9 +82,16 @@ export function focusComposerEnd(editor: HTMLElement | null) {
 }
 
 export function serializeComposer(editor: HTMLElement) {
-  return serializeComposerNode(editor)
-    .replace(/\u200b/g, '')
-    .slice(0, 4000);
+  let remaining = 4000;
+  // 长度限制只裁正文，不截断媒体 token，否则多图会丢失后半张图片的素材信息。
+  return parseMessageParts(serializeComposerNode(editor).replace(/\u200b/g, ''))
+    .map((part) => {
+      if (part.type !== 'text') return part.raw;
+      const value = part.value.slice(0, remaining);
+      remaining -= value.length;
+      return value;
+    })
+    .join('');
 }
 
 export function getActiveComposerMentionTrigger(

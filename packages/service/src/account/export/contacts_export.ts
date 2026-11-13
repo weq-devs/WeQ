@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 联系人导出器 —— 导出**好友列表**或**某群的成员列表**为 json / jsonl / csv / xlsx /
  * txt（好友额外支持 vcard 电子名片）。
@@ -15,6 +16,12 @@
 import { writeFileStream, writeTable, type Col } from './table_writer';
 import { writeDirectoryArchive } from './archive_domain';
 import type { ArchiveOptions } from './archive';
+import {
+  occupationText,
+  bloodTypeText,
+  chineseZodiacText,
+  profileTimeText,
+} from '@weq/protocol/profile-values';
 
 /** 注入的联系人数据拉取能力（bigint 已归一化为字符串）。 */
 export interface ContactsExportDeps {
@@ -35,6 +42,7 @@ export interface ContactsExportDeps {
       nick: string;
       remark: string;
       signature: string;
+      sigUpdateTime?: number;
       gender: number;
       age: number;
       birthYear: number;
@@ -43,6 +51,10 @@ export interface ContactsExportDeps {
       intimacy: number;
       /** 21000 列扩展资料（特权/所在地/教育/兴趣/空间相册）；未缓存时缺省。 */
       extInfo?: {
+        occupation?: number;
+        bloodType?: number;
+        zodiac?: number;
+        interactMarks?: Array<{ type?: string; markId?: number; iconUrl?: string }>;
         privileges: Array<{ bizId?: number; level?: number; opened: boolean }>;
         school?: string;
         degree?: string;
@@ -96,6 +108,13 @@ export interface GroupDirectoryRow {
   ownerUid: string;
   createTime: number;
   leaveFlag: number;
+  customLabels?: Array<{
+    groupCode?: string;
+    setterUid?: string;
+    labelId?: string;
+    setTimestamp?: string;
+    content?: string;
+  }>;
 }
 
 const GROUP_COLS: Array<Col<GroupDirectoryRow>> = [
@@ -107,6 +126,20 @@ const GROUP_COLS: Array<Col<GroupDirectoryRow>> = [
   { key: 'ownerUid', header: '群主UID', get: (r) => r.ownerUid },
   { key: 'createTime', header: '创建时间（北京时间）', get: (r) => timeText(r.createTime) },
   { key: 'leaveFlag', header: '离群标记', get: (r) => r.leaveFlag },
+  {
+    key: 'customLabels',
+    header: '自定义标签及来源',
+    get: (r) =>
+      (r.customLabels ?? [])
+        .map((label) =>
+          [
+            label.content || '标签内容未记录',
+            `设置者：${label.setterUid || '未记录'}`,
+            `设置时间：${label.setTimestamp ? profileTimeText(Number(label.setTimestamp)) || label.setTimestamp : '未记录'}`,
+          ].join(' · '),
+        )
+        .join('\n'),
+  },
 ];
 
 export async function collectGroupDirectory(
@@ -143,13 +176,13 @@ export async function writeGroupDirectory(
   outputPath: string,
   archive?: ArchiveOptions,
 ): Promise<void> {
-  if (format === 'json' || format === 'jsonl')
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
     return writeDirectoryArchive(rows, 'group', outputPath, format, archive);
   await writeTable(format, GROUP_COLS, rows, outputPath, '群聊名单');
 }
 
 /** 联系人导出格式。 */
-const CONTACT_FORMATS = ['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard'] as const;
+const CONTACT_FORMATS = ['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt', 'vcard'] as const;
 export type ContactsFormat = (typeof CONTACT_FORMATS)[number];
 
 export function normaliseContactsFormats(
@@ -192,15 +225,7 @@ function birthdayText(y: number, m: number, d: number): string {
   return `${y || 0}-${p(m || 0)}-${p(d || 0)}`;
 }
 
-const CONTACT_TIME = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
+const CONTACT_TIME = eventTimeFormatter;
 
 /** 秒级时间戳按北京时间显示；超出日期范围的值原样保留，不伪造日期。 */
 function timeText(sec: number): string {
@@ -281,6 +306,10 @@ interface FriendRow {
   /** 空间相册图片直链（640 档，换行分隔）。 */
   albumUrls: string;
   uid: string;
+  occupation: string;
+  bloodType: string;
+  zodiac: string;
+  sigUpdateTime: number;
 }
 
 const FRIEND_COLS: Array<Col<FriendRow>> = [
@@ -304,7 +333,26 @@ const FRIEND_COLS: Array<Col<FriendRow>> = [
   { key: 'albumCount', header: '空间相册数', get: (r) => (r.albumCount > 0 ? r.albumCount : '') },
   { key: 'albumUrls', header: '空间相册链接', get: (r) => r.albumUrls },
   { key: 'uid', header: 'uid', get: (r) => r.uid },
+  { key: 'occupation', header: '职业', get: (r) => r.occupation },
+  { key: 'bloodType', header: '血型', get: (r) => r.bloodType },
+  { key: 'zodiac', header: '生肖', get: (r) => r.zodiac },
+  {
+    key: 'sigUpdateTime',
+    header: '签名更新时间（北京时间）',
+    get: (r) => (r.signature?.trim() ? (profileTimeText(r.sigUpdateTime) ?? '') : ''),
+  },
 ];
+
+type CachedExportProfile = Awaited<ReturnType<ContactsExportDeps['profilesByUids']>>[number];
+function cachedProfileFields(profile?: CachedExportProfile) {
+  return {
+    signature: profile?.signature ?? '',
+    sigUpdateTime: profile?.sigUpdateTime ?? 0,
+    occupation: occupationText(profile?.extInfo?.occupation) ?? '',
+    bloodType: bloodTypeText(profile?.extInfo?.bloodType) ?? '',
+    zodiac: chineseZodiacText(profile?.extInfo?.zodiac) ?? '',
+  };
+}
 
 export interface ExportFriendsOpts {
   archive?: ArchiveOptions;
@@ -392,7 +440,6 @@ export async function collectFriends(
       remark: p?.remark ?? '',
       category:
         categoryName.get(b.categoryId) ?? (b.categoryId ? `分组${b.categoryId}` : '我的好友'),
-      signature: p?.signature ?? '',
       gender: p?.gender ?? 0,
       age: p?.age ?? 0,
       birthYear: p?.birthYear ?? 0,
@@ -416,6 +463,7 @@ export async function collectFriends(
         .filter(Boolean)
         .join('\n'),
       uid: b.uid,
+      ...cachedProfileFields(p),
     };
   });
 
@@ -430,7 +478,7 @@ export async function writeFriends(
   outputPath: string,
   archive?: ArchiveOptions,
 ): Promise<void> {
-  if (format === 'json' || format === 'jsonl')
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
     return writeDirectoryArchive(rows, 'contact', outputPath, format, archive);
   if (format === 'vcard') {
     await writeFriendsVcard(rows, outputPath);
@@ -458,6 +506,11 @@ async function writeFriendsVcard(rows: FriendRow[], outputPath: string): Promise
       r.remark ? `备注: ${r.remark}` : '',
       r.category ? `分组: ${r.category}` : '',
       r.signature ? `签名: ${r.signature}` : '',
+      r.signature?.trim() && profileTimeText(r.sigUpdateTime)
+        ? `签名更新时间（北京时间）: ${profileTimeText(r.sigUpdateTime)}`
+        : '',
+      r.bloodType ? `血型: ${r.bloodType}` : '',
+      r.zodiac ? `生肖: ${r.zodiac}` : '',
       r.privileges ? `特权: ${r.privileges}` : '',
       r.interests ? `个性标签: ${r.interests}` : '',
       `QQ: ${r.uin}`,
@@ -473,6 +526,7 @@ async function writeFriendsVcard(rows: FriendRow[], outputPath: string): Promise
         ? `ADR;TYPE=HOME:;;;${escapeVcard(r.city)};${escapeVcard(r.province)};;${escapeVcard(r.country)}`
         : '',
       r.education ? `ORG:${escapeVcard(r.education)}` : '',
+      r.occupation ? `TITLE:${escapeVcard(r.occupation)}` : '',
       `NOTE:${escapeVcard(noteParts.join('\n'))}`,
       `X-QQ:${escapeVcard(r.uin)}`,
       r.gender ? `GENDER:${r.gender === 1 ? 'M' : 'F'}` : '',
@@ -496,6 +550,11 @@ interface MemberRow {
   joinTime: number;
   lastSpeakTime: number;
   uid: string;
+  signature: string;
+  sigUpdateTime: number;
+  occupation: string;
+  bloodType: string;
+  zodiac: string;
 }
 
 const MEMBER_COLS: Array<Col<MemberRow>> = [
@@ -508,6 +567,15 @@ const MEMBER_COLS: Array<Col<MemberRow>> = [
   { key: 'joinTime', header: '入群时间', get: (r) => timeText(r.joinTime) },
   { key: 'lastSpeakTime', header: '最后发言', get: (r) => timeText(r.lastSpeakTime) },
   { key: 'uid', header: 'uid', get: (r) => r.uid },
+  { key: 'occupation', header: '职业', get: (r) => r.occupation },
+  { key: 'bloodType', header: '血型', get: (r) => r.bloodType },
+  { key: 'zodiac', header: '生肖', get: (r) => r.zodiac },
+  { key: 'signature', header: '签名', get: (r) => r.signature },
+  {
+    key: 'sigUpdateTime',
+    header: '签名更新时间（北京时间）',
+    get: (r) => (r.signature?.trim() ? (profileTimeText(r.sigUpdateTime) ?? '') : ''),
+  },
 ];
 
 export interface ExportGroupMembersOpts {
@@ -542,11 +610,21 @@ export async function collectGroupMembers(
     ? await deps.groupOwnerUid(opts.groupCode).catch(() => null)
     : null;
 
+  const profiles = new Map<string, CachedExportProfile>();
+  for (let offset = 0; offset < selected.length; offset += PROFILE_CHUNK) {
+    opts.signal?.throwIfAborted();
+    const batch = await deps.profilesByUids(
+      selected.slice(offset, offset + PROFILE_CHUNK).map((member) => member.uid),
+    );
+    opts.signal?.throwIfAborted();
+    for (const profile of batch) profiles.set(profile.uid, profile);
+  }
+
   const rows: MemberRow[] = selected.map((m) => {
     opts.collectUins?.add(m.uin);
     const role = m.uid && m.uid === ownerUid ? '群主' : m.adminFlag ? '管理员' : '成员';
     return {
-      native: { ...m },
+      native: { ...m, profile: profiles.get(m.uid) },
       uin: m.uin,
       card: m.card,
       nick: m.nick,
@@ -556,6 +634,7 @@ export async function collectGroupMembers(
       joinTime: m.joinTime,
       lastSpeakTime: m.lastSpeakTime,
       uid: m.uid,
+      ...cachedProfileFields(profiles.get(m.uid)),
     };
   });
 
@@ -571,7 +650,7 @@ export async function writeGroupMembers(
   archive?: ArchiveOptions,
   groupCode?: string,
 ): Promise<void> {
-  if (format === 'json' || format === 'jsonl')
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
     return writeDirectoryArchive(rows, 'member', outputPath, format, archive, groupCode);
   await writeTable(format, MEMBER_COLS, rows, outputPath, '群成员');
 }

@@ -59,6 +59,53 @@ const picEl = (): Element =>
   ({ kind: 'pic', fileName: 'a.png', localPath: '/tmp/a.png' }) as unknown as Element;
 
 describe('DraftDb read/write', () => {
+  it('原 BLOB 条件写拒绝读取后 QQ 的更新，清空也不能删掉别人的新稿', async () => {
+    createFixture();
+    await drafts.saveDraft({ chatType: 1, targetUid: UID, elements: [textEl('起始稿')] });
+    const snapshot = await drafts.getSnapshot(1, UID);
+    await drafts.saveDraft({
+      chatType: 1,
+      targetUid: UID,
+      elements: [textEl('QQ 在读取后改稿'), picEl()],
+    });
+    expect(
+      await drafts.compareAndSave(
+        { chatType: 1, targetUid: UID, elements: [textEl('旧 WeQ 稿')] },
+        snapshot.body,
+      ),
+    ).toBe(false);
+    expect(
+      await drafts.compareAndSave({ chatType: 1, targetUid: UID, elements: [] }, snapshot.body),
+    ).toBe(false);
+    expect((await drafts.getDraft(1, UID))?.elements.map((element) => element.kind)).toEqual([
+      'text',
+      'pic',
+    ]);
+  });
+  it('原本没有草稿时只允许条件插入，不能覆盖 QQ 新建的行', async () => {
+    createFixture();
+    expect((await drafts.getSnapshot(2, GROUP)).exists).toBe(false);
+    await drafts.saveDraft({ chatType: 2, targetUid: GROUP, elements: [textEl('QQ 新稿')] });
+    expect(
+      await drafts.compareAndSave(
+        { chatType: 2, targetUid: GROUP, elements: [textEl('旧空白端')] },
+        null,
+      ),
+    ).toBe(false);
+    expect(await drafts.compareAndSave({ chatType: 2, targetUid: GROUP, elements: [] }, null)).toBe(
+      false,
+    );
+    const current = await drafts.getSnapshot(2, GROUP);
+    expect(
+      await drafts.compareAndSave({ chatType: 2, targetUid: GROUP, elements: [] }, current.body),
+    ).toBe(true);
+    expect(
+      await drafts.compareAndSave(
+        { chatType: 2, targetUid: GROUP, elements: [textEl('新建')] },
+        null,
+      ),
+    ).toBe(true);
+  });
   it('writes a draft and reads back the same elements', async () => {
     createFixture();
     await drafts.saveDraft({

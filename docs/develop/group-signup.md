@@ -1,7 +1,7 @@
 # 群报名 / 群收集表（OIDB 0x921b_0）
 
 在群里发一张「群报名」卡片（也叫「群收集表」）：标题 + 详情，可带**报名截止时间**、
-**报名方式**、**附带图片**、**报名人数上限**。真机抓包逆向（2026-10-03）。
+**报名方式**、**附带图片**、**报名人数上限**。真机抓包核对（2026-10-03）。
 
 - 协议实现：`packages/protocol/src/oidb/send-group-signup.ts`（`SendGroupSignup`）
 - 服务封装：`InteractionService.sendGroupSignup`（`packages/service/src/account/interaction.ts`）
@@ -102,4 +102,4 @@ md5 是 **32 位小写 hex 字符串**，加上像素宽高。抓包里 url 落�
 
 ---
 
-[← 返回开发者入口](./index.md)
+[← 返回开发者入口](index.md)

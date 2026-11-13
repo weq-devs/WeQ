@@ -16,6 +16,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setHost, initLogger, configureDevelopmentLogging, getLogger } from '@weq/service';
@@ -26,11 +27,14 @@ import { AuthGate } from './auth';
 import { createWebHost } from './host';
 import { startServer } from './http';
 import { createTrpcHandler, attachWsHandler } from './trpc_adapter';
+import { installPerformanceMonitor } from '@weq/service/performance';
+import { createNodeCollector } from '@weq/service/performance-node';
+import { performanceDatabaseDetails } from '@weq/desktop/main/performance_database';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 const HOST = process.env.WEQ_HOST || '127.0.0.1';
-const PORT = Number(process.env.WEQ_PORT || 7690);
+const PORT = Number(process.env.WEQ_PORT || DEFAULT_SERVICE_PORTS.web);
 const EXPORT_DIR = process.env.WEQ_EXPORT_DIR || join(process.cwd(), 'weq-exports');
 const DATA_DIR = process.env.WEQ_DATA_DIR || join(process.cwd(), 'weq-data');
 const PUBLIC_DIR = resolve(here, 'public');
@@ -90,6 +94,10 @@ async function main(): Promise<void> {
 
   setHost(createWebHost({ exportDir: EXPORT_DIR, version: VERSION }));
   initAppContext();
+  const performanceMonitor = installPerformanceMonitor(
+    DATA_DIR,
+    createNodeCollector(performanceDatabaseDetails),
+  );
 
   const assistant = getAppContext().bootstrap?.userConfig.getSettings().weqAssistant;
   if (assistant?.enabled)
@@ -113,9 +121,15 @@ async function main(): Promise<void> {
   if (generated) console.log(`  访问令牌  →  ${token}    (设置 WEQ_TOKEN 可固定)`);
   console.log(`  导出目录  →  ${EXPORT_DIR}\n`);
 
+  let shuttingDown = false;
   const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     void assistantResourceServer.shutdown();
-    server.close(() => process.exit(0));
+    const monitorStopped = performanceMonitor.dispose();
+    server.close(() => {
+      void monitorStopped.finally(() => process.exit(0));
+    });
     setTimeout(() => process.exit(0), 3000).unref();
   };
   process.on('SIGINT', shutdown);

@@ -452,6 +452,13 @@ export interface HighwayUploadParams {
   seq?: number;
   /** 可选日志钩子（默认静默）。 */
   log?: (message: string) => void;
+  beforeSend?: () => void;
+  onResponse?: (response: {
+    extend: Uint8Array;
+    body: Uint8Array;
+    final: boolean;
+    segmentResult: number;
+  }) => void;
 }
 
 /**
@@ -486,6 +493,7 @@ export async function uploadHighwayHttp(params: HighwayUploadParams): Promise<vo
       let transportAttempts = 0;
       let delayRetries = 0;
       for (;;) {
+        params.beforeSend?.();
         const head = buildHighwayHead({
           uin,
           commandId,
@@ -523,10 +531,11 @@ export async function uploadHighwayHttp(params: HighwayUploadParams): Promise<vo
           continue;
         }
 
-        const { head: respHeadBytes } = unpackHighwayFrame(responseBody);
+        const { head: respHeadBytes, body: respBody } = unpackHighwayFrame(responseBody);
         const resp = decode(RESP_DATA_HIGHWAY_HEAD, respHeadBytes) as {
           errorCode?: number;
           msgSegHead?: { retCode?: number };
+          bytesRspExtendInfo?: Uint8Array;
         };
         const errorCode = resp.errorCode ?? 0;
         const segRetCode = resp.msgSegHead?.retCode ?? 0;
@@ -536,7 +545,15 @@ export async function uploadHighwayHttp(params: HighwayUploadParams): Promise<vo
           `highway 块 offset=${offset} len=${chunkSize}/${totalSize} cmdId=${commandId} ` +
             `errorCode=${errorCode} segRetCode=${segRetCode} head=${Buffer.from(respHeadBytes).toString('hex')}`,
         );
-        if (errorCode === 0) break;
+        if (errorCode === 0) {
+          params.onResponse?.({
+            extend: resp.bytesRspExtendInfo ?? new Uint8Array(),
+            body: respBody,
+            final: offset + chunkSize === totalSize,
+            segmentResult: segRetCode,
+          });
+          break;
+        }
 
         if (DELAY_RETRY_CODES.has(errorCode) && delayRetries < MAX_DELAY_RETRIES) {
           delayRetries += 1;

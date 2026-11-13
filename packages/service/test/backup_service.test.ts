@@ -18,6 +18,9 @@ import {
   reassignWeqClientSettings,
   skipWeqClientSettings,
 } from '../src/bootstrap/backup_restore';
+import { weqAccountSettingPath } from '../src/bootstrap/backup_accounts';
+import { DEFAULT_INTENT_SENSE_CONFIG } from '../src/account/intent_sense';
+import { snapshotWeqApiSettings } from '../src/bootstrap/backup_settings';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -76,6 +79,9 @@ function fixture() {
 
 it('真实 UserConfig 的四分区快照不改原配置，公开清单不回显密钥', () => {
   const f = fixture();
+  write(join(f.cache, 'agentlab', '10001', 'assistant_sessions.json'), [
+    { id: 'synthetic-session', title: '合成会话' },
+  ]);
   const before = readFileSync(join(f.root, 'config.json'));
   const inventory = f.service.inventory();
   expect(inventory.accounts).toEqual([
@@ -203,7 +209,7 @@ it('不同文件与已关闭预览的迟到确认不能使用别人的新源包'
   expect(f.service.inventory().restore.pending).toBeNull();
 });
 
-it('恢复默认偏好需要冷启动，保留 API、账号与本机锁密钥，界面偏好有单独回执', () => {
+it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥，界面偏好有单独回执', () => {
   const f = fixture();
   const before = f.config.getSettings();
   const upload = f.service.beginUpload('abandoned.zip', 1);
@@ -220,7 +226,189 @@ it('恢复默认偏好需要冷启动，保留 API、账号与本机锁密钥，
   expect(reopened.getSettings().mcp).toEqual(before.mcp);
   expect(reopened.listAccountConfigs()[0]?.dbKey).toBe('synthetic-db-key');
   expect(reopened.getTotpSecret()).toBe('synthetic-totp-secret');
-  expect(pendingWeqClientSettings(f.root)).toEqual({ id: result.id, values: {} });
+  expect(pendingWeqClientSettings(f.root)).toEqual({ id: result.id, values: {}, defaults: true });
+});
+
+it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据与凭据保持原样', (clearApi) => {
+  const f = fixture();
+  f.config.setAutoEnter({ configId: '10001', uin: '10001' });
+  f.config.setSettings({
+    oneBot: {
+      enabled: true,
+      httpServers: [
+        {
+          id: 'synthetic-http',
+          name: '合成 API',
+          enabled: true,
+          port: 48803,
+          token: 'synthetic-http-token',
+          enableCors: false,
+        },
+      ],
+    },
+    voiceTranscribe: {
+      ttsProviders: [
+        {
+          id: 'synthetic-tts',
+          name: '合成语音',
+          vendor: 'custom',
+          baseUrl: 'https://synthetic.invalid',
+          apiKey: 'synthetic-tts-key',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    },
+    externalRkey: {
+      servers: [
+        {
+          id: 'synthetic-rkey',
+          name: '合成 rkey',
+          baseUrl: 'https://synthetic.invalid',
+          accessToken: 'synthetic-rkey-token',
+        },
+      ],
+      enabledServerId: 'synthetic-rkey',
+    },
+    ssePush: {
+      servers: [
+        {
+          id: 'synthetic-sse',
+          name: '合成推送',
+          pushUrl: 'https://synthetic.invalid',
+          accessToken: 'synthetic-sse-token',
+        },
+      ],
+      enabledServerId: 'synthetic-sse',
+    },
+  });
+  const beforeApi = snapshotWeqApiSettings(f.config.getSettings());
+  const saved = f.config.listAccountConfigs()[0]!;
+  for (const id of ['10001', '10002']) {
+    write(join(f.root, 'config', 'accounts', `${id}.json`), {
+      ...saved,
+      configId: id,
+      uin: id,
+      mailNotifications: true,
+      mailShowUnread: false,
+      annualReport: { pages: [] },
+      groupKeyword: { enabled: true },
+      nativeMediaEnabled: false,
+    });
+    write(weqAccountSettingPath(f.root, f.cache, id, 'anti-recall.json'), {
+      enabled: true,
+      targets: [{ id: 'peer', kind: 'c2c' }],
+    });
+    write(weqAccountSettingPath(f.root, f.cache, id, 'intent.json'), {
+      enabled: true,
+      providerRef: { providerId: 'synthetic-provider', model: 'synthetic-model' },
+    });
+    write(weqAccountSettingPath(f.root, f.cache, id, 'tolerance.json'), { level: 3 });
+    write(weqAccountSettingPath(f.root, f.cache, id, 'dress.json'), {
+      installedBubbles: [123],
+      bubbleMeta: { '123': { name: '合成气泡' } },
+      activeBubble: 123,
+      background: 'custom',
+      backgroundFile: 'original.png',
+    });
+  }
+  const data = [
+    'agentlab/10001/assistant.json',
+    'agentlab/10001/conversations.json',
+    'conversation-calendar/10001.json',
+    'contacts/10001.json',
+    'db_tolerance/10001/salvage_ledger.jsonl',
+  ];
+  for (const name of data) write(join(f.cache, name), { original: name });
+  const before = data.map((name) => readFileSync(join(f.cache, name)));
+  expect(JSON.stringify(f.service.defaultsInfo())).not.toContain('synthetic-api-secret');
+  expect(f.service.defaultsInfo().hasApi).toBe(true);
+  f.service.stageDefaults(undefined, { clearApi });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const reopened = new UserConfigService(f.platform);
+  expect(reopened.getAutoEnter()).toBeNull();
+  expect(reopened.listAccountConfigs()).toHaveLength(2);
+  for (const account of reopened.listAccountConfigs()) {
+    expect(account.dbKey).toBe(saved.dbKey);
+    expect(account.session).toEqual(saved.session);
+    for (const key of [
+      'mailNotifications',
+      'mailShowUnread',
+      'annualReport',
+      'groupKeyword',
+      'nativeMediaEnabled',
+    ])
+      expect(account).not.toHaveProperty(key);
+    const read = (name: Parameters<typeof weqAccountSettingPath>[3]) =>
+      JSON.parse(
+        readFileSync(weqAccountSettingPath(f.root, f.cache, account.configId, name), 'utf8'),
+      );
+    expect(read('anti-recall.json')).toEqual({});
+    expect(read('intent.json')).toEqual(DEFAULT_INTENT_SENSE_CONFIG);
+    expect(read('tolerance.json')).toEqual({});
+    expect(read('dress.json')).toMatchObject({
+      installedBubbles: [123],
+      activeBubble: 0,
+      background: 'none',
+      bubbleMeta: { '123': { name: '合成气泡' } },
+    });
+  }
+  expect(reopened.getSettings().agentLab.providers).toHaveLength(clearApi ? 0 : 1);
+  expect(reopened.getSettings().mcp.token).toBe(
+    clearApi ? DEFAULT_APP_SETTINGS.mcp.token : 'synthetic-local-token',
+  );
+  expect(reopened.getTotpSecret()).toBe('synthetic-totp-secret');
+  expect(snapshotWeqApiSettings(reopened.getSettings())).toEqual(
+    clearApi ? snapshotWeqApiSettings(DEFAULT_APP_SETTINGS) : beforeApi,
+  );
+  for (const [index, name] of data.entries())
+    expect(readFileSync(join(f.cache, name))).toEqual(before[index]);
+});
+
+it('目录与连接逐项选择，先在旧缓存根恢复偏好；普通配置缺字段也能恢复', () => {
+  const f = fixture();
+  const oldCache = join(f.root, 'custom-cache');
+  f.config.setCacheDirOverride(oldCache);
+  f.config.write({
+    tencentFilesRootOverride: '/synthetic/qq',
+    dbRepairCacheDir: '/synthetic/repair',
+  });
+  f.config.setSettings({
+    webServiceAutoStart: true,
+    showWindowOnAutostart: true,
+    defaultExportDir: '/synthetic/export',
+    externalChatpic: { dir: '/synthetic/pictures' },
+    callRecording: { dir: '/synthetic/recordings' },
+  });
+  write(weqAccountSettingPath(f.root, oldCache, '10001', 'intent.json'), { enabled: true });
+  write(join(oldCache, 'conversation-calendar', '10001.json'), { total: 99 });
+  expect(f.service.defaultsInfo().paths).toHaveLength(6);
+  f.service.stageDefaults(undefined, {
+    resetPaths: ['cacheDirOverride', 'defaultExportDir'],
+    resetConnections: ['showWindowOnAutostart'],
+  });
+  expect(applyPendingWeqBackupRestore(f.root, oldCache)?.status).toBe('applied');
+  const reopened = new UserConfigService(f.platform);
+  expect(reopened.cacheBaseDir()).toBe(f.cache);
+  expect(reopened.read()).toMatchObject({
+    tencentFilesRootOverride: '/synthetic/qq',
+    dbRepairCacheDir: '/synthetic/repair',
+  });
+  expect(reopened.getSettings()).toMatchObject({
+    defaultExportDir: null,
+    webServiceAutoStart: true,
+    showWindowOnAutostart: DEFAULT_APP_SETTINGS.showWindowOnAutostart,
+    externalChatpic: { dir: '/synthetic/pictures' },
+    callRecording: { dir: '/synthetic/recordings' },
+  });
+  expect(
+    JSON.parse(
+      readFileSync(weqAccountSettingPath(f.root, oldCache, '10001', 'intent.json'), 'utf8'),
+    ),
+  ).toEqual(DEFAULT_INTENT_SENSE_CONFIG);
+  expect(
+    JSON.parse(readFileSync(join(oldCache, 'conversation-calendar', '10001.json'), 'utf8')),
+  ).toEqual({ total: 99 });
 });
 
 it('未选 API 的导入只校验和暂存所选业务数据，不写入未选凭据', () => {

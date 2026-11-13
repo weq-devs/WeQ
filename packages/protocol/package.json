@@ -1,9 +1,11 @@
 {
   "name": "@weq/protocol",
-  "version": "2.5.2",
+  "version": "2.6.1",
   "private": true,
   "type": "module",
   "exports": {
+    "./profile-display": "./src/profile-display.ts",
+    "./profile-values": "./src/profile-values.ts",
     ".": "./src/index.ts"
   },
   "scripts": {
@@ -12,7 +14,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@weq/native": "workspace:*"
+    "@weq/native": "workspace:*",
+    "@weq/time": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.6",

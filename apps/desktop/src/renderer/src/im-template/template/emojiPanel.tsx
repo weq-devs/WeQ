@@ -21,6 +21,7 @@ import { useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
+import { FavoritePickerTab } from '../../components/qq-actions/FavoritePickerTab';
 import {
   ArrowLeft,
   Clock,
@@ -46,7 +47,6 @@ import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { PokeEmojiPanel, type PokeEmojiDraft, type RandomFaceDraft } from './pokeEmojiPanel';
 import { CustomEmojiTab, ShowEmojiTab } from './showEmojiTabs';
 import {
-  favEmojiItem,
   marketFaceItem,
   relatedEmojiItem,
   systemFaceItem,
@@ -71,6 +71,7 @@ type TabId =
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'recent', label: '最近', icon: Clock },
   { id: 'face', label: '表情', icon: Smile },
+  { id: 'fav', label: '收藏', icon: Heart },
   { id: 'super', label: '超级表情', icon: Sparkles },
   { id: 'bounce', label: '弹射表情', icon: Rocket },
   { id: 'poke', label: '互动表情', icon: Hand },
@@ -78,7 +79,6 @@ const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'qqshow', label: 'QQ 秀表情', icon: Sparkles },
   { id: 'unicode', label: '字符表情', icon: Type },
   { id: 'market', label: '商城表情', icon: Store },
-  { id: 'fav', label: '收藏', icon: Heart },
   { id: 'gif', label: 'GIF 表情', icon: ImageIcon },
   { id: 'kaomoji', label: '颜文字', icon: MessageSquareQuote },
 ];
@@ -280,11 +280,13 @@ export function EmojiPanel({
             onOpenSearch={() => setSearchOpen(true)}
           />
         ) : tab === 'fav' ? (
-          <FavTab
+          <FavoritePickerTab
             loading={overview.isLoading}
             favorites={favorites}
-            emptyText="还没有收藏的自定义表情"
             onSelect={onSelect}
+            onChanged={async () => {
+              await overview.refetch();
+            }}
           />
         ) : tab === 'custom' ? (
           <CustomEmojiTab
@@ -580,56 +582,6 @@ function MarketPackDetail({
 }
 
 // ── 收藏 ──────────────────────────────────────────────────────────────────────
-
-function FavTab({
-  favorites,
-  onSelect,
-  loading,
-  emptyText,
-}: {
-  favorites: Array<{
-    id: string;
-    hash: string;
-    scope: string;
-    bucket: string;
-    oriFile: string | null;
-    original?: { scope: string; bucket: string; file: string } | null;
-    thumbFile: string | null;
-    remoteUrl: string;
-  }>;
-  onSelect: (item: EmojiItem) => void;
-  loading?: boolean;
-  emptyText: string;
-}) {
-  if (loading && favorites.length === 0) return <div className={cn('emoji-state')}>加载中…</div>;
-  if (favorites.length === 0) return <div className={cn('emoji-state')}>{emptyText}</div>;
-  return (
-    <div className={cn('emoji-grid emoji-big-grid')}>
-      {favorites.map((fav) => {
-        const variant = fav.thumbFile ? 'thumb' : 'ori';
-        const file = fav.thumbFile ?? fav.oriFile;
-        if (!file) return null;
-        const preview = favEmojiItem(fav.scope, fav.bucket, variant, file, fav.hash);
-        const item = fav.original
-          ? favEmojiItem(
-              fav.original.scope,
-              fav.original.bucket,
-              'ori',
-              fav.original.file,
-              fav.hash,
-            )
-          : preview;
-        return (
-          <FaceCell
-            key={fav.id}
-            cell={{ key: fav.id, title: fav.hash, item, previewSrc: preview.src }}
-            onSelect={onSelect}
-          />
-        );
-      })}
-    </div>
-  );
-}
 
 // ── GIF ───────────────────────────────────────────────────────────────────────
 

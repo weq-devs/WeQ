@@ -160,6 +160,9 @@ export interface Platform {
    */
   qqWrapperNodePath(pid?: number): string | null;
 
+  /** 异步准备目标 QQ 的同一组运行中模块；后续同步路径访问复用这份短期快照。 */
+  prepareQqRuntimeModules?(pid: number): Promise<void>;
+
   /**
    * QQ `major.node`, used for appid/QUA/version. A running macOS pid selects
    * its mapped image, paired with the signer from that same process.

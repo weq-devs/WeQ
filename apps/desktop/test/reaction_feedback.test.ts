@@ -30,6 +30,24 @@ function render(pending?: ReactionInteraction['pending']) {
 }
 
 describe('贴表情请求反馈', () => {
+  it.each([1, 2, 6, 7, 8, 15])('显示 %i 种表情时不预留空列，且每行最多七列', (count) => {
+    const doc = new DOMParser().parseFromString(
+      renderToStaticMarkup(
+        createElement(SetEmojiReactions, {
+          list: Array.from({ length: count }, (_, index) => ({
+            emojiId: String(index),
+            setNum: index + 1,
+            isSelfSet: false,
+          })),
+        }),
+      ),
+      'text/html',
+    );
+    expect(doc.querySelector<HTMLElement>('.msg-reactions')?.style.gridTemplateColumns).toBe(
+      `repeat(${Math.min(count, 7)}, max-content)`,
+    );
+  });
+
   it.each([
     { code: '76', isSet: true, label: '正在贴表情' },
     { code: '14', isSet: false, label: '正在撤回表情回应' },
@@ -46,6 +64,9 @@ describe('贴表情请求反馈', () => {
   it('首次贴的新表情显示临时加载项，不篡改原始列表', () => {
     const doc = render({ code: '99', isSet: true });
     expect(doc.querySelectorAll('.msg-reaction')).toHaveLength(3);
+    expect(doc.querySelector<HTMLElement>('.msg-reactions')?.style.gridTemplateColumns).toBe(
+      'repeat(3, max-content)',
+    );
     expect(
       doc.querySelector('[aria-busy="true"] .msg-reaction-count [role="status"]'),
     ).not.toBeNull();
@@ -98,6 +119,7 @@ describe('贴表情请求反馈', () => {
     if (!output) return;
     const css = [
       'src/renderer/src/styles/index.css',
+      'src/renderer/src/im-template/styles/chat.css',
       'src/renderer/src/im-template/styles/emoji.css',
       'src/renderer/src/styles/message-metadata.css',
       'src/renderer/src/styles/reaction-feedback.css',
@@ -113,10 +135,26 @@ describe('贴表情请求反馈', () => {
     const html = samples
       .map((pending) => `<section>${render(pending).body.innerHTML}</section>`)
       .join('');
+    const alignment = ['mine', 'theirs']
+      .flatMap((side) =>
+        [1, 2, 6, 7, 8, 15].map((count) => {
+          const reactions = renderToStaticMarkup(
+            createElement(SetEmojiReactions, {
+              list: Array.from({ length: count }, (_, index) => ({
+                emojiId: String(index),
+                setNum: index + 1,
+                isSelfSet: index === 0,
+              })),
+            }),
+          );
+          return `<section class="message-line ${side}" data-count="${count}"><div class="message-bubble"><p class="message-content">消息正文</p>${reactions}</div></section>`;
+        }),
+      )
+      .join('');
     mkdirSync(output, { recursive: true });
     writeFileSync(
       resolve(output, 'feedback.html'),
-      `<!doctype html><html lang="zh-CN" data-theme="light"><meta charset="utf-8"><style>${css}</style><style>body{padding:24px;background:var(--weq-chat-bg,var(--background));color:var(--foreground);font-family:system-ui}section{margin-bottom:24px}.face-emoji{display:inline-block;background:var(--weq-accent-effective);border-radius:50%}</style><body>${html}</body></html>`,
+      `<!doctype html><html lang="zh-CN" data-theme="light"><meta charset="utf-8"><style>${css}</style><style>body{padding:24px;background:var(--weq-chat-bg,var(--background));color:var(--foreground);font-family:system-ui}section{margin-bottom:24px}.face-emoji{display:inline-block;background:var(--weq-accent-effective);border-radius:50%}</style><body>${html}${alignment}</body></html>`,
     );
   });
 });

@@ -1,60 +1,51 @@
-/**
- * 载入中的启动画面：logo + 进度条（或不确定态的转圈）。
- *
- * 自动进入（BootstrapView）和切换账号（AccountSwitchOverlay）共用。两处都要在
- * 数据齐了之后才放行到 MainView，否则首屏是空白头像 + 默认昵称 "WeQ"。
- *
- * `progress` 为空时显示转圈 + `hint`（用于「正在打开账号」这种拿不到百分比的
- * 阶段）；有值时显示真实的 已完成/总数 百分比。
- */
-
-import { Loader2 } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { WARMUP_TOTAL, type WarmupProgress } from '../lib/accountWarmup';
+import type { WarmupProgress } from '../lib/accountWarmup';
 import logoUrl from '@resources/brand/logo.png';
 import '../styles/startup-home.css';
+import '../styles/startup-progress.css';
+import { useStartupProgress } from '../state/startupProgress';
 
+/** 冷启动共用整条阶段进度；启动完成后的切号预热保留独立进度。 */
 export function WarmupSplash({
   progress,
-  hint = '正在初始化…',
+  hint = '正在检查启动环境',
 }: {
   progress?: WarmupProgress | null;
   hint?: string;
 }): ReactElement {
-  if (!progress) {
-    return (
-      <div className="weq-warmup flex h-full flex-col items-center justify-center">
-        <img src={logoUrl} alt="WeQ" width={80} height={80} className="weq-splash-logo" />
-        <div className="weq-warmup-status mt-5 flex items-center gap-2 text-[13px]">
-          <Loader2
-            className="weq-warmup-spinner animate-spin"
-            size={15}
-            strokeWidth={1.85}
-            aria-hidden
-          />
-          {hint}
-        </div>
-      </div>
-    );
-  }
-
-  const pct = Math.round((progress.done / (progress.total || WARMUP_TOTAL)) * 100);
+  const startup = useStartupProgress();
+  const percent = startup.active
+    ? startup.percent
+    : progress
+      ? Math.round((progress.done / Math.max(1, progress.total)) * 100)
+      : null;
+  const message = progress
+    ? progress.pending
+      ? `正在载入${progress.pending}…`
+      : '正在准备会话界面'
+    : hint;
   return (
-    <div className="weq-warmup flex h-full flex-col items-center justify-center">
-      <img src={logoUrl} alt="WeQ" width={80} height={80} className="weq-splash-logo" />
-      <div className="weq-warmup-progress mt-5 w-[260px]">
+    <div className="weq-warmup" role="status">
+      <img src={logoUrl} alt="WeQ" width={80} height={80} className="weq-warmup-logo" />
+      <div className="weq-warmup-progress">
         <div
-          className="weq-splash-track"
+          className="weq-warmup-track"
           role="progressbar"
-          aria-valuenow={pct}
+          aria-label="启动进度"
+          aria-valuetext={message}
           aria-valuemin={0}
           aria-valuemax={100}
+          aria-valuenow={percent ?? undefined}
         >
-          <div className="weq-splash-bar" style={{ width: `${pct}%` }} />
+          <div
+            className="weq-warmup-bar"
+            data-determinate={percent !== null || undefined}
+            style={percent === null ? undefined : { width: `${percent}%` }}
+          />
         </div>
-        <div className="weq-warmup-status mt-2.5 flex items-baseline justify-between text-[12px]">
-          <span>{progress.pending ? `正在载入${progress.pending}…` : '即将进入…'}</span>
-          <span className="tabular-nums">{pct}%</span>
+        <div className="weq-warmup-status">
+          <span>{message}</span>
+          {percent !== null && <span className="weq-warmup-count">{percent}%</span>}
         </div>
       </div>
     </div>

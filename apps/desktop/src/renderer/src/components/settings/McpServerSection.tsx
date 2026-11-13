@@ -31,12 +31,15 @@ import {
   EyeOff,
   KeyRound,
   Plug,
+  Power,
+  Link,
   RefreshCw,
   RotateCcw,
   Save,
   Square,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useRemoteClient } from '../../lib/remoteClient';
 import { useTabActive } from '../RetainedTabs';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
@@ -59,6 +62,7 @@ interface AgentTarget {
 }
 
 export function McpServerSection(): ReactElement {
+  const remote = useRemoteClient();
   const active = useTabActive();
   const activity = useRef(active);
   activity.current = active;
@@ -86,7 +90,7 @@ export function McpServerSection(): ReactElement {
 
   const data = status.data;
   const agentTargets = trpc.bootstrap.listMcpAgentTargets.useQuery(undefined, {
-    enabled: active,
+    enabled: active && !remote,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -315,7 +319,7 @@ export function McpServerSection(): ReactElement {
       />
 
       {/* Switch + live state */}
-      <Card title="服务开关">
+      <Card title="服务开关" icon={<Power size={15} strokeWidth={1.8} />}>
         {status.error ? (
           <QueryError
             message={`MCP 状态读取失败：${status.error.message}`}
@@ -376,7 +380,7 @@ export function McpServerSection(): ReactElement {
       </Card>
 
       {/* Connection details */}
-      <Card title="连接信息">
+      <Card title="连接信息" icon={<Link size={15} strokeWidth={1.8} />}>
         {clientConfig.error ? (
           <QueryError
             message={`MCP 客户端配置读取失败：${clientConfig.error.message}`}
@@ -485,6 +489,8 @@ export function McpServerSection(): ReactElement {
       {/* Install into local agents */}
       <Card
         title="安装到本机 AI 客户端"
+        remoteUnsupported
+        icon={<Download size={15} strokeWidth={1.8} />}
         action={
           <button
             type="button"
@@ -516,8 +522,10 @@ export function McpServerSection(): ReactElement {
           agentTargets.error ? null : (
             <div className="weq-set-empty">
               <AlertCircle size={15} aria-hidden />
-              没找到本机已安装的 MCP 客户端。请先安装 Claude Code / Codex / Cursor / VS Code
-              等，再回来扫描。
+              <span>
+                没找到本机已安装的 MCP 客户端。请先安装 Claude Code / Codex / Cursor / VS Code
+                等，再回来扫描。
+              </span>
             </div>
           )
         ) : (

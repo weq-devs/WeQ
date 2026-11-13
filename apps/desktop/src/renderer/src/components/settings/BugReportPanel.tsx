@@ -44,7 +44,8 @@ import { IconPicker } from '../ui/iconPicker';
 import { useThemeStore } from '../../state/theme';
 import bugBanner from '@resources/brand/bug_banner.png';
 import bugBannerDark from '@resources/brand/bug_banner_2.png';
-import { SectionHeader } from './controls';
+import { Card, CheckPill, SectionHeader } from './controls';
+import { SegmentedControl } from '../SegmentedControl';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
@@ -387,18 +388,18 @@ export function BugReportPanel(): ReactElement {
 
   return (
     <div className="weq-set weq-help-bug">
-      <SectionHeader title="反馈" icon={<MessageCircle size={16} />} />
+      <SectionHeader
+        title="反馈"
+        icon={<MessageCircle size={16} />}
+        desc="提交前先确认不是已知问题，并按模板写清复现步骤、系统版本与当天日志。"
+      />
       {/* 顶部 banner：底部渐变模糊 */}
       <div className="weq-help-bug-banner" style={bannerStyle}>
         <div className="weq-help-bug-banner-mask" aria-hidden />
       </div>
 
       {/* 反馈前须知 */}
-      <section className="weq-set-card weq-help-bug-card">
-        <div className="weq-set-card-title weq-help-bug-card-head">
-          <Info size={14} aria-hidden />
-          反馈前请确认
-        </div>
+      <Card title="反馈前请确认" icon={<Info size={15} strokeWidth={1.8} />}>
         <ul className="weq-help-bug-tips">
           <li>
             <Github size={13} aria-hidden />
@@ -425,14 +426,13 @@ export function BugReportPanel(): ReactElement {
             提供当天的日志；UI 问题提供截图；密钥问题提供数据库头部 hexdump（见下方工具）。
           </li>
         </ul>
-      </section>
+      </Card>
 
       {/* hexdump 工具 */}
-      <section className="weq-set-card weq-help-bug-card">
-        <div className="weq-set-card-title weq-help-bug-card-head">
-          <Database size={14} aria-hidden />
-          数据库头部 hexdump（前 200 字节）
-        </div>
+      <Card
+        title="数据库头部 hexdump（前 200 字节）"
+        icon={<Database size={15} strokeWidth={1.8} />}
+      >
         <p className="weq-help-bug-sub">
           密钥 / 解密相关问题时，直接选当前账号的数据库，把头部（前 200 字节）导出出来贴进
           issue，方便排查。
@@ -488,14 +488,13 @@ export function BugReportPanel(): ReactElement {
             <pre className="weq-help-bug-hex-body">{hexdump.raw}</pre>
           </div>
         ) : null}
-      </section>
+      </Card>
 
       {/* 标题 + Markdown 正文 */}
-      <section className="weq-set-card weq-help-bug-card">
-        <div className="weq-set-card-title weq-help-bug-card-head">
-          <PencilLine size={14} aria-hidden />
-          反馈内容（GitHub 式 Markdown）
-        </div>
+      <Card
+        title="反馈内容（GitHub 式 Markdown）"
+        icon={<PencilLine size={15} strokeWidth={1.8} />}
+      >
         <div className="weq-help-bug-title-row">
           <input
             className="weq-help-bug-title"
@@ -519,39 +518,46 @@ export function BugReportPanel(): ReactElement {
         {/* 检查清单（与正文中的 checkbox 双向同步） */}
         <div className="weq-help-bug-checks">
           {CHECKBOX_MARKS.map((meta) => (
-            <button
+            <CheckPill
               key={meta.key}
-              type="button"
-              className={`weq-set-chk${checks[meta.key] ? ' is-on' : ''}`}
-              role="checkbox"
-              aria-checked={checks[meta.key]}
-              onClick={() => toggleCheck(meta.key, !checks[meta.key])}
+              checked={checks[meta.key]}
+              onChange={() => toggleCheck(meta.key, !checks[meta.key])}
               title={meta.hint || undefined}
             >
-              <span className="weq-set-chk-box" aria-hidden />
-              <span className="weq-set-chk-label">{meta.label}</span>
-            </button>
+              {meta.label}
+            </CheckPill>
           ))}
         </div>
 
         <div className="weq-help-bug-editor">
           <div className="weq-help-bug-editor-tabs">
-            <button
-              type="button"
-              className={!preview ? 'is-on' : ''}
-              onClick={() => setPreview(false)}
-            >
-              <PencilLine size={12} aria-hidden />
-              编辑
-            </button>
-            <button
-              type="button"
-              className={preview ? 'is-on' : ''}
-              onClick={() => setPreview(true)}
-            >
-              <Eye size={12} aria-hidden />
-              预览
-            </button>
+            <SegmentedControl<'edit' | 'preview'>
+              label="反馈正文视图"
+              value={preview ? 'preview' : 'edit'}
+              onChange={(next) => setPreview(next === 'preview')}
+              options={[
+                {
+                  value: 'edit',
+                  label: (
+                    <span className="weq-set-seg-label">
+                      <PencilLine size={12} aria-hidden />
+                      编辑
+                    </span>
+                  ),
+                  title: '编辑',
+                },
+                {
+                  value: 'preview',
+                  label: (
+                    <span className="weq-set-seg-label">
+                      <Eye size={12} aria-hidden />
+                      预览
+                    </span>
+                  ),
+                  title: '预览',
+                },
+              ]}
+            />
           </div>
           {preview ? (
             <div className="weq-help-bug-preview weq-help-md">
@@ -574,14 +580,10 @@ export function BugReportPanel(): ReactElement {
             />
           )}
         </div>
-      </section>
+      </Card>
 
       {/* 三个出口 */}
-      <section className="weq-set-card weq-help-bug-card">
-        <div className="weq-set-card-title weq-help-bug-card-head">
-          <Send size={14} aria-hidden />
-          提交方式
-        </div>
+      <Card title="提交方式" icon={<Send size={15} strokeWidth={1.8} />}>
         <div className="weq-help-bug-actions">
           <button
             type="button"
@@ -639,12 +641,13 @@ export function BugReportPanel(): ReactElement {
             </span>
           </button>
         </div>
-      </section>
+        <p className="weq-help-bug-foot">
+          <ExternalLink size={11} aria-hidden />
+          提交前请再次确认没有重复 issue，且附上了当天的日志。
+        </p>
+      </Card>
 
-      <p className="weq-help-bug-foot">
-        <ExternalLink size={11} aria-hidden />
-        提交前请再次确认没有重复 issue，且附上了当天的日志。
-      </p>
+
     </div>
   );
 }

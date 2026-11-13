@@ -28,6 +28,12 @@ import {
   SEND_LONG_MSG_RESP,
   SEND_MESSAGE_REQUEST,
   SEND_MESSAGE_RESPONSE,
+  DATALINE_UPLOAD_CMD,
+  DATALINE_UPLOAD_REQUEST,
+  DATALINE_UPLOAD_RESPONSE,
+  makeSolidPng,
+  NTV2_UPLOAD_RESP_TOP,
+  type SendImageElement,
 } from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
 import {
@@ -110,6 +116,62 @@ function fakeNative() {
     },
   };
 }
+
+describe('设备文件发送', () => {
+  it.each(['u_Wcc5rknRRqRO8y5gxMD6sA', 'u_rK7NMsbv2ZjEGPdCuOiCfw', 'u_l7jpPIZxQo0mzJwoEt-SKw'])(
+    '%s 保留设备身份，上传给本人而非查好友目录',
+    async (uid) => {
+      const filePath = path.join(dir, 'device.txt');
+      await fsp.writeFile(filePath, 'device fixture');
+      const native = fakeNative();
+      const ordinarySend = native.sendPacket;
+      native.sendPacket = async (pid, cmd, body) => {
+        if (cmd !== DATALINE_UPLOAD_CMD) return ordinarySend(pid, cmd, body);
+        native.calls.push({ pid, cmd, body: new Uint8Array(body) });
+        return Buffer.from(
+          encode(DATALINE_UPLOAD_RESPONSE, {
+            command: 1710,
+            upload: { retCode: 0, uuid: '/00000000-0000-0000-0000-000000000001', fileExists: true },
+          }),
+        );
+      };
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession({ uinOf: { [uid]: 20002n } }),
+        () => 1,
+      );
+      const result = await svc.sendFile({ peerType: 'c2c', targetId: uid, path: filePath });
+      expect(result).toMatchObject({
+        ok: true,
+        sent: true,
+        targetId: uid,
+        uid,
+        kind: 'file',
+        fastUpload: true,
+      });
+      const request = decode(DATALINE_UPLOAD_REQUEST, native.calls[0]!.body) as {
+        upload: { senderUin: bigint; receiverUin: bigint };
+      };
+      expect(request.upload).toMatchObject({ senderUin: 10001n, receiverUin: 10001n });
+      expect(native.calls.map((call) => call.cmd)).toEqual([
+        DATALINE_UPLOAD_CMD,
+        'MessageSvc.PbSendMsg',
+      ]);
+    },
+  );
+  it('缺少本人 UID 时不读文件或发包', async () => {
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession({ selfUid: '' }), () => 1);
+    await expect(
+      svc.sendFile({
+        peerType: 'c2c',
+        targetId: 'u_Wcc5rknRRqRO8y5gxMD6sA',
+        path: '/not-read.bin',
+      }),
+    ).rejects.toThrow(/真实 UID/);
+    expect(native.calls).toHaveLength(0);
+  });
+});
 
 describe('buildTextElements', () => {
   it('纯文本只有一个 text 元素', () => {
@@ -1334,6 +1396,121 @@ describe('sendForward（合并转发，离线）', () => {
       },
     };
   }
+
+  it.each(['direct', 'merged', 'nested'] as const)(
+    '%s 图片秒传失败后复用媒体下载服务',
+    async (mode) => {
+      const native = forwardNative();
+      let attempts = 0;
+      let downloads = 0;
+      const file = path.join(dir, `forward-${mode}.png`);
+      await fsp.writeFile(file, makeSolidPng(2, 2));
+      native.sendOidbPacket = async () => {
+        attempts++;
+        return Buffer.from(
+          encode(NTV2_UPLOAD_RESP_TOP, {
+            upload: {
+              ...(attempts === 1 ? { uKey: 'need-bytes' } : {}),
+              msgInfo: { msgInfoBody: [{ fileExist: true }] },
+            },
+          }),
+        );
+      };
+      const svc = new MessageSendService(
+        native,
+        fakeSession(),
+        () => 1,
+        undefined,
+        undefined,
+        undefined,
+        () => false,
+        undefined,
+        {
+          download: async (token, opts) => {
+            downloads++;
+            expect(token).toBe('image-token');
+            expect(opts?.originalUrl).toBe('/original');
+            return file;
+          },
+        },
+      );
+      const image: SendImageElement = {
+        kind: 'image',
+        source: '',
+        fingerprint: {
+          md5Hex: '0f343b0931126a20f133d67c2b018a3b',
+          sha1Hex: '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8',
+          fileSize: 1234,
+        },
+        download: { fileToken: 'image-token', originalUrl: '/original' },
+      };
+      const outcome =
+        mode === 'direct'
+          ? await svc.sendElements({ peerType: 'group', targetId: '42', elements: [image] })
+          : await svc.sendForward({
+              peerType: 'group',
+              targetId: '42',
+              nodes:
+                mode === 'merged'
+                  ? [{ elements: [image] }]
+                  : [{ elements: [], innerForward: [{ elements: [image] }] }],
+            });
+      expect(outcome.ok).toBe(true);
+      expect(attempts).toBe(2);
+      expect(downloads).toBe(1);
+      expect(image.resolveSource).toBeUndefined();
+      expect(native.calls.filter((call) => call.cmd === 'MessageSvc.PbSendMsg')).toHaveLength(1);
+    },
+  );
+
+  it.each(['unavailable', 'failed'])('原图下载 %s 时不发出卡片', async (mode) => {
+    const native = forwardNative();
+    native.sendOidbPacket = async () =>
+      Buffer.from(
+        encode(NTV2_UPLOAD_RESP_TOP, {
+          upload: { uKey: 'need-bytes', msgInfo: { msgInfoBody: [{ fileExist: false }] } },
+        }),
+      );
+    const svc = new MessageSendService(
+      native,
+      fakeSession(),
+      () => 1,
+      undefined,
+      undefined,
+      undefined,
+      () => false,
+      undefined,
+      {
+        download: async () => {
+          if (mode === 'failed') throw new Error('下载原图失败');
+          return null;
+        },
+      },
+    );
+    await expect(
+      svc.sendForward({
+        peerType: 'group',
+        targetId: '42',
+        nodes: [
+          {
+            elements: [
+              {
+                kind: 'image',
+                source: '',
+                download: { fileToken: 'image-token' },
+                fingerprint: {
+                  md5Hex: '0f343b0931126a20f133d67c2b018a3b',
+                  sha1Hex: '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8',
+                  fileSize: 1234,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow(mode === 'failed' ? '下载原图失败' : '无法取回原图');
+    expect(native.calls).toHaveLength(0);
+  });
 
   it('长消息上传后账号失效时不继续发送卡片', async () => {
     const native = forwardNative();

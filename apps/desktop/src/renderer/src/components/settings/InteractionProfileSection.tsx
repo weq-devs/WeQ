@@ -33,26 +33,45 @@ export function InteractionProfileSection() {
   }
   return (
     <AiFeatureSettingsLayout
+      imageFeature="profile"
       settings={settings}
       title="互动画像"
-      advancedId="profile-advanced"
       error={status.error}
       retrying={status.isFetching}
       onRetry={() => void status.refetch()}
       basic={
-        <Row
-          settingId="profile-enabled"
-          label="启用互动画像"
-          desc="统计互动情况，分析好感度、MBTI 倾向与互动风格。"
-          control={
-            <Toggle
-              label="启用互动画像"
-              checked={status.data?.profileEnabled ?? false}
-              disabled={disabled}
-              onChange={(profileEnabled) => void patch({ profileEnabled })}
-            />
-          }
-        />
+        <>
+          <Row
+            settingId="profile-enabled"
+            label="启用互动画像"
+            desc="统计互动情况，分析好感度、MBTI 倾向与互动风格。"
+            control={
+              <Toggle
+                label="启用互动画像"
+                checked={status.data?.profileEnabled ?? false}
+                indeterminate={!status.data}
+                disabled={disabled}
+                onChange={(profileEnabled) => void patch({ profileEnabled })}
+              />
+            }
+          />
+          <Row
+            settingId="profile-mode"
+            label="模式"
+            control={
+              <SegmentedControl
+                label="互动画像模式"
+                value={status.data ? (status.data.profileMode ?? 'auto') : null}
+                disabled={disabled}
+                onChange={(profileMode) => void patch({ profileMode })}
+                options={[
+                  { value: 'auto', label: '自动' },
+                  { value: 'manual', label: '手动' },
+                ]}
+              />
+            }
+          />
+        </>
       }
       model={
         <>
@@ -60,17 +79,29 @@ export function InteractionProfileSection() {
             settingId="profile-engine"
             label="运行方式"
             control={
-              <SegmentedControl
-                label="互动画像运行方式"
-                disabled={disabled}
-                value={status.data?.profileEngine ?? 'heuristic'}
-                onChange={(profileEngine) => void patch({ profileEngine })}
-                options={[
-                  { value: 'api', label: 'API 模型' },
-                  { value: 'local', label: '本地模型' },
-                  { value: 'heuristic', label: '本地统计' },
-                ]}
-              />
+              <span
+                data-setting-fallback={
+                  status.data
+                    ? status.data.profileEngine === 'api'
+                      ? 'profile-local-model'
+                      : status.data.profileEngine === 'local'
+                        ? 'profile-api-model'
+                        : 'profile-api-model profile-local-model'
+                    : undefined
+                }
+              >
+                <SegmentedControl
+                  label="互动画像运行方式"
+                  disabled={disabled}
+                  value={status.data?.profileEngine ?? null}
+                  onChange={(profileEngine) => void patch({ profileEngine })}
+                  options={[
+                    { value: 'api', label: 'API 模型' },
+                    { value: 'local', label: '本地模型' },
+                    { value: 'heuristic', label: '本地统计' },
+                  ]}
+                />
+              </span>
             }
           />
           {status.data?.profileEngine === 'api' ? (
@@ -81,22 +112,12 @@ export function InteractionProfileSection() {
               disabled={disabled}
               onChange={(profileProviderRef) => void patch({ profileProviderRef })}
             />
-          ) : (
-            <p className="weq-set-note" data-setting-id="profile-api-model">
-              API 模型：
-              {!status.data
-                ? '运行方式待确认'
-                : status.data.profileEngine === 'local'
-                  ? '当前使用本地模型'
-                  : '当前使用本地统计'}
-              。
-            </p>
-          )}
+          ) : null}
           {status.data?.profileEngine === 'local' ? (
             <Row
               settingId="profile-local-model"
               label="本地模型资源"
-              desc={`模型资源全局共享，当前账号单独选择画像使用的模型。${local.data?.available === false ? ' 当前宿主不支持本地画像模型。' : ''}`}
+              desc={`画像模型设置在各账号和各端共享。${local.data?.available === false ? ' 当前宿主不支持本地画像模型。' : ''}`}
               control={
                 <select
                   className="weq-set-input"
@@ -133,17 +154,7 @@ export function InteractionProfileSection() {
                 </select>
               }
             />
-          ) : (
-            <p className="weq-set-note" data-setting-id="profile-local-model">
-              本地模型资源：
-              {!status.data
-                ? '运行方式待确认'
-                : status.data.profileEngine === 'api'
-                  ? '当前使用 API 模型'
-                  : '当前使用本地统计'}
-              。
-            </p>
-          )}
+          ) : null}
           {status.data?.profileEngine === 'local' &&
           local.data?.models.find((model) => model.id === status.data?.profileLocalModelId)
             ?.downloadable &&

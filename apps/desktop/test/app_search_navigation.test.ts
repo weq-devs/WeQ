@@ -31,16 +31,43 @@ function sourceHandler<T>(relative: string, name: string, context: Record<string
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
   const exports: { default?: T } = {};
-  runInNewContext(compiled.outputText, { ...context, exports });
+  // 处理器闭包引用的页面状态很多（还散落在 useCallback 依赖数组里），
+  // 用例只给需要断言的键，其余标识符用空实现兜住，避免逐项追着源码补。
+  const sandbox: Record<string | symbol, unknown> = { ...context, exports };
+  runInNewContext(
+    compiled.outputText,
+    new Proxy(sandbox, {
+      has: (target, key) => (typeof key === 'string' ? true : key in target),
+      get: (target, key) => {
+        if (key in target) return target[key as string];
+        if (typeof key === 'string' && key in globalThis)
+          return (globalThis as unknown as Record<string, unknown>)[key];
+        return vi.fn();
+      },
+      set: (target, key, value) => {
+        target[key as string] = value;
+        return true;
+      },
+    }),
+  );
   if (!exports.default) throw new Error('未导出全局搜索点击处理器');
   return exports.default;
 }
 
 function searchHandler(context: Record<string, unknown>) {
+  const openAppSearchEntryNow = sourceHandler<(entry: AppSearchEntry) => void>(
+    '../src/renderer/src/views/MainView.tsx',
+    'openAppSearchEntryNow',
+    context,
+  );
   return sourceHandler<(entry: AppSearchEntry) => void>(
     '../src/renderer/src/views/MainView.tsx',
     'openAppSearchEntry',
-    context,
+    {
+      settingsNavigation: { navigate: (action: () => void) => action() },
+      ...context,
+      openAppSearchEntryNow,
+    },
   );
 }
 
@@ -56,6 +83,62 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it('导航确认未放行时不切换工具或清除设置现场', () => {
+    const context = {
+      ...navigationContext(),
+      settingsNavigation: { navigate: vi.fn() },
+      setToolSearchRequest: vi.fn(),
+    };
+    searchHandler(context)(searchAppEntries('群文件导出')[0]!);
+    expect(context.settingsNavigation.navigate).toHaveBeenCalledOnce();
+    expect(context.setToolSearchRequest).not.toHaveBeenCalled();
+    expect(context.setSettingsOpen).not.toHaveBeenCalled();
+  });
+  it('群搜索进入临时会话时分别保留真实群名和备注，供群名片使用', () => {
+    const setTemporaryConversations = vi.fn();
+    const jumpToConvSeq = vi.fn();
+    const open = sourceHandler<(hit: unknown) => void>(
+      '../src/renderer/src/views/MainView.tsx',
+      'openSearchHit',
+      {
+        useCallback: (callback: unknown) => callback,
+        setSearchDismissed: vi.fn(),
+        setSearchFocused: vi.fn(),
+        isContentSearchHit: () => false,
+        isGeneratedSearchHit: () => false,
+        conversations: [],
+        hiddenConversationsById: new Map(),
+        deletedConversationsById: new Map(),
+        setTemporaryConversations,
+        jumpToConvSeq,
+        groupAvatarSrc: () => null,
+        fallbackPreference: {},
+        centerWindowOnSeq: vi.fn(),
+        pushToast: vi.fn(),
+        shell: {},
+        searchQuery: '',
+        user: { identityValue: '10001' },
+        setSettingsOpen: vi.fn(),
+        setDressUpOpen: vi.fn(),
+      },
+    );
+    open({ category: 'group', groupCode: '20001', name: '真实群名', remark: '群备注' });
+    const update = setTemporaryConversations.mock.calls[0]![0];
+    expect(update({})['20001'].conversation.group).toMatchObject({
+      name: '真实群名',
+      remark: '群备注',
+    });
+    expect(jumpToConvSeq).toHaveBeenCalledWith(
+      'group',
+      '20001',
+      undefined,
+      false,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
   it('导出请求携带具体种类，重复点击仍有新的 revision', () => {
     const setToolSearchRequest = vi.fn();
     searchHandler({ ...navigationContext(), setToolSearchRequest, messageScope: 'fixture' })(
@@ -118,23 +201,22 @@ describe('功能搜索实际导航', () => {
     expect(context.setDressUpSearchKind).toHaveBeenCalledWith(kind);
     expect(context.setDressUpOpen).toHaveBeenLastCalledWith(true);
   });
-  it('频道私聊清除旧消息定位，发起新的展开请求', () => {
+  it('频道私聊切到频道会话视图并进消息页，不沿用旧的消息定位', () => {
     const context = {
       ...navigationContext(),
+      changeConversationView: vi.fn(),
       setGuildSearchTarget: vi.fn(),
-      setGuildDirectOpenRequest: vi.fn(),
       shell: { view: 'home', switchView: vi.fn() },
     };
     searchHandler(context)(searchAppEntries('频道私聊')[0]!);
-    expect(context.setGuildSearchTarget).toHaveBeenCalledWith(null);
-    expect(context.setGuildDirectOpenRequest).toHaveBeenCalledOnce();
-    expect(context.shell.switchView).toHaveBeenCalledWith('guild-direct');
+    expect(context.changeConversationView).toHaveBeenCalledWith('guild');
+    expect(context.shell.switchView).toHaveBeenCalledWith('messages');
+    expect(context.setGuildSearchTarget).not.toHaveBeenCalled();
   });
   it.each(['home', 'messages', 'agentlab'])('从 %s 打开克隆目录，清除旧筛选和详情', (view) => {
     const state = {
       view,
       query: '不匹配克隆的旧筛选',
-      activeConversationId: 'old-chat' as string | null,
     };
     const context = {
       setSearchDismissed: vi.fn(),
@@ -145,10 +227,7 @@ describe('功能搜索实际导航', () => {
       setDressUpOpen: vi.fn(),
       flushAllDirtyDrafts: vi.fn(),
       setSurfaceNavigation: vi.fn(),
-      setArkFeedState: vi.fn(),
-      setCloneSearchTarget: vi.fn(),
-      setVirtualOpen: vi.fn(),
-      setConversationScope: vi.fn(),
+      changeConversationView: vi.fn(),
       shell: {
         get view() {
           return state.view;
@@ -158,19 +237,14 @@ describe('功能搜索实际导航', () => {
         },
         switchView: (next: string) => {
           state.view = next;
-          state.activeConversationId = 'auto-selected-chat';
-        },
-        backConversation: () => {
-          state.activeConversationId = null;
         },
       },
     };
     searchHandler(context)(searchAppEntries('克隆')[0]!);
-    expect(state).toEqual({ view: 'messages', query: '', activeConversationId: null });
-    expect(context.setConversationScope).toHaveBeenCalledWith('virtual');
-    expect(context.setVirtualOpen).toHaveBeenCalledWith(null);
-    expect(context.setCloneSearchTarget).toHaveBeenCalledWith(null);
-    expect(context.setArkFeedState).toHaveBeenCalledWith(null);
+    // 克隆目录是会话视图：清掉旧搜索词、重放页面状态，再切到克隆视图进消息页。
+    expect(state).toEqual({ view: 'messages', query: '' });
+    expect(context.changeConversationView).toHaveBeenCalledWith('clone');
+    expect(context.setSurfaceNavigation).toHaveBeenCalledOnce();
     expect(context.flushAllDirtyDrafts).toHaveBeenCalledOnce();
     expect(context.setSearchDismissed).toHaveBeenCalledWith(true);
   });

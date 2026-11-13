@@ -1,5 +1,5 @@
 import { createElement, useMemo, type ReactNode } from 'react';
-import { openLightbox } from './ImageLightbox';
+import { openMediaPreview } from './mediaPreviewStore';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { CollectionImage } from './CollectionImage';
 
@@ -103,7 +103,18 @@ function contentNode(node: Node, key: string, depth = 0): ReactNode {
         key={key}
         type="button"
         className="weq-col-detail-image"
-        onClick={() => openLightbox(collectionImageUrl(src), alt)}
+        onClick={() =>
+          openMediaPreview({
+            items: [
+              {
+                key: collectionImageUrl(src),
+                kind: 'image',
+                src: collectionImageUrl(src),
+                title: alt,
+              },
+            ],
+          })
+        }
       >
         <CollectionImage originalSrc={src} alt={alt} />
       </button>

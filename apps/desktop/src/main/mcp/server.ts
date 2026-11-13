@@ -18,6 +18,7 @@
  */
 
 import http from 'node:http';
+import { servicePortCandidates } from '@weq/service/service-ports';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { getLogger, logErrorContext, logRequest, withLogOperation } from '@weq/service';
@@ -32,7 +33,7 @@ export interface McpServerOptions {
   token: string;
 }
 
-/** How many consecutive ports to probe when the requested one is taken. */
+/** 指定端口被占用时，最多尝试的候选端口数。 */
 const PORT_FALLBACK_ATTEMPTS = 20;
 
 let httpServer: http.Server | null = null;
@@ -60,7 +61,7 @@ function buildMcpServer(): McpServer {
       async (args: unknown) => {
         try {
           const data = await logRequest('mcp-server', t.name, 'tool', async () =>
-            runtimeMaintenance.operation(async () => t.run(args as never)),
+            runtimeMaintenance.operation(async () => t.run(args as never), `MCP ${t.name}`),
           );
           return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
         } catch (error) {
@@ -173,22 +174,19 @@ export async function startMcpServer(opts: McpServerOptions): Promise<number> {
     void handleRequest(req, res, opts.token);
   });
   let boundPort = -1;
-  for (let i = 0; i < PORT_FALLBACK_ATTEMPTS; i += 1) {
-    const port = opts.port + i;
-    if (port > 65535) break;
+  const candidates = servicePortCandidates('mcp', opts.port, PORT_FALLBACK_ATTEMPTS);
+  for (const port of candidates) {
     if (await tryListen(server, port)) {
-      boundPort = port;
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('MCP 监听地址无效');
+      boundPort = address.port;
       break;
     }
-    if (i > 0) {
-      logger.warn('mcp port in use, trying next', { event: 'mcp-port-busy', port });
-    }
+    logger.warn('mcp port in use, trying next', { event: 'mcp-port-busy', port });
   }
   if (boundPort === -1) {
     server.close();
-    throw new Error(
-      `MCP 端口 ${opts.port}–${Math.min(opts.port + PORT_FALLBACK_ATTEMPTS - 1, 65535)} 都被占用，无法启动。`,
-    );
+    throw new Error(`MCP 候选端口 ${candidates.join('、')} 都被占用，无法启动。`);
   }
   httpServer = server;
   activeConfig = { port: boundPort, token: opts.token };

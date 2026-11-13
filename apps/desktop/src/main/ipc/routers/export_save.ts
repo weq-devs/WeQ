@@ -67,13 +67,15 @@ export const exportOutputPlanInput = z.object({
 export async function prepareExportDestination(
   input: ExportSavePolicy,
   defaultDirectory: string | null | undefined,
-  host: Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget'>,
+  host: Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget' | 'remoteClient'>,
   output?: ExportOutputShape,
   current: () => void = () => {},
   locationKey = output?.kind === 'file' ? `export:file:${output.extension}` : 'export:directory',
   directoryTitle = '选择本次导出保存位置',
 ): Promise<ExportSavePolicy | null> {
   current();
+  // Remote 的设备下载只用宿主暂存，不沿用电脑的长期保存目录。
+  if (host.remoteClient && host.exportRoot) input = { mode: 'before', directory: host.exportRoot };
   if (input.mode !== 'preset' && input.mode !== 'before')
     throw new Error('不支持此保存方式，请在开始前选择保存位置。');
   if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');
@@ -187,7 +189,7 @@ export async function pickExportOutputDestination(
 export async function saveCompletedExportTask(
   manager: Pick<ExportTaskManager, 'getTask' | 'saveTaskOutput'>,
   taskId: string,
-  host: () => Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget'>,
+  host: () => Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget' | 'remoteClient'>,
   selected: Pick<ExportSavePolicy, 'directory' | 'filePath' | 'uniqueFileName'> = {},
   check: () => void = () => {},
   preferences?: { exportSaveMode: ExportSavePolicy['mode']; defaultExportDir: string | null },
@@ -196,6 +198,8 @@ export async function saveCompletedExportTask(
   const task = manager.getTask(taskId);
   if (!task || (task.status !== 'completed' && !(task.status === 'paused' && task.partialReady)))
     throw new Error('请等待导出或暂停收尾完成后保存现有进度。');
+  const remoteHost = host();
+  if (remoteHost.remoteClient) selected = {};
   const explicit = selected.directory || selected.filePath;
   if (selected.uniqueFileName && !selected.filePath)
     throw new Error('自动文件命名仅支持单文件位置。');

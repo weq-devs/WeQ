@@ -44,6 +44,18 @@ const STEPS: readonly WarmupStep[] = [
   { label: '群列表', run: (u) => u.account.listAllGroups.fetch({ limit: 2000 }) },
 ];
 
+const REMOTE_IDENTITY_STEPS: readonly WarmupStep[] = [
+  {
+    label: '账号资料与状态',
+    run: async (utils) => {
+      const profile = await utils.account.getSelfProfile.fetch(undefined, { staleTime: 0 });
+      if (profile?.uid) {
+        await utils.account.getOnlineStatus.fetch({ uid: profile.uid }, { staleTime: 0 });
+      }
+    },
+  },
+];
+
 export interface WarmupProgress {
   /** 已完成步数（含失败——失败也不该把用户永远挡在门外）。 */
   done: number;
@@ -63,25 +75,52 @@ export const WARMUP_TOTAL = STEPS.length;
  *
  * 单步失败同样只记完成、不抛：一个查询挂了不该连累进入账号。
  */
-export async function runAccountWarmup(
+export function runAccountWarmup(
   utils: Utils,
   onProgress: (progress: WarmupProgress) => void,
   timeoutMs: number = WARMUP_TIMEOUT_MS,
 ): Promise<void> {
-  const remaining = new Set(STEPS.map((s) => s.label));
+  return runWarmupSteps(utils, onProgress, STEPS, timeoutMs);
+}
+
+/** 冷启动只预载首屏身份，联系人目录与通知由工作区分批加载。 */
+export function runDesktopStartupWarmup(
+  utils: Utils,
+  onProgress: (progress: WarmupProgress) => void,
+  timeoutMs: number = WARMUP_TIMEOUT_MS,
+): Promise<void> {
+  return runWarmupSteps(utils, onProgress, STEPS.slice(0, 1), timeoutMs);
+}
+
+/** Remote 接回现有账号时只预载首屏身份，不等待完整会话和联系人目录。 */
+export function runRemoteIdentityWarmup(
+  utils: Utils,
+  onProgress: (progress: WarmupProgress) => void,
+  timeoutMs: number = WARMUP_TIMEOUT_MS,
+): Promise<void> {
+  return runWarmupSteps(utils, onProgress, REMOTE_IDENTITY_STEPS, timeoutMs);
+}
+
+async function runWarmupSteps(
+  utils: Utils,
+  onProgress: (progress: WarmupProgress) => void,
+  steps: readonly WarmupStep[],
+  timeoutMs: number,
+): Promise<void> {
+  const remaining = new Set(steps.map((s) => s.label));
   let done = 0;
 
   const emit = (): void => {
     onProgress({
       done,
-      total: STEPS.length,
-      pending: STEPS.find((s) => remaining.has(s.label))?.label ?? null,
+      total: steps.length,
+      pending: steps.find((s) => remaining.has(s.label))?.label ?? null,
     });
   };
   emit();
 
   const all = Promise.all(
-    STEPS.map((step) =>
+    steps.map((step) =>
       step
         .run(utils)
         .catch(() => null)

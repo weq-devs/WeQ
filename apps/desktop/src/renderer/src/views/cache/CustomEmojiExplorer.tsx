@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Heart, Search, Star } from 'lucide-react';
+import { EmptyState } from '../../components/EmptyState';
 import type {
   CustomEmojiEntry,
   CustomEmojiScope,
@@ -139,7 +140,7 @@ function CustomEmojiGrid({ scope }: { scope: CustomEmojiScope }): ReactElement {
     return <GridSkeleton />;
   }
   if (!loading && entries.length === 0 && done) {
-    return <div className="weq-cache-grid-state">该分类暂无表情缓存</div>;
+    return <EmptyState icon={<Heart />} title="该分类暂无表情缓存" />;
   }
 
   return (

@@ -1,8 +1,9 @@
 # 原生二进制与装扮资源的分发
 
-`nt_helper.node`（5 个平台）和加密后的装扮资源 `resources/dress/*.dat` **不再入库**。
-它们由私有 native 仓 `weq-devs/nt_helper` 构建后发布到公开仓
-[`weq-devs/nt_helper_release`](https://github.com/weq-devs/nt_helper_release)，WeQ 这边按需取回。
+`nt_helper.node`（5 个平台）和装扮离线索引分别分发，二进制与大索引不进入 WeQ 的 Git 历史。
+native 从 [`weq-devs/nt_helper_release`](https://github.com/weq-devs/nt_helper_release) 获取；
+装扮索引从 [`weq-devs/dress-resources`](https://github.com/weq-devs/dress-resources) 的明确版本 Release 获取。
+桌面与 Web 安装包只保留索引清单、排名及界面素材，不携带三份 `.dat`。
 
 ## 为什么要拆出去
 
@@ -17,7 +18,8 @@
 | --- | --- | --- | --- |
 | `native/<platform>/<arch>/nt_helper.node` | 否 | `weq-devs/nt_helper` 的 Rust 构建 | `pnpm native:fetch` |
 | `native/<platform>/<arch>/weq-authorization-helper[.exe]` | 否 | 同一私有仓的独立 Rust target | 清单包含助手时由 `pnpm native:fetch` 获取 |
-| `resources/dress/{bubble,widget,font}.dat` | 否 | 同上（`build.rs` 打包 + AES 加密） | `pnpm native:fetch` |
+| `resources/dress/index-manifest.json` | 是 | 已验证的独立资源 Release | 同步更新资源版本、native commit、体积及哈希 |
+| `cache/dress_shared/index/<资源 tag>/{bubble,widget,font}.dat` | 否 | `weq-devs/dress-resources` Release | 首次需要时按类别自动获取 |
 | `resources/dress/screen/**`、`ranking-*.json` | 是 | 手工整理的静态素材 | 正常提交 |
 | `resources/dress/*_resources` | 否 | `scripts/fetch_dress_resources.ts` 抓取 | 本地生成，喂给 native 构建 |
 
@@ -29,7 +31,8 @@ NineBird 注入链、`packages/ninebird` 与旧 `native/**/ninebird` 已移除�
 1. **`.node` 与 `.dat` 必须同源。** `.dat` 的 AES key 由 nt_helper 的构建 commit 派生
    （`DRESS_KEY_SEED`，见 nt_helper 的 `build.rs`）并烘焙进 `.node`。跨版本混用会让
    `queryDressResourceUrl()` 永远返回 `null` —— 装扮离线查询静默退化成联网协议。
-   所以 `pnpm native:fetch` 永远从**同一个 release tag** 成对取。
+   当前保留现有加密格式，因此资源清单的 `nativeCommit` 必须与 native 锚点一致。
+   独立分发不等于任意版本可混用；打包前会校验两份锚点。
 2. **`.node` 有有效期。** CI 构建带 `BUILD_TIMESTAMP`，`getInitStatus()` 在过期后返回
    `-1`；本地 `cargo` / `napi` 自编的不带时间戳，不受此限。有效期长度**只由 nt_helper
    的 Rust 定义一处**（`common::BUILD_VALIDITY_SECS`），二进制通过 `getBuildInfo()`
@@ -39,7 +42,7 @@ NineBird 注入链、`packages/ninebird` 与旧 `native/**/ninebird` 已移除�
 
 ## 版本锚：`native/pinned.json`
 
-长期授权的公开/私有边界、可选产物清单及兼容规则见[长期授权集成](long-term-authorization-20261026.md)。旧 tag 没有助手时仍能正常取回 `.node`，不据此声称长期授权可用。
+长期授权的公开/私有边界、可选产物清单及兼容规则见[长期授权集成](long-term-authorization.md)。旧 tag 没有助手时仍能正常取回 `.node`，不据此声称长期授权可用。
 
 桌面 release 额外使用 `--require-authorization` 强制检查助手；Web 使用 `--no-authorization` 避免携带仅供本机桌面管理的可执行文件。升级锚点时应对同一明确 tag 使用 `--require-fresh --require-authorization --verify --write-pin`，校验失败不会写锚点。
 
@@ -54,15 +57,17 @@ NineBird 注入链、`packages/ninebird` 与旧 `native/**/ninebird` 已移除�
 { "tag": "nt-helper-20260918-5c4d8b2", "commit": "5c4d8b2…", "pinnedAt": "2026-09-19", "note": "…" }
 ```
 
-只有 `tag` 有校验意义（校验靠那个 tag 的 `manifest.json` 里的 sha256）；`commit` / `note`
-是给人看的。升级锚点的完整流程：
+native 内容校验靠该 tag 的 `manifest.json`；`commit` 还用于检查装扮索引的密钥来源，
+`note` 是人工说明。升级 native 时应同步确认 `resources/dress/index-manifest.json`。
+升级锚点的完整流程：
 
 ```bash
 # 先从发布清单确定要验证的明确 tag，以下两步始终使用同一个 tag。
 pnpm native:fetch --version <tag> --require-fresh --require-authorization --verify
 # 跑与 native 升级直接相关的回归；确认后写锚点。
 pnpm native:fetch --version <tag> --require-fresh --require-authorization --verify --write-pin
-# 只提交 native/pinned.json 和必要源码变更，不提交下载的二进制或装扮包。
+# 同步验证并更新 resources/dress/index-manifest.json，再提交两份版本锚与必要源码变更。
+# 不提交下载的二进制或装扮包。
 ```
 
 `--latest` 可用于发现或试用新构建，不应在验证和写锚点两步间重新解析不同的 latest。
@@ -73,8 +78,11 @@ pnpm native:fetch --version <tag> --require-fresh --require-authorization --veri
 
 ## dev 用法
 
+普通开发直接运行 `pnpm dev`：发布版模式准备并验证 native，不预下载大索引；应用实际需要装扮时按类别获取。已完整安装的 native 可离线复用。本地源码模式仍编译并验证配套三类资源，不尝试用发布版密钥索引补齐本地构建。切换来源、源码指纹和失败恢复见[一行命令开发启动](dev-startup.md)。
+
 ```bash
-pnpm native:fetch                 # 本机平台 + 装扮资源（锚定的 tag）
+pnpm native:fetch                 # 本机平台 native（锚定的 tag）
+pnpm native:fetch --with-dress    # 显式取旧版配套索引，非普通启动必需
 pnpm native:check                 # 只比对：缺失 / 落后 / 被改 / 已过期 → 退出码 1
 pnpm native:preflight             # 桌面发布预检：只读检查新鲜度、完整性与权限助手
 pnpm native:fetch --all           # 五个平台全量（全平台测试、做镜像时用）
@@ -104,35 +112,56 @@ manifest 与每个资产都按「整次尝试」重试：5xx / 429 / 408 / 网�
 拉完之后 `native/.installed.json` 记着当前装的是哪个 tag、哪些文件、各自 sha256；
 它是机器相关状态，已被 gitignore（**入库的那个是 `native/pinned.json`**，见上一节）。
 
-装扮资源缺失不会让程序崩：`queryDressResourceUrl()` 返回 `null`，调用方退化成在线协议。
-纯前端 / 服务端开发不跑 `native:fetch` 也能干活，只是拿不到装扮离线数据。
+## 装扮索引按需获取
 
-## 发布链路
+宿主读取随应用发布的固定清单，首次需要未缓存的气泡、字体或挂件时获取对应类别。
+同宿主各账号、桌面、Web 和 Remote 共用一份文件与下载任务，不跟随远端 latest。
+下载先验证体积和 SHA-256，再原子安装；进度和失败显示在任务列表，失败可重试。
 
-```
-weq-devs/nt_helper (私有)                    weq-devs/nt_helper_release (公开)
-  Rust-Release-Build (workflow_dispatch)
-    build × 5 平台  ─────────────────────►  GitHub Release: nt-helper-<yyyymmdd>-<sha7>
-      nt_helper.node × 5                       ├ nt_helper-win32-x64.node
-      resources/dress/*.dat                    ├ nt_helper-linux-x64.node
-    publish-release job                        ├ nt_helper-linux-arm64.node
-      （stage → manifest → Release）           ├ nt_helper-darwin-x64.node
-                                               ├ nt_helper-darwin-arm64.node
-                                               ├ dress-{bubble,widget,font}.dat
-                                               ├ manifest.json
-                                               └ SHA256SUMS
-                                              main 分支: README.md + latest.json
-                                               ↑ 与 Release 里的 manifest 同源
-```
+已缓存素材直接使用，不等待索引下载；旧索引仍存在且摘要匹配时后台复制迁入全局缓存，保留原件。
+旧安装目录已被更新器替换时，无法事后找回已删除的 bundled 索引，但现有素材缓存不会重下。
+QQ 在线协议与后台索引下载互不阻塞；QQ 不在线时，可通过索引获取素材地址。
+索引只记录地址，不包含全部素材，完全断网且从未缓存的字体或图片仍无法下载。
 
-稳定入口（不需要 API、不需要 token）：
+原生文件及安装记录在暂存区验证后成套替换；中途写入失败恢复旧内容，验证失败不改版本锚。
+发布工作流清理前实际核查 Release 的 draft 状态，不因后续索引推送失败删除正式版本。
+
+## 当前发布链路
 
 ```
-https://github.com/weq-devs/nt_helper_release/releases/latest/download/manifest.json
+weq-devs/nt_helper (私有源码)
+  Release：将指定 ref 转发到公开构建仓
+    -> weq-devs/nt_helper_release / Release
+       固定源码 commit，单次加工加密索引，五平台构建和配套读取验证
+       -> nt_helper-<日期>-<短 SHA> Release
+          .node × 5、权限助手 × 5、装扮 .dat × 3、manifest.json、SHA256SUMS
+
+weq-devs/dress-resources / Release dress indexes
+  读取明确 native tag 的公开清单和三份 .dat，验证后原样分发
+    -> dress-<短 SHA> Release
+       .dat × 3、index-manifest.json、SHA256SUMS
+
+WeQ 构建
+  native/pinned.json -> 下载本平台 native 及所需助手
+  resources/dress/index-manifest.json -> 随包保留，不预下载索引
+  两份清单的 native commit 必须匹配；运行时按类别获取 .dat
+```
+
+当前阶段独立的是分发，资源生成仍沿用 native 构建与原加密格式；不表示资源已能脱离 native commit 任意更新。
+资源仓仅保存发布工具、格式契约和测试，大索引只放 Release，不进入 Git 历史。
+
+native 发布工作流先由独立任务加工一套三类索引，保持 NTDR v1、Brotli q9、AES-256-CBC 和 commit 派生密钥不变。五平台编译通过 `NT_HELPER_PACK_DRESS=0` 只嵌入同源密钥，不再各自重复压缩、加密；每个平台实际验证 addon 能读取本轮共享索引，发布前再比对草稿资产与共享文件。中转仅含加密索引与来源／哈希清单，按 artifact ID 下载，收尾清理，最长保留一天。发布入口及最终资产契约不变；这不是解除资源与 native commit 的绑定。新工作流要求私有源码版本已包含内部加工工具，旧 ref 不自动改用其他来源。
+
+明确版本的下载入口（不需要 API 或 token）：
+
+```
 https://github.com/weq-devs/nt_helper_release/releases/download/<tag>/<asset>
+https://github.com/weq-devs/dress-resources/releases/download/<资源 tag>/index-manifest.json
+https://github.com/weq-devs/dress-resources/releases/download/<资源 tag>/dress-<类别>.dat
 ```
 
-`manifest.json` 结构：
+native 仓的 `latest/download/manifest.json` 可用于发现新构建，不是 WeQ 默认获取来源。
+native `manifest.json` 结构：
 
 ```json
 {
@@ -149,9 +178,22 @@ https://github.com/weq-devs/nt_helper_release/releases/download/<tag>/<asset>
 }
 ```
 
-发布需要 GitHub App 在 `nt_helper_release` 上有 `contents: write`（安装时把这个仓库勾上）。
-发布仓里的提交由 App 自己的 bot 身份署名（`ninebird-bot[bot]`，workflow 里用安装令牌调
-`/user` 动态取，不要写死用户名 —— 否则会撞上同名的真实 GitHub 账号）。
+native 发布仓使用 `GITHUB_TOKEN` 发布资产及提交 `latest.json`，工作流需要 `contents: write`；
+`latest.json` 提交使用 `github-actions[bot]` 身份。私有源码的 ref 解析和拉取使用 `NT_HELPER_TOKEN`，
+私仓分发入口使用 `RELEASE_DISPATCH_TOKEN` 触发公开构建仓。
+独立资源仓只读取已发布的公开资产，使用自己的 `GITHUB_TOKEN` 发布，不需要拉取私有源码。
+
+### 升级独立索引
+
+1. 选择已验证的明确 native tag，在资源仓运行 `Release dress indexes`，填写 `native_tag`。
+2. 资源工作流默认 `preflight_only=true`，仅获取和校验；关闭该选项才发布。两种模式都不会重爬或重新加密索引。
+3. 资源发布后，使用同一 Release 的 `index-manifest.json` 更新 WeQ 固定清单，核对 `nativeCommit` 与 native 锚点一致。
+4. 运行本地清单检查，再使用对应正式 addon 做真实下载和离线复用验收；后一个命令会联网，不接入普通离线单测。
+
+```bash
+node --input-type=module -e 'import { checkDressManifest } from "./scripts/dress-artifacts.mjs"; checkDressManifest(process.cwd());'
+pnpm exec tsx scripts/check-dress-index.ts --addon /absolute/path/to/nt_helper.node
+```
 
 ## WeQ 的 release 流水线
 
@@ -164,9 +206,9 @@ https://github.com/weq-devs/nt_helper_release/releases/download/<tag>/<asset>
 
 Web 发布矩阵改用 `--require-fresh --no-authorization --verify`，压缩包显式排除权限助手。
 CI 的 Web 构建冒烟仍执行 `--require-fresh --verify`，不等同于桌面 release 的助手门禁。
-桌面打包另在 `afterPack` / `afterSign` 校验实际包内双产物，详见[长期授权集成](long-term-authorization-20261026.md#release-门禁)。
+桌面打包另在 `afterPack` / `afterSign` 校验实际包内双产物，详见[长期授权集成](long-term-authorization.md)。
 
-每个 runner 只取自己平台那一份 `.node` + 三个 `.dat`（**按 `native/pinned.json` 锚定的 tag**，
+每个 runner 只取自己平台那一份 native 与所需助手，不下载三份 `.dat`（**按 `native/pinned.json` 锚定的 tag**，
 不是 latest）。`--require-fresh` 在剩余有效期不足 1/5 时失败 —— 也就是说锚点太旧时，发布会在
 打包之前就失败，而不是发出一个起不来的安装包；`--verify` 在 runner 上真的 `require()` 一次
 并跑 `getInitStatus()`，二进制有问题当场失败，而不是等用户装上才发现。

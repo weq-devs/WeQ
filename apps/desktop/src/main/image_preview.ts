@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import sharp from 'sharp';
+import { imageThumbnail } from './image_processor';
 
-export const PREVIEW_MAX_SIDE = 512;
+export { PREVIEW_MAX_SIDE } from './image_processor';
 const MAX_INPUT_BYTES = 32 * 1024 * 1024;
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
 
@@ -22,10 +22,6 @@ export function createImagePreviewer(
       const input = await load();
       if (input.byteLength === 0 || input.byteLength > MAX_INPUT_BYTES)
         throw new Error('preview input size');
-      if (options.preserveAnimation) {
-        const metadata = await sharp(input).metadata();
-        if ((metadata.pages ?? 1) > 1) throw new Error('animated preview');
-      }
       const key = createHash('sha256').update(input).digest('hex');
       const hit = cache.get(key);
       if (hit) {
@@ -33,20 +29,11 @@ export function createImagePreviewer(
         cache.set(key, hit);
         return hit;
       }
-      const output = await sharp(input, {
-        limitInputPixels: options.maxPixels ?? 32 * 1024 * 1024,
-        sequentialRead: true,
-        animated: false,
-      })
-        .rotate()
-        .resize({
-          width: PREVIEW_MAX_SIDE,
-          height: PREVIEW_MAX_SIDE,
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
-        .webp({ quality: 80 })
-        .toBuffer();
+      const output = await imageThumbnail(
+        input,
+        options.maxPixels ?? 32 * 1024 * 1024,
+        options.preserveAnimation ?? false,
+      );
       while (cache.size >= 64 || cacheBytes + output.byteLength > MAX_CACHE_BYTES) {
         const oldest = cache.keys().next().value;
         if (oldest === undefined) break;

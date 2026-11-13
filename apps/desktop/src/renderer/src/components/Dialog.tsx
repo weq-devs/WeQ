@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useRenderDocument } from '../lib/renderDocument';
+import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
 import { useTabActive } from './RetainedTabs';
 import { create } from 'zustand';
 import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
@@ -21,7 +21,10 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
+import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
+import { IS_WEB } from '../lib/target';
 import '../styles/dialog-layout.css';
+import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
 
 export type DialogTone = 'error' | 'warning' | 'info';
 
@@ -41,22 +44,32 @@ interface DialogRequest {
   };
   /** When false, no close affordance (used for fatal native errors). */
   dismissible: boolean;
+  ownerDocument?: Document;
 }
 
 interface DialogStore {
   current: DialogRequest | null;
   seq: number;
-  showError(title: string, message: ReactNode, opts?: { dismissible?: boolean }): void;
-  showInfo(title: string, message: ReactNode): void;
+  showError(
+    title: string,
+    message: ReactNode,
+    opts?: { dismissible?: boolean; ownerDocument?: Document },
+  ): void;
+  showInfo(title: string, message: ReactNode, opts?: { ownerDocument?: Document }): void;
   confirm(
     title: string,
     message: ReactNode,
-    opts?: { okLabel?: string; cancelLabel?: string; tone?: DialogTone },
+    opts?: { okLabel?: string; cancelLabel?: string; tone?: DialogTone; ownerDocument?: Document },
   ): Promise<boolean>;
   promptPassword(
     title: string,
     message: ReactNode,
-    opts?: { okLabel?: string; cancelLabel?: string; placeholder?: string },
+    opts?: {
+      okLabel?: string;
+      cancelLabel?: string;
+      placeholder?: string;
+      ownerDocument?: Document;
+    },
   ): Promise<string | null>;
   close(id?: number): void;
 }
@@ -69,13 +82,30 @@ export const useDialog = create<DialogStore>((set, get) => ({
     const id = get().seq + 1;
     set({
       seq: id,
-      current: { id, tone: 'error', title, message, dismissible: opts?.dismissible ?? true },
+      current: {
+        id,
+        tone: 'error',
+        title,
+        message,
+        dismissible: opts?.dismissible ?? true,
+        ownerDocument: opts?.ownerDocument,
+      },
     });
   },
-  showInfo(title, message) {
+  showInfo(title, message, opts) {
     get().close();
     const id = get().seq + 1;
-    set({ seq: id, current: { id, tone: 'info', title, message, dismissible: true } });
+    set({
+      seq: id,
+      current: {
+        id,
+        tone: 'info',
+        title,
+        message,
+        dismissible: true,
+        ownerDocument: opts?.ownerDocument,
+      },
+    });
   },
   confirm(title, message, opts) {
     get().close();
@@ -89,6 +119,7 @@ export const useDialog = create<DialogStore>((set, get) => ({
           title,
           message,
           dismissible: true,
+          ownerDocument: opts?.ownerDocument,
           confirm: {
             okLabel: opts?.okLabel ?? '确定',
             cancelLabel: opts?.cancelLabel ?? '取消',
@@ -110,6 +141,7 @@ export const useDialog = create<DialogStore>((set, get) => ({
           title,
           message,
           dismissible: true,
+          ownerDocument: opts?.ownerDocument,
           password: {
             okLabel: opts?.okLabel ?? '确定',
             cancelLabel: opts?.cancelLabel ?? '取消',
@@ -147,9 +179,11 @@ export function Modal({
   presentation = 'modal',
   title,
   anchor,
+  anchorPlacement,
   centered = false,
   dismissOnOutside = true,
   portalTarget,
+  mobileChrome = false,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -164,11 +198,13 @@ export function Modal({
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating' | 'anchored';
   title?: string;
   anchor?: HTMLElement | null;
+  anchorPlacement?: 'above' | 'below' | 'side';
   /** 强制居中遮罩，不沿用最近的触发点。 */
   centered?: boolean;
   /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
   dismissOnOutside?: boolean;
   portalTarget?: Element | null;
+  mobileChrome?: boolean;
 }): ReactElement | null {
   const document = useRenderDocument();
   const tabActive = useTabActive();
@@ -176,11 +212,16 @@ export function Modal({
   const windowed = presentation === 'floating' || presentation === 'anchored';
   const layer = useOverlayLayer(active && !windowed);
   const ref = useRef<HTMLDivElement>(null);
+  useMobileWebViewport(
+    ref,
+    IS_WEB && active && !windowed && presentation !== 'page' && presentation !== 'sidecar',
+  );
   const placement = useOverlayAnchor(
     ref,
     active && !windowed,
     presentation === 'popover' && !centered,
     anchor,
+    anchorPlacement,
   );
   useSurfaceEscape(
     ref,
@@ -213,7 +254,7 @@ export function Modal({
         onClose={onClose}
         dismissOnOutside={dismissOnOutside}
       >
-        {children}
+        <ContactFieldHistoryBoundary>{children}</ContactFieldHistoryBoundary>
       </WindowSurface>
     );
   if (presentation === 'page' || presentation === 'sidecar')
@@ -222,12 +263,13 @@ export function Modal({
         title={title ?? '详情'}
         onClose={onClose}
         placement={presentation === 'sidecar' ? 'sidecar' : 'main'}
+        mobileChrome={mobileChrome}
       >
         <div
           className={`weq-modal${className ? ` ${className}` : ''}`}
           aria-labelledby={labelledBy}
         >
-          {children}
+          <ContactFieldHistoryBoundary>{children}</ContactFieldHistoryBoundary>
         </div>
       </WorkspacePage>
     ) : null;
@@ -236,7 +278,7 @@ export function Modal({
     <div
       ref={ref}
       tabIndex={-1}
-      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
+      className={`weq-dialog-layer weq-anim-fade${IS_WEB ? ' weq-web-dialog-layer' : ''}${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
       hidden={!active}
       inert={!active}
       style={{ ...placement.position, zIndex: layer, display: active ? undefined : 'none' }}
@@ -254,7 +296,7 @@ export function Modal({
       >
         <OverlayLayerContext.Provider value={layer}>
           <OverlayAnchorContext.Provider value={placement.trigger}>
-            {children}
+            <ContactFieldHistoryBoundary>{children}</ContactFieldHistoryBoundary>
           </OverlayAnchorContext.Provider>
         </OverlayLayerContext.Provider>
       </div>
@@ -269,6 +311,22 @@ export function DialogHost(): ReactElement | null {
   const close = useDialog((s) => s.close);
 
   useEffect(() => () => useDialog.getState().close(), []);
+  useEffect(() => {
+    const id = current?.id;
+    const view = current?.ownerDocument?.defaultView;
+    if (!view || id === undefined) return;
+    const dismiss = () => close(id);
+    if (view.closed) {
+      dismiss();
+      return;
+    }
+    view.addEventListener('beforeunload', dismiss);
+    view.addEventListener('unload', dismiss);
+    return () => {
+      view.removeEventListener('beforeunload', dismiss);
+      view.removeEventListener('unload', dismiss);
+    };
+  }, [current, close]);
 
   if (!current) return null;
 
@@ -283,85 +341,87 @@ export function DialogHost(): ReactElement | null {
     : undefined;
 
   return (
-    <Modal
-      presentation={
-        current.confirm || current.password || !current.dismissible ? 'modal' : 'popover'
-      }
-      // 确认 / 密码框属于全局交互，不能被“最后一次点击的按钮”锚定到任务窗、浮窗里，
-      // 否则会贴着触发点落在浮窗下缘（观感上像被浮窗压住）。
-      centered={Boolean(current.confirm || current.password || !current.dismissible)}
-      onClose={handleClose}
-      dismissOnOutside={!current.confirm && !current.password}
-      labelledBy="weq-dialog-title"
-      width={368}
-      className={`weq-message-modal${isPasswordPrompt ? ' weq-password-modal' : ''}`}
-    >
-      <div
-        className={`weq-dialog weq-dialog-${current.tone}${isPasswordPrompt ? ' weq-dialog-password' : ''}`}
+    <RenderDocumentContext.Provider value={current.ownerDocument ?? null}>
+      <Modal
+        key={current.id}
+        presentation={
+          current.confirm || current.password || !current.dismissible ? 'modal' : 'panel'
+        }
+        // 全局消息框始终相对窗口居中，不沿用任务窗或浮窗里的最后一次点击位置。
+        centered
+        onClose={handleClose}
+        dismissOnOutside={!current.confirm && !current.password}
+        labelledBy="weq-dialog-title"
+        width={368}
+        className={`weq-message-modal${isPasswordPrompt ? ' weq-password-modal' : ''}`}
       >
-        <div className="weq-dialog-head">
-          <span className="weq-dialog-icon">
-            {isPasswordPrompt ? (
-              <Lock size={20} strokeWidth={1.85} aria-hidden />
-            ) : (
-              TONE_ICON[current.tone]
+        <div
+          className={`weq-dialog weq-dialog-${current.tone}${isPasswordPrompt ? ' weq-dialog-password' : ''}`}
+        >
+          <div className="weq-dialog-head">
+            <span className="weq-dialog-icon">
+              {isPasswordPrompt ? (
+                <Lock size={20} strokeWidth={1.85} aria-hidden />
+              ) : (
+                TONE_ICON[current.tone]
+              )}
+            </span>
+            <h3 id="weq-dialog-title" className="weq-dialog-title">
+              {current.title}
+            </h3>
+            {handleClose && (
+              <button className="weq-dialog-x" onClick={handleClose} aria-label="关闭">
+                <X size={16} strokeWidth={1.9} aria-hidden />
+              </button>
             )}
-          </span>
-          <h3 id="weq-dialog-title" className="weq-dialog-title">
-            {current.title}
-          </h3>
-          {handleClose && (
-            <button className="weq-dialog-x" onClick={handleClose} aria-label="关闭">
-              <X size={16} strokeWidth={1.9} aria-hidden />
-            </button>
+          </div>
+          {current.password ? (
+            <PasswordDialogBody
+              key={current.id}
+              request={current}
+              onResolve={(value) => {
+                current.password?.resolve(value);
+                close(current.id);
+              }}
+            />
+          ) : (
+            <>
+              <div className="weq-dialog-body">{current.message}</div>
+              <div className="weq-dialog-foot">
+                {current.confirm ? (
+                  <>
+                    <button
+                      className="weq-action-soft"
+                      onClick={() => {
+                        current.confirm?.resolve(false);
+                        close(current.id);
+                      }}
+                    >
+                      {current.confirm.cancelLabel}
+                    </button>
+                    <button
+                      className="weq-action-primary"
+                      onClick={() => {
+                        current.confirm?.resolve(true);
+                        close(current.id);
+                      }}
+                    >
+                      {current.confirm.okLabel}
+                    </button>
+                  </>
+                ) : (
+                  handleClose && (
+                    <button className="weq-action-primary" onClick={handleClose}>
+                      我知道了
+                    </button>
+                  )
+                )}
+              </div>
+            </>
           )}
         </div>
-        {current.password ? (
-          <PasswordDialogBody
-            key={current.id}
-            request={current}
-            onResolve={(value) => {
-              current.password?.resolve(value);
-              close(current.id);
-            }}
-          />
-        ) : (
-          <>
-            <div className="weq-dialog-body">{current.message}</div>
-            <div className="weq-dialog-foot">
-              {current.confirm ? (
-                <>
-                  <button
-                    className="weq-action-soft"
-                    onClick={() => {
-                      current.confirm?.resolve(false);
-                      close(current.id);
-                    }}
-                  >
-                    {current.confirm.cancelLabel}
-                  </button>
-                  <button
-                    className="weq-action-primary"
-                    onClick={() => {
-                      current.confirm?.resolve(true);
-                      close(current.id);
-                    }}
-                  >
-                    {current.confirm.okLabel}
-                  </button>
-                </>
-              ) : (
-                handleClose && (
-                  <button className="weq-action-primary" onClick={handleClose}>
-                    我知道了
-                  </button>
-                )
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    </Modal>
+      </Modal>
+    </RenderDocumentContext.Provider>
   );
 }
 

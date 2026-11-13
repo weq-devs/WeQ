@@ -3,6 +3,8 @@ import type { MainView } from '../../im-template/template/types';
 import type { ExportMode } from '../../views/export/types';
 import type { DressKind } from '../DressUpDialog';
 import { AI_SETTING_ITEMS } from '../settings/aiSettingsCatalog';
+import { isRemoteClient } from '../../lib/remoteClient';
+import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
 import {
   SETTINGS_PAGE_LABELS,
   SETTINGS_ITEM_TARGETS,
@@ -43,20 +45,21 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   startup: ['启动', '开机启动', '系统登录项'],
   version: ['软件更新', '检查更新', '更新日志'],
   faq: ['帮助文档', '帮助'],
-  'weq-storage': ['默认保存', '存储与网络', 'storage', 'saving'],
+  'weq-storage': ['存储', 'storage', '数据清理', '缓存清理'],
   'chat-messages': ['聊天消息', '阅读设置', '未读设置'],
   'call-recording': ['通话与录音'],
   account: ['接入与监听', '账号接入与消息'],
-  accounts: ['账号管理', '媒体来源', 'media'],
+  accounts: ['账号管理'],
+  media: ['media', '媒体目录'],
+  'qq-accounts': ['QQ 账号管理'],
   credentials: ['账号凭据'],
-  diagnostics: ['高级诊断'],
+  diagnostics: ['高级诊断', '诊断工具'],
   'database-repair': ['损坏处理'],
-  'database-tolerance': ['损坏处理与容错', '容错记录', 'database-status'],
+  'database-tolerance': ['损坏处理与容错', '容错记录', 'database-status', '数据库宽容'],
   'database-management': ['维护工具', 'maintenance'],
-  'qq-storage': ['QQ 存储管理', '资源管理', '本地缓存'],
+  'qq-storage': ['QQ 存储管理', '资源管理', '本地缓存', '资源目录管理'],
   privacy: ['隐私与应用锁', '应用锁', '隐私模式', 'applock'],
   'resource-loading': ['资源下载网络', '加载来源', '网络', 'CDN'],
-  'background-services': ['后台服务', '关闭窗口', '退出时停止', '托盘'],
   assistant: ['公众号推送', 'QQ 公众号'],
   sse: ['SSE 消息推送'],
   backup: ['设置备份', '备份与恢复'],
@@ -72,18 +75,17 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['home', '一言', 'hitokoto'],
   ['home', '一言屏蔽词', '屏蔽词', '过滤句子'],
   ['global', '关闭按钮行为', '关闭窗口', '最小化到托盘', '退出应用'],
-  ['background-services', '后台服务状态', '后台服务', '运行状态', '关闭窗口时'],
+  ['global', '使用仿 Windows 窗口按钮', '窗口按钮', '红绿灯', '原生窗口', 'macOS', 'Linux'],
   ['global', '成功通知停留时长', '通知时间'],
   ['global', '失败通知停留时长', '通知时间'],
   ['chat-interaction', '隐藏正在输入状态', '正在输入', '打字状态', '向对方展示输入状态'],
   ['startup', '开机自动启动 WeQ', '自启动'],
   ['startup', '自启时显示窗口', '启动显示窗口', '隐藏启动'],
+  ['startup', '启动后打开', '默认页面', '启动页面'],
   ['call-recording', '录音来源', '录制内容', '录音模式', '双方混合', '仅本端', '仅对方'],
   ['call-recording', '同时录电脑声音', '系统音频'],
   ['call-recording', '保存位置', '录音目录'],
   ['call-recording', '记录 UDP 流量', 'udp 抓包', 'pcapng', '通话抓包'],
-  ['saving', '默认保存方式', '导出保存方式'],
-  ['saving', '保存位置', '默认导出目录', '默认保存目录'],
   ['appearance', '基础模式', '浅色模式', '深色模式', '暗色模式', '跟随系统'],
   ['appearance', '主题色', '强调色', '主色', '颜色'],
   ['appearance', '界面背景', '聊天背景', '壁纸'],
@@ -99,7 +101,8 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['message-display', '纯文本消息自动渲染为 Markdown', '纯文本消息渲染 Markdown', '富文本'],
   ['message-display', '聊天头像挂件'],
   ['message-display', '显示消息序号（seq）', '消息序号'],
-  ['message-display', '显示发送时间（精确到秒）', '消息时间'],
+  ['message-display', '显示发送日期', '消息日期 yyyy-mm-dd'],
+  ['message-display', '显示发送时间', '消息时间 精确到秒'],
   ['message-display', '消息气泡', '消息装扮', '气泡'],
   ['message-display', '消息字体', '字体', '聊天字体'],
   ['message-display', '链接预览卡片', '网页预览'],
@@ -112,7 +115,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['accounts', '现有配置', '自动进入账号'],
   ['account', '启用数据库监听', '自动刷新消息'],
   ['account', '长期授权', '权限助手', '免重复提权', '管理员授权'],
-  ['account', '同步已读状态到 QQ'],
+  ['chat-messages', '向 QQ 服务器上报已读位置'],
   ['account', '手动标记时上报已读位置'],
   ['account', '自动读取 QQ 内存（完整功能）', '完整模式'],
   ['account', '进入受限模式时横幅提醒', '受限横幅'],
@@ -121,12 +124,11 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['qzone', '在线翻页限速', '空间翻页频率'],
   ['mail', '显示未读邮件数'],
   ['mail', '新邮件提醒'],
-  ['storage', '优先使用 CDN', '下载加速'],
-  ['storage', '缓存目录', '缓存位置'],
+  ['storage', '优先直连 QQ 加载图片', '优先使用 CDN', '下载加速'],
   ['storage', 'WeQ 存储管理', '清理数据', '释放空间'],
   ['media', '关联本机媒体目录', '本地图片目录'],
   ['media', '允许使用外部安卓图片缓存', 'Android 图片'],
-  ['backup', '导出备份', '备份配置', '包含此设备的界面偏好'],
+  ['backup', '导出备份', '备份配置', '界面外观与布局'],
   [
     'backup',
     '导入备份',
@@ -135,9 +137,9 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
     '同名数据处理',
     '保留本机导出目录与图片库路径',
   ],
-  ['backup', '恢复默认设置', '重置设置', '恢复出厂'],
+  ['startup', '恢复本页默认设置', '恢复默认设置', '重置设置', '恢复出厂'],
   ['database', '数据库异常时弹窗提醒', '损坏提醒'],
-  ['database', '数据库宽容级别', '容错级别', '严格模式'],
+  ['database', '数据库容错级别', '数据库宽容级别', '容错级别', '严格模式'],
   ['database-status', '降级账本'],
   ['database-status', '已放弃的表（隔离中）'],
   [
@@ -154,8 +156,8 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
     'App ID',
     'Resource ID',
   ],
-  ['agentlab', '已保存的 provider', 'API Key', 'Base URL', '服务商'],
-  ['agentlab', '默认模型', 'LLM 默认模型'],
+  ['agentlab', '已保存的服务商', '已保存的 provider', 'API Key', 'Base URL', '服务商'],
+  ['agentlab', '默认文本模型', 'LLM 默认文本模型', '默认模型', 'LLM 默认模型'],
   ['intent-sense', '启用意图感知'],
   ['intent-sense', '意图感知运行方式', '本地意图模型'],
   ['intent-sense', '意图模型资源（全局）', '意图模型资源', '使用下载镜像', 'hf-mirror.com 镜像'],
@@ -172,8 +174,8 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['ocr', '筛图模型'],
   ['mcp', '启用 MCP 服务器'],
   ['mcp', 'MCP 端口'],
-  ['remote', '启用 Web 服务', '浏览器访问'],
-  ['remote', '启动 WeQ 时自动开启 Web 服务'],
+  ['remote', '允许本机浏览器访问', '启用 Web 服务', '浏览器访问'],
+  ['remote', '启动 WeQ 时自动允许本机浏览器访问', '启动 WeQ 时自动开启 Web 服务'],
   ['sse', '推送调优', '防抖毫秒', '大量消息阈值'],
   ['assistant', '启用 WeQ 助手', '公众号推送'],
   ['credentials', '数据库密钥'],
@@ -310,11 +312,17 @@ export function appSearchEntryRank(keyword: string, entry: AppSearchEntry): numb
 export function searchAppEntries(keyword: string): AppSearchEntry[] {
   const query = keyword.trim();
   if (!query) return [];
-  return APP_SEARCH_ENTRIES.map((entry, index) => ({
-    entry,
-    index,
-    rank: appSearchEntryRank(query, entry),
-  }))
+  return APP_SEARCH_ENTRIES.filter((entry) => {
+    if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
+    const target = resolveSettingsTarget(entry.target);
+    // 页面 / settingId / 行名三种禁项都在 shared/remote_capabilities 里，这里只消费。
+    return remoteSettingAvailable(target.section, target.settingId, target.item);
+  })
+    .map((entry, index) => ({
+      entry,
+      index,
+      rank: appSearchEntryRank(query, entry),
+    }))
     .filter(({ rank }) => rank > 0)
     .sort((a, b) => b.rank - a.rank || a.index - b.index)
     .map(({ entry }) => entry);

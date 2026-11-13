@@ -13,7 +13,7 @@
   min-height: 0;
   box-sizing: border-box;
   max-width: calc(100vw - 16px);
-  max-height: calc(100dvh - 16px);
+  max-height: calc(var(--weq-mobile-viewport-height, 100dvh) - 16px);
   overflow: hidden;
   padding: 0;
   align-items: stretch;

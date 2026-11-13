@@ -29,7 +29,14 @@ export async function exportConversationToTxt(
   const senders =
     opts.kind === 'group'
       ? await resolveGroupSenders(msgs, opts.conv, opts.range, deps, '', opts.roam)
-      : (await resolveC2cSenders(opts.conv, deps)).senders;
+      : (
+          await resolveC2cSenders(opts.conv, deps, {
+            msgs,
+            kind: opts.kind,
+            range: opts.range,
+            roam: opts.roam,
+          })
+        ).senders;
   const byUin = new Map([...senders.values()].map((sender) => [sender.platformId, sender]));
   const resolveSender: PlainSenderLookup = (uid, uin) => {
     const sender = senders.get(uid) ?? byUin.get(uin);
@@ -47,7 +54,7 @@ export async function exportConversationToTxt(
       const exported = toExportedMessage(message);
       opts.collectSenders?.add(exported.senderUin);
       if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
-      await expandForwards(msgs, opts.kind === 'group' ? 'group' : 'c2c', exported);
+      await expandForwards(msgs, opts.kind, exported);
       audit.observe(exported.elements);
       if (opts.withMediaPaths) annotateExportPaths(exported.elements);
       const body = messageToText(

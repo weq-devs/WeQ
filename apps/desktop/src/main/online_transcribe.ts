@@ -15,7 +15,13 @@
  * 时 disarm。漏包 / 过期 / 超时的语音由导出阶段回退本地模型。
  */
 
-import { encodePttTransReq, parsePttTransAck, parsePttTransPush, pttTransCmd } from '@weq/protocol';
+import {
+  encodePttTransReq,
+  parsePttTransAck,
+  parsePttTransPush,
+  pttTransCmd,
+  sendPacket,
+} from '@weq/protocol';
 import {
   getLogger,
   type OnlineTranscribeFn,
@@ -155,7 +161,7 @@ export class OnlineVoiceTranscriber {
             eventType: req.eventType,
             fileId: req.fileId,
           });
-          const reply = await sender.sendPacket(armed.handle.pid, cmd, Buffer.from(body), false);
+          const reply = await sendPacket(sender, armed.handle.pid, cmd, body);
           // ack errCode 非 0 = 语音过期 / 服务端拒绝，不会再有 push —— 直接本地补。
           const ack = parsePttTransAck(new Uint8Array(reply), req.isGroup);
           if (ack && ack.errCode !== 0) {

@@ -9,7 +9,7 @@ import { rememberAssistantDraft } from '../src/renderer/src/lib/assistantWorkspa
 const fixture = vi.hoisted(() => ({
   conversation: [],
   config: {
-    model: { providerId: 'synthetic', model: 'model-a' } as AgentLabModelSelection,
+    model: { providerId: 'synthetic', model: 'model-a' } as AgentLabModelSelection | undefined,
     reasoningEffort: 'medium',
   },
   save: vi.fn(),
@@ -18,7 +18,7 @@ const fixture = vi.hoisted(() => ({
   utils: {
     account: {
       getAssistantConversation: { invalidate: vi.fn() },
-      getAssistantConfig: { invalidate: vi.fn() },
+      getAssistantConfig: { invalidate: vi.fn(), setData: vi.fn() },
     },
   },
 }));
@@ -26,6 +26,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => fixture.utils,
     bootstrap: {
+      getSettings: { useQuery: () => ({ data: undefined }) },
+      listAgentLabProviders: { useQuery: () => ({ data: [] }) },
+      synthesizeSpeech: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       getAgentLabDefaultModel: {
         useQuery: () => ({
           data: {
@@ -40,6 +43,26 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       {},
       {
         get(_target, path) {
+          if (
+            [
+              'dressup',
+              'emojiPanel',
+              'sysEmoji',
+              'roamingBackfill',
+              'qqWrite',
+              'qqActions',
+              'intentSense',
+            ].includes(String(path))
+          )
+            return new Proxy(
+              {},
+              {
+                get: () => ({
+                  useQuery: () => ({ data: undefined }),
+                  useMutation: () => ({ mutate: vi.fn(), isLoading: false }),
+                }),
+              },
+            );
           return {
             useQuery: () => ({
               data:
@@ -47,7 +70,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                   ? fixture.config
                   : path === 'getAssistantConversation'
                     ? fixture.conversation
-                    : {},
+                    : undefined,
               isSuccess: true,
             }),
             useMutation: () => ({ mutateAsync: fixture.save, isLoading: false }),
@@ -76,7 +99,9 @@ vi.mock('../src/renderer/src/views/agentlab/messageSearch', () => ({
 
 beforeEach(() => {
   fixture.config.model = { providerId: 'synthetic', model: 'model-a' };
-  fixture.save.mockReset().mockResolvedValue({});
+  fixture.save
+    .mockReset()
+    .mockImplementation(async (patch) => Object.assign(fixture.config, patch));
   fixture.unsubscribe.mockReset();
   fixture.subscribe.mockReset().mockImplementation(() => ({ unsubscribe: fixture.unsubscribe }));
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -112,7 +137,7 @@ it('无界面控制器释放聊天 DOM 与 ResizeObserver，保留后台订阅�
   };
   try {
     act(() => root.render(h(AssistantPanel, props)));
-    const input = host.querySelector('textarea');
+    const input = host.querySelector('.composer-editor');
     expect(targets.size).toBeGreaterThan(0);
     act(() => root.render(h(AssistantPanel, { ...props, headless: true })));
     expect(host.querySelector('*')).toBeNull();
@@ -120,8 +145,8 @@ it('无界面控制器释放聊天 DOM 与 ResizeObserver，保留后台订阅�
     expect(fixture.subscribe).toHaveBeenCalledOnce();
     expect(fixture.unsubscribe).not.toHaveBeenCalled();
     act(() => root.render(h(AssistantPanel, props)));
-    expect(host.querySelector('textarea')).not.toBe(input);
-    expect(host.querySelector('textarea')!.value).toBe('等待继续编辑');
+    expect(host.querySelector('.composer-editor')).not.toBe(input);
+    expect(host.querySelector('.composer-editor')!.textContent).toBe('等待继续编辑');
     expect(targets.size).toBeGreaterThan(0);
   } finally {
     act(() => root.unmount());
@@ -136,22 +161,54 @@ it('助手模型菜单显式保存默认标记，紧凑模式显示当前具体�
   const props = { sessionId: null, chatModels: [], onBack: vi.fn(), onSessionCreated: vi.fn() };
   try {
     act(() => root.render(h(AssistantPanel, props)));
-    act(() => host.querySelector<HTMLButtonElement>('[title="聊天模型"]')!.click());
-    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
-      (button) => button.textContent?.includes('默认：model-b'),
+    const model = host.querySelector<HTMLSelectElement>('[aria-label="聊天模型"]')!;
+    const option = [...model.options].find((item) =>
+      item.textContent?.startsWith('默认（当前：model-b'),
     )!;
     expect(option).toBeDefined();
-    await act(async () => option.click());
-    expect(fixture.save).toHaveBeenCalledWith({ model: { useDefault: true } });
+    await act(async () => {
+      model.value = option.value;
+      model.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(fixture.save).toHaveBeenCalledWith({
+      model: { useDefault: true },
+      confirmUnrestricted: false,
+    });
     fixture.config.model = { useDefault: true };
     act(() => root.render(h(AssistantPanel, { ...props, compact: true })));
-    expect(host.querySelector('.weq-asst-menu-meta')?.textContent).toContain('默认：model-b');
+    expect(
+      host.querySelector<HTMLSelectElement>('[aria-label="聊天模型"]')?.selectedOptions[0]
+        ?.textContent,
+    ).toContain('默认（当前：model-b');
   } finally {
     act(() => root.unmount());
   }
 });
 
-it('紧凑助手只显示小字上下文，无会话/模型/思考选择器和预设问题，展开后恢复完整控件且保留草稿', () => {
+it('助手没有单独指定模型时直接选中默认，没有未选择项', () => {
+  fixture.config.model = undefined;
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(AssistantPanel, {
+          sessionId: null,
+          chatModels: [],
+          onBack: vi.fn(),
+          onSessionCreated: vi.fn(),
+        }),
+      ),
+    );
+    const model = host.querySelector<HTMLSelectElement>('[aria-label="聊天模型"]')!;
+    expect(model.selectedOptions[0]?.textContent).toContain('默认（当前：model-b');
+    expect([...model.options].some((option) => option.textContent?.includes('未选择'))).toBe(false);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('紧凑与完整助手共用聊天工具和草稿，切换不重建编辑器', () => {
   rememberAssistantDraft('synthetic/config', null, '保留的草稿');
   const host = document.createElement('div');
   const root = createRoot(host);
@@ -172,22 +229,16 @@ it('紧凑助手只显示小字上下文，无会话/模型/思考选择器和�
   };
   try {
     act(() => root.render(h(AssistantPanel, { ...props, compact: true })));
-    const meta = host.querySelector('.weq-asst-menu-meta')!;
-    expect(meta.textContent).toContain('合成会话');
-    expect(meta.textContent).toContain('合成模型');
-    expect(meta.querySelectorAll('span')).toHaveLength(3);
-    expect(meta.querySelector('button, select')).toBeNull();
-    expect(
-      host.querySelector('.weq-asst-select, .weq-asst-presets, .weq-session-switcher'),
-    ).toBeNull();
-    const input = host.querySelector('textarea')!;
-    expect(input.value).toBe('保留的草稿');
-    expect(input.placeholder).toBe('发送消息…');
+    expect(host.querySelector('.chat-header')?.textContent).toContain('合成会话');
+    expect(host.querySelector('[aria-label="聊天模型"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="思考等级"]')).not.toBeNull();
+    const input = host.querySelector('.composer-editor')!;
+    expect(input.textContent).toBe('保留的草稿');
     act(() => root.render(h(AssistantPanel, { ...props, compact: false })));
-    expect(host.querySelector('textarea')).toBe(input);
-    expect(input.value).toBe('保留的草稿');
-    expect(host.querySelectorAll('.weq-asst-select')).toHaveLength(2);
-    expect(host.querySelector('.weq-asst-presets')).not.toBeNull();
+    expect(host.querySelector('.composer-editor')).toBe(input);
+    expect(input.textContent).toBe('保留的草稿');
+    expect(host.querySelector('[aria-label="聊天模型"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="思考等级"]')).not.toBeNull();
   } finally {
     act(() => root.unmount());
   }

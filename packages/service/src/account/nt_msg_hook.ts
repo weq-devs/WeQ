@@ -35,15 +35,16 @@
 
 import type { AccountSession } from '@weq/account';
 import { classifyChatType, compareMessageOrder } from '@weq/codec';
-import type { C2cMsg, GroupMsg } from '@weq/db';
+import { withDatabaseSignal, type C2cMsg, type GroupMsg } from '@weq/db';
 import type { DbChange, DbWatchTask } from './db_watch';
+import { NEW_CONV_FRESH_SEC } from '../common/live_message';
+export { NEW_CONV_FRESH_SEC } from '../common/live_message';
 
 /** Page size for reading a conversation's new rows without truncating a burst. */
 const MAX_DELTA = 500;
 /** For a conversation first seen after mount: push at most this many newest rows. */
 const NEW_CONV_CAP = 5;
 /** A recent-contact row counts as "live new message" when touched within this window. */
-export const NEW_CONV_FRESH_SEC = 30;
 
 /** Newly-inserted messages since the last baseline, per chat type. */
 export interface NewMessages {
@@ -93,6 +94,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
   const freshTargets = new Set<string>();
   const retries = new Map<string, { failures: number; at: number }>();
   let disposed = false;
+  const reads = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running: Promise<void> | undefined;
   let pending = false;
@@ -106,9 +108,9 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     timer.unref();
   };
   // 挂载即取基线，不能等第一条新消息触发文件变化后才把它当历史吞掉。
-  const initial = session.recentContacts
-    .listSeqWatermarks()
+  const initial = withDatabaseSignal(reads.signal, () => session.recentContacts.listSeqWatermarks())
     .then((rows) => {
+      if (disposed) return;
       prev = new Map(
         rows
           .filter((row) => row.targetUid)
@@ -195,6 +197,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       const old = previous.get(key);
 
       const retry = () => {
+        if (disposed) return;
         const failures = Math.min(6, (retries.get(key)?.failures ?? 0) + 1);
         retries.set(key, {
           failures,
@@ -211,6 +214,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
           let fetched: Fetched | null;
           try {
             fetched = await fetchLatest(session, uid, cur.chatType);
+            if (disposed) return;
           } catch {
             retry();
             continue;
@@ -251,7 +255,8 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       }
 
       try {
-        const fetched = await fetchAfter(session, uid, cur.chatType, old.msgSeq);
+        const fetched = await fetchAfter(session, uid, cur.chatType, old.msgSeq, reads.signal);
+        if (disposed) return;
         if (fetched) {
           const observed = fetched.msgs.reduce(
             (max, msg) => (msg.msgSeq > max ? msg.msgSeq : max),
@@ -295,7 +300,8 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       try {
         do {
           pending = false;
-          if (latestFile) await pass(latestFile);
+          const file = latestFile;
+          if (file) await withDatabaseSignal(reads.signal, () => pass(file));
         } while (pending && !disposed);
       } catch {
         // 水位读取失败也独立重试，不等待下一次文件签名变化。
@@ -321,6 +327,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     },
     dispose() {
       disposed = true;
+      reads.abort();
       if (timer) clearTimeout(timer);
       queue.clear();
       retries.clear();
@@ -339,9 +346,12 @@ async function drainAfter<T extends { msgSeq: bigint; msgId: bigint }>(
   afterSeq: bigint,
   listPage: (seq: bigint) => Promise<T[]>,
   listBoundary: (seq: bigint) => Promise<T[]>,
+  signal: AbortSignal,
 ): Promise<T[]> {
+  signal.throwIfAborted();
   const collected: T[] = [];
   const page = await listPage(afterSeq);
+  signal.throwIfAborted();
   if (page.length === 0) return collected;
   collected.push(...page);
   if (page.length < MAX_DELTA) return collected;
@@ -350,7 +360,9 @@ async function drainAfter<T extends { msgSeq: bigint; msgId: bigint }>(
   if (boundarySeq <= afterSeq) throw new Error('新消息分页游标未前进');
 
   const seen = new Set(page.filter((m) => m.msgSeq === boundarySeq).map((m) => m.msgId));
-  for (const m of await listBoundary(boundarySeq)) {
+  const boundary = await listBoundary(boundarySeq);
+  signal.throwIfAborted();
+  for (const m of boundary) {
     if (m.msgSeq !== boundarySeq || seen.has(m.msgId)) continue;
     seen.add(m.msgId);
     collected.push(m);
@@ -364,6 +376,7 @@ async function fetchAfter(
   uid: string,
   chatType: number,
   afterSeq: bigint,
+  signal: AbortSignal,
 ): Promise<Fetched | null> {
   const kind = classifyChatType(chatType);
   if (kind === 'group') {
@@ -373,6 +386,7 @@ async function fetchAfter(
         afterSeq,
         (cursor) => session.groupMsgs.listAfter(uid, cursor, MAX_DELTA),
         (seq) => session.groupMsgs.listBySeqsInPartition(uid, [seq]),
+        signal,
       ),
     };
   }
@@ -384,6 +398,7 @@ async function fetchAfter(
         afterSeq,
         (cursor) => session.c2cMsgs.listAfter(part, cursor, MAX_DELTA),
         (seq) => session.c2cMsgs.listBySeqsInPartition(part, [seq]),
+        signal,
       ),
     };
   }
@@ -396,6 +411,7 @@ async function fetchAfter(
         afterSeq,
         (cursor) => session.datalineMsgs.listAfter(part, cursor, MAX_DELTA),
         (seq) => session.datalineMsgs.listBySeqsInPartition(part, [seq]),
+        signal,
       ),
     };
   }

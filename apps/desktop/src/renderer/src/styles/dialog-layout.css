@@ -1,3 +1,10 @@
+:root {
+  --weq-safe-left: env(safe-area-inset-left, 0px);
+  --weq-safe-right: env(safe-area-inset-right, 0px);
+  --weq-safe-top: env(safe-area-inset-top, 0px);
+  --weq-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 .weq-modal.weq-message-modal {
   display: flex;
   flex-direction: column;
@@ -19,7 +26,7 @@
 }
 
 .weq-message-modal .weq-dialog-head {
-  align-items: start;
+  align-items: center;
 }
 
 .weq-message-modal .weq-dialog-title {
@@ -74,4 +81,41 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft {
 html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-elevated));
   border-color: var(--weq-accent-effective);
+}
+
+@media (min-width: 0px) {
+  .weq-web-dialog-layer:not(.is-anchored-popover) {
+    /* Chromium resize 期间 JS 视口值可能晚一帧，不用旧高度把居中弹窗推到屏外。 */
+    --weq-dialog-viewport-height: min(var(--weq-mobile-viewport-height, 100dvh), 100dvh);
+    --weq-dialog-top-gap: max(12px, env(safe-area-inset-top, 0px));
+    --weq-dialog-bottom-gap: max(12px, env(safe-area-inset-bottom, 0px));
+    --weq-dialog-max-height: calc(
+      var(--weq-dialog-viewport-height) -
+      var(--weq-dialog-top-gap) -
+      var(--weq-dialog-bottom-gap)
+    );
+    inset: var(--weq-mobile-viewport-top, 0px) 0 auto;
+    height: var(--weq-dialog-viewport-height);
+    min-height: 0;
+    padding: var(--weq-dialog-top-gap) max(12px, env(safe-area-inset-right, 0px))
+      var(--weq-dialog-bottom-gap) max(12px, env(safe-area-inset-left, 0px));
+  }
+
+  .weq-web-dialog-layer:not(.is-anchored-popover) > .weq-modal {
+    max-width: 100%;
+    max-height: var(--weq-dialog-max-height);
+  }
+
+  .weq-web-dialog-layer.is-anchored-popover > .weq-modal {
+    max-width: calc(100vw - 16px);
+    max-height: calc(var(--weq-mobile-viewport-height, 100dvh) - 16px);
+    overflow: auto;
+  }
+
+  .weq-web-dialog-layer :is(input, select, textarea) {
+    font-size: 16px;
+  }
+  .weq-web-dialog-layer .weq-dialog-foot button {
+    min-height: 44px;
+  }
 }

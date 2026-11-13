@@ -1,0 +1,113 @@
+.weq-self-online-status {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.weq-self-online-status > span {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.weq-self-online-status > span > span {
+  min-width: 0;
+}
+.weq-self-online-status > span > :is(svg, img) {
+  flex: none;
+}
+.weq-contact-self-status-row {
+  padding: 0 12px 8px 78px;
+}
+html[data-density='compact'] .weq-contact-self-status-row {
+  padding-left: 60px;
+}
+.weq-self-online-status:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.weq-self-status-layer.weq-nonmodal-layer.is-popover[tabindex] > .weq-self-status-dialog {
+  left: clamp(
+    8px,
+    var(--weq-popover-left, 8px),
+    calc(100vw - min(360px, calc(100vw - 16px)) - 8px)
+  );
+  width: min(360px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  padding: 14px;
+  border-radius: 8px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+}
+.weq-self-status-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.weq-self-status-dialog h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.weq-self-status-form fieldset {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.weq-self-status-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.weq-self-status-form .weq-qq-write-input {
+  width: 100%;
+  max-width: none;
+}
+.weq-self-status-form footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.weq-self-status-error {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.weq-self-online-status:is(.weq-title-online-status, .weq-mobile-online-status) > span {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.weq-self-online-status:is(.weq-title-online-status, .weq-mobile-online-status)
+  > span
+  > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-self-status-dialog .weq-qq-write-field,
+.weq-self-status-dialog .weq-qq-write-custom {
+  min-width: 0;
+  width: 100%;
+}
+.weq-self-status-dialog .weq-qq-write-input {
+  min-width: 0;
+}
+html[data-theme='dark'] .weq-self-status-dialog {
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}

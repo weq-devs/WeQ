@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent';
 import { TextMarkdownContext } from '../../src/renderer/src/state/textMarkdown';
 import { MessageContextMenu } from '../../src/renderer/src/im-template/template/messageContextMenu';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
 import {
   useThemeStore,

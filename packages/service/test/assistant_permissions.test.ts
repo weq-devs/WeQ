@@ -111,21 +111,23 @@ it('outer tool timeout aborts the execution signal and ends the turn without ret
 });
 
 it.each(['sandbox', 'unrestricted'] as const)(
-  'changing %s permission stops an in-flight task instead of escalating or retaining old authority',
+  'changing %s permission applies to the next task and preserves the current task snapshot',
   async (initial) => {
     let started!: () => void;
     const ready = new Promise<void>((resolve) => {
       started = resolve;
     });
     let signal: AbortSignal | undefined;
+    let finish!: () => void;
     const run = vi.fn<AssistantTools['run']>(async (_name, _args, options) => {
       signal = options?.signal;
       started();
-      return new Promise((resolve) =>
-        signal?.addEventListener('abort', () => resolve({ calls: [{ state: 'unknown' }] }), {
+      return new Promise((resolve) => {
+        finish = () => resolve({ calls: [{ state: 'unknown' }] });
+        signal?.addEventListener('abort', finish, {
           once: true,
-        }),
-      );
+        });
+      });
     });
     const { service, calls } = fixture(run);
     service.setConfig({ permissionMode: initial, confirmUnrestricted: true });
@@ -135,6 +137,9 @@ it.each(['sandbox', 'unrestricted'] as const)(
       permissionMode: initial === 'sandbox' ? 'unrestricted' : 'sandbox',
       confirmUnrestricted: true,
     });
+    expect(signal?.aborted).toBe(false);
+    expect(service.getConfig().permissionMode).not.toBe(initial);
+    finish();
     const result = await pending;
     expect(signal?.aborted).toBe(true);
     expect(result.text).toContain('未自动重试');

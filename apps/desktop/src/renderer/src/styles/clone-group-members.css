@@ -58,8 +58,7 @@
   color: var(--weq-fg-muted);
 }
 .weq-clone-add-search:focus-within {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
+  border-color: var(--weq-accent-effective);
 }
 .weq-clone-add-search input {
   flex: 1;

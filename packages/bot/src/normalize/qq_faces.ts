@@ -35,11 +35,6 @@ const FACE_TEXTS = [...FACE_TEXT_TO_ID.keys()].sort((a, b) => b.length - a.lengt
 const FACE_PATTERN =
   FACE_TEXTS.length > 0 ? new RegExp(FACE_TEXTS.map(escapeRegExp).join('|'), 'g') : null;
 
-/** faceText → faceId（找不到返回 null）。 */
-export function faceTextToId(faceText: string): string | null {
-  return FACE_TEXT_TO_ID.get(faceText) ?? null;
-}
-
 /** OneBot faceId → faceText（如 "0" → /惊讶）；找不到返回 null。 */
 export function faceIdToText(faceId: string): string | null {
   return FACE_ID_TO_TEXT.get(faceId) ?? null;

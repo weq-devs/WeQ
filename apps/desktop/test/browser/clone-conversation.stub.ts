@@ -24,6 +24,7 @@ const data: Record<string, unknown> = {
     tags: [],
   },
   getAgentLabPersonaSessionConversation: turns,
+  getAgentLabConversation: turns,
   getAgentLabGroupConversation: turns.map((turn) => ({
     ...turn,
     groupId: 'g',
@@ -93,6 +94,7 @@ const proxy = (path: string[] = []): unknown =>
                   ts: ts + messageSerial * 1000,
                 },
               ];
+              data.getAgentLabConversation = data.getAgentLabPersonaSessionConversation;
             }
             if (name === 'sendAgentLabGroupMessage') {
               const rows = [

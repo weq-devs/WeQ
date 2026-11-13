@@ -10,6 +10,8 @@ import { useAppLock } from '../src/renderer/src/state/lock';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
+import { useDialog } from '../src/renderer/src/components/Dialog';
+import type { SettingsNavigation } from '../src/renderer/src/hooks/useSettingsNavigation';
 
 const fixture = vi.hoisted(() => ({
   queries: new Map<string, { path: string; active: boolean; enabled: boolean }>(),
@@ -99,6 +101,7 @@ afterEach(() => {
   fixture.listeners.clear();
   vi.unstubAllGlobals();
   fixture.mcpPort = undefined;
+  useDialog.getState().close();
 });
 function mount(initialSection: SectionId = 'global') {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -108,6 +111,8 @@ function mount(initialSection: SectionId = 'global') {
   document.body.append(host);
   const root = createRoot(host);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const onClose = vi.fn();
+  const navigationGuard: { current: SettingsNavigation | null } = { current: null };
   const render = (
     section: SectionId | undefined,
     searchTarget?: SettingsSearchTarget,
@@ -126,7 +131,8 @@ function mount(initialSection: SectionId = 'global') {
               open: true,
               initialSection: section,
               searchTarget,
-              onClose: vi.fn(),
+              onClose,
+              navigationGuard,
               onOpenMaintenance: vi.fn(),
               onOpenRecalls: vi.fn(),
             }),
@@ -138,6 +144,8 @@ function mount(initialSection: SectionId = 'global') {
   return {
     host,
     render,
+    onClose,
+    navigate: (action: () => void) => act(() => navigationGuard.current?.(action)),
     body: () => host.querySelector<HTMLElement>('.weq-settings-body')!,
     dispose: () => {
       act(() => root.unmount());
@@ -152,8 +160,215 @@ function inputValue(input: HTMLInputElement, value: string) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+function chooseNavigation(label: string) {
+  const button = [
+    ...document.querySelectorAll<HTMLButtonElement>('.weq-message-modal button'),
+  ].find((button) => button.textContent === label);
+  expect(button).toBeDefined();
+  act(() => button!.click());
+}
 
 describe('设置二级页现场与活动生命周期', () => {
+  it.each([0, 1])('服务商编辑器 %s 关闭后离开 API 配置页不误报未保存', async (index) => {
+    const f = mount('agentlab');
+    try {
+      const create = [...f.body().querySelectorAll<HTMLButtonElement>('button')].filter(
+        (button) => button.textContent?.trim() === '新建',
+      )[index]!;
+      act(() => create.click());
+      expect(document.querySelector('.weq-provider-modal')).not.toBeNull();
+      await act(async () =>
+        document
+          .querySelector<HTMLButtonElement>('.weq-provider-modal [aria-label="关闭"]')!
+          .click(),
+      );
+      expect(document.querySelector('.weq-provider-modal')).toBeNull();
+      const navigate = vi.fn();
+      f.navigate(navigate);
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(document.body.textContent).not.toContain('当前设置尚未保存');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('没有未保存内容时直接执行主页面导航', () => {
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
+    try {
+      const navigate = vi.fn();
+      f.navigate(navigate);
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(document.body.textContent).not.toContain('当前设置尚未保存');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('未保存时拦截二级页切换，先保存留在原页，暂时离开保留草稿', () => {
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
+    try {
+      inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!, '4567');
+      const tab = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')].find(
+        (button) => button.textContent === 'OneBot / cc-connect',
+      )!;
+      act(() => tab.click());
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+      expect(document.body.textContent).toContain('当前设置尚未保存');
+      chooseNavigation('先保存');
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '4567',
+      );
+      act(() => tab.click());
+      chooseNavigation('暂时离开');
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).toBeNull();
+      act(() =>
+        [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
+          .find((button) => button.textContent === 'MCP 服务器')!
+          .click(),
+      );
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '4567',
+      );
+    } finally {
+      f.dispose();
+    }
+  });
+  it('拦截主页面切换，取消不执行导航，暂时离开后重建保留路径与草稿', () => {
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
+    const action = vi.fn();
+    try {
+      inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!, '4567');
+      f.navigate(action);
+      expect(action).not.toHaveBeenCalled();
+      act(() =>
+        document
+          .querySelector<HTMLButtonElement>('.weq-message-modal [aria-label="继续编辑"]')!
+          .click(),
+      );
+      expect(action).not.toHaveBeenCalled();
+      f.navigate(action);
+      chooseNavigation('暂时离开');
+      expect(action).toHaveBeenCalledOnce();
+      expect(f.onClose).not.toHaveBeenCalled();
+      f.render(undefined, undefined, 1);
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '4567',
+      );
+    } finally {
+      f.dispose();
+    }
+  });
+  it('右上角关闭清除路径，普通重开回到默认页，显式深链仍可定位', () => {
+    const f = mount('mcp');
+    try {
+      f.render('appearance');
+      f.render('mcp');
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      expect(f.onClose).toHaveBeenCalledOnce();
+      f.render(undefined, undefined, 1);
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '启动与主页',
+      );
+      f.render('mcp', undefined, 2);
+      expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('关闭不恢复旧滚动与搜索高亮', () => {
+    const f = mount('global');
+    try {
+      f.render('global', { section: 'global', item: '成功通知停留时长', revision: 1 });
+      act(() => {
+        f.body().scrollTop = 143;
+        f.body().dispatchEvent(new Event('scroll', { bubbles: true }));
+        f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click();
+      });
+      expect(f.onClose).toHaveBeenCalledOnce();
+      f.render('global', undefined, 1);
+      expect(f.body().scrollTop).toBe(0);
+      expect(f.body().querySelector('[data-search-highlight]')).toBeNull();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('未保存的 OneBot 内嵌编辑同样需要确认', () => {
+    const f = mount('onebot');
+    try {
+      const create = [...f.body().querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+        button.textContent?.includes('WebSocket'),
+      )!;
+      act(() => create.click());
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      expect(f.onClose).not.toHaveBeenCalled();
+      expect(useDialog.getState().current?.title).toBe('放弃未保存的修改？');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('恢复 OneBot 草稿后结束编辑，不再误报未保存', () => {
+    const f = mount('onebot');
+    try {
+      act(() =>
+        [...f.body().querySelectorAll<HTMLButtonElement>('button')]
+          .find((button) => button.textContent?.includes('WebSocket'))!
+          .click(),
+      );
+      inputValue(
+        f.body().querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!,
+        '未保存服务器',
+      );
+      f.render(undefined, undefined, 1);
+      expect(
+        f.body().querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!.value,
+      ).toBe('未保存服务器');
+      act(() =>
+        f.body().querySelector<HTMLButtonElement>('[aria-label="取消编辑 OneBot 服务器"]')!.click(),
+      );
+      const navigate = vi.fn();
+      f.navigate(navigate);
+      expect(navigate).toHaveBeenCalledOnce();
+    } finally {
+      f.dispose();
+    }
+  });
+  it('关闭检查已离开页面的草稿，取消保留路径与输入，放弃后清除草稿', async () => {
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
+    try {
+      inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!, '4567');
+      f.render('appearance');
+      chooseNavigation('暂时离开');
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      expect(f.onClose).not.toHaveBeenCalled();
+      expect(useDialog.getState().current?.title).toBe('放弃未保存的修改？');
+      await act(async () => {
+        useDialog.getState().close();
+      });
+      expect(f.onClose).not.toHaveBeenCalled();
+      f.render('mcp');
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '4567',
+      );
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      await act(async () => {
+        useDialog.getState().current?.confirm?.resolve(true);
+        useDialog.getState().close();
+      });
+      expect(f.onClose).toHaveBeenCalledOnce();
+      f.render(undefined, undefined, 1);
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '启动与主页',
+      );
+      f.render('mcp');
+      expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
+        '48765',
+      );
+    } finally {
+      f.dispose();
+    }
+  });
   it('重建设置页时没有显式跳转目标，恢复上次分类而非覆盖成外观页', () => {
     const f = mount('appearance');
     try {
@@ -211,6 +426,7 @@ describe('设置二级页现场与活动生命周期', () => {
       act(() => body.querySelector<HTMLButtonElement>('[aria-label="显示令牌"]')!.click());
       expect(body.textContent).toContain('synthetic-mcp-secret');
       f.render('appearance');
+      chooseNavigation('暂时离开');
       fixture.mcpPort = 9999;
       f.render('mcp');
       expect(f.body()).not.toBe(body);
@@ -263,7 +479,13 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(scroll.mock.contexts.filter((context) => context === setting)).toHaveLength(1);
       f.render('global', { ...target, revision: 2 });
       expect(scroll.mock.contexts.filter((context) => context === restoredSetting)).toHaveLength(1);
-      expect(document.activeElement).toBe(restoredSetting);
+      // 焦点落在命中行内第一个可操作控件上，行内没有控件时才落在行本身。
+      const focusable =
+        'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="switch"]:not([disabled]), button:not([disabled]), a[href], summary, [tabindex="0"]';
+      const control = restoredSetting.matches(focusable)
+        ? restoredSetting
+        : restoredSetting.querySelector<HTMLElement>(focusable);
+      expect(document.activeElement).toBe(control ?? restoredSetting);
     } finally {
       f.dispose();
       if (previous) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', previous);
@@ -271,31 +493,34 @@ describe('设置二级页现场与活动生命周期', () => {
     }
   });
   it('只挂载当前页，重建恢复输入、展开与滚动，不让旧页继续查询', async () => {
-    const f = mount();
+    fixture.mcpPort = 48765;
+    const f = mount('mcp');
     try {
       const body = f.body(),
         input = body.querySelector<HTMLInputElement>('input')!;
-      inputValue(input, '73');
+      inputValue(input, '48773');
       act(() => {
         body.scrollTop = 137;
         body.dispatchEvent(new Event('scroll', { bubbles: true }));
       });
       f.render('database-tolerance');
+      chooseNavigation('暂时离开');
       const databaseBody = f.body();
       const details = databaseBody.querySelector('details')!;
       act(() => {
         details.open = true;
       });
-      f.render('global');
+      f.render('mcp');
       expect(f.body()).not.toBe(body);
       expect(f.body().querySelector('input')).not.toBe(input);
-      expect(f.body().querySelector('input')!.value).toBe('73');
+      expect(f.body().querySelector('input')!.value).toBe('48773');
       Object.defineProperty(f.body(), 'scrollHeight', { value: 1000 });
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 30));
       });
       expect(f.body().scrollTop).toBe(137);
       f.render('database-tolerance');
+      chooseNavigation('暂时离开');
       expect(f.body()).not.toBe(databaseBody);
       expect(f.body().querySelector('details')!.open).toBe(true);
       expect(f.host.querySelectorAll('[data-retained-panel]')).toHaveLength(1);

@@ -5,8 +5,11 @@ import {
 } from '../../src/renderer/src/im-template/template/profilePanes';
 import { ContactList } from '../../src/renderer/src/im-template/template/conversationLists';
 import { SearchResultCard } from '../../src/renderer/src/components/search/SearchResultCard';
+import { GroupRelationshipStatus } from '../../src/renderer/src/components/RelationshipStatus';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { ContactDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
+import { ChatNavigationContext } from '../../src/renderer/src/lib/chatNavigation';
+import { QzoneNavigationContext } from '../../src/renderer/src/lib/qzoneNavigation';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import type { Contact, GroupConversation } from '../../src/renderer/src/im-template/template/types';
 import '../../src/renderer/src/styles/index.css';
@@ -56,8 +59,10 @@ const directory = {
 };
 
 createRoot(document.getElementById('root')!).render(
-  <RelationshipDirectoryContext.Provider value={directory}>
-    <style>{`
+  <ChatNavigationContext.Provider value={() => {}}>
+    <QzoneNavigationContext.Provider value={() => {}}>
+      <RelationshipDirectoryContext.Provider value={directory}>
+        <style>{`
       html,body,#root{height:auto;min-height:100%;margin:0;overflow:auto}
       .relationship-fixture{min-height:100vh;padding:20px;background:var(--weq-chat-bg);color:var(--weq-fg-primary)}
       .relationship-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;max-width:1180px;margin:auto}
@@ -67,57 +72,81 @@ createRoot(document.getElementById('root')!).render(
       .relationship-list .weq-search-result{max-width:100%}
       @media(max-width:700px){.relationship-grid{grid-template-columns:minmax(0,1fr)}.relationship-fixture{padding:10px}}
     `}</style>
-    <main className="relationship-fixture">
-      <div className="relationship-grid">
-        <section>
-          <ContactProfileDialog contact={person} embedded onClose={() => {}} />
-        </section>
-        <section>
-          <ContactProfileDialog contact={stranger} embedded onClose={() => {}} />
-        </section>
-        <section>
-          <GroupProfileDialog conversation={group} embedded onClose={() => {}} />
-        </section>
-        <section>
-          <GroupProfileDialog
-            conversation={{
-              ...group,
-              id: '20002',
-              group: { ...group.group, id: '20002', identityValue: '20002' },
-            }}
-            embedded
-            onClose={() => {}}
-          />
-        </section>
-      </div>
-      <section className="relationship-list">
-        <ContactDirectoryContext.Provider
-          value={{ query: '合成', onQuery: () => {}, ids: [person.id, stranger.id] }}
-        >
-          <ContactList
-            contacts={[person]}
-            trailingSections={[{ id: 'history:test', name: '历史联系人', items: [stranger] }]}
-            activeContactId={person.id}
-            onSelect={() => {}}
-          />
-        </ContactDirectoryContext.Provider>
-        <SearchResultCard
-          keyword="合成"
-          hit={{
-            category: 'contact',
-            uid: stranger.id,
-            uin: stranger.identityValue,
-            nick: stranger.displayName,
-            remark: '',
-            avatarUrl: null,
-            isFriend: false,
-            hasConversation: true,
-            temporary: false,
-            aliases: [],
-            groups: [],
-          }}
-        />
-      </section>
-    </main>
-  </RelationshipDirectoryContext.Provider>,
+        <main className="relationship-fixture">
+          <div className="relationship-grid">
+            <section>
+              <ContactProfileDialog
+                contact={person}
+                embedded
+                onClose={() => {}}
+                onPreviewChat={() => {}}
+              />
+            </section>
+            <section>
+              <ContactProfileDialog contact={stranger} embedded onClose={() => {}} />
+            </section>
+            <section>
+              <GroupRelationshipStatus group={group.group} />
+              <GroupProfileDialog conversation={group} embedded onClose={() => {}} />
+            </section>
+            <section>
+              <GroupRelationshipStatus
+                group={{ ...group.group, id: '20002', identityValue: '20002' }}
+              />
+              <GroupProfileDialog
+                conversation={{
+                  ...group,
+                  id: '20002',
+                  group: { ...group.group, id: '20002', identityValue: '20002' },
+                }}
+                embedded
+                onClose={() => {}}
+              />
+            </section>
+            <section>
+              <ContactProfileDialog
+                contact={{
+                  ...person,
+                  id: 'fixture-device',
+                  identityLabel: '设备',
+                  displayName: '我的设备',
+                }}
+                embedded
+                onClose={() => {}}
+                onPreviewChat={() => {}}
+              />
+            </section>
+          </div>
+          <section className="relationship-list">
+            <ContactDirectoryContext.Provider
+              value={{ query: '合成', onQuery: () => {}, ids: [person.id, stranger.id] }}
+            >
+              <ContactList
+                contacts={[person]}
+                trailingSections={[{ id: 'history:test', name: '历史联系人', items: [stranger] }]}
+                activeContactId={person.id}
+                onSelect={() => {}}
+              />
+            </ContactDirectoryContext.Provider>
+            <SearchResultCard
+              keyword="合成"
+              hit={{
+                category: 'contact',
+                uid: stranger.id,
+                uin: stranger.identityValue,
+                nick: stranger.displayName,
+                remark: '',
+                avatarUrl: null,
+                isFriend: false,
+                hasConversation: true,
+                temporary: false,
+                aliases: [],
+                groups: [],
+              }}
+            />
+          </section>
+        </main>
+      </RelationshipDirectoryContext.Provider>
+    </QzoneNavigationContext.Provider>
+  </ChatNavigationContext.Provider>,
 );

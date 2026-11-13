@@ -1,3 +1,5 @@
+import { TimeLabel } from './TimeLabel';
+import * as timeFormat from '@weq/time';
 /**
  * 通用 UDP 抓包面板。
  *
@@ -95,12 +97,7 @@ function fmtBytes(bytes: number): string {
 }
 
 function fmtClock(ts: number): string {
-  const date = new Date(ts);
-  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(
-    date.getMilliseconds(),
-    3,
-  )}`;
+  return timeFormat.formatClock(ts, 'millisecond');
 }
 
 function frameKind(frame: UdpFrameWire): { label: string; tone: string } | null {
@@ -150,7 +147,11 @@ function DatagramDetail({ frame }: { frame: UdpFrameWire }): ReactElement {
             <tbody>
               <tr>
                 <th>时间</th>
-                <td>{fmtClock(frame.ts)}</td>
+                <td>
+                  <TimeLabel value={frame.ts} precision="millisecond">
+                    {fmtClock(frame.ts)}
+                  </TimeLabel>
+                </td>
               </tr>
               <tr>
                 <th>方向</th>
@@ -636,7 +637,9 @@ export function UdpCapturePanel(): ReactElement {
                   }`}
                   onClick={() => setSelectedCursor(frame.cursor)}
                 >
-                  <span className="weq-udp-mono">{fmtClock(frame.ts)}</span>
+                  <TimeLabel className="weq-udp-mono" value={frame.ts} precision="millisecond">
+                    {fmtClock(frame.ts)}
+                  </TimeLabel>
                   <span className={frame.direction === 'c2s' ? 'is-up' : 'is-down'}>
                     {frame.direction === 'c2s' ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
                   </span>

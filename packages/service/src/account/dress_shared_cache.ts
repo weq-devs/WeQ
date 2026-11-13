@@ -46,6 +46,7 @@ import {
   rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import type { TrpcNative } from '@weq/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
 import type { NtHelperBinding } from '@weq/native';
@@ -58,8 +59,9 @@ import {
   isRenderableSfnt,
   pngSize,
 } from '../common/zip';
-import { buildLocalBubbleSkin, type BubbleSkin } from './bubble_skin';
+import { buildLocalBubbleSkin, type BubbleSkin, type MessageBubbleSkin } from './bubble_skin';
 import { downloadUrlToFile } from './media_url';
+import { getDressIndexStore, type DressIndexKind, type DressIndexStore } from './dress_index';
 
 /**
  * 派生资源的版本号 —— **转换链变了就 +1**。
@@ -165,6 +167,10 @@ export class DressSharedCache {
   private readonly bubblesDir: string;
   private readonly fontsDir: string;
   private readonly pendantsDir: string;
+  private readonly messageBubbles = new Map<number, MessageBubbleSkin>();
+  private readonly messageBubblesReady: Promise<void>;
+  private messageBubbleBytes = 0;
+  private readonly index: DressIndexStore | null;
 
   constructor(
     private readonly nt: TrpcNative,
@@ -175,12 +181,96 @@ export class DressSharedCache {
     private readonly resolvePid: () => number,
   ) {
     this.logger = getLogger().child({ scope: 'dress-shared' });
+    this.index = getDressIndexStore(sharedDir, ntHelper);
     this.bubblesDir = join(sharedDir, 'bubbles');
     this.fontsDir = join(sharedDir, 'fonts');
     this.pendantsDir = join(sharedDir, 'pendants');
     mkdirSync(this.bubblesDir, { recursive: true });
     mkdirSync(this.fontsDir, { recursive: true });
     mkdirSync(this.pendantsDir, { recursive: true });
+    this.messageBubblesReady = this.prepareMessageBubbles();
+  }
+
+  private async cacheMessageBubble(itemId: number): Promise<void> {
+    try {
+      const path = join(this.bubblesDir, `${itemId}.png`);
+      const [json, info] = await Promise.all([
+        readFile(join(this.bubblesDir, `${itemId}.json`), 'utf8'),
+        stat(path),
+      ]);
+      if (!info.isFile()) return;
+      const png = info.size <= 512 * 1024 ? await readFile(path) : null;
+      const meta = JSON.parse(json) as BubbleSidecar;
+      if (!meta.slice || !meta.imageSize || !meta.textColor || (png && !pngSize(png))) return;
+      const skin: MessageBubbleSkin = {
+        itemId,
+        slice: meta.slice,
+        imageSize: meta.imageSize,
+        textColor: meta.textColor,
+        localFile: join(this.bubblesDir, `${itemId}.png`),
+        animationFrameCount: meta.animationFrameCount,
+        animationFrameTimeMs: meta.animationFrameTimeMs,
+        animationRepeat: meta.animationRepeat,
+      };
+      // 只缓存静态九宫格，不把动画帧或整个装扮目录塞进消息页。
+      const previousBytes = this.messageBubbles.get(itemId)?.baseImage?.length ?? 0;
+      const baseImage = png ? `data:image/png;base64,${png.toString('base64')}` : undefined;
+      this.messageBubbleBytes -= previousBytes;
+      if (baseImage && this.messageBubbleBytes + baseImage.length <= 32 * 1024 * 1024) {
+        skin.baseImage = baseImage;
+        this.messageBubbleBytes += baseImage.length;
+      }
+      this.messageBubbles.set(itemId, skin);
+    } catch {
+      // 破损、未写完或缺失的缓存不阻塞账号初始化与消息读取。
+    }
+  }
+
+  private async prepareMessageBubbles(): Promise<void> {
+    const files = await readdir(this.bubblesDir).catch(() => []);
+    const ids = files.flatMap((name) =>
+      /^\d+\.json$/.test(name) ? [Number(name.slice(0, -5))] : [],
+    );
+    let cursor = 0;
+    await Promise.all(
+      Array.from({ length: 4 }, async () => {
+        while (cursor < ids.length) await this.cacheMessageBubble(ids[cursor++]!);
+      }),
+    );
+  }
+
+  prepareMessageRendering(): Promise<void> {
+    return this.messageBubblesReady;
+  }
+
+  messageBubble(itemId: number): MessageBubbleSkin | undefined {
+    return this.messageBubbles.get(itemId);
+  }
+
+  indexResources() {
+    return this.index?.snapshot() ?? [];
+  }
+
+  indexRevision() {
+    return this.index?.getRevision() ?? 0;
+  }
+
+  retryIndex(kind: DressIndexKind): Promise<boolean> {
+    return this.index?.ensure(kind, true) ?? Promise.resolve(false);
+  }
+
+  private resourceUrl(kind: DressIndexKind, itemId: number, part: string) {
+    let online = false;
+    try {
+      online = this.resolvePid() > 0;
+    } catch {
+      // 正式宿主离线或未开启完整功能时会抛错，静态索引仍可独立获取。
+    }
+    return this.index
+      ? this.index.resolve(this.ntHelper, kind, String(itemId), part, {
+          background: online,
+        })
+      : Promise.resolve(this.ntHelper.queryDressResourceUrl(kind, String(itemId), part));
   }
 
   /**
@@ -198,7 +288,9 @@ export class DressSharedCache {
     const urls = await this.resolveBubbleZipUrls(itemId);
     if (!urls) return null;
 
-    return this.installBubbleFromUrls(itemId, urls);
+    const skin = await this.installBubbleFromUrls(itemId, urls);
+    if (skin) await this.cacheMessageBubble(itemId);
+    return skin;
   }
 
   /**
@@ -244,14 +336,12 @@ export class DressSharedCache {
     itemId: number,
   ): Promise<{ staticZipUrl: string; configUrl?: string; otherZipUrl?: string } | null> {
     // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
-    const staticZip = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'static.zip');
+    const staticZip = await this.resourceUrl('bubble', itemId, 'static.zip');
     if (staticZip) {
       return {
         staticZipUrl: staticZip.url,
-        configUrl: this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json')
-          ?.url,
-        otherZipUrl: this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'other.zip')
-          ?.url,
+        configUrl: (await this.resourceUrl('bubble', itemId, 'config.json'))?.url,
+        otherZipUrl: (await this.resourceUrl('bubble', itemId, 'other.zip'))?.url,
       };
     }
 
@@ -589,7 +679,7 @@ export class DressSharedCache {
 
     // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
     for (const part of ['main', 'fzfont']) {
-      const local = this.ntHelper.queryDressResourceUrl('font', String(itemId), part);
+      const local = await this.resourceUrl('font', itemId, part);
       if (!local) continue;
       try {
         return await this.installFontFromZip(itemId, local.url);
@@ -707,9 +797,9 @@ export class DressSharedCache {
 
     // 本地离线 bundle 优先：不需要在线 QQ，也不触发 resolvePid 闸门。
     try {
-      const local = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'other.zip');
+      const local = await this.resourceUrl('widget', itemId, 'other.zip');
       if (local) {
-        const xydata = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'xydata.js');
+        const xydata = await this.resourceUrl('widget', itemId, 'xydata.js');
         const installed = await this.installPendantFrames(itemId, local.url, xydata?.url);
         if (installed) return installed;
         this.logger.warn('local pendant bundle install failed, fall back to protocol', {
@@ -936,7 +1026,7 @@ export class DressSharedCache {
     const cached = join(this.bubblesDir, `${itemId}-config.json`);
     if (existsSync(cached)) return readFileSync(cached);
     if (localOnly) return null;
-    const local = this.ntHelper.queryDressResourceUrl('bubble', String(itemId), 'config.json');
+    const local = await this.resourceUrl('bubble', itemId, 'config.json');
     let url = local?.url ?? null;
     if (!url) {
       const pid = this.resolvePid();
@@ -972,7 +1062,7 @@ export class DressSharedCache {
     if (existsSync(dest)) return dest;
     if (localOnly) return null;
 
-    const local = this.ntHelper.queryDressResourceUrl('widget', String(itemId), 'aio_50.png');
+    const local = await this.resourceUrl('widget', itemId, 'aio_50.png');
     let url = local?.url ?? null;
     if (!url) {
       const pid = this.resolvePid();

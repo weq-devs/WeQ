@@ -7,7 +7,7 @@
   max-width: 100%;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -16,10 +16,32 @@
   cursor: pointer;
 }
 
-.weq-profile-avatar-button:hover,
+.weq-profile-avatar-button:hover {
+  opacity: 0.85;
+}
+
 .weq-profile-avatar-button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
+}
+
+.weq-identity-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--weq-identity-gap, 8px);
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+  line-height: inherit;
+  vertical-align: middle;
+}
+.weq-identity-link > :is(.avatar, .weq-avatar-img, .weq-avatar-fallback) {
+  flex-shrink: 0;
+}
+.weq-identity-link > :is(span, strong):not(.avatar, .weq-avatar-fallback) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* ── 资料卡 hero 里那颗「点开 QQ 秀展柜」的头像 ───────────────────────────

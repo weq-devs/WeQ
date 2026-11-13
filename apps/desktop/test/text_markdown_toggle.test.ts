@@ -11,7 +11,7 @@ import {
 import { TextMarkdownMenuAction } from '../src/renderer/src/components/TextMarkdownMenuAction';
 import { qqMessageRenderer } from '../src/renderer/src/components/QqMessageContent';
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -89,7 +89,10 @@ describe('单条消息 Markdown 显示切换', () => {
         ),
       );
     try {
-      await act(async () => render());
+      await act(async () => {
+        await import('../src/renderer/src/components/QqMarkdownContent');
+        render();
+      });
       expect(host.querySelector('#target [data-streamdown="strong"]')?.textContent).toBe(
         '合成粗体',
       );

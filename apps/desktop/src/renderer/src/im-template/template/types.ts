@@ -28,6 +28,7 @@ export type User = {
 
 /** profile_info_v6 21000 列解出的资料扩展信息（特权/互动标识/教育/所在地/兴趣/空间相册）。 */
 export type ProfileExtInfo = {
+  isEnterprise?: boolean;
   interactMarks: Array<{ type?: string; markId?: number; iconUrl?: string }>;
   privileges: Array<{
     bizId?: number;
@@ -41,6 +42,11 @@ export type ProfileExtInfo = {
   country?: string;
   province?: string;
   city?: string;
+  /** 本地缓存星座，1..12；与表示生肖的 zodiac 不同。 */
+  constellation?: number;
+  occupation?: number;
+  bloodType?: number;
+  zodiac?: number;
   interests: string[];
   album: Array<{
     photoId?: string;
@@ -65,6 +71,8 @@ export type OnlineStatusInfo = {
 };
 
 export type Contact = User & {
+  profileContext?: { groupCode: string; groupName: string; member?: Partial<GroupMember> };
+  sigUpdateTime?: number;
   createdAt: string;
   categoryId?: number;
   categoryName?: string | null;
@@ -162,6 +170,9 @@ type ConversationBase = {
   id: string;
   /** 本地生成会话的实际存储身份；QQ 专属能力不得使用此身份发包。 */
   generated?: GeneratedContentIdentity;
+  /** 目录来源与 QQ 归档状态用于视图和能力判定，不改变实际消息身份。 */
+  directoryKind?: 'qq' | 'official' | 'service' | 'guild' | 'persona' | 'cloneGroup' | 'assistant';
+  deleted?: boolean;
   updatedAt: string;
   /** 仅用于会话列表排序：已落库草稿等活动的毫秒时间，不改写消息时间。 */
   activityTime?: number;
@@ -184,6 +195,8 @@ type ConversationBase = {
   highlights?: ConversationHighlight[] | null;
   lastMessage: {
     id: string;
+    /** 已确认发送的有效消息秒值；目录不从草稿或未确认预览推断联系时间。 */
+    directoryTime?: number;
     senderId: string | null;
     senderDisplayName?: string | null;
     body: string | null;
@@ -246,6 +259,13 @@ export type GroupConversation = ConversationBase & {
     labels?: string | null;
     entranceQ?: string | null;
     customLabels?: string[];
+    customLabelRecords?: Array<{
+      groupCode?: string;
+      setterUid?: string;
+      labelId?: string;
+      setTimestamp?: string;
+      content?: string;
+    }>;
     addressName?: string | null;
     /** 幸运字符（来自 group_ext_list.66721/66722）。null = 未设置。 */
     luckyChar?: { id: number; litCount: number } | null;
@@ -300,6 +320,8 @@ export type MergedKind =
   | 'hidden'
   | 'deleted'
   | 'groupAssistant'
+  | 'clone'
+  | 'assistant'
   /** QQ 频道私聊聚合入口：点开展开频道会话列表。 */
   | 'guildDirect';
 
@@ -359,7 +381,12 @@ export type Message = {
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
   localSent?: boolean;
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    cachedBubble?: import('@weq/service').MessageBubbleSkin;
+  };
   optimistic?: 'queued' | 'sending' | 'sent' | 'failed';
   optimisticError?: string;
   optimisticRejected?: boolean;
@@ -459,6 +486,7 @@ export type MainView =
   | 'home'
   | 'messages'
   | 'contacts'
+  | 'more'
   | 'collections'
   | 'guild-direct'
   | 'export'

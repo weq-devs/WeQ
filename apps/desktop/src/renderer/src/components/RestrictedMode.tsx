@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
-import { QqDebugCopy } from './QqDebugCopy';
+import { RestrictedQqAction } from './RestrictedQqAction';
 import { client, trpc } from '../trpc/client';
 import {
   restrictionReasons,
@@ -70,7 +70,10 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
-  const entering = useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0);
+  const authorizationIssue = reasons.some((reason) => reason.code === 'authorization');
+  const entering =
+    useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0) &&
+    !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
   const title = awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式';
   const visible = Boolean(reasons.length || requests.length || entering);
@@ -200,15 +203,20 @@ export function RestrictedModeHost() {
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
   const enteringSince = useRestrictedMode((s) => s.enteringSince);
+  const enteringManually = useRestrictedMode((s) => s.enteringManually);
   const awaitingAuthorization = requests.length > 0;
-  const entering = enteringSince !== null && !awaitingAuthorization;
+  const authorizationIssue = reasons.some((reason) => reason.code === 'authorization');
+  const entering = enteringSince !== null && !awaitingAuthorization && !authorizationIssue;
   const previousUin = useRef(uin);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
   const recoveryPending = useRef(false);
+  const fullModeSeen = useRef(false);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [loginRequested, setLoginRequested] = useState<string | null>(null);
+  const refreshAfterLogin = useRef<(enable: boolean) => Promise<void>>(async () => {});
   const [error, setError] = useState('');
   const [dataRetried, setDataRetried] = useState(false);
   const operation = useRef(0);
@@ -274,10 +282,12 @@ export function RestrictedModeHost() {
     launchPending.current = false;
     setBusy(false);
     setLaunching(false);
+    setLoginRequested(null);
     setError('');
     setDataRetried(false);
     previous.current = '';
     recoveryPending.current = false;
+    fullModeSeen.current = false;
     useToast.getState().resolve(NOTICE_KEY);
     useRestrictedMode.getState().setOpen(false);
     useRestrictedMode.getState().endEntering();
@@ -294,7 +304,29 @@ export function RestrictedModeHost() {
   const showDebugCopy =
     IS_MAC &&
     sip.data === true &&
-    reasons.some((reason) => reason.code === 'sip' || reason.code === 'offline');
+    reasons.some((reason) => ['sip', 'offline', 'disabled', 'credentials'].includes(reason.code));
+  const needsDebugQq = reasons.some((reason) => reason.code === 'sip' || reason.code === 'offline');
+  useEffect(() => {
+    if (
+      loginRequested !== sourceKey ||
+      !active ||
+      !accessMatches ||
+      !access.data?.qqOnline ||
+      busy ||
+      requests.length
+    )
+      return;
+    setLoginRequested(null);
+    void refreshAfterLogin.current(true);
+  }, [
+    loginRequested,
+    sourceKey,
+    active,
+    accessMatches,
+    access.data?.qqOnline,
+    busy,
+    requests.length,
+  ]);
   const online = trpc.bootstrap.probeOnline.useQuery(undefined, {
     enabled: !active,
     refetchInterval: 5000,
@@ -364,7 +396,8 @@ export function RestrictedModeHost() {
         (reason) => reason.code === 'sip',
       );
     if (access.data?.credentialsPending && !fullModeConfirmed && !blocked) {
-      if (enteringSince === null && !requests.length) useRestrictedMode.getState().beginEntering();
+      if (enteringSince === null && !requests.length)
+        useRestrictedMode.getState().beginEntering(false);
       return;
     }
     // 提交授权后必须拿到新查询结果，不能用之前缓存的完整状态提前结束。
@@ -396,11 +429,15 @@ export function RestrictedModeHost() {
   const layer = useOverlayLayer(open && Boolean(signature));
   useEffect(() => {
     if (reasonSource !== sourceKey) return;
-    const activeNotice = entering || awaitingAuthorization;
-    if (globalSettings.isLoading && !activeNotice) return;
+    const manualNotice = enteringManually || recoveryPending.current;
+    const activeNotice = manualNotice && (entering || awaitingAuthorization);
     if (!activeNotice && !passiveBanner) useToast.getState().resolve(NOTICE_KEY);
-    if (signature) recoveryPending.current = true;
-    if (signature && signature !== previous.current && (activeNotice || passiveBanner)) {
+    if (enteringManually) recoveryPending.current = true;
+    // 启动自动尝试只更新标题栏；确认正常运行后才提醒降级，手动启用单独回执。
+    const notify =
+      manualNotice || (fullModeSeen.current && passiveBanner && !globalSettings.isLoading);
+    const noticeSignature = `${signature}:${enteringManually}`;
+    if (signature && noticeSignature !== previous.current && notify) {
       const toast = useToast.getState();
       const message: Parameters<typeof toast.push>[0] = {
         key: NOTICE_KEY,
@@ -427,7 +464,10 @@ export function RestrictedModeHost() {
       };
       toast.push(message);
     }
+    if (signature && !enteringManually && !entering && !awaitingAuthorization && !fullModeConfirmed)
+      recoveryPending.current = false;
     if (!signature) {
+      if (fullModeConfirmed) fullModeSeen.current = true;
       useRestrictedMode.getState().setOpen(false);
       useToast.getState().resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
@@ -441,19 +481,20 @@ export function RestrictedModeHost() {
             tone: 'warning',
             title: '签名器已降级：改用完整签名函数',
             detail: signer.data
-              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → 诊断工具 → 签名器」里手动重扫。`
+              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → QQ 协议工具 → 签名器」里手动重扫。`
               : undefined,
           });
         }
       }
     }
-    previous.current = signature;
+    previous.current = noticeSignature;
   }, [
     signature,
     reasons,
     requests,
     fullModeConfirmed,
     entering,
+    enteringManually,
     awaitingAuthorization,
     passiveBanner,
     globalSettings.isLoading,
@@ -580,46 +621,72 @@ export function RestrictedModeHost() {
       }
     }
   }
-  const actions = (
-    <>
-      {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
+  refreshAfterLogin.current = refresh;
+  async function afterDebugQqOpened() {
+    const binding = sourceKey;
+    const source = accessMatches ? access.data?.source : undefined;
+    if (active && source && source.expectedAccountUin === uin) {
+      await client.account.requestFullMode.mutate(source);
+      if (currentSource.current !== binding) return;
+    }
+    setLoginRequested(binding);
+    await (active ? access.refetch() : online.refetch());
+  }
+  const actions =
+    showDebugCopy && !awaitingAuthorization ? (
+      <RestrictedQqAction
+        key={sourceKey}
+        needsQq={needsDebugQq}
+        busy={busy || entering}
+        onOpened={afterDebugQqOpened}
+        onEnable={() => refresh(true)}
+        onRetry={() => refresh()}
+      />
+    ) : (
+      <>
+        {authorizationIssue && (
+          <LongTermAuthorizationLink
+            beforeNavigate={() => useRestrictedMode.getState().setOpen(false)}
+          />
+        )}
+        {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={busy || launching}
+            aria-busy={launching}
+            onClick={() => void startQq()}
+          >
+            {launching ? (
+              <LoaderCircle size={14} className="weq-restricted-progress-icon" />
+            ) : (
+              <Play size={14} />
+            )}
+            {launching ? '正在启动 QQ' : '启动 QQ'}
+          </button>
+        )}
         <button
           type="button"
           className="weq-set-btn"
           disabled={busy || launching}
-          aria-busy={launching}
-          onClick={() => void startQq()}
+          onClick={() => void refresh()}
         >
-          {launching ? (
-            <LoaderCircle size={14} className="weq-restricted-progress-icon" />
-          ) : (
-            <Play size={14} />
-          )}
-          {launching ? '正在启动 QQ' : '启动 QQ'}
+          <RefreshCw size={14} />
+          {busy ? '正在检查' : '重新检查'}
         </button>
-      )}
-      <button
-        type="button"
-        className="weq-set-btn"
-        disabled={busy || launching}
-        onClick={() => void refresh()}
-      >
-        <RefreshCw size={14} />
-        {busy ? '正在检查' : '重新检查'}
-      </button>
-      {reasons.some((r) => r.code === 'disabled') && (
-        <button
-          type="button"
-          className="weq-set-btn"
-          disabled={busy || launching}
-          onClick={() => void refresh(true)}
-        >
-          <KeyRound size={14} />
-          启用完整功能
-        </button>
-      )}
-    </>
-  );
+        {reasons.some((r) => r.code === 'disabled') && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={busy || launching}
+            onClick={() => void refresh(true)}
+          >
+            <KeyRound size={14} />
+            启用完整功能
+          </button>
+        )}
+      </>
+    );
   return (
     <>
       {open && signature && (
@@ -658,6 +725,7 @@ export function RestrictedModeHost() {
               .filter(
                 (reason) =>
                   reason.code !== 'data-access' &&
+                  (!showDebugCopy || reason.code !== 'disabled' || !needsDebugQq) &&
                   (!awaitingAuthorization || reason.code !== 'credentials'),
               )
               .map((reason) => (
@@ -667,7 +735,6 @@ export function RestrictedModeHost() {
                 </div>
               ))}
             <QqDataAccessNotice showRetry={false} checked={dataRetried} />
-            {showDebugCopy && <QqDebugCopy key={sourceKey} showRetry={false} />}
             {requests.map((request, index) => (
               <AuthorizationForm
                 key={`${request.kind}:${request.token}`}

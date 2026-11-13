@@ -17,7 +17,15 @@ import type { RoamMessageSource } from './message_source';
 import type { MsgDecoration } from '@weq/codec';
 
 /** Output formats, mirroring QCE (+ jsonl). `vcard` is contacts-only (联系人导出). */
-export type ExportFormat = 'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html' | 'vcard';
+export type ExportFormat =
+  | 'json'
+  | 'jsonl'
+  | 'jsonl.gz'
+  | 'txt'
+  | 'csv'
+  | 'xlsx'
+  | 'html'
+  | 'vcard';
 
 /** Conversation kind an export targets. */
 export type ConvKind = 'group' | 'c2c' | 'service' | 'official';
@@ -33,6 +41,9 @@ export interface ExportTimeRange {
 
 /** One message, normalized for export. */
 export interface ExportedMessage {
+  /** 卡片内部记录的来源；不继承承载消息的会话序号、作者与装扮。 */
+  forwardSource?: { carrierMsgId: string; resId: string; recordIndex: number };
+  senderName?: string;
   /** Message id (40001), as a string. */
   msgId: string;
   /** Per-group sequence (40003), as a string. */

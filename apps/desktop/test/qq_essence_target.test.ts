@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { qqEssenceTarget } from '../src/renderer/src/lib/qqEssenceTarget';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 const demo = createTemplateDemoData();
 const group = {

@@ -1,10 +1,18 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock(
+  '../src/renderer/src/hooks/useContactDirectoryOrder',
+  () => import('./support/contact-order.stub'),
+);
 import { ContactList } from '../src/renderer/src/im-template/template/conversationLists';
-import type { Contact } from '../src/renderer/src/im-template/template/types';
+import type { Contact, Conversation } from '../src/renderer/src/im-template/template/types';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { intimateRelationOf, relationMeta } from '../src/renderer/src/lib/profileRelations';
-import { ContactDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
+import {
+  ContactDirectoryContext,
+  ConversationDirectoryContext,
+} from '../src/renderer/src/lib/conversationDirectory';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -21,6 +29,59 @@ function contact(id: number, displayId?: number, preselectedIds: number[] = []):
 }
 
 describe('联系人亲密关系', () => {
+  it('群消息变化不重新绘制好友列表，好友未读变化仍更新', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    let reads = 0;
+    const person = {
+      ...contact(10001),
+      get displayName() {
+        reads++;
+        return '测试好友';
+      },
+    };
+    const contacts = [person];
+    const friend: Conversation = {
+      id: person.id,
+      type: 'direct',
+      otherUser: person,
+      group: null,
+      members: [],
+      updatedAt: '',
+      lastMessage: null,
+      unreadCount: 1,
+    };
+    const group = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
+    const select = vi.fn(),
+      onVirtual = vi.fn(),
+      onCreate = vi.fn();
+    const virtual: [] = [];
+    const host = document.createElement('div'),
+      root = createRoot(host);
+    document.body.append(host);
+    const render = (rows: Conversation[]) =>
+      act(() =>
+        root.render(
+          h(
+            ConversationDirectoryContext.Provider,
+            { value: { real: rows, virtual, onVirtual, onCreate, showContactUnreadCount: true } },
+            h(ContactList, { contacts, activeContactId: null, onSelect: select }),
+          ),
+        ),
+      );
+    try {
+      render([friend, group]);
+      act(() => host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());
+      const before = reads;
+      render([friend, { ...group, updatedAt: '2026-01-02T00:00:00Z' }]);
+      expect(reads).toBe(before);
+      render([{ ...friend, unreadCount: 2 }, group]);
+      expect(reads).toBeGreaterThan(before);
+      expect(host.querySelector('.row-unread')?.textContent).toBe('2');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
   it.each([1, 26, 2, 3])('识别当前亲密关系 %s，与资料卡使用同一名称和图标', (id) => {
     expect(intimateRelationOf(contact(id, id))).toBe(relationMeta(id));
   });
@@ -63,7 +124,6 @@ describe('联系人亲密关系', () => {
       const headers = [...host.querySelectorAll<HTMLButtonElement>('.contact-cat-header')];
       expect(headers.map((item) => item.querySelector('.contact-cat-name')?.textContent)).toEqual([
         '特别关心',
-        '亲密关系',
         '我的好友',
       ]);
       expect(host.querySelector('.contact-relation-mark')).toBeNull();
@@ -78,8 +138,8 @@ describe('联系人亲密关系', () => {
       act(() => host.querySelector<HTMLButtonElement>('.contact-row')!.click());
       expect(select).toHaveBeenCalledWith(contacts[0]);
       render('测试好友 26');
-      expect(host.querySelectorAll('.contact-row')).toHaveLength(2);
-      expect(host.querySelectorAll('[aria-label="亲密关系：死党"]')).toHaveLength(2);
+      expect(host.querySelectorAll('.contact-row')).toHaveLength(1);
+      expect(host.querySelectorAll('[aria-label="亲密关系：死党"]')).toHaveLength(1);
       render();
       act(() => headers[1]!.click());
       expect(host.querySelector('.contact-relation-mark')).toBeNull();

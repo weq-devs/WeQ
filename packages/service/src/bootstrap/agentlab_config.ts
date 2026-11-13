@@ -44,6 +44,43 @@ export class AgentLabConfigService {
     return this.userConfig.getSettings().agentLab.defaultModel;
   }
 
+  getDefaultVisionModelStatus() {
+    const ref = this.userConfig.getSettings().agentLab.defaultVisionModel;
+    if (!ref) return { ref: null, available: false, error: null };
+    try {
+      this.resolveVisionEndpoint();
+      return { ref, available: true, error: null };
+    } catch (error) {
+      return {
+        ref,
+        available: false,
+        error: error instanceof Error ? error.message : '视觉模型不可用',
+      };
+    }
+  }
+
+  resolveVisionEndpoint(): AgentLabEndpoint | null {
+    const ref = this.userConfig.getSettings().agentLab.defaultVisionModel;
+    if (!ref) return null;
+    const provider = this.getProvider(ref.providerId);
+    const model = provider?.models.find((model) => model.id === ref.model);
+    if (!provider || !model || model.capabilities?.includes('vision') === false)
+      throw new Error('默认视觉模型不可用或不支持图片');
+    validateProviderConfig(provider);
+    return this.resolveEndpoint(ref, 'vision');
+  }
+
+  setDefaultVisionModel(ref: AgentLabModelRef | null) {
+    if (ref) {
+      const provider = this.getProvider(ref.providerId);
+      const model = provider?.models.find((model) => model.id === ref.model);
+      if (!model || model.capabilities?.includes('vision') === false)
+        throw new Error('请选择支持视觉能力的模型');
+    }
+    this.userConfig.setSettings({ agentLab: { defaultVisionModel: ref } });
+    return this.getDefaultVisionModelStatus();
+  }
+
   getDefaultModelStatus() {
     const ref = this.getDefaultModel();
     if (!ref) return { ref: null, available: false, error: null };
@@ -54,7 +91,7 @@ export class AgentLabConfigService {
       return {
         ref,
         available: false,
-        error: error instanceof Error ? error.message : '默认模型不可用',
+        error: error instanceof Error ? error.message : '默认文本模型不可用',
       };
     }
   }
@@ -62,7 +99,7 @@ export class AgentLabConfigService {
   setDefaultModel(ref: AgentLabModelRef | null) {
     const next = ref ? { providerId: ref.providerId.trim(), model: ref.model.trim() } : null;
     if (next && (next.providerId.includes('\0') || next.model.includes('\0')))
-      throw new Error('默认模型引用无效');
+      throw new Error('默认文本模型引用无效');
     if (next) this.resolveDefaultEndpoint(next);
     this.userConfig.setSettings({ agentLab: { defaultModel: next } });
     return this.getDefaultModelStatus();
@@ -72,16 +109,16 @@ export class AgentLabConfigService {
     ref = this.getDefaultModel(),
     capability: AgentLabModelCapability = 'chat',
   ): AgentLabEndpoint {
-    if (!ref) throw new Error('未设置默认模型');
+    if (!ref) throw new Error('未设置默认文本模型');
     const provider = this.getProvider(ref.providerId);
-    if (!provider) throw new Error(`默认模型的 provider 不可用：${ref.providerId}`);
+    if (!provider) throw new Error(`默认文本模型的 provider 不可用：${ref.providerId}`);
     const model = provider.models.find(
       (item) =>
         item.id === ref.model &&
         item.capabilities?.includes('chat') !== false &&
         item.capabilities?.includes(capability) !== false,
     );
-    if (!model) throw new Error(`默认模型不存在或不支持 ${capability}：${ref.model}`);
+    if (!model) throw new Error(`默认文本模型不存在或不支持 ${capability}：${ref.model}`);
     validateProviderConfig(provider);
     return this.resolveEndpoint(ref);
   }
@@ -102,7 +139,7 @@ export class AgentLabConfigService {
     if (!isDefaultModelSelection(ref)) return { ...ref };
     const current = this.getDefaultModel();
     this.resolveDefaultEndpoint(current, capability);
-    if (!current) throw new Error('未设置默认模型');
+    if (!current) throw new Error('未设置默认文本模型');
     return { ...current };
   }
 
@@ -125,8 +162,12 @@ export class AgentLabConfigService {
     const provider = this.getProvider(ref.providerId);
     if (!provider) throw new Error(`找不到 AgentLab provider: ${ref.providerId}`);
     if (!ref.model?.trim()) throw new Error('未选择模型');
+    if (!provider.models.some((model) => model.id === ref.model))
+      throw new Error(`已保存的模型不再可用：${ref.model}`);
     return {
       ...resolveEndpoint(provider, ref),
+      providerId: provider.id,
+      providerName: provider.name,
       modelIdentity: modelEndpointIdentity(ref, provider.baseUrl),
     };
   }
@@ -149,7 +190,13 @@ export class AgentLabConfigService {
    * 设置页「测试连通性」：直接用表单里的 base_url / api_key / 某个 chat 模型探活，
    * 不要求先保存。返回 { ok, error?, reply? }，错误里带 HTTP 状态码与响应体（模型/key 一目了然）。
    */
-  async testEndpoint(input: { baseUrl: string; apiKey: string; model: string }): Promise<{
+  async testEndpoint(input: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    providerId?: string;
+    providerName?: string;
+  }): Promise<{
     ok: boolean;
     error?: string;
     reply?: string;
@@ -161,13 +208,21 @@ export class AgentLabConfigService {
       baseUrl,
       apiKey: input.apiKey.trim(),
       model: input.model.trim(),
+      providerId: input.providerId,
+      providerName: input.providerName,
       feature: 'connection-test',
       onUsage: this.onUsage,
     };
     return testChatEndpoint(endpoint);
   }
 
-  async detectCapabilities(input: { baseUrl: string; apiKey: string; model: string }) {
+  async detectCapabilities(input: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    providerId?: string;
+    providerName?: string;
+  }) {
     const baseUrl = input.baseUrl
       .trim()
       .replace(/\/+$/, '')
@@ -178,6 +233,8 @@ export class AgentLabConfigService {
       baseUrl,
       apiKey: input.apiKey.trim(),
       model: input.model.trim(),
+      providerId: input.providerId,
+      providerName: input.providerName,
       onUsage: this.onUsage,
     });
   }

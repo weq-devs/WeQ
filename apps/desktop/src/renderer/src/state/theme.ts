@@ -1,8 +1,10 @@
 import { create } from 'zustand';
+import { changePreference, preferenceValue, PREFERENCES_CHANGED } from '../lib/clientPreferences';
 import { accentColors, normalizeHex } from '../../../shared/theme_colors';
 import '../styles/component-appearance.css';
 import '../styles/qqnt-appearance.css';
 import '../styles/retro-appearance.css';
+import '../styles/form-controls.css';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
@@ -15,6 +17,13 @@ export const componentStyles = [
 ] as const;
 export type ThemeComponentStyle = (typeof componentStyles)[number]['value'];
 export type ThemeDensity = 'comfortable' | 'compact';
+export const DEFAULT_THEME_SETTINGS = {
+  preference: 'system',
+  accent: '',
+  background: 'plain',
+  componentStyle: 'qqnt',
+  density: 'comfortable',
+} as const;
 
 const storageKeys = {
   preference: 'weq.theme-preference',
@@ -63,46 +72,61 @@ function isThemeComponentStyle(value: string | null): value is ThemeComponentSty
 
 function readDensity(): ThemeDensity {
   try {
-    return window.localStorage.getItem(storageKeys.density) === 'compact'
+    return preferenceValue(
+      'density',
+      window.localStorage.getItem(storageKeys.density) ?? 'comfortable',
+    ) === 'compact'
       ? 'compact'
-      : 'comfortable';
+      : DEFAULT_THEME_SETTINGS.density;
   } catch {
-    return 'comfortable';
+    return DEFAULT_THEME_SETTINGS.density;
   }
 }
 
 function readPreference(): ThemePreference {
   try {
-    const value = window.localStorage.getItem(storageKeys.preference);
-    return isThemePreference(value) ? value : 'system';
+    const value = preferenceValue(
+      'preference',
+      window.localStorage.getItem(storageKeys.preference) ?? 'system',
+    );
+    return isThemePreference(value) ? value : DEFAULT_THEME_SETTINGS.preference;
   } catch {
-    return 'system';
+    return DEFAULT_THEME_SETTINGS.preference;
   }
 }
 
 function readAccent(): string {
   try {
-    return window.localStorage.getItem(storageKeys.accent) || '';
+    return preferenceValue(
+      'accent',
+      window.localStorage.getItem(storageKeys.accent) || DEFAULT_THEME_SETTINGS.accent,
+    );
   } catch {
-    return '';
+    return DEFAULT_THEME_SETTINGS.accent;
   }
 }
 
 function readBackground(): ThemeBackground {
   try {
-    const value = window.localStorage.getItem(storageKeys.background);
-    return isThemeBackground(value) ? value : 'plain';
+    const value = preferenceValue(
+      'background',
+      window.localStorage.getItem(storageKeys.background) ?? 'plain',
+    );
+    return isThemeBackground(value) ? value : DEFAULT_THEME_SETTINGS.background;
   } catch {
-    return 'plain';
+    return DEFAULT_THEME_SETTINGS.background;
   }
 }
 
 function readComponentStyle(): ThemeComponentStyle {
   try {
-    const value = window.localStorage.getItem(storageKeys.componentStyle);
-    return isThemeComponentStyle(value) ? value : 'qqnt';
+    const value = preferenceValue(
+      'componentStyle',
+      window.localStorage.getItem(storageKeys.componentStyle) ?? 'qqnt',
+    );
+    return isThemeComponentStyle(value) ? value : DEFAULT_THEME_SETTINGS.componentStyle;
   } catch {
-    return 'qqnt';
+    return DEFAULT_THEME_SETTINGS.componentStyle;
   }
 }
 
@@ -231,12 +255,8 @@ function runThemeRipple(commit: () => void) {
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  preference: 'system',
+  ...DEFAULT_THEME_SETTINGS,
   resolved: 'light',
-  accent: '',
-  background: 'plain',
-  componentStyle: 'qqnt',
-  density: 'comfortable',
   initialized: false,
   setPreference: (preference) => {
     const { resolved } = get();
@@ -251,6 +271,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         resolved: resolvePreference(preference),
         initialized: true,
       });
+      void changePreference('preference', preference);
     };
     // 只有明暗真的变了才值得播动画；选「跟随系统」而结果不变时安静地记下偏好。
     if (resolvePreference(preference) === resolved || !canRunThemeRipple()) {
@@ -265,24 +286,28 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     applyTheme({ preference, accent, background, componentStyle, density });
     persist(storageKeys.accent, accent);
     set({ accent, initialized: true });
+    void changePreference('accent', accent);
   },
   setBackground: (background) => {
     const { preference, accent, componentStyle, density } = get();
     applyTheme({ preference, accent, background, componentStyle, density });
     persist(storageKeys.background, background);
     set({ background, initialized: true });
+    void changePreference('background', background);
   },
   setComponentStyle: (componentStyle) => {
     const { preference, accent, background, density } = get();
     applyTheme({ preference, accent, background, componentStyle, density });
     persist(storageKeys.componentStyle, componentStyle);
     set({ componentStyle, initialized: true });
+    void changePreference('componentStyle', componentStyle);
   },
   setDensity: (density) => {
     const { preference, accent, background, componentStyle } = get();
     applyTheme({ preference, accent, background, componentStyle, density });
     persist(storageKeys.density, density);
     set({ density, initialized: true });
+    void changePreference('density', density);
   },
   syncResolved: () => {
     const { preference, accent, background, componentStyle, density } = get();
@@ -333,6 +358,7 @@ export function ensureThemeInitialized() {
 
   const store = useThemeStore.getState();
   store.hydrate();
+  window.addEventListener(PREFERENCES_CHANGED, () => useThemeStore.getState().hydrate());
 
   if (systemCleanup) {
     systemCleanup();

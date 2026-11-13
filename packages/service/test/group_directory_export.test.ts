@@ -99,7 +99,7 @@ describe('群聊名单导出', () => {
       contacts: { scope: 'groups', groupIds },
     });
     groupIds.push('10002');
-    await vi.waitFor(() => expect(['completed', 'failed']).toContain(manager.getTask(id)?.status));
+    await (manager as unknown as { queue: Promise<void> }).queue;
     const task = manager.getTask(id)!;
     expect(task.error).toBeUndefined();
     expect(task.status).toBe('completed');

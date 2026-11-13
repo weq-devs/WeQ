@@ -12,6 +12,10 @@ const fixture = vi.hoisted(() => ({
   markLocalRead: vi.fn(),
   setReadState: vi.fn(),
   undoReadState: vi.fn(),
+  countsChanged: undefined as
+    | ((targets: Array<{ chatType: number; uid: string }>) => void)
+    | undefined,
+  stopCounts: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', async () => {
   const { EventEmitter } = await import('node:events');
@@ -23,9 +27,14 @@ vi.mock('../src/main/context/app_context', async () => {
       markLocalRead: fixture.markLocalRead,
       setReadState: fixture.setReadState,
       undoReadState: fixture.undoReadState,
+      onCountsChanged: (listener: typeof fixture.countsChanged) => {
+        fixture.countsChanged = listener;
+        return fixture.stopCounts;
+      },
     },
   };
   return {
+    accountEventBus: new EventEmitter(),
     dbEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: fixture.uin } },
@@ -41,6 +50,7 @@ beforeEach(() => {
   fixture.uin = '10001';
   fixture.staticAccount = false;
   fixture.configId = 'source-a';
+  fixture.countsChanged = undefined;
   fixture.getUnreadInfos.mockResolvedValue([
     {
       ...targets[0],
@@ -58,20 +68,32 @@ beforeEach(() => {
 });
 
 describe('未读 IPC', () => {
+  it('共享小表快照变化只发目标，切号和退订后不回灌', async () => {
+    const stream = await accountRouter.createCaller({}).onUnreadChanged({});
+    const next = vi.fn();
+    const subscription = stream.subscribe({ next });
+    fixture.countsChanged?.(targets);
+    expect(next).toHaveBeenCalledWith(targets);
+    fixture.configId = 'source-b';
+    fixture.countsChanged?.(targets);
+    expect(next).toHaveBeenCalledTimes(1);
+    subscription.unsubscribe();
+    expect(fixture.stopCounts).toHaveBeenCalledOnce();
+  });
+
   it('未指定绑定字段时仍锁定订阅建立时的账号，切号不再推送', async () => {
     const stream = await accountRouter.createCaller({}).onUnreadChanged({});
     const next = vi.fn();
     const subscription = stream.subscribe({ next });
-    const change = { c2c: [], group: [{ targetGroupCode: '777' }] };
-    dbEventBus.emit('new', change);
+    fixture.countsChanged?.(targets);
     expect(next).toHaveBeenCalledWith([{ chatType: 2, uid: '777' }]);
     fixture.uin = '10002';
-    dbEventBus.emit('new', change);
+    fixture.countsChanged?.(targets);
     expect(next).toHaveBeenCalledTimes(1);
     subscription.unsubscribe();
   });
 
-  it('新消息差分通知直接携带去重未读目标，不依赖全量扫描或发送正文', async () => {
+  it('消息差分不重复发布未读，统一快照通知携带去重目标', async () => {
     const api = accountRouter.createCaller({});
     const stream = await api.onUnreadChanged({
       expectedAccountUin: '10001',
@@ -79,12 +101,15 @@ describe('未读 IPC', () => {
     });
     const next = vi.fn();
     const subscription = stream.subscribe({ next });
-    const change = {
-      c2c: [{ targetUid: 'u_other' }, { targetUid: 'u_other' }],
-      group: [{ targetGroupCode: '777' }],
-      dataline: [{ targetUid: 'device', chatType: 8 }],
-    };
-    dbEventBus.emit('new', change);
+    dbEventBus.emit('new', { c2c: [{ targetUid: 'u_other' }], group: [] });
+    expect(next).not.toHaveBeenCalled();
+    const change = [
+      { chatType: 1, uid: 'u_other' },
+      { chatType: 1, uid: 'u_other' },
+      { chatType: 2, uid: '777' },
+      { chatType: 8, uid: 'device' },
+    ];
+    fixture.countsChanged?.(change);
     expect(next).toHaveBeenCalledTimes(1);
     expect(next).toHaveBeenCalledWith([
       { chatType: 1, uid: 'u_other' },
@@ -92,9 +117,9 @@ describe('未读 IPC', () => {
       { chatType: 8, uid: 'device' },
     ]);
     fixture.configId = 'source-b';
-    dbEventBus.emit('new', change);
+    fixture.countsChanged?.(change);
     fixture.uin = '10002';
-    dbEventBus.emit('new', change);
+    fixture.countsChanged?.(change);
     expect(next).toHaveBeenCalledTimes(1);
     subscription.unsubscribe();
     expect(dbEventBus.listenerCount('new')).toBe(0);

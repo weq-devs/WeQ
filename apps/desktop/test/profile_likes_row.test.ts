@@ -2,14 +2,22 @@ import { act, createElement as h, Fragment, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ProfileLikesRow } from '../src/renderer/src/components/qq-actions/ProfileLikesRow';
+import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/ProfileLikeAction';
 import { DialogHost } from '../src/renderer/src/components/Dialog';
 import { useViewState } from '../src/renderer/src/state/view';
 
 const state = vi.hoisted(() => ({
   count: 12345 as number | null,
   loading: false,
+  notApplicable: false,
   perform: vi.fn(),
   write: vi.fn(async () => ({ state: 'accepted' })),
+}));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    available: true,
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+  }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { qqActions: { profileLike: { mutate: state.write } } } },
@@ -18,7 +26,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       dressup: {
         peerStats: {
           useQuery: () => ({
-            data: state.count === null ? undefined : { likeCount: state.count, level: 5 },
+            data: state.notApplicable
+              ? { likeCount: null, level: 5 }
+              : state.count === null
+                ? undefined
+                : { likeCount: state.count, level: 5 },
             isLoading: state.loading,
           }),
         },
@@ -53,6 +65,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   state.count = 12345;
   state.loading = false;
+  state.notApplicable = false;
   state.perform.mockClear();
   state.write.mockClear();
   useViewState.setState({ openedUin: null });
@@ -79,6 +92,9 @@ it.each([1, 10, 20] as const)(
       );
       expect(host.querySelector('.weq-profile-likes-row strong')?.textContent).toBe('12,345');
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="赞资料卡"]')!.click());
+      expect(document.querySelector('[role="dialog"]')?.hasAttribute('aria-modal')).toBe(false);
+      expect(document.querySelector('.weq-nonmodal-layer.is-anchored-popover')).not.toBeNull();
+      expect(document.querySelector('.weq-profile-like-total strong')?.textContent).toBe('12,345');
       expect(document.querySelector('.weq-profile-like-stage.is-active input')).toBeNull();
       expect(document.querySelector('.weq-profile-like-quota')).toBeNull();
       expect(document.querySelectorAll('.weq-profile-like-preset')).toHaveLength(4);
@@ -173,6 +189,89 @@ it('查询失败不伪造零赞', () => {
   try {
     act(() => root.render(h(ProfileLikesRow, { uid: 'u_peer', uin: '10002', name: '合成好友' })));
     expect(host.querySelector('strong')?.textContent).toBe('暂不可用');
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="赞资料卡"]')!.click());
+    expect(document.querySelector('.weq-profile-like-total strong')?.textContent).toBe('暂不可用');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('获赞不适用时不显示整行、零值或点赞按钮', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  state.notApplicable = true;
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(ProfileLikesRow, { uid: 'u_peer', uin: '10002', name: '企业用户' })));
+    expect(host.querySelector('.weq-profile-likes-row')).toBeNull();
+    expect(host.textContent).toBe('');
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it.each([false, true])('累计获赞数字打开同一面板，切换目标即关闭；本人=%s', (self) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  useViewState.setState({ openedUin: '10001' });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(
+          ProfileLikeAction,
+          { uid: self ? 'u_self' : 'u_peer', uin: self ? '10001' : '10002', name: '合成资料' },
+          '12,345',
+        ),
+      ),
+    );
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="查看资料卡点赞"]')!.click());
+    expect(document.querySelector('.weq-profile-like-total strong')?.textContent).toBe('12,345');
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="点赞 +1"]')!.disabled).toBe(
+      self,
+    );
+    expect(state.perform).not.toHaveBeenCalled();
+    act(() =>
+      root.render(
+        h(ProfileLikeAction, { uid: 'u_other', uin: '10003', name: '其他资料' }, '12,345'),
+      ),
+    );
+    expect(document.querySelector('.weq-profile-like-dialog')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it.each([false, true])('点赞面板锚定实际点击的按钮而非整张名片；数字入口=%s', (number) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('innerWidth', 1280);
+  vi.stubGlobal('innerHeight', 900);
+  useViewState.setState({ openedUin: '10001' });
+  const host = document.createElement('div');
+  host.className = 'weq-contact-card';
+  host.getBoundingClientRect = () => new DOMRect(10, 10, 400, 600);
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(
+          ProfileLikeAction,
+          { uid: 'u_peer', uin: '10002', name: '合成资料' },
+          number ? '128' : undefined,
+        ),
+      ),
+    );
+    const button = host.querySelector('button')!;
+    button.getBoundingClientRect = () => new DOMRect(100, 400, 50, 24);
+    act(() => button.click());
+    const layer = document.querySelector<HTMLElement>('.weq-dialog-layer')!;
+    expect(layer.style.getPropertyValue('--weq-popover-left')).toBe('158px');
+    expect(layer.style.getPropertyValue('--weq-popover-top')).toBe('400px');
+    expect(state.perform).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
     host.remove();

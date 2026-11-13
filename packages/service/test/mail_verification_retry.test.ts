@@ -75,8 +75,9 @@ it('普通认证或网络故障保留原有后台恢复，不能都当成风控�
     service.startBackground({ notifications: false, showUnread: true });
     await vi.advanceTimersByTimeAsync(0);
     expect(nt.ptFetchMailSession).toHaveBeenCalledOnce();
+    // 默认查询间隔为 1 分钟，5 分钟内应按间隔持续重试（首次 + 5 次）。
     await vi.advanceTimersByTimeAsync(5 * 60_000);
-    expect(nt.ptFetchMailSession).toHaveBeenCalledTimes(2);
+    expect(nt.ptFetchMailSession).toHaveBeenCalledTimes(6);
   } finally {
     service.dispose();
     vi.useRealTimers();

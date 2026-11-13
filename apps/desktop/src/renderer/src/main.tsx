@@ -5,10 +5,19 @@ import { TrpcProvider } from './trpc/provider';
 import { ensureThemeInitialized } from './state/theme';
 import { OverlayAnchorProvider } from './lib/overlayAnchor';
 import './styles/index.css';
+import './lib/inputModality';
 import { BackupStartupGate } from './components/BackupStartupGate';
 import { installResourceDiagnostics } from './lib/resourceDiagnostics';
 import { RendererErrorBoundary } from './components/RendererErrorBoundary';
 import { installDevelopmentErrors } from './lib/developmentErrors';
+import { installTouchContextMenu } from './lib/touchContextMenu';
+import { IS_WEB } from './lib/target';
+import './styles/touch-context-menu.css';
+
+if (IS_WEB) {
+  const stopTouchContextMenu = installTouchContextMenu(document);
+  import.meta.hot?.dispose(stopTouchContextMenu);
+}
 
 const stopDevelopmentErrors = installDevelopmentErrors(
   window,

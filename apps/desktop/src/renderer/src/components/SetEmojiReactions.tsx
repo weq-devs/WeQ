@@ -130,7 +130,17 @@ export function SetEmojiReactions({
 
   return (
     <>
-      <div ref={reactionsRef} className={cn('msg-reactions')}>
+      <div
+        ref={reactionsRef}
+        className={cn('msg-reactions')}
+        style={{ gridTemplateColumns: `repeat(${Math.min(displayItems.length, 7)}, max-content)` }}
+        // 回应人名单独立处理手势，不再触发父消息的长按或右键菜单。
+        onPointerDown={(event) => event.stopPropagation()}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
         {displayItems.map((item) => {
           const loading = pending?.code === item.emojiId;
           const loadingLabel = `${pending?.isSet ? '正在贴表情' : '正在撤回表情回应'} ${item.emojiId}`;

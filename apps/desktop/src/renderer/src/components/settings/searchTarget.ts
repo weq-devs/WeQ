@@ -17,6 +17,10 @@ export function findSettingElement(
     for (const node of root.querySelectorAll<HTMLElement>('[data-setting-id]')) {
       if (node.dataset.settingId === settingId) return node;
     }
+    for (const node of root.querySelectorAll<HTMLElement>('[data-setting-fallback]')) {
+      if (node.dataset.settingFallback?.split(' ').includes(settingId))
+        return node.closest<HTMLElement>('.weq-set-row') ?? node;
+    }
   }
   if (!item) return null;
   const nodes = root.querySelectorAll<HTMLElement>(
@@ -59,16 +63,27 @@ export function revealSetting(
       element.removeAttribute('data-search-highlight');
       highlightTimer = undefined;
     }, SETTINGS_SEARCH_HIGHLIGHT_MS);
-    const owner =
-      element.closest<HTMLElement>('button, input, select, textarea, a[href], summary') ?? element;
-    focused = owner.matches(':disabled')
-      ? (owner.closest<HTMLElement>('.weq-set-row, .weq-set-card, .weq-settings-appearance-card') ??
-        owner.parentElement)
-      : owner;
-    if (
-      focused &&
-      !focused.matches('button, input, select, textarea, a[href], summary, [tabindex]')
-    ) {
+    const interactive = (node: HTMLElement): boolean =>
+      node.matches('button, input, select, textarea, a[href], summary, [tabindex]');
+    // 命中的通常是行/卡片容器，可操作控件在它内部；向容器内找，而不是向上找。
+    const primaryControl =
+      'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="switch"]:not([disabled]), button:not([disabled]), a[href], summary';
+    const enabled = (node: HTMLElement | null): node is HTMLElement =>
+      Boolean(node) && !node?.matches(':disabled');
+    // 顺序：元素本身 → 行内控件 → 最近的控件祖先（标签在按钮里时定位到按钮）
+    // → 自定义 tabindex 元素 → 容器。
+    const control = interactive(element)
+      ? enabled(element)
+        ? element
+        : null
+      : enabled(element.querySelector<HTMLElement>(primaryControl))
+        ? element.querySelector<HTMLElement>(primaryControl)
+        : enabled(element.closest<HTMLElement>(primaryControl))
+          ? element.closest<HTMLElement>(primaryControl)
+          : (element.querySelector<HTMLElement>('[tabindex="0"]') ??
+            element.closest<HTMLElement>('[tabindex="0"]'));
+    focused = control ?? element.closest<HTMLElement>('.weq-set-row, .weq-set-card') ?? element;
+    if (focused && !interactive(focused)) {
       focused.setAttribute('tabindex', '-1');
       addedTabIndex = true;
     }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
   Bookmark,
   ChevronRight,
@@ -6,32 +6,45 @@ import {
   Grid2X2,
   Hash,
   House,
-  LayoutGrid,
   Mail,
   MessageCircle,
-  Plus,
   Palette,
   Settings,
   Sparkles,
   Star,
-  UserRoundPen,
-  UserRoundPlus,
-  UsersRound,
+  ListTodo,
+  Bot,
+  BarChart3,
+  Download,
+  FolderOpen,
+  FileStack,
 } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
+import { SelfProfileAvatar } from './SelfProfileAvatar';
+import type { ProfileGroup } from '../lib/profileNavigation';
 import type { MainView, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
+import { RemoteShellMenuButton } from './RemoteShellMenus';
+import { OnlineStatus } from './OnlineStatus';
+import { useWorkspaceMobilePage } from './WorkspacePages';
+import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
+import { preloadMobilePages } from '../lib/mobilePageLoading';
+import { mobilePageLoaders } from './lazyWorkspaces';
+import { registerMobileBack } from '../hooks/useMobileNavigation';
+import { mobileRootTab } from '../lib/mobileRootTransition';
+import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
 import '../styles/mobile-web.css';
 
 export function MobileWebNavigation({
   user,
+  selfProfileGroup,
   view,
   hidden,
   query,
   onQueryChange,
   onSearchFocus,
-  onSearchReturn,
   searchPanel,
   messageBadgeCount,
   onMessageBadgeClick,
@@ -41,20 +54,14 @@ export function MobileWebNavigation({
   onOpenSettings,
   onOpenDressUp,
   onOpenCollection,
-  onOpenProfile,
-  onLookupUser,
-  onLookupGroup,
-  onOpenFriendNotices,
-  onOpenGroupNotices,
-  accountControls,
 }: {
   user: User;
+  selfProfileGroup?: ProfileGroup;
   view: MainView;
   hidden: boolean;
   query: string;
   onQueryChange: (query: string) => void;
   onSearchFocus?: () => void;
-  onSearchReturn?: () => boolean;
   searchPanel?: ReactNode;
   messageBadgeCount: number;
   onMessageBadgeClick?: () => void;
@@ -64,169 +71,109 @@ export function MobileWebNavigation({
   onOpenSettings: () => void;
   onOpenDressUp: () => void;
   onOpenCollection: () => void;
-  onOpenProfile?: () => void;
-  onLookupUser?: () => void;
-  onLookupGroup?: () => void;
-  onOpenFriendNotices?: () => void;
-  onOpenGroupNotices?: () => void;
-  accountControls?: ReactNode;
 }) {
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [actionsOpen, setActionsOpen] = useState(false);
+  const mobilePage = useWorkspaceMobilePage();
+  const mobile = useMobileWebLayout();
+  const viewChange = useRef(onViewChange);
+  viewChange.current = onViewChange;
   useEffect(() => {
-    setMoreOpen(false);
-    setActionsOpen(false);
-  }, [view, hidden]);
+    if (!mobile || mobileRootTab(view)) return;
+    // 父级数据刷新会更换回调，不能因此重登记并重复触发进出动画。
+    return registerMobileBack({
+      id: 'mobile-more-page',
+      priority: 5,
+      retained: true,
+      back: () => viewChange.current('more'),
+      target: () => document.querySelector<HTMLElement>('.weq-web-shell .app-shell > .chat-main'),
+    });
+  }, [mobile, view]);
   useEffect(() => {
-    if (!actionsOpen && !moreOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setActionsOpen(false);
-        setMoreOpen(false);
-      }
+    if (mobile) return preloadMobilePages(mobilePageLoaders);
+    return undefined;
+  }, [mobile]);
+  const openTool = useWorkspaceMenu((state) => state.openMobileTool);
+  const moreOpen = view === 'more' && !mobilePage;
+  useEffect(() => {
+    if (!moreOpen) return;
+    const leaveMobile = () => {
+      if (!isSingleColumnLayout()) onViewChange('messages');
     };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [actionsOpen, moreOpen]);
+    return subscribeResponsiveLayout(leaveMobile);
+  }, [moreOpen, onViewChange]);
   const primary = view === 'messages' || view === 'contacts' || view === 'qzone';
   const active = moreOpen || !primary ? 'more' : view;
-  const titles: Partial<Record<MainView, string>> = {
-    messages: '消息',
-    contacts: '联系人',
-    qzone: 'QQ 空间',
-    mail: 'QQ 邮箱',
-    channel: 'QQ 频道',
-    collections: '我的收藏',
-    annual: '年度报告',
-    home: '主页',
-    tools: '应用',
-  };
   const select = (next: MainView) => {
-    setMoreOpen(false);
-    setActionsOpen(false);
-    onViewChange(next);
+    mobilePage?.close();
+    if (next !== view) onViewChange(next);
   };
   const entries = [
-    ...(onOpenProfile
-      ? [{ label: 'QQ 资料与状态', icon: UserRoundPen, action: onOpenProfile }]
-      : []),
     { label: '主页', icon: House, action: () => select('home') },
     { label: 'QQ 邮箱', icon: Mail, badge: mailBadgeCount, action: () => select('mail') },
-    { label: 'QQ 频道', icon: Hash, action: () => select('channel') },
+    { label: '频道私聊', icon: Hash, action: () => select('guild-direct') },
     { label: '我的收藏', icon: Bookmark, action: onOpenCollection },
     { label: '年度报告', icon: Sparkles, action: () => select('annual') },
     { label: '个性装扮', icon: Palette, action: onOpenDressUp },
-    { label: '应用', icon: LayoutGrid, action: () => select('tools') },
+    { label: '任务', icon: ListTodo, action: () => openTool('tasks') },
+    { label: 'WeQ 助手', icon: Bot, action: () => openTool('assistant') },
+    { label: '分析与报告', icon: BarChart3, action: () => openTool('analysis') },
+    { label: '导出', icon: Download, action: () => openTool('export') },
+    { label: '导出查看器', icon: FolderOpen, action: () => openTool('viewer') },
+    { label: '合成聊天记录', icon: FileStack, action: () => openTool('composition') },
     { label: '设置', icon: Settings, action: onOpenSettings },
   ];
-  const actions = [
-    { label: 'QQ 号搜索', icon: UserRoundPlus, action: onLookupUser },
-    { label: '群号搜索', icon: UsersRound, action: onLookupGroup },
-    { label: '好友通知', icon: ContactRound, action: onOpenFriendNotices },
-    { label: '群通知', icon: UsersRound, action: onOpenGroupNotices },
-  ].filter((entry) => entry.action);
-  const run = (action: () => void) => {
-    setMoreOpen(false);
-    setActionsOpen(false);
-    action();
-  };
+  const moreContent = (
+    <section className="weq-mobile-more" aria-label="更多功能">
+      <div className="weq-mobile-more-account">
+        <Avatar name={displayUserName(user)} avatarUrl={user.avatarUrl} seed={user.identityValue} />
+        <div>
+          <strong>{displayUserName(user)}</strong>
+          <span>{user.identityValue}</span>
+        </div>
+      </div>
+      {entries.map(({ label, icon: Icon, badge, action }) => (
+        <button key={label} type="button" onClick={action}>
+          <Icon size={22} aria-hidden />
+          <span>{label}</span>
+          {badge ? <MobileBadge count={badge} /> : null}
+          <ChevronRight size={18} aria-hidden />
+        </button>
+      ))}
+    </section>
+  );
 
   return (
-    <div className="weq-mobile-navigation" hidden={hidden}>
+    <div className="weq-mobile-navigation" inert={hidden} aria-hidden={hidden}>
       <header className="weq-mobile-header">
-        <button
-          type="button"
-          className="weq-mobile-account"
-          aria-label={onOpenProfile ? '编辑 QQ 资料' : '打开设置'}
-          title={onOpenProfile ? 'QQ 资料与状态' : '设置'}
-          onClick={onOpenProfile ?? onOpenSettings}
-        >
-          <Avatar
-            name={displayUserName(user)}
-            avatarUrl={user.avatarUrl}
-            seed={user.identityValue}
-          />
-        </button>
-        <strong>{moreOpen ? '更多' : (titles[view] ?? 'WeQ')}</strong>
+        <div className="weq-mobile-self-identity">
+          <SelfProfileAvatar user={user} group={selfProfileGroup} className="weq-mobile-account">
+            <strong title={displayUserName(user)}>{displayUserName(user)}</strong>
+          </SelfProfileAvatar>
+          <div className="weq-mobile-identity">
+            {user.uid && (
+              <OnlineStatus
+                key={user.uid}
+                uid={user.uid}
+                selfUin={user.identityValue}
+                className="weq-mobile-online-status"
+                refetchInterval={15_000}
+                showBaseStatus
+              />
+            )}
+          </div>
+        </div>
         <TitleBarSearch
           query={query}
           onQueryChange={onQueryChange}
           onSearchFocus={onSearchFocus}
-          onReturn={onSearchReturn}
           results={searchPanel}
         />
-        {actions.length > 0 && (
-          <button
-            type="button"
-            className="weq-mobile-actions-toggle"
-            aria-label="联系人操作"
-            title="联系人操作"
-            aria-expanded={actionsOpen}
-            aria-controls="weq-mobile-contact-actions"
-            onClick={() => {
-              setMoreOpen(false);
-              setActionsOpen((open) => !open);
-            }}
-          >
-            <Plus size={22} aria-hidden />
-          </button>
-        )}
+        <RemoteShellMenuButton />
       </header>
-      {actionsOpen && (
-        <>
-          <button
-            type="button"
-            className="weq-mobile-actions-dismiss"
-            aria-label="关闭联系人操作"
-            onClick={() => setActionsOpen(false)}
-          />
-          <section
-            id="weq-mobile-contact-actions"
-            className="weq-mobile-contact-actions"
-            aria-label="联系人操作列表"
-          >
-            {actions.map(({ label, icon: Icon, action }) => (
-              <button key={label} type="button" onClick={() => run(action!)}>
-                <Icon size={20} aria-hidden />
-                <span>{label}</span>
-              </button>
-            ))}
-          </section>
-        </>
-      )}
-      {moreOpen && (
-        <section className="weq-mobile-more" aria-label="更多功能">
-          <div className="weq-mobile-more-account">
-            <Avatar
-              name={displayUserName(user)}
-              avatarUrl={user.avatarUrl}
-              seed={user.identityValue}
-            />
-            <div>
-              <strong>{displayUserName(user)}</strong>
-              <span>{user.identityValue}</span>
-            </div>
-          </div>
-          {entries.map(({ label, icon: Icon, badge, action }) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => {
-                run(action);
-              }}
-            >
-              <Icon size={22} aria-hidden />
-              <span>{label}</span>
-              {badge ? <MobileBadge count={badge} /> : null}
-              <ChevronRight size={18} aria-hidden />
-            </button>
-          ))}
-          {accountControls && (
-            <div className="weq-mobile-more-utilities" aria-label="账号与快捷控制">
-              {accountControls}
-            </div>
-          )}
-        </section>
+      {moreOpen ? moreContent : null}
+      {mobile && (
+        <div hidden inert aria-hidden="true" data-mobile-root-preview="more">
+          {moreContent}
+        </div>
       )}
       <nav className="weq-mobile-tabs" aria-label="主导航">
         {[
@@ -239,15 +186,13 @@ export function MobileWebNavigation({
             key={id}
             type="button"
             aria-current={active === id ? 'page' : undefined}
+            data-mobile-tab={id}
             aria-expanded={id === 'more' ? moreOpen : undefined}
             aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
             onClick={() => {
               if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
                 onMessageBadgeClick();
-              } else if (id === 'more') {
-                setActionsOpen(false);
-                setMoreOpen((open) => !open);
-              } else select(id as 'messages' | 'contacts' | 'qzone');
+              } else select(id as 'messages' | 'contacts' | 'qzone' | 'more');
             }}
           >
             <span className="weq-mobile-tab-icon">

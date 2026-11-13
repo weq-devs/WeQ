@@ -1,3 +1,5 @@
+import * as timeFormat from '@weq/time';
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 设置 → 数据库宽容（salvage）。
  *
@@ -40,13 +42,14 @@ import {
   Info,
   RefreshCw,
   ShieldCheck,
+  ScrollText,
+  Table2,
 } from 'lucide-react';
 import {
   SALVAGE_AGGREGATE_CAVEAT,
   SALVAGE_EXPERIMENTAL_NOTE,
   SALVAGE_EXPERIMENTAL_TAG,
   SALVAGE_SKIPPED_SPAN_CAVEAT,
-  salvageLevelCopy,
   salvageLevelToast,
   salvageLevelsAscending,
 } from '@weq/service/db-tolerance-copy';
@@ -119,12 +122,9 @@ function baseName(path: string): string {
   return index >= 0 ? path.slice(index + 1) : path;
 }
 
-/** `2026-09-19T03:04:05.678Z` → `09-19 03:04`（本机时区）。 */
+/** 容错记录的完整北京时间；非法值保留原文供诊断。 */
 function shortTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return timeFormat.formatDateTime(iso) || iso;
 }
 
 export function DatabaseToleranceSection({
@@ -166,7 +166,6 @@ export function DatabaseToleranceSection({
   const entries = (tolerance.data?.entries ?? []) as LedgerEntryView[];
   const hasLedger = Boolean(summary && summary.total > 0);
   const quarantined = (quarantine.data ?? []) as QuarantineEntryView[];
-  const current = salvageLevelCopy(level);
 
   const changeLevel = async (next: number): Promise<void> => {
     setPendingLossy(null);
@@ -243,7 +242,7 @@ export function DatabaseToleranceSection({
   return (
     <div className="weq-set">
       <SectionHeader
-        title={page === 'policy' ? '数据库宽容' : page === 'damage' ? '损坏与修复' : '容错记录'}
+        title={page === 'policy' ? '数据库容错' : page === 'damage' ? '损坏与修复' : '容错记录'}
         icon={<DatabaseZap size={16} strokeWidth={1.9} />}
         desc={
           page === 'damage' ? undefined : (
@@ -252,43 +251,37 @@ export function DatabaseToleranceSection({
                 <FlaskConical size={11} strokeWidth={2.2} aria-hidden />
                 {SALVAGE_EXPERIMENTAL_TAG}
               </span>
-              QQ 数据库损坏时默认直接报错；也可以按需开启宽容级别，接受「少读一点也能用」的代价。
+              QQ 数据库损坏时默认直接报错；也可以按需开启容错级别，接受「少读一点也能用」的代价。
             </>
           )
         }
       />
 
       {page === 'policy' && (
-        <>
-          {/* 口径说明统一收进可展开块：默认不占版面，要看时点开。 */}
-          <details className="weq-set-details">
-            <summary>
-              <ChevronDown size={13} aria-hidden />
-              宽容是什么、覆盖哪些功能
-            </summary>
-            <div className="weq-set-details-body">
-              <p>
-                严格（级别 0）之外还有三级宽容：级别 1 只换访问路径（<strong>不丢数据</strong>），
-                级别 2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
-                再允许放弃读不动的整张表。
-              </p>
-              <p>{SALVAGE_EXPERIMENTAL_NOTE}</p>
-              <p className="weq-set-warnbox">
-                <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
-                <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
-              </p>
-            </div>
-          </details>
-
-          <Card
-            title="宽容级别"
-            action={
-              <span className="weq-set-badge weq-set-badge-ok" title={current.scope}>
-                当前 · {current.title}
-              </span>
-            }
+        <Card
+          title="容错级别"
+            icon={<ShieldCheck size={15} strokeWidth={1.8} />}
           >
-            <div className="weq-set-levels" role="radiogroup" aria-label="数据库宽容级别">
+            {/* 口径说明收进卡内可展开块：默认不占版面，要看时点开。 */}
+            <details className="weq-set-details">
+              <summary>
+                <ChevronDown size={13} aria-hidden />
+                容错是什么、覆盖哪些功能
+              </summary>
+              <div className="weq-set-details-body">
+                <p>
+                  严格（级别 0）之外还有三级容错：级别 1 只换访问路径（<strong>不丢数据</strong>），
+                  级别 2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
+                  再允许放弃读不动的整张表。
+                </p>
+                <p>{SALVAGE_EXPERIMENTAL_NOTE}</p>
+                <p className="weq-set-warnbox">
+                  <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+                  <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
+                </p>
+              </div>
+            </details>
+            <div className="weq-set-levels" role="radiogroup" aria-label="数据库容错级别">
               {salvageLevelsAscending().map((copy) => {
                 const active = copy.level === level;
                 const confirming = pendingLossy === copy.level;
@@ -381,8 +374,8 @@ export function DatabaseToleranceSection({
               <p className="weq-set-note">
                 <ShieldCheck size={12} strokeWidth={1.9} aria-hidden />
                 <span>
-                  已于 {new Date(grantedAt).toLocaleString()} 授权，在本机对该账号持续生效；
-                  随时可以在这里回到级别 0。
+                  已于 {eventTimeFormatter.format(new Date(grantedAt))}{' '}
+                  授权，在本机对该账号持续生效； 随时可以在这里回到级别 0。
                 </span>
               </p>
             ) : (
@@ -393,11 +386,14 @@ export function DatabaseToleranceSection({
                 </span>
               </p>
             )}
-          </Card>
-        </>
+        </Card>
       )}
       {page === 'damage' && (
-        <Card title="损坏提醒" settingId="damage-reminder">
+        <Card
+          title="损坏提醒"
+          icon={<AlertTriangle size={15} strokeWidth={1.8} />}
+          settingId="damage-reminder"
+        >
           <Row
             label="数据库异常时弹窗提醒"
             desc="健康检查确认损坏后会显示提示，可点击「尝试修复」，或从设置 → 数据库与资源 → 损坏与修复进入。关闭提示后仍会记录日志并生成检查报告。"
@@ -415,6 +411,7 @@ export function DatabaseToleranceSection({
       {page === 'policy' && onOpenRecords && (
         <Card
           title="容错记录"
+          icon={<ScrollText size={15} strokeWidth={1.8} />}
           settingId="tolerance-records"
           action={
             <button type="button" className="weq-set-btn" onClick={onOpenRecords}>
@@ -437,6 +434,7 @@ export function DatabaseToleranceSection({
       {page === 'status' && (
         <Card
           title="降级账本"
+          icon={<DatabaseZap size={15} strokeWidth={1.8} />}
           action={
             tolerance.error ? (
               <button
@@ -518,6 +516,7 @@ export function DatabaseToleranceSection({
       {page === 'status' && quarantined.length > 0 ? (
         <Card
           title="已放弃的表（隔离中）"
+          icon={<Table2 size={15} strokeWidth={1.8} />}
           action={
             <button
               type="button"

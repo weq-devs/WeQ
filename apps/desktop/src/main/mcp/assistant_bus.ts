@@ -10,6 +10,10 @@ import { EventEmitter } from 'node:events';
 import type { AssistantStep } from '@weq/service';
 
 export interface AssistantStreamEvent {
+  accountConfigId?: string;
+  sessionId?: string;
+  messageId?: string;
+  taskId?: string;
   runId: string;
   step: AssistantStep;
 }

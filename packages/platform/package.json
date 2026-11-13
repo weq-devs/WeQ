@@ -1,6 +1,6 @@
 {
   "name": "@weq/platform",
-  "version": "2.5.2",
+  "version": "2.6.1",
   "private": true,
   "type": "module",
   "exports": {

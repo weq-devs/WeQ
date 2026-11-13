@@ -1,24 +1,100 @@
 import { act, createElement as h, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { createRoot as createDomRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
+import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
+import { avatarFromUin } from '../src/renderer/src/lib/avatarResolver';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useViewState } from '../src/renderer/src/state/view';
 import {
   ContactProfileDialog,
   GroupProfileDialog,
 } from '../src/renderer/src/im-template/template/profilePanes';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
-import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
+import {
+  ChatNavigationContext,
+  GroupMessagePreviewContext,
+  GroupSpeechPreviewContext,
+} from '../src/renderer/src/lib/chatNavigation';
 import { QzoneNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
 import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+beforeEach(() => useViewState.setState({ openedUin: '10001' }));
+function createRoot(host: Element) {
+  const root = createDomRoot(host);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return {
+    render: (node: ReactNode) =>
+      root.render(
+        h(
+          QueryClientProvider,
+          { client: cache },
+          h(
+            ConversationDirectoryContext.Provider,
+            {
+              value: {
+                virtual: [],
+                real: [],
+                profileConversationExists: () => true,
+                onVirtual: vi.fn(),
+                onCreate: vi.fn(),
+              },
+            },
+            node,
+          ),
+        ),
+      ),
+    unmount: () => {
+      root.unmount();
+      cache.clear();
+    },
+  };
+}
+function sectionButton(host: ParentNode, label: string) {
+  return [...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button')].find(
+    (button) => button.textContent?.includes(label),
+  )!;
+}
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: {
-    useUtils: () => ({ invalidate: async () => undefined }),
+  client: {
     account: {
+      getProfile: { query: async () => null },
+      getProfileByUin: { query: async () => null },
+      getGroupDetail: { query: async () => null },
+      listGroupMembers: { query: async () => [] },
+      getGroupExtendedProfile: { query: async () => null },
+      getCardDisplayNames: { query: async () => ({ name: '', remark: '' }) },
+      dressup: { peerQqShow: { query: async () => null }, peerHome: { query: async () => null } },
+    },
+  },
+  trpc: {
+    bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
+    useUtils: () => ({
+      invalidate: async () => undefined,
+      account: { intentSense: { getProfile: { setData: vi.fn() } } },
+    }),
+    account: {
+      getOnlineStatus: { useQuery: () => ({ data: undefined }) },
+      groupMemberPreview: { useQuery: () => ({ data: undefined }) },
+      listGroupLeftMembers: { useQuery: () => ({ data: [], isFetching: false }) },
+      qqActions: {
+        groupPermissions: { useQuery: () => ({ data: undefined }) },
+        todoList: { useQuery: () => ({ data: [] }) },
+        todoLocalList: { useQuery: () => ({ data: [] }) },
+      },
+      profileExtras: new Proxy(
+        {},
+        {
+          get: () => ({
+            useQuery: () => ({ data: undefined, isFetching: false, refetch: vi.fn() }),
+          }),
+        },
+      ),
       intentSense: {
         getStatus: { useQuery: () => ({ data: { profileEnabled: true } }) },
         getProfile: {
@@ -47,10 +123,16 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       // `withQQAccountScope` 要拿到当前数据源才渲染资料卡上的 QQ 操作入口。
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
+      contactMetrics: {
+        snapshot: { useQuery: () => ({ data: { rows: {} } }) },
+        changed: { useSubscription: () => undefined },
+      },
       getGroupAlbumAccessState: {
         useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
       },
       qqWrite: {
+        memberDetails: { useQuery: () => ({ data: undefined, refetch: vi.fn() }) },
+        groupMemberMute: { useMutation: () => ({ mutateAsync: vi.fn() }) },
         friendClue: { useQuery: () => ({ data: undefined, isFetching: false }) },
         commonRelationships: {
           useQuery: () => ({
@@ -68,6 +150,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       mutualMark: {
         get: {
           useQuery: () => ({
+            isSuccess: true,
             isLoading: false,
             data: {
               categories: [
@@ -169,6 +252,82 @@ const groupFixture = {
   })),
 } as GroupConversation;
 
+it.each([false, true])('联系人名片以真实昵称为主标题并保留备注，内嵌=%s', (embedded) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ContactProfileDialog, {
+          contact: { ...contactFixture, remark: '好友备注', displayName: '好友备注' },
+          embedded,
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(contactFixture.nick);
+    // 备注是身份区下的独立属性行，不再塞进标题块。
+    expect(document.querySelector('.weq-profile-heading')?.textContent).not.toContain('好友备注');
+    expect(
+      document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')?.textContent,
+    ).toBe('好友备注');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('联系人昵称缺失时不将备注当作昵称', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ContactProfileDialog, {
+          contact: { ...contactFixture, nick: ' ', remark: '好友备注', displayName: '好友备注' },
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(
+      contactFixture.identityValue,
+    );
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it.each([false, true])('群名片以群名为主标题，备注单独成行，内嵌=%s', (embedded) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(GroupProfileDialog, {
+          conversation: { ...groupFixture, group: { ...groupFixture.group, remark: '群备注' } },
+          embedded,
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector('.weq-profile-name')?.textContent).toBe(groupFixture.group.name);
+    expect(
+      document.querySelector('.weq-profile-identity-remark .weq-profile-data-value')?.textContent,
+    ).toBe('群备注');
+    expect(document.querySelector('[aria-label="群资料"]')?.textContent).toContain('群备注');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it.each([false, true])('共同群查看消息关闭列表及浮层好友名片，内嵌=%s', (embedded) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -195,13 +354,14 @@ it.each([false, true])('共同群查看消息关闭列表及浮层好友名片�
   }
   try {
     act(() => root.render(h(Fixture)));
+    if (embedded) act(() => sectionButton(host, '与我的关系').click());
     act(() => document.querySelector<HTMLButtonElement>('[aria-label="查看共同群列表"]')!.click());
     act(() =>
       document.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
     );
-    const entry = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === '查看群聊消息',
-    )!;
+    const entry = [
+      ...document.querySelectorAll<HTMLButtonElement>('[aria-label="群资料"] button'),
+    ].find((button) => button.textContent === '查看消息')!;
     expect(entry).toBeDefined();
     act(() => entry.click());
     expect(navigate).toHaveBeenCalledWith({
@@ -212,7 +372,7 @@ it.each([false, true])('共同群查看消息关闭列表及浮层好友名片�
     expect(document.querySelector('.weq-common-groups-dialog')).toBeNull();
     expect(document.querySelector('[aria-label="群资料"]')).toBeNull();
     expect(document.querySelectorAll('.weq-overlay-layer')).toHaveLength(0);
-    expect(host.querySelector('.weq-contact-profile') !== null).toBe(embedded);
+    expect(host.querySelector('.weq-contact-profile-v2') !== null).toBe(embedded);
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -220,7 +380,7 @@ it.each([false, true])('共同群查看消息关闭列表及浮层好友名片�
 });
 
 it.each(['friend', 'group'] as const)(
-  '联系人页内嵌 %s 资料，保留群交集入口且不创建浮层',
+  '联系人页内嵌 %s 资料，保留语义化关闭入口且不创建浮层',
   (kind) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
@@ -264,21 +424,23 @@ it.each(['friend', 'group'] as const)(
       expect(document.querySelector('.weq-overlay-layer')).toBeNull();
       expect(host.querySelector('[role="dialog"]')).toBeNull();
       expect(host.querySelector('.weq-profile-close')).toBeNull();
-      expect(host.querySelector('.weq-contact-identity .weq-profile-hero')).not.toBeNull();
+      expect(host.querySelector('.weq-profile-hero')).not.toBeNull();
       if (kind === 'friend') {
-        expect(host.querySelector('.weq-contact-primary')?.textContent).toContain('个人资料');
-        expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('关系与互动');
-        expect(host.querySelector('.weq-contact-primary')?.textContent).not.toContain('亲密度');
-        expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('亲密度');
-        expect(host.querySelector('.weq-contact-primary .weq-profile-album img')).not.toBeNull();
-        expect(host.querySelector('.weq-contact-secondary')?.textContent).toContain('已开通特权');
+        expect(host.querySelector('.weq-profile-workspace')).not.toBeNull();
+        expect(sectionButton(host, '与我的关系')).toBeDefined();
+        expect(host.querySelector('[aria-label="个人资料"]')?.textContent).not.toContain('亲密度');
+        act(() => sectionButton(host, '与我的关系').click());
+        expect(host.querySelector('[aria-label="与我的关系"]')?.textContent).toContain('亲密度');
       } else {
-        expect(host.querySelectorAll('.group-info-member-row')).toHaveLength(14);
-        expect(host.querySelector('[aria-label="搜索群成员"]')).not.toBeNull();
-        expect(host.querySelector('[aria-label="群内容"]')?.textContent).toContain('文件');
+        expect(host.querySelectorAll('.weq-group-preview-avatars button')).toHaveLength(0);
+        expect(host.querySelector('.weq-group-profile-information')).not.toBeNull();
+        expect(host.querySelector('.weq-group-profile-members')).not.toBeNull();
+        expect(host.querySelector('[aria-label="查看群文件"]')).toBeNull();
+        expect(host.querySelector('.weq-profile-directory')).toBeNull();
       }
-      const entry = host.querySelector<HTMLButtonElement>('.weq-contact-profile-toolbar button')!;
-      expect(entry.textContent).toContain('群交集');
+      // 联系人与群的页头共用 ProfilePageHeader，关闭按钮 aria-label 为「关闭资料 / 关闭群资料」。
+      const entry = host.querySelector<HTMLButtonElement>('button[aria-label^="关闭"]')!;
+      expect(entry).not.toBeNull();
       act(() => entry.click());
       expect(close).toHaveBeenCalledOnce();
 
@@ -356,13 +518,19 @@ it.each([false, true])('好友资料的私聊操作使用当前对象，内嵌=%
       ),
     );
     const entry = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-      button.textContent?.includes('查看私聊'),
+      button.textContent?.includes('打开会话'),
     )!;
     expect(entry).toBeDefined();
     act(() => entry.click());
-    expect(open).toHaveBeenCalledWith({ kind: 'direct', user: contactFixture });
+    expect(open).toHaveBeenCalledWith({
+      kind: 'direct',
+      user: expect.objectContaining({
+        ...contactFixture,
+        avatarUrl: avatarFromUin(contactFixture.identityValue),
+      }),
+    });
     expect(close).toHaveBeenCalledTimes(embedded ? 0 : 1);
-    expect(document.querySelector('.weq-contact-columns') !== null).toBe(embedded);
+    expect(document.querySelector('.weq-profile-workspace') !== null).toBe(embedded);
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -388,8 +556,8 @@ it.each(['资料', '个性主页'] as const)('联系人%s跳转空间不清除�
     );
     if (tab === '个性主页') {
       act(() =>
-        [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
-          .find((button) => button.textContent?.includes(tab))!
+        [...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button')]
+          .find((button) => button.textContent?.includes('个性展示'))!
           .click(),
       );
     }
@@ -407,7 +575,7 @@ it.each(['资料', '个性主页'] as const)('联系人%s跳转空间不清除�
   }
 });
 
-it('联系人好友操作可在原位预览私聊并返回资料，不触发聊天导航或群交集', () => {
+it.each([true, false])('群资料 embedded=%s 提供统一消息操作并原位预览和返回资料', (embedded) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -415,35 +583,119 @@ it('联系人好友操作可在原位预览私聊并返回资料，不触发聊�
   const open = vi.fn();
   const close = vi.fn();
   const preview = vi.fn();
+  function Harness() {
+    const [previewing, setPreviewing] = useState(false);
+    return h(
+      ChatNavigationContext.Provider,
+      { value: open },
+      h(
+        GroupMessagePreviewContext.Provider,
+        {
+          value: {
+            open: (conversation) => {
+              preview(conversation);
+              setPreviewing(true);
+            },
+            close: () => setPreviewing(false),
+            conversationId: previewing ? groupFixture.id : null,
+            content: previewing
+              ? h('section', { 'aria-label': '合成群消息预览' }, [
+                  h('button', { key: 'back', onClick: () => setPreviewing(false) }, '返回资料'),
+                  '合成群消息',
+                ])
+              : null,
+          },
+        },
+        h(GroupProfileDialog, {
+          embedded,
+          conversation: groupFixture,
+          details: h('section', { 'aria-label': '合成群详情' }, '群资料内容'),
+          onClose: close,
+        }),
+      ),
+    );
+  }
+  const button = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[aria-label="群资料"] button')].find(
+      (item) => item.textContent === label,
+    )!;
+  try {
+    act(() => root.render(h(Harness)));
+    expect(button(embedded ? '打开会话' : '查看消息')).toBeDefined();
+    act(() => button('预览消息').click());
+    expect(preview).toHaveBeenCalledWith(groupFixture);
+    expect(document.querySelector('[aria-label="合成群消息预览"]')).not.toBeNull();
+    expect(document.querySelector('.is-previewing-chat')).not.toBeNull();
+    expect(document.querySelector('[aria-label="合成群详情"]')).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    act(() => button('返回资料').click());
+    expect(document.querySelector('.is-previewing-chat')).toBeNull();
+    if (embedded) expect(host.querySelector('.weq-group-profile-columns')).not.toBeNull();
+    act(() => button(embedded ? '打开会话' : '查看消息').click());
+    expect(open).toHaveBeenCalledWith({ kind: 'group', conversation: groupFixture });
+    expect(close).toHaveBeenCalledTimes(embedded ? 0 : 1);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('联系人好友操作可在原位预览消息并返回资料，不触发聊天导航或群交集', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = vi.fn();
+  const close = vi.fn();
+  const preview = vi.fn();
+  const previewClose = vi.fn();
   const render = (previewContent?: ReturnType<typeof h>) =>
     act(() =>
       root.render(
         h(
           ChatNavigationContext.Provider,
           { value: open },
-          h(ContactProfileDialog, {
-            contact: contactFixture,
-            embedded: true,
-            onClose: close,
-            onPreviewChat: preview,
-            previewContent,
-          }),
+          h(
+            GroupSpeechPreviewContext.Provider,
+            { value: { open: vi.fn(), close: previewClose } },
+            h(ContactProfileDialog, {
+              contact: contactFixture,
+              embedded: true,
+              onClose: close,
+              onPreviewChat: preview,
+              previewContent,
+            }),
+          ),
         ),
       ),
     );
   try {
     render();
     const entry = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === '预览私聊',
+      (button) => button.textContent === '预览消息',
     );
     expect(entry).toBeDefined();
     act(() => entry!.click());
-    expect(preview).toHaveBeenCalledWith(contactFixture);
+    expect(preview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...contactFixture,
+        avatarUrl: avatarFromUin(contactFixture.identityValue),
+      }),
+    );
     render(h('section', { 'aria-label': '合成私聊预览' }, '合成消息'));
     expect(host.querySelector('[aria-label="合成私聊预览"]')).not.toBeNull();
     expect(host.querySelector('.weq-contact-profile-content.is-previewing-chat')).not.toBeNull();
+    expect(host.querySelector('.weq-profile-page-header')).toBeNull();
     expect(host.querySelector('.weq-contact-workspace')).toBeNull();
     expect(document.querySelector('.weq-overlay-layer')).toBeNull();
+    act(() =>
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(previewClose).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
     render();
     expect(host.querySelector('.weq-contact-profile-content.is-previewing-chat')).toBeNull();
     expect(host.querySelector('.weq-contact-workspace')).not.toBeNull();
@@ -540,11 +792,23 @@ it.each(['friend', 'group'] as const)('小名片 %s 移除互动入口并可展�
     );
     const dialog = document.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).not.toMatch(/个性主页|互动标识|互动画像/);
-    act(() => dialog.querySelector<HTMLButtonElement>('.weq-profile-expand')!.click());
+    act(() =>
+      dialog
+        .querySelector<HTMLButtonElement>(
+          kind === 'friend' ? '[aria-label="打开完整资料页"]' : '[aria-label="打开完整群资料"]',
+        )!
+        .click(),
+    );
     expect(close).toHaveBeenCalledOnce();
     expect(open).toHaveBeenCalledWith(
       kind === 'friend'
-        ? { kind: 'person', contact: contactFixture }
+        ? {
+            kind: 'person',
+            contact: expect.objectContaining({
+              ...contactFixture,
+              avatarUrl: avatarFromUin(contactFixture.identityValue),
+            }),
+          }
         : { kind: 'group', conversation: groupFixture },
     );
   } finally {
@@ -564,7 +828,9 @@ it('其他页面的群名片默认仍为浮层', () => {
     expect(
       document.querySelector('[role="dialog"][aria-label="群资料"]')?.closest('.weq-overlay-layer'),
     ).not.toBeNull();
-    expect(document.querySelector('.weq-profile-close')).not.toBeNull();
+    expect(
+      document.querySelector('.weq-profile-card-controls [aria-label="关闭群资料"]'),
+    ).not.toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -582,15 +848,21 @@ it('个性主页、互动标识与互动画像均在联系人正文内切换，�
         h(ContactProfileDialog, { contact: contactFixture, embedded: true, onClose: vi.fn() }),
       ),
     );
-    for (const [label, selector] of [
-      ['个性主页', '.weq-contact-personality'],
-      ['互动标识', '.weq-contact-marks'],
-      ['互动画像', '.weq-contact-portrait'],
+    for (const [label, disclosure, selector] of [
+      ['个性展示', null, '.weq-profile-tags'],
+      ['与我的关系', null, '.weq-contact-marks'],
+      ['与我的关系', null, '.weq-contact-portrait'],
     ] as const) {
-      const entry = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) =>
-        button.textContent?.includes(label),
-      )!;
+      const entry = [
+        ...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button'),
+      ].find((button) => button.textContent?.includes(label))!;
       act(() => entry.click());
+      if (disclosure)
+        act(() =>
+          [...host.querySelectorAll<HTMLButtonElement>('.weq-profile-disclosure-trigger')]
+            .find((button) => button.textContent === disclosure)!
+            .click(),
+        );
       expect(host.querySelector(selector)).not.toBeNull();
       expect(document.querySelector('.weq-overlay-layer')).toBeNull();
       expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -619,11 +891,9 @@ it.each([false, undefined])(
           }),
         ),
       );
-      const marks = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) =>
-        button.textContent?.includes('互动标识'),
-      )!;
-      expect(marks.disabled).toBe(true);
-      expect(host.querySelector('.weq-contact-columns')).not.toBeNull();
+      act(() => sectionButton(host, '与我的关系').click());
+      expect(host.querySelector('.weq-contact-marks')).toBeNull();
+      expect(host.querySelector('.weq-profile-workspace')).not.toBeNull();
       expect(host.textContent).not.toContain('成为好友');
       expect(host.textContent).toContain(isFriend === false ? '非好友' : '关系待确认');
     } finally {
@@ -648,12 +918,11 @@ it('UID 与 QQ 号分开判定，只有 UID 的对象仍可查看互动画像', 
         }),
       ),
     );
-    const options = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
-    expect(options.find((button) => button.textContent?.includes('个性主页'))?.disabled).toBe(true);
-    expect(options.find((button) => button.textContent?.includes('互动标识'))?.disabled).toBe(true);
-    const portrait = options.find((button) => button.textContent?.includes('互动画像'))!;
-    expect(portrait.disabled).toBe(false);
-    act(() => portrait.click());
+    const options = [...host.querySelectorAll<HTMLButtonElement>('.weq-profile-directory button')];
+    expect(options.find((button) => button.textContent?.includes('个性主页'))).toBeUndefined();
+    act(() => sectionButton(host, '与我的关系').click());
+    expect(host.querySelector('.weq-contact-marks')).toBeNull();
+    expect(host.querySelector('.weq-profile-disclosure-trigger[aria-expanded]')).toBeNull();
     expect(host.querySelector('.weq-contact-portrait')).not.toBeNull();
   } finally {
     act(() => root.unmount());
@@ -685,7 +954,7 @@ it('资料稀疏时不渲染空的兴趣、照片与关系分栏', () => {
         }),
       ),
     );
-    expect(host.querySelector('.weq-contact-columns.is-single')).not.toBeNull();
+    expect(host.querySelector('.weq-profile-workspace')).not.toBeNull();
     expect(host.querySelector('.weq-contact-secondary')).toBeNull();
     expect(host.querySelector('.weq-profile-album')).toBeNull();
     expect(host.querySelector('.weq-profile-interests')).toBeNull();
@@ -709,7 +978,7 @@ it('联系人互动标识内可打开等级浮层，Escape 只关闭等级', () 
     id: 'fixture',
     isFriend: true,
     identityLabel: 'QQ',
-    identityValue: '10001',
+    identityValue: '10002',
     username: 'fixture',
     displayName: '合成好友',
     createdAt: new Date(0).toISOString(),
@@ -717,7 +986,7 @@ it('联系人互动标识内可打开等级浮层，Escape 只关闭等级', () 
   try {
     act(() => root.render(h(ContactProfileDialog, { contact, embedded: true, onClose: close })));
     const open = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-      button.textContent?.includes('互动标识'),
+      button.textContent?.includes('与我的关系'),
     )!;
     act(() => open.click());
     act(() =>

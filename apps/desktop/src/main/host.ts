@@ -4,7 +4,10 @@
  * before any router runs.
  */
 
-import { app, dialog, shell, nativeImage, net } from 'electron';
+import { app, dialog, shell, nativeImage, net, Notification } from 'electron';
+import { makeSolidPng } from '@weq/protocol';
+import { applicationBadgeBitmap } from '../shared/message_notifications';
+import { getMainWindow } from './main_window';
 import { spawn } from 'node:child_process';
 import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -16,6 +19,7 @@ import { manualRestartArgs } from './startup_window';
 import { prepareDevelopmentRestart } from './development_restart';
 
 let startup: AppAutostart | null = null;
+const messageNotifications = new Set<Notification>();
 function appAutostart(): AppAutostart {
   startup ??= new AppAutostart({
     platform: process.platform,
@@ -131,6 +135,47 @@ function desktopStorageRoots(): StorageRoot[] {
 }
 
 export const electronHost: HostBridge = {
+  setApplicationBadge(count) {
+    if (process.platform !== 'win32') return app.setBadgeCount(count);
+    const window = getMainWindow();
+    if (!window || window.isDestroyed()) return false;
+    const red = nativeImage
+      .createFromBuffer(Buffer.from(makeSolidPng(1, 1, [220, 38, 38])))
+      .toBitmap();
+    const white = nativeImage
+      .createFromBuffer(Buffer.from(makeSolidPng(1, 1, [255, 255, 255])))
+      .toBitmap();
+    const image =
+      count > 0
+        ? nativeImage.createFromBitmap(Buffer.from(applicationBadgeBitmap(count, red, white)), {
+            width: 16,
+            height: 16,
+          })
+        : null;
+    window.setOverlayIcon(image, count > 0 ? `${count} 条未读消息` : '没有未读消息');
+    return true;
+  },
+  showMessageNotification(notice, onClick) {
+    if (!Notification.isSupported()) return false;
+    const notification = new Notification({ title: notice.title, body: notice.body });
+    messageNotifications.add(notification);
+    notification.on('close', () => messageNotifications.delete(notification));
+    notification.on('failed', (_event, error) => {
+      messageNotifications.delete(notification);
+      console.warn('[message-notifications] 系统未展示通知', error);
+    });
+    notification.on('click', () => {
+      electronHost.showMainWindow?.();
+      onClick();
+    });
+    notification.show();
+    while (messageNotifications.size > 20) {
+      const first = messageNotifications.values().next().value!;
+      first.close();
+      messageNotifications.delete(first);
+    }
+    return true;
+  },
   storageRoots: desktopStorageRoots,
   clearStorageAfterExit,
   clearStorageNow,
@@ -208,7 +253,9 @@ export const electronHost: HostBridge = {
         dialogLocations().directory(key) ?? (await defaultSaveDirectory(defaultDirectory)),
         basename(defaultName),
       ),
-      filters: extension ? [{ name: 'File', extensions: [extension] }] : undefined,
+      filters: extension
+        ? [{ name: 'File', extensions: [extension === 'jsonl.gz' ? 'gz' : extension] }]
+        : undefined,
     });
     if (result.canceled || !result.filePath) return null;
     dialogLocations().remember(key, result.filePath);

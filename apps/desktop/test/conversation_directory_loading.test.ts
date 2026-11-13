@@ -4,7 +4,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ContentSelectionProvider,
   useCurrentContentSelection,

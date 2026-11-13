@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
 import { LockKeyhole, Radio, RefreshCw, X } from 'lucide-react';
 import { useToolWindow } from '../hooks/useCompositionWindow';
@@ -9,14 +9,20 @@ import { RenderDocumentContext } from '../lib/renderDocument';
 import { useCaptureWindow } from '../state/captureWindow';
 import { useAppLock } from '../state/lock';
 import { client } from '../trpc/client';
-import { CapturePanel } from './CapturePanel';
-import { UdpCapturePanel } from './UdpCapturePanel';
+import { lazyPanel } from '../lib/lazyPanel';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { ToastHost } from './Toast';
 import { HoverTooltip } from './HoverTooltip';
 import { QueryError } from './settings/controls';
 import '../styles/capture-window.css';
+
+const CapturePanel = lazyPanel<ComponentProps<typeof import('./CapturePanel').CapturePanel>>(() =>
+  import('./CapturePanel').then((module) => ({ default: module.CapturePanel })),
+);
+const UdpCapturePanel = lazyPanel<object>(() =>
+  import('./UdpCapturePanel').then((module) => ({ default: module.UdpCapturePanel })),
+);
 
 export function CaptureWindowRequest({
   source,

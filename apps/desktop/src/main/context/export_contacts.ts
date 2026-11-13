@@ -5,16 +5,25 @@ export function createContactsExportDeps(
   profile: ProfileService,
   groupInfo: GroupInfoService,
 ): NonNullable<MediaDeps['contacts']> {
+  const groupRow = (
+    group: NonNullable<Awaited<ReturnType<GroupInfoService['getGroupDetail']>>>,
+  ) => ({
+    ...group,
+    groupCode: group.groupCode.toString(),
+    customLabels: group.customLabels.map((label) => ({
+      ...label,
+      groupCode: label.groupCode?.toString(),
+      labelId: label.labelId?.toString(),
+      setTimestamp: label.setTimestamp?.toString(),
+    })),
+  });
   return {
     groupByCode: async (code) => {
       const group = await groupInfo.getGroupDetail(BigInt(code));
-      return group ? { ...group, groupCode: group.groupCode.toString() } : null;
+      return group ? groupRow(group) : null;
     },
     listGroups: async (limit, offset) =>
-      (await groupInfo.listAllGroups(limit, offset)).map((group) => ({
-        ...group,
-        groupCode: group.groupCode.toString(),
-      })),
+      (await groupInfo.listAllGroups(limit, offset)).map(groupRow),
     listBuddies: async (limit, offset) =>
       (await profile.listBuddies(limit, offset)).map((buddy) => ({
         uid: buddy.uid,
@@ -33,6 +42,7 @@ export function createContactsExportDeps(
         nick: value.nick,
         remark: value.remark,
         signature: value.signature,
+        sigUpdateTime: value.sigUpdateTime,
         gender: value.gender,
         age: value.age,
         birthYear: value.birthYear,

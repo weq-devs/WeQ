@@ -1,6 +1,7 @@
 import { open } from 'node:fs/promises';
 import { connect, type Socket } from 'node:net';
 import type { SessionMaterial, KeyScanResult, KeyScanProgress } from '@weq/native';
+import { CredentialRepairRequiredError, getLogger } from '@weq/service';
 import {
   AUTHORIZATION_INTERFACE,
   AUTHORIZATION_PROTOCOL,
@@ -15,6 +16,11 @@ import {
 let configuration: {
   endpoint: () => Promise<string>;
   development?: () => Promise<boolean>;
+  /**
+   * 是否已经安装过长期授权（manifest 存在）。仅在握手失败时用来区分
+   * “旧助手协议不兼容”和“本机根本没装助手”，后者仍应回退临时授权。
+   */
+  repairRequired?: () => Promise<boolean>;
 } | null = null;
 export function configureLongTermAuthorization(value: NonNullable<typeof configuration>): void {
   configuration = value;
@@ -26,6 +32,28 @@ export class AuthorizationError extends Error {
   ) {
     super(message);
   }
+}
+
+const logger = getLogger().child({ scope: 'authorization' });
+
+/**
+ * 助手真的存在、但需要用户修复的错误码。连接失败 /授权 / 未安装仍应
+ * 保留临时授权回退；这几种说明“配置本身已不可用”，继续静默回退会让界面
+ * 永远停在准备状态。
+ */
+const REPAIR_CODES = new Set([
+  'incompatible',
+  'interface-changed',
+  'component-expired',
+  'channel-mismatch',
+]);
+
+export function isAuthorizationRepairError(error: unknown): error is AuthorizationError {
+  return error instanceof AuthorizationError && REPAIR_CODES.has(error.code);
+}
+
+function repairMessage(error: AuthorizationError): string {
+  return `长期授权需要修复：${error.message}`;
 }
 export class AuthorizationConnection {
   private sequence = 0;
@@ -175,18 +203,69 @@ export async function connectLongTermAuthorization(): Promise<AuthorizationConne
     return null;
   }
 }
+export interface TryLongTermAttachOptions {
+  /**
+   * 助手存在但需要修复时直接抛 {@link CredentialRepairRequiredError}，而不是
+   * 静默返回 null 走临时授权。默认 false，保持抓包/密钥扫描等调用方的回退语义。
+   */
+  throwOnRepair?: boolean;
+}
+
 export async function tryLongTermAttach(
   pid: number,
   signal?: AbortSignal,
+  options: TryLongTermAttachOptions = {},
 ): Promise<SessionMaterial | null> {
   signal?.throwIfAborted();
-  const connection = await connectLongTermAuthorization();
-  if (!connection) return null;
+  let connection: AuthorizationConnection;
+  try {
+    connection = (await openLongTermAuthorization()).connection;
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (options.throwOnRepair && isAuthorizationRepairError(error)) {
+      // 只有确实装过长期授权时才报“需要修复”；否则保留临时 sudo 回退。
+      const installed = configuration?.repairRequired ? await configuration.repairRequired() : true;
+      if (installed) {
+        logger.warn('long-term authorization needs repair; not falling back', {
+          event: 'authorization-repair-required',
+          pid,
+          code: error.code,
+          errorMessage: error.message,
+        });
+        throw new CredentialRepairRequiredError(repairMessage(error), error.code);
+      }
+    }
+    logger.debug('long-term authorization unavailable; using temporary elevation', {
+      event: 'authorization-unavailable',
+      pid,
+      code: error instanceof AuthorizationError ? error.code : 'unknown',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
   const cancel = () => connection.close();
   signal?.addEventListener('abort', cancel, { once: true });
   try {
     signal?.throwIfAborted();
     return await connection.request<SessionMaterial>({ op: 'attach', pid });
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (options.throwOnRepair && isAuthorizationRepairError(error)) {
+      logger.warn('long-term authorization attach needs repair', {
+        event: 'authorization-attach-repair-required',
+        pid,
+        code: error.code,
+        errorMessage: error.message,
+      });
+      throw new CredentialRepairRequiredError(repairMessage(error), error.code);
+    }
+    logger.warn('long-term authorization attach failed; using temporary elevation', {
+      event: 'authorization-attach-failed',
+      pid,
+      code: error instanceof AuthorizationError ? error.code : 'unknown',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   } finally {
     signal?.removeEventListener('abort', cancel);
     connection.close();

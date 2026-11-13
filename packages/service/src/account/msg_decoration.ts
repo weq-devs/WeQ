@@ -65,6 +65,7 @@ export class MsgDecorationCacheService {
   private readonly fontPending = new Map<number, Promise<FontDerived | null>>();
   private readonly widgetResolved = new Map<number, ResolvedWidget>();
   private readonly widgetPending = new Map<number, Promise<ResolvedWidget>>();
+  private indexRevision = 0;
 
   constructor(private readonly dressInstall: DressService) {}
 
@@ -73,6 +74,14 @@ export class MsgDecorationCacheService {
     fontId: number;
     widgetId: number;
   }): Promise<ResolvedMsgDecoration> {
+    const revision = this.dressInstall.indexRevision?.() ?? 0;
+    if (revision !== this.indexRevision) {
+      this.indexRevision = revision;
+      for (const [id, value] of this.bubbleResolved) if (!value) this.bubbleResolved.delete(id);
+      for (const [id, value] of this.fontResolved) if (!value) this.fontResolved.delete(id);
+      for (const [id, value] of this.widgetResolved)
+        if (!value.animated) this.widgetResolved.delete(id);
+    }
     const [bubble, font, widget] = await Promise.all([
       ids.bubbleId > 0 ? this.resolveBubble(ids.bubbleId) : Promise.resolve(null),
       ids.fontId > 0 ? this.resolveFont(ids.fontId) : Promise.resolve(null),

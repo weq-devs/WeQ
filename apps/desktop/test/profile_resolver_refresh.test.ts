@@ -16,13 +16,13 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
 });
-function fixture(primed: Profile[]) {
+function fixture(primed: Profile[], fallback?: Profile[]) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   const root = createRoot(host);
   let resolver!: ProfileResolver<Profile>;
   function Probe() {
-    resolver = useProfileResolver(primed);
+    resolver = useProfileResolver(primed, fallback);
     return h('output', null, resolver.profileByUid.get('u_a')?.remark);
   }
   act(() => root.render(h(Probe)));
@@ -76,4 +76,58 @@ it('不把响应里未请求的 UID 合并进资料缓存', async () => {
   const f = fixture([{ uid: 'u_a', remark: '原备注' }]);
   await act(async () => f.get().refreshProfiles(['u_a']));
   expect(f.get().profileByUid.has('u_other')).toBe(false);
+});
+it('持久快照先显示但不阻止按需刷新，也不覆盖本地目录的新备注', async () => {
+  mock.query.mockReset().mockResolvedValue([{ uid: 'u_a', remark: '读回备注' }]);
+  const f = fixture(
+    [{ uid: 'u_b', remark: '本地新备注' }],
+    [
+      { uid: 'u_a', remark: '缓存备注' },
+      { uid: 'u_b', remark: '旧缓存备注' },
+    ],
+  );
+  expect(f.host.textContent).toBe('缓存备注');
+  expect(f.get().profileByUid.get('u_b')?.remark).toBe('本地新备注');
+  await act(async () => f.get().resolveProfiles(['u_a', 'u_b']));
+  expect(mock.query).toHaveBeenCalledWith({ uids: ['u_a'] });
+  expect(f.host.textContent).toBe('读回备注');
+});
+
+it('相同刷新不重建资料 Map，单行变更保留其他行，空备注仍清空', async () => {
+  mock.query.mockReset().mockImplementation(async () => [
+    { uid: 'u_a', remark: '甲' },
+    { uid: 'u_b', remark: '乙' },
+  ]);
+  const f = fixture([]);
+  await act(async () => f.get().refreshProfiles(['u_a', 'u_b']));
+  const first = f.get().profileByUid;
+  await act(async () => f.get().refreshProfiles(['u_a', 'u_b']));
+  expect(mock.query).toHaveBeenCalledTimes(2);
+  expect(f.get().profileByUid).toBe(first);
+  mock.query.mockResolvedValueOnce([
+    { uid: 'u_a', remark: '' },
+    { uid: 'u_b', remark: '乙' },
+  ]);
+  await act(async () => f.get().refreshProfiles(['u_a', 'u_b']));
+  expect(f.get().profileByUid.get('u_b')).toBe(first.get('u_b'));
+  expect(f.get().profileByUid.get('u_a')?.remark).toBe('');
+});
+
+it('等值刷新继续阻止迟到首次补全，拒绝旧结果不重建 Map', async () => {
+  let finish!: (profiles: Profile[]) => void;
+  mock.query.mockReset().mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = fixture([]);
+  const read = async () => [{ uid: 'u_a', remark: '当前备注' }];
+  await act(async () => f.get().refreshProfiles(['u_a'], () => true, read));
+  const first = f.get().profileByUid;
+  act(() => f.get().resolveProfiles(['u_a']));
+  await act(async () => f.get().refreshProfiles(['u_a'], () => true, read));
+  await act(async () => finish([{ uid: 'u_a', remark: '迟到旧备注' }]));
+  expect(f.get().profileByUid).toBe(first);
+  expect(f.host.textContent).toBe('当前备注');
 });

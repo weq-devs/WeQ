@@ -22,6 +22,13 @@
  *   pnpm tsx scripts/probe-sign.ts --cmd 0x102a_1 --cmd 0x6d6_2
  *   pnpm tsx scripts/probe-sign.ts --cmd trpc.qqva.gift_midground_panel.GiftMidgroundPanel.SsoGetSceneItem
  *   pnpm tsx scripts/probe-sign.ts --json out.json
+ *   # 真实查询正文（JSON 中 bodyHex 为 inner body），要求签名正对照成功
+ *   pnpm tsx scripts/probe-sign.ts --requests queries.json --control 0x102a_1 --json new-result.json
+ *   # 复用已安装的长期授权助手；TUN 网络按实际路由指定抓包接口
+ *   pnpm tsx scripts/probe-sign.ts --requests queries.json --control 0x102a_1 --iface utun4 \
+ *     --authorization-helper /Library/PrivilegedHelperTools/app.weq.authorization/authorization.sock
+ *   # taskgated 拒绝助手读内存时，可传本轮调试器提取的 {pid,d2Key} JSON；不在命令行传 key
+ *   # --session-material-file <private-file>（运行后删除该文件）
  *   # 断连模式下探测：发包前一刻砍掉 QQ 的 MSF 长连接，并在等待窗口内持续压制
  *   sudo pnpm tsx scripts/probe-sign.ts --disconnect --cmd MessageSvc.PbSendMsg
  *
@@ -30,10 +37,33 @@
  */
 
 import { createConnection, type Socket } from 'node:net';
-import { readdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { loadNativeSafe } from '../packages/native/src';
-import type { CapturedFrame, NtHelperBinding } from '../packages/native/src';
+import type {
+  CapturedFrame,
+  CaptureSession,
+  CaptureStats,
+  NtHelperBinding,
+} from '../packages/native/src';
+import {
+  openAuthorizedSignProbe,
+  parseProbeMaterial,
+  type SignProbeBackend,
+} from './sign-probe-authorization';
+import { DEFAULT_OIDB_CASES, DEFAULT_RAW_CASES } from './sign-probe-commands';
+import {
+  parseCase,
+  parseRequestCases,
+  validateControlSocketPath,
+  type ProbeCase,
+} from './sign-probe-requests';
+import {
+  inspectProbeFrames,
+  describeProbeStatus,
+  type ProbeInspection,
+} from './sign-probe-analysis';
 
 const LABEL = 'probe-sign';
 
@@ -45,9 +75,6 @@ const PIPE_OP_HELLO = 1;
 const PIPE_OP_SEND_REQUEST = 2;
 const PIPE_OP_SEND_REPLY = 4;
 const PIPE_OP_ERROR = 5;
-
-/** SSO reserved 里承载 `SsoSecureInfo` 的字段号。 */
-const RESERVED_SEC_INFO_TAG = 24;
 
 interface PipeFrame {
   op: number;
@@ -64,8 +91,7 @@ function log(message: string): void {
 }
 
 function fail(message: string): never {
-  console.error(`[${LABEL}] 失败: ${message}`);
-  process.exit(1);
+  throw new Error(message);
 }
 
 // ─────────────────────────── 命令行 ───────────────────────────
@@ -80,310 +106,6 @@ const opts = (name: string): string[] =>
     if (value === name && argv[index + 1]) acc.push(argv[index + 1]!);
     return acc;
   }, []);
-
-// ─────────────────────────── 默认命令表 ───────────────────────────
-
-/** WeQ 在用、且 subCommand 固定的 OIDB 命令（`cmd_sub` 形式）。 */
-const DEFAULT_OIDB_CASES: readonly string[] = [
-  '5d6_1',
-  '5d6_6',
-  '5d6_18',
-  '5d6_19',
-  '6d6_0',
-  '6d6_2',
-  '6d6_3',
-  '6d6_4',
-  '6d6_5',
-  '6d7_0',
-  '6d7_1',
-  '6d7_2',
-  '6d8_1',
-  '6d8_2',
-  '6d8_3',
-  '6d9_4',
-  '7e5_104',
-  '7ed_12',
-  '88d_110',
-  '89a_0',
-  '89a_15',
-  '8a0_1',
-  '8a7_0',
-  '8b7_5',
-  '8fc_2',
-  '8fc_3',
-  'a80_1',
-  'b5d_44',
-  'cd4_1',
-  'cde_2',
-  'd69_0',
-  'd72_0',
-  'dc2_34',
-  'e07_0',
-  'e37_800',
-  'e37_1200',
-  'e37_1700',
-  'eac_1',
-  'eac_2',
-  'eb7_1',
-  'ed3_1',
-  'f16_1',
-  'f90_1',
-  'f90_2',
-  'f90_3',
-  'fd4_1',
-  'fe1_2',
-  'fe1_3',
-  'fe5_2',
-  'fe7_3',
-  '102a_0',
-  '102a_1',
-  '1096_1',
-  '1097_1',
-  '10c0_1',
-  '10c0_2',
-  '10c8_1',
-  '10c8_2',
-  '10eb_1',
-  '1124_1',
-  '1125_1',
-  '1126_1',
-  '112a_2',
-  '112e_1',
-  '11c4_100',
-  '11c5_100',
-  '11e9_100',
-  '11e9_200',
-  '11ea_100',
-  '11ea_200',
-  '11ec_1',
-  '1253_1',
-  '1255_0',
-  '126d_100',
-  '126d_200',
-  '126e_100',
-  '126e_200',
-  '1290_0',
-  '1291_0',
-  '1292_0',
-  '12a9_100',
-  '12a9_103',
-  '12b6_0',
-  '902e_1',
-  '902f_1',
-  '9067_202',
-  '9082_1',
-  '9082_2',
-  '9083_1',
-  '912e_0',
-  '912f_0',
-  '921b_0',
-  '929b_0',
-  '93cf_1',
-  '93d0_1',
-  '93d1_1',
-  '93d3_1',
-  '93d7_1',
-  '93db_1',
-  '9436_0',
-  '9437_0',
-  '9474_0',
-  '967c_0',
-  '967d_0',
-  '967e_0',
-];
-
-/** WeQ 在用的 raw trpc / 服务命令（不套 OIDB 信封）。 */
-const DEFAULT_RAW_CASES: readonly string[] = [
-  'MessageSvc.PbSendMsg',
-  'trpc.msg.msg_svc.MsgService.SsoReadedReport',
-  'trpc.msg.msg_svc.MsgService.SsoGroupRecallMsg',
-  'trpc.msg.msg_svc.MsgService.SsoC2CRecallMsg',
-  'trpc.msg.register_proxy.RegisterProxy.SsoGetGroupMsg',
-  'trpc.msg.register_proxy.RegisterProxy.SsoGetC2cMsg',
-  'trpc.group.long_msg_interface.MsgService.SsoSendLongMsg',
-  'trpc.group.long_msg_interface.MsgService.SsoRecvLongMsg',
-  'trpc.qq_new_tech.status_svc.StatusService.SetStatus',
-  'trpc.qpay.red_pack_skin.Skin.SsoGetSkinInfo',
-  'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList',
-  'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias',
-  'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike',
-  'QunAlbum.trpc.qzone.webapp_qun_feeds.FeedsReader.GetQunFeedDetail',
-  'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunComment',
-  'Faceroam.OpReq',
-  'ImgStore.BDHExpressionRoam',
-  'pttTrans.TransGroupPttReq',
-  'pttTrans.TransC2CPttReq',
-  'scupdate.handle',
-  'LongConn.OffPicUp',
-  'HttpConn.0x6ff_501',
-  // 旧 OIDB 信封（`invokeLegacyOidb`）：命令名不带 OidbSvcTrpcTcp 前缀，走 raw 通道。
-  'OidbSvc.0x480_9_IMCore',
-  'OidbSvc.0x4ff_9_IMCore',
-  'OidbSvc.0x42d_4',
-  'OidbSvc.0xcf4',
-  'QQLBSShareSvc.room_operation',
-  'QQLBSShareSvc.report_location',
-  'QQLBSShareSvc.room_query',
-  'trpc.qqhb.qqhb_proxy.Handler.sso_handle',
-  'trpc.qqhb.hbpanel.Hongbao.SsoGetToken',
-  'trpc.qq_lbs.qq_lbs_ark.LocationArk.SsoSendMessage',
-  'trpc.qqrtc.av_appsvr.AvAppsvr.SsoCreateRoom',
-  'trpc.qqrtc.av_appsvr.AvAppsvr.SsoInviteUser',
-  'trpc.qqrtc.av_appsvr.AvAppsvr.SsoAcceptInvite',
-  'trpc.qqrtc.av_appsvr.AvAppsvr.SsoLogOut',
-  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoCreateRoom',
-  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoEnterRoom',
-  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoDeleteUser',
-  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoInviteRoom',
-  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoQueryRoom',
-  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoMultiTerminalSync',
-  'trpc.qqva.gift_midground_panel.GiftMidgroundPanel.SsoGetSceneItem',
-];
-
-// ─────────────────────────── protobuf 小工具 ───────────────────────────
-
-function writeVarint(out: number[], value: bigint): void {
-  let current = value;
-  while (current > 0x7fn) {
-    out.push(Number((current & 0x7fn) | 0x80n));
-    current >>= 7n;
-  }
-  out.push(Number(current));
-}
-
-/** `(command, subCommand, innerBody)` → OIDB 信封（内层 body 允许为空）。 */
-export function buildOidbEnvelope(command: number, subCommand: number, inner: Buffer): Buffer {
-  const out: number[] = [];
-  const varintField = (field: number, value: bigint): void => {
-    writeVarint(out, BigInt(field) << 3n);
-    writeVarint(out, value);
-  };
-  varintField(1, BigInt(command));
-  varintField(2, BigInt(subCommand));
-  varintField(3, 0n);
-  writeVarint(out, (4n << 3n) | 2n);
-  writeVarint(out, BigInt(inner.length));
-  out.push(...inner);
-  varintField(6, 0n);
-  return Buffer.from(out);
-}
-
-function readVarint(buf: Buffer, offset: number): { value: bigint; next: number } {
-  let result = 0n;
-  let shift = 0n;
-  let index = offset;
-  for (;;) {
-    const byte = buf[index];
-    if (byte === undefined) throw new Error('varint 越界');
-    index += 1;
-    result |= BigInt(byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) return { value: result, next: index };
-    shift += 7n;
-  }
-}
-
-/** 解一层 protobuf，返回 `tag → bytes | bigint`。 */
-function decodeFields(buf: Buffer): Map<number, Buffer | bigint> | null {
-  const out = new Map<number, Buffer | bigint>();
-  let index = 0;
-  while (index < buf.length) {
-    const tag = readVarint(buf, index);
-    index = tag.next;
-    const field = Number(tag.value >> 3n);
-    const wire = Number(tag.value & 7n);
-    if (field === 0) return null;
-    if (wire === 2) {
-      const len = readVarint(buf, index);
-      index = len.next;
-      const size = Number(len.value);
-      if (index + size > buf.length) return null;
-      out.set(field, buf.subarray(index, index + size));
-      index += size;
-    } else if (wire === 0) {
-      const value = readVarint(buf, index);
-      index = value.next;
-      out.set(field, value.value);
-    } else if (wire === 1) {
-      out.set(field, buf.subarray(index, index + 8));
-      index += 8;
-    } else if (wire === 5) {
-      out.set(field, buf.subarray(index, index + 4));
-      index += 4;
-    } else {
-      return null;
-    }
-  }
-  return out;
-}
-
-// ─────────────────────────── SSO 帧解析 ───────────────────────────
-
-/**
- * 从抓到的明文里取 SSO head 的 reserved 字段。
- *
- * `plain` 是 **SSO 层**（service 层已被 native 剥掉），开头是 head 长度前缀。
- * 协议 12 的 head 依次是 `seq/i32 · subAppId/i32 · 2052/i32 · preamble(12B) ·
- * a2 · command · cookies · guid · "" · version/i16 · reserved`；协议 13 只有
- * `command · cookies · reserved`。
- *
- * 长度前缀语义：字段值 = **从该前缀起点算起的整段长度**（含前缀自身）。
- */
-function readReserved(plain: Buffer, protocol: number): Buffer | null {
-  try {
-    const headLen = plain.readUInt32BE(0);
-    const head = plain.subarray(4, headLen);
-    let offset = 0;
-    const readPrefixed = (): Buffer => {
-      const size = head.readUInt32BE(offset);
-      const data = head.subarray(offset + 4, offset + size);
-      offset += size;
-      return data;
-    };
-    const readPrefixedI16 = (): Buffer => {
-      const size = head.readUInt16BE(offset);
-      const data = head.subarray(offset + 2, offset + size);
-      offset += size;
-      return data;
-    };
-    if (protocol === 12) {
-      offset = 12 + 12; // seq/subAppId/2052 + preamble
-      readPrefixed(); // a2
-    }
-    readPrefixed(); // command
-    readPrefixed(); // cookies
-    if (protocol === 12) {
-      readPrefixed(); // guid
-      readPrefixed(); // ""（空）
-      readPrefixedI16(); // version
-    }
-    return readPrefixed();
-  } catch {
-    // 帧结构不认识（压缩体 / 新协议版本）时按「没看到 reserved」处理，
-    // 由调用方把这一条标成「未发出」，而不是让整轮扫描挂掉。
-    return null;
-  }
-}
-
-interface SecInfo {
-  sign: number;
-  token: number;
-  extra: number;
-}
-
-/** 从 reserved 里取 `SecInfo`；没有 tag 24 或 tag 24 为空都算「不签名」。 */
-function readSecInfo(reserved: Buffer | null): SecInfo | null {
-  if (!reserved || reserved.length === 0) return null;
-  const fields = decodeFields(reserved);
-  const sec = fields?.get(RESERVED_SEC_INFO_TAG);
-  if (!(sec instanceof Buffer) || sec.length === 0) return null;
-  const inner = decodeFields(sec);
-  if (!inner) return null;
-  const size = (tag: number): number => {
-    const value = inner.get(tag);
-    return value instanceof Buffer ? value.length : 0;
-  };
-  return { sign: size(1), token: size(2), extra: size(3) };
-}
 
 // ─────────────────────────── 断连 ───────────────────────────
 
@@ -528,57 +250,57 @@ class PipeClient {
   }
 
   close(): void {
-    this.socket.end();
+    this.socket.destroy();
   }
 }
 
 // ─────────────────────────── 探测 ───────────────────────────
 
-interface ProbeCase {
-  /** 线上命令名。 */
-  wire: string;
-  /** 发给 pipe 的 OIDB 信封（raw 命令为空 body）。 */
-  body: Buffer;
-}
-
-interface ProbeResult {
+interface ProbeResult extends ProbeInspection {
   cmd: string;
-  sent: boolean;
+  bodySource: ProbeCase['bodySource'];
+  requestSha256: string;
   error?: string;
-  /** service 层协议号：12 = D2Auth，13 = Simple。 */
-  proto?: number;
-  /** encryptType（1 = D2Key）。 */
-  encryptType?: number;
-  secInfo: SecInfo | null;
-  reservedTags: number[] | null;
   replyStatus?: number;
   replyLength?: number;
+  captureDropped?: number;
   /** 断连模式下本轮累计砍掉的 MSF 连接条数（0 = 扫描窗口内没看到连接）。 */
   killedConnections?: number;
+  observedFrames?: number;
+  observedCommands?: string[];
 }
 
-/**
- * `cmd_sub` 的解析规则：命令按 16 进制，子命令按 **10 进制**。
- *
- * 例：`89a_15` → `0x89a` + 子命令 15；`12a9_103` → `0x12a9` + 子命令 103；
- * `11e9_200` → `0x11e9` + 子命令 200。OIDB 子命令习惯上就是十进制写的，别按
- * 十六进制解（那样 `0x6d7_2` 会被发成 `_16`，命令直接发不出去）。
- */
-export function parseCase(spec: string): ProbeCase {
-  // 同时接受 `89a_15` 和 `0x89a_15`（有 `0x` 前缀时不会被当成十六进制再解析一次）。
-  if (/^(?:0x)?[0-9a-f]+_\d+$/i.test(spec)) {
-    const [rawCommand, subText] = spec.split('_');
-    const commandHex = rawCommand!.replace(/^0x/i, '');
-    const command = Number.parseInt(commandHex, 16);
-    const subCommand = Number.parseInt(subText!, 10);
-    return {
-      wire: `OidbSvcTrpcTcp.0x${command.toString(16)}_${subCommand}`,
-      // 空 body 在部分命令上会被 hook 判为空包而不发；塞一个空的 tag1 子消息
-      // （`0a 00`）让帧一定上线——我们只关心签名位，不看业务结果。
-      body: buildOidbEnvelope(command, subCommand, Buffer.from([0x0a, 0x00])),
-    };
-  }
-  return { wire: spec, body: Buffer.from([0x0a, 0x00]) };
+const report = {
+  format: 'weq-sign-probe-v1',
+  platform: process.platform,
+  arch: process.arch,
+  readerExecutable: process.execPath,
+  uid: process.getuid?.(),
+  euid: process.geteuid?.(),
+  captureBackend: opt('--authorization-helper') ? 'authorization-helper' : 'native',
+  materialSource: opt('--session-material-file')
+    ? 'file'
+    : opt('--authorization-helper')
+      ? 'authorization-helper'
+      : 'native',
+  startedAt: new Date().toISOString(),
+  finishedAt: '',
+  pid: undefined as number | undefined,
+  failure: undefined as string | undefined,
+  control: undefined as string | undefined,
+  controlPassed: undefined as boolean | undefined,
+  cleanupErrors: [] as string[],
+  captureSession: undefined as CaptureSession | undefined,
+  captureStats: undefined as CaptureStats | undefined,
+  results: [] as ProbeResult[],
+};
+
+function saveReport(): void {
+  report.finishedAt = new Date().toISOString();
+  const jsonPath = opt('--json');
+  if (!jsonPath) return;
+  writeFileSync(jsonPath, JSON.stringify(report, null, 2), { flag: 'wx', mode: 0o600 });
+  log(`结果已写入 ${jsonPath}`);
 }
 
 /**
@@ -714,34 +436,25 @@ function listWindowsHookPids(): number[] {
 
 async function probeOne(
   pipe: PipeClient,
-  nt: NtHelperBinding,
+  nt: SignProbeBackend,
   pid: number,
   probeCase: ProbeCase,
   requestId: number,
   options: { disconnect?: boolean } = {},
 ): Promise<ProbeResult> {
   const result: ProbeResult = {
+    ...inspectProbeFrames([], probeCase),
     cmd: probeCase.wire,
-    sent: false,
-    secInfo: null,
-    reservedTags: null,
+    bodySource: probeCase.bodySource,
+    requestSha256: createHash('sha256').update(probeCase.body).digest('hex'),
   };
-
-  // 同一命令最多发 3 次。抓包侧偶尔只投递「未解密」的副本（`cmd` 为空），单次采样
-  // 会误判成「没发出去」；多试几次取第一个解出来的 c2s 帧。
   let cursor = (await nt.takeFrames(pid, { maxFrames: 1 })).nextCursor;
   const captured: CapturedFrame[] = [];
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    // 断连模式：**紧贴发包前**砍一次。不持续压制 —— 连着砍会把 QQ 打进完整重连
-    // 流程（约 10s 内 hook 什么包都发不出去），反而拿不到帧。砍一次之后 QQ 一般
-    // 1s 内才重连，这一包正好落在「已断、未重连」的窗口里。
     if (options.disconnect) {
       const killed = killMsfConnections(pid);
       result.killedConnections = (result.killedConnections ?? 0) + killed;
-      if (killed === 0) {
-        // 没有可砍的连接说明 QQ 正在重连，这一发多半也发不出去；等它回来。
-        await new Promise((resolve) => setTimeout(resolve, 2500));
-      }
+      if (!killed) await new Promise((resolve) => setTimeout(resolve, 2500));
     }
     pipe.send({
       op: PIPE_OP_SEND_REQUEST,
@@ -753,63 +466,49 @@ async function probeOne(
     await new Promise((resolve) => setTimeout(resolve, 500));
     const chunk = await nt.takeFrames(pid, { cursor, waitMs: 1000, maxFrames: 4096 });
     cursor = chunk.nextCursor;
+    result.captureDropped = Math.max(result.captureDropped ?? 0, chunk.dropped);
     captured.push(...chunk.frames);
-    const hit = captured.some(
-      (frame) =>
-        frame.direction === 'c2s' &&
-        typeof frame.cmd === 'string' &&
-        frame.cmd.toLowerCase() === probeCase.wire.toLowerCase() &&
-        Boolean(frame.plain),
-    );
-    if (hit) break;
+    result.observedFrames = captured.length;
+    result.observedCommands = [
+      ...new Set(captured.flatMap((frame) => (frame.cmd ? [frame.cmd] : []))),
+    ].slice(0, 16);
+    Object.assign(result, inspectProbeFrames(captured, probeCase));
+    // 捕获但解析失败时仍重试，绝不因 plain 非空就报告不签名。
+    if (result.status === 'signed' || result.status === 'unsigned') break;
   }
-  // 抓包层对同一帧可能投递两份（一份已解密、一份 `cmd` 为空），这里只认解出来的那份：
-  // 带 `cmd` 且名字匹配的 c2s 帧才算「QQ 真的发出去了」。
-  const wanted = probeCase.wire.toLowerCase();
-  const sent = captured.filter(
-    (frame: CapturedFrame) =>
-      frame.direction === 'c2s' &&
-      typeof frame.cmd === 'string' &&
-      frame.cmd.toLowerCase() === wanted &&
-      Boolean(frame.plain),
-  );
-
-  // 每次 attempt 用 requestId*10+attempt，错误/回复也按这个 id 回。
-  let error = null;
-  let reply = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    error = error ?? pipe.find(PIPE_OP_ERROR, requestId * 10 + attempt);
-    reply = reply ?? pipe.find(PIPE_OP_SEND_REPLY, requestId * 10 + attempt);
+    const id = requestId * 10 + attempt;
+    const error = pipe.find(PIPE_OP_ERROR, id);
+    if (error) result.error ??= `${error.status} ${error.msg}`;
+    const reply = pipe.find(PIPE_OP_SEND_REPLY, id);
+    if (reply && result.replyStatus === undefined) {
+      result.replyStatus = reply.status;
+      result.replyLength = reply.body.length;
+    }
   }
-  if (error) {
-    result.error = `${error.status} ${error.msg}`;
-    // hook 侧拒绝时不会产生帧；把它当成「未发出」并带上原因，别只看有没有帧。
-    if (sent.length === 0) return result;
-  }
-
-  if (reply) {
-    result.replyStatus = reply.status;
-    result.replyLength = reply.body.length;
-  }
-
-  if (sent.length === 0) return result;
-  result.sent = true;
-
-  const frame = sent[0]!;
-  result.proto = frame.proto;
-  result.encryptType = frame.encryptType;
-  const reserved = frame.plain ? readReserved(frame.plain, frame.proto) : null;
-  if (reserved) {
-    const tags = decodeFields(reserved);
-    result.reservedTags = tags ? [...tags.keys()].sort((a, b) => a - b) : null;
-  }
-  result.secInfo = readSecInfo(reserved);
   return result;
 }
 
+let closeBackend: (() => void) | undefined;
 async function main(): Promise<void> {
-  const isWindows = process.platform === 'win32';
+  const requestPath = opt('--requests');
+  const cmdArgs = opts('--cmd');
+  if (requestPath && cmdArgs.length) fail('--requests 和 --cmd 不能混用');
+  const cases: ProbeCase[] = requestPath
+    ? parseRequestCases(JSON.parse(readFileSync(requestPath, 'utf8')))
+    : (cmdArgs.length ? cmdArgs : [...DEFAULT_OIDB_CASES, ...DEFAULT_RAW_CASES]).map((cmd) =>
+        parseCase(cmd),
+      );
+  const controlArg = opt('--control');
+  const control = controlArg ? parseCase(controlArg).wire : undefined;
+  report.control = control;
+  if (control && !cases.some((entry) => entry.wire === control))
+    fail('正对照必须包含在本轮请求清单中');
+  const disconnect = argv.includes('--disconnect');
+  if (disconnect && process.platform !== 'linux') fail('--disconnect 仅 Linux 支持');
+  if (disconnect && process.getuid?.() !== 0) fail('--disconnect 需要 root');
 
+  const isWindows = process.platform === 'win32';
   const explicitPid = opt('--pid');
   // 自动发现时取**最大** pid：QQ 重开过的话旧的 control pipe 可能还挂着（进程
   // 已死但句柄没回收前仍可见），最新的那个才是当前会话。
@@ -823,141 +522,146 @@ async function main(): Promise<void> {
       : discoverPid();
   if (!pid || !Number.isInteger(pid) || pid <= 0) {
     fail(
-      '找不到运行中的 hook pipe。请先让 QQ 被注入并上线，或用 --pid 指定；' +
+      '找不到运行中的 hook pipe；请先准备已注入并上线的 QQ。' +
         (isWindows
           ? 'Windows 上请确认 QQ 已被注入（`\\\\.\\pipe\\mojo.<pid>.control` 应存在）'
           : `已查找目录：${findRuntimeDirs().join(', ')}`),
     );
   }
-
+  report.pid = pid;
   // Linux/macOS 是 Unix socket 路径；Windows 是命名管道名（不能拼目录）。
   const runtimeDir = opt('--runtime-dir');
-  const controlPath = isWindows
-    ? windowsControlPipe(pid)
-    : runtimeDir
-      ? (findControlSocketInDir(runtimeDir, pid) ?? `${runtimeDir}/mojo.${pid}.control.sock`)
-      : (findControlSocket(pid) ??
-        fail(
-          `找不到 pid=${pid} 的 hook control socket；` +
-            `已查找目录：${findRuntimeDirs().join(', ')}`,
-        ));
-
-  const loaded = loadNativeSafe();
-  if (!loaded.ok) fail(`native 加载失败（先跑 \`pnpm native:fetch\`）：${loaded.message}`);
-  const nt: NtHelperBinding = loaded.bundle.ntHelper;
-
-  const cmdArgs = opts('--cmd');
-  const cases: ProbeCase[] =
-    cmdArgs.length > 0
-      ? cmdArgs.map(parseCase)
-      : [...DEFAULT_OIDB_CASES, ...DEFAULT_RAW_CASES].map(parseCase);
-
+  const explicitSocket = opt('--control-socket');
+  const controlPath =
+    explicitSocket ??
+    (isWindows
+      ? windowsControlPipe(pid)
+      : runtimeDir
+        ? findControlSocketInDir(runtimeDir, pid)
+        : findControlSocket(pid));
+  if (!controlPath) fail(`找不到 pid=${pid} 的 hook control socket；没有发送任何探测请求`);
+  validateControlSocketPath(controlPath);
+  let nt: SignProbeBackend;
+  const authorizationEndpoint = opt('--authorization-helper');
+  if (authorizationEndpoint) {
+    const authorized = await openAuthorizedSignProbe(authorizationEndpoint);
+    nt = authorized.backend;
+    closeBackend = authorized.close;
+    log('使用已安装的长期授权助手执行提权操作');
+  } else {
+    const loaded = loadNativeSafe();
+    if (!loaded.ok) fail(`native 加载失败：${loaded.message}`);
+    const native: NtHelperBinding = loaded.bundle.ntHelper;
+    const support = native.probeCaptureSupport();
+    if (!support.available) fail(`抓包不可用：${support.hint}`);
+    if (!support.elevated) log(`抓包权限待核实：${support.hint}`);
+    nt = native;
+  }
+  const materialFile = opt('--session-material-file');
+  const material = materialFile
+    ? parseProbeMaterial(JSON.parse(readFileSync(materialFile, 'utf8')), pid)
+    : await nt.scanSessionMaterial(pid);
+  if (!material.d2Key) fail('没读到 d2key，抓包无法解密');
   log(`pid=${pid} control=${controlPath} 命令数=${cases.length}`);
-
-  const support = nt.probeCaptureSupport();
-  if (!support.available) fail(`抓包不可用：${support.hint}`);
-  if (!support.elevated) {
-    log(`⚠ ${support.hint}（抓包可能失败）`);
+  if (cases.some((entry) => entry.bodySource === 'placeholder')) {
+    log('本轮包含占位正文；结果只说明这些输入下的签名观测，不代表真实业务请求已验收');
   }
 
-  const material = await nt.scanSessionMaterial(pid).catch((error: unknown) => {
-    fail(`读取会话物料失败：${error instanceof Error ? error.message : String(error)}`);
-  });
-  if (!material.d2Key) fail('没读到 d2key，抓包无法解密');
-  await nt.startCapture(pid, { d2Key: material.d2Key, ringFrames: 16384 });
-  // 网卡/BPF 就绪后第一条解密帧可能还没到，等一拍再发包，避免首包拿不到 `cmd`。
-  await new Promise((resolve) => setTimeout(resolve, 600));
-
-  const pipe = await PipeClient.connect(controlPath).catch((error: unknown) => {
-    fail(`连接 ${controlPath} 失败：${error instanceof Error ? error.message : String(error)}`);
-  });
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-  const hello = pipe.hello();
-  if (!hello) fail('pipe 握手失败：没收到 hello 帧');
-  log(`pipe 已连接（hello: ${hello.msg}）`);
-
-  // 预热：首帧常以「未解密」形态入环（`cmd` 为空、`plain` 为密文长度），抓包读线程
-  // 走热之后才稳定。先发一包非关键命令、把结果丢掉，代价最小。
-  {
-    const warmCursor = (await nt.takeFrames(pid, { maxFrames: 1 })).nextCursor;
+  let pipe: PipeClient | undefined;
+  let captureStarted = false;
+  try {
+    report.captureSession = await nt.startCapture(pid, {
+      d2Key: material.d2Key,
+      ringFrames: 16384,
+      iface: opt('--iface'),
+      port: opt('--port'),
+    });
+    captureStarted = true;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    pipe = await PipeClient.connect(controlPath);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    if (!pipe.hello()) fail('pipe 握手失败：没收到 hello 帧');
+    // 用本轮第一条显式请求预热，不额外构造一个未经指定的业务请求。
+    const warm = cases[0]!;
+    const cursor = (await nt.takeFrames(pid, { maxFrames: 1 })).nextCursor;
     pipe.send({
       op: PIPE_OP_SEND_REQUEST,
-      requestId: 9_999,
+      requestId: 9999,
       flags: 0,
-      cmd: 'OidbSvcTrpcTcp.0x102a_1',
-      body: buildOidbEnvelope(0x102a, 1, Buffer.from([0x0a, 0x00])),
+      cmd: warm.wire,
+      body: warm.body,
     });
-    await nt.takeFrames(pid, { cursor: warmCursor, waitMs: 800, maxFrames: 4096 });
-  }
-
-  const disconnect = argv.includes('--disconnect');
-  if (disconnect) {
-    if (process.platform !== 'linux') {
-      fail('--disconnect 依赖 `ss -K`，仅 Linux 支持；macOS/Windows 请去掉该参数');
-    }
-    if ((process.getuid?.() ?? -1) !== 0) {
-      fail('--disconnect 需要 root（`ss -K` 砍连接要权限）：用 sudo 重跑');
-    }
-    log('断连模式：每条命令发包前砍掉 QQ 的 MSF 长连接，让这一包落在断连窗口里');
-  }
-
-  const results: ProbeResult[] = [];
-  let requestId = 10_000;
-  try {
+    await nt.takeFrames(pid, { cursor, waitMs: 800, maxFrames: 4096 });
+    let requestId = 10000;
     for (const probeCase of cases) {
-      requestId += 1;
-      const result = await probeOne(pipe, nt, pid, probeCase, requestId, { disconnect });
-      results.push(result);
-      const status = result.secInfo
-        ? `签名 sign=${result.secInfo.sign} token=${result.secInfo.token} extra=${result.secInfo.extra}`
-        : result.sent
-          ? '不签名'
-          : `未发出${result.error ? `（${result.error}）` : ''}`;
-      const proto = result.sent ? `p${result.proto}` : '---';
-      const killed =
-        result.killedConnections !== undefined ? ` [砍 ${result.killedConnections} 条]` : '';
-      console.log(`${result.cmd.padEnd(58)} ${proto.padEnd(4)} ${status}${killed}`);
+      const result = await probeOne(pipe, nt, pid, probeCase, ++requestId, { disconnect });
+      report.results.push(result);
+      console.log(
+        result.cmd.padEnd(58) +
+          ' ' +
+          (result.proto ? `p${result.proto}` : '---') +
+          ' ' +
+          describeProbeStatus(result) +
+          (result.error ? `；hook=${result.error}` : ''),
+      );
     }
   } finally {
-    pipe.close();
-    await nt.stopCapture(pid).catch(() => undefined);
+    pipe?.close();
+    if (captureStarted) {
+      try {
+        report.captureStats = await nt.stopCapture(pid);
+      } catch (error) {
+        report.cleanupErrors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
   }
-
-  const signed = results.filter((item) => item.secInfo);
-  console.log('');
+  if (control)
+    report.controlPassed = report.results.some(
+      (entry) => entry.cmd === control && entry.status === 'signed',
+    );
+  if (control && !report.controlPassed) {
+    fail(`正对照没有成功捕获签名，本轮不能据此接受缺签结论：${control}`);
+  }
+  const count = (status: ProbeResult['status']) =>
+    report.results.filter((entry) => entry.status === status).length;
   log(
-    `共 ${results.length} 条：签名 ${signed.length}，不签名 ${results.filter((r) => r.sent && !r.secInfo).length}，未发出 ${results.filter((r) => !r.sent).length}`,
+    '共 ' +
+      report.results.length +
+      ' 条：签名 ' +
+      count('signed') +
+      '，不签名 ' +
+      count('unsigned') +
+      '，解析失败 ' +
+      count('parse-error') +
+      '，未捕获 ' +
+      count('not-captured'),
   );
-
-  const sentAll = results.filter((r) => r.sent);
-  const byProto = new Map<number, ProbeResult[]>();
-  for (const item of sentAll) {
-    const key = item.proto ?? -1;
-    const list = byProto.get(key) ?? [];
-    list.push(item);
-    byProto.set(key, list);
+  const protocols = new Map<number, number>();
+  for (const result of report.results) {
+    if (result.proto !== undefined)
+      protocols.set(result.proto, (protocols.get(result.proto) ?? 0) + 1);
   }
-  log('协议分布：');
-  for (const [proto, list] of [...byProto.entries()].sort((a, b) => a[0] - b[0])) {
-    console.log(`  ${proto === -1 ? '未知' : `协议 ${proto}`}: ${list.length} 条`);
-  }
-
-  const p13 = byProto.get(13) ?? [];
-  log(`走协议 13 的命令（${p13.length} 条；这些命令 WeQ 带 token 发可能失败）：`);
-  for (const item of p13) {
-    const mark = item.secInfo ? `签名 token=${item.secInfo.token}` : '不签名';
-    console.log(`  ${item.cmd.padEnd(58)} ${mark}`);
-  }
-  if (signed.length > 0) {
-    log('签名命令：');
-    for (const item of signed) console.log(`  ${item.cmd}`);
-  }
-
-  const jsonPath = opt('--json');
-  if (jsonPath) {
-    writeFileSync(jsonPath, JSON.stringify(results, null, 1));
-    log(`结果已写入 ${jsonPath}`);
-  }
+  log(
+    `协议分布：${[...protocols].map(([proto, count]) => `${proto}=${count}`).join('，') || '无有效观测'}`,
+  );
+  if (count('parse-error') || count('not-captured') || report.cleanupErrors.length)
+    process.exitCode = 2;
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  report.failure = error instanceof Error ? error.message : String(error);
+  console.error(`[${LABEL}] 失败：${report.failure}`);
+  process.exitCode = 1;
+} finally {
+  closeBackend?.();
+  try {
+    saveReport();
+  } catch (error) {
+    console.error(
+      `[${LABEL}] 保存报告失败：${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 1;
+  }
+}

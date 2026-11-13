@@ -1,12 +1,15 @@
 import {
   latestArchiveRecords,
   object,
+  parseArchiveJson,
   type Archive,
   type ArchiveRecord,
   type Json,
   type JsonObject,
 } from './archive';
 import { scanArchiveFile, streamArchiveEvents } from './archive_stream';
+import { stat } from 'node:fs/promises';
+import { compressedArchiveBlocks } from './archive_compression';
 
 const text = (value: Json | undefined): string => (typeof value === 'string' ? value : '');
 function displayActor(value: Json | undefined): string {
@@ -146,11 +149,149 @@ function rankObservation(value: JsonObject, order: number): ObservationRank {
 const later = (left: ObservationRank, right: ObservationRank) =>
   (left[0] !== null && (right[0] === null || left[0] > right[0])) ||
   (left[0] === right[0] && left[1] > right[1]);
+
+type CompressedLocation = { start: number; end: number; line: number; length: number };
+type CompressedView = {
+  header: JsonObject;
+  resources: Map<string, JsonObject>;
+  records: Array<{ latest: CompressedLocation; fallback?: CompressedLocation }>;
+};
+const compressedViews = new Map<string, { fingerprint: string; value: Promise<CompressedView> }>();
+
+/** 仅缓存偏移与资源索引，首次流扫验证提交链；分页只解压命中的块，不落展开副本。 */
+export async function compressedArchiveView(path: string, signal?: AbortSignal) {
+  const info = await stat(path);
+  const fingerprint = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+  let cached = compressedViews.get(path);
+  if (!cached || cached.fingerprint !== fingerprint) {
+    const build = async (): Promise<CompressedView> => {
+      const scan = await scanArchiveFile(path, 'jsonl.gz', signal);
+      const latest = new Map<string, { location: CompressedLocation; incomplete: boolean }>();
+      const complete = new Map<string, { location: CompressedLocation; rank: ObservationRank }>();
+      for await (const block of compressedArchiveBlocks(path, signal)) {
+        if (block.end > scan.state.committedBytes) break;
+        let line = 0;
+        while (line < block.data.length) {
+          const end = block.data.indexOf(10, line);
+          const value = object(parseArchiveJson(block.data.toString('utf8', line, end)));
+          const location = { start: block.start, end: block.end, line, length: end - line };
+          line = end + 1;
+          if (value.type !== 'revision') continue;
+          const record = value.record as ArchiveRecord;
+          const incomplete = incompleteContent(record);
+          if (scan.latest.get(record.id)?.revision === record.revision)
+            latest.set(record.id, { location, incomplete });
+          if (incomplete || record.state === 'deleted') continue;
+          for (const observation of scan.observations.get(`${record.id}\0${record.revision}`) ??
+            []) {
+            const rank = rankObservation(
+              observation,
+              scan.observationOrder.get(String(observation.id))!,
+            );
+            if (!complete.has(record.id) || later(rank, complete.get(record.id)!.rank))
+              complete.set(record.id, { location, rank });
+          }
+        }
+      }
+      const after = await stat(path);
+      if (
+        `${after.dev}:${after.ino}:${after.size}:${after.mtimeMs}:${after.ctimeMs}` !== fingerprint
+      )
+        throw new Error('导出文件已变化，请重新打开后查看。');
+      const selection = object(object(object(scan.header.scope).selection).value);
+      const conv =
+        scan.conversations.size === 1
+          ? [...scan.conversations.values()][0]!
+          : { kind: selection.kind ?? 'unknown', id: selection.conv ?? '' };
+      return {
+        header: {
+          _type: 'header',
+          _viewerContainer: true,
+          meta: {
+            platform: 'qq',
+            name: conv.name ?? '',
+            conversationId: conv.id ?? '',
+            kind: conv.kind ?? 'unknown',
+            ...(scan.state.uncommittedTail
+              ? { notice: '归档尾部存在未提交内容，当前仅显示已提交数据。' }
+              : {}),
+          },
+        },
+        resources: scan.resources,
+        records: [...latest].map(([id, value]) => ({
+          latest: value.location,
+          ...(value.incomplete && complete.has(id) ? { fallback: complete.get(id)!.location } : {}),
+        })),
+      };
+    };
+    cached = { fingerprint, value: build() };
+    compressedViews.delete(path);
+    compressedViews.set(path, cached);
+    while (compressedViews.size > 2) compressedViews.delete(compressedViews.keys().next().value!);
+  }
+  let view: CompressedView;
+  try {
+    view = await cached.value;
+  } catch (error) {
+    if (compressedViews.get(path) === cached) compressedViews.delete(path);
+    throw error;
+  }
+  signal?.throwIfAborted();
+  return {
+    total: view.records.length,
+    async *values(offset = 0, limit = view.records.length): AsyncGenerator<JsonObject> {
+      yield view.header;
+      let blockStart = -1,
+        data = Buffer.alloc(0);
+      const load = async (location: CompressedLocation): Promise<ArchiveRecord> => {
+        signal?.throwIfAborted();
+        if (blockStart !== location.start) {
+          for await (const block of compressedArchiveBlocks(path, signal, location)) {
+            data = block.data;
+            blockStart = block.start;
+          }
+          if (blockStart !== location.start) throw new Error('压缩归档块已变化');
+        }
+        return object(
+          parseArchiveJson(data.toString('utf8', location.line, location.line + location.length)),
+        ).record as ArchiveRecord;
+      };
+      for (const item of view.records.slice(offset, offset + limit)) {
+        const record = await load(item.latest);
+        const displayed = item.fallback
+          ? {
+              ...record,
+              data: { ...record.data, content: (await load(item.fallback)).data.content! },
+            }
+          : record;
+        const message = displayRecord(displayed, view.resources);
+        if (item.fallback)
+          (message.elements as Json[]).unshift({
+            type: 'text',
+            data: { textContent: '[最新观察正文不完整，显示已有版本] ' },
+          });
+        message.msgId =
+          record.kind === 'message' ? (record.data.messageId ?? record.id) : record.id;
+        if (record.state === 'deleted')
+          (message.elements as Json[]).unshift({
+            type: 'text',
+            data: { textContent: '[已删除或撤回] ' },
+          });
+        yield message;
+      }
+    },
+  };
+}
+
 export async function* streamArchiveViewerValues(
   path: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   signal?: AbortSignal,
 ): AsyncGenerator<JsonObject> {
+  if (format === 'jsonl.gz') {
+    yield* (await compressedArchiveView(path, signal)).values();
+    return;
+  }
   const scan = await scanArchiveFile(path, format, signal);
   const selection = object(object(object(scan.header.scope).selection).value);
   const conv =

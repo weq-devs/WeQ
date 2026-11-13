@@ -1,6 +1,6 @@
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, realpathSync } from 'node:fs';
-import { basename, dirname, extname, join } from 'node:path';
-import { sanitizeSegment } from '../../common/path_sanitize';
+import { basename, dirname, join } from 'node:path';
+import { fileExtension, sanitizeSegment } from '../../common/path_sanitize';
 import type { ExportSavePolicy } from './save_output';
 
 export interface DirectOutput {
@@ -21,7 +21,7 @@ export function prepareDirectOutput(
   if (policy.filePath) {
     const selected = basename(policy.filePath);
     for (let n = 0; ; n++) {
-      const ext = extname(selected);
+      const ext = fileExtension(selected);
       const filePath = join(root, n ? `${basename(selected, ext)} (${n})${ext}` : selected);
       if (existsSync(`${filePath}.report.json`) || existsSync(`${filePath}.report.html`)) {
         if (policy.uniqueFileName) continue;

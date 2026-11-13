@@ -38,6 +38,7 @@ async function fixture() {
   let blockCopy: (() => Promise<void>) | undefined;
   let readerReady = true;
   let failRemoving = false;
+  let refuseQuit = false;
   const run = vi.fn(
     async (
       command: string,
@@ -46,7 +47,13 @@ async function fixture() {
     ): Promise<OwnedChildResult> => {
       let stdout = '';
       if (command === '/bin/ps') stdout = processes;
-      else if (command === '/bin/rm') {
+      else if (command === '/bin/kill') {
+        if (!refuseQuit)
+          processes = processes
+            .split('\n')
+            .filter((line) => !args.slice(1).includes(line.trim().split(/\s+/)[0]!))
+            .join('\n');
+      } else if (command === '/bin/rm') {
         const path = args.at(-1)!;
         if (failRemoving && path === target) {
           await rm(join(target, 'Contents/Resources/weq-debug-copy.json'));
@@ -109,6 +116,9 @@ async function fixture() {
     failOpen: () => {
       failOpening = true;
     },
+    refuseQuit: () => {
+      refuseQuit = true;
+    },
     blockCopy: (value: () => Promise<void>) => {
       blockCopy = value;
     },
@@ -120,6 +130,57 @@ async function fixture() {
     },
   };
 }
+it('明确切换先校验副本，仅退出原安装主进程，再打开副本', async () => {
+  const f = await fixture();
+  f.processes(
+    `51 ${f.source}/Contents/MacOS/QQ\n52 /Other QQ.app/Contents/MacOS/QQ\n53 ${f.source}/Contents/Frameworks/QQ Helper`,
+  );
+  expect(await f.manager.status()).toMatchObject({ sourceRunningPids: [51] });
+  await f.manager.perform('switch');
+  expect(f.run.mock.calls.filter(([cmd]) => cmd === '/bin/kill').map(([, args]) => args)).toEqual([
+    ['-TERM', '51'],
+  ]);
+  const commands = f.run.mock.calls.map(([cmd]) => cmd);
+  const verified = f.run.mock.calls.findIndex(
+    ([cmd, args]) =>
+      cmd === '/usr/bin/codesign' && args.includes('--verify') && args.includes('--deep'),
+  );
+  expect(verified).toBeGreaterThan(-1);
+  expect(commands.indexOf('/bin/kill')).toBeGreaterThan(verified);
+  expect(commands.indexOf('/usr/bin/open')).toBeGreaterThan(commands.indexOf('/bin/kill'));
+});
+it('副本准备失败时不退出普通 QQ', async () => {
+  const f = await fixture();
+  f.processes(`51 ${f.source}/Contents/MacOS/QQ`);
+  f.failSign();
+  await expect(f.manager.perform('switch')).rejects.toThrow('synthetic signing failure');
+  expect(f.run.mock.calls.some(([cmd]) => cmd === '/bin/kill')).toBe(false);
+  expect(f.run.mock.calls.some(([cmd]) => cmd === '/usr/bin/open')).toBe(false);
+});
+it('普通 QQ 未退出时不强杀也不启动副本，并释放管理锁', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  f.processes(`51 ${f.source}/Contents/MacOS/QQ`);
+  f.refuseQuit();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    const pending = expect(f.manager.perform('switch')).rejects.toThrow('普通 QQ 尚未退出');
+    await vi.runAllTimersAsync();
+    // 文件校验使用真实 I/O，先让它推进到退出等待。
+    while (!f.run.mock.calls.some(([cmd]) => cmd === '/bin/kill'))
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 65; i++) {
+      await vi.advanceTimersByTimeAsync(250);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await pending;
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(f.run.mock.calls.filter(([cmd]) => cmd === '/bin/kill')).toHaveLength(1);
+  expect(f.run.mock.calls.some(([cmd]) => cmd === '/usr/bin/open')).toBe(false);
+  expect(await f.manager.status()).toMatchObject({ phase: 'idle' });
+});
 it('未创建时只检测，不写副本或启动 QQ；读取端权限单独报告', async () => {
   const f = await fixture();
   f.noReader();
@@ -161,6 +222,46 @@ it('原安装升级后显示可更新；更新成功替换副本并清理本次�
   expect(await f.manager.status()).toMatchObject({ state: 'outdated', sourceVersion: '7.0.1-2' });
   expect(await f.manager.perform('prepare')).toMatchObject({ state: 'ready', version: '7.0.1-2' });
   expect(await readdir(join(f.home, 'Applications'))).toEqual(['QQ-WeQ.app']);
+});
+it('轮询复用版本与签名检查，但每次只用一次进程快照更新两类进程', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  f.run.mockClear();
+  f.processes(`42 ${f.target}/Contents/MacOS/QQ\n51 ${f.source}/Contents/MacOS/QQ`);
+  expect(await f.manager.status()).toMatchObject({ runningPids: [42], sourceRunningPids: [51] });
+  f.processes('');
+  expect(await f.manager.status()).toMatchObject({ runningPids: [], sourceRunningPids: [] });
+  expect(f.run.mock.calls.map(([command]) => command)).toEqual(['/bin/ps', '/bin/ps']);
+});
+it('并发查询共用一次静态检查，缓存过期后自动复查', async () => {
+  const f = await fixture();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    await Promise.all([f.manager.status(), f.manager.status(), f.manager.status()]);
+    expect(f.run.mock.calls.filter(([cmd]) => cmd === '/usr/bin/codesign')).toHaveLength(1);
+    f.run.mockClear();
+    vi.setSystemTime(Date.now() + 61_000);
+    await f.manager.status();
+    expect(f.run.mock.calls.filter(([cmd]) => cmd === '/usr/bin/codesign')).toHaveLength(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('缓存期间文件改变立即重查，实际打开不依赖缓存的有效结论', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  await writeFile(
+    join(f.target, 'Contents/Resources/weq-debug-copy.json'),
+    JSON.stringify({ format: 1, source: f.source, sourceVersion: '7.0.1-1' }),
+  );
+  expect(await f.manager.status()).toMatchObject({ state: 'invalid' });
+  await f.manager.perform('open');
+  expect(await f.manager.status()).toMatchObject({ state: 'ready' });
+  f.run.mockClear();
+  await f.manager.perform('open');
+  expect(
+    f.run.mock.calls.some(([cmd, args]) => cmd === '/usr/bin/codesign' && args.includes('--deep')),
+  ).toBe(true);
 });
 it('旧签名副本提示修复且不再启动，重新准备后恢复可用', async () => {
   const f = await fixture();
@@ -209,6 +310,15 @@ it('非 WeQ 同名应用不覆盖、不移除、不启动', async () => {
   for (const action of ['prepare', 'remove', 'launch'] as const)
     await expect(f.manager.perform(action)).rejects.toThrow('非 WeQ');
   expect(await readFile(join(f.target, 'personal-original'), 'utf8')).toBe('keep');
+});
+it('缓存的副本被普通文件替换时立即报告位置占用，不因子路径不是目录而丢失状态', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  await rm(f.target, { recursive: true });
+  await writeFile(f.target, 'personal-original');
+  expect(await f.manager.status()).toMatchObject({ state: 'unmanaged' });
+  await expect(f.manager.perform('open')).rejects.toThrow('非 WeQ');
+  expect(await readFile(f.target, 'utf8')).toBe('personal-original');
 });
 it('复制期间同名位置被其他应用占用时保留新到的原件，不覆盖提交', async () => {
   const f = await fixture();
@@ -281,6 +391,51 @@ it('启动使用精确副本路径；失败不报告已运行，也不继承 Ele
   } finally {
     vi.unstubAllEnvs();
   }
+});
+it('已有副本进程仍可启动新实例，打开已有窗口不传 -n，也不终止进程', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  f.processes(`42 ${f.target}/Contents/MacOS/QQ`);
+  await f.manager.perform('launch');
+  await f.manager.perform('activate');
+  expect(
+    f.run.mock.calls.filter(([command]) => command === '/usr/bin/open').map(([, args]) => args),
+  ).toEqual([
+    ['-n', '-a', f.target],
+    ['-a', f.target],
+  ]);
+  expect((await f.manager.status()).runningPids).toEqual([42]);
+});
+it('一键打开在缺失时准备并启动，可用但过期时不更新，损坏时修复后启动', async () => {
+  const f = await fixture();
+  await f.manager.perform('open');
+  expect((await f.manager.status()).state).toBe('ready');
+  expect(f.run.mock.calls.filter(([command]) => command === '/usr/bin/open')).toHaveLength(1);
+  await writeFile(f.infoPath(f.source), JSON.stringify({ ...f.info, CFBundleVersion: '2' }));
+  await f.manager.perform('open');
+  expect((await f.manager.status()).state).toBe('outdated');
+  expect(f.run.mock.calls.filter(([command]) => command === '/bin/cp')).toHaveLength(1);
+  await writeFile(
+    join(f.target, 'Contents/Resources/weq-debug-copy.json'),
+    JSON.stringify({ format: 1, source: f.source, sourceVersion: '7.0.1-1' }),
+  );
+  await f.manager.perform('open');
+  expect((await f.manager.status()).state).toBe('ready');
+  expect(f.run.mock.calls.filter(([command]) => command === '/usr/bin/open')).toHaveLength(3);
+});
+it('一键修复遇到运行中副本或签名失败时不启动，不替换在用副本', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  await writeFile(
+    join(f.target, 'Contents/Resources/weq-debug-copy.json'),
+    JSON.stringify({ format: 1, source: f.source, sourceVersion: '7.0.1-1' }),
+  );
+  f.processes(`42 ${f.target}/Contents/MacOS/QQ`);
+  await expect(f.manager.perform('open')).rejects.toThrow('正在运行');
+  f.processes('');
+  f.failSign();
+  await expect(f.manager.perform('open')).rejects.toThrow('signing failure');
+  expect(f.run.mock.calls.some(([command]) => command === '/usr/bin/open')).toBe(false);
 });
 it('读取端缺少调试权限时仍能启动副本，状态继续如实报告未就绪', async () => {
   const f = await fixture();

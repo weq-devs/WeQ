@@ -143,18 +143,7 @@ function authorOf(source: unknown): PublicAuthor {
   };
 }
 
-/** 富文本项里的 `[em]eXXX[/em]` 原样保留，交给渲染层的 qzoneTextParts 解析。 */
-function richText(items: unknown): string {
-  return asArray(items)
-    .map((item) => {
-      const value = asObject(item);
-      if (!value) return '';
-      // type 0 是文本；其它类型可能是图片 / @ / 链接，正文里没有可读文字。
-      return asNumber(value.type) === 0 ? asString(value.content) : '';
-    })
-    .join('')
-    .trim();
-}
+import { publicRichText as richText } from '@weq/service/qzone-public-text';
 
 function pickImageUrl(image: PublicJson): string {
   const direct = publicMediaSource(asObject(image.default_url)?.url);

@@ -1,3 +1,4 @@
+import { formatClock } from '@weq/time';
 /**
  * Background database health checks for the currently opened QQ account,
  * plus damage-report writing and one-click feedback bundling (logs +
@@ -133,7 +134,7 @@ function pad(n: number, len = 2): string {
 function stampParts(d = new Date()): { date: string; time: string; ts: string } {
   return {
     date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
+    time: formatClock(d),
     ts: `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`,
   };
 }

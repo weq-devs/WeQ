@@ -3,6 +3,16 @@ import {
   conversationPinned,
   pinOrderDelta,
 } from '@weq/service/conversation-order';
+import { replaceEqualDeep } from '@tanstack/react-query';
+
+/** 排序与单个角标变化不改变其他会话引用，避免刷新当前聊天的整棵消息树。 */
+export function reconcileConversationRows<T extends { id: string }>(previous: T[], next: T[]): T[] {
+  const byId = new Map(previous.map((row) => [row.id, row]));
+  const shared = next.map((row) => replaceEqualDeep(byId.get(row.id), row));
+  return shared.length === previous.length && shared.every((row, index) => row === previous[index])
+    ? previous
+    : shared;
+}
 
 type OrderableConversation = Parameters<typeof conversationActivityTime>[0] &
   Parameters<typeof conversationPinned>[0];
@@ -11,12 +21,13 @@ type OrderableConversation = Parameters<typeof conversationActivityTime>[0] &
 export function sortConversationRows<T extends OrderableConversation>(
   rows: readonly T[],
   preferences: Parameters<typeof conversationPinned>[1] = {},
+  activityTime: (row: T) => number = conversationActivityTime,
 ): T[] {
   return rows
     .map((row) => ({
       row,
       pinned: conversationPinned(row, preferences),
-      time: conversationActivityTime(row),
+      time: activityTime(row),
     }))
     .sort(
       (first, second) =>

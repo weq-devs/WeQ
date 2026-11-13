@@ -16,9 +16,12 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFileAtomicSync } from './atomic_write';
+import type { PreferencePersistence } from './shared_preferences';
 
 /** {@link JsonStore} 的构造选项。 */
 export interface JsonStoreOptions<T> {
+  /** 宿主注入的权威配置来源；提供后不再读写旧 filePath。 */
+  persistence?: PreferencePersistence<T>;
   /** 权威数据：读取损坏或写盘失败必须抛错。 */
   strict?: boolean;
   /** 读入的原始值 → 期望形状。缺省 = 原样透传（依赖调用方会校验的类型）。 */
@@ -68,18 +71,27 @@ export class JsonStore<T> {
     this.write(this.data);
   }
 
+  /** 迁移不能把读取失败的回落值当作真实空数据。 */
+  assertReadable(): void {
+    if (this.loadError) throw this.loadError;
+  }
+
   /** 先持久化再发布内存态，失败不暴露未保存的变更。 */
-  replace(next: T): void {
-    this.write(next);
+  replace(next: T, requireDurable = false): void {
+    this.write(next, requireDurable);
     this.data = next;
   }
 
-  private write(next: T): void {
+  private write(next: T, requireDurable = false): void {
+    if (this.opts.persistence) {
+      this.opts.persistence.write(next);
+      return;
+    }
     if (this.loadError) {
-      if (this.opts.strict) throw this.loadError;
+      if (this.opts.strict || requireDurable) throw this.loadError;
       return; // 坏文件保留原件，宽容缓存也不静默覆盖。
     }
-    if (this.opts.strict)
+    if (this.opts.strict || requireDurable)
       writeFileAtomicSync(
         this.filePath,
         this.opts.pretty ? JSON.stringify(next, null, 2) : JSON.stringify(next),
@@ -89,6 +101,10 @@ export class JsonStore<T> {
 
   private load(): T {
     const fallback = (): T => this.makeInitial();
+    if (this.opts.persistence) {
+      const raw = this.opts.persistence.read();
+      return this.opts.normalize ? this.opts.normalize(raw) : (raw as T);
+    }
     try {
       let raw: unknown;
       try {

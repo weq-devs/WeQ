@@ -60,7 +60,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     }
                   : name === 'getVersionInfo'
                     ? { app: '1.0.0', isDev: false }
-                    : { current: '1.0.0', hasUpdate: true, latest: '2.0.0' },
+                    : name === 'getSettings'
+                      ? // 图片识别页的筛图开关读取共享设置里的 ocr 配置。
+                        { ocr: { prefilterEnabled: true }, modelResources: {} }
+                      : { current: '1.0.0', hasUpdate: true, latest: '2.0.0' },
               isLoading: false,
               isFetching: false,
               refetch: fixture.refetch,
@@ -212,13 +215,18 @@ describe('隐藏设置页的进度资源', () => {
       expect(fixture.listeners.size).toBe(2);
       f.render(false);
       expect(fixture.listeners.size).toBe(0);
-      expect([...fixture.enabled.values()]).toEqual([false, false]);
+      expect(Object.fromEntries(fixture.enabled)).toEqual({
+        getVersionInfo: false,
+        getState: false,
+        getInterval: false,
+        getPrerelease: false,
+      });
       f.render(true);
       await act(async () => update.download());
       expect(update.phase).toBe('downloading');
       f.render(false);
       expect(fixture.listeners.size).toBe(2);
-      expect([...fixture.enabled.values()]).toEqual([false, false]);
+      expect([...fixture.enabled.values()]).toEqual([false, false, false, false]);
       const event = [...fixture.listeners.values()].find((listener) =>
         listener.path.endsWith('onEvent'),
       )!;

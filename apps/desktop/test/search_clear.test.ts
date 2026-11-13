@@ -97,18 +97,16 @@ it('已聚焦输入框清空后保留搜索范围及选择，点击外部仍收�
     act(() => input.focus());
     const scope = () => document.querySelector('[aria-label="搜索范围"]');
     expect(scope()).not.toBeNull();
-    // 原生清除按钮的鼠标事件以 input 为目标，清空时不会再次触发 focus。
-    act(() => input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '');
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="清空搜索"]')!.click());
     expect(input.value).toBe('');
+    expect(host.querySelector('[aria-label="清空搜索"]')).toBeNull();
     expect(scope()).not.toBeNull();
-    expect(scope()!.querySelectorAll('[aria-pressed="true"]')).toHaveLength(1);
-    expect(scope()!.querySelector('[aria-pressed="true"]')?.textContent).toBe(
-      CATEGORY_META[SEARCH_CATEGORY_ORDER[0]!].label,
+    expect(scope()!.querySelectorAll('[aria-label="搜索类型"] [aria-pressed="true"]')).toHaveLength(
+      1,
     );
+    expect(
+      scope()!.querySelector('[aria-label="搜索类型"] [aria-pressed="true"]')?.textContent,
+    ).toBe(CATEGORY_META[SEARCH_CATEGORY_ORDER[0]!].label);
     expect(document.querySelector('[aria-label="搜索结果"]')).toBeNull();
     expect(document.activeElement).toBe(input);
     act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));

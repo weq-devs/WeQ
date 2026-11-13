@@ -125,6 +125,7 @@ export class GroupKeywordService {
   private rules: GroupKeywordRules = {};
   /** 已提醒过的 `group:seq`，避免同一 seq 因重复扫描被推两次。 */
   private readonly seen = new Set<string>();
+  private generation = 0;
 
   constructor(
     private readonly session: AccountSession,
@@ -136,12 +137,13 @@ export class GroupKeywordService {
   /** 挂载 nt_msg.db 监听。幂等。 */
   start(): void {
     if (this.handle) return;
+    const generation = ++this.generation;
     this.handle = this.watch.mount(
       createNtMsgDbHook(this.session, {
         onDbChanged: () => {
           /* 与 UI 刷新路径无关，忽略 */
         },
-        onNewMessages: (change: NewMessages) => this.onNewMessages(change),
+        onNewMessages: (change: NewMessages) => this.onNewMessages(change, generation),
       }),
     );
   }
@@ -149,6 +151,7 @@ export class GroupKeywordService {
   /** 停止监听（清空去重集合）。幂等。 */
   stop(): void {
     if (!this.handle) return;
+    this.generation++;
     this.handle.unmount();
     this.handle = null;
     this.seen.clear();
@@ -163,13 +166,20 @@ export class GroupKeywordService {
     return this.rules;
   }
 
-  private onNewMessages(change: NewMessages): void {
+  private isCurrent(generation: number): boolean {
+    return generation === this.generation && this.handle !== null;
+  }
+
+  private async onNewMessages(change: NewMessages, generation: number): Promise<void> {
     for (const msg of change.group) {
-      void this.evaluate(msg);
+      if (!this.isCurrent(generation)) return;
+      if (!this.rules[msg.targetGroupCode]) continue;
+      // 把通知完成交回消息 hook，避免一页命中同时展开，也让失败进入原有重试。
+      await this.evaluate(msg, generation);
     }
   }
 
-  private async evaluate(msg: GroupMsg): Promise<void> {
+  private async evaluate(msg: GroupMsg, generation: number): Promise<void> {
     const groupCode = msg.targetGroupCode;
     const rule = this.rules[groupCode];
     const keyword = matchesRule(rule, msg);
@@ -199,7 +209,8 @@ export class GroupKeywordService {
         text: plainTextOf(msg).slice(0, MAX_TEXT_LEN),
       });
     } catch (error) {
-      // 通知 / 写库失败不影响后续消息；去掉去重标记好让重试有机会。
+      if (!this.isCurrent(generation)) return;
+      // 交回消息 hook 重试本页；成功项保留去重，失败项允许再次交付。
       this.seen.delete(key);
       throw error;
     }

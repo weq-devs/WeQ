@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useThemeStore } from '../state/theme';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 
 /** `<webview>` 是 Electron 注入的自定义元素，给 TSX 补一个最小类型声明。 */
 declare global {
@@ -93,7 +94,9 @@ export function EmbeddedBrowserView({
   if (!target) {
     return (
       <div className="weq-embedded-browser weq-embedded-browser-loading">
-        <p>正在加载{label}…</p>
+        <p role="status">
+          <LoadingIndicator>正在加载{label}…</LoadingIndicator>
+        </p>
       </div>
     );
   }

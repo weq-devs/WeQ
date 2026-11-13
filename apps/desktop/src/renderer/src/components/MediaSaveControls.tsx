@@ -5,6 +5,7 @@ import type { MediaSaveSource } from '../../../shared/media_save';
 import { client } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target';
+import { useRemoteClient } from '../lib/remoteClient';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast';
@@ -41,6 +42,7 @@ async function pause(signal: AbortSignal) {
 }
 
 export function useMediaSave() {
+  const remote = useRemoteClient();
   const save = useExportSavePolicy(),
     document = useRenderDocument();
   const push = useToast((state) => state.push);
@@ -87,7 +89,7 @@ export function useMediaSave() {
   async function run(
     source: MediaSaveSource,
     intent?: ExportSavePolicy,
-    browser = false,
+    browser = remote,
   ): Promise<{ taskId: string | null; error?: string; cancelled?: boolean }> {
     if (!save.binding || pending.current?.identity === identity || save.settings.isLoading)
       return { taskId: null };
@@ -194,6 +196,7 @@ export function MediaSaveControls({
   label?: string;
   iconOnly?: boolean;
 }) {
+  const remote = useRemoteClient();
   return (
     <div
       className="weq-save-action-group weq-media-save-controls"
@@ -203,13 +206,13 @@ export function MediaSaveControls({
       <button
         type="button"
         className={className}
-        title={IS_WEB ? `${label}到服务器` : label}
+        title={remote ? `${label}到设备` : IS_WEB ? `${label}到服务器` : label}
         aria-label={label}
         disabled={save.disabled}
         onClick={() => void save.run(source)}
       >
         {save.isBusy(source) ? <Loader2 size={15} className="weq-spin" /> : <Download size={15} />}
-        {iconOnly ? null : <span>{IS_WEB ? '保存到服务器' : '保存'}</span>}
+        {iconOnly ? null : <span>{remote ? '下载' : IS_WEB ? '保存到服务器' : '保存'}</span>}
       </button>
       {save.downloading && save.isBusy(source) && (
         <button

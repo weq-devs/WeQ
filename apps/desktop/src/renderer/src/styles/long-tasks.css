@@ -16,6 +16,18 @@
   border-bottom: 1px solid var(--weq-border-subtle);
   font-size: 12px;
   color: var(--weq-fg-secondary);
+  flex: none;
+}
+
+.weq-current-tasks-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.weq-current-tasks-summary > span {
+  overflow-wrap: anywhere;
 }
 
 .weq-current-tasks-actions {
@@ -27,9 +39,8 @@
 
 .weq-current-tasks-actions > .weq-set-btn {
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
+  min-height: 30px;
+  padding: 4px 8px;
 }
 
 .weq-current-tasks .weq-set-btn-soft:not(:disabled) {
@@ -54,7 +65,6 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
   background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
 }
 
-.weq-current-tasks-empty,
 .weq-current-tasks-notice {
   margin: 0;
   padding: 12px;
@@ -86,6 +96,37 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
 .weq-long-task:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
+}
+
+.weq-long-task-entry {
+  min-width: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-long-task-entry > .weq-long-task {
+  padding-bottom: 6px;
+  border-bottom: 0;
+}
+
+.weq-task-quick-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+
+.weq-task-quick-actions > .weq-set-btn {
+  flex: none;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.weq-task-quick-actions > button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
 }
 
 .weq-long-task-icon {

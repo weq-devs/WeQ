@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { basename, dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { DbRepairHistory } from '../account/db_repair/history';
@@ -211,7 +212,7 @@ async function splitProgramBackups(base: StorageUsageItem): Promise<StorageUsage
     const at = typeof meta?.capturedAt === 'string' ? meta.capturedAt : '';
     const time =
       at && /(?:Z|[+-]\d{2}:\d{2})$/.test(at) && Number.isFinite(Date.parse(at))
-        ? `${new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`
+        ? `${eventTimeFormatter.format(new Date(at))}（北京时间）`
         : at;
     item.reason = time ? `备份时间：${time}` : '未识别的程序备份，仅统计占用';
     item.confirmation =
@@ -231,6 +232,8 @@ function classify(item: StorageUsageItem): StorageUsageItem {
   };
   if (CONFIG_NAMES.has(name))
     return { ...base, management: 'backup', action: item.clearable ? 'data' : 'none' };
+  if (name === 'anti_recall' || name === 'restore' || name.startsWith('config.json.'))
+    return { ...base, management: 'backup', clearable: false, requiresExit: false };
   if (item.management === 'backup' || item.label.startsWith('桌面运行数据')) {
     if (RUNTIME_CACHE_NAMES.has(name))
       return {

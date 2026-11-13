@@ -20,10 +20,27 @@
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 .weq-file-manager-toolbar > .weq-set-iconbtn,
+.weq-file-selection-toolbar > .weq-set-iconbtn,
 .weq-file-row-tools > .weq-set-iconbtn {
   flex: 0 0 30px;
   width: 30px;
   height: 30px;
+}
+.weq-file-selection-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+}
+.weq-file-selection-toolbar > span {
+  flex: 1;
+  min-width: 72px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .weq-file-manager-search {
   display: flex;

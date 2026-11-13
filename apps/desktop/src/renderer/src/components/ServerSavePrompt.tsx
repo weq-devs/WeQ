@@ -1,4 +1,5 @@
 import { Modal } from './Dialog';
+import { useId } from 'react';
 import { SaveResultLocation } from '../views/export/SaveResultLocation';
 import '../styles/server-save-prompt.css';
 
@@ -11,9 +12,11 @@ export function ServerSavePrompt({
   onChoose: (directory: string | null) => void;
   portalTarget?: Element | null;
 }) {
+  const titleId = useId();
   return (
     <Modal
       title="保存到服务器"
+      labelledBy={titleId}
       width={440}
       centered
       className="weq-server-save-dialog"
@@ -21,7 +24,12 @@ export function ServerSavePrompt({
       onClose={() => onChoose(null)}
       portalTarget={portalTarget}
     >
-      <SaveResultLocation name={name} onChoose={onChoose} onCancel={() => onChoose(null)} />
+      <SaveResultLocation
+        name={name}
+        headingId={titleId}
+        onChoose={onChoose}
+        onCancel={() => onChoose(null)}
+      />
     </Modal>
   );
 }

@@ -1,7 +1,10 @@
+import { eventTimeFormatter, formatRelativeTime } from '@weq/time';
+import { TimeLabel } from '../TimeLabel';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTabActive } from '../RetainedTabs';
 import {
   Check,
+  ChevronRight,
   Copy,
   ExternalLink,
   MonitorSmartphone,
@@ -22,6 +25,31 @@ import {
   remoteDirectAddresses,
   type RemoteConnectionMode,
 } from '../../../../shared/remote_bootstrap';
+import {
+  REMOTE_ACTIVITY_WINDOW,
+  type RemoteDeviceInfo,
+  type RemoteConnectionInfo,
+} from '../../../../shared/remote_device';
+
+const deviceTime = eventTimeFormatter;
+
+function DeviceTime({ value, now }: { value: number | null; now?: number }) {
+  if (value === null || !Number.isFinite(value) || Math.abs(value) > 8.64e15)
+    return <span>暂无记录</span>;
+  const full = deviceTime.format(value);
+  const text = now === undefined ? full : formatRelativeTime(value, now, 1);
+  return (
+    <TimeLabel value={value} precision="millisecond">
+      {text}
+    </TimeLabel>
+  );
+}
+
+const TAILSCALE_KEY_HINT = [
+  '通过 Tailscale 跨网络连接',
+  'Tailscale 提供内网穿透，让手机和电脑不在同一个 Wi-Fi 下时，也能连接 WeQ，无需公网 IP 或手动配置端口转发。',
+  'WeQ Remote App 已内置 Tailscale，无需另外安装客户端。勾选「嵌入 Tailscale Key」后，扫码时 App 会使用 Key 加入电脑所在的 Tailscale 网络，完成跨网络连接所需的配置。',
+].join('\n\n');
 
 export interface RemoteStatus {
   available: boolean;
@@ -44,6 +72,8 @@ export interface RemoteStatus {
     approvedAt: number | null;
     lastSeenAt: number | null;
     scope?: string;
+    deviceInfo?: RemoteDeviceInfo;
+    lastConnection?: RemoteConnectionInfo;
   }[];
 }
 
@@ -224,38 +254,19 @@ export function RemotePanel({
               {qr ? <RefreshCw size={14} /> : <QrCode size={14} />}
               生成配对码
             </button>
-            <label className="weq-remote-consent">
-              <input
-                type="checkbox"
+            <span className="weq-remote-consent" title={TAILSCALE_KEY_HINT}>
+              <Toggle
+                label="嵌入 Tailscale Key"
                 checked={embedKey}
                 disabled={busy}
-                onChange={(event) => setEmbedKey(event.target.checked)}
+                onChange={setEmbedKey}
               />
               嵌入 Tailscale Key
-            </label>
+            </span>
           </div>
-          <div className="weq-remote-bootstrap">
-            <h4>通过 Tailscale 跨网络连接</h4>
-            <p>
-              Tailscale 提供内网穿透，让手机和电脑不在同一个 Wi-Fi 下时，也能连接 WeQ，无需公网 IP
-              或手动配置端口转发。
-            </p>
-            <p>
-              WeQ Remote App 已内置 Tailscale，无需另外安装客户端。勾选「嵌入 Tailscale
-              Key」后，扫码时 App 会使用 Key 加入电脑所在的 Tailscale
-              网络，完成跨网络连接所需的配置。
-            </p>
-            <a
-              href="https://login.tailscale.com/admin/settings/keys"
-              target="_blank"
-              rel="noreferrer"
-            >
-              创建 Tailscale Key <ExternalLink size={12} />
-            </a>
-            {embedKey && !tailscaleAddress ? (
-              <p>请先启动并登录上方的 WeQ 专用 Tailscale 服务。</p>
-            ) : null}
-          </div>
+          {embedKey && !tailscaleAddress ? (
+            <p className="weq-remote-muted">请先启动并登录上方的 WeQ 专用 Tailscale 服务。</p>
+          ) : null}
           {keyPrompt && active ? (
             <Modal
               title="输入 Tailscale Key"
@@ -399,8 +410,87 @@ export function RemotePanel({
               <div className="weq-remote-device" key={device.id}>
                 <Smartphone size={22} />
                 <div className="weq-remote-device-main">
-                  <strong>{device.name}</strong>
+                  <div className="weq-remote-device-title">
+                    <strong>{device.name}</strong>
+                    <span
+                      className="weq-remote-activity"
+                      data-active={
+                        !!data.enabled &&
+                        device.lastSeenAt !== null &&
+                        now - device.lastSeenAt < REMOTE_ACTIVITY_WINDOW
+                      }
+                      title="根据最近 45 秒内的授权访问判断活跃状态"
+                    >
+                      {!data.enabled
+                        ? '服务已关闭'
+                        : device.lastSeenAt === null
+                          ? '尚未访问'
+                          : now - device.lastSeenAt < REMOTE_ACTIVITY_WINDOW
+                            ? '近期活跃'
+                            : '未活跃'}
+                    </span>
+                  </div>
                   <span>{device.scope === 'web:access' ? 'WeQ Web 访问' : '仅在线状态'}</span>
+                  <div className="weq-remote-device-times">
+                    <span>
+                      最近访问 <DeviceTime value={device.lastSeenAt} now={now} />
+                    </span>
+                    <span>
+                      配对时间 <DeviceTime value={device.approvedAt} />
+                    </span>
+                  </div>
+                  <details className="weq-remote-device-details">
+                    <summary>
+                      <ChevronRight size={14} />
+                      设备详情
+                    </summary>
+                    <dl>
+                      <div>
+                        <dt>设备型号</dt>
+                        <dd>{device.deviceInfo?.model ?? '未上报'}</dd>
+                      </div>
+                      <div>
+                        <dt>系统版本</dt>
+                        <dd>
+                          {device.deviceInfo
+                            ? `${device.deviceInfo.platform === 'ios' ? 'iOS / iPadOS' : 'Android'} ${device.deviceInfo.osVersion}`
+                            : '未上报'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Remote 版本</dt>
+                        <dd>
+                          {device.deviceInfo
+                            ? `${device.deviceInfo.appVersion} (${device.deviceInfo.appBuild})`
+                            : '未上报'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>最近连接 IP</dt>
+                        <dd>{device.lastConnection?.ip ?? '暂无记录'}</dd>
+                      </div>
+                      <div>
+                        <dt>连接方式</dt>
+                        <dd>
+                          {device.lastConnection
+                            ? { lan: '局域网', tailscale: 'Tailscale', unknown: '未知网络' }[
+                                device.lastConnection.route
+                              ]
+                            : '暂无记录'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>最近访问</dt>
+                        <dd>
+                          <DeviceTime value={device.lastSeenAt} />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>设备标识</dt>
+                        <dd>{device.id}</dd>
+                      </div>
+                    </dl>
+                  </details>
                 </div>
                 <button
                   type="button"

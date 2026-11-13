@@ -24,14 +24,18 @@
 import {
   Fragment,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   type ReactElement,
 } from 'react';
 import '../../styles/private-preview.css';
 import { ArrowLeft, CloudOff, RefreshCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
+import { MemberProfileCard } from '../MemberProfileCard';
+import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../QqMessageContent';
 import { cn } from '../../im-template/template/classNames';
 import { MessageRow, grayTipOf } from '../../im-template/template/messageRow';
@@ -90,6 +94,14 @@ export function GapMessagesModal({
   /** 只读预览中逐条展示的附注，例如跳过发送的原因。 */
   messageNotice?: (message: Message) => string | undefined;
 }): ReactElement {
+  const openChat = useContext(ChatNavigationContext);
+  const [memberCard, setMemberCard] = useState<{
+    member: User;
+    anchor: { x: number; y: number };
+  } | null>(null);
+  const openMember = useCallback((member: User, anchor: { x: number; y: number }) => {
+    setMemberCard({ member, anchor });
+  }, []);
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
   const showSenderNames = conversation.type !== 'direct';
@@ -187,7 +199,7 @@ export function GapMessagesModal({
           ) : null}
           <div className="weq-compose-titlewrap">
             <strong id="weq-gap-messages-title" className="weq-compose-title">
-              {title ?? (preview ? '预览私聊' : '缺失消息')}
+              {title ?? (preview ? '预览消息' : '缺失消息')}
             </strong>
             <span className="weq-compose-sub">{subtitle}</span>
           </div>
@@ -273,6 +285,7 @@ export function GapMessagesModal({
                         sender={sender}
                         showSenderName={showSenderNames}
                         renderers={renderers}
+                        onAvatarClick={preview ? openMember : undefined}
                       />
                     );
                     const note = messageNotice?.(message);
@@ -317,6 +330,24 @@ export function GapMessagesModal({
           </ConvContext.Provider>
         </ForwardKindContext.Provider>
       </div>
+      {memberCard ? (
+        <MemberProfileCard
+          member={memberCard.member}
+          anchor={memberCard.anchor}
+          groupCode={isGroup ? conversation.id : undefined}
+          groupName={isGroup ? conversation.group.name : undefined}
+          onClose={() => setMemberCard(null)}
+          onOpenChat={
+            openChat
+              ? () => {
+                  setMemberCard(null);
+                  onClose();
+                  openChat({ kind: 'direct', user: memberCard.member });
+                }
+              : undefined
+          }
+        />
+      ) : null}
     </ReplyJumpContext.Provider>
   );
   return embedded ? (

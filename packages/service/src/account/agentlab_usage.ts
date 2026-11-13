@@ -1,9 +1,9 @@
+import { calendarParts, calendarStart, formatDate } from '@weq/time';
 /**
- * AgentLab token 用量记账（按账号隔离，落 JSON 到 agentlab 缓存目录）。
+ * API 用量账本：账号请求与应用全局请求独立落盘，读取时按时间范围合并。
  *
- * 在每次 LLM 调用后追加一条记录（model / kind / 归属 persona / 场景 / token 数），
- * 供主页统计图表聚合（总量 / 各模型 / 各克隆体 / 时间趋势）。为防文件无限增长，
- * 只保留最近 MAX_RECORDS 条。
+ * 同一实际请求按 requestId 更新状态与用量，保留服务商快照和功能归属。
+ * 每份账本只保留最近 MAX_RECORDS 条；统计显式返回保留范围，不冒充历史累计。
  */
 
 import { JsonStore } from '../common/json_store';
@@ -14,14 +14,29 @@ export interface TokenUsageRecord extends AgentLabUsage {
   ts: number;
   /** 归属克隆体（构建/聊天）；WeQ 助手或未知则缺省。 */
   personaId?: string;
-  /** 场景：构建克隆 / 与克隆体聊天 / 助手。 */
+  /** 功能场景；细分用途由 feature 保存。 */
   scope: string;
+}
+
+export type ApiUsagePeriod = '24h' | '7d' | '30d' | 'retained';
+
+interface UsageLedger {
+  source: 'account' | 'global';
+  retainedCalls: number;
+  limit: number;
+  atCapacity: boolean;
+  firstRecordAt: number | null;
+  lastRecordAt: number | null;
 }
 
 export interface TokenStats {
   totalTokens: number;
   totalCalls: number;
   globalCalls: number;
+  accountCalls: number;
+  period: ApiUsagePeriod;
+  range: { since: number | null; until: number };
+  ledgers: UsageLedger[];
   knownCalls: number;
   unknownCalls: number;
   promptUnknownCalls: number;
@@ -33,14 +48,22 @@ export interface TokenStats {
   /** 累计输入（prompt）/ 输出（completion）token，用于输入输出占比展示。 */
   promptTokens: number;
   completionTokens: number;
-  byModel: Array<{ model: string; tokens: number; calls: number; unknownCalls: number }>;
+  byModel: Array<
+    UsageBucket & {
+      key: string;
+      model: string;
+      providerId: string | null;
+      providerName: string | null;
+      providerKind: 'model' | 'tts';
+    }
+  >;
   byPersona: Array<{ personaId: string; tokens: number; calls: number; unknownCalls: number }>;
   byScope: Array<{ scope: string; tokens: number; calls: number; unknownCalls: number }>;
   byFeature: Array<{ feature: string; tokens: number; calls: number; unknownCalls: number }>;
-  /** 最近 30 天每天的 token 数（含 0 的空白天，便于折线图）。 */
-  byDay: Array<{ day: string; tokens: number }>;
-  /** 近 24 小时每小时的 token / 调用数（含 0 的空白小时，便于柱状图）。 */
-  byHour: Array<{ hour: string; tokens: number; calls: number }>;
+  /** 最近 7／30 天的已知 token、请求与未知次数，包含北京时间的空白天。 */
+  byDay: Array<UsageBucket & { day: string }>;
+  /** 最近 24 个小时桶（含当前小时），空白小时补零。 */
+  byHour: Array<UsageBucket & { hour: string }>;
 }
 
 const MAX_RECORDS = 5000;
@@ -85,11 +108,6 @@ function normalizeRecord(raw: unknown): TokenUsageRecord | null {
   };
 }
 
-function dayKey(ts: number): string {
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 export class TokenUsageStore {
   private readonly store: JsonStore<TokenUsageRecord[]>;
 
@@ -102,14 +120,14 @@ export class TokenUsageStore {
       return;
     }
     this.store = new JsonStore(key, () => [], {
-      normalize: (raw) =>
-        Array.isArray(raw)
-          ? raw
-              .map(normalizeRecord)
-              .filter((r): r is TokenUsageRecord => r !== null)
-              .slice(-MAX_RECORDS)
-              .map((r) => (r.status === 'pending' ? { ...r, status: 'interrupted' as const } : r))
-          : [],
+      normalize: (raw) => {
+        if (!Array.isArray(raw)) throw new Error('API 用量记录格式无效');
+        return raw
+          .map(normalizeRecord)
+          .filter((r): r is TokenUsageRecord => r !== null)
+          .slice(-MAX_RECORDS)
+          .map((r) => (r.status === 'pending' ? { ...r, status: 'interrupted' as const } : r));
+      },
     });
     stores.set(key, new WeakRef(this.store));
   }
@@ -146,19 +164,46 @@ export class TokenUsageStore {
     this.persist();
   }
 
-  getStats(global?: TokenUsageStore): TokenStats {
+  getStats(
+    global?: TokenUsageStore,
+    period: ApiUsagePeriod = 'retained',
+    now = Date.now(),
+  ): TokenStats {
+    try {
+      this.store.assertReadable();
+      global?.store.assertReadable();
+    } catch {
+      throw new Error('API 用量记录读取失败，原始记录已保留');
+    }
     const globalRecords = global && global.store !== this.store ? global.records : [];
-    const records = [...this.records, ...globalRecords];
+    const nowHour = Math.floor(now / 3_600_000);
+    const date = calendarParts(now)!;
+    const todayStart = calendarStart(date.year, date.month, date.day);
+    const days = period === '7d' ? 7 : 30;
+    const since =
+      period === 'retained'
+        ? null
+        : period === '24h'
+          ? (nowHour - 23) * 3_600_000
+          : todayStart - (days - 1) * 86_400_000;
+    const inRange = (r: TokenUsageRecord): boolean =>
+      (since === null || r.ts >= since) && r.ts <= now;
+    const records = [...this.records, ...globalRecords].filter(inRange);
     const seen = new Map<string, TokenUsageRecord>();
     const unique = records.filter((r) => !r.requestId);
     for (const record of records) if (record.requestId) seen.set(record.requestId, record);
     unique.push(...seen.values());
+    const globalIds = new Set(globalRecords.filter(inRange));
+    const globalCalls = unique.filter((r) => globalIds.has(r)).length;
+    const ledgers = [ledger('account', this.records)];
+    if (global && global.store !== this.store) ledgers.push(ledger('global', globalRecords));
     const byModel = new Map<string, UsageBucket>();
+    const models = new Map<string, Omit<TokenStats['byModel'][number], keyof UsageBucket>>();
     const byPersona = new Map<string, UsageBucket>();
     const byScope = new Map<string, UsageBucket>();
     const byFeature = new Map<string, UsageBucket>();
-    const byDayMap = new Map<string, number>();
-    const byHourMap = new Map<number, { tokens: number; calls: number }>();
+    const byDayMap = new Map<string, UsageBucket>();
+    const byHourMap = new Map<string, UsageBucket>();
     let totalTokens = 0;
     let promptTokens = 0;
     let completionTokens = 0;
@@ -183,7 +228,18 @@ export class TokenUsageStore {
       cancelledCalls += Number(r.status === 'cancelled');
       pendingCalls += Number(r.status === 'pending');
       interruptedCalls += Number(r.status === 'interrupted');
-      bump(byModel, r.model, tokens, unknown);
+      const providerId =
+        typeof r.providerId === 'string' && r.providerId.trim() ? r.providerId : null;
+      const providerKind = r.kind === 'speech' ? 'tts' : 'model';
+      const modelKey = JSON.stringify([providerKind, providerId, r.model]);
+      bump(byModel, modelKey, tokens, unknown);
+      models.set(modelKey, {
+        key: modelKey,
+        model: r.model,
+        providerId,
+        providerKind,
+        providerName: providerId && typeof r.providerName === 'string' ? r.providerName : null,
+      });
       bump(
         byPersona,
         r.personaId ?? (r.scope === 'assistant' ? ASSISTANT_KEY : '__unassigned__'),
@@ -192,32 +248,32 @@ export class TokenUsageStore {
       );
       bump(byScope, r.scope, tokens, unknown);
       bump(byFeature, r.feature ?? r.scope, tokens, unknown);
-      byDayMap.set(dayKey(r.ts), (byDayMap.get(dayKey(r.ts)) ?? 0) + tokens);
-      bumpHour(byHourMap, Math.floor(r.ts / 3_600_000), tokens);
+      bump(byDayMap, formatDate(r.ts), tokens, unknown);
+      bump(byHourMap, String(Math.floor(r.ts / 3_600_000)), tokens, unknown);
     }
 
-    // 最近 30 天（含空白天）。注意：不能用 Date.now()——这里在普通 service 上下文，允许。
-    const byDay: Array<{ day: string; tokens: number }> = [];
-    const today = Date.now();
-    for (let i = 29; i >= 0; i -= 1) {
-      const day = dayKey(today - i * 86_400_000);
-      byDay.push({ day, tokens: byDayMap.get(day) ?? 0 });
+    const byDay: TokenStats['byDay'] = [];
+    for (let i = days - 1; i >= 0; i -= 1) {
+      const day = formatDate(todayStart - i * 86_400_000);
+      byDay.push({ day, ...(byDayMap.get(day) ?? emptyBucket()) });
     }
 
-    // 近 24 小时（含空白小时），label 为当地「HH:00」。
-    const byHour: Array<{ hour: string; tokens: number; calls: number }> = [];
-    const nowHour = Math.floor(today / 3_600_000);
+    // 小时桶使用实际时间戳归组，标签统一北京时间。
+    const byHour: TokenStats['byHour'] = [];
     for (let i = 23; i >= 0; i -= 1) {
       const h = nowHour - i;
-      const label = `${String(new Date(h * 3_600_000).getHours()).padStart(2, '0')}:00`;
-      const v = byHourMap.get(h);
-      byHour.push({ hour: label, tokens: v?.tokens ?? 0, calls: v?.calls ?? 0 });
+      const label = `${String(calendarParts(h * 3_600_000)!.hour).padStart(2, '0')}:00`;
+      byHour.push({ hour: label, ...(byHourMap.get(String(h)) ?? emptyBucket()) });
     }
 
     return {
       totalTokens,
       totalCalls: unique.length,
-      globalCalls: globalRecords.length,
+      globalCalls,
+      accountCalls: unique.length - globalCalls,
+      period,
+      range: { since, until: now },
+      ledgers,
       knownCalls: unique.length - unknownCalls,
       unknownCalls,
       promptUnknownCalls,
@@ -228,7 +284,7 @@ export class TokenUsageStore {
       interruptedCalls,
       promptTokens,
       completionTokens,
-      byModel: toSorted(byModel).map(([model, v]) => ({ model, ...v })),
+      byModel: toSorted(byModel).map(([key, v]) => ({ ...models.get(key)!, ...v })),
       byPersona: toSorted(byPersona).map(([personaId, v]) => ({ personaId, ...v })),
       byScope: toSorted(byScope).map(([scope, v]) => ({ scope, ...v })),
       byFeature: toSorted(byFeature).map(([feature, v]) => ({ feature, ...v })),
@@ -259,22 +315,31 @@ function bump(map: Map<string, UsageBucket>, key: string, tokens: number, unknow
   }
 }
 
-function bumpHour(
-  map: Map<number, { tokens: number; calls: number }>,
-  key: number,
-  tokens: number,
-): void {
-  const cur = map.get(key);
-  if (cur) {
-    cur.tokens += tokens;
-    cur.calls += 1;
-  } else {
-    map.set(key, { tokens, calls: 1 });
+function emptyBucket(): UsageBucket {
+  return { tokens: 0, calls: 0, unknownCalls: 0 };
+}
+
+function ledger(source: UsageLedger['source'], records: TokenUsageRecord[]): UsageLedger {
+  let firstRecordAt: number | null = null;
+  let lastRecordAt: number | null = null;
+  for (const record of records) {
+    firstRecordAt = firstRecordAt === null ? record.ts : Math.min(firstRecordAt, record.ts);
+    lastRecordAt = lastRecordAt === null ? record.ts : Math.max(lastRecordAt, record.ts);
   }
+  return {
+    source,
+    retainedCalls: records.length,
+    limit: MAX_RECORDS,
+    atCapacity: records.length >= MAX_RECORDS,
+    firstRecordAt,
+    lastRecordAt,
+  };
 }
 
 function toSorted(map: Map<string, UsageBucket>): Array<[string, UsageBucket]> {
-  return [...map.entries()].sort((a, b) => b[1].tokens - a[1].tokens);
+  return [...map.entries()].sort(
+    (a, b) => b[1].tokens - a[1].tokens || b[1].calls - a[1].calls || a[0].localeCompare(b[0]),
+  );
 }
 
 export { ASSISTANT_KEY };

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { scheduleDatabase } from '@weq/db';
 import { accountRouter } from '../src/main/ipc/routers/account';
@@ -22,6 +23,7 @@ vi.mock('../src/main/context/app_context', () => {
   };
   const other = { ...services };
   return {
+    accountEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: '10001' } },
       services: fixture.switched ? other : services,

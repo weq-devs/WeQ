@@ -5,7 +5,7 @@ import { useTabActive } from '../RetainedTabs';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 import { Row, QueryError } from './controls';
 
-/** AI 功能页的相同模型项目保持相同位置、文案与默认模型选项。 */
+/** AI 功能页的相同模型项目保持相同位置、文案与默认文本模型选项。 */
 export function ApiModelRow({
   settingId,
   lastError,
@@ -36,7 +36,8 @@ export function ApiModelSelect({
   capability = 'chat',
   emptyLabel = '未选择',
   required = false,
-  allowDefault = false,
+  allowDefault = true,
+  allowEmpty = false,
 }: {
   value: AgentLabModelSelection | null;
   onChange: (value: AgentLabModelSelection | null) => void;
@@ -46,6 +47,7 @@ export function ApiModelSelect({
   emptyLabel?: string;
   required?: boolean;
   allowDefault?: boolean;
+  allowEmpty?: boolean;
 }) {
   const active = useTabActive();
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, {
@@ -67,14 +69,17 @@ export function ApiModelSelect({
   const options = groups.flatMap((provider) =>
     provider.models.map((model) => ({ providerId: provider.id, model: model.id })),
   );
-  const inherited = isDefaultModelSelection(value);
+  const inherited = isDefaultModelSelection(value) || (!value && allowDefault && !allowEmpty);
   const missing = value && !inherited && !options.some((option) => key(option) === key(value));
   const defaultRef = defaultModel.data?.ref;
   const defaultLabel = defaultModel.error
     ? '读取失败'
-    : !defaultRef
-      ? '未配置'
-      : `${defaultRef.model}${defaultModel.data?.available && options.some((option) => key(option) === key(defaultRef)) ? '' : '（不可用）'}`;
+    : !defaultModel.data
+      ? '读取中'
+      : !defaultRef
+        ? '未配置'
+        : `${defaultRef.model}${defaultModel.data?.available && options.some((option) => key(option) === key(defaultRef)) ? '' : '（不可用）'}`;
+  const defaultOptionLabel = `默认（当前：${defaultLabel}）`;
   return (
     <div className="weq-api-model-field">
       <select
@@ -82,12 +87,12 @@ export function ApiModelSelect({
         aria-label={label}
         title={
           inherited
-            ? `默认：${defaultLabel}`
+            ? defaultOptionLabel
             : value && !isDefaultModelSelection(value)
               ? value.model
               : emptyLabel
         }
-        value={key(value)}
+        value={inherited ? key({ useDefault: true }) : key(value)}
         disabled={disabled || providers.isLoading}
         onChange={(event) =>
           onChange(
@@ -97,11 +102,13 @@ export function ApiModelSelect({
           )
         }
       >
-        <option value="" disabled={required}>
-          {emptyLabel}
-        </option>
+        {!allowDefault || allowEmpty ? (
+          <option value="" disabled={required}>
+            {emptyLabel}
+          </option>
+        ) : null}
         {allowDefault || inherited ? (
-          <option value={key({ useDefault: true })}>默认：{defaultLabel}</option>
+          <option value={key({ useDefault: true })}>{defaultOptionLabel}</option>
         ) : null}
         {missing && value ? (
           <option value={key(value)}>
@@ -130,8 +137,8 @@ export function ApiModelSelect({
       ) : null}
       {allowDefault && defaultModel.error ? (
         <QueryError
-          message={`默认模型读取失败：${defaultModel.error.message}`}
-          retryLabel="重新读取默认模型"
+          message={`默认文本模型读取失败：${defaultModel.error.message}`}
+          retryLabel="重新读取默认文本模型"
           retrying={defaultModel.isFetching}
           onRetry={() => void defaultModel.refetch()}
         />

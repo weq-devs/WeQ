@@ -35,6 +35,78 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+it('清理混合目录只统计和删除数据，配置在扫描后新增也保留', async () => {
+  const f = fixture();
+  const configs = [
+    'anti_recall/account/config.json',
+    'intent_sense/account/config.json',
+    'db_tolerance/account/config.json',
+    'agentlab/account/assistant.json',
+    'agentlab/account/bot_exports.json',
+    'dress/account/manifest.json',
+    'intent_sense/account/config.json.bak',
+    'agentlab/account/config/settings.json',
+  ].map((path) => f.file(`cache/${path}`));
+  const data = [
+    'intent_sense/account/analysis/result.json',
+    'db_tolerance/account/salvage_ledger.jsonl',
+    'agentlab/account/assistant_sessions.json',
+    'dress/account/background.png',
+  ].map((path) => f.file(`cache/${path}`));
+  const items = await f.service.listStorageUsage();
+  expect(() => selectStorageCleanupTargets(items, ['anti_recall'])).toThrow();
+  const targets = selectStorageCleanupTargets(items, [
+    'intent_sense',
+    'db_tolerance',
+    'agentlab',
+    'dress',
+  ]);
+  expect(targets.map((item) => item.bytes)).toEqual([9, 9, 9, 9]);
+  const lateConfig = f.file('cache/intent_sense/another/config.json');
+  const result = await executeStorageCleanup({
+    targets,
+    protectedPaths: [],
+    reportPath: f.reportPath,
+  });
+  expect(result.failed).toEqual([]);
+  expect(result.freedBytes).toBe(36);
+  for (const path of [...configs, lateConfig]) expect(existsSync(path)).toBe(true);
+  for (const path of data) expect(existsSync(path)).toBe(false);
+  const remaining = await f.service.listStorageUsage();
+  for (const target of targets)
+    expect(remaining.find((item) => item.id === target.id)?.bytes).toBe(0);
+});
+
+it('旧默认缓存的配置不进入清理，符号链接和外部数据保持原样', async () => {
+  const f = fixture();
+  const config = f.file('cache/intent_sense/account/config.json');
+  const antiRecall = f.file('cache/anti_recall/account/config.json');
+  const staged = f.file('restore/config.json');
+  const globalBackup = f.file('config.json.bak');
+  const external = f.file('outside/result.json');
+  const data = f.file('cache/intent_sense/account/analysis/result.json');
+  symlinkSync(join(f.root, 'outside'), join(f.root, 'cache/intent_sense/account/linked'), 'dir');
+  f.service.setCacheDirOverride(join(f.root, 'custom'));
+  const items = await f.service.listStorageUsage();
+  for (const path of ['cache/anti_recall', 'restore', 'config.json.bak']) {
+    const item = items.find((item) => item.path === join(f.root, path))!;
+    expect(item).toMatchObject({ management: 'backup', clearable: false });
+    expect(() => selectStorageCleanupTargets(items, [item.id])).toThrow();
+  }
+  const target = items.find((item) => item.path === join(f.root, 'cache/intent_sense'))!;
+  expect(target.bytes).toBe(9);
+  const result = await executeStorageCleanup({
+    targets: [target],
+    protectedPaths: [],
+    reportPath: f.reportPath,
+  });
+  expect(result.failed).toEqual([]);
+  expect(result.freedBytes).toBe(9);
+  for (const path of [config, antiRecall, staged, globalBackup, external])
+    expect(existsSync(path)).toBe(true);
+  expect(existsSync(data)).toBe(false);
+});
+
 it('运行中先清除闲置数据，仅将实际持有路径留作重启候选；未选项不受影响', async () => {
   const f = fixture();
   const idle = f.file('cache/export/output.txt');
@@ -95,12 +167,11 @@ it('持久类型均有风险说明，缓存接口不接管；退出助手仅删�
     'collection-history',
     'roaming-jobs',
     'deleted',
-    'anti_recall',
     'db_tolerance',
     'weq-assistant',
   ];
   for (const name of selected) f.file(`cache/${name}/data`);
-  const excluded = ['db_repair', 'dbfix', 'dbfix2', 'flash'];
+  const excluded = ['db_repair', 'dbfix', 'dbfix2', 'flash', 'anti_recall'];
   for (const name of excluded) f.file(`cache/${name}/data`);
   f.file('models/model');
   f.file('config/accounts/synthetic.json');
@@ -126,7 +197,7 @@ it('持久类型均有风险说明，缓存接口不接管；退出助手仅删�
   expect(result.failed).toEqual([]);
   expect(result.cleared).toHaveLength(selected.length);
   for (const name of excluded) expect(existsSync(join(f.root, 'cache', name, 'data'))).toBe(true);
-  for (const name of selected) expect(existsSync(join(f.root, 'cache', name))).toBe(false);
+  for (const name of selected) expect(existsSync(join(f.root, 'cache', name, 'data'))).toBe(false);
   expect(existsSync(originals)).toBe(true);
   expect(existsSync(join(f.root, 'models/model'))).toBe(true);
   expect(await readStorageCleanupResult(f.reportPath)).toEqual(result);

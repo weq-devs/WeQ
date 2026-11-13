@@ -77,7 +77,11 @@ export function runtimeFileBusyPaths(): string[] {
   return paths;
 }
 
-export function applyBackupLive(stage?: () => unknown) {
+export function applyBackupLive(
+  stage?: () => unknown,
+  afterApply?: (result: NonNullable<ReturnType<typeof applyLiveBackupContext>>) => Promise<void>,
+  refreshOnFailure = true,
+) {
   return runtimeMaintenance.run(async () => {
     assertRuntimeFilesIdle();
     stage?.();
@@ -95,12 +99,14 @@ export function applyBackupLive(stage?: () => unknown) {
       } catch (error) {
         result.warnings.push(`数据已恢复，助手服务未能启动：${String(error)}`);
       }
+      await afterApply?.(result);
       return result;
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error);
       throw error;
     } finally {
-      runtimeMaintenance.refreshClients(failure);
+      if (!failure || refreshOnFailure || !getBackupContext().ok)
+        runtimeMaintenance.refreshClients(failure);
     }
   });
 }

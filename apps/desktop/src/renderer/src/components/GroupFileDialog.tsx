@@ -1,25 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Loader2, RotateCw, Square, X } from 'lucide-react';
+import { Loader2, LocateFixed, RotateCw, Square, X } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { useMediaSave, MediaSaveControls } from './MediaSaveControls';
 import { ServerSavePrompt } from './ServerSavePrompt';
-import { OverlayLayer } from './OverlayLayer';
+import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupFileManager } from './GroupFileManager';
+import { GroupFileMessageResults } from './GroupFileMessageResults';
 import { useQQAction, withQQAccountScope } from './qq-actions/shared';
 import { useToast } from './Toast';
 import { collectGroupFileSubtree, resolveGroupFileSelection } from '../lib/groupFileSelection';
 import type { GroupFileWire, GroupFolderWire } from '../lib/groupFile';
 import '../styles/group-media.css';
 import { useExportReportDialog } from '../views/export/ExportReportControl';
+import { GroupResourceNavigation } from './GroupResourceNavigation';
 
-interface Props {
+export interface Props {
+  embedded?: boolean;
+  standalone?: boolean;
   groupCode: string;
   groupName: string;
   initialFolderId?: string;
   initialFileId?: string;
   onClose: () => void;
+  onJumpToMessage?: (sequence: string, messageId: string) => void;
 }
 interface Crumb {
   id: string;
@@ -28,17 +33,21 @@ interface Crumb {
 }
 const ROOT: Crumb = { id: '/', name: '全部文件' };
 function GroupFileDialogBody({
+  embedded,
+  standalone,
   groupCode,
   groupName,
   initialFolderId,
   initialFileId,
   onClose,
+  onJumpToMessage,
 }: Props) {
   const a = useQQAction(`group-file-window:${groupCode}`);
   const mediaSave = useMediaSave(),
     save = useExportSavePolicy();
   const toast = useToast((s) => s.push);
   const report = useExportReportDialog();
+  const [locatingFile, setLocatingFile] = useState<GroupFileWire | null>(null);
   const [crumbs, setCrumbs] = useState<Crumb[]>(
     initialFolderId && initialFolderId !== '/'
       ? [ROOT, { id: initialFolderId, name: '定位目录', known: false }]
@@ -136,7 +145,8 @@ function GroupFileDialogBody({
     if (isCurrent()) toast({ tone: 'info', title: '群文件保存任务已创建' });
   }
   return (
-    <OverlayLayer
+    <ProfileDetailSurface
+      embedded={embedded}
       presentation="sidecar"
       title="群文件"
       className="modal-scrim group-album-scrim"
@@ -154,8 +164,8 @@ function GroupFileDialogBody({
         {save.serverLocation && (
           <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
         )}
-        <header>
-          <div>
+        <header hidden={embedded && !standalone && !mediaSave.downloading}>
+          <div hidden={embedded && !standalone}>
             <strong>群文件</strong>
             <span>{groupName}</span>
           </div>
@@ -171,6 +181,7 @@ function GroupFileDialogBody({
             </button>
           )}
           <button
+            hidden={embedded && !standalone}
             className="icon-button"
             type="button"
             title="关闭"
@@ -181,31 +192,14 @@ function GroupFileDialogBody({
           </button>
         </header>
         <div className="group-album-body">
-          <nav className="group-file-toolbar" aria-label="群文件目录">
-            <div className="group-file-crumbs">
-              <button
-                type="button"
-                className="icon-button"
-                title={current.known === false ? '返回全部文件' : '返回上级目录'}
-                aria-label={current.known === false ? '返回全部文件' : '返回上级目录'}
-                disabled={crumbs.length < 2}
-                onClick={() => void leave(() => setCrumbs((old) => old.slice(0, -1)))}
-              >
-                <ArrowLeft size={16} />
-              </button>
-              {crumbs.map((crumb, index) => (
-                <button
-                  className="group-file-crumb"
-                  type="button"
-                  key={crumb.id}
-                  aria-current={index === crumbs.length - 1 ? 'page' : undefined}
-                  onClick={() => void leave(() => setCrumbs((old) => old.slice(0, index + 1)))}
-                >
-                  {crumb.name}
-                </button>
-              ))}
-            </div>
-          </nav>
+          {embedded && !standalone && crumbs.length < 2 ? null : (
+            <GroupResourceNavigation
+              label="群文件目录"
+              items={crumbs}
+              onBack={() => void leave(() => setCrumbs((old) => old.slice(0, -1)))}
+              onSelect={(index) => void leave(() => setCrumbs((old) => old.slice(0, index + 1)))}
+            />
+          )}
           {!a.available && <p role="status">QQ 在线能力未就绪</p>}
           {searchMissing && <p role="status">搜索命中的文件已删除或当前目录不可见。</p>}
           {error && (
@@ -229,6 +223,22 @@ function GroupFileDialogBody({
               <span>正在读取群文件…</span>
             </div>
           )}
+          {locatingFile && a.binding && onJumpToMessage && (
+            <GroupFileMessageResults
+              key={locatingFile.fileId}
+              groupCode={groupCode}
+              fileId={locatingFile.fileId}
+              fileName={locatingFile.fileName}
+              binding={a.binding}
+              onClose={() => setLocatingFile(null)}
+              onJump={(sequence, messageId) =>
+                void leave(() => {
+                  onClose();
+                  onJumpToMessage(sequence, messageId);
+                })
+              }
+            />
+          )}
           <GroupFileManager
             groupId={Number(groupCode)}
             directory={current.id}
@@ -246,24 +256,38 @@ function GroupFileDialogBody({
             }
             onSaveSelected={saveSelected}
             renderFileAction={(file) => (
-              <MediaSaveControls
-                save={mediaSave}
-                source={{
-                  kind: 'group-file',
-                  groupCode,
-                  fileId: file.fileId,
-                  fileName: file.fileName,
-                  busId: file.busId,
-                }}
-                className="icon-button"
-                label={`保存 ${file.fileName}`}
-                iconOnly
-              />
+              <>
+                {onJumpToMessage && (
+                  <button
+                    type="button"
+                    className="weq-set-iconbtn weq-file-locate"
+                    title="定位原消息"
+                    aria-label={`定位原消息 ${file.fileName}`}
+                    disabled={!a.binding}
+                    onClick={() => setLocatingFile(file)}
+                  >
+                    <LocateFixed size={16} />
+                  </button>
+                )}
+                <MediaSaveControls
+                  save={mediaSave}
+                  source={{
+                    kind: 'group-file',
+                    groupCode,
+                    fileId: file.fileId,
+                    fileName: file.fileName,
+                    busId: file.busId,
+                  }}
+                  className="icon-button"
+                  label={`保存 ${file.fileName}`}
+                  iconOnly
+                />
+              </>
             )}
           />
         </div>
       </section>
-    </OverlayLayer>
+    </ProfileDetailSurface>
   );
 }
 const Scoped = withQQAccountScope(GroupFileDialogBody);

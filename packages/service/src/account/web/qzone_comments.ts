@@ -39,11 +39,21 @@ function decodeError(): never {
 export function qzoneReplyBody(
   content: string,
   parentUin: string,
-): { content: string; recipient?: string } {
-  const prefix = content.match(/^@\{uin:([1-9]\d{4,19}),nick:[^}]*?,who:1\}\s*/);
-  return prefix?.[1] === parentUin
-    ? { content: content.slice(prefix[0].length), recipient: parentUin }
-    : { content };
+): { content: string; recipient?: string; recipientNickname?: string } {
+  const prefix = content.match(/^@\{uin:([1-9]\d{4,19}),nick:([^}]*?),who:1(,auto:1)?\}\s*/);
+  if (!prefix || (prefix[1] !== parentUin && !prefix[3])) return { content };
+  const recipient = prefix[1]!;
+  return {
+    content: content.slice(prefix[0].length),
+    recipient,
+    ...(recipient === parentUin
+      ? {}
+      : {
+          recipientNickname: prefix[2]!.replace(/%(25|2C|7D|7B|3A)/gi, (code) =>
+            String.fromCharCode(Number.parseInt(code.slice(1), 16)),
+          ),
+        }),
+  };
 }
 
 export function parseQzoneCommentPage(
@@ -136,7 +146,11 @@ export function parseQzoneCommentPage(
         isReply: true,
         images: [],
         ...(body.recipient
-          ? { replyToUin: body.recipient, replyToNickname: poster.name, replyToCommentId: id }
+          ? {
+              replyToUin: body.recipient,
+              replyToNickname: body.recipientNickname ?? poster.name,
+              replyToCommentId: id,
+            }
           : {}),
       });
     }

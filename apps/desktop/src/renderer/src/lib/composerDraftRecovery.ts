@@ -1,3 +1,5 @@
+import { normalizeLocalDraft } from '@weq/service/draft-edit';
+
 const PREFIX = 'weq:composer-draft:v1:';
 
 type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
@@ -13,7 +15,7 @@ function readBody(raw: string): string {
     typeof value.body !== 'string'
   )
     throw new Error('草稿恢复快照损坏');
-  return value.body;
+  return normalizeLocalDraft(value.body);
 }
 
 /** 每次输入同步交给浏览器持久存储；空串是清空记录，不能当作没有快照。 */
@@ -25,6 +27,29 @@ export function createComposerDraftRecovery(
   const key = (account: string, conversation: string) =>
     `${accountPrefix(account)}${encodeURIComponent(conversation)}`;
   return {
+    migrate(oldAccount: string, scope: string): void {
+      if (!oldAccount || !scope) return;
+      const store = storage();
+      const ownerKey = `${PREFIX}legacy-owner:${encodeURIComponent(oldAccount)}`;
+      const owner = store.getItem(ownerKey);
+      if (owner && owner !== scope) return;
+      const oldPrefix = accountPrefix(oldAccount);
+      const entries: [string, string][] = [];
+      for (let index = 0; index < store.length; index++) {
+        const name = store.key(index);
+        if (!name?.startsWith(oldPrefix)) continue;
+        const raw = store.getItem(name);
+        if (raw !== null) {
+          readBody(raw);
+          entries.push([name.slice(oldPrefix.length), raw]);
+        }
+      }
+      for (const [conversation, raw] of entries) {
+        const name = `${accountPrefix(scope)}${conversation}`;
+        if (store.getItem(name) === null) store.setItem(name, raw);
+      }
+      store.setItem(ownerKey, scope);
+    },
     load(account: string): Record<string, string> {
       if (!account) return {};
       const store = storage();
@@ -40,6 +65,7 @@ export function createComposerDraftRecovery(
     },
     write(account: string, conversation: string, body: string): void {
       if (!account || !conversation) return;
+      body = normalizeLocalDraft(body);
       const store = storage();
       const name = key(account, conversation);
       const previous = store.getItem(name);
@@ -50,7 +76,7 @@ export function createComposerDraftRecovery(
       const store = storage();
       const name = key(account, conversation);
       const raw = store.getItem(name);
-      if (raw !== null && readBody(raw) === body) store.removeItem(name);
+      if (raw !== null && readBody(raw) === normalizeLocalDraft(body)) store.removeItem(name);
     },
   };
 }

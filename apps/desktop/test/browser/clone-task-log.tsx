@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { CloneTaskLog } from '../../src/renderer/src/views/agentlab/CloneTaskLog';
+import { TaskLogConsole, type TaskLogLine } from '../../src/renderer/src/components/TaskLogConsole';
+import { TaskLogDisclosure } from '../../src/renderer/src/components/TaskLogDisclosure';
 import { appendCloneOutput } from '../../src/renderer/src/views/agentlab/cloneTaskOutput';
 import type { CloneTask } from '../../src/renderer/src/views/agentlab/cloneTaskStore';
 import '../../src/renderer/src/styles/index.css';
@@ -47,6 +49,13 @@ for (let index = 0; index < 7; index++) {
   });
 }
 const task = { personaId: 'fixture', outputs } as CloneTask;
+const lines: TaskLogLine[] = Array.from({ length: 20 }, (_, seq) => ({
+  ts: 0,
+  seq,
+  stage: 'task',
+  level: seq % 3 === 0 ? 'error' : seq % 3 === 1 ? 'warn' : 'info',
+  text: `合成任务记录 ${seq}：${'日志内容'.repeat(12)}`,
+}));
 createRoot(document.getElementById('root')!).render(
   <main
     style={{
@@ -59,5 +68,22 @@ createRoot(document.getElementById('root')!).render(
     }}
   >
     <CloneTaskLog task={task} />
+    <h3>导出日志</h3>
+    <TaskLogConsole lines={lines} collapsed={false} appearance="export" />
+    <h3>请求日志</h3>
+    <TaskLogConsole lines={lines} collapsed={false} scrollable autoFollow={false} />
+    <TaskLogDisclosure open onOpenChange={() => {}} lines={lines} />
+    <TaskLogConsole lines={[]} collapsed={false} />
+    {/* 仅验证日志文件查看器的内容区样式，不读取实际日志文件。 */}
+    <h3>文件日志</h3>
+    <div className="weq-help-log-view">
+      {lines.map((line) => (
+        <div key={line.seq} className={`weq-log-line is-${line.level}`}>
+          <span className="weq-log-ts">08:00:00.000</span>
+          <span className="weq-log-lv">{line.level.toUpperCase()}</span>
+          <span className="weq-log-msg">{line.text}</span>
+        </div>
+      ))}
+    </div>
   </main>,
 );

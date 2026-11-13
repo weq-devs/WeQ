@@ -22,6 +22,8 @@ import {
   rememberSignerHints,
   storeSignerCacheEntry,
   warmupSigner,
+  primeSignerHints,
+  fingerprintWrapper,
 } from '../src/bootstrap/signer_cache';
 
 const SIGN_CORE_RVA = 0x6850_0c4;
@@ -74,6 +76,49 @@ describe('matchSignerCacheEntry', () => {
     expect(matchSignerCacheEntry(entry, wrapper)).toBe('hash-changed');
     expect(matchSignerCacheEntry(undefined, wrapper)).toBe('missing');
     expect(matchSignerCacheEntry(entry, join(root, 'other.node'))).toBe('missing');
+  });
+});
+
+describe('只恢复提示，不提前加载模块', () => {
+  function cacheEntry() {
+    const fingerprint = fingerprintWrapper(wrapper);
+    if (!fingerprint) throw new Error('fixture fingerprint missing');
+    return {
+      wrapperPath: wrapper,
+      version: null,
+      ...fingerprint,
+      signCoreRva: SIGN_CORE_RVA,
+      vmRva: VM_RVA,
+      vmKind: 'fixture',
+      verifiedAt: 1,
+      pathUsed: 'vm',
+    };
+  }
+  it('macOS 延后预热时，首次登记仍能复用指纹匹配的磁盘 RVA', () => {
+    storeSignerCacheEntry(root, cacheEntry());
+    expect(getSignerHints(wrapper)).toBeUndefined();
+    expect(primeSignerHints(root)).toBe(1);
+    expect(getSignerHints(wrapper)).toEqual({ signCoreRva: SIGN_CORE_RVA, vmRva: VM_RVA });
+  });
+  it('文件变化、无效 RVA 和损坏条目均不恢复提示', () => {
+    const entry = cacheEntry();
+    storeSignerCacheEntry(root, entry);
+    writeFileSync(wrapper, Buffer.alloc(1025, 8));
+    expect(primeSignerHints(root)).toBe(0);
+    expect(getSignerHints(wrapper)).toBeUndefined();
+    storeSignerCacheEntry(root, { ...cacheEntry(), signCoreRva: -1 });
+    expect(primeSignerHints(root)).toBe(0);
+    writeFileSync(
+      join(root, 'signer-cache.json'),
+      JSON.stringify({
+        entries: {
+          invalid: null,
+          broken: { wrapperPath: wrapper, signCoreRva: SIGN_CORE_RVA, vmRva: VM_RVA },
+        },
+      }),
+    );
+    expect(() => primeSignerHints(root)).not.toThrow();
+    expect(getSignerHints(wrapper)).toBeUndefined();
   });
 });
 

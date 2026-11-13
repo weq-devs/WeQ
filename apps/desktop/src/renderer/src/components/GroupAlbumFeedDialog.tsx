@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Film, Images, Loader2, RefreshCw, X } from 'lucide-react';
 import type { GroupAlbumFeedPage, GroupAlbumFeedComment } from '@weq/service';
@@ -10,23 +11,14 @@ import { albumMediaUrl } from '../lib/resourceUrl';
 import { mergeGroupAlbumFeedPages } from '../lib/groupAlbumFeedState';
 import { client } from '../trpc/client';
 import { readWithRetry } from '../lib/autoRead';
-import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
-import { MediaSourceSave } from './MediaSaveControls';
+import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { OverlayLayer } from './OverlayLayer';
 import { QzoneEmoji } from './QzoneEmoji';
 import '../styles/group-album-browser.css';
 import '../styles/group-album-feed.css';
 
 type FeedTarget = Extract<GroupAlbumCardTarget, { kind: 'feed' }>;
-const dateFormat = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
+const dateFormat = eventTimeFormatter;
 const date = (value: number | null) => {
   const timestamp = value ? new Date(value * 1000) : null;
   return timestamp && Number.isFinite(timestamp.getTime()) ? dateFormat.format(timestamp) : '';
@@ -92,7 +84,7 @@ function Comment({
     </li>
   );
 }
-function MediaThumb({ item, video = false }: { item: QzonePreviewMedia; video?: boolean }) {
+function MediaThumb({ item, video = false }: { item: PreviewMedia; video?: boolean }) {
   const isVideo = video || item.kind === 'video';
   const source = item.poster || (item.kind === 'image' ? item.src : '');
   const [failed, setFailed] = useState(false);
@@ -111,7 +103,7 @@ function MediaThumb({ item, video = false }: { item: QzonePreviewMedia; video?: 
   );
 }
 
-interface FeedDialogProps {
+export interface FeedDialogProps {
   target: FeedTarget;
   binding: QQWriteBinding;
   groupName: string;
@@ -204,13 +196,14 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
       controller.abort();
     };
   }, [input, cursor, revision, activity.enabled, activity.revision]);
-  const previews = useMemo<QzonePreviewMedia[]>(
+  const previews = useMemo<PreviewMedia[]>(
     () =>
       (page?.media ?? [])
         .filter((item) => item.url || item.previewUrl)
         .map((item) => ({
           key: item.id,
           kind: item.kind === 'video' && item.url ? 'video' : 'image',
+          saveLabel: item.kind === 'video' && !item.url ? '保存视频封面' : undefined,
           src: albumMediaUrl(item.url || item.previewUrl),
           poster: item.previewUrl ? albumMediaUrl(item.previewUrl) : undefined,
           title:
@@ -244,13 +237,6 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
         onNavigate(uin, name);
       }
     : undefined;
-  const refresh = () => {
-    setCursor(undefined);
-    setRevision((value) => value + 1);
-    setPreviewId(null);
-    autoOpened.current = false;
-    setMediaError(null);
-  };
   return (
     <OverlayLayer
       presentation="sidecar"
@@ -296,16 +282,6 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
               >
                 <Images size={17} />
               </button>
-              <button
-                type="button"
-                className="group-album-tool"
-                aria-label="刷新动态"
-                title="刷新动态"
-                disabled={loading || !activity.enabled}
-                onClick={refresh}
-              >
-                <RefreshCw size={17} />
-              </button>
             </div>
           </div>
           {error ? (
@@ -326,6 +302,19 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
           {mediaError ? (
             <p className="group-album-read-error" role="alert">
               {mediaError}
+              <button
+                type="button"
+                className="group-album-tool"
+                aria-label="重试读取动态媒体"
+                title="重试读取动态媒体"
+                disabled={loading || !activity.enabled}
+                onClick={() => {
+                  setCursor(undefined);
+                  setRevision((value) => value + 1);
+                }}
+              >
+                <RefreshCw size={15} />
+              </button>
             </p>
           ) : null}
           {!activity.enabled ? (
@@ -344,7 +333,7 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
               <div className="group-feed-media">
                 {page.media.slice(0, visibleMedia).map((media) => {
                   const preview = previewById.get(media.id);
-                  const item: QzonePreviewMedia = preview ?? {
+                  const item: PreviewMedia = preview ?? {
                     key: media.id,
                     kind: media.kind,
                     src: '',
@@ -421,7 +410,7 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
           ) : null}
         </div>
         {previewId && previews.some((item) => item.key === previewId) ? (
-          <QzoneMediaPreview
+          <MediaPreview
             key={previewId}
             items={previews}
             initialIndex={previews.findIndex((item) => item.key === previewId)}
@@ -435,21 +424,6 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
                   {coverOnly ? (
                     <p className="group-feed-muted">视频本体未返回，仅显示封面。</p>
                   ) : null}
-                  <MediaSourceSave
-                    className="group-album-preview-save"
-                    source={{
-                      kind: 'url',
-                      url: item.src,
-                      name: coverOnly
-                        ? '群相册视频封面'
-                        : item.kind === 'video'
-                          ? '群相册视频'
-                          : '群相册图片',
-                    }}
-                    label={
-                      coverOnly ? '保存视频封面' : item.kind === 'video' ? '保存视频' : '保存图片'
-                    }
-                  />
                 </div>
               );
             }}

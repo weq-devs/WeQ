@@ -1,17 +1,21 @@
-import type { ReactElement } from 'react';
+import { useContext, type ReactElement } from 'react';
 import { X } from 'lucide-react';
-import { OverlayLayer } from './OverlayLayer';
+import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { GroupNoticeActions } from './qq-actions/GroupNoticeActions';
 import { withQQAccountScope } from './qq-actions/shared';
 import { DraftCloseContext, useDraftClose } from '../lib/draftClose';
 import type { GroupBulletinWire } from '../lib/groupNotices';
 export type { GroupBulletinWire, GroupBulletinImage } from '../lib/groupNotices';
 
-interface GroupAnnouncementsProps {
+export interface GroupAnnouncementsProps {
+  embedded?: boolean;
+  anchor?: HTMLElement | null;
+  presentation?: GroupFeaturePresentation;
   groupCode: string;
   groupName: string;
   currentAnnouncement?: string | null;
   bulletins?: GroupBulletinWire[];
+  initialNoticeId?: string;
   onClose: () => void;
 }
 const ScopedGroupAnnouncements = withQQAccountScope(GroupAnnouncementsBody);
@@ -19,17 +23,24 @@ export function GroupAnnouncementsDialog(props: GroupAnnouncementsProps): ReactE
   return <ScopedGroupAnnouncements key={props.groupCode} {...props} />;
 }
 function GroupAnnouncementsBody({
+  embedded,
+  anchor,
+  presentation,
   groupCode,
   groupName,
   currentAnnouncement,
   bulletins,
+  initialNoticeId,
   onClose,
 }: GroupAnnouncementsProps): ReactElement {
   const closing = useDraftClose(onClose, null);
+  const parentDrafts = useContext(DraftCloseContext);
   return (
-    <DraftCloseContext.Provider value={closing.drafts}>
-      <OverlayLayer
-        presentation="sidecar"
+    <DraftCloseContext.Provider value={embedded && parentDrafts ? parentDrafts : closing.drafts}>
+      <GroupFeatureSurface
+        embedded={embedded}
+        presentation={presentation}
+        anchor={anchor}
         title="群公告"
         className="modal-scrim group-announcements-scrim"
         onClose={closing.requestClose}
@@ -61,10 +72,12 @@ function GroupAnnouncementsBody({
               groupName={groupName}
               currentAnnouncement={currentAnnouncement}
               bulletins={bulletins}
+              initialNoticeId={initialNoticeId}
+              preserveDraft={presentation === 'popover'}
             />
           </div>
         </section>
-      </OverlayLayer>
+      </GroupFeatureSurface>
     </DraftCloseContext.Provider>
   );
 }

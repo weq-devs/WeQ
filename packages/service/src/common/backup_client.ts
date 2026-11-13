@@ -1,10 +1,18 @@
 export const WEQ_MENU_CAPTURE_PRIVACY_KEY = 'weq.privacy-menu-capture';
+import {
+  legacyPreferenceKeys,
+  validatePreferencePatch,
+  type PreferencePatch,
+} from './client_preferences';
 
 export const WEQ_CLIENT_BACKUP_KEYS = [
   'weq.theme-preference',
   'weq.theme-accent',
   'weq.theme-background',
   'weq.theme-component-style',
+  'weq.theme-density',
+  'weq.sync.restored-shared',
+  'weq:web-notifications',
   'weq.privacy-mode',
   WEQ_MENU_CAPTURE_PRIVACY_KEY,
   'weq.groups.grouping',
@@ -21,6 +29,52 @@ const KEYS = new Set<string>(WEQ_CLIENT_BACKUP_KEYS);
 export const WEQ_CLIENT_RESTORE_RECEIPT = 'weq.backup-client-applied';
 export function isWeqClientBackupKey(key: string): boolean {
   return KEYS.has(key) || /^weq:group-assistant-pins:\d{1,20}(?:_[0-9a-f]{8})?$/.test(key);
+}
+
+/** 恢复默认只处理设置键；会话整理、草稿、数据快照与普通备份导入互不混用。 */
+export function isWeqClientDefaultsKey(key: string): boolean {
+  if (/^weq\.sync\.v1:[a-f0-9]{24}:shared$/.test(key)) return true;
+  if (
+    key === 'chat-template:conversation-preferences' ||
+    key.startsWith('weq:group-assistant-pins:')
+  )
+    return false;
+  if (isWeqClientBackupKey(key)) return true;
+  if (
+    [
+      'weq.theme-density',
+      'weq.global-search.preferences',
+      'weq.calendar.kinds',
+      'weq:web-notifications',
+      'weq.group-badge-display.v1',
+    ].includes(key)
+  )
+    return true;
+  if (
+    key.startsWith('weq.contacts.order.') ||
+    key.startsWith('weq.contacts.refreshRange.') ||
+    key.startsWith('weq:workspace-panel:')
+  )
+    return true;
+  if (key.startsWith('weq:page-snapshot:v1:')) {
+    try {
+      const value: unknown = JSON.parse(key.slice('weq:page-snapshot:v1:'.length));
+      if (Array.isArray(value) && value.length === 2 && typeof value[1] === 'string') {
+        const name = value[1];
+        return (
+          name === 'workspace:conversation-scope' ||
+          name === 'export:format' ||
+          name === 'export:execution' ||
+          name.startsWith('export:options:') ||
+          name.startsWith('export:formats:') ||
+          name.startsWith('export:schedule:')
+        );
+      }
+    } catch {
+      /* 无法识别的现场原样保留。 */
+    }
+  }
+  return false;
 }
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -60,7 +114,14 @@ export function validateWeqClientSettings(value: unknown): asserts value is Reco
       !['plain', 'paper', 'grid', 'dots', 'wash', 'telegram'].includes(entry)
     )
       fail(key);
-    if (key === 'weq.theme-component-style' && entry !== 'classic') fail(key);
+    if (
+      key === 'weq.theme-component-style' &&
+      !['qqnt', 'classic', 'minimal', 'retro'].includes(entry)
+    )
+      fail(key);
+    if (key === 'weq.theme-density' && !['comfortable', 'compact'].includes(entry)) fail(key);
+    if (key === 'weq.sync.restored-shared') validatePreferencePatch(json(entry, key));
+    if (key === 'weq:web-notifications' && entry !== 'true' && entry !== 'false') fail(key);
     if (key === 'weq.groups.grouping' && !['notify', 'identity', 'size'].includes(entry)) fail(key);
     if (
       [
@@ -123,6 +184,11 @@ export function snapshotWeqClientSettings(
   storage: Pick<Storage, 'length' | 'key' | 'getItem'>,
 ): Record<string, string> {
   const out = readClientSettings(storage);
+  delete out['weq.sync.restored-shared'];
+  const server: unknown = JSON.parse(storage.getItem('weq.sync.v1:server') ?? 'null');
+  if (typeof server === 'string' && /^[a-f0-9]{24}$/.test(server)) {
+    for (const key of Object.values(legacyPreferenceKeys)) delete out[key];
+  }
   validateWeqClientSettings(out);
   return out;
 }
@@ -133,9 +199,38 @@ export function applyWeqClientSettings(
   values: Record<string, string>,
   replace = true,
   receiptId?: string,
+  defaults = false,
 ): void {
   validateWeqClientSettings(values);
-  const before = readClientSettings(storage);
+  const legacy: PreferencePatch = {};
+  for (const [name, storageKey] of Object.entries(legacyPreferenceKeys)) {
+    const raw = values[storageKey];
+    if (raw === undefined) continue;
+    const value =
+      name === 'accent' && /^#[\da-f]{3}$/i.test(raw)
+        ? `#${[...raw.slice(1)].map((part) => part + part).join('')}`
+        : ['privacyMode', 'capturePrivacy'].includes(name)
+          ? raw === '1'
+          : name === 'webNotifications'
+            ? raw === 'true'
+            : ['search', 'calendar'].includes(name)
+              ? JSON.parse(raw)
+              : raw;
+    Object.assign(legacy, { [name]: value });
+  }
+  if (receiptId !== undefined && Object.keys(legacy).length) {
+    validatePreferencePatch(legacy);
+    values = { ...values, 'weq.sync.restored-shared': JSON.stringify(legacy) };
+  }
+  const before = defaults ? ({} as Record<string, string>) : readClientSettings(storage);
+  if (defaults)
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index);
+      if (key && isWeqClientDefaultsKey(key)) {
+        const value = storage.getItem(key);
+        if (value !== null) before[key] = value;
+      }
+    }
   if (receiptId !== undefined) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(receiptId))
       throw new Error('无效的界面恢复回执');

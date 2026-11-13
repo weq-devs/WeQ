@@ -106,9 +106,10 @@ export function composerNeedsStickerCatalog(body: string): boolean {
  * 从元素 token 复算它的本地媒体 key。与 `composerMedia` 生成 token 时的字段一致：
  *   - 图片 / 视频：`localPreviewUrl`（blob 地址，唯一）；
  *   - 语音：`fileName`（`voice-<clip.id>.silk`）；
- *   - 文件：`fileName:fileSize`（文件没有 blob 地址）。
+ *   - 文件：`localAttachmentId`；兼容旧草稿的 `fileName:fileSize`。
  */
 export function localKeyOf(element: Record<string, unknown>): string | null {
+  if (typeof element.localAttachmentId === 'string') return element.localAttachmentId;
   const kind = element.kind;
   if (kind === 'pic' || kind === 'video') {
     const url = typeof element.localPreviewUrl === 'string' ? element.localPreviewUrl : '';
@@ -214,7 +215,6 @@ function mapWireElement(
     case 'at':
     case 'face':
     case 'mface':
-    case 'reply':
     case 'ark':
     case 'xml':
     case 'markdown':
@@ -223,6 +223,11 @@ function mapWireElement(
     case 'pokeEmoji':
       // 这些元素收 / 发同形（协议层 `SendElement` 与 codec 元素字段一致），原样装箱。
       return element;
+    case 'reply': {
+      // 名称只供草稿和临时气泡显示，不随发送计划交给服务端。
+      const { origSenderDisplayName: _displayName, ...reply } = element;
+      return reply;
+    }
     case 'emojiBounce':
       return {
         kind: 'emojiBounce',
@@ -414,7 +419,7 @@ function createOfflineContext(
 }
 
 /** Float32 PCM（-1..1）→ 16-bit 单声道 WAV 字节。 */
-function encodePcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
+export function encodePcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
   const bytesPerSample = 2;
   const dataLength = samples.length * bytesPerSample;
   const buffer = new ArrayBuffer(44 + dataLength);
@@ -631,6 +636,7 @@ function renderElementOf(
           origMsgIndex: element.origMsgIndex,
           origClientSeq: element.origMsgSeq,
           origSenderUin: element.origSenderUin,
+          origSenderDisplayName: element.origSenderDisplayName,
           origMsgTime: element.origMsgTime,
           origElements: Array.isArray(element.origElements)
             ? element.origElements.map((quoted) => {

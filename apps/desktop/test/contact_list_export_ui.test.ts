@@ -2,7 +2,7 @@ import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ContentSelectionProvider,
   useContentExportRequest,

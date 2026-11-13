@@ -95,7 +95,7 @@ export async function selectedResourceEntries(
 /** 资源任务的正式文件清单；数据库/图片/HTML/运行包本身仍保留原格式。 */
 export async function writeResourceDirectoryArchive(
   root: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   options: ArchiveOptions,
   failed: Array<{ fileName: string; error: string }>,
   metadata: ResourceDirectoryEntry[] = [],

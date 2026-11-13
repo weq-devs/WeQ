@@ -14,11 +14,12 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
-import { installRendererDiagnosticSampling } from './renderer_diagnostics';
+import { installPerformanceSampling } from './performance_monitor';
 import type { EditMenuState } from '../shared/edit_menu';
 import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoFrame } from '../shared/call_video_ipc';
 import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 import { rendererRecoveryBridge } from './renderer_recovery';
+import { windowChromeBridge } from './window_chrome';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -30,7 +31,7 @@ const { exposeElectronTRPC } = requireFromHere(
 
 exposeElectronTRPC();
 
-installRendererDiagnosticSampling();
+installPerformanceSampling();
 
 let undoHandler: (() => boolean) | undefined;
 ipcRenderer.on('edit:undo', () => {
@@ -45,6 +46,7 @@ ipcRenderer.on('edit:undo', () => {
 ipcRenderer.send('edit:undo-ready');
 
 const weqBridge = {
+  windowChrome: windowChromeBridge,
   rendererRecovery: rendererRecoveryBridge,
   authorization: {
     status: () => ipcRenderer.invoke('authorization:status'),

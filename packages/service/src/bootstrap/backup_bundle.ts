@@ -45,6 +45,7 @@ export interface WeqBackupSummary {
 const SETTINGS_FILES = new Set([
   'settings/app.json',
   'settings/client.json',
+  'settings/shared.json',
   'settings/export-presets.json',
 ]);
 const CONFIG_ID = /^\d{1,20}(?:_[0-9a-f]{8})?$/;
@@ -69,6 +70,12 @@ export function weqBackupPart(path: string): WeqBackupPart {
   )
     throw new Error('备份包含非法逻辑路径');
   if (SETTINGS_FILES.has(path)) return 'settings';
+  if (
+    path.startsWith('settings/background/') &&
+    path.split('/').length === 3 &&
+    isWeqBackgroundName(path.split('/')[2]!)
+  )
+    return 'settings';
   if (path === 'api/settings.json') return 'api';
   const parts = path.split('/');
   if (parts[0] === 'accounts' && parts.length === 2) {
@@ -98,6 +105,7 @@ export function weqBackupPart(path: string): WeqBackupPart {
       if (name === 'reports' && /^[\p{L}\p{M}\p{N}_-]{1,200}\.(html|md|txt)$/u.test(asset))
         return 'clones';
       if (name === 'stickers' && /^[0-9a-f]{1,64}\.png$/i.test(asset)) return 'clones';
+      if (name === 'images' && /^[0-9a-f]{64}\.(png|jpeg|webp|gif)$/i.test(asset)) return 'clones';
       if ((name === 'voice' || name === 'agentvoice') && /^[0-9a-f]{1,64}\.(wav|mp3)$/i.test(asset))
         return 'clones';
     }
@@ -167,7 +175,7 @@ export function parseWeqBackupJson(data: Buffer): unknown {
 }
 
 export function validateWeqCloneAsset(path: string, data: Buffer): void {
-  if (path.includes('/stickers/')) {
+  if (path.includes('/stickers/') || path.includes('/images/')) {
     if (!sniffImageExt(data)) throw new Error('克隆表情资产不是支持的图片文件');
   } else if (path.endsWith('.wav')) {
     if (
@@ -207,7 +215,7 @@ function validateFile(file: WeqBackupFile): void {
   const part = weqBackupPart(file.path);
   if (file.data.length > WEQ_BACKUP_LIMITS.maxEntryBytes) throw new Error('备份单文件超过 64 MiB');
   if (!file.path.endsWith('.json')) {
-    if (part === 'accounts') {
+    if (part === 'accounts' || file.path.startsWith('settings/background/')) {
       validateWeqBackground(file.data, file.path.slice(file.path.lastIndexOf('.')));
       return;
     }

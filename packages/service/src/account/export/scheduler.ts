@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * Scheduled export manager.
  *
@@ -28,7 +29,7 @@ import { writeFileAtomicSync } from '../../common/atomic_write';
 /** Cadence for a scheduled export. Mirrors the renderer's `Schedule`. */
 export interface ScheduleConfig {
   mode: 'daily' | 'interval';
-  /** HH:MM, local time. Only meaningful when mode === 'daily'. */
+  /** HH:MM, Beijing time. Only meaningful when mode === 'daily'. */
   time: string;
   /** Hours between runs. Only meaningful when mode === 'interval'. */
   intervalHours: number;
@@ -207,13 +208,22 @@ export class ExportScheduler extends EventEmitter {
       const raw = readFileSync(this.path, 'utf-8').trim();
       if (!raw) return;
       const data = JSON.parse(raw) as ScheduledTask[];
+      const now = Math.floor(Date.now() / 1000);
+      let rebased = false;
       for (const t of data) {
         // Back-compat: legacy entries without history / nextRunAt.
         if (!Array.isArray(t.history)) t.history = [];
         if (!t.schedule) t.schedule = { mode: 'daily', time: '03:00', intervalHours: 6 };
         if (!t.options) t.options = defaultOptions();
+        // 已逾期记录沿用一次恢复；只重算尚未到期的每日计划。
+        if (t.enabled && t.schedule.mode === 'daily' && t.nextRunAt !== null && t.nextRunAt > now) {
+          const next = computeNextRun(t.schedule, now);
+          rebased ||= next !== t.nextRunAt;
+          t.nextRunAt = next;
+        }
         this.tasks.set(t.id, t);
       }
+      if (rebased) this.save();
     } catch (e) {
       console.error('[ExportScheduler] failed to load schedules:', e);
     }
@@ -430,7 +440,10 @@ export class ExportScheduler extends EventEmitter {
         const id = await this.deps.taskManager.startTask({
           autoOpenTaskList: reason === 'manual',
           baselineDirectory:
-            !t.chatlab && formats.some((format) => format === 'json' || format === 'jsonl')
+            !t.chatlab &&
+            formats.some(
+              (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+            )
               ? t.archives?.[`${c.kind}:${c.id}`]
               : undefined,
           content: t.options.content,
@@ -622,10 +635,9 @@ export function computeNextRun(s: ScheduleConfig, fromSec: number): number {
     const m = /^(\d{1,2}):(\d{2})$/.exec(s.time ?? '');
     const hh = m ? Math.min(23, Number(m[1])) : 3;
     const mm = m ? Math.min(59, Number(m[2])) : 0;
-    const d = new Date(fromSec * 1000);
-    d.setHours(hh, mm, 0, 0);
-    if (Math.floor(d.getTime() / 1000) <= fromSec) d.setDate(d.getDate() + 1);
-    return Math.floor(d.getTime() / 1000);
+    const p = timeFormat.calendarParts(fromSec * 1000)!;
+    const today = timeFormat.calendarStart(p.year, p.month, p.day) / 1000 + hh * 3600 + mm * 60;
+    return today > fromSec ? today : today + 86400;
   }
   const hours = Math.max(1, Math.min(168, Math.floor(s.intervalHours || 6)));
   return fromSec + hours * 3600;
@@ -637,19 +649,11 @@ export function computeNextRun(s: ScheduleConfig, fromSec: number): number {
  *  this preset, frozen forever". */
 export function resolveRange(r: ScheduleRange, atSec: number): ExportTimeRange {
   if (r.preset === 'custom') return { start: r.start, end: r.end };
-  const now = new Date(atSec * 1000);
-  const startOfDay = (d: Date): number =>
-    Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime() / 1000);
-  const endOfDay = (d: Date): number =>
-    Math.floor(
-      new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime() / 1000,
-    );
   if (r.preset === 'all') return { start: null, end: null };
-  if (r.preset === 'today') return { start: startOfDay(now), end: endOfDay(now) };
-  const days = r.preset === '7d' ? 7 : r.preset === '30d' ? 30 : 365;
-  const from = new Date(now);
-  from.setDate(from.getDate() - (days - 1));
-  return { start: startOfDay(from), end: endOfDay(now) };
+  const p = timeFormat.calendarParts(atSec * 1000)!;
+  const start = timeFormat.calendarStart(p.year, p.month, p.day) / 1000;
+  const days = r.preset === 'today' ? 1 : r.preset === '7d' ? 7 : r.preset === '30d' ? 30 : 365;
+  return { start: start - (days - 1) * 86400, end: start + 86400 - 1 };
 }
 
 function defaultOptions(): ScheduleOptions {

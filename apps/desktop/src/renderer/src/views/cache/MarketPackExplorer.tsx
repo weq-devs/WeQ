@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 商城表情包浏览器（本地资源 → 商城表情包分类）。
  *
@@ -247,7 +248,7 @@ function PackDetail({
               <span className="weq-mpack-panel-label">上架时间</span>
               <span className="weq-mpack-panel-val weq-mpack-mono">
                 {detail.data.updateTime
-                  ? new Date(detail.data.updateTime * 1000).toLocaleString('zh-CN')
+                  ? eventTimeFormatter.format(new Date(detail.data.updateTime * 1000))
                   : '未知'}
               </span>
             </div>

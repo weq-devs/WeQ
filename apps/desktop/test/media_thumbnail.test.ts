@@ -4,7 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QqImage } from '../src/renderer/src/components/QqMedia';
 
 const state = vi.hoisted(() => ({ open: vi.fn() }));
-vi.mock('../src/renderer/src/components/ImageLightbox', () => ({ openLightbox: state.open }));
+vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
+  openMediaPreview: state.open,
+}));
 const roots: ReturnType<typeof createRoot>[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -38,7 +40,7 @@ it('时间线请求缩略图，打开灯箱仍请求原图', async () => {
   expect(image.loading).toBe('lazy');
   expect(image.decoding).toBe('async');
   await act(async () => image.click());
-  const original = new URL(state.open.mock.calls[0]![0]);
+  const original = new URL(state.open.mock.calls[0]![0].items[0].src);
   expect(original.searchParams.has('v')).toBe(false);
   expect(original.searchParams.get('token')).toBe('fixture');
 });
@@ -88,10 +90,10 @@ it('闪照气泡画固定封面、不加载任何图片，点开是 0 原图', a
 
   await act(async () => (cover as HTMLElement).click());
   expect(state.open).toHaveBeenCalledTimes(1);
-  expect(state.open.mock.calls[0]![0]).toContain('flashpic');
-  expect(state.open.mock.calls[0]![0]).toContain('spec=0');
+  expect(state.open.mock.calls[0]![0].items[0].src).toContain('flashpic');
+  expect(state.open.mock.calls[0]![0].items[0].src).toContain('spec=0');
   // 闪照不该再带一串回退源——点开就是要原图。
-  expect(state.open.mock.calls[0]![5]).toBeUndefined();
+  expect(state.open.mock.calls[0]![0].items[0].fallbackSources).toBeUndefined();
 });
 
 it('元素带 isFlash 但拿不到 offpic token 时，封面点不开也不加载图', async () => {

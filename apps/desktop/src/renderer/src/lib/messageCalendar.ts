@@ -1,13 +1,9 @@
+import { dateFormatter } from '@weq/time';
 export type MessageDay = { day: string; count: number };
 export type CalendarTarget = { kind: 'group' | 'c2c'; conv: string };
 
 export function beijingDay(date: Date = new Date()): string {
-  return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
+  return dateFormatter.format(date);
 }
 
 export function daySeconds(day: string): number {

@@ -1,17 +1,16 @@
-import { unreadChatType } from '@weq/codec';
+/** 小表快照按 IPC 上限分批传输，不再区分水位与精确统计。 */
+export const UNREAD_BATCH_SIZE = 256;
 
-/** QQ 已读变化没有新消息通知；仅优先校准仍有红点或高亮的会话。 */
-export function unreadBadgeTargets(
-  contacts: ReadonlyArray<{ chatType: number | string; targetUid: string }>,
-  counts: Readonly<Record<string, number>>,
-  highlights: Readonly<Record<string, readonly unknown[]>>,
-): Array<{ chatType: NonNullable<ReturnType<typeof unreadChatType>>; uid: string }> {
-  return contacts.flatMap((contact) => {
-    if (!((counts[contact.targetUid] ?? 0) > 0) && !highlights[contact.targetUid]?.length)
-      return [];
-    const chatType = unreadChatType(contact.chatType);
-    return chatType === null ? [] : [{ chatType, uid: contact.targetUid }];
-  });
+/** 同账号 effect 重建保留操作版本，换源时隔离。 */
+export function createUnreadRefreshState() {
+  let current: { scope: string; guard: ReturnType<typeof createUnreadUpdateGuard> } | undefined;
+  return {
+    bind(scope: string) {
+      const changed = current?.scope !== scope;
+      if (changed || !current) current = { scope, guard: createUnreadUpdateGuard() };
+      return { ...current, changed };
+    },
+  };
 }
 
 /** 合并数据库通知；执行中只补一轮，失败退避，销毁后不再启动查询。 */
@@ -65,11 +64,15 @@ export function createUnreadRefresh(load: () => Promise<boolean>, delayMs = 100)
 export function createUnreadTargetRefresh<T extends { chatType: number; uid: string }>(
   load: (targets: T[]) => Promise<boolean | T[]>,
   onOverflow?: () => void,
+  batchSize = 256,
+  minimumIntervalMs = 0,
 ) {
   let disposed = false;
   let running = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const queued = new Map<string, { target: T; failures: number; at: number }>();
+  const inFlight = new Set<string>();
+  const completedAt = new Map<string, number>();
   const key = (target: T) => `${target.chatType}:${target.uid}`;
   const arm = () => {
     if (disposed || running || !queued.size) return;
@@ -85,13 +88,18 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
   };
   async function run() {
     if (disposed) return;
-    const batch = [...queued.values()].filter((entry) => entry.at <= Date.now()).slice(0, 256);
+    const batch = [...queued.values()]
+      .filter((entry) => entry.at <= Date.now())
+      .slice(0, batchSize);
     if (!batch.length) {
       arm();
       return;
     }
     running = true;
-    for (const entry of batch) queued.delete(key(entry.target));
+    for (const entry of batch) {
+      queued.delete(key(entry.target));
+      inFlight.add(key(entry.target));
+    }
     let failed = new Set(batch.map((entry) => key(entry.target)));
     try {
       const result = await load(batch.map((entry) => entry.target));
@@ -101,9 +109,20 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
       // 只退避本批目标，期间排队的健康目标仍立即执行。
     } finally {
       running = false;
+      inFlight.clear();
       if (!disposed) {
         for (const entry of batch) {
-          if (!failed.has(key(entry.target))) continue;
+          const id = key(entry.target);
+          if (!failed.has(id)) {
+            if (minimumIntervalMs > 0) {
+              completedAt.delete(id);
+              if (completedAt.size >= 8192) completedAt.delete(completedAt.keys().next().value!);
+              completedAt.set(id, Date.now());
+              const next = queued.get(id);
+              if (next) next.at = Math.max(next.at, Date.now() + minimumIntervalMs);
+            }
+            continue;
+          }
           const failures = Math.min(6, entry.failures + 1);
           queued.set(key(entry.target), {
             target: queued.get(key(entry.target))?.target ?? entry.target,
@@ -116,9 +135,11 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
     }
   }
   return {
-    request(targets: T[]) {
+    request(targets: T[], repeatInFlight = true) {
       if (disposed) return;
       for (const target of targets) {
+        // 轮询只检查尚未读取的目标；定向变更仍保留执行中的下一轮。
+        if (!repeatInFlight && inFlight.has(key(target))) continue;
         const existing = queued.get(key(target));
         if (!existing && queued.size >= 8192) {
           if (!onOverflow) throw new Error('未读目标队列已满，需要全量校准');
@@ -127,7 +148,15 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
         }
         queued.set(
           key(target),
-          existing ? { ...existing, target } : { target, failures: 0, at: 0 },
+          existing
+            ? { ...existing, target }
+            : {
+                target,
+                failures: 0,
+                at: completedAt.has(key(target))
+                  ? completedAt.get(key(target))! + minimumIntervalMs
+                  : 0,
+              },
         );
       }
       arm();
@@ -136,6 +165,7 @@ export function createUnreadTargetRefresh<T extends { chatType: number; uid: str
       disposed = true;
       if (timer !== undefined) clearTimeout(timer);
       queued.clear();
+      completedAt.clear();
     },
   };
 }

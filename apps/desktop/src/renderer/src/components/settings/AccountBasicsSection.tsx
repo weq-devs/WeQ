@@ -1,3 +1,5 @@
+import * as timeFormat from '@weq/time';
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 设置 → 账号基础.
  *
@@ -16,8 +18,6 @@
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
-  Check,
-  CheckCheck,
   ChevronDown,
   Copy,
   Database,
@@ -27,6 +27,8 @@ import {
   FolderSearch,
   KeyRound,
   Plug,
+  Radio,
+  Zap,
   RefreshCw,
   Smartphone,
   Trash2,
@@ -40,6 +42,7 @@ import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { QqDebugCopy } from '../QqDebugCopy';
 import { IS_WEB } from '../../lib/target';
+import { CopyButton } from '../CopyButton';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -73,34 +76,15 @@ function KeyValueRow({
   secret?: boolean;
 }): ReactElement {
   const active = useTabActive();
-  const showError = useDialog((s) => s.showError);
   const [revealed, setRevealed] = useState(false);
-  const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!active) {
       setRevealed(false);
-      setCopied(false);
     }
   }, [active]);
 
-  useEffect(() => {
-    if (!active || !copied) return undefined;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied, active]);
-
   const hasValue = Boolean(value);
   const shown = !value ? '未获取' : secret && !revealed ? maskSecret(value) : value;
-
-  async function copy(): Promise<void> {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-    } catch (e) {
-      showError('复制失败', errMsg(e));
-    }
-  }
 
   return (
     <div className="weq-set-keyfield">
@@ -121,31 +105,32 @@ function KeyValueRow({
             {revealed ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
         ) : null}
-        <button
-          type="button"
+        <CopyButton
+          text={value ?? ''}
           className="weq-set-iconbtn"
           title={`复制 ${label}`}
           aria-label={`复制 ${label}`}
           disabled={!hasValue}
-          onClick={() => void copy()}
         >
-          {copied ? <Check size={15} className="weq-set-ok" /> : <Copy size={15} />}
-        </button>
+          <Copy size={15} />
+        </CopyButton>
       </div>
     </div>
   );
 }
 
 /** "3 小时 / 12 分钟后过期" or "已过期", from create + ttl (both unix seconds). */
-function formatExpiry(createTime: number, ttlSeconds: number): { text: string; expired: boolean } {
-  const expiryMs = (createTime + ttlSeconds) * 1000;
-  const leftMs = expiryMs - Date.now();
-  if (leftMs <= 0) return { text: '已过期', expired: true };
-  const mins = Math.floor(leftMs / 60000);
-  if (mins < 60) return { text: `${mins} 分钟后过期`, expired: false };
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return { text: `${hours} 小时后过期`, expired: false };
-  return { text: `${Math.floor(hours / 24)} 天后过期`, expired: false };
+export function formatExpiry(
+  createTime: number,
+  ttlSeconds: number,
+): { text: string; expired: boolean } {
+  const at = (createTime + ttlSeconds) * 1000;
+  const expired = at <= Date.now();
+  if (!Number.isFinite(at) || createTime <= 0) return { text: '到期时间未知', expired };
+  return {
+    text: `${timeFormat.formatDateTime(at)}（${expired ? '已过期' : timeFormat.formatRelativeTime(at)}）`,
+    expired,
+  };
 }
 
 export function AccountBasicsSection({
@@ -189,11 +174,9 @@ export function AccountBasicsSection({
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
 
   const [revealKey, setRevealKey] = useState(false);
-  const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!active) {
       setRevealKey(false);
-      setCopied(false);
     }
   }, [active]);
 
@@ -246,12 +229,6 @@ export function AccountBasicsSection({
     setExternalChatpicEnabled(d.externalChatpic.enabled);
   }, [settings.data, page]);
 
-  useEffect(() => {
-    if (!active || !copied) return undefined;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied, active]);
-
   const cfg = config.data;
   const dbKey = cfg?.dbKey ?? '';
   const maskedKey = dbKey ? maskSecret(dbKey) : '';
@@ -263,16 +240,6 @@ export function AccountBasicsSection({
   const nativeMediaDir = cfg?.nativeMediaDir ?? null;
   // macOS 现在也能读内存（需 root 且关闭 SIP），开关不再置灰 —— 只在文案里提示门槛。
   const isMac = systemInfo.data?.platformKind === 'darwin';
-
-  async function copyText(text: string, onOk?: () => void): Promise<void> {
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      onOk?.();
-    } catch (e) {
-      showError('复制失败', errMsg(e));
-    }
-  }
 
   // Each toggle: flip locally for instant feedback, persist, then refetch so a
   // reopen reflects what's on disk. On failure, reconcile + surface the error.
@@ -295,9 +262,9 @@ export function AccountBasicsSection({
       if (
         enabled &&
         !(await confirm(
-          '同步已读状态到 QQ',
-          '开启后，自动阅读与手动标记已读都会同步到 QQ，可能清除其他客户端的未读提醒。标为未读不能恢复已清除的提醒。',
-          { okLabel: '开启同步' },
+          '向 QQ 服务器上报已读位置',
+          '开启后，自动阅读与手动标记已读都会向 QQ 服务器上报已读位置，可能清除其他客户端的未读提醒。标为未读不能恢复已清除的提醒。',
+          { okLabel: '开启上报' },
         ))
       )
         return;
@@ -389,16 +356,43 @@ export function AccountBasicsSection({
     }
   }
 
+  if (page === 'read') {
+    return (
+      <>
+        <Row
+          settingId="read-sync"
+          label="向 QQ 服务器上报已读位置"
+          desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在线完整模式生效；标为未读不能恢复其他端已清除的提醒。"
+          control={
+            <Toggle
+              checked={reportRead || manualReadReport}
+              disabled={
+                settingsLoading ||
+                !settings.data ||
+                Boolean(settings.error) ||
+                savingReadSync ||
+                setReadSyncEnabled.isPending
+              }
+              onChange={(v) => void toggleReportRead(v)}
+              label="向 QQ 服务器上报已读位置"
+            />
+          }
+        />
+        {reportRead !== manualReadReport ? (
+          <p className="weq-set-note">
+            {reportRead ? '仅自动阅读上报，沿用原设置' : '仅手动标记上报，沿用原设置'}
+          </p>
+        ) : null}
+      </>
+    );
+  }
+
   return (
     <div className="weq-set">
       {heading && (
         <SectionHeader
           icon={<User size={16} strokeWidth={1.8} />}
-          title={
-            { account: '监听与读取', credentials: '凭据管理', media: '资源目录', read: '已读同步' }[
-              page
-            ]
-          }
+          title={{ account: '监听与读取', credentials: '凭据管理', media: '媒体来源' }[page]}
           desc={
             page === 'account'
               ? '数据库监听与 QQ 内存读取开关为全局设置；当前账号资料不再在这里重复展示。'
@@ -412,7 +406,7 @@ export function AccountBasicsSection({
       {/* Database key */}
       {page === 'credentials' && (
         <>
-          <Card title="数据库密钥">
+          <Card title="数据库密钥" icon={<Database size={15} strokeWidth={1.8} />}>
             <div className="weq-set-keyfield">
               <KeyRound size={15} strokeWidth={1.8} className="weq-set-keyfield-icon" aria-hidden />
               <code className="weq-set-keyval">
@@ -429,16 +423,15 @@ export function AccountBasicsSection({
                 >
                   {revealKey ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
-                <button
-                  type="button"
+                <CopyButton
+                  text={dbKey}
                   className="weq-set-iconbtn"
                   title="复制"
                   aria-label="复制密钥"
                   disabled={!dbKey}
-                  onClick={() => void copyText(dbKey, () => setCopied(true))}
                 >
-                  {copied ? <Check size={15} className="weq-set-ok" /> : <Copy size={15} />}
-                </button>
+                  <Copy size={15} />
+                </CopyButton>
               </div>
             </div>
             {cfg?.algos?.['nt_msg.db'] ? (
@@ -452,7 +445,7 @@ export function AccountBasicsSection({
           {/* 会话密钥：在线 QQ 内存里采集的 a1 / a2 / d2 / d2key + 设备 guid。
           前四个默认打星号，点眼睛展开（和上面的 dbKey 同款交互）；guid 是设备
           标识、非敏感，直接明文。 */}
-          <Card title="会话密钥">
+          <Card title="会话密钥" icon={<KeyRound size={15} strokeWidth={1.8} />}>
             <div className="weq-set-keylist">
               <KeyValueRow label="a1" value={cfg?.a1} secret />
               <KeyValueRow label="a2" value={cfg?.session?.a2} secret />
@@ -471,6 +464,7 @@ export function AccountBasicsSection({
           {/* Download rkeys (show the actual rkey value) */}
           <Card
             title="下载 rKey"
+            icon={<KeyRound size={15} strokeWidth={1.8} />}
             action={
               config.error ? (
                 <button
@@ -509,15 +503,14 @@ export function AccountBasicsSection({
                         <span className={`weq-set-rkey-exp${exp.expired ? ' is-expired' : ''}`}>
                           {exp.text}
                         </span>
-                        <button
-                          type="button"
+                        <CopyButton
+                          text={r.rkey}
                           className="weq-set-iconbtn"
                           title="复制 rKey"
                           aria-label="复制 rKey"
-                          onClick={() => void copyText(r.rkey)}
                         >
                           <Copy size={13} />
-                        </button>
+                        </CopyButton>
                       </div>
                       <KeyValueRow label="rKey" value={r.rkey} secret />
                     </li>
@@ -527,7 +520,7 @@ export function AccountBasicsSection({
             )}
             {cfg?.rkeyUpdatedAt ? (
               <p className="weq-set-note">
-                最近更新：{new Date(cfg.rkeyUpdatedAt).toLocaleString('zh-CN')}
+                最近更新：{eventTimeFormatter.format(new Date(cfg.rkeyUpdatedAt))}
               </p>
             ) : null}
           </Card>
@@ -535,6 +528,7 @@ export function AccountBasicsSection({
           {/* ClientKey */}
           <Card
             title="ClientKey"
+            icon={<KeyRound size={15} strokeWidth={1.8} />}
             action={
               config.error ? (
                 <button
@@ -576,15 +570,14 @@ export function AccountBasicsSection({
                         .text
                     }
                   </span>
-                  <button
-                    type="button"
+                  <CopyButton
+                    text={clientKey.clientKey}
                     className="weq-set-iconbtn"
                     title="复制 ClientKey"
                     aria-label="复制 ClientKey"
-                    onClick={() => void copyText(clientKey.clientKey)}
                   >
                     <Copy size={13} />
-                  </button>
+                  </CopyButton>
                 </div>
                 <KeyValueRow label="ClientKey" value={clientKey.clientKey} secret />
               </div>
@@ -594,7 +587,11 @@ export function AccountBasicsSection({
       )}
       {/* 静态账号：关联本机原生目录读媒体 */}
       {page === 'media' && isStatic && (
-        <Card title="关联资源目录" settingId="linked-resources">
+        <Card
+          title="关联资源目录"
+          icon={<FolderOpen size={15} strokeWidth={1.8} />}
+          settingId="linked-resources"
+        >
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -619,7 +616,11 @@ export function AccountBasicsSection({
         </Card>
       )}
       {page === 'media' && (!cfg || !isStatic) && (
-        <Card title="关联资源目录" settingId="linked-resources">
+        <Card
+          title="关联资源目录"
+          icon={<FolderOpen size={15} strokeWidth={1.8} />}
+          settingId="linked-resources"
+        >
           <p className="weq-set-desc" role="status">
             {!cfg
               ? config.error
@@ -632,7 +633,7 @@ export function AccountBasicsSection({
 
       {/* Realtime / db watch */}
       {page === 'account' && (
-        <Card>
+        <Card title="实时监听" icon={<Radio size={15} strokeWidth={1.8} />} resetId="realtime">
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -657,48 +658,24 @@ export function AccountBasicsSection({
           />
         </Card>
       )}
-      {page === 'read' && (
-        <Card settingId="read-sync">
-          <Row
-            label={
-              <span className="weq-set-row-icon">
-                <CheckCheck size={15} strokeWidth={1.8} aria-hidden />
-                同步已读状态到 QQ
-              </span>
-            }
-            desc="向 QQ 上报在 WeQ 阅读和手动标记的位置，可能清除其他端的未读提醒。默认开启，仅在线完整模式生效；标为未读只在本地生效，不能恢复其他端已清除的提醒。"
-            control={
-              <Toggle
-                checked={reportRead || manualReadReport}
-                disabled={
-                  settingsLoading ||
-                  !settings.data ||
-                  Boolean(settings.error) ||
-                  savingReadSync ||
-                  setReadSyncEnabled.isPending
-                }
-                onChange={(v) => void toggleReportRead(v)}
-                label="同步已读状态到 QQ"
-              />
-            }
-          />
-          {reportRead !== manualReadReport ? (
-            <p className="weq-set-note">
-              {reportRead ? '仅自动阅读同步，沿用原设置' : '仅手动标记同步，沿用原设置'}
-            </p>
-          ) : null}
-        </Card>
-      )}
       {page === 'account' && (
         <>
           {/* 自动进入策略与本来源运行请求分离 */}
           <LongTermAuthorizationSection />
           {isMac && !IS_WEB && (
-            <Card title="QQ 调试副本" settingId="qq-debug-copy">
+            <Card
+              title="QQ 调试副本"
+              icon={<Copy size={15} strokeWidth={1.8} />}
+              settingId="qq-debug-copy"
+            >
               <QqDebugCopy />
             </Card>
           )}
-          <Card>
+          <Card
+          title="自动进入完整模式"
+          icon={<Zap size={15} strokeWidth={1.8} />}
+          resetId="attach"
+        >
             <Row
               settingId="auto-full-mode"
               label={
@@ -746,7 +723,11 @@ export function AccountBasicsSection({
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}
       {page === 'media' && (
-        <Card title="外部安卓图片缓存" settingId="external-chatpic">
+        <Card
+          title="外部安卓图片缓存"
+          icon={<Smartphone size={15} strokeWidth={1.8} />}
+          settingId="external-chatpic"
+        >
           <Row
             label={
               <span className="weq-set-row-icon">

@@ -94,11 +94,16 @@ it('克隆直接使用普通 ChatPane 的编辑器、时间线、菜单与多选
         ),
     );
     const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')];
-    for (const label of ['转发', '引用', '贴表情', '撤回', '删除']) {
-      const button = buttons.find((node) => node.textContent === label)!;
-      expect(button.disabled).toBe(true);
-      expect(button.title).toContain('克隆会话');
+    expect(f.host.querySelector('.message-reaction-strip')).toBeNull();
+    for (const label of ['转发', '引用', '撤回', '本地删除']) {
+      expect(buttons.some((node) => node.getAttribute('aria-label') === label)).toBe(false);
     }
+    expect(buttons.find((node) => node.getAttribute('aria-label') === '复制')?.disabled).toBe(
+      false,
+    );
+    expect(buttons.find((node) => node.getAttribute('aria-label') === '多选')?.disabled).toBe(
+      false,
+    );
     act(() => buttons.find((node) => node.textContent === '多选')!.click());
     expect(f.host.querySelector('.composer.selection-mode .selection-bar')).not.toBeNull();
     expect(f.host.querySelector('.message-line.is-selected')).not.toBeNull();
@@ -109,13 +114,11 @@ it('克隆直接使用普通 ChatPane 的编辑器、时间线、菜单与多选
   }
 });
 
-it('共用工具栏保留未实现能力并置灰，旧记录使用同一只读编辑器', () => {
+it('AI 工具栏不展示不适用的 QQ 能力，旧记录使用同一只读编辑器', () => {
   const f = mount(true);
   try {
     for (const label of ['发红包', '通话', '语音', '发送图片或文件', '发送 Ark 卡片', '位置']) {
-      expect(f.host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)?.disabled).toBe(
-        true,
-      );
+      expect(f.host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)).toBeNull();
     }
     expect(f.host.querySelector('.composer-editor')?.getAttribute('contenteditable')).toBe('false');
     expect(f.host.querySelector<HTMLButtonElement>('.composer-send')?.disabled).toBe(true);

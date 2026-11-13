@@ -1,4 +1,5 @@
 // @ts-nocheck
+import * as timeFormat from '@weq/time';
 /**
  * Shared analytics visualisations used by both the group (GroupAnalyticsDialog)
  * and private-chat (BuddyAnalyticsDialog) analysis pages:
@@ -51,30 +52,12 @@ export function formatNumber(n: number): string {
 }
 
 export function formatDate(ts: number | null): string {
-  if (!ts || !Number.isFinite(ts) || ts < 0) return '-';
-  const d = new Date(ts * 1000);
-  if (!Number.isFinite(d.getTime())) return '-';
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-  }).format(d);
+  return ts && ts > 0 ? timeFormat.formatUnixTime(ts) || '-' : '-';
 }
 
 /** Human-readable duration from seconds: 12秒 / 3分20秒 / 1.5小时 / 2天. */
 export function formatDuration(sec: number): string {
-  if (sec === null || sec === undefined || sec < 0 || !Number.isFinite(sec)) return '-';
-  // Timestamps are second-resolution, so a 0s gap = replied within the same second.
-  if (sec < 1) return '<1秒';
-  if (sec < 60) return `${Math.round(sec)}秒`;
-  if (sec < 3600) {
-    const m = Math.floor(sec / 60);
-    const s = Math.round(sec % 60);
-    return s > 0 ? `${m}分${s}秒` : `${m}分`;
-  }
-  if (sec < 86400) return `${(sec / 3600).toFixed(1)}小时`;
-  return `${(sec / 86400).toFixed(1)}天`;
+  return timeFormat.formatDuration(sec, 'approximate') || '-';
 }
 
 /* ------------------------------------------------------------------ */
@@ -233,13 +216,10 @@ const DAY_MS = 86400000;
 const HEATMAP_DAYS = 371;
 
 function parseYmd(s: string): Date {
-  const [y, m, d] = s.split('-').map(Number);
-  return new Date(y, m - 1, d);
+  return timeFormat.timeDate(s) ?? new Date(NaN);
 }
 function fmtYmd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate(),
-  ).padStart(2, '0')}`;
+  return timeFormat.formatDate(d);
 }
 
 function intensityLevel(count: number, max: number): number {
@@ -261,7 +241,7 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
     // groups are trimmed to the last year, shorter ones are padded back to one.
     const start = new Date(last.getTime() - (HEATMAP_DAYS - 1) * DAY_MS);
     // Align grid start to the Sunday on/just before `start`.
-    const gridStart = new Date(start.getTime() - start.getDay() * DAY_MS);
+    const gridStart = new Date(start.getTime() - timeFormat.calendarParts(start)!.weekday * DAY_MS);
 
     const weeks: Array<Array<{ date: string; count: number; inRange: boolean }>> = [];
     const monthLabels: string[] = [];
@@ -284,9 +264,13 @@ export function ContributionHeatmap({ data }: { data: DailyActivityItem[] }) {
             total += count;
             activeDays += 1;
           }
-          if (cur.getDate() <= 7 && cur.getMonth() !== lastMonth && !labelForWeek) {
-            labelForWeek = MONTH_NAMES[cur.getMonth()];
-            lastMonth = cur.getMonth();
+          if (
+            timeFormat.calendarParts(cur)!.day <= 7 &&
+            timeFormat.calendarParts(cur)!.month - 1 !== lastMonth &&
+            !labelForWeek
+          ) {
+            labelForWeek = MONTH_NAMES[timeFormat.calendarParts(cur)!.month - 1];
+            lastMonth = timeFormat.calendarParts(cur)!.month - 1;
           }
         }
         week.push({ date: key, count, inRange });

@@ -10,11 +10,25 @@
  * 与 useProfileResolver 同理，缓存活在 MainView 生命周期内，切号随重挂清空。
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
+import { reconcileResolvedRows } from '../lib/resolvedRows';
 
 /** getGroupMembersByUids 的单次 uid 上限（与 IPC 层一致）。 */
 const CHUNK = 200;
+/** 列表预览不随每次群资料库写入全量重查；当前聊天使用即时刷新。 */
+export const GROUP_MEMBER_PREVIEW_REFRESH_MS = 60_000;
+
+interface MemberJob {
+  groupCode: string;
+  uids: string[];
+  captured: Map<string, number>;
+  generation: number;
+  isCurrent: () => boolean;
+  attempted: Set<string>;
+  dueAt?: number;
+  dueIntervalMs?: number;
+}
 
 export interface GroupMemberResolver<T> {
   /** groupCode → (uid → 离屏补全的成员)。 */
@@ -31,35 +45,133 @@ export interface GroupMemberResolver<T> {
     isCurrent: () => boolean,
   ) => void;
   updateMembers: (groupCode: string, members: readonly T[]) => void;
+  /** 合并旧排队任务并使查询记录失效；保留展示资料及预览刷新间隔。 */
   invalidate: () => void;
 }
 
-export function useGroupMemberResolver<T extends { uid: string }>(): GroupMemberResolver<T> {
+export function useGroupMemberResolver<T extends { uid: string }>(
+  minRefreshIntervalMs = 0,
+): GroupMemberResolver<T> {
   const [missingMembers, setMissingMembers] = useState<Record<string, Record<string, T>>>({});
   // 每个群已发起过 getGroupMembersByUids 的 uid（含查无结果的，例如已退群的戳一戳
   // / 禁言对象），避免每次渲染重复请求。用 ref 以便在同一轮内即时去重。
   const attemptedRef = useRef<Record<string, Set<string>>>({});
   const versions = useRef(new Map<string, number>());
   const generation = useRef(0);
+  const jobs = useRef<MemberJob[]>([]);
+  const running = useRef(false);
+  const mounted = useRef(true);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastRead = useRef(new Map<string, number>());
+  const drainRef = useRef<() => void>(() => {});
+  const cancelTimer = useCallback(() => {
+    if (timer.current !== undefined) clearTimeout(timer.current);
+    timer.current = undefined;
+  }, []);
   const invalidate = useCallback(() => {
     generation.current++;
     attemptedRef.current = {};
     versions.current.clear();
-    setMissingMembers({});
-  }, []);
+    jobs.current = [];
+    cancelTimer();
+  }, [cancelTimer]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      invalidate();
+    };
+  }, [invalidate]);
   const updateMembers = useCallback((groupCode: string, members: readonly T[]) => {
     for (const member of members) {
       const key = `${groupCode}:${member.uid}`;
       versions.current.set(key, (versions.current.get(key) ?? 0) + 1);
     }
-    setMissingMembers((previous) => ({
-      ...previous,
-      [groupCode]: {
-        ...previous[groupCode],
-        ...Object.fromEntries(members.map((member) => [member.uid, member])),
-      },
-    }));
+    setMissingMembers((previous) => {
+      const current = previous[groupCode] ?? {};
+      const next = reconcileResolvedRows(current, members);
+      return next === current ? previous : { ...previous, [groupCode]: next };
+    });
   }, []);
+
+  const drain = useCallback(() => {
+    if (!mounted.current || running.current) return;
+    cancelTimer();
+    jobs.current = jobs.current.filter((job) => {
+      if (job.isCurrent()) return true;
+      for (const uid of job.uids) job.attempted.delete(uid);
+      return false;
+    });
+    const now = Date.now();
+    let earliest = Infinity;
+    const index = jobs.current.findIndex((job) => {
+      // 串行队列内 UID 去重；其他任务完成不会改变本任务的上次读取时间。
+      if (job.dueAt === undefined || job.dueIntervalMs !== minRefreshIntervalMs) {
+        job.dueAt = Math.min(
+          ...job.uids.map((uid) => {
+            const at = lastRead.current.get(`${job.groupCode}:${uid}`);
+            return at === undefined ? 0 : at + minRefreshIntervalMs;
+          }),
+        );
+        job.dueIntervalMs = minRefreshIntervalMs;
+      }
+      const due = job.dueAt;
+      earliest = Math.min(earliest, due);
+      return due <= now;
+    });
+    if (index < 0) {
+      if (jobs.current.length)
+        timer.current = setTimeout(() => drainRef.current(), Math.max(0, earliest - now));
+      return;
+    }
+    const job = jobs.current.splice(index, 1)[0]!;
+    const ready: string[] = [];
+    const delayed: string[] = [];
+    for (const uid of job.uids) {
+      const at = lastRead.current.get(`${job.groupCode}:${uid}`);
+      (at === undefined || at + minRefreshIntervalMs <= now ? ready : delayed).push(uid);
+    }
+    if (delayed.length) jobs.current.push({ ...job, uids: delayed, dueAt: undefined });
+    job.uids = ready;
+    running.current = true;
+    void (async () => {
+      try {
+        const members = await client.account.getGroupMembersByUids.query({
+          groupCode: job.groupCode,
+          uids: job.uids,
+        });
+        if (!mounted.current || job.generation !== generation.current) return;
+        if (!job.isCurrent()) {
+          for (const uid of job.uids) job.attempted.delete(uid);
+          return;
+        }
+        // 只有接收过的结果才进入冷却；失效中的首次查询不能延迟新发言人首屏补全。
+        for (const uid of job.uids) lastRead.current.set(`${job.groupCode}:${uid}`, Date.now());
+        if (members.length > 0) {
+          setMissingMembers((prev) => {
+            if (job.generation !== generation.current) return prev;
+            const current = prev[job.groupCode] ?? {};
+            const groupCache = reconcileResolvedRows(
+              current,
+              members as unknown as T[],
+              (member) =>
+                job.captured.get(member.uid) ===
+                (versions.current.get(`${job.groupCode}:${member.uid}`) ?? 0),
+            );
+            return groupCache === current ? prev : { ...prev, [job.groupCode]: groupCache };
+          });
+        }
+      } catch (err) {
+        if (!mounted.current || job.generation !== generation.current) return;
+        console.error('[group-members] getGroupMembersByUids failed', err);
+        for (const uid of job.uids) job.attempted.delete(uid);
+      } finally {
+        running.current = false;
+        drainRef.current();
+      }
+    })();
+  }, [cancelTimer, minRefreshIntervalMs]);
+  drainRef.current = drain;
 
   const resolveMembers = useCallback(
     (
@@ -68,7 +180,7 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
       known: ReadonlySet<string>,
       isCurrent: () => boolean,
     ): void => {
-      if (!groupCode) return;
+      if (!groupCode || !mounted.current) return;
       let attempted = attemptedRef.current[groupCode];
       if (!attempted) {
         attempted = new Set();
@@ -83,39 +195,16 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
         captured.set(uid, versions.current.get(`${groupCode}:${uid}`) ?? 0);
       }
       if (missing.length === 0) return;
-      const started = generation.current;
-
-      void (async () => {
-        for (let i = 0; i < missing.length; i += CHUNK) {
-          if (started !== generation.current) return;
-          const chunk = missing.slice(i, i + CHUNK);
-          try {
-            const members = await client.account.getGroupMembersByUids.query({
-              groupCode,
-              uids: chunk,
-            });
-            if (!isCurrent() || started !== generation.current) return;
-            if (members.length > 0) {
-              setMissingMembers((prev) => {
-                if (started !== generation.current) return prev;
-                const groupCache = { ...(prev[groupCode] ?? {}) };
-                for (const member of members as unknown as T[]) {
-                  if (
-                    captured.get(member.uid) ===
-                    (versions.current.get(`${groupCode}:${member.uid}`) ?? 0)
-                  )
-                    groupCache[member.uid] = member;
-                }
-                return { ...prev, [groupCode]: groupCache };
-              });
-            }
-          } catch (err) {
-            console.error('[group-members] getGroupMembersByUids failed', err);
-            // 失败的 uid 放回，允许后续重试。
-            for (const uid of chunk) attempted.delete(uid);
-          }
-        }
-      })();
+      for (let i = 0; i < missing.length; i += CHUNK)
+        jobs.current.push({
+          groupCode,
+          uids: missing.slice(i, i + CHUNK),
+          captured,
+          generation: generation.current,
+          isCurrent,
+          attempted,
+        });
+      drainRef.current();
     },
     [],
   );

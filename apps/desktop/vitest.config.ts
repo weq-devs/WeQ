@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
+import BalancedSequencer from './test/support/ci-sequencer.mjs';
 
 /**
  * 桌面端离线单测（`apps/desktop/test/*.test.ts`）。
@@ -26,5 +27,6 @@ export default defineConfig({
     minWorkers: 1,
     environment: 'happy-dom',
     include: ['test/**/*.test.ts'],
+    sequence: { sequencer: BalancedSequencer },
   },
 });

@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * Ark 卡片面板的**纯逻辑**：草稿 → ark JSON、载荷类型、默认模板。
  *
@@ -125,6 +126,8 @@ export function resolveSignupDeadline(input: string): SignupDeadlineResult {
   } else {
     const m = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
     if (m) {
+      const wall = `${m[1]}-${m[2]!.padStart(2, '0')}-${m[3]!.padStart(2, '0')}T${m[4]!.padStart(2, '0')}:${m[5]}:${m[6] ?? '00'}`;
+      if (timeFormat.parseDateTimeInput(wall) === null) return { ok: false, error: '时间日期无效' };
       // 当地日期时间 = 东八区(+08:00)：先按 UTC 算再减 8 小时。
       seconds =
         Math.floor(
@@ -154,7 +157,7 @@ export function resolveSignupDeadline(input: string): SignupDeadlineResult {
 
 /** unix 秒 → 东八区可读串（回显 / 预览用）。 */
 export function formatSignupDeadline(seconds: number): string {
-  return new Date((seconds + 8 * 3600) * 1000).toISOString().slice(0, 16).replace('T', ' ');
+  return timeFormat.formatUnixTime(seconds);
 }
 
 /**

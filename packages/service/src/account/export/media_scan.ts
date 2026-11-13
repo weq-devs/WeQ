@@ -24,7 +24,8 @@ import { readdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import type { MsgService } from '../msg';
 import type { RenderElement } from '../msg_view';
-import { iterateC2cMessages, iterateGroupMessages, type RoamMessageSource } from './message_source';
+import type { RoamMessageSource } from './message_source';
+import { iterateConv } from './sender_resolve';
 import type { ConvKind, ExportTimeRange } from './types';
 
 export type MediaKind = 'pic' | 'video' | 'ptt' | 'emoji' | 'file';
@@ -488,18 +489,7 @@ export async function scanConvMedia(
   // ---- 1. collect references (one DB pass) ----
   const t0 = Date.now();
   const rawRefs: MediaRef[] = [];
-  const iterator =
-    kind === 'group'
-      ? iterateGroupMessages(msgs, conv, {
-          pageSize: opts.pageSize,
-          range: opts.range,
-          roam: opts.roam,
-        })
-      : iterateC2cMessages(msgs, conv, {
-          pageSize: opts.pageSize,
-          range: opts.range,
-          roam: opts.roam,
-        });
+  const iterator = iterateConv(msgs, kind, conv, opts.range, opts.roam, opts.pageSize);
   // Private (c2c) files expire from the CDN after ~7 days; stamp them so the
   // scan drops expired ones. Group files persist, so no synthetic TTL there.
   const fileTtlSec = kind === 'c2c' ? PRIVATE_FILE_TTL_SEC : 0;

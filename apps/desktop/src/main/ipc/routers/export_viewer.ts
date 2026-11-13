@@ -15,6 +15,7 @@ import {
 } from '../../export_viewer';
 import { pushConversationJump } from '../../group_keyword_bus';
 import { procedure, router } from '../trpc';
+import { pickedBrowserFiles } from '../../browser_files';
 
 const pendingScans = new Map<string, { path: string; expires: number }>();
 function scanToken(path: string) {
@@ -66,14 +67,24 @@ async function local(id: string) {
 }
 export const exportViewerRouter = router({
   pick: procedure
-    .input(z.object({ directory: z.boolean(), deferScan: z.boolean().optional() }))
+    .input(
+      z.object({
+        directory: z.boolean(),
+        deferScan: z.boolean().optional(),
+        uploadPath: z.string().min(1).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
-      const path = input.directory
-        ? await getHost().pickDirectory({ title: '选择 WeQ 导出文件夹' })
-        : await getHost().pickFile({
-            title: '选择聊天 JSON / JSONL',
-            extensions: ['json', 'jsonl'],
-          });
+      if (input.directory && input.uploadPath) throw new Error('上传文件不能用作电脑目录。');
+      const services = getAppContext().services;
+      const path = input.uploadPath
+        ? services && pickedBrowserFiles.requirePath(services, input.uploadPath)
+        : input.directory
+          ? await getHost().pickDirectory({ title: '选择 WeQ 导出文件夹' })
+          : await getHost().pickFile({
+              title: '选择聊天 JSON / JSONL',
+              extensions: ['json', 'jsonl', 'gz'],
+            });
       if (!path) return null;
       if (input.directory) {
         if (input.deferScan)
@@ -85,6 +96,13 @@ export const exportViewerRouter = router({
         return registerExports(result);
       }
       const source = await describeViewerFile(path);
+      if (input.uploadPath)
+        return {
+          sources: [registerViewerSource(source)],
+          truncated: false,
+          scanToken: null,
+          unreadable: 0,
+        };
       // 配套基线必须唯一且会话一致，不能仅凭文件名或最新时间猜测。
       const catalog = await discoverViewerSources(dirname(source.path)).catch(() => null);
       const matches =
@@ -170,7 +188,12 @@ export const exportViewerRouter = router({
           .optional(),
       }),
     )
-    .query(({ input }) => readViewerPage(viewerSource(input.id), input, beginViewerRead(input.id))),
+    .query(({ input }) => {
+      const source = viewerSource(input.id);
+      return pickedBrowserFiles.withPaths({ path: source.path }, () =>
+        readViewerPage(source, input, beginViewerRead(input.id)),
+      );
+    }),
   local: procedure.input(z.object({ id: z.string().uuid() })).query(({ input }) => local(input.id)),
   jump: procedure
     .input(

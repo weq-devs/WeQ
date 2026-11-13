@@ -9,6 +9,25 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置重构的规范目标与旧入口分流', () => {
+  it.each(['global', 'chat-messages', 'message-display', 'chat-interaction'] as const)(
+    '%s 的消息提醒入口统一定位到提醒与窗口',
+    (section) => {
+      for (const [settingId, item] of [
+        ['message-system-notifications', '新消息系统通知'],
+        ['application-unread-badge', '应用图标未读角标'],
+      ]) {
+        expect(resolveSettingsTarget({ section, item })).toMatchObject({
+          section: 'global',
+          settingId,
+        });
+        expect(resolveSettingsTarget({ section, settingId })).toMatchObject({
+          section: 'global',
+          settingId,
+        });
+      }
+    },
+  );
+
   it('七组页面各归其位，主页并入启动，聊天拆成三个二级页面', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
@@ -28,6 +47,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
       'chat-messages',
       'message-display',
       'chat-interaction',
+      'contact-card',
       'call-recording',
       'qzone',
       'mail',
@@ -46,7 +66,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
     { section: 'applock', item: '启用应用锁', target: 'privacy', settingId: 'app-lock' },
     { section: 'applock', item: '解锁方式', target: 'privacy', settingId: 'unlock-method' },
     { section: 'applock', item: '空闲自动锁定', target: 'privacy', settingId: 'auto-lock' },
-    { section: 'saving', target: 'weq-storage', settingId: 'default-save' },
+    { section: 'saving', target: 'global' },
     { section: 'storage', target: 'weq-storage' },
     {
       section: 'storage',
@@ -69,6 +89,12 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
     { section: 'account', target: 'account' },
     {
+      section: 'chat-messages',
+      item: '向 QQ 服务器上报已读位置',
+      target: 'chat-messages',
+      settingId: 'read-sync',
+    },
+    {
       section: 'account',
       item: '同步已读状态到 QQ',
       target: 'chat-messages',
@@ -82,14 +108,20 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
     { section: 'message-display', item: '显示消息序号（seq）', target: 'message-display' },
     { section: 'anti-recall', target: 'chat-interaction', settingId: 'anti-recall' },
-    { section: 'media', target: 'accounts', settingId: 'linked-resources' },
+    { section: 'media', target: 'media', settingId: 'linked-resources' },
     {
       section: 'media',
       item: '允许使用外部安卓图片缓存',
-      target: 'accounts',
+      target: 'media',
       settingId: 'external-chatpic',
     },
     { section: 'rkey', target: 'credentials', settingId: 'external-rkey' },
+    {
+      section: 'accounts',
+      item: '关联资源目录',
+      target: 'media',
+      settingId: 'linked-resources',
+    },
     { section: 'database', target: 'database-tolerance' },
     {
       section: 'database',
@@ -153,6 +185,9 @@ describe('设置重构的规范目标与旧入口分流', () => {
   });
 
   it('稳定 ID 优先于旧标签，同名条目不跨页面误分流', () => {
+    expect(
+      resolveSettingsTarget({ section: 'accounts', settingId: 'external-chatpic' }),
+    ).toMatchObject({ section: 'media', settingId: 'external-chatpic' });
     expect(
       resolveSettingsTarget({
         section: 'storage',

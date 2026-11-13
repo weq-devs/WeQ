@@ -19,6 +19,7 @@
  * ## 声明方式
  *
  * - `sign: 'all'`              三端都签
+ * - `sign: 'none'`             显式登记不签名，不触发未登记警告
  * - `sign: 'non-linux'`        Linux 不签，Windows / macOS 签
  * - `sign: 'not-darwin'`       macOS 不签，Linux / Windows 签
  * - `sign: { linux, win32, darwin }` 三端逐端声明，禁止回落
@@ -38,7 +39,7 @@ export interface PerPlatform {
 }
 
 /** 表的简写形式。 */
-export type SignRuleSwitch = 'all' | 'non-linux' | 'not-darwin';
+export type SignRuleSwitch = 'all' | 'none' | 'non-linux' | 'not-darwin';
 
 export interface SignRule {
   /** 是否带 `SecInfo`（SSO reserved tag 24）。 */
@@ -60,11 +61,10 @@ export interface ResolvedSign {
 }
 
 /**
- * 需要签名（或需要 mode=2）的命令全集。
+ * 按 wire 命令登记的签名策略。
  *
- * 不签名的命令**不在这里出现** —— 查不到即按 `{ needSign: false, mode: 3 }`
- * 处理。这既是缺省值，也让表只保留「需要注意的例外」，避免把 80 多条 false
- * 抄一遍。
+ * 不签名的命令可用 `sign: 'none'` 显式登记，避免与未知命令混淆。
+ * 查不到仍按 `{ needSign: false, mode: 3 }` 处理，并保留一次未登记警告。
  */
 export const SIGN_RULES = {
   // ─── 三端都签 ───────────────────────────────────────────────────────
@@ -105,6 +105,9 @@ export const SIGN_RULES = {
   'OidbSvcTrpcTcp.0xfe1_2': { sign: 'non-linux' },
   'OidbSvcTrpcTcp.0xfe5_2': { sign: 'non-linux' },
   'OidbSvcTrpcTcp.0xfe7_3': { sign: 'non-linux' },
+  'HttpConn.0x6ff_501': { sign: 'non-linux' },
+  'OidbSvc.0x480_9_IMCore': { sign: 'non-linux' },
+  'OidbSvc.0x42d_4': { sign: 'non-linux' },
 
   // ─── macOS 不签，Linux / Windows 签 ─────────────────────────────────
   // 贴表情 / 撤回表情：macOS 版 QQ 确实不发 SecInfo（复测稳定，命令正常发出）。
@@ -117,7 +120,122 @@ export const SIGN_RULES = {
   'OidbSvcTrpcTcp.0x11c4_100': { sign: 'non-linux' },
   'OidbSvcTrpcTcp.0x11c5_100': { sign: 'non-linux' },
   'OidbSvcTrpcTcp.0x11e9_100': { sign: 'non-linux' },
+
+  // ─── 显式不签名（沿用原有协议策略，不改变线上参数） ──────────────────
+  // 既有实测声明、抓包说明与间接依据分级见 docs/develop/sign-policy-20261109.md。
+  'OidbSvcTrpcTcp.0x5d6_6': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x5d6_19': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x6d6_4': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x6d6_5': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x6d7_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x6d7_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x6d7_2': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x6d8_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x6d8_2': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x6d8_3': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x7e5_104': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x7ed_12': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x88d_110': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x8a0_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x8a7_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x8b7_5': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x8fc_2': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xb5d_44': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xcd4_1': { sign: 'none' }, // 私聊正在输入
+  'OidbSvcTrpcTcp.0xcde_2': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xd69_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xd72_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xdc2_34': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xe07_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xeac_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xeac_2': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xeb7_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xed3_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x1096_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x1097_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x1124_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x1125_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x1126_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x11ea_100': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x1253_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x126d_100': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x126e_100': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x12a9_100': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x12a9_103': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x12b6_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x902f_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x9067_202': { sign: 'none' }, // 图片下载 rkey
+  'OidbSvcTrpcTcp.0x9083_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x921b_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x929b_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x93cf_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x93d0_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x93d1_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x93d3_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x93db_1': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x9436_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x9437_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x9474_0': { sign: 'none' }, // 群待办列表
+  'OidbSvcTrpcTcp.0x967c_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x967d_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0x967e_0': { sign: 'none' },
+  'OidbSvcTrpcTcp.0xfe1_3': { sign: 'none' }, // QQ 秀形象查询，不能套用 0xfe1_2 的规则
+  'trpc.msg.msg_svc.MsgService.SsoGroupRecallMsg': { sign: 'none' },
+  'trpc.msg.register_proxy.RegisterProxy.SsoGetGroupMsg': { sign: 'none' },
+  'trpc.msg.register_proxy.RegisterProxy.SsoGetC2cMsg': { sign: 'none' },
+  'trpc.qq_new_tech.status_svc.StatusService.SetStatus': { sign: 'none' },
+  'trpc.qpay.red_pack_skin.Skin.SsoGetSkinInfo': { sign: 'none' },
+  'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.GetMediaList': { sign: 'none' },
+  'QunAlbum.trpc.qzone.webapp_qun_media.QunMedia.DeleteMedias': { sign: 'none' },
+  'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunLike': { sign: 'none' },
+  'QunAlbum.trpc.qzone.webapp_qun_feeds.FeedsReader.GetQunFeedDetail': { sign: 'none' },
+  'QunAlbum.trpc.qzone.webapp_qun_operation.FeedsWriter.DoQunComment': { sign: 'none' },
+  'Faceroam.OpReq': { sign: 'none' },
+  'ImgStore.BDHExpressionRoam': { sign: 'none' },
+  'scupdate.handle': { sign: 'none' },
+  'LongConn.OffPicUp': { sign: 'none' },
+  'QQLBSShareSvc.room_operation': { sign: 'none' },
+  'QQLBSShareSvc.report_location': { sign: 'none' },
+  'QQLBSShareSvc.room_query': { sign: 'none' },
+  'trpc.qqhb.hbpanel.Hongbao.SsoGetToken': { sign: 'none' },
+  'trpc.qq_lbs.qq_lbs_ark.LocationArk.SsoSendMessage': { sign: 'none' },
+  'trpc.qqrtc.av_appsvr.AvAppsvr.SsoCreateRoom': { sign: 'none' },
+  'trpc.qqrtc.av_appsvr.AvAppsvr.SsoInviteUser': { sign: 'none' },
+  'trpc.qqrtc.av_appsvr.AvAppsvr.SsoLogOut': { sign: 'none' },
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoCreateRoom': { sign: 'none' },
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoInviteRoom': { sign: 'none' },
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoQueryRoom': { sign: 'none' },
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoMultiTerminalSync': { sign: 'none' },
+  'trpc.qqva.gift_midground_panel.GiftMidgroundPanel.SsoGetSceneItem': { sign: 'none' },
 } as const satisfies Record<string, SignRule>;
+
+/** 无逐命令签名依据的现有入口；不把默认 false 登记成已确认的不签名策略。 */
+export const UNCONFIRMED_SIGN_COMMANDS: Readonly<Record<string, string>> = {
+  'OidbSvcTrpcTcp.0x5d6_1': '群置顶：动态子命令未找到逐项签名记录',
+  'OidbSvcTrpcTcp.0x5d6_18': '好友置顶：动态子命令未找到逐项签名记录',
+  'OidbSvcTrpcTcp.0x6d6_0': '群文件上传申请：现有请求说明未给出签名结论',
+  'OidbSvcTrpcTcp.0xf16_1': '群备注：现有入口未给出签名结论',
+  'OidbSvcTrpcTcp.0xf90_1': '设置群待办：源码明确记载动态子命令未逐个实测',
+  'OidbSvcTrpcTcp.0xf90_2': '完成群待办：源码明确记载动态子命令未逐个实测',
+  'OidbSvcTrpcTcp.0xf90_3': '取消群待办：源码明确记载动态子命令未逐个实测',
+  'OidbSvcTrpcTcp.0x10eb_1': '好友跨分组移动：现有入口未给出签名结论',
+  'OidbSvcTrpcTcp.0x1255_0': '好友分组设置：现有入口未给出签名结论',
+  'OidbSvcTrpcTcp.0x1290_0': '已废弃的群通话 OIDB 旧模型，不是现行群通话命令',
+  'OidbSvcTrpcTcp.0x1291_0': '已废弃的群通话 OIDB 旧模型，不是现行群通话命令',
+  'OidbSvcTrpcTcp.0x1292_0': '已废弃的群通话 OIDB 旧模型，不是现行群通话命令',
+  'OidbSvcTrpcTcp.0x912e_0': '设置好友备注：现有入口未给出签名结论',
+  'OidbSvcTrpcTcp.0x912f_0': '清除好友备注：现有入口未给出签名结论',
+  'OidbSvc.0x4ff_9_IMCore': '旧资料写入：现有入口未给出签名结论',
+  'OidbSvc.0xcf4': '共同群查询：现有入口未给出签名结论',
+  'pttTrans.TransGroupPttReq': '群语音转写：包体样本不能代替 SecInfo 签名证据',
+  'pttTrans.TransC2CPttReq': '私聊语音转写：包体样本不能代替 SecInfo 签名证据',
+  'trpc.qqrtc.av_appsvr.AvAppsvr.SsoAcceptInvite': '仅命令常量，现有三条私聊信令实测声明未覆盖它',
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoEnterRoom': '旧群通话常量，当前群信令抓包记录未覆盖',
+  'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoDeleteUser': '旧群通话常量，当前群信令抓包记录未覆盖',
+  'MQUpdateSvc_com_qq_ti.web.OidbSvc.0xeb1_1': '好友线索：研究文档明确记载签名要求未实测',
+  'QzoneV4Service.trpc.qzone.feeds_reader.FeedsReader.GetFeedDetail':
+    '空间 V4 详情：仅 macOS QQ 实测可用，未逐平台确认签名要求',
+};
 
 /** 表里出现过的 wire 命令。 */
 export type SignedCommand = keyof typeof SIGN_RULES;
@@ -129,6 +247,7 @@ export function oidbCommand(command: number, subCommand: number): string {
 
 function needSignOn(rule: SignRuleSwitch | PerPlatform, platform: NodeJS.Platform): boolean {
   if (rule === 'all') return true;
+  if (rule === 'none') return false;
   if (rule === 'non-linux') return platform !== 'linux';
   if (rule === 'not-darwin') return platform !== 'darwin';
   if (platform === 'win32') return rule.win32;
@@ -155,7 +274,9 @@ export function resolveSign(
       warned.add(cmd);
       console.warn(
         `[sign-policy] 未登记的命令 ${cmd}，按 needSign=false / mode=3 处理；` +
-          '如果 QQ 本体对它会签名，请加进 SIGN_RULES（scripts/probe-sign.ts 可测）。',
+          (UNCONFIRMED_SIGN_COMMANDS[cmd]
+            ? `待确认：${UNCONFIRMED_SIGN_COMMANDS[cmd]}。`
+            : '如果 QQ 本体对它会签名，请加进 SIGN_RULES（scripts/probe-sign.ts 可测）。'),
       );
     }
     return { needSign: false, mode: 3 };

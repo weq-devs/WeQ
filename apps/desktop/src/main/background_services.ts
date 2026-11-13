@@ -1,7 +1,7 @@
 /**
  * 「现在有哪些后台服务在跑」的唯一判据。
  *
- * 关窗确认（`index.ts` 的 `win.on('close')` 拦截）和「后台服务」设置页共用这里，
+ * 关窗确认（`index.ts` 的 `win.on('close')` 拦截）使用这里，
  * 避免两处各写一套、慢慢对不上。**退出本身不再经过确认**：Dock / Cmd+Q / 托盘
  * 「退出 WeQ」都是明确指令，直接退出，服务随 `will-quit` 释放。
  *
@@ -35,7 +35,7 @@ const LABELS: Record<RunningService['id'], string> = {
   mcp: 'MCP 服务器',
   onebot: 'OneBot 服务',
   assistant: 'QQ 公众号推送',
-  web: 'WeQ Web 服务',
+  web: '本机浏览器访问',
   remote: 'WeQ Remote',
   sse: 'SSE 消息推送',
 };

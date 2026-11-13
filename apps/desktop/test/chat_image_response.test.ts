@@ -6,6 +6,9 @@ import { afterEach, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { chatImageResponse } from '../src/main/chat_image_response';
 import { PREVIEW_MAX_SIDE } from '../src/main/image_preview';
+import { setupImageWorker } from './support/image-worker';
+
+setupImageWorker();
 
 const roots: string[] = [];
 afterEach(async () => {

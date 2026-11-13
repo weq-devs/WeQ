@@ -1,7 +1,7 @@
 {
-  "generatedAt": 1794229064,
-  "count": 840,
-  "range": [1039, 2687],
+  "generatedAt": 1794586822,
+  "count": 841,
+  "range": [1039, 2688],
   "skins": [
     {
       "id": 1039,
@@ -12601,6 +12601,21 @@
       "extra": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/f6be1bad826621d65d58ede7275d0bad.png",
       "jumpText": "",
       "jumpUrl": "",
+      "ttl": 43200
+    },
+    {
+      "id": 2688,
+      "name": "内部测试专用2027",
+      "state": 1,
+      "source": "腾讯设计开放平台",
+      "cover": "https://moggy-image-1251316161.file.myqcloud.com/img/202605/68172e266519567164a807f2dd580346.png",
+      "image": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/d6855e535253f95687feca20a6460723.png",
+      "preview": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/3ead96182e3913eb2c2d857fde62adf5.png",
+      "popup": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/5345803846f22f5c05c1dd1be511a0ba.png",
+      "background": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/36515c52f139eec3383d04612378c2a0.png",
+      "extra": "https://moggy-image-1251316161.file.myqcloud.com/img/202611/c416f5a447cfa0cc8c819f3350c61153.png",
+      "jumpText": "领取同款封面",
+      "jumpUrl": "https://i.qianbao.qq.com/wallet/applyRedpacketCover/index.html?_wv=33554432&skin_code=RiZAi2mMtkPKlhX0YuEFEkdcOTx8gNkK",
       "ttl": 43200
     }
   ]

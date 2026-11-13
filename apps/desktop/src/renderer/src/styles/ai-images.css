@@ -1,0 +1,110 @@
+.weq-ai-composer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.weq-ai-composer.is-fill {
+  flex: 1;
+  height: 100%;
+}
+.weq-ai-composer > section {
+  flex: 1;
+  min-height: 0;
+}
+.weq-ai-composer .composer-extensions {
+  max-height: min(240px, 35dvh);
+}
+.weq-ai-attachments {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-ai-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+.weq-ai-attachments > span {
+  overflow-wrap: anywhere;
+}
+.weq-ai-attachments > .weq-ai-images {
+  flex: 1;
+  min-width: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 2px;
+}
+.weq-ai-user-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.weq-ai-user-message > .weq-ai-images {
+  margin-inline-end: 40px;
+}
+.weq-ai-image {
+  position: relative;
+  width: 88px;
+  height: 72px;
+  flex: 0 0 88px;
+}
+.weq-ai-images.is-history .weq-ai-image {
+  width: 180px;
+  height: 140px;
+  flex-basis: 180px;
+}
+.weq-ai-image-open {
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  width: 100%;
+  height: 100%;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+  cursor: pointer;
+}
+.weq-ai-image-open img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.weq-ai-image-open span {
+  position: absolute;
+  bottom: 0;
+  inset-inline: 0;
+  background: var(--weq-bg-surface);
+  font-size: 11px;
+}
+.weq-ai-image-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+.weq-ai-composer button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+html[data-theme='dark'] .weq-ai-attachments {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}

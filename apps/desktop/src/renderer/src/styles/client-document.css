@@ -1,0 +1,43 @@
+.weq-client-document {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: min(800px, var(--weq-dialog-max-height, 90dvh));
+  overflow: hidden;
+}
+.weq-client-document > header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 16px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-client-document > header strong {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-client-document > header :is(a, button) {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+}
+.weq-client-document > header :is(a, button):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+.weq-client-document > iframe {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--weq-bg-surface);
+}

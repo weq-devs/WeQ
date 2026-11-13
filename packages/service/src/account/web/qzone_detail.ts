@@ -1,6 +1,7 @@
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { WEB_READ_RETRY, webRequestText } from './http';
 import { mapMsgList, parseQzoneCallback } from './qzone';
+import type { QzoneNativeDetail } from '@weq/protocol';
 
 function hasMore(value: unknown): boolean | null {
   if (value === true || value === 1 || value === '1') return true;
@@ -68,6 +69,23 @@ export function parseQzonePostDetail(text: string, hostUin: string, tid: string)
     repostHasMore: hasMore(data.rt_has_more_con),
     repostComplete:
       data.rt_has_more_con === 0 || data.rt_has_more_con === '0' || data.rt_has_more_con === false,
+  };
+}
+export function supplementQzonePostDetail(
+  web: ReturnType<typeof parseQzonePostDetail> | null,
+  native: QzoneNativeDetail | null,
+) {
+  if (
+    !native?.content ||
+    (web && (web.contentHasMore === false || native.content.length <= web.content.length))
+  )
+    return web;
+  return {
+    ...(web ?? { post: null, repost: null, repostHasMore: null, repostComplete: false }),
+    content: native.content,
+    contentHasMore: null,
+    contentComplete: false,
+    contentSource: 'native' as const,
   };
 }
 

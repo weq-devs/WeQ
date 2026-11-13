@@ -69,16 +69,18 @@ try {
       : route.abort();
   });
   await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html`,
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?composer-actions&count=30`,
   );
   await page.waitForSelector('.composer-tools');
   if (output) await mkdir(output, { recursive: true });
   const results = [];
+  let desktopToolbar;
   for (const [theme, width, height, background, accent] of [
     ['light', 1280, 900, 'plain', '#15764a'],
     ['dark', 1280, 900, 'grid', '#ebbd51'],
     ['light', 390, 844, 'paper', '#b53358'],
     ['dark', 390, 844, 'dots', '#73cab8'],
+    ['light', 320, 640, 'plain', '#15764a'],
   ]) {
     await page.setViewportSize({ width, height });
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -90,8 +92,51 @@ try {
       },
       { theme, background, accent },
     );
+    const toolbar = await page.locator('.composer-tools').evaluate((element) => {
+      const buttons = [...element.querySelectorAll('button')].filter(
+        (button) => getComputedStyle(button).display !== 'none',
+      );
+      return buttons.map((button) => {
+        const box = button.getBoundingClientRect();
+        return { title: button.title, x: box.x, right: box.right, width: box.width };
+      });
+    });
+    const labels = toolbar.map((button) => button.title);
+    desktopToolbar ??= labels;
+    assert(
+      JSON.stringify(labels) === JSON.stringify(desktopToolbar),
+      `Toolbar differs from desktop at ${width}px: ${JSON.stringify(labels)}`,
+    );
+    assert(labels.filter((title) => title === '位置').length === 1, 'Duplicate location button');
+    if (width <= 760) {
+      assert(
+        toolbar.every((button) => button.width >= 40 && button.x >= 0 && button.right <= width),
+        `Mobile toolbar buttons clipped or too small: ${JSON.stringify(toolbar)}`,
+      );
+    }
+    if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-toolbar.png`) });
     await page.locator('.composer-tools button[title="表情"]').click();
     assert(await page.locator('.emoji-panel').isVisible(), 'Emoji panel did not open directly');
+    await page
+      .locator('.emoji-panel')
+      .evaluate((panel) =>
+        panel.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true })),
+      );
+    assert(await page.locator('.emoji-panel').isVisible(), 'Inside press closed emoji panel');
+    const scrollBox = await page.locator('.message-scroll').boundingBox();
+    await page.mouse.click(scrollBox.x + 4, scrollBox.y + 20);
+    assert(
+      !(await page.locator('.emoji-panel').isVisible()),
+      `Marquee gutter press did not dismiss emoji panel at ${width}px`,
+    );
+    await page.locator('.composer-tools button[title="表情"]').click();
+    assert(await page.locator('.emoji-panel').isVisible(), 'Emoji panel did not reopen');
+    await page.locator('.composer-tools button[title="表情"]').click();
+    assert(
+      !(await page.locator('.emoji-panel').isVisible()),
+      'Emoji trigger did not toggle closed',
+    );
+    await page.locator('.composer-tools button[title="表情"]').click();
     if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-emoji.png`) });
     await page.locator('.emoji-tabs button[title="弹射表情"]').click();
     const bounce = page.locator('.emoji-panel .bounce-panel');
@@ -145,7 +190,7 @@ try {
       'Interactive send action is clipped',
     );
     await page.keyboard.press('Escape');
-    if (width > 760) {
+    {
       await page.locator('.composer-tools button[title="语音"]').click();
       await page.locator('.voice-panel').waitFor();
       await page.getByRole('tab', { name: '文字转语音', exact: true }).click();
@@ -171,13 +216,34 @@ try {
       await page.locator('.composer-tools button[title="发送图片或文件"]').click();
       assert(
         (await page.getByRole('menuitem').allTextContents()).join(',') ===
-          '发送图片,发送文件,QQ闪传',
+          '发送图片,发送文件,闪照,泡泡消息,QQ闪传',
         'File menu mismatch',
       );
       if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-files.png`) });
       await page.getByRole('menuitem', { name: 'QQ闪传', exact: true }).click();
       await page.locator('.flash-composer').waitFor();
       await page.keyboard.press('Escape');
+      await page.locator('.composer-tools button[title="发送 Ark 卡片"]').click();
+      const ark = page.locator('.composer > .ark-panel');
+      await ark.waitFor();
+      if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-ark.png`) });
+      assert(
+        await ark.locator('.ark-close').evaluate((element) => {
+          const box = element.getBoundingClientRect();
+          return element.contains(
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+          );
+        }),
+        'Ark panel clipped or occluded',
+      );
+      await ark.locator('.ark-close').click();
+      await page.locator('.composer-tools button[title="位置"]').click();
+      assert(
+        (await page.getByRole('menuitem').allTextContents()).join(',') === '发送位置,共享位置',
+        'Location menu mismatch',
+      );
+      await page.keyboard.press('Escape');
+      assert((await page.getByRole('menuitem').count()) === 0, 'Location menu did not close');
     }
     results.push({ theme, width, background, accent });
   }

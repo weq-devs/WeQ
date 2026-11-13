@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { MessageBubble } from '../src/renderer/src/im-template/template/messageBubble';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { AvatarOrb } from '../src/renderer/src/components/dressPieces';
 import { cachedAvatarUrl, refreshAvatarUrl } from '../src/renderer/src/lib/avatarCache';
 import { setPreferCdnFlag } from '../src/renderer/src/lib/cdn';

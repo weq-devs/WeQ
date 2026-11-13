@@ -5,12 +5,90 @@ import {
   createUnreadTargetRefresh,
   createUnreadUpdateGuard,
   retryConversationRead,
-  unreadBadgeTargets,
+  UNREAD_BATCH_SIZE,
+  createUnreadRefreshState,
 } from '../src/renderer/src/lib/unreadRefresh';
 
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
+  it('操作回显直接使用小表数量，不再有待精算分支', () => {
+    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    expect(source).not.toContain('countPending');
+    expect(source).not.toContain('countCache');
+  });
+  it('同账号重建保留操作保护，换账号或同号换目录后隔离', () => {
+    const state = createUnreadRefreshState();
+    const first = state.bind('account:source-a');
+    const finish = first.guard.begin(['u_fixture']);
+    const same = state.bind('account:source-a');
+    expect(same.changed).toBe(false);
+    expect(same.guard).toBe(first.guard);
+    expect(same.guard.accepts('u_fixture', same.guard.revision())).toBe(false);
+    finish();
+    const other = state.bind('account:source-b');
+    expect(other.changed).toBe(true);
+    expect(other.guard).not.toBe(first.guard);
+  });
+  it('启动批次并行读取并合并为一次回显，不等首屏消息、不逐会话统计', () => {
+    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    const effect = source.slice(
+      source.indexOf('const unreadContactsRef'),
+      source.indexOf('const unreadDirectoryKey'),
+    );
+    expect(effect).toMatch(/Promise\.all\(\s*batches\.map\(/);
+    expect(effect).toContain('applyLive(rows, startedAt)');
+    expect(effect).not.toContain('setInterval');
+    expect(effect).not.toContain('while (isCurrent() && initialMessagesPendingRef.current)');
+    expect(effect).not.toContain('watermarksOnly');
+    expect(effect).toMatch(
+      /if \([^)]*changed[^)]*\) \{\s*setReadUndo\(null\);\s*setUnreadByConv\(\{\}\);/,
+    );
+  });
+  it('慢水位轮询执行中不积压重复目标，定向新消息仍可补读一轮', async () => {
+    vi.useFakeTimers();
+    let release!: () => void;
+    const target = { chatType: 2, uid: '777' };
+    const load = vi.fn(
+      (_targets: (typeof target)[]) => new Promise<true>((done) => (release = () => done(true))),
+    );
+    const sync = createUnreadTargetRefresh(load);
+    sync.request([target], false);
+    await vi.advanceTimersByTimeAsync(0);
+    for (let poll = 0; poll < 20; poll++) sync.request([target], false);
+    release();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledOnce();
+    sync.request([target], false);
+    await vi.advanceTimersByTimeAsync(1);
+    sync.request([target]);
+    release();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(3);
+    sync.dispose();
+    release();
+  });
+  it('密集库通知不让同一目标快查超过校准频率，不同目标不受冷却阻塞', async () => {
+    vi.useFakeTimers();
+    const target = { chatType: 2, uid: '777' };
+    const load = vi.fn(async (_targets: (typeof target)[]) => true);
+    const sync = createUnreadTargetRefresh(load, undefined, UNREAD_BATCH_SIZE, 1500);
+    sync.request([target], false);
+    await vi.advanceTimersByTimeAsync(0);
+    for (let notice = 0; notice < 10; notice++) {
+      sync.request([target], false);
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    expect(load).toHaveBeenCalledOnce();
+    const other = { chatType: 1, uid: 'u_other' };
+    sync.request([other], false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenLastCalledWith([other]);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(load).toHaveBeenCalledTimes(3);
+    expect(load).toHaveBeenLastCalledWith([target]);
+    sync.dispose();
+  });
   it('五千会话分批完成，超容量明确请求补扫，不静默丢失', async () => {
     vi.useFakeTimers();
     const load = vi.fn(async (_targets: Array<{ chatType: number; uid: string }>) => true);
@@ -25,48 +103,6 @@ describe('未读刷新调度', () => {
     expect(fallback).toHaveBeenCalledOnce();
     queue.dispose();
   });
-  it('QQ 仅推进已读水位时优先校准现有红点，不等待全量扫描或新消息', async () => {
-    vi.useFakeTimers();
-    const background = createUnreadRefresh(() => new Promise<boolean>(() => {}));
-    background.request();
-    await vi.advanceTimersByTimeAsync(100);
-    const contacts = [
-      { chatType: 1, targetUid: 'u_friend' },
-      { chatType: 2, targetUid: '777' },
-      { chatType: 2, targetUid: '888' },
-      { chatType: 8, targetUid: 'device' },
-      { chatType: 999, targetUid: 'unsupported' },
-    ];
-    const counts: Record<string, number> = { u_friend: 3, device: 1, unsupported: 1 };
-    const highlights = { '777': [{}] };
-    const load = vi.fn(async (targets: Array<{ chatType: number; uid: string }>) => {
-      for (const target of targets) counts[target.uid] = 0;
-      return true;
-    });
-    const live = createUnreadTargetRefresh(load);
-    live.request(unreadBadgeTargets(contacts, counts, highlights));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(load).toHaveBeenCalledWith([
-      { chatType: 1, uid: 'u_friend' },
-      { chatType: 2, uid: '777' },
-      { chatType: 8, uid: 'device' },
-    ]);
-    expect(counts.u_friend).toBe(0);
-    expect(counts.device).toBe(0);
-    expect(unreadBadgeTargets(contacts, counts, {})).toEqual([]);
-    live.dispose();
-    background.dispose();
-  });
-
-  it('数据库通知与焦点恢复同时触发红点快速校准，卸载清理入口', () => {
-    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
-    expect(source.includes('requestUnreadReadSyncRef.current?.();\n  }, [unreadRevision]);')).toBe(
-      true,
-    );
-    expect(/const onVisible = \(\) => \{.*?requestReadSync\(\);/s.test(source)).toBe(true);
-    expect(source.includes('requestUnreadReadSyncRef.current = null;')).toBe(true);
-  });
-
   it('实时目标独立于慢速全量扫描刷新，合并去重且执行中收到的事件不丢失', async () => {
     vi.useFakeTimers();
     const backgroundLoad = vi.fn(() => new Promise<boolean>(() => {}));

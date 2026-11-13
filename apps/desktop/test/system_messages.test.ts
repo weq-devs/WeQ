@@ -1,14 +1,15 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { GrayTipRevokeMessage } from '../src/renderer/src/components/GrayTipRevokeMessage';
 import { MessageRow, grayTipOf } from '../src/renderer/src/im-template/template/messageRow';
-import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
+import { SetEmojiReactions } from '../src/renderer/src/components/SetEmojiReactions';
 import {
   ShowMessageTimeContext,
   ShowMessageSeqContext,
 } from '../src/renderer/src/components/MessageProvenance';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -119,26 +120,44 @@ describe('系统消息共用行', () => {
 });
 
 describe('撤回自己的贴表情', () => {
-  it('菜单仅对自己的回应提供撤回入口，离线时保持禁用', () => {
-    const reacted = {
-      ...message,
-      setEmojiList: [
-        { emojiId: '14', setNum: 2, isSelfSet: true },
-        { emojiId: '76', setNum: 1, isSelfSet: false },
-      ],
-    };
-    const html = renderToStaticMarkup(
-      createElement(MessageContextMenu, {
-        state: { message: reacted, x: 0, y: 0 },
-        onCopy: () => {},
-        onRemoveReaction: () => {},
-        removeReactionBlockedReason: 'QQ 未在线',
-      }),
-    );
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    expect(doc.querySelector('button[aria-label="撤回贴表情 14"]')?.hasAttribute('disabled')).toBe(
-      true,
-    );
-    expect(doc.querySelector('button[aria-label="撤回贴表情 76"]')).toBeNull();
+  it('回应条仅撤回自己的回应，离线时保留查看名单但不提交请求', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const onChange = vi.fn();
+    const render = (blockedReason?: string) =>
+      act(() =>
+        root.render(
+          createElement(SetEmojiReactions, {
+            groupId: '10001',
+            sequence: 42,
+            list: [
+              { emojiId: '14', setNum: 2, isSelfSet: true },
+              { emojiId: '76', setNum: 1, isSelfSet: false },
+            ],
+            interaction: { onChange, blockedReason },
+          }),
+        ),
+      );
+    try {
+      render();
+      const own = host.querySelector<HTMLButtonElement>('[aria-label="撤回贴表情 14"]')!;
+      expect(own).not.toBeNull();
+      expect(host.querySelector('[aria-label="撤回贴表情 76"]')).toBeNull();
+      expect(host.querySelector('[aria-label="跟贴表情 76"]')).not.toBeNull();
+      act(() => own.click());
+      expect(onChange).toHaveBeenLastCalledWith('14', false);
+      onChange.mockClear();
+      render('QQ 未在线');
+      const offline = host.querySelector<HTMLButtonElement>('[aria-label="查看 14 的回应人"]')!;
+      expect(offline.title).toBe('QQ 未在线');
+      act(() => offline.click());
+      expect(onChange).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+    }
   });
 });

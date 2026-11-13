@@ -17,6 +17,8 @@ export function DirectoryToolbar({
   children,
   separateSelectionBar = false,
   searchEnabled = true,
+  endAction,
+  searchActions,
 }: {
   noun: string;
   query: string;
@@ -31,9 +33,14 @@ export function DirectoryToolbar({
   children?: ReactNode;
   separateSelectionBar?: boolean;
   searchEnabled?: boolean;
+  endAction?: (searching: boolean, closeSearch: () => void) => ReactNode;
+  searchActions?: ReactNode;
 }) {
   const [searching, setSearching] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (query) setSearching(true);
+  }, [query]);
   useEffect(() => {
     if (searching && (!selecting || separateSelectionBar)) input.current?.focus();
   }, [searching, selecting, separateSelectionBar]);
@@ -93,14 +100,17 @@ export function DirectoryToolbar({
               if (event.key === 'Escape') closeSearch();
             }}
           />
-          <button
-            type="button"
-            title={`退出搜索${noun}`}
-            aria-label={`退出搜索${noun}`}
-            onClick={closeSearch}
-          >
-            <X size={16} />
-          </button>
+          {searchActions}
+          {!endAction && (
+            <button
+              type="button"
+              title={`退出搜索${noun}`}
+              aria-label={`退出搜索${noun}`}
+              onClick={closeSearch}
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -129,6 +139,7 @@ export function DirectoryToolbar({
           {children}
         </>
       )}
+      {(!selecting || separateSelectionBar) && endAction?.(searching && searchEnabled, closeSearch)}
     </div>
   );
 }

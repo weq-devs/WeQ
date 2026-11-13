@@ -47,9 +47,24 @@ function fixture() {
         client: id === clientId ? state.client : null,
       })),
       acknowledge: vi.fn(async () => true),
+      applyShared: vi.fn(async () => {}),
     },
   };
 }
+it('恢复默认专用回执经启动交接应用，保留会话整理与草稿且不重复清除后续设置', async () => {
+  const f = fixture();
+  f.state.client = { ...f.state.client!, defaults: true, values: {} };
+  localStorage.setItem('weq.contacts.order.10001.10001.friends', '{}');
+  localStorage.setItem('chat-template:conversation-preferences', '合成置顶');
+  localStorage.setItem('draft', '合成草稿');
+  await restoreBackupClient(f.api, localStorage);
+  expect(localStorage.getItem('weq.contacts.order.10001.10001.friends')).toBeNull();
+  expect(localStorage.getItem('chat-template:conversation-preferences')).toBe('合成置顶');
+  expect(localStorage.getItem('draft')).toBe('合成草稿');
+  localStorage.setItem('weq.contacts.order.10001.10001.friends', '{"sort":"qq"}');
+  await restoreBackupClient(f.api, localStorage);
+  expect(localStorage.getItem('weq.contacts.order.10001.10001.friends')).toBe('{"sort":"qq"}');
+});
 it('无待恢复界面数据时不读取被浏览器禁用的 localStorage', async () => {
   const f = fixture();
   f.state.result = null;
@@ -71,6 +86,17 @@ it('确认失败可重试，已提交的界面偏好不覆盖用户后来的修�
     result: { clientPending: false },
   });
   expect(localStorage.getItem('weq.theme-preference')).toBe('light');
+});
+it('旧界面备份必须成功写入共享设置才确认，失败保留恢复意图供显式重试', async () => {
+  const f = fixture();
+  f.api.applyShared.mockRejectedValueOnce(new Error('offline'));
+  await expect(restoreBackupClient(f.api, localStorage)).rejects.toThrow('offline');
+  expect(f.api.acknowledge).not.toHaveBeenCalled();
+  expect(localStorage.getItem('weq.sync.restored-shared')).not.toBeNull();
+  await restoreBackupClient(f.api, localStorage);
+  expect(f.api.applyShared).toHaveBeenLastCalledWith(f.state.client!.id, { preference: 'dark' });
+  expect(f.api.acknowledge).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem('weq.sync.restored-shared')).toBeNull();
 });
 it('另一设备的恢复不会写入当前界面，也不确认别人的回执', async () => {
   const f = fixture();

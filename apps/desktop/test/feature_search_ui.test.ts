@@ -54,7 +54,7 @@ describe('功能与设置搜索界面', () => {
     try {
       act(() => root.render(h(SearchDropdown, props)));
       expect(host.querySelectorAll('.weq-app-search [role="option"]')).toHaveLength(6);
-      act(() => host.querySelector<HTMLButtonElement>('.weq-app-search-expand')!.click());
+      act(() => host.querySelector<HTMLButtonElement>('.weq-app-search .weq-search-more')!.click());
       const count = host.querySelectorAll('.weq-app-search [role="option"]').length;
       expect(count).toBeGreaterThan(6);
       act(() =>
@@ -119,13 +119,13 @@ describe('功能与设置搜索界面', () => {
           target: { kind: 'setting', section: 'appearance', item: '基础模式' },
         }),
       );
-      const all = host.querySelector<HTMLButtonElement>('[aria-label="全部范围"]')!;
-      expect(all.getAttribute('aria-pressed')).toBe('mixed');
-      act(() => all.click());
+      const all = host.querySelector<HTMLButtonElement>('[aria-label="全部来源"]')!;
       expect(all.getAttribute('aria-pressed')).toBe('true');
       act(() => all.click());
       expect(host.textContent).toContain('未选择搜索范围');
       expect(host.querySelector('.weq-app-search')).toBeNull();
+      act(() => all.click());
+      expect(all.getAttribute('aria-pressed')).toBe('true');
     } finally {
       act(() => root.unmount());
       host.remove();
@@ -151,7 +151,9 @@ describe('功能与设置搜索界面', () => {
       expect(findSettingElement(host, '显示消息序号')).toBeNull();
       const dispose = revealSetting(host, '显示消息序号（seq）');
       expect(row.dataset.searchHighlight).toBe('true');
-      expect(document.activeElement).toBe(row);
+      // 落点聚焦行内第一个可操作控件（开关），行容器只是高亮目标。
+      const toggle = row.querySelector<HTMLElement>('[role="switch"]')!;
+      expect(document.activeElement).toBe(toggle);
       expect(change).not.toHaveBeenCalled();
       dispose();
       expect(row.hasAttribute('tabindex')).toBe(false);

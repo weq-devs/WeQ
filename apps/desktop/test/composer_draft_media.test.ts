@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
+import { MAX_SHARED_DRAFT_IMAGE_BYTES } from '@weq/service/client-preferences';
 import { composerDraftRecovery } from '../src/renderer/src/lib/composerDraftRecovery';
 import {
   preserveComposerImages,
@@ -7,6 +8,7 @@ import {
   restoreComposerImages,
   composerAssetIds,
   removeUnusedComposerImages,
+  shareComposerImages,
   type ComposerMediaStore,
 } from '../src/renderer/src/lib/composerDraftMedia';
 import {
@@ -46,6 +48,40 @@ function fixture() {
   };
   return { store, image, files };
 }
+it('共享图片先真实转存，去掉仅本机素材标识和 blob 地址，重复引用只传一次', async () => {
+  const f = fixture();
+  await preserveComposerImages('account', 'conversation', [f.image], f.store);
+  const token = attachmentToken(f.image);
+  const stage = vi.fn(async (file: File) => {
+    expect(await file.text()).toBe('pixels');
+    return '/synthetic/shared/image.png';
+  });
+  const shared = await shareComposerImages(
+    'account',
+    'conversation',
+    `${token}${token}`,
+    stage,
+    f.store,
+  );
+  expect(stage).toHaveBeenCalledTimes(1);
+  expect(composerAssetIds(shared).size).toBe(0);
+  const element = tokenToElement(shared.match(/\[\[chat:elem:[^\]]+\]\]/)![0]);
+  expect(element).toMatchObject({ kind: 'pic', localPath: '/synthetic/shared/image.png' });
+  expect(element).not.toHaveProperty('localPreviewUrl');
+  expect(element).not.toHaveProperty('localDraftAssetId');
+  expect(f.files.size).toBe(1);
+});
+it('超过共享上限的图片在分段上传前拒绝，保留原素材', async () => {
+  const f = fixture();
+  Object.defineProperty(f.image.file, 'size', { value: MAX_SHARED_DRAFT_IMAGE_BYTES + 1 });
+  await preserveComposerImages('a', 'c', [f.image], f.store);
+  const stage = vi.fn(async () => '/synthetic/shared/image.png');
+  await expect(
+    shareComposerImages('a', 'c', attachmentToken(f.image), stage, f.store),
+  ).rejects.toThrow('共享草稿图片');
+  expect(stage).not.toHaveBeenCalled();
+  expect(f.files.size).toBe(1);
+});
 it('真实图片文件先保存，重建新地址后正文及素材可发送，账号和会话隔离', async () => {
   const f = fixture();
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:new-process');

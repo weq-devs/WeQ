@@ -19,17 +19,25 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
 import { webNotices, type WebNotice } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
+import { resolveSignerWrapper } from './signer_target';
 import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { AnnualReportIndexDb, withDatabasePriority, waitForDatabaseQuiet } from '@weq/db';
+import {
+  AnnualReportIndexDb,
+  MessageReadIndexDb,
+  withDatabasePriority,
+  waitForDatabaseQuiet,
+} from '@weq/db';
+import { waitForCalendarWrites } from '@weq/service/conversation-calendar-store';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
   createWin32Platform,
@@ -51,7 +59,11 @@ import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { assistantToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { bindAccountTools, invalidateAccountTools } from '../mcp/account_scope';
 import { cancelAssistantRuns } from '../mcp/assistant_bus';
-import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
+import {
+  configureExternalMcp,
+  disposeExternalMcp,
+  withExternalMcpConfiguration,
+} from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
 import { searchAccountContent } from '../search_content';
@@ -60,7 +72,7 @@ import { createLocalModelResources } from './local_model_resources';
 import { createSearchIndexRetirement } from '../source_search_retirement';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
-import type { IntentLocalEnginePort } from '@weq/service';
+import type { IntentLocalEnginePort, OnlineCredentialIssue } from '@weq/service';
 import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
 import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
@@ -81,6 +93,7 @@ import {
   getVoiceModel,
   MsgService,
   getHost,
+  resolveSsoClientSnapshot,
   resolveExportSaveDirectory,
   resolveGeneratedResource,
   RecentContactService,
@@ -91,6 +104,7 @@ import {
   OfficialAccountService,
   ServiceAccountService,
   UnreadInfoService,
+  createQqUnreadCountSource,
   AccountConfigService,
   AccountMonitorService,
   MediaDownloadService,
@@ -120,6 +134,7 @@ import {
   MsgDecorationCacheService,
   TokenUsageStore,
   warmupSigner,
+  primeSignerHints,
   type SignerWarmupResult,
   ConversationStore,
   DeletedMsgStore,
@@ -148,6 +163,7 @@ import {
   MessageSendService,
   FlashTransferFilesService,
   PeerStatsService,
+  ProfileExtrasService,
   ChatQqShowService,
   ShowEmojiCatalog,
   CustomEmojiRecentService,
@@ -203,6 +219,7 @@ import {
 } from '@weq/account';
 import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
 import { mountGroupInfoWatch } from '../group_info_watch';
+import { ContactDirectoryRuntime } from './contact_metrics';
 
 /**
  * Process-wide bus for message / group-info changes, fed by the shared `dbWatch` loop
@@ -254,6 +271,30 @@ let bootstrapCacheRoot: string | undefined;
  * 取 RVA，预热没跑完时退回 native 自己的扫描。
  */
 let signerWarmup: Promise<SignerWarmupResult | null> | undefined;
+function warmupSelectedSigner(
+  platform: Platform,
+  uin?: string,
+  isCurrent: () => boolean = () => true,
+): Promise<SignerWarmupResult | null> {
+  return resolveSignerWrapper(platform, uin)
+    .then((wrapperPath) => {
+      if (!isCurrent()) return null;
+      return warmupSigner(
+        platform.native.ntHelper,
+        platform.appDataRoot(),
+        wrapperPath,
+        readQqVersion(wrapperPath),
+      );
+    })
+    .catch((error: unknown) => {
+      getLogger().warn('签名器预热失败，发包时可重试', {
+        scope: 'signer-cache',
+        event: 'signer-warmup',
+        ...logErrorContext(error),
+      });
+      return null;
+    });
+}
 
 export function accountRuntimeCacheRoot(ctx: AppContext): string | undefined {
   return accountCacheRoots.get(ctx);
@@ -300,7 +341,7 @@ let ssePush: SsePushService | null = null;
 /**
  * SSE 推送是否真的在推送（有账号 + 已挂上推送目标）。
  *
- * 只给「后台服务」页和退出确认用：SSE 没有独立的监听端口，运行态只能从
+ * 供服务状态查询和退出确认使用：SSE 没有独立的监听端口，运行态只能从
  * 服务实例判断。配置里选了目标但账号没开时不算运行中。
  */
 export function isSsePushActive(): boolean {
@@ -469,7 +510,11 @@ function mountDbWatch(session: AccountSession): void {
   dbChangeNotification = notification;
   dbWatchHandle = dbWatch.mount(
     createNtMsgDbHook(session, {
-      onDbChanged: notification.request,
+      onDbChanged: (file) => {
+        if (getAppContext().account !== session) return;
+        getAppContext().services?.unreadInfo.invalidate();
+        notification.request(file);
+      },
       onNewMessages: async (change: NewMessages) => {
         const ctx = getAppContext();
         if (ctx.account !== session) return;
@@ -636,28 +681,15 @@ export function closeSalvageConnections(ctx: AppContext): number {
 }
 
 /**
- * 年度报告索引的后台预热 —— 开账号时调一次，把两个派生索引补齐。
- *
- * 为什么放在这里（而不是打开报告时）：这两个索引让报告第一页从 ~0.9s 降到
- * ~0.06s（实测 200 万行），但**第一次**建它要全表扫一遍写 B-tree。native 对同一个
- * 库的查询是串行化的（实测：一个慢查询会把同库的 `SELECT 1` 挡 1.5s），所以若等到
- * 用户打开报告那一刻才建，用户会先等一次建索引 —— 恰好把优化抵消掉。放在开账号后
- * 的后台，用户还没走到报告页，这次建索引就是「白捡」的。
- *
- * 三个刻意的选择：
- *   • 延迟仅是首次检查；缺失索引逐个等待数据库队列为空且交互安静五秒，
- *     再以后台优先级创建，不能将定时器到点当作空闲。已执行的 DDL 不可抢占。
- *   • **best-effort**：静态快照、只读目录、无写权限都会抛错，一律只记日志 ——
- *     报告不该因为装不上索引就打不开，只是慢一点。
- *   • **幂等**：先检查已有索引，不重复提交 DDL；两个缺失索引之间再次让出。
- *
- * 返回前会核对 session 仍是当前账号 —— 期间用户切了账号就整个丢弃。
+ * UID 消息读取与年度报告派生索引的空闲预热。
+ * 每个不可抢占的 DDL 前重新等队列排空、交互安静五秒；不能把定时器到点当作空闲。
+ * 已有等价索引不重建。只读来源等安装失败只记日志，读取仍使用短段回退。
  */
 function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platform: Platform): void {
   cancelAnnualReportWarmup();
   const controller = new AbortController();
   annualIndexController = controller;
-  const logger = getLogger().child({ scope: 'annual-report-index' });
+  const logger = getLogger().child({ scope: 'database-index' });
   annualIndexWarmup = setTimeout(() => {
     annualIndexWarmup = null;
     // 期间切过账号 / 关过账号就放弃：索引属于刚打开的那个会话。
@@ -670,28 +702,35 @@ function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platfor
       });
       const installed = await withDatabasePriority(
         'background',
-        () =>
-          db.ensure({
-            beforeCreate: () =>
-              waitForDatabaseQuiet(
-                session.msgDbPath,
-                () => ctx.account === session && !controller.signal.aborted,
-              ),
-          }),
+        async () => {
+          const beforeCreate = () =>
+            waitForDatabaseQuiet(
+              session.msgDbPath,
+              () => ctx.account === session && !controller.signal.aborted,
+            );
+          const uidTables = await new MessageReadIndexDb(platform.native.ntHelper, {
+            dbPath: session.msgDbPath,
+            key: session.context.dbKey,
+            algo: algoFor(session.context, session.msgDbPath),
+          }).ensure({ beforeCreate });
+          const annual = await db.ensure({ beforeCreate });
+          return { uidTables, annual };
+        },
         controller.signal,
       );
       if (ctx.account !== session) return;
-      logger.info('annual report indexes ready', {
-        event: 'annual-index-ready',
+      logger.info('database read indexes ready', {
+        event: 'read-index-ready',
         accountUin: session.context.uin,
-        indexes: installed.map((index) => index.name),
+        indexes: installed.annual.map((index) => index.name),
+        uidTables: installed.uidTables,
       });
       // 读侧复用账号连接；写侧 QqDb.write 已在每条 DDL 结束后释放锁。
     })()
       .catch((error) => {
         if (controller.signal.aborted) return;
-        logger.warn('failed to build annual report indexes (report still works, just slower)', {
-          event: 'annual-index-failed',
+        logger.warn('failed to build read indexes (short reads remain available)', {
+          event: 'read-index-failed',
           accountUin: session.context.uin,
           ...logErrorContext(error),
         });
@@ -852,6 +891,7 @@ export interface BootstrapServices {
 
 /** Services that are re-created whenever an account session opens. */
 export interface AccountServices {
+  contactDirectory?: ContactDirectoryRuntime;
   msgs: MsgService;
   recentContacts: RecentContactService;
   /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
@@ -933,6 +973,7 @@ export interface AccountServices {
   roamingBackfill: RoamingBackfillManager;
   /** 他人的个性主页统计（QQ 等级 + 资料卡累计获赞），需在线 QQ 发包。 */
   peerStats: PeerStatsService;
+  profileExtras: ProfileExtrasService;
   /** 聊天 QQ 秀形象 URL 的本地映射（个性主页共用，按设置天数过期）。 */
   qqShow: ChatQqShowService;
   /** QQ 秀 / 互动表情目录（`resources/qqshow/show_emoji.json` 的离线快照）。 */
@@ -1103,6 +1144,10 @@ export interface AppContext {
    */
   refreshRkeysNow(): Promise<boolean>;
   onlineCredentialsPending(): boolean;
+  /** 需要用户处理的凭据原因；有值时受限模式应直接展示，而不是继续等待。 */
+  onlineCredentialsIssue(): OnlineCredentialIssue | null;
+  /** 等待当前账号的原生 SSO 登记，不刷新在线票据。 */
+  ensureOnlineCredentials(): Promise<void>;
   /**
    * Transcribe a SILK file on disk with the globally selected model. Account
    * independent (the model is a global setting), so callers that already have a
@@ -1159,6 +1204,12 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     },
     onlineCredentialsPending(): boolean {
       return false;
+    },
+    onlineCredentialsIssue(): OnlineCredentialIssue | null {
+      return null;
+    },
+    async ensureOnlineCredentials(): Promise<void> {
+      throw new Error(reason);
     },
     transcribeSilk(): Promise<TranscribeSilkResult> {
       return Promise.resolve({ ok: false, error: reason });
@@ -1288,23 +1339,10 @@ export function initAppContext(fileRoot?: string): AppContext {
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
   startLogRetention(() => userConfig.getSettings().logRetentionDays);
 
-  // 签名器预热：`wrapper.node` 有 140–200 MB，完整定位 sign core / VM 实测
-  // 2.5–3 秒。这个代价不该落在第一包需要签名的请求上 —— 启动后立刻在后台做，
-  // 缓存命中时只 dlopen + 校验（约 0.5 秒），不碰界面线程。
-  //
-  // 失败不阻断启动：真正的签名错误会在发包时带上下文报出来（诊断页也能手动重试）。
-  signerWarmup = warmupSigner(
-    platform.native.ntHelper,
-    platform.appDataRoot(),
-    platform.qqWrapperNodePath(),
-    readQqVersion(platform.qqWrapperNodePath()),
-  ).catch((error: unknown) => {
-    logger.warn('signer warmup failed (non-fatal)', {
-      event: 'signer-warmup',
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  });
+  // macOS 启动时跳过未知目标的预热，待完整模式确认运行中 QQ 后再加载同一份模块。
+  // 否则先载安装旧版、再载热更新版，会重复注册 Objective-C 类并刷满原生警告。
+  if (platform.kind === 'darwin') primeSignerHints(platform.appDataRoot());
+  signerWarmup = warmupSelectedSigner(platform);
 
   // Reading a running QQ's memory needs a ptrace attach: on linux AND macOS that
   // is gated (linux: yama ptrace_scope / root + CAP_SYS_PTRACE; macOS: root and
@@ -1379,7 +1417,9 @@ export function initAppContext(fileRoot?: string): AppContext {
   const agentLabMedia = (
     fileSearch: FileSearchService,
     mediaDownload: MediaDownloadService,
+    expectedAccount: AccountSession,
   ): import('@weq/service').AgentLabMediaDeps => ({
+    images: createAccountImagePort(expectedAccount),
     fileSearch,
     mediaDownload,
     transcribe: transcribeSilk,
@@ -1459,6 +1499,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
+      await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
       unmountDbWatch();
       ssePush?.stop();
@@ -1504,7 +1545,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.resourcePlatform = platform;
       this.accountIsStatic = false;
       this.accountIsAndroidBackup = false;
-      const accountConfig = new AccountConfigService(session, platform.appDataRoot());
+      const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
       // Keyed by the same (uin, dataDir) id the account record uses.
       const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
@@ -1574,9 +1615,14 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 个性装扮：新架构（cache/config 分离）。
       // 1. 迁移旧数据（如果存在旧 manifest.json）。
       const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
-      const dressConfigDir = join(platform.appDataRoot(), 'config', 'accounts', exportConfigId);
+      const dressConfigDir = userConfig.sharedAppearanceDir();
       const sharedDressCache = userConfig.cacheDir('dress_shared');
-      migrateDressData(legacyDressDir, sharedDressCache, new DressConfigService(dressConfigDir));
+      migrateDressData(
+        legacyDressDir,
+        sharedDressCache,
+        new DressConfigService(join(platform.appDataRoot(), 'config', 'accounts', exportConfigId)),
+      );
+      userConfig.migrateSharedAccountPreferences(exportConfigId);
       // 2. 创建新的装扮服务。
       const dressInstall = createDressService(
         platform.native.ntHelper,
@@ -1584,6 +1630,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         dressConfigDir,
         sharedDressCache,
         resolveOnlinePid,
+        sharedPreferencePersistence(userConfig, 'dress'),
       );
       // 3. 升级后的自愈：缓存里的字体产物若是旧转换链产出的（彩色表 / 炫彩帧都是新
       //    加的），后台就地重新派生一遍（走本地已缓存的原始 zip，完全离线）。
@@ -1628,7 +1675,15 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-        { onRecall: (event) => notifyRecall(session, event) },
+        {
+          onRecall: (event) => notifyRecall(session, event),
+          preferences: sharedPreferencePersistence(
+            userConfig,
+            'antiRecall',
+            join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+            ['targets', 'notifyTargets'],
+          ),
+        },
       );
       // 打开账号就挂上撤回记录监听（拦到新撤回时按会话开关弹系统通知）。
       activeAntiRecall = antiRecall;
@@ -1677,6 +1732,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir(join('content-search', exportConfigId)), 'observed.json'),
       );
       let generatedSources: GeneratedSearchSources | undefined;
+      await dressInstall.prepareMessageRendering();
       this.services = {
         msgs,
         roamingBackfill,
@@ -1724,10 +1780,15 @@ export function initAppContext(fileRoot?: string): AppContext {
               'unread.json',
             ),
           },
+          createQqUnreadCountSource(platform.native.ntHelper, session.msgDbPath, () => {
+            if (this.account !== session || this.accountIsStatic) return null;
+            const record = accountConfig.getRecord();
+            return record?.qqOnline ? (record.qqPid ?? null) : null;
+          }),
         ),
         accountConfig,
         annualReport: new AnnualReportService(session, {
-          preferences: accountConfig.getRecord()?.annualReport,
+          preferences: userConfig.getSharedPreference('annualReport'),
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
             const record = accountConfig.getRecord();
@@ -1794,7 +1855,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           agentlabRoot,
           resolveAgentEndpoint,
           // Thing 1: 注入媒体/语音能力，蒸馏期补全表情包 + 转录语音。
-          agentLabMedia(fileSearch, mediaDownload),
+          agentLabMedia(fileSearch, mediaDownload, session),
           tokenUsage,
           conversations,
           // 语音合成（克隆体发语音 / 语音克隆）：provider 从全局语音配置取。
@@ -1813,13 +1874,19 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            withConfig: (config, run) =>
+              withExternalMcpConfiguration(config.mcpServers, () =>
+                withImageTaskConfiguration(run),
+              ),
+            images: createAccountImagePort(session),
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
-            syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+            syncExternalMcp: configureExternalMcp,
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
             sampleHitokoto,
           },
+          sharedPreferencePersistence(userConfig, 'assistant'),
         ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           // 导出是唯一会用到损坏宽容的读取链路：分页真的报出损坏、且该账号已授权
@@ -1882,6 +1949,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 闭包会自己返回失败，导出阶段据此回退 / 记失败。
             ocrLocal: runLocalOcrFile,
             ocrFilter: runLocalOcrFilterFile,
+            ocrPrefilterEnabled: () => userConfig.getSettings().ocr.prefilterEnabled,
             onlineOcr: onlineOcr.recognize,
             // 识别结果缓存：与灯箱 / MCP 共用同一份（内容寻址，`<缓存根>/ocr/`）。
             // 灯箱里识别过的图，导出直接命中；过期图（CDN 失效 + 本机没本体）也只有它还能出文字。
@@ -2027,7 +2095,14 @@ export function initAppContext(fileRoot?: string): AppContext {
           session,
           userConfig.cacheDir(join('intent_sense', exportConfigId)),
           {
+            preferences: sharedPreferencePersistence(
+              userConfig,
+              'intent',
+              join(userConfig.cacheDir(join('intent_sense', exportConfigId)), 'config.json'),
+              ['conversationOverrides'],
+            ),
             resolveEndpoint: resolveAgentEndpoint,
+            images: createAccountImagePort(session),
             localEngine: getActiveIntentSenseLocalEngine(),
             legacyLocalModelId: userConfig.getLocalModelId('intent'),
             gapHistory,
@@ -2067,6 +2142,14 @@ export function initAppContext(fileRoot?: string): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, resolveOnlinePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
+        profileExtras: new ProfileExtrasService(
+          platform.native.ntHelper,
+          session.context.uin,
+          () => {
+            if (this.account !== session) throw new Error('账号已切换，请重新读取资料');
+            return resolveOnlinePid();
+          },
+        ),
         qqShow: new ChatQqShowService({
           storePath: join(
             platform.appDataRoot(),
@@ -2119,6 +2202,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           () => accountConfig.getRecord()?.homeDress?.fontId,
           () => userConfig.getSettings().sendWithQqFont,
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
+          mediaDownload,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
@@ -2131,12 +2215,19 @@ export function initAppContext(fileRoot?: string): AppContext {
             selfUid: session.selfUid,
             getBuddy: (uid) => session.buddies.getBuddy(uid),
             listCategories: () => session.categories.listCategories(),
-            clientVersion: () => {
-              const path = platform.qqMajorNodePath(resolveOnlinePid());
-              if (!path) throw new Error('无法读取当前 QQ 版本');
-              const info = platform.native.ntHelper.resolveAppidFromMajor(path);
-              if (!info.version || !info.build) throw new Error('当前 QQ 版本信息不完整');
-              return `${info.version}-${info.build}`;
+            clientVersion: async () => {
+              const client = await resolveSsoClientSnapshot(
+                platform.native.ntHelper,
+                platform,
+                resolveOnlinePid(),
+                {
+                  uin: session.context.uin,
+                  uid: session.selfUid,
+                  guid: accountConfig.getRecord()?.guid ?? '',
+                },
+              );
+              if (!client.identity.clientVersion) throw new Error('当前 QQ 版本信息不完整');
+              return client.identity.clientVersion;
             },
           },
           () => {
@@ -2147,6 +2238,18 @@ export function initAppContext(fileRoot?: string): AppContext {
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      this.services.contactDirectory = new ContactDirectoryRuntime(
+        this.services,
+        session,
+        userConfig.cacheDir(join('contacts', exportConfigId, session.context.uin)),
+        dbWatch,
+        () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
+        () => this.account === session,
+        exportConfigId,
+      );
+      this.services.contactDirectory.history.setAvatarReader(
+        async (url) => (await bootstrap.avatarCache.getLocal(url, 'avatar'))?.data ?? null,
+      );
       generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
@@ -2173,6 +2276,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       mail.startBackground({
         notifications: accountConfig.getRecord()?.mailNotifications ?? false,
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+        pollIntervalMinutes: accountConfig.getRecord()?.mailPollIntervalMinutes,
       });
 
       // 后台登录/pid 监视器实时检查本来源有效运行态，包含自动策略和显式手动请求；
@@ -2190,6 +2294,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           emitDressChanged();
         },
         () => {
+          if (platform.kind === 'darwin') {
+            signerWarmup = warmupSelectedSigner(
+              platform,
+              session.context.uin,
+              () => this.account === session && fullModeAllowed(this, session),
+            );
+          }
           accountEventBus.emit('onlineCredentialsReady', { at: Date.now() });
           mail.credentialsAvailable();
         },
@@ -2323,6 +2434,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
+      await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
       unmountDbWatch();
       ssePush?.stop();
@@ -2367,7 +2479,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.account = session;
       accountCacheRoots.set(this, userConfig.cacheBaseDir());
 
-      const accountConfig = new AccountConfigService(session, platform.appDataRoot());
+      const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       const exportConfigId = accountConfigId(session.context.uin, dirPath);
 
       // Does this machine also hold a native QQ directory for the same account?
@@ -2438,9 +2550,14 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 个性装扮：新架构（cache/config 分离），静态账号也走全局共享缓存。
       // 迁移旧数据（如果存在旧 manifest.json）。
       const legacyDressDir = userConfig.cacheDir(join('dress', exportConfigId));
-      const dressConfigDir = join(platform.appDataRoot(), 'config', 'accounts', exportConfigId);
+      const dressConfigDir = userConfig.sharedAppearanceDir();
       const sharedDressCache = userConfig.cacheDir('dress_shared');
-      migrateDressData(legacyDressDir, sharedDressCache, new DressConfigService(dressConfigDir));
+      migrateDressData(
+        legacyDressDir,
+        sharedDressCache,
+        new DressConfigService(join(platform.appDataRoot(), 'config', 'accounts', exportConfigId)),
+      );
+      userConfig.migrateSharedAccountPreferences(exportConfigId);
       // 创建新的装扮服务。
       const dressInstall = createDressService(
         platform.native.ntHelper,
@@ -2448,6 +2565,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         dressConfigDir,
         sharedDressCache,
         livePid,
+        sharedPreferencePersistence(userConfig, 'dress'),
       );
       // 升级后的自愈：与在线路径同一套（静态账号也该看到新产物）。
       void dressInstall.refreshDerived().then((refreshed) => {
@@ -2483,7 +2601,16 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         staticPlatform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-        { onRecall: (event) => notifyRecall(session, event) },
+        {
+          readOnly: !this.accountIsAndroidBackup,
+          onRecall: (event) => notifyRecall(session, event),
+          preferences: sharedPreferencePersistence(
+            userConfig,
+            'antiRecall',
+            join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
+            ['targets', 'notifyTargets'],
+          ),
+        },
       );
 
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
@@ -2526,6 +2653,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir(join('content-search', exportConfigId)), 'observed.json'),
       );
       let generatedSources: GeneratedSearchSources | undefined;
+      await dressInstall.prepareMessageRendering();
       this.services = {
         msgs,
         roamingBackfill,
@@ -2549,7 +2677,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
-          preferences: accountConfig.getRecord()?.annualReport,
+          preferences: userConfig.getSharedPreference('annualReport'),
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
             const record = accountConfig.getRecord();
@@ -2616,7 +2744,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           agentlabRoot,
           resolveAgentEndpoint,
           // 静态账号也注入：媒体寻址可能命中不到（无 nt_data），会优雅降级。
-          agentLabMedia(fileSearch, mediaDownload),
+          agentLabMedia(fileSearch, mediaDownload, session),
           tokenUsage,
           conversations,
           {
@@ -2634,13 +2762,19 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            withConfig: (config, run) =>
+              withExternalMcpConfiguration(config.mcpServers, () =>
+                withImageTaskConfiguration(run),
+              ),
+            images: createAccountImagePort(session),
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
-            syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
+            syncExternalMcp: configureExternalMcp,
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
             sampleHitokoto,
           },
+          sharedPreferencePersistence(userConfig, 'assistant'),
         ),
         exportManager: new (await import('@weq/service')).ExportTaskManager(
           // 导出是唯一会用到损坏宽容的读取链路：分页真的报出损坏、且该账号已授权
@@ -2703,6 +2837,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 在线 QQ；在线那条腿不注入（导入目录账号的 rkey 链路未必可用）。
             ocrLocal: runLocalOcrFile,
             ocrFilter: runLocalOcrFilterFile,
+            ocrPrefilterEnabled: () => userConfig.getSettings().ocr.prefilterEnabled,
             // 识别结果缓存（同上：与灯箱 / MCP 共用一份）。
             ocrCache,
             ocrFilterModelId: () => resolveLocalOcrFilterModel()?.modelId ?? null,
@@ -2821,7 +2956,14 @@ export function initAppContext(fileRoot?: string): AppContext {
           session,
           userConfig.cacheDir(join('intent_sense', exportConfigId)),
           {
+            preferences: sharedPreferencePersistence(
+              userConfig,
+              'intent',
+              join(userConfig.cacheDir(join('intent_sense', exportConfigId)), 'config.json'),
+              ['conversationOverrides'],
+            ),
             resolveEndpoint: resolveAgentEndpoint,
+            images: createAccountImagePort(session),
             localEngine: getActiveIntentSenseLocalEngine(),
             legacyLocalModelId: userConfig.getLocalModelId('intent'),
             gapHistory,
@@ -2859,6 +3001,14 @@ export function initAppContext(fileRoot?: string): AppContext {
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
+        profileExtras: new ProfileExtrasService(
+          platform.native.ntHelper,
+          session.context.uin,
+          () => {
+            if (this.account !== session) throw new Error('账号已切换，请重新读取资料');
+            return livePid();
+          },
+        ),
         qqShow: new ChatQqShowService({
           storePath: join(
             platform.appDataRoot(),
@@ -2904,6 +3054,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           () => accountConfig.getRecord()?.homeDress?.fontId,
           () => userConfig.getSettings().sendWithQqFont,
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
+          mediaDownload,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
@@ -2916,12 +3067,19 @@ export function initAppContext(fileRoot?: string): AppContext {
             selfUid: session.selfUid,
             getBuddy: (uid) => session.buddies.getBuddy(uid),
             listCategories: () => session.categories.listCategories(),
-            clientVersion: () => {
-              const path = platform.qqMajorNodePath(livePid());
-              if (!path) throw new Error('无法读取当前 QQ 版本');
-              const info = platform.native.ntHelper.resolveAppidFromMajor(path);
-              if (!info.version || !info.build) throw new Error('当前 QQ 版本信息不完整');
-              return `${info.version}-${info.build}`;
+            clientVersion: async () => {
+              const client = await resolveSsoClientSnapshot(
+                platform.native.ntHelper,
+                platform,
+                livePid(),
+                {
+                  uin: session.context.uin,
+                  uid: session.selfUid,
+                  guid: accountConfig.getRecord()?.guid ?? '',
+                },
+              );
+              if (!client.identity.clientVersion) throw new Error('当前 QQ 版本信息不完整');
+              return client.identity.clientVersion;
             },
           },
           () => {
@@ -2932,6 +3090,18 @@ export function initAppContext(fileRoot?: string): AppContext {
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      this.services.contactDirectory = new ContactDirectoryRuntime(
+        this.services,
+        session,
+        userConfig.cacheDir(join('contacts', exportConfigId, session.context.uin)),
+        dbWatch,
+        () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
+        () => this.account === session,
+        exportConfigId,
+      );
+      this.services.contactDirectory.history.setAvatarReader(
+        async (url) => (await bootstrap.avatarCache.getLocal(url, 'avatar'))?.data ?? null,
+      );
       generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening
@@ -2952,6 +3122,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       mail.startBackground({
         notifications: accountConfig.getRecord()?.mailNotifications ?? false,
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+        pollIntervalMinutes: accountConfig.getRecord()?.mailPollIntervalMinutes,
       });
       logger.info('opened static account session', {
         event: 'open-static-account-success',
@@ -3036,6 +3207,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     async clearAccount(waitForPending = false): Promise<void> {
+      accountEventBus.emit('closing', this.account);
       const closedAt = performance.now();
       const closingUin = this.account?.context.uin;
       const previousClosures = [...pendingAccountClosures];
@@ -3071,6 +3243,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       unmountAntiRecallMonitor();
       const roamingClosed = this.services?.roamingBackfill.close();
       const favoriteImportClosed = this.services?.favoriteEmojiImport.dispose();
+      const contactsClosed = this.services?.contactDirectory?.dispose();
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
@@ -3090,6 +3263,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountCacheRoots.delete(this);
       if (waitForPending) uidRegistry.clear();
       const closing = Promise.allSettled([
+        waitForCalendarWrites(),
+        contactsClosed,
         mcpClosed,
         externalMcpClosed,
         roamingClosed,
@@ -3293,6 +3468,21 @@ export function initAppContext(fileRoot?: string): AppContext {
     onlineCredentialsPending(): boolean {
       return accountMonitor?.credentialsPending ?? false;
     },
+    onlineCredentialsIssue(): OnlineCredentialIssue | null {
+      return accountMonitor?.credentialIssue ?? null;
+    },
+    async ensureOnlineCredentials(): Promise<void> {
+      const monitor = accountMonitor;
+      const services = this.services;
+      const record = services?.accountConfig.getRecord();
+      if (!monitor || !record?.qqOnline || !record.qqPid)
+        throw new Error('需要先登录该账号的 QQ 客户端。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+      await monitor.ensureCredentialsReady(record.qqPid);
+      if (accountMonitor !== monitor || this.services !== services)
+        throw new Error('账号已切换，请重新读取。');
+      if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用完整功能。');
+    },
     applyFullModePolicy(): void {
       if (fullModeAllowed(this)) return;
       this.services?.unreadInfo.cancelReports();
@@ -3369,7 +3559,7 @@ export function requirePlatform(): Platform {
   return !ctx.accountIsStatic && ctx.resourcePlatform ? ctx.resourcePlatform : ctx.platform;
 }
 
-/** 启动期签名器预热的结果（还在跑时等它完成）。 */
+/** 当前签名器预热的结果（还在跑时等它完成）。 */
 export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
   if (!signerWarmup) return null;
   return signerWarmup;
@@ -3378,23 +3568,17 @@ export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
 /**
  * 重新预热签名器（诊断页「重新扫描」）。
  *
- * 与启动期那次同一套逻辑：命中缓存就只 dlopen + 校验，否则完整扫描并写回缓存。
+ * 命中缓存就只 dlopen + 校验，否则完整扫描并写回缓存；macOS 只选当前账号的实载模块。
  */
 export async function rescanSigner(): Promise<SignerWarmupResult | null> {
   const platform = requirePlatform();
-  signerWarmup = warmupSigner(
-    platform.native.ntHelper,
-    platform.appDataRoot(),
-    platform.qqWrapperNodePath(),
-    readQqVersion(platform.qqWrapperNodePath()),
-  ).catch((error: unknown) => {
-    getLogger()
-      .child({ scope: 'app-context' })
-      .warn('signer rescan failed', {
-        event: 'signer-warmup',
-        error: error instanceof Error ? error.message : String(error),
-      });
-    return null;
-  });
+  const ctx = getAppContext();
+  const session = ctx.account;
+  signerWarmup = warmupSelectedSigner(
+    platform,
+    session?.context.uin,
+    () => ctx.account === session,
+  );
   return signerWarmup;
 }
+import { createAccountImagePort, withImageTaskConfiguration } from '../ai_images';

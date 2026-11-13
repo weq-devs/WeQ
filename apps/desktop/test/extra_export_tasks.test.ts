@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,23 +19,32 @@ const state = vi.hoisted(() => ({
   afterPick: null as (() => void) | null,
   record: vi.fn(),
 }));
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
-    account: { context: { uin: state.uin } },
-    services: state.services,
-    bootstrap: {
-      userConfig: {
-        getSettings: () => ({
-          exportSaveMode: state.automatic ? 'preset' : 'before',
-          defaultExportDir: state.destination,
-        }),
-      },
-      agentLabConfig: {
-        resolveModels: () => ({}),
-      },
+vi.mock('../src/main/context/app_context', () => {
+  const bootstrap = () => ({
+    userConfig: {
+      getSettings: () => ({
+        exportSaveMode: state.automatic ? 'preset' : 'before',
+        defaultExportDir: state.destination,
+        ocr: { prefilterEnabled: false },
+        agentLab: { defaultVisionModel: null },
+        aiImages: { cloneChat: 'vision' },
+        modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
+      }),
     },
-  }),
-}));
+    agentLabConfig: {
+      resolveModels: () => ({}),
+    },
+  });
+  return {
+    accountEventBus: new EventEmitter(),
+    getAppContext: () => ({
+      account: { context: { uin: state.uin } },
+      services: state.services,
+      bootstrap: bootstrap(),
+    }),
+    requireBootstrap: bootstrap,
+  };
+});
 vi.mock('../src/main/resource', () => ({ resolveResource: () => state.runtime }));
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),

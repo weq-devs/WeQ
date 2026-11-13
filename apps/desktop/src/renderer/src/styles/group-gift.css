@@ -23,11 +23,11 @@
   flex: none;
   margin: 10px 18px 0;
   padding: 8px 11px;
-  border: 1px solid color-mix(in srgb, #d97706 38%, var(--weq-border-subtle));
+  border: 1px solid color-mix(in srgb, var(--weq-warn-solid) 38%, var(--weq-border-subtle));
   border-radius: 10px;
-  background: color-mix(in srgb, #d97706 11%, var(--weq-bg-surface));
-  color: color-mix(in srgb, #92400e 82%, var(--weq-fg-primary));
-  font-size: 11.5px;
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -37,9 +37,9 @@
 }
 
 html[data-theme='dark'] .weq-group-gift-fallback {
-  border-color: color-mix(in srgb, #f59e0b 42%, var(--weq-border-strong));
-  background: color-mix(in srgb, #f59e0b 13%, var(--weq-bg-surface));
-  color: color-mix(in srgb, #fbbf24 76%, var(--weq-fg-primary));
+  border-color: color-mix(in srgb, var(--weq-warn-solid) 42%, var(--weq-border-strong));
+  background: var(--weq-warn-bg);
+  color: var(--weq-warn-fg);
 }
 
 .weq-group-gift-unit {
@@ -54,7 +54,7 @@ html[data-theme='dark'] .weq-group-gift-fallback {
   border-radius: 999px;
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   color: color-mix(in srgb, var(--weq-accent-effective) 74%, var(--weq-fg-primary));
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
 }

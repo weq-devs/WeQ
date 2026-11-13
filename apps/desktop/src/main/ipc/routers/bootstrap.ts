@@ -17,6 +17,8 @@ import { observable } from '@trpc/server/observable';
 import { trackModelDownload } from '../../model_download_task';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
+import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
+import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
 import { isToastDuration } from '@weq/service/toast-settings';
@@ -39,7 +41,7 @@ import {
   exportSavePolicyInput,
 } from './export_save';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { applyOneBot, oneBotStatus } from '../../onebot/runtime';
@@ -92,6 +94,7 @@ import {
   localOcrBlocker,
 } from '@weq/service';
 import { runBackupProbe } from '../../backup_probe';
+import { resolveOnlineInstances } from '../../capture_session';
 import {
   backupLoginDbPaths,
   scanBackupCandidates,
@@ -103,11 +106,21 @@ import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
 import { runtimeMaintenance } from '../../runtime_maintenance';
+import { resolveSignerWrapper } from '../../context/signer_target';
 import { launchQq, runningQqCount } from '../../qq_launch';
 import { QqDebugCopyManager } from '../../qq_debug_copy';
-import { QQ_DEBUG_COPY_PERMISSION_ACTIONS } from '../../../shared/qq_debug_copy';
+import {
+  QQ_DEBUG_COPY_ACTIONS,
+  QQ_DEBUG_COPY_PERMISSION_ACTIONS,
+} from '../../../shared/qq_debug_copy';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
 import { macLaunchApplication } from '../../mac_launch_application';
+import { refreshWindowControls } from '../../window_controls_events';
+import {
+  desktopStartupAccount,
+  openStartupAccount,
+  type StartupResult,
+} from '../../startup_account';
 
 const qqDebugCopy = new QqDebugCopyManager({
   source: () => {
@@ -139,21 +152,34 @@ const algoSchema = z.object({
   kdfHmacAlgorithm: z.string(),
 });
 
+/** Remote 可重开已保存的数据源，但不能把账号切换入口当作电脑目录选择器。 */
+function requireRemoteSavedDirectory(path: string, uin?: string, staticOnly = false): void {
+  if (!getHost().remoteClient) return;
+  const known = requireBootstrap()
+    .userConfig.listAccountConfigs()
+    .some(
+      (config) =>
+        (!uin || config.uin === uin) &&
+        (!staticOnly || config.static) &&
+        [config.dataDir, config.backupAccountDir].some(
+          (directory) => directory && resolve(directory) === resolve(path),
+        ),
+    );
+  if (!known) throw new Error('WeQ Remote 只能打开已保存的账号，不能选择新的电脑数据目录。');
+}
+
 function backupScanContext() {
   const boot = requireBootstrap();
   const configs = boot.userConfig.listAccountConfigs();
   for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
-  let online: ReturnType<typeof import('../../capture_session').resolveOnlineInstances> | undefined;
+  let online: ReturnType<typeof resolveOnlineInstances> | undefined;
   return {
     configs,
     options: {
       allowOnline: fullModeAllowed(getAppContext()),
       attachHook: boot.attachHook,
       keyContext: createOtherDeviceKeyContext(),
-      resolveOnline: () =>
-        (online ??= import('../../capture_session').then(({ resolveOnlineInstances }) =>
-          resolveOnlineInstances(boot, requirePlatform()),
-        )),
+      resolveOnline: () => (online ??= resolveOnlineInstances(boot, requirePlatform())),
     },
   };
 }
@@ -262,6 +288,7 @@ export const bootstrapRouter = router({
     const boot = requireBootstrap();
     return {
       selected: boot.userConfig.getSettings().modelResources,
+      ocrPrefilterEnabled: boot.userConfig.getSettings().ocr.prefilterEnabled,
       voice: boot.voiceTranscribe.listModels(),
       ocr: boot.ocrModels.listModels(),
       engineBlocker: localOcrBlocker(),
@@ -424,17 +451,17 @@ export const bootstrapRouter = router({
   //
   // 完整模式发包要借 `wrapper.node` 里的 VM / sign core 算 `SecSign`。RVA 随
   // QQ 版本变化，所以定位结果按「版本 + 文件 hash」缓存；这里只读缓存状态，
-  // 真正的扫描在启动期后台做（或用户点「重新扫描」）。
+  // macOS 等账号完整模式确认实载模块后再预热，其他平台仍在启动期后台做。
 
   /** 当前签名器状态：缓存是否命中、两条 RVA、上次确认时间。 */
   signerStatus: procedure.query(async () => {
     const platform = requirePlatform();
-    const wrapperPath = platform.qqWrapperNodePath();
+    const wrapperPath = await resolveSignerWrapper(platform, getAppContext().account?.context.uin);
     const warmup = await awaitSignerWarmup();
     return {
       ...describeSignerCache(platform.appDataRoot(), wrapperPath, readQqVersion(wrapperPath)),
-      /** 启动期那次预热的结果（null = 没跑 / 失败）。 */
-      warmup,
+      /** 只展示同一模块的预热结果，不混入旧账号／安装版本。 */
+      warmup: warmup?.wrapperPath === wrapperPath ? warmup : null,
       /** 本次运行里实际走过的签名路径（来自预热/自检）。 */
       supported: typeof platform.native.ntHelper.warmupSigner === 'function',
     };
@@ -443,8 +470,8 @@ export const bootstrapRouter = router({
   /** 重新扫描 `wrapper.node`（命中缓存时只 dlopen + 校验），返回最新状态。 */
   rescanSigner: procedure.mutation(async () => {
     const platform = requirePlatform();
-    const wrapperPath = platform.qqWrapperNodePath();
     const result = await rescanSignerImpl();
+    const wrapperPath = result?.wrapperPath ?? null;
     return {
       ...describeSignerCache(platform.appDataRoot(), wrapperPath, readQqVersion(wrapperPath)),
       warmup: result,
@@ -454,7 +481,7 @@ export const bootstrapRouter = router({
 
   qqDebugCopyStatus: procedure.query(() => requireDebugCopyDesktop().status()),
   qqDebugCopyAction: procedure
-    .input(z.object({ action: z.enum(['prepare', 'verify', 'launch', 'remove']) }))
+    .input(z.object({ action: z.enum(QQ_DEBUG_COPY_ACTIONS) }))
     .mutation(({ input }) => requireDebugCopyDesktop().perform(input.action)),
   qqDebugCopyPermission: procedure
     .input(z.object({ action: z.enum(QQ_DEBUG_COPY_PERMISSION_ACTIONS) }))
@@ -633,9 +660,25 @@ export const bootstrapRouter = router({
     return requireBootstrap().userConfig.getSettings();
   }),
 
+  setContactCard: procedure
+    .input(
+      z.object({
+        visible: z.record(z.boolean()),
+        order: z.array(z.string()).max(100),
+        groupOrder: z.array(z.string()).max(100),
+      }),
+    )
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({
+          contactCard: normalizeContactCard(input),
+        }).contactCard,
+    ),
+
   setHomeSettings: procedure
     .input(
       z.object({
+        preferQqShow: z.boolean().optional(),
         showTags: z.boolean().optional(),
         showGreeting: z.boolean().optional(),
         showHitokoto: z.boolean().optional(),
@@ -773,7 +816,9 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         variant: z.enum(['full', 'scheduled', 'qzone', 'contacts']),
-        formats: z.array(z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html', 'vcard'])).min(1),
+        formats: z
+          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html', 'vcard']))
+          .min(1),
         options: exportPresetOptionsSchema,
         schedule: exportPresetScheduleSchema.optional(),
       }),
@@ -877,6 +922,14 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setWindowsStyleControls: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ windowsStyleControls: input.enabled });
+      refreshWindowControls();
+      return true;
+    }),
+
   setToastDuration: procedure
     .input(
       z.object({
@@ -971,6 +1024,7 @@ export const bootstrapRouter = router({
   setTypingStatusHidden: procedure
     .input(
       z.object({
+        ...optionalAccountBinding,
         hidden: z.array(
           z.object({
             accountUin: z.string().min(1),
@@ -981,7 +1035,18 @@ export const bootstrapRouter = router({
         ),
       }),
     )
-    .mutation(({ input }) => requireBootstrap().userConfig.setTypingStatusHidden(input.hidden)),
+    .mutation(({ input }) => {
+      assertAccountBinding(input);
+      const owner = requireBootstrap().userConfig;
+      if (input.expectedAccountConfigId) {
+        return owner.setTypingStatusHiddenForAccount(
+          input.expectedAccountUin!,
+          input.expectedAccountConfigId,
+          input.hidden,
+        );
+      }
+      return owner.setTypingStatusHidden(input.hidden);
+    }),
 
   /**
    * 日志保留天数（设置 → 日志 → 日志保留时长）。0 = 永久保留。
@@ -1048,6 +1113,11 @@ export const bootstrapRouter = router({
   /** 是否显示会话内消息序号。 */
   setShowMessageSeq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     requireBootstrap().userConfig.setSettings({ showMessageSeq: input.enabled });
+    return true;
+  }),
+
+  setShowMessageDate: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageDate: input.enabled });
     return true;
   }),
 
@@ -1357,6 +1427,8 @@ export const bootstrapRouter = router({
   setGroupKeywordRules: procedure
     .input(
       z.object({
+        ...optionalAccountBinding,
+        groupId: z.string().min(1).optional(),
         rules: z.record(
           z.string(),
           z.object({
@@ -1373,11 +1445,18 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      assertAccountBinding(input);
       const accountConfig = getAppContext().services?.accountConfig;
       if (!accountConfig) {
         throw new Error('No account session open — call bootstrap.openAccount first.');
       }
-      accountConfig.setGroupKeywordRules(input.rules);
+      const rules = input.groupId ? { ...accountConfig.getGroupKeywordRules() } : input.rules;
+      if (input.groupId) {
+        const rule = input.rules[input.groupId];
+        if (rule) rules[input.groupId] = rule;
+        else delete rules[input.groupId];
+      }
+      accountConfig.setGroupKeywordRules(rules);
       const next = accountConfig.getGroupKeywordRules();
       await getAppContext().applyGroupKeyword(next);
       return next;
@@ -1884,6 +1963,12 @@ export const bootstrapRouter = router({
       });
     }),
 
+  setOcrPrefilterEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) =>
+      requireBootstrap().userConfig.setSettings({ ocr: { prefilterEnabled: input.enabled } }),
+    ),
+
   /** The model registry, each entry enriched with on-disk / in-flight state. */
   voiceModels: procedure.query(() => {
     return requireBootstrap().voiceTranscribe.listModels();
@@ -2014,6 +2099,45 @@ export const bootstrapRouter = router({
     requireBootstrap().agentLabConfig.getDefaultModelStatus(),
   ),
 
+  getDefaultVisionModel: procedure.query(() =>
+    requireBootstrap().agentLabConfig.getDefaultVisionModelStatus(),
+  ),
+  setDefaultVisionModel: procedure
+    .input(
+      z
+        .object({
+          ref: z
+            .object({ providerId: z.string().trim().min(1), model: z.string().trim().min(1) })
+            .strict()
+            .nullable(),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) => requireBootstrap().agentLabConfig.setDefaultVisionModel(input.ref)),
+  setAiImagePreference: procedure
+    .input(
+      z
+        .object({
+          feature: z.enum([
+            'assistant',
+            'cloneChat',
+            'cloneTraining',
+            'intent',
+            'suggestions',
+            'profile',
+          ]),
+          mode: z.enum(['placeholder', 'ocr', 'vision']),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) => {
+      if (input.mode === 'placeholder' && ['assistant', 'cloneChat'].includes(input.feature))
+        throw new Error('该功能需要读取图片，请选择 OCR 或视觉模型');
+      return requireBootstrap().userConfig.setSettings({
+        aiImages: { [input.feature]: input.mode },
+      });
+    }),
+
   setAgentLabDefaultModel: procedure
     .input(
       z
@@ -2054,6 +2178,7 @@ export const bootstrapRouter = router({
               id: z.string().min(1),
               label: z.string().optional(),
               capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])),
+              reasoningEfforts: z.array(z.string().min(1).max(64)).max(32).optional(),
             }),
           )
           .default([]),
@@ -2076,6 +2201,8 @@ export const bootstrapRouter = router({
         baseUrl: z.string().min(1),
         apiKey: z.string().default(''),
         model: z.string().min(1),
+        providerId: z.string().min(1).optional(),
+        providerName: z.string().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -2088,6 +2215,8 @@ export const bootstrapRouter = router({
         baseUrl: z.string().min(1),
         apiKey: z.string().default(''),
         model: z.string().min(1),
+        providerId: z.string().min(1).optional(),
+        providerName: z.string().optional(),
       }),
     )
     .mutation(({ input }) => requireBootstrap().agentLabConfig.detectCapabilities(input)),
@@ -2691,6 +2820,7 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      if (input.dataDir) requireRemoteSavedDirectory(input.dataDir, input.uin);
       const ctx = getAppContext();
       const platform = requirePlatform();
 
@@ -2826,10 +2956,7 @@ export const bootstrapRouter = router({
         dbKey: input.dbKey,
         allowOnline: fullModeAllowed(getAppContext()),
         attachHook: boot.attachHook,
-        resolveOnline: () =>
-          import('../../capture_session').then(({ resolveOnlineInstances }) =>
-            resolveOnlineInstances(boot, requirePlatform()),
-          ),
+        resolveOnline: () => resolveOnlineInstances(boot, requirePlatform()),
       });
     }),
 
@@ -2858,6 +2985,7 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      requireRemoteSavedDirectory(input.dirPath, undefined, true);
       const ctx = getAppContext();
       const dirPath = await resolveBackupDirectory(input.dirPath);
       if (!dirPath) throw new Error('未找到 nt_msg.db / profile_info.db');
@@ -2893,8 +3021,22 @@ export const bootstrapRouter = router({
       return ctx.account!.context;
     }),
 
-  /** 首屏或界面重载接回已打开账号，不重新打开数据库。 */
-  currentAccount: procedure.query(() => {
+  /** 仅桌面首屏领走启动页与失败信息，重载不重设栏目、不重复弹错。 */
+  desktopStartup: procedure.query(async (): Promise<StartupResult> => {
+    // 正常启动已由主进程调度；文件恢复曾失败时，在恢复成功后补上未开始的任务。
+    await desktopStartupAccount.start(() =>
+      openStartupAccount(
+        requireBootstrap().userConfig,
+        bootstrapRouter.createCaller({}),
+        process.platform === 'darwin',
+      ),
+    );
+    return desktopStartupAccount.attach();
+  }),
+
+  /** 等待后台启动任务后接回实际账号，Web 同时连接也不能重复开库。 */
+  currentAccount: procedure.query(async () => {
+    await desktopStartupAccount.wait();
     const account = getAppContext().account;
     return account ? { uin: String(account.context.uin) } : null;
   }),

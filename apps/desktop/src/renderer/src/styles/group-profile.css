@@ -1,3 +1,186 @@
-.weq-group-profile-layer.weq-nonmodal-layer[tabindex] > .weq-profile-dialog {
-  width: min(360px, calc(100vw - 16px));
+.weq-group-page .weq-group-tags {
+  padding: 0;
+  border: 0;
+}
+
+.weq-group-avatar-tools {
+  position: relative;
+  flex: 0 0 64px;
+  width: 64px;
+}
+
+.weq-group-avatar-tools > .weq-group-avatar-edit,
+.weq-group-avatar-tools > .weq-profile-field-history {
+  position: absolute;
+  inset-block-end: -4px;
+  inset-inline-end: -4px;
+  background: var(--weq-bg-surface);
+  border-radius: 4px;
+}
+
+.weq-group-quick-name-editor:has([data-qq-action]) > .weq-profile-field-history {
+  display: none;
+}
+
+.weq-group-card .weq-contact-title-line {
+  width: 100%;
+}
+
+.weq-group-avatar-tools > .weq-profile-field-history {
+  inset-inline-start: -4px;
+  inset-inline-end: auto;
+}
+
+.weq-group-page
+  .weq-profile-section-block:not(:has(.weq-profile-data-row, [role='status'], [role='alert'])) {
+  display: none;
+}
+
+/*
+ * 成员列表比页头操作列更宽：160px 的列会把「搜索昵称 / 群昵称 / QQ号」截成半句，
+ * 成员行也挤到换行。这里单独给成员列一个下限，页头操作按钮仍按右缘对齐（见下）。
+ */
+.weq-group-page {
+  --weq-profile-members-column: clamp(220px, 22vw, 300px);
+}
+
+.weq-group-profile-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--weq-profile-members-column);
+  column-gap: var(--weq-profile-column-gap);
+  padding-inline: var(--weq-profile-page-inset);
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 只在宽屏把页头拆成「身份 / 操作」两列；窄屏必须继续走 contact-workspace.css 的
+   单列堆叠（否则身份区会被挤成一条窄栏，长群名和备注逐字换行）。 */
+@container profile-page (min-width: 561px) {
+  .weq-group-page .weq-profile-page-header--split {
+    grid-template-columns: minmax(0, 1fr) var(--weq-profile-members-column);
+  }
+}
+
+@container profile-page (min-width: 561px) {
+  .weq-group-page .weq-profile-page-actions .weq-contact-actions {
+    width: 100%;
+    max-width: 180px;
+    margin-inline-start: auto;
+  }
+}
+
+.weq-group-profile-information {
+  min-width: 0;
+  min-height: 0;
+  padding-block: 20px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.weq-group-profile-members {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding-block: 20px;
+}
+
+.weq-group-profile-members > .group-info-panel {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-group-page .weq-group-profile-members > .group-info-panel,
+html[data-theme='dark'] .weq-group-page .weq-group-profile-members > .group-info-panel {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.weq-group-page .weq-group-profile-members .member-list-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
+}
+
+.weq-group-profile-members .group-info-member-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.weq-group-page .weq-group-profile-members .group-info-heading,
+.weq-group-page .weq-group-profile-members .group-info-member-row {
+  padding-inline: 0;
+}
+
+.weq-group-page .weq-group-profile-members .group-info-member-search {
+  margin-inline: 0;
+  padding-inline: 8px;
+}
+
+.weq-group-page .weq-group-profile-members .group-info-heading {
+  gap: 6px;
+}
+
+.weq-group-page .weq-group-profile-members .group-info-heading strong {
+  font-size: 13px;
+}
+
+.weq-group-profile-location {
+  display: contents;
+}
+
+@container profile-page (max-width: 560px) {
+  .weq-group-page .weq-group-page-content:not([hidden]) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: auto;
+  }
+  .weq-group-profile-columns {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .weq-group-profile-information {
+    padding-block: 16px;
+    overflow: visible;
+  }
+  .weq-group-profile-members {
+    height: min(560px, 70dvh);
+    min-height: 280px;
+    padding-block: 12px;
+    border-inline-start: 0;
+    border-top: 1px solid var(--weq-border-subtle);
+  }
+}
+
+.weq-group-state-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-group-page.is-previewing-chat > .weq-contact-chat-preview {
+  padding: 0;
+  overflow: auto;
+}
+.weq-group-page-content:not([hidden]) {
+  display: contents;
 }

@@ -119,6 +119,7 @@ function fixture() {
       selfIdentity: () => ({ uin: '10001', uid: 'u_self' }),
     },
     groupModeration: {
+      muteMember: vi.fn(async () => {}),
       setName: vi.fn(async () => {}),
       setMemberCard: vi.fn(async () => {}),
       setSpecialTitle: vi.fn(async () => {}),
@@ -173,6 +174,15 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it('成员解除禁言发送零时长，并拒绝切换后的账号绑定', async () => {
+    const f = fixture();
+    const input = { ...binding, groupId: 123, targetUid: 'u_peer', duration: 0 };
+    await expect(f.caller.groupMemberMute(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.services.groupModeration.muteMember).toHaveBeenCalledWith(input);
+    f.switchAccount();
+    await expect(f.caller.groupMemberMute(input)).rejects.toThrow('切换');
+    expect(f.services.groupModeration.muteMember).toHaveBeenCalledTimes(1);
+  });
   it('好友线索绑定账号和 UID，读取使用在线入口', async () => {
     const f = fixture();
     await expect(f.caller.friendClue({ ...binding, uid: 'u_peer' })).resolves.toMatchObject({
@@ -258,6 +268,11 @@ describe('QQ 写 IPC 边界', () => {
     expect(f.procedures).not.toContain('groupIdentityState');
     expect(f.procedures).not.toContain('groupIdentity');
     expect(f.procedures).toContain('groupSpecialTitle');
+  });
+  it('群内成员提醒暂时撤下，不再暴露读取或修改路由', () => {
+    const f = fixture();
+    expect(f.procedures).not.toContain('groupMemberNotifyState');
+    expect(f.procedures).not.toContain('groupMemberNotify');
   });
   it('好友云端免打扰独立使用在线绑定，不回落到本机缓存', async () => {
     const f = fixture();
@@ -473,6 +488,12 @@ describe('QQ 写 IPC 边界', () => {
       nick: self.nick,
       signature: self.signature,
       gender: self.gender,
+      qid: self.qid,
+      birthYear: self.birthYear,
+      birthMonth: self.birthMonth,
+      birthDay: self.birthDay,
+      age: self.age,
+      extInfo: self.extInfo,
     });
     expect(own).not.toHaveProperty('dbKey');
     const peer = await f.caller.peerState({ ...binding, target: { kind: 'group', groupId: 123 } });

@@ -24,19 +24,19 @@ export function qqWriteOutcomeText(result: QQWriteOutcome): string {
 }
 
 /** 每次操作固定账号及数据源；迟到的结果不更新另一个会话。 */
-export function useQQWriteSession(scope: string) {
+export function useQQWriteSession(scope: string, passive = false) {
   const active = useTabActive();
   const uin = useViewState((s) => s.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: active && Boolean(uin),
-    refetchOnMount: 'always',
-    staleTime: 0,
+    refetchOnMount: passive ? false : 'always',
+    staleTime: passive ? 30_000 : 0,
   });
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
     enabled: active && Boolean(uin),
-    refetchOnMount: 'always',
-    staleTime: 0,
-    refetchInterval: active ? 5000 : false,
+    refetchOnMount: passive ? false : 'always',
+    staleTime: passive ? 30_000 : 0,
+    refetchInterval: active && !passive ? 5000 : false,
   });
   const binding: QQWriteBinding | null =
     config.data?.uin === uin && config.data?.configId

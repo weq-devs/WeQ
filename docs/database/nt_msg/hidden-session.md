@@ -18,7 +18,7 @@
 
 关键认识：**QQ 的「隐藏」是一个标记，不是移除。**
 
-与「删除会话」（见 [recent_contact_delete_storage](./deleted-session.md)）不同，
+与「删除会话」（见 [recent_contact_delete_storage](deleted-session.md)）不同，
 隐藏一个会话时，它在 `recent_contact_v3_table` 里的那一行**原样保留**，
 QQ 只是额外在这里登记一条记录。会话列表里看不见它，是因为读取方要按本表过滤。
 
@@ -95,7 +95,7 @@ SELECT "43001","43002" FROM hidden_session_storage_table_v1;
 ```
 
 `43002` 解码同样先过 `sanitizeBytes` 容错（原因见
-[40800 · 容错解码](./40800.md#六容错解码sanitizebytes)），一行的 protobuf 烂掉不能拖垮整个面板。
+[40800 · 容错解码](40800.md#六容错解码sanitizebytes)），一行的 protobuf 烂掉不能拖垮整个面板。
 
 ## 五、最后消息时间 / 预览的解析
 
@@ -111,7 +111,7 @@ SELECT "43001","43002" FROM hidden_session_storage_table_v1;
 ## 六、前端渲染
 
 - 主会话列表里**排除**本表命中的会话（`MainView.tsx` 过滤时同时查两表）；
-- 列表最上方渲染一枚固定的「隐藏会话」入口行（`HiddenSessionRow.tsx`），仅当至少有一个隐藏会话时出现；
+- 会话列表通过 `conversationLists.tsx` 中的聚合入口打开隐藏会话，保留数量提示；旧独立 `HiddenSessionRow` 已退役；
 - 点开后是 `MergedSessionPanel`（`kind = 'hidden'`），只渲染 `resolvable: true` 的行；
   面板里的 `resolvable` 已经蕴含「两表都有」的判定，前端不再判一次；
 - **注意**这里的 `chatType` 是枚举名字符串（如 `"KCHATTYPEGROUP"`），不是数字 ——
@@ -120,4 +120,4 @@ SELECT "43001","43002" FROM hidden_session_storage_table_v1;
 
 ---
 
-[← 返回 nt_msg.db](./index.md)
+[← 返回 nt_msg.db](index.md)

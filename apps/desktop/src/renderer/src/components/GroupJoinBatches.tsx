@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 入群批次：三小时里挤进来的人够多（≥ max(3, 群总人数 ÷ 20)）就算一批。
  *
@@ -65,35 +66,20 @@ function avatarUrlOf(uin: string | undefined | null): string | null {
 /** 时刻 → `03/12 14:05`（跨年时补上年份）。 */
 function momentText(ts: number, withYear = false): string {
   if (!ts) return '未知';
-  const d = new Date((ts + 8 * 3600) * 1000);
-  if (!Number.isFinite(d.getTime())) return '未知';
-  const md = `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
-  const hm = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
-  return withYear ? `${d.getUTCFullYear()}/${md} ${hm}` : `${md} ${hm}`;
+  const value = timeFormat.formatUnixTime(ts);
+  return withYear ? value : value.slice(5);
 }
 
 /** 批次的入群区间 → `03/12 14:05 — 15:40`（跨天 / 跨年各有说法）。 */
 function rangeText(start: number, end: number): string {
-  const a = new Date((start + 8 * 3600) * 1000);
-  const b = new Date((end + 8 * 3600) * 1000);
-  const sameDay =
-    a.getUTCFullYear() === b.getUTCFullYear() &&
-    a.getUTCMonth() === b.getUTCMonth() &&
-    a.getUTCDate() === b.getUTCDate();
-  if (sameDay) return `${momentText(start)} — ${momentText(end).slice(-5)}`;
-  if (a.getUTCFullYear() === b.getUTCFullYear()) {
-    return `${momentText(start)} — ${momentText(end)}`;
-  }
-  return `${momentText(start, true)} — ${momentText(end, true)}`;
+  return timeFormat.formatTimeRange(timeFormat.unixDate(start), timeFormat.unixDate(end));
 }
 
 /** 跨度的人话 —— 批次看的就是「挤」，所以短跨度要说得细（秒 / 分钟 / 小时）。 */
 function spanText(spanSeconds: number): string {
-  if (spanSeconds <= 0) return '同一时刻';
-  if (spanSeconds < 60) return `${spanSeconds} 秒内`;
-  if (spanSeconds < 3600) return `${Math.round(spanSeconds / 60)} 分钟内`;
-  if (spanSeconds < 86400) return `${Number((spanSeconds / 3600).toFixed(1))} 小时内`;
-  return `${Number((spanSeconds / 86400).toFixed(1))} 天内`;
+  return spanSeconds <= 0
+    ? '同一秒内'
+    : `${timeFormat.formatDuration(spanSeconds, 'approximate')}内`;
 }
 
 function pct(value: number): string {
@@ -175,8 +161,8 @@ function BatchTimeline({ report }: { report: JoinBatchReport }) {
   const ticks: Array<{ p: number; label: string }> = [];
   for (let i = 0; i <= 4; i++) {
     const p = (i / 4) * 100;
-    const d = new Date((from + (span * i) / 4 + 8 * 3600) * 1000);
-    const label = `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}`;
+    const d = new Date((from + (span * i) / 4) * 1000);
+    const label = timeFormat.formatMonth(d);
     if (ticks.length === 0 || ticks[ticks.length - 1]!.label !== label) ticks.push({ p, label });
   }
 
@@ -307,6 +293,7 @@ export function GroupJoinBatches({
                   {batch.topSpeaker ? (
                     <span className="gc-top" title="这批人里发言最多的一位">
                       <ProfileAvatar
+                        className="weq-identity-link"
                         enabled={Boolean(group)}
                         target={{
                           identity: batch.topSpeaker.uid,
@@ -321,10 +308,10 @@ export function GroupJoinBatches({
                           avatarUrl={avatarUrlOf(batch.topSpeaker.uin)}
                           seed={batch.topSpeaker.uid}
                         />
+                        <span className="gc-top-name" title={batch.topSpeaker.displayName}>
+                          {batch.topSpeaker.displayName}
+                        </span>
                       </ProfileAvatar>
-                      <span className="gc-top-name" title={batch.topSpeaker.displayName}>
-                        {batch.topSpeaker.displayName}
-                      </span>
                       <small>{formatNumber(batch.topSpeaker.messageCount)} 条</small>
                     </span>
                   ) : (

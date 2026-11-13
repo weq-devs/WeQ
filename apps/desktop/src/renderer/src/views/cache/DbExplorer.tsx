@@ -30,6 +30,9 @@ import { DbDataGrid } from './DbDataGrid';
 import { SqlConsole } from './SqlConsole';
 import { InlineSkeleton, TreeSkeleton } from './CacheSkeleton';
 import { useTabActive } from '../../components/RetainedTabs';
+import { useRemoteClient } from '../../lib/remoteClient';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { CheckPill } from '../../components/settings/controls';
 
 type SubTab = 'data' | 'sql';
 
@@ -59,6 +62,7 @@ export function DbExplorer({
   exportDisabled?: boolean;
 } = {}): ReactElement {
   const active = useTabActive();
+  const remote = useRemoteClient();
   const databases = trpc.account.dbExplorer.listDatabases.useQuery(undefined, {
     enabled: active,
     refetchOnWindowFocus: false,
@@ -222,30 +226,20 @@ export function DbExplorer({
       {/* 右面板：数据 / SQL + 编辑模式 */}
       <section className="weq-cache-panel">
         <header className="weq-cache-panel-head">
-          <div className="weq-cache-subtabs">
-            <button
-              type="button"
-              className={`weq-cache-subtab${subTab === 'data' ? ' is-on' : ''}`}
-              onClick={() => setSubTab('data')}
-            >
-              数据
-            </button>
-            <button
-              type="button"
-              className={`weq-cache-subtab${subTab === 'sql' ? ' is-on' : ''}`}
-              onClick={() => setSubTab('sql')}
-            >
-              SQL
-            </button>
-          </div>
-          <label className="weq-cache-editmode">
-            <input
-              type="checkbox"
-              checked={editable}
-              onChange={(e) => setEditable(e.target.checked)}
-            />
-            <span>编辑模式</span>
-          </label>
+          <SegmentedControl<'data' | 'sql'>
+            label="数据视图"
+            value={subTab}
+            onChange={setSubTab}
+            options={[
+              { value: 'data', label: '数据' },
+              { value: 'sql', label: 'SQL' },
+            ]}
+          />
+          {!remote && (
+            <CheckPill checked={editable} onChange={setEditable}>
+              编辑模式
+            </CheckPill>
+          )}
           {onExport ? (
             <button
               type="button"
@@ -269,7 +263,7 @@ export function DbExplorer({
           ) : null}
         </header>
 
-        {editable ? (
+        {editable && !remote ? (
           <div className="weq-cache-warnbar">
             <AlertTriangle size={14} />
             编辑模式已开启：写操作会直接修改实时数据库，建议先关闭 QQ 并做好备份。
@@ -283,7 +277,7 @@ export function DbExplorer({
             <SqlConsole
               key={dbPath}
               dbPath={dbPath}
-              editable={editable}
+              editable={editable && !remote}
               tableName={selectedTable}
               indices={selectedIndices}
             />
@@ -292,7 +286,7 @@ export function DbExplorer({
               key={`${dbPath}:${selectedTable}`}
               dbPath={dbPath}
               table={selectedTable}
-              editable={editable}
+              editable={editable && !remote}
             />
           ) : (
             <div className="weq-cache-grid-state">请选择左侧的表或视图</div>

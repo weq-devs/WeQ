@@ -4,6 +4,7 @@ import { accessSync, constants, lstatSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareRemoteNetwork } from './prepare-remote-network.mjs';
+import { checkDressManifest } from './dress-artifacts.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
@@ -22,6 +23,7 @@ export function remoteNetworkTarget(context) {
 
 /** 每个目标独立构建目录，多个平台/架构打包不争用同一二进制。 */
 export default function preparePackagedRemoteNetwork(context) {
+  checkDressManifest(root);
   const target = remoteNetworkTarget(context);
   const helper = prepareRemoteNetwork({
     platform: target.platform,

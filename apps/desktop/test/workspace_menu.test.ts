@@ -1,4 +1,4 @@
-import { act, createElement as h, useEffect, useState } from 'react';
+import { act, createElement as h, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -54,8 +54,21 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 vi.mock('../src/renderer/src/views/ExportView', () => ({
-  ExportTool: ({ taskLayout, onTaskExpand }: { taskLayout: string; onTaskExpand?: () => void }) =>
-    h('button', { onClick: onTaskExpand, 'data-task-layout': taskLayout }, '合成任务'),
+  ExportTool: ({
+    taskLayout,
+    onTaskExpand,
+    taskToolbarAction,
+  }: {
+    taskLayout: string;
+    onTaskExpand?: () => void;
+    taskToolbarAction?: ReactNode;
+  }) =>
+    h(
+      'div',
+      null,
+      taskToolbarAction,
+      h('button', { onClick: onTaskExpand, 'data-task-layout': taskLayout }, '合成任务'),
+    ),
 }));
 vi.mock('../src/renderer/src/views/ExportViewer', () => ({ ExportViewer: () => null }));
 vi.mock('../src/renderer/src/views/analysis/AnalysisTool', () => ({ AnalysisTool: () => null }));
@@ -99,8 +112,72 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('统一竖向工作菜单', () => {
-  it('历史任务不弹出，新任务自动打开完整列表，状态刷新不重复打开', () => {
+  it('现行工具菜单支持 Escape 和外部点击关闭，关闭后焦点回到原入口', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(
+            'div',
+            null,
+            h(WorkspaceMenuButton),
+            h(WorkspaceTools, {
+              accountScope: 'retirement-menu',
+              footerControls: null,
+              onOpenAnalysis: vi.fn(),
+            }),
+          ),
+        ),
+      );
+      const trigger = host.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger')!;
+      act(() => {
+        trigger.focus();
+        trigger.click();
+      });
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
+      act(() =>
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+      );
+      expect(useWorkspaceMenu.getState().anchor).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+      act(() => trigger.click());
+      act(() => {
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        document.body.click();
+      });
+      expect(useWorkspaceMenu.getState().anchor).toBeNull();
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+  it('账号来源尚未确定时不建立任务已读快照', () => {
     const root = createRoot(document.createElement('div'));
+    try {
+      fixture.exports = [{ id: 'old', status: 'completed' }];
+      act(() =>
+        root.render(
+          h(WorkspaceTools, {
+            accountScope: '',
+            footerControls: null,
+            onOpenAnalysis: vi.fn(),
+          }),
+        ),
+      );
+      expect(useWorkspaceMenu.getState().taskScope).toBeNull();
+      expect(window.localStorage.getItem('weq:workspace-read:v1::tasks')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  it('历史任务不弹出，新任务自动打开完整列表，状态刷新不重复打开', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
     const render = () =>
       act(() =>
         root.render(
@@ -118,14 +195,18 @@ describe('统一竖向工作菜单', () => {
       fixture.exports = [{ id: 'new', status: 'running' }];
       render();
       expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
-      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭完整面板"]')!.click());
+      const taskPanel = document
+        .querySelector('[data-task-layout="split"]')!
+        .closest('.weq-workspace-menu')!;
+      const request = useWorkspaceMenu.getState().taskOpenRequest;
+      act(() => taskPanel.querySelector<HTMLButtonElement>('[aria-label="关闭完整面板"]')!.click());
       fixture.exports = [{ id: 'new', status: 'completed' }];
       render();
-      expect(
-        document.querySelector('[data-task-layout="split"]')?.closest('[hidden]'),
-      ).not.toBeNull();
+      expect(document.querySelector('[data-task-layout="split"]')).toBeNull();
+      expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(request);
     } finally {
       act(() => root.unmount());
+      host.remove();
     }
   });
 
@@ -181,7 +262,7 @@ describe('统一竖向工作菜单', () => {
       act(() => root.unmount());
     }
   });
-  it('菜单汇总蓝红点，切换按钮只显示另一侧状态，版本更新不串到切换按钮', () => {
+  it('菜单汇总蓝红点，助手状态并入汇总，版本更新不串到菜单头操作', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -201,21 +282,19 @@ describe('统一竖向工作菜单', () => {
         ),
       );
     const trigger = () => host.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger')!;
-    const switchButton = () =>
-      document.querySelector<HTMLButtonElement>(
-        '.weq-workspace-menu-head-actions button[aria-label^="切换到"]',
-      )!;
+    // 菜单头部仅保留关闭；助手侧状态已并入菜单按钮的汇总标记。
+    const head = () => document.querySelector('.weq-workspace-menu-head-actions');
     try {
       render();
       act(() => trigger().click());
       act(() => useUpdateStore.setState({ available: true }));
       expect(trigger().querySelector('.is-finished')).not.toBeNull();
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('1');
-      expect(switchButton().querySelector('.weq-workspace-dot')).toBeNull();
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       act(() => useWorkspaceMenu.getState().setAssistant('running'));
       expect(trigger().querySelector('.is-running')).not.toBeNull();
       expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
-      expect(switchButton().querySelector('.is-running')).not.toBeNull();
+      expect(head()?.querySelector('.is-running') ?? null).toBeNull();
       const output = process.env.WEQ_WORKSPACE_LAYOUT_DIR;
       if (output) {
         mkdirSync(output, { recursive: true });
@@ -228,7 +307,9 @@ describe('统一竖向工作菜单', () => {
         );
       }
       act(() => useWorkspaceMenu.getState().setAssistant('finished'));
-      expect(switchButton().querySelector('.is-finished')).not.toBeNull();
+      // 助手未读与版本更新都汇总到菜单按钮，菜单头操作不带状态点。
+      expect(trigger().querySelector('.is-finished')?.textContent).toBe('2');
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       fixture.exports = [
         { id: 'a', status: 'running' },
         { id: 'b', status: 'completed' },
@@ -237,25 +318,23 @@ describe('统一竖向工作菜单', () => {
       render();
       expect(useWorkspaceMenu.getState()).toMatchObject({ running: 1, finished: 2, failed: 1 });
       expect(trigger().querySelector('.is-running')).not.toBeNull();
-      expect(switchButton().querySelector('.is-finished')).not.toBeNull();
-      act(() => switchButton().click());
-      expect(switchButton().querySelector('.is-running')).not.toBeNull();
+      expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       fixture.exports = [
         { id: 'a', status: 'completed' },
         { id: 'b', status: 'completed' },
         { id: 'c', status: 'failed' },
       ];
       render();
-      expect(switchButton().querySelector('.is-finished')).not.toBeNull();
       expect(trigger().querySelector('.is-finished')).not.toBeNull();
-      expect(switchButton().querySelector('.is-finished')?.textContent).toBe('3');
+      // 已完成任务 2 + 助手未读 1 + 版本更新 1。
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('5');
       act(() => useWorkspaceMenu.getState().readTasks());
-      expect(switchButton().querySelector('.weq-workspace-dot')).toBeNull();
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       expect(trigger().querySelector('.is-finished')?.textContent).toBe('2');
       fixture.exports = [];
       render();
-      expect(switchButton().querySelector('.weq-workspace-dot')).toBeNull();
+      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       expect(trigger().querySelector('.is-finished')).not.toBeNull();
     } finally {
       act(() => root.unmount());
@@ -263,7 +342,7 @@ describe('统一竖向工作菜单', () => {
     }
   });
 
-  it('点击打开，四个工具顺序固定，任务与助手展开收起保持同一子树', () => {
+  it('点击打开，四个工具顺序固定，任务面板展开收起保持同一子树', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -299,22 +378,24 @@ describe('统一竖向工作菜单', () => {
           (item) => item.textContent,
         ),
       ).toEqual(['分析', '导出', '查看', '合成']);
-      act(() => button('切换到 WeQ 助手').click());
-      const input = document.querySelector('[aria-label="合成助手草稿"]');
-      act(() => button('打开完整助手面板').click());
+      // 菜单里只有任务面板：紧凑布局展开成完整面板再收起，仍复用同一棵子树。
+      const compact = document.querySelector('[data-task-layout="compact"]');
+      expect(compact).not.toBeNull();
+      expect(document.querySelector('.weq-workspace-menu-head')).toBeNull();
+      expect(button('打开完整任务面板')).toBeDefined();
+      act(() => compact!.click());
       expect(document.querySelector('.weq-workspace-menu')?.getAttribute('aria-modal')).toBe(
         'true',
       );
-      expect(document.querySelector('[aria-label="合成助手草稿"]')).toBe(input);
-      act(() => button('关闭完整面板').click());
-      act(() => button('菜单').click());
-      expect(document.querySelector('[aria-label="合成助手草稿"]')).toBe(input);
-      act(() => button('切换到任务列表').click());
-      act(() => document.querySelector<HTMLButtonElement>('[data-task-layout="compact"]')!.click());
       expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
       act(() => button('收起到菜单').click());
+      expect(document.querySelector('[data-task-layout="compact"]')).toBe(compact);
+      act(() => button('打开完整任务面板').click());
+      expect(document.querySelector('[data-task-layout="split"]')).not.toBeNull();
+      act(() => button('关闭完整面板').click());
+      expect(useWorkspaceMenu.getState().anchor).toBeNull();
+      act(() => button('菜单').click());
       expect(document.querySelector('[data-task-layout="compact"]')).not.toBeNull();
-      expect(fixture.mounts).toBe(1);
       act(() => button('设置').click());
       expect(close).toHaveBeenCalledOnce();
       expect(useWorkspaceMenu.getState().anchor).toBeNull();

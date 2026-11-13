@@ -1,4 +1,6 @@
+import { eventTimeFormatter } from '@weq/time';
 import { CompositionButton } from './CompositionButton';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -19,6 +21,7 @@ import {
   Copy as RestoreWindow,
 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
+import { resolveDraftSave } from '../../lib/draftPersistence';
 import { IS_ELECTRON } from '../../lib/target';
 import { RenderDocumentContext } from '../../lib/renderDocument';
 import { useAppLock } from '../../state/lock';
@@ -29,8 +32,12 @@ import { MergeForwardTargets } from './MergeForwardTargets';
 import { SequentialForwardDialog } from '../SequentialForwardDialog';
 import { Modal } from '../Dialog';
 import { useToast } from '../Toast';
+import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
+import { ServerSavePrompt } from '../ServerSavePrompt';
 import { HoverTooltip } from '../HoverTooltip';
 import { COMPOSITION_DISPOSE_EVENT } from '../../hooks/useCompositionWindow';
+import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
+import { WorkspacePage } from '../WorkspacePages';
 import {
   backupComposition,
   acknowledgeCompositionBackup,
@@ -101,6 +108,9 @@ export function CompositionWorkspace({
   ) => Promise<void>;
   onOpenTarget: (target: MfTarget) => void;
 }) {
+  const mobile = useMobileWebLayout();
+  const exportSave = useExportSavePolicy();
+  const exportingComposition = useRef(false);
   const locked = useAppLock((state) => state.locked);
   const visible = Boolean(popup || fallback) && !locked;
   useEffect(() => {
@@ -143,6 +153,9 @@ export function CompositionWorkspace({
   const [progress, setProgress] = useState<MfDraft | null>(null);
   const progressRef = useRef<MfDraft | null>(null);
   const working = progress ?? draft;
+  const latestWorking = useRef(working);
+  latestWorking.current = working;
+  const sharedVersions = useRef(new Map<string, string | null>());
   const [recoveries, setRecoveries] = useState<MfDraft[]>([]);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
@@ -172,6 +185,18 @@ export function CompositionWorkspace({
   const serial = useRef(Promise.resolve());
   const version = useRef(0);
   const dirtyRef = useRef(false);
+  useEffect(() => {
+    const working = latestWorking.current;
+    for (const [id, revision] of Object.entries(saved.data?.versions ?? {}))
+      if (id !== working.id || !dirtyRef.current) sharedVersions.current.set(id, revision);
+    if (!dirtyRef.current) {
+      const remote = saved.data?.current.find((entry) => entry.id === working.id);
+      if (remote && JSON.stringify(remote) !== JSON.stringify(working)) {
+        setDraft(coerceDraft(remote));
+        setEditorVersion((value) => value + 1);
+      }
+    }
+  }, [saved.data]);
   const disposing = useRef(false);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -255,7 +280,25 @@ export function CompositionWorkspace({
     const job = serial.current
       .catch(() => {})
       .then(async () => {
-        await client.mergeForward.workspaceSave.mutate({ ...identity, draft: snapshot });
+        const result = await resolveDraftSave(
+          `composition:${snapshot.id}`,
+          snapshot,
+          sharedVersions.current.get(snapshot.id) ?? null,
+          (expectedVersion) =>
+            client.mergeForward.workspaceSave.mutate({
+              ...identity,
+              draft: snapshot,
+              expectedVersion,
+            }),
+        );
+        sharedVersions.current.set(snapshot.id, result.current.version);
+        if (!result.local && revision === version.current) {
+          const remote = result.current.value;
+          const parsed = readCompositionEntries(remote === null ? [] : [remote]);
+          if (parsed.rejected.length) throw new Error(parsed.rejected[0]!.error);
+          setDraft(parsed.drafts[0] ?? createEmptyDraft());
+          setEditorVersion((value) => value + 1);
+        }
       });
     serial.current = job;
     await job;
@@ -359,32 +402,31 @@ export function CompositionWorkspace({
       throw new Error('剪贴板不可用');
     setStatus('已复制文本');
   };
-  const download = (value: MfDraft) => {
-    const url = URL.createObjectURL(
-      new Blob(
-        [
-          JSON.stringify(
-            {
-              format: 'weq-composition',
-              version: 1,
-              origin: 'local-composition',
-              media: 'local-path-references',
-              draft: value,
-            },
-            null,
-            2,
-          ),
-        ],
-        { type: 'application/json' },
-      ),
-    );
-    const anchor = ownerDocument.createElement('a');
-    anchor.href = url;
-    anchor.download = `${(value.title || draftTitle(value.nodes)).replace(/[\\/:*?"<>|]/g, '_') || '合成记录'}.json`;
-    ownerDocument.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const download = async (value: MfDraft) => {
+    if (!binding || exportingComposition.current) return;
+    exportingComposition.current = true;
+    try {
+      const snapshot = structuredClone(value);
+      const policy = await exportSave.prepareSave(undefined, {
+        kind: 'bundle',
+        name: value.title || draftTitle(value.nodes),
+      });
+      if (!policy || !exportSave.isCurrent()) return;
+      const result = await client.mergeForward.exportWorkspace.mutate({
+        ...binding,
+        draft: snapshot,
+        savePolicy: policy,
+      });
+      if (!result.canceled) setStatus('合成记录导出已加入任务列表');
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '合成记录导出失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      exportingComposition.current = false;
+    }
   };
   const requestSend = async (value: MfDraft, mode: SendRequest['mode']) => {
     const problem = validateDraft(value);
@@ -445,9 +487,26 @@ export function CompositionWorkspace({
     : undefined;
   const canDrop =
     !busy && draggedEntry !== undefined && !compositionInsertionError(working, draggedEntry, kind);
+  const close = () => {
+    if (busy) return;
+    void perform(async () => {
+      if (dirty && binding) await persist(structuredClone(working), binding);
+      if (dirtyRef.current) throw new Error('内容仍在更新，请稍后再关闭');
+      setDraft(working);
+      progressRef.current = null;
+      setProgress(null);
+      onClose();
+    });
+  };
   if (!visible) return null;
   const content = (
     <RenderDocumentContext.Provider value={ownerDocument}>
+      {exportSave.serverLocation ? (
+        <ServerSavePrompt
+          name={exportSave.serverLocation.name}
+          onChoose={exportSave.chooseServerLocation}
+        />
+      ) : null}
       {ownerDocument !== document ? <HoverTooltip /> : null}
       <section
         className={`weq-composition-workspace${fallback ? ' is-fallback' : ''}`}
@@ -460,6 +519,7 @@ export function CompositionWorkspace({
           {IS_ELECTRON ? (
             <>
               <CompositionButton
+                className="weq-composition-window-control"
                 type="button"
                 title="最小化合成窗口"
                 aria-label="最小化合成窗口"
@@ -468,6 +528,7 @@ export function CompositionWorkspace({
                 <Minus size={16} />
               </CompositionButton>
               <CompositionButton
+                className="weq-composition-window-control"
                 type="button"
                 title={maximized ? '还原合成窗口' : '最大化合成窗口'}
                 aria-label={maximized ? '还原合成窗口' : '最大化合成窗口'}
@@ -479,7 +540,7 @@ export function CompositionWorkspace({
               </CompositionButton>
             </>
           ) : null}
-          {fallback ? (
+          {fallback && !mobile ? (
             <CompositionButton
               type="button"
               title="打开独立窗口"
@@ -495,16 +556,7 @@ export function CompositionWorkspace({
             aria-label="关闭合成窗口"
             disabled={busy}
             disabledReason="正在处理当前操作，请稍后"
-            onClick={() =>
-              void perform(async () => {
-                if (dirty && binding) await persist(structuredClone(working), binding);
-                if (dirtyRef.current) throw new Error('内容仍在更新，请稍后再关闭');
-                setDraft(working);
-                progressRef.current = null;
-                setProgress(null);
-                onClose();
-              })
-            }
+            onClick={close}
           >
             <X size={18} />
           </CompositionButton>
@@ -566,7 +618,9 @@ export function CompositionWorkspace({
                   </p>
                 ) : entries.isLoading ||
                   (kind === 'history' && (saved.isLoading || history.isLoading)) ? (
-                  <p role="status">加载中…</p>
+                  <p role="status">
+                    <LoadingIndicator />
+                  </p>
                 ) : !library.length ? (
                   <p className="weq-composition-empty">
                     {kind === 'material'
@@ -616,11 +670,7 @@ export function CompositionWorkspace({
                         </CompositionButton>
                         <span>
                           {entry.nodes.length} 条 ·{' '}
-                          {new Intl.DateTimeFormat('zh-CN', {
-                            timeZone: 'Asia/Shanghai',
-                            dateStyle: 'short',
-                            timeStyle: 'short',
-                          }).format(new Date(entry.updatedAt * 1000))}
+                          {eventTimeFormatter.format(new Date(entry.updatedAt * 1000))}
                         </span>
                         <p data-privacy-sensitive>{compositionText(entry)}</p>
                         <div className="weq-composition-entry-actions">
@@ -674,9 +724,9 @@ export function CompositionWorkspace({
                           </CompositionButton>
                           <CompositionButton
                             type="button"
-                            title="导出 JSON（媒体引用本机文件）"
-                            aria-label="导出 JSON"
-                            onClick={() => download(entry)}
+                            title="导出记录与媒体资源包"
+                            aria-label="导出资源包"
+                            onClick={() => void download(entry)}
                           >
                             <Download size={16} />
                           </CompositionButton>
@@ -718,10 +768,22 @@ export function CompositionWorkspace({
                                   if (dirtyRef.current)
                                     throw new Error('内容仍在更新，请稍后再删除');
                                   await serial.current.catch(() => {});
-                                  await client.mergeForward.workspaceRemove.mutate({
-                                    ...binding,
-                                    id: entry.id,
-                                  });
+                                  const removed = await resolveDraftSave(
+                                    `composition:${entry.id}`,
+                                    null,
+                                    sharedVersions.current.get(entry.id) ?? null,
+                                    (expectedVersion) =>
+                                      client.mergeForward.workspaceRemove.mutate({
+                                        ...binding,
+                                        id: entry.id,
+                                        expectedVersion,
+                                      }),
+                                  );
+                                  sharedVersions.current.set(entry.id, removed.current.version);
+                                  if (!removed.local) {
+                                    await saved.refetch();
+                                    return;
+                                  }
                                   acknowledgeCompositionBackup(binding, entry);
                                   setRecoveries(readCompositionBackups(binding).drafts);
                                   if (entry.id === draft.id) {
@@ -868,9 +930,9 @@ export function CompositionWorkspace({
                 </CompositionButton>
                 <CompositionButton
                   type="button"
-                  title="导出 JSON（媒体引用本机文件）"
-                  aria-label="导出当前合成 JSON"
-                  onClick={() => download(working)}
+                  title="导出记录与媒体资源包"
+                  aria-label="导出当前合成资源包"
+                  onClick={() => void download(working)}
                 >
                   <Download size={17} />
                 </CompositionButton>
@@ -1009,5 +1071,13 @@ export function CompositionWorkspace({
       ) : null}
     </RenderDocumentContext.Provider>
   );
-  return popup ? createPortal(content, popup.document.body) : content;
+  return popup ? (
+    createPortal(content, popup.document.body)
+  ) : mobile ? (
+    <WorkspacePage title="合成聊天记录" onClose={close} mobileChrome>
+      {content}
+    </WorkspacePage>
+  ) : (
+    content
+  );
 }

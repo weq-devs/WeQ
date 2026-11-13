@@ -34,32 +34,6 @@
   flex-shrink: 0;
 }
 
-.weq-profile-expand {
-  position: absolute;
-  top: 10px;
-  right: 44px;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  cursor: pointer;
-}
-
-.weq-profile-expand:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-  color: var(--weq-fg-primary);
-}
-
-.weq-profile-expand:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-
 .weq-contact-workspace {
   min-width: 0;
 }
@@ -68,16 +42,49 @@
   position: sticky;
   top: -28px;
   z-index: 5;
-  padding-block: 16px;
+  padding-block: 12px;
+  background: transparent;
+  transition: background 160ms ease;
+}
+
+/* 只有真正吸住时才铺底色，避免和顶部标题栏叠成两层浮层。 */
+.weq-contact-workspace-tabs.is-stuck {
   background: var(--weq-bar-surface);
+  box-shadow: 0 1px 0 var(--weq-border-subtle);
   backdrop-filter: blur(12px);
+}
+
+/* 分区切换沿用全应用的「浅 tint + accent 文字」，不再用实心药丸。 */
+.weq-contact-workspace-tabs .weq-segmented {
+  border-color: var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-fg-primary) 4%, transparent);
+}
+
+html[data-theme='dark'] .weq-contact-workspace-tabs .weq-segmented {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
 }
 
 .weq-contact-workspace-tabs .weq-segmented > button {
   display: inline-flex;
+  min-height: 32px;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+
+.weq-contact-workspace-tabs .weq-segmented > button[aria-checked='true'] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-contact-workspace-tabs {
+    transition: none;
+  }
 }
 
 .weq-contact-tab-panel {
@@ -198,27 +205,29 @@ html[data-theme='dark'] .weq-contact-tab-panel > .weq-contact-portrait {
   font-size: 14px;
 }
 
-.weq-contact-profile-toolbar button {
-  display: inline-flex;
+html[data-theme] .weq-contact-profile .weq-contact-profile-toolbar > .weq-settings-close {
+  position: static;
   flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 6px;
-  background: transparent;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme]
+  .weq-contact-profile
+  .weq-contact-profile-toolbar
+  > .weq-settings-close:is(:hover, :focus-visible) {
+  background: var(--weq-page-hover, color-mix(in srgb, var(--weq-fg-primary) 8%, transparent));
   color: var(--weq-fg-primary);
-  font: inherit;
-  cursor: pointer;
 }
 
-.weq-contact-profile-toolbar button:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-}
-
-.weq-contact-profile-toolbar button:focus-visible {
+html[data-theme]
+  .weq-contact-profile
+  .weq-contact-profile-toolbar
+  > .weq-settings-close:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .weq-contact-profile > .weq-contact-profile-content,
@@ -242,18 +251,36 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-profile > .weq-contact-profile-content.is-previewing-chat {
   overflow: hidden;
+  padding: 0;
   scrollbar-gutter: auto;
 }
 
 .weq-contact-profile-content.is-previewing-chat > .weq-contact-chat-preview {
   flex-shrink: 1;
+  padding: 0;
+}
+
+.weq-profile-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-profile-hero .weq-profile-name {
+  flex-shrink: 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .weq-contact-profile-content .weq-contact-identity {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 20px;
   padding-bottom: 24px;
   border-bottom: 1px solid var(--weq-border-subtle);
@@ -261,7 +288,7 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-identity .weq-profile-hero {
   display: grid;
-  flex: 1 1 260px;
+  flex: 1 1 300px;
   grid-template-columns: 72px minmax(0, 1fr);
   align-items: center;
   justify-items: start;
@@ -272,8 +299,12 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-identity .weq-profile-avatar {
   grid-column: 1;
-  grid-row: 1 / span 5;
+  grid-row: 1;
   align-self: start;
+}
+
+.weq-contact-identity .weq-profile-heading {
+  align-items: flex-start;
 }
 
 .weq-contact-identity .weq-profile-hero > :not(.weq-profile-avatar) {
@@ -311,6 +342,13 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
   margin: 0;
 }
 
+.weq-contact-identity-actions,
+.weq-contact-identity > .weq-profile-actions {
+  max-width: 100%;
+  justify-content: flex-end;
+  margin-inline-start: auto;
+}
+
 .weq-contact-identity .weq-profile-perhome {
   flex: 0 1 auto;
   min-height: 34px;
@@ -332,7 +370,7 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
 
 .weq-contact-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.65fr);
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 32px;
   padding-top: 24px;
 }
@@ -381,25 +419,8 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
   background: transparent;
 }
 
-.weq-contact-profile-content .weq-profile-row {
-  gap: 16px;
-  padding-block: 11px;
-  border-color: var(--weq-border-subtle);
-}
-
-.weq-contact-profile-content .weq-profile-row-label,
 .weq-contact-profile-content .weq-profile-nick {
   color: var(--weq-fg-secondary);
-}
-
-.weq-contact-profile-content .weq-profile-row strong,
-.weq-contact-profile-content .weq-profile-row-text {
-  color: var(--weq-fg-primary);
-  overflow-wrap: anywhere;
-}
-
-.weq-contact-profile-content .weq-profile-row strong.is-accent {
-  color: var(--weq-accent-effective);
 }
 
 .weq-contact-profile-content .weq-profile-section {
@@ -432,16 +453,30 @@ html[data-theme='dark'] .weq-contact-profile > .weq-contact-profile-content {
   object-fit: contain;
 }
 
-.weq-contact-profile-content > .group-info-panel {
+.weq-contact-profile-content > .group-info-panel.weq-group-profile-details {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(240px, 0.65fr);
-  grid-template-rows: auto 1fr;
   align-items: start;
   gap: 24px 32px;
+  overflow: visible;
   padding: 24px 0 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.weq-group-profile-primary,
+.weq-group-profile-secondary {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.weq-group-profile-secondary {
+  padding-left: 24px;
+  border-left: 1px solid var(--weq-border-subtle);
 }
 
 html[data-theme='dark'] .weq-contact-profile-content > .group-info-panel {
@@ -459,18 +494,11 @@ html[data-theme='dark'] .weq-contact-profile-content .group-info-member-row {
   font-size: 13px;
 }
 
-.weq-contact-profile-content .group-info-meta-list {
+.weq-contact-profile-content .group-info-panel .group-info-meta-list {
   padding: 0;
 }
 
-.weq-contact-profile-content .group-info-overview {
-  grid-column: 1;
-  grid-row: 2;
-}
-
 .weq-contact-profile-content .weq-group-announcement {
-  grid-column: 1;
-  grid-row: 1;
   padding: 0;
 }
 
@@ -488,22 +516,16 @@ html[data-theme='dark'] .weq-contact-profile-content .group-info-member-row {
 }
 
 .weq-contact-profile-content .weq-group-content-actions {
-  grid-column: 2;
-  grid-row: 1;
-  padding: 0 0 0 24px;
-  border-left: 1px solid var(--weq-border-subtle);
+  padding: 0;
 }
 
-.weq-contact-profile-content .member-list-section {
+.weq-contact-profile-content .group-info-panel .member-list-section {
   display: flex;
+  flex: none;
   flex-direction: column;
-  grid-column: 2;
-  grid-row: 2;
   gap: 12px;
   height: 440px;
   margin: 0;
-  padding-left: 24px;
-  border-left: 1px solid var(--weq-border-subtle);
 }
 
 .weq-contact-profile-content .group-info-heading,
@@ -511,12 +533,12 @@ html[data-theme='dark'] .weq-contact-profile-content .group-info-member-row {
   flex-shrink: 0;
 }
 
-.weq-contact-profile-content .group-info-heading,
-.weq-contact-profile-content .group-info-meta-row {
+.weq-contact-profile-content .group-info-panel .group-info-heading,
+.weq-contact-profile-content .group-info-panel .group-info-meta-row {
   padding-inline: 0;
 }
 
-.weq-contact-profile-content .group-info-meta-row {
+.weq-contact-profile-content .group-info-panel .group-info-meta-row {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);
   align-items: start;
@@ -526,7 +548,12 @@ html[data-theme='dark'] .weq-contact-profile-content .group-info-member-row {
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 
-.weq-contact-profile-content .group-info-meta-row strong {
+.weq-contact-profile-content .group-info-panel .group-info-meta-row,
+.weq-contact-profile-content .group-info-panel .group-info-meta-row :is(span, strong) {
+  font-size: 13px;
+}
+
+.weq-contact-profile-content .group-info-panel .group-info-meta-row strong {
   color: var(--weq-fg-primary);
   text-align: left;
   white-space: pre-wrap;
@@ -551,36 +578,25 @@ html[data-theme='dark'] .weq-contact-profile-content .weq-profile-list {
 
 @container (max-width: 760px) {
   .weq-contact-columns,
-  .weq-contact-profile-content > .group-info-panel {
+  .weq-contact-profile-content > .group-info-panel.weq-group-profile-details {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .weq-contact-secondary,
-  .weq-contact-profile-content .weq-group-content-actions,
-  .weq-contact-profile-content .member-list-section {
+  .weq-group-profile-secondary {
     padding-left: 0;
     border-left: 0;
   }
 
-  .weq-contact-secondary {
+  .weq-contact-secondary,
+  .weq-group-profile-secondary {
     padding-top: 24px;
     border-top: 1px solid var(--weq-border-subtle);
   }
 
-  .weq-contact-profile-content .group-info-overview,
-  .weq-contact-profile-content .weq-group-announcement,
-  .weq-contact-profile-content .weq-group-content-actions,
-  .weq-contact-profile-content .member-list-section {
-    grid-column: 1;
-    grid-row: auto;
-  }
-
-  .weq-contact-profile-content .weq-group-announcement {
-    order: -1;
-  }
-
   .weq-contact-identity-actions {
     width: 100%;
+    justify-content: flex-start;
   }
 }
 

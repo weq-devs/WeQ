@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 合并转发预览窗口 — floating, movable, closable window stack.
  *
@@ -25,6 +26,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
@@ -33,6 +35,7 @@ import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
+import { LoadingIndicator } from './LoadingIndicator';
 import {
   QqMessageContent,
   ConvContext,
@@ -47,13 +50,17 @@ import { useActiveWidget } from '../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
-import type { ResolvedWidget } from '@weq/service';
+import type { ResolvedWidget, MessageBubbleSkin } from '@weq/service';
+import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 import { ProfileAvatar } from './ProfileAvatar';
+import { visibleViewport } from '../lib/visibleViewport';
+import { ChatMediaGallery } from './ChatMediaGallery';
 
 // ---- types & store -------------------------------------------------------
 
 /** One cached message inside a forward chain, as it arrives on the wire. */
 export interface ForwardRecordWire {
+  cachedBubbles?: MessageBubbleSkin[];
   msgId: string;
   msgSeq?: string;
   msgType?: number;
@@ -73,7 +80,12 @@ export interface ForwardRecordWire {
   /** Recursive: nested 40900 forward cache (multi-forward inside multi-forward). */
   subMsgs?: ForwardRecordWire[];
   /** Per-message decoration from the nested proto40801 (0 = not set). */
-  decoration?: { bubbleId: number; fontId: number; widgetId: number };
+  decoration?: {
+    bubbleId: number;
+    fontId: number;
+    widgetId: number;
+    cachedBubble?: MessageBubbleSkin;
+  };
 }
 
 interface ForwardWindowState {
@@ -171,6 +183,7 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
   seq: 0,
   zTop: 1000,
   open(opts) {
+    for (const record of opts.records ?? []) seedMessageBubbles(record.cachedBubbles);
     const seq = get().seq + 1;
     const zTop = get().zTop + 1;
     const offset = get().windows.length;
@@ -222,6 +235,18 @@ const useForwardStore = create<ForwardStore>((set, get) => ({
     });
   },
   setRecords(id, records) {
+    const prepare = (rows: ForwardRecordWire[]) => {
+      for (const row of rows) {
+        seedMessageBubbles(row.cachedBubbles);
+        if (row.decoration)
+          row.decoration = {
+            ...row.decoration,
+            cachedBubble: messageBubble(row.decoration.bubbleId),
+          };
+        if (row.subMsgs) prepare(row.subMsgs);
+      }
+    };
+    prepare(records);
     set({
       windows: get().windows.map((w) =>
         w.id === id ? { ...w, records, loading: false, error: null } : w,
@@ -260,15 +285,7 @@ function senderAvatarFromUin(uin: string | undefined): string | null {
 }
 
 function formatForwardTime(seconds: string | undefined): string {
-  const secs = Number(seconds ?? 0);
-  if (!Number.isFinite(secs) || secs <= 0) return '';
-  const d = new Date(secs * 1000);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+  return Number(seconds) > 0 ? timeFormat.formatUnixTime(seconds) : '';
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -333,6 +350,18 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   const setRecords = useForwardStore((s) => s.setRecords);
   const setError = useForwardStore((s) => s.setError);
   const surface = useRef<HTMLElement>(null);
+  const [viewport, setViewport] = useState(() => visibleViewport());
+  useEffect(() => {
+    const update = () => setViewport(visibleViewport());
+    window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('scroll', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('scroll', update);
+    };
+  }, []);
   useSurfaceEscape(surface, () => close(win.id), true, false);
 
   // Initial fetch — only when no payload was injected up-front.
@@ -391,12 +420,13 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
       if (!drag) return;
       const dx = event.clientX - drag.startX;
       const dy = event.clientY - drag.startY;
-      const maxX = Math.max(0, window.innerWidth - 80);
-      const maxY = Math.max(0, window.innerHeight - 32);
+      const bounds = visibleViewport();
+      const width = Math.min(WINDOW_WIDTH, bounds.width - 16);
+      const height = Math.min(WINDOW_HEIGHT, bounds.height - 16);
       move(
         win.id,
-        clamp(drag.originX + dx, -WINDOW_WIDTH + 80, maxX),
-        clamp(drag.originY + dy, 0, maxY),
+        clamp(drag.originX + dx, bounds.left + 8, bounds.left + bounds.width - width - 8),
+        clamp(drag.originY + dy, bounds.top + 8, bounds.top + bounds.height - height - 8),
       );
     },
     [move, win.id],
@@ -417,15 +447,25 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   // (0,0). left/top keeps the two concerns from colliding.
   const style: CSSProperties = useMemo(
     () => ({
-      left: win.x,
-      top: win.y,
+      left: clamp(
+        win.x,
+        viewport.left + 8,
+        viewport.left +
+          Math.max(8, viewport.width - Math.min(WINDOW_WIDTH, viewport.width - 16) - 8),
+      ),
+      top: clamp(
+        win.y,
+        viewport.top + 8,
+        viewport.top +
+          Math.max(8, viewport.height - Math.min(WINDOW_HEIGHT, viewport.height - 16) - 8),
+      ),
       zIndex: win.z,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT,
+      width: Math.min(WINDOW_WIDTH, viewport.width - 16),
+      height: Math.min(WINDOW_HEIGHT, viewport.height - 16),
       maxWidth: 'calc(100vw - 16px)',
       maxHeight: 'calc(100dvh - 16px)',
     }),
-    [win.x, win.y, win.z],
+    [win.x, win.y, win.z, viewport],
   );
 
   // 转发窗口挂在 App 根部、MainView 之外，拿不到聊天区那两个 provider——
@@ -433,6 +473,14 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
   const carrier = useMemo(
     (): { msgId: string; kind: 'c2c' | 'group' } => ({ msgId: win.rootMsgId, kind: win.kind }),
     [win.rootMsgId, win.kind],
+  );
+  const galleryMessages = useMemo(
+    () =>
+      (win.records ?? []).map((record) => ({
+        ...record,
+        sendTime: record.sendTime ?? '0',
+      })),
+    [win.records],
   );
 
   return (
@@ -470,7 +518,15 @@ function ForwardWindowFrame({ win }: { win: ForwardWindowState }): ReactElement 
           <ConvContext.Provider value={win.conv}>
             <ForwardCarrierContext.Provider value={carrier}>
               <ForwardSubRecordsProvider records={win.records ?? []}>
-                <ForwardScroll win={win} />
+                <ChatMediaGallery
+                  scopeKey={String(win.id)}
+                  conv={win.conv}
+                  kind={win.kind}
+                  carrier={carrier}
+                  messages={galleryMessages}
+                >
+                  <ForwardScroll win={win} />
+                </ChatMediaGallery>
               </ForwardSubRecordsProvider>
             </ForwardCarrierContext.Provider>
           </ConvContext.Provider>
@@ -515,7 +571,7 @@ function ForwardScroll({ win }: { win: ForwardWindowState }): ReactElement {
   if (win.loading) {
     return (
       <div className="weq-forward-body weq-forward-status">
-        <span>加载中…</span>
+        <LoadingIndicator />
       </div>
     );
   }
@@ -632,6 +688,7 @@ function ForwardRow({
       data-widget={widget?.animated ? widget.itemId : undefined}
     >
       <ProfileAvatar
+        className="weq-identity-link weq-forward-author"
         target={{
           identity: record.senderUid || record.senderUin || '',
           uin: record.senderUin,
@@ -647,10 +704,10 @@ function ForwardRow({
           )}
           {widget ? <PendantLayer widget={widget} /> : null}
         </div>
+        <span className="weq-forward-row-name">{displayName}</span>
       </ProfileAvatar>
       <div className="weq-forward-row-main">
         <div className="weq-forward-row-meta">
-          <span className="weq-forward-row-name">{displayName}</span>
           {time ? <span className="weq-forward-row-time">{time}</span> : null}
         </div>
         <ForwardBubble record={record} kind={kind} sendTimeMs={sendTimeMs} />
@@ -962,6 +1019,7 @@ export function ForwardMultiMsgPreview({
     <button
       type="button"
       className="weq-forward-preview"
+      data-forward-res-id={resId}
       onClick={(event) => open(event.currentTarget)}
       title="查看合并转发"
     >

@@ -1,4 +1,12 @@
+import { eventTimeFormatter } from '@weq/time';
 import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
+
+const noticeTime = eventTimeFormatter;
+
+export function formatNoticeTimestamp(value: string): string {
+  const time = Date.parse(value);
+  return Number.isFinite(time) && time > 0 ? noticeTime.format(time) : '';
+}
 
 export function groupNoticeId(notify: { groupUin: string; operatedUid: string; msgTime: number }) {
   return `group-notify:${notify.groupUin}:${notify.operatedUid}:${notify.msgTime}`;

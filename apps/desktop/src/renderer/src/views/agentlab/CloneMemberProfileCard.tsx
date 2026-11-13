@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { MemberProfileCard } from '../../components/MemberProfileCard';
-import { GapMessagesModal } from '../../components/compose/GapMessagesModal';
+import { GapMessagesModal } from '../../components/lazyMainPanels';
 import type { Conversation, Message, User } from '../../im-template/template/types';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import { trpc } from '../../trpc/client';

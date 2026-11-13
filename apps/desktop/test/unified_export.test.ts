@@ -216,18 +216,15 @@ vi.mock('../src/renderer/src/components/tasks/CurrentTaskList', () => ({
   CurrentTaskList: ({
     exports,
     renderExport,
-    onSaveAll,
   }: {
     exports: UiTask[];
     renderExport: (task: UiTask) => import('react').ReactNode;
-    onSaveAll: () => void;
   }) =>
     createElement(
       'div',
       { 'data-fixture-current-tasks': '' },
       '合成当前任务',
       ...exports.map((task) => createElement('div', { key: task.id }, renderExport(task))),
-      createElement('button', { onClick: onSaveAll }, '保存全部合成任务'),
     ),
 }));
 vi.mock('../src/renderer/src/views/export/ExportLightbox', () => ({
@@ -425,7 +422,6 @@ function captureLayout(host: HTMLElement, name: string) {
     'workspace-surfaces.css',
     'unified-export.css',
     'search-scope.css',
-    'export-save-control.css',
     'export-save-actions.css',
     'group-media.css',
     'resource-export.css',
@@ -601,12 +597,7 @@ describe('统一导出实际界面', () => {
       });
       expect(fixture.dialogError).not.toHaveBeenCalled();
       expect(fixture.tasks[0]?.status).toBe('completed');
-      await act(async () => click(f.host, '保存全部合成任务'));
-      expect(fixture.dialogError).not.toHaveBeenCalled();
-      expect(fixture.dialogInfo).toHaveBeenCalledWith(
-        '已取消保存',
-        expect.stringContaining('仍保留'),
-      );
+      expect(f.host.textContent).not.toContain('保存全部合成任务');
     } finally {
       f.close();
     }
@@ -984,7 +975,7 @@ describe('统一导出实际界面', () => {
         click(f.host, '夹具确认导出');
       });
       click(f.host, '夹具关闭配置');
-      act(() => f.host.querySelector<HTMLInputElement>('.weq-export-contact-mode input')!.click());
+      click(f.host, '按条件');
       expect(fixture.startContacts).not.toHaveBeenCalled();
       f.setActive(false);
       await act(async () => {

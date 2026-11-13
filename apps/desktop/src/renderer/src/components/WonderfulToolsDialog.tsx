@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /**
  * 维护与诊断工具 —— 从设置中的对应入口打开。
  *
@@ -105,13 +106,7 @@ function errMsg(e: unknown): string {
 function humanTime(sec: number): string {
   if (!sec) return '从未登录';
   try {
-    return new Date(sec * 1000).toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return eventTimeFormatter.format(new Date(sec * 1000));
   } catch {
     return String(sec);
   }

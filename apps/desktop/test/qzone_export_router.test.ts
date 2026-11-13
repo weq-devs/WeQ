@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 const fixture = vi.hoisted(() => ({
@@ -6,13 +7,13 @@ const fixture = vi.hoisted(() => ({
   configId: 'fixture-source',
   start: vi.fn(async (_input: unknown) => 'task'),
 }));
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
+vi.mock('../src/main/context/app_context', () => {
+  const context = () => ({
     account: { context: { uin: fixture.uin } },
     bootstrap: {
       ocrModels: { listByKind: () => [] },
       userConfig: {
-        getSettings: () => ({ autoAttachQq: true }),
+        getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: true } }),
         getLocalModelId: () => null,
       },
     },
@@ -22,8 +23,13 @@ vi.mock('../src/main/context/app_context', () => ({
       },
       exportManager: { startTask: fixture.start },
     },
-  }),
-}));
+  });
+  return {
+    accountEventBus: new EventEmitter(),
+    getAppContext: context,
+    requireBootstrap: () => context().bootstrap,
+  };
+});
 afterEach(() => {
   fixture.uin = '10001';
   fixture.configId = 'fixture-source';

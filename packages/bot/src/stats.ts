@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * bot 运行统计（JSON 落盘，重启保持）。
  *
@@ -5,7 +6,7 @@
  *   ① token 用量：实现 UsageSink，AgentRuntime 每次调用 LLM 会喂 promptTokens/completionTokens。
  *   ② 收发消息：orchestrator 在收/发/生成处打点（onMessageIn/onMessageOut/onReplyGenerated）。
  *
- * 聚合维度：总量 + 按模型 + 按天（YYYY-MM-DD，本地时区），供 WebUI 统计页展示。
+ * 聚合维度：总量 + 按模型 + 按天（YYYY-MM-DD，北京时间），供 WebUI 统计页展示。
  * 落盘到产物 data/stats.json；startedAt 记进程本次启动时间（运行时长），totals 跨重启累加。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -62,7 +63,7 @@ interface StatsData {
   };
   byModel: Record<string, StatsModelBucket>;
   byDay: Record<string, StatsDayBucket>;
-  /** key = YYYY-MM-DD-HH（本地时区）；只保留近 ~48h，snapshot 取近 24h。 */
+  /** key = YYYY-MM-DD-HH（北京时间）；只保留近 ~48h，snapshot 取近 24h。 */
   byHour: Record<string, { tokens: number; calls: number }>;
 }
 
@@ -103,20 +104,14 @@ function emptyData(now: number): StatsData {
   };
 }
 
-/** 本地时区 YYYY-MM-DD。 */
+/** 北京时间 YYYY-MM-DD。 */
 function dayKey(ts: number): string {
-  const d = new Date(ts);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return timeFormat.formatDate(ts);
 }
 
-/** 本地时区 YYYY-MM-DD-HH（小时聚合键）。 */
+/** 北京时间 YYYY-MM-DD-HH（小时聚合键）。 */
 function hourKey(ts: number): string {
-  const d = new Date(ts);
-  const h = String(d.getHours()).padStart(2, '0');
-  return `${dayKey(ts)}-${h}`;
+  return `${dayKey(ts)}-${timeFormat.formatClock(ts, 'minute').slice(0, 2)}`;
 }
 
 /** 裁掉早于 48 小时的小时桶（近 24h 展示够用，留一倍余量防时区/边界丢点）。 */
@@ -335,7 +330,7 @@ export class StatsStore implements UsageSink {
       const key = hourKey(ts);
       const b = this.data.byHour[key];
       byHour.push({
-        hour: `${String(new Date(ts).getHours()).padStart(2, '0')}:00`,
+        hour: `${String(timeFormat.calendarParts(ts)!.hour).padStart(2, '0')}:00`,
         tokens: b?.tokens ?? 0,
         calls: b?.calls ?? 0,
       });

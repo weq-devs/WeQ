@@ -634,7 +634,6 @@
 
 .weq-cache-search:focus-within {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }
 
 .weq-cache-search-icon {

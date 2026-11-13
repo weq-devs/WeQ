@@ -54,11 +54,18 @@
 
 每个压缩包只包含自己平台的原生模块（`native/`），因此不要跨平台解压使用。
 
+装扮离线索引由 [dress-resources](https://github.com/weq-devs/dress-resources) 独立分发，压缩包不携带三份 `.dat`。
+首次需要未缓存的气泡、字体或挂件时，由 Web 服务宿主按固定清单自动获取对应类别；任务列表显示进度和失败重试，
+连接同一宿主的浏览器和 Remote 共用缓存，不在各客户端重复下载完整索引。已下载素材直接复用；
+QQ 在线协议补全不等待索引下载，完全断网时只能使用本机已有素材。详见[表情与装扮资源](../../docs/guide/emoji-resources.md)。
+
 ### 助手资源服务
 
 启用 WeQ 助手时，在当前 Web 进程内启动回环静态文件服务；停用助手或结束 Web
 进程时关闭，不启动独立 daemon，不注册系统自启。多宿主同时运行时各自拥有服务，
-端口占用会向后回落。Web 的登录／开机启动仍由部署方的进程管理器控制。
+端口占用会向后回落，自动跳过 Remote 的 `7691`、`7692` 等其他 WeQ 服务预留端口。
+默认从 `7690` 回退到 `7693`，最多尝试 10 个候选端口；实际地址以启动输出为准。
+Web 的登录／开机启动仍由部署方的进程管理器控制。
 
 ### Linux 权限
 
@@ -80,7 +87,7 @@
 | --- | --- | --- |
 | `WEQ_TOKEN` | 随机生成并打印 | 访问令牌。对外暴露时**必须**显式设置 |
 | `WEQ_HOST` | `127.0.0.1` | 监听地址。设为 `0.0.0.0` 才对外可见 |
-| `WEQ_PORT` | `7690` | 端口。被占用时自动向后探测 10 个 |
+| `WEQ_PORT` | `7690` | 首选端口。被占用时最多尝试 10 个候选端口，跳过其他 WeQ 服务预留范围；显式指定的首选端口仍优先尝试 |
 | `WEQ_EXPORT_DIR` | `./weq-exports` | 导出文件落盘目录 |
 | `WEQ_DATA_DIR` | `./weq-data` | 日志写入其 `logs/` 子目录；不是 QQ 数据或全部应用配置的迁移开关 |
 | `WEQ_NATIVE_DIR` | 随包的 `native/` | 原生模块目录（一般不用管） |
@@ -155,7 +162,7 @@ WEQ_TOKEN=$(openssl rand -hex 24) WEQ_HOST=0.0.0.0 node server.mjs
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm native:fetch --no-authorization # 取本机原生模块与配套装扮资源
+pnpm native:fetch --no-authorization # 只取本机原生模块，不取桌面权限助手或装扮索引
 pnpm --filter @weq/web build     # 产物在 apps/web/dist/
 pnpm --filter @weq/web deps      # 从根锁文件部署运行依赖（优先用本地缓存）
 ```

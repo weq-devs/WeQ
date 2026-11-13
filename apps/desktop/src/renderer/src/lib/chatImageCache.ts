@@ -3,12 +3,15 @@ import {
   normalizeChatImageCacheMiB,
 } from '@weq/service/chat-image-cache';
 
-type Preview = Pick<HTMLImageElement, 'naturalWidth' | 'naturalHeight'>;
+type Preview = Pick<
+  HTMLImageElement,
+  'naturalWidth' | 'naturalHeight' | 'ownerDocument' | 'currentSrc' | 'src'
+>;
 const MAX_RETAINED_IMAGES = 512;
 
-/** 持有已加载节点以跨虚拟列表卸载保留资源；只淘汰离屏项，不强制清空可见图片。 */
+/** 独立图片保留解码资源，不持有 React 挂载节点与其组件树；只淘汰离屏项。 */
 export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) {
-  const entries = new Map<string, { image: Preview; bytes: number }>();
+  const entries = new Map<string, { image: HTMLImageElement; bytes: number }>();
   const visible = new Map<string, number>();
   const listeners = new Set<() => void>();
   let limit = normalizeChatImageCacheMiB(initialMiB) * 1024 * 1024;
@@ -27,6 +30,7 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
       if (bytes <= limit && entries.size <= MAX_RETAINED_IMAGES) break;
       if (limit > 0 && visible.has(key)) continue;
       entries.delete(key);
+      entry.image.removeAttribute('src');
       bytes -= entry.bytes;
     }
   };
@@ -57,9 +61,18 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
     remember(key: string, image: Preview) {
       const size = image.naturalWidth * image.naturalHeight * 4;
       if (!limit || !Number.isSafeInteger(size) || size <= 0 || size > limit) return;
-      bytes -= entries.get(key)?.bytes ?? 0;
+      const previous = entries.get(key);
+      if (previous?.bytes === size) {
+        touch(key);
+        return;
+      }
+      // React 节点带有 Fiber/事件闭包；保留同源独立节点即可复用浏览器图片资源。
+      const retained = image.ownerDocument.createElement('img');
+      retained.src = image.currentSrc || image.src;
+      previous?.image.removeAttribute('src');
+      bytes -= previous?.bytes ?? 0;
       entries.delete(key);
-      entries.set(key, { image, bytes: size });
+      entries.set(key, { image: retained, bytes: size });
       bytes += size;
       trim();
       notify();
@@ -70,6 +83,7 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
       notify();
     },
     clear() {
+      for (const entry of entries.values()) entry.image.removeAttribute('src');
       entries.clear();
       bytes = 0;
       notify();

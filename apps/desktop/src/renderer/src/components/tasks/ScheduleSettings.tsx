@@ -111,22 +111,11 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
       )}
       <fieldset>
         <legend>导出格式</legend>
-        {allowedFormats.map((format) => (
-          <label key={format}>
-            <input
-              type="checkbox"
-              checked={formats.includes(format)}
-              onChange={(event) =>
-                setFormats(
-                  event.target.checked
-                    ? [...formats, format]
-                    : formats.filter((item) => item !== format),
-                )
-              }
-            />
-            {format.toUpperCase()}
-          </label>
-        ))}
+        <CheckPillGroup
+          options={allowedFormats.map((format) => ({ value: format, label: format.toUpperCase() }))}
+          selected={formats}
+          onChange={setFormats}
+        />
       </fieldset>
       <section aria-label="定时导出范围">
         <strong>导出会话</strong>
@@ -146,3 +135,4 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
   );
 }
 import { SegmentedControl } from '../SegmentedControl';
+import { CheckPillGroup } from '../settings/controls';

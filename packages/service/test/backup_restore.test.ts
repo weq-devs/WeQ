@@ -26,7 +26,8 @@ import { TokenUsageStore } from '../src/account/agentlab_usage';
 import { AssistantService } from '../src/account/assistant';
 import { snapshotWeqClones } from '../src/bootstrap/backup_clones';
 import { buildWeqBackup, type WeqBackupFile } from '../src/bootstrap/backup_bundle';
-import { DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_config';
+import { DEFAULT_APP_SETTINGS, UserConfigService } from '../src/bootstrap/user_config';
+import { WeqBackupService } from '../src/bootstrap/backup_service';
 import { WEQ_MENU_CAPTURE_PRIVACY_KEY } from '../src/common/backup_client';
 import { snapshotWeqApiSettings, snapshotWeqSettings } from '../src/bootstrap/backup_settings';
 import { bootstrapWeqBackupFiles } from '../src/bootstrap/backup_startup';
@@ -37,6 +38,7 @@ import {
   weqBackupRestoreStatus,
   pendingWeqClientSettings,
   acknowledgeWeqClientSettings,
+  recordWeqRestoreWarnings,
 } from '../src/bootstrap/backup_restore';
 
 const faults = vi.hoisted(() => ({
@@ -107,6 +109,43 @@ function fixture() {
     clone: (id: string) => join(cache, 'agentlab', id),
   };
 }
+it('恢复默认在账号偏好写入中途失败时完整回滚，重试保留数据并完成恢复', () => {
+  const f = fixture();
+  const accountPath = f.account('10001');
+  const originalAccount = {
+    configId: '10001',
+    uin: '10001',
+    dbKey: 'synthetic-key',
+    algos: {},
+    lastLoginAt: 1,
+    mailNotifications: true,
+  };
+  write(accountPath, originalAccount);
+  const preference = join(f.cache, 'anti_recall', '10001', 'config.json');
+  write(preference, { enabled: true });
+  const config = new UserConfigService({ appDataRoot: () => f.root });
+  const before = read(join(f.root, 'config.json'));
+  const service = new WeqBackupService(f.root, config);
+  service.stageDefaults(undefined, { clearApi: true });
+  let failed = false;
+  faults.rename = (from, to) => {
+    if (!failed && from.endsWith('/next') && to === preference) {
+      failed = true;
+      throw Error('合成功能配置写入失败');
+    }
+  };
+  const failedResult = applyPendingWeqBackupRestore(f.root, f.cache);
+  expect(failedResult?.status).toBe('failed');
+  expect(failedResult?.needsRecovery).not.toBe(true);
+  expect(read(join(f.root, 'config.json'))).toEqual(before);
+  expect(read(accountPath)).toEqual(originalAccount);
+  expect(read(preference)).toEqual({ enabled: true });
+  faults.rename = null;
+  service.stageDefaults(undefined, { clearApi: true });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  expect(read(accountPath)).not.toHaveProperty('mailNotifications');
+  expect(read(accountPath).dbKey).toBe('synthetic-key');
+});
 it.each(['skip', 'overwrite'] as const)('OneBot API 配置冷启动恢复遵循 %s 冲突策略', (conflict) => {
   const f = fixture();
   const incoming = {
@@ -341,41 +380,60 @@ it('替换自动进入目标的账号配置时清除旧自动进入，不自动�
   expect(read(join(f.root, 'config.json')).autoEnter).toBeNull();
 });
 
-it.each(['skip', 'overwrite'] as const)(
-  '默认模型恢复兼容旧备份、明确清空及本机冲突（%s）',
-  (conflict) => {
-    const localRef = { providerId: 'local', model: 'local-chat' };
-    const importedRef = { providerId: 'imported', model: 'imported-chat' };
-    for (const local of [undefined, null, localRef]) {
-      for (const incoming of [undefined, null, importedRef]) {
-        const f = fixture();
-        write(join(f.root, 'config.json'), {
-          ...f.initial,
-          settings: {
-            ...f.initial.settings,
-            agentLab: { providers: [], ...(local !== undefined ? { defaultModel: local } : {}) },
+it.each([
+  ['skip', 'defaultModel'],
+  ['overwrite', 'defaultModel'],
+  ['skip', 'defaultVisionModel'],
+  ['overwrite', 'defaultVisionModel'],
+] as const)('默认模型恢复兼容旧备份、明确清空及本机冲突（%s/%s）', (conflict, field) => {
+  const localRef = { providerId: 'local', model: 'local-chat' };
+  const importedRef = { providerId: 'imported', model: 'imported-chat' };
+  for (const local of [undefined, null, localRef]) {
+    for (const incoming of [undefined, null, importedRef]) {
+      const f = fixture();
+      write(join(f.root, 'config.json'), {
+        ...f.initial,
+        settings: {
+          ...f.initial.settings,
+          agentLab: { providers: [], ...(local !== undefined ? { [field]: local } : {}) },
+        },
+      });
+      const archive = buildWeqBackup([
+        file('api/settings.json', {
+          agentLab: {
+            providers: [],
+            ...(incoming !== undefined ? { [field]: incoming } : {}),
           },
-        });
-        const archive = buildWeqBackup([
-          file('api/settings.json', {
-            agentLab: {
-              providers: [],
-              ...(incoming !== undefined ? { defaultModel: incoming } : {}),
-            },
-          }),
-        ]);
-        stageWeqBackupRestore(f.root, archive, { parts: ['api'], conflict });
-        expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
-        const config = read(join(f.root, 'config.json')) as {
-          settings: { agentLab: { defaultModel?: unknown } };
-        };
-        const expected =
-          incoming === undefined || (conflict === 'skip' && local !== undefined) ? local : incoming;
-        expect(config.settings.agentLab.defaultModel).toEqual(expected);
-      }
+        }),
+      ]);
+      stageWeqBackupRestore(f.root, archive, { parts: ['api'], conflict });
+      expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+      const config = read(join(f.root, 'config.json')) as {
+        settings: { agentLab: Record<string, unknown> };
+      };
+      const expected =
+        incoming === undefined || (conflict === 'skip' && local !== undefined) ? local : incoming;
+      expect(config.settings.agentLab[field]).toEqual(expected);
     }
-  },
-);
+  }
+});
+
+it.each([false, true])('旧退出提醒字段在真实备份恢复事务中被丢弃：%s', (quitConfirmSuppressed) => {
+  const f = fixture();
+  write(join(f.root, 'config.json'), {
+    ...f.initial,
+    settings: { ...f.initial.settings, quitConfirmSuppressed: true },
+  });
+  stageWeqBackupRestore(
+    f.root,
+    buildWeqBackup([file('settings/app.json', { quitConfirmSuppressed, showMessageTime: false })]),
+    { parts: ['settings'], conflict: 'overwrite' },
+  );
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const saved = read(join(f.root, 'config.json'));
+  expect(saved.settings).not.toHaveProperty('quitConfirmSuppressed');
+  expect(saved.settings).toHaveProperty('showMessageTime', false);
+});
 
 it.each(['skip', 'overwrite'] as const)(
   'API 按稳定 ID %s 合并，同名不同 ID 不覆盖，TTS 位于真实设置字段',
@@ -575,12 +633,15 @@ it('提交后的清理失败仍如实报告已应用，下一次启动补清理�
   const result = applyPendingWeqBackupRestore(f.root, f.cache)!;
   expect(result.status).toBe('applied');
   expect(result.warnings.join(' ')).toContain('清理');
+  result.warnings.push('合成自启恢复失败');
+  recordWeqRestoreWarnings(f.root, result);
   expect(read(join(f.root, 'config.json'))).toMatchObject({
     settings: { renderTextMarkdown: false },
   });
   faults.remove = null;
   expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
   expect(weqBackupRestoreStatus(f.root).pending).toBeNull();
+  expect(weqBackupRestoreStatus(f.root).result?.warnings).toContain('合成自启恢复失败');
 });
 
 it('暂存校验失败和用户取消均不改运行数据，也不删除原备份', () => {
@@ -723,6 +784,7 @@ it('由真实存储服务写出的完整克隆／助手数据可往返，不复�
     'aborted',
   );
   const snapshot = snapshotWeqClones(sourceRoot);
+  expect(snapshot.files.some((file) => file.path.endsWith('/assistant.json'))).toBe(false);
   const original = snapshot.files.map((entry) => ({
     path: entry.path,
     data: Buffer.from(entry.data),
@@ -773,7 +835,13 @@ it('由真实存储服务写出的完整克隆／助手数据可往返，不复�
     restoredUsage,
     new ConversationStore(join(destination, 'conversations.json')),
   );
-  expect(restoredAssistant.getConfig()).toEqual(assistant.getConfig());
+  expect(restoredAssistant.getConfig()).toMatchObject({
+    permissionMode: 'sandbox',
+    model: { useDefault: true },
+  });
+  expect(JSON.parse(readFileSync(join(source, 'assistant.json'), 'utf8'))).toMatchObject({
+    customPrompt: '合成助手配置',
+  });
   expect(restoredAssistant.listSessions()[0]?.id).toBe(assistantSession.id);
   expect(readFileSync(join(destination, 'reports', report.id), 'utf8')).toBe(
     '<h1>合成报告内容</h1>',

@@ -33,6 +33,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
+import { GroupProfileIdentity } from './GroupProfileIdentity';
 import { OverlayLayer } from './OverlayLayer';
 import { AnalyticsSkeleton } from './AnalyticsSkeleton';
 import {
@@ -122,6 +123,7 @@ export function GroupAnalyticsDialog({
   onClose,
   exportMode = false,
   initialData,
+  onRangeChange,
   embedded = false,
   scope,
   periodLabel,
@@ -140,6 +142,7 @@ export function GroupAnalyticsDialog({
   exportMode?: boolean;
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍群历史。 */
   initialData?: { report?: unknown; batches?: unknown; graph?: unknown };
+  onRangeChange?: (range: { start: number; end: number }) => void;
   embedded?: boolean;
   scope?: AnalysisScope;
   periodLabel?: string;
@@ -348,9 +351,16 @@ export function GroupAnalyticsDialog({
     <div className="ga-overview">
       {/* Hero：群头像 + 名字 + 口径概览 */}
       <div className="ga-ov-hero">
-        <Avatar name={groupName} avatarUrl={avatarUrl ?? null} seed={groupCode} />
-        <div className="ga-ov-hero-info">
+        <GroupProfileIdentity
+          code={groupCode}
+          name={groupName}
+          avatarUrl={avatarUrl}
+          enabled={!forExport && !exportMode}
+        >
+          <Avatar name={groupName} avatarUrl={avatarUrl ?? null} seed={groupCode} />
           <strong data-privacy-sensitive>{groupName}</strong>
+        </GroupProfileIdentity>
+        <div className="ga-ov-hero-info">
           <span>
             {dateRange ? `${dateRange.from} — ${dateRange.to}` : '暂无聊天记录'}
             {overview ? ` · 共 ${formatNumber(overview.total)} 条消息` : ''}
@@ -395,7 +405,10 @@ export function GroupAnalyticsDialog({
             firstTime={report.timeline.firstMessageTime}
             lastTime={report.timeline.lastMessageTime}
             range={range}
-            onChange={setRange}
+            onChange={(next) => {
+              setRange(next);
+              onRangeChange?.(next);
+            }}
           />
         </section>
       ) : null}

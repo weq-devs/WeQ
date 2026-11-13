@@ -1,0 +1,91 @@
+@import './log-console-palette.css';
+
+.weq-exp-log {
+  height: 104px;
+  margin: 0 0 6px 26px;
+  padding: 6px 9px;
+  overflow: hidden;
+  border: 1px solid var(--weq-log-border);
+  border-radius: 7px;
+  background: var(--weq-log-bg);
+  color: var(--weq-log-fg);
+  font:
+    11px / 1.65 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    'Liberation Mono',
+    monospace;
+  transition:
+    height 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 220ms ease,
+    margin 280ms ease,
+    padding 280ms ease;
+}
+
+.weq-exp-log.is-hidden {
+  height: 0;
+  margin: 0;
+  padding: 0 9px;
+  opacity: 0;
+  border-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.weq-exp-log.is-scrollable:not(.is-hidden) {
+  height: 240px;
+  margin: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--weq-fg-muted) transparent;
+  transition: none;
+}
+
+.weq-exp-log.is-export-scrollable:not(.is-hidden) {
+  height: 180px;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--weq-fg-muted) transparent;
+  transition: none;
+}
+
+.weq-exp-log:is(.is-scrollable, .is-export-scrollable):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-exp-log-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--weq-log-muted);
+}
+
+.weq-exp-log-more {
+  padding: 1px 0 4px;
+  color: var(--weq-log-muted);
+  font-style: italic;
+}
+
+.weq-exp-log-line {
+  display: flex;
+  gap: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.weq-exp-log-time {
+  flex: none;
+  color: var(--weq-log-muted);
+}
+
+.weq-exp-log-line.is-warn .weq-exp-log-text {
+  color: var(--weq-log-warn);
+}
+
+.weq-exp-log-line.is-error .weq-exp-log-text {
+  color: var(--weq-log-error);
+}

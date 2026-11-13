@@ -1,20 +1,23 @@
+import { formatDateTimeInput, parseDateTimeInput } from '@weq/time';
 import { useEffect, useState } from 'react';
 import '../../styles/composition-time.css';
 
-const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
 const MAX_MESSAGE_TIME = 0xffff_ffff;
 
 export function nodeTimeValue(seconds: number): string {
-  return new Date(seconds * 1000 + BEIJING_OFFSET_MS).toISOString().slice(0, 19);
+  return formatDateTimeInput(seconds * 1000);
 }
 
 export function parseNodeTime(value: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value)) return null;
-  const seconds = Date.parse(`${value}+08:00`) / 1000;
-  if (!Number.isInteger(seconds) || seconds < 1 || seconds > MAX_MESSAGE_TIME) return null;
-  // Date.parse 会把二月三十日等无效日期进位，不能静默改成另一日。
-  if (nodeTimeValue(seconds).slice(0, value.length) !== value) return null;
-  return seconds;
+  const ms = parseDateTimeInput(value);
+  const seconds = ms === null ? null : ms / 1000;
+  return seconds !== null &&
+    Number.isInteger(seconds) &&
+    seconds >= 1 &&
+    seconds <= MAX_MESSAGE_TIME
+    ? seconds
+    : null;
 }
 
 export function NodeTimeInput({

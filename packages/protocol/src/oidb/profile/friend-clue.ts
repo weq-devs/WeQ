@@ -21,6 +21,7 @@ export interface FriendClue {
   direction: 'incoming' | 'outgoing' | null;
   rawDirection: number | null;
   source: string | null;
+  /** 对外群号；线索接口的 uint64_group_id 是内部群 UIN，不能直接使用。 */
   sourceGroupCode: string | null;
   canOpenSourceGroup: boolean | null;
   verificationMessage: string | null;
@@ -38,6 +39,25 @@ function text(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string' || value.length > 65536) throw new Error('好友线索文本无效');
   return value;
+}
+
+function sourceGroupCodeFromUin(uin: bigint): string {
+  const prefix = uin / 1000000n;
+  // QQ 历史群号分段映射；未命中号段保持原值，不对其他接口的群号重复转换。
+  // 参考 oicq/lib/common.js 的 uin2code，计算全程保留 uint64 精度。
+  for (const [start, end, offset] of [
+    [202n, 212n, 202n],
+    [480n, 488n, 469n],
+    [2010n, 2099n, 1943n],
+    [2100n, 2146n, 2080n],
+    [2147n, 2199n, 1990n],
+    [2600n, 2651n, 2265n],
+    [3800n, 3989n, 3490n],
+    [4100n, 4199n, 3890n],
+  ] as const) {
+    if (prefix >= start && prefix <= end) return (uin - offset * 1000000n).toString();
+  }
+  return uin.toString();
 }
 
 export async function getFriendClue(
@@ -82,7 +102,7 @@ export async function getFriendClue(
   if (group !== undefined && group !== null && group !== 0 && group !== '0') {
     if (typeof group !== 'string' && (typeof group !== 'number' || !Number.isSafeInteger(group)))
       throw new Error('好友线索来源群号无效');
-    sourceGroupCode = requireUin(String(group)).toString();
+    sourceGroupCode = sourceGroupCodeFromUin(requireUin(String(group)));
   }
   const canOpenSourceGroup = data.bool_group_jump;
   if (canOpenSourceGroup !== undefined && typeof canOpenSourceGroup !== 'boolean')

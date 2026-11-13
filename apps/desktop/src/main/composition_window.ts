@@ -1,5 +1,7 @@
 import type { BrowserWindowConstructorOptions, BrowserWindow } from 'electron';
 import { floatingWindowTypeOption } from './linux_window_backend';
+import { supportsWindowsStyleControls } from '../shared/window_controls';
+import { windowDecorationOptions } from './window_controls_events';
 
 /** 只给应用自己的空白合成工作窗放行；内容由父渲染进程挂载，不注入 preload。 */
 export function compositionPopupOptions(
@@ -11,7 +13,8 @@ export function compositionPopupOptions(
     title: 'WeQ · 合成聊天记录',
     width: 1000,
     height: 680,
-    frame: false,
+    frame:
+      supportsWindowsStyleControls(process.platform) && windowDecorationOptions().frame !== false,
     minWidth: 680,
     minHeight: 480,
     autoHideMenuBar: true,

@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { oidbCommand, resolveSign, SIGN_RULES } from '../src/index';
+import { describe, expect, it, vi } from 'vitest';
+import * as protocol from '../src/index';
+import { oidbCommand, resolveSign, SIGN_RULES, UNCONFIRMED_SIGN_COMMANDS } from '../src/index';
+import { DEFAULT_OIDB_CASES, DEFAULT_RAW_CASES } from '../../../scripts/sign-probe-commands';
 
 describe('oidbCommand', () => {
   it('和线上 / 抓包的命令串逐字一致（小写 hex、无前导零）', () => {
@@ -10,6 +12,41 @@ describe('oidbCommand', () => {
 });
 
 describe('resolveSign', () => {
+  it.each([
+    'OidbSvcTrpcTcp.0x9474_0',
+    'OidbSvcTrpcTcp.0xfe1_3',
+    'OidbSvcTrpcTcp.0x9067_202',
+    'OidbSvcTrpcTcp.0xcd4_1',
+    'OidbSvcTrpcTcp.0x6d6_4',
+    'trpc.qqrtc.mav_appsvr.MavAppsvr.SsoQueryRoom',
+  ])('已登记的不签名命令 %s 三端保持原参数且不报警', (cmd) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      for (const platform of ['linux', 'win32', 'darwin'] as const) {
+        expect(resolveSign(cmd, platform)).toEqual({ needSign: false, mode: 3 });
+      }
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('真正未登记的命令仍报警，同一命令只提醒一次', () => {
+    const cmd = 'test.sign-policy.unknown-once';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      for (const platform of ['linux', 'win32', 'darwin'] as const) {
+        expect(resolveSign(cmd, platform)).toEqual({ needSign: false, mode: 3 });
+      }
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`未登记的命令 ${cmd}`));
+      resolveSign('test.sign-policy.another-unknown');
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('未登记的命令按「不签名 + 精简签名」处理', () => {
     for (const platform of ['linux', 'win32', 'darwin'] as const) {
       expect(resolveSign('OidbSvcTrpcTcp.0xdead_1', platform)).toEqual({
@@ -67,12 +104,20 @@ describe('SIGN_RULES', () => {
     }
   });
 
-  it('三端都不签的命令不应出现在表里（false 是缺省，不用登记）', () => {
+  it('显式不签名策略与真正未登记的命令分开', () => {
+    for (const cmd of [
+      'OidbSvcTrpcTcp.0x9474_0',
+      'OidbSvcTrpcTcp.0xfe1_3',
+      'OidbSvcTrpcTcp.0x9067_202',
+    ]) {
+      expect(SIGN_RULES).toHaveProperty([cmd], { sign: 'none' });
+    }
     for (const cmd of Object.keys(SIGN_RULES)) {
+      const rule = SIGN_RULES[cmd as keyof typeof SIGN_RULES];
       const signed = (['linux', 'win32', 'darwin'] as const).some(
         (p) => resolveSign(cmd, p).needSign,
       );
-      expect(signed, `${cmd} 三端都不签，应该从表里删掉`).toBe(true);
+      expect(signed, cmd).toBe(rule.sign !== 'none');
     }
   });
 
@@ -85,6 +130,14 @@ describe('SIGN_RULES', () => {
 });
 
 describe('issue #126：三端签名差异', () => {
+  it.each(['HttpConn.0x6ff_501', 'OidbSvc.0x480_9_IMCore', 'OidbSvc.0x42d_4'])(
+    '文档已记录的 raw 命令 %s 也必须登记平台差异',
+    (cmd) => {
+      expect(resolveSign(cmd, 'linux')).toEqual({ needSign: false, mode: 3 });
+      expect(resolveSign(cmd, 'win32')).toEqual({ needSign: true, mode: 3 });
+      expect(resolveSign(cmd, 'darwin')).toEqual({ needSign: true, mode: 3 });
+    },
+  );
   it('Linux 不签、Windows / macOS 签的 18 条命令全部登记为 non-linux', () => {
     const expected = [
       '0x10c0_1',
@@ -142,22 +195,122 @@ describe('issue #126：三端签名差异', () => {
 });
 
 /**
- * 防漂移：`scripts/probe-sign.ts` 内置的命令表必须覆盖签名表里的每一条 OIDB
- * 命令，否则「新加一条签名策略」就没法在当前平台复测，等于没有证据。
+ * 防漂移：真实入口与探测数据都必须有策略或待确认原因，不能只检查表内条目。
  */
-describe('probe-sign.ts 命令表与签名表对齐', () => {
-  it('签名表里的 OIDB 命令都能在探测脚本里找到', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync(new URL('../../../scripts/probe-sign.ts', import.meta.url), 'utf8');
-    const cases = new Set<string>();
-    for (const m of src.matchAll(/^\s*'([0-9a-f]+_[0-9]+)',$/gm)) cases.add(m[1]!);
+describe('协议入口、探测清单与策略双向覆盖', () => {
+  const cases = new Set([
+    ...DEFAULT_OIDB_CASES.map((cmd) => `OidbSvcTrpcTcp.0x${cmd}`),
+    ...DEFAULT_RAW_CASES,
+  ]);
+  const registered = new Set(Object.keys(SIGN_RULES));
+  const accounted = new Set([...registered, ...Object.keys(UNCONFIRMED_SIGN_COMMANDS)]);
+  const assertAccounted = (cmd: string) => {
+    expect(accounted.has(cmd), `${cmd} 必须登记策略或明确列为待确认`).toBe(true);
+    expect(cases.has(cmd), `${cmd} 缺少探测入口`).toBe(true);
+  };
 
-    for (const cmd of Object.keys(SIGN_RULES)) {
-      if (!cmd.startsWith('OidbSvcTrpcTcp.')) continue;
-      const key = cmd.slice('OidbSvcTrpcTcp.0x'.length);
-      expect(cases.has(key), `probe-sign.ts 缺 ${key}`).toBe(true);
+  it('OIDB 和 raw 清单双向覆盖，待确认清单不冒充签名策略', () => {
+    expect(cases.size).toBe(DEFAULT_OIDB_CASES.length + DEFAULT_RAW_CASES.length);
+    for (const cmd of cases) assertAccounted(cmd);
+    for (const cmd of accounted) expect(cases.has(cmd), `${cmd} 缺少探测入口`).toBe(true);
+    for (const [cmd, reason] of Object.entries(UNCONFIRMED_SIGN_COMMANDS)) {
+      expect(registered.has(cmd), `${cmd} 不能同时是已登记和待确认`).toBe(false);
+      expect(reason.trim().length).toBeGreaterThan(0);
     }
   });
+
+  it('真实导出的静态 spec 与动态子命令不能漏登记', () => {
+    const dynamic = new Map<object, Record<string, unknown>[]>([
+      [protocol.SetPeerPin, [{ target: { kind: 'group' } }, { target: { kind: 'c2c' } }]],
+      [protocol.GroupTodo, ['set', 'complete', 'cancel'].map((action) => ({ action }))],
+      [protocol.SetGroupEssence, [{ enable: true }, { enable: false }]],
+      [protocol.SetReaction, [{ isSet: true }, { isSet: false }]],
+      [protocol.FetchGroupRequests, [{ filtered: true }, { filtered: false }]],
+      [protocol.SetGroupRequest, [{ filtered: true }, { filtered: false }]],
+    ]);
+    for (const [name, value] of Object.entries({ ...protocol, ...protocol.groupCall })) {
+      if (!value || typeof value !== 'object' || !('reqSchema' in value)) continue;
+      if (value === protocol.PttTrans) continue; // 两种命令在下一个用例按真实选择器检查。
+      const spec = value as Record<string, unknown>;
+      if (typeof spec.command === 'string') {
+        assertAccounted(spec.command); // 红包的 cmd 是子命令，wire 命令在 command。
+      } else if (typeof spec.cmd === 'string') {
+        assertAccounted(spec.cmd);
+      } else {
+        expect(typeof spec.command, name).toBe('number');
+        if (typeof spec.resolveSubCommand === 'function') {
+          const params = dynamic.get(value);
+          expect(params, `${name} 必须补动态分支样本`).toBeDefined();
+          for (const param of params ?? []) {
+            assertAccounted(oidbCommand(Number(spec.command), spec.resolveSubCommand(param)));
+          }
+        } else {
+          expect(typeof spec.subCommand, name).toBe('number');
+          assertAccounted(oidbCommand(Number(spec.command), Number(spec.subCommand)));
+        }
+      }
+    }
+  });
+
+  it('动态上传、语音转写、旧 OIDB、直发 raw 命令也在清单中', () => {
+    for (const command of [
+      protocol.IMAGE_OIDB_C2C,
+      protocol.IMAGE_OIDB_GROUP,
+      protocol.PTT_OIDB_C2C,
+      protocol.PTT_OIDB_GROUP,
+      protocol.VIDEO_OIDB_C2C,
+      protocol.VIDEO_OIDB_GROUP,
+    ])
+      assertAccounted(oidbCommand(command, 100));
+    for (const cmd of [
+      protocol.pttTransCmd(true),
+      protocol.pttTransCmd(false),
+      protocol.FRIEND_CLUE_COMMAND,
+      protocol.HIGHWAY_SESSION_CMD,
+      'OidbSvc.0x480_9_IMCore',
+      'OidbSvc.0x4ff_9_IMCore',
+      'OidbSvc.0x42d_4',
+      'OidbSvc.0xcf4',
+      'scupdate.handle',
+      'LongConn.OffPicUp',
+      'ImgStore.BDHExpressionRoam',
+    ])
+      assertAccounted(cmd);
+  });
+
+  it('全部显式不签名命令三端保持 false / mode 3 且无警告', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      for (const [cmd, rule] of Object.entries(SIGN_RULES)) {
+        if (rule.sign !== 'none') continue;
+        for (const platform of ['linux', 'win32', 'darwin'] as const) {
+          expect(resolveSign(cmd, platform), `${cmd} ${platform}`).toEqual({
+            needSign: false,
+            mode: 3,
+          });
+        }
+      }
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each(Object.entries(UNCONFIRMED_SIGN_COMMANDS))(
+    '待确认命令 %s 保留默认参数并提醒原因',
+    (cmd, reason) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        for (const platform of ['linux', 'win32', 'darwin'] as const) {
+          expect(resolveSign(cmd, platform)).toEqual({ needSign: false, mode: 3 });
+        }
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining(reason));
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
 });
 
 describe('不签名的命令不报告 mode', () => {

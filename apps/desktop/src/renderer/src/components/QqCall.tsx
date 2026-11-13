@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * Renders a `call` element (语音 / 视频 / 屏幕共享 / 远程协作) as an icon + the
  * pre-formatted `callSummary` line. Drawn inside the normal bubble (no chrome
@@ -178,7 +179,5 @@ function CallRecordingButton({ id, durationSec }: { id: string; durationSec: num
 }
 
 function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return timeFormat.formatDuration(Math.max(0, seconds), 'call');
 }

@@ -463,7 +463,7 @@ describe('工作菜单与内容工具范围', () => {
       vi.unstubAllGlobals();
     }
   });
-  it.each(['导出', 'WeQ 助手'])('%s 继续保留居中遮罩', (label) => {
+  it('内容工具继续保留居中遮罩', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const host = document.createElement('div');
@@ -471,15 +471,8 @@ describe('工作菜单与内容工具范围', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(workspaceTools()));
-      if (label === 'WeQ 助手') {
-        const menu = openMenu();
-        act(() => menu.querySelector<HTMLButtonElement>('[aria-label="切换到 WeQ 助手"]')!.click());
-        act(() =>
-          menu.querySelector<HTMLButtonElement>('[aria-label="打开完整助手面板"]')!.click(),
-        );
-      } else openTool(label);
-      const dialog =
-        label === 'WeQ 助手' ? activeMenu()! : document.querySelector('.weq-tools-modal')!;
+      openTool('导出');
+      const dialog = document.querySelector('.weq-tools-modal')!;
       expect(dialog.getAttribute('aria-modal')).toBe('true');
       expect(dialog.closest('[hidden], [inert]')).toBeNull();
       expect(dialog.parentElement!.classList.contains('weq-nonmodal-layer')).toBe(false);

@@ -70,8 +70,12 @@ function fixture() {
     render,
     input: (kind: string) =>
       host.querySelector<HTMLInputElement>(`[aria-label="${kind}通知停留时长"]`)!,
-    button: (kind: string) =>
-      host.querySelector<HTMLButtonElement>(`[aria-label="保存${kind}通知停留时长"]`)!,
+    commit: (kind: string) =>
+      act(async () => {
+        host
+          .querySelector<HTMLInputElement>(`[aria-label="${kind}通知停留时长"]`)!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      }),
   };
 }
 function type(input: HTMLInputElement, value: string) {
@@ -81,42 +85,39 @@ function type(input: HTMLInputElement, value: string) {
   });
 }
 describe('通知停留时长设置', () => {
-  it('未改动的有效时长仍可点击保存，保存后可再次主动提交', async () => {
+  it('没有保存按钮，未修改与同值不会提交', async () => {
     const f = fixture();
-    expect(f.button('成功').disabled).toBe(false);
+    expect(f.host.querySelector('[aria-label="保存成功通知停留时长"]')).toBeNull();
     expect(state.save).not.toHaveBeenCalled();
-    await act(async () => f.button('成功').click());
-    await act(async () => f.button('成功').click());
-    expect(state.save).toHaveBeenCalledTimes(2);
-    expect(state.save).toHaveBeenLastCalledWith({
-      kind: 'success',
-      seconds: DEFAULT_TOAST_DURATIONS.successSeconds,
-    });
+    await f.commit('成功');
+    type(f.input('成功'), String(DEFAULT_TOAST_DURATIONS.successSeconds));
+    await f.commit('成功');
+    expect(state.save).not.toHaveBeenCalled();
   });
   it('默认成功三秒、失败负一，分别保存、重新打开保留，立即同步横幅偏好', async () => {
     const f = fixture();
     expect(f.input('成功').value).toBe('3');
     expect(f.input('失败').value).toBe('-1');
     type(f.input('成功'), '5');
-    await act(async () => f.button('成功').click());
+    await f.commit('成功');
     expect(state.save).toHaveBeenCalledWith({ kind: 'success', seconds: 5 });
     expect(useToast.getState().durations).toEqual({ successSeconds: 5, failureSeconds: -1 });
-    expect(useToast.getState().toasts.at(-1)?.ttl).toBe(5000);
+    expect(useToast.getState().toasts).toHaveLength(0);
     f.render();
     type(f.input('失败'), '8');
-    await act(async () => f.button('失败').click());
+    await f.commit('失败');
     expect(state.save).toHaveBeenLastCalledWith({ kind: 'failure', seconds: 8 });
     expect(state.invalidate).toHaveBeenCalledTimes(2);
     const reopened = fixture();
     expect(reopened.input('成功').value).toBe('5');
     expect(reopened.input('失败').value).toBe('8');
-    expect(f.host.querySelector('[role="status"]')).toBeNull();
+    expect(f.host.textContent).toContain('已保存');
   });
-  it.each(['', '0', '-2', '1.5', '86401'])('非法输入 %s 不可提交', (value) => {
+  it.each(['', '0', '-2', '1.5', '86401'])('非法输入 %s 不可提交', async (value) => {
     const f = fixture();
     type(f.input('成功'), value);
-    expect(f.button('成功').disabled).toBe(true);
-    act(() => f.button('成功').click());
+    await f.commit('成功');
+    expect(f.host.textContent).toContain('输入无效');
     expect(state.save).not.toHaveBeenCalled();
   });
   it('成功通知也允许设置不自动关闭，按回车提交', async () => {
@@ -126,24 +127,20 @@ describe('通知停留时长设置', () => {
       f.input('成功').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
     );
     expect(state.save).toHaveBeenCalledWith({ kind: 'success', seconds: -1 });
-    expect(useToast.getState().toasts.at(-1)?.ttl).toBe(0);
+    expect(useToast.getState().toasts).toHaveLength(0);
   });
-  it('保存失败不更改偏好，在横幅报错并保留输入供重试', async () => {
+  it('保存失败不更改偏好，就地报错并保留输入供重试', async () => {
     const f = fixture();
     state.save.mockRejectedValueOnce(new Error('磁盘写入失败'));
     type(f.input('失败'), '6');
-    await act(async () => f.button('失败').click());
+    await f.commit('失败');
     expect(useToast.getState().durations).toEqual(DEFAULT_TOAST_DURATIONS);
-    expect(useToast.getState().toasts.at(-1)).toMatchObject({
-      tone: 'error',
-      title: '通知设置保存失败',
-      ttl: 0,
-    });
+    expect(f.host.textContent).toContain('磁盘写入失败');
     expect(f.input('失败').value).toBe('6');
-    expect(f.button('失败').disabled).toBe(false);
+    expect(f.host.querySelector('[aria-label="重试保存"]')).not.toBeNull();
     expect(state.invalidate).not.toHaveBeenCalled();
   });
-  it('保存期间禁止重复提交，读取失败不能覆盖已有设置', async () => {
+  it('保存期间仍可编辑并串行提交，读取失败禁用输入', async () => {
     const f = fixture();
     let finish!: (durations: ToastDurations) => void;
     state.save.mockImplementationOnce(
@@ -153,16 +150,14 @@ describe('通知停留时长设置', () => {
         }),
     );
     type(f.input('成功'), '9');
-    act(() => {
-      f.button('成功').click();
-      f.button('成功').click();
-    });
+    await f.commit('成功');
     expect(state.save).toHaveBeenCalledOnce();
-    expect(f.button('成功').disabled).toBe(true);
+    expect(f.input('成功').disabled).toBe(false);
+    type(f.input('成功'), '10');
     await act(async () => finish({ successSeconds: 9, failureSeconds: -1 }));
     state.error = new Error('读取失败');
     f.render();
-    expect(f.button('成功').disabled).toBe(true);
+    expect(f.input('成功').disabled).toBe(true);
     expect(f.host.querySelector('[role="alert"]')?.textContent).toBe('读取失败');
   });
 });

@@ -18,6 +18,74 @@ function fixture(bytes: Buffer) {
 }
 
 describe('好友线索 WebSSO', () => {
+  it.each([
+    ['4162123456', '272123456'],
+    ['2067654321', '124654321'],
+  ])('来源群内部 UIN %s 转换为公开群号 %s，来源文案保持不变', async (uin, code) => {
+    for (const value of [uin, Number(uin)]) {
+      const result = await getFriendClue(
+        fixture(
+          reply({
+            ErrorCode: 0,
+            uint64_group_id: value,
+            str_add_frd_source_wording: '线索来源原文',
+          }),
+        ),
+        5,
+        '10002',
+      );
+      expect(result.sourceGroupCode).toBe(code);
+      expect(result.source).toBe('线索来源原文');
+    }
+  });
+  it.each([
+    ['202000001', '1'],
+    ['212999999', '10999999'],
+    ['480000001', '11000001'],
+    ['488999999', '19999999'],
+    ['2100000001', '20000001'],
+    ['2146999999', '66999999'],
+    ['2010000001', '67000001'],
+    ['2099999999', '156999999'],
+    ['2147000001', '157000001'],
+    ['2199999999', '209999999'],
+    ['2600000001', '335000001'],
+    ['2651999999', '386999999'],
+    ['3800000001', '310000001'],
+    ['3989999999', '499999999'],
+    ['4100000001', '210000001'],
+    ['4199999999', '309999999'],
+  ])('内部 UIN 号段边界 %s 正确转换为 %s', async (uin, code) => {
+    const result = await getFriendClue(
+      fixture(reply({ ErrorCode: 0, uint64_group_id: uin })),
+      5,
+      '10002',
+    );
+    expect(result.sourceGroupCode).toBe(code);
+  });
+  it.each([
+    '201999999',
+    '213000000',
+    '479999999',
+    '489000000',
+    '2009999999',
+    '2200000000',
+    '2599999999',
+    '2652000000',
+    '3799999999',
+    '3990000000',
+    '4099999999',
+    '4200000000',
+    '1234567890',
+    '9007199254740993',
+  ])('不属于转换号段的来源群标识 %s 保持原值及精度', async (uin) => {
+    const result = await getFriendClue(
+      fixture(reply({ ErrorCode: 0, uint64_group_id: uin })),
+      5,
+      '10002',
+    );
+    expect(result.sourceGroupCode).toBe(uin);
+  });
   it('使用完整命令、显式 JSON type=0 和数字 UIN，不发送 OIDB 信封', async () => {
     const nt = fixture(
       reply({

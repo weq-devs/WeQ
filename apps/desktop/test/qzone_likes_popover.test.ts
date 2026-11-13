@@ -1,9 +1,44 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { QzoneLikesPopover } from '../src/renderer/src/components/QzoneLikesPopover';
+import { useSurfaceOutside } from '../src/renderer/src/lib/surfaceOutside';
 
 let close: (() => void) | undefined;
+it('浮层内点击点赞人不会被底层资料弹窗当作点外关闭或吞掉点击', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const dismissed = vi.fn(),
+    opened = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  close = () => {
+    act(() => root.unmount());
+    host.remove();
+  };
+  function Harness() {
+    const ref = useRef<HTMLDivElement>(null);
+    useSurfaceOutside(ref, dismissed, true);
+    return h(
+      'div',
+      { ref, 'data-weq-surface': true, style: { zIndex: 1 } },
+      h(
+        QzoneLikesPopover,
+        { trigger: h('button', null, '点赞') },
+        h('button', { onClick: opened }, '合成点赞人'),
+      ),
+    );
+  }
+  await act(async () => root.render(h(Harness)));
+  await act(async () => host.querySelector('button')!.focus());
+  const person = document.querySelector<HTMLButtonElement>('.weq-qzn-like-popover button')!;
+  await act(async () => {
+    person.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    person.click();
+  });
+  expect(dismissed).not.toHaveBeenCalled();
+  expect(opened).toHaveBeenCalledOnce();
+});
 afterEach(() => {
   close?.();
   vi.useRealTimers();

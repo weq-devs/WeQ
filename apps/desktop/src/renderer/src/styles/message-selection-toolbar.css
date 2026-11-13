@@ -6,7 +6,7 @@
   white-space: nowrap;
 }
 .chat-pane .selection-bar-count {
-  color: var(--weq-accent-ink, var(--weq-fg-primary));
+  color: var(--weq-fg-primary);
 }
 .chat-pane .message-select-mark {
   border-color: var(--weq-accent-ink, var(--weq-fg-primary));

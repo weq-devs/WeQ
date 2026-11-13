@@ -542,7 +542,12 @@ export const dbRepairRouter = router({
       const target = service.resolveTarget(input.uin, input.dbName);
       const key = `${input.uin}:${input.taskId}`;
       return runBackgroundTask(
-        { kind: 'database', name: `数据库体检 · ${input.dbName}`, scope: { uin: input.uin } },
+        {
+          kind: 'database',
+          name: `数据库体检 · ${input.dbName}`,
+          scope: { uin: input.uin },
+          destination: 'db-checkup',
+        },
         async (id) => {
           const tracked = { id, cancelled: false };
           if (checkupTasks.has(key)) throw new Error('这个体检任务已经在运行。');

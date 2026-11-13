@@ -15,6 +15,213 @@ export const DEVELOPMENT_SCAN_LIMITS = {
   styles: 128,
 } as const;
 
+/** 正式监视按类别分批；单项浏览器调用不可打断，耗时交给宿主决定退避。 */
+export interface MonitorDocument extends DevelopmentDiagnosticDocument {
+  styleSheets: ArrayLike<{ cssRules: { length: number } }>;
+  getAnimations(): DiagnosticAnimation[];
+  dispatchEvent(event: Event): boolean;
+  getElementById(id: string): { getAttribute(name: string): string | null } | null;
+  visibilityState: string;
+}
+export async function collectBatchedDevelopmentDetails(
+  document: MonitorDocument,
+  onBatch?: (start: number, duration: number) => void,
+  yieldTask: () => Promise<void> = () => new Promise((resolve) => setTimeout(resolve, 0)),
+) {
+  let syncMs = 0,
+    waitMs = 0;
+  let batch = performance.now();
+  const yieldIfNeeded = async (force = false) => {
+    const now = performance.now();
+    if (!force && now - batch < 4) return;
+    syncMs += now - batch;
+    onBatch?.(batch, now - batch);
+    const before = performance.now();
+    await yieldTask();
+    waitMs += performance.now() - before;
+    batch = performance.now();
+  };
+  const surfaces: Record<string, unknown> = {},
+    components: Record<string, unknown> = {};
+  await yieldIfNeeded(true);
+  for (const [key, selector] of Object.entries(SURFACES)) {
+    if (!selector) continue;
+    const nodes = document.querySelectorAll(selector),
+      sampled = Math.min(nodes.length, 64);
+    let rendered = 0,
+      descendantElements = 0;
+    for (let i = 0; i < sampled; i++) {
+      const node = nodes[i]!;
+      if (!node.closest('[hidden]') && node.getClientRects().length) rendered++;
+      descendantElements += node.getElementsByTagName('*').length;
+      await yieldIfNeeded();
+    }
+    surfaces[key] = {
+      mounted: nodes.length,
+      sampled,
+      rendered,
+      descendantElements,
+      omitted: nodes.length - sampled,
+    };
+    await yieldIfNeeded(true);
+  }
+  for (const [key, selector] of Object.entries(COMPONENTS)) {
+    const nodes = document.querySelectorAll(selector),
+      sampled = Math.min(nodes.length, 512);
+    let hiddenByAttribute = 0;
+    for (let i = 0; i < sampled; i++) {
+      if (nodes[i]!.closest('[hidden]')) hiddenByAttribute++;
+      await yieldIfNeeded();
+    }
+    components[key] = {
+      count: nodes.length,
+      sampled,
+      hiddenByAttribute,
+      omitted: nodes.length - sampled,
+    };
+    await yieldIfNeeded(true);
+  }
+  const images = document.querySelectorAll('img'),
+    videos = document.querySelectorAll('video'),
+    canvases = document.querySelectorAll('canvas');
+  let completeImages = 0,
+    pendingImages = 0,
+    naturalPixels = 0,
+    maxNaturalPixels = 0,
+    emptyCompleteImages = 0;
+  for (let i = 0; i < Math.min(images.length, 512); i++) {
+    const image = images[i]!;
+    const area = pixels(image.naturalWidth, image.naturalHeight);
+    if (!image.complete) pendingImages++;
+    else if (area) completeImages++;
+    else emptyCompleteImages++;
+    naturalPixels += area;
+    maxNaturalPixels = Math.max(maxNaturalPixels, area);
+    await yieldIfNeeded();
+  }
+  await yieldIfNeeded(true);
+  let playingVideos = 0,
+    videoPixels = 0,
+    canvasPixels = 0;
+  for (let i = 0; i < Math.min(videos.length, 512); i++) {
+    const video = videos[i]!;
+    if (!video.paused && !video.ended) playingVideos++;
+    videoPixels += pixels(video.videoWidth, video.videoHeight);
+    await yieldIfNeeded();
+  }
+  for (let i = 0; i < Math.min(canvases.length, 512); i++) {
+    const canvas = canvases[i]!;
+    canvasPixels += pixels(canvas.width, canvas.height);
+    await yieldIfNeeded();
+  }
+  await yieldIfNeeded(true);
+  const media = {
+    images: images.length,
+    sampledImages: Math.min(images.length, 512),
+    omittedImages: Math.max(0, images.length - 512),
+    completeImages,
+    pendingImages,
+    emptyCompleteImages,
+    naturalPixels,
+    maxNaturalPixels,
+    videos: videos.length,
+    sampledVideos: Math.min(videos.length, 512),
+    omittedVideos: Math.max(0, videos.length - 512),
+    playingVideos,
+    videoPixels,
+    canvases: canvases.length,
+    sampledCanvases: Math.min(canvases.length, 512),
+    omittedCanvases: Math.max(0, canvases.length - 512),
+    canvasPixels,
+    frames: document.querySelectorAll('iframe,webview').length,
+  };
+  let rules = 0,
+    inaccessibleSheets = 0;
+  const sheets = document.styleSheets;
+  for (let i = 0; i < Math.min(sheets.length, 128); i++) {
+    try {
+      rules += sheets[i]!.cssRules.length;
+    } catch {
+      inaccessibleSheets++;
+    }
+    await yieldIfNeeded();
+  }
+  const styles = {
+    sheets: sheets.length,
+    sampledSheets: Math.min(sheets.length, 128),
+    rules,
+    inaccessibleSheets,
+    omittedSheets: Math.max(0, sheets.length - 128),
+    styleElements: document.querySelectorAll('style').length,
+  };
+  await yieldIfNeeded(true);
+  const animations = document.getAnimations();
+  const states: Record<string, number> = { running: 0, paused: 0, finished: 0, idle: 0, other: 0 };
+  const byKind = Object.fromEntries(
+    DEVELOPMENT_ANIMATION_KINDS.map((key) => [key, { count: 0, running: 0 }]),
+  );
+  const bySurface = Object.fromEntries(
+    DEVELOPMENT_SURFACES.map((key) => [key, { count: 0, running: 0 }]),
+  );
+  let hiddenTargets = 0,
+    detachedTargets = 0,
+    unknownTargets = 0;
+  for (let i = 0; i < Math.min(animations.length, 1024); i++) {
+    const animation = animations[i]!,
+      running = animation.playState === 'running';
+    const state = Object.hasOwn(states, animation.playState) ? animation.playState : 'other';
+    states[state] = (states[state] ?? 0) + 1;
+    const name = 'animationName' in animation ? String(animation.animationName) : undefined;
+    const kind = byKind[animationKind(name)]!;
+    kind.count++;
+    if (running) kind.running++;
+    const target =
+      animation.effect && 'target' in animation.effect
+        ? animationTarget(animation.effect.target)
+        : null;
+    let surface: (typeof DEVELOPMENT_SURFACES)[number] = 'other';
+    if (!target) unknownTargets++;
+    else {
+      if (!target.isConnected) detachedTargets++;
+      if (target.closest('[hidden]')) hiddenTargets++;
+      surface = surfaceFor(target);
+    }
+    bySurface[surface]!.count++;
+    if (running) bySurface[surface]!.running++;
+    await yieldIfNeeded();
+  }
+  const mainView = document
+    .querySelectorAll('[data-weq-diagnostic-view]')[0]
+    ?.getAttribute('data-weq-diagnostic-view');
+  const last = performance.now() - batch;
+  syncMs += last;
+  onBatch?.(batch, last);
+  return {
+    syncMs,
+    waitMs,
+    value: {
+      schemaVersion: DEVELOPMENT_DIAGNOSTIC_VERSION,
+      mainView,
+      surfaces,
+      components,
+      media,
+      styles,
+      animations: animations.length,
+      runningAnimations: animations.length <= 1024 ? states.running : null,
+      animationDetails: {
+        sampled: Math.min(animations.length, 1024),
+        omitted: Math.max(0, animations.length - 1024),
+        hiddenTargets,
+        detachedTargets,
+        unknownTargets,
+        states,
+        byKind,
+        bySurface,
+      },
+    },
+  };
+}
+
 // Node 类型检查不依赖 DOM lib；同时避免跨隔离世界的 instanceof 判定。
 export interface DiagnosticElement {
   isConnected: boolean;

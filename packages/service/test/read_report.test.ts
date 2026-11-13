@@ -20,7 +20,14 @@ function setup() {
   };
   const markRead = vi.fn(async () => true);
   const listFrom = vi.fn(async () => [{ msgSeq: 50n, clientSeq: 999n, sendTime: 123n }]);
-  const getUnreadInfos = vi.fn(async () => [{ latestSeq: '100' }]);
+  const snapshot = (target: { chatType: number; uid: string }) => ({
+    ...target,
+    peer: `${target.chatType}_${target.uid}`,
+    latestSeq: '100',
+  });
+  const getUnreadInfos = vi.fn(async (targets: Array<{ chatType: number; uid: string }>) =>
+    targets.map(snapshot),
+  );
   const session = {
     selfUid: 'u_self',
     context: { uin: '10001' },
@@ -81,9 +88,16 @@ describe('已读上报服务', () => {
     const f = setup();
     let release: (() => void) | undefined;
     f.getUnreadInfos.mockImplementationOnce(
-      () =>
+      (targets) =>
         new Promise((resolve) => {
-          release = () => resolve([{ latestSeq: '100' }]);
+          release = () =>
+            resolve(
+              targets.map((target) => ({
+                ...target,
+                peer: `${target.chatType}_${target.uid}`,
+                latestSeq: '100',
+              })),
+            );
         }),
     );
     const pending = f.service.markReadAndReport(2, '100', '50');

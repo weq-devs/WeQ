@@ -1,17 +1,27 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock(
+  '../src/renderer/src/hooks/useContactDirectoryOrder',
+  () => import('./support/contact-order.stub'),
+);
 import {
   ConversationList,
   ContactList,
 } from '../src/renderer/src/im-template/template/conversationLists';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
+  virtualConversationRow,
+  guildConversationRow,
 } from '../src/renderer/src/lib/conversationDirectory';
+import { generatedAggregateRow } from '../src/renderer/src/lib/conversationDirectoryRows';
+import { conversationViewFixture } from './support/conversation-view-fixture';
+import type { ConversationView } from '../src/renderer/src/lib/conversationViews';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { QqArk } from '../src/renderer/src/components/ark/QqArk';
@@ -22,16 +32,19 @@ import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileC
 import { Modal } from '../src/renderer/src/components/Dialog';
 import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
+import { useViewState } from '../src/renderer/src/state/view';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
       get: (_target, key) =>
-        key === 'useQuery'
-          ? () => ({ data: undefined, isLoading: false })
-          : key === 'useMutation'
-            ? () => ({ mutate: vi.fn(), isLoading: false })
-            : proxy(),
+        key === 'getAccountConfig'
+          ? { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) }
+          : key === 'useQuery'
+            ? () => ({ data: undefined, isLoading: false })
+            : key === 'useMutation'
+              ? () => ({ mutate: vi.fn(), isLoading: false })
+              : proxy(),
     });
   return { trpc: proxy(), client: proxy() };
 });
@@ -39,6 +52,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+// 群名片与联系人名片都经 tanstack 查询（useGroupProfile / 名片设置），
+// 测试宿主需要 provider；只读查询仍由上面的 proxy 桩返回固定值。
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function mount() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -47,7 +63,8 @@ function mount() {
   const root = createRoot(host);
   return {
     host,
-    render: (node: Parameters<typeof root.render>[0]) => act(() => root.render(node)),
+    render: (node: Parameters<typeof root.render>[0]) =>
+      act(() => root.render(h(QueryClientProvider, { client: queryClient }, node))),
     close: () => {
       act(() => root.unmount());
       host.remove();
@@ -210,13 +227,14 @@ describe('新增消息交互', () => {
       expect(card.querySelector('.weq-profile-name')?.textContent).toBe(
         conversation.type === 'group' ? conversation.group.name : undefined,
       );
-      act(() => card.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
-      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+      // 关闭按钮文案已统一为「关闭群资料」；名片外壳是共用的 .weq-member-pop（不再有 .weq-profile-dialog）。
+      act(() => card.querySelector<HTMLButtonElement>('button[aria-label="关闭群资料"]')!.click());
+      expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).toBeNull();
       act(() => title.click());
       render(demo.conversations.find((item) => item.type === 'direct')!);
-      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+      expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).toBeNull();
       render();
-      expect(document.querySelector('.weq-profile-dialog')).toBeNull();
+      expect(document.querySelector('[role="dialog"][aria-label="群资料"]')).toBeNull();
     } finally {
       fixture.close();
     }
@@ -277,7 +295,7 @@ describe('新增消息交互', () => {
       fixture.close();
     }
   });
-  it('会话四按钮、默认真实和虚拟、范围切换、搜索、添加和多选复用普通行', () => {
+  it('会话四按钮、常规聚合、视图切换、搜索、添加和多选复用普通行', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     const virtual = {
@@ -287,28 +305,75 @@ describe('新增消息交互', () => {
       name: '合成克隆',
     };
     const open = vi.fn(),
-      create = vi.fn();
-    try {
-      fixture.render(
+      create = vi.fn(),
+      createAssistant = vi.fn();
+    const clone = virtualConversationRow(virtual);
+    const directory = {
+      regular: [
+        ...demo.conversations.slice(0, 2),
+        generatedAggregateRow('clone', [clone]),
+        generatedAggregateRow('assistant', []),
+      ],
+      clone: [clone],
+    };
+    function View() {
+      const [view, setView] = useState<ConversationView>('regular');
+      const [returnToRegular, setReturnToRegular] = useState(false);
+      const projected = conversationViewFixture(directory, view);
+      return h(
+        ContentSelectionProvider,
+        null,
         h(
-          ContentSelectionProvider,
-          null,
-          h(
-            ConversationDirectoryContext.Provider,
-            { value: { virtual: [virtual], onVirtual: open, onCreate: create } },
-            h(ConversationList, {
-              conversations: demo.conversations.slice(0, 2),
-              activeConversationId: null,
-              preferences: {},
-              drafts: {},
-              onSelect: vi.fn(),
-            }),
-          ),
+          ConversationDirectoryContext.Provider,
+          {
+            value: {
+              ...projected,
+              virtual: [virtual],
+              real: demo.conversations.slice(0, 2),
+              onVirtual: open,
+              onCreate: create,
+              onCreateGroup: vi.fn(),
+              onCreateAssistant: createAssistant,
+              returnToRegular,
+              onViewChange: (next, fromAggregate) => {
+                setView(next);
+                setReturnToRegular(Boolean(fromAggregate));
+              },
+              onReturnToRegular: () => {
+                setView('regular');
+                setReturnToRegular(false);
+              },
+            },
+          },
+          h(ConversationList, {
+            conversations: projected.rows,
+            activeConversationId: null,
+            preferences: {},
+            drafts: {},
+            onSelect: vi.fn(),
+          }),
         ),
       );
-      expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(3);
-      for (const name of ['搜索会话', '多选会话', '显示范围', '添加会话'])
+    }
+    try {
+      fixture.render(h(View));
+      expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(4);
+      expect(
+        fixture.host.querySelector('[data-conversation-id="virtual:persona:test"]'),
+      ).toBeNull();
+      expect(fixture.host.querySelector('[data-conversation-id="merged:clone"]')).not.toBeNull();
+      expect(
+        fixture.host.querySelector('[data-conversation-id="merged:assistant"]'),
+      ).not.toBeNull();
+      for (const name of ['搜索会话', '多选会话', '会话视图', '添加会话'])
         expect(button(fixture.host, name).textContent).toBe('');
+      act(() =>
+        fixture.host
+          .querySelector<HTMLButtonElement>('[data-conversation-id="merged:clone"]')!
+          .click(),
+      );
+      expect(fixture.host.querySelector('[aria-label="返回常规视图"]')).not.toBeNull();
+      expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(1);
       const clone = fixture.host.querySelector<HTMLButtonElement>(
         '[data-conversation-id="virtual:persona:test"]',
       )!;
@@ -324,7 +389,13 @@ describe('新增消息交互', () => {
           '[aria-label="添加会话菜单"] [role="menuitem"]',
         ),
       ].map((item) => item.textContent?.trim());
-      expect(createItems).toEqual(['新建好友克隆', '新建克隆体群聊', 'QQ 号搜索', '群号搜索']);
+      expect(createItems).toEqual([
+        '新建好友克隆',
+        '新建克隆体群聊',
+        'QQ 号搜索',
+        '群号搜索',
+        '新建 WeQ 助手会话',
+      ]);
       expect(createItem.textContent).toContain('新建好友克隆');
       act(() => createItem.click());
       expect(create).toHaveBeenCalledOnce();
@@ -345,12 +416,19 @@ describe('新增消息交互', () => {
       act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
       expect(add.getAttribute('aria-expanded')).toBe('false');
       expect(create).toHaveBeenCalledOnce();
-      act(() => button(fixture.host, '显示范围').click());
+      act(() => add.click());
+      act(() => button(fixture.host, '新建 WeQ 助手会话').click());
+      expect(createAssistant).toHaveBeenCalledOnce();
+      expect(fixture.host.querySelector('[aria-label="添加会话菜单"]')).toBeNull();
+      act(() => button(fixture.host, '返回常规视图').click());
+      act(() => button(fixture.host, '会话视图').click());
       expect(fixture.host.querySelector('select')).toBeNull();
       const option = [
         ...fixture.host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
-      ].find((item) => item.textContent === '仅克隆会话')!;
+      ].find((item) => item.textContent === '克隆会话')!;
       act(() => option.click());
+      expect(fixture.host.querySelector('[aria-label="会话视图"]')).not.toBeNull();
+      expect(fixture.host.querySelector('[aria-label="返回常规视图"]')).toBeNull();
       expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(1);
       act(() => button(fixture.host, '多选会话').click());
       act(() => fixture.host.querySelector<HTMLButtonElement>('.conversation-row')!.click());
@@ -373,7 +451,7 @@ describe('新增消息交互', () => {
       fixture.close();
     }
   });
-  it('显示范围覆盖真实 / 克隆 / 频道私聊，频道私聊不再混在真实会话里', () => {
+  it('常规用聚合入口、全部平铺具体会话，各分类视图只显示自己的会话', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     const virtual = {
@@ -383,6 +461,7 @@ describe('新增消息交互', () => {
       name: '合成克隆',
     };
     const guild = {
+      ...demo.conversations[0]!,
       type: 'merged' as const,
       id: 'merged:guild-direct',
       mergedKind: 'guildDirect' as const,
@@ -394,48 +473,89 @@ describe('新增消息交互', () => {
       group: null,
       members: [],
     };
+    const clone = virtualConversationRow(virtual);
+    const guildRow = guildConversationRow({
+      nodeId: 'fixture',
+      peerNick: '合成频道联系人',
+      peerTinyId: '10001',
+      peerAvatarUrl: null,
+      lastTime: '1',
+      lastSeq: '1',
+      preview: null,
+    });
+    const regular = demo.conversations.slice(0, 2);
+    const directory = {
+      regular: [
+        ...regular,
+        guild,
+        generatedAggregateRow('clone', [clone]),
+        generatedAggregateRow('assistant', []),
+      ],
+      clone: [clone],
+      guild: [guildRow],
+    };
+    function View() {
+      const [view, setView] = useState<ConversationView>('regular');
+      const projected = conversationViewFixture(directory, view);
+      return h(
+        ConversationDirectoryContext.Provider,
+        {
+          value: {
+            ...projected,
+            virtual: [virtual],
+            real: regular,
+            guild: [guildRow],
+            onViewChange: setView,
+            onVirtual: vi.fn(),
+            onCreate: vi.fn(),
+          },
+        },
+        h(ConversationList, {
+          conversations: projected.rows,
+          activeConversationId: null,
+          preferences: {},
+          drafts: {},
+          onSelect: vi.fn(),
+        }),
+      );
+    }
     const pick = (label: string) => {
-      act(() => button(fixture.host, '显示范围').click());
+      act(() => button(fixture.host, '会话视图').click());
       const option = [
         ...fixture.host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
       ].find((item) => item.textContent === label)!;
       act(() => option.click());
     };
     try {
-      fixture.render(
-        h(
-          ConversationDirectoryContext.Provider,
-          {
-            value: {
-              virtual: [virtual],
-              guild: [{ ...demo.conversations[0]!, id: 'guild:fixture' }],
-              onVirtual: vi.fn(),
-              onCreate: vi.fn(),
-            },
-          },
-          h(ConversationList, {
-            conversations: [...demo.conversations.slice(0, 2), guild],
-            activeConversationId: null,
-            preferences: {},
-            drafts: {},
-            onSelect: vi.fn(),
-          }),
-        ),
-      );
-      // 全部：两条真实 + 克隆 + 频道私聊。
+      fixture.render(h(View));
+      expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(5);
+      expect(
+        fixture.host.querySelector('[data-conversation-id="virtual:persona:test"]'),
+      ).toBeNull();
+      expect(fixture.host.querySelector('[data-conversation-id="guild:fixture"]')).toBeNull();
+      pick('全部会话');
       expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(4);
-      pick('仅频道私聊');
+      expect(fixture.host.querySelector('[data-conversation-id^="merged:"]')).toBeNull();
+      expect(
+        new Set(
+          [...fixture.host.querySelectorAll<HTMLElement>('[data-conversation-id]')].map(
+            (row) => row.dataset.conversationId,
+          ),
+        ),
+      ).toEqual(new Set([...regular.map((row) => row.id), 'guild:fixture', virtual.id]));
+      pick('频道私聊');
       const rows = [...fixture.host.querySelectorAll<HTMLElement>('[data-conversation-id]')];
       expect(rows.map((row) => row.dataset.conversationId)).toEqual(['guild:fixture']);
-      pick('仅克隆会话');
+      pick('克隆会话');
       expect(
         fixture.host.querySelector('[data-conversation-id="virtual:persona:test"]'),
       ).not.toBeNull();
       expect(fixture.host.querySelector('[data-conversation-id="merged:guild-direct"]')).toBeNull();
-      pick('仅真实会话');
+      pick('常规视图');
       expect(
         fixture.host.querySelectorAll('[data-conversation-id^="merged:guild-direct"]'),
-      ).toHaveLength(0);
+      ).toHaveLength(1);
+      expect(fixture.host.querySelector('[data-conversation-id="guild:fixture"]')).toBeNull();
       expect(
         fixture.host.querySelector('[data-conversation-id="virtual:persona:test"]'),
       ).toBeNull();
@@ -443,7 +563,7 @@ describe('新增消息交互', () => {
       fixture.close();
     }
   });
-  it('定位超出首批的会话会立即渲染对应行，不受显示范围限制', () => {
+  it('当前视图内定位超出首批的会话会立即渲染对应行，保持虚拟列表规模', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     try {
@@ -637,42 +757,54 @@ describe('新增消息交互', () => {
     const conversation = demo.conversations.find((item) => item.type === 'direct')!;
     function Card() {
       const [open, setOpen] = useState(false);
-      return h(MemberProfileCard, {
-        member: { ...conversation.otherUser!, identityLabel: 'QQ', identityValue: '123456' },
-        anchor: { x: 100, y: 100 },
-        onClose: close,
-        onPreviewChat: () => {
-          preview();
-          setOpen(true);
-        },
-        previewContent: open
-          ? h(GapMessagesModal, {
-              embedded: true,
-              preview: true,
-              conversation,
-              user: demo.user,
-              messages: [],
-              loading: false,
-              loadingMore: false,
-              error: null,
-              hasMore: false,
-              moreFailed: false,
-              totalCount: 0,
-              onLoadMore: vi.fn(),
-              onClose: () => setOpen(false),
-            })
-          : null,
-      });
+      // 名片只在「会话已存在」时提供「预览消息」；本用例给一份会话目录满足该前提。
+      const directory = {
+        real: [conversation],
+        virtual: [],
+        profileConversationExists: () => true,
+        onVirtual: vi.fn(),
+        onCreate: vi.fn(),
+      };
+      return h(
+        ConversationDirectoryContext.Provider,
+        { value: directory },
+        h(MemberProfileCard, {
+          member: { ...conversation.otherUser!, identityLabel: 'QQ', identityValue: '123456' },
+          anchor: { x: 100, y: 100 },
+          onClose: close,
+          onPreviewChat: () => {
+            preview();
+            setOpen(true);
+          },
+          previewContent: open
+            ? h(GapMessagesModal, {
+                embedded: true,
+                preview: true,
+                conversation,
+                user: demo.user,
+                messages: [],
+                loading: false,
+                loadingMore: false,
+                error: null,
+                hasMore: false,
+                moreFailed: false,
+                totalCount: 0,
+                onLoadMore: vi.fn(),
+                onClose: () => setOpen(false),
+              })
+            : null,
+        }),
+      );
     }
     try {
       fixture.render(h(Card));
       const modal = document.querySelector('.weq-member-pop')!;
-      act(() => button(modal, '预览私聊').click());
+      act(() => button(modal, '预览消息').click());
       expect(preview).toHaveBeenCalledOnce();
       expect(close).not.toHaveBeenCalled();
       expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
       expect(document.querySelector('.weq-window-layer')).toBeNull();
-      expect(modal.textContent).toContain('预览私聊');
+      expect(modal.textContent).toContain('预览消息');
       expect(modal.textContent).toContain('没有本地聊天记录');
       expect(modal.querySelector('textarea, [contenteditable="true"]')).toBeNull();
       act(() => button(modal, '返回资料').click());
@@ -685,6 +817,8 @@ describe('新增消息交互', () => {
     }
   });
   it('联系人搜索、多选、刷新在通知上方同一工具行，点击用高亮选择不打开名片', () => {
+    const previousUin = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10001' });
     const fixture = mount();
     const demo = createTemplateDemoData();
     const refresh = vi.fn(),
@@ -722,7 +856,11 @@ describe('新增消息交互', () => {
       fixture.render(h(Contacts));
       const tools = fixture.host.querySelector('.contact-tools')!;
       expect(tools.firstElementChild?.classList.contains('weq-directory-toolbar')).toBe(true);
-      act(() => button(fixture.host, '刷新联系人列表').click());
+      expect(button(fixture.host, '更新好友/群信息缓存').disabled).toBe(false);
+      act(() => button(fixture.host, '更新好友/群信息缓存').click());
+      expect(refresh).not.toHaveBeenCalled();
+      act(() => button(document, '不更新').click());
+      act(() => button(document, '仅刷新列表').click());
       expect(refresh).toHaveBeenCalledOnce();
       act(() => button(fixture.host, '多选联系人').click());
       act(() => fixture.host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());
@@ -739,6 +877,7 @@ describe('新增消息交互', () => {
       expect(fixture.host.querySelector('[aria-label="多选联系人"]')).toBeNull();
     } finally {
       fixture.close();
+      useViewState.setState({ openedUin: previousUin });
     }
   });
   it('QQ 动态说说卡片识别真实 schema 并内部定位，不只支持 Ark 链接', () => {

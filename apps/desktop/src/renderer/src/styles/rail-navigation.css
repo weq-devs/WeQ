@@ -76,7 +76,8 @@ html .app-shell .app-rail .weq-rail-button .rail-tab-icon::after {
   display: none;
 }
 
-html .app-shell .app-rail .weq-rail-button > .rail-badge-dot {
+/* 所有角标统一内收，避免被侧栏滚动容器裁切。 */
+html .app-shell .app-rail :is(.weq-rail-button, .rail-message-entry) > .rail-badge {
   top: 4px;
   right: 4px;
 }
@@ -115,11 +116,10 @@ html[data-theme='dark']
   z-index: 0;
 }
 
+/* 数字角标只压在入口右上角，不能整块盖住图标本体。 */
 .app-shell .rail-nav .rail-message-entry > .rail-message-badge {
   position: absolute;
   z-index: 1;
-  top: 0;
-  right: -2px;
 }
 
 html .app-shell .rail-nav :is(.rail-message-badge, .rail-badge-mail),
@@ -177,60 +177,53 @@ html .app-shell .rail-nav .rail-badge-dot {
   scrollbar-width: thin;
 }
 
-@media (max-width: 760px) {
-  .app-shell .rail-nav .rail-mobile-settings {
-    display: grid;
-  }
+:where(html[data-weq-layout='single']) .app-shell .rail-nav .rail-mobile-settings {
+  display: grid;
+}
 
-  .rail-message-entry {
-    width: 100%;
-    height: 100%;
-  }
+:where(html[data-weq-layout='single']) .rail-message-entry {
+  width: 100%;
+  height: 100%;
+}
 
-  .app-shell .rail-nav .rail-message-entry > .rail-message-badge {
-    top: 0;
-    right: calc(50% - 24px);
-  }
+:where(html[data-weq-layout='single']) .app-shell .rail-groups {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
 
-  html .app-shell .rail-nav .rail-badge-dot {
-    top: 2px;
-    right: calc(50% - 20px);
-  }
+:where(html[data-weq-layout='single']) .app-shell .rail-nav {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(64px, 1fr);
+  gap: 0;
+}
 
-  .app-shell .rail-groups {
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
+:where(html[data-weq-layout='single']) .app-shell .rail-nav button:not(.rail-message-badge),
+:where(html[data-weq-layout='single']) .app-shell .rail-nav button.rail-tab-messages,
+:where(html[data-weq-layout='single']) .app-shell .rail-nav button.rail-tab-contacts {
+  width: 100%;
+  height: 100%;
+}
 
-  .app-shell .rail-nav {
-    grid-template-columns: none;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(64px, 1fr);
-    gap: 0;
-  }
+html:where([data-weq-layout='single']) .app-shell .app-rail .rail-nav .weq-rail-button {
+  width: 100%;
+  height: 100%;
+}
 
-  .app-shell .rail-nav button:not(.rail-message-badge),
-  .app-shell .rail-nav button.rail-tab-messages,
-  .app-shell .rail-nav button.rail-tab-contacts {
-    width: 100%;
-    height: 100%;
-  }
+html:where([data-weq-layout='single'])
+  .app-shell
+  .app-rail
+  .rail-nav
+  :is(.weq-rail-button, .rail-message-entry)
+  > .rail-badge {
+  top: 2px;
+  right: calc(50% - 20px);
+}
 
-  html .app-shell .app-rail .rail-nav .weq-rail-button {
-    width: 100%;
-    height: 100%;
-  }
-
-  html .app-shell .app-rail .rail-nav .weq-rail-button > .rail-badge-dot {
-    top: 2px;
-    right: calc(50% - 20px);
-  }
-
-  .app-shell .rail-label {
-    max-width: 100%;
-    white-space: nowrap;
-    font-size: 11px;
-  }
+:where(html[data-weq-layout='single']) .app-shell .rail-label {
+  max-width: 100%;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
 @media (prefers-reduced-motion: reduce) {

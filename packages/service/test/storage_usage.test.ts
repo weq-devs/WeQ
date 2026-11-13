@@ -108,7 +108,7 @@ describe('WeQ 存储管理', () => {
     const legacy = items.find(
       (item) => item.path === join(f.root, 'cache/dress') && item.requiresExit,
     )!;
-    expect(legacy.bytes).toBeGreaterThan(120);
+    expect(legacy.bytes).toBe(22 + 24 + 25 + 26);
     const result = await f.service.clearCache([preview!.id, legacy.id]);
     expect(result.freedBytes).toBe(21);
     expect(existsSync(cached)).toBe(false);

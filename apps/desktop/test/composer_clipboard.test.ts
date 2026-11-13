@@ -3,12 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   composerTextToElements,
   elementsToComposerText,
 } from '../src/renderer/src/im-template/template/draftElements';
-import { serializeComposer } from '../src/renderer/src/im-template/template/composer';
+import {
+  restoreComposer,
+  serializeComposer,
+} from '../src/renderer/src/im-template/template/composer';
 import {
   composerClipboardFragment,
   readComposerClipboard,
@@ -104,6 +107,118 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   systemClipboard.mockClear();
+});
+
+it.each([
+  { kind: 'ark', arkData: '{"app":"synthetic.app"}' },
+  { kind: 'markdown', content: '**加粗**\n[链接](https://example.invalid)' },
+  { kind: 'file', fileName: 'fixture.txt', fileUuid: 'synthetic-file' },
+  { kind: 'at', textContent: '@成员', atTargetUid: 'u_fixture' },
+  { kind: 'reply', origMsgSeq: 17, origText: '引用正文' },
+  { kind: 'unknown', raw: new Uint8Array([1, 2, 3]) },
+])('无图片的复杂元素可按选区无损复制：$kind', (element) => {
+  const editor = document.createElement('div');
+  document.body.append(editor);
+  const body = elementsToComposerText([element]);
+  restoreComposer(editor, `不选的前文${body}不选的后文`);
+  try {
+    const range = document.createRange();
+    range.selectNode(editor.querySelector('[data-chat-token]')!);
+    window.getSelection()!.addRange(range);
+    const data = new DataTransfer();
+    expect(writeComposerClipboard(editor, data, [])).not.toBeNull();
+    const snapshot = readComposerClipboard(data)!;
+    expect(snapshot.body).toBe(body);
+    expect(snapshot.images).toEqual([]);
+    expect(data.getData('text/plain')).not.toContain('不选的');
+    expect(data.getData('text/html')).not.toContain('data-chat-token');
+    expect(data.getData('text/html')).not.toContain('[[chat:elem:');
+    const target = document.createElement('div');
+    target.append(composerClipboardFragment(snapshot, []));
+    expect(composerTextToElements(serializeComposer(target))).toEqual([element]);
+  } finally {
+    editor.remove();
+  }
+});
+
+it.each([
+  [false, 'copy'],
+  [false, 'cut'],
+  [true, 'copy'],
+  [true, 'cut'],
+] as const)('复杂消息跨输入框再次剪贴不丢结构；展开=%s，操作=%s', async (expanded, operation) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const demo = createTemplateDemoData();
+  const body = elementsToComposerText([
+    { kind: 'text', textContent: '前文\n' },
+    { kind: 'ark', arkData: '{"app":"synthetic.app"}' },
+    { kind: 'markdown', content: '**加粗**\n正文' },
+    { kind: 'file', fileName: 'fixture.txt', fileUuid: 'synthetic-file', weqCopiedElement: true },
+    { kind: 'text', textContent: '\n后文' },
+  ]);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        h(
+          'div',
+          null,
+          ...[body, ''].map((draft, index) =>
+            h(ChatPane, {
+              key: index,
+              user: demo.user,
+              conversation: demo.conversations[index],
+              messages: [],
+              draft,
+              loading: false,
+              onDraftChange: vi.fn(),
+              onBack: vi.fn(),
+            }),
+          ),
+        ),
+      ),
+    );
+    if (expanded) {
+      await act(async () => {
+        host.querySelector<HTMLButtonElement>('.mobile-composer-expand-button')!.click();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+    }
+    const source = host.querySelector<HTMLElement>(
+      expanded ? '.mobile-composer-expanded-editor' : '.composer-editor',
+    )!;
+    const target = Array.from(host.querySelectorAll<HTMLElement>('.composer-editor')).at(-1)!;
+    for (const [from, to] of [
+      [source, target],
+      [target, source],
+    ]) {
+      const range = document.createRange();
+      range.selectNodeContents(from!);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+      const data = new DataTransfer();
+      const copy = new Event(operation, { bubbles: true, cancelable: true });
+      Object.defineProperty(copy, 'clipboardData', { value: data });
+      act(() => from!.dispatchEvent(copy));
+      expect(copy.defaultPrevented).toBe(true);
+      expect(serializeComposer(from!)).toBe(operation === 'cut' ? '' : body);
+      const destination = document.createRange();
+      destination.selectNodeContents(to!);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(destination);
+      const paste = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, 'clipboardData', { value: data });
+      await act(async () => to!.dispatchEvent(paste));
+      expect(serializeComposer(to!)).toBe(body);
+      expect(to!.querySelectorAll('[data-chat-token]')).toHaveLength(3);
+    }
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it.each([
@@ -214,7 +329,8 @@ it('整条引用与卡片粘贴为原始草稿，引用显示在引用条，粘�
             type: 'reply',
             data: {
               origMsgSeq: 17,
-              origSenderName: '原作者',
+              origSenderDisplayName: '原作者',
+              origSenderUin: 20002,
               origElements: [{ type: 'text', data: { textContent: '原话' } }],
             },
           },
@@ -264,6 +380,19 @@ it('整条引用与卡片粘贴为原始草稿，引用显示在引用条，粘�
     ]);
     expect(host.querySelector('[aria-label="待发送的引用"]')?.textContent).toContain('原作者原话');
     expect(send).not.toHaveBeenCalled();
+    range.selectNode(editor.querySelector('[data-chat-token]')!);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    const copied = new DataTransfer();
+    const copy = new Event('copy', { bubbles: true, cancelable: true });
+    Object.defineProperty(copy, 'clipboardData', { value: copied });
+    act(() => editor.dispatchEvent(copy));
+    expect(copy.defaultPrevented).toBe(true);
+    const target = document.createElement('div');
+    target.append(composerClipboardFragment(readComposerClipboard(copied)!, []));
+    expect(composerTextToElements(serializeComposer(target))).toEqual([
+      { kind: 'ark', arkData: card.data.arkData },
+    ]);
   } finally {
     act(() => root.unmount());
     host.remove();

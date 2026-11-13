@@ -4,7 +4,7 @@ import { trpc } from '../../trpc/client';
 import { useTabActive } from '../../components/RetainedTabs';
 import { ExportTab } from '../agentlab/PersonaSettingsModal';
 import { SingleSelectPicker } from './SingleSelectPicker';
-import { Segmented } from './widgets';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import type { QzoneExportContent } from './types';
 import '../../styles/resource-export-panes.css';
 
@@ -95,7 +95,8 @@ export function QzoneContentSelector({
 }) {
   return (
     <fieldset className="weq-qzone-export-content" disabled={disabled} aria-label="空间导出内容">
-      <Segmented
+      <SegmentedControl<QzoneExportContent>
+        label="空间导出内容"
         value={value}
         onChange={onChange}
         options={[

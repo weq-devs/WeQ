@@ -58,7 +58,7 @@ uin-form（`reserved=1`）。SnowLuma 早期把好友卡记成 `0x9130_0` + uin-
 调用方必须检查 `receipt.ok`，不要拿「没抛异常」当发送成功。
 
 > 前端要**乐观渲染**这张卡、等真消息同步回来再收掉时，对账键用回执里的 **`random`**，
-> 不是 msgId / seq（`receipt.random`；见 [send-message.md 第六节](./send-message.md)）。
+> 不是 msgId / seq（`receipt.random`；见 [send-message.md 第六节](send-message.md)）。
 
 ## 四、用法
 
@@ -82,4 +82,4 @@ if (!r2.receipt.ok) {
 
 ---
 
-[← 返回开发者入口](./index.md)
+[← 返回开发者入口](index.md)

@@ -1,4 +1,13 @@
-export type QqDebugCopyAction = 'prepare' | 'verify' | 'launch' | 'remove';
+export const QQ_DEBUG_COPY_ACTIONS = [
+  'prepare',
+  'verify',
+  'launch',
+  'activate',
+  'open',
+  'switch',
+  'remove',
+] as const;
+export type QqDebugCopyAction = (typeof QQ_DEBUG_COPY_ACTIONS)[number];
 export const QQ_DEBUG_COPY_PERMISSION_ACTIONS = [
   'screenCapture',
   'microphone',
@@ -13,6 +22,7 @@ export type QqDebugCopyPhase =
   | 'signing'
   | 'verifying'
   | 'launching'
+  | 'quitting'
   | 'removing';
 
 export interface QqDebugCopyStatus {
@@ -25,5 +35,6 @@ export interface QqDebugCopyStatus {
   version: string | null;
   readerReady: boolean;
   runningPids: number[];
+  sourceRunningPids: number[];
   message: string;
 }

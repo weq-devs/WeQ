@@ -4,11 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { FloatingToolsBar } from '../src/renderer/src/components/FloatingToolsBar';
 import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
-import { clampFloatingPosition, floatingFanLayout } from '../src/shared/floating_tools';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: {}, trpc: {} }));
 
@@ -33,11 +31,47 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
 }
 function pointer(target: Element, type: string, options: PointerEventInit = {}) {
   act(() =>
-    target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, ...options })),
+    target.dispatchEvent(
+      new PointerEvent(type, { bubbles: true, pointerId: 1, pointerType: 'mouse', ...options }),
+    ),
   );
 }
 
 describe('标题栏全局搜索', () => {
+  it.each(['touch', 'pen'])('%s 按下前不因进入按钮展开，完成点击才固定并聚焦', (pointerType) => {
+    const view = mount(
+      createElement(TitleBarSearch, {
+        query: '',
+        onQueryChange: vi.fn(),
+        results: createElement('div', { 'data-pointer-result': true }, '结果'),
+      }),
+    );
+    try {
+      const button = view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!;
+      const input = view.host.querySelector('input')!;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        pointer(button, 'pointerover', { pointerType });
+        pointer(button, 'pointerdown', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+        expect(input.disabled).toBe(true);
+        expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+        pointer(button, 'pointerup', { pointerType });
+        act(() => button.click());
+        pointer(button, 'pointerout', { pointerType });
+        expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(document.activeElement).toBe(input);
+        const panel = document.querySelector('.weq-titlebar-search-results')!;
+        pointer(panel, 'pointerover', { pointerType });
+        pointer(panel, 'pointerout', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('true');
+        pointer(document.body, 'pointerdown', { pointerType });
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+      }
+    } finally {
+      view.dispose();
+    }
+  });
+
   it('常驻模式无需悬停即可输入，Escape 只关闭结果而不收起搜索栏', () => {
     const view = mount(
       createElement(TitleBarSearch, {
@@ -66,34 +100,32 @@ describe('标题栏全局搜索', () => {
       view.dispose();
     }
   });
-  it('返回更多页后再次打开搜索仍正常聚焦输入框', () => {
+  it('全局搜索不再显示返回按钮，打开时正常聚焦输入框', () => {
     const view = mount(
       createElement(TitleBarSearch, {
         query: '原词',
         onQueryChange: vi.fn(),
-        onReturn: () => false,
       }),
     );
     try {
-      act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!.click());
+      expect(view.host.querySelector('[aria-label="返回搜索结果"]')).toBeNull();
       act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
       expect(document.activeElement).toBe(view.host.querySelector('input'));
     } finally {
       view.dispose();
     }
   });
-  it('返回搜索入口可恢复下拉且不会把命中行焦点抢回输入框', () => {
-    const onReturn = vi.fn(() => true);
-    const view = mount(
-      createElement(TitleBarSearch, { query: '原词', onQueryChange: vi.fn(), onReturn }),
-    );
+  it('展开后提供更大的清空图标，点击后清空并聚焦输入框', () => {
+    const onQueryChange = vi.fn();
+    const view = mount(createElement(TitleBarSearch, { query: '原词', onQueryChange }));
     try {
-      const back = view.host.querySelector<HTMLButtonElement>('[aria-label="返回搜索结果"]')!;
-      expect(back).not.toBeNull();
-      act(() => back.click());
-      expect(onReturn).toHaveBeenCalledOnce();
-      expect(view.host.querySelector('input')!.disabled).toBe(false);
-      expect(document.activeElement).not.toBe(view.host.querySelector('input'));
+      expect(view.host.querySelector('[aria-label="清空搜索"]')).toBeNull();
+      act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="全局搜索"]')!.click());
+      const clear = view.host.querySelector<HTMLButtonElement>('[aria-label="清空搜索"]')!;
+      expect(clear.querySelector('svg')?.getAttribute('width')).toBe('20');
+      act(() => clear.click());
+      expect(onQueryChange).toHaveBeenCalledWith('');
+      expect(document.activeElement).toBe(view.host.querySelector('input'));
     } finally {
       view.dispose();
     }
@@ -179,111 +211,6 @@ describe('标题栏全局搜索', () => {
     } finally {
       view.dispose();
     }
-  });
-});
-
-describe('原地悬浮工具条', () => {
-  it('只展开工具条，无对话遮罩；键盘移动、Escape、外部点击可收起', () => {
-    const action = vi.fn();
-    const view = mount(
-      createElement(FloatingToolsBar, {
-        items: ['导出', '任务'].map((label) => ({ id: label, label, icon: label, action })),
-      }),
-    );
-    try {
-      const trigger = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
-      act(() => trigger.click());
-      const toolbar = document.querySelector('[role="toolbar"]')!;
-      expect(view.host.querySelector('[role="dialog"]')).toBeNull();
-      const buttons = toolbar.querySelectorAll('button');
-      act(() => buttons[0]!.focus());
-      act(() =>
-        buttons[0]!.dispatchEvent(
-          new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }),
-        ),
-      );
-      expect(document.activeElement).toBe(buttons[1]);
-      act(() =>
-        buttons[1]!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })),
-      );
-      expect(document.querySelector('[role="toolbar"]')).toBeNull();
-      act(() => trigger.click());
-      pointer(document.body, 'pointerdown');
-      expect(document.querySelector('[role="toolbar"]')).toBeNull();
-      act(() => trigger.click());
-      act(() => document.querySelector<HTMLButtonElement>('[role="toolbar"] button')!.click());
-      expect(action).toHaveBeenCalledOnce();
-      expect(document.querySelector('[role="toolbar"]')).toBeNull();
-    } finally {
-      view.dispose();
-    }
-  });
-
-  it('拖动保持边界与位置，松手后的指针点击不误展开，键盘仍可操作', () => {
-    const view = mount(createElement(FloatingToolsBar, { items: [] }));
-    try {
-      const trigger = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
-      const down = new PointerEvent('pointerdown', {
-        bubbles: true,
-        cancelable: true,
-        pointerId: 1,
-        clientX: 900,
-        clientY: 600,
-        button: 0,
-      });
-      act(() => trigger.dispatchEvent(down));
-      expect(down.defaultPrevented).toBe(true);
-      expect(document.activeElement).toBe(trigger);
-      pointer(trigger, 'pointermove', { clientX: -1000, clientY: -1000 });
-      pointer(trigger, 'pointerup', { clientX: -1000, clientY: -1000 });
-      expect(window.localStorage.getItem('weq:tools-position')).toBe(
-        JSON.stringify({ x: 8, y: 48 }),
-      );
-      act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
-      expect(trigger.getAttribute('aria-expanded')).toBe('false');
-      act(() => trigger.click());
-      expect(trigger.getAttribute('aria-expanded')).toBe('true');
-      pointer(trigger, 'pointerdown', { clientX: 20, clientY: 60, button: 0 });
-      pointer(trigger, 'pointerup', { clientX: 20, clientY: 60 });
-      act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
-      expect(trigger.getAttribute('aria-expanded')).toBe('false');
-    } finally {
-      view.dispose();
-    }
-    const restored = mount(createElement(FloatingToolsBar, { items: [] }));
-    try {
-      expect(document.querySelector<HTMLElement>('.weq-floating-tools')?.style.left).toBe('8px');
-      expect(document.querySelector<HTMLElement>('.weq-floating-tools')?.style.top).toBe('48px');
-    } finally {
-      restored.dispose();
-    }
-  });
-
-  it('扇环在各种窗口与四边拖动位置不越界，每项有独立圆弧和命中区', () => {
-    for (const width of [280, 375, 768, 1440]) {
-      for (const height of [360, 800]) {
-        for (const x of [8, width / 2 - 22, width - 52]) {
-          for (const y of [48, height / 2, height - 52]) {
-            const point = clampFloatingPosition({ x, y }, { width, height });
-            const layout = floatingFanLayout(point, { width, height }, 8);
-            expect(layout.sectors).toHaveLength(8);
-            for (const sector of layout.sectors) {
-              expect(point.x + sector.left).toBeGreaterThanOrEqual(8);
-              expect(point.x + sector.left + sector.width).toBeLessThanOrEqual(width - 8);
-              expect(point.y + sector.top).toBeGreaterThanOrEqual(48);
-              expect(point.y + sector.top + sector.height).toBeLessThanOrEqual(height - 8);
-              expect(sector.path).toContain(' A ');
-              expect(sector.clipPath).toMatch(/^polygon\(/);
-              expect(sector.iconSize).toBeGreaterThanOrEqual(16);
-            }
-          }
-        }
-      }
-    }
-    expect(floatingFanLayout({ x: 8, y: 48 }, { width: 375, height: 800 }, 0).sectors).toEqual([]);
-    expect(
-      clampFloatingPosition({ x: Number.NaN, y: Infinity }, { width: 375, height: 667 }),
-    ).toEqual({ x: 323, y: 615 });
   });
 });
 

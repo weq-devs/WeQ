@@ -3,6 +3,7 @@
 interface Window {
   electron?: import('@electron-toolkit/preload').ElectronAPI;
   weq: {
+    windowChrome?: import('../../shared/window_chrome').WindowChromeBridge;
     rendererRecovery?: import('../../shared/renderer_recovery').RendererRecoveryBridge;
     authorization?: import('../../shared/long_term_authorization').LongTermAuthorizationBridge;
     editUndo?: import('../../shared/edit_menu').EditUndoBridge;

@@ -121,7 +121,7 @@ it.each(['new', 'existing'] as const)('%s 读取失败不冒充空配置，并�
   api.mode = 'error';
   useViewState.getState().enterSelect(mode);
   render();
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成账号读取失败');
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('读取账号失败');
   expect(host.textContent).not.toContain('还没有保存的账号');
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="重新读取账号"]')!.click());
   expect(api.retry).toHaveBeenCalledOnce();
@@ -143,7 +143,7 @@ it('重新读取失败时仍保留已有账号，账号主页没有密钥或诊�
   api.mode = 'stale';
   useViewState.getState().enterSelect('existing');
   render();
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成账号读取失败');
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('读取账号失败');
   expect(host.querySelector('.weq-open-identity h2')?.textContent).toBe('合成缓存账号');
   expect(host.querySelector('[aria-label="密钥与恢复"]')).toBeNull();
   expect(host.querySelector('[aria-label="环境诊断"]')).toBeNull();

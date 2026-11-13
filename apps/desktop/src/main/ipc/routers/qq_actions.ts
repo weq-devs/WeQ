@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { open, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { z } from 'zod';
@@ -16,6 +16,7 @@ import { exportSavePolicyInput } from './export_save';
 import { AlbumVideoStaging } from './album_video_staging';
 import { backgroundTasks, taskError } from '../../background_tasks';
 import { updateFavoriteImportTask } from '../../favorite_import_task';
+import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -146,6 +147,89 @@ export function createQQActionsRouter(
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
   return router({
+    signatureLike: procedure
+      .input(
+        binding.extend({
+          uin: z.string().regex(/^[1-9]\d{0,19}$/),
+          id: z.string().regex(/^(?:[\da-f]{2}){1,512}$/i),
+          createdAt: z.number().int().min(0).max(0xffffffff),
+          liked: z.boolean(),
+        }),
+      )
+      .mutation(({ input }) =>
+        write(input, async (s, current) => {
+          await s.accountWrite.signatureLike(input.uin, input, input.liked);
+          current();
+        }),
+      ),
+    signatureComment: procedure
+      .input(
+        binding.extend({
+          uin: z.string().regex(/^[1-9]\d{0,19}$/),
+          id: z.string().regex(/^(?:[\da-f]{2}){1,512}$/i),
+          text: z.string().trim().min(1).max(4096),
+          replyId: z
+            .string()
+            .regex(/^\d{1,20}$/)
+            .optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        let commentId: string | undefined;
+        await write(input, async (s, current) => {
+          commentId = (
+            await s.accountWrite.signatureComment(input.uin, input.id, input.text, input.replyId)
+          ).commentId;
+          current();
+        });
+        return { state: 'accepted' as const, commentId };
+      }),
+    deleteSignatureComment: procedure
+      .input(
+        binding.extend({
+          uin: z.string().regex(/^[1-9]\d{0,19}$/),
+          id: z.string().regex(/^(?:[\da-f]{2}){1,512}$/i),
+          createdAt: z.number().int().min(0).max(0xffffffff),
+          commentId: sequence,
+        }),
+      )
+      .mutation(({ input }) =>
+        write(input, async (s, current) => {
+          await s.accountWrite.deleteSignatureComment(input.uin, input, input.commentId);
+          current();
+        }),
+      ),
+    personalityPhotoUpload: procedure
+      .input(
+        binding
+          .extend({
+            uin: z.string().regex(/^[1-9]\d{0,19}$/),
+            labelId: sequence,
+            imagePath: z.string().min(1),
+            count: z.number().int().min(1).max(100).default(1),
+            index: z.number().int().min(0).max(99).default(0),
+            timestamp: z.number().int().min(0).max(0xffffffff),
+          })
+          .refine((value) => value.index < value.count),
+      )
+      .mutation(async ({ input }) => {
+        let uploaded:
+          | Awaited<ReturnType<QQActionServices['accountWrite']['uploadPersonalityPhoto']>>
+          | undefined;
+        await write(input, async (s, current) => {
+          const bytes = await image(s, input.imagePath, current);
+          current();
+          uploaded = await s.accountWrite.uploadPersonalityPhoto(
+            input.uin,
+            input.labelId,
+            bytes,
+            input,
+          );
+          current();
+        });
+        if (!uploaded) throw new Error('照片上传未返回结果');
+        return uploaded;
+      }),
     albumVideoStart: procedure
       .input(binding.extend({ size: z.number().int().safe().min(16) }))
       .mutation(({ input }) => videoStaging.start(resolve(input), input.size)),
@@ -503,8 +587,39 @@ export function createQQActionsRouter(
         write(i, async (s, current) => {
           const g = String(i.groupId),
             selfUin = s.accountWrite.selfIdentity().uin;
-          if (i.action === 'delete')
+          if (i.action === 'delete') {
+            const permissions = await groupPermissions(s, i.groupId);
+            current();
+            if (!permissions.canManage) {
+              let cursor = '';
+              const seen = new Set<string>();
+              let owner = '';
+              for (let page = 0; page < 100; page++) {
+                const result = await s.groupAlbumMedia.getMediaList(g, i.albumId, cursor);
+                current();
+                const item = result.mediaList.find(
+                  (row) =>
+                    row.batchId === i.batchId &&
+                    (row.image?.lloc === i.mediaId || row.video?.cover?.lloc === i.mediaId),
+                );
+                if (item) {
+                  owner = item.uploader;
+                  break;
+                }
+                if (
+                  !result.nextAttachInfo ||
+                  seen.has(result.nextAttachInfo) ||
+                  !result.mediaList.length
+                )
+                  break;
+                seen.add(result.nextAttachInfo);
+                cursor = result.nextAttachInfo;
+              }
+              if (!owner || owner !== permissions.selfUin)
+                throw new Error('只有上传者或群管理员可以删除这项媒体。');
+            }
             return s.groupAlbumMedia.deleteMedia(g, i.albumId, i.mediaId, i.batchId);
+          }
           if (i.action === 'comment') {
             if (!i.content) throw new Error('评论不能为空');
             return s.groupAlbumMedia.comment(
@@ -531,6 +646,9 @@ export function createQQActionsRouter(
           });
         }),
       ),
+    favoriteIds: procedure
+      .input(binding)
+      .query(({ input: i }) => read(i, (s) => s.emoji.fetchOnlineFavoriteIds())),
     favorites: procedure.input(binding).query(({ input: i }) =>
       read(i, async (s) => {
         const [ids, local] = await Promise.all([
@@ -671,6 +789,23 @@ export function createQQActionsRouter(
           });
         }),
       ),
+    favoriteFromMedia: procedure
+      .input(binding.extend({ url: z.string().min(1).max(16_384) }))
+      .mutation(async ({ input: i }) => {
+        let emojiId = '';
+        await write(i, async (s, current) => {
+          const bytes = await readFavoriteEmojiMedia(i.url, current);
+          current();
+          const md5 = createHash('md5').update(bytes).digest('hex').toUpperCase();
+          const ids = await s.emoji.fetchOnlineFavoriteIds();
+          current();
+          emojiId = ids.find((id) => parseCustomFaceId(id).md5 === md5) ?? '';
+          if (!emojiId) emojiId = await s.emoji.addFavorite(bytes, undefined, current);
+          current();
+          if (!emojiId) throw new Error('未取得表情标识，请刷新表情列表核对结果');
+        });
+        return { ...accepted, emojiId };
+      }),
     favorite: procedure
       .input(
         binding.extend({
@@ -681,18 +816,27 @@ export function createQQActionsRouter(
           position: z.literal(1).optional(),
         }),
       )
-      .mutation(({ input: i }) =>
-        write(i, async (s, current) => {
+      .mutation(async ({ input: i }) => {
+        let addedEmojiId: string | undefined;
+        const result = await write(i, async (s, current) => {
           if (i.action === 'add') {
             if (!i.path) throw new Error('请选择图片');
-            return s.emoji.addFavorite(await image(s, i.path, current), undefined, current);
+            addedEmojiId = await s.emoji.addFavorite(
+              await image(s, i.path, current),
+              undefined,
+              current,
+            );
+            current();
+            if (!addedEmojiId) throw new Error('未取得表情标识，请刷新收藏列表核对结果');
+            return;
           }
           if (!i.emojiId) throw new Error('缺少收藏表情标识');
           if (i.action === 'delete') return s.emoji.deleteFavorite(i.emojiId);
           if (i.action === 'rename') return s.emoji.modifyFavoriteDesc(i.emojiId, i.desc ?? '');
           return s.emoji.moveFavorite(i.emojiId, i.position ?? 1, current);
-        }),
-      ),
+        });
+        return { ...result, ...(addedEmojiId ? { emojiId: addedEmojiId } : {}) };
+      }),
     requests: procedure
       .input(binding.extend({ kind: z.enum(['friend', 'doubtFriend', 'group', 'filteredGroup']) }))
       .query(({ input: i }) =>
@@ -876,7 +1020,15 @@ export function createQQActionsRouter(
         binding.extend({
           hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
           tid: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-          action: z.enum(['like', 'unlike', 'comment']),
+          action: z.enum(['like', 'unlike', 'comment', 'reply']),
+          replyTarget: z
+            .object({
+              rootId: z.string().regex(/^\d{1,20}$/),
+              rootUin: z.string().regex(/^[1-9]\d{4,19}$/),
+              uin: z.string().regex(/^[1-9]\d{4,19}$/),
+              nickname: z.string().max(512),
+            })
+            .optional(),
           content: text.optional(),
           time: z.number().int().nonnegative().safe().default(0),
           imagePath: id.optional(),
@@ -884,9 +1036,24 @@ export function createQQActionsRouter(
       )
       .mutation(({ input: i }) =>
         write(i, async (s, current) => {
-          if (i.action !== 'comment')
+          if (i.action === 'like' || i.action === 'unlike')
             return s.webQuery.setQzoneLike(i.hostUin, i.tid, i.action === 'like', i.time, current);
           if (!i.content) throw new Error('评论不能为空');
+          if (i.action === 'comment' && i.replyTarget) throw new Error('回复不能作为一级评论提交');
+          if (i.action === 'reply') {
+            const target = i.replyTarget;
+            if (!target) throw new Error('请选择回复目标');
+            let imageUrl: string | undefined;
+            if (i.imagePath) {
+              const picture = await s.webQuery.uploadQzoneImage(
+                Buffer.from(await image(s, i.imagePath, current)).toString('base64'),
+                current,
+              );
+              current();
+              imageUrl = picture.url;
+            }
+            return s.webQuery.replyQzone(i.hostUin, i.tid, target, i.content, imageUrl, current);
+          }
           if (!i.imagePath)
             return s.webQuery.commentQzone(
               i.hostUin,
@@ -904,6 +1071,17 @@ export function createQQActionsRouter(
           // 评论 richval 接受图片直链，不是发表说说的逗号分隔图片元数据。
           return s.webQuery.commentQzone(i.hostUin, i.tid, i.content, 1, picture.url, current);
         }),
+      ),
+    qzoneForward: procedure
+      .input(
+        binding.extend({
+          hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
+          tid: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+          reason: z.string().max(4096),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, (s, current) => s.webQuery.forwardQzone(i.hostUin, i.tid, i.reason, current)),
       ),
     inputStatus: procedure
       .input(binding.extend({ uid, eventType: z.literal(1) }))

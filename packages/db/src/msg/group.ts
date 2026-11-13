@@ -44,7 +44,12 @@ import {
 } from './util';
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
-import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
+import {
+  queryMessageDays,
+  queryMessageBoundary,
+  queryMessageYears,
+  type MessageBounds,
+} from './calendar';
 import {
   browseConditions,
   type BrowseFilter,
@@ -53,6 +58,7 @@ import {
 } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 import { nativeHistoryCursor } from './history';
+import { directoryTimePage } from './directory_times';
 import { readMessageSourceRows } from './export_source';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
@@ -135,6 +141,9 @@ export class GroupMsgDb {
   }
   get sourcePath(): string {
     return this.qq.dbPath;
+  }
+  directoryTimePage(before?: string) {
+    return directoryTimePage(this.qq, 'group_msg_table', before);
   }
   async exportSourceRows(conversation: string, ids: readonly string[], full = true) {
     const rows = await readMessageSourceRows(
@@ -580,6 +589,37 @@ export class GroupMsgDb {
     return rows.map(rowToGroupMsg);
   }
 
+  /** 按文件 ID 查原消息；先筛原始正文，再校验元素，避免同名文件和文本误命中。 */
+  async findFileMessages(
+    targetGroupCode: string,
+    fileId: string,
+    before?: { msgSeq: bigint; sendTime: bigint; msgId: bigint },
+  ) {
+    if (!fileId) return { messages: [], nextBefore: null };
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+        WHERE "40027" = ? AND "40003" > 0 AND instr("40800", ?) > 0
+        ${before ? 'AND ("40003", "40050", "40001") < (?, ?, ?)' : ''}
+        ${ORDER_NEWEST_FIRST} LIMIT 51`,
+      [
+        targetGroupCode,
+        Buffer.from(fileId, 'utf8'),
+        ...(before ? [before.msgSeq, before.sendTime, before.msgId] : []),
+      ],
+    );
+    const candidates = rows.slice(0, 50).map(rowToGroupMsg);
+    const last = candidates.at(-1);
+    return {
+      messages: candidates.filter((row) =>
+        row.elements.some((element) => element.kind === 'file' && element.fileToken === fileId),
+      ),
+      nextBefore:
+        rows.length > 50 && last
+          ? { msgSeq: last.msgSeq, sendTime: last.sendTime, msgId: last.msgId }
+          : null,
+    };
+  }
+
   /**
    * All rows in one group carrying the `(1,1)` deleted signature (40011=1 &
    * 40012=1), newest-first. Covers BOTH WeQ's own deletes and QQ's native
@@ -689,15 +729,10 @@ export class GroupMsgDb {
 
   /**
    * 从真实发送时间取北京日历年份，不依赖可能缺失或滞后的 40058 日字段。
-   * 先按整数北京日去重，再转换年份；不筛方向，调用方按数据修订缓存。
+   * 复用已有时间索引按年跳转；无索引时短分页，不筛发送方向。
    */
   async yearsWithMessages(): Promise<number[]> {
-    const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y', day * 86400, 'unixepoch') AS INTEGER) AS y
-       FROM (SELECT DISTINCT CAST(("40050" + 28800) / 86400 AS INTEGER) AS day
-             FROM group_msg_table WHERE "40050" > 0)`,
-    );
-    return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
+    return queryMessageYears(this.qq, 'group_msg_table');
   }
 
   /**

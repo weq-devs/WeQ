@@ -28,6 +28,12 @@ import type { UrlVerifyInfo } from '@weq/service';
 import type { MessageRenderer } from '../im-template/template';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
+import {
+  MediaItemKeyContext,
+  MediaItemIndexContext,
+  MediaMessageKeyContext,
+} from './ChatMediaGallery';
+import { messageMediaKey } from '../lib/messageMediaTarget';
 import { QqMarkdown } from './QqMarkdown';
 import {
   autoTextMarkdownBody,
@@ -51,6 +57,7 @@ import { splitLinks, soleLink, openLink } from '../lib/linkify';
 import { parseFlashShareCode } from '../lib/flashShare';
 import { ProfileNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { cn } from '@renderer/lib/utils';
+import { LinkPreviewContext } from '../state/messageAppearance';
 
 /**
  * Lets a reply quote ask the host (MainView) to scroll the message list to the
@@ -61,6 +68,8 @@ import { cn } from '@renderer/lib/utils';
  * (e.g. tests).
  */
 export interface ReplyJumpTarget {
+  /** 已知原消息时优先精确匹配，兼容序号为空或同序号的漫游记录。 */
+  msgId?: string;
   /** origMsgSeq (tag 47402) — the 40003 anchor for GROUP messages. */
   seq?: number | string;
   /** origMsgIndex (tag 47419) — the 40003 anchor for C2C messages. */
@@ -145,17 +154,13 @@ export { TextMarkdownContext } from '../state/textMarkdown';
  * 同 {@link TextMarkdownContext} 走 context 的理由——每条气泡一个实例，不能各自订阅。
  * 关掉后链接仍会标蓝可点，只是不再抓取远端页面（也就完全不出网）。
  */
-export const LinkPreviewContext = createContext<boolean>(true);
+export { LinkPreviewContext } from '../state/messageAppearance';
 
 /**
  * 消息气泡、字体与头像挂件的独立显示偏好。
  * 同上，走 context 是为了避免每条消息各自订阅 getSettings。默认 true。
  */
-export const MsgDecorationEnabledContext = createContext({
-  bubble: true,
-  font: true,
-  widget: true,
-});
+export { MsgDecorationEnabledContext } from '../state/messageAppearance';
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);
@@ -248,7 +253,20 @@ function FaceNode({
 }
 
 /** Render a media element to its dedicated component, or null if unsupported. */
-function MediaNode({
+function MediaNode(props: Parameters<typeof MediaBody>[0]): ReactNode {
+  const messageKey = useContext(MediaMessageKeyContext) || props.msgId;
+  const mediaIndex = useContext(MediaItemIndexContext);
+  const mediaKey = `${messageKey}:${mediaIndex}`;
+  return (
+    <MediaItemKeyContext.Provider value={mediaKey}>
+      <span style={{ display: 'contents' }} data-message-media-key={messageMediaKey(props.element)}>
+        <MediaBody {...props} />
+      </span>
+    </MediaItemKeyContext.Provider>
+  );
+}
+
+function MediaBody({
   element,
   sendTimeMs,
   msgId,
@@ -553,7 +571,10 @@ function renderElementNodes(
     );
   };
 
+  let mediaIndex = 0;
   elements.forEach((element, index) => {
+    const mediaPosition = mediaIndex;
+    if (element.type === 'pic' || element.type === 'video') mediaIndex++;
     if (isTextLike(element)) {
       if (runStart === -1) runStart = index;
       runItems.push(element);
@@ -577,7 +598,9 @@ function renderElementNodes(
       block ? (
         // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         <div key={`blk-${index}`} className="qq-media-line">
-          {node}
+          <MediaItemIndexContext.Provider value={mediaPosition}>
+            {node}
+          </MediaItemIndexContext.Provider>
         </div>
       ) : (
         node
@@ -622,9 +645,11 @@ function quoteSendTimeMs(replyData: Record<string, unknown>, hostSendTimeMs: num
 function ReplyPreviewNode({
   element,
   sendTimeMs,
+  interactive,
 }: {
   element: RenderElement;
   sendTimeMs: number;
+  interactive: boolean;
 }): ReactNode {
   const conv = useContext(ConvContext);
   if (element.type === 'face') {
@@ -633,21 +658,31 @@ function ReplyPreviewNode({
   if (element.type === 'pic') {
     return (
       <span className="qq-reply-preview-media">
-        <QqImage data={element.data ?? {}} sendTimeMs={sendTimeMs} conv={conv} />
+        <QqImage
+          data={element.data ?? {}}
+          sendTimeMs={sendTimeMs}
+          conv={conv}
+          interactive={interactive}
+        />
       </span>
     );
   }
   if (element.type === 'video') {
     return (
       <span className="qq-reply-preview-media">
-        <QqVideo data={element.data ?? {}} sendTimeMs={sendTimeMs} conv={conv} />
+        <QqVideo
+          data={element.data ?? {}}
+          sendTimeMs={sendTimeMs}
+          conv={conv}
+          interactive={interactive}
+        />
       </span>
     );
   }
   if (element.type === 'mface') {
     return (
       <span className="qq-reply-preview-media">
-        <QqMarketFace data={element.data ?? {}} />
+        <QqMarketFace data={element.data ?? {}} interactive={interactive} />
       </span>
     );
   }
@@ -757,8 +792,13 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
         <div className="qq-reply-quote-body">
           {previewEls.length > 0 ? (
             previewEls.map((element, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-              <ReplyPreviewNode key={`rp-${i}`} element={element} sendTimeMs={quoteTimeMs} />
+              <ReplyPreviewNode
+                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+                key={`rp-${i}`}
+                element={element}
+                sendTimeMs={quoteTimeMs}
+                interactive={!canJump}
+              />
             ))
           ) : (
             <span>引用消息</span>
@@ -796,16 +836,23 @@ function TextMarkdownDisplay({
 
 export function QqMessageContent(props: Parameters<typeof QqMessageContentBody>[0]) {
   const body = textMarkdownBody(props.elements);
-  if (body === null || !props.textMarkdownDisplayKey) return <QqMessageContentBody {...props} />;
+  const content =
+    body === null || !props.textMarkdownDisplayKey ? (
+      <QqMessageContentBody {...props} />
+    ) : (
+      <TextMarkdownDisplay
+        displayKey={props.textMarkdownDisplayKey}
+        text={body}
+        renderDefault={() => <QqMessageContentBody {...props} />}
+        renderRaw={() =>
+          renderElementNodes(props.elements, props.sendTimeMs, props.msgId, props.isSender)
+        }
+      />
+    );
   return (
-    <TextMarkdownDisplay
-      displayKey={props.textMarkdownDisplayKey}
-      text={body}
-      renderDefault={() => <QqMessageContentBody {...props} />}
-      renderRaw={() =>
-        renderElementNodes(props.elements, props.sendTimeMs, props.msgId, props.isSender)
-      }
-    />
+    <MediaMessageKeyContext.Provider value={props.galleryKey ?? props.msgId}>
+      {content}
+    </MediaMessageKeyContext.Provider>
   );
 }
 
@@ -821,6 +868,7 @@ function QqMessageContentBody({
   sendTimeMs: number;
   msgId: string;
   msgSeq?: string;
+  galleryKey?: string;
   isSender?: boolean;
   textMarkdownDisplayKey?: string;
   /**
@@ -1111,7 +1159,9 @@ function QqMessageContentBody({
       if (isInlineFace(data)) {
         return (
           <div className={cn('message-content', 'qq-message-inline')}>
-            <FaceNode data={data} size={INLINE_SIZE} isSender={isSender} />
+            <div className="qq-message-body">
+              <FaceNode data={data} size={INLINE_SIZE} isSender={isSender} />
+            </div>
           </div>
         );
       }
@@ -1181,7 +1231,11 @@ function QqMessageContentBody({
 
   const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv);
 
-  return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
+  return (
+    <div className={cn('message-content', 'qq-message-inline')}>
+      <div className="qq-message-body">{nodes}</div>
+    </div>
+  );
 }
 
 /** Element kinds this renderer claims (text/reply/face/at + rich media + markdown + multiMsg + cards). */
@@ -1240,6 +1294,7 @@ export const qqMessageRenderer: MessageRenderer = {
         elements={elements}
         sendTimeMs={sendTimeMs}
         msgId={msgId}
+        galleryKey={message.id}
         msgSeq={m.msgSeq}
         isSender={mine}
         conversation={conversation}

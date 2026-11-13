@@ -8,6 +8,45 @@ vi.mock('@trpc/client', async (original) => ({
 }));
 afterEach(() => vi.unstubAllGlobals());
 
+it('本地气泡查询不等待同时发出的字体下载', async () => {
+  const result = { bubble: null, font: null, widget: null };
+  const response = () => new Response(JSON.stringify({ result: { data: result } }));
+  let release!: () => void;
+  const slow = new Promise<Response>((resolve) => {
+    release = () => resolve(response());
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      expect(url.searchParams.has('batch')).toBe(false);
+      const ids = JSON.parse(url.searchParams.get('input')!);
+      return ids.localOnly ? Promise.resolve(response()) : slow;
+    }),
+  );
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCProxyClient<AppRouter>({ links: createLinks() });
+  let fontFinished = false;
+  let localFinished = false;
+  const font = client.account.dressup.resolveMsgDecoration.query({ fontId: 31991 }).then(() => {
+    fontFinished = true;
+  });
+  const local = client.account.dressup.resolveMsgDecoration
+    .query({ bubbleId: 21991, localOnly: true })
+    .then((value) => {
+      localFinished = true;
+      return value;
+    });
+  try {
+    await vi.waitFor(() => expect(localFinished).toBe(true));
+    expect(await local).toEqual(result);
+    expect(fontFinished).toBe(false);
+  } finally {
+    release();
+    await Promise.all([font, local]);
+  }
+});
+
 it('Web 搜索独立 HTTP 返回，慢分类不阻塞快分类；普通查询仍批处理', async () => {
   let finish!: (response: Response) => void;
   const slowResponse = new Promise<Response>((resolve) => {

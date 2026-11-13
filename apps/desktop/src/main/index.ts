@@ -1,7 +1,12 @@
 import { controlCompositionWindow } from './composition_window';
+import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
 import { applicationToolPopupOptions } from './tool_window';
 import { installCallDisplayMediaHandler } from './call_display_media';
-import { floatingWindowTypeOption, ozoneRelaunchArgs } from './linux_window_backend';
+import {
+  appImageRelaunchCommand,
+  floatingWindowTypeOption,
+  ozoneRelaunchArgs,
+} from './linux_window_backend';
 import {
   app,
   autoUpdater,
@@ -16,10 +21,11 @@ import {
   protocol,
   shell,
   screen,
-  Tray,
+  type Tray,
   type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { WINDOW_LAYOUTS, applyWindowLayout, type WindowLayout } from './window_layout';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
@@ -37,6 +43,7 @@ import { migrateStaticAccountIdentity } from './static_account_identity_migratio
 import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
+import { desktopStartupAccount, openStartupAccount, startupWindowLayout } from './startup_account';
 import { guardTrpcReply } from './ipc/reply_guard';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
@@ -48,14 +55,16 @@ import {
   registerMediaProtocol,
 } from './protocol_register';
 import { registerUdpCaptureStorage } from './udp_capture_register';
-import { getAppContext } from './context/app_context';
+import { getAppContext, accountEventBus } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
-import { checkForUpdate, installUpdateActions } from './update/updater';
+import { startAutomaticUpdateChecks, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
+import { RemoteWebGateway } from './remote/web_gateway';
 import { desktopWebRuntime } from './web/runtime';
+import { WebCore } from './web/application';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { assistantResourceServer } from './weq_assistant/server';
 import { disposeExternalMcp } from './mcp/external';
@@ -66,6 +75,13 @@ import { registerChannelIpc } from './channel';
 import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
+import { windowControlsStyle, type WindowControlsStyle } from '../shared/window_controls';
+import { installWindowChrome, publishWindowChrome, registerWindowChromeIpc } from './window_chrome';
+import {
+  registerWindowControlsRefresh,
+  registerWindowControlsPreference,
+} from './window_controls_events';
+import { installWindowControls } from './window_controls';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
 import { registerMainWindowReveal } from './main_window_lifecycle_instance';
 import {
@@ -81,10 +97,14 @@ import {
 } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
-import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
+import { installPerformanceMonitor, type PerformanceMonitor } from '@weq/service/performance';
+import { createDesktopCollector } from './performance_monitor';
+import { performanceDatabaseDetails } from './performance_database';
 import { databaseCheckups } from './db_checkup';
-import { macApplicationMenu, nativeMenuLabels } from './application_menu';
+import { macApplicationMenu } from './application_menu';
+import { createSystemTray } from './system_tray';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
+import { registerEditContextMenu } from './edit_context_menu';
 import { registerCallVideoIpc } from './call_video_ipc';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { backgroundServicesRunning } from './background_services';
@@ -117,7 +137,12 @@ function relaunchForOzoneBackend(): void {
   const relaunch = ozoneRelaunchArgs();
   if (!relaunch) return;
   process.env.WEQ_OZONE_RELAUNCHED = '1';
-  app.relaunch({ execPath: relaunch.execPath, args: relaunch.args });
+  if (relaunch.execPath) {
+    const command = appImageRelaunchCommand(relaunch.execPath, relaunch.args);
+    spawn(command.execPath, command.args, { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    app.relaunch({ args: relaunch.args });
+  }
   app.exit(0);
 }
 relaunchForOzoneBackend();
@@ -147,9 +172,38 @@ let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / Cmd+Q / before-quit). */
 let isQuitting = false;
-let stopRendererDiagnostics: (() => void) | null = null;
+let performanceMonitor: PerformanceMonitor | undefined;
+let performanceQuitReady = false;
+let performanceQuitPending = false;
 let mainWindowRequested = false;
 const rendererRecoveries = new Map<number, ReturnType<typeof createRendererRecovery>>();
+const windowLayouts = new WeakMap<BrowserWindow, WindowLayout>();
+const windowStyles = new WeakMap<BrowserWindow, WindowControlsStyle>();
+
+function requestedControls(layout: WindowLayout): WindowControlsStyle {
+  return windowControlsStyle(
+    process.platform,
+    getAppContext().bootstrap?.userConfig.getSettings().windowsStyleControls ?? false,
+    layout,
+  );
+}
+
+function updateMainWindowControls(win: BrowserWindow, layout: WindowLayout): void {
+  if (process.platform !== 'darwin') return;
+  const style = requestedControls(layout);
+  win.setWindowButtonVisibility(style === 'native');
+  windowStyles.set(win, style);
+  win.webContents.send('window:controls-changed', style);
+  publishWindowChrome(win, style);
+}
+
+registerWindowControlsRefresh(() => {
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) updateMainWindowControls(win, windowLayouts.get(win) ?? 'home');
+});
+registerWindowControlsPreference(
+  () => getAppContext().bootstrap?.userConfig.getSettings().windowsStyleControls ?? false,
+);
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -182,40 +236,15 @@ function resolveCloseBehavior(): WindowCloseBehavior {
   }
 }
 
-/**
- * Build the system tray once. The icon is the brand logo, downscaled to a
- * tray-appropriate size (16px on Windows; 18px template image on macOS so it
- * tracks the menu-bar's light/dark). Menu: 显示主窗口 / 退出 WeQ. Left-click and
- * double-click both re-reveal the window.
- */
+/** 创建一次系统托盘，点击时复用主窗口的显示/重建入口。 */
 function buildTray(): void {
   if (tray) return;
-  const labels = nativeMenuLabels(app.getPreferredSystemLanguages()[0] ?? app.getLocale());
-  const iconPath = resolveResource('brand', 'logo.png');
-  let image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
-  if (!image.isEmpty()) {
-    image = image.resize(
-      process.platform === 'darwin' ? { width: 18, height: 18 } : { width: 16, height: 16 },
-    );
-    if (process.platform === 'darwin') image.setTemplateImage(true);
-  }
   try {
-    tray = new Tray(image);
-    tray.setToolTip('WeQ');
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: labels.showWindow, click: openMainWindow },
-        { type: 'separator' },
-        {
-          label: labels.quit,
-          click: () => {
-            app.quit();
-          },
-        },
-      ]),
-    );
-    tray.on('click', openMainWindow);
-    tray.on('double-click', openMainWindow);
+    tray = createSystemTray({
+      locale: app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
+      openMainWindow,
+      quit: () => app.quit(),
+    });
     logger.info('system tray created', { event: 'tray-create' });
   } catch (e) {
     logger.warn('failed to create system tray', {
@@ -226,13 +255,39 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
+  registerWindowChromeIpc((win) => windowStyles.get(win) ?? 'windows');
+  ipcMain.handle('window:get-controls', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return win ? (windowStyles.get(win) ?? 'windows') : 'windows';
+  });
   ipcMain.on('composition:control', (event, action: unknown) => {
     const child = compositionWindows.get(event.sender.id);
     if (child) controlCompositionWindow(child, action);
   });
   ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return;
+    if (!win || (layout !== 'home' && layout !== 'chat')) return;
+    // Linux 无运行时装饰开关，仅在账号页/工作区切换时重建，保留后台账号会话。
+    // 设置过程中不重载渲染层，以免丢掉未保存的编辑和已打开的工具窗。
+    if (
+      process.platform === 'linux' &&
+      win === getMainWindow() &&
+      windowLayouts.get(win) !== layout &&
+      windowStyles.get(win) !== requestedControls(layout)
+    ) {
+      const next = createWindow(win.isVisible(), layout);
+      setMainWindow(next);
+      next.once('closed', () => {
+        if (getMainWindow() === next) setMainWindow(null);
+      });
+      mainIpcHandler?.attachWindow(next);
+      setImmediate(() => {
+        if (!win.isDestroyed()) win.destroy();
+      });
+      return;
+    }
+    windowLayouts.set(win, layout);
+    updateMainWindowControls(win, layout);
     applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   });
 
@@ -529,20 +584,29 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
   return img.isEmpty() ? undefined : img;
 }
 
-function createWindow(showInitially = true): BrowserWindow {
+function createWindow(
+  showInitially = true,
+  layout: WindowLayout = startupWindowLayout(
+    Boolean(getAppContext().account),
+    desktopStartupAccount.pending,
+    getAppContext().bootstrap?.userConfig,
+  ),
+): BrowserWindow {
   const icon = resolveWindowIcon();
+  const controls = requestedControls(layout);
   // On tiling Wayland WMs (Hyprland/sway) new toplevels tile by default. Ask
   // the WM to float us by advertising a non-'normal' window type — 'toolbar'
   // is the least invasive one that Hyprland/sway treat as floating (unlike
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
   const win = new BrowserWindow({
-    ...WINDOW_LAYOUTS.home,
-    show: showInitially,
+    ...WINDOW_LAYOUTS[layout],
+    useContentSize: true,
+    show: false,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
-    titleBarStyle: 'hidden',
+    titleBarStyle: process.platform === 'linux' && controls === 'native' ? 'default' : 'hidden',
     ...floatingWindowTypeOption(),
     ...(icon ? { icon } : {}),
     webPreferences: {
@@ -554,6 +618,12 @@ function createWindow(showInitially = true): BrowserWindow {
       webviewTag: true,
     },
   });
+  windowLayouts.set(win, layout);
+  applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
+  windowStyles.set(win, controls);
+  updateMainWindowControls(win, layout);
+
+  installWindowChrome(win, () => windowStyles.get(win) ?? 'windows');
 
   const recovery = createRendererRecovery({
     automatic: true,
@@ -639,6 +709,7 @@ function createWindow(showInitially = true): BrowserWindow {
   win.webContents.on('did-create-window', (child, details) => {
     if (!applicationToolPopupOptions(details.url, details.frameName)) return;
     const composition = details.frameName === 'weq-compose';
+    if (!composition) installWindowControls(child, details.options.frame === false);
     const owner = win.webContents.id;
     if (composition) compositionWindows.set(owner, child);
     const reportState = () => {
@@ -646,6 +717,14 @@ function createWindow(showInitially = true): BrowserWindow {
         win.webContents.send('composition:state', { maximized: child.isMaximized() });
     };
     if (composition) {
+      const nativeControls = details.options.frame !== false;
+      child.webContents.on('dom-ready', () => {
+        void child.webContents
+          .executeJavaScript(
+            `document.documentElement.toggleAttribute('data-native-window-controls', ${nativeControls})`,
+          )
+          .catch(() => undefined);
+      });
       child.on('maximize', reportState);
       child.on('unmaximize', reportState);
       reportState();
@@ -695,31 +774,11 @@ void app.whenReady().then(async () => {
     platform: process.platform,
     arch: process.arch,
   });
-  remoteRuntime.configure({
-    helper:
-      process.env.WEQ_REMOTE_HELPER ||
-      (app.isPackaged
-        ? join(
-            process.resourcesPath,
-            'remote-network',
-            process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
-          )
-        : join(
-            app.getAppPath(),
-            '../../tools/remote-network',
-            process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
-          )),
-    stateDir: join(app.getPath('userData'), 'remote-network'),
-    webPort: () => desktopWebRuntime.status().port,
-    onRequest: openMainWindow,
-  });
-  if (hasSingleInstanceLock)
-    void remoteRuntime
-      .resume()
-      .catch((error: unknown) =>
-        console.error('远程连接恢复失败', error instanceof Error ? error.message : '未知错误'),
-      );
   if (!hasSingleInstanceLock) return;
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    const icon = resolveWindowIcon();
+    if (icon) app.dock?.setIcon(icon);
+  }
   const autostart =
     app.isPackaged &&
     isAutostartLaunch(
@@ -740,6 +799,7 @@ void app.whenReady().then(async () => {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
+  accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
   await migrateLegacyAutostart().catch((error: unknown) => {
     logger.warn('legacy daemon migration failed', {
       event: 'legacy-daemon-migration-failed',
@@ -747,10 +807,21 @@ void app.whenReady().then(async () => {
     });
   });
   if (isQuitting) return;
-  installUpdateActions();
   initAppContext();
   const userConfig = getAppContext().bootstrap?.userConfig;
-  // 尽早消费正常退出标记；本轮即使尚未加载界面就崩溃，下次也恢复原现场。
+  installUpdateActions({
+    getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,
+    setInterval: (minutes) => {
+      if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');
+      userConfig.setSettings({ updateCheckIntervalMinutes: minutes });
+    },
+    get: () => userConfig?.getSettings().updateCheckPrerelease === true,
+    set: (enabled) => {
+      if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');
+      userConfig.setSettings({ updateCheckPrerelease: enabled });
+    },
+  });
+  // 固定本轮启动页，运行中修改偏好留到下次进程启动生效。
   userConfig?.getStartupPage();
   // 旧版安卓备份的 uin 是从资料库猜的，可能猜错；纠正它会连带改 configId，
   // 所以必须在账号打开之前、且在任何按 id 建目录的服务之前跑完。
@@ -773,7 +844,7 @@ void app.whenReady().then(async () => {
       });
   }
   if (userConfig) {
-    desktopWebRuntime.configure({
+    const webCore = new WebCore({
       publicDir: app.isPackaged
         ? join(process.resourcesPath, 'remote-web')
         : join(app.getAppPath(), '../web/dist/public'),
@@ -781,12 +852,38 @@ void app.whenReady().then(async () => {
       renderer: electronHost,
       version: app.getVersion(),
       router: appRouter,
-      pairing: remoteRuntime.pairing,
+    });
+    desktopWebRuntime.configure({
+      core: webCore,
       getAutoStart: () => userConfig.getSettings().webServiceAutoStart,
       setAutoStart: (enabled) => {
         userConfig.setSettings({ webServiceAutoStart: enabled });
       },
     });
+    remoteRuntime.configure({
+      helper:
+        process.env.WEQ_REMOTE_HELPER ||
+        (app.isPackaged
+          ? join(
+              process.resourcesPath,
+              'remote-network',
+              process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+            )
+          : join(
+              app.getAppPath(),
+              '../../tools/remote-network',
+              process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+            )),
+      stateDir: join(app.getPath('userData'), 'remote-network'),
+      web: () => new RemoteWebGateway(remoteRuntime.pairing, (auth) => webCore.entry(auth)),
+      onRequest: openMainWindow,
+    });
+    void remoteRuntime.resume().catch((error: unknown) =>
+      logger.warn('远程连接恢复失败', {
+        event: 'remote-resume-failed',
+        error: error instanceof Error ? error.message : '未知错误',
+      }),
+    );
     if (desktopWebRuntime.status().autoStart) {
       void desktopWebRuntime
         .start()
@@ -794,15 +891,19 @@ void app.whenReady().then(async () => {
     }
   }
   const logDirectory = getLogDir();
-  if (logDirectory)
-    stopRendererDiagnostics = startRendererDiagnostics({
-      directory: logDirectory,
-      development: is.dev,
-      mainWebContentsId: () => {
-        const window = getMainWindow();
-        return window && !window.isDestroyed() ? window.webContents.id : undefined;
-      },
-    });
+  if (logDirectory) {
+    performanceMonitor = installPerformanceMonitor(
+      join(logDirectory, '..'),
+      createDesktopCollector(
+        () => {
+          const window = getMainWindow();
+          return window && !window.isDestroyed() ? window.webContents.id : undefined;
+        },
+        performanceDatabaseDetails,
+        (kind, reason) => performanceMonitor?.recordEvent(kind, reason),
+      ),
+    );
+  }
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
   getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
@@ -815,7 +916,6 @@ void app.whenReady().then(async () => {
   // 意图感知本地引擎（Laya ONNX worker）：bridge 认识 Electron（userData 路径、
   // fork），同样从这里注入控制面；web 端不注入，localAvailable 恒为 false。
   setIntentSenseLocalEngine(getIntentSenseLocalEngine());
-  logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();
   registerAvatarProtocol();
@@ -845,6 +945,7 @@ void app.whenReady().then(async () => {
   registerElevationIpc();
   registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
+  registerEditContextMenu();
   registerCallVideoIpc();
 
   app.on('browser-window-created', (_, win) => {
@@ -877,6 +978,15 @@ void app.whenReady().then(async () => {
     },
   });
   buildTray();
+  // 先安排后台任务，以同一启动目标确定窗口尺寸；不等待数据库打开。
+  if (userConfig && !getAppContext().nativeError && !isQuitting)
+    void desktopStartupAccount.start(() =>
+      openStartupAccount(
+        userConfig,
+        appRouter.createCaller({}).bootstrap,
+        process.platform === 'darwin',
+      ),
+    );
   mainWindowLifecycle.open({
     show: shouldShowStartupWindow({
       autostart,
@@ -902,9 +1012,7 @@ void app.whenReady().then(async () => {
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
   // dot. Deferred so it never competes with first paint; failures are ignored.
-  if (app.isPackaged) {
-    setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
-  }
+  startAutomaticUpdateChecks();
 
   app.on('activate', openMainWindow);
 });
@@ -919,7 +1027,7 @@ app.on('window-all-closed', () => {
 // A real quit is underway (tray「退出」/ Cmd+Q / Dock 菜单退出 / OS shutdown):
 // 只放行窗口关闭；未保存内容仍可能取消退出，暂不停止服务或销毁托盘。
 // 退出不再弹「确认 / 最小化到托盘」：用户选的就是退出，后台服务随 `will-quit`
-// 统一释放，「会停掉哪些服务」的信息在关窗确认框和「后台服务」页常驻展示。
+// 统一释放，「会停掉哪些服务」的信息在关窗确认框展示。
 const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => {
   isQuitting = true;
 });
@@ -930,6 +1038,7 @@ if (hasSingleInstanceLock) {
     app,
     async () => {
       await Promise.all([
+        flushConversationCalendarResults(),
         databaseCheckups.cancelAll(),
         assistantResourceServer.shutdown(),
         getAppContext().services?.unreadInfo.dispose(),
@@ -948,12 +1057,22 @@ if (hasSingleInstanceLock) {
 // 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
 app.on('will-quit', (event) => {
   if (event.defaultPrevented) return;
+  if (performanceMonitor && !performanceQuitReady) {
+    event.preventDefault();
+    if (!performanceQuitPending) {
+      performanceQuitPending = true;
+      void performanceMonitor.dispose().finally(() => {
+        performanceQuitReady = true;
+        app.quit();
+      });
+    }
+    return;
+  }
   void databaseCheckups.cancelAll();
   if (hasSingleInstanceLock) {
     try {
       const ctx = getAppContext();
       ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
-      ctx.bootstrap?.userConfig.markCleanExit();
     } catch (error) {
       logger.warn('failed to save login exit state', {
         event: 'login-exit-state-failed',
@@ -961,8 +1080,6 @@ app.on('will-quit', (event) => {
       });
     }
   }
-  stopRendererDiagnostics?.();
-  stopRendererDiagnostics = null;
   try {
     getAppContext().services?.roamingBackfill.dispose();
   } catch (error) {

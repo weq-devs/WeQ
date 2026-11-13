@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import type { MergedConversation } from '../src/renderer/src/im-template/template/types';

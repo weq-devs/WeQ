@@ -1,0 +1,494 @@
+:is(.weq-contact-profile-v2, .weq-group-page) {
+  --weq-profile-secondary-column: 160px;
+  --weq-profile-column-gap: 24px;
+  --weq-profile-page-inset: 24px;
+  container: profile-page / inline-size;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-page-header {
+  padding-block: 12px;
+  padding-inline: var(--weq-profile-page-inset);
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-page-header--split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--weq-profile-secondary-column);
+  align-items: start;
+  gap: var(--weq-profile-column-gap);
+  max-height: 55dvh;
+  overflow: auto;
+}
+
+.weq-profile-page-identity,
+.weq-profile-page-actions {
+  min-width: 0;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page)
+  .weq-profile-page-identity
+  .weq-contact-identity-body {
+  margin-top: 12px;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-page-actions .weq-contact-actions {
+  flex-direction: column;
+  align-items: stretch;
+  margin: 0;
+  padding: 0;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page)
+  .weq-profile-page-actions
+  .weq-contact-actions
+  button {
+  justify-content: center;
+  width: 100%;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-page-header .weq-contact-identity {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-page-header .weq-profile-heading {
+  gap: 4px;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-card-actions {
+  position: static;
+  margin-inline: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.weq-contact-profile-v2 .weq-profile-page-header .weq-contact-remarks {
+  margin-top: 0;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-workspace-body {
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.weq-contact-profile-v2 .weq-profile-section-block--prominent {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-profile-disclosure-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 分区标题统一 13px（见 profile-workspace.css 的 .weq-profile-subtitle）；
+   prominent 只表示「这是本章的独立分区」（上方有分割线），不再放大字号抢层级。 */
+
+.weq-contact-profile-v2 .weq-contact-marks .weq-mutual-grid {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 20px;
+}
+
+.weq-contact-profile-v2 .weq-contact-marks .weq-mutual-cell {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 2px 8px;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: start;
+}
+
+.weq-contact-profile-v2 .weq-contact-marks :is(.weq-mutual-icon, .weq-cached-mark-icon) {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+}
+
+.weq-contact-profile-v2 .weq-contact-marks :is(.weq-mutual-icon, .weq-cached-mark-icon) img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+.weq-contact-profile-v2
+  .weq-contact-marks
+  :is(.weq-mutual-name, .weq-mutual-days, .weq-mutual-state) {
+  grid-column: 2;
+  min-height: 0;
+}
+
+.weq-contact-profile-v2 .weq-contact-marks .weq-mutual-summary {
+  text-align: start;
+}
+
+.weq-contact-profile-v2 .weq-contact-qqshow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: min(132px, 100%);
+  height: 144px;
+  border-radius: 0;
+}
+
+.weq-contact-profile-v2 .weq-contact-qqshow img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.weq-contact-dress-assets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-contact-dress-assets button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 88px;
+  height: 100px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-contact-dress-assets img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.weq-profile-field-history {
+  display: inline-flex;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 20px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-profile-field-history:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-profile-field-history:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-field-history-dialog {
+  padding: 0;
+  overflow: hidden;
+}
+
+.weq-field-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-field-history-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.weq-field-history-body {
+  max-height: min(420px, 60dvh);
+  padding: 0 14px 12px;
+  overflow: auto;
+  font-size: 13px;
+}
+
+.weq-field-history-body ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weq-field-history-body li {
+  display: grid;
+  gap: 6px;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  overflow-wrap: anywhere;
+}
+
+.weq-field-history-body time {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
+:is(.weq-contact-profile-v2, .weq-group-page)
+  .weq-profile-section-block
+  + .weq-profile-section-block {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-profile-disclosure {
+  margin-top: 20px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-profile-disclosure:first-child {
+  margin-top: 0;
+}
+
+.weq-profile-disclosure-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+
+.weq-profile-disclosure-trigger svg {
+  flex: none;
+  color: var(--weq-fg-secondary);
+  transition: transform 160ms ease-out;
+}
+
+.weq-profile-disclosure-trigger[aria-expanded='true']:not([aria-haspopup='dialog']) svg {
+  transform: rotate(180deg);
+}
+
+.weq-profile-disclosure-trigger:hover {
+  color: var(--weq-accent-effective);
+}
+
+.weq-profile-disclosure-trigger:focus-visible,
+.weq-profile-group-picker select:focus-visible,
+.weq-profile-group-link:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+
+.weq-profile-disclosure-body {
+  padding-bottom: 12px;
+}
+
+.weq-profile-group-picker {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  margin-bottom: 18px;
+}
+
+.weq-profile-group-picker label {
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.weq-profile-group-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.weq-profile-group-target select {
+  /* 窄屏优先和「群名片」按钮同处一行：允许收缩，不强行换行成三行。 */
+  flex: 1 1 200px;
+  width: auto;
+  min-width: 0;
+  max-width: 320px;
+}
+
+/* 群操作单独占一行，和上面的选择框左对齐，不再挤在同一行里换行错位。 */
+.weq-profile-group-actions {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.weq-contact-group-workspace .weq-profile-group-target .weq-contact-actions {
+  flex: 0 1 auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weq-contact-group-workspace .weq-profile-group-actions .weq-contact-actions {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weq-profile-group-target .weq-contact-actions button,
+.weq-profile-group-actions .weq-contact-actions button {
+  min-height: 32px;
+}
+
+.weq-profile-group-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-profile-group-link:hover {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-profile-group-picker select {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  color-scheme: light;
+}
+
+html[data-theme='dark'] .weq-profile-group-picker select {
+  color-scheme: dark;
+}
+
+.weq-contact-group-workspace .weq-contact-actions {
+  justify-content: flex-start;
+  padding-inline: 0;
+}
+
+.weq-contact-profile-v2 .weq-mutual-dialog,
+.weq-contact-profile-v2 .weq-contact-portrait {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.weq-contact-profile-v2 .weq-contact-portrait > header,
+.weq-contact-profile-v2 .weq-mutual-head {
+  display: none;
+}
+
+.weq-contact-profile-v2 .weq-contact-portrait > .group-keyword-body,
+.weq-contact-profile-v2 .weq-mutual-body {
+  padding: 0;
+}
+
+.weq-contact-profile-v2 .weq-mutual-status {
+  justify-content: flex-start;
+  min-height: 0;
+  padding-block: 10px;
+}
+
+.weq-contact-profile-v2 .weq-int-profile {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+}
+
+@container profile-page (max-width: 560px) {
+  :is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-page-header--split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  :is(.weq-contact-profile-v2, .weq-group-page) .weq-profile-page-actions .weq-contact-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  :is(.weq-contact-profile-v2, .weq-group-page)
+    .weq-profile-page-actions
+    .weq-contact-actions
+    button {
+    flex: 1 1 120px;
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  :is(.weq-contact-profile-v2, .weq-group-page) {
+    --weq-profile-page-inset: 14px;
+  }
+  .weq-contact-profile-v2 .weq-contact-portrait .weq-int-profile {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weq-profile-group-picker {
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-profile-disclosure-trigger svg {
+    transition: none;
+  }
+}

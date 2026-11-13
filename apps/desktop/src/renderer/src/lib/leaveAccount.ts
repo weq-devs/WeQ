@@ -23,11 +23,13 @@ import type { QueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { resolvedProfilesKey } from './webBusinessCache';
 
 /**
  * 丢掉所有账号级缓存条目（并取消在途请求 —— 否则它们会在清完之后落到新账号的 key 上）。
  */
 export function purgeAccountQueries(queryClient: QueryClient): void {
+  queryClient.removeQueries({ queryKey: resolvedProfilesKey });
   for (const accountKey of [getQueryKey(trpc.account), getQueryKey(trpc.mail)]) {
     void queryClient.cancelQueries({ queryKey: accountKey });
     queryClient.removeQueries({ queryKey: accountKey });

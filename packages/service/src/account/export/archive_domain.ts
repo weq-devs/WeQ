@@ -93,7 +93,7 @@ export class DomainArchive {
       refs.push({ id, kind, reason: 'not-selected' });
     this.header.externalReferences = refs;
   }
-  async write(path: string, format: 'json' | 'jsonl'): Promise<void> {
+  async write(path: string, format: 'json' | 'jsonl' | 'jsonl.gz'): Promise<void> {
     await writeArchiveEntries(path, format, this.header, this.entries);
   }
 }
@@ -140,7 +140,7 @@ async function webMedia(
 export async function writeQzoneArchive(
   data: QzoneExportData,
   opts: QzoneWriteOpts,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
 ): Promise<void> {
   const archive = new DomainArchive(opts.archive);
   const owner = actor(opts.targetUin);
@@ -308,7 +308,7 @@ export async function writeCollectionArchive(
   rows: CollectionExportRow[],
   coverage: CollectionExportCoverage,
   path: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   options: ArchiveOptions = {},
 ): Promise<void> {
   const archive = new DomainArchive(options);
@@ -446,7 +446,7 @@ export async function writeDirectoryArchive(
   rows: readonly object[],
   type: 'contact' | 'group' | 'member',
   path: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   options: ArchiveOptions = {},
   groupCode?: string,
 ): Promise<void> {
@@ -495,7 +495,7 @@ export async function writeDirectoryArchive(
 export async function writeGeneratedArchive(
   snapshot: GeneratedContentSnapshot,
   path: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   options: ArchiveOptions = {},
   manifest?: GeneratedResourceManifest,
 ): Promise<void> {

@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots';
 import { pageValue } from '../../lib/pageSnapshots';
-import { House, Loader2, Save } from 'lucide-react';
+import { House } from 'lucide-react';
+import { AutoSave } from './AutoSave';
 import {
   DEFAULT_HOME_SETTINGS,
   normalizeHomeSettings,
@@ -10,7 +11,6 @@ import {
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
-import { useToast } from '../Toast';
 import { Card, Row, Toggle } from './controls';
 import '../../styles/settings-home.css';
 
@@ -25,20 +25,26 @@ export function HomeSettingsSection() {
   });
   const save = trpc.bootstrap.setHomeSettings.useMutation();
   const showError = useDialog((s) => s.showError);
-  const pushToast = useToast((s) => s.push);
   const home = settings.data?.home;
   const savedWords = (home?.blockedWords ?? []).join('\n');
   const previous = useRef(savedWords);
   const [words, setWords] = usePageState('home:words', savedWords, pageValue.string, true);
-  usePageDraftConfirmation('home:words', home ? savedWords : undefined);
   useEffect(() => {
     const before = previous.current;
     setWords((draft) => (draft === before ? savedWords : draft));
     previous.current = savedWords;
   }, [savedWords, setWords]);
   const blockedWords = normalizeHomeSettings({ blockedWords: words.split(/\r?\n/) }).blockedWords;
+  usePageDraftConfirmation(
+    'home:words',
+    home
+      ? JSON.stringify(blockedWords) === JSON.stringify(home.blockedWords)
+        ? words
+        : savedWords
+      : undefined,
+  );
   const valid = blockedWords.length <= 1000 && blockedWords.every((word) => word.length <= 200);
-  const disabled = !home || save.isLoading;
+  const disabled = !home;
 
   async function update(patch: Partial<HomeSettings>) {
     try {
@@ -49,8 +55,6 @@ export function HomeSettingsSection() {
       // 首页与设置共用缓存；屏蔽词修改后立即淘汰旧句子。
       if (patch.blockedWords) {
         await utils.account.sampleHitokoto.invalidate();
-        setWords(result.blockedWords.join('\n'));
-        pushToast({ tone: 'success', title: '一言屏蔽词已保存' });
       }
     } catch (error) {
       showError('保存主页设置失败', error instanceof Error ? error.message : String(error));
@@ -63,6 +67,7 @@ export function HomeSettingsSection() {
       <Card title="主页" icon={<House size={16} strokeWidth={1.8} />}>
         {(
           [
+            ['preferQqShow', '优先展示 QQ 秀', 'home-prefer-qqshow'],
             ['showTags', '个性标签', 'home-tags'],
             ['showGreeting', '问候语', 'home-greeting'],
             ['showHitokoto', '一言', 'home-hitokoto'],
@@ -82,36 +87,39 @@ export function HomeSettingsSection() {
             }
           />
         ))}
-        <form
-          className="weq-home-words"
-          data-setting-id="home-blocked-words"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!disabled && valid) void update({ blockedWords });
+        <AutoSave
+          value={blockedWords}
+          saved={home?.blockedWords ?? []}
+          ready={!!home}
+          valid={valid}
+          reset={() => setWords(savedWords)}
+          save={async (nextWords) => {
+            const result = await save.mutateAsync({
+              blockedWords: nextWords,
+            });
+            utils.bootstrap.getSettings.setData(undefined, (current) =>
+              current ? { ...current, home: result } : current,
+            );
+            await utils.account.sampleHitokoto.invalidate();
           }}
         >
-          <label className="weq-set-card-title" htmlFor="weq-home-blocked-words">
-            一言屏蔽词
-          </label>
-          <textarea
-            id="weq-home-blocked-words"
-            aria-label="一言屏蔽词（每行一个）"
-            className="weq-set-input"
-            rows={6}
-            value={words}
-            disabled={disabled}
-            placeholder="每行一个屏蔽词"
-            onChange={(event) => setWords(event.target.value)}
-          />
-          {!valid && <p role="alert">最多 1000 个屏蔽词，每个不超过 200 字。</p>}
-          <button
-            type="submit"
-            className="weq-set-btn"
-            disabled={disabled || !valid || words === savedWords}
-          >
-            {save.isLoading ? <Loader2 size={14} className="weq-spin" /> : <Save size={14} />}保存
-          </button>
-        </form>
+          <div className="weq-home-words" data-setting-id="home-blocked-words">
+            <label className="weq-set-card-title" htmlFor="weq-home-blocked-words">
+              一言屏蔽词
+            </label>
+            <textarea
+              id="weq-home-blocked-words"
+              aria-label="一言屏蔽词（每行一个）"
+              className="weq-set-input"
+              rows={6}
+              value={words}
+              disabled={disabled}
+              placeholder="每行一个屏蔽词"
+              onChange={(event) => setWords(event.target.value)}
+            />
+            {!valid && <p role="alert">最多 1000 个屏蔽词，每个不超过 200 字。</p>}
+          </div>
+        </AutoSave>
       </Card>
     </div>
   );

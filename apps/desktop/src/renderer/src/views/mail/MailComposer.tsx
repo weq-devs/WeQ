@@ -3,9 +3,11 @@ import { Check, ChevronDown, LoaderCircle, Paperclip, Save, Send, X } from 'luci
 import { QqIcon } from '../../lib/qqIcons';
 import type { MailComposeInput } from '@weq/service/mail';
 import { useDialog } from '../../components/Dialog';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { useToast } from '../../components/Toast';
 import { IS_WEB } from '../../lib/target';
 import { registerMailDraft } from '../../state/mailDraft';
+import { useMobileBack } from '../../hooks/useMobileNavigation';
 import type { MailApi } from './api';
 import {
   formatMailSize,
@@ -66,6 +68,7 @@ export function MailComposer({
   const [linkOpen, setLinkOpen] = useState(false),
     [link, setLink] = useState('');
   const editor = useRef<HTMLDivElement>(null);
+  const pane = useRef<HTMLElement>(null);
   const range = useRef<Range | null>(null);
   const active = useRef(true),
     lock = useRef(false),
@@ -139,6 +142,12 @@ export function MailComposer({
       return;
     onClose();
   }
+  useMobileBack(
+    !hidden,
+    () => void close(),
+    50,
+    () => pane.current,
+  );
 
   function format(command: string, value?: string): void {
     const element = editor.current;
@@ -230,7 +239,7 @@ export function MailComposer({
   }
 
   return (
-    <section className="weq-mail-composer" hidden={hidden} aria-label="写邮件">
+    <section ref={pane} className="weq-mail-composer" hidden={hidden} aria-label="写邮件">
       <header className="weq-mail-pane-heading">
         <h2>
           {draft.draftId
@@ -354,27 +363,23 @@ export function MailComposer({
         ) : (
           <span />
         )}
-        <fieldset className="weq-mail-mode">
-          <legend className="weq-mail-sr-only">正文格式</legend>
-          {[false, true].map((plain) => (
-            <label key={String(plain)}>
-              <input
-                type="radio"
-                name={`mail-mode-${initial.key}`}
-                checked={draft.plainText === plain}
-                disabled={busy}
-                onChange={() => {
-                  setLinkOpen(false);
-                  update({
-                    plainText: plain,
-                    content: plain ? plainMailText(draft.content) : textMailHtml(draft.content),
-                  });
-                }}
-              />
-              {plain ? '纯文本' : '富文本'}
-            </label>
-          ))}
-        </fieldset>
+        <SegmentedControl<'rich' | 'plain'>
+          label="正文格式"
+          value={draft.plainText ? 'plain' : 'rich'}
+          disabled={busy}
+          onChange={(mode) => {
+            const plain = mode === 'plain';
+            setLinkOpen(false);
+            update({
+              plainText: plain,
+              content: plain ? plainMailText(draft.content) : textMailHtml(draft.content),
+            });
+          }}
+          options={[
+            { value: 'rich', label: '富文本' },
+            { value: 'plain', label: '纯文本' },
+          ]}
+        />
       </div>
       {linkOpen ? (
         <div className="weq-mail-link-form">

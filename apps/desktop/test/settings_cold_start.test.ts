@@ -29,8 +29,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useMutation')
           return () => ({ mutate: vi.fn(), mutateAsync: refetch, isLoading: false });
         if (key === 'useSubscription') return () => {};
-        if (key === 'query' || key === 'mutate' || key === 'invalidate')
+        if (key === 'query') {
+          // 最近联系人分页读取会直接解引用 page.items / nextCursor，必须给出真实页形状。
+          if (path.at(-1) === 'listRecentContacts')
+            return async () => ({ items: [], nextCursor: null });
           return async () => undefined;
+        }
+        if (key === 'mutate' || key === 'invalidate') return async () => undefined;
         if (key === 'subscribe') return () => ({ unsubscribe: vi.fn() });
         return proxy([...path, String(key)]);
       },
@@ -62,6 +67,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// 这条用例要挂载整个 MainView 并连点两次设置，CI 并行跑满时接近默认 5s 上限。
 it('冷启动打开设置和切换数据源后重新打开，均只保留一个设置实例', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -70,7 +76,12 @@ it('冷启动打开设置和切换数据源后重新打开，均只保留一个�
   document.body.append(host);
   const root = createRoot(host);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const consoleError = vi.spyOn(console, 'error');
+  const originalError = console.error;
+  const consoleError = vi.spyOn(console, 'error').mockImplementation((...args) => {
+    if (String(args[0]).includes('Maximum update depth'))
+      throw new Error(args.map(String).join(' '));
+    originalError(...args);
+  });
   const render = () =>
     act(async () =>
       root.render(
@@ -127,4 +138,4 @@ it('冷启动打开设置和切换数据源后重新打开，均只保留一个�
     host.remove();
     consoleError.mockRestore();
   }
-});
+}, 20_000);

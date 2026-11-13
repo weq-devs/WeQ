@@ -1,7 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WindowedList } from '../src/renderer/src/components/WindowedList';
+import { visibleListRange, WindowedList } from '../src/renderer/src/components/WindowedList';
 
 const observers: TestResizeObserver[] = [];
 
@@ -39,6 +39,35 @@ afterEach(() => {
 });
 
 describe('会话列表窗口', () => {
+  it('快速跳动滚动位置时，事件返回前已挂载目标行', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    cleanup = () => {
+      act(() => root.unmount());
+      host.remove();
+    };
+    act(() =>
+      root.render(
+        createElement(WindowedList<string>, {
+          items: Array.from({ length: 1000 }, (_, index) => String(index)),
+          rowHeight: 50,
+          height: 300,
+          itemKey: (item) => item,
+          renderItem: (item) => createElement('button', null, item),
+        }),
+      ),
+    );
+    const list = host.querySelector<HTMLElement>('[data-weq-windowed-list]')!;
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 300 });
+    act(() => {
+      list.scrollTop = 5000;
+      list.dispatchEvent(new Event('scroll', { bubbles: true }));
+      expect(
+        [...list.querySelectorAll('button')].some((button) => button.textContent === '100'),
+      ).toBe(true);
+    });
+  });
   it('隐藏时延迟定位，并在视口滚动位置复位后同步渲染行', () => {
     const host = document.createElement('div');
     document.body.append(host);
@@ -74,7 +103,9 @@ describe('会话列表窗口', () => {
       for (const observer of observers) observer.fire();
     });
     expect(list.scrollTop).toBeGreaterThan(0);
-    expect(list.querySelector<HTMLElement>(':scope > div > div')?.style.top).toBe('1100px');
+    expect(list.querySelector<HTMLElement>(':scope > div > div')?.style.top).toBe(
+      `${visibleListRange(items.length, 50, 300, list.scrollTop).start * 50}px`,
+    );
 
     list.scrollTop = 0;
     act(() => {

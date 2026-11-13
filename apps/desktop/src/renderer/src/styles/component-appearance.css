@@ -131,18 +131,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-action-soft,
     .secondary-button,
     .mode-button:not(.active),
-    .weq-set-btn-soft:not(.weq-set-btn-danger):not(.weq-set-btn-del),
-    .weq-input,
-    .weq-set-input,
-    .weq-set-select,
-    .search-box,
-    .form-field input:not([type='checkbox']):not([type='range']):not([type='color']),
-    .form-field select,
-    .form-field textarea,
-    .weq-set-row-ctrl input:not([type='checkbox']):not([type='range']):not([type='color']),
-    .weq-set-row-ctrl select,
-    .weq-set-row-ctrl textarea,
-    .weq-directory-toolbar input
+    .weq-set-btn-soft:not(.weq-set-btn-danger):not(.weq-set-btn-del)
   ):not(:disabled):not(:where(html[data-component-style='qqnt'] button)) {
   border: solid var(--weq-skin-border);
   border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
@@ -162,7 +151,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-directory-scope-menu,
     .weq-merged-popover,
     .conversation-details,
-    .group-info-panel,
+    .group-info-panel:not(:where(.weq-contact-profile-content > *, .weq-group-profile-members > *)),
     .weq-select,
     .weq-provider-modal
   ) {
@@ -304,11 +293,37 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-input,
     .weq-set-input,
     .weq-set-select,
-    .weq-action-soft,
-    .secondary-button,
-    .weq-set-btn,
+    .search-box,
+    .form-field input:not([type='checkbox']):not([type='range']):not([type='color']),
+    .form-field select,
+    .form-field textarea,
+    .weq-set-row-ctrl input:not([type='checkbox']):not([type='range']):not([type='color']),
+    .weq-set-row-ctrl select,
+    .weq-set-row-ctrl textarea,
     .weq-directory-toolbar input
-  ):focus-visible:not(:where(html[data-component-style='qqnt'] button)) {
+  ):not(:disabled):where(
+    :not(
+      .is-error,
+      [aria-invalid='true'],
+      [type='checkbox'],
+      [type='radio'],
+      [type='range'],
+      [type='color'],
+      [type='file'],
+      [type='button'],
+      [type='submit'],
+      [type='reset'],
+      [type='image']
+    )
+  ):focus-within {
+  border-color: var(--weq-accent-effective);
+}
+
+html[data-component-style][data-theme]:not([data-component-style='classic'])
+  body
+  :is(.weq-action-soft, .secondary-button, .weq-set-btn):focus-visible:not(
+    :where(html[data-component-style='qqnt'] button)
+  ) {
   outline: 2px solid var(--weq-accent-ink);
   outline-offset: 2px;
 }
@@ -361,7 +376,10 @@ html[data-density='compact'] body :is(.weq-set-card, .weq-settings-appearance-ca
   padding-block: 10px;
   gap: 8px;
 }
-html[data-density='compact'] body :is(.message-context-menu, .weq-directory-scope-menu) button {
+html[data-density='compact']
+  body
+  :is(.message-context-menu:not(.message-menu-v2), .weq-directory-scope-menu)
+  button {
   min-height: 28px;
   padding-block: 5px;
 }
@@ -385,29 +403,27 @@ html[data-density='compact'] body table :is(th, td) {
     min-height: 44px;
   }
 }
-@media (max-width: 760px) {
-  html[data-density='compact'] .app-shell-root.weq-web-shell {
-    --weq-conversation-row-height: 64px;
-  }
-  html[data-density='compact']
-    body
-    :is(.weq-web-shell .app-shell, .weq-conversation-list)
-    :is(.conversation-row, .contact-row) {
-    height: var(--weq-conversation-row-height);
-    min-height: var(--weq-conversation-row-height);
-    padding: 5px 12px;
-    gap: 8px;
-    grid-template-columns: 40px minmax(0, 1fr) 48px;
-  }
-  html[data-density='compact']
-    body
-    :is(.weq-web-shell .app-shell, .weq-conversation-list)
-    :is(.conversation-row, .contact-row)
-    .avatar {
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-  }
+html:where([data-weq-layout='single'])[data-density='compact'] .app-shell-root.weq-web-shell {
+  --weq-conversation-row-height: 64px;
+}
+html:where([data-weq-layout='single'])[data-density='compact']
+  body
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :is(.conversation-row, .contact-row) {
+  height: var(--weq-conversation-row-height);
+  min-height: var(--weq-conversation-row-height);
+  padding: 5px 12px;
+  gap: 8px;
+  grid-template-columns: 40px minmax(0, 1fr) 48px;
+}
+html:where([data-weq-layout='single'])[data-density='compact']
+  body
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  :is(.conversation-row, .contact-row)
+  .avatar {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
 }
 
 .weq-style-options {
@@ -428,7 +444,7 @@ html[data-density='compact'] body table :is(th, td) {
 }
 .weq-style-option[aria-checked='true'] {
   border-color: var(--weq-accent-ink);
-  outline: 1px solid var(--weq-accent-ink);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 .weq-style-option:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);

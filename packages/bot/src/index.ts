@@ -104,6 +104,8 @@ async function boot(
   const dataDir = join(config.personaDir, '..', 'data');
   const stats = new StatsStore(join(dataDir, 'stats.json'));
   const resolver = buildEndpointResolver(config.llmProviders);
+  const adapter = createAdapter(config.adapter, logger);
+  const images = createBotImages(config, dataDir, adapter, stats);
   // 可选分桶存储（config.storage.bucketed，缺省 false = 单文件布局不变）：
   // 按 scope 分桶后写入只动单键文件、内存 LRU 只驻留热 scope，旧单文件自动迁移。
   const storeOpts = {
@@ -111,6 +113,7 @@ async function boot(
     maxCachedBuckets: config.storage?.maxCachedBuckets,
   };
   const runtime = new AgentRuntime({
+    images: images.processor,
     signal,
     rootDir: config.personaDir,
     store,
@@ -133,7 +136,6 @@ async function boot(
     voicePath: (id) => runtime.getAgentVoicePath(id),
   };
 
-  const adapter = createAdapter(config.adapter, logger);
   const orchestrator = new BotOrchestrator(adapter, runtime, persona.id, config.selfId, assets, {
     ...config.queue,
     groupChat: config.features?.groupChat ?? false,
@@ -199,6 +201,7 @@ async function boot(
         store,
         stickersDir: join(config.personaDir, 'stickers'),
         visionDescribe,
+        imageModels: images.models,
         onReload,
         // 产物根目录的 config.json（personaDir 是产物内 ./persona，config 与它同级）。
         // 提供后 WebUI「设置」页可读写配置并触发重载。
@@ -302,3 +305,4 @@ export { BotLogger } from './logger';
 export type { BotLoggingConfig } from './logger';
 export { normalizeInbound, type NormalizedMessage } from './normalize/inbound';
 export { encodeTurn, type AssetResolver } from './normalize/outbound';
+import { createBotImages } from './images';

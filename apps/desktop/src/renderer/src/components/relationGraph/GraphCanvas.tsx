@@ -1,40 +1,41 @@
 // @ts-nocheck
-import { useEffect, useRef, useState } from 'react';
-import * as d3 from 'd3';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { RefreshCw, Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
-import { communityColor, SELF_ID } from './graphModel';
+import { communityColor, graphNodeLabel } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
-
-interface View {
-  scale: number;
-  x: number;
-  y: number;
-}
+import { fitGraphView, type GraphView } from './graphLayout';
+import { createGraphSimulationClient } from './graphSimulationClient';
+import { graphLabelVisible, indexGraphHit, indexGraphRender, type RenderEdge } from './graphRender';
+import { createGraphEdgeGpu, graphEdgePixelRatio } from './graphEdgeGpu';
 
 export function GraphCanvas({
   graph,
   selectedId,
   onSelect,
-  onOpenPerson,
+  showRemarks = false,
 }: {
   graph: BuiltGraph;
   selectedId: string | null;
-  onSelect: (node: GNode | null) => void;
-  /** 双击人节点：交给应用层打开资料卡。 */
-  onOpenPerson?: (node: GNode, anchor: { x: number; y: number }) => void;
+  onSelect: (node: GNode | null, anchor: { x: number; y: number }) => void;
+  showRemarks?: boolean;
 }) {
   const privacy = usePrivacyStore((state) => state.effective);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
 
-  const simulationRef = useRef<d3.Simulation<GNode, any> | null>(null);
+  const simulationRef = useRef<ReturnType<typeof createGraphSimulationClient> | null>(null);
 
-  const viewRef = useRef<View>({ scale: 0.85, x: 0, y: 0 });
+  const viewRef = useRef<GraphView>({ scale: 1, x: 0, y: 0 });
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
   const imgCache = useRef<Map<string, HTMLImageElement>>(new Map());
-  const didInitViewRef = useRef(false);
+  const autoFitRef = useRef(true);
   const drawRafRef = useRef(0);
+  const renderIndexRef = useRef<ReturnType<typeof indexGraphRender> | null>(null);
+  const hitIndexRef = useRef<ReturnType<typeof indexGraphHit> | null>(null);
+  const displayedPositionsRef = useRef<Float64Array | null>(null);
+  const edgeGpuRef = useRef<ReturnType<typeof createGraphEdgeGpu>>(null);
 
   const hoverRef = useRef<GNode | null>(null);
   const selectedRef = useRef<string | null>(selectedId);
@@ -45,21 +46,23 @@ export function GraphCanvas({
   const movedRef = useRef(0);
 
   const [hoverNode, setHoverNode] = useState<GNode | null>(null);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
-  // draw / centerView 每次渲染都是新函数。effect 只该在 graph 变化（或挂载）时重跑，
-  // 所以通过 ref 转发取最新实现，而不是把它们当依赖。
+  // 动画与 ResizeObserver 通过 ref 使用最新渲染，不反复重建模拟。
   const drawRef = useRef<() => void>(() => {});
-  const centerViewRef = useRef<() => void>(() => {});
+  const fitViewRef = useRef<() => void>(() => {});
 
   // Coalesce redraws into one per frame — when many avatars finish loading at
   // once we don't want a draw() per image.
-  function scheduleDraw(): void {
+  const scheduleDraw = useCallback((): void => {
     if (drawRafRef.current) return;
     drawRafRef.current = requestAnimationFrame(() => {
       drawRafRef.current = 0;
-      drawRef.current();
+      if (autoFitRef.current) fitViewRef.current();
+      else drawRef.current();
     });
-  }
+  }, []);
 
   function getImage(url: string): HTMLImageElement | null {
     if (!url) return null;
@@ -76,13 +79,18 @@ export function GraphCanvas({
     return null;
   }
 
-  function centerView(): void {
+  function fitView(): void {
     const { w, h } = sizeRef.current;
-    const s = viewRef.current.scale;
-    viewRef.current.x = (w / 2) * (1 - s);
-    viewRef.current.y = (h / 2) * (1 - s);
+    const wrap = wrapRef.current;
+    const overlay = wrap?.parentElement?.querySelector('.weq-graph-overlay');
+    const top =
+      overlay && wrap
+        ? overlay.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 12
+        : 96;
+    viewRef.current = fitGraphView(simulationRef.current?.nodes() ?? [], w, h, top);
+    drawRef.current();
   }
-  centerViewRef.current = centerView;
+  fitViewRef.current = fitView;
 
   function screenToWorld(sx: number, sy: number): { x: number; y: number } {
     const v = viewRef.current;
@@ -94,82 +102,52 @@ export function GraphCanvas({
     if (!simulation) return null;
     const { x, y } = screenToWorld(sx, sy);
     const nodes = simulation.nodes();
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const n = nodes[i];
-      const dx = n.x - x;
-      const dy = n.y - y;
-      if (dx * dx + dy * dy <= (n.radius + 2) * (n.radius + 2)) return n;
-    }
-    return null;
+    const positions = displayedPositionsRef.current;
+    if (positions && positions.length !== nodes.length * 2) return null;
+    hitIndexRef.current ??= indexGraphHit(nodes, positions ?? undefined);
+    return hitIndexRef.current(x, y);
   }
 
   useEffect(() => {
-    const { w, h } = sizeRef.current;
     const prevSim = simulationRef.current;
-
-    if (prevSim) {
-      const prevNodes = new Map(prevSim.nodes().map((n) => [n.id, n]));
-      for (const n of graph.nodes) {
-        const p = prevNodes.get(n.id);
-        if (p && p.x != null && p.y != null) {
-          n.x = p.x;
-          n.y = p.y;
-          n.vx = p.vx;
-          n.vy = p.vy;
-        }
-      }
-      prevSim.stop();
+    const previous = prevSim?.nodes().map(({ id, x, y, vx, vy }) => ({ id, x, y, vx, vy })) ?? [];
+    prevSim?.stop();
+    dragNodeRef.current = null;
+    panRef.current = null;
+    hoverRef.current = null;
+    setHoverNode(null);
+    setSimulationError(null);
+    renderIndexRef.current = indexGraphRender(graph);
+    edgeGpuRef.current = createGraphEdgeGpu(graph, renderIndexRef.current.incident);
+    const edgeCanvas = edgeGpuRef.current?.canvas;
+    if (edgeCanvas) {
+      edgeCanvas.className = 'weq-graph-edge-canvas';
+      edgeCanvas.setAttribute('aria-hidden', 'true');
+      wrapRef.current?.insertBefore(edgeCanvas, canvasRef.current);
     }
-
-    // Mirror d3's default link strength (1 / min incident-degree) so person↔
-    // person clustering keeps its feel, but let an edge override it via
-    // `e.strength` — that's how the "me" hub and the intimacy pull work.
-    const degree = new Map<string, number>();
-    const bump = (id: string) => degree.set(id, (degree.get(id) ?? 0) + 1);
-    for (const e of graph.edges) {
-      bump(typeof e.source === 'object' ? e.source.id : e.source);
-      bump(typeof e.target === 'object' ? e.target.id : e.target);
-    }
-    const linkStrength = (e: any) => {
-      if (e.strength != null) return e.strength;
-      const s = typeof e.source === 'object' ? e.source.id : e.source;
-      const t = typeof e.target === 'object' ? e.target.id : e.target;
-      return 1 / Math.min(degree.get(s) ?? 1, degree.get(t) ?? 1);
-    };
-
-    const sim = d3
-      .forceSimulation<GNode>(graph.nodes)
-      .force(
-        'link',
-        d3
-          .forceLink(graph.edges)
-          .id((d: any) => d.id)
-          .distance((d: any) => d.dist)
-          .strength(linkStrength),
-      )
-      .force('charge', d3.forceManyBody().strength(-300))
-
-      .force(
-        'collide',
-        d3
-          .forceCollide<GNode>()
-          .radius((d) => d.radius + 3)
-          .iterations(2),
-      )
-      .force('center', d3.forceCenter(w / 2 || 400, h / 2 || 300));
-
-    sim.on('tick', () => drawRef.current());
-
+    hitIndexRef.current = null;
+    displayedPositionsRef.current = null;
+    const sim = createGraphSimulationClient(
+      graph,
+      previous,
+      () => {
+        hitIndexRef.current = null;
+        scheduleDraw();
+      },
+      setSimulationError,
+    );
     simulationRef.current = sim;
 
     return () => {
       sim.stop();
+      edgeGpuRef.current?.dispose();
+      edgeGpuRef.current = null;
       if (drawRafRef.current) {
         cancelAnimationFrame(drawRafRef.current);
         drawRafRef.current = 0;
       }
     };
-  }, [graph]);
+  }, [graph, attempt, scheduleDraw]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -188,13 +166,11 @@ export function GraphCanvas({
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
 
-      // 告诉 D3 物理中心变了
-      simulationRef.current?.force('center', d3.forceCenter(rect.width / 2, rect.height / 2));
-      simulationRef.current?.alpha(0.3).restart();
-
-      if (!didInitViewRef.current && rect.width > 0) {
-        didInitViewRef.current = true;
-        centerViewRef.current();
+      if (autoFitRef.current) fitViewRef.current();
+      else {
+        viewRef.current.x += (rect.width - previous.w) / 2;
+        viewRef.current.y += (rect.height - previous.h) / 2;
+        drawRef.current();
       }
     }
 
@@ -225,46 +201,85 @@ export function GraphCanvas({
     ctx.scale(v.scale, v.scale);
 
     const nodes = simulation.nodes();
-    const index = new Map(nodes.map((n) => [n.id, n]));
+    const topology = renderIndexRef.current;
+    if (!topology) return;
     const focus = hoverRef.current?.id ?? selectedRef.current ?? null;
-    const focusNeighbours = new Set<string>();
+    const focusNeighbours = topology.adjacent.get(focus) ?? new Set<string>();
+    const left = -v.x / v.scale;
+    const right = (w - v.x) / v.scale;
+    const top = -v.y / v.scale;
+    const bottom = (h - v.y) / v.scale;
 
-    if (focus) {
-      for (const e of graph.edges) {
-        if (e.source.id === focus || e.source === focus)
-          focusNeighbours.add(e.target.id || e.target);
-        else if (e.target.id === focus || e.target === focus)
-          focusNeighbours.add(e.source.id || e.source);
-      }
-    }
-
-    for (const e of graph.edges) {
-      const s = typeof e.source === 'object' ? e.source : index.get(e.source);
-      const t = typeof e.target === 'object' ? e.target : index.get(e.target);
-      if (!s || !t) continue;
-
-      const active = focus && (s.id === focus || t.id === focus);
-      const isSelfEdge = s.id === SELF_ID || t.id === SELF_ID;
-
+    function strokeEdges(edges: RenderEdge[], excludeFocus = false) {
       ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(t.x, t.y);
-      ctx.strokeStyle = active
-        ? 'rgba(0,153,255,0.55)'
-        : isSelfEdge
-          ? 'rgba(120,140,165,0.07)'
-          : 'rgba(120,140,165,0.18)';
-      ctx.lineWidth = active
-        ? Math.min(1 + e.weight * 0.5, 4)
-        : isSelfEdge
-          ? 0.5
-          : Math.min(0.6 + e.weight * 0.25, 2.4);
-      ctx.stroke();
+      let count = 0;
+      for (const { source: s, target: t } of edges) {
+        if (excludeFocus && (s.id === focus || t.id === focus)) continue;
+        // 两端在视口同侧的线段不可能可见；保留穿过画布的线段。
+        if (
+          Math.max(s.x, t.x) < left - 4 ||
+          Math.min(s.x, t.x) > right + 4 ||
+          Math.max(s.y, t.y) < top - 4 ||
+          Math.min(s.y, t.y) > bottom + 4
+        )
+          continue;
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        // 限制单条路径的大小，避免超密图在浏览器内构建巨型路径。
+        if (++count % 2048 === 0) {
+          ctx.stroke();
+          ctx.beginPath();
+        }
+      }
+      if (count % 2048) ctx.stroke();
+    }
+    const gpu = edgeGpuRef.current;
+    const edgeDpr = graphEdgePixelRatio(graph.edges.length, v.scale, dpr);
+    const gpuDrawn = gpu?.draw(v, w, h, edgeDpr, focus) ?? false;
+    for (const batch of gpuDrawn ? [] : topology.batches) {
+      ctx.strokeStyle = batch.self ? 'rgba(120,140,165,0.07)' : 'rgba(120,140,165,0.18)';
+      ctx.lineWidth = batch.width;
+      strokeEdges(batch.edges, Boolean(focus));
+    }
+    if (focus && !gpuDrawn) {
+      const active = new Map<number, RenderEdge[]>();
+      for (const edge of topology.incident.get(focus) ?? []) {
+        const width = Math.min(1 + edge.weight * 0.5, 4);
+        const batch = active.get(width) ?? [];
+        batch.push(edge);
+        active.set(width, batch);
+      }
+      ctx.strokeStyle = 'rgba(0,153,255,0.55)';
+      for (const [width, edges] of active) {
+        ctx.lineWidth = width;
+        strokeEdges(edges);
+      }
     }
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const n of nodes) {
+    let lastFont = '';
+    function setFont(font: string) {
+      if (font === lastFont) return;
+      ctx.font = font;
+      lastFont = font;
+    }
+    const displayed =
+      displayedPositionsRef.current?.length === nodes.length * 2
+        ? displayedPositionsRef.current
+        : new Float64Array(nodes.length * 2);
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      displayed[i * 2] = n.x;
+      displayed[i * 2 + 1] = n.y;
+      const margin = n.radius + 80 / Math.min(v.scale, 1);
+      if (
+        n.x + margin < left ||
+        n.x - margin > right ||
+        n.y + margin < top ||
+        n.y - margin > bottom
+      )
+        continue;
       const isSelfNode = n.kind === 'self';
       const color = isSelfNode ? '#0a7fd0' : communityColor(n.community);
       const dim = focus && n.id !== focus && !focusNeighbours.has(n.id);
@@ -277,7 +292,9 @@ export function GraphCanvas({
       ctx.fillStyle = color;
       ctx.fill();
 
-      const img = !privacy && n.avatarUrl ? getImage(n.avatarUrl) : null;
+      const avatarVisible =
+        n.x + r >= left && n.x - r <= right && n.y + r >= top && n.y - r <= bottom;
+      const img = !privacy && avatarVisible && n.avatarUrl ? getImage(n.avatarUrl) : null;
       if (img) {
         ctx.save();
         ctx.beginPath();
@@ -287,7 +304,7 @@ export function GraphCanvas({
         ctx.restore();
       } else {
         ctx.fillStyle = '#ffffff';
-        ctx.font = `600 ${Math.round(r)}px var(--font-sans, sans-serif)`;
+        setFont(`600 ${Math.round(r)}px var(--font-sans, sans-serif)`);
         ctx.fillText(privacy ? '•' : (n.label || '?').slice(0, 1), n.x, n.y + 1);
       }
 
@@ -299,15 +316,12 @@ export function GraphCanvas({
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
       ctx.stroke();
 
-      if (
-        !privacy &&
-        !dim &&
-        (isSelfNode || isFocus || focusNeighbours.has(n.id) || r >= 22 || v.scale >= 1.1)
-      ) {
+      if (!privacy && !dim && graphLabelVisible(n, v.scale, isFocus, focusNeighbours.has(n.id))) {
         ctx.globalAlpha = 1;
         const fontPx = Math.max(10, 11 / v.scale);
-        ctx.font = `500 ${fontPx}px var(--font-sans, sans-serif)`;
-        const label = n.label.length > 12 ? `${n.label.slice(0, 12)}…` : n.label;
+        setFont(`500 ${fontPx}px var(--font-sans, sans-serif)`);
+        const name = graphNodeLabel(n, showRemarks);
+        const label = name.length > 12 ? `${name.slice(0, 12)}…` : name;
         ctx.lineWidth = 3 / v.scale;
         ctx.strokeStyle = labelHalo;
         ctx.strokeText(label, n.x, n.y + r + fontPx * 0.9);
@@ -316,12 +330,14 @@ export function GraphCanvas({
       }
     }
     ctx.globalAlpha = 1;
+    displayedPositionsRef.current = displayed;
+    hitIndexRef.current = null;
   }
   drawRef.current = draw;
 
   useEffect(() => {
     drawRef.current();
-  }, [privacy]);
+  }, [privacy, selectedId, showRemarks]);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     const rect = wrapRef.current!.getBoundingClientRect();
@@ -332,11 +348,9 @@ export function GraphCanvas({
     const hit = nodeAt(sx, sy);
     if (hit) {
       dragNodeRef.current = hit;
-      const w = screenToWorld(sx, sy);
-      hit.fx = w.x;
-      hit.fy = w.y;
-      // 完美还原你 D3 demo 的手感，给系统注入持续活性能量
-      simulationRef.current?.alphaTarget(0.3).restart();
+      const world = screenToWorld(sx, sy);
+      simulationRef.current?.pin(hit.id, world.x, world.y);
+      hitIndexRef.current = null;
     } else {
       panRef.current = { x: e.clientX, y: e.clientY };
     }
@@ -349,17 +363,22 @@ export function GraphCanvas({
 
     if (dragNodeRef.current) {
       movedRef.current += Math.abs(e.movementX) + Math.abs(e.movementY);
+      if (movedRef.current < 4) return;
+      autoFitRef.current = false;
       const w = screenToWorld(sx, sy);
-      dragNodeRef.current.fx = w.x;
-      dragNodeRef.current.fy = w.y;
+      simulationRef.current?.pin(dragNodeRef.current.id, w.x, w.y);
+      hitIndexRef.current = null;
+      scheduleDraw();
       return;
     }
     if (panRef.current) {
       movedRef.current += Math.abs(e.movementX) + Math.abs(e.movementY);
+      if (movedRef.current < 4) return;
+      autoFitRef.current = false;
       viewRef.current.x += e.clientX - panRef.current.x;
       viewRef.current.y += e.clientY - panRef.current.y;
       panRef.current = { x: e.clientX, y: e.clientY };
-      draw();
+      scheduleDraw();
       return;
     }
 
@@ -367,7 +386,7 @@ export function GraphCanvas({
     if (hit !== hoverRef.current) {
       hoverRef.current = hit;
       setHoverNode(hit);
-      draw();
+      scheduleDraw();
     }
     if (hit && tooltipRef.current) {
       tooltipRef.current.style.left = `${sx + 14}px`;
@@ -376,34 +395,36 @@ export function GraphCanvas({
     if (wrapRef.current) wrapRef.current.style.cursor = hit ? 'pointer' : 'grab';
   }
 
-  function endPointer(_e: React.PointerEvent<HTMLDivElement>) {
+  function endPointer(e: React.PointerEvent<HTMLDivElement>, cancelled = false) {
     const node = dragNodeRef.current;
     if (node) {
-      if (movedRef.current < 4) onSelect(node);
-      node.fx = null;
-      node.fy = null;
-
-      simulationRef.current?.alphaTarget(0);
-    } else if (panRef.current && movedRef.current < 4) {
-      onSelect(null);
+      simulationRef.current?.release(node.id);
     }
+    const clicked = !cancelled && movedRef.current < 4 && (node || panRef.current);
     dragNodeRef.current = null;
     panRef.current = null;
+    if (clicked) {
+      hoverRef.current = null;
+      setHoverNode(null);
+      onSelect(node, { x: e.clientX, y: e.clientY });
+      scheduleDraw();
+    }
   }
 
   function onWheel(e: React.WheelEvent<HTMLDivElement>) {
+    autoFitRef.current = false;
     const rect = wrapRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     const v = viewRef.current;
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = Math.min(Math.max(v.scale * factor, 0.2), 4);
+    const next = Math.min(Math.max(v.scale * factor, 0.02), 4);
     const wx = (mx - v.x) / v.scale;
     const wy = (my - v.y) / v.scale;
     v.scale = next;
     v.x = mx - wx * next;
     v.y = my - wy * next;
-    draw(); // 手动重绘
+    scheduleDraw();
   }
 
   return (
@@ -412,25 +433,48 @@ export function GraphCanvas({
       className="weq-graph-canvas-wrap"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={endPointer}
-      onDoubleClick={(e) => {
-        // 双击人节点打开资料卡（群节点没有资料卡，保持只做选中）。
-        if (!onOpenPerson) return;
-        const rect = wrapRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const hit = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
-        if (hit && hit.kind === 'person' && hit.uin) {
-          onOpenPerson(hit, { x: e.clientX, y: e.clientY });
-        }
-      }}
+      onPointerUp={(e) => endPointer(e)}
+      onPointerCancel={(e) => endPointer(e, true)}
+      onLostPointerCapture={(e) => endPointer(e, true)}
       onPointerLeave={(e) => {
-        endPointer(e);
+        endPointer(e, true);
         hoverRef.current = null;
         setHoverNode(null);
       }}
       onWheel={onWheel}
     >
       <canvas ref={canvasRef} className="weq-graph-canvas" />
+      {simulationError ? (
+        <div className="weq-graph-state" role="alert">
+          <span>图谱布局失败：{simulationError}</span>
+          <button
+            className="weq-graph-icon-btn"
+            type="button"
+            title="重试图谱布局"
+            aria-label="重试图谱布局"
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
+      ) : null}
+      <button
+        className="weq-graph-fit"
+        type="button"
+        title="适应全部"
+        aria-label="适应全部"
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+        onClick={() => {
+          autoFitRef.current = true;
+          fitView();
+        }}
+      >
+        <Scan size={18} />
+      </button>
       <div
         ref={tooltipRef}
         className="weq-graph-tooltip"
@@ -443,7 +487,6 @@ export function GraphCanvas({
               <span>
                 {hoverNode.isFriend ? '好友' : '群友'} · 共 {hoverNode.groupCount} 群
                 {hoverNode.intimacy ? ` · 亲密度 ${hoverNode.intimacy}` : ''}
-                {onOpenPerson ? ' · 双击看资料' : ''}
               </span>
             ) : (
               <span>

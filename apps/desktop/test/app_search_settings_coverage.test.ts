@@ -21,6 +21,25 @@ const pages = {
 } as const;
 
 describe('功能目录与真实设置控件同步', () => {
+  it('移除后台服务搜索入口，关闭窗口相关搜索定位到提醒与窗口', () => {
+    expect(
+      APP_SEARCH_ENTRIES.some(
+        (entry) =>
+          entry.target.kind === 'setting' && String(entry.target.section) === 'background-services',
+      ),
+    ).toBe(false);
+    expect(searchAppEntries('后台服务')).toEqual([]);
+    for (const keyword of ['关闭窗口', '最小化到托盘', '退出时停止']) {
+      expect(
+        searchAppEntries(keyword).some(
+          (entry) =>
+            entry.target.kind === 'setting' &&
+            entry.target.section === 'global' &&
+            entry.target.settingId === 'window-close-behavior',
+        ),
+      ).toBe(true);
+    }
+  });
   it('导出菜单与搜索种类双向覆盖，移除的种类不会继续出现在搜索目标中', () => {
     const url = new URL('../src/renderer/src/views/ExportView.tsx', import.meta.url);
     const source = ts.createSourceFile(

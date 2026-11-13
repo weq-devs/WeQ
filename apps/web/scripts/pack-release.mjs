@@ -36,6 +36,8 @@ const label = LABELS[target];
 for (const entry of [
   'server.mjs',
   'attachWorker.mjs',
+  'imageWorker.mjs',
+  'coverWorker.mjs',
   'transcribeWorker.mjs',
   'start.sh',
   'start.bat',

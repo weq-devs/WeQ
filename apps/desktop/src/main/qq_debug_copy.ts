@@ -18,6 +18,7 @@ import type {
 const DEBUGGER = 'com.apple.security.cs.debugger';
 const GET_TASK_ALLOW = 'com.apple.security.get-task-allow';
 const markerName = 'weq-debug-copy.json';
+const STATUS_CACHE_MS = 60_000;
 const markerSchema = z.object({
   format: z.literal(1),
   source: z.string(),
@@ -54,6 +55,11 @@ export class QqDebugCopyManager {
   private busy = false;
   private readonly path: string;
   private readonly run: Command;
+  private inspection?: {
+    key: string;
+    expiresAt: number;
+    result: Promise<QqDebugCopyStatus>;
+  };
   constructor(
     private readonly options: {
       source: () => string | null;
@@ -132,6 +138,28 @@ export class QqDebugCopyManager {
   private async pids(): Promise<number[]> {
     return debugCopyPids(await this.command('/bin/ps', ['-axo', 'pid=,comm=']), this.path);
   }
+  private async sourcePids(source: string): Promise<number[]> {
+    const executable = join(source, 'Contents/MacOS/QQ');
+    return (await this.command('/bin/ps', ['-axo', 'pid=,comm='])).split('\n').flatMap((line) => {
+      const match = /^\s*([1-9]\d*)\s+(.+?)\s*$/.exec(line);
+      return match?.[2] === executable ? [Number(match[1])] : [];
+    });
+  }
+  private async quitSource(): Promise<void> {
+    const source = this.options.source();
+    if (!source || resolve(source) === resolve(this.path))
+      throw new Error('未能确认普通 QQ 的安装位置，请重新检查。');
+    await this.version(source);
+    const pids = await this.sourcePids(source);
+    this.phase = 'quitting';
+    // 仅显式切换时请求原安装主进程退出，不匹配同名应用、不升级为 SIGKILL。
+    if (pids.length) await this.command('/bin/kill', ['-TERM', ...pids.map(String)]);
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (!(await this.sourcePids(source)).length) return;
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error('普通 QQ 尚未退出，未启动调试副本。请完成 QQ 中的退出操作后重试。');
+  }
   private async stopped(): Promise<void> {
     if ((await this.pids()).length)
       throw new Error('QQ 调试副本正在运行，请先从副本菜单退出 QQ，再重试；不会自动退出其他 QQ。');
@@ -176,7 +204,80 @@ export class QqDebugCopyManager {
       `x-apple.systempreferences:com.apple.preference.security?${panes[action]}`,
     );
   }
+  private async inspectionKey(source: string | null): Promise<string> {
+    const paths = [
+      this.options.executable ?? process.execPath,
+      ...[source, this.path].flatMap((bundle) =>
+        bundle
+          ? [
+              bundle,
+              join(bundle, 'Contents/Info.plist'),
+              join(bundle, 'Contents/MacOS/QQ'),
+              join(bundle, 'Contents/_CodeSignature/CodeResources'),
+              join(bundle, 'Contents/Resources', markerName),
+            ]
+          : [],
+      ),
+    ];
+    return JSON.stringify(
+      await Promise.all(
+        paths.map(async (path) => {
+          try {
+            const stat = await lstat(path);
+            return [path, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs];
+          } catch (error) {
+            if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+              return [path, null];
+            throw error;
+          }
+        }),
+      ),
+    );
+  }
   async status(): Promise<QqDebugCopyStatus> {
+    const source = this.options.source();
+    if ((this.options.platform ?? process.platform) !== 'darwin') return this.inspect(source);
+    const key = await this.inspectionKey(source);
+    // 静态校验按文件变化及短期有效期复用；操作阶段和进程始终读取当前值。
+    if (
+      !this.inspection ||
+      this.inspection.key !== key ||
+      this.inspection.expiresAt <= Date.now()
+    ) {
+      const inspection = {
+        key,
+        expiresAt: Number.POSITIVE_INFINITY,
+        result: this.inspect(source),
+      };
+      this.inspection = inspection;
+      void inspection.result.then(
+        () => {
+          inspection.expiresAt = Date.now() + STATUS_CACHE_MS;
+        },
+        () => {
+          if (this.inspection === inspection) this.inspection = undefined;
+        },
+      );
+    }
+    const [result, processes] = await Promise.all([
+      this.inspection.result,
+      this.command('/bin/ps', ['-axo', 'pid=,comm=']),
+    ]);
+    const sourceExecutable =
+      result.sourceVersion && result.sourcePath && join(result.sourcePath, 'Contents/MacOS/QQ');
+    return {
+      ...result,
+      phase: this.phase,
+      runningPids: debugCopyPids(processes, this.path),
+      sourceRunningPids: sourceExecutable
+        ? processes.split('\n').flatMap((line) => {
+            const match = /^\s*([1-9]\d*)\s+(.+?)\s*$/.exec(line);
+            return match?.[2] === sourceExecutable ? [Number(match[1])] : [];
+          })
+        : [],
+    };
+  }
+  private async inspect(source: string | null): Promise<QqDebugCopyStatus> {
     const supported = (this.options.platform ?? process.platform) === 'darwin';
     const result: QqDebugCopyStatus = {
       supported,
@@ -188,6 +289,7 @@ export class QqDebugCopyManager {
       version: null,
       readerReady: false,
       runningPids: [],
+      sourceRunningPids: [],
       message: supported ? '尚未创建 QQ 调试副本。' : '请在运行 QQ 的 Mac 桌面端管理调试副本。',
     };
     if (!supported) return result;
@@ -197,7 +299,6 @@ export class QqDebugCopyManager {
     } catch {
       /* 未签名开发宿主必须明确显示读取端未就绪。 */
     }
-    const source = this.options.source();
     if (source && resolve(source) !== resolve(this.path)) {
       result.sourcePath = source;
       try {
@@ -206,7 +307,6 @@ export class QqDebugCopyManager {
         result.message = error instanceof Error ? error.message : String(error);
       }
     }
-    result.runningPids = await this.pids();
     if (!(await exists(this.path))) return { ...result, phase: this.phase };
     result.state = 'unmanaged';
     result.message = '此位置已有非 WeQ 管理的应用，未覆盖或删除；请先将它移到其他位置。';
@@ -231,6 +331,7 @@ export class QqDebugCopyManager {
       throw new Error('仅 macOS 支持 QQ 调试副本。');
     if (this.busy) throw new Error('正在处理 QQ 调试副本，请等待当前操作完成。');
     this.busy = true;
+    this.inspection = undefined;
     this.phase = 'checking';
     // 目录锁跨 WeQ 实例生效；不触碰其他实例持有的暂存目录。
     const lock = `${this.path}.lock`;
@@ -248,6 +349,8 @@ export class QqDebugCopyManager {
         throw error;
       }
       const present = await exists(this.path);
+      if (present && (await lstat(this.path)).isSymbolicLink())
+        throw new Error('副本路径是软链接，请使用普通应用目录。');
       if (present && !(await this.owned()))
         throw new Error('副本位置已有非 WeQ 管理的应用，未修改。');
       if (action === 'prepare') await this.prepare(present);
@@ -257,17 +360,35 @@ export class QqDebugCopyManager {
         if (present) await this.removeCopy();
       } else {
         this.phase = 'verifying';
-        await this.verify(this.path);
-        if (action === 'launch') {
-          if ((await this.pids()).length)
-            throw new Error('QQ 调试副本已在运行，请切换到副本窗口登录。');
+        if (action === 'open' || action === 'switch') {
+          if (!present) await this.prepare(false);
+          else {
+            try {
+              await this.verify(this.path);
+            } catch {
+              // 可用的旧版本不强制更新；只有校验失败才修复，运行中仍禁止替换。
+              await this.prepare(true);
+            }
+          }
+        } else await this.verify(this.path);
+        if (action === 'switch') await this.quitSource();
+        if (
+          action === 'launch' ||
+          action === 'open' ||
+          action === 'activate' ||
+          action === 'switch'
+        ) {
           this.phase = 'launching';
           const env = { ...process.env };
           delete env.ELECTRON_RUN_AS_NODE;
-          const opened = await this.run('/usr/bin/open', ['-n', '-a', this.path], {
-            env,
-            timeoutMs: 15_000,
-          });
+          const opened = await this.run(
+            '/usr/bin/open',
+            [...(action === 'activate' ? [] : ['-n']), '-a', this.path],
+            {
+              env,
+              timeoutMs: 15_000,
+            },
+          );
           if (opened.code !== 0)
             throw new Error(opened.stderr.trim() || '系统未能打开 QQ 调试副本。');
         }
@@ -278,6 +399,7 @@ export class QqDebugCopyManager {
       } finally {
         this.busy = false;
         this.phase = 'idle';
+        this.inspection = undefined;
       }
     }
     return this.status();

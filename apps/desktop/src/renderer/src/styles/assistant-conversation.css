@@ -1,0 +1,15 @@
+.weq-assistant-main-conversation {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  background: var(--weq-chat-bg, var(--weq-bg-surface));
+}
+
+.weq-assistant-main-conversation[hidden] {
+  display: none;
+}

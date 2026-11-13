@@ -69,6 +69,17 @@ it('成功但无 usage 的实际请求仍记录一次未知用量', async () => 
   expect(f.updates.at(-1)).toMatchObject({ status: 'success', totalTokens: null });
 });
 
+it('请求开始时固定服务商身份与名称，不保存地址或认证信息', () => {
+  const f = fixture();
+  const endpoint = { ...f.endpoint, providerId: 'provider-a', providerName: '配置 A' };
+  const call = beginApiUsage(endpoint);
+  endpoint.providerName = '配置 B';
+  call.finish('success');
+  expect(f.updates.at(-1)).toMatchObject({ providerId: 'provider-a', providerName: '配置 A' });
+  expect(f.updates.at(-1)).not.toHaveProperty('apiKey');
+  expect(f.updates.at(-1)).not.toHaveProperty('baseUrl');
+});
+
 it.each(['http', 'network', 'cancel', 'timeout', 'provider'] as const)(
   '真实 %s 失败或取消保留未知账目',
   async (mode) => {

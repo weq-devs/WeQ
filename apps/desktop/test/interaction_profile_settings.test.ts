@@ -5,6 +5,7 @@ import { InteractionProfileSection } from '../src/renderer/src/components/settin
 import { DEFAULT_INTENT_TUNING } from '@weq/service/intent-context';
 import { AI_SETTING_ITEMS } from '../src/renderer/src/components/settings/aiSettingsCatalog';
 import { searchAppEntries } from '../src/renderer/src/components/search/appSearchCatalog';
+import { findSettingElement } from '../src/renderer/src/components/settings/searchTarget';
 
 const fixture = vi.hoisted(() => ({
   mode: 'api',
@@ -19,9 +20,10 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({
+      settings: { intent: { getStatus: { setData: fixture.setData } } },
       account: {
         intentSense: {
-          getStatus: { setData: fixture.setData },
+          getStatus: { invalidate: fixture.invalidate },
           getProfile: { invalidate: fixture.invalidate },
           listMessageAnalyses: { invalidate: fixture.invalidate },
           getSuggestions: { invalidate: fixture.invalidate },
@@ -29,6 +31,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     }),
     bootstrap: {
+      getSettings: { useQuery: () => ({ data: { aiImages: { profile: 'placeholder' } } }) },
+      setAiImagePreference: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       getAgentLabDefaultModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
       downloadLocalModel: { useMutation: () => ({ isLoading: false }) },
       listAgentLabProviders: {
@@ -51,8 +55,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         },
       },
     },
-    account: {
-      intentSense: {
+    settings: {
+      intent: {
         getStatus: {
           useQuery: () => ({
             data: {
@@ -108,10 +112,10 @@ it('画像 API 只保存画像引用，运行方式不再包含跟随选项', as
   expect(fixture.save).toHaveBeenCalledWith({
     profileProviderRef: { providerId: 'synthetic', model: 'profile-model' },
   });
-  expect(fixture.invalidate).toHaveBeenCalledTimes(3);
+  expect(fixture.invalidate).toHaveBeenCalledTimes(4);
 });
 
-it('画像本地资源独立选择，在途时禁用控件', async () => {
+it('画像本地资源独立选择，在途允许继续选择并由共用队列串行保存', async () => {
   fixture.mode = 'local';
   await render();
   await select('互动画像本地模型资源', 'laya-multilingual');
@@ -120,7 +124,7 @@ it('画像本地资源独立选择，在途时禁用控件', async () => {
   await render();
   expect(
     document.querySelector<HTMLSelectElement>('[aria-label="互动画像本地模型资源"]')!.disabled,
-  ).toBe(true);
+  ).toBe(false);
 });
 it('宿主不支持本地画像模型时禁用选择并显示原因，不误提交', async () => {
   fixture.mode = 'local';
@@ -140,7 +144,22 @@ it.each(['api', 'local', 'heuristic'])(
     await render();
     expect(fixture.localEnabled).toBe(mode === 'local');
     for (const item of AI_SETTING_ITEMS.filter((item) => item.section === 'interaction-profile')) {
-      expect(document.querySelectorAll(`[data-setting-id="${item.id}"]`), item.id).toHaveLength(1);
+      const hidden =
+        (mode !== 'api' &&
+          [
+            'intent-tuning-profileApiTimeoutSeconds',
+            'intent-tuning-profileApiCooldownSeconds',
+          ].includes(item.id)) ||
+        (mode === 'heuristic' &&
+          [
+            'intent-tuning-profileSamples',
+            'intent-tuning-profileMinSamples',
+            'intent-tuning-profileModelTopics',
+            'intent-tuning-profileTemperature',
+          ].includes(item.id));
+      const node = findSettingElement(document.body, { settingId: item.id });
+      if (hidden) expect(node, item.id).toBeNull();
+      else expect(node, item.id).not.toBeNull();
       expect(
         searchAppEntries(item.label).some(
           (entry) => entry.target.kind === 'setting' && entry.target.settingId === item.id,
@@ -148,14 +167,7 @@ it.each(['api', 'local', 'heuristic'])(
         item.id,
       ).toBe(true);
     }
-    const submit = document.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
-    expect(submit.disabled).toBe(true);
-    await act(async () => {
-      const details = document.querySelector('details')!;
-      details.open = true;
-      details.dispatchEvent(new Event('toggle'));
-    });
-    expect(submit.disabled).toBe(false);
+    expect(document.querySelector('form button[type="submit"]')).toBeNull();
     expect(fixture.save).not.toHaveBeenCalled();
   },
 );

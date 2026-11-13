@@ -1,0 +1,29 @@
+/* 共享设置同步提示：常态不出现，只在读取/保存失败时给一条可重试的说明。 */
+.weq-sync-status {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  /* 低于 overlayStack 的 1200 起算层级：任何对话框/浮层都能盖住它。 */
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  font-size: 13px;
+}
+.weq-sync-status span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-sync-status button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}

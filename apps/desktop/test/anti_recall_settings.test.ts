@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AntiRecallDialog } from '../src/renderer/src/components/AntiRecallDialog';
 import { DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
 import { useAppLock } from '../src/renderer/src/state/lock';
+import { useViewState } from '../src/renderer/src/state/view';
 
 const fixture = vi.hoisted(() => ({
   status: {
@@ -108,6 +109,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 
 beforeEach(() => {
+  useViewState.setState({ openedUin: 'synthetic' });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.saves.mockReset();
   fixture.recordsError = false;
@@ -127,6 +129,7 @@ beforeEach(() => {
   };
 });
 afterEach(() => {
+  useViewState.setState({ openedUin: null });
   useAppLock.setState({ locked: false });
   useDialog.setState({ current: null });
   vi.unstubAllGlobals();
@@ -291,7 +294,7 @@ describe('页内防撤回摘要与按需工具', () => {
       const scopeSelected = [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
         (button) => button.textContent === '按会话勾选',
       )!;
-      expect(scopeSelected.disabled).toBe(true);
+      expect(scopeSelected.disabled).toBe(false);
       expect(scopeOff.disabled).toBe(false);
       expect(f.host.textContent).toContain('离线快照');
       click('查看撤回记录');

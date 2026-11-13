@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 /**
  * QQ 空间（说说）导出器 —— 目标可以是好友或自己的空间。
  *
@@ -88,7 +89,7 @@ export interface QzoneExportDeps extends Partial<QzoneAlbumExportDeps> {
 }
 
 /** 说说导出可选产物格式。 */
-export type QzoneFormat = 'json' | 'jsonl' | 'txt' | 'html';
+export type QzoneFormat = 'json' | 'jsonl' | 'jsonl.gz' | 'txt' | 'html';
 
 export interface QzoneExportOpts {
   tids?: string[];
@@ -518,16 +519,7 @@ export async function fetchQzoneEmotionRange(
 /** 秒级时间戳 → `YYYY-MM-DD HH:mm:ss`（北京时间）。 */
 function fmtTime(sec: number): string {
   if (!sec) return '';
-  return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(new Date(sec * 1000));
+  return eventTimeFormatter.format(new Date(sec * 1000));
 }
 
 /** 带互动字段的说说（导出形态；未拉互动时两个字段缺失，等同 QzoneEmotion）。 */
@@ -1559,7 +1551,7 @@ export async function writeQzone(
 ): Promise<void> {
   const rows = data.rows;
   const body =
-    format === 'json' || format === 'jsonl'
+    format === 'json' || format === 'jsonl' || format === 'jsonl.gz'
       ? null
       : format === 'html'
         ? buildHtmlDoc(
@@ -1579,7 +1571,8 @@ export async function writeQzone(
               .join('\n'),
           )
         : rows.map(emotionToTxt).join('\n');
-  if (format === 'json' || format === 'jsonl') await writeQzoneArchive(data, opts, format);
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
+    await writeQzoneArchive(data, opts, format);
   else await writeFileStream(opts.outputPath, body!);
   const bodySha256 = (await fileDigest(opts.outputPath)).sha256;
   await writeFileStream(

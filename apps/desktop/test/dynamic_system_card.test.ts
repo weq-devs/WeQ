@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MessageRow } from '../src/renderer/src/im-template/template/messageRow';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { QzoneCardNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 
 const profile = vi.hoisted(() => vi.fn(async () => null));

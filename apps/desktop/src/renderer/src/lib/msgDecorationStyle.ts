@@ -3,8 +3,9 @@
  * 最后一个可见使用者离开时移除规则、释放字体和动画帧。
  */
 
-import type { BubbleSkin, FontDerived, ResolvedWidget } from '@weq/service';
+import type { MessageBubbleSkin, FontDerived, ResolvedWidget } from '@weq/service';
 import { acquireDecorationStyle, validDecorationFrames } from './decorationResources';
+import { fontFaces } from './fontFaces';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
@@ -13,6 +14,7 @@ import {
   dressFontFrameUrl,
 } from './resourceUrl';
 import {
+  bubbleContentAlignmentCss,
   bubbleLinkMentionRules,
   bubbleRestrictsTextColor,
   fontFxRules,
@@ -199,8 +201,8 @@ function layerRule(
  * Inject CSS rules for one bubble skin.  No-op if already injected.
  * Mirror of dressSkin.ts bubbleRules(), but scoped to data-bubble attribute.
  */
-export function injectBubbleCss(skin: BubbleSkin): () => void {
-  return acquireDecorationStyle(`bubble:${skin.itemId}`, (resource) => {
+export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
+  return acquireDecorationStyle(`bubble:${skin.itemId}${staticOnly ? ':base' : ''}`, (resource) => {
     const { left, top, right, bottom } = skin.slice;
     const wTop = top * BUBBLE_SCALE;
     const wRight = right * BUBBLE_SCALE;
@@ -222,19 +224,18 @@ export function injectBubbleCss(skin: BubbleSkin): () => void {
     const bottomPad = wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.6;
 
     // 动效叠加层:帧图中间镂空,只能叠在静态底图之上(见 layerRule 的说明)。
+    const frameCount = skin.animationFrameCount ?? 0;
+    const frameTimeMs = skin.animationFrameTimeMs ?? 0;
+    const hasFrameAnim = validDecorationFrames(frameCount) && frameTimeMs;
     const frameAnim =
-      validDecorationFrames(skin.animationFrameCount) && skin.animationFrameTimeMs
-        ? frameAnimationCss(
-            skin.itemId,
-            skin.animationFrameCount,
-            skin.animationFrameTimeMs,
-            skin.animationRepeat ?? 0,
-          )
+      !staticOnly && hasFrameAnim
+        ? frameAnimationCss(skin.itemId, frameCount, frameTimeMs, skin.animationRepeat ?? 0)
         : null;
 
     // local-only:气泡永远是本地九宫格(zip 链下载),没有 CDN 直链分支。
     // 底图恒为 `aio_user_bg_nor.9.png` 那张 —— 与有没有动效无关。
-    const imageUrl = dressBubbleUrl(skin.itemId);
+    const imageUrl = skin.baseImage ?? dressBubbleUrl(skin.itemId);
+    resource.image(imageUrl);
 
     const rules = [
       frameAnim?.keyframes ?? '',
@@ -254,6 +255,7 @@ export function injectBubbleCss(skin: BubbleSkin): () => void {
       `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
       `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
       `}`,
+      bubbleContentAlignmentCss(sel),
     ];
 
     // 炫彩帧的裁形：帧画在伪元素上（我方 `::before`、对方 `::after`），这里把同一张
@@ -269,7 +271,7 @@ export function injectBubbleCss(skin: BubbleSkin): () => void {
     );
     // 对方的帧与气泡动效叠加层共用 `::after`；叠加层是气泡外面的装饰，遮罩会连它
     // 一起裁掉（`data-fontfx` 一直挂在行上，裁掉就是永久的），所以有动效时跳过。
-    if (!frameAnim) {
+    if (!hasFrameAnim) {
       rules.push(
         fxClipMaskCss(fxClipTarget(fxClipTheirsSel(skin.itemId), '::after'), {
           imageUrl,
@@ -351,24 +353,24 @@ export function messageFontFamily(fontId: number, deriveVersion: number): string
   return `weq-message-dress-${fontId}-${deriveVersion}`;
 }
 
+export function isMessageFontLoaded(fontId: number, font: FontDerived): boolean {
+  const version = font.deriveVersion ?? 0;
+  return fontFaces.isLoaded(messageFontFamily(fontId, version), dressFontUrl(fontId, version));
+}
+
 /**
  * 逐条消息字体的 CSS（字体 + 它的炫彩帧）。已注入过的（同款同派生版本）直接返回。
- *
- * 炫彩规则同样等整批预热成功后才注入；尺寸属性由 useBubbleFontFx 决定。
+ * staticOnly 保持字体与可见性无关，炫彩帧另按可见范围取得并释放。
+ * 炫彩规则等整批预热成功后才注入；尺寸属性由 useBubbleFontFx 决定。
  */
-export function injectFontCss(fontId: number, font: FontDerived | null): () => void {
+export function injectFontCss(fontId: number, font: FontDerived | null, staticOnly = false) {
   const deriveVersion = font?.deriveVersion ?? 0;
   const key = `${fontId}:${deriveVersion}`;
-  return acquireDecorationStyle(`font:${key}`, (resource) => {
+  return acquireDecorationStyle(`font:${key}${staticOnly ? ':static' : ''}`, (resource) => {
     const url = dressFontUrl(fontId, deriveVersion);
     const family = messageFontFamily(fontId, deriveVersion);
 
-    // Preload the font via FontFace API so the browser doesn't swap mid-render.
-    // Some QQ dress fonts fail Chromium's OTS sanitizer ("Failed to decode
-    // downloaded font") — that's a real file-format rejection we can't work
-    // around client-side. Swallow it: document.fonts never gets the face, so
-    // the CSS fallback chain below just takes over, same as dressSkin.ts's
-    // preloadFont for the "own equipped font" path.
+    // FontFace 注册成功才算就绪；QQ 字体被 OTS 拒绝时 ready=false，消息行整组回退默认。
     resource.font(family, url);
 
     const fxSkin = toFontFxSkin(font);
@@ -380,7 +382,7 @@ export function injectFontCss(fontId: number, font: FontDerived | null): () => v
     ];
     resource.append(rules.filter(Boolean).join('\n'));
 
-    if (fxSkin) {
+    if (fxSkin && !staticOnly) {
       // 先解码再等属性挂上（属性是量完尺寸才挂的，帧解完码差不多刚好）——
       // 第一圈逐帧解码会肉眼看得出闪，与气泡动效同一个坑。
       const total = fxSkin.fx.variants.reduce((n, v) => n + v.frames.length, 0);

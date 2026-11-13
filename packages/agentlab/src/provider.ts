@@ -22,6 +22,13 @@ function normalizeModel(input: AgentLabProviderModel): AgentLabProviderModel {
     id: input.id.trim(),
     label: input.label?.trim() || undefined,
     capabilities: Array.isArray(input.capabilities) ? capabilities : ['chat'],
+    ...(input.reasoningEfforts === undefined
+      ? {}
+      : {
+          reasoningEfforts: [
+            ...new Set(input.reasoningEfforts.map((value) => value.trim()).filter(Boolean)),
+          ],
+        }),
   };
 }
 
@@ -78,6 +85,7 @@ export function resolveEndpoint(
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
     model: ref.model,
+    reasoningEfforts: provider.models.find((model) => model.id === ref.model)?.reasoningEfforts,
     ...(provider.timeoutMs === undefined ? {} : { timeoutMs: provider.timeoutMs }),
   };
 }

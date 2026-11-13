@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import http from 'node:http';
+import { servicePortCandidates } from '@weq/service/service-ports';
 import { WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import { MessageRegistry, type MessageLocation } from './registry';
@@ -117,21 +118,8 @@ export class OneBotServer {
   private readonly paths = new WeakMap<WebSocket, string>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
 
-  constructor(
-    private readonly backend: OneBotBackend,
-    private readonly legacyToken = '',
-  ) {
+  constructor(private readonly backend: OneBotBackend) {
     this.registry = backend.registry ?? new MessageRegistry();
-  }
-
-  /** 兼容旧调用：启动一个使用构造器令牌的正向 WS 服务器。 */
-  async start(port: number): Promise<number> {
-    const [status] = await this.startConfigured({
-      webSocketServers: [{ id: 'legacy-ws', port, token: this.legacyToken }],
-      httpServers: [],
-    });
-    if (!status?.running) throw new Error(status?.error ?? 'OneBot WebSocket 启动失败');
-    return status.port;
   }
 
   /** 启动全部启用的监听器；单项端口冲突会顺延，不阻断其他服务器。 */
@@ -140,12 +128,15 @@ export class OneBotServer {
     this.selfId = (await this.backend.self()).user_id;
     this.active = true;
     const statuses: OneBotNetworkStatus[] = [];
+    const configuredPorts = new Set(
+      [...config.webSocketServers, ...config.httpServers].map((server) => server.port),
+    );
     for (const [type, servers] of [
       ['ws', config.webSocketServers],
       ['http', config.httpServers],
     ] as const) {
       for (const item of servers) {
-        const status = await this.startListener(type, item);
+        const status = await this.startListener(type, item, configuredPorts);
         statuses.push(status);
       }
     }
@@ -232,6 +223,7 @@ export class OneBotServer {
   private async startListener(
     type: OneBotNetworkType,
     item: OneBotNetworkListenConfig,
+    configuredPorts: ReadonlySet<number>,
   ): Promise<OneBotNetworkStatus> {
     const sockets =
       type === 'ws' ? new WebSocketServer({ noServer: true, maxPayload: 24 * 1024 * 1024 }) : null;
@@ -255,7 +247,12 @@ export class OneBotServer {
       });
     }
     try {
-      listener.port = await this.listenWithFallback(listener.server, item.port);
+      listener.port = await this.listenWithFallback(
+        listener.server,
+        item.port,
+        type,
+        configuredPorts,
+      );
       this.listeners.set(`${type}:${item.id}`, listener);
       return {
         id: item.id,
@@ -281,19 +278,25 @@ export class OneBotServer {
     }
   }
 
-  private async listenWithFallback(server: http.Server, requested: number): Promise<number> {
-    const attempts = requested === 0 ? 1 : PORT_FALLBACK_ATTEMPTS;
-    for (let offset = 0; offset < attempts; offset += 1) {
-      const port = requested === 0 ? 0 : requested + offset;
-      if (port > 65535) break;
+  private async listenWithFallback(
+    server: http.Server,
+    requested: number,
+    type: OneBotNetworkType,
+    configuredPorts: ReadonlySet<number>,
+  ): Promise<number> {
+    const candidates = servicePortCandidates(
+      type === 'ws' ? 'onebot-ws' : 'onebot-http',
+      requested,
+      PORT_FALLBACK_ATTEMPTS,
+      configuredPorts,
+    );
+    for (const port of candidates) {
       if (!(await tryListen(server, port))) continue;
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('OneBot 监听地址无效');
       return address.port;
     }
-    throw new Error(
-      `端口 ${requested}–${Math.min(requested + attempts - 1, 65535)} 都被占用，无法启动`,
-    );
+    throw new Error(`候选端口 ${candidates.join('、')} 都被占用，无法启动`);
   }
 
   private handleUpgrade(

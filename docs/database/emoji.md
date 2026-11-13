@@ -2,7 +2,7 @@
 
 QQ 表情的本地库。WeQ 解析两张表：**内置系统表情元数据**和**已添加的商城表情包清单**。
 单条消息里实际用到的表情走消息表的 face/mface 消息段（见
-[face](./nt_msg/elements/face.md) / [mface](./nt_msg/elements/mface.md)），那张表存的是引用，这里是定义。
+[face](nt_msg/elements/face.md) / [mface](nt_msg/elements/mface.md)），那张表存的是引用，这里是定义。
 
 对应 WeQ 解析实现：
 
@@ -72,4 +72,4 @@ ORDER BY "80963" DESC;   -- 最近添加在前
 
 ---
 
-[← 返回数据库分析](./index.md)
+[← 返回数据库分析](index.md)

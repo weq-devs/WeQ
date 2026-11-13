@@ -43,6 +43,7 @@ it('显式修改后优先回源，沿用原始缓存键，普通请求保留本�
   mock.get.mockClear();
   const local = await handleMediaRequest(new Request(bridge));
   expect(await local.text()).toBe('local-big');
+  expect(local.headers.get('cache-control')).toBe('no-cache');
   expect(mock.localFile).toHaveBeenCalled();
   expect(mock.get).not.toHaveBeenCalled();
 });

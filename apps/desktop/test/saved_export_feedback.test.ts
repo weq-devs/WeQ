@@ -50,7 +50,7 @@ it.each([
     host.remove();
   }
 });
-it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示保存入口与缺失状态', () => {
+it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示缺失状态，自动保存不重复提供入口', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -98,7 +98,9 @@ it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示保�
     expect(host.textContent).toContain('已完成 · 资源缺失');
     expect(host.textContent).toContain('个文件');
     expect(host.textContent).not.toContain('JSON');
-    expect(host.querySelector('[title="保存"]')).not.toBeNull();
+    expect(host.querySelector('[title="保存"]')).toBeNull();
+    expect(host.querySelector('[title="保存结果"]')).toBeNull();
+    expect(host.querySelector('[title="重试保存"]')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -143,6 +145,9 @@ it('保存位置存在时提供打开与文件夹定位，另存失败仍能打�
     );
   try {
     render();
+    expect(host.querySelector('[title="保存"]')).toBeNull();
+    expect(host.querySelector('[title="重试保存"]')).toBeNull();
+    expect(host.textContent).not.toContain('全部保存');
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="打开保存结果"]')!.click());
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="在文件夹中显示"]')!.click());
     expect(open.mock.calls).toEqual([
@@ -154,9 +159,22 @@ it('保存位置存在时提供打开与文件夹定位，另存失败仍能打�
     expect(host.querySelector('[aria-label="打开保存结果"]')).not.toBeNull();
     expect(host.textContent).toContain('上次保存：/saved/fixture.json');
     expect(host.textContent).not.toContain('尚未保存');
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="重试保存"]')!.click());
+    expect(noop).toHaveBeenLastCalledWith(task);
+    task.save = { ...task.save!, status: 'interrupted' };
+    render();
+    expect(host.querySelector('[aria-label="重试保存"]')).not.toBeNull();
     task.save = { policy: { mode: 'before', directory: '/fixture/export' }, status: 'pending' };
     render();
     expect(host.querySelector('[aria-label="打开保存结果"]')).toBeNull();
+    expect(host.querySelector('[aria-label="重试保存"]')).toBeNull();
+    task.save = { ...task.save!, status: 'saving' };
+    render();
+    expect(host.querySelector('[title="保存"]')).toBeNull();
+    expect(host.querySelector('[aria-label="重试保存"]')).toBeNull();
+    task.save = undefined;
+    render();
+    expect(host.querySelector('[aria-label="保存结果"]')).not.toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();

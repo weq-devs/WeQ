@@ -95,82 +95,94 @@
 /* 桌面端内联形态：去掉外框 / 底色 / 阴影，占掉正文编辑区那一行。
    只在 `.composer.flash-open`（chatPane 打的标记，见 flashPanelInline）下生效 ——
    「只能单独发」的卡片已经占着那一行时，文件框退回去当浮层。 */
-@media (min-width: 761px) {
-  .composer.flash-open > .flash-composer {
-    position: relative;
-    z-index: 6;
-    inset: auto;
-    bottom: auto;
-    left: auto;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-    max-height: none;
-    grid-column: 1 / -1;
-    grid-row: 2;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-    animation: none;
-  }
-
-  .composer.flash-open > .flash-composer .flash-composer-body {
-    gap: 2px;
-    padding-bottom: 2px;
-  }
-
-  /* 已经有文件时「点击打开文件选择」只占贴底那一小行，清单把剩下的高度全吃掉。 */
-  .composer.flash-open > .flash-composer .flash-picker {
-    min-height: 0;
-    padding: 2px 4px;
-    border-radius: 8px;
-    font-size: 11.5px;
-  }
-
-  .composer.flash-open > .flash-composer .flash-picker:hover {
-    background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
-  }
-
-  /* 已经有清单一行的贴底提示：图标也跟着收小，别把高度从清单那里抢走。 */
-  .composer.flash-open > .flash-composer .flash-file-list ~ .flash-picker {
-    gap: 4px;
-  }
-
-  .composer.flash-open > .flash-composer .flash-file-list ~ .flash-picker svg {
-    width: 14px;
-    height: 14px;
-  }
-
-  .composer.flash-open > .flash-composer .flash-file-list {
-    gap: 0;
-    margin: 0;
-    padding: 0 4px;
-  }
-
-  .composer.flash-open > .flash-composer .flash-file-list li {
-    padding: 3px 4px;
-  }
-
-  .composer.flash-open > .flash-composer .flash-error {
-    margin: 2px 4px 0;
-  }
-
-  .composer.flash-open > .flash-composer > .flash-composer-foot {
-    padding: 2px 4px 0;
-    border-top: 0;
-  }
-
-  /* 引用条占正文上面那一行时，闪传文件框跟着到第三行（同 .voice-panel）。 */
-  .composer.has-quote.flash-open > .flash-composer {
-    grid-row: 3;
-  }
-
-  /* 文件框占掉正文那一行、自己带「确认」键，主发送键让位（同 .composer.voice-open）。
+:where(html:not([data-weq-layout='single'])) .composer.flash-open > .flash-composer {
+  position: relative;
+  z-index: 6;
+  inset: auto;
+  bottom: auto;
+  left: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+:where(html:not([data-weq-layout='single']))
+  .composer.flash-open
+  > .flash-composer
+  .flash-composer-body {
+  gap: 2px;
+  padding-bottom: 2px;
+}
+/* 已经有文件时「点击打开文件选择」只占贴底那一小行，清单把剩下的高度全吃掉。 */
+:where(html:not([data-weq-layout='single'])) .composer.flash-open > .flash-composer .flash-picker {
+  min-height: 0;
+  padding: 2px 4px;
+  border-radius: 8px;
+  font-size: 11.5px;
+}
+:where(html:not([data-weq-layout='single']))
+  .composer.flash-open
+  > .flash-composer
+  .flash-picker:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
+}
+/* 已经有清单一行的贴底提示：图标也跟着收小，别把高度从清单那里抢走。 */
+:where(html:not([data-weq-layout='single']))
+  .composer.flash-open
+  > .flash-composer
+  .flash-file-list
+  ~ .flash-picker {
+  gap: 4px;
+}
+:where(html:not([data-weq-layout='single']))
+  .composer.flash-open
+  > .flash-composer
+  .flash-file-list
+  ~ .flash-picker
+  svg {
+  width: 14px;
+  height: 14px;
+}
+:where(html:not([data-weq-layout='single']))
+  .composer.flash-open
+  > .flash-composer
+  .flash-file-list {
+  gap: 0;
+  margin: 0;
+  padding: 0 4px;
+}
+:where(html:not([data-weq-layout='single']))
+  .composer.flash-open
+  > .flash-composer
+  .flash-file-list
+  li {
+  padding: 3px 4px;
+}
+:where(html:not([data-weq-layout='single'])) .composer.flash-open > .flash-composer .flash-error {
+  margin: 2px 4px 0;
+}
+:where(html:not([data-weq-layout='single']))
+  .composer.flash-open
+  > .flash-composer
+  > .flash-composer-foot {
+  padding: 2px 4px 0;
+  border-top: 0;
+}
+/* 引用条占正文上面那一行时，闪传文件框跟着到第三行（同 .voice-panel）。 */
+:where(html:not([data-weq-layout='single'])) .composer.has-quote.flash-open > .flash-composer {
+  grid-row: 3;
+}
+/* 文件框占掉正文那一行、自己带「确认」键，主发送键让位（同 .composer.voice-open）。
      只在桌面内联形态下藏 —— 小屏文件框是浮层，主发送键还得留着。 */
-  .composer.flash-open > .composer-send {
-    display: none;
-  }
+:where(html:not([data-weq-layout='single'])) .composer.flash-open > .composer-send {
+  display: none;
 }
 
 /* ── 文件清单 ───────────────────────────────────────────────────────────── */

@@ -1,0 +1,11 @@
+.weq-update-interval-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.weq-update-interval-control .weq-set-input {
+  width: 110px;
+  min-width: 0;
+}

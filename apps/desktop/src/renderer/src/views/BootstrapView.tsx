@@ -12,28 +12,50 @@
  *   4. 启动探测完成后直接进入账号工作区。
  */
 
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { FolderOpen, X } from 'lucide-react';
+import {
+  lazy,
+  Suspense,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import { X } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog';
-import { useToast } from '../components/Toast';
-import { RestrictedModeIndicator } from '../components/RestrictedMode';
+import { BootstrapWindowActions } from '../components/BootstrapWindowActions';
 import { SelectScreen } from './bootstrap/SelectScreen';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
-import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
+import { runDesktopStartupWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
-import { DesktopOnly, IS_MAC, IS_WEB, shellBridge } from '../lib/target';
+import { IS_MAC, IS_WEB } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
-import { BackupSection } from '../components/settings/BackupSection';
+const BackupSection = lazy(() =>
+  import('../components/settings/BackupSection').then((module) => ({
+    default: module.BackupSection,
+  })),
+);
 import '../styles/startup-shell.css';
+import { WebStartupCache, WEB_STARTUP_CACHE_KEY } from '../lib/webStartupCache';
+import { advanceStartup } from '../state/startupProgress';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
 export function BootstrapView(): ReactElement {
+  const queryCache = useContext(WebStartupCache);
+  const initialSnapshot = useRef(
+    IS_WEB && queryCache?.getQueryData(WEB_STARTUP_CACHE_KEY) === true,
+  ).current;
+  useEffect(() => {
+    if (initialSnapshot)
+      queryCache?.removeQueries({ queryKey: WEB_STARTUP_CACHE_KEY, exact: true });
+  }, [initialSnapshot, queryCache]);
   const homeStage = useViewState((s) => s.homeStage);
   const setHomeStage = useViewState((s) => s.setHomeStage);
   const goTo = useViewState((s) => s.goTo);
@@ -49,11 +71,21 @@ export function BootstrapView(): ReactElement {
   });
   const nativeErr = nativeStatus.data ?? null;
   const nativeOk = nativeStatus.isSuccess && nativeStatus.data === null;
+  useEffect(() => {
+    advanceStartup(nativeOk ? 'account' : 'environment');
+  }, [nativeOk]);
+
+  const desktopStartup = trpc.bootstrap.desktopStartup.useQuery(undefined, {
+    enabled: !IS_WEB && nativeOk && homeStage === 'booting',
+    refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: Infinity,
+  });
 
   const currentAccount = trpc.bootstrap.currentAccount.useQuery(undefined, {
-    enabled: nativeOk && homeStage === 'booting',
-    staleTime: 0,
-    refetchOnMount: 'always',
+    enabled: nativeOk && homeStage === 'booting' && (IS_WEB || desktopStartup.isSuccess),
+    staleTime: initialSnapshot ? 30_000 : 0,
+    refetchOnMount: initialSnapshot ? false : 'always',
     refetchOnWindowFocus: false,
     retry: false,
   });
@@ -74,21 +106,25 @@ export function BootstrapView(): ReactElement {
   const configs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
     enabled: needsStartup,
     refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    staleTime: initialSnapshot ? 30_000 : 0,
+    refetchOnMount: initialSnapshot ? false : 'always',
   });
   const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(
     { startup: !IS_WEB },
     {
-      enabled: needsStartup,
+      enabled: needsStartup && IS_WEB,
       refetchOnWindowFocus: false,
     },
   );
-  const startupPage = trpc.bootstrap.getStartupPage.useQuery(undefined, {
-    enabled: needsStartup && !IS_WEB && homeStage === 'booting',
+  // Remote 的新页面是手机端的一次启动，不受电脑进程的启动快照约束。
+  const webSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: IS_WEB && nativeOk && homeStage === 'booting',
+    staleTime: initialSnapshot ? 30_000 : 0,
+    refetchOnMount: initialSnapshot ? false : 'always',
     refetchOnWindowFocus: false,
     retry: false,
   });
+  const requestedStartupPage = webSettings.data?.startupPage;
 
   // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
   // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。
@@ -128,6 +164,15 @@ export function BootstrapView(): ReactElement {
       return;
     }
     if (nativeOk) {
+      if (!IS_WEB) {
+        if (desktopStartup.isError) {
+          booted.current = true;
+          setHomeStage('home');
+          showError('读取启动状态失败', errMsg(desktopStartup.error));
+          return;
+        }
+        if (!desktopStartup.isSuccess) return;
+      }
       if (currentAccount.isError) {
         booted.current = true;
         setHomeStage('home');
@@ -135,16 +180,38 @@ export function BootstrapView(): ReactElement {
         return;
       }
       if (!currentAccount.isSuccess) return;
+      if (IS_WEB) {
+        if (!webSettings.isFetched) return;
+        if (webSettings.isError) {
+          booted.current = true;
+          setHomeStage('home');
+          showError('读取启动设置失败', errMsg(webSettings.error));
+          return;
+        }
+      }
       if (currentAccount.data) {
-        // 重载只接回主进程中的账号；不能重开数据库、切到自动进入目标或重置窗口。
+        // 只接回实际账号，不重开数据库或切号；桌面重载保留现场，Web 新页面应用启动设置。
         booted.current = true;
         const uin = currentAccount.data.uin;
         void (async () => {
-          if (!IS_WEB) {
+          advanceStartup('identity');
+          if (!initialSnapshot || utils.account.getAccountConfig.getData()?.uin !== uin)
             await utils.account.getAccountConfig.fetch();
-            await runAccountWarmup(utils, setWarmup);
+          // Web 只等待挂载必需配置，身份与会话列表在工作区内异步读取。
+          if (!IS_WEB) {
+            setWindowLayout('chat');
+            await runDesktopStartupWarmup(utils, (progress) => {
+              setWarmup(progress);
+              advanceStartup('identity', progress.done / Math.max(1, progress.total));
+            });
           }
+          const page = IS_WEB ? requestedStartupPage : desktopStartup.data?.page;
+          if (IS_WEB || page)
+            useViewState.setState({
+              startupPage: page === 'home' || page === 'messages' ? page : null,
+            });
           setOpenedUin(uin);
+          advanceStartup('workspace');
           goTo('main');
           setHomeStage('home');
         })().catch((error: unknown) => {
@@ -154,15 +221,21 @@ export function BootstrapView(): ReactElement {
         });
         return;
       }
+      if (!IS_WEB) {
+        // 后台已完成本轮自动进入；未打开或失败都回首页，不由界面再试一次。
+        booted.current = true;
+        setHomeStage('home');
+        if (desktopStartup.data?.error) showError('自动进入失败', desktopStartup.data.error);
+        return;
+      }
     }
     if (!nativeOk || !autoTarget.isFetched || !configs.isFetched) return;
-    if (!IS_WEB && !startupPage.isFetched) return;
     if (IS_MAC && !dataAccess.isFetched) return;
     booted.current = true;
     useViewState.setState({
       startupPage:
-        !IS_WEB && (startupPage.data === 'home' || startupPage.data === 'messages')
-          ? startupPage.data
+        requestedStartupPage === 'home' || requestedStartupPage === 'messages'
+          ? requestedStartupPage
           : null,
     });
 
@@ -216,19 +289,14 @@ export function BootstrapView(): ReactElement {
             ...(cfg.dataDir ? { dataDir: cfg.dataDir } : {}),
           });
         }
-        // 账号已打开，但先别进 MainView。两件事必须发生在它挂载之前：
-        //
-        //  1. resize 到 chat 尺寸。App.tsx 的 layout effect 是在 view 变成 'main'
-        //     *之后* 才发 IPC，也就是 MainView 会先按 home 的 580 高度画一帧——
-        //     左栏上下贴边的按钮在这个高度会重叠。提前调好就不会有这一帧。
-        //  2. 预热 MainView 那 8 个查询，否则首屏是空白头像 + 默认昵称 "WeQ"。
+        // Web 自动进入不预热全量目录，工作区内按需加载。
         setWindowLayout('chat');
-        await runAccountWarmup(utils, setWarmup);
 
         // Land on 'home' so closing the account later returns to the landing
         // screen rather than re-running the (now consumed) boot splash.
         setHomeStage('home');
         setOpenedUin(cfg.uin);
+        advanceStartup('workspace');
         goTo('main');
       } catch (e) {
         // 已经调大过窗口就调回来——失败要落回 home 屏，不能留着 chat 的尺寸。
@@ -242,14 +310,20 @@ export function BootstrapView(): ReactElement {
     homeStage,
     nativeOk,
     nativeErr,
+    desktopStartup.isSuccess,
+    desktopStartup.isError,
+    desktopStartup.error,
+    desktopStartup.data,
     currentAccount.isSuccess,
     currentAccount.isError,
     currentAccount.error,
     currentAccount.data,
     autoTarget.isFetched,
     autoTarget.data,
-    startupPage.isFetched,
-    startupPage.data,
+    requestedStartupPage,
+    webSettings.isFetched,
+    webSettings.isError,
+    webSettings.error,
     configs.isFetched,
     configs.data,
     dataAccess.isFetched,
@@ -260,6 +334,7 @@ export function BootstrapView(): ReactElement {
     goTo,
     showError,
     utils,
+    initialSnapshot,
   ]);
 
   // ---- render ----
@@ -272,12 +347,14 @@ export function BootstrapView(): ReactElement {
               <X size={14} />
               返回组件诊断
             </button>
-            <BackupSection />
+            <Suspense fallback={<WarmupSplash hint="正在加载备份设置" />}>
+              <BackupSection />
+            </Suspense>
           </div>
         </BootstrapShell>
       );
     return (
-      <BootstrapShell>
+      <BootstrapShell ready>
         <Centered>
           <img src={logoUrl} alt="" width={84} height={84} className="opacity-40 grayscale" />
           <p className="mt-4 text-[14px] text-muted-foreground">
@@ -301,7 +378,16 @@ export function BootstrapView(): ReactElement {
   if (homeStage === 'booting' || nativeStatus.isLoading) {
     return (
       <BootstrapShell>
-        <Splash progress={warmup} />
+        <WarmupSplash
+          progress={warmup}
+          hint={
+            !nativeOk
+              ? '正在检查启动环境'
+              : !IS_WEB && !desktopStartup.isSuccess
+                ? '正在打开账号'
+                : '正在准备工作区'
+          }
+        />
       </BootstrapShell>
     );
   }
@@ -309,76 +395,38 @@ export function BootstrapView(): ReactElement {
   if (!install.data) {
     return (
       <BootstrapShell>
-        <Splash />
+        <WarmupSplash hint="正在加载账号列表" />
       </BootstrapShell>
     );
   }
 
   return (
-    <BootstrapShell>
+    <BootstrapShell ready showWindowActions={false}>
       <SelectScreen install={install.data} />
     </BootstrapShell>
   );
 }
 
-export function BootstrapShell({ children }: { children: ReactNode }): ReactElement {
-  const pushToast = useToast((s) => s.push);
-  const showError = useDialog((s) => s.showError);
-
-  /**
-   * 打开日志目录 —— 首页正是最容易出问题的地方（未装 QQ / 组件损坏 /
-   * 取密钥失败），入口放在这里比让用户先进账号再翻设置更实在。
-   * 与设置页、日志查看器共用同一个 `logs:open-dir` IPC。
-   */
-  const openLogDir = (): void => {
-    const bridge = shellBridge();
-    if (!bridge) return;
-    void bridge
-      .openLogDir()
-      .then((ok) => {
-        if (ok) {
-          pushToast({
-            tone: 'success',
-            title: '已打开日志目录',
-            detail: '反馈问题时，可把该目录中的最新日志一并附上。',
-          });
-        } else {
-          // 日志系统还没初始化（极早期）——静默失败会让人以为按钮坏了。
-          showError('打开日志目录失败', '日志目录尚未初始化，请稍后再试。');
-        }
-      })
-      .catch((e) => showError('打开日志目录失败', errMsg(e)));
-  };
-
+export function BootstrapShell({
+  children,
+  showWindowActions = true,
+  ready = false,
+}: {
+  children: ReactNode;
+  showWindowActions?: boolean;
+  ready?: boolean;
+}): ReactElement {
   return (
-    <main className="weq-home-shell h-screen overflow-hidden font-sans text-foreground">
-      {/* 受限状态和窗口级按钮共用右上角工具栏：绝对定位，落在内容之外，
-          不占任何一屏的布局空间。 */}
-      <div className="weq-shell-actions">
-        <RestrictedModeIndicator />
-        <DesktopOnly>
-          <button
-            type="button"
-            className="weq-shell-log-btn flex h-7 w-7 items-center justify-center rounded-full text-[#8b9aab] transition-colors hover:bg-black/5 hover:text-[#142235]"
-            onClick={openLogDir}
-            title="打开日志目录"
-            aria-label="打开日志目录"
-          >
-            <FolderOpen size={15} strokeWidth={1.7} />
-          </button>
-        </DesktopOnly>
-        {/* macOS 自带左侧红黄绿三键，右上角这个自绘关闭按钮会重复；仅非 darwin 保留。 */}
-        {!IS_MAC && (
-          <button
-            type="button"
-            className="weq-shell-close-btn flex h-8 w-8 items-center justify-center rounded-full text-[#7a8b9e] transition-colors hover:bg-black/5 hover:text-[#142235]"
-            onClick={() => window.close()}
-            aria-label="关闭"
-          >
-            <X size={18} strokeWidth={1.8} />
-          </button>
-        )}
-      </div>
+    <main
+      className="weq-home-shell h-screen overflow-hidden font-sans text-foreground"
+      data-weq-startup-surface={ready || undefined}
+    >
+      {showWindowActions && (
+        <header className="weq-startup-titlebar">
+          <div className="weq-startup-drag" />
+          <BootstrapWindowActions />
+        </header>
+      )}
       <div className="relative z-10 h-full">{children}</div>
     </main>
   );
@@ -386,8 +434,4 @@ export function BootstrapShell({ children }: { children: ReactNode }): ReactElem
 
 function Centered({ children }: { children: ReactNode }): ReactElement {
   return <div className="flex h-full flex-col items-center justify-center">{children}</div>;
-}
-
-function Splash({ progress }: { progress?: WarmupProgress | null }): ReactElement {
-  return <WarmupSplash progress={progress} />;
 }

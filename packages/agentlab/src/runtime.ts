@@ -37,6 +37,8 @@ import type {
 } from './types';
 import { isStickerUsable } from './sticker';
 import { assertEmbeddingModelIdentity } from './model_selection';
+import { normalizeCloneGeneration } from './generation';
+import type { AiImagePort, AiImageRef, AiImageOutcome } from './images';
 
 /**
  * persona.typo → 传给 runPersonaChat 的 typoIntensity。
@@ -76,6 +78,8 @@ export interface ConversationTurnLike {
   role: 'user' | 'assistant';
   text: string;
   ts: number;
+  images?: AiImageRef[];
+  imageOutcomes?: AiImageOutcome[];
 }
 export interface ConversationSink {
   get(agentId: string): ConversationTurnLike[];
@@ -140,6 +144,7 @@ export interface RuntimeLogger {
 export type StickerAssetPort = (sticker: AgentLabStickerRef) => Promise<string | null>;
 
 export interface AgentRuntimeDeps {
+  images?: AiImagePort;
   signal?: AbortSignal;
   /** agentlab 根目录（合成语音落 <rootDir>/agentvoice/）。 */
   rootDir: string;
@@ -164,9 +169,12 @@ const REFLECT_EVERY = 8;
 const MIN_UNREFLECTED = 4;
 
 export class AgentRuntime {
+  private readonly images?: AiImagePort;
   private readonly lifecycle = new AbortController();
   private readonly externalSignal?: AbortSignal;
   private readonly background = new Set<Promise<void>>();
+  private readonly personaBackground = new Map<string, Set<Promise<void>>>();
+  private readonly personaControllers = new Map<string, AbortController>();
   private readonly rootDir: string;
   private readonly store: AgentLabStore;
   private readonly endpoints: EndpointResolver;
@@ -181,6 +189,7 @@ export class AgentRuntime {
   private readonly logger?: RuntimeLogger;
 
   constructor(deps: AgentRuntimeDeps) {
+    this.images = deps.images;
     this.externalSignal = deps.signal;
     this.rootDir = deps.rootDir;
     this.store = deps.store;
@@ -201,12 +210,32 @@ export class AgentRuntime {
     await Promise.all(this.background);
   }
 
-  private startBackground(task: Promise<void>): void {
+  async waitForPersonaWrites(personaId: string): Promise<void> {
+    await Promise.allSettled(this.personaBackground.get(personaId) ?? []);
+  }
+
+  async stopPersona(personaId: string): Promise<void> {
+    this.personaControllers.get(personaId)?.abort(new DOMException('克隆对话已停止', 'AbortError'));
+    await this.waitForPersonaWrites(personaId);
+    this.personaControllers.delete(personaId);
+  }
+
+  private startBackground(task: Promise<void>, personaId?: string): void {
     this.background.add(task);
-    void task.then(
-      () => this.background.delete(task),
-      () => this.background.delete(task),
-    );
+    if (personaId) {
+      const pending = this.personaBackground.get(personaId) ?? new Set<Promise<void>>();
+      pending.add(task);
+      this.personaBackground.set(personaId, pending);
+    }
+    const finish = (): void => {
+      this.background.delete(task);
+      if (personaId) {
+        const pending = this.personaBackground.get(personaId);
+        pending?.delete(task);
+        if (!pending?.size) this.personaBackground.delete(personaId);
+      }
+    };
+    void task.then(finish, finish);
   }
 
   private selfMemberId(): string {
@@ -228,7 +257,13 @@ export class AgentRuntime {
     ctx: { personaId?: string; scope: 'build' | 'chat' | 'assistant'; signal?: AbortSignal },
   ): AgentLabEndpoint {
     const ep = this.endpoints(ref, kind);
-    const signal = this.requestSignal(ep.signal, ctx.signal);
+    let ownerSignal: AbortSignal | undefined;
+    if (ctx.personaId) {
+      const owner = this.personaControllers.get(ctx.personaId) ?? new AbortController();
+      this.personaControllers.set(ctx.personaId, owner);
+      ownerSignal = owner.signal;
+    }
+    const signal = this.requestSignal(ep.signal, ctx.signal, ownerSignal);
     return {
       ...ep,
       signal,
@@ -409,6 +444,7 @@ export class AgentRuntime {
       embeddingEndpoint: AgentLabEndpoint | null;
       history: AgentLabChatTurn[];
       input: string;
+      images?: AiImageRef[];
       now: number;
       relationNote?: string;
       memories?: AgentLabMemoryItem[];
@@ -429,11 +465,54 @@ export class AgentRuntime {
         }
       : null;
     const voiceEnabled = this.isVoiceReady(persona);
+    let prepared = await this.images?.prepare({
+      feature: 'cloneChat',
+      personaId: persona.id,
+      text: opts.input,
+      images: opts.images,
+      endpoint: chatEndpoint,
+      direct: true,
+      signal,
+    });
+    const history: AgentLabChatTurn[] = [];
+    const historyCount = normalizeCloneGeneration(persona.generation).historyMessages;
+    for (const turn of historyCount === 0 ? [] : opts.history.slice(-historyCount))
+      history.push(
+        turn.images?.length && this.images
+          ? {
+              ...turn,
+              text: (
+                await this.images.prepare({
+                  feature: 'cloneChat',
+                  personaId: persona.id,
+                  text: turn.text,
+                  images: turn.images,
+                  signal,
+                })
+              ).text,
+            }
+          : turn,
+      );
     const result = await runPersonaChat(chatEndpoint, embeddingEndpoint, {
       persona,
       pairs,
-      history: opts.history,
-      input: opts.input,
+      history,
+      input: prepared?.text ?? opts.input,
+      inputContent: prepared?.content,
+      fallbackImageInput: prepared?.outcomes.some((outcome) => outcome.status === 'direct')
+        ? async () => {
+            prepared = await this.images!.prepare({
+              feature: 'cloneChat',
+              text: opts.input,
+              images: prepared?.images ?? opts.images,
+              signal,
+              forceOcr: true,
+            });
+            for (const outcome of prepared.outcomes)
+              outcome.notes.unshift('视觉请求失败，本次已回退 OCR。');
+            return prepared.text;
+          }
+        : undefined,
       memories: opts.memories ?? this.memories.get(opts.dataKey ?? persona.id),
       notes: this.notes.get(opts.dataKey ?? persona.id),
       voiceEnabled,
@@ -442,6 +521,8 @@ export class AgentRuntime {
       replyReason: opts.replyReason,
     });
     signal.throwIfAborted();
+    result.imageOutcomes = prepared?.outcomes;
+    result.imageRefs = prepared?.images;
     // 命中的记忆 +access（越常被想起越不易遗忘）。
     this.memories.touch(opts.dataKey ?? persona.id, result.usedMemoryIds, opts.now);
 
@@ -495,6 +576,7 @@ export class AgentRuntime {
     personaId: string;
     history: AgentLabChatTurn[];
     text: string;
+    images?: AiImageRef[];
     sessionId?: string;
     /** 仅由受信任的传输层提供；Bot 必传，桌面缺省兼容旧单用户作用域。 */
     privatePeerId?: string;
@@ -530,7 +612,9 @@ export class AgentRuntime {
       });
       if (!decision.shouldReply) {
         const ts = Date.now();
-        this.conversations.append(bucket, [{ role: 'user', text: input.text, ts }]);
+        this.conversations.append(bucket, [
+          { role: 'user', text: input.text, ts, images: input.images },
+        ]);
         return {
           text: '',
           segments: [],
@@ -554,8 +638,9 @@ export class AgentRuntime {
       {
         chatEndpoint,
         embeddingEndpoint,
-        history: input.history,
+        history: input.history.length ? input.history : this.conversations.get(bucket),
         input: input.text,
+        images: input.images,
         now,
         dataKey,
       },
@@ -569,7 +654,14 @@ export class AgentRuntime {
       ts: now,
     }));
     this.conversations.append(bucket, [
-      { role: 'user', text: input.text, ts: now },
+      {
+        role: 'user',
+        text: input.text,
+        ts: now,
+        ...(input.images?.length
+          ? { images: result.imageRefs ?? input.images, imageOutcomes: result.imageOutcomes }
+          : {}),
+      },
       ...assistantTurns,
     ]);
 
@@ -582,8 +674,12 @@ export class AgentRuntime {
         dataKey,
         input.privatePeerId,
       ),
+      input.personaId,
     );
-    this.startBackground(this.maybeReflect(dataKey, record.persona.name, chatEndpoint));
+    this.startBackground(
+      this.maybeReflect(dataKey, record.persona.name, chatEndpoint),
+      input.personaId,
+    );
 
     return { ...result, renderedTurns, silent: false };
   }
@@ -629,6 +725,7 @@ export class AgentRuntime {
           /* 嵌入失败就退化成关键词召回 */
         }
       }
+      chatEndpoint.signal?.throwIfAborted();
       this.memories.add(
         dataKey,
         fresh,
@@ -686,6 +783,7 @@ export class AgentRuntime {
     groupId?: string;
     signal?: AbortSignal;
     text: string;
+    images?: AiImageRef[];
     mentionsSelf: boolean;
     history: AgentLabChatTurn[];
     /** 最近若干条里自己的占比（存在感惩罚，0~1）。 */
@@ -698,12 +796,23 @@ export class AgentRuntime {
      */
     mode?: 'llm' | 'heuristic';
   }): Promise<{
+    imageRefs?: AiImageRef[];
     renderedTurns: string[];
     replyDelayMs: number;
     silent: boolean;
     reason: string;
     score: number;
   }> {
+    if (input.images?.length && this.images) {
+      const prepared = await this.images.prepare({
+        feature: 'cloneChat',
+        personaId: input.personaId,
+        text: input.text,
+        images: input.images,
+        signal: this.requestSignal(input.signal),
+      });
+      input = { ...input, text: prepared.text, images: prepared.images ?? input.images };
+    }
     const record = this.store.getPersona(input.personaId);
     if (!record?.persona.models?.chat)
       return {
@@ -759,6 +868,7 @@ export class AgentRuntime {
           silent: true,
           reason: decision.reason,
           score: 0,
+          imageRefs: input.images,
         };
       }
       replyDelayMs = Math.round(300 + Math.random() * 500);
@@ -784,6 +894,7 @@ export class AgentRuntime {
           silent: true,
           reason: decision.reason,
           score: decision.score,
+          imageRefs: input.images,
         };
       }
       replyDelayMs = decision.replyDelayMs;
@@ -818,7 +929,7 @@ export class AgentRuntime {
       `对方(${input.senderName})：${input.text}\n你：${renderedTurns.join(' ')}`,
       chatEndpoint,
     );
-    return { renderedTurns, replyDelayMs, silent: false, reason, score };
+    return { renderedTurns, replyDelayMs, silent: false, reason, score, imageRefs: input.images };
   }
 
   /**

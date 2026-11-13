@@ -10,6 +10,8 @@ export interface OnlineAccess {
   needsMemoryRead?: boolean;
   ssoReady?: boolean;
   credentialsPending?: boolean;
+  /** 需要用户处理的凭据原因（当前是长期授权助手需要修复）。 */
+  credentialsIssue?: { title: string; message: string } | null;
 }
 
 export interface Restriction {
@@ -42,7 +44,7 @@ function offlineRestriction(sipEnabled?: boolean | null): Restriction {
     title: 'QQ 不在线',
     guidance:
       sipEnabled === true
-        ? '请启动独立的 QQ 调试副本，并在副本中登录目标账号；尚未创建时请先创建副本。SIP 可以保持开启，登录后会自动重新检查。'
+        ? '请在 QQ 调试副本中登录当前账号，登录后会自动继续。'
         : '请在本机 QQ 登录当前账号，登录后会自动重新检查。',
   };
 }
@@ -92,13 +94,18 @@ export function restrictionReasons(input: {
     access.hasA2 && access.hasD2 && access.hasD2Key && access.needsMemoryRead !== true;
   const ready =
     sessionReady && access.hasGuid && access.hasUid !== false && access.ssoReady !== false;
-  if (access.qqOnline && access.attachEnabled && !ready) {
-    if (input.sipEnabled === true && !sessionReady)
+  if (access.qqOnline && access.attachEnabled && access.credentialsIssue)
+    reasons.push({
+      code: 'authorization',
+      title: access.credentialsIssue.title,
+      guidance: access.credentialsIssue.message,
+    });
+  else if (access.qqOnline && access.attachEnabled && !ready) {
+    if (input.sipEnabled === true && !sessionReady && !access.credentialsPending)
       reasons.push({
         code: 'sip',
         title: 'QQ 调试读取尚未就绪',
-        guidance:
-          'SIP 可以保持开启。请创建并启动 QQ 调试副本，在副本中登录目标账号后重新检查；也可使用扫码登录。是否就绪以实际会话凭据为准。',
+        guidance: '请在 QQ 调试副本中登录当前账号，登录后会自动继续；也可使用扫码登录。',
       });
     else
       reasons.push({

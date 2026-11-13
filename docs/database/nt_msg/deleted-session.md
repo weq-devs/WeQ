@@ -20,7 +20,7 @@
 （消息表 `c2c_msg_table` / `group_msg_table` 纹丝不动 —— 消息还在，
 用搜索或重新收到消息都能找回来），同时在这里留一条登记。
 
-这与「隐藏会话」（[hidden_session_storage_table_v1](./hidden-session.md)）正好相反：
+这与「隐藏会话」（[hidden_session_storage_table_v1](hidden-session.md)）正好相反：
 
 | | 隐藏会话 | 删除会话 |
 | -- | -------- | -------- |
@@ -66,7 +66,7 @@ WeQ 的拆法（`deleted_session.ts`）：按**第一个** `_` 切分，剩余�
 uid 本身可能含下划线，不能无脑 `split('_')`。两侧都非空、chatType 是有限数字才算合格，
 不合格的行打 warn 后丢弃（`listDeletedSessions` 里 `filter` 掉 `null`）。
 
-chatType 数值与 [recent_contact · ChatType](./recent-contact.md#四chattype会话类型) 同一枚举。
+chatType 数值与 [recent_contact · ChatType](recent-contact.md#四chattype会话类型) 同一枚举。
 WeQ 的 service 只认三种（`deleted_session.ts`）：
 
 | 值 | 含义 |
@@ -109,4 +109,4 @@ SELECT "1005","40050","49740" FROM recent_contact_delete_storage;
 
 ---
 
-[← 返回 nt_msg.db](./index.md)
+[← 返回 nt_msg.db](index.md)

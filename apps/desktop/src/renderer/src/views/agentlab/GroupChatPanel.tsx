@@ -14,6 +14,9 @@ import { ChatPane } from '../../im-template/template/chatPane';
 import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import { trpc, client } from '../../trpc/client';
+import { AiImageComposer, AiImageGallery } from '../../components/AiImageComposer';
+import { parseAiImageDraft, changeAiImageDraftText } from '../../lib/aiImageDraft';
+import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -24,7 +27,6 @@ import {
   cloneChatMessages,
   cloneChatInput,
 } from './cloneChatAdapter';
-import { SessionSwitcher } from './SessionSwitcher';
 import { AddGroupMembersModal, type AddGroupMembersResult } from './AddGroupMembersModal';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
@@ -41,7 +43,6 @@ interface PersonaLite {
 
 export function GroupChatPanel({
   groupId,
-  sessionId,
   searchTarget,
   readOnlyLegacy = false,
   selfUin,
@@ -50,15 +51,12 @@ export function GroupChatPanel({
   faceDescToId,
   onBack,
   onDeleted,
-  onSessionCreated,
-  onSwitchSession,
-  onNewSession,
   onOpenPersonaSettings,
   personaSettingsOpen = false,
 }: {
   groupId: string;
   /** 真实会话 id；null = 草稿会话（首条消息才落库建会话）。 */
-  sessionId: string | null;
+  sessionId?: string | null;
   searchTarget?: GeneratedSearchHit;
   readOnlyLegacy?: boolean;
   selfUin?: string;
@@ -68,41 +66,32 @@ export function GroupChatPanel({
   onBack: () => void;
   onDeleted: () => void;
   /** 草稿会话首条消息落库后回调（父组件把选中态指向新会话，不换 key）。 */
-  onSessionCreated: (sessionId: string) => void;
+  onSessionCreated?: (sessionId: string) => void;
   /** 切到同一群的另一段会话。 */
-  onSwitchSession: (sessionId: string) => void;
-  onNewSession: () => void;
+  onSwitchSession?: (sessionId: string) => void;
+  onNewSession?: () => void;
   onOpenPersonaSettings?: (personaId: string) => void;
   personaSettingsOpen?: boolean;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const detail = trpc.account.getAgentLabGroupDetail.useQuery({ groupId });
-  const sessionList = trpc.account.listAgentLabGroupSessions.useQuery(
-    { groupId },
-    { staleTime: 0 },
-  );
-  // 当前真实会话 id：null = 草稿。草稿升级成真会话时更新状态，让 conversation 查询
-  // 从「禁用」变为「按新会话拉取」——事件流万一漏了几条也能从磁盘补齐（不依赖重挂载）。
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
-  const sessionIdRef = useRef<string | null>(sessionId);
-  const legacy = readOnlyLegacy || Boolean(searchTarget && searchTarget.sessionId === null);
+  const legacy = readOnlyLegacy;
   // 每次进群都从磁盘拉最新：订阅是组件级的，若在流式途中/ done 前切走，done 的 invalidate
   // 不会执行（订阅已销毁），只靠事件刷缓存会漏。强制 refetch + 按 id 合并 = 无论漏没漏都补齐。
   const conversation = trpc.account.getAgentLabGroupConversation.useQuery(
-    { groupId, sessionId: currentSessionId ?? undefined },
-    { refetchOnMount: 'always', staleTime: 0, enabled: !!currentSessionId || legacy },
+    { groupId },
+    { refetchOnMount: 'always', staleTime: 0 },
   );
   const send = trpc.account.sendAgentLabGroupMessage.useMutation();
   const clear = trpc.account.clearAgentLabGroupConversation.useMutation();
-  const createSession = trpc.account.createAgentLabGroupSession.useMutation();
-  const deleteSession = trpc.account.deleteAgentLabGroupSession.useMutation();
   const del = trpc.account.deleteAgentLabGroup.useMutation();
   const addMember = trpc.account.addAgentLabGroupMember.useMutation();
   const removeMember = trpc.account.removeAgentLabGroupMember.useMutation();
 
   const [history, setHistory] = useState<AgentLabGroupMessage[]>([]);
   const [input, setInput] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [addingMembers, setAddingMembers] = useState(false);
@@ -116,7 +105,8 @@ export function GroupChatPanel({
   const [jumpRequest, setJumpRequest] = useState(
     searchTarget ? { messageId: searchTarget.messageId, revision: 0 } : undefined,
   );
-  const viewId = useRef(`virtual:clone:group:${groupId}:${sessionId ?? 'draft'}`).current;
+  const viewId = `virtual:clone:group:${groupId}`;
+  const sharedDraft = useSharedAssistantDraft(viewId, input, setInput, !legacy);
   const user = useMemo(() => cloneChatUser('self', '我', selfUin), [selfUin]);
 
   const members = detail.data?.members ?? [];
@@ -156,11 +146,26 @@ export function GroupChatPanel({
     if (searchTarget && conversation.isFetching) return;
     if (!data || data.length === 0) return;
     const missing = data.filter((m) => !seenIds.current.has(m.id));
-    if (missing.length === 0) return;
     missing.forEach((m) => {
       seenIds.current.add(m.id);
     });
-    setHistory((prev) => [...prev, ...missing].sort((a, b) => a.ts - b.ts));
+    const incoming = new Map(
+      data
+        .slice(-16)
+        .filter((message) => message.imageOutcomes)
+        .map((message) => [message.id, message]),
+    );
+    setHistory((prev) => {
+      let updated = false;
+      const merged = prev.map((message) => {
+        const fresh = incoming.get(message.id);
+        if (!fresh || JSON.stringify(fresh.imageOutcomes) === JSON.stringify(message.imageOutcomes))
+          return message;
+        updated = true;
+        return { ...message, imageOutcomes: fresh.imageOutcomes };
+      });
+      return updated || missing.length ? [...merged, ...missing].sort((a, b) => a.ts - b.ts) : prev;
+    });
   }, [conversation.data, conversation.isFetching, searchTarget]);
 
   // 订阅处理器里要用 dialog / utils，但它们每次渲染都是新对象；直接进依赖会让订阅
@@ -184,13 +189,10 @@ export function GroupChatPanel({
         } else if (ev.kind === 'done') {
           setBusy(false);
           // 让持久化群消息缓存跟上（后端已逐条落库）；否则切走再切回会从陈旧缓存 reseed 丢消息。
-          const sid = sessionIdRef.current;
           void utilsRef.current.account.getAgentLabGroupConversation.invalidate({
             groupId,
-            ...(sid ? { sessionId: sid } : {}),
           });
           // 首句标题 / 时间刷新由后端落库，这里让会话列表跟上。
-          void utilsRef.current.account.listAgentLabGroupSessions.invalidate({ groupId });
           void utilsRef.current.account.listAgentLabGroups.invalidate();
         } else if (ev.kind === 'error') {
           setBusy(false);
@@ -206,7 +208,10 @@ export function GroupChatPanel({
   async function onSend(body: string): Promise<void> {
     if (legacy) return;
     const text = cloneChatInput(body, faceDescToId).trim();
-    if (!text || busy) return;
+    const images = parseAiImageDraft(input).images;
+    if ((!text && !images.length) || busy || imageUploading) return;
+    const submitted = input;
+    const clearSubmittedDraft = sharedDraft.prepareSubmitted(submitted);
     setJumpRequest(undefined);
     // 文本里出现 @某克隆体名 → 定向 @；一个都没有 → 全体应答（后端逻辑）。
     const mentions = personaMembers
@@ -215,27 +220,17 @@ export function GroupChatPanel({
     setInput('');
     setBusy(true);
     try {
-      // 草稿会话：真正发第一条消息时才落库建会话（与 WeQ 助手一致）。
-      let sid = sessionIdRef.current;
-      if (!sid) {
-        const session = await createSession.mutateAsync({ groupId });
-        sid = session.id;
-        sessionIdRef.current = sid;
-        // 把查询切到新会话：查询变为 enabled，事件流万一漏发也能从磁盘把已落库消息合并回来。
-        setCurrentSessionId(sid);
-        await utils.account.listAgentLabGroupSessions.invalidate({ groupId });
-        onSessionCreated(sid);
-      }
-      await send.mutateAsync({ groupId, text, mentions, sessionId: sid });
+      await send.mutateAsync({ groupId, text, images, mentions });
+      void clearSubmittedDraft().catch(() => {});
       // 用户消息与所有回复都由 onGroupChatEvent 流式送达，这里不做乐观插入（避免重复）。
       // 发送完成后立刻从磁盘刷一次：漏掉的事件对应的消息已落库，合并 effect 会按 id 补齐。
       void utils.account.getAgentLabGroupConversation.invalidate({
         groupId,
-        sessionId: sid,
       });
     } catch (e) {
       setBusy(false);
       dialog.error('发送失败', e instanceof Error ? e.message : String(e));
+      setInput((current) => current || submitted);
       throw e;
     } finally {
       // 事件漏发或生成失败时，也从落库消息恢复主列表的活动时间和预览。
@@ -247,18 +242,15 @@ export function GroupChatPanel({
     if (legacy) return;
     const ok = await dialog.confirm(
       '清空当前对话',
-      '仅清空当前这段群聊对话的消息，保留其他历史对话、群聊和成员。此操作无法恢复。',
+      '清空这个克隆群的全部聊天消息，保留群聊和成员。此操作无法恢复。',
       {
         okLabel: '清空',
         tone: 'warning',
       },
     );
     if (!ok) return;
-    const sid = sessionIdRef.current;
-    if (sid) {
-      await clear.mutateAsync({ groupId, sessionId: sid });
-      await utils.account.getAgentLabGroupConversation.invalidate({ groupId, sessionId: sid });
-    }
+    await clear.mutateAsync({ groupId });
+    await utils.account.getAgentLabGroupConversation.invalidate({ groupId });
     setHistory([]);
     seenIds.current.clear();
   }
@@ -339,7 +331,7 @@ export function GroupChatPanel({
   async function onDelete(): Promise<void> {
     const ok = await dialog.confirm(
       '删除整个群聊',
-      '删除这个克隆群及其全部历史对话。不会删除成员对应的克隆体。此操作无法恢复。',
+      '永久删除这个克隆群及其全部数据，无法恢复，也不会进入“已删除会话”。正在进行的回答会先停止并等待写入结束；不会删除成员对应的克隆体。',
       {
         okLabel: '删除',
         tone: 'warning',
@@ -354,7 +346,7 @@ export function GroupChatPanel({
   const groupName = detail.data?.group.name ?? '群聊';
   const chatConversation = useMemo(() => {
     const projected = cloneChatConversation({
-      target: { kind: 'group', ownerId: groupId, sessionId: legacy ? null : currentSessionId },
+      target: { kind: 'group', ownerId: groupId, sessionId: null },
       viewId,
       name: groupName,
       peer: user,
@@ -384,8 +376,6 @@ export function GroupChatPanel({
     return projected;
   }, [
     groupId,
-    legacy,
-    currentSessionId,
     viewId,
     groupName,
     user,
@@ -428,8 +418,8 @@ export function GroupChatPanel({
     [history, viewId, user, metaFor, nameById],
   );
   const sourceMessages = useMemo(
-    () => new Map(history.map((message) => [message.id, message])),
-    [history],
+    () => new Map(history.map((message, index) => [messages[index]?.id ?? message.id, message])),
+    [history, messages],
   );
   const renderers = useMemo<MessageRenderer[]>(
     () => [
@@ -442,11 +432,21 @@ export function GroupChatPanel({
             ? metaFor(source.senderId, source.senderKind, nameById.get(source.senderId) ?? '克隆体')
             : undefined;
           return (
-            <AgentMessageContent
-              text={message.body}
-              personaId={mine ? undefined : source?.senderId}
-              faces={meta?.faces}
-            />
+            <>
+              <AiImageGallery images={source?.images} outcomes={source?.imageOutcomes} />
+              {(source?.text ?? message.body) ? (
+                <AgentMessageContent
+                  text={source?.text ?? message.body}
+                  personaId={mine ? undefined : source?.senderId}
+                  faces={meta?.faces}
+                  sourceSession={{
+                    id: source?.sourceSessionId,
+                    title: source?.sourceSessionTitle,
+                    messageId: source?.sourceMessageId,
+                  }}
+                />
+              ) : null}
+            </>
           );
         },
       },
@@ -455,77 +455,60 @@ export function GroupChatPanel({
   );
   return (
     <>
-      <ChatPane
-        loadError={conversation.isError ? '记录加载失败' : undefined}
-        user={user}
-        conversation={chatConversation}
-        onKickGroupMember={(_conversation, sender) => {
-          const member = members.find(
-            (item) => item.kind === 'persona' && `virtual:${item.memberId}` === sender.id,
-          );
-          if (member) void onKickMember(member.memberId);
+      <AiImageComposer
+        fill
+        value={input}
+        setValue={setInput}
+        disabled={legacy || busy}
+        onBusyChange={setImageUploading}
+        onSendImages={() => {
+          void onSend(parseAiImageDraft(input).text).catch(() => {});
         }}
-        groupMemberSearch={memberSearch}
-        onGroupMemberSearchChange={setMemberSearchKeyword}
-        onAddGroupMember={() => {
-          setAddingMembers(true);
-        }}
-        profileLoading={detail.isLoading}
-        groupMembersError={detail.isError ? '群成员加载失败' : undefined}
-        messages={messages}
-        messageRenderers={renderers}
-        loading={Boolean(
-          conversation.isFetching && !history.length && (currentSessionId || legacy),
-        )}
-        preference={undefined}
-        draft={input}
-        onDraftChange={(_id, value) => setInput(value)}
-        onDraftClear={() => setInput('')}
-        onSend={onSend}
-        onBack={onBack}
-        sendAvailable={!legacy && !busy}
-        readOnly={legacy}
-        sendBlockedReason={legacy ? '旧版对话（只读）' : '克隆体正在回复'}
-        settingsLabel="克隆群聊设置"
-        onOpenConversationSettings={() => setMembersOpen(true)}
-        onSearchChatRecords={() => setSearchOpen(true)}
-        jumpRequest={jumpRequest}
-        headerActions={
-          <SessionSwitcher
-            sessions={sessionList.data ?? []}
-            activeSessionId={currentSessionId}
-            draft={!legacy && !currentSessionId}
-            loading={sessionList.isLoading}
-            disabled={legacy}
-            compact
-            onSwitch={onSwitchSession}
-            onNew={onNewSession}
-            onClear={
-              !legacy && currentSessionId
-                ? () =>
-                    void onClear().catch((error: unknown) =>
-                      dialog.error('清空失败', String(error)),
-                    )
-                : undefined
-            }
-            clearDisabled={busy || clear.isLoading}
-            onDelete={(target) => {
-              void (async () => {
-                if (
-                  !(await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
-                    okLabel: '删除',
-                    tone: 'warning',
-                  }))
-                )
-                  return;
-                await deleteSession.mutateAsync({ groupId, sessionId: target });
-                await utils.account.listAgentLabGroupSessions.invalidate({ groupId });
-                if (currentSessionId === target) onNewSession();
-              })();
+      >
+        {(attachments, imageButton) => (
+          <ChatPane
+            composerAttachments={attachments}
+            composerToolbar={imageButton}
+            hasExternalAttachments={parseAiImageDraft(input).images.length > 0}
+            loadError={conversation.isError ? '记录加载失败' : undefined}
+            user={user}
+            conversation={chatConversation}
+            onKickGroupMember={(_conversation, sender) => {
+              const member = members.find(
+                (item) => item.kind === 'persona' && `virtual:${item.memberId}` === sender.id,
+              );
+              if (member) void onKickMember(member.memberId);
             }}
+            groupMemberSearch={memberSearch}
+            onGroupMemberSearchChange={setMemberSearchKeyword}
+            onAddGroupMember={() => {
+              setAddingMembers(true);
+            }}
+            profileLoading={detail.isLoading}
+            groupMembersError={detail.isError ? '群成员加载失败' : undefined}
+            messages={messages}
+            messageRenderers={renderers}
+            loading={Boolean(conversation.isFetching && !history.length)}
+            preference={undefined}
+            draft={parseAiImageDraft(input).text}
+            onDraftChange={(_id, value) =>
+              setInput((current) => changeAiImageDraftText(current, value))
+            }
+            onDraftClear={() => setInput('')}
+            onSend={onSend}
+            onBack={onBack}
+            sendAvailable={!legacy && !busy && !imageUploading}
+            readOnly={legacy}
+            sendBlockedReason={
+              legacy ? '旧版对话（只读）' : imageUploading ? '正在准备图片' : '克隆体正在回复'
+            }
+            settingsLabel="克隆群聊设置"
+            onOpenConversationSettings={() => setMembersOpen(true)}
+            onSearchChatRecords={() => setSearchOpen(true)}
+            jumpRequest={jumpRequest}
           />
-        }
-      />
+        )}
+      </AiImageComposer>
       {searchOpen ? (
         <ChatRecordsModal
           fixed
@@ -644,12 +627,25 @@ export function GroupChatPanel({
             ) : (
               <div className="weq-persona-form">
                 <p className="weq-persona-note">
-                  删除整个群及全部历史对话，不会删除成员对应的克隆体。仅清空或删除某段对话请使用标题栏的历史会话菜单。
+                  删除整个群及全部历史对话，不会删除成员对应的克隆体。
                 </p>
                 <button
                   type="button"
                   className="weq-set-btn weq-set-btn-soft"
-                  disabled={busy || del.isLoading}
+                  disabled={legacy || busy || clear.isLoading}
+                  onClick={() =>
+                    void onClear().catch((error: unknown) =>
+                      dialog.error('清空失败', String(error)),
+                    )
+                  }
+                >
+                  <Trash2 size={14} />
+                  清空聊天记录
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft"
+                  disabled={del.isLoading}
                   onClick={() =>
                     void onDelete().catch((error: unknown) =>
                       dialog.error('删除失败', String(error)),

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { VOICE_MODELS } from '@weq/service';
 import { accountRouter } from '../src/main/ipc/routers/account';
@@ -31,7 +32,7 @@ vi.mock('../src/main/context/app_context', () => {
       },
     },
   };
-  return { getAppContext: () => context };
+  return { accountEventBus: new EventEmitter(), getAppContext: () => context };
 });
 vi.mock('../src/main/voice', () => ({
   decodeSilkToWav16kBuffer: async () => Buffer.from('synthetic-wav'),

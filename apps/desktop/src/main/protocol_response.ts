@@ -15,3 +15,13 @@ export function withCors(res: Response): Response {
   headers.set('Access-Control-Allow-Origin', '*');
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
+
+/** GET 的 If-None-Match 使用弱比较，兼容通配符与多个候选版本。 */
+export function matchesIfNoneMatch(value: string | null, etag: string): boolean {
+  return (
+    value?.split(',').some((tag) => {
+      const candidate = tag.trim();
+      return candidate === '*' || candidate.replace(/^W\//, '') === etag.replace(/^W\//, '');
+    }) ?? false
+  );
+}

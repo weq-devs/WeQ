@@ -39,24 +39,27 @@ export const cloudProfileResponse = message([
   },
 ]);
 export async function getCloudProfile(nt: PacketNative, pid: number, uin: string, keys: number[]) {
-  const number = requireUin(uin);
-  if (number > 0xffffffffn) throw new Error('QQ 号超出支持范围');
+  const uidForm = /^u_[A-Za-z0-9_-]+$/.test(uin);
+  const number = uidForm ? null : requireUin(uin);
+  if (number !== null && number > 0xffffffffn) throw new Error('QQ 号超出支持范围');
   const body = responseObject(
     decode(
       cloudProfileResponse,
       await sendOidb(nt, pid, {
         command: 0xfe1,
         subCommand: 2,
-        isUid: true,
-        body: encode(GetUserQqLevel.reqSchema, {
-          uin: Number(number),
+        isUid: !uidForm,
+        body: encode(uidForm ? cloudProfileUidRequest : GetUserQqLevel.reqSchema, {
+          ...(uidForm ? { uid: uin } : { uin: Number(number) }),
           keys: keys.map((key) => ({ key })),
         }),
       }),
     ).body,
     '云端资料',
   );
-  if (body.uin !== undefined && String(body.uin) !== uin) throw new Error('云端资料号码不匹配');
+  if (!uidForm && body.uin !== undefined && String(body.uin) !== uin)
+    throw new Error('云端资料号码不匹配');
+  if (uidForm && body.uid !== undefined && body.uid !== uin) throw new Error('云端资料 UID 不匹配');
   const props = responseObject(body.properties, '云端资料属性');
   const numbers = new Map<number, number>();
   const bytes = new Map<number, Uint8Array>();
@@ -72,8 +75,24 @@ export async function getCloudProfile(nt: PacketNative, pid: number, uin: string
       throw new Error('云端字节属性异常');
     bytes.set(row.key, row.value);
   }
-  return { uid: typeof body.uid === 'string' ? body.uid : null, numbers, bytes };
+  return {
+    uid: typeof body.uid === 'string' ? body.uid : null,
+    uin: typeof body.uin === 'number' && body.uin > 0 ? String(body.uin) : null,
+    numbers,
+    bytes,
+  };
 }
+
+// UID 形式的 field 1 是 string，不能沿用 UIN 形式的 uint32 或信封标记。
+const cloudProfileUidRequest = message([
+  { name: 'uid', tag: 1, type: 'string' },
+  {
+    name: 'keys',
+    tag: 3,
+    repeated: true,
+    type: message([{ name: 'key', tag: 1, type: 'uint32' }]),
+  },
+]);
 
 export async function getCommonFriendCount(
   nt: PacketNative,

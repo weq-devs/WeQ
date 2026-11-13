@@ -10,6 +10,8 @@
 import { EventEmitter } from 'node:events';
 
 export interface UpdateState {
+  includePrerelease?: boolean;
+  channel?: string;
   /** Running app version (app.getVersion()). */
   current: string;
   /** Latest version from the manifest, or null if never checked. */
@@ -20,6 +22,12 @@ export interface UpdateState {
   base: string | null;
   /** Healthy mirror bases, fastest first (download fallback order). */
   ranked: string[];
+  /**
+   * This copy is installed by a distro package manager (AUR), so it can check
+   * for updates but must not replace its own files — `pacman` owns them.
+   * Set by the updater at check time; absent in older cached shapes.
+   */
+  managed?: boolean;
 }
 
 export interface UpdateProgress {
@@ -32,6 +40,7 @@ export interface UpdateProgress {
 export type UpdateEvent =
   /** Speed-test started — `mirrors` mirrors are being screened. */
   | { kind: 'checking'; mirrors: number }
+  | { kind: 'check-failed' }
   /**
    * Speed-test done — `base` won, `ranked` is the full fallback order. Also
    * carries the version verdict so the UI can leave its "checking" state even
@@ -62,6 +71,10 @@ export function setUpdateState(state: UpdateState | null): void {
  * default no-op actions in place.
  */
 export interface UpdateActions {
+  getInterval(): number;
+  setInterval(minutes: number): void;
+  getPrerelease(): boolean;
+  setPrerelease(enabled: boolean): void;
   check(force: boolean): Promise<UpdateState>;
   startDownload(): Promise<void>;
   quitAndInstall(): void;
@@ -70,6 +83,10 @@ export interface UpdateActions {
 }
 
 const unsupported: UpdateActions = {
+  getInterval: () => 60,
+  setInterval: () => {},
+  getPrerelease: () => false,
+  setPrerelease: () => {},
   supported: false,
   async check() {
     return lastState ?? { current: '', latest: null, hasUpdate: false, base: null, ranked: [] };

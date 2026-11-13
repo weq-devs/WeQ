@@ -5,16 +5,19 @@ interface OutgoingJob {
   run: () => Promise<void>;
 }
 
-/** 只由直接前驱的成功回执放行；失败和手动越过不会放行其他分支。 */
+/** 旧队列只由直接前驱成功放行；失败后新提交的消息可越过阻塞，独立接续发送。 */
 export class OutgoingQueue {
   private jobs = new Map<string, OutgoingJob>();
   private tails = new Map<string, string>();
 
   add(id: string, conversationId: string, run: () => Promise<void>): void {
     const previous = this.tails.get(conversationId);
+    let predecessor = previous ? this.jobs.get(previous) : undefined;
+    while (predecessor?.state === 'queued')
+      predecessor = predecessor.previous ? this.jobs.get(predecessor.previous) : undefined;
     this.jobs.set(id, { conversationId, previous, state: 'queued', run });
     this.tails.set(conversationId, id);
-    if (!previous) this.start(id);
+    if (!previous || predecessor?.state === 'failed') this.start(id);
   }
 
   start(id: string): void {

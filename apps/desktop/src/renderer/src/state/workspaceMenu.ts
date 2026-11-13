@@ -2,6 +2,19 @@ import { create } from 'zustand';
 import type { AssistantActivity, WorkspaceTaskIndicator } from '../lib/workspaceIndicators';
 import { readWorkspaceResults, rememberWorkspaceResults } from '../lib/workspaceReadState';
 
+export const TASK_READ_LIMIT = 4096;
+export type MobileWorkspaceTool =
+  | 'tasks'
+  | 'assistant'
+  | 'analysis'
+  | 'export'
+  | 'viewer'
+  | 'composition';
+
+function retainTaskResults(results: Record<string, string>) {
+  return Object.fromEntries(Object.entries(results).slice(-TASK_READ_LIMIT));
+}
+
 interface WorkspaceMenuState {
   anchor: HTMLElement | null;
   running: number;
@@ -10,7 +23,11 @@ interface WorkspaceMenuState {
   assistant: AssistantActivity;
   assistantUnread: boolean;
   taskOpenRequest: number;
+  taskFocusId: string | null;
+  focusTask: (id: string) => void;
   openTasks: () => void;
+  mobileToolRequest: { tool: MobileWorkspaceTool } | null;
+  openMobileTool: (tool: MobileWorkspaceTool) => void;
   taskScope: string | null;
   taskItems: WorkspaceTaskIndicator[];
   readTaskResults: Record<string, string>;
@@ -31,7 +48,13 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   assistant: 'idle',
   assistantUnread: false,
   taskOpenRequest: 0,
-  openTasks: () => set((state) => ({ taskOpenRequest: state.taskOpenRequest + 1 })),
+  taskFocusId: null,
+  focusTask: (id) =>
+    set((state) => ({ taskFocusId: id, taskOpenRequest: state.taskOpenRequest + 1 })),
+  openTasks: () =>
+    set((state) => ({ taskFocusId: null, taskOpenRequest: state.taskOpenRequest + 1 })),
+  mobileToolRequest: null,
+  openMobileTool: (tool) => set({ mobileToolRequest: { tool } }),
   taskScope: null,
   taskItems: [],
   readTaskResults: {},
@@ -44,20 +67,26 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   syncTasks: (taskScope, taskItems) =>
     set((state) => {
       const previousIds = new Set(state.taskItems.map((item) => item.id));
-      // 首次读取和账号切换只建立快照，后台步骤只更新状态、不展开列表。
+      // 空列表或部分加载不表示任务已删除；每次合并其他窗口的已读，避免旧快照覆盖。
+      const previousRead = {
+        ...(state.readTaskResultsByScope[taskScope] ?? {}),
+        ...(state.taskScope === taskScope ? state.readTaskResults : {}),
+        ...readWorkspaceResults(taskScope, 'tasks'),
+      };
+      for (const item of taskItems) {
+        if (item.activity !== 'finished' || previousRead[item.id] !== item.result)
+          delete previousRead[item.id];
+      }
+      const readTaskResults = retainTaskResults(previousRead);
+      // 首次读取、账号切换及已读历史回填不展开列表，后台步骤也不抢占界面。
       const hasNewTask =
         state.taskScope === taskScope &&
-        taskItems.some((item) => item.autoOpenTaskList !== false && !previousIds.has(item.id));
-      const readTaskResults: Record<string, string> = {};
-      // 只保留仍在列表且结果未变化的已读记录，重新运行或重新保存后可以再次提醒。
-      const previousRead =
-        state.taskScope === taskScope
-          ? state.readTaskResults
-          : (state.readTaskResultsByScope[taskScope] ?? readWorkspaceResults(taskScope, 'tasks'));
-      for (const item of taskItems) {
-        if (item.activity === 'finished' && previousRead[item.id] === item.result)
-          readTaskResults[item.id] = item.result;
-      }
+        taskItems.some(
+          (item) =>
+            item.autoOpenTaskList !== false &&
+            !previousIds.has(item.id) &&
+            !(item.activity === 'finished' && readTaskResults[item.id] === item.result),
+        );
       rememberWorkspaceResults(taskScope, 'tasks', readTaskResults);
       return {
         taskScope,
@@ -74,11 +103,15 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
     }),
   readTasks: () =>
     set((state) => {
-      const readTaskResults = Object.fromEntries(
-        state.taskItems
-          .filter((item) => item.activity === 'finished')
-          .map((item) => [item.id, item.result]),
-      );
+      const results = {
+        ...state.readTaskResults,
+        ...(state.taskScope ? readWorkspaceResults(state.taskScope, 'tasks') : {}),
+      };
+      for (const item of state.taskItems) {
+        delete results[item.id];
+        if (item.activity === 'finished') results[item.id] = item.result;
+      }
+      const readTaskResults = retainTaskResults(results);
       if (state.taskScope) rememberWorkspaceResults(state.taskScope, 'tasks', readTaskResults);
       return {
         finished: 0,

@@ -5,7 +5,7 @@ import { ComponentAppearance } from '../../src/renderer/src/components/settings/
 import { Row, Toggle } from '../../src/renderer/src/components/settings/controls';
 import { SegmentedControl } from '../../src/renderer/src/components/SegmentedControl';
 import { ConversationList } from '../../src/renderer/src/im-template/template/conversationLists';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import {
   componentStyles,

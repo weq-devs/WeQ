@@ -26,10 +26,10 @@ import {
   lstatSync,
   realpathSync,
 } from 'node:fs';
-import { basename, dirname, extname, join, relative } from 'node:path';
-import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
+import { basename, dirname, join, relative } from 'node:path';
+import { fileExtension, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
-import type { SenderResolveDeps } from './sender_resolve';
+import { iterateConv, type SenderResolveDeps } from './sender_resolve';
 import type { GapFetchedMessage, GapHistoryService } from '../gap_history';
 import type { AvatarCacheService } from '../../bootstrap/media_cache';
 import type { MediaDownloadService } from '../media_download';
@@ -42,6 +42,7 @@ import { sourceValue } from './archive_value';
 import { writeArchiveView } from './archive_view_writer';
 import { sha256, type ExportProfile, type ArchiveOptions } from './archive';
 import { finalizeArchiveMessages } from './archive_finalize';
+import { readArchiveHeader, scanArchiveFile } from './archive_stream';
 import {
   selectedResourceEntries,
   writeResourceDirectoryArchive,
@@ -88,6 +89,7 @@ import { inspectDestination } from './storage_preflight';
 import {
   copyExportSavePolicy,
   saveExportOutput,
+  inventoryExportOutput,
   type ExportSavePolicy,
   type ExportSaveState,
 } from './save_output';
@@ -160,7 +162,7 @@ import {
   type EmojiExportScope,
 } from './emoji_export';
 import type { MediaUrlService } from '../media_url';
-import { iterateC2cMessages, toExportedMessage, type RoamMessageSource } from './message_source';
+import { toExportedMessage, type RoamMessageSource } from './message_source';
 import { expandForwards } from './forward_expand';
 import type { Framing } from './run_export';
 import { bigintReplacer } from './serialize';
@@ -367,7 +369,7 @@ export interface ExportTask {
   scanId?: string;
   scanStartedAt?: number;
   extra?: import('../../common/export_content').ExportExtraOptions;
-  archiveTargets?: Partial<Record<'json' | 'jsonl', string>>;
+  archiveTargets?: Partial<Record<'json' | 'jsonl' | 'jsonl.gz', string>>;
   domainUpdate?: DomainArchiveTarget;
   archivePublished?: boolean;
   publishedOutputs?: Record<string, string>;
@@ -388,10 +390,13 @@ export interface ExportTask {
       | 'annual-report'
       | 'analytics-report'
       | 'persona-bot'
+      | 'composition'
       | 'media';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;
+    /** 原始资源身份，用于从消息定位已保存的文件，不能仅按同名文件匹配。 */
+    sourceKey?: string;
   };
   save?: ExportSaveState;
   directOutput?: DirectOutput;
@@ -562,6 +567,8 @@ export interface MediaDeps {
    * 文字」，把风景 / 人像这类直接甩掉。缺省 = 不筛（全部送识别）。
    */
   ocrFilter?: OcrFilterFn;
+  /** 宿主的全局非手动 OCR 策略；不由旧任务或调用端参数覆盖。 */
+  ocrPrefilterEnabled?: () => boolean;
   /**
    * 在线图片 OCR（OIDB 0xe07_0）—— 由 app 注入；服务端自己去取图，所以本机没有
    * 该图也能识别（前提是 CDN 直链还没过期）。并发 / 连续失败放弃由导出阶段控制。
@@ -867,7 +874,11 @@ export class ExportTaskManager extends EventEmitter {
     if (!task?.archiveId || task.chatlab || !task.outputDirectory) return undefined;
     const formats = task.formats ?? [task.format],
       paths = this.exportFilePaths(task, task.outputDirectory);
-    const index = formats.includes('jsonl') ? formats.indexOf('jsonl') : formats.indexOf('json');
+    const index = formats.includes('jsonl.gz')
+      ? formats.indexOf('jsonl.gz')
+      : formats.includes('jsonl')
+        ? formats.indexOf('jsonl')
+        : formats.indexOf('json');
     return index >= 0 ? paths[index] : undefined;
   }
 
@@ -900,7 +911,7 @@ export class ExportTaskManager extends EventEmitter {
           {
             kind: 'file',
             name: task.name,
-            extension: extname(task.filePath).slice(1) || task.format,
+            extension: fileExtension(task.filePath).slice(1) || task.format,
           },
           task.id,
         ),
@@ -926,10 +937,12 @@ export class ExportTaskManager extends EventEmitter {
         : { directory: target }),
     });
     const previousPath = task.save?.path;
+    const previousSavedAt = task.save?.savedAt;
     task.save = {
       policy: task.save?.policy ?? policy,
       status: 'saving',
       ...(previousPath ? { path: previousPath } : {}),
+      ...(previousSavedAt !== undefined ? { savedAt: previousSavedAt } : {}),
     };
     this.saveTasks();
     const saving = saveExportOutput(
@@ -941,7 +954,12 @@ export class ExportTaskManager extends EventEmitter {
       },
     )
       .then((path) => {
-        task.save = { policy: task.save?.policy ?? policy, status: 'saved', path };
+        task.save = {
+          policy: task.save?.policy ?? policy,
+          status: 'saved',
+          path,
+          savedAt: Date.now(),
+        };
         return path;
       })
       .catch((error: unknown) => {
@@ -949,6 +967,7 @@ export class ExportTaskManager extends EventEmitter {
           policy: task.save?.policy ?? policy,
           status: 'failed',
           ...(previousPath ? { path: previousPath } : {}),
+          ...(previousSavedAt !== undefined ? { savedAt: previousSavedAt } : {}),
           error: error instanceof Error ? error.message : String(error),
         };
         throw error;
@@ -993,10 +1012,10 @@ export class ExportTaskManager extends EventEmitter {
                 generatedResources: {
                   total: task.generatedResourceReport.entries.length,
                   copied: task.generatedResourceReport.entries.filter(
-                    (entry) => entry.status === 'copied',
+                    (entry) => entry.status === 'copied' && entry.offline?.complete !== false,
                   ).length,
                   missing: task.generatedResourceReport.entries.filter(
-                    (entry) => entry.status === 'missing',
+                    (entry) => entry.status === 'missing' || entry.offline?.complete === false,
                   ).length,
                 },
               }
@@ -1132,8 +1151,16 @@ export class ExportTaskManager extends EventEmitter {
     guild?: GuildExportTaskMeta;
     generated?: GeneratedContentSnapshot;
   }): Promise<string> {
+    if (opts.filter?.forwardTarget && opts.filter.messageIds?.length !== 1)
+      throw new Error('聊天记录导出必须锁定一条承载消息，请重新选择卡片。');
+    if (opts.filter?.forwardTarget && opts.baselineDirectory)
+      throw new Error('聊天记录卡片单独导出，不能合入会话归档。');
     if (opts.content && !opts.qzone && !opts.contacts && !opts.collection && !opts.generated) {
-      const content = normalizeExportContent(opts.content, {}, Boolean(opts.guild));
+      const content = normalizeExportContent(
+        opts.content,
+        {},
+        Boolean(opts.guild) || opts.kind === 'official' || opts.kind === 'service',
+      );
       if (!hasExportContent(content)) throw new Error('请至少选择一项导出内容。');
       const flags = exportContentFlags(content);
       opts = {
@@ -1157,7 +1184,12 @@ export class ExportTaskManager extends EventEmitter {
         },
       };
     }
+    if ((opts.kind === 'official' || opts.kind === 'service') && opts.media?.completeMessages) {
+      opts = { ...opts, media: { ...opts.media, completeMessages: false } };
+    }
     const resourceOnly = opts.formats?.length === 0;
+    if (opts.chatlab && (opts.formats ?? [opts.format]).includes('jsonl.gz'))
+      throw new Error('JSONL（压缩）使用 WeQ 正式归档，不支持 ChatLab。');
     if (
       resourceOnly &&
       (!opts.content ||
@@ -1172,11 +1204,13 @@ export class ExportTaskManager extends EventEmitter {
       opts.content &&
       requiresStructuredExport(opts.content) &&
       (opts.chatlab ||
-        !(opts.formats ?? [opts.format]).some((format) => format === 'json' || format === 'jsonl'))
+        !(opts.formats ?? [opts.format]).some(
+          (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+        ))
     )
       throw new Error('所选附加数据需要 WeQ JSON/JSONL，请选择格式或关闭相应附加数据。');
     const structuredFormats = (opts.formats?.length ? opts.formats : [opts.format]).filter(
-      (format) => format === 'json' || format === 'jsonl',
+      (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
     );
     if (
       Object.values(opts.extra ?? {}).some(Boolean) &&
@@ -1484,6 +1518,9 @@ export class ExportTaskManager extends EventEmitter {
             filter: {
               ...opts.filter,
               ...(opts.filter.messageIds ? { messageIds: [...opts.filter.messageIds] } : {}),
+              ...(opts.filter.forwardTarget
+                ? { forwardTarget: { ...opts.filter.forwardTarget } }
+                : {}),
             },
           }
         : {}),
@@ -1501,8 +1538,7 @@ export class ExportTaskManager extends EventEmitter {
         const selected = Object.values(task.archiveTargets)[0]!;
         const format = Object.entries(task.archiveTargets).find(
           ([, path]) => path === selected,
-        )![0] as 'json' | 'jsonl';
-        const { readArchiveHeader } = await import('./archive_stream');
+        )![0] as 'json' | 'jsonl' | 'jsonl.gz';
         task.archiveId = String((await readArchiveHeader(selected, format)).archiveId);
       }
     }
@@ -1555,6 +1591,7 @@ export class ExportTaskManager extends EventEmitter {
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
+    sourceKey?: string;
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
     onPublished?(directory: string): void;
   }): Promise<string> {
@@ -1581,7 +1618,11 @@ export class ExportTaskManager extends EventEmitter {
       conv: opts.kind,
       name: opts.name,
       format: opts.archive?.formats?.[0] ?? 'json',
-      resource: { kind: opts.kind, ...(output ? { output } : {}) },
+      resource: {
+        kind: opts.kind,
+        ...(output ? { output } : {}),
+        ...(opts.sourceKey ? { sourceKey: opts.sourceKey } : {}),
+      },
       includeIntegrityReport: opts.includeIntegrityReport,
       status: 'pending',
       progress: 0,
@@ -1597,11 +1638,13 @@ export class ExportTaskManager extends EventEmitter {
                 ? '导出收藏表情'
                 : opts.kind === 'persona-bot'
                   ? '打包机器人'
-                  : opts.kind === 'assistant-artifact' ||
-                      opts.kind === 'annual-report' ||
-                      opts.kind === 'analytics-report'
-                    ? '保存报告'
-                    : '下载资源',
+                  : opts.kind === 'composition'
+                    ? '导出合成记录'
+                    : opts.kind === 'assistant-artifact' ||
+                        opts.kind === 'annual-report' ||
+                        opts.kind === 'analytics-report'
+                      ? '保存报告'
+                      : '下载资源',
           status: 'pending',
           current: 0,
           total: 0,
@@ -1698,7 +1741,7 @@ export class ExportTaskManager extends EventEmitter {
       ) {
         await writeResourceDirectoryArchive(
           bundle.stageDir,
-          task.format === 'jsonl' ? 'jsonl' : 'json',
+          task.format === 'jsonl' || task.format === 'jsonl.gz' ? task.format : 'json',
           {
             ...task.resourceArchive,
             ...(await this.archiveOptions(task)),
@@ -1829,7 +1872,10 @@ export class ExportTaskManager extends EventEmitter {
         this.filteredSources.set(task.id, source);
       }
       source.exportJournal = this.journals.get(task.id);
-      source.exportFetchForward = task.media?.completeMessages ? this.deps.fetchForward : undefined;
+      source.exportFetchForward =
+        task.filter?.forwardTarget || task.media?.completeMessages
+          ? this.deps.fetchForward
+          : undefined;
       return source;
     }
     let src = this.guildSources.get(task.id);
@@ -2024,11 +2070,7 @@ export class ExportTaskManager extends EventEmitter {
     const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
 
     try {
-      if (
-        !task.guild &&
-        (task.kind === 'group' || task.kind === 'c2c') &&
-        typeof this.msgs.exportSourceStamp === 'function'
-      ) {
+      if (!task.guild && typeof this.msgs.exportSourceStamp === 'function') {
         const binding = {
           source: this.msgs.exportSourceStamp(task.kind, task.conv),
           options: exportOptionsHash(task),
@@ -2186,7 +2228,11 @@ export class ExportTaskManager extends EventEmitter {
 
       // ---- stage: 消息补全 (runs FIRST — fills the roam cache so the message
       // stage + media scan below can include the backfilled messages) ----
-      const wantBackfill = Boolean(task.media?.completeMessages && !task.guild);
+      const wantBackfill = Boolean(
+        task.media?.completeMessages &&
+          !task.guild &&
+          (task.kind === 'group' || task.kind === 'c2c'),
+      );
       let backfillWindow: import('./msg_backfill').BackfillSeqWindow | undefined;
       let rateLimitedNotified = false;
       if (wantBackfill && this.stage(task, 'backfill')?.status !== 'completed') {
@@ -2435,7 +2481,7 @@ export class ExportTaskManager extends EventEmitter {
       // 从一开始就有分母，且不会出现“已导出条数超过总量”的倒挂。
       const countPromise = (async (): Promise<number> => {
         if (task.filter?.messageIds) return task.filter.messageIds.length;
-        if (task.kind !== 'group' && task.kind !== 'c2c') return 0;
+        if (task.kind !== 'group' && task.kind !== 'c2c') return task.total;
         try {
           let total = await this.msgsFor(task).countConv(task.kind, task.conv, {
             startTime: task.range?.start ?? undefined,
@@ -2626,6 +2672,8 @@ export class ExportTaskManager extends EventEmitter {
           dressManifest,
           task.dress,
         );
+        if (task.filter?.forwardTarget && result.messageCount === 0)
+          throw new Error('未找到聊天记录的承载消息，请重新打开消息菜单后重试导出。');
         task.filePath = task.resourceOnly ? undefined : result.filePath;
         task.current = result.messageCount;
         task.total = result.messageCount;
@@ -3243,7 +3291,8 @@ export class ExportTaskManager extends EventEmitter {
       // ---- 图片文字识别（预筛选 → 在线优先 → 本地兜底），与转写等阶段并发 ----
       if (wantOcr && scan) {
         const scene = scan;
-        const usePrefilter = Boolean(task.media?.ocrPrefilter && ocrFilter);
+        const prefilterEnabled = this.deps.ocrPrefilterEnabled?.() ?? task.media?.ocrPrefilter;
+        const usePrefilter = Boolean(prefilterEnabled && ocrFilter);
         const useOnlineOcr = Boolean(task.media?.onlineOcr && onlineOcr);
         jobs.push(async () => {
           const filterStage = this.stage(task, 'ocrfilter');
@@ -3266,7 +3315,12 @@ export class ExportTaskManager extends EventEmitter {
               this.touchStage(
                 task,
                 'ocrfilter',
-                { status: 'skipped', current: 0, total: 0, note: '未下载筛图模型' },
+                {
+                  status: 'skipped',
+                  current: 0,
+                  total: 0,
+                  note: prefilterEnabled ? '筛图模型不可用' : '已关闭 OCR 前筛图',
+                },
                 { persist: true },
               );
             }
@@ -3434,7 +3488,12 @@ export class ExportTaskManager extends EventEmitter {
         });
       if (!task.resourceOnly && task.archiveId && !task.chatlab && !aborted()) {
         const archive = await this.archiveOptions(task);
-        if (task.content && !formats.some((format) => format === 'json' || format === 'jsonl'))
+        if (
+          task.content &&
+          !formats.some(
+            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+          )
+        )
           await exportArchiveConversation(
             this.msgsFor(task),
             {
@@ -3486,7 +3545,10 @@ export class ExportTaskManager extends EventEmitter {
           Object.values(transcripts ?? {}).some(Boolean) ||
           Object.values(ocr ?? {}).some((value) => Boolean(value.text));
         for (const [index, format] of formats.entries())
-          if (needsFinalization && (format === 'json' || format === 'jsonl')) {
+          if (
+            needsFinalization &&
+            (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
+          ) {
             await finalizeArchiveMessages(paths[index]!, format, {
               media: wantMedia,
               transcripts,
@@ -3499,6 +3561,7 @@ export class ExportTaskManager extends EventEmitter {
           if (
             format !== 'json' &&
             format !== 'jsonl' &&
+            format !== 'jsonl.gz' &&
             format !== 'vcard' &&
             task.content?.messages === 'none'
           ) {
@@ -3556,7 +3619,7 @@ export class ExportTaskManager extends EventEmitter {
         const published: Record<string, string> = {};
         const { copyFile, constants } = await import('node:fs/promises');
         for (const [index, format] of formats.entries()) {
-          if (format === 'json' || format === 'jsonl') {
+          if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') {
             const target = targets[format];
             if (!target) throw new Error('未选择该格式的正式归档。');
             const updated = await updateArchiveFile(target, staged[index]!, format, abort.signal);
@@ -3619,8 +3682,7 @@ export class ExportTaskManager extends EventEmitter {
       task.sourceChanged =
         !!task.resumeBinding &&
         typeof this.msgs.exportSourceStamp === 'function' &&
-        task.resumeBinding.source !==
-          this.msgs.exportSourceStamp(task.kind as 'group' | 'c2c', task.conv);
+        task.resumeBinding.source !== this.msgs.exportSourceStamp(task.kind, task.conv);
       this.touchStage(task, 'finalize', { current: 3, note: '校验导出文件…' });
       task.outputHashes = await this.hashMessageOutputs(task);
       if (aborted()) {
@@ -3844,8 +3906,8 @@ export class ExportTaskManager extends EventEmitter {
             ? 'txt'
             : format === 'html'
               ? 'html'
-              : format === 'jsonl'
-                ? 'jsonl'
+              : format === 'jsonl' || format === 'jsonl.gz'
+                ? format
                 : 'json';
         await writeQzone(qzoneFormat, data, {
           name: task.name,
@@ -4082,7 +4144,7 @@ export class ExportTaskManager extends EventEmitter {
         const outPath = join(
           outDir,
           task.domainUpdate
-            ? `${basename(task.domainUpdate.primaryRelative, extname(task.domainUpdate.primaryRelative))}.${ext}`
+            ? `${basename(task.domainUpdate.primaryRelative, fileExtension(task.domainUpdate.primaryRelative))}.${ext}`
             : `${isBundle ? sanitizeSegment(task.name, task.conv || task.id) : task.id}.${ext}`,
         );
         if (i === 0) {
@@ -4209,11 +4271,11 @@ export class ExportTaskManager extends EventEmitter {
           await this.archiveOptions(task),
         );
         for (const format of formats)
-          if (format === 'json' || format === 'jsonl') {
+          if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') {
             const path = join(
               outDir,
               task.domainUpdate
-                ? `${basename(task.domainUpdate.primaryRelative, extname(task.domainUpdate.primaryRelative))}.${format}`
+                ? `${basename(task.domainUpdate.primaryRelative, fileExtension(task.domainUpdate.primaryRelative))}.${format}`
                 : `${isBundle ? sanitizeSegment(task.name, task.conv || task.id) : task.id}.${format}`,
             );
             await finalizeArchiveMessages(path, format, {
@@ -4271,7 +4333,11 @@ export class ExportTaskManager extends EventEmitter {
     try {
       bundle = createAtomicExportBundle(
         this.cacheDir,
-        task.domainUpdate ? `${id}-${task.scanId}` : id,
+        task.domainUpdate
+          ? `${id}-${task.scanId}`
+          : task.bundleDir
+            ? `${id}-retry-${randomUUID()}`
+            : id,
       );
       if (!task.generatedResourceCache)
         task.generatedResourceCache = discoverGeneratedResources(task.generated).map(
@@ -4318,7 +4384,7 @@ export class ExportTaskManager extends EventEmitter {
         JSON.stringify(resources.manifest, null, 2),
       );
       const missingResources = resources.manifest.entries.filter(
-        (entry) => entry.status === 'missing',
+        (entry) => entry.status === 'missing' || entry.offline?.complete === false,
       ).length;
       if (resourceCache.length)
         this.touchStage(
@@ -4330,13 +4396,24 @@ export class ExportTaskManager extends EventEmitter {
             total: resourceCache.length,
             failed: missingResources,
             failures: resources.manifest.entries
-              .filter((entry) => entry.status === 'missing')
-              .slice(0, 200)
-              .map((entry) => ({
-                stage: 'media',
-                fileName: entry.name,
-                error: entry.error ?? '本地资源缺失',
-              })),
+              .flatMap((entry) =>
+                entry.status === 'missing'
+                  ? [
+                      {
+                        stage: 'media' as const,
+                        fileName: entry.name,
+                        error: entry.error ?? '本地资源缺失',
+                      },
+                    ]
+                  : (entry.offline?.resources ?? [])
+                      .filter((resource) => resource.error)
+                      .map((resource) => ({
+                        stage: 'media' as const,
+                        fileName: `${entry.name} / ${resource.source}`,
+                        error: resource.error!,
+                      })),
+              )
+              .slice(0, 200),
             note: `${resourceCache.length - missingResources} 项已保存，${missingResources} 项缺失`,
           },
           { persist: true },
@@ -4370,13 +4447,22 @@ export class ExportTaskManager extends EventEmitter {
         task.filePath = join(bundle.finalDir, `${stem}.${formats[0]}`);
       }
       task.current = task.generated.messages.length;
-      task.status = 'completed';
-      task.progress = 100;
       for (const item of resourceCache) {
         const relative = resources.published.get(item.reference.key);
-        if (!updated && item.snapshot && relative)
+        if (!updated && resources.manifest.complete && item.snapshot && relative) {
           item.snapshot.directory = join(bundle.finalDir, relative);
+          item.snapshot.inventory = [
+            ...(await inventoryExportOutput(item.snapshot.directory, abort.signal)),
+          ];
+          if (
+            item.snapshot.entry &&
+            resources.manifest.entries.find((entry) => entry.key === item.reference.key)?.offline
+          )
+            item.snapshot.sourcePath = join(item.snapshot.directory, item.snapshot.entry);
+        }
       }
+      task.status = 'completed';
+      task.progress = 100;
       this.touchStage(task, 'message', {
         status: 'completed',
         current: task.current,
@@ -4385,6 +4471,7 @@ export class ExportTaskManager extends EventEmitter {
       });
       if (
         this.saveTasks() &&
+        resources.manifest.complete &&
         !updated &&
         resourceCache.every((item) => !item.snapshot || resources.published.has(item.reference.key))
       ) {
@@ -5270,7 +5357,7 @@ export class ExportTaskManager extends EventEmitter {
           dressManifest,
           dressKinds,
         );
-        if (task.archiveId && (format === 'json' || format === 'jsonl')) {
+        if (task.archiveId && (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')) {
           task.current = Math.max(task.current, result.messageCount);
           task.formatCounts[format] = result.messageCount;
         }
@@ -5328,7 +5415,8 @@ export class ExportTaskManager extends EventEmitter {
       archiveId: task.archiveId,
       partition: sha256(this.cacheDir),
       formats: (task.formats?.length ? task.formats : [task.format]).filter(
-        (format): format is 'json' | 'jsonl' => format === 'json' || format === 'jsonl',
+        (format): format is 'json' | 'jsonl' | 'jsonl.gz' =>
+          format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
       ),
       selection: sourceValue(
         task.generated
@@ -5376,7 +5464,7 @@ export class ExportTaskManager extends EventEmitter {
     task.publishedOutputs = Object.fromEntries(
       [...paths]
         .filter(([path]) => dirname(path) === dirname(target.primaryRelative))
-        .map(([path, published]) => [extname(path).slice(1), published]),
+        .map(([path, published]) => [fileExtension(path).slice(1).toLowerCase(), published]),
     );
     task.archivePublished = true;
     if (task.save) {
@@ -5425,7 +5513,7 @@ export class ExportTaskManager extends EventEmitter {
         this.senderDeps(task) ?? {},
       );
     }
-    if (task.archiveId && (format === 'json' || format === 'jsonl')) {
+    if (task.archiveId && (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')) {
       return exportArchiveConversation(
         this.msgsFor(task),
         {
@@ -5643,17 +5731,13 @@ export class ExportTaskManager extends EventEmitter {
     const audit = new MessageAudit();
     try {
       if (framing.head) await writer.write(framing.head);
-      for await (const m of iterateC2cMessages(msgs, peerUid, {
-        pageSize: 2000,
-        range,
-        roam,
-      })) {
+      for await (const m of iterateConv(msgs, kind, peerUid, range, roam)) {
         const exported = toExportedMessage(m);
-        const dec = dressLookup?.(exported.msgId);
+        const dec = exported.forwardSource ? undefined : dressLookup?.(exported.msgId);
         if (dec) exported.decoration = dec;
         senders?.add(exported.senderUin);
         if (faces) collectFaceIds(exported.elements, faces);
-        await expandForwards(msgs, 'c2c', exported);
+        await expandForwards(msgs, kind, exported);
         audit.observe(exported.elements);
         if (withMediaPaths) annotateExportPaths(exported.elements);
         const record = renderRecord(exported);
@@ -5705,6 +5789,12 @@ export class ExportTaskManager extends EventEmitter {
 
   private canResume(task: ExportTask): boolean {
     if (this.finalizing.has(task.id) || this.outputSaves.has(task.id)) return false;
+    if (
+      task.generated &&
+      task.status === 'completed' &&
+      task.generatedResourceReport?.complete === false
+    )
+      return !this.abortControllers.has(task.id);
     if (task.contacts || task.generated || task.qzone || task.collection)
       return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
     return (
@@ -5759,12 +5849,14 @@ export class ExportTaskManager extends EventEmitter {
     });
     try {
       if (task.archiveId && task.incrementalSupport && !task.journalPath) {
-        const { scanArchiveFile } = await import('./archive_stream');
         const formats = task.formats ?? [task.format];
         const paths = this.exportFilePaths(task, task.outputDirectory ?? dirname(task.filePath!));
         const hashes: Record<string, string> = {};
         for (const [index, format] of formats.entries())
-          if ((format === 'json' || format === 'jsonl') && existsSync(paths[index]!)) {
+          if (
+            (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') &&
+            existsSync(paths[index]!)
+          ) {
             const scan = await scanArchiveFile(paths[index]!, format);
             task.current = Math.max(task.current, scan.messageCount);
             hashes[paths[index]!] = await fileSha256(paths[index]!);
@@ -5835,7 +5927,7 @@ export class ExportTaskManager extends EventEmitter {
           (task.archiveId &&
             task.incrementalSupport &&
             (task.formats ?? [task.format]).some(
-              (format) => format === 'json' || format === 'jsonl',
+              (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
             )),
       )
     );
@@ -5850,6 +5942,13 @@ export class ExportTaskManager extends EventEmitter {
         !this.canResume(task))
     )
       return false;
+    if (
+      task.generated &&
+      task.status === 'completed' &&
+      task.generatedResourceReport?.complete === false &&
+      task.save
+    )
+      task.save.status = 'pending';
     const retrySkipped =
       task.status === 'completed' &&
       task.stages.some((stage) => this.canRetrySkippedStage(task, stage));
@@ -5869,11 +5968,12 @@ export class ExportTaskManager extends EventEmitter {
       (task.qzone || task.collection || task.contacts || task.generated)
     ) {
       const formats = (task.formats ?? [task.format]).filter(
-        (format) => format === 'json' || format === 'jsonl',
+        (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
       );
       if (!formats.length || !task.filePath) return false;
       const oldRoot = task.bundleDir ?? dirname(task.filePath);
-      const primary = `${task.filePath.slice(0, -extname(task.filePath).length)}.${formats[0]}`;
+      const suffix = fileExtension(task.filePath);
+      const primary = `${task.filePath.slice(0, -suffix.length)}.${formats[0]}`;
       const saved = task.save?.status === 'saved' ? task.save.path : undefined;
       const directory = task.bundleDir ? (saved ?? oldRoot) : saved ? dirname(saved) : oldRoot;
       const primaryRelative = relative(oldRoot, primary);
@@ -5897,9 +5997,11 @@ export class ExportTaskManager extends EventEmitter {
     } else if ((incremental || resumeFormal) && task.archiveId) {
       const formats = task.formats ?? [task.format],
         paths = this.exportFilePaths(task, task.outputDirectory ?? dirname(task.filePath!));
-      const targets: Partial<Record<'json' | 'jsonl', string>> = { ...task.archiveTargets };
+      const targets: Partial<Record<'json' | 'jsonl' | 'jsonl.gz', string>> = {
+        ...task.archiveTargets,
+      };
       for (const [index, format] of formats.entries())
-        if (format === 'json' || format === 'jsonl') {
+        if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz') {
           const path = targets[format] ?? paths[index]!;
           if (!existsSync(path)) return false;
           targets[format] = path;

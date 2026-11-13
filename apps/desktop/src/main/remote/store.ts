@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { Claim } from './pairing';
 import { remoteConnectionMode } from '../../shared/remote_bootstrap';
+import { remoteDeviceInfoSchema, remoteConnectionInfoSchema } from '../../shared/remote_device';
 
 const savedSchema = z
   .object({
@@ -22,6 +23,8 @@ const savedSchema = z
           approvedAt: z.number().finite(),
           lastSeenAt: z.number().finite().nullable(),
           scope: z.enum(['status:read', 'web:access']),
+          deviceInfo: remoteDeviceInfoSchema.optional(),
+          lastConnection: remoteConnectionInfoSchema.optional(),
         }),
       )
       .max(16),

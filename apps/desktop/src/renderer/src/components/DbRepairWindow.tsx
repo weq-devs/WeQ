@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
 import { LockKeyhole } from 'lucide-react';
 import { useToolWindow } from '../hooks/useCompositionWindow';
@@ -6,13 +6,18 @@ import { RenderDocumentContext } from '../lib/renderDocument';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import { useAppLock } from '../state/lock';
 import { trpc } from '../trpc/client';
-import { DbRepairPanel, type DbRepairAccountOption } from './DbRepairPanel';
+import type { DbRepairAccountOption } from './DbRepairPanel';
+import { lazyPanel } from '../lib/lazyPanel';
 import { DbRepairReturnOverlay } from './DbRepairReturnOverlay';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { HoverTooltip } from './HoverTooltip';
 import { ToastHost } from './Toast';
 import '../styles/db-repair-window.css';
+
+const DbRepairPanel = lazyPanel<ComponentProps<typeof import('./DbRepairPanel').DbRepairPanel>>(
+  () => import('./DbRepairPanel').then((module) => ({ default: module.DbRepairPanel })),
+);
 
 /** 旧的工具路由也只发起系统窗口请求，不再挂工作区内的修复面板。 */
 export function DbRepairWindowRequest({ account }: { account: DbRepairAccountOption }) {

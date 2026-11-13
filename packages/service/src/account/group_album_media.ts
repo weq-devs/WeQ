@@ -49,6 +49,7 @@ export interface AlbumMediaVideo {
 
 export interface AlbumMedia {
   type: number;
+  isLivePhoto?: boolean;
   image: AlbumMediaImage | null;
   video: AlbumMediaVideo | null;
   uploader: string;
@@ -118,6 +119,7 @@ function mapMedia(v: unknown): AlbumMedia {
   const o = (v ?? {}) as Rec;
   return {
     type: num(o.type),
+    ...(typeof o.isLivePhoto === 'boolean' ? { isLivePhoto: o.isLivePhoto } : {}),
     image: mapImage(o.image),
     video: mapVideo(o.video),
     uploader: str(o.uploader),

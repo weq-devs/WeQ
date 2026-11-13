@@ -289,9 +289,9 @@ export class DbExplorerService {
    * return rows with best-effort real column names; everything else runs as a
    * write and returns the affected-row count.
    */
-  async runSql(dbPath: string, sql: string): Promise<QueryResult> {
+  async runSql(dbPath: string, sql: string, readOnly = false): Promise<QueryResult> {
     const db = await this.open(dbPath);
-    return this.execSql(db, sql, true);
+    return this.execSql(db, sql, !readOnly);
   }
 
   /**

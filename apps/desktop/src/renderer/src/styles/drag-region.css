@@ -55,9 +55,7 @@
 .confirm-dialog-scrim,
 .confirm-dialog,
 .weq-qzshare-scrim,
-.weq-qzshare-card,
-.composer-media-lb-layer,
-.composer-media-lb {
+.weq-qzshare-card {
   -webkit-app-region: no-drag;
 }
 

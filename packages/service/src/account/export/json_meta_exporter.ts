@@ -48,7 +48,7 @@ export interface JsonMetaExportOptions {
   /** Conversation display name (fallback for meta.name when unresolvable). */
   name?: string;
   outputPath: string;
-  format: 'json' | 'jsonl';
+  format: 'json' | 'jsonl' | 'jsonl.gz';
   range?: ExportTimeRange;
   progressEvery?: number;
   onProgress?: ProgressCallback;
@@ -131,7 +131,12 @@ export async function exportJsonConversation(
     senders = await resolveGroupSenders(msgs, opts.conv, opts.range, deps, ownerUid, opts.roam);
     if (ownerUid) ownerId = senders.get(ownerUid)?.platformId;
   } else {
-    const r = await resolveC2cSenders(opts.conv, deps);
+    const r = await resolveC2cSenders(opts.conv, deps, {
+      msgs,
+      kind: opts.kind,
+      range: opts.range,
+      roam: opts.roam,
+    });
     senders = r.senders;
     ownerId = r.ownerId;
   }
@@ -159,14 +164,16 @@ export async function exportJsonConversation(
       }
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
-        const dec = opts.dressLookup?.(exported.msgId);
+        const dec = exported.forwardSource ? undefined : opts.dressLookup?.(exported.msgId);
         if (dec) exported.decoration = dec;
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         audit.observe(exported.elements);
         if (opts.withMediaPaths) annotateExportPaths(exported.elements);
-        const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
+        const sender = exported.forwardSource
+          ? fallbackSender(exported)
+          : (senders.get(exported.senderUid) ?? fallbackSender(exported));
         await writer.write(`${JSON.stringify(toJsonMessage(exported, sender), bigintReplacer)}\n`);
         count += 1;
         if (count % progressEvery === 0) {
@@ -182,14 +189,16 @@ export async function exportJsonConversation(
       await writer.write(head);
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
         const exported = toExportedMessage(raw);
-        const dec = opts.dressLookup?.(exported.msgId);
+        const dec = exported.forwardSource ? undefined : opts.dressLookup?.(exported.msgId);
         if (dec) exported.decoration = dec;
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         audit.observe(exported.elements);
         if (opts.withMediaPaths) annotateExportPaths(exported.elements);
-        const sender = senders.get(exported.senderUid) ?? fallbackSender(exported);
+        const sender = exported.forwardSource
+          ? fallbackSender(exported)
+          : (senders.get(exported.senderUid) ?? fallbackSender(exported));
         await writer.write(
           (count === 0 ? '' : ',\n') +
             JSON.stringify(toJsonMessage(exported, sender), bigintReplacer),

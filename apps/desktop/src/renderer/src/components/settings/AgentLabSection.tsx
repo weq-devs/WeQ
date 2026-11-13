@@ -1,14 +1,15 @@
-import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
-import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
-import { pageValue } from '../../lib/pageSnapshots';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { usePageSnapshotReset } from '../PageSnapshots';
 import type { CapabilityProbeResult } from '@weq/agentlab';
 import {
   Boxes,
   CheckCheck,
   DownloadCloud,
   FlaskConical,
+  Image,
+  Layers,
   Loader2,
+  MessageSquare,
   Plus,
   Save,
   Server,
@@ -16,6 +17,7 @@ import {
   Square,
   Trash2,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
@@ -31,16 +33,20 @@ import {
 } from '../../lib/connectionTestTask';
 import { useToast } from '../Toast';
 import { DefaultApiModelRow } from './DefaultApiModelRow';
+import { DefaultVisionModelRow } from './AiImageSettings';
+import '../../styles/search-scope.css';
 import '../../styles/provider-settings.css';
 
 type Capability = 'chat' | 'embedding' | 'vision';
-const CAPABILITIES: { value: Capability; label: string }[] = [
-  { value: 'chat', label: '聊天' },
-  { value: 'embedding', label: '向量' },
-  { value: 'vision', label: '视觉' },
+const CAPABILITIES: { value: Capability; label: string; Icon: LucideIcon }[] = [
+  { value: 'chat', label: '聊天', Icon: MessageSquare },
+  { value: 'embedding', label: '向量', Icon: Layers },
+  { value: 'vision', label: '视觉', Icon: Image },
 ];
 
 type ModelForm = {
+  reasoningEfforts?: string[];
+  reasoningEffortsText?: string;
   id: string;
   label: string;
   capabilities: Capability[];
@@ -96,27 +102,16 @@ export function AgentLabSection(): ReactElement {
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
   const fetchModels = trpc.bootstrap.fetchAgentLabModels.useMutation();
 
-  const [selectedId, setSelectedId] = usePageState('provider:selected', '', pageValue.string);
-  const [open, setOpen] = usePageState('provider:open', false, pageValue.boolean, true);
-  const [form, setForm] = usePageState<ProviderForm>(
-    'provider:form',
-    emptyForm,
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      vendor: z.string(),
-      baseUrl: z.string(),
-      apiKey: z.string(),
-      models: z.array(
-        z.object({
-          id: z.string(),
-          label: z.string(),
-          capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])),
-        }),
-      ),
-    }),
-    true,
-  );
+  const [selectedId, setSelectedId] = useState('');
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<ProviderForm>(emptyForm);
+  const legacyOpen = usePageSnapshotReset('provider:open');
+  const legacyForm = usePageSnapshotReset('provider:form');
+  useEffect(() => {
+    // 编辑器由自身的关闭确认保护，不再将打开、载入与关闭动作登记为页面草稿。
+    legacyOpen.reset();
+    legacyForm.reset();
+  }, [legacyOpen, legacyForm]);
   const formRef = useRef(form);
   formRef.current = form;
   const [detectingModel, setDetectingModel] = useState<number | null>(null);
@@ -147,7 +142,12 @@ export function AgentLabSection(): ReactElement {
       vendor: string;
       baseUrl: string;
       apiKey: string;
-      models: Array<{ id: string; label?: string | null; capabilities: string[] }>;
+      models: Array<{
+        id: string;
+        label?: string | null;
+        capabilities: string[];
+        reasoningEfforts?: string[];
+      }>;
     }) => {
       const entry = catalogRef.current?.find((c) => c.vendor === item.vendor);
       const presetIds = new Set((entry?.models ?? []).map((m) => m.id));
@@ -169,6 +169,7 @@ export function AgentLabSection(): ReactElement {
           id: m.id,
           label: m.label ?? '',
           capabilities: m.capabilities as Capability[],
+          reasoningEfforts: m.reasoningEfforts,
         })),
       };
       setForm(next);
@@ -368,6 +369,8 @@ export function AgentLabSection(): ReactElement {
       if (!confirmed || formRef.current !== snapshot) return;
       setDetectingModel(index);
       const results = await client.bootstrap.detectAgentLabModelCapabilities.mutate({
+        providerId: snapshot.id,
+        providerName: snapshot.name.trim() || 'API',
         baseUrl: snapshot.baseUrl.trim(),
         apiKey: snapshot.apiKey.trim(),
         model: model.id.trim(),
@@ -410,6 +413,21 @@ export function AgentLabSection(): ReactElement {
         id: m.id.trim(),
         label: m.label.trim() || undefined,
         capabilities: m.capabilities,
+        reasoningEfforts: m.reasoningEfforts,
+        ...(m.reasoningEffortsText === undefined
+          ? {}
+          : {
+              reasoningEfforts: m.reasoningEffortsText.trim()
+                ? [
+                    ...new Set(
+                      m.reasoningEffortsText
+                        .split(',')
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                    ),
+                  ]
+                : undefined,
+            }),
       }))
       .filter((m) => m.id);
     if (models.length === 0) {
@@ -431,9 +449,9 @@ export function AgentLabSection(): ReactElement {
       await utils.bootstrap.listAgentLabProviders.invalidate();
       await utils.bootstrap.getAgentLabDefaultModel.invalidate();
       await utils.account.intentSense.getStatus.invalidate();
-      dialog.success('已保存', `provider「${form.name.trim() || id}」配置已更新`);
+      dialog.success('已保存', `服务商「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
-      dialog.error('保存 provider 失败', error instanceof Error ? error.message : String(error));
+      dialog.error('保存服务商失败', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -460,7 +478,13 @@ export function AgentLabSection(): ReactElement {
       });
       return;
     }
-    const input = { baseUrl: form.baseUrl.trim(), apiKey: form.apiKey.trim(), model: chatModel };
+    const input = {
+      baseUrl: form.baseUrl.trim(),
+      apiKey: form.apiKey.trim(),
+      model: chatModel,
+      providerId: form.id,
+      providerName: form.name.trim() || 'API',
+    };
     const label = `${form.name.trim() || 'API'} · ${form.id.slice(-8)} · ${chatModel}`;
     void runConnectionTest(testKey, label, async () => {
       const res = await client.bootstrap.testAgentLabProvider.mutate(input);
@@ -473,7 +497,7 @@ export function AgentLabSection(): ReactElement {
 
   async function onDelete(): Promise<void> {
     if (!selectedId) return;
-    const ok = await dialog.confirm('删除 provider', `确认删除「${selectedId}」？`, {
+    const ok = await dialog.confirm('删除服务商', `确认删除「${selectedId}」？`, {
       okLabel: '删除',
       cancelLabel: '返回',
       tone: 'warning',
@@ -490,9 +514,9 @@ export function AgentLabSection(): ReactElement {
       await utils.bootstrap.listAgentLabProviders.invalidate();
       await utils.bootstrap.getAgentLabDefaultModel.invalidate();
       await utils.account.intentSense.getStatus.invalidate();
-      dialog.success('已删除', `provider「${removed}」已移除`);
+      dialog.success('已删除', `服务商「${removed}」已移除`);
     } catch (error) {
-      dialog.error('删除 provider 失败', error instanceof Error ? error.message : String(error));
+      dialog.error('删除服务商失败', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -502,6 +526,8 @@ export function AgentLabSection(): ReactElement {
 
       <Card
         title="LLM"
+        resetId="api-default"
+        icon={<Server size={15} strokeWidth={1.8} />}
         settingId="llm-providers"
         action={
           <button
@@ -515,7 +541,8 @@ export function AgentLabSection(): ReactElement {
         }
       >
         <DefaultApiModelRow />
-        <div className="weq-set-card-title">已保存的 provider</div>
+        <DefaultVisionModelRow />
+        <div className="weq-set-card-title">已保存的服务商</div>
         {providers.error ? (
           <QueryError
             message={`API 配置读取失败：${providers.error.message}`}
@@ -531,7 +558,7 @@ export function AgentLabSection(): ReactElement {
         ) : (providers.data ?? []).length === 0 ? (
           providers.error ? null : (
             <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
-              还没有 provider，点右上角「新建」添加一个厂商。
+              还没有服务商，点右上角「新建」添加一个服务商。
             </div>
           )
         ) : (
@@ -574,7 +601,7 @@ export function AgentLabSection(): ReactElement {
               <span className="weq-provider-modal-icon">
                 <Server size={16} strokeWidth={1.8} aria-hidden />
               </span>
-              <strong>{selectedId ? '编辑 provider' : '新建 provider'}</strong>
+              <strong>{selectedId ? '编辑服务商' : '新建服务商'}</strong>
               <button
                 type="button"
                 className="weq-set-iconbtn weq-provider-modal-close"
@@ -591,19 +618,19 @@ export function AgentLabSection(): ReactElement {
             >
               {catalog.error ? (
                 <QueryError
-                  message={`厂商模板读取失败：${catalog.error.message}`}
-                  retryLabel="重新读取厂商模板"
+                  message={`服务商模板读取失败：${catalog.error.message}`}
+                  retryLabel="重新读取服务商模板"
                   retrying={catalog.isFetching}
                   onRetry={() => void catalog.refetch()}
                 />
               ) : null}
               <Row
-                label="厂商模板"
+                label="服务商模板"
                 desc="选模板自动带入 base_url 与推荐模型。"
                 control={
                   <select
                     className="weq-set-input"
-                    aria-label="API 厂商模板"
+                    aria-label="API 服务商模板"
                     value={form.vendor}
                     disabled={catalog.isLoading}
                     onChange={(e) => applyVendor(e.target.value)}
@@ -680,7 +707,7 @@ export function AgentLabSection(): ReactElement {
                     className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
                     onClick={() => void onFetchModels()}
                     disabled={fetchingModels}
-                    title="按上面的 Base URL 请求 /models，拉取该厂商可用模型"
+                    title="按上面的 Base URL 请求 /models，拉取该服务商可用模型"
                   >
                     {fetchingModels ? (
                       <Loader2 size={12} className="weq-spin" />
@@ -785,19 +812,35 @@ export function AgentLabSection(): ReactElement {
                       className="weq-provider-model-row"
                     >
                       <input
-                        className="weq-set-input"
+                        className="weq-set-input weq-provider-model-id"
                         aria-label={`模型 ${index + 1} ID`}
                         value={model.id}
                         onChange={(e) => updateModel(index, { id: e.target.value })}
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
-                      <div className="weq-provider-model-capabilities">
-                        <CheckPillGroup
-                          options={CAPABILITIES}
-                          selected={model.capabilities}
-                          onChange={(capabilities) => updateModel(index, { capabilities })}
-                        />
-                      </div>
+                      <input
+                        className="weq-set-input weq-provider-model-reasoning"
+                        aria-label={`模型 ${index + 1} 思考档位`}
+                        placeholder="思考档位（逗号分隔）"
+                        title="可选思考档位，逗号分隔；留空使用 low、medium、high"
+                        value={
+                          model.reasoningEffortsText ?? model.reasoningEfforts?.join(', ') ?? ''
+                        }
+                        onChange={(event) =>
+                          updateModel(index, {
+                            reasoningEffortsText: event.target.value,
+                          })
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="weq-set-iconbtn weq-provider-model-remove"
+                        onClick={() => removeModel(index)}
+                        aria-label={`删除模型 ${index + 1}`}
+                        title={`删除模型 ${index + 1}`}
+                      >
+                        <X size={14} />
+                      </button>
                       <button
                         type="button"
                         className="weq-set-btn weq-set-btn-soft weq-set-btn-sm weq-provider-model-detect"
@@ -806,24 +849,38 @@ export function AgentLabSection(): ReactElement {
                           detectingModel !== null || !model.id.trim() || !form.baseUrl.trim()
                         }
                         aria-label={`自动检测模型 ${index + 1} 能力`}
-                        title="自动检测能力"
+                        title="自动检测聊天、向量与视觉能力"
                       >
                         {detectingModel === index ? (
                           <Loader2 size={12} className="weq-spin" />
                         ) : (
                           <FlaskConical size={12} />
                         )}
-                        <span>{detectingModel === index ? '检测中' : '自动检测能力'}</span>
+                        <span>{detectingModel === index ? '检测中' : '检测能力'}</span>
                       </button>
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                        onClick={() => removeModel(index)}
-                        aria-label={`删除模型 ${index + 1}`}
-                        title={`删除模型 ${index + 1}`}
+                      <div
+                        className="weq-search-scope weq-provider-model-capabilities"
+                        role="group"
+                        aria-label={`模型 ${index + 1} 能力`}
                       >
-                        <X size={12} />
-                      </button>
+                        {CAPABILITIES.map(({ value, label, Icon }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={model.capabilities.includes(value)}
+                            onClick={() =>
+                              updateModel(index, {
+                                capabilities: model.capabilities.includes(value)
+                                  ? model.capabilities.filter((item) => item !== value)
+                                  : [...model.capabilities, value],
+                              })
+                            }
+                          >
+                            <Icon size={14} aria-hidden />
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                       {model.probe ? (
                         <ul className="weq-provider-probe-results" aria-live="polite">
                           {model.probe.map((result) => (
@@ -859,7 +916,7 @@ export function AgentLabSection(): ReactElement {
                 disabled={saveProvider.isLoading || detectingModel !== null}
               >
                 <Save size={14} />
-                保存 provider
+                保存服务商
               </button>
               <button
                 type="button"

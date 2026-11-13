@@ -1,7 +1,10 @@
 import { act, cloneElement, isValidElement, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QQConversationControls } from '../src/renderer/src/components/QQConversationControls';
+import { GroupCardIdentity } from '../src/renderer/src/components/groupProfile/GroupCardContent';
+import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
 import { QQGroupMemberControls } from '../src/renderer/src/components/QQGroupMemberControls';
 import { QQGroupMemberEditor } from '../src/renderer/src/components/QQGroupMemberControls';
 import { readFileSync } from 'node:fs';
@@ -300,19 +303,54 @@ describe('专属头衔编辑权限', () => {
     expect(state.readbackResults).toEqual([true]);
     expect(state.mutate).toHaveBeenCalledOnce();
   });
-  it('群名与群头像只在群管理页，保存群名复用原绑定与请求', async () => {
+  it('群名与群头像只在群资料名片，保存群名复用原绑定与请求', async () => {
     state.role = 'owner';
+    // 会话设置（含群管理页）不再承载群名与群头像编辑。
     const preferences = fixture(h(QQConversationControls, { kind: 'group', conv: '123' }));
     expect(preferences.querySelector('[aria-label="群名称"]')).toBeNull();
-    expect(preferences.textContent).not.toContain('更换群头像');
+    expect(preferences.querySelector('[aria-label="更换群头像"]')).toBeNull();
     expect(preferences.querySelector('[aria-label="我在本群的昵称"]')).not.toBeNull();
     const management = fixture(
       h(QQConversationControls, { kind: 'group', conv: '123', section: 'group-management' }),
     );
     expect(management.querySelector('[aria-label="群备注"]')).toBeNull();
     expect(management.querySelector('[aria-label="我在本群的昵称"]')).toBeNull();
-    expect(management.textContent).toContain('更换群头像');
-    const name = management.querySelector<HTMLInputElement>('[aria-label="群名称"]')!;
+    expect(management.querySelector('[aria-label="群名称"]')).toBeNull();
+    expect(management.querySelector('[aria-label="更换群头像"]')).toBeNull();
+    // 编辑入口并入群资料名片身份区，保存仍复用原账号绑定与群名请求。
+    const conversation: GroupConversation = {
+      id: '123',
+      type: 'group',
+      updatedAt: '',
+      lastMessage: null,
+      otherUser: null,
+      members: [],
+      group: {
+        id: '123',
+        identityLabel: '群号',
+        identityValue: '123',
+        name: '测试群',
+        avatarUrl: null,
+        announcement: null,
+        memberCount: 20,
+        membershipKnown: true,
+        roleKnown: true,
+        role: 'owner',
+        listed: true,
+      },
+    };
+    const card = fixture(
+      h(
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+        h(GroupCardIdentity, { conversation, metrics: null }),
+      ),
+    );
+    expect(card.querySelector('[aria-label="更换群头像"]')).not.toBeNull();
+    const trigger = card.querySelector<HTMLButtonElement>('[aria-label="编辑群名称"]')!;
+    expect(trigger.textContent).toBe('测试群');
+    await act(async () => trigger.click());
+    const name = card.querySelector<HTMLInputElement>('[aria-label="群名称"]')!;
     expect(name.value).toBe('测试群');
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
@@ -322,7 +360,7 @@ describe('专属头衔编辑权限', () => {
       name.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await act(async () =>
-      management.querySelector<HTMLButtonElement>('[aria-label="保存群名称"]')!.click(),
+      card.querySelector<HTMLButtonElement>('[aria-label="保存群名称"]')!.click(),
     );
     expect(state.mutate).toHaveBeenCalledWith({
       expectedAccountUin: '10001',

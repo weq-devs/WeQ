@@ -21,6 +21,7 @@ export interface QzoneFeedVideo {
   videoUrl: string;
   videoId: string;
   duration: number;
+  mediaIndex?: number;
 }
 
 export interface QzoneFeedLink {
@@ -323,6 +324,7 @@ export function projectQzoneFeed(
     doc.querySelector('.f-content, .f-single-content') ?? doc.querySelector('.f-item') ?? doc.body;
   const videos: QzoneFeedVideo[] = [];
   const videoRoots: Element[] = [];
+  const rootVideos = new Map<Element, QzoneFeedVideo>();
   for (const node of body.querySelectorAll(
     '.f-video-wrap, a[data-v_vidiourl], a[data-v_vidioswfurl], a[data-v_itemid], video',
   )) {
@@ -361,8 +363,11 @@ export function projectQzoneFeed(
             ? item.videoUrl === videoUrl
             : item.coverUrl === coverUrl,
       )
-    )
-      videos.push({ coverUrl, videoUrl, videoId, duration: 0 });
+    ) {
+      const item = { coverUrl, videoUrl, videoId, duration: 0 };
+      videos.push(item);
+      rootVideos.set(node, item);
+    }
   }
   const cards = new Map<string, QzoneFeedLink>();
   const cardImages = new Set<string>();
@@ -445,6 +450,36 @@ export function projectQzoneFeed(
     anchor.remove();
   }
   const images = new Set<string>();
+  // 在替换图片节点前记录 DOM 顺序，视频封面只占自身视频的一格。
+  const mediaNodes = [
+    ...body.querySelectorAll(
+      'img, video, .f-video-wrap, a[data-v_vidiourl], a[data-v_vidioswfurl], a[data-v_itemid]',
+    ),
+  ];
+  let mediaIndex = 0;
+  const orderedRoots = new Set<Element>();
+  const orderedImages = new Set<string>();
+  for (const node of mediaNodes) {
+    const videoRoot = videoRoots.find((root) => root === node || root.contains(node));
+    if (videoRoot) {
+      if (!orderedRoots.has(videoRoot)) {
+        const video = rootVideos.get(videoRoot);
+        if (video) video.mediaIndex = mediaIndex++;
+        orderedRoots.add(videoRoot);
+      }
+    } else if (node.matches('img')) {
+      const source = feedImageSource(node);
+      if (
+        source &&
+        !cardImages.has(source) &&
+        !repost?.images.includes(source) &&
+        !orderedImages.has(source)
+      ) {
+        orderedImages.add(source);
+        mediaIndex++;
+      }
+    }
+  }
   for (const image of body.querySelectorAll('img')) {
     const source = videoRoots.some((root) => root.contains(image)) ? null : feedImageSource(image);
     if (
@@ -533,7 +568,13 @@ export function qzoneTextParts(content: string): QzoneTextPart[] {
       parts.push({ kind: 'text', text: content.slice(cursor, index), offset: cursor });
     if (match[3]) parts.push({ kind: 'emoji', code: match[3], offset: index });
     else {
-      const nickname = match[2]!.replace(/,(?:who|type|uin):.*$/, '');
+      const rawNickname = match[2]!.replace(/,(?:who|type|uin):.*$/, '');
+      let nickname = rawNickname;
+      try {
+        nickname = decodeURIComponent(rawNickname);
+      } catch {
+        /* 旧正文中的普通百分号保留。 */
+      }
       parts.push({
         kind: 'mention',
         uin: match[1]!,

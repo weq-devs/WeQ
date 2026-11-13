@@ -14,7 +14,7 @@ import { mediaRelPath } from './element_text';
 /** 仅处理本轮尚未发布的正式产物，不回读 QQ，不重新请求转发/下载或模型。 */
 export async function finalizeArchiveMessages(
   path: string,
-  format: 'json' | 'jsonl',
+  format: 'json' | 'jsonl' | 'jsonl.gz',
   options: {
     media: boolean;
     transcripts?: Record<string, string>;

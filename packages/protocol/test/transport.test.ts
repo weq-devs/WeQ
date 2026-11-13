@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveSign } from '../src/sign-policy';
+import { GetGroupAlbumFeedDetail } from '../src/oidb/group-album/media-actions';
 import { sendOidb, sendPacket } from '../src/transport';
 
 afterEach(() => vi.restoreAllMocks());
@@ -46,6 +47,30 @@ describe('协议传输', () => {
     expect(nativeSend).toHaveBeenCalledWith(1, 'test.unregistered', Buffer.alloc(1, 1), false, 3);
   });
 
+  it.each([
+    [0x9474, 0],
+    [0xfe1, 3],
+    [0x9067, 202],
+    [0xcd4, 1],
+  ])('已登记的不签名 OIDB %i_%i 保持原发包参数且不报警', async (command, subCommand) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const sendOidbPacket = vi.fn().mockResolvedValue(Buffer.from([0]));
+    const body = Uint8Array.from([1]);
+
+    await sendOidb({ sendOidbPacket }, 123, { command, subCommand, body });
+
+    expect(sendOidbPacket).toHaveBeenCalledWith(
+      123,
+      command,
+      subCommand,
+      Buffer.from(body),
+      false,
+      false,
+      3,
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('override 可以强制覆盖（调试脚本用）', async () => {
     const nativeSend = vi.fn().mockResolvedValue(Buffer.from([0]));
     await sendPacket({ sendPacket: nativeSend }, 1, 'MessageSvc.PbSendMsg', Uint8Array.from([1]), {
@@ -67,6 +92,28 @@ describe('协议传输', () => {
     await expect(
       sendOidb({ sendOidbPacket }, 123, { command: 0xfd4, subCommand: 1, body: new Uint8Array() }),
     ).rejects.toBe(error);
+  });
+
+  it('群相册原始 cell 入口也走中央策略，不绕过 mode 参数', async () => {
+    const error = new Error('synthetic packet failure');
+    const nativeSend = vi.fn().mockRejectedValue(error);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(
+      GetGroupAlbumFeedDetail.invoke({ sendPacket: nativeSend }, 123, {
+        groupId: '10001',
+        albumId: 'synthetic',
+        batchId: '1',
+        lloc: 'synthetic',
+      }),
+    ).rejects.toBe(error);
+    expect(nativeSend).toHaveBeenCalledWith(
+      123,
+      GetGroupAlbumFeedDetail.cmd,
+      expect.any(Buffer),
+      false,
+      3,
+    );
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('原始 SSO 发送异常继续向调用方抛出', async () => {

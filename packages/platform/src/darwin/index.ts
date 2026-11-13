@@ -31,6 +31,7 @@ import type { Platform } from '../types';
 import { weqAppDataRoot } from '../app_data_root';
 import { readLauncherCount, readQqVersion } from '../qq_meta';
 import { createQqOnlineProbe } from './online_probe';
+import { probeQqRuntimeModules } from './runtime_module_probe';
 import {
   candidateQqRoots,
   pickQqRoot,
@@ -157,6 +158,18 @@ export function createDarwinPlatform(
     videoDir: (u: string) => findVideoDir(uid(u), home, override()),
     fileDir: (u: string) => findFileDir(uid(u), home, override()),
     qqExePath: () => findQqExe(),
+    prepareQqRuntimeModules: async (pid) => {
+      const cached = runtimeModules.get(pid);
+      if (cached && cached.expires > performance.now()) return;
+      try {
+        const paths = await probeQqRuntimeModules(pid);
+        if (runtimeModules.size >= 64 && !runtimeModules.has(pid)) runtimeModules.clear();
+        runtimeModules.set(pid, { expires: performance.now() + 5000, paths });
+      } catch (error) {
+        runtimeModules.delete(pid);
+        throw error;
+      }
+    },
     qqWrapperNodePath: (pid) => {
       if (pid !== undefined) return modulesForPid(pid).wrapperPath;
       const exe = findQqExe();

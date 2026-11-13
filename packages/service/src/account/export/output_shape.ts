@@ -30,7 +30,7 @@ export interface ExportOutputCapabilities {
 export type ExportOutputShape =
   | { kind: 'directory' }
   | { kind: 'file'; name: string; extension: string };
-export const EXPORT_EXTENSION_PATTERN = /^[a-z0-9]{1,16}$/i;
+export const EXPORT_EXTENSION_PATTERN = /^(?:[a-z0-9]{1,16}|jsonl\.gz)$/i;
 
 export function exportOutputFileName(
   output: Extract<ExportOutputShape, { kind: 'file' }>,

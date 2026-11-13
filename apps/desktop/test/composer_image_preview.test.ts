@@ -3,16 +3,18 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
 import { serializeComposer } from '../src/renderer/src/im-template/template/composer';
 
 const state = vi.hoisted(() => ({
   open: vi.fn(
-    (_src: string, _alt?: string, _ocr?: unknown, _document?: Document, _closed?: () => void) => {},
+    (_options: { items: unknown[]; ownerDocument?: Document; onClose?: () => void }) => {},
   ),
 }));
-vi.mock('../src/renderer/src/components/ImageLightbox', () => ({ openLightbox: state.open }));
+vi.mock('../src/renderer/src/components/mediaPreviewStore', () => ({
+  openMediaPreview: state.open,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
@@ -82,17 +84,23 @@ it.each([false, true])(
       );
       act(() => image.click());
       expect(state.open).toHaveBeenCalledOnce();
-      expect(state.open.mock.calls[0]?.slice(0, 4)).toEqual([
-        'blob:composer-preview',
-        '[图片]',
-        null,
-        document,
-      ]);
+      expect(state.open.mock.calls[0]?.[0]).toMatchObject({
+        items: [
+          {
+            key: 'blob:composer-preview',
+            kind: 'image',
+            src: 'blob:composer-preview',
+            title: '[图片]',
+            ocr: null,
+          },
+        ],
+        ownerDocument: document,
+      });
       expect(serializeComposer(editor)).toBe(before);
       expect(send).not.toHaveBeenCalled();
       selection.removeAllRanges();
       await act(async () => {
-        state.open.mock.calls[0]?.[4]?.();
+        state.open.mock.calls[0]?.[0]?.onClose?.();
         await new Promise((resolve) => setTimeout(resolve, 40));
       });
       expect(document.activeElement).toBe(editor);

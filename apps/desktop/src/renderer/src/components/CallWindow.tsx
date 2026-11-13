@@ -21,7 +21,8 @@ import type { CallVideoEncoding } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { resourceUrl } from '../lib/resourceUrl';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
-import { useToolWindow } from '../hooks/useCompositionWindow';
+import { prefersInlineToolWindow, useToolWindow } from '../hooks/useCompositionWindow';
+import { Modal } from './Dialog';
 import { useCallAudio } from '../hooks/useCallAudio';
 import { nextRotation } from '../lib/callVideo';
 import { SCREEN_PROFILE, type VideoProfile } from '../../../shared/call_video_profile';
@@ -41,7 +42,7 @@ import '../styles/call.css';
 import '../styles/call-recorder.css';
 import '../styles/call-video.css';
 
-interface CallInfo {
+export interface CallInfo {
   state: CallState;
   roomId: string | null;
   peerUin: string;
@@ -274,7 +275,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   useEffect(() => {
     const generation = ++lifecycle.current;
     const popup = tool.open();
-    if (!popup) {
+    if (!popup && !prefersInlineToolWindow()) {
       requestHangup();
       useToast.getState().push({
         tone: 'error',
@@ -493,10 +494,11 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   ];
 
   const popup = tool.popup;
-  if (!popup || popup.closed) return null;
+  const inline = tool.fallback && prefersInlineToolWindow();
+  if ((!popup || popup.closed) && !inline) return null;
 
-  return createPortal(
-    <RenderDocumentContext.Provider value={popup.document}>
+  const content = (
+    <RenderDocumentContext.Provider value={inline ? document : popup!.document}>
       <div
         className="weq-call-backdrop"
         role="region"
@@ -586,7 +588,20 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         </div>
       ) : null}
       <HoverTooltip />
-    </RenderDocumentContext.Provider>,
-    popup.document.body,
+    </RenderDocumentContext.Provider>
+  );
+  return inline ? (
+    <Modal
+      onClose={finished ? closeWindow : handleHangup}
+      width="min(720px, 100%)"
+      className="weq-call-inline"
+      centered
+      dismissOnOutside={false}
+      title="语音通话"
+    >
+      {content}
+    </Modal>
+  ) : (
+    createPortal(content, popup!.document.body)
   );
 }

@@ -1,6 +1,7 @@
 import type { LoggerContext, LogLevel } from './logger';
 import { stripVTControlCharacters } from 'node:util';
 import { writeSync } from 'node:fs';
+import { formatConsoleRecord } from './console_format';
 
 const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 const secret =
@@ -104,20 +105,25 @@ export function createConsoleLogger(options: ConsoleLoggerOptions) {
       .map((v) => v.trim())
       .filter(Boolean),
   );
-  const color = (options.color ?? process.stderr.isTTY) && env.NO_COLOR === undefined;
+  const color =
+    (options.color ??
+      (env.WEQ_DEV_STDERR_TTY === undefined
+        ? process.stderr.isTTY
+        : env.WEQ_DEV_STDERR_TTY === '1')) &&
+    env.NO_COLOR === undefined;
   const pending = new Map<
     string,
     { at: number; count: number; level: LogLevel; message: string; context: LoggerContext }
   >();
   const output = (level: LogLevel, message: string, context: LoggerContext) => {
     try {
-      const time = new Date(now() + 8 * 3600_000).toISOString().replace('T', ' ').slice(0, 23);
-      const label = level.toUpperCase();
-      const painted = color
-        ? `\x1b[${level === 'error' ? 31 : level === 'warn' ? 33 : 36}m${label}\x1b[0m`
-        : label;
       sink(
-        `${time} +08:00 ${painted} [${safeText(options.processName, 40)}:${process.pid}] [${safeText(context.scope ?? 'app', 80)}] ${safeText(message).replace(/\s+/g, ' ')} ${JSON.stringify(projectConsoleContext(context))}\n`,
+        formatConsoleRecord(
+          level,
+          safeText(message),
+          projectConsoleContext(context) as LoggerContext,
+          { now: now(), color: Boolean(color), details: minimum === 'debug' },
+        ),
       );
     } catch {
       // 终端断开或展示对象不可读不能影响业务。

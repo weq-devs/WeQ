@@ -1,7 +1,10 @@
+import * as timeFormat from '@weq/time';
+import { eventTimeFormatter } from '@weq/time';
 /** 统一导出工具：内容选择与执行配置；任务工具独立管理执行结果和计划。 */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useMultiSelection } from '../hooks/useMultiSelection';
+import { ReferenceExportTool } from './export/ReferenceExportTool';
 import {
   Bookmark,
   Bot,
@@ -27,8 +30,6 @@ import {
   Search,
   Smile,
   Trash2,
-  Users,
-  UserRound,
   X,
   Zap,
 } from 'lucide-react';
@@ -45,7 +46,8 @@ import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { fixProfileAvatarUrl } from '../lib/avatarResolver';
 import { classifyChatType, datalineName, toChatTypeNumber } from '@weq/codec';
 import type { ExportPresets } from '@weq/service';
-import { Segmented } from './export/widgets';
+import { SegmentedControl } from '../components/SegmentedControl';
+import { CheckPill } from '../components/settings/controls';
 import { ChipsSkeleton, PickerListSkeleton, ScheduleListSkeleton } from './export/ExportSkeleton';
 import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
@@ -87,6 +89,7 @@ import { MessageScopePicker } from './export/MessageScopePicker';
 import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { SaveResultLocation } from './export/SaveResultLocation';
 import { IS_WEB } from '../lib/target';
+import { presentClientDocument } from '../components/ClientDocumentPreview';
 import type { ContentSelection } from '../../../shared/content_selection';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { DatabasePlainExport } from './export/DatabasePlainExport';
@@ -103,6 +106,7 @@ import {
 } from './export/exportScope';
 import { ContactScopePicker } from './export/ContactScopePicker';
 import { GeneratedExportPane } from './export/GeneratedExportPane';
+import { ConversationBatchExportPane } from './export/ConversationBatchExportPane';
 import { MailExportPane } from './export/MailExportPane';
 import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/workspace-tools.css';
@@ -280,16 +284,12 @@ interface CollectionItemWire {
 
 /** 秒 → `M:SS` / `S"`（0/空留空）。 */
 function fmtSeconds(sec: number): string {
-  if (!sec || sec <= 0) return '';
-  const s = Math.round(sec);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `${s}"`;
+  return sec > 0 ? timeFormat.formatDuration(sec) : '';
 }
 
 /** QQ 空间导出格式收窄：html 直通，其余非 txt 一律回退 json。 */
-function qzoneFormatOf(f: ExportFormat): 'json' | 'jsonl' | 'txt' | 'html' {
-  if (f === 'jsonl') return 'jsonl';
+function qzoneFormatOf(f: ExportFormat): 'json' | 'jsonl' | 'jsonl.gz' | 'txt' | 'html' {
+  if (f === 'jsonl' || f === 'jsonl.gz') return f;
   if (f === 'txt') return 'txt';
   if (f === 'html') return 'html';
   return 'json';
@@ -353,7 +353,29 @@ function collectionPreview(it: CollectionItemWire): CollectionPreviewItem {
   };
 }
 
-export function ExportTool({
+export function ExportTool(props: Parameters<typeof ExportToolBody>[0]): ReactElement {
+  const selection = props.initialSelection;
+  if (
+    props.surface !== 'tasks' &&
+    (selection?.owner.kind === 'conversation-batch' || selection?.owner.conversationTarget)
+  )
+    return (
+      <ConversationBatchExportPane
+        initialSelection={selection}
+        onClose={props.onClose}
+        onAuthorizationChange={props.onAuthorizationChange}
+      />
+    );
+  if (
+    props.surface !== 'tasks' &&
+    selection?.scope.type === 'references' &&
+    (selection.owner.kind === 'qzone-albums' || selection.owner.kind === 'group-albums')
+  )
+    return <ReferenceExportTool initial={selection.scope.items} onClose={props.onClose} />;
+  return <ExportToolBody {...props} />;
+}
+
+function ExportToolBody({
   surface = 'export',
   initialSelection,
   initialMode,
@@ -366,12 +388,14 @@ export function ExportTool({
   onAuthorizationChange,
   taskLayout = 'inline',
   onTaskExpand,
+  taskToolbarAction,
   onNewSchedule,
   databaseTarget,
 }: {
   surface?: 'export' | 'tasks';
   taskLayout?: 'inline' | 'compact' | 'split';
   onTaskExpand?: () => void;
+  taskToolbarAction?: ReactNode;
   onNewSchedule?: () => void;
   initialSelection?: ContentSelection;
   databaseTarget?: DatabaseExportTarget;
@@ -489,7 +513,14 @@ export function ExportTool({
   const [qzoneInitial] = useState(() => initialQzoneScope(initialSelection));
   const [spaceSelection, setSpaceSelection] = usePageState<Set<string>>(
     'export:spaces',
-    () => new Set(qzoneInitial.uin ? [qzoneInitial.uin] : []),
+    () =>
+      new Set(
+        qzoneInitial.targets
+          ? Object.keys(qzoneInitial.targets)
+          : qzoneInitial.uin
+            ? [qzoneInitial.uin]
+            : [],
+      ),
     pageValue.stringSet,
     true,
     !initialSelection,
@@ -497,9 +528,11 @@ export function ExportTool({
   const [postSelections, setPostSelections] = usePageState<Record<string, string[]>>(
     'export:posts',
     () =>
-      qzoneInitial.uin && qzoneInitial.tids !== undefined
-        ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
-        : {},
+      qzoneInitial.targets
+        ? structuredClone(qzoneInitial.targets)
+        : qzoneInitial.uin && qzoneInitial.tids !== undefined
+          ? { [qzoneInitial.uin]: [...qzoneInitial.tids] }
+          : {},
     pageValue.stringLists,
     true,
     !initialSelection,
@@ -731,18 +764,21 @@ export function ExportTool({
     };
   }, []);
 
-  // 好友空间 only json/txt/html; 联系人受子类限制 — clamp。
+  // 空间与联系人各自限制可用格式。
   useEffect(() => {
-    if (mode === 'qzone' && format !== 'json' && format !== 'txt' && format !== 'html')
+    if (mode === 'qzone' && !['json', 'jsonl', 'jsonl.gz', 'txt', 'html'].includes(format))
       setFormat('json');
     if (mode === 'contacts') {
       const allowed =
         contactScope === 'friends'
-          ? ['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']
-          : ['json', 'jsonl', 'csv', 'xlsx', 'txt'];
+          ? ['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt', 'vcard']
+          : ['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt'];
       if (!allowed.includes(format)) setFormat('csv');
     }
-    if (mode === 'collection' && !['json', 'csv', 'xlsx', 'txt'].includes(format))
+    if (
+      mode === 'collection' &&
+      !['json', 'jsonl', 'jsonl.gz', 'csv', 'xlsx', 'txt'].includes(format)
+    )
       setFormat('json');
     // vcard 仅联系人可用；离开联系人模式时清掉，避免带进消息/定时导出。
     if (mode !== 'contacts' && format === 'vcard') setFormat('json');
@@ -870,8 +906,24 @@ export function ExportTool({
         kind: 'c2c',
         meta: '当前空间 · 说说',
       });
+    for (const uin of Object.keys(qzoneInitial.targets ?? {}))
+      if (!items.some((item) => item.id === uin))
+        items.push({
+          id: uin,
+          uin,
+          name: `空间 ${uin}`,
+          avatarUrl: convAvatarUrl('c2c', '', uin),
+          kind: 'c2c',
+          meta: '精确选中的说说',
+        });
     return items;
-  }, [conversations.data, selfProfile.data, qzoneInitial.uin, extraQzoneTargets]);
+  }, [
+    conversations.data,
+    selfProfile.data,
+    qzoneInitial.uin,
+    qzoneInitial.targets,
+    extraQzoneTargets,
+  ]);
 
   const groupItems = useMemo<PickItem[]>(() => {
     return ((groups.data ?? []) as GroupWire[]).map((g) => ({
@@ -979,10 +1031,39 @@ export function ExportTool({
   // ---- task actions (existing backend) ----
   const refetchTasks = (): void => void tasks.refetch();
 
-  const onPause = (t: UiTask): void =>
-    void client.account.pauseExportTask.mutate({ taskId: t.id }).then(refetchTasks);
-  const onCancel = (t: UiTask): void =>
-    void client.account.cancelExportTask.mutate({ taskId: t.id }).then(refetchTasks);
+  const onPause = async (t: UiTask): Promise<void> => {
+    try {
+      const ok = await client.account.pauseExportTask.mutate({ taskId: t.id });
+      if (!ok) dialog.info('暂时无法暂停', '任务状态已变化，请查看最新任务状态。');
+      refetchTasks();
+    } catch (error) {
+      dialog.error('暂停失败', error instanceof Error ? error.message : String(error));
+    }
+  };
+  const onCancel = async (t: UiTask): Promise<void> => {
+    try {
+      const ok = await client.account.cancelExportTask.mutate({ taskId: t.id });
+      if (!ok) dialog.info('暂时无法取消', '任务已完成或仍在收尾，请查看最新任务状态。');
+      refetchTasks();
+    } catch (error) {
+      dialog.error('取消失败', error instanceof Error ? error.message : String(error));
+    }
+  };
+  const onResume = async (t: UiTask): Promise<void> => {
+    try {
+      const ok = await client.account.resumeExportTask.mutate({ taskId: t.id });
+      if (!ok)
+        dialog.error(
+          t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
+          t.resumeMode === 'restart'
+            ? '任务仍在收尾，请稍后重试。'
+            : '任务仍在收尾，或没有可验证的断点。',
+        );
+      refetchTasks();
+    } catch (error) {
+      dialog.error('续作失败', error instanceof Error ? error.message : String(error));
+    }
+  };
   const onDelete = async (t: UiTask): Promise<void> => {
     if (t.status === 'completed' && t.save?.status !== 'saved') {
       const confirmed = await dialog.confirm(
@@ -992,6 +1073,7 @@ export function ExportTool({
       );
       if (!confirmed) return;
     }
+    if (!mounted.current || !isCurrent()) return;
     try {
       const deleted = await client.account.deleteExportTask.mutate({ taskId: t.id });
       if (deleted && saveBinding)
@@ -1079,35 +1161,6 @@ export function ExportTool({
         dialog.error('下载失败', error instanceof Error ? error.message : String(error));
     }
   }
-
-  /** 一键按全局保存方式处理全部已完成任务，询问模式可逐个取消。 */
-  const onSaveAll = async (): Promise<void> => {
-    const completed = uiTasks.filter((t) => t.status === 'completed');
-    if (completed.length === 0) return;
-    const failed: string[] = [];
-    let okCount = 0;
-    let cancelled = false;
-    for (const t of completed) {
-      const saved = await saveTask(t);
-      if (saved.status === 'saved') okCount += 1;
-      else if (saved.status === 'failed') failed.push(t.name);
-      else {
-        cancelled = true;
-        break;
-      }
-    }
-    refetchTasks();
-    if (failed.length > 0) {
-      dialog.error(
-        '部分任务保存失败',
-        `成功 ${okCount} 个，失败 ${failed.length} 个：${failed.slice(0, 8).join('、')}${failed.length > 8 ? '…' : ''}`,
-      );
-    } else if (cancelled) {
-      dialog.info('已取消保存', `已保存 ${okCount} 个任务，其余已生成结果仍保留在任务列表中。`);
-    } else {
-      dialog.success('批量保存完成', `已保存 ${okCount} 个导出任务。`);
-    }
-  };
 
   // ---- primary action per mode ----
   function onPrimary(intent?: import('@weq/service').ExportSavePolicy): void {
@@ -1240,7 +1293,9 @@ export function ExportTool({
     }
     const binding = { expectedAccountUin: account.uin, expectedAccountConfigId: account.configId };
     // 联系人格式收窄到 startContactsExport 接受的集合（灯箱 chips 已保证）。
-    const cfmts = [...formats] as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
+    const cfmts = [...formats] as Array<
+      'json' | 'jsonl' | 'jsonl.gz' | 'csv' | 'xlsx' | 'txt' | 'vcard'
+    >;
     const cats = [...catSelection];
     const groupIds = groupListIds === undefined ? undefined : [...groupListIds];
     const selectedFriends = friendUids === undefined ? undefined : [...friendUids];
@@ -1336,7 +1391,7 @@ export function ExportTool({
   async function runCollectionExport(): Promise<void> {
     const intent = saveIntent.current;
     const binding = saveBinding;
-    const cfmt = format as 'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt';
+    const cfmt = format as 'json' | 'jsonl' | 'jsonl.gz' | 'csv' | 'xlsx' | 'txt';
     const structured = structuredExportOptions(collectionStructured, [cfmt]);
     const kinds = [...collectionKinds];
     const cids = [...(collectionIds ?? filteredCollectionIds)];
@@ -1383,6 +1438,14 @@ export function ExportTool({
       .filter((it) => convSelection.has(it.id))
       .map((item) => ({
         ...item,
+        ...(initialSelection?.owner.kind === 'messages' &&
+        initialSelection.owner.forwardTarget &&
+        initialSelection.scope.type === 'items' &&
+        messageSelections[item.id]?.length === 1 &&
+        messageSelections[item.id]?.[0] === initialSelection.scope.ids[0] &&
+        initialConversationIds(initialSelection)[0] === item.id
+          ? { forwardTarget: { ...initialSelection.owner.forwardTarget } }
+          : {}),
         ...(messageSelections[item.id] !== undefined
           ? {
               messageIds: [...messageSelections[item.id]!],
@@ -1898,6 +1961,31 @@ export function ExportTool({
                   : '导出群成员列表'
               : '导出聊天记录';
 
+  const onOpenSaved = !IS_WEB
+    ? async (task: UiTask, reveal: boolean) => {
+        const account = exportAccount.data;
+        if (!account?.uin || !account.configId) return;
+        try {
+          await client.account.openSavedExportOutput.mutate({
+            taskId: task.id,
+            reveal,
+            expectedAccountUin: account.uin,
+            expectedAccountConfigId: account.configId,
+          });
+        } catch (error) {
+          dialog.error('打开保存结果失败', error instanceof Error ? error.message : String(error));
+        }
+      }
+    : undefined;
+  const onReport = async (task: UiTask) => {
+    try {
+      const result = await client.account.revealExportReport.mutate({ taskId: task.id });
+      presentClientDocument(result, '导出完整性报告');
+    } catch (error) {
+      dialog.error('打开报告失败', String(error));
+    }
+  };
+
   return (
     <div className={`weq-exp weq-export-tool is-${surface}`}>
       {report.dialog}
@@ -2000,12 +2088,13 @@ export function ExportTool({
 
             {mode === 'full' && !editingList ? (
               <div className="weq-export-execution">
-                <Segmented<'now' | 'scheduled'>
+                <SegmentedControl<'now' | 'scheduled'>
+                  label="导出方式"
                   value={execution}
                   onChange={setExecution}
                   options={[
-                    { value: 'now', label: '立即导出', icon: <Play size={13} /> },
-                    { value: 'scheduled', label: '定时执行', icon: <CalendarClock size={13} /> },
+                    { value: 'now', label: '立即导出' },
+                    { value: 'scheduled', label: '定时执行' },
                   ]}
                 />
                 {execution === 'scheduled' &&
@@ -2124,7 +2213,7 @@ export function ExportTool({
                       </header>
                       {mode === 'qzone' ? (
                         <QzoneScopePicker
-                          key={scopeConversation.id}
+                          key={`${accountUin}:${scopeConversation.id}`}
                           selfUin={exportAccount.data?.uin ?? ''}
                           hostUin={scopeConversation.id}
                           selected={postSelections[scopeConversation.id]}
@@ -2139,7 +2228,7 @@ export function ExportTool({
                         />
                       ) : (
                         <MessageScopePicker
-                          key={`chat:${scopeConversation.kind ?? 'c2c'}:${scopeConversation.id}`}
+                          key={`${accountUin}:chat:${scopeConversation.kind ?? 'c2c'}:${scopeConversation.id}`}
                           kind={scopeConversation.kind ?? 'c2c'}
                           conv={scopeConversation.id}
                           selected={messageSelections[scopeConversation.id]}
@@ -2205,13 +2294,14 @@ export function ExportTool({
               ) : mode === 'contacts' ? (
                 <div className="weq-exp-contacts">
                   <div className="weq-exp-contacts-switch">
-                    <Segmented<'friends' | 'group' | 'groups'>
+                    <SegmentedControl<'friends' | 'group' | 'groups'>
+                      label="名单类型"
                       value={contactScope}
                       onChange={setContactScope}
                       options={[
-                        { value: 'friends', label: '联系人名单', icon: <UserRound size={13} /> },
-                        { value: 'groups', label: '群聊名单', icon: <Users size={13} /> },
-                        { value: 'group', label: '群成员名单', icon: <Users size={13} /> },
+                        { value: 'friends', label: '联系人名单' },
+                        { value: 'groups', label: '群聊名单' },
+                        { value: 'group', label: '群成员名单' },
                       ]}
                     />
                   </div>
@@ -2244,6 +2334,8 @@ export function ExportTool({
                         />
                       </details>
                       <ContactScopePicker
+                        key={`${accountUin}:friends`}
+                        scopeKey={`${accountUin}:friends`}
                         items={friendPreview}
                         loading={friendDirectory.isLoading}
                         error={friendDirectory.isError}
@@ -2300,7 +2392,8 @@ export function ExportTool({
                             </button>
                           </header>
                           <ContactScopePicker
-                            key={memberScopeGroup.id}
+                            key={`${accountUin}:${memberScopeGroup.id}`}
+                            scopeKey={`${accountUin}:${memberScopeGroup.id}`}
                             items={memberDirectory.data ?? []}
                             loading={memberDirectory.isLoading}
                             error={memberDirectory.isError}
@@ -2384,12 +2477,25 @@ export function ExportTool({
                 ) : showFormatChips ? (
                   <div className="weq-exp-foot-format">
                     <span className="weq-exp-foot-label">格式</span>
-                    <Segmented<ExportFormat>
+                    <select
+                      className="weq-set-input"
+                      aria-label="导出格式"
                       value={format}
-                      onChange={setFormat}
-                      options={formatOptions}
-                      small
-                    />
+                      onChange={(event) => setFormat(event.target.value as ExportFormat)}
+                    >
+                      {formatOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <small>
+                      {format === 'csv' || format === 'xlsx'
+                        ? '适合表格查看和筛选。'
+                        : format === 'txt'
+                          ? '适合直接阅读纯文本内容。'
+                          : '保留结构化收藏信息，适合程序处理。'}
+                    </small>
                     <StructuredExportControls
                       onRequireJson={() => setFormat('json')}
                       domain={
@@ -2468,7 +2574,8 @@ export function ExportTool({
         <div className={`weq-task-workspace is-${taskLayout}`}>
           {taskLayout !== 'compact' ? (
             <div className="weq-task-workspace-tabs">
-              <Segmented<'tasks' | 'schedules'>
+              <SegmentedControl<'tasks' | 'schedules'>
+                label="任务视图"
                 value={taskTab}
                 onChange={setTaskTab}
                 options={[
@@ -2549,7 +2656,18 @@ export function ExportTool({
             ) : (
               <CurrentTaskList
                 cleanupBinding={saveBinding}
+                exportActions={{
+                  pause: onPause,
+                  resume: onResume,
+                  cancel: onCancel,
+                  remove: onDelete,
+                  save: onDownload,
+                  openSaved: onOpenSaved,
+                  report: onReport,
+                  browserDownload: IS_WEB ? downloadInBrowser : undefined,
+                }}
                 layout={taskLayout}
+                toolbarAction={taskToolbarAction}
                 onOpenDetail={() => {
                   setTaskTab('tasks');
                   onTaskExpand?.();
@@ -2558,7 +2676,6 @@ export function ExportTool({
                 exportError={tasks.error?.message}
                 loadingExports={tasks.isLoading}
                 onOpenClone={onOpenClone}
-                onSaveAll={() => void onSaveAll()}
                 autoSelectId={autoSelectTaskId}
                 renderExport={(task) => (
                   <TaskList
@@ -2594,49 +2711,11 @@ export function ExportTool({
                         })
                         .catch((e) => dialog.error('跳过失败', String(e)));
                     }}
-                    onResume={(t) => {
-                      void client.account.resumeExportTask
-                        .mutate({ taskId: t.id })
-                        .then((ok) => {
-                          if (!ok)
-                            dialog.error(
-                              t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
-                              t.resumeMode === 'restart'
-                                ? '任务仍在收尾，请稍后重试。'
-                                : '任务仍在收尾，或没有可验证的断点。',
-                            );
-                          refetchTasks();
-                        })
-                        .catch((e) => dialog.error('续作失败', String(e)));
-                    }}
-                    onReport={(t) => {
-                      void client.account.revealExportReport
-                        .mutate({ taskId: t.id })
-                        .catch((e) => dialog.error('打开报告失败', String(e)));
-                    }}
+                    onResume={onResume}
+                    onReport={onReport}
                     onCancel={onCancel}
                     onDownload={(t) => void onDownload(t)}
-                    onOpenSaved={
-                      !IS_WEB
-                        ? (t, reveal) => {
-                            const account = exportAccount.data;
-                            if (!account?.uin || !account.configId) return;
-                            void client.account.openSavedExportOutput
-                              .mutate({
-                                taskId: t.id,
-                                reveal,
-                                expectedAccountUin: account.uin,
-                                expectedAccountConfigId: account.configId,
-                              })
-                              .catch((error) =>
-                                dialog.error(
-                                  '打开保存结果失败',
-                                  error instanceof Error ? error.message : String(error),
-                                ),
-                              );
-                          }
-                        : undefined
-                    }
+                    onOpenSaved={onOpenSaved}
                     onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
                     onDelete={onDelete}
                     onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
@@ -2658,6 +2737,7 @@ export function ExportTool({
 
       {lightbox ? (
         <ExportLightbox
+          allowContinuation={!initialSelection?.owner.forwardTarget}
           onAuthorizationChange={onAuthorizationChange}
           embedded
           hidden={editingList}
@@ -2807,7 +2887,7 @@ function CategoryChips({
         <div className="weq-exp-cats-list">
           <button
             type="button"
-            className={`weq-exp-chip${allActive ? ' is-active' : ''}`}
+            className={`weq-exp-chip${allActive ? ' is-on' : ''}`}
             onClick={() => onChange(new Set())}
           >
             全部好友 <b>{total}</b>
@@ -2816,7 +2896,7 @@ function CategoryChips({
             <button
               key={c.id}
               type="button"
-              className={`weq-exp-chip${selected.has(c.id) ? ' is-active' : ''}`}
+              className={`weq-exp-chip${selected.has(c.id) ? ' is-on' : ''}`}
               {...multi.itemProps(c.id)}
             >
               {c.name} <b>{c.count}</b>
@@ -2869,9 +2949,7 @@ function collectionKindIcon(kind: string, size = 15): ReactElement {
 
 /** 收藏时间 → `YYYY/MM/DD`（预览行尾注）。 */
 function fmtCollectDay(ms: number): string {
-  if (!ms) return '';
-  const d = new Date(ms);
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  return ms ? timeFormat.formatDate(ms) : '';
 }
 
 /**
@@ -2947,7 +3025,7 @@ function CollectionScope({
           <div className="weq-exp-cats-list">
             <button
               type="button"
-              className={`weq-exp-chip${allActive ? ' is-active' : ''}`}
+              className={`weq-exp-chip${allActive ? ' is-on' : ''}`}
               onClick={() => onChange(new Set())}
             >
               全部收藏 <b>{total}</b>
@@ -2956,7 +3034,7 @@ function CollectionScope({
               <button
                 key={k.id}
                 type="button"
-                className={`weq-exp-chip${selected.has(k.id) ? ' is-active' : ''}`}
+                className={`weq-exp-chip${selected.has(k.id) ? ' is-on' : ''}`}
                 {...typesMulti.itemProps(k.id)}
               >
                 {k.label} <b>{counts[k.id] ?? 0}</b>
@@ -2971,18 +3049,16 @@ function CollectionScope({
           <strong>{allActive ? '全部收藏' : '所选类型'}</strong>
           <small>{loading ? '加载中…' : `${fmtCount(filtered.length)} 条`}</small>
         </div>
-        <label className="weq-message-scope-mode">
-          <input
-            type="checkbox"
+        <div className="weq-message-scope-mode">
+          <CheckPill
             checked={selectedIds !== undefined}
-            onChange={(event) => onSelectedIdsChange(event.target.checked ? [] : undefined)}
-          />
-          <span>
+            onChange={(next) => onSelectedIdsChange(next ? [] : undefined)}
+          >
             {selectedIds === undefined
               ? '导出全部筛选结果'
               : `精确选中 ${selectedIds.length} 条收藏`}
-          </span>
-        </label>
+          </CheckPill>
+        </div>
         <div className="weq-exp-search">
           <Search size={15} aria-hidden />
           <input
@@ -3042,18 +3118,11 @@ function CollectionScope({
   );
 }
 
-/** Format unix seconds as `MM/DD HH:mm` for the schedule row. */
+/** 定时运行记录按北京时间显示完整日期与时分秒。 */
 function fmtRunAt(sec: number | null): string {
   if (sec == null) return '—';
   const d = new Date(sec * 1000);
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(d);
+  return eventTimeFormatter.format(d);
 }
 
 /** Compact relative-time hint for the "下次运行" label. */

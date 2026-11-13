@@ -33,6 +33,7 @@ const USER_LIKE_INFO = message([
 
 const LIKE_RESP = message([
   { name: 'userLikeInfos', tag: 1, type: USER_LIKE_INFO, repeated: true },
+  { name: 'field2', tag: 2, type: 'uint32' },
 ]);
 
 export interface InteractionCounts {
@@ -86,11 +87,14 @@ export namespace GetProfileLike {
     };
   };
 
-  export const deserialize = (body: Record<string, unknown>): LikeInfo => {
-    const data = (body.userLikeInfos as Record<string, unknown>[] | undefined)?.[0];
+  export const deserialize = (body: Record<string, unknown>, targetUid?: string): LikeInfo => {
+    const infos = body.userLikeInfos as Record<string, unknown>[] | undefined;
+    const data = infos?.[0];
     if (!data) throw new Error('get profile like info empty');
+    // 实测 0a00100a 的单个空对象按零处理，不将其他缺 UID 的数据绑定到目标。
+    const emptyResult = body.field2 === 10 && infos?.length === 1 && !Object.keys(data).length;
     return {
-      uid: (data.uid as string) ?? '',
+      uid: (data.uid as string) ?? (emptyResult ? targetUid : undefined) ?? '',
       time: toInt(data.time),
       favoriteInfo: readInteraction(data.favoriteInfo),
       voteInfo: readInteraction(data.voteInfo),
@@ -98,5 +102,13 @@ export namespace GetProfileLike {
   };
 
   export const invoke = (nt: OidbNative, pid: number, params: Params): Promise<LikeInfo> =>
-    invokeOidb(nt, pid, GetProfileLike as OidbSpec<Params, LikeInfo>, params);
+    invokeOidb(
+      nt,
+      pid,
+      {
+        ...GetProfileLike,
+        deserialize: (body) => deserialize(body, params.targetUid),
+      } satisfies OidbSpec<Params, LikeInfo>,
+      params,
+    );
 }

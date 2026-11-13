@@ -4,7 +4,14 @@ import type { GeneratedResourceManifest } from './generated_resources';
 import { writeGeneratedArchive } from './archive_domain';
 import type { ArchiveOptions } from './archive';
 
-export const GENERATED_EXPORT_FORMATS = ['json', 'jsonl', 'txt', 'csv', 'xlsx'] as const;
+export const GENERATED_EXPORT_FORMATS = [
+  'json',
+  'jsonl',
+  'jsonl.gz',
+  'txt',
+  'csv',
+  'xlsx',
+] as const;
 export type GeneratedExportFormat = (typeof GENERATED_EXPORT_FORMATS)[number];
 type Row = GeneratedContentSnapshot['messages'][number];
 
@@ -16,7 +23,7 @@ export async function writeGeneratedContent(
   resources?: GeneratedResourceManifest,
   archive?: ArchiveOptions,
 ): Promise<void> {
-  if (format === 'json' || format === 'jsonl')
+  if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
     return writeGeneratedArchive(snapshot, path, format, archive, resources);
   const { messages } = snapshot;
   const cols: Array<Col<Row>> = [
@@ -25,12 +32,19 @@ export async function writeGeneratedContent(
     { key: 'ownerId', header: '对象身份', get: () => snapshot.target.ownerId },
     { key: 'sessionId', header: '会话身份', get: () => snapshot.target.sessionId ?? '' },
     {
-      key: 'legacy',
-      header: '旧版记录',
-      get: () => (snapshot.target.sessionId === null ? 'true' : 'false'),
+      key: 'longTerm',
+      header: '长期对话',
+      get: () =>
+        snapshot.target.kind !== 'assistant' && snapshot.target.sessionId === null
+          ? 'true'
+          : 'false',
     },
     { key: 'title', header: '对话名称', get: () => `${snapshot.title} · ${snapshot.sessionTitle}` },
     { key: 'id', header: '消息身份', get: (row) => row.id },
+    { key: 'sourceMessageId', header: '原消息身份', get: (row) => row.sourceMessageId ?? '' },
+    { key: 'sourceSessionId', header: '原会话身份', get: (row) => row.sourceSessionId ?? '' },
+    { key: 'sourceSessionTitle', header: '原会话标题', get: (row) => row.sourceSessionTitle ?? '' },
+    { key: 'sourceReplyToId', header: '原引用身份', get: (row) => row.sourceReplyToId ?? '' },
     { key: 'role', header: '角色', get: (row) => row.role ?? row.senderKind ?? '' },
     { key: 'senderId', header: '发言者身份', get: (row) => row.senderId ?? '' },
     { key: 'ts', header: '原始时间戳（毫秒）', get: (row) => row.ts },

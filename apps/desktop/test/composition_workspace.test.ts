@@ -65,19 +65,40 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
     fixture.writes.push({ name, input });
     if (fixture.fail) throw new Error('合成落盘失败');
     const data = input as { kind: 'material' | 'history'; draft: MfDraft; id?: string };
+    // 与 client_state.saveExternalDraft 的真实返回一致：{ ok, current }，
+    // current 是 { key, value, version } 形状的共享草稿，而不是草稿本身。
     if (name === 'workspaceSave') {
       if (fixture.defer) await new Promise<void>((resolve) => fixture.pending.push(resolve));
-      fixture.current = [
-        ...fixture.current.filter((item) => item.id !== data.draft.id),
-        structuredClone(data.draft),
-      ];
-      return data.draft;
+      const key = `composition:${data.draft.id}`;
+      const existing = fixture.current.find((item) => item.id === data.draft.id);
+      const sameContent = JSON.stringify(existing) === JSON.stringify(data.draft);
+      if (!sameContent) {
+        fixture.current = [
+          ...fixture.current.filter((item) => item.id !== data.draft.id),
+          structuredClone(data.draft),
+        ];
+      }
+      return {
+        ok: true as const,
+        current: {
+          key,
+          value: structuredClone(data.draft),
+          version: `v-${fixture.writes.length}`,
+        },
+      };
     }
     if (name === 'workspaceRemove') {
       fixture.current = fixture.current.filter((item) => item.id !== data.id);
       fixture.history = fixture.history.filter((item) => (item as MfDraft).id !== data.id);
       fixture.legacy = fixture.legacy.filter((item) => (item as MfDraft).id !== data.id);
-      return;
+      return {
+        ok: true as const,
+        current: {
+          key: `composition:${data.id}`,
+          value: null,
+          version: `v-${fixture.writes.length}`,
+        },
+      };
     }
     if (name === 'archiveAppend') {
       const result = {

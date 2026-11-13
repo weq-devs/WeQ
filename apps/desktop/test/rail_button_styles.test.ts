@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { WorkspaceMenuButton } from '../src/renderer/src/components/WorkspaceMenuButton';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 

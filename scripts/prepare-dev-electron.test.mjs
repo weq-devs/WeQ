@@ -52,8 +52,9 @@ test('开发入口先准备带调试权限的宿主，保留原开发账号目�
   const desktop = JSON.parse(
     await readFile(new URL('../apps/desktop/package.json', import.meta.url), 'utf8'),
   );
-  assert.match(desktop.scripts.dev, /prepare-dev-electron\.mjs --launch/);
-  assert.match(desktop.scripts.dev, /--user-data-dir=\.\.\/\.\.\/\.dev-profile/);
+  assert.equal(desktop.scripts.dev, 'node ../../scripts/dev.mjs');
+  const config = JSON.parse(await readFile(new URL('../weq.dev.json', import.meta.url), 'utf8'));
+  assert.equal(config.userDataDir, '.dev-profile');
 });
 
 test('非 macOS 保持原宿主，不要求本机签名工具', async () => {

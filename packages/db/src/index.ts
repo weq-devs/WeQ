@@ -26,6 +26,8 @@ export {
   observeSlowDatabaseOperations,
   promoteDatabaseSignal,
   withDatabasePriority,
+  withDatabaseSignal,
+  withDatabaseReadBudget,
   databaseRequestSignal,
   databasePerformance,
   recordMessagePartition,
@@ -34,6 +36,8 @@ export {
   waitForDatabaseQuiet,
 } from './query_schedule';
 export type { DatabasePriority, SlowDatabaseOperation } from './query_schedule';
+export { CalendarMetadataDb } from './msg/calendar_metadata';
+export type { CalendarTable, CalendarCursor, CalendarMetadata } from './msg/calendar_metadata';
 export { withDatabaseRequest } from './query_diagnostics';
 export { rowsToObjects } from './row';
 export type { SalvageScanOutcome, SalvageSkippedRange } from '@weq/native';

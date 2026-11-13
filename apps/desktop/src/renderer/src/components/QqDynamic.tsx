@@ -219,6 +219,7 @@ export function QqDynamic({
         {primaryUin ? (
           <div className="weq-dynamic-publisher">
             <ProfileAvatar
+              className="weq-identity-link"
               target={{
                 identity: String(primaryUin),
                 name: publisherName,
@@ -226,8 +227,8 @@ export function QqDynamic({
               }}
             >
               <QqAvatar uin={String(primaryUin)} url={publisher?.avatarUrl} size={28} />
+              <span className="weq-dynamic-publisher-name">{publisherName}</span>
             </ProfileAvatar>
-            <span className="weq-dynamic-publisher-name">{publisherName}</span>
           </div>
         ) : null}
 

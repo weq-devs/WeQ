@@ -4,20 +4,23 @@ import { cn } from './classNames';
 import { DefaultAvatar } from './defaultAvatar';
 import { useAvatarUrl } from '../../hooks/useAvatarUrl';
 import { useDebouncedLoading } from '../../hooks/useDebouncedLoading';
+import { observePlaceholderAnimation } from '../../lib/placeholderAnimation';
 
 export function Avatar({
   name,
   avatarUrl,
   seed,
+  resolution = 'original',
 }: {
   name: string;
   avatarUrl?: string | null;
   seed?: string;
+  resolution?: 'small' | 'original';
 }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const resolved = useAvatarUrl(avatarUrl);
+  const resolved = useAvatarUrl(avatarUrl, true, resolution === 'small' ? 'small' : 'big');
 
   useLayoutEffect(() => {
     setFailed(false);
@@ -37,7 +40,13 @@ export function Avatar({
     >
       {hasImage ? (
         <>
-          {showShimmer ? <span className={cn('skel-block', 'avatar-shimmer')} aria-hidden /> : null}
+          {showShimmer ? (
+            <span
+              ref={observePlaceholderAnimation}
+              className={cn('skel-block', 'avatar-shimmer')}
+              aria-hidden
+            />
+          ) : null}
           <img
             ref={imgRef}
             src={resolved}
@@ -55,23 +64,7 @@ export function Avatar({
   );
 }
 
-export function EmptyState({
-  title,
-  body,
-  icon,
-}: {
-  title: string;
-  body: string;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <div className={cn('empty-state')}>
-      {icon}
-      <strong>{title}</strong>
-      <span>{body}</span>
-    </div>
-  );
-}
+export { EmptyState } from '../../components/EmptyState';
 
 export function LoadingState({ text = '加载中...' }: { text?: string }) {
   return (

@@ -37,6 +37,12 @@ import { QqDb } from '../qq_db';
 const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135","41148","41220","60001","41103","41104"`;
 const contactCodec = new ProtoMsg(RecentContactBody);
 
+export const RECENT_CONTACT_PREVIEW_CACHE_LIMITS = {
+  entries: 1024,
+  sourceBytes: 2 * 1024 * 1024,
+  entryBytes: 64 * 1024,
+} as const;
+
 /**
  * Chat types excluded from the recent-contact list. Guild/channel rows use a
  * completely different column layout (name in 40091, preview nested in 41150,
@@ -84,6 +90,11 @@ const PINNED_BIT = 140737488355328n; // 2^47
 
 export class RecentContactDb {
   private readonly qq: QqDb;
+  private readonly previews = new Map<
+    string,
+    { bytes: Buffer; value: NonNullable<RecentContact['preview']> }
+  >();
+  private previewBytes = 0;
 
   constructor(nt: NtHelperBinding, opts: RecentContactDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
@@ -106,7 +117,7 @@ export class RecentContactDb {
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
     );
-    return rows.map(rowToRecentContact);
+    return rows.map((row) => rowToRecentContact(row, this.previewFor(row)));
   }
 
   /** Total rows visible to {@link getRecentContact} (same exclusion rules). */
@@ -215,7 +226,7 @@ export class RecentContactDb {
       ),
     ]);
     return {
-      items: rows.map(rowToRecentContact),
+      items: rows.map((row) => rowToRecentContact(row, this.previewFor(row))),
       total: Number(countRows[0]?.[0] ?? 0),
     };
   }
@@ -258,11 +269,49 @@ export class RecentContactDb {
         ORDER BY "40050" DESC`,
       unique,
     );
-    return rows.map(rowToRecentContact);
+    return rows.map((row) => rowToRecentContact(row, this.previewFor(row)));
+  }
+
+  private evictPreview(key: string): void {
+    const previous = this.previews.get(key);
+    if (previous) this.previewBytes -= previous.bytes.byteLength;
+    this.previews.delete(key);
+  }
+
+  private previewFor(row: SqlRow): RecentContact['preview'] {
+    const uid = toStr(row[3]);
+    const key = JSON.stringify([toNum(row[1]), uid]);
+    const blob = row[6];
+    const previous = this.previews.get(key);
+    if (blob instanceof Uint8Array && previous?.bytes.equals(blob)) {
+      this.previews.delete(key);
+      this.previews.set(key, previous);
+      return previous.value;
+    }
+    this.evictPreview(key);
+    // 比较完整正文而非序号／时间；独立拷贝不持有原生查询返回的整块缓冲区。
+    const bytes =
+      uid &&
+      blob instanceof Uint8Array &&
+      blob.byteLength <= RECENT_CONTACT_PREVIEW_CACHE_LIMITS.entryBytes
+        ? Buffer.from(blob)
+        : undefined;
+    const value = decodePreview(bytes ?? blob);
+    if (!bytes || !value) return value;
+    this.previews.set(key, { bytes, value });
+    this.previewBytes += bytes.byteLength;
+    while (
+      this.previews.size > RECENT_CONTACT_PREVIEW_CACHE_LIMITS.entries ||
+      this.previewBytes > RECENT_CONTACT_PREVIEW_CACHE_LIMITS.sourceBytes
+    )
+      this.evictPreview(this.previews.keys().next().value!);
+    return value;
   }
 
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
+    this.previews.clear();
+    this.previewBytes = 0;
     this.qq.close();
   }
 
@@ -299,7 +348,7 @@ export class RecentContactDb {
 
 // ---------- row → RecentContact ------------------------------------------
 
-function rowToRecentContact(row: SqlRow): RecentContact {
+function rowToRecentContact(row: SqlRow, preview: RecentContact['preview']): RecentContact {
   return {
     msgSeq: toBigint(row[0]),
     chatType: enumName(ChatType, toNum(row[1])),
@@ -307,7 +356,7 @@ function rowToRecentContact(row: SqlRow): RecentContact {
     targetUid: toStr(row[3]),
     targetUin: toBigint(row[4]),
     sendTime: toBigint(row[5]),
-    preview: decodePreview(row[6]),
+    preview,
     senderDisplayName: toStr(row[7]),
     senderNick: toStr(row[8]),
     targetDisplayName: toStr(row[9]),

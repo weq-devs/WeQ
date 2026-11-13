@@ -1,14 +1,17 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { type RemotePairing, claimSchema, tokenHash } from './pairing';
-import { RemoteWebGateway } from './web_gateway';
+import type { RemoteWebGateway } from './web_gateway';
+import { observeRemoteRequest } from './device';
 
 function bearer(req: IncomingMessage): string {
   const value = req.headers.authorization ?? '';
   return /^Bearer [a-f0-9]{64}$/.test(value) ? value.slice(7) : '';
 }
 
-export function createRemoteServer(pairing: RemotePairing, webPort?: () => number | null) {
-  const web = webPort === undefined ? null : new RemoteWebGateway(pairing, webPort);
+export function createRemoteServer(
+  pairing: RemotePairing,
+  web?: Pick<RemoteWebGateway, 'handle' | 'attach' | 'close'>,
+) {
   let windowStart = Date.now();
   // 未授权请求与已授权设备分别计数，避免单个来源耗尽所有设备的限额。
   const requests = new Map<string, number>();
@@ -32,7 +35,8 @@ export function createRemoteServer(pairing: RemotePairing, webPort?: () => numbe
       requests.clear();
     }
     const token = bearer(req);
-    const authorized = !!token && pairing.authenticate(token);
+    const observation = observeRemoteRequest(req);
+    const authorized = !!token && pairing.authenticate(token, observation);
     const quota = authorized
       ? `device:${tokenHash(token)}`
       : `peer:${req.socket.remoteAddress ?? 'unknown'}`;
@@ -65,7 +69,7 @@ export function createRemoteServer(pairing: RemotePairing, webPort?: () => numbe
           chunks.push(bytes);
         }
         const input = claimSchema.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-        return send(201, pairing.claim(input));
+        return send(201, pairing.claim(input, observation));
       }
       if (!token) return send(401, { error: '需要设备凭据。' });
       const match = /^\/v1\/pair\/([a-f0-9-]{36})$/.exec(path);
@@ -89,8 +93,10 @@ export function createRemoteServer(pairing: RemotePairing, webPort?: () => numbe
   });
   server.headersTimeout = 10_000;
   server.requestTimeout = 10_000;
-  server.timeout = 10_000;
+  // 业务响应与订阅可能长时间没有字节；收包时限不应变成业务执行时限。
+  server.timeout = 0;
   server.maxConnections = 16;
   web?.attach(server);
+  server.once('close', () => web?.close());
   return server;
 }

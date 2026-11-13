@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Check, Pencil, ThumbsUp, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { client, trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
+import { useContactStats } from '../../hooks/useContactCard';
 import { ActionFeedback, ActionIcon, useQQAction, withQQAccountScope } from './shared';
 import '../../styles/profile-like.css';
 
@@ -10,6 +11,7 @@ interface ProfileLikeProps {
   uid: string;
   uin: string;
   name: string;
+  children?: ReactNode;
 }
 
 function ProfileLikeDialogBody({
@@ -17,8 +19,17 @@ function ProfileLikeDialogBody({
   uin,
   name,
   onClose,
-}: ProfileLikeProps & { onClose: () => void }) {
+  anchor,
+}: ProfileLikeProps & { onClose: () => void; anchor: HTMLElement }) {
   const a = useQQAction(`profile-like:${uid}`);
+  const stats = useContactStats(uin, uid, 'likeCount');
+  const total = stats.data?.likeCount;
+  const totalText =
+    typeof total === 'number' && Number.isSafeInteger(total) && total >= 0
+      ? total.toLocaleString('zh-CN')
+      : stats.isLoading
+        ? '读取中…'
+        : '暂不可用';
   const utils = trpc.useUtils();
   const titleId = useId();
   const [custom, setCustom] = useState(false);
@@ -36,21 +47,29 @@ function ProfileLikeDialogBody({
   const self = a.binding?.expectedAccountUin === uin;
   function send(count: number) {
     if (a.disabled || self || !Number.isInteger(count) || count < 1 || count > 20) return;
-    const before = utils.account.dressup.peerStats.getData?.({ uin, uid })?.likeCount;
+    const statsInput = { uin, uid, fields: ['likeCount' as const], ...a.binding };
+    const before = utils.account.dressup.peerStats.getData?.(statsInput)?.likeCount;
     void a.perform(
       (binding) => client.account.qqActions.profileLike.mutate({ ...binding, uid, count }),
       () => utils.account.dressup.peerStats.invalidate({ uin, uid }),
       undefined,
       {
         readback: async () => {
-          const result = await client.account.dressup.peerStats.query({ uin, uid });
-          return before !== undefined && result.likeCount >= before + count;
+          const result = await client.account.dressup.peerStats.query(statsInput);
+          return before != null && result.likeCount != null && result.likeCount >= before + count;
         },
       },
     );
   }
   return (
-    <Modal width={340} labelledBy={titleId} onClose={onClose} centered>
+    <Modal
+      width={340}
+      labelledBy={titleId}
+      onClose={onClose}
+      presentation="popover"
+      anchor={anchor}
+      anchorPlacement="side"
+    >
       <div className="weq-profile-like-dialog">
         <header>
           <h3 id={titleId}>{name} · 资料卡点赞</h3>
@@ -58,6 +77,12 @@ function ProfileLikeDialogBody({
             <X size={16} />
           </ActionIcon>
         </header>
+        <div className="weq-profile-like-total" aria-live="polite" data-privacy-sensitive>
+          <strong className={`weq-number${typeof total !== 'number' ? ' is-unavailable' : ''}`}>
+            {totalText}
+          </strong>
+          <span>累计获赞</span>
+        </div>
         <div className="weq-profile-like-switcher">
           <div
             className={`weq-profile-like-stage weq-profile-like-controls${!custom ? ' is-active' : ''}`}
@@ -140,18 +165,43 @@ function ProfileLikeDialogBody({
 
 const ProfileLikeDialog = withQQAccountScope(ProfileLikeDialogBody);
 
-/** 打开弹窗不发请求；目标变化会销毁旧结果。 */
+/** 打开弹窗不发送点赞请求；目标变化会销毁旧结果。 */
 function ProfileLikeActionBody(props: ProfileLikeProps) {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const trigger = useRef<HTMLSpanElement>(null);
   const self = useViewState((state) => state.openedUin) === props.uin;
-  if (self || !/^u_[A-Za-z0-9_-]+$/.test(props.uid) || !/^[1-9]\d{4,19}$/.test(props.uin))
-    return null;
+  if (
+    (self && !props.children) ||
+    !/^u_[A-Za-z0-9_-]+$/.test(props.uid) ||
+    !/^[1-9]\d{4,19}$/.test(props.uin)
+  )
+    return props.children ?? null;
+  const open = () => {
+    const element = trigger.current?.querySelector('button');
+    if (element) setAnchor(element);
+  };
   return (
     <>
-      <ActionIcon label="赞资料卡" onClick={() => setOpen(true)}>
-        <ThumbsUp size={14} />
-      </ActionIcon>
-      {open && <ProfileLikeDialog {...props} onClose={() => setOpen(false)} />}
+      <span ref={trigger} className="weq-profile-like-trigger">
+        {props.children ? (
+          <button
+            type="button"
+            className="weq-profile-data-action"
+            title="查看资料卡点赞"
+            aria-label="查看资料卡点赞"
+            aria-haspopup="dialog"
+            aria-expanded={Boolean(anchor)}
+            onClick={open}
+          >
+            {props.children}
+          </button>
+        ) : (
+          <ActionIcon label="赞资料卡" onClick={open}>
+            <ThumbsUp size={14} />
+          </ActionIcon>
+        )}
+      </span>
+      {anchor && <ProfileLikeDialog {...props} anchor={anchor} onClose={() => setAnchor(null)} />}
     </>
   );
 }

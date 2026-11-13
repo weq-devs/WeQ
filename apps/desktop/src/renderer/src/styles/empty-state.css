@@ -1,0 +1,59 @@
+.weq-empty-state {
+  display: flex;
+  min-width: 0;
+  min-height: 220px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-empty-state-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: color-mix(in srgb, var(--weq-accent-effective) 24%, var(--weq-fg-secondary));
+}
+
+.weq-empty-state-icon > svg {
+  width: 40px;
+  height: 40px;
+  stroke-width: 1.4;
+}
+
+.weq-empty-state-title {
+  max-width: 100%;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.weq-empty-state-body {
+  max-width: 40ch;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.weq-empty-state.is-compact {
+  min-height: 132px;
+  gap: 8px;
+  padding: 24px 16px;
+}
+
+.weq-empty-state.is-compact .weq-empty-state-icon > svg {
+  width: 30px;
+  height: 30px;
+}
+
+.weq-empty-state.is-compact .weq-empty-state-title {
+  font-size: 13px;
+}
+
+html[data-theme='dark'] .weq-empty-state-icon {
+  color: color-mix(in srgb, var(--weq-accent-effective) 32%, var(--weq-fg-secondary));
+}

@@ -1,3 +1,4 @@
+import { eventTimeFormatter } from '@weq/time';
 import { arkClipboardText, cardClipboardText } from './cardClipboard';
 import { UNICODE_FACE_MAP } from './unicodeFaceMap';
 
@@ -16,16 +17,7 @@ export interface PlainMessage extends PlainSender {
   body?: string;
   resolveSender?: PlainSenderLookup;
 }
-const timestamp = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
+const timestamp = eventTimeFormatter;
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)

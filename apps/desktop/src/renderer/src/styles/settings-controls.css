@@ -60,6 +60,16 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   max-width: 100%;
 }
 
+.weq-set-empty:has(> svg) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-set-empty > svg {
+  flex: none;
+}
+
 /* 网格卡片和纵向表单中的操作仍按内容定宽，不继承容器的拉伸。 */
 .weq-set .weq-set-btn {
   justify-self: start;
@@ -141,4 +151,167 @@ html[data-theme] .weq-set-chk:disabled .weq-set-chk-box::after {
 
 html[data-theme='dark'] body .weq-set-chk:not(.is-on):not(:disabled) {
   background: var(--weq-bg-elevated);
+}
+
+/* 卡片标题区：标题 + 一句说明，说明与页头 desc 同字号同颜色。 */
+.weq-set-card-heading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.weq-set-card-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* 卡片 head 的状态位：保存中/已保存/失败重试固定在这里，不再占用行描述位置。 */
+.weq-set-card-status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.weq-set-card-status:empty {
+  display: none;
+}
+.weq-set-card-status .weq-autosave-status {
+  min-height: 0;
+}
+/* 页头标签：只表达固定事实（如「自动保存」），不是可点操作。 */
+.weq-set-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+}
+
+/* 数字 + 单位：单位固定在输入框右侧，不写进行标题。 */
+.weq-set-unit-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.weq-set-unit {
+  flex: none;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+}
+
+/* 外观分区沿用卡片标题的「图标 + 标题」版式，与标准 Card 对齐。 */
+.weq-settings-appearance-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* 界面背景缩略图跟随深浅模式：深色下用与画布同源的暗色渐变，不再显示白底块。 */
+html[data-theme='dark'] .weq-settings-preset-preview.is-bg-plain {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 9%, #16181c),
+    color-mix(in srgb, var(--weq-accent-effective) 4.5%, #131419)
+  );
+}
+html[data-theme='dark'] .weq-settings-preset-preview.is-bg-paper {
+  background:
+    radial-gradient(
+      130% 96% at 50% -28%,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent) 0,
+      transparent 62%
+    ),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0) 0 10px,
+      rgba(255, 255, 255, 0.02) 10px 11px,
+      rgba(255, 255, 255, 0) 11px 22px
+    ),
+    linear-gradient(180deg, #1c211d 0%, #181c19 56%, #151815 100%);
+}
+html[data-theme='dark'] .weq-settings-preset-preview.is-bg-grid {
+  background:
+    linear-gradient(0deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 20px 20px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 20px 20px,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, #161a18),
+      color-mix(in srgb, var(--weq-accent-effective) 4.5%, #121513)
+    );
+}
+html[data-theme='dark'] .weq-settings-preset-preview.is-bg-dots {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.1) 0 0.8px, transparent 1px) 0 0 / 16px
+    16px,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 9%, #171b19),
+      color-mix(in srgb, var(--weq-accent-effective) 4%, #121513)
+    );
+}
+html[data-theme='dark'] .weq-settings-preset-preview.is-bg-wash {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--weq-accent-effective) 12%, #1a2027) 0%,
+    #181d24 34%,
+    #1d1b20 68%,
+    #161b19 100%
+  );
+}
+html[data-theme='dark'] .weq-settings-preset-preview.is-bg-telegram {
+  background:
+    url('../../../../../../resources/img/chat-doodle-tile.svg') 0 0 / 244px 202px repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--weq-accent-effective) 7%, #181c21),
+      color-mix(in srgb, var(--weq-accent-effective) 3.4%, #14171b)
+    );
+}
+
+/* 存储管理列表：条目之间只用 hairline 分隔，不再套一层描边卡片。 */
+.weq-storage-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+  min-width: 0;
+}
+
+.weq-storage-item + .weq-storage-item {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-storage-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-storage-item-head .weq-set-chk {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-storage-item-head .weq-set-cache-size {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-storage-item .weq-storage-path {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }

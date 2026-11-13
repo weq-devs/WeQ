@@ -33,6 +33,8 @@ it.each([true, false])(
     else await expect(service.synthesize(cfg, '测试')).rejects.toThrow();
     expect(new Set(updates.map((u) => u.requestId)).size).toBe(1);
     expect(updates.at(-1)).toMatchObject({
+      providerId: cfg.id,
+      providerName: cfg.name,
       kind: 'speech',
       feature: 'tts-synthesis',
       totalTokens: null,

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
+import { TASK_READ_LIMIT, useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import type { WorkspaceTaskIndicator } from '../src/renderer/src/lib/workspaceIndicators';
 import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
 
@@ -174,6 +174,51 @@ describe('任务结果已读状态', () => {
     expect(useWorkspaceMenu.getState().finished).toBe(1);
   });
 
+  it('启动空快照、部分列表和重启不会删除暂时缺席任务的已读记录', () => {
+    const store = useWorkspaceMenu.getState();
+    store.syncTasks('partial', [task('1'), task('2')]);
+    store.readTasks();
+    resetMemory();
+    store.syncTasks('partial', []);
+    store.syncTasks('partial', [task('2')]);
+    store.readTasks();
+    resetMemory();
+    store.syncTasks('partial', [task('1'), task('2'), task('new')]);
+    expect(useWorkspaceMenu.getState().finished).toBe(1);
+  });
+
+  it('另一个窗口已读后，旧窗口轮询不会覆盖已读记录', () => {
+    const store = useWorkspaceMenu.getState();
+    store.syncTasks('windows', [task('1')]);
+    const stale = {
+      readTaskResults: useWorkspaceMenu.getState().readTaskResults,
+      readTaskResultsByScope: useWorkspaceMenu.getState().readTaskResultsByScope,
+    };
+    store.readTasks();
+    useWorkspaceMenu.setState(stale);
+    store.syncTasks('windows', [task('1')]);
+    expect(useWorkspaceMenu.getState().finished).toBe(0);
+    resetMemory();
+    store.syncTasks('windows', [task('1')]);
+    expect(useWorkspaceMenu.getState().finished).toBe(0);
+  });
+
+  it('已读历史有界保留，优先保留最近查看的任务', () => {
+    const store = useWorkspaceMenu.getState();
+    store.syncTasks(
+      'bounded',
+      Array.from({ length: TASK_READ_LIMIT }, (_, i) => task(`old-${i}`)),
+    );
+    store.readTasks();
+    store.syncTasks('bounded', [task('new')]);
+    store.readTasks();
+    const results = useWorkspaceMenu.getState().readTaskResults;
+    expect(Object.keys(results)).toHaveLength(TASK_READ_LIMIT);
+    expect(results.new).toBe('completed');
+    expect(results['old-0']).toBeUndefined();
+    expect(results['old-1']).toBe('completed');
+  });
+
   it('未采样到运行阶段时，按结果时间区分同一任务的新一轮完成', () => {
     const store = useWorkspaceMenu.getState();
     const snapshot = (updatedAt: number) =>
@@ -218,5 +263,11 @@ describe('任务结果已读状态', () => {
     store.syncTasks('a', []);
     store.syncTasks('a', [task('2')]);
     expect(useWorkspaceMenu.getState().finished).toBe(1);
+    store.readTasks();
+    store.syncTasks('a', []);
+    const request = useWorkspaceMenu.getState().taskOpenRequest;
+    store.syncTasks('a', [task('2')]);
+    expect(useWorkspaceMenu.getState().finished).toBe(0);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(request);
   });
 });

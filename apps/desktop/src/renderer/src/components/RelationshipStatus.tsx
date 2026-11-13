@@ -1,5 +1,6 @@
 import { CircleHelp, UserRound, UserRoundCheck, Users, UsersRound } from 'lucide-react';
 import { useContext } from 'react';
+import { QQProfileField } from './QQProfileField';
 import {
   groupRelationship,
   personRelationship,
@@ -49,6 +50,7 @@ export function RelationshipStatus({
 export function PersonRelationshipStatus({
   person,
   compact,
+  editableCategory = false,
 }: {
   person: PersonIdentity & {
     categoryName?: string | null;
@@ -56,6 +58,7 @@ export function PersonRelationshipStatus({
     identityLabel?: string;
   };
   compact?: boolean;
+  editableCategory?: boolean;
 }) {
   const directory = useContext(RelationshipDirectoryContext);
   if (person.clone || person.identityLabel === '设备') return null;
@@ -63,13 +66,18 @@ export function PersonRelationshipStatus({
   const friend =
     directory?.friends.get(person.uid || person.id || '') ??
     directory?.friends.get(person.identityValue || '');
-  return (
-    <RelationshipStatus
-      status={status}
-      compact={compact}
-      detail={!compact && status === 'friend' ? friend?.categoryName || person.categoryName : null}
-    />
-  );
+  const category =
+    !compact && status === 'friend' ? friend?.categoryName || person.categoryName : null;
+  const uid = person.uid || person.id || '';
+  if (editableCategory && !compact && status === 'friend' && /^u_/.test(uid))
+    return (
+      <div className="weq-relationship-with-category">
+        <RelationshipStatus status={status} />
+        <span aria-hidden="true">·</span>
+        <QQProfileField field="friendCategory" target={uid} initial={category || ''} inline />
+      </div>
+    );
+  return <RelationshipStatus status={status} compact={compact} detail={category} />;
 }
 
 export function GroupRelationshipStatus({

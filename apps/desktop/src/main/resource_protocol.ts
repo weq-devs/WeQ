@@ -114,7 +114,7 @@ async function routeResourceRequest(request: Request): Promise<Response> {
   const target = containedPath(root, relative);
   if (!target) return new Response('forbidden', { status: 403 });
 
-  return fileResponse(target, request);
+  return fileResponse(target, request, { revalidate: true });
 }
 
 /**
@@ -131,7 +131,7 @@ async function handleEmojiRequest(request: Request, url: URL): Promise<Response>
   for (const root of roots) {
     const target = containedPath(root, relative);
     if (!target) return new Response('forbidden', { status: 403 });
-    const res = await fileResponse(target, request);
+    const res = await fileResponse(target, request, { revalidate: true });
     if (res.status !== 404) return res;
   }
 
@@ -146,5 +146,7 @@ async function handleEmojiRequest(request: Request, url: URL): Promise<Response>
   }
 
   const cachePath = containedPath(download.root(), relative);
-  return cachePath ? fileResponse(cachePath, request) : new Response('not found', { status: 404 });
+  return cachePath
+    ? fileResponse(cachePath, request, { revalidate: true })
+    : new Response('not found', { status: 404 });
 }

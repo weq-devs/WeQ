@@ -3,6 +3,7 @@ import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { groupMemberToWire, userProfileToWire } from '../serde';
 import { QQ_REGIONS, QQ_PROFESSIONS } from '@weq/protocol';
+import { PROFILE_DISPLAY_KEYS } from '@weq/protocol';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -41,10 +42,12 @@ export interface QQWriteServices {
     | 'selfAvatar'
     | 'groupAvatar'
     | 'selfIdentity'
+    | 'selfProfileDisplaySettings'
+    | 'setSelfProfileDisplaySetting'
   >;
   groupModeration: Pick<
     AccountServices['groupModeration'],
-    'setName' | 'setMemberCard' | 'setSpecialTitle' | 'setEssence'
+    'setName' | 'setMemberCard' | 'setSpecialTitle' | 'setEssence' | 'muteMember'
   >;
   profile: Pick<
     AccountServices['profile'],
@@ -90,6 +93,32 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    selfProfileDisplaySettings: procedure.input(binding.strict()).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.selfProfileDisplaySettings();
+      if (resolve(input) !== services || result.targetUin !== input.expectedAccountUin)
+        throw new Error('资料展示读取目标已变化');
+      return result;
+    }),
+    setSelfProfileDisplaySetting: procedure
+      .input(
+        binding
+          .extend({
+            field: z.enum([PROFILE_DISPLAY_KEYS[0]!, ...PROFILE_DISPLAY_KEYS.slice(1)]),
+            value: z.number().int().min(0).max(2),
+          })
+          .strict(),
+      )
+      .mutation(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.accountWrite.setSelfProfileDisplaySetting(
+          input.field,
+          input.value,
+        );
+        if (resolve(input) !== services || result.targetUin !== input.expectedAccountUin)
+          throw new Error('资料展示保存目标已变化');
+        return result;
+      }),
     friendClue: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
       const services = resolve(input);
       const result = await services.accountWrite.friendClue(input.uid);
@@ -124,6 +153,11 @@ export function createQQWriteRouter(
               hometown: z.array(z.string().max(4)).length(4).optional(),
               email: z.string().max(996).optional(),
               school: z.string().max(996).optional(),
+              company: z.string().max(996).optional(),
+              personalDescription: z
+                .string()
+                .refine((value) => Array.from(value).length <= 383)
+                .optional(),
               profession: z.number().int().min(1).max(14).optional(),
             })
             .strict()
@@ -295,6 +329,12 @@ export function createQQWriteRouter(
               nick: profile.nick,
               signature: profile.signature,
               gender: profile.gender,
+              qid: profile.qid,
+              birthYear: profile.birthYear,
+              birthMonth: profile.birthMonth,
+              birthDay: profile.birthDay,
+              age: profile.age,
+              extInfo: profile.extInfo,
             }
           : null,
         status,
@@ -444,6 +484,12 @@ export function createQQWriteRouter(
       .input(binding.extend({ groupId, targetUid: uid, card: z.string().max(256) }))
       .mutation(async ({ input }) => {
         await resolve(input).groupModeration.setMemberCard(input);
+        return { state: 'accepted' as const };
+      }),
+    groupMemberMute: procedure
+      .input(binding.extend({ groupId, targetUid: uid, duration: uint32 }))
+      .mutation(async ({ input }) => {
+        await resolve(input).groupModeration.muteMember(input);
         return { state: 'accepted' as const };
       }),
     groupSpecialTitle: procedure

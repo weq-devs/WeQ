@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, extname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readWeqBackupFile } from './backup_clones';
+import { isWeqBackgroundName } from '../common/backup_account_paths';
+import { validateWeqBackground } from './backup_bundle';
 import type { UserConfigService } from './user_config';
 import { DEFAULT_APP_SETTINGS } from './user_config';
 import { snapshotWeqSettings, snapshotWeqApiSettings, snapshotWeqAccount } from './backup_settings';
@@ -18,6 +22,8 @@ import { snapshotWeqClones } from './backup_clones';
 import { snapshotWeqAccountPreferences } from './backup_accounts';
 import { validateWeqBackupData } from './backup_data';
 import { validateWeqClientSettings } from '../common/backup_client';
+import { preferenceDefaults } from '../common/client_preferences';
+import { weqDefaultsPaths, type WeqDefaultsChoice } from './backup_defaults';
 import {
   previewWeqBackupRestore,
   stageWeqBackupRestore,
@@ -96,7 +102,22 @@ export class WeqBackupService {
       : DEFAULT_APP_SETTINGS;
     const warnings: string[] = [];
     if (selection.parts.includes('settings')) {
-      add('settings/app.json', snapshotWeqSettings(settings));
+      const app = snapshotWeqSettings(settings);
+      const background = app.sharedPreferences.dress?.backgroundFile;
+      if (background) {
+        if (background.includes('/') || background.includes('\\'))
+          throw new Error('共享背景文件名无效');
+        const source = join(this.config.sharedAppearanceDir(), background);
+        if (existsSync(source)) {
+          const bytes = readWeqBackupFile(source);
+          validateWeqBackground(bytes, extname(background));
+          const name = `bg-${createHash('sha256').update(bytes).digest('hex')}${extname(background).toLowerCase()}`;
+          if (!isWeqBackgroundName(name)) throw new Error('共享背景格式无效');
+          app.sharedPreferences.dress!.backgroundFile = name;
+          files.push({ path: `settings/background/${name}`, data: bytes });
+        } else warnings.push('共享自定义背景缺失，保留选择与文件引用。');
+      }
+      add('settings/app.json', app);
       if (selection.includeClient !== false) {
         validateWeqClientSettings(client);
         add('settings/client.json', client);
@@ -245,7 +266,34 @@ export class WeqBackupService {
     cancelWeqBackupRestore(this.root, this.config.cacheBaseDir());
   }
 
-  stageDefaults(clientId?: string) {
+  defaultsInfo() {
+    const settings = this.config.getSettings();
+    const api = snapshotWeqApiSettings(settings);
+    return {
+      hasApi:
+        api.agentLab.providers.length > 0 ||
+        api.agentLab.defaultModel !== null ||
+        api.agentLab.defaultVisionModel !== null ||
+        api.ttsProviders.length > 0 ||
+        api.mcp.enabled ||
+        Boolean(api.mcp.token) ||
+        api.mcp.port !== DEFAULT_APP_SETTINGS.mcp.port ||
+        JSON.stringify(api.oneBot) !== JSON.stringify(DEFAULT_APP_SETTINGS.oneBot) ||
+        api.externalRkey.servers.length > 0 ||
+        api.ssePush.servers.length > 0,
+      paths: weqDefaultsPaths(this.config.read()),
+    };
+  }
+
+  stageDefaults(clientId?: string, defaults: WeqDefaultsChoice = {}) {
+    const status = weqBackupRestoreStatus(this.root);
+    if (
+      status.pending &&
+      status.result?.id === status.pending.id &&
+      status.result.status === 'failed' &&
+      !status.result.needsRecovery
+    )
+      cancelWeqBackupRestore(this.root, this.config.cacheBaseDir());
     const result = stageWeqBackupRestore(
       this.root,
       buildWeqBackup([
@@ -254,12 +302,28 @@ export class WeqBackupService {
           data: Buffer.from(JSON.stringify(snapshotWeqSettings(DEFAULT_APP_SETTINGS))),
         },
         { path: 'settings/client.json', data: Buffer.from('{}') },
+        {
+          path: 'settings/shared.json',
+          data: Buffer.from(
+            JSON.stringify({
+              revision: 0,
+              values: Object.fromEntries(
+                Object.entries(preferenceDefaults).filter(
+                  ([key]) => !Object.hasOwn(DEFAULT_APP_SETTINGS, key),
+                ),
+              ),
+              records: {},
+              drafts: {},
+            }),
+          ),
+        },
         { path: 'settings/export-presets.json', data: Buffer.from('{}') },
       ]),
       {
         parts: ['settings'],
         conflict: 'overwrite',
         keepLocalPaths: false,
+        defaults,
         ...(clientId ? { clientId } : {}),
       },
     );

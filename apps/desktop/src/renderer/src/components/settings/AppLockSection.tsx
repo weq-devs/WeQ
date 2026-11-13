@@ -177,7 +177,7 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
         />
       )}
 
-      <Card title="应用锁" settingId="app-lock">
+      <Card title="应用锁" icon={<LockKeyhole size={15} strokeWidth={1.8} />} settingId="app-lock">
         <Row
           label="启用应用锁"
           desc={

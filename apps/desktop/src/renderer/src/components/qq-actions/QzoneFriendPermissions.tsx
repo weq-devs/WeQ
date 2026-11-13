@@ -6,7 +6,8 @@ import { QueryError } from '../settings/controls';
 import { QqAvatar } from '../QqAvatar';
 import { ProfileNavigationContext, profileTargetUser } from '../../lib/profileNavigation';
 import { useTabActive } from '../RetainedTabs';
-import { Plus, RefreshCw, Search, X } from 'lucide-react';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { Plus, Search, X } from 'lucide-react';
 import '../../styles/qzone-permissions.css';
 
 function PermissionProfile({ uin, name }: { uin: string; name: string }) {
@@ -54,11 +55,7 @@ function PermissionKind({
   const [adding, setAdding] = useState(false);
   const lists = trpc.account.qqActions.qzoneFriendPermissionList.useQuery(
     { ...action.binding!, kind },
-    {
-      enabled: action.available,
-      staleTime: 0,
-      retry: false,
-    },
+    useQQAutoRefresh(action.available),
   );
   const mutate = trpc.account.qqActions.qzoneFriendPermission.useMutation();
   const toggle = (target: string, enabled: boolean) =>
@@ -119,13 +116,6 @@ function PermissionKind({
           <span className="weq-qzone-permissions-count">{lists.data.length} 人</span>
         )}
         <div className="weq-qzone-permissions-tools">
-          <ActionIcon
-            label={`刷新${label}`}
-            disabled={!action.available || action.pending || lists.isFetching}
-            onClick={() => void lists.refetch()}
-          >
-            <RefreshCw size={15} />
-          </ActionIcon>
           <ActionIcon
             label={`添加到${label}`}
             disabled={disabled || adding}

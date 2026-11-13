@@ -1,22 +1,34 @@
-import { createContext, useRef } from 'react';
+import { createContext, useEffect, useRef } from 'react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useTabActive } from '../RetainedTabs';
+import { acceptSettingsReply } from '../../lib/clientPreferences';
 
-/** 三项功能共用账号配置，但只提交本次修改的字段。 */
+/** 三项功能共用全局配置，只提交本次修改的字段。 */
 export function useAiFeatureSettings(title: string) {
   const active = useTabActive();
-  const status = trpc.account.intentSense.getStatus.useQuery(undefined, {
+  const status = trpc.settings.intent.getStatus.useQuery(undefined, {
     enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const save = trpc.account.intentSense.setConfig.useMutation();
+  const save = trpc.settings.intent.setConfig.useMutation();
   const utils = trpc.useUtils();
   const showError = useDialog((s) => s.showError);
-  const saving = useRef(false);
-  const disabled = !active || !status.data || !!status.error || status.isLoading || save.isLoading;
+  const saving = useRef<Promise<void>>(Promise.resolve());
+  const lastQueued = useRef('');
+  const source = 'global-ai-settings';
+  const currentSource = useRef(source);
+  currentSource.current = source;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const disabled = !active || !status.data || !!status.error || status.isLoading;
 
   function refreshResults() {
     void utils.account.intentSense.listMessageAnalyses.invalidate();
@@ -24,18 +36,39 @@ export function useAiFeatureSettings(title: string) {
     void utils.account.intentSense.getProfile.invalidate();
   }
 
-  async function patch(input: Parameters<typeof save.mutateAsync>[0]): Promise<void> {
-    if (disabled || saving.current) return;
-    saving.current = true;
+  async function patch(
+    input: Parameters<typeof save.mutateAsync>[0],
+    inline = false,
+  ): Promise<void> {
+    if (disabled) {
+      if (inline) throw new Error('设置尚未就绪');
+      return;
+    }
+    const signature = `${source ?? ''}:${JSON.stringify(input)}`;
+    if (signature === lastQueued.current) return saving.current;
+    lastQueued.current = signature;
+    const operation = saving.current
+      .catch(() => {})
+      .then(async () => {
+        if (!mounted.current || currentSource.current !== source)
+          throw new Error('设置目标已关闭或切换');
+        const next = await save.mutateAsync(input);
+        if (!mounted.current || currentSource.current !== source) return;
+        if (acceptSettingsReply(next)) utils.settings.intent.getStatus.setData(undefined, next);
+        else await status.refetch();
+        void utils.account.intentSense.getStatus.invalidate();
+        refreshResults();
+      });
+    saving.current = operation;
     try {
-      const next = await save.mutateAsync(input);
-      utils.account.intentSense.getStatus.setData(undefined, next);
-      refreshResults();
+      await operation;
     } catch (error) {
+      if (inline) throw error;
+      if (!mounted.current || currentSource.current !== source) return;
       showError(`${title}设置失败`, error instanceof Error ? error.message : String(error));
       void status.refetch();
     } finally {
-      saving.current = false;
+      if (lastQueued.current === signature) lastQueued.current = '';
     }
   }
 

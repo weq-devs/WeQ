@@ -79,11 +79,13 @@ describe('开发终端', () => {
     logger.dispose();
     expect(lines).toHaveLength(1);
   });
-  it('北京时间毫秒时间，NO_COLOR 和非 TTY 无转义，非法设置只提示一次', () => {
+  it('北京时间短时间，NO_COLOR 和非 TTY 无转义，非法设置只提示一次', () => {
     const f = fixture({ NO_COLOR: '', WEQ_LOG_LEVEL: 'trace', WEQ_LOG_CONSOLE: 'invalid' });
     f.logger.write('info', 'ready');
     f.logger.write('info', 'ready');
-    expect(f.lines[1]).toContain('2026-01-02 00:00:00.123 +08:00 INFO');
+    expect(f.lines[1]).toContain('00:00:00 INFO');
+    expect(f.lines[1]).not.toContain('+08:00');
+    expect(f.lines[1]).not.toContain('[test:');
     expect(f.lines.join('')).not.toContain('\x1b[');
     expect(f.lines.filter((line) => line.includes('配置'))).toHaveLength(1);
     const sink = vi.fn();
@@ -97,6 +99,20 @@ describe('开发终端', () => {
     redirected.write('info', 'redirected');
     redirected.dispose();
     expect(sink.mock.calls[0]![0]).not.toContain('\x1b[');
+  });
+  it('开发启动管道继承原终端颜色，NO_COLOR 仍优先', () => {
+    for (const noColor of [false, true]) {
+      const sink = vi.fn();
+      const logger = createConsoleLogger({
+        development: true,
+        processName: 'test',
+        env: { WEQ_DEV_STDERR_TTY: '1', ...(noColor ? { NO_COLOR: '' } : {}) },
+        sink,
+      });
+      logger.write('info', 'ready');
+      expect(sink.mock.calls[0]![0].includes('\x1b[')).toBe(!noColor);
+      logger.dispose();
+    }
   });
   it('脱敏递归投影、截断集合、堆栈及循环对象，不修改输入', () => {
     const data: Record<string, unknown> = {
@@ -142,14 +158,14 @@ describe('开发终端', () => {
     f.advance(30_000);
     vi.advanceTimersByTime(30_000);
     expect(f.lines).toHaveLength(2);
-    expect(f.lines[1]).toContain('"repeated":1');
+    expect(f.lines[1]).toContain('另有 1 次相同记录');
     for (let i = 0; i < 513; i++) f.logger.write('warn', 'unique', { event: `event-${i}` });
     const before = f.lines.length;
     f.logger.write('warn', 'unique', { event: 'event-0' });
     expect(f.lines.length).toBe(before + 1);
     f.logger.write('warn', 'unique', { event: 'event-0' });
     f.logger.dispose();
-    expect(f.lines.at(-1)).toContain('repeated');
+    expect(f.lines.at(-1)).toContain('另有 1 次相同记录');
   });
   it('文件目录未就绪、目录创建失败及循环上下文不会阻断终端', () => {
     const sink = vi.fn();

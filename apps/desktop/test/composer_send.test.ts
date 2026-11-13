@@ -22,7 +22,7 @@ vi.mock('../src/renderer/src/lib/composerDraftMedia', async (importOriginal) => 
     },
   };
 });
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   focusComposerEnd,
   restoreComposer,

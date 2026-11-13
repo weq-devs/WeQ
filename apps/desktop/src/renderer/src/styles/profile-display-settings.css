@@ -1,0 +1,43 @@
+.weq-profile-display-control {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  padding-block: 6px;
+}
+.weq-profile-display-control .weq-segmented {
+  flex-wrap: nowrap;
+  width: 202px;
+  max-width: 100%;
+}
+.weq-profile-display-control .weq-segmented > button {
+  padding: 4px 7px;
+  min-height: 30px;
+  white-space: nowrap;
+}
+.weq-profile-display-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-profile-display-status[data-error] {
+  color: var(--destructive);
+}
+.weq-profile-display-status button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}

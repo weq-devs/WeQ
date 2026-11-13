@@ -10,10 +10,11 @@ import {
 } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   discoverGeneratedResources,
   resolveGeneratedResource,
+  bundleGeneratedResources,
 } from '../src/account/export/generated_resources';
 import type { GeneratedContentSnapshot } from '../src/account/generated_content';
 import { ExportTaskManager } from '../src/account/export/task_manager';
@@ -22,7 +23,84 @@ import { object, readArchiveFile } from '../src/account/export/archive';
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.unstubAllGlobals();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+it('部分静态依赖保存后可从任务补缺，不回读原件、不重下成功依赖，完成快照仍可再次复制', async () => {
+  const dir = root(),
+    source = join(dir, 'source');
+  mkdirSync(source);
+  mkdirSync(join(dir, 'saved'));
+  const entry = join(source, 'index.html');
+  writeFileSync(
+    entry,
+    '<img src="https://fixture.invalid/a.png"><img src="https://fixture.invalid/b.png">',
+  );
+  let ready = false;
+  const fetcher = vi.fn(
+    async (url: string) =>
+      new Response(Uint8Array.of(1, 2, url.endsWith('a.png') ? 3 : 4), {
+        status: url.endsWith('a.png') || ready ? 200 : 404,
+        headers: { 'content-type': 'image/png' },
+      }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const input = snapshot('assistant');
+  input.messages = [
+    {
+      id: 'm',
+      text: '成果',
+      ts: 1,
+      steps: [{ kind: 'artifact', artifact: { id: 'page', name: '页面', kind: 'html' } }],
+    },
+  ];
+  const resolve = vi.fn(() => ({ filePath: entry }));
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    join(dir, 'cache'),
+    withExportSaveDirectory(join(dir, 'cache'), { generatedResource: resolve }),
+  );
+  const id = await manager.startTask({
+    kind: 'c2c',
+    conv: 'generated',
+    name: '页面',
+    format: 'json',
+    total: 1,
+    generated: input,
+    savePolicy: { mode: 'before', directory: join(dir, 'saved') },
+  });
+  await wait(manager, id);
+  await vi.waitFor(() => expect(manager.listTasks()[0]?.canResume).toBe(true));
+  expect(manager.listTasks()[0]?.generatedResources).toEqual({ total: 1, copied: 0, missing: 1 });
+  expect(
+    manager.getTask(id)?.stages.find((stage) => stage.key === 'media')?.failures?.[0]?.fileName,
+  ).toContain('b.png');
+  rmSync(source, { recursive: true });
+  ready = true;
+  const restored = new ExportTaskManager(
+    {} as MsgService,
+    join(dir, 'cache'),
+    withExportSaveDirectory(join(dir, 'cache'), { generatedResource: resolve }),
+  );
+  expect(restored.resumeTask(id)).toBe(true);
+  const completed = await wait(restored, id);
+  expect(completed.generatedResourceReport?.complete).toBe(true);
+  expect(resolve).toHaveBeenCalledOnce();
+  expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+    'https://fixture.invalid/a.png',
+    'https://fixture.invalid/b.png',
+    'https://fixture.invalid/b.png',
+  ]);
+  expect(existsSync(join(dir, 'cache', `generated-resources-${id}`))).toBe(false);
+  const copied = await bundleGeneratedResources({
+    cache: completed.generatedResourceCache!,
+    privateDirectory: join(dir, 'copy-cache'),
+    outputDirectory: join(dir, 'copy'),
+    signal: new AbortController().signal,
+    checkpoint() {},
+  });
+  expect(copied.manifest.complete).toBe(true);
+  expect(fetcher).toHaveBeenCalledTimes(3);
 });
 function snapshot(kind: 'persona' | 'group' | 'assistant' = 'persona'): GeneratedContentSnapshot {
   return {

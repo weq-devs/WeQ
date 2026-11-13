@@ -1,3 +1,11 @@
+export interface QzoneReplyTarget {
+  id: string;
+  nickname: string;
+  uin: string;
+  rootId: string;
+  rootUin: string;
+}
+
 export function qzoneForwardDraft(quotePrevious: boolean, content: string): string {
   return quotePrevious && content.trim() ? `//：${content}` : '';
 }

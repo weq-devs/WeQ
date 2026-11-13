@@ -35,6 +35,8 @@ export interface AppAutostartStatus {
 }
 
 export interface HostBridge {
+  /** 来自已授权 Remote 入口，不以 User-Agent 或视口尺寸授予电脑管理能力。 */
+  readonly remoteClient?: boolean;
   /** 宿主额外拥有的目录，显式标记运行数据或受保护的安装资源。 */
   storageRoots?(): StorageRoot[];
   clearStorageAfterExit?(targets: StorageUsageItem[]): Promise<void>;
@@ -97,6 +99,8 @@ export interface HostBridge {
    * Web 端没有「窗口」这个概念，不提供该能力（调用方据此判断是否可投递）。
    */
   showMainWindow?(): void;
+  showMessageNotification?(notice: { title: string; body: string }, onClick: () => void): boolean;
+  setApplicationBadge?(count: number): boolean;
   /** Whether {@link revealPath} does anything — the UI hides the button when false. */
   readonly canReveal: boolean;
   /**

@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * QzoneAlbumDialog — 左栏「更多功能 → 空间相册」查看器（大灯箱卡片）。
  *
@@ -16,25 +17,31 @@
  * 下载工具函数）。加载态用 skeleton + shimmer 占位。
  */
 
-import { useCallback, useMemo, useEffect, useRef, useState, type ReactElement } from 'react';
-import { Check, Download, Images, Inbox, Loader2, Play, X } from 'lucide-react';
-import { Modal, useDialog } from './Dialog';
-import { useToast } from './Toast';
+import {
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type SetStateAction,
+} from 'react';
+import { useContentMultiSelect } from '../state/contentSelection';
+import { ContentReferenceToolbar } from './ContentReferenceToolbar';
+import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
+import { qzoneAlbumMediaKey } from '../../../shared/album_media_identity';
+import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
+import { Check, Images, Inbox, Loader2, Play, X } from 'lucide-react';
+import { Modal } from './Dialog';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
+import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
-import type { ExportSavePolicy } from '@weq/service';
-import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
-import { ServerSavePrompt } from './ServerSavePrompt';
-import { useExportReportDialog } from '../views/export/ExportReportControl';
-import { IS_WEB } from '../lib/target';
 import { QZONE_ALBUM_PAGE_SIZE as PAGE_NUM } from '../../../shared/qzone_album_export';
-import '../styles/qzone-album-save.css';
 
 /** 相册列表 wire（service QzoneAlbum）。 */
 export interface QzoneAlbumWire {
@@ -64,38 +71,12 @@ interface QzoneAlbumPhotoWire {
 
 /** Native placeholder IDs are not unique; keep selections tied to the actual media. */
 function photoKey(photo: QzoneAlbumPhotoWire): string {
-  return (
-    photo.picKey || photo.url || photo.thumbUrl || `${photo.id}:${photo.uploadTime}:${photo.name}`
-  );
-}
-
-/** Use stable keys as the range anchor so prepended/removed media cannot shift it. */
-function useAlbumSelection(keys: string[], disabled: boolean) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const multi = useMultiSelection({
-    ids: keys,
-    selected,
-    onChange: setSelected,
-    enabled: selected.size > 0,
-    disabled,
-    normalClick: 'passthrough',
-    onExit: () => setSelected(new Set()),
-  });
-  return {
-    selected,
-    setSelected,
-    toggle: (key: string) => multi.toggle(key),
-    handlers: multi.itemProps,
-    rootProps: multi.rootProps,
-  };
+  return qzoneAlbumMediaKey(photo);
 }
 
 /** 秒级时间戳 → `YYYY-MM-DD`（媒体格子的日期角标）。 */
 function fmtDay(sec: number): string {
-  if (!sec) return '';
-  const d = new Date(sec * 1000);
-  const p = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return sec > 0 ? timeFormat.formatDate(timeFormat.unixDate(sec)) : '';
 }
 
 /** 延时 skeleton 包装（快速加载不闪骨架，与导出中心同款）。 */
@@ -525,12 +506,18 @@ export function QzoneAlbumDialog({
   }, [selected, mediaLoading, mediaLoadingMore, refreshing, active, hostUin]);
 
   const backToList = useCallback(() => {
+    runRef.current++;
     mediaLenRef.current = 0;
     setSelected(null);
     setMedia([]);
     setMediaTotal(0);
     setMediaError(null);
+    setMediaLoading(false);
+    setMediaLoadingMore(false);
   }, []);
+  useMobileBack(open && requestedActive && Boolean(selected), backToList, 50, () =>
+    document.querySelector<HTMLElement>('.weq-qzone-album'),
+  );
 
   if (!open) return null;
 
@@ -609,7 +596,9 @@ export function QzoneAlbumDialog({
             hostUin={hostUin}
             selfUin={selfUin}
             topicId={selected.id}
-            onBack={backToList}
+            onBack={() => {
+              if (!mobileBack()) backToList();
+            }}
             onLoadMore={() => loadMore()}
           />
         ) : !albums || albums.length === 0 ? (
@@ -620,6 +609,7 @@ export function QzoneAlbumDialog({
         ) : (
           <>
             <AlbumGridView
+              active={active}
               albums={albums}
               hostUin={hostUin}
               onOpen={(album) => void openAlbum(album)}
@@ -660,130 +650,71 @@ export function QzoneAlbumDialog({
 }
 
 export function AlbumGridView({
+  active = true,
   albums,
   hostUin,
   onOpen,
 }: {
+  active?: boolean;
   albums: QzoneAlbumWire[];
   hostUin: string;
   onOpen: (album: QzoneAlbumWire) => void;
 }): ReactElement {
-  const [exporting, setExporting] = useState(false);
-  const report = useExportReportDialog();
-  const {
-    selected: checked,
-    setSelected: setChecked,
-    toggle,
-    handlers,
-    rootProps,
-  } = useAlbumSelection(
-    albums.map((album) => album.id),
-    exporting,
+  const owner = { kind: 'qzone-albums' as const, container: hostUin };
+  const references = useMemo(
+    () =>
+      new Map(
+        albums.map((album) => {
+          const ref: ContentReference = {
+            kind: 'qzone-album',
+            uin: hostUin,
+            albumId: album.id,
+            name: album.name,
+          };
+          return [contentReferenceKey(ref), ref];
+        }),
+      ),
+    [albums, hostUin],
   );
-  const save = useExportSavePolicy();
-  const sourceIdentity = `${save.binding?.expectedAccountUin}:${save.binding?.expectedAccountConfigId}:${hostUin}`;
-  useEffect(() => {
-    setChecked(new Set());
-  }, [sourceIdentity, setChecked]);
-  const locked = useRef(false);
-  const cancelled = useRef(false);
-  const active = useRef(true);
-  const pushToast = useToast((s) => s.push);
-  const showError = useDialog((s) => s.showError);
-  useEffect(() => {
-    active.current = true;
-    return () => {
-      active.current = false;
-      cancelled.current = true;
-    };
-  }, []);
-  const allChecked = albums.length > 0 && albums.every((album) => checked.has(album.id));
-
-  async function exportAlbums(intent?: ExportSavePolicy): Promise<void> {
-    if (locked.current || checked.size === 0 || !save.binding) return;
-    const targets = albums
-      .filter((album) => checked.has(album.id))
-      .map((album) => ({ id: album.id, title: album.name }));
-    const binding = { ...save.binding };
-    locked.current = true;
-    cancelled.current = false;
-    setExporting(true);
-    try {
-      const includeIntegrityReport = await report.choose();
-      if (includeIntegrityReport === null || cancelled.current || !save.isCurrent()) return;
-      const policy = await save.prepareSave(intent, { kind: 'bundle', name: '空间相册' });
-      if (!policy || cancelled.current || !save.isCurrent()) return;
-      const taskId = await client.account.startQzoneAlbumsExport.mutate({
-        ...binding,
-        includeIntegrityReport,
-        hostUin,
-        name: '空间相册',
-        albums: targets,
-        savePolicy: policy,
-      });
-      if (taskId && active.current && save.isCurrent())
-        pushToast({ tone: 'info', title: '空间相册导出任务已创建' });
-    } catch (error) {
-      if (active.current && save.isCurrent())
-        showError('相册导出失败', error instanceof Error ? error.message : String(error));
-    } finally {
-      locked.current = false;
-      if (active.current) setExporting(false);
-    }
-  }
+  const selection = useContentMultiSelect(owner, active, references);
+  const multi = useMultiSelection({
+    ids: [...references.keys()],
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    normalClick: 'passthrough',
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+  });
+  const albumKey = (album: QzoneAlbumWire) =>
+    contentReferenceKey({ kind: 'qzone-album', uin: hostUin, albumId: album.id });
 
   return (
     <div className="weq-qzal-album-list">
-      {report.dialog}
-      {save.serverLocation && (
-        <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
-      )}
-      <div className="weq-qzal-selectbar">
-        <button
-          type="button"
-          className={`weq-qzal-select-all${allChecked ? ' is-on' : ''}`}
-          disabled={exporting}
-          onClick={() =>
-            setChecked(allChecked ? new Set() : new Set(albums.map((album) => album.id)))
-          }
-        >
-          <span className="weq-qzal-check" aria-hidden>
-            {allChecked ? <Check size={12} /> : null}
-          </span>
-          {allChecked ? '取消全选' : '全选'}
-        </button>
-        <span className="weq-qzal-select-count">已选 {checked.size} 个相册</span>
-        <button
-          type="button"
-          className="weq-qzal-download"
-          disabled={exporting || !checked.size || !save.binding || save.settings.isLoading}
-          onClick={() => void exportAlbums()}
-        >
-          {exporting ? <Loader2 size={13} className="weq-spin" /> : <Download size={13} />}
-          {exporting ? '准备中…' : '导出选中相册'}
-        </button>
-      </div>
-      <div className="weq-qzal-album-grid" {...rootProps}>
+      <ContentReferenceToolbar
+        owner={owner}
+        selection={selection}
+        loaded={[...references.keys()]}
+      />
+      <div className="weq-qzal-album-grid" {...multi.rootProps}>
         {albums.map((album) => (
           <div
             key={album.id}
-            className={`weq-qzal-album-card${checked.has(album.id) ? ' is-checked' : ''}`}
-            {...handlers(album.id, exporting)}
+            className={`weq-qzal-album-card${selection.selectedIds.has(albumKey(album)) ? ' is-checked' : ''}`}
+            {...multi.itemProps(albumKey(album))}
           >
             <button
               type="button"
-              className={`weq-qzal-media-check${checked.has(album.id) ? ' is-on' : ''}`}
+              className={`weq-qzal-media-check${selection.selectedIds.has(albumKey(album)) ? ' is-on' : ''}`}
               aria-label={`选择相册 ${album.name || '未命名相册'}`}
-              aria-pressed={checked.has(album.id)}
-              disabled={exporting}
-              onClick={() => toggle(album.id)}
+              aria-pressed={selection.selectedIds.has(albumKey(album))}
+              onClick={() => multi.toggle(albumKey(album))}
             >
-              {checked.has(album.id) ? <Check size={12} /> : null}
+              {selection.selectedIds.has(albumKey(album)) ? <Check size={12} /> : null}
             </button>
             <button
               type="button"
               className="weq-qzal-album-open"
-              disabled={exporting}
               onClick={() => onOpen(album)}
               title={album.name || '未命名相册'}
             >
@@ -852,25 +783,83 @@ export function MediaView({
   onBack: () => void;
   onLoadMore: () => Promise<boolean>;
 }): ReactElement {
-  const showError = useDialog((s) => s.showError);
-  const pushToast = useToast((s) => s.push);
-  const [downloading, setDownloading] = useState(false);
-  const report = useExportReportDialog();
-  const save = useExportSavePolicy();
-  const downloadLock = useRef(false);
+  const photoReferences = useMemo(
+    () =>
+      new Map<string, ContentReference>(
+        photos.map((photo) => {
+          const ref: ContentReference = {
+            kind: 'qzone-photo',
+            uin: hostUin,
+            albumId: topicId,
+            mediaKey: photoKey(photo),
+            name: photo.name || albumName,
+          };
+          return [contentReferenceKey(ref), ref];
+        }),
+      ),
+    [photos, hostUin, topicId, albumName],
+  );
+  const photoOwner = { kind: 'qzone-albums' as const, container: hostUin };
+  const sharedSelection = useContentMultiSelect(photoOwner, active, photoReferences);
+  const localToReference = useMemo(
+    () =>
+      new Map(
+        photos.map((photo) => [
+          photoKey(photo),
+          contentReferenceKey({
+            kind: 'qzone-photo',
+            uin: hostUin,
+            albumId: topicId,
+            mediaKey: photoKey(photo),
+          }),
+        ]),
+      ),
+    [photos, hostUin, topicId],
+  );
+  const selected = useMemo(
+    () =>
+      new Set(
+        [...localToReference]
+          .filter(([, id]) => sharedSelection.selectedIds.has(id))
+          .map(([key]) => key),
+      ),
+    [localToReference, sharedSelection.selectedIds],
+  );
+  const setSelected = useCallback(
+    (value: SetStateAction<Set<string>>) => {
+      sharedSelection.setSelectedIds((previous) => {
+        const current = new Set(
+          [...localToReference].filter(([, id]) => previous.has(id)).map(([key]) => key),
+        );
+        const next = typeof value === 'function' ? value(current) : value;
+        const result = new Set(previous);
+        for (const [key, id] of localToReference) {
+          if (next.has(key)) result.add(id);
+          else result.delete(id);
+        }
+        return result;
+      });
+    },
+    [sharedSelection.setSelectedIds, localToReference],
+  );
+  const photoMulti = useMultiSelection({
+    ids: [...localToReference.keys()],
+    selected,
+    onChange: setSelected,
+    enabled: sharedSelection.selectionMode,
+    normalClick: 'passthrough',
+    onStart: () => sharedSelection.setSelectionMode(true),
+    onExit: () => sharedSelection.setSelectionMode(false),
+  });
 
   /** 勾选的媒体行键集合（全选作用于已加载的条目）。
    *
    * 注意不能用裸 `photo.id` 当键：cgi 返回的 id 全是占位 4294967295（真正的定位键
    * 是 lloc/sloc），同一相册所有行共享同一个 id，拿它做选择键会「点一个=全选」。
    * 这里与 React key 一致，使用媒体定位信息，刷新插入新照片后也不会错选。 */
-  const {
-    selected,
-    setSelected,
-    toggle: toggleSelect,
-    handlers,
-    rootProps,
-  } = useAlbumSelection(photos.map(photoKey), downloading);
+  const toggleSelect = (key: string) => photoMulti.toggle(key);
+  const handlers = photoMulti.itemProps;
+  const rootProps = photoMulti.rootProps;
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
   const [preview, setPreview] = useState<number | null>(null);
@@ -936,16 +925,7 @@ export function MediaView({
   /** 行内唯一选择键（与渲染 React key 一致）。 */
   const rowKey = (index: number): string => photoKey(photos[index]!);
 
-  const allSelected = photos.length > 0 && photos.every((_, i) => selected.has(rowKey(i)));
-  const sourceIdentity = `${save.binding?.expectedAccountUin}:${save.binding?.expectedAccountConfigId}:${selfUin}:${hostUin}:${topicId}`;
-  useEffect(() => {
-    setSelected(new Set());
-  }, [sourceIdentity, setSelected]);
-  const toggleSelectAll = (): void => {
-    setSelected(allSelected ? new Set() : new Set(photos.map((_, i) => rowKey(i))));
-  };
-
-  const previewItems = useMemo<QzonePreviewMedia[]>(
+  const previewItems = useMemo<PreviewMedia[]>(
     () =>
       photos.map((photo) => ({
         key: photoKey(photo),
@@ -993,55 +973,10 @@ export function MediaView({
     setPreview(photos.indexOf(photo));
   }
 
-  /** 固定所选媒体与来源；实际文件／资源包位置由公共保存准备决定。 */
-  async function downloadSelected(intent?: ExportSavePolicy): Promise<void> {
-    const items = photos
-      .filter((_, i) => selected.has(rowKey(i)))
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        url: p.url || p.thumbUrl,
-        isVideo: p.isVideo,
-        picKey: p.picKey,
-      }));
-    if (!items.length || downloadLock.current || !save.binding) return;
-    const binding = { ...save.binding };
-    downloadLock.current = true;
-    setDownloading(true);
-    try {
-      const includeIntegrityReport = items.length > 1 ? await report.choose() : false;
-      if (includeIntegrityReport === null || !save.isCurrent()) return;
-      const policy = IS_WEB
-        ? await save.prepareSave(intent, { kind: 'bundle', name: albumName })
-        : save.policy;
-      if (!policy || !save.isCurrent()) return;
-      const taskId = await client.account.startQzoneAlbumMediaExport.mutate({
-        ...binding,
-        includeIntegrityReport,
-        hostUin,
-        topicId,
-        name: albumName || '空间相册媒体',
-        savePolicy: policy,
-        concurrency: 4,
-        items,
-      });
-      if (taskId && save.isCurrent()) pushToast({ tone: 'info', title: '空间相册保存任务已创建' });
-    } catch (e) {
-      if (save.isCurrent()) showError('下载失败', e instanceof Error ? e.message : String(e));
-    } finally {
-      downloadLock.current = false;
-      setDownloading(false);
-    }
-  }
-
   return (
     <div className="weq-qzal-media-view">
-      {report.dialog}
-      {save.serverLocation && (
-        <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
-      )}
       {preview !== null ? (
-        <QzoneMediaPreview
+        <MediaPreview
           items={previewItems}
           initialIndex={preview}
           onClose={() => {
@@ -1060,37 +995,11 @@ export function MediaView({
           {total > photos.length ? ` · 共 ${total} 项` : ''}
         </span>
       </div>
-      {photos.length > 0 ? (
-        <div className="weq-qzal-selectbar">
-          <button
-            type="button"
-            className={`weq-qzal-select-all${allSelected ? ' is-on' : ''}`}
-            onClick={toggleSelectAll}
-            disabled={downloading}
-          >
-            <span className="weq-qzal-check" aria-hidden>
-              {allSelected ? <Check size={12} strokeWidth={2.6} /> : null}
-            </span>
-            {allSelected ? '取消全选' : '全选'}
-          </button>
-          <span className="weq-qzal-select-count">已选 {selected.size} 项</span>
-          <button
-            type="button"
-            className="weq-qzal-download"
-            disabled={
-              selected.size === 0 || downloading || !save.binding || save.settings.isLoading
-            }
-            onClick={() => void downloadSelected()}
-          >
-            {downloading ? (
-              <Loader2 size={13} strokeWidth={2.2} className="weq-spin" />
-            ) : (
-              <Download size={13} strokeWidth={2.2} />
-            )}
-            {downloading ? '准备中…' : IS_WEB ? '保存选中到服务器' : '下载选中'}
-          </button>
-        </div>
-      ) : null}
+      <ContentReferenceToolbar
+        owner={photoOwner}
+        selection={sharedSelection}
+        loaded={[...photoReferences.keys()]}
+      />
       {loading ? (
         <MediaGridSkeleton />
       ) : error ? (
@@ -1116,13 +1025,12 @@ export function MediaView({
                 <div
                   key={row}
                   className={`weq-qzal-media-card${photo.isVideo ? ' is-video' : ''}${checked ? ' is-checked' : ''}`}
-                  {...handlers(row, downloading)}
+                  {...handlers(row)}
                 >
                   <button
                     type="button"
                     className={`weq-qzal-media-check${checked ? ' is-on' : ''}`}
                     onClick={() => toggleSelect(row)}
-                    disabled={downloading}
                     title={checked ? '取消选择' : '选择'}
                     aria-pressed={checked}
                     aria-label={checked ? '取消选择' : '选择'}

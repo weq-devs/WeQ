@@ -1,6 +1,9 @@
 packages:
   - apps/*
   - packages/*
+  # 文档站自带 package.json（VitePress），单独占一个 workspace 槽位。
+  # 内容目录就是 docs/ 本身，构建产物落在 docs/.vitepress/dist（已 ignore）。
+  - docs
 
 # pnpm 12.1 起，workspace 任务依赖环从"静默乱序执行"变成硬错误
 # （ERR_PNPM_TASK_CYCLE）。native <-> testkit 是刻意保留的环，

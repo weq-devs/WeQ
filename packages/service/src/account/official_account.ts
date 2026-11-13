@@ -1,10 +1,6 @@
 /**
- * OfficialAccountService — QQ 公众号 (chatType 103) read-only accessor.
- *
- * 103 conversations physically live in `c2c_msg_table` / `recent_contact_v3_table`,
- * each with its own `peerUid`. We filter by chatType=103, pull the latest ARK
- * message per peer, and surface them as a feed. All other element types are
- * excluded (per user requirement).
+ * QQ 公众号（103）只读入口，按 peerUid 读取 c2c_msg_table。
+ * 目录与完整消息页保留全部元素类型；旧 listArkFeed 只用于兼容调用方。
  */
 
 import type { AccountSession } from '@weq/account';
@@ -13,6 +9,9 @@ import type { C2cMsg } from '@weq/db';
 import { classifyChatType } from '@weq/codec';
 import { filterArkOnly } from './ark_feed';
 import { toRenderElements } from './msg_view';
+import { resolveC2cPartition } from './c2c_partition';
+import { readonlyConversationPage, type ReadonlyPageRequest } from './readonly_conversation';
+import { plainContentText } from '../common/message_plain_text';
 
 export interface OfficialAccountSummary {
   peerUid: string;
@@ -31,8 +30,7 @@ export class OfficialAccountService {
   constructor(private readonly session: AccountSession) {}
 
   /**
-   * List all 公众号 accounts that have at least one ARK message. Returns
-   * summary (latest prompt) for each.
+   * 列出已登记公众号，最新记录不含 Ark 时也保留会话。
    */
   async listAccounts(): Promise<OfficialAccountSummary[]> {
     const contacts = await this.session.recentContacts.getRecentContact();
@@ -42,13 +40,12 @@ export class OfficialAccountService {
       if (classifyChatType(c.chatType) !== 'official') continue;
 
       // Pull the real latest message (ignore 40051 preview blob).
-      const latest = await this.session.c2cMsgs.listLatest({ uid: c.targetUid }, 1);
+      const latest = await this.session.c2cMsgs.listLatest(
+        await resolveC2cPartition(this.session.uidMap, c.targetUid),
+        1,
+      );
       const rendered = latest.map((msg: C2cMsg) => this.renderC2c(msg));
-      const arkOnly = filterArkOnly(rendered);
-      if (arkOnly.length === 0) continue; // No ARK message (shouldn't happen, defensive).
-
-      const first = arkOnly[0];
-      if (!first) continue;
+      const first = rendered[0];
 
       // 尝试从 profile_info.db 的 public_account_profile 表获取公众号名称和 uin
       let displayName = c.targetDisplayName;
@@ -68,8 +65,8 @@ export class OfficialAccountService {
         displayName,
         avatarUrl: null, // 前端用 targetUin 拼接
         targetUin,
-        sendTime: first.sendTime,
-        prompt: first.arkPrompt,
+        sendTime: first?.sendTime ?? c.sendTime,
+        prompt: first ? plainContentText(first.elements) : '',
       });
     }
 
@@ -79,10 +76,17 @@ export class OfficialAccountService {
   /**
    * Fetch the full ARK feed for one 公众号 (latest `limit` messages, ARK-only).
    */
-  async listArkFeed(peerUid: string, limit = 100): Promise<ArkFeedMessage[]> {
-    const msgs = await this.session.c2cMsgs.listLatest({ uid: peerUid }, limit);
+  async listArkFeed(peerUid: string, limit = 100, anchorId?: string): Promise<ArkFeedMessage[]> {
+    const partition = await resolveC2cPartition(this.session.uidMap, peerUid);
+    const msgs = anchorId
+      ? await this.session.c2cMsgs.calendarMessage(partition, BigInt(anchorId))
+      : await this.session.c2cMsgs.listLatest(partition, limit);
     const rendered = msgs.map((msg: C2cMsg) => this.renderC2c(msg));
     return filterArkOnly(rendered);
+  }
+
+  listMessages(peerUid: string, request: ReadonlyPageRequest) {
+    return readonlyConversationPage(this.session, { kind: 'official', peerUid }, request);
   }
 
   private renderC2c(m: C2cMsg): RenderC2cMsg {

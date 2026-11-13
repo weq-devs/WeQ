@@ -129,25 +129,24 @@ function contentIdentity(elements: RepeatElement[]): unknown[][] | null {
   return result.length ? result : null;
 }
 
-/** 与连续消息 +1 共用元素白名单，系统、交易和未知内容不能降级成文字重发。 */
+/** 手动 +1 按实际内容判断；保留来源不阻止重发，未知内容不能降级成摘要文字。 */
 export function canRepeatMessage(message: RepeatMessage): boolean {
   return (
     !message.optimistic &&
     !message.optimisticRejected &&
-    !message.deletedKind &&
-    !message.recall &&
-    contentIdentity(message.qqElements ?? []) !== null
+    forwardUnsupportedReason(message.qqElements ?? []) === null
   );
 }
 
-/** 只判断最新的两条，不越过灰条、撤回、失败条目，也不把历史窗口末尾当作最新消息。 */
+/** 自动提示只判断最新两条，不越过灰条、撤回、删除和失败，也不把历史窗口当作最新。 */
 export function repeatTarget<T extends RepeatMessage>(
   messages: readonly T[],
   atLatest: boolean,
 ): T | null {
   if (!atLatest || messages.length < 2) return null;
   const pair = messages.slice(-2);
-  if (pair.some((message) => !canRepeatMessage(message))) return null;
+  if (pair.some((message) => message.deletedKind || message.recall || !canRepeatMessage(message)))
+    return null;
   const identities = pair.map((message) => contentIdentity(message.qqElements ?? []));
   return identities[0] &&
     identities[1] &&

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { bootstrapRouter } from '../src/main/ipc/routers/bootstrap';
@@ -23,6 +24,7 @@ const f = vi.hoisted(() => {
   return { host, settings, services };
 });
 vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
   getAppContext: () => f.host,
   requireBootstrap: () => f.host.bootstrap,
 }));

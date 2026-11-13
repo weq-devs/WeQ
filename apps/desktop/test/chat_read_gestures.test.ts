@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
@@ -512,9 +512,12 @@ describe('新消息按钮已读行为', () => {
       );
       expect(scroll.scrollTop).toBe(120);
       expect(scroll.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+      // 真实宿主按 messageScope 重新挂载换会话（不是原地换 conversation prop），
+      // 每个会话都从自己保存的阅读位置进入。
       act(() =>
         root.render(
           createElement(ChatPane, {
+            key: 'another-chat',
             ...props,
             conversation: { ...conversation, id: 'another-chat' },
             messages: [first],
@@ -522,9 +525,12 @@ describe('新消息按钮已读行为', () => {
           }),
         ),
       );
-      expect(scroll.scrollTop).toBe(340);
-      act(() => root.render(createElement(ChatPane, { ...props, messages: [first] })));
-      expect(scroll.scrollTop).toBe(120);
+      const otherScroll = host.querySelector<HTMLElement>('.message-scroll')!;
+      expect(otherScroll.scrollTop).toBe(340);
+      act(() =>
+        root.render(createElement(ChatPane, { key: 'restored', ...props, messages: [first] })),
+      );
+      expect(host.querySelector<HTMLElement>('.message-scroll')!.scrollTop).toBe(120);
     } finally {
       act(() => root.unmount());
       host.remove();

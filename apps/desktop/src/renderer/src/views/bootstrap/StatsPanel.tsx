@@ -9,6 +9,7 @@
  * (ColumnChart/ColumnSkeleton are kept for reuse but no longer rendered here.)
  */
 
+import { formatBytes } from '../../lib/format';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { FolderOpen, Layers } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
@@ -27,14 +28,6 @@ function gradient(i: number): string {
   const base = shade(i);
   const hi = `color-mix(in srgb, ${base} 75%, var(--weq-bg-surface))`;
   return `linear-gradient(180deg, ${hi} 0%, ${base} 100%)`;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const exp = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / 1024 ** exp;
-  return `${value >= 100 || exp === 0 ? Math.round(value) : value.toFixed(1)} ${units[exp]}`;
 }
 
 export function StatsPanel({

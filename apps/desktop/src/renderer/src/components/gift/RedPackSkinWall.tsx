@@ -1,3 +1,4 @@
+import { dateFormatter } from '@weq/time';
 /**
  * 红包封面展柜 —— 个性装扮里的「红包封面」一栏。
  *
@@ -16,7 +17,7 @@ import { useCallback, useMemo, useState, type ReactElement } from 'react';
 import { Gift as GiftIcon, Search, Wallet, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { redPackSkinUrl } from '../../lib/resourceUrl';
-import { openLightbox } from '../ImageLightbox';
+import { openMediaPreview } from '../mediaPreviewStore';
 import '../../styles/redpack-wall.css';
 
 type Variant = 'preview' | 'popup' | 'background' | 'image';
@@ -60,13 +61,22 @@ export function RedPackSkinWall(): ReactElement {
     const large =
       skin.variants.includes('popup') && skin.variants.includes('preview') ? 'popup' : variant;
     if (!large) return;
-    openLightbox(redPackSkinUrl(skin.id, large), `${skin.name} · 红包封面`);
+    openMediaPreview({
+      items: [
+        {
+          key: redPackSkinUrl(skin.id, large),
+          kind: 'image',
+          src: redPackSkinUrl(skin.id, large),
+          title: `${skin.name} · 红包封面`,
+        },
+      ],
+    });
   }, []);
 
   const updated = useMemo(() => {
     if (!generatedAt) return '';
     try {
-      return new Date(generatedAt * 1000).toLocaleDateString('zh-CN');
+      return dateFormatter.format(new Date(generatedAt * 1000));
     } catch {
       return '';
     }

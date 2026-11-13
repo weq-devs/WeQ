@@ -39,6 +39,7 @@ import {
 import { Modal } from './Dialog';
 import { useToast } from './Toast';
 import { client } from '../trpc/client';
+import { isRemoteClient } from '../lib/remoteClient';
 
 /** 与主进程 `AccountForcedClosedEvent` 对齐的渲染层视图。 */
 export interface DatabaseDamagedEvent {
@@ -118,7 +119,7 @@ export function DatabaseDamagedDialog({
         tone: 'info',
         title: '已不再提醒数据库损坏弹窗',
         detail:
-          '之后数据库异常时不会再自动弹出该提醒（设置 → 数据库宽容 → 损坏提醒 里可以再打开）。',
+          '之后数据库异常时不会再自动弹出该提醒（设置 → 数据库容错 → 损坏提醒 里可以再打开）。',
       });
     } catch (e) {
       pushToast({
@@ -196,7 +197,7 @@ export function DatabaseDamagedDialog({
             ) : null}
           </section>
 
-          {!isCheckError && (
+          {!isCheckError && !isRemoteClient() && (
             <ExpandSection title="手工修复方案（备用，可展开）">
               <p>
                 一般用不上：上面的「尝试修复」已经是同一条链（解密 → 重建 → 重新加密 → 补回

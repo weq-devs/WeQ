@@ -1,159 +1,126 @@
 import type { UnreadInfoSnapshot } from '@weq/db';
+import { classifyChatType } from '@weq/codec';
 import { readJsonFile } from '../common/json_store';
 import { writeFileAtomic } from '../common/atomic_write';
-import { classifyChatType } from '@weq/codec';
-
-interface ReadPosition {
-  latestSeq: string;
-  baselineSeq?: string;
-  readSeq?: string;
-  pending: string[];
-  manual?: ManualReadState;
-}
 
 interface ManualReadState {
   latestSeq: string;
-  unreadCount: number;
+  unread: boolean;
   readSeq?: string;
-  highlights?: UnreadInfoSnapshot['highlights'];
+  confirmed?: boolean;
 }
-
+interface ReadPosition {
+  sourceVersion: 2;
+  readSeq?: string;
+  manual?: ManualReadState;
+  operation?: number;
+}
 export interface ManualReadChange {
   previous?: ManualReadState;
   applied: ManualReadState;
-  previousPosition: Pick<ReadPosition, 'readSeq' | 'baselineSeq' | 'pending'>;
-  restoredPosition?: Pick<ReadPosition, 'readSeq' | 'baselineSeq' | 'pending'>;
+  previousPosition: { readSeq?: string };
+  restoredPosition?: { readSeq?: string };
+  operation: number;
+  previousOperation?: number;
 }
-
 export interface ResolvedUnreadInfo extends UnreadInfoSnapshot {
-  /** 基础水位已返回，仍需精确排除自己发送；调用方不得据此清零。 */
-  countPending?: true;
   unreadCount?: number;
-  /** WeQ 的有效阅读位置；不替代原始 QQ msgSeq，也不用于协议上报。 */
   readSeq?: string;
 }
-
 function sequence(value: unknown): value is string {
   return typeof value === 'string' && /^\d{1,20}$/.test(value);
 }
-
 const pendingWrites = new Set<Promise<void>>();
-/** 新账号读取本地状态前，等待旧账号已开始的发布完成。 */
 export async function waitForUnreadWrites(): Promise<void> {
   while (pendingWrites.size) await Promise.all([...pendingWrites]);
 }
 
-/** 缺少 QQ 水位时只计明确的实时消息；历史快照只更新基线，不产生未读。 */
+/** 只保存显式操作。QQ 小表直接提供计数基准，不再落盘消息集合或观察水位。 */
 export class LocalUnreadStore {
   private readonly positions = new Map<string, ReadPosition>();
+  private readonly pendingOutgoing = new Map<string, Set<string>>();
   private revision = 0;
   private savedRevision = 0;
   private writing?: Promise<void>;
 
-  constructor(private readonly path?: string) {
+  constructor(
+    private readonly path?: string,
+    private readonly selfUid?: string,
+  ) {
     const raw = path ? readJsonFile(path) : null;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
     for (const [key, value] of Object.entries(raw)) {
       if (!/^\d+_.+/.test(key) || !value || typeof value !== 'object') continue;
-      const row = value as Partial<ReadPosition>;
-      if (!sequence(row.latestSeq) || (row.readSeq !== undefined && !sequence(row.readSeq)))
-        continue;
-      if (row.baselineSeq !== undefined && !sequence(row.baselineSeq)) continue;
-      if (!Array.isArray(row.pending) || !row.pending.every(sequence)) continue;
+      const old = value as {
+        sourceVersion?: number;
+        localReadSeq?: string;
+        readSeq?: string;
+        operation?: number;
+        manual?: ManualReadState & { unreadCount?: number };
+      };
+      const readSeq =
+        old.sourceVersion === 2
+          ? old.readSeq
+          : old.sourceVersion === 1
+            ? old.localReadSeq
+            : old.readSeq;
+      const manual = old.manual;
+      const migrated =
+        manual &&
+        sequence(manual.latestSeq) &&
+        (typeof manual.unread === 'boolean' || Number.isSafeInteger(manual.unreadCount))
+          ? {
+              latestSeq: manual.latestSeq,
+              unread: manual.unread ?? (manual.unreadCount ?? 0) > 0,
+              readSeq: sequence(manual.readSeq) ? manual.readSeq : undefined,
+              confirmed: manual.confirmed,
+            }
+          : undefined;
+      if (!sequence(readSeq) && !migrated) continue;
       this.positions.set(key, {
-        latestSeq: row.latestSeq,
-        baselineSeq: row.baselineSeq,
-        readSeq: row.readSeq,
-        pending: [...new Set(row.pending)].filter(
-          (seq) => BigInt(seq) > BigInt(row.readSeq ?? '0'),
-        ),
-        manual:
-          row.manual &&
-          sequence(row.manual.latestSeq) &&
-          Number.isSafeInteger(row.manual.unreadCount) &&
-          row.manual.unreadCount >= 0 &&
-          (row.manual.readSeq === undefined || sequence(row.manual.readSeq)) &&
-          (row.manual.highlights === undefined ||
-            (Array.isArray(row.manual.highlights) &&
-              row.manual.highlights.every(
-                (hit) =>
-                  hit &&
-                  Number.isSafeInteger(hit.msgSeq) &&
-                  hit.msgSeq >= 0 &&
-                  typeof hit.kind === 'string' &&
-                  Number.isSafeInteger(hit.rawKind) &&
-                  typeof hit.senderUid === 'string' &&
-                  Number.isSafeInteger(hit.sendTime) &&
-                  typeof hit.text === 'string',
-              )))
-            ? row.manual
-            : undefined,
+        sourceVersion: 2,
+        readSeq: sequence(readSeq) ? readSeq : undefined,
+        manual: migrated,
+        operation: old.operation,
       });
     }
   }
 
-  private position(chatType: number, uid: string, latestSeq = '0'): ReadPosition {
+  private position(chatType: number, uid: string): ReadPosition {
     const key = `${chatType}_${uid}`;
     let row = this.positions.get(key);
     if (!row) {
-      row = { latestSeq, pending: [] };
+      row = { sourceVersion: 2 };
       this.positions.set(key, row);
-      this.revision++;
     }
     return row;
   }
 
-  recordLive(chatType: number, uid: string, seq: string): void {
-    if (!sequence(seq) || BigInt(seq) <= 0n) return;
-    const row = this.position(chatType, uid);
-    if (BigInt(seq) <= BigInt(row.readSeq ?? '0') || row.pending.includes(seq)) return;
-    row.pending.push(seq);
-    this.revision++;
-  }
-
   markRead(chatType: number, uid: string, seq: string): boolean {
     if (!sequence(seq)) return false;
-    const row = this.position(chatType, uid, seq);
-    const cleared = row.manual !== undefined && BigInt(seq) >= BigInt(row.manual.latestSeq);
-    if (cleared) {
-      delete row.manual;
-      this.revision++;
-    }
-    if (row.readSeq !== undefined && BigInt(row.readSeq) >= BigInt(seq)) return cleared;
-    row.readSeq = seq;
-    row.pending = row.pending.filter((pending) => BigInt(pending) > BigInt(seq));
-    this.revision++;
+    const row = this.position(chatType, uid);
+    const changed = BigInt(seq) > BigInt(row.readSeq ?? '0') || row.manual !== undefined;
+    if (!changed) return false;
+    if (BigInt(seq) > BigInt(row.readSeq ?? '0')) row.readSeq = seq;
+    delete row.manual;
+    row.operation = ++this.revision;
     return true;
   }
 
   setManualRead(snapshot: ResolvedUnreadInfo, unread: boolean): ManualReadChange {
     const row = this.position(snapshot.chatType, snapshot.uid);
-    const latest = [
-      ...row.pending,
-      ...(snapshot.highlights ?? []).map((hit) => String(hit.msgSeq)),
-    ].reduce((max, seq) => (BigInt(seq) > BigInt(max) ? seq : max), snapshot.latestSeq ?? '0');
-    const applied: ManualReadState = {
-      latestSeq: latest,
-      unreadCount: unread ? Math.max(1, snapshot.unreadCount ?? 0) : 0,
-      readSeq:
-        unread && (snapshot.unreadCount ?? 0) > 0
-          ? snapshot.readSeq
-          : unread && BigInt(latest) > 0n
-            ? (BigInt(latest) - 1n).toString()
-            : latest,
-      highlights: unread ? snapshot.highlights : undefined,
-    };
-    const change = {
+    const latest = snapshot.latestSeq ?? snapshot.readSeq ?? '0';
+    const applied = { latestSeq: latest, unread, readSeq: unread ? snapshot.readSeq : latest };
+    const change: ManualReadChange = {
       previous: row.manual,
       applied,
-      previousPosition: {
-        readSeq: row.readSeq,
-        baselineSeq: row.baselineSeq,
-        pending: [...row.pending],
-      },
+      previousPosition: { readSeq: row.readSeq },
+      previousOperation: row.operation,
+      operation: ++this.revision,
     };
+    if (!unread && BigInt(latest) > BigInt(row.readSeq ?? '0')) row.readSeq = latest;
     row.manual = applied;
-    this.revision++;
+    row.operation = change.operation;
     return change;
   }
 
@@ -164,99 +131,100 @@ export class LocalUnreadStore {
     reverse = false,
   ): boolean {
     const row = this.position(chatType, uid);
-    if (row.manual !== (reverse ? change.previous : change.applied)) return false;
-    if (!reverse)
-      change.restoredPosition = {
-        readSeq: row.readSeq,
-        baselineSeq: row.baselineSeq,
-        pending: [...row.pending],
-      };
-    const position = reverse ? change.restoredPosition : change.previousPosition;
-    if (position) {
-      const newer = row.pending.filter((seq) => BigInt(seq) > BigInt(change.applied.latestSeq));
-      row.readSeq = position.readSeq;
-      row.baselineSeq = position.baselineSeq;
-      row.pending = [...new Set([...position.pending, ...newer])];
-    }
+    if (row.operation !== (reverse ? change.previousOperation : change.operation)) return false;
+    if (!reverse) change.restoredPosition = { readSeq: row.readSeq };
+    row.readSeq = (reverse ? change.restoredPosition : change.previousPosition)?.readSeq;
     row.manual = reverse ? change.applied : change.previous;
+    row.operation = reverse ? change.operation : change.previousOperation;
     this.revision++;
     return true;
   }
 
   hasManualRead(chatType: number, uid: string, change: ManualReadChange): boolean {
-    return this.position(chatType, uid).manual === change.applied;
+    return this.positions.get(`${chatType}_${uid}`)?.operation === change.operation;
   }
 
   resolve(snapshot: UnreadInfoSnapshot): ResolvedUnreadInfo {
     if (snapshot.readError) return snapshot;
-    const latest = sequence(snapshot.latestSeq) ? snapshot.latestSeq : '0';
-    const row = this.position(snapshot.chatType, snapshot.uid, latest);
-    if (BigInt(latest) > BigInt(row.latestSeq)) {
-      row.latestSeq = latest;
-      this.revision++;
-    }
-    if (
-      snapshot.msgSeq === undefined &&
-      (row.baselineSeq === undefined || BigInt(latest) > BigInt(row.baselineSeq))
-    ) {
-      row.baselineSeq = latest;
-      this.revision++;
-    }
-    // 保存可信 QQ 阅读进度，之后旧快照回流也不能让提醒复活。
-    if (
-      snapshot.msgSeq !== undefined &&
-      (row.readSeq === undefined || BigInt(snapshot.msgSeq) > BigInt(row.readSeq))
-    ) {
-      row.readSeq = String(snapshot.msgSeq);
-      row.pending = row.pending.filter((seq) => BigInt(seq) > BigInt(snapshot.msgSeq!));
-      this.revision++;
-    }
-    const read = BigInt(row.readSeq ?? '0');
-    const highlights = snapshot.highlights?.filter(
-      (hit) => row.readSeq === undefined || BigInt(hit.msgSeq) > read,
+    const row = this.positions.get(snapshot.peer);
+    const databaseRead = [String(snapshot.msgSeq ?? 0), snapshot.localReadSeq ?? '0'].reduce(
+      (a, b) => (BigInt(a) > BigInt(b) ? a : b),
     );
-    const pending = new Set(row.pending);
-    for (const hit of highlights ?? []) pending.add(String(hit.msgSeq));
-    const first = [...pending].reduce<bigint | null>(
-      (min, seq) => (min === null || BigInt(seq) < min ? BigInt(seq) : min),
-      null,
-    );
-    const known = snapshot.msgSeq !== undefined;
-    const countSequenceGap = known && classifyChatType(snapshot.chatType) !== 'dataline';
-    // 安静对齐不是已读，不能清掉实时消息或明确提醒；仅作为序号差的下限。
-    const baseline = BigInt(row.baselineSeq ?? '0');
-    const floor = read > baseline ? read : baseline;
-    const outgoing = new Set(snapshot.outgoingSeqs ?? []);
-    const sequenceGap = (after: bigint) => {
-      const end = BigInt(latest);
-      if (!countSequenceGap || end <= after) return 0;
-      const sent = [...outgoing].filter((seq) => BigInt(seq) > after && BigInt(seq) <= end);
-      return Math.max(0, Number(end - after) - sent.length);
-    };
-    const firstRead = first !== null && first > 0n ? first - 1n : null;
-    const resolved = {
-      ...snapshot,
-      highlights: highlights?.length ? highlights : undefined,
-      unreadCount: countSequenceGap ? Math.max(sequenceGap(floor), pending.size) : pending.size,
-      readSeq: known
-        ? (firstRead !== null && firstRead < floor ? firstRead : floor).toString()
-        : first !== null
-          ? (first > 0n ? first - 1n : 0n).toString()
-          : (row.readSeq ?? row.latestSeq),
-    };
-    if (!row.manual) return resolved;
-    const manual = row.manual;
-    const anchor = BigInt(manual.latestSeq);
-    const newHighlights = snapshot.highlights?.filter((hit) => BigInt(hit.msgSeq) > anchor);
-    const newer = new Set(row.pending.filter((seq) => BigInt(seq) > anchor));
-    for (const hit of newHighlights ?? []) newer.add(String(hit.msgSeq));
-    const newFloor = floor > anchor ? floor : anchor;
-    const manualHighlights = [...(manual.highlights ?? []), ...(newHighlights ?? [])];
+    if (row?.readSeq && BigInt(databaseRead) > BigInt(row.readSeq)) {
+      delete row.readSeq;
+      this.revision++;
+    }
+    const manual = row?.manual;
+    if (
+      manual &&
+      !manual.unread &&
+      BigInt(databaseRead) >= BigInt(manual.latestSeq) &&
+      snapshot.markUnread !== true
+    ) {
+      delete row!.manual;
+      this.revision++;
+    }
+    if (manual?.unread && snapshot.markUnread === true && !manual.confirmed) {
+      manual.confirmed = true;
+      this.revision++;
+    } else if (
+      manual?.unread &&
+      ((manual.confirmed && snapshot.markUnread === false) ||
+        BigInt(databaseRead) > BigInt(manual.readSeq ?? '0'))
+    ) {
+      delete row!.manual;
+      this.revision++;
+    }
+    const read = BigInt(row?.readSeq ?? '0') > BigInt(databaseRead) ? row!.readSeq! : databaseRead;
+    const floor = BigInt(read);
+    const latest = snapshot.latestSeq === null ? null : BigInt(snapshot.latestSeq);
+    const highlights = snapshot.highlights?.filter((hit) => BigInt(hit.msgSeq) > floor);
+    const device = classifyChatType(snapshot.chatType) === 'dataline';
+    const decreased = new Set(snapshot.decreasedSeqs ?? []);
+    // QQ 可能先更新最新消息，再补减项。仅暂存小表已确认的自发序号，不抬高阅读水位。
+    if (!device) {
+      const outgoing = this.pendingOutgoing.get(snapshot.peer) ?? new Set<string>();
+      for (const seq of outgoing)
+        if (BigInt(seq) <= floor || decreased.has(seq)) outgoing.delete(seq);
+      if (
+        this.selfUid &&
+        snapshot.latestSenderUid === this.selfUid &&
+        latest !== null &&
+        latest > floor &&
+        !decreased.has(snapshot.latestSeq!)
+      )
+        outgoing.add(snapshot.latestSeq!);
+      // 短暂补偿有界且不落盘；QQ 小表接纳后即释放。
+      while (outgoing.size > 64) outgoing.delete(outgoing.values().next().value!);
+      if (outgoing.size) {
+        this.pendingOutgoing.set(snapshot.peer, outgoing);
+        while (this.pendingOutgoing.size > 1024)
+          this.pendingOutgoing.delete(this.pendingOutgoing.keys().next().value!);
+        for (const seq of outgoing) decreased.add(seq);
+      } else this.pendingOutgoing.delete(snapshot.peer);
+    }
+    const deductions = [...decreased].filter(
+      (seq) => BigInt(seq) > floor && latest !== null && BigInt(seq) <= latest,
+    ).length;
+    const hasRead =
+      snapshot.msgSeq !== undefined ||
+      snapshot.localReadSeq !== undefined ||
+      row?.readSeq !== undefined;
+    let count = device
+      ? snapshot.chatType === 8
+        ? (snapshot.localUnreadCount ?? snapshot.storedUnreadCount ?? 0)
+        : (snapshot.storedUnreadCount ?? snapshot.localUnreadCount ?? 0)
+      : latest !== null && hasRead && floor > 0n
+        ? Math.max(0, Number(latest - floor) - deductions)
+        : 0;
+    if (device && row?.readSeq && latest !== null && floor >= latest) count = 0;
+    const marked = row?.manual ? row.manual.unread : snapshot.markUnread;
+    if (marked || highlights?.length) count = Math.max(1, count);
     return {
-      ...resolved,
-      unreadCount: manual.unreadCount + Math.max(sequenceGap(newFloor), newer.size),
-      readSeq: manual.readSeq,
-      highlights: manualHighlights.length ? manualHighlights : undefined,
+      ...snapshot,
+      unreadCount: count,
+      readSeq: hasRead ? read : undefined,
+      highlights: highlights?.length ? highlights : undefined,
     };
   }
 
@@ -265,12 +233,10 @@ export class LocalUnreadStore {
     const requested = this.revision;
     while (this.savedRevision < requested) {
       if (!this.writing) {
-        const path = this.path;
         const write = Promise.resolve()
           .then(async () => {
             const version = this.revision;
-            const data = JSON.stringify(Object.fromEntries(this.positions));
-            await writeFileAtomic(path, data);
+            await writeFileAtomic(this.path!, JSON.stringify(Object.fromEntries(this.positions)));
             this.savedRevision = version;
           })
           .finally(() => {
@@ -280,7 +246,6 @@ export class LocalUnreadStore {
         this.writing = write;
         pendingWrites.add(write);
       }
-      // 自己的版本发布才确认；失败保留未保存版本，后续调用仍可重试。
       await this.writing;
     }
   }

@@ -2,7 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useGlobalSearch } from '../src/renderer/src/hooks/useGlobalSearch';
-import type { ConversationScope } from '@weq/service/search-policy';
+import type { ConversationScope, SearchSource } from '@weq/service/search-policy';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
 import { contactSearchHit } from './support/search-fixtures';
 import {
@@ -66,7 +66,7 @@ function mountSearch() {
     query: string;
     categories: SearchCategory[];
     account: string;
-    scope: ConversationScope;
+    scope: ConversationScope | readonly SearchSource[];
   }) => {
     result = useGlobalSearch(query, categories, account, scope);
     return null;
@@ -79,7 +79,7 @@ function mountSearch() {
       query: string,
       categories: SearchCategory[] = SEARCH_CATEGORY_ORDER,
       account = 'account-a',
-      scope: ConversationScope = 'all',
+      scope: ConversationScope | readonly SearchSource[] = 'all',
     ) {
       act(() => root.render(createElement(Harness, { query, categories, account, scope })));
     },
@@ -97,6 +97,50 @@ afterEach(() => {
 });
 
 describe('全局搜索请求生命周期', () => {
+  it('无关父级更新不重新合并已到搜索结果，新分类响应仍即时交付', async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    const file = deferred<SlowSearchResult>();
+    const message = deferred<SlowSearchResult>();
+    rpc.quick.mockResolvedValue(quickResult);
+    rpc.slow.mockImplementation(({ categories }) =>
+      categories[0] === 'file' ? file.promise : message.promise,
+    );
+    const categories: SearchCategory[] = ['contact', 'file', 'chatRecord'];
+    const f = mountSearch();
+    try {
+      f.render('合成', categories);
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      await act(async () =>
+        file.resolve({
+          ...slowResult,
+          get files() {
+            reads++;
+            return slowResult.files;
+          },
+        }),
+      );
+      const before = f.result;
+      reads = 0;
+      for (let i = 0; i < 3; i++) f.render('合成', categories);
+      expect(reads).toBe(0);
+      expect(f.result.quick).toBe(before.quick);
+      expect(f.result.slow).toBe(before.slow);
+      expect(f.result.categoryStates).toBe(before.categoryStates);
+      expect(f.result.categoryStates.chatRecord?.loading).toBe(true);
+      expect(rpc.quick).toHaveBeenCalledOnce();
+      expect(rpc.slow).toHaveBeenCalledTimes(2);
+
+      await act(async () => message.resolve({ ...slowResult, indexStatus: 'building' }));
+      expect(f.result.slow).not.toBe(before.slow);
+      expect(f.result.slow?.indexStatus).toBe('building');
+      expect(f.result.categoryStates.chatRecord?.loading).toBe(false);
+      expect(f.result.slowLoading).toBe(false);
+    } finally {
+      f.close();
+    }
+  });
+
   it('默认全选的每个分类均在同一轮防抖后独立派发', async () => {
     vi.useFakeTimers();
     rpc.quick.mockResolvedValue({ conversations: [], friends: [], groupMembers: [] });
@@ -176,7 +220,7 @@ describe('全局搜索请求生命周期', () => {
       f.close();
     }
   });
-  it('切换会话显示范围即清除旧结果，迟到响应不覆盖新范围', async () => {
+  it('切换全局搜索来源即清除旧结果，迟到响应不覆盖新来源', async () => {
     vi.useFakeTimers();
     const old = deferred<QuickSearchResult>();
     rpc.quick
@@ -185,16 +229,17 @@ describe('全局搜索请求生命周期', () => {
     const f = mountSearch();
     try {
       const categories: SearchCategory[] = ['contact'];
-      f.render('合成', categories, 'account-a', 'all');
+      f.render('合成', categories, 'account-a', ['qq']);
       await act(async () => vi.advanceTimersByTimeAsync(200));
-      f.render('合成', categories, 'account-a', 'virtual');
+      f.render('合成', categories, 'account-a', ['clone']);
       expect(f.result.quick).toBeNull();
       await act(async () => vi.advanceTimersByTimeAsync(200));
       expect(rpc.quick).toHaveBeenLastCalledWith({
         keyword: '合成',
         categories,
         limit: 3,
-        conversationScope: 'virtual',
+        conversationScope: 'all',
+        sources: ['clone'],
       });
       await act(async () => old.resolve(quickResult));
       expect(f.result.quick?.contacts).toEqual([]);
@@ -364,10 +409,87 @@ describe('全局搜索请求生命周期', () => {
 });
 
 describe('搜索范围与失败界面', () => {
+  it('下拉框无关回调更新不重扫隐藏分类，换结果与关键词仍更新排序', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    let reads = 0;
+    const hidden = Array.from({ length: 24 }, (_, index) => ({
+      get category(): 'groupAlbum' {
+        reads++;
+        return 'groupAlbum';
+      },
+      id: `album-${index}`,
+      title: '合成相册',
+      content: '',
+      sourceName: '合成群',
+      time: 1,
+      observedAt: 1,
+      target: { kind: 'groupAlbum' as const, groupCode: '1', albumId: String(index) },
+    }));
+    const initial: SlowSearchResult = {
+      ...slowResult,
+      contentHits: hidden,
+      files: [
+        {
+          category: 'file',
+          source: 'group',
+          partition: '1',
+          targetUid: '1',
+          targetUin: '0',
+          fileName: '报告',
+          msgId: '1',
+          msgSeq: '1',
+          sendTime: '1',
+          convName: '群',
+        },
+      ],
+    };
+    const quick = { ...quickResult, contacts: [contactSearchHit({ nick: '报告的作者' })] };
+    const categories: SearchCategory[] = ['contact', 'file', 'qzone'];
+    const render = (keyword = '报告', slow = initial) =>
+      act(() =>
+        root.render(
+          createElement(SearchDropdown, {
+            keyword,
+            quick,
+            slow,
+            categories,
+            quickLoading: false,
+            slowLoading: false,
+            onCategoriesChange: vi.fn(),
+            onSelect: vi.fn(),
+            onMore: vi.fn(),
+          }),
+        ),
+      );
+    const order = () =>
+      [...host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent);
+    try {
+      render();
+      expect(order()).toEqual(['文件', '联系人']);
+      expect(host.querySelectorAll('[data-search-category="file"]')).toHaveLength(1);
+      expect(reads).toBe(hidden.length);
+      reads = 0;
+      render();
+      render();
+      expect(reads).toBe(0);
+      render('报告的作者');
+      expect(order()).toEqual(['联系人', '文件']);
+      render('报告的作者', { ...initial, files: [] });
+      expect(host.querySelectorAll('[data-search-category="file"]')).toHaveLength(0);
+      expect(host.textContent).not.toContain('合成相册');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('可见分类默认全选，频道与克隆合并且移除公共商城范围', () => {
     expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('marketEmoji');
     expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('cloneMessage');
-    expect(DEFAULT_SEARCH_CATEGORIES).toContain('assistantMessage');
+    expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('assistantMessage');
+    expect(DEFAULT_SEARCH_CATEGORIES).not.toContain('groupAlbum');
+    expect(DEFAULT_SEARCH_CATEGORIES).toContain('chatRecord');
     expect(SEARCH_CATEGORY_ORDER).toHaveLength(new Set(SEARCH_CATEGORY_ORDER).size);
     expect(SEARCH_CATEGORY_ORDER).toEqual(DEFAULT_SEARCH_CATEGORIES);
     expect(SEARCH_CATEGORY_ORDER).not.toContain('guildMessage');
@@ -480,11 +602,11 @@ describe('搜索范围与失败界面', () => {
           }),
         ),
       );
-      const all = host.querySelector<HTMLButtonElement>('[aria-label="全部范围"]')!;
+      const all = host.querySelector<HTMLButtonElement>('[aria-label="全部类型"]')!;
       expect(all.getAttribute('aria-pressed')).toBe('mixed');
       expect(
         [...host.querySelectorAll('.weq-search-section-name')].map((item) => item.textContent),
-      ).toEqual(['联系人', '文件']);
+      ).toEqual(['联系人']);
       expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="重试联系人搜索"]')!.click());
       expect(retry).toHaveBeenCalledOnce();

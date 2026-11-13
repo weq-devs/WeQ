@@ -1,35 +1,34 @@
-import { BrainCircuit } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
-import { TabActivity, useTabActive } from '../RetainedTabs';
+import { BrainCircuit, Settings2 } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { useTabActive } from '../RetainedTabs';
 import { Card, QueryError, SectionHeader } from './controls';
 import { AiFeatureSettingsContext, type useAiFeatureSettings } from './useAiFeatureSettings';
 import '../../styles/model-settings.css';
+import type { AiImageFeature } from '@weq/agentlab';
+import { AiImagePreferenceSetting } from './AiImageSettings';
 
 export function AiFeatureSettingsLayout({
   title,
-  advancedId,
   error,
   retrying,
   onRetry,
   basic,
   model,
-  resources,
   children,
   settings,
+  imageFeature,
 }: {
   title: string;
-  advancedId: string;
   error?: { message: string } | null;
   retrying?: boolean;
   onRetry: () => void;
   basic: ReactNode;
   model: ReactNode;
-  resources?: ReactNode;
   children: (inactive: boolean) => ReactNode;
   settings: ReturnType<typeof useAiFeatureSettings>;
+  imageFeature?: AiImageFeature;
 }) {
   const active = useTabActive();
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
     <div className="weq-set">
       <SectionHeader title={title} icon={<BrainCircuit size={18} strokeWidth={1.8} />} />
@@ -41,20 +40,14 @@ export function AiFeatureSettingsLayout({
           onRetry={onRetry}
         />
       ) : null}
-      <Card title="基础">{basic}</Card>
-      <Card title="模型">{model}</Card>
-      {resources}
-      <details
-        className="weq-model-advanced"
-        onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
-      >
-        <summary data-setting-id={advancedId}>高级设置</summary>
-        <TabActivity active={active && advancedOpen}>
-          <AiFeatureSettingsContext.Provider value={settings}>
-            <div className="weq-ai-settings-advanced">{children(!active || !advancedOpen)}</div>
-          </AiFeatureSettingsContext.Provider>
-        </TabActivity>
-      </details>
+      <Card title="功能与模型" icon={<Settings2 size={15} strokeWidth={1.8} />}>
+        {basic}
+        {model}
+        {imageFeature ? <AiImagePreferenceSetting feature={imageFeature} /> : null}
+      </Card>
+      <AiFeatureSettingsContext.Provider value={settings}>
+        {children(!active)}
+      </AiFeatureSettingsContext.Provider>
     </div>
   );
 }

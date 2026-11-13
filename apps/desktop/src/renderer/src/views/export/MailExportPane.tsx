@@ -39,7 +39,7 @@ export function MailExportPane({
   );
   const [all, setAll] = useState(selectedIds === null);
   const [busy, setBusy] = useState(false);
-  const [format, setFormat] = useState<'json' | 'jsonl'>('json');
+  const [format, setFormat] = useState<'json' | 'jsonl' | 'jsonl.gz'>('json');
   const [structured, setStructured] = useState<StructuredExportOptions>({
     profile: 'basic',
     incrementalSupport: false,
@@ -259,6 +259,7 @@ export function MailExportPane({
         options={[
           { value: 'json', label: 'JSON' },
           { value: 'jsonl', label: 'JSONL' },
+          { value: 'jsonl.gz', label: 'JSONL（压缩）' },
         ]}
       />
       <StructuredExportControls

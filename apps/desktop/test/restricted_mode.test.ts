@@ -53,6 +53,7 @@ const mock = vi.hoisted(() => ({
   invalidateAccess: vi.fn(async () => {}),
   invalidateDebug: vi.fn(async () => {}),
   debugState: 'missing' as QqDebugCopyStatus['state'],
+  debugPids: [] as number[],
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -93,7 +94,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             sourceVersion: '7.0.1-1',
             path: '/synthetic/QQ-WeQ.app',
             readerReady: false,
-            runningPids: [],
+            runningPids: mock.debugPids,
+            sourceRunningPids: [],
             message: '合成副本状态',
           },
           refetch: mock.refetch,
@@ -168,6 +170,17 @@ describe('受限原因按实际能力判定', () => {
       ),
     ).toEqual(['sip']);
   });
+  it('SIP 开启但后台正在读取时显示进入进度，不误报调试读取未就绪', () => {
+    mock.sip = true;
+    mock.access = { ...ready, hasD2Key: false, credentialsPending: true };
+    const f = fixture();
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在启用完整功能');
+    expect(useRestrictedMode.getState().reasons.map((reason) => reason.code)).not.toContain('sip');
+    mock.access = { ...ready, credentialsPending: false };
+    mock.updatedAt = Date.now() + 1;
+    f.render();
+    expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+  });
   it('离线、主动禁用可以并存，不凭缺少物料猜测需要密码', () => {
     expect(
       restrictionReasons({
@@ -189,6 +202,17 @@ describe('受限原因按实际能力判定', () => {
       ).toEqual(['credentials']);
     },
   );
+  it('长期授权需要修复时直接给出原因，不再用泛化的“会话凭据不完整”', () => {
+    const issue = {
+      title: '长期授权需要修复',
+      message: '长期授权需要修复：权限助手接口已更新，请修复后重试。',
+    };
+    expect(
+      restrictionReasons({
+        access: { ...ready, ssoReady: false, credentialsPending: false, credentialsIssue: issue },
+      }),
+    ).toEqual([{ code: 'authorization', title: issue.title, guidance: issue.message }]);
+  });
 });
 
 let cleanup = () => {};
@@ -232,6 +256,7 @@ beforeEach(() => {
   mock.invalidateAccess.mockReset();
   mock.invalidateDebug.mockReset().mockResolvedValue(undefined);
   mock.debugState = 'missing';
+  mock.debugPids = [];
   useViewState.setState({ view: 'main', openedUin: '10001' });
   useRestrictedMode.setState({
     reasons: [],
@@ -239,6 +264,7 @@ beforeEach(() => {
     requests: [],
     open: false,
     enteringSince: null,
+    enteringManually: false,
   });
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
 });
@@ -281,6 +307,86 @@ function fixture(showToasts = false, showDialogs = false) {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+
+it.each(['ready', 'failed', 'authorization'] as const)(
+  '启动自动尝试完整功能时保持静默：%s',
+  (outcome) => {
+    mock.access = undefined;
+    const f = fixture();
+    mock.access = { ...ready, hasD2Key: false, credentialsPending: true };
+    f.render();
+    expect(useToast.getState().toasts).toHaveLength(0);
+    if (outcome === 'authorization') {
+      event('elev:request-password', { token: 41 });
+      expect(useToast.getState().toasts).toHaveLength(0);
+      event('elev:cancel-password', { token: 41 });
+    }
+    mock.access = { ...ready, qqOnline: outcome === 'ready', credentialsPending: false };
+    mock.updatedAt = Date.now() + 1000;
+    f.render();
+    expect(useToast.getState().toasts).toHaveLength(0);
+  },
+);
+
+it('正常运行后降为受限才提醒，自动恢复不发成功通知', () => {
+  const f = fixture();
+  mock.access = { ...ready, qqOnline: false };
+  f.render();
+  expect(useToast.getState().toasts.at(-1)?.title).toContain('已进入受限模式');
+  mock.access = { ...ready };
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
+});
+
+it.each(['ready', 'failed'] as const)(
+  '启动受限后手动启用显示进度和真实结果：%s',
+  async (outcome) => {
+    mock.banner = false;
+    mock.access = {
+      ...ready,
+      attachEnabled: false,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' },
+    };
+    let finish!: () => void;
+    mock.refreshRkeys.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve, reject) => {
+          finish = () => (outcome === 'ready' ? resolve(true) : reject(new Error('合成启用失败')));
+        }),
+    );
+    const f = fixture();
+    expect(useToast.getState().toasts).toHaveLength(0);
+    act(() => useRestrictedMode.getState().setOpen(true));
+    await act(async () =>
+      [...f.host.querySelectorAll('button')]
+        .find((button) => button.textContent === '启用完整功能')!
+        .click(),
+    );
+    expect(useToast.getState().toasts.at(-1)).toMatchObject({
+      title: '正在启用完整功能',
+      loading: true,
+    });
+    if (outcome === 'ready') mock.access = { ...ready, source: mock.access.source };
+    mock.updatedAt = Date.now() + 1000;
+    await act(async () => {
+      finish();
+    });
+    f.render();
+    expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(
+      outcome === 'ready',
+    );
+    const state = useToast.getState();
+    expect(state.toasts.some((toast) => toast.loading && !state.leaving.includes(toast.id))).toBe(
+      false,
+    );
+    if (outcome === 'failed') {
+      expect(f.host.textContent).toContain('合成启用失败');
+      mock.access = { ...ready, source: mock.access.source };
+      f.render();
+      expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
+    }
+  },
+);
 
 it.each(['取消', 'Escape', '移除副本'])(
   '受限详情上的移除确认框处理 %s，不关闭底层详情',
@@ -562,8 +668,9 @@ it('失效授权表单不转发旧 token 或把新来源标记成进入中', () 
 
 it('关闭被动提醒仍保留状态入口，更新去重基线，重新开启不补发旧事件', () => {
   mock.banner = false;
-  mock.access = { ...ready, attachEnabled: false };
   const f = fixture(true);
+  mock.access = { ...ready, attachEnabled: false };
+  f.render();
   expect(f.host.querySelector('.weq-restricted-indicator')).not.toBeNull();
   expect(useToast.getState().toasts).toHaveLength(0);
   mock.access = { ...ready, qqOnline: false, attachEnabled: false };
@@ -584,10 +691,11 @@ it('关闭被动提醒仍保留状态入口，更新去重基线，重新开启�
     ),
   ).toBe(false);
 });
-it('关闭被动提醒不隐藏真实授权、进入进度或恢复成功回执', () => {
+it('关闭被动提醒不隐藏手动启用中的授权、进入进度或恢复成功回执', () => {
   mock.banner = false;
   mock.access = { ...ready, hasD2: false };
   const f = fixture(true);
+  act(() => useRestrictedMode.getState().beginEntering());
   event('elev:request-password', { token: 91, title: '合成授权' });
   expect(useToast.getState().toasts.some((toast) => toast.title.includes('待提权'))).toBe(true);
   act(() => {
@@ -600,9 +708,10 @@ it('关闭被动提醒不隐藏真实授权、进入进度或恢复成功回执'
   f.render();
   expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(true);
 });
-it('偏好还在读取时也不隐藏真实授权提醒', () => {
+it('偏好还在读取时也不隐藏手动启用的授权提醒', () => {
   mock.settingsLoading = true;
   fixture(true);
+  act(() => useRestrictedMode.getState().beginEntering());
   event('elev:request-password', { token: 101, title: '合成真实请求' });
   expect(useToast.getState().toasts.some((toast) => toast.title.includes('待提权'))).toBe(true);
 });
@@ -636,18 +745,104 @@ describe('受限模式启动 QQ', () => {
     const f = fixture();
     act(() => useRestrictedMode.getState().setOpen(true));
     expect(launchButton(f.host)).toBeUndefined();
-    expect(f.host.textContent).toContain('独立的 QQ 调试副本');
+    expect(f.host.textContent).toContain('QQ 调试副本');
     const button = [...f.host.querySelectorAll('button')].find(
-      (item) => item.textContent === (state === 'missing' ? '创建副本' : '启动副本'),
+      (item) => item.textContent === (state === 'missing' ? '准备并打开 QQ' : '打开 QQ'),
     );
     expect(button?.disabled).toBe(false);
     await act(async () => button!.click());
     expect(mock.debugAction).toHaveBeenCalledWith({
-      action: state === 'missing' ? 'prepare' : 'launch',
+      action: 'open',
     });
     expect(mock.launchQq).not.toHaveBeenCalled();
     expect(f.host.textContent).toContain('QQ 不在线');
     expect(useRestrictedMode.getState().enteringSince).toBeNull();
+  });
+  it('其他账号已有副本进程时仍只显示一个主操作，可继续打开新实例', async () => {
+    mock.sip = true;
+    mock.access = { ...ready, qqOnline: false };
+    mock.debugState = 'ready';
+    mock.debugPids = [42];
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const panel = f.host.querySelector('.weq-restricted-panel')!;
+    expect(panel.querySelector('.weq-qq-debug-checks')).toBeNull();
+    expect(panel.querySelector('.weq-qq-debug-details')).toBeNull();
+    expect(
+      panel.querySelectorAll('.weq-restricted-qq > .weq-restricted-actions > button'),
+    ).toHaveLength(1);
+    const launch = [...panel.querySelectorAll('button')].find(
+      (item) => item.textContent === '登录其他账号',
+    )!;
+    expect(launch.disabled).toBe(false);
+    await act(async () => launch.click());
+    expect(mock.debugAction).toHaveBeenCalledWith({ action: 'open' });
+    expect(panel.textContent).toContain('登录后会自动继续');
+    expect(useRestrictedMode.getState().enteringSince).toBeNull();
+    expect(mock.refreshRkeys).not.toHaveBeenCalled();
+  });
+  it('打开后仅在当前账号上线时继续启用，重复查询不重复请求', async () => {
+    mock.sip = true;
+    mock.access = {
+      ...ready,
+      qqOnline: false,
+      attachEnabled: false,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    };
+    mock.debugState = 'ready';
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    await act(async () =>
+      [...f.host.querySelectorAll('button')]
+        .find((item) => item.textContent === '打开 QQ')!
+        .click(),
+    );
+    expect(mock.requestFull).toHaveBeenCalledWith(mock.access.source);
+    expect(mock.refreshRkeys).not.toHaveBeenCalled();
+    mock.access = { ...mock.access, qqOnline: true };
+    await act(async () => f.render());
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+    await act(async () => f.render());
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+  });
+  it('打开后切换同号来源不会把继续启用请求带到新来源', async () => {
+    mock.sip = true;
+    mock.access = {
+      ...ready,
+      qqOnline: false,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    };
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    await act(async () =>
+      [...f.host.querySelectorAll('button')]
+        .find((item) => item.textContent === '准备并打开 QQ')!
+        .click(),
+    );
+    mock.access = {
+      ...mock.access,
+      qqOnline: true,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-b' },
+    };
+    await act(async () => f.render());
+    expect(mock.refreshRkeys).not.toHaveBeenCalled();
+  });
+  it('当前账号在线但禁用完整功能时，主操作直接启用，不启动 QQ', async () => {
+    mock.sip = true;
+    mock.access = {
+      ...ready,
+      attachEnabled: false,
+      source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    };
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    await act(async () =>
+      [...f.host.querySelectorAll('button')]
+        .find((item) => item.textContent === '启用完整功能')!
+        .click(),
+    );
+    expect(mock.requestFull).toHaveBeenCalledWith(mock.access.source);
+    expect(mock.debugAction).not.toHaveBeenCalled();
   });
   it.each(['main', 'startup'] as const)(
     '%s 页确认 QQ 离线时可启动，启动不冒充登录成功',
@@ -763,6 +958,7 @@ describe('非阻塞提权入口', () => {
         useToast.getState().setDurations({ successSeconds: 3, failureSeconds: -1 });
         mock.access = { ...ready, hasD2Key: false };
         const f = fixture(true);
+        act(() => useRestrictedMode.getState().beginEntering());
         event(channel, { token: 41 });
         let unrelated = 0;
         act(() => {
@@ -795,6 +991,7 @@ describe('非阻塞提权入口', () => {
     (channel) => {
       mock.access = { ...ready, hasD2Key: false, ssoReady: false, credentialsPending: true };
       const f = fixture();
+      act(() => useRestrictedMode.getState().beginEntering());
       const notice = useToast.getState().toasts.at(-1)!.id;
       expect(f.host.textContent).toContain('正在启用完整功能');
       event(channel, { token: 41, title: '读取 QQ 内存' });
@@ -849,6 +1046,7 @@ describe('非阻塞提权入口', () => {
   it('已关闭的进入中横幅在退场时也切换为待授权，不留下相反的进度文案', () => {
     mock.access = { ...ready, ssoReady: false, credentialsPending: true };
     fixture();
+    act(() => useRestrictedMode.getState().beginEntering());
     const notice = useToast.getState().toasts.at(-1)!.id;
     act(() => useToast.getState().dismiss(notice));
     event('elev:request-password', { token: 41 });
@@ -858,9 +1056,28 @@ describe('非阻塞提权入口', () => {
     expect(useToast.getState().toasts.every((item) => item.loading === false)).toBe(true);
     expect(useToast.getState().toasts.at(-1)!.title).toContain('待提权');
   });
+  it('长期授权需要修复时不再保留进入中，详情直接显示原因和修复入口', () => {
+    mock.access = {
+      ...ready,
+      ssoReady: false,
+      credentialsPending: false,
+      credentialsIssue: {
+        title: '长期授权需要修复',
+        message: '长期授权需要修复：权限助手接口已更新，请修复后重试。',
+      },
+    };
+    const f = fixture();
+    act(() => useRestrictedMode.getState().beginEntering());
+    act(() => useRestrictedMode.getState().setOpen(true));
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('受限模式');
+    expect(f.host.textContent).toContain('长期授权需要修复');
+    expect(f.host.textContent).toContain('权限助手接口已更新');
+    expect(f.host.textContent).not.toContain('正在启用完整功能');
+  });
   it('部分凭据和原生登记等待期间始终保留进入中状态，真正就绪后才结束', async () => {
     mock.access = { ...ready, ssoReady: false, credentialsPending: true };
     const f = fixture();
+    act(() => useRestrictedMode.getState().beginEntering());
     expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在启用完整功能');
     expect(f.host.querySelector('.weq-restricted-indicator')?.getAttribute('aria-busy')).toBe(
       'true',
@@ -899,16 +1116,18 @@ describe('非阻塞提权入口', () => {
       mock.access = { ...ready, ...pending };
       const f = fixture();
       event('elev:request-password', { token: 41 });
-      event('elev:cancel-password', { token: 41 });
-      expect(f.host.textContent).toContain('受限模式');
-      expect(mock.invalidateAccess).not.toHaveBeenCalled();
+      act(() => useRestrictedMode.getState().setOpen(true));
+      submitAuthorization(f.host.querySelector('form')!);
+      expect(f.host.textContent).toContain('正在启用完整功能');
+      expect(mock.invalidateAccess).toHaveBeenCalledOnce();
       expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
       mock.invalidateAccess.mockImplementation(async () => {
         mock.access = { ...ready };
+        mock.updatedAt = Date.now() + 1000;
         f.render();
       });
       await act(async () => mock.credentialsReady?.());
-      expect(mock.invalidateAccess).toHaveBeenCalledOnce();
+      expect(mock.invalidateAccess).toHaveBeenCalledTimes(2);
       expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
       expect(useToast.getState().toasts.filter((t) => t.tone === 'success')).toHaveLength(1);
     },
@@ -938,13 +1157,15 @@ describe('非阻塞提权入口', () => {
     mock.access = initial;
     const f = fixture();
     mock.access = { ...ready };
+    mock.updatedAt = Date.now() + 1000;
     f.render();
     f.render();
     expect(useToast.getState().toasts).toHaveLength(0);
   });
-  it('启动受限时发横幅但不自动遮罩；点击横幅打开详情，恢复完整后消失', () => {
-    mock.access = { ...ready, qqOnline: false };
+  it('运行中受限时发横幅但不自动遮罩；点击打开详情，自动恢复后静默消失', () => {
     const f = fixture();
+    mock.access = { ...ready, qqOnline: false };
+    f.render();
     expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toContain('受限模式');
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
     expect(useToast.getState().toasts).toHaveLength(1);
@@ -957,25 +1178,22 @@ describe('非阻塞提权入口', () => {
     f.render();
     expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
-    expect(useToast.getState().toasts.at(-1)).toMatchObject({
-      tone: 'success',
-      title: '已启用完整功能',
-      durationKind: 'success',
-    });
+    expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
     f.render();
-    expect(useToast.getState().toasts).toHaveLength(2);
+    expect(useToast.getState().toasts).toHaveLength(1);
     mock.access = { ...ready, qqOnline: false };
     f.render();
-    expect(useToast.getState().toasts).toHaveLength(2);
+    expect(useToast.getState().toasts).toHaveLength(1);
     expect(useToast.getState().toasts[0]!.title).toContain('QQ 不在线');
     expect(useToast.getState().leaving).not.toContain(useToast.getState().toasts[0]!.id);
     mock.access = { ...ready };
     f.render();
-    expect(useToast.getState().toasts.filter((toast) => toast.tone === 'success')).toHaveLength(2);
+    expect(useToast.getState().toasts.filter((toast) => toast.tone === 'success')).toHaveLength(0);
   });
   it('部分限制解除或状态未知不报成功，确认全部恢复后仅提示一次', () => {
     mock.access = { ...ready, qqOnline: false, attachEnabled: false };
     const f = fixture();
+    act(() => useRestrictedMode.getState().beginEntering());
     mock.access = { ...ready, attachEnabled: false };
     f.render();
     expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
@@ -983,6 +1201,7 @@ describe('非阻塞提权入口', () => {
     f.render();
     expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
     mock.access = { ...ready };
+    mock.updatedAt = Date.now() + 1000;
     f.render();
     f.render();
     expect(useToast.getState().toasts.filter((toast) => toast.tone === 'success')).toHaveLength(1);
@@ -990,8 +1209,10 @@ describe('非阻塞提权入口', () => {
   it('仍有待处理授权时不报恢复，最后一个限制解除才通知', () => {
     mock.access = { ...ready, qqOnline: false };
     const f = fixture();
+    act(() => useRestrictedMode.getState().beginEntering());
     event('elev:request-password', { token: 41 });
     mock.access = { ...ready };
+    mock.updatedAt = Date.now() + 1000;
     f.render();
     expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
     event('elev:cancel-password', { token: 41 });

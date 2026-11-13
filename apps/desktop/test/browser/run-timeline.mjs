@@ -202,10 +202,12 @@ try {
   assert((await mounted()) < 80, 'Selecting all mounted every selected row');
   await page.evaluate(() => {
     window.timelineTest.clearSelection();
-    window.timelineTest.setCount(100);
+    window.timelineTest.setCount(window.timelineTest.virtualThreshold);
   });
   await page.waitForTimeout(150);
-  await page.evaluate(() => window.timelineTest.jump('row-1050'));
+  await page.evaluate(() =>
+    window.timelineTest.jump(`row-${1001 + Math.floor(window.timelineTest.virtualThreshold / 2)}`),
+  );
   await page.waitForTimeout(100);
   const shortAnchor = await page.evaluate(() => window.timelineTest.capture());
   await page.evaluate(() => window.timelineTest.setCount(3000));
@@ -244,6 +246,9 @@ try {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: {
+        write: async (items) => {
+          window.timelineCopied = await (await items[0].getType('text/plain')).text();
+        },
         writeText: async (text) => {
           window.timelineCopied = text;
         },
@@ -255,7 +260,11 @@ try {
       configurable: true,
       value: (command) => {
         if (command !== 'copy') return false;
-        window.timelineCopied = document.querySelector('textarea[aria-hidden="true"]')?.value;
+        const data = new DataTransfer();
+        document.dispatchEvent(
+          new ClipboardEvent('copy', { clipboardData: data, cancelable: true }),
+        );
+        window.timelineCopied = data.getData('text/plain');
         return true;
       },
     }),

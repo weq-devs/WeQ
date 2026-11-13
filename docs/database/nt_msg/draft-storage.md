@@ -4,11 +4,15 @@
 
 > WeQ **读写**这张表（2026-09-25 起）：草稿不再由 WeQ 自己缓存，直接落 QQ 的这张表，
 > 与 QQ 客户端共用同一份状态。对应实现见文末「对应实现」。
-> 内容来自手工逆向：解码真实行 + 拿里面的会话标识回查联系人 / 群资料对缝。
+::: info 依据
+
+内容来自解码真实行 + 拿里面的会话标识回查联系人 / 群资料对缝。
+
+:::
 > 样本量很小（累计观测 4 行），未观测到的部分一律留白。
 
-解析时可用同构邻表 [hidden_session_storage_table_v1](./hidden-session.md) 的
-[`43002.ts`](../../../packages/codec/src/proto/msg/43002.ts) 当解码外壳的参照
+解析时可用同构邻表 [hidden_session_storage_table_v1](hidden-session.md) 的
+[`43002.ts`](https://github.com/weq-devs/WeQ/blob/dev/packages/codec/src/proto/msg/43002.ts) 当解码外壳的参照
 （两表外壳都是「外层 tag = 列号，内层一个子消息」）。
 
 ---
@@ -24,7 +28,7 @@
 - 它与 `c2c_msg_table` / `group_msg_table` 完全独立 —— 草稿在这里，消息在那里；
 - 它会**间接影响会话列表的排序**：`recent_contact_v3_table` 上有一列草稿时间（`41108`），
   以及由它参与的排序键 `41136` —— 输入框里打了字，那条会话会被顶到列表前面。
-  见 [recent-contact · 草稿与置顶标记](./recent-contact.md#草稿与置顶标记41103--41104--41108)。
+  见 [recent-contact · 草稿与置顶标记](recent-contact.md#草稿与置顶标记41103--41104--41108)。
   WeQ 的会话列表排序直接读 `41108`（`SELECT "40021","41108" … WHERE "41108" > 0`），
   与最后消息时间 `40050` 取最大值，因此**不必** join 本表、也**不必**解 `43002`。
 
@@ -70,8 +74,8 @@ CREATE TABLE draft_storage_table_v1([43001] TEXT PRIMARY KEY,[43002] BLOB)
 tag 取值直接沿用消息行与 `recent_contact_v3_table` 的同一套约定
 （`40010` 会话类型、`40021` 会话标识、`40050` 时间、`40800` 正文），
 等于把半条消息按消息行的编码方式存了进来。所以 `40010`/`40021` 的语义、`40010` 的取值表
-可以直接翻 [recent_contact · ChatType](./recent-contact.md#四chattype会话类型)，
-正文的解析翻 [消息行](./row.md) / [40800 解析](./40800.md)，此处都不重复。
+可以直接翻 [recent_contact · ChatType](recent-contact.md#四chattype会话类型)，
+正文的解析翻 [消息行](row.md) / [40800 解析](40800.md)，此处都不重复。
 
 两个观测恒定的 tag 不猜含义：`40022` 与 `recent_contact_v3_table` 的同名列一样是空串，
 `49079` 恒为 0。在拿到反例之前按「原样保留」处理。
@@ -81,7 +85,7 @@ tag 取值直接沿用消息行与 `recent_contact_v3_table` 的同一套约定
 **`40800` 在这里直接就是一条 element**（`repeated`），与消息行的
 `{40800: {40800: ElementWire}}` **差一层** —— 消息行外层那个 40800 里面才是
 `MsgBody`，草稿里外层就是 element 本体，`elementType` 在 `45002` 判别、各类型
-字段平铺同一层（详见 [40800 解析](./40800.md)）。
+字段平铺同一层（详见 [40800 解析](40800.md)）。
 
 这一点是 2026-09-25 用三条真实草稿实测出来的；早期只观测到单段纯文本，容易误以为
 它和消息行完全同构。**一条草稿可以带多个元素**，实测到的组合：
@@ -116,7 +120,7 @@ tag 取值直接沿用消息行与 `recent_contact_v3_table` 的同一套约定
 
 其中 **`45004` 是原图的本机缓存路径**（落在通用段 `45001..45099`）—— 这个 tag 早先因为
 只在 FACE 上见过注释而被叫 `faceExtDesc`（扩展描述），2026-09-26 观测到纯 PIC 草稿的用途后
-已改名为 `localPath`（见 [pic.md](./elements/pic.md) / [face.md](./elements/face.md)）。
+已改名为 `localPath`（见 [pic.md](elements/pic.md) / [face.md](elements/face.md)）。
 
 所以**解析必须按 40800 全量走**：@ / 图片 / 视频 / 文件 / markdown / ark / 引用……
 所有 element 类型都可能出现，不能只支持样本里见过的那几种。
@@ -143,7 +147,7 @@ tag 取值直接沿用消息行与 `recent_contact_v3_table` 的同一套约定
 
 已观测到的草稿元素类型只有 TEXT / FACE / PIC 三种；引用 / @ / 视频 / 文件等其余类型
 在草稿里长什么样没有观测，不排除有差异 —— 读的时候保持
-[40800 容错解码](./40800.md#六容错解码sanitizebytes) 的心态。
+[40800 容错解码](40800.md#六容错解码sanitizebytes) 的心态。
 
 ## 四、`43001` — 行键的解析
 
@@ -164,7 +168,7 @@ tag 取值直接沿用消息行与 `recent_contact_v3_table` 的同一套约定
 | `0_2__673646675` | prefix `0` / chatType `2` / 群号 `673646675` | 群「喵喵喵」 |
 | `0_2__1090396070` | prefix `0` / chatType `2` / 群号 `1090396070` | 群「开心快乐的跑步」 |
 
-需要说明的是，与本表同构的 [hidden_session_storage_table_v1](./hidden-session.md#二列结构)
+需要说明的是，与本表同构的 [hidden_session_storage_table_v1](hidden-session.md#二列结构)
 把它的 `43001` 记成**不透明 key**、明确「不要解析它猜含义」。这里之所以敢拆，是因为
 每行样本都能稳定拆出合理的 chatType + 会话标识、且与载荷内容完全吻合。因此本列记为
 **有规律**（置信度「观测一致」而非「已验证」），解析路径仍**优先用载荷里的 `40010`/`40021`**，
@@ -194,7 +198,7 @@ u_LKt3…         (置顶)   1790184913    1790184913      2^47 + 1790184913
 ```
 
 也就是说 `41108` 是**跨表冗余**：QQ 从会话列表就能判断草稿状态，不必 join 本表。
-详尽的推导与排除过程见 [recent-contact · 草稿与置顶标记](./recent-contact.md#草稿与置顶标记41103--41104--41108)。
+详尽的推导与排除过程见 [recent-contact · 草稿与置顶标记](recent-contact.md#草稿与置顶标记41103--41104--41108)。
 
 > 注意 `41108` **不是 trigger 写出来的** —— `nt_msg.db` 里一条 trigger 都没有
 > （`sqlite_master` 里 `type='trigger'` 零行）。它由 QQ 进程在草稿变动时自己写。
@@ -237,7 +241,7 @@ SELECT "43002" FROM draft_storage_table_v1 WHERE "43001" = '0_1__<uid>';
 ```
 
 `43002` 解码同样先过 `sanitizeBytes` 容错（原因见
-[40800 · 容错解码](./40800.md#六容错解码sanitizebytes)），
+[40800 · 容错解码](40800.md#六容错解码sanitizebytes)），
 一行烂掉的草稿不该拖垮整个读取路径。
 
 ## 七、对应实现
@@ -268,4 +272,4 @@ WeQ 意外退出导致没写成，就按**没有草稿**处理 —— 不往本�
 
 ---
 
-[← 返回 nt_msg.db](./index.md)
+[← 返回 nt_msg.db](index.md)

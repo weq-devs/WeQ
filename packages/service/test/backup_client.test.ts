@@ -26,6 +26,49 @@ function storage(initial: Record<string, string> = {}) {
   return { value, values };
 }
 
+it('恢复默认覆盖所有账号显示设置，只移除页面快照中的偏好项，保留数据与会话整理', () => {
+  const snapshot = (name: string) => `weq:page-snapshot:v1:${JSON.stringify(['10001', name])}`;
+  const reset = {
+    'weq.contacts.order.10001.10001.friends': '{"sort":"qq"}',
+    'weq.contacts.order.10002.10002.groups': '{"grouping":"size"}',
+    'weq.global-search.preferences': '{}',
+    'weq.calendar.kinds': '[]',
+    'weq.theme-density': 'compact',
+    [snapshot('workspace:conversation-scope')]: '"real"',
+  };
+  const data = {
+    'chat-template:conversation-preferences': '{"peer":{"pinned":true}}',
+    'weq:group-assistant-pins:10001': '{"123":true}',
+    [snapshot('messages')]: '合成消息数据',
+    [`weq:page-draft:v1:${JSON.stringify(['10001', 'export:options:chat:peer'])}`]: '未提交草稿',
+    'weq.backup-client-id': 'synthetic-client',
+    'weq.message-clipboard': '合成剪贴板',
+  };
+  const source = storage({ ...reset, ...data });
+  applyWeqClientSettings(source.value, {}, true, undefined, true);
+  expect(Object.fromEntries(source.values)).toEqual(data);
+  applyWeqClientSettings(source.value, {}, true, undefined, true);
+  expect(Object.fromEntries(source.values)).toEqual(data);
+});
+
+it('恢复默认删除偏好失败时回滚全部设置与回执，会话数据始终保留', () => {
+  const initial = {
+    'weq.theme-density': 'compact',
+    'weq.calendar.kinds': '[]',
+    'chat-template:conversation-preferences': '合成会话整理',
+  };
+  const source = storage(initial);
+  const remove = source.value.removeItem;
+  source.value.removeItem = (key) => {
+    if (key === 'weq.calendar.kinds') throw Error('合成删除失败');
+    remove(key);
+  };
+  expect(() => applyWeqClientSettings(source.value, {}, true, undefined, true)).toThrow(
+    '合成删除失败',
+  );
+  expect(Object.fromEntries(source.values)).toEqual(initial);
+});
+
 it('菜单截图临时隐私只备份设备偏好，恢复/默认重置不引入运行覆盖', () => {
   const source = storage({
     [WEQ_MENU_CAPTURE_PRIVACY_KEY]: '1',

@@ -12,10 +12,19 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { z } from 'zod';
-import { usePageState } from '../PageSnapshots';
-import { pageValue } from '../../lib/pageSnapshots';
-import { AudioLines, Download, Loader2, Plus, Play, Save, Trash2, Volume2, X } from 'lucide-react';
+import { usePageSnapshotReset } from '../PageSnapshots';
+import {
+  AudioLines,
+  Cloud,
+  Download,
+  Loader2,
+  Plus,
+  Play,
+  Save,
+  Trash2,
+  Volume2,
+  X,
+} from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Modal, useDialog } from '../Dialog';
@@ -31,6 +40,7 @@ import {
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
 import { useToast } from '../Toast';
+import { LoadingIndicator } from '../LoadingIndicator';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -151,17 +161,19 @@ export function VoiceTranscribeSection(): ReactElement {
   return (
     <div className="weq-set weq-recognition-settings">
       <SectionHeader icon={<AudioLines size={18} strokeWidth={1.8} />} title="语音识别" />
-      <Card title="QQ 在线转写">
+      <Card title="QQ 在线转写" icon={<Cloud size={15} strokeWidth={1.8} />}>
         <p className="weq-set-note">
           由 QQ 服务端将语音转为文字，需要 QQ 在线，并在导出时准备官方转写抓包。
         </p>
         <RecognitionConcurrencySetting kind="voice" />
       </Card>
 
-      <Card title="本地语音识别">
+      <Card title="本地语音识别" icon={<AudioLines size={15} strokeWidth={1.8} />}>
         <p className="weq-set-note">使用本机已下载的模型将语音转为文字，可离线使用。</p>
         {modelList.length === 0 ? (
-          <div className="weq-set-empty">{models.isLoading ? '加载中…' : '暂无可用模型'}</div>
+          <div className="weq-set-empty">
+            {models.isLoading ? <LoadingIndicator /> : '暂无可用模型'}
+          </div>
         ) : (
           <div className="weq-models">
             {modelList.map((m) => {
@@ -310,27 +322,16 @@ export function TtsProvidersCard(): ReactElement {
   const providerLabels = providerDisplayLabels(providers.data ?? []);
   const deleteProvider = trpc.bootstrap.deleteTtsProvider.useMutation();
 
-  const [selectedId, setSelectedId] = usePageState('tts:selected', '', pageValue.string);
-  const [open, setOpen] = usePageState('tts:open', false, pageValue.boolean, true);
-  const [form, setForm] = usePageState<TtsForm>(
-    'tts:form',
-    emptyTtsForm,
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      vendor: z.enum(TTS_VENDORS),
-      baseUrl: z.string(),
-      apiKey: z.string(),
-      appId: z.string(),
-      resourceId: z.string(),
-      model: z.string(),
-      cloneModel: z.string(),
-      voice: z.string(),
-      format: z.string(),
-      speed: z.string(),
-    }),
-    true,
-  );
+  const [selectedId, setSelectedId] = useState('');
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<TtsForm>(emptyTtsForm);
+  const legacyOpen = usePageSnapshotReset('tts:open');
+  const legacyForm = usePageSnapshotReset('tts:form');
+  useEffect(() => {
+    // 与 LLM 编辑器一致，旧页面草稿不再参与设置页的离开检查。
+    legacyOpen.reset();
+    legacyForm.reset();
+  }, [legacyOpen, legacyForm]);
   const testKey = connectionTestKey('tts', form.id);
   const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const guard = useDraftClose(
@@ -510,6 +511,7 @@ export function TtsProvidersCard(): ReactElement {
     <>
       <Card
         title="TTS 语音合成"
+        icon={<Volume2 size={15} strokeWidth={1.8} />}
         settingId="tts-providers"
         action={
           <button
@@ -601,19 +603,19 @@ export function TtsProvidersCard(): ReactElement {
             <div className="weq-provider-modal-body">
               {catalog.error ? (
                 <QueryError
-                  message={`厂商模板读取失败：${catalog.error.message}`}
-                  retryLabel="重新读取厂商模板"
+                  message={`服务商模板读取失败：${catalog.error.message}`}
+                  retryLabel="重新读取服务商模板"
                   retrying={catalog.isFetching}
                   onRetry={() => void catalog.refetch()}
                 />
               ) : null}
               <Row
-                label="厂商模板"
+                label="服务商模板"
                 desc={vendorEntry?.note}
                 control={
                   <select
                     className="weq-set-input"
-                    aria-label="TTS 厂商模板"
+                    aria-label="TTS 服务商模板"
                     value={form.vendor}
                     disabled={catalog.isLoading}
                     onChange={(e) => applyVendor(e.target.value)}
@@ -707,7 +709,7 @@ export function TtsProvidersCard(): ReactElement {
                       className="weq-set-input"
                       value={form.model}
                       onChange={(e) => update('model', e.target.value)}
-                      placeholder={vendorEntry?.defaultModel ?? '厂商模型 id（可空用默认）'}
+                      placeholder={vendorEntry?.defaultModel ?? '服务商模型 id（可空用默认）'}
                     />
                   }
                 />

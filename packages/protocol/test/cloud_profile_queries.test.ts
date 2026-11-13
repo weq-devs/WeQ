@@ -13,6 +13,33 @@ import { legacyOidbEnvelope } from '../src/oidb/legacy';
 import { oidbCommand, resolveSign } from '../src/sign-policy';
 
 describe('云端精确资料与共同关系', () => {
+  it('UID 资料使用字符串 field 1 与 UID 信封，允许省略 UID 回显并保留返回 QQ 号', async () => {
+    const sendOidbPacket = vi.fn(async () =>
+      Buffer.from(
+        encode(cloudProfileResponse, {
+          body: {
+            uin: 10002,
+            properties: { bytes: [{ key: 20002, value: Buffer.from('在线昵称') }] },
+          },
+        }),
+      ),
+    );
+    const nt = { sendOidbPacket, sendPacket: async () => Buffer.alloc(0) };
+    const result = await getCloudProfile(nt, 1, 'u_peer', [20002]);
+    expect(result.uin).toBe('10002');
+    const call = sendOidbPacket.mock.calls[0] as unknown as unknown[];
+    // 独立黄金字节：uid@1=string、keys@3；不是 UIN 的 varint 形态。
+    expect(Buffer.from(call[3] as Uint8Array).toString('hex')).toBe('0a06755f706565721a0408a29c01');
+    expect(call[4]).toBe(false);
+    sendOidbPacket.mockResolvedValueOnce(
+      Buffer.from(
+        encode(cloudProfileResponse, {
+          body: { uid: 'u_other', properties: {} },
+        }),
+      ),
+    );
+    await expect(getCloudProfile(nt, 1, 'u_peer', [20002])).rejects.toThrow('UID 不匹配');
+  });
   it('QQ 号资料使用 UIN 形式与签名，响应错号不能作为目标资料', async () => {
     const sendOidbPacket = vi.fn(async () =>
       Buffer.from(

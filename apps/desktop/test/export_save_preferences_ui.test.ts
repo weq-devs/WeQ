@@ -19,7 +19,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       get(_target, key) {
         if (key === 'useQuery')
           return () => ({
-            data: path === 'bootstrap.getSettings' ? state.settings : [],
+            data:
+              path === 'bootstrap.getSettings'
+                ? state.settings
+                : path === 'bootstrap.storageCleanupResult'
+                  ? null
+                  : [],
             isLoading: false,
             refetch: async () => {},
           });
@@ -54,43 +59,26 @@ function mount() {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = () => act(() => root.render(h(GlobalSettingsSection, { section: 'saving' })));
+  const render = () => act(() => root.render(h(GlobalSettingsSection, { section: 'storage' })));
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
   });
   render();
-  const select = () => host.querySelector<HTMLElement>('[aria-label="默认导出保存方式"]')!;
-  return { host, render, select };
+  return { host, render };
 }
-async function change(select: HTMLElement, mode: string) {
-  await act(async () => {
-    select.querySelectorAll<HTMLButtonElement>('button')[mode === 'preset' ? 1 : 0]!.click();
-  });
-}
-describe('默认保存偏好', () => {
-  it('只提供询问与自动保存两个互斥分段，不再展示稍后保存', () => {
-    const f = mount();
-    expect(f.select().getAttribute('role')).toBe('radiogroup');
-    expect([...f.select().querySelectorAll('button')].map((button) => button.textContent)).toEqual([
-      '每次询问',
-      '自动保存',
-    ]);
-    expect(f.host.textContent).not.toContain('稍后保存');
-  });
-  it('没有默认文件夹时先选择，取消不启用自动保存', async () => {
-    const f = mount();
-    await change(f.select(), 'preset');
-    expect(state.pick).toHaveBeenCalledOnce();
-    expect(state.setMode).not.toHaveBeenCalled();
-    expect(state.settings.exportSaveMode).toBe('before');
-  });
-  it('已有默认文件夹不重新弹框，切换模式不修改文件夹', async () => {
+describe('存储管理仅负责清理', () => {
+  it.each(['before', 'preset'] as const)('已有 %s 保存偏好不显示配置，也不改写设置', (mode) => {
+    state.settings.exportSaveMode = mode;
     state.settings.defaultExportDir = '/chosen/default';
     const f = mount();
-    await change(f.select(), 'preset');
+    expect(f.host.textContent).toContain('空间清理');
+    for (const label of ['默认保存目录', '默认保存方式', '缓存目录', '选择目录', '重置默认'])
+      expect(f.host.textContent).not.toContain(label);
+    expect(f.host.querySelector('[aria-label="默认导出保存方式"]')).toBeNull();
     expect(state.pick).not.toHaveBeenCalled();
-    expect(state.setMode).toHaveBeenCalledWith({ mode: 'preset' });
+    expect(state.setMode).not.toHaveBeenCalled();
+    expect(state.settings.exportSaveMode).toBe(mode);
     expect(state.settings.defaultExportDir).toBe('/chosen/default');
   });
 });

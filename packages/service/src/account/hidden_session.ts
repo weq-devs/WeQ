@@ -23,6 +23,7 @@
 import type { AccountSession } from '@weq/account';
 import type { HiddenSession } from '@weq/db';
 import type { Element } from '@weq/codec';
+import { resolveC2cPartition } from './c2c_partition';
 
 export interface HiddenSessionSummary {
   storageKey: string;
@@ -70,7 +71,10 @@ export class HiddenSessionService {
     // 仍然在 recent_contact_v3_table 里 —— 两表都有才算真正「隐藏的会话」。
     const inRecent = inRecentSet.has(row.targetUid);
     if (row.chatType === 'KCHATTYPEC2C' && UID_PATTERN.test(row.targetUid) && inRecent) {
-      const [latest] = await this.session.c2cMsgs.listLatest({ uid: row.targetUid }, 1);
+      const [latest] = await this.session.c2cMsgs.listLatest(
+        await resolveC2cPartition(this.session.uidMap, row.targetUid),
+        1,
+      );
       return { ...base, resolvable: true, ...summarizeLatest(latest) };
     }
     if (row.chatType === 'KCHATTYPEGROUP' && GROUP_CODE_PATTERN.test(row.targetUid) && inRecent) {

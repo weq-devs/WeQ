@@ -1,7 +1,7 @@
-import { createElement, useEffect, useState } from 'react';
+import { createElement, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from '../support/templateDemoData';
 import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent';
 import {
   ContentSelectionProvider,
@@ -17,15 +17,36 @@ import {
   timelineViewport,
 } from '../../src/renderer/src/lib/timelineViewport';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
+import type { MessageBubbleSkin } from '@weq/service';
+import { useMobileWebViewport } from '../../src/renderer/src/hooks/useMobileWebViewport';
+import { TIMELINE_VIRTUAL_THRESHOLD } from '../../src/renderer/src/hooks/useVirtualTimeline';
 import '../../src/renderer/src/styles/index.css';
+import '../../src/renderer/src/styles/mobile-web.css';
 
 const demo = createTemplateDemoData();
 const params = new URLSearchParams(location.search);
 const entryCount = Number(params.get('count') ?? 3000);
 const delayedEntry = params.has('delayed');
+const cachedBubble: MessageBubbleSkin | undefined = params.has('cached-bubbles')
+  ? (() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 40;
+      const drawing = canvas.getContext('2d')!;
+      drawing.fillStyle = '#c5e8ca';
+      drawing.fillRect(0, 0, 40, 40);
+      return {
+        itemId: 21009,
+        slice: { left: 4, right: 4, top: 4, bottom: 4 },
+        imageSize: { w: 40, h: 40 },
+        textColor: '#516196',
+        localFile: 'fixture.png',
+        baseImage: canvas.toDataURL('image/png'),
+      };
+    })()
+  : undefined;
 const avatar =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=';
-const image = (() => {
+const image = await new Promise<string>((resolve, reject) => {
   const canvas = document.createElement('canvas');
   canvas.width = 300;
   canvas.height = 400;
@@ -36,8 +57,12 @@ const image = (() => {
   drawing.fillRect(24, 32, 252, 120);
   drawing.fillStyle = '#f0f3ed';
   drawing.fillRect(24, 180, 150, 180);
-  return canvas.toDataURL();
-})();
+  canvas.toBlob((blob) => {
+    if (blob) resolve(URL.createObjectURL(blob));
+    else reject(new Error('合成图片生成失败'));
+  });
+});
+window.addEventListener('pagehide', () => URL.revokeObjectURL(image), { once: true });
 const user = { ...demo.user, avatarUrl: avatar };
 const conversation = {
   ...demo.conversations.find((row) => row.type === 'direct')!,
@@ -52,6 +77,9 @@ const message = (seq: number): Message => ({
   body: `合成消息 ${seq}：${'用于检查长时间线和动态高度。'.repeat((Math.abs(seq) % 8) + 1)}`,
   createdAt: new Date(1792544400000 + seq * 1000).toISOString(),
   msgSeq: String(seq),
+  decoration: cachedBubble
+    ? { bubbleId: cachedBubble.itemId, fontId: 0, widgetId: 0, cachedBubble }
+    : undefined,
   qqElements:
     seq % 19 === 0
       ? [
@@ -73,6 +101,10 @@ let pendingRestore: ReturnType<typeof captureReadingPosition> | undefined;
 Object.assign(window, { timelineTest: bridge });
 
 function Fixture() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const sentBodies = useRef<string[]>([]);
+  const mobileInput = params.has('mobile-input');
+  useMobileWebViewport(rootRef, mobileInput);
   const [conversationId, setConversationId] = useState(conversation.id);
   const [messages, setMessages] = useState(() =>
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
@@ -95,6 +127,8 @@ function Fixture() {
   });
   const exportRequest = useContentExportRequest();
   Object.assign(bridge, {
+    virtualThreshold: TIMELINE_VIRTUAL_THRESHOLD,
+    sentBodies: () => sentBodies.current,
     beginEntry: () => {
       setConversationId((id) => `${id}-loading`);
       setMessages([]);
@@ -198,9 +232,10 @@ function Fixture() {
   return createElement(
     'div',
     {
-      className: 'weq-readonly-chat',
+      ref: rootRef,
+      className: `weq-readonly-chat${mobileInput ? ' app-shell-root weq-web-shell' : ''}`,
       style: {
-        height: '100dvh',
+        height: mobileInput ? 'var(--weq-mobile-viewport-height, 100dvh)' : '100dvh',
         display: active ? 'grid' : 'none',
         gridTemplateColumns: 'minmax(0,1fr)',
       },
@@ -215,7 +250,8 @@ function Fixture() {
       draft: '',
       tabActive: active,
       initialReadingPosition: initialPosition ? { scrollTop: 0 } : undefined,
-      onSend: async () => {
+      onSend: async (body) => {
+        sentBodies.current.push(body);
         // 模拟发送期间的窗口刷新先捕获阅读位置，补偿在发送跳到底部后才提交。
         pendingRestore = captureReadingPosition(scroll(), { transient: true });
         setMessages((rows) => [
@@ -231,6 +267,7 @@ function Fixture() {
       onDraftChange() {},
       onDraftClear() {},
       onBack() {},
+      onStartCall: params.has('composer-actions') ? () => {} : undefined,
     }),
   );
 }

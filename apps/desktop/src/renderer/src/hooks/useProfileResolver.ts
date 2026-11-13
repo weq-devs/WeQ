@@ -12,6 +12,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { client } from '../trpc/client';
+import { reconcileResolvedRows } from '../lib/resolvedRows';
 
 /** getProfilesByUids 的单次 uid 上限（与 IPC 层 account.getProfilesByUids 一致）。 */
 const CHUNK = 200;
@@ -33,6 +34,7 @@ export interface ProfileResolver<T> {
 
 export function useProfileResolver<T extends { uid: string }>(
   primed: readonly T[] | undefined,
+  fallback?: readonly T[],
 ): ProfileResolver<T> {
   // listProfiles 没覆盖到、按需补全回来的 profile。
   const [resolved, setResolved] = useState<Record<string, T>>({});
@@ -48,11 +50,13 @@ export function useProfileResolver<T extends { uid: string }>(
   }, [primed]);
 
   const profileByUid = useMemo(() => {
-    const map = new Map(primedMap);
+    // 持久快照只负责先显示；不阻止缺失项按需读回，也不覆盖新的本地资料。
+    const map = new Map((fallback ?? []).map((profile) => [profile.uid, profile]));
+    for (const [uid, profile] of primedMap) map.set(uid, profile);
     // 补全结果覆盖预热值（与旧 missingNotifyProfiles 合并顺序保持一致）。
     for (const profile of Object.values(resolved)) map.set(profile.uid, profile);
     return map;
-  }, [primedMap, resolved]);
+  }, [primedMap, resolved, fallback]);
 
   const resolveProfiles = useCallback(
     (uids: Iterable<string>): void => {
@@ -73,14 +77,14 @@ export function useProfileResolver<T extends { uid: string }>(
           try {
             const list = await client.account.getProfilesByUids.query({ uids: chunk });
             if (list.length > 0) {
-              setResolved((prev) => {
-                const next = { ...prev };
-                for (const profile of list as unknown as T[]) {
-                  if (captured.get(profile.uid) === (versions.current.get(profile.uid) ?? 0))
-                    next[profile.uid] = profile;
-                }
-                return next;
-              });
+              setResolved((prev) =>
+                reconcileResolvedRows(
+                  prev,
+                  list as unknown as T[],
+                  (profile) =>
+                    captured.get(profile.uid) === (versions.current.get(profile.uid) ?? 0),
+                ),
+              );
             }
           } catch (err) {
             console.error('[profiles] getProfilesByUids failed', err);
@@ -115,15 +119,13 @@ export function useProfileResolver<T extends { uid: string }>(
         if (current && !current()) return;
         setResolved((previous) => {
           if (current && !current()) return previous;
-          const next = { ...previous };
-          for (const profile of list as unknown as T[]) {
-            if (
+          return reconcileResolvedRows(
+            previous,
+            list as unknown as T[],
+            (profile) =>
               captured.has(profile.uid) &&
-              captured.get(profile.uid) === versions.current.get(profile.uid)
-            )
-              next[profile.uid] = profile;
-          }
-          return next;
+              captured.get(profile.uid) === versions.current.get(profile.uid),
+          );
         });
       }
     },

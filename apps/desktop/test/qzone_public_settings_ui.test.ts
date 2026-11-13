@@ -30,7 +30,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it('冷却分钟数显式保存，非法输入禁用保存，0 分钟可以提交', async () => {
+it('冷却分钟数无需保存按钮，非法输入不提交，0 分钟可自动提交', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -38,7 +38,11 @@ it('冷却分钟数显式保存，非法输入禁用保存，0 分钟可以提�
   try {
     act(() => root.render(h(QzonePublicRefreshSettings)));
     const input = host.querySelector('input')!;
-    const button = host.querySelector('button')!;
+    const submit = () =>
+      act(async () =>
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+      );
+    expect(host.querySelector('button')).toBeNull();
     expect(input.value).toBe(String(state.saved));
     const change = (value: string) =>
       act(() => {
@@ -55,15 +59,16 @@ it('冷却分钟数显式保存，非法输入禁用保存，0 分钟可以提�
       String(MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES + 1),
     ]) {
       change(invalid);
-      expect(button.disabled).toBe(true);
+      await submit();
+      expect(state.save).not.toHaveBeenCalled();
     }
     change('30');
     expect(state.save).not.toHaveBeenCalled();
-    await act(async () => button.click());
+    await submit();
     expect(state.save).toHaveBeenLastCalledWith({ minutes: 30 });
     expect(state.refetch).toHaveBeenCalledOnce();
     change('0');
-    await act(async () => button.click());
+    await submit();
     expect(state.save).toHaveBeenLastCalledWith({ minutes: 0 });
   } finally {
     act(() => root.unmount());

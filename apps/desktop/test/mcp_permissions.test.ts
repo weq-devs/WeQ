@@ -15,7 +15,12 @@ const f = vi.hoisted(() => ({
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
-    services: { assistant: { getConfig: () => ({ permissionMode: f.mode }) } },
+    services: {
+      assistant: {
+        getConfig: () => ({ permissionMode: f.mode }),
+        getExecutionConfig: () => ({ permissionMode: f.mode }),
+      },
+    },
   }),
 }));
 vi.mock('../src/main/mcp/external', () => ({

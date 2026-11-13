@@ -1,0 +1,88 @@
+.qq-media-action {
+  font: inherit;
+  text-align: inherit;
+}
+:is(.qq-media-wrap, .qq-mface-wrap, .qq-media-video).qq-media-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  line-height: 0;
+}
+.qq-flash-cover.qq-media-action {
+  padding: 0;
+  border: 0;
+}
+.qq-media-action:focus-visible,
+.qq-media-retry:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+.qq-media-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.qq-media-missing:has(.qq-media-retry) {
+  flex-direction: row;
+  gap: 6px;
+  padding: 8px;
+}
+.qq-media-play-error {
+  margin: 4px 0 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-media-load-status {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  color: var(--weq-lightbox-control-fg, #fff);
+  font-size: 14px;
+  text-align: center;
+  cursor: default;
+  pointer-events: none;
+}
+.weq-media-load-error {
+  pointer-events: auto;
+}
+.weq-media-zoom-controls {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.weq-media-zoom-controls .weq-lightbox-action {
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+.weq-media-zoom-controls output {
+  width: 52px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-lightbox-control-fg);
+}
+@media (max-width: 600px) {
+  .weq-media-zoom-controls .weq-lightbox-action {
+    width: 44px;
+  }
+}

@@ -45,7 +45,9 @@ export function useTypingStatusSettings() {
     busy,
     disabled: !query.data || query.isError || busy,
     setMode: (mode: TypingStatusMode) => save(() => modes.mutateAsync({ mode })),
-    setHidden: (hiddenList: TypingStatusConversation[]) =>
-      save(() => hidden.mutateAsync({ hidden: hiddenList })),
+    setHidden: (
+      hiddenList: TypingStatusConversation[],
+      binding?: { expectedAccountUin: string; expectedAccountConfigId: string },
+    ) => save(() => hidden.mutateAsync({ hidden: hiddenList, ...binding })),
   };
 }

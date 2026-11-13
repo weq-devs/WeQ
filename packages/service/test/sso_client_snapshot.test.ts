@@ -39,6 +39,32 @@ function fixture() {
 }
 
 describe('running-client registration snapshots', () => {
+  it('异步模块准备完成前不扫描版本或登记，取消后不发布迟到快照', async () => {
+    const f = fixture();
+    let release!: () => void;
+    const prepareQqRuntimeModules = vi.fn(
+      () =>
+        new Promise<void>((done) => {
+          release = done;
+        }),
+    );
+    let current = true;
+    const pending = registerSsoSessionInTurn(
+      f.nt,
+      { ...f.platform, prepareQqRuntimeModules },
+      42,
+      identity,
+      material,
+      () => current,
+    );
+    expect(prepareQqRuntimeModules).toHaveBeenCalledWith(42);
+    expect(f.resolveAppidFromMajor).not.toHaveBeenCalled();
+    expect(f.setSsoSession).not.toHaveBeenCalled();
+    current = false;
+    release();
+    expect(await pending).toBe(false);
+    expect(f.setSsoSession).not.toHaveBeenCalled();
+  });
   it('takes App ID and version from one scan instead of mixing sequential results', async () => {
     const f = fixture();
     f.resolveAppidFromMajor
@@ -51,19 +77,19 @@ describe('running-client registration snapshots', () => {
       clientVersion: '7.0.1-100',
     });
   });
-  it('caches unchanged files but refreshes replacement files and different PIDs', () => {
+  it('caches unchanged files but refreshes replacement files and different PIDs', async () => {
     const f = fixture();
-    expect(resolveSsoClientSnapshot(f.nt, f.platform, 42, identity).identity.clientVersion).toBe(
-      '7.0.1-100',
-    );
-    resolveSsoClientSnapshot(f.nt, f.platform, 42, identity);
+    expect(
+      (await resolveSsoClientSnapshot(f.nt, f.platform, 42, identity)).identity.clientVersion,
+    ).toBe('7.0.1-100');
+    await resolveSsoClientSnapshot(f.nt, f.platform, 42, identity);
     expect(f.resolveAppidFromMajor).toHaveBeenCalledOnce();
     f.replace();
-    expect(resolveSsoClientSnapshot(f.nt, f.platform, 42, identity).identity.clientVersion).toBe(
-      '7.0.2-200',
-    );
+    expect(
+      (await resolveSsoClientSnapshot(f.nt, f.platform, 42, identity)).identity.clientVersion,
+    ).toBe('7.0.2-200');
     expect(f.resolveAppidFromMajor).toHaveBeenCalledTimes(2);
-    resolveSsoClientSnapshot(f.nt, f.platform, 43, identity);
+    await resolveSsoClientSnapshot(f.nt, f.platform, 43, identity);
     expect(f.resolveAppidFromMajor).toHaveBeenCalledTimes(3);
   });
   it('rejects replacement during a metadata scan and does not cache the mixed snapshot', async () => {
@@ -82,7 +108,7 @@ describe('running-client registration snapshots', () => {
   });
   it('rejects a snapshot belonging to another process or account', async () => {
     const f = fixture();
-    const snapshot = resolveSsoClientSnapshot(f.nt, f.platform, 42, identity);
+    const snapshot = await resolveSsoClientSnapshot(f.nt, f.platform, 42, identity);
     expect(
       await registerSsoSessionInTurn(
         f.nt,
@@ -109,7 +135,7 @@ describe('running-client registration snapshots', () => {
   });
   it('does not reuse metadata from a module which is no longer readable', async () => {
     const f = fixture();
-    resolveSsoClientSnapshot(f.nt, f.platform, 42, identity);
+    await resolveSsoClientSnapshot(f.nt, f.platform, 42, identity);
     unlinkSync(f.major);
     expect(await registerSsoSession(f.nt, f.platform, 42, identity, material)).toBe(false);
     expect(f.setSsoSession).not.toHaveBeenCalled();

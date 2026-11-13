@@ -7,21 +7,27 @@ const fixture = vi.hoisted(() => ({
   services: {} as object | null,
   hasSsoSession: vi.fn(async (_pid: number) => true),
   automatic: true,
+  ensureOnlineCredentials: vi.fn(async () => {}),
 }));
 vi.mock('../src/main/context/app_context', async () => {
   const { EventEmitter } = await import('node:events');
+  const bootstrap = () => ({
+    ocrModels: { listByKind: () => [] },
+    userConfig: {
+      getSettings: () => ({ autoAttachQq: fixture.automatic, ocr: { prefilterEnabled: false } }),
+      getLocalModelId: () => null,
+    },
+  });
   return {
+    requireBootstrap: bootstrap,
     getAppContext: () => ({
-      bootstrap: {
-        ocrModels: { listByKind: () => [] },
-        userConfig: {
-          getSettings: () => ({ autoAttachQq: fixture.automatic }),
-          getLocalModelId: () => null,
-        },
-      },
+      bootstrap: bootstrap(),
       services: fixture.services,
+      account: { context: { uin: '10001' } },
       platform: { native: { ntHelper: { hasSsoSession: fixture.hasSsoSession } } },
       onlineCredentialsPending: () => false,
+      onlineCredentialsIssue: () => null,
+      ensureOnlineCredentials: fixture.ensureOnlineCredentials,
     }),
     accountEventBus: new EventEmitter(),
   };
@@ -31,8 +37,53 @@ beforeEach(() => {
   fixture.services = {};
   fixture.automatic = true;
   fixture.hasSsoSession.mockReset().mockResolvedValue(true);
+  fixture.ensureOnlineCredentials.mockReset().mockResolvedValue(undefined);
   accountEventBus.removeAllListeners();
 });
+
+function specialCareServices() {
+  const services = {
+    accountConfig: { getRecord: () => ({ qqOnline: true, qqPid: 42 }) },
+    accountWrite: { friendRoster: vi.fn(async () => ({ friends: [] })) },
+    webQuery: { getSpecialCare: vi.fn(async () => ({ fansCount: 3 })) },
+  };
+  fixture.services = services;
+  return services;
+}
+
+it('特别关心等待凭据登记，再并行读取名册和空间人数', async () => {
+  const services = specialCareServices();
+  let release!: () => void;
+  fixture.ensureOnlineCredentials.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const query = accountRouter.createCaller({}).specialCare({ selfUin: '10001' });
+  await vi.waitFor(() => expect(fixture.ensureOnlineCredentials).toHaveBeenCalledOnce());
+  expect(services.accountWrite.friendRoster).not.toHaveBeenCalled();
+  expect(services.webQuery.getSpecialCare).not.toHaveBeenCalled();
+  release();
+  await expect(query).resolves.toEqual({ items: [], fansCount: 3 });
+});
+
+it.each(['failure', 'switch', 'disabled'])(
+  '凭据等待失败、切号或模式关闭时不发送特别关心请求：%s',
+  async (scenario) => {
+    const services = specialCareServices();
+    fixture.ensureOnlineCredentials.mockImplementationOnce(async () => {
+      if (scenario === 'failure') throw new Error('凭据尚未就绪');
+      if (scenario === 'switch') fixture.services = {};
+      if (scenario === 'disabled') fixture.automatic = false;
+    });
+    await expect(
+      accountRouter.createCaller({}).specialCare({ selfUin: '10001' }),
+    ).rejects.toThrow();
+    expect(services.accountWrite.friendRoster).not.toHaveBeenCalled();
+    expect(services.webQuery.getSpecialCare).not.toHaveBeenCalled();
+  },
+);
 
 it('订阅建立及重连时主动重查，后续凭据就绪继续通知，取消后不泄漏监听', async () => {
   const next = vi.fn();

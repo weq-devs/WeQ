@@ -8,6 +8,9 @@
 import {
   createContext,
   useContext,
+  useMemo,
+  useRef,
+  useState,
   type ButtonHTMLAttributes,
   type ReactElement,
   type ReactNode,
@@ -17,6 +20,14 @@ import type { SettingsScope } from './navigation';
 import { RefreshCw } from 'lucide-react';
 import '../../styles/settings-query.css';
 import '../../styles/settings-controls.css';
+import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
+import { SettingsResetButton } from './SettingsReset';
+import { SETTINGS_RESET_CARDS, type SettingsResetCardId } from '../../../../shared/settings_reset';
+import {
+  remoteResetCardAvailable,
+  remoteSettingAvailable,
+} from '../../../../shared/remote_capabilities';
+import { useRemoteClient } from '../../lib/remoteClient';
 
 /** 查询失败不冒充空配置；有缓存时由调用方继续展示原数据。 */
 export function QueryError({
@@ -48,6 +59,12 @@ export function QueryError({
 
 export const SettingsScopeContext = createContext<SettingsScope | null>(null);
 
+/**
+ * 卡片 head 右侧的保存状态位。`AutoSave` 有槽位时把「正在保存／已保存／失败」
+ * 放进卡片标题行，避免它挤在行描述的位置上被当成人话说明。
+ */
+export const SaveStatusSlotContext = createContext<{ take: () => HTMLElement | null } | null>(null);
+
 export function SettingsScopeBadge() {
   const scope = useContext(SettingsScopeContext);
   return scope ? <span className="weq-settings-scope">{scope.label}</span> : null;
@@ -65,13 +82,22 @@ export function SectionHeader({
   desc,
   icon,
   titleClassName,
+  badge,
+  actions,
+  pageReset = true,
 }: {
   title: string;
   desc?: ReactNode;
   icon?: ReactNode;
   titleClassName?: string;
+  /** 标题旁的固定说明（例如「自动保存」），只描述保存方式，不放操作。 */
+  badge?: ReactNode;
+  /** 页头右侧的常驻操作（主操作不折叠进菜单）。 */
+  actions?: ReactNode;
+  pageReset?: boolean;
 }): ReactElement {
   const scope = useContext(SettingsScopeContext);
+  const reset = useContext(SettingsResetContext);
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
@@ -82,7 +108,23 @@ export function SectionHeader({
         ) : null}
         <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
         <SettingsScopeBadge />
+        {badge ? <span className="weq-set-badge">{badge}</span> : null}
       </div>
+      {actions || (reset && pageReset) ? (
+        <div
+          className="weq-settings-page-reset"
+          data-setting-id={
+            reset && pageReset
+              ? reset.page === 'startup'
+                ? 'weq-config-management'
+                : `settings-reset-${reset.page}`
+              : undefined
+          }
+        >
+          {actions}
+          {reset && pageReset ? <SettingsResetButton /> : null}
+        </div>
+      ) : null}
       {desc ? <p className="weq-set-desc">{desc}</p> : null}
       {scope?.detail ? <p className="weq-set-desc">{scope.detail}</p> : null}
     </header>
@@ -93,38 +135,76 @@ export function SectionHeader({
 export function Card({
   settingId,
   title,
+  desc,
   icon,
   action,
+  resetId,
+  remoteUnsupported = false,
   children,
 }: {
   settingId?: string;
   title?: string;
+  /** 卡片标题下的一句说明，与页头 `SectionHeader` 的 desc 同一套字号/颜色。 */
+  desc?: ReactNode;
   /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
   icon?: ReactNode;
   action?: ReactNode;
-  children: ReactNode;
-}): ReactElement {
+  resetId?: SettingsResetCardId;
+  remoteUnsupported?: boolean;
+  children?: ReactNode;
+}): ReactElement | null {
+  const reset = useContext(SettingsResetContext);
+  const remote = useRemoteClient();
+  const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
+  const statusSlotTaken = useRef(false);
+  const statusSlotApi = useMemo(
+    () => ({
+      // 一张卡只把一个状态文字放进 head，其余仍在行内显示，避免重复「已保存」。
+      take: () => {
+        if (!statusSlot || statusSlotTaken.current) return null;
+        statusSlotTaken.current = true;
+        return statusSlot;
+      },
+    }),
+    [statusSlot],
+  );
+  if (remote && (remoteUnsupported || !remoteSettingAvailable('', settingId))) return null;
+  const card =
+    resetId ??
+    SETTINGS_RESET_CARDS.find(([page, , label]) => page === reset?.page && title === label)?.[1];
+  const canReset = card && (!remote || remoteResetCardAvailable(card));
   return (
-    <section className="weq-set-card" data-setting-id={settingId}>
-      {title || action ? (
-        <div className="weq-set-card-head">
-          {title ? (
-            <div className="weq-set-card-title">
-              {icon ? (
-                <span className="weq-set-card-icon" aria-hidden>
-                  {icon}
-                </span>
-              ) : null}
-              {title}
+    <SettingsResetCardContext.Provider value={reset && card ? reset.saves(card) : null}>
+      <section className="weq-set-card" data-setting-id={settingId}>
+        {title || action || card ? (
+          <div className="weq-set-card-head">
+            <div className="weq-set-card-heading">
+              {title ? (
+                <div className="weq-set-card-title">
+                  {icon ? (
+                    <span className="weq-set-card-icon" aria-hidden>
+                      {icon}
+                    </span>
+                  ) : null}
+                  {title}
+                </div>
+              ) : (
+                <span />
+              )}
+              {desc ? <p className="weq-set-card-desc">{desc}</p> : null}
             </div>
-          ) : (
-            <span />
-          )}
-          {action ? <div className="weq-set-card-action">{action}</div> : null}
-        </div>
-      ) : null}
-      {children}
-    </section>
+            <div className="weq-set-card-action">
+              <span className="weq-set-card-status" ref={setStatusSlot} />
+              {action}
+              {canReset ? <SettingsResetButton card={card} /> : null}
+            </div>
+          </div>
+        ) : null}
+        <SaveStatusSlotContext.Provider value={statusSlotApi}>
+          {children}
+        </SaveStatusSlotContext.Provider>
+      </section>
+    </SettingsResetCardContext.Provider>
   );
 }
 
@@ -138,13 +218,17 @@ export function Row({
   desc,
   control,
   indent,
+  remoteUnsupported = false,
 }: {
   settingId?: string;
   label: ReactNode;
   desc?: ReactNode;
   control: ReactNode;
   indent?: boolean;
-}): ReactElement {
+  remoteUnsupported?: boolean;
+}): ReactElement | null {
+  const remote = useRemoteClient();
+  if (remote && (remoteUnsupported || !remoteSettingAvailable('', settingId))) return null;
   return (
     <div className={`weq-set-row${indent ? ' is-indent' : ''}`} data-setting-id={settingId}>
       <div className="weq-set-row-main">
@@ -192,11 +276,14 @@ export function CheckPillGroup<T extends string>({
   selected,
   onChange,
   disabled = false,
+  optionDisabled,
 }: {
   options: readonly { value: T; label: ReactNode }[];
   selected: readonly T[];
   onChange: (next: T[]) => void;
   disabled?: boolean;
+  /** 单个选项不可用（例如当前范围不支持该格式），仍展示但不可勾选。 */
+  optionDisabled?: (value: T) => boolean;
 }) {
   const multi = useMultiSelection({
     ids: options.map((option) => option.value),
@@ -210,9 +297,9 @@ export function CheckPillGroup<T extends string>({
         <CheckPill
           key={option.value}
           checked={selected.includes(option.value)}
-          disabled={disabled}
+          disabled={disabled || (optionDisabled?.(option.value) ?? false)}
           onChange={() => multi.toggle(option.value)}
-          {...multi.itemProps(option.value)}
+          {...multi.itemProps(option.value, optionDisabled?.(option.value) ?? false)}
         >
           {option.label}
         </CheckPill>

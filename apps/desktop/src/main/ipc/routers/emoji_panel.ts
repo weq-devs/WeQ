@@ -17,6 +17,8 @@ import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { SendMediaUploadReport } from '@weq/protocol';
 import { elementsFromEditable } from '../serde';
 import { procedure, router } from '../trpc';
+import { recentReactions } from '../../recent_reactions';
+import { resourceSourceInput, requireResourceSource } from './resource_source';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -55,6 +57,9 @@ function recordRecentFromOutcome(
 }
 
 export const emojiPanelRouter = router({
+  recentReactions: procedure.input(resourceSourceInput).query(({ input }) => {
+    return recentReactions(requireResourceSource(input)).list();
+  }),
   /** 面板首屏：系统表情分类 + 最近使用 + 收藏 + GIF 标签，一次性并发取回。 */
   overview: procedure.query(async () => {
     const emoji = requireServices().emoji;

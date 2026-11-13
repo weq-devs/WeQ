@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import '../styles/conversation-actions.css';
 import { useRenderDocument } from '../lib/renderDocument';
+import { RemoteShellMenuItem } from './RemoteShellMenus';
 
 export function ConversationActionsMenu({
   x,
@@ -10,6 +11,8 @@ export function ConversationActionsMenu({
   onClose,
   label = '会话操作',
   portalTarget,
+  dropdown = false,
+  target,
 }: {
   x: number;
   y: number;
@@ -25,6 +28,10 @@ export function ConversationActionsMenu({
   onClose: () => void;
   label?: string;
   portalTarget?: Element | null;
+  /** 右对齐在触发器下方，短屏时滚动菜单而不覆盖标题栏。 */
+  dropdown?: boolean;
+  /** 需要明确操作对象时展示，内含按钮沿用菜单键盘导航。 */
+  target?: ReactNode;
 }) {
   const document = useRenderDocument();
   const window = document.defaultView ?? globalThis.window;
@@ -44,11 +51,12 @@ export function ConversationActionsMenu({
   useLayoutEffect(() => {
     const menu = ref.current;
     if (!menu) return;
+    if (dropdown) menu.style.maxHeight = `${Math.max(44, window.innerHeight - y - 8)}px`;
     const rect = menu.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
+    menu.style.left = `${Math.max(8, Math.min(dropdown ? x - rect.width : x, window.innerWidth - rect.width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
     menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
-  }, [x, y, window]);
+  }, [x, y, window, dropdown]);
   return (
     <OverlayLayer
       presentation="popover"
@@ -60,7 +68,7 @@ export function ConversationActionsMenu({
         ref={ref}
         role="menu"
         aria-label={label}
-        className="weq-conversation-actions-menu"
+        className={`weq-conversation-actions-menu${dropdown ? ' is-header-dropdown' : ''}`}
         style={{ left: x, top: y }}
         onContextMenu={(event) => event.preventDefault()}
         onMouseDown={(event) => event.stopPropagation()}
@@ -81,6 +89,7 @@ export function ConversationActionsMenu({
           } else if (event.key === 'Tab') onClose();
         }}
       >
+        {target ? <div className="weq-conversation-actions-target">{target}</div> : null}
         {actions.map((item) => (
           <button
             key={item.label}
@@ -98,6 +107,7 @@ export function ConversationActionsMenu({
             <span>{item.label}</span>
           </button>
         ))}
+        {dropdown && label === '会话操作' && <RemoteShellMenuItem onClose={onClose} />}
       </div>
     </OverlayLayer>
   );

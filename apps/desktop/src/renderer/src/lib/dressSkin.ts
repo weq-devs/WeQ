@@ -90,6 +90,7 @@ import {
 
 /** 与 service 的 BubbleSkin 同构(渲染侧用得到的部分)。 */
 export interface BubbleSkinCss {
+  baseImage?: string;
   itemId: number;
   slice: { left: number; top: number; right: number; bottom: number };
   imageSize: { w: number; h: number };
@@ -247,6 +248,16 @@ export function appendToSelectors(sel: string, suffix: string): string {
     .split(',')
     .map((s) => `${s.trim()}${suffix}`)
     .join(',\n');
+}
+
+/** 最小尺寸多出的空间均分到正文两侧，不改变正文内部的行对齐。 */
+export function bubbleContentAlignmentCss(sel: string): string {
+  return `${sel} { align-content: center; }
+${appendToSelectors(sel, ' > .qq-message-body')} {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+}`;
 }
 
 /**
@@ -580,6 +591,7 @@ function baseBubbleRule(skin: BubbleSkinCss, m: BubbleMetrics, sel: string): str
     `  min-width: ${m.minWidth};`,
     `  min-height: ${m.minHeight};`,
     `}`,
+    bubbleContentAlignmentCss(sel),
   ]
     .filter(Boolean)
     .join('\n');
@@ -849,7 +861,7 @@ function fontFamilyFor(itemId: number): string {
  * 动效无关。动效帧是叠在它上面的一层,不替换它(见 {@link frameOverlayUrl})。
  */
 function bubbleImageUrl(skin: BubbleSkinCss): string {
-  return dressBubbleUrl(skin.itemId);
+  return skin.baseImage ?? dressBubbleUrl(skin.itemId);
 }
 
 /** 气泡动效叠加层的全部帧 url(逐帧预加载用)。 */

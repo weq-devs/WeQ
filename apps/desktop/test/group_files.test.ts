@@ -96,7 +96,9 @@ describe('group_file_manager', () => {
     it('群文件时间明确按北京时间显示，不依赖运行机时区，坏时间不导致整页崩溃', () => {
       vi.stubEnv('TZ', 'UTC');
       try {
-        expect(formatFileTime(Date.parse('2026-10-21T00:00:00Z') / 1000)).toBe('2026-10-21 08:00');
+        expect(formatFileTime(Date.parse('2026-10-21T00:00:00Z') / 1000)).toBe(
+          '2026-10-21 08:00:00',
+        );
         expect(formatFileTime(Number.MAX_VALUE)).toBe('');
       } finally {
         vi.unstubAllEnvs();

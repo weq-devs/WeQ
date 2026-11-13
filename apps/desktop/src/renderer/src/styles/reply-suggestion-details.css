@@ -1,0 +1,107 @@
+.weq-int-round-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+  max-height: min(720px, 85dvh);
+  overflow: hidden;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+.weq-int-round-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-int-round-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.weq-int-round-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  scrollbar-width: thin;
+  scrollbar-color: var(--weq-border-strong) transparent;
+}
+.weq-int-round-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.weq-int-round-summary h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-fg-secondary);
+}
+.weq-int-round-meta {
+  margin: 16px 0;
+  display: grid;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-int-round-meta > div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+}
+.weq-int-round-meta dt {
+  color: var(--weq-fg-secondary);
+}
+.weq-int-round-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.weq-int-round-log {
+  border-top: 1px solid var(--weq-border-subtle);
+  padding-top: 12px;
+}
+.weq-int-round-log-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.weq-int-round-log-toggle svg {
+  color: var(--weq-fg-secondary);
+}
+.weq-int-round-log-toggle .is-open {
+  transform: rotate(180deg);
+}
+.weq-int-round-log-toggle:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+}
+.weq-int-round-log .weq-exp-log.is-scrollable {
+  height: min(300px, 40dvh);
+  margin-top: 8px;
+  border-radius: 4px;
+}
+.weq-int-round-log .weq-exp-log-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-int-round-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+html[data-theme='dark'] .weq-int-round-details {
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+}

@@ -16,8 +16,8 @@
   --weq-qqnt-unread-muted: #dddddd;
   --weq-qqnt-unread-muted-ink: #4a4a4a;
   --weq-qqnt-unread-ink: #ffffff;
-  --weq-qqnt-preview: #737373;
-  --weq-qqnt-time: #8c8c8c;
+  --weq-qqnt-preview: #646464;
+  --weq-qqnt-time: #646464;
   --weq-skin-radius: 4px;
   --weq-skin-input-radius: 8px;
   --weq-skin-popup-radius: 8px;
@@ -54,8 +54,8 @@ html[data-theme='dark'] [data-component-preview='qqnt'] {
   --weq-qqnt-popup-shadow: 0 4px 12px rgb(0 0 0 / 30%);
   --weq-qqnt-unread-muted: #4c4c4c;
   --weq-qqnt-unread-muted-ink: #eeeeee;
-  --weq-qqnt-preview: #808080;
-  --weq-qqnt-time: #7a7a7a;
+  --weq-qqnt-preview: #a8a8a8;
+  --weq-qqnt-time: #a8a8a8;
 }
 
 html[data-component-style='qqnt'][data-theme] {
@@ -311,7 +311,7 @@ html[data-component-style='qqnt'][data-theme] body .chat-pane {
 }
 
 html[data-component-style='qqnt'][data-theme] body .chat-title strong {
-  font-size: 16px;
+  font-size: var(--weq-mobile-header-title-size, 16px);
   line-height: 22px;
 }
 
@@ -342,6 +342,7 @@ html[data-component-style='qqnt'][data-theme]
   body
   :is(.conversation-row, .contact-row):hover:not(.active, .is-multiselected) {
   background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
+  box-shadow: var(--weq-skin-selection-shadow);
 }
 
 html[data-component-style='qqnt'][data-theme]
@@ -367,7 +368,7 @@ html[data-component-style='qqnt'][data-theme]
 
 html[data-component-style='qqnt'][data-theme] body :is(.message-name, .message-time-divider) {
   background: transparent;
-  color: var(--weq-fg-muted);
+  color: var(--weq-fg-secondary);
   font-weight: 400;
 }
 
@@ -408,35 +409,49 @@ html[data-component-style='qqnt'][data-theme]
   }
 }
 
-@media (max-width: 760px), (pointer: coarse) {
-  html[data-component-style='qqnt'][data-theme]
-    body
-    :is(.weq-web-shell .app-shell, .weq-conversation-list)
-    .conversation-row:not(.active, .is-multiselected) {
-    background: transparent;
-  }
-  html[data-component-style='qqnt'][data-theme]
-    body
-    :is(.weq-web-shell .app-shell, .weq-conversation-list)
-    .conversation-row:not(.active, .is-multiselected):hover {
-    background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
-  }
-  html[data-component-style='qqnt'][data-theme] body .chat-pane {
-    --chat-header-height: calc(52px + env(safe-area-inset-top, 0px));
-  }
-  html[data-component-style='qqnt'][data-theme] {
-    --weq-qqnt-row-avatar: 50px;
-    --weq-qqnt-row-padding: 10px 16px;
-    --weq-qqnt-row-content-height: 44px;
-    --weq-qqnt-row-title-line: 22px;
-    --weq-qqnt-row-preview-line: 18px;
-  }
-  html[data-component-style='qqnt'][data-theme][data-density='compact'] {
-    --weq-conversation-row-height: 64px;
-    --weq-qqnt-row-avatar: 36px;
-    --weq-qqnt-row-padding: 7px 12px;
-    --weq-qqnt-row-content-height: 36px;
-    --weq-qqnt-row-title-line: 18px;
-    --weq-qqnt-row-preview-line: 14px;
-  }
+html:where(
+    :is([data-weq-layout='single'], [data-weq-input='touch'])
+  )[data-component-style='qqnt'][data-theme]
+  body
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  .conversation-row:not(.active, .is-multiselected) {
+  background: transparent;
+}
+
+html:where(
+    :is([data-weq-layout='single'], [data-weq-input='touch'])
+  )[data-component-style='qqnt'][data-theme]
+  body
+  :is(.weq-web-shell .app-shell, .weq-conversation-list)
+  .conversation-row:not(.active, .is-multiselected):hover {
+  background: color-mix(in srgb, var(--weq-qqnt-selection) 60%, var(--weq-qqnt-canvas));
+}
+
+html:where(
+    :is([data-weq-layout='single'], [data-weq-input='touch'])
+  )[data-component-style='qqnt'][data-theme]
+  body
+  .chat-pane {
+  --chat-header-height: var(--weq-mobile-header-height, calc(52px + env(safe-area-inset-top, 0px)));
+}
+
+html:where(
+  :is([data-weq-layout='single'], [data-weq-input='touch'])
+)[data-component-style='qqnt'][data-theme] {
+  --weq-qqnt-row-avatar: 50px;
+  --weq-qqnt-row-padding: 10px 16px;
+  --weq-qqnt-row-content-height: 44px;
+  --weq-qqnt-row-title-line: 22px;
+  --weq-qqnt-row-preview-line: 18px;
+}
+
+html:where(
+  :is([data-weq-layout='single'], [data-weq-input='touch'])
+)[data-component-style='qqnt'][data-theme][data-density='compact'] {
+  --weq-conversation-row-height: 64px;
+  --weq-qqnt-row-avatar: 36px;
+  --weq-qqnt-row-padding: 7px 12px;
+  --weq-qqnt-row-content-height: 36px;
+  --weq-qqnt-row-title-line: 18px;
+  --weq-qqnt-row-preview-line: 14px;
 }

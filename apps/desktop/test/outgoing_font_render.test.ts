@@ -2,9 +2,10 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MessageBubble } from '../src/renderer/src/im-template/template/messageBubble';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import { MsgDecorationEnabledContext } from '../src/renderer/src/components/QqMessageContent';
 import { composerSendError } from '../src/renderer/src/im-template/template/composerSend';
+import { stubReadyDecorationResources } from './support/readyDecorationResources';
 
 const fixture = vi.hoisted(() => ({
   ids: [] as number[],
@@ -14,6 +15,7 @@ const fixture = vi.hoisted(() => ({
   scope: 'all',
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
+  const resolved = new Map<string, object>();
   const proxy = (path: string[] = []): unknown =>
     new Proxy(() => proxy(path), {
       get: (_target, key) =>
@@ -22,8 +24,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               if (path.at(-1) === 'resolveMsgDecoration') {
                 const id = input?.fontId ?? 0;
                 fixture.ids.push(id);
-                return {
-                  data: {
+                const key = JSON.stringify(input);
+                if (!resolved.has(key)) {
+                  resolved.set(key, {
                     font: id ? { itemId: id, deriveVersion: 1, fx: null } : null,
                     bubble: input?.bubbleId
                       ? {
@@ -40,8 +43,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                           url: 'https://example.test/widget.png',
                         }
                       : null,
-                  },
-                };
+                  });
+                }
+                return { data: resolved.get(key) };
               }
               return { data: undefined };
             }
@@ -69,6 +73,7 @@ vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 it('发送气泡按请求字体显示，读回可换款或清除，本地使用字体仍可覆盖', async () => {
+  stubReadyDecorationResources();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('IntersectionObserver', undefined);
   const demo = createTemplateDemoData();

@@ -1,14 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { MessageMenuFeedbackContext } from '../lib/messageMenuFeedback';
 import { Eraser, Save } from 'lucide-react';
 import { Row, Toggle } from './settings/controls';
 import '../styles/qq-write.css';
+import { useSelfProfileSave } from './SelfProfileField';
 
 export function QQWriteResult({ result }: { result: { text: string; error: boolean } | null }) {
-  return result ? (
+  const target = useContext(MessageMenuFeedbackContext);
+  const content = result ? (
     <p className="weq-qq-write-result" role={result.error ? 'alert' : 'status'}>
       {result.text}
     </p>
   ) : null;
+  return target && content ? createPortal(content, target) : content;
 }
 
 /** 行标签：图标 + 文字，与设置页其它面板的 `.weq-set-row-icon` 同一套。 */
@@ -35,6 +40,9 @@ export function QQWriteTextRow({
   autoFocus = false,
   onDirtyChange,
   onSave,
+  actionIcon,
+  placeholder,
+  clearOnSave = false,
 }: {
   label: string;
   icon?: ReactNode;
@@ -47,7 +55,11 @@ export function QQWriteTextRow({
   autoFocus?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onSave: (value: string) => Promise<boolean>;
+  actionIcon?: ReactNode;
+  placeholder?: string;
+  clearOnSave?: boolean;
 }) {
+  const saveField = useSelfProfileSave();
   const [value, setValue] = useState(initial ?? '');
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -78,6 +90,7 @@ export function QQWriteTextRow({
     'aria-label': label,
     className: 'weq-qq-write-input',
     value,
+    placeholder,
     maxLength,
     required: !allowEmpty,
     disabled: disabled || saving,
@@ -105,9 +118,12 @@ export function QQWriteTextRow({
               if (savingRef.current) return;
               savingRef.current = true;
               setSaving(true);
-              void onSave(value)
+              void saveField(() => onSave(value))
                 .then((ok) => {
-                  if (ok) setSubmitted(value);
+                  if (ok) {
+                    setSubmitted(value);
+                    if (clearOnSave) setValue('');
+                  }
                 })
                 .finally(() => {
                   savingRef.current = false;
@@ -115,7 +131,7 @@ export function QQWriteTextRow({
                 });
             }}
           >
-            {clearingUnknown ? <Eraser size={16} /> : <Save size={16} />}
+            {actionIcon ?? (clearingUnknown ? <Eraser size={16} /> : <Save size={16} />)}
           </button>
         </div>
       }
@@ -148,6 +164,7 @@ export function QQWriteSelectRow({
   renderEditor?: (value: number | null) => ReactNode;
   segmented?: boolean;
 }) {
+  const saveField = useSelfProfileSave();
   const [value, setValue] = useState(initial === null ? '' : String(initial));
   const previous = useRef(value);
   const [saving, setSaving] = useState(false);
@@ -169,7 +186,7 @@ export function QQWriteSelectRow({
       setSaving(true);
       const rollback = () =>
         setValue(latestInitial.current === null ? '' : String(latestInitial.current));
-      void onSave(Number(next))
+      void saveField(() => onSave(Number(next)))
         .then((ok) => {
           if (!ok) rollback();
         }, rollback)
@@ -234,7 +251,7 @@ export function QQWriteSelectRow({
                     if (savingRef.current) return;
                     savingRef.current = true;
                     setSaving(true);
-                    void onSave(Number(value)).finally(() => {
+                    void saveField(() => onSave(Number(value))).finally(() => {
                       savingRef.current = false;
                       setSaving(false);
                     });

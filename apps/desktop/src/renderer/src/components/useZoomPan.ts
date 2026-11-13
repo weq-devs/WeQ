@@ -33,6 +33,8 @@ export interface ZoomPan {
   /** 展开到媒体元素上的 transform / cursor 样式。 */
   style: CSSProperties;
   onMouseDown(event: React.MouseEvent): void;
+  onPointerDown(event: React.PointerEvent): void;
+  panBy(dx: number, dy: number): void;
   /**
    * 以某个坐标点为中心缩放一档（滚轮步进）。
    *
@@ -156,7 +158,67 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
       endDrag.current = () => {
         viewport.removeEventListener('mousemove', onMove);
         viewport.removeEventListener('mouseup', onUp);
+        viewport.removeEventListener('blur', cancel);
+        setDragging(false);
         endDrag.current = null;
+      };
+      const cancel = () => endDrag.current?.();
+      viewport.addEventListener('blur', cancel);
+    },
+    [clickZoom, zoomAt],
+  );
+
+  const onPointerDown = useCallback(
+    (event: React.PointerEvent) => {
+      if (event.pointerType === 'mouse') return;
+      if (endDrag.current) {
+        endDrag.current();
+        return;
+      }
+      if (!event.isPrimary || (!clickZoom && ref.current.scale <= 1)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const element = event.currentTarget as HTMLElement;
+      const viewport = element.ownerDocument.defaultView ?? window;
+      const id = event.pointerId;
+      const { clientX: x, clientY: y } = event;
+      const rect = element.getBoundingClientRect();
+      const start = ref.current;
+      let moved = false;
+      const move = (next: PointerEvent) => {
+        if (next.pointerId !== id) return;
+        const dx = next.clientX - x,
+          dy = next.clientY - y;
+        if (Math.hypot(dx, dy) > DRAG_THRESHOLD) moved = true;
+        if (moved && start.scale > 1) {
+          setDragging(true);
+          setT({ scale: start.scale, tx: start.tx + dx, ty: start.ty + dy });
+        }
+      };
+      const cancel = () => endDrag.current?.();
+      const finish = (next: PointerEvent) => {
+        if (next.pointerId !== id) return;
+        cancel();
+        if (!moved && clickZoom) zoomAt(x, y, start.scale > 1 ? 1 : CLICK_ZOOM, rect);
+      };
+      const cancelled = (next: PointerEvent) => {
+        if (next.pointerId === id) cancel();
+      };
+      viewport.addEventListener('pointermove', move);
+      viewport.addEventListener('pointerup', finish);
+      viewport.addEventListener('pointercancel', cancelled);
+      viewport.addEventListener('lostpointercapture', cancelled);
+      viewport.addEventListener('blur', cancel);
+      element.setPointerCapture?.(id);
+      endDrag.current = () => {
+        endDrag.current = null;
+        viewport.removeEventListener('pointermove', move);
+        viewport.removeEventListener('pointerup', finish);
+        viewport.removeEventListener('pointercancel', cancelled);
+        viewport.removeEventListener('lostpointercapture', cancelled);
+        viewport.removeEventListener('blur', cancel);
+        if (element.hasPointerCapture?.(id)) element.releasePointerCapture(id);
+        setDragging(false);
       };
     },
     [clickZoom, zoomAt],
@@ -183,6 +245,11 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
     setEl,
     style,
     onMouseDown,
+    onPointerDown,
+    panBy: (dx, dy) =>
+      setT((previous) =>
+        previous.scale > 1 ? { ...previous, tx: previous.tx + dx, ty: previous.ty + dy } : previous,
+      ),
     wheelAt,
     zoomed: t.scale > 1,
     scale: t.scale,

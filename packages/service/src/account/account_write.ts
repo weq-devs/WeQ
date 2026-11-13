@@ -1,4 +1,7 @@
 import type { Buddy, Category } from '@weq/db';
+import type { ContactMetricsService } from './contact_metrics';
+import { SelfProfileDisplayService } from './profile_display';
+import { ProfileInteractionWrites } from './profile_interactions';
 import {
   ClearFriendRemark,
   SetFriendRemark,
@@ -38,7 +41,7 @@ export interface AccountWriteIdentity {
   selfUid: string;
   getBuddy: (uid: string) => Promise<Buddy | null>;
   listCategories: () => Promise<Category[]>;
-  clientVersion?: () => string;
+  clientVersion?: () => string | Promise<string>;
 }
 
 export interface AccountWriteOutcome {
@@ -48,6 +51,9 @@ export interface AccountWriteOutcome {
 
 /** 编排账号操作及配套读回；不写 QQ 原库、不自动重发写请求。 */
 export class AccountWriteService {
+  contactMetrics?: ContactMetricsService;
+  private displaySettingsService?: SelfProfileDisplayService;
+  private interactionWrites?: ProfileInteractionWrites;
   constructor(
     private readonly nt: PacketNative,
     private readonly identity: AccountWriteIdentity,
@@ -56,6 +62,52 @@ export class AccountWriteService {
 
   selfIdentity(): { uin: string; uid: string } {
     return { uin: this.identity.uin, uid: this.identity.selfUid };
+  }
+  private get profileInteractions() {
+    this.interactionWrites ??= new ProfileInteractionWrites(
+      this.nt,
+      this.identity.uin,
+      this.resolvePid,
+    );
+    return this.interactionWrites;
+  }
+  signatureLike(uin: string, signature: import('@weq/protocol').SignatureTarget, liked: boolean) {
+    return this.profileInteractions.signatureLike(uin, signature, liked);
+  }
+  signatureComment(uin: string, feedId: string, text: string, replyId?: string) {
+    return this.profileInteractions.signatureComment(uin, feedId, text, replyId);
+  }
+  deleteSignatureComment(
+    uin: string,
+    signature: import('@weq/protocol').SignatureTarget,
+    commentId: string,
+  ) {
+    return this.profileInteractions.removeSignatureComment(uin, signature, commentId);
+  }
+  uploadPersonalityPhoto(
+    uin: string,
+    labelId: string,
+    source: Uint8Array,
+    batch?: { count: number; index: number; timestamp: number },
+  ) {
+    return this.profileInteractions.uploadPhoto(uin, labelId, source, batch);
+  }
+
+  private get profileDisplay() {
+    this.displaySettingsService ??= new SelfProfileDisplayService(
+      this.nt,
+      this.identity.uin,
+      this.resolvePid,
+    );
+    return this.displaySettingsService;
+  }
+
+  selfProfileDisplaySettings() {
+    return this.profileDisplay.read();
+  }
+
+  setSelfProfileDisplaySetting(field: import('@weq/protocol').ProfileDisplayField, value: number) {
+    return this.profileDisplay.set(field, value);
   }
 
   async exactProfile(kind: 'user' | 'group', target: string) {
@@ -71,8 +123,13 @@ export class AccountWriteService {
         category: group.categoryName,
       };
     }
-    const profile = await getCloudProfile(this.nt, pid, target, [105, 20002]);
+    const fetch = () => getCloudProfile(this.nt, pid, target, [105, 20002]);
+    const profile = this.contactMetrics
+      ? await this.contactMetrics.schedule(`exact-profile:${target}`, fetch)
+      : await fetch();
     this.assertCurrentPid(pid);
+    const level = profile.numbers.get(105);
+    if (level !== undefined) await this.contactMetrics?.record(`friend:${target}`, { level });
     const nick = profile.bytes.get(20002);
     return {
       kind,
@@ -83,19 +140,32 @@ export class AccountWriteService {
     };
   }
 
-  async commonRelationships(target: string) {
+  async commonRelationships(target: string, priority = 0) {
     const pid = this.resolvePid();
+    const loadGroups = async () => {
+      const version = (await this.identity.clientVersion?.()) ?? '';
+      this.assertCurrentPid(pid);
+      return getCommonGroups(this.nt, pid, this.identity.uin, target, version);
+    };
     const [friends, groups] = await Promise.allSettled([
-      getCommonFriendCount(this.nt, pid, this.identity.uin, target),
-      Promise.resolve().then(() =>
-        getCommonGroups(
-          this.nt,
-          pid,
-          this.identity.uin,
-          target,
-          this.identity.clientVersion?.() ?? '',
-        ),
-      ),
+      this.contactMetrics
+        ? this.contactMetrics.query(
+            `friend:${target}`,
+            ['commonFriends'],
+            () => getCommonFriendCount(this.nt, pid, this.identity.uin, target),
+            (value) => ({ commonFriends: value }),
+            priority,
+          )
+        : getCommonFriendCount(this.nt, pid, this.identity.uin, target),
+      this.contactMetrics
+        ? this.contactMetrics.query(
+            `friend:${target}`,
+            ['commonGroups'],
+            loadGroups,
+            (value) => ({ commonGroups: value }),
+            priority,
+          )
+        : loadGroups(),
     ]);
     this.assertCurrentPid(pid);
     return {
@@ -106,12 +176,25 @@ export class AccountWriteService {
     };
   }
 
-  async friendClue(uid: string) {
+  async friendClue(uid: string, priority = 0) {
     const pid = this.resolvePid();
     const buddy = await this.friend(uid);
     this.assertCurrentPid(pid);
     if (buddy.uid !== uid || uid === this.identity.selfUid) throw new Error('好友线索读取目标无效');
-    const result = await getFriendClue(this.nt, pid, String(buddy.uin));
+    const result = this.contactMetrics
+      ? await this.contactMetrics.query(
+          `friend:${buddy.uin}`,
+          ['addedAt', 'direction', 'source', 'sourceGroup'],
+          () => getFriendClue(this.nt, pid, String(buddy.uin)),
+          (value) => ({
+            addedAt: value.addedAt,
+            direction: value.direction,
+            source: value.source ?? '',
+            sourceGroup: value.sourceGroupCode ?? '',
+          }),
+          priority,
+        )
+      : await getFriendClue(this.nt, pid, String(buddy.uin));
     this.assertCurrentPid(pid);
     return { uid, ...result };
   }
@@ -265,16 +348,17 @@ export class AccountWriteService {
       }
       if (result.categories !== undefined) categoriesPresent = true;
       for (const row of result.categories ?? []) {
-        // 完整目录之后，QQ 的后续页可能只带默认名称占位，不能覆盖已取得的目录。
+        // 后续页的默认名称占位也可能重复人数，不能覆盖已取得的完整目录。
         if (
           page > 0 &&
           result.categories?.length === 1 &&
           row.id === null &&
           row.name === '我的好友' &&
-          row.buddyCount === null &&
           row.sortOrder === null &&
           [...categories.values()].some(
-            (entry) => entry.id === 0 || (entry.id === null && entry.buddyCount !== null),
+            (entry) =>
+              (entry.id === 0 || (entry.id === null && entry.buddyCount !== null)) &&
+              (row.buddyCount === null || row.buddyCount === entry.buddyCount),
           )
         )
           continue;
@@ -291,25 +375,31 @@ export class AccountWriteService {
       if (result.isEnd === true || !cookie?.length) {
         if (!includeDirectory) return { friends, categories: null };
         const rawCategories = [...categories.values()];
-        const local = rawCategories.some((row) => row.id === null)
-          ? await this.identity.listCategories()
-          : [];
-        this.assertCurrentPid(pid);
         const missing = rawCategories.filter((row) => row.id === null);
+        const memberCount = friends.filter((friend) => (friend.categoryId ?? 0) === 0).length;
+        const cloudConfirmed =
+          missing.length === 1 &&
+          missing[0]!.buddyCount === memberCount &&
+          friends.every(
+            (friend) =>
+              (friend.categoryId ?? 0) === 0 ||
+              rawCategories.some((entry) => entry.id === friend.categoryId),
+          );
+        const local = missing.length && !cloudConfirmed ? await this.identity.listCategories() : [];
+        this.assertCurrentPid(pid);
         const zeroSortOmitted =
           rawCategories.filter((row) => row.sortOrder === null).length === 1 &&
           !rawCategories.some((row) => row.sortOrder === 0);
         const resolved = rawCategories.map((row) => {
           const sortOrder = row.sortOrder ?? (zeroSortOmitted ? 0 : null);
           if (row.id !== null) return { ...row, sortOrder, id: row.id, idPresent: true };
-          // 只在完整名册中关联同账号本地默认组；不将任意缺失 ID 普遍补零。
+          // 零 ID 可被省略；本地唯一同名默认组或完整云端归属均可确认身份。
+          // 人数是独立的目录元数据，不能因其滞后否定已确认的本地身份。
           const candidates = local.filter((entry) => entry.id === 0 && entry.name === row.name);
-          const memberCount = friends.filter((friend) => (friend.categoryId ?? 0) === 0).length;
           if (
             missing.length !== 1 ||
             rawCategories.some((entry) => entry.id === 0) ||
-            candidates.length !== 1 ||
-            (row.buddyCount !== null && row.buddyCount !== memberCount)
+            (candidates.length !== 1 && !cloudConfirmed)
           )
             throw new Error('分组目录缺少可确认的 ID，请刷新本地联系人后重试');
           return { ...row, sortOrder, id: 0, idPresent: false };

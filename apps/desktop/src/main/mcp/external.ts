@@ -19,6 +19,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { getLogger, logErrorContext } from '@weq/service';
@@ -391,9 +392,29 @@ export class ExternalMcpHub {
 // ── app-wide singleton (one active account at a time) ──────────────────────
 
 let hubSingleton: ExternalMcpHub | null = null;
+const taskHub = new AsyncLocalStorage<ExternalMcpHub>();
+export function configureExternalMcp(raw: string | undefined): void {
+  if (!hubSingleton) hubSingleton = new ExternalMcpHub();
+  hubSingleton.configure(raw);
+}
+
+export async function withExternalMcpConfiguration<T>(
+  raw: string | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  const hub = new ExternalMcpHub();
+  hub.configure(raw);
+  try {
+    return await taskHub.run(hub, run);
+  } finally {
+    await hub.dispose();
+  }
+}
 
 /** The shared external-MCP hub, created on first use. */
 export function getExternalMcpHub(): ExternalMcpHub {
+  const current = taskHub.getStore();
+  if (current) return current;
   if (!hubSingleton) hubSingleton = new ExternalMcpHub();
   return hubSingleton;
 }

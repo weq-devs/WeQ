@@ -165,38 +165,36 @@ html[data-theme='dark'] .weq-nonmodal-layer > :first-child {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
 }
-@media (max-width: 760px) {
-  .chat-main:has(.weq-workspace-page-host:not([hidden])),
-  .chat-main:has(.weq-workspace-sidecar:not([hidden])) {
-    top: 40px;
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-    height: auto;
-  }
-  .weq-workspace-sidecar {
-    position: absolute;
-    inset: 0 0 0 auto;
-    z-index: 20;
-    width: calc(100% - 56px);
-    max-width: 480px;
-  }
-  .weq-overlay-layer.weq-nonmodal-layer,
-  .weq-dialog-layer.weq-nonmodal-layer {
-    padding: 48px 8px 68px;
-  }
-  .weq-nonmodal-layer[tabindex] > :first-child {
-    width: calc(100vw - 16px);
-    max-width: calc(100vw - 16px);
-  }
-  .weq-overlay-layer.weq-centered-panel,
-  .weq-dialog-layer.weq-centered-panel {
-    padding: 12px 8px;
-  }
-  .weq-centered-panel[tabindex] > :first-child {
-    max-height: calc(100dvh - 24px);
-  }
-  .weq-workspace-page-fallback {
-    inset: 40px 0 64px;
-  }
+:where(html[data-weq-layout='single']) .chat-main:has(.weq-workspace-page-host:not([hidden])),
+:where(html[data-weq-layout='single']) .chat-main:has(.weq-workspace-sidecar:not([hidden])) {
+  top: 40px;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  height: auto;
+}
+:where(html[data-weq-layout='single']) .weq-workspace-sidecar {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 20;
+  width: calc(100% - 56px);
+  max-width: 480px;
+}
+:where(html[data-weq-layout='single']) .weq-overlay-layer.weq-nonmodal-layer,
+:where(html[data-weq-layout='single']) .weq-dialog-layer.weq-nonmodal-layer {
+  padding: 48px 8px 68px;
+}
+:where(html[data-weq-layout='single']) .weq-nonmodal-layer[tabindex] > :first-child {
+  width: calc(100vw - 16px);
+  max-width: calc(100vw - 16px);
+}
+:where(html[data-weq-layout='single']) .weq-overlay-layer.weq-centered-panel,
+:where(html[data-weq-layout='single']) .weq-dialog-layer.weq-centered-panel {
+  padding: 12px 8px;
+}
+:where(html[data-weq-layout='single']) .weq-centered-panel[tabindex] > :first-child {
+  max-height: calc(100dvh - 24px);
+}
+:where(html[data-weq-layout='single']) .weq-workspace-page-fallback {
+  inset: 40px 0 64px;
 }
 @media (prefers-reduced-motion: reduce) {
   .weq-nonmodal-layer,

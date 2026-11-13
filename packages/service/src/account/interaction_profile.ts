@@ -10,6 +10,7 @@ import type {
   ProfileHints,
   MbtiDim,
   IntentLocalEnginePort,
+  IntentSenseResult,
 } from './intent_sense';
 import type { SuggestionMessage } from './intent_suggestion_prompt';
 import { segmentWords } from './text_segment';
@@ -25,11 +26,19 @@ const MBTI_AXIS_LABELS: Record<MbtiDim['key'], [string, string]> = {
 const RADAR_AXES = ['主动性', '回应速度', '情绪外露', '话题广度', '正式度'] as const;
 type ProfileConfig = Pick<IntentSenseConfig, Extract<keyof IntentSenseConfig, `profile${string}`>>;
 
-/** 独立画像流水线：只读取消息，不读取或改写逐条意图分析缓存。 */
+/** 独立画像流水线：本地和统计模式只读复用意图情绪，不改写逐条分析缓存。 */
 export class InteractionProfileService {
   private profileRevision = 0;
   private profileApiCooldownUntil = 0;
   private readonly inFlight = new Map<string, Promise<IntentProfile | null>>();
+  private readonly cached = new Map<string, IntentProfile | null>();
+  private readonly cacheListeners = new Set<() => void>();
+  onCacheChanged(listener: () => void) {
+    this.cacheListeners.add(listener);
+    return () => {
+      this.cacheListeners.delete(listener);
+    };
+  }
   constructor(
     private readonly readConfig: () => ProfileConfig,
     private readonly loadMessages: (
@@ -38,7 +47,10 @@ export class InteractionProfileService {
       limit: number,
     ) => Promise<SuggestionMessage[]>,
     private readonly endpoint: (ref: AgentLabModelSelection | null) => AgentLabEndpoint | null,
-    private readonly opts: { localEngine?: IntentLocalEnginePort | null },
+    private readonly opts: {
+      localEngine?: IntentLocalEnginePort | null;
+      readAnalyses: (peerUid: string, msgIds: string[]) => IntentSenseResult[];
+    },
   ) {}
   private get config() {
     return this.readConfig();
@@ -47,9 +59,22 @@ export class InteractionProfileService {
     this.profileRevision++;
     this.profileApiCooldownUntil = 0;
     this.inFlight.clear();
+    this.cached.clear();
+    for (const listener of this.cacheListeners) listener();
+  }
+  cachedSummaries() {
+    if (!this.config.profileEnabled) return [];
+    return [...this.cached].flatMap(([uid, profile]) =>
+      profile && profile.affinity !== null
+        ? [{ uid, affinity: profile.affinity, computedAt: profile.computedAt }]
+        : [],
+    );
   }
   /** 引擎侧画像提示（api：一次结构化推断；local：inferMbti）。 */
-  private async inferHints(peerTexts: string[]): Promise<ProfileHints | null> {
+  private async inferHints(
+    peerTexts: string[],
+    reused: ReadonlyMap<number, NonNullable<ProfileHints['emotions']>[number]>,
+  ): Promise<ProfileHints | null> {
     const revision = this.profileRevision;
     if (!this.config.profileEnabled) return null;
     const mode = this.config.profileEngine;
@@ -65,6 +90,7 @@ export class InteractionProfileService {
         const emotions: NonNullable<ProfileHints['emotions']> = [];
         for (const [index, text] of samples.entries()) {
           if (revision !== this.profileRevision) return null;
+          if (reused.has(index)) continue;
           const result = await port.analyze(text);
           if (result && Number.isFinite(result.sentiment) && Number.isFinite(result.intensity)) {
             emotions.push({
@@ -182,12 +208,25 @@ export class InteractionProfileService {
    * 本地统计为主、引擎提示增强；无引擎结果时全部走启发式（heuristic 标记）。
    * 当前统计范围内没有可分析的对方文本时返回 null，不用默认分数生成画像。
    */
-  getProfile(peerUid: string): Promise<IntentProfile | null> {
+  getProfile(peerUid: string, options?: { cachedOnly?: boolean }): Promise<IntentProfile | null> {
+    if (!this.config.profileEnabled) return Promise.resolve(null);
+    if (options?.cachedOnly) return Promise.resolve(this.cached.get(peerUid) ?? null);
     const existing = this.inFlight.get(peerUid);
     if (existing) return existing;
-    const task = this.computeProfile(peerUid).finally(() => {
-      if (this.inFlight.get(peerUid) === task) this.inFlight.delete(peerUid);
-    });
+    const revision = this.profileRevision;
+    const task = this.computeProfile(peerUid)
+      .then((result) => {
+        if (revision === this.profileRevision) {
+          this.cached.delete(peerUid);
+          this.cached.set(peerUid, result);
+          if (this.cached.size > 100) this.cached.delete(this.cached.keys().next().value!);
+          for (const listener of this.cacheListeners) listener();
+        }
+        return result;
+      })
+      .finally(() => {
+        if (this.inFlight.get(peerUid) === task) this.inFlight.delete(peerUid);
+      });
     this.inFlight.set(peerUid, task);
     return task;
   }
@@ -199,13 +238,46 @@ export class InteractionProfileService {
     if (revision !== this.profileRevision) throw new Error('互动画像设置已更改，请重新读取');
     if (!rows.some((row) => !row.mine && row.text)) return null;
     const samples = rows.filter((row) => !row.mine && row.text).slice(-this.config.profileSamples);
+    const reused = new Map<number, NonNullable<ProfileHints['emotions']>[number]>();
+    if (this.config.profileEngine !== 'api') {
+      const byId = new Map(
+        this.opts
+          .readAnalyses(
+            peerUid,
+            samples.map((row) => row.msgId),
+          )
+          .map((r) => [r.msgId, r]),
+      );
+      for (const [index, row] of samples.entries()) {
+        const result = byId.get(row.msgId);
+        if (
+          result &&
+          !result.mine &&
+          result.sendTime === row.sendTime &&
+          Number.isFinite(result.sentiment) &&
+          Number.isFinite(result.intensity)
+        ) {
+          reused.set(index, {
+            index,
+            sentiment: clamp(result.sentiment, -100, 100),
+            intensity: clamp(result.intensity, 0, 100),
+          });
+        }
+      }
+    }
     const hints =
       samples.length >= this.config.profileMinSamples
-        ? await this.inferHints(samples.map((row) => row.text))
+        ? await this.inferHints(
+            samples.map((row) => row.text),
+            reused,
+          )
         : null;
     if (revision !== this.profileRevision) throw new Error('互动画像设置已更改，请重新读取');
     const byMsgId = new Map(
-      (hints?.emotions ?? []).map((result) => [samples[result.index]!.msgId, result]),
+      [...reused.values(), ...(hints?.emotions ?? [])].map((result) => [
+        samples[result.index]!.msgId,
+        result,
+      ]),
     );
 
     let peerMsgs = 0;

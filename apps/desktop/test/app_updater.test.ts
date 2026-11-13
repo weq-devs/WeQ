@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({
-  app: { isPackaged: true, getVersion: () => '1.0.0' },
+  app: { isPackaged: true, getVersion: () => '1.0.0', once: vi.fn() },
   quitAndInstall: vi.fn(),
   setFeedURL: vi.fn(),
   checkForUpdates: vi.fn(),
@@ -42,6 +42,7 @@ beforeEach(() => {
   fixture.prepareMacUpdate.mockResolvedValue({ version: '1.1.0' });
   fixture.installMacUpdate.mockResolvedValue(undefined);
 });
+afterEach(() => vi.useRealTimers());
 async function ready() {
   const {
     default: { autoUpdater },
@@ -70,6 +71,112 @@ async function ready() {
 }
 
 describe('更新安装动作', () => {
+  it('持久配置控制启动和周期检查，保存 -1 后仍可手动检查', async () => {
+    vi.useFakeTimers();
+    const { updater } = await ready();
+    const { getUpdateActions } = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    vi.mocked(mirrors.resolveBestMirror).mockResolvedValue({
+      version: '1.0.0',
+      base: 'https://synthetic.invalid',
+      ranked: [],
+    });
+    let minutes = -1;
+    updater.installUpdateActions({
+      get: () => false,
+      set: () => {},
+      getInterval: () => minutes,
+      setInterval: (value) => {
+        minutes = value;
+      },
+    });
+    updater.startAutomaticUpdateChecks();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).not.toHaveBeenCalled();
+    getUpdateActions().setInterval(1);
+    expect(minutes).toBe(1);
+    expect(getUpdateActions().getInterval()).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledOnce();
+    getUpdateActions().setInterval(-1);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledOnce();
+    await getUpdateActions().check(true);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledTimes(2);
+  });
+  it('开发版不自动检查', async () => {
+    vi.useFakeTimers();
+    const { updater } = await ready();
+    fixture.app.isPackaged = false;
+    updater.startAutomaticUpdateChecks();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('自动检查失败发布结束事件且下一周期重试', async () => {
+    vi.useFakeTimers();
+    const { updater, events } = await ready();
+    const { getUpdateActions } = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    vi.mocked(mirrors.resolveBestMirror).mockRejectedValue(new Error('离线'));
+    updater.installUpdateActions();
+    getUpdateActions().setInterval(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(events).toContainEqual({ kind: 'check-failed' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledTimes(2);
+    getUpdateActions().setInterval(-1);
+  });
+  it('测试版选择传入真实检查与下载，切换后旧结果失效且不允许降级', async () => {
+    const { updater, autoUpdater } = await ready();
+    const state = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    let enabled = false;
+    updater.installUpdateActions({
+      get: () => enabled,
+      set: (value) => {
+        enabled = value;
+      },
+    });
+    updater.setCheckPrerelease(true);
+    expect(enabled).toBe(true);
+    expect(state.getUpdateState()).toBeNull();
+    vi.mocked(mirrors.resolveBestMirror).mockResolvedValue({
+      version: '1.1.0-beta.2',
+      base: 'https://synthetic.invalid',
+      ranked: ['https://synthetic.invalid'],
+      channel: 'beta',
+    });
+    expect(await updater.checkForUpdate(true)).toMatchObject({
+      includePrerelease: true,
+      hasUpdate: true,
+    });
+    expect(mirrors.resolveBestMirror).toHaveBeenCalledWith(undefined, true);
+    await updater.startDownload();
+    expect(autoUpdater.allowPrerelease).toBe(true);
+    expect(autoUpdater.channel).toBe('beta');
+    expect(autoUpdater.allowDowngrade).toBe(false);
+    updater.setCheckPrerelease(false);
+    expect(() => updater.quitAndInstall()).toThrow('下载');
+  });
+
+  it('切换开关后拒绝旧的在途检查结果', async () => {
+    const { updater } = await ready();
+    const state = await import('../src/main/update/state');
+    const mirrors = await import('../src/main/update/mirrors');
+    let complete:
+      | ((value: { version: string; base: string; ranked: string[] }) => void)
+      | undefined;
+    vi.mocked(mirrors.resolveBestMirror).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const checking = updater.checkForUpdate(true);
+    updater.setCheckPrerelease(true);
+    complete?.({ version: '1.1.0', base: 'https://synthetic.invalid', ranked: [] });
+    await expect(checking).rejects.toThrow('选项已改变');
+    expect(state.getUpdateState()).toBeNull();
+  });
   it('Mac 统一使用官方校验安装链，校验完成后才允许安装', async () => {
     fixture.macVerifiedArchive = true;
     const { updater, events } = await ready();
@@ -85,6 +192,7 @@ describe('更新安装动作', () => {
       expect(fixture.prepareMacUpdate).toHaveBeenCalledWith(
         '/synthetic/weQ-1.1.0-mac-arm64.zip',
         '1.1.0',
+        false,
       ),
     );
     expect(events).not.toContainEqual({ kind: 'downloaded', latest: '1.1.0' });
@@ -163,5 +271,49 @@ describe('更新安装动作', () => {
     expect(fixture.quitAndInstall).toHaveBeenCalledTimes(2);
     fixture.app.isPackaged = false;
     expect(() => updater.quitAndInstall()).toThrow('开发模式');
+  });
+});
+
+describe('AUR 托管的副本', () => {
+  it('拒绝应用内下载，直接给出包管理器指引', async () => {
+    const { updater, events } = await ready();
+    const previous = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    process.env.WEQ_PACKAGE_MANAGED = '1';
+    try {
+      // 拒绝发生在 try 之外：不广播 error 事件（界面在点按钮时就能拿到原因），
+      // 也不该在全部镜像上失败一遍。
+      await expect(updater.startDownload()).rejects.toThrow('paru -Syu');
+      expect(fixture.downloadUpdate).not.toHaveBeenCalled();
+      expect(events).toHaveLength(0);
+      expect(() => updater.quitAndInstall()).toThrow('paru -Syu');
+      expect(fixture.quitAndInstall).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.WEQ_PACKAGE_MANAGED;
+      Object.defineProperty(process, 'platform', { value: previous, configurable: true });
+    }
+  });
+
+  it('检查结果带上托管标记，界面据此切换按钮', async () => {
+    const previous = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    try {
+      const { updater } = await ready();
+      const state = await import('../src/main/update/state');
+      const mirrors = await import('../src/main/update/mirrors');
+      vi.mocked(mirrors.resolveBestMirror).mockResolvedValue({
+        version: '1.1.0',
+        base: 'https://synthetic.invalid',
+        ranked: ['https://synthetic.invalid'],
+      });
+      process.env.WEQ_PACKAGE_MANAGED = '1';
+      expect((await updater.checkForUpdate(true)).managed).toBe(true);
+      delete process.env.WEQ_PACKAGE_MANAGED;
+      expect((await updater.checkForUpdate(true)).managed).toBe(false);
+      expect(state.getUpdateState()?.managed).toBe(false);
+    } finally {
+      delete process.env.WEQ_PACKAGE_MANAGED;
+      Object.defineProperty(process, 'platform', { value: previous, configurable: true });
+    }
   });
 });

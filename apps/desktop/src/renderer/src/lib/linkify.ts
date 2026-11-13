@@ -14,34 +14,20 @@
  *     `shell.openExternal` 并 deny 掉窗口，所以应用内不会有任何远程页面被加载。
  */
 
-/**
- * 链接匹配。刻意不追求 RFC 完备，只认聊天里真正会出现的两种写法：带 scheme 的
- * http(s)，以及裸 `www.` 开头的域名。写成无回溯的字符类扫描（避免 catastrophic
- * backtracking——这条正则要跑在每一条消息上）。
- */
-const LINK_RE = /(?:https?:\/\/|www\.)[^\s<>"'“”，。！？；：、）】》]+/gi;
+import { LinkifyIt } from 'linkify-it';
 
-/** 结尾的成对标点通常是句子的一部分而非 URL 的（`(见 https://a.com/x)`）。 */
-function trimTrailing(raw: string): string {
-  let out = raw;
-  while (out.length > 0) {
-    const last = out[out.length - 1]!;
-    if ('.,;:!?)]}\'"'.includes(last)) {
-      // 括号只在没有配对的开括号时才剥掉（维基链接常自带括号）。
-      if (last === ')' && (out.match(/\(/g)?.length ?? 0) >= (out.match(/\)/g)?.length ?? 0)) break;
-      out = out.slice(0, -1);
-      continue;
-    }
-    break;
-  }
-  return out;
-}
+// 邮件也交给解析器消费，但不生成链接，避免把邮箱的域名截成独立网址。
+const linkify = new LinkifyIt({ fuzzyLink: true, fuzzyIP: false, fuzzyEmail: true }).add(
+  'ftp:',
+  null,
+);
+const DOCUMENT_NAME = /^(?:readme|changelog|contributing|license|agents)\.(?:md|rst|txt)$/i;
 
 export interface LinkPart {
   kind: 'text' | 'link';
   /** 原文（链接片段保留用户写的原样，用于显示）。 */
   text: string;
-  /** 链接片段的规范化地址（裸 www. 补上 https://）；文字片段为空串。 */
+  /** 链接片段的规范化地址（裸域名补上 https://）；文字片段为空串。 */
   href: string;
 }
 
@@ -49,19 +35,14 @@ export interface LinkPart {
 export function splitLinks(text: string): LinkPart[] {
   const parts: LinkPart[] = [];
   let cursor = 0;
-  LINK_RE.lastIndex = 0;
-  let m = LINK_RE.exec(text);
-  while (m) {
-    const raw = trimTrailing(m[0]);
-    if (raw.length >= 8) {
-      const start = m.index;
-      if (start > cursor) parts.push({ kind: 'text', text: text.slice(cursor, start), href: '' });
-      const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-      parts.push({ kind: 'link', text: raw, href });
-      cursor = start + raw.length;
-    }
-    LINK_RE.lastIndex = m.index + m[0].length;
-    m = LINK_RE.exec(text);
+  for (const match of linkify.match(text) ?? []) {
+    if (match.schema && match.schema !== 'http:' && match.schema !== 'https:') continue;
+    if (!match.schema && DOCUMENT_NAME.test(match.raw)) continue;
+    if (match.index > cursor)
+      parts.push({ kind: 'text', text: text.slice(cursor, match.index), href: '' });
+    const href = match.schema ? match.raw : `https://${match.raw}`;
+    parts.push({ kind: 'link', text: match.raw, href });
+    cursor = match.lastIndex;
   }
   if (cursor < text.length) parts.push({ kind: 'text', text: text.slice(cursor), href: '' });
   return parts;

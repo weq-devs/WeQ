@@ -24,6 +24,48 @@ const detail = (content: string, contentHasMore: boolean | null) => ({
 });
 
 describe('visible Qzone body continuation', () => {
+  it('补全同一原帖时更新时间，后续缺失字段不擦除已读时间', async () => {
+    const post = source();
+    post.repost = {
+      tid: 'original',
+      uin: '10002',
+      nickname: '原作者',
+      content: '原文',
+      images: [],
+      videos: [],
+    };
+    const first = await completeQzonePostText(
+      post,
+      async () => ({
+        ...detail('正文', false),
+        repost: { ...post.repost!, timeLabel: '2026年11月04日' },
+      }),
+      () => {},
+      () => true,
+    );
+    const next = await completeQzonePostText(
+      first.post,
+      async () => ({ ...detail('正文', false), repost: post.repost! }),
+      () => {},
+      () => true,
+    );
+    expect(next.post.repost?.timeLabel).toBe('2026年11月04日');
+  });
+  it('原生正文补充直接更新原帖，不清除尚未确认的截断状态或重复拉取', async () => {
+    const read = vi.fn(async () => ({
+      ...detail('原生补充正文', null),
+      contentSource: 'native' as const,
+    }));
+    const result = await completeQzonePostText(
+      source(),
+      read,
+      () => {},
+      () => true,
+    );
+    expect(result.post).toMatchObject({ content: '原生补充正文', contentTruncated: true });
+    expect(result.issue).toContain('完整性');
+    expect(read).toHaveBeenCalledOnce();
+  });
   it('places borrowed original media completion in the repost scope', () => {
     const post = source();
     post.images = ['same'];
@@ -54,7 +96,7 @@ describe('visible Qzone body continuation', () => {
     post.images = [];
     expect(qzoneImageCompletionScope(post)).toBe('post');
   });
-  it.each([null, false])('stops without a warning when more=%s', async (more) => {
+  it.each([null, false])('未知正文标记保留未确认、明确完成才清除截断：%s', async (more) => {
     const read = vi.fn(async () => detail('full body', more));
     const result = await completeQzonePostText(
       source(),
@@ -64,8 +106,8 @@ describe('visible Qzone body continuation', () => {
     );
     expect(read).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
-      post: { content: 'full body', contentTruncated: false },
-      issue: null,
+      post: { content: 'full body', contentTruncated: more === null },
+      issue: more === null ? '正文完整性尚未确认' : null,
     });
   });
   it('automatically continues only on explicit more, replacing whole bodies in place', async () => {
@@ -83,7 +125,7 @@ describe('visible Qzone body continuation', () => {
     expect(progress.mock.calls.map(([post]) => post.content)).toEqual(['ab', 'abc']);
     expect(original.content).toBe('a');
   });
-  it('also stops quietly when a continuing response omits its flag', async () => {
+  it('后续响应缺失完整性标记时停止循环，但保留未确认状态', async () => {
     const read = vi
       .fn()
       .mockResolvedValueOnce(detail('ab', true))
@@ -95,8 +137,36 @@ describe('visible Qzone body continuation', () => {
         () => {},
         () => true,
       ),
-    ).toMatchObject({ issue: null });
+    ).toMatchObject({ post: { contentTruncated: true }, issue: '正文完整性尚未确认' });
     expect(read).toHaveBeenCalledTimes(2);
+  });
+  it('原帖已完整而转发原文状态未知时，不误清原文截断状态', async () => {
+    const post = source();
+    post.contentTruncated = false;
+    const original = {
+      tid: 'original',
+      uin: '10002',
+      nickname: '原作者',
+      content: '原文',
+      images: [],
+      videos: [],
+      contentTruncated: true,
+    };
+    post.repost = original;
+    const read = vi.fn(async () => ({
+      ...detail('完整正文', false),
+      repost: { ...original, content: '原文补充' },
+      repostHasMore: null,
+    }));
+    const result = await completeQzonePostText(
+      post,
+      read,
+      () => {},
+      () => true,
+    );
+    expect(result.post.repost).toMatchObject({ content: '原文补充', contentTruncated: true });
+    expect(result.issue).toBe('正文完整性尚未确认');
+    expect(read).toHaveBeenCalledOnce();
   });
   it('stops repeated and cycling bodies without discarding the longest observed text', async () => {
     const read = vi

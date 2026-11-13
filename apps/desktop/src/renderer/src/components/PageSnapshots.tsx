@@ -13,7 +13,7 @@ import {
 } from 'react';
 import type { z } from 'zod';
 import superjson from 'superjson';
-import { pageSnapshots } from '../lib/pageSnapshots';
+import { belongsToScope, pageSnapshots } from '../lib/pageSnapshots';
 import { PageDataCache } from '../lib/pageDataCache';
 import { useToast } from './Toast';
 
@@ -41,6 +41,30 @@ export function usePageDataCache() {
 export function usePageSnapshotKey(name: string): string | null {
   const scope = useContext(SnapshotContext);
   return scope ? JSON.stringify([scope.key, name]) : null;
+}
+
+/** 明确关闭页面时检查并清除本页及嵌套页现场，不影响其它工作区。 */
+export function usePageSnapshotReset(name: string, child?: string) {
+  const context = useContext(SnapshotContext);
+  return useMemo(() => {
+    const parent = context ? JSON.stringify([context.key, name]) : null;
+    const scope = parent && child ? JSON.stringify([parent, child]) : parent;
+    return {
+      hasDrafts: () =>
+        Boolean(
+          context &&
+            scope &&
+            (pageSnapshots.hasDrafts(scope) ||
+              [...context.fallback.keys()].some((key) => belongsToScope(key, scope))),
+        ),
+      reset: () => {
+        if (!context || !scope) return;
+        pageSnapshots.resetScope(scope, true);
+        for (const key of context.fallback.keys())
+          if (belongsToScope(key, scope)) context.fallback.delete(key);
+      },
+    };
+  }, [context, name, child]);
 }
 
 export function PageSnapshots({
@@ -104,17 +128,28 @@ export function usePageDraftConfirmation(name: string, value: unknown) {
   const key = usePageSnapshotKey(name);
   const fallback = useContext(SnapshotContext)?.fallback;
   const encoded = value === undefined ? undefined : superjson.stringify(value);
+  const confirm = useCallback(
+    (confirmedValue: unknown) => {
+      if (!key) return;
+      try {
+        pageSnapshots.confirm(key, confirmedValue);
+        if (
+          fallback?.has(key) &&
+          superjson.stringify(fallback.get(key)) === superjson.stringify(confirmedValue)
+        )
+          fallback.delete(key);
+      } catch {
+        /* 读回不覆盖损坏原件，也不丢弃尚未确认的输入。 */
+      }
+    },
+    [key, fallback],
+  );
   // 其它 effect 也可能刚把输入与服务端对齐，因此每次提交后都复核一次。
   useEffect(() => {
-    if (!key || encoded === undefined) return;
-    try {
-      pageSnapshots.confirm(key, superjson.parse<unknown>(encoded));
-      if (fallback?.has(key) && superjson.stringify(fallback.get(key)) === encoded)
-        fallback.delete(key);
-    } catch {
-      /* 读回不覆盖损坏原件，也不丢弃尚未确认的输入。 */
-    }
+    if (encoded !== undefined) confirm(superjson.parse<unknown>(encoded));
   });
+  // 请求可能晚于原页面卸载；闭包仍只确认捕获的作用域和完全相同的正文。
+  return confirm;
 }
 
 export function usePageState<T>(

@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useMsgDecoration } from '../src/renderer/src/hooks/useMsgDecoration';
+import { stubReadyDecorationResources } from './support/readyDecorationResources';
 
 const fixture = vi.hoisted(() => ({
   bubble: {
@@ -38,6 +39,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 it('补齐字体和挂件、乐观消息被回读替换时，同款气泡和字体不闪回默认或重建样式', async () => {
+  stubReadyDecorationResources();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   const root = createRoot(host);

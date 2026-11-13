@@ -1,0 +1,369 @@
+/**
+ * 群资料（快速名片 + 完整资料页）的样式。
+ *
+ * 容器、行模型、目录、章节标题全部来自共用来源：
+ * - 名片外壳：`.weq-member-pop`（index.css）+ `.weq-contact-card`（contact-card.css）
+ * - 资料页布局：`ProfileWorkspace` + `profile-workspace.css`
+ * - 数据行：`ContactRow` → `.weq-profile-data-*`（profile-workspace.css）
+ * 这里只写「群」特有的部分：身份区排版、群标签、成员预览、简介折叠、页头与页内操作行。
+ * 不要再定义第二套卡片底、第二套行、第二套目录。
+ */
+
+/* ---------- 快速名片：容器差异只限宽度与身份区排版 ---------- */
+
+.weq-group-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(390px, calc(100vw - 20px));
+  max-height: calc(100dvh - 20px);
+  overflow: auto;
+}
+
+/* 身份区：头像 + 标题块横排；标题块左对齐，长名称自然换行。 */
+.weq-group-card .weq-profile-hero {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  text-align: start;
+}
+
+.weq-group-card .weq-profile-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+.weq-group-card .weq-profile-name,
+.weq-group-page .weq-profile-name {
+  max-width: 100%;
+  color: var(--weq-fg-primary);
+  font-size: 17px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+/* 点名字进完整资料：与联系人名片同名按钮同一套 hover/focus 语言。 */
+.weq-group-name-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+  text-align: start;
+  cursor: pointer;
+  user-select: text;
+}
+
+.weq-group-name-link:hover {
+  color: var(--weq-accent-effective);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.weq-group-name-link:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.weq-group-card .weq-profile-avatar {
+  flex: 0 0 64px;
+}
+
+.weq-group-identity {
+  position: relative;
+  min-width: 0;
+}
+
+.weq-group-count,
+.weq-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.weq-group-abnormal {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-group-abnormal::before {
+  content: '·';
+  margin-inline-end: 6px;
+}
+
+/* ---------- 名片内容：简介 / 标签 / 事实行 / 成员预览 ---------- */
+
+.weq-group-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.weq-group-description {
+  max-width: 72ch;
+}
+
+.weq-group-description p {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* 截断按高度而不是 line-clamp：与联系人名片一致，避免「…」和「展开」同时出现。 */
+.weq-group-description .is-clamped {
+  display: block;
+  max-height: calc(3 * 1.6em);
+  overflow: hidden;
+}
+
+/* 文字动作（展开/收起、预览消息、完整群资料）：与联系人正文动作同一字号与热区。 */
+.weq-group-text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-group-text-action:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.weq-group-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weq-group-tags .weq-profile-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.weq-group-facts {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-group-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-group-preview-avatars {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  /* 宽屏资料页内容区很宽，头像不该跟着放大成巨型圆；上限 52px。 */
+  max-width: 464px;
+}
+
+.weq-group-preview-avatars > button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-group-preview-avatars > button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-group-preview-avatars > button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-group-preview-avatars .avatar {
+  width: 100%;
+  height: 100%;
+}
+
+.weq-group-preview-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
+.weq-group-preview-state button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ---------- 操作行：唯一主操作，其余为文字动作 ---------- */
+
+.weq-group-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+/* 主操作/次操作按钮的视觉全部来自 .weq-contact-primary / .weq-contact-secondary（contact-card.css），
+   这里只纠正群名字片的宽度继承，别覆盖它们的圆角、内距与颜色。 */
+.weq-group-card-actions .weq-profile-perhome {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.weq-group-card button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+/* ---------- 完整资料页 ---------- */
+
+.weq-member-pop.weq-group-page,
+.weq-profile-dialog.weq-group-page,
+html[data-theme='dark'] .weq-member-pop.weq-group-page,
+html[data-theme='dark'] .weq-profile-dialog.weq-group-page {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--weq-bg-surface);
+  box-shadow: none;
+  color: var(--weq-fg-primary);
+  overflow: hidden;
+}
+
+.weq-group-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* 页头（工具条 + 身份区）由 ProfilePageHeader 统一渲染，群侧不再自定义包装。 */
+.weq-group-page .weq-profile-hero {
+  margin: 0;
+}
+
+.weq-group-page .weq-profile-workspace {
+  flex: 1 1 auto;
+}
+
+/* 详细资料：简介 + 标签 + 数据行 + 标签来源，间距交给共用行模型。 */
+.weq-group-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weq-group-details-rows,
+.weq-group-label-sources,
+.weq-group-extras-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-group-label-sources {
+  margin-top: 4px;
+}
+
+/* 成员章节复用聊天侧栏的成员面板：页内应贴在页面上，不再自带卡片边框与阴影。 */
+.weq-group-page .member-list-section,
+.weq-group-page .group-info-panel,
+.weq-group-page .weq-group-profile-details {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 页内嵌的文件管理器：搜索框在窄屏独立成行，状态行允许换行。 */
+.weq-group-page .group-file-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weq-group-page .group-file-toolbar > .weq-file-manager-search,
+.weq-group-page .group-file-toolbar .weq-set-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.weq-group-page .weq-file-manager-status {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+@media (max-width: 720px) {
+  /* 窄屏八位头像改两行四位，保证每个可点热区 ≥44px。 */
+  .weq-group-preview-avatars {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    max-width: 288px;
+  }
+
+  .weq-group-preview-avatars > button {
+    min-height: 44px;
+  }
+}
+
+@media (pointer: coarse) {
+  .weq-group-preview-avatars > button,
+  .weq-group-text-action {
+    min-height: 44px;
+  }
+}
+
+html[data-theme='dark'] .weq-group-card {
+  color: var(--weq-fg-primary);
+}

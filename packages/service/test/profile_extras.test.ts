@@ -1,0 +1,240 @@
+import { expect, it, vi } from 'vitest';
+import {
+  getProfileEnergy,
+  getSignatureHistory,
+  getPersonalityLabels,
+  getPersonalityPhotos,
+  getAnonymousQuestions,
+  getEducationHistory,
+} from '@weq/protocol';
+import { ProfileExtrasService } from '../src/account/profile_extras';
+import { ContactMetricsService } from '../src/account/contact_metrics';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+it('能量和可见学校投影到同一目录缓存，失败保留旧值，隐藏经历不外露', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-extras-directory-'));
+  const metrics = new ContactMetricsService(join(root, 'metrics.json'), () => true, {
+    interval: 0,
+    concurrency: 2,
+  });
+  const energy = vi.fn(async () => ({
+    targetUin: '10002',
+    score: 0,
+    level: null,
+    display: null,
+    trend: null,
+  }));
+  const record = (schoolName: string, hidden: number) => ({
+    index: null,
+    category: null,
+    schoolId: null,
+    schoolName,
+    departmentId: null,
+    departmentName: null,
+    degree: null,
+    enrollmentYear: null,
+    graduationYear: null,
+    allowRecommend: null,
+    createSource: null,
+    createdAt: null,
+    updateSource: null,
+    updatedAt: null,
+    hidden,
+    verifyStatus: null,
+    verifyType: null,
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getProfileEnergy: energy,
+    getEducationHistory: async (_nt, _pid, targetUin) => ({
+      targetUin,
+      items: [record(' 厦门大学 ', 0), record('厦门大学', 0), record('隐藏学校', 1)],
+    }),
+  });
+  service.contactMetrics = metrics;
+  try {
+    await service.energy('10002');
+    await service.educationHistory('10002');
+    expect((await metrics.row('friend:10002')).energy?.value).toBe(0);
+    expect((await metrics.row('friend:10002')).schools?.value).toEqual(['厦门大学']);
+    await service.educationHistory('10001');
+    expect((await metrics.row('friend:10001')).schools?.value).toEqual(['厦门大学', '隐藏学校']);
+    energy.mockRejectedValueOnce(new Error('offline'));
+    await expect(service.energy('10002')).rejects.toThrow('offline');
+    expect((await metrics.row('friend:10002')).energy).toMatchObject({ value: 0, state: 'failed' });
+  } finally {
+    await metrics.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const readers = {
+  getProfileEnergy,
+  getSignatureHistory,
+  getPersonalityLabels,
+  getPersonalityPhotos,
+  getAnonymousQuestions,
+  getEducationHistory,
+};
+const nt = { sendPacket: vi.fn() };
+it('同一目标和游标共享在途查询，不对不同目标复用结果', async () => {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const read = vi.fn(async (_nt, _pid, uin: string) => {
+    await wait;
+    return { targetUin: uin, score: 0, level: null, display: null, trend: null };
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getProfileEnergy: read,
+  });
+  const a = service.energy('10002');
+  const b = service.energy('10002');
+  const c = service.energy('10003');
+  expect(read).toHaveBeenCalledTimes(2);
+  release();
+  expect((await a).targetUin).toBe('10002');
+  expect(await b).toEqual(await a);
+  expect((await c).targetUin).toBe('10003');
+});
+it('进程变更后丢弃迟到结果', async () => {
+  let pid = 5;
+  const service = new ProfileExtrasService(nt, '10001', () => pid, {
+    ...readers,
+    getProfileEnergy: async () => {
+      pid = 6;
+      return { targetUin: '10002', score: 1, level: null, display: null, trend: null };
+    },
+  });
+  await expect(service.energy('10002')).rejects.toThrow('切换');
+});
+it('切账号抛错不会返回旧账号数据', async () => {
+  let current = true;
+  const service = new ProfileExtrasService(
+    nt,
+    '10001',
+    () => {
+      if (!current) throw new Error('账号已切换');
+      return 5;
+    },
+    {
+      ...readers,
+      getProfileEnergy: async () => {
+        current = false;
+        return { targetUin: '10002', score: 1, level: null, display: null, trend: null };
+      },
+    },
+  );
+  await expect(service.energy('10002')).rejects.toThrow('切换');
+});
+it('他人强制已回答，自己的筛选保持不变', async () => {
+  const read = vi.fn(async (_nt, _pid, uin: string) => ({
+    targetUin: uin,
+    items: [],
+    nextCursor: null,
+    hasMore: false,
+    paginationError: null,
+  }));
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getAnonymousQuestions: read,
+  });
+  await service.anonymousQuestions('10002', 'all', 'cursor');
+  expect(read).toHaveBeenLastCalledWith(nt, 5, '10002', 'answered', 'cursor');
+  await service.anonymousQuestions('10001', 'all');
+  expect(read).toHaveBeenLastCalledWith(nt, 5, '10001', 'all', undefined);
+});
+it('一项读取失败不影响另一项；失败可以重试', async () => {
+  const read = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('离线'))
+    .mockResolvedValue({ targetUin: '10002', score: 2, level: null, display: null, trend: null });
+  const labels = vi.fn(async () => ({
+    targetUin: '10002',
+    labels: [],
+    totalPhotos: 0,
+    closed: false,
+  }));
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getProfileEnergy: read,
+    getPersonalityLabels: labels,
+  });
+  await expect(service.energy('10002')).rejects.toThrow('离线');
+  expect(await service.personalityLabels('10002')).toMatchObject({ labels: [] });
+  expect((await service.energy('10002')).score).toBe(2);
+});
+it('教育经历按目标合并在途读取，失败可重试，不丢弃返回的整份列表', async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const read = vi.fn(async (_nt, _pid, targetUin: string) => {
+    await pending;
+    return { targetUin, items: [] };
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getEducationHistory: read,
+  });
+  const a = service.educationHistory('10002');
+  const b = service.educationHistory('10002');
+  const c = service.educationHistory('10003');
+  expect(read).toHaveBeenCalledTimes(2);
+  release();
+  expect(await a).toEqual(await b);
+  expect((await c).targetUin).toBe('10003');
+  read.mockRejectedValueOnce(new Error('合成失败'));
+  await expect(service.educationHistory('10002')).rejects.toThrow('合成失败');
+  expect((await service.educationHistory('10002')).items).toEqual([]);
+});
+it('教育经历读取期间进程改变，拒绝旧结果', async () => {
+  let pid = 5;
+  const service = new ProfileExtrasService(nt, '10001', () => pid, {
+    ...readers,
+    getEducationHistory: async (_nt, _pid, targetUin) => {
+      pid = 6;
+      return { targetUin, items: [] };
+    },
+  });
+  await expect(service.educationHistory('10002')).rejects.toThrow('切换');
+});
+it('详细资料按目标共享在途查询，失败重试不干扰其他资料', async () => {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const read = vi.fn(async (_nt, _pid, targetUin: string) => {
+    await wait;
+    return { targetUin, company: '', personalDescription: null, email: null, errors: {} };
+  });
+  const service = new ProfileExtrasService(nt, '10001', () => 5, {
+    ...readers,
+    getProfileDetails: read,
+  });
+  const a = service.details('10002');
+  const b = service.details('10002');
+  const c = service.details('10003');
+  expect(read).toHaveBeenCalledTimes(2);
+  release();
+  expect(await a).toEqual(await b);
+  expect((await c).targetUin).toBe('10003');
+  read.mockRejectedValueOnce(new Error('合成失败'));
+  await expect(service.details('10002')).rejects.toThrow('合成失败');
+  expect((await service.details('10002')).company).toBe('');
+});
+it('详细资料返回前切换账号或 QQ 进程会丢弃结果', async () => {
+  let pid = 5;
+  const service = new ProfileExtrasService(nt, '10001', () => pid, {
+    ...readers,
+    getProfileDetails: async (_nt, _pid, targetUin) => {
+      pid = 6;
+      return { targetUin, company: '旧公司', personalDescription: null, email: null, errors: {} };
+    },
+  });
+  await expect(service.details('10002')).rejects.toThrow('切换');
+});

@@ -33,7 +33,12 @@ import { decode, encode, type ProtoMessage } from '../protobuf';
 import { sendPacket, type TrpcNative } from '../transport';
 import { invokeTrpc, type TrpcSpec } from '../oidb/invoke';
 import { toInt } from '../oidb/shared';
-import { encodeDatalineText, type SendDatalineTarget } from './dataline';
+import {
+  encodeDatalineText,
+  encodeDatalineFile,
+  type SendDatalineTarget,
+  type DatalineFileNotify,
+} from './dataline';
 import {
   SEND_MESSAGE_REQUEST,
   SEND_MESSAGE_REQUEST_TEMP,
@@ -69,6 +74,8 @@ export interface SendMessageParams {
   groupTemp?: SendGroupTempTarget;
   /** 我的设备：本人 QQ 号 + 设备伪 UID，不能走普通 c2c 路由。 */
   dataline?: SendDatalineTarget;
+  /** 专用文件上传完成后的设备通知，不与正文元素混发。 */
+  datalineFile?: DatalineFileNotify;
   /** 消息内容（至少一个元素）。 */
   elements: SendElement[];
   /** 客户端随机数（去重 / 回执用）；缺省随机生成。 */
@@ -195,6 +202,7 @@ interface RoutingPlan {
 
 /** 校验唯一目标并给出 routingHead / contentHead。 */
 function resolveRouting(params: SendMessageParams): RoutingPlan {
+  if (params.datalineFile && !params.dataline) throw new Error('设备文件通知需要设备目标');
   const targets = [params.groupId, params.userUin, params.groupTemp, params.dataline].filter(
     (t) => t !== undefined,
   );
@@ -203,6 +211,30 @@ function resolveRouting(params: SendMessageParams): RoutingPlan {
   }
 
   if (params.dataline) {
+    if (params.datalineFile) {
+      if (params.elements.length) throw new Error('设备文件通知不能与正文元素混发');
+      return {
+        scene: 'c2c',
+        routingHead: {
+          trans0x211: {
+            ccCmd: 7,
+            uid: params.dataline.selfUid,
+            devices: {
+              destination: {
+                appId: params.dataline.terminalType === 1 ? 1 : 1001,
+                instanceId: 0,
+                terminalType: params.dataline.terminalType,
+              },
+              source: { appId: 1, instanceId: 1, terminalType: 1 },
+            },
+          },
+        },
+        contentHead: { type: 1, subType: 0, c2cCmd: 0 },
+        requestSchema: SEND_MESSAGE_REQUEST_TEMP,
+        timestampField: null,
+        msgContent: encodeDatalineFile(params.dataline, params.datalineFile),
+      };
+    }
     if (params.elements.some((element) => element.kind !== 'text'))
       throw new Error('设备会话目前仅支持文本消息');
     const text = params.elements
@@ -317,11 +349,11 @@ function assembleRequest(
   if (!Number.isSafeInteger(random) || random < 0) {
     throw new Error(`random 非法: ${String(params.random)}`);
   }
-  // 私聊与群临时会话（= 带时间戳的那两种场景）用自增序号，群聊固定 0。
+  // 私聊、群临时及设备消息用自增序号；设备文件虽不带 ctrl，也不能退成群聊的 0。
   const clientSequence =
     params.clientSequence !== undefined
       ? params.clientSequence
-      : plan.timestampField !== null
+      : plan.scene !== 'group'
         ? nextClientSequence()
         : 0;
   if (!Number.isSafeInteger(clientSequence) || clientSequence < 0) {

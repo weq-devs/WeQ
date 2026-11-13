@@ -16,6 +16,7 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentLabModels, AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
+import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
 import { ArrowLeft, Check, Search, Sparkles, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { qqAvatarUrl } from '../../components/QqAvatar';
@@ -93,7 +94,7 @@ export function NewCloneModal({
   const [chatSel, setChatSel] = useState<AgentLabModelSelection | null>({ useDefault: true });
   const [embSel, setEmbSel] = useState<AgentLabModelSelection | null>(null);
   const [analyzeStickers, setAnalyzeStickers] = useState(false);
-  const [visSel, setVisSel] = useState<AgentLabModelSelection | null>(null);
+  const [visSel, setVisSel] = useState<AgentLabModelSelection | null>({ useDefault: true });
   const [mode, setMode] = useState<CloneMode>('group');
   const [autoName, setAutoName] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
@@ -306,11 +307,13 @@ export function NewCloneModal({
                 emptyLabel="请选择聊天模型"
               />
             </label>
+            <AiImagePreferenceSetting feature="cloneTraining" />
             <label className="weq-agentlab-field">
               <span>向量模型（可选，配了才做相似检索）</span>
               <ApiModelSelect
                 allowDefault
                 label="克隆向量模型"
+                allowEmpty
                 capability="embedding"
                 value={embSel}
                 onChange={setEmbSel}

@@ -1,13 +1,13 @@
+import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
  * 设置 → 全局设置.
  *
  * App-wide, account-independent items: 现有配置账号列表 + 默认进入账号选择 +
- * 缓存目录（可自定义）. 版本信息与软件更新搬到了「版本」页（VersionSection）。
+ * 数据与缓存清理。版本信息与软件更新搬到了「版本」页（VersionSection）。
  *
  * Data sources:
  *   - `bootstrap.listAccountConfigs`  — saved account configs
  *   - `bootstrap.getAutoEnter`        — auto-enter target
- *   - `bootstrap.getCacheDir`         — effective / override / default cache paths
  *
  * Queries here use `staleTime: 0` + `refetchOnMount: 'always'` so reopening the
  * dialog always shows fresh state (the global QueryClient otherwise keeps
@@ -16,14 +16,17 @@
 
 import { useContext, useEffect, useState, type ReactElement } from 'react';
 import {
+  Bell,
   Cloud,
   ChevronRight,
   FolderOpen,
   HardDrive,
   Loader2,
   Minimize2,
+  PanelsTopLeft,
   RotateCcw,
   Settings2,
+  ScrollText,
   Trash2,
   User,
 } from 'lucide-react';
@@ -32,14 +35,23 @@ import { client, trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
-import { Card, Row, SectionHeader, Toggle, SettingsNavigateContext } from './controls';
+import {
+  Card,
+  CheckPill,
+  Row,
+  SectionHeader,
+  Toggle,
+  SettingsNavigateContext,
+} from './controls';
 import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
+import { MessageNotificationRows } from './MessageNotificationRows';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
-import '../../styles/save-preferences.css';
+import { supportsWindowsStyleControls } from '../../../../shared/window_controls';
 import '../../styles/storage-management.css';
 
 function errMsg(e: unknown): string {
@@ -51,24 +63,12 @@ function backupDescription(item: StorageUsageItem): string | null {
   const { at, status } = item.backup;
   const date =
     at && /(?:Z|[+-]\d{2}:\d{2})$/.test(at) && Number.isFinite(Date.parse(at))
-      ? `${new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`
+      ? `${eventTimeFormatter.format(new Date(at))}（北京时间）`
       : at || '时间未知';
   return `${date} · ${status === 'linked' ? '已关联修复记录' : status === 'orphan' ? '无关联修复记录' : '未识别备份'}`;
 }
 
 /** Human-readable byte size for the cache-cleanup card. */
-function formatBytes(bytes: number): string {
-  if (!bytes || bytes < 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(unit === 0 ? 0 : value >= 100 ? 0 : 1)} ${units[unit]}`;
-}
-
 /** 点击关闭按钮（标题栏 ✕）时的行为。 */
 const CLOSE_BEHAVIOR_OPTIONS: ReadonlyArray<{ value: WindowCloseBehavior; label: string }> = [
   { value: 'ask', label: '每次询问' },
@@ -90,15 +90,9 @@ const LOG_RETENTION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 export function GlobalSettingsSection({
   section = 'general',
   heading = true,
-  storageManagement = 'cleanup',
-  disabled = false,
-  onBusyChange,
 }: {
-  section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs' | 'network';
+  section?: 'general' | 'accounts' | 'storage' | 'logs' | 'network';
   heading?: boolean;
-  storageManagement?: 'cleanup' | 'configuration';
-  disabled?: boolean;
-  onBusyChange?: (busy: boolean) => void;
 }): ReactElement {
   const navigate = useContext(SettingsNavigateContext);
   const active = useTabActive();
@@ -137,25 +131,14 @@ export function GlobalSettingsSection({
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const cacheDir = trpc.bootstrap.getCacheDir.useQuery(undefined, {
-    enabled: active && section === 'storage',
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
-
   const setAutoEnter = trpc.bootstrap.setAutoEnter.useMutation();
   const clearAutoEnter = trpc.bootstrap.clearAutoEnter.useMutation();
   const deleteAccount = trpc.bootstrap.deleteAccountConfig.useMutation();
-  const pickCache = trpc.bootstrap.pickCacheDir.useMutation();
-  const clearCache = trpc.bootstrap.clearCacheDir.useMutation();
-  const pickExportDir = trpc.bootstrap.pickDefaultExportDir.useMutation();
-  const setExportDir = trpc.bootstrap.setDefaultExportDir.useMutation();
-  const setExportMode = trpc.bootstrap.setExportSaveMode.useMutation();
   const setWindowClose = trpc.bootstrap.setWindowCloseBehavior.useMutation();
+  const setWindowsStyle = trpc.bootstrap.setWindowsStyleControls.useMutation();
+  const platform = !IS_WEB ? window.electron?.process.platform : undefined;
   const setPreferCdnMut = trpc.bootstrap.setPreferCdn.useMutation();
   const setLogRetention = trpc.bootstrap.setLogRetentionDays.useMutation();
-  const cacheBusy = pickCache.isLoading || clearCache.isLoading;
 
   // 存储统计包含持久数据，选择与清理只针对后端明确标记的可清理项。
   const cacheUsage = trpc.bootstrap.listStorageUsage.useQuery(undefined, {
@@ -172,13 +155,11 @@ export function GlobalSettingsSection({
   const [restartIds, setRestartIds] = useState<string[]>([]);
   const cleanupBusy = cleaning || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
-  const cacheItems = (cacheUsage.data ?? []).filter((item) =>
-    storageManagement === 'configuration'
-      ? item.management === 'backup' &&
-        ['config', 'config.json'].includes(item.path.split(/[\\/]/).at(-1) ?? '')
-      : item.management !== 'backup' &&
-        item.management !== 'downloads' &&
-        item.management !== 'runtime',
+  const cacheItems = (cacheUsage.data ?? []).filter(
+    (item) =>
+      item.management !== 'backup' &&
+      item.management !== 'downloads' &&
+      item.management !== 'runtime',
   );
   const clearableItems = cacheItems.filter(
     (item) => item.clearable && (item.bytes > 0 || item.incomplete),
@@ -235,61 +216,6 @@ export function GlobalSettingsSection({
     }
   }
 
-  async function onPickCache(): Promise<void> {
-    try {
-      await pickCache.mutateAsync();
-      await cacheDir.refetch();
-      pushToast({ tone: 'success', title: '缓存目录已更新', message: '下次进入账号生效' });
-    } catch (e) {
-      showError('选择缓存目录失败', errMsg(e));
-    }
-  }
-
-  async function onResetCache(): Promise<void> {
-    try {
-      await clearCache.mutateAsync();
-      await cacheDir.refetch();
-      pushToast({ tone: 'success', title: '已重置为默认缓存目录' });
-    } catch (e) {
-      showError('重置缓存目录失败', errMsg(e));
-    }
-  }
-
-  async function onPickExportDir(): Promise<void> {
-    try {
-      const picked = await pickExportDir.mutateAsync();
-      if (picked) {
-        await settings.refetch();
-        pushToast({ tone: 'success', title: '导出保存目录已更新' });
-      }
-    } catch (e) {
-      showError('选择导出保存目录失败', errMsg(e));
-    }
-  }
-
-  async function onChangeExportMode(mode: 'before' | 'preset'): Promise<void> {
-    try {
-      if (mode === 'preset' && !settings.data?.defaultExportDir) {
-        const picked = await pickExportDir.mutateAsync();
-        if (!picked) return;
-      }
-      await setExportMode.mutateAsync({ mode });
-      await settings.refetch();
-    } catch (error) {
-      showError('更新保存方式失败', errMsg(error));
-    }
-  }
-
-  async function onResetExportDir(): Promise<void> {
-    try {
-      await setExportDir.mutateAsync({ dir: null });
-      await settings.refetch();
-      pushToast({ tone: 'success', title: '已清除默认导出保存目录' });
-    } catch (e) {
-      showError('清除导出保存目录失败', errMsg(e));
-    }
-  }
-
   const cacheMulti = useMultiSelection({
     ids: storageEntries.filter(({ item }) => item.clearable).map(({ item }) => item.id),
     selected: pickedCats,
@@ -297,27 +223,29 @@ export function GlobalSettingsSection({
     disabled: cleanupBusy || cacheUsage.isFetching,
   });
 
+  // 存储条目：勾选用设置页统一的 CheckPill，不再用原生复选框 + 内层描边卡片。
   const storageItem = (item: StorageUsageItem, members: StorageUsageItem[]) => (
-    <label key={item.id} className="weq-set-cache-item" {...cacheMulti.itemProps(item.id)}>
-      <input
-        type="checkbox"
-        aria-label={item.label}
-        checked={pickedCats.has(item.id)}
-        readOnly
-        disabled={cleanupBusy || cacheUsage.isFetching}
-      />
-      <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+    <div key={item.id} className="weq-storage-item" data-cache-id={item.id}>
+      <div className="weq-storage-item-head">
+        <CheckPill
+          checked={pickedCats.has(item.id)}
+          disabled={cleanupBusy || cacheUsage.isFetching || !item.clearable}
+          onChange={() => cacheMulti.toggle(item.id)}
+        >
+          <HardDrive size={13} strokeWidth={1.8} aria-hidden />
+          {item.label}
+        </CheckPill>
+        <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
+      </div>
       <span className="weq-storage-detail">
-        <span>{item.label}</span>
         {item.backup && <small>{backupDescription(item)}</small>}
         {item.category === 'program-backups' && <small>{item.reason}</small>}
         <small>{item.confirmation ?? item.reason}</small>
         <small className="weq-storage-path">
-          {members.map((member) => member.path).join('\n')}
+          {[...new Set(members.map((member) => member.path))].join('\n')}
         </small>
       </span>
-      <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
-    </label>
+    </div>
   );
 
   async function onClearWeqCache(explicitTargets?: StorageUsageItem[]): Promise<void> {
@@ -334,19 +262,15 @@ export function GlobalSettingsSection({
     const extra = displayTargets.flatMap((item) =>
       item.confirmation ? [`${item.label}：${item.confirmation}`] : [],
     );
-    const configuration = storageManagement === 'configuration';
     const ok = await confirm(
-      configuration ? `清除${label}？` : risky ? '清除所选数据' : '清理 WeQ 缓存',
-      configuration
-        ? `将清除「${label}」。\n\n${extra.join('\n\n')}\n\n先直接应用；若配置文件被占用，会另行询问是否重启。确认继续？`
-        : risky
-          ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
-          : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
+      risky ? '清除所选数据' : '清理 WeQ 缓存',
+      risky
+        ? `将永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。先清除可直接清除的项目；若有占用项，会另行询问是否重启。\n\n${extra.join('\n\n')}\n\n确认清除？`
+        : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
       { okLabel: risky ? '清除' : '清理', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     setCleaning(true);
-    onBusyChange?.(true);
     try {
       const res = await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
       setRestartIds(res.restartIds);
@@ -363,16 +287,14 @@ export function GlobalSettingsSection({
       );
       pushToast({
         tone: res.failed.length > 0 ? 'warning' : 'success',
-        title:
-          res.failed.length > 0 ? '部分项目未能清除' : configuration ? '配置已清除' : '清理已完成',
-        message: `已清除 ${res.cleared.length} 项${configuration ? '' : `，释放约 ${formatBytes(res.freedBytes)}`}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
+        title: res.failed.length > 0 ? '部分项目未能清除' : '清理已完成',
+        message: `已清除 ${res.cleared.length} 项，释放约 ${formatBytes(res.freedBytes)}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
       });
       if (res.restartIds.length) await retryOccupiedStorage(res.restartIds);
     } catch (e) {
-      showError(configuration ? '清除配置失败' : '清理缓存失败', errMsg(e));
+      showError('清理缓存失败', errMsg(e));
     } finally {
       setCleaning(false);
-      onBusyChange?.(false);
     }
   }
 
@@ -479,58 +401,6 @@ export function GlobalSettingsSection({
   const accountList = accounts.data ?? [];
   const autoEnterTarget = autoEnter.data;
 
-  if (storageManagement === 'configuration') {
-    return (
-      <>
-        {[
-          { name: 'config', label: '清除账号与应用配置' },
-          { name: 'config.json', label: '重置全局配置' },
-        ].map(({ name, label }) => {
-          const targets = clearableItems.filter((item) => item.path.split(/[\\/]/).at(-1) === name);
-          return (
-            <button
-              key={name}
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              title={cacheUsage.isError ? `读取配置失败：${errMsg(cacheUsage.error)}` : undefined}
-              disabled={
-                disabled ||
-                cleanupBusy ||
-                cacheUsage.isFetching ||
-                cacheUsage.isError ||
-                targets.length === 0
-              }
-              onClick={() => void onClearWeqCache(targets)}
-            >
-              {name === 'config' ? <Trash2 size={14} /> : <RotateCcw size={14} />}
-              {label}
-            </button>
-          );
-        })}
-        {restartIds.length > 0 && (
-          <button
-            type="button"
-            className="weq-set-btn"
-            disabled={disabled || cleanupBusy}
-            onClick={() => {
-              setCleaning(true);
-              onBusyChange?.(true);
-              void retryOccupiedStorage(restartIds)
-                .catch((error) => showError('继续清除失败', errMsg(error)))
-                .finally(() => {
-                  setCleaning(false);
-                  onBusyChange?.(false);
-                });
-            }}
-          >
-            <RotateCcw size={14} />
-            重启并清除剩余配置
-          </button>
-        )}
-      </>
-    );
-  }
-
   return (
     <div className={`weq-set${section === 'storage' ? ' weq-storage-settings' : ''}`}>
       {heading && (
@@ -541,7 +411,6 @@ export function GlobalSettingsSection({
               general: '提醒与窗口',
               accounts: 'WeQ 账号管理',
               storage: 'WeQ 存储管理',
-              saving: '默认保存目录',
               logs: '日志',
               network: '资源加载',
             }[section]
@@ -552,10 +421,44 @@ export function GlobalSettingsSection({
       {/* Window close behavior */}
       {section === 'general' && (
         <>
+          <Card title="消息提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
+            <MessageNotificationRows />
+          </Card>
           <ToastSettingsCard />
           <DesktopOnly>
-            <Card title="窗口">
+            <Card
+              title="窗口"
+              icon={<PanelsTopLeft size={15} strokeWidth={1.8} />}
+              remoteUnsupported
+            >
+              {platform && supportsWindowsStyleControls(platform) && (
+                <Row
+                  label={
+                    <span className="weq-set-row-icon">
+                      <PanelsTopLeft size={15} strokeWidth={1.8} aria-hidden />
+                      使用仿 Windows 窗口按钮
+                    </span>
+                  }
+                  desc={`在右上角使用最小化、最大化和关闭按钮，替代系统窗口按钮；账号选择页保持统一样式。${platform === 'linux' ? '主窗口重新进入账号后生效，独立窗口下次打开时生效。' : '主窗口立即生效，独立窗口下次打开时生效。'}`}
+                  control={
+                    <Toggle
+                      label="使用仿 Windows 窗口按钮"
+                      checked={settings.data?.windowsStyleControls ?? false}
+                      disabled={settings.isLoading || settings.isError || setWindowsStyle.isLoading}
+                      onChange={(enabled) => {
+                        void setWindowsStyle
+                          .mutateAsync({ enabled })
+                          .then(() => settings.refetch())
+                          .catch((error: unknown) =>
+                            showError('保存窗口按钮设置失败', errMsg(error)),
+                          );
+                      }}
+                    />
+                  }
+                />
+              )}
               <Row
+                settingId="window-close-behavior"
                 label={
                   <span className="weq-set-row-icon">
                     <Minimize2 size={15} strokeWidth={1.8} aria-hidden />
@@ -599,10 +502,10 @@ export function GlobalSettingsSection({
 
       {/* Account list */}
       {section === 'accounts' && (
-        <Card title="现有配置">
+        <Card title="现有配置" icon={<User size={15} strokeWidth={1.8} />}>
           {accountList.length === 0 ? (
             <div className="weq-set-empty">
-              {accounts.isLoading ? '加载中…' : '暂无保存的账号配置'}
+              {accounts.isLoading ? <LoadingIndicator /> : '暂无保存的账号配置'}
             </div>
           ) : (
             <div className="weq-set-accounts">
@@ -698,12 +601,12 @@ export function GlobalSettingsSection({
       )}
 
       {section === 'network' && (
-        <Card title="加载来源" settingId="prefer-cdn">
+        <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
           <Row
             label={
               <span className="weq-set-row-icon">
                 <Cloud size={15} strokeWidth={1.8} aria-hidden />
-                优先使用 CDN
+                优先直连 QQ 加载图片
               </span>
             }
             desc={`桌面端与 Web 共用。${
@@ -716,117 +619,19 @@ export function GlobalSettingsSection({
                 checked={preferCdn}
                 disabled={settings.isLoading || setPreferCdnMut.isLoading}
                 onChange={(next) => void onSetPreferCdn(next)}
-                label="优先使用 CDN"
+                label="优先直连 QQ 加载图片"
               />
             }
           />
         </Card>
       )}
-      {section === 'storage' && storageManagement === 'cleanup' && (
-        <>
-          {/* Cache directory */}
-          <Card title="缓存目录">
-            <Row
-              label={
-                <span className="weq-set-path" title={cacheDir.data?.effective}>
-                  <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                  <span className="weq-set-path-txt">
-                    {cacheDir.data?.effective ?? (cacheDir.isLoading ? '读取中…' : '—')}
-                  </span>
-                </span>
-              }
-              desc={
-                cacheDir.data?.override
-                  ? '已使用自定义目录。更改后将于下次进入账号时对媒体缓存生效。'
-                  : '默认目录。下载的图片/视频等媒体会缓存在这里。'
-              }
-              control={
-                <div className="weq-set-btn-group">
-                  <button
-                    type="button"
-                    className="weq-set-btn"
-                    disabled={cacheBusy}
-                    onClick={() => void onPickCache()}
-                  >
-                    <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                    选择目录
-                  </button>
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-soft"
-                    disabled={cacheBusy || !cacheDir.data?.override}
-                    onClick={() => void onResetCache()}
-                  >
-                    <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
-                    重置默认
-                  </button>
-                </div>
-              }
-            />
-          </Card>
-        </>
-      )}
-      {/* Default export save directory */}
-      {section === 'saving' && (
-        <div className="weq-save-preferences">
-          <Card title="默认保存目录" settingId="default-save">
-            <Row
-              label="默认保存方式"
-              control={
-                <SegmentedControl
-                  label="默认导出保存方式"
-                  value={settings.data?.exportSaveMode ?? 'before'}
-                  disabled={
-                    settings.isLoading || setExportMode.isLoading || pickExportDir.isLoading
-                  }
-                  onChange={(mode) => void onChangeExportMode(mode)}
-                  options={[
-                    { value: 'before', label: '每次询问' },
-                    { value: 'preset', label: '自动保存' },
-                  ]}
-                />
-              }
-            />
-            <Row
-              label={
-                <span className="weq-set-path" title={settings.data?.defaultExportDir ?? ''}>
-                  <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                  <span className="weq-set-path-txt">
-                    {settings.data?.defaultExportDir ?? (settings.isLoading ? '读取中…' : '未设置')}
-                  </span>
-                </span>
-              }
-              desc={settings.data?.defaultExportDir ? undefined : '未设置默认文件夹'}
-              control={
-                <div className="weq-set-btn-group">
-                  <button
-                    type="button"
-                    className="weq-set-btn"
-                    disabled={pickExportDir.isLoading}
-                    onClick={() => void onPickExportDir()}
-                  >
-                    <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                    选择目录
-                  </button>
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-soft"
-                    disabled={setExportDir.isLoading || !settings.data?.defaultExportDir}
-                    onClick={() => void onResetExportDir()}
-                  >
-                    <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
-                    清除设置
-                  </button>
-                </div>
-              }
-            />
-          </Card>
-        </div>
-      )}
-
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
-        <Card title="空间清理" settingId="weq-space-cleanup">
+        <Card
+          title="空间清理"
+          icon={<Trash2 size={15} strokeWidth={1.8} />}
+          settingId="weq-space-cleanup"
+        >
           <div className="weq-set-actions weq-storage-toolbar">
             <span className="weq-set-cache-total">
               本页占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
@@ -839,13 +644,14 @@ export function GlobalSettingsSection({
             <div className="weq-set-btn-group weq-storage-toolbar-buttons">
               <button
                 type="button"
-                className="weq-set-btn"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
                 title="刷新存储占用"
                 aria-label="刷新存储占用"
                 disabled={cacheUsage.isFetching || cleanupBusy}
                 onClick={() => void cacheUsage.refetch()}
               >
                 <RotateCcw size={14} aria-hidden />
+                刷新占用
               </button>
             </div>
           </div>
@@ -980,7 +786,7 @@ export function GlobalSettingsSection({
       )}
 
       {section === 'logs' && (
-        <Card title="日志">
+        <Card title="日志文件" icon={<ScrollText size={15} strokeWidth={1.8} />} remoteUnsupported>
           <Row
             label="日志保留时长"
             desc={
@@ -1026,4 +832,4 @@ export function GlobalSettingsSection({
     </div>
   );
 }
-import { SegmentedControl } from '../SegmentedControl';
+import { formatBytes } from '../../lib/format';

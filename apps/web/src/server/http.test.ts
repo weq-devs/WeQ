@@ -125,6 +125,7 @@ async function main(): Promise<void> {
         'post-auth /trpc reaches router',
       );
       check(trpcHits === 1, 'tRPC handler invoked exactly once');
+      check(res.headers.get('cache-control') === 'no-store', '业务接口不进入持久 WebView 缓存');
     }
     {
       const res = await get('/robots.txt', cookie);
@@ -149,6 +150,19 @@ async function main(): Promise<void> {
         '下载保留中文文件名',
       );
       check(res.headers.get('cache-control') === 'no-store', '文件下载不留浏览器缓存');
+    }
+    {
+      const res = await get(`${fileUrl}?preview=1`, cookie);
+      check(res.status === 200 && (await res.text()) === '独立文件', '报告预览保留正文');
+      check(
+        res.headers.get('content-disposition')?.startsWith('inline') === true,
+        '预览不强制下载',
+      );
+      check(
+        res.headers.get('content-security-policy')?.includes('sandbox allow-scripts') === true,
+        '报告预览使用隔离呈现',
+      );
+      check((await get(`${fileUrl}?preview=1`)).status === 401, '预览与下载使用相同会话校验');
     }
     {
       const res = await get(bundleUrl, cookie);

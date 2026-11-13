@@ -17,6 +17,7 @@ export const IS_ELECTRON = !IS_WEB;
  * in-app window controls; macOS shows native traffic lights instead, so the
  * renderer must leave the top-left cluster clear (and skip duplicate buttons).
  */
+// node 环境的单测会 import 到本模块（例如 Toast 依赖 IS_WEB），此时没有 window。
 export const IS_MAC =
   !IS_WEB && typeof window !== 'undefined' && window.electron?.process.platform === 'darwin';
 

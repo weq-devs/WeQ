@@ -26,6 +26,13 @@ export interface BotExportLlmProvider {
 }
 
 export interface BotExportInput {
+  images?: {
+    mode: 'ocr' | 'vision';
+    visionModel?: { providerId: string; model: string } | null;
+    prefilterEnabled?: boolean;
+    ocrModelId?: string;
+    filterModelId?: string;
+  };
   /** 产物根目录（应为空目录或新建）。 */
   outDir: string;
   /** 预打包引擎 bot.mjs 的绝对路径（resources/bot-runtime/bot.mjs）。 */
@@ -91,6 +98,10 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
 
   // 1) 引擎 bot.mjs。
   await copyFile(input.botRuntimeMjs, join(input.outDir, 'bot.mjs'));
+  await copyIfExists(
+    join(input.botRuntimeMjs, '..', 'ocrWorker.mjs'),
+    join(input.outDir, 'ocrWorker.mjs'),
+  );
 
   // 2) persona（深拷贝后重定位资产路径：绝对 → 产物内相对）。
   const persona: AgentLabPersona = JSON.parse(JSON.stringify(input.persona));
@@ -146,6 +157,7 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
     llmProviders: input.llmProviders,
     ttsProviders: input.ttsProviders,
     features: input.features,
+    images: input.images ?? { mode: 'vision', visionModel: null, prefilterEnabled: true },
     webui,
   };
   await writeFile(join(input.outDir, 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
@@ -161,8 +173,10 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
     type: 'module',
     scripts: { start: 'node index.mjs' },
     dependencies: { ws: '^8.18.0' },
+    optionalDependencies: { sharp: '^0.35.5', 'onnxruntime-node': '1.30.0' },
   };
   await writeFile(join(input.outDir, 'package.json'), JSON.stringify(pkg, null, 2), 'utf-8');
+  await writeFile(join(input.outDir, '.npmrc'), 'onnxruntime-node-install=skip\n', 'utf-8');
 
   // 7) README。
   const webuiUrl = `http://127.0.0.1:${webuiPort}`;
@@ -240,13 +254,15 @@ function renderReadme(
 
 ## 启动
 
-引擎（bot.mjs）已把唯一运行时依赖 ws **内联打包**，无需安装任何东西，直接启动：
+引擎（bot.mjs）已把文字与视觉聊天所需的 ws **内联打包**，可以直接启动：
 
 \`\`\`bash
 npm start        # 或 pnpm start / node index.mjs
 \`\`\`
 
-> 可选：\`npm install\` 后启动亦可（会装一份 ws，不装也完全不影响运行）。
+> 纯文字和视觉聊天无需安装本地 OCR 引擎。需要 OCR 时执行 \`npm install\` 安装产物声明的可选原生依赖，再在控制台下载识别／筛图模型；不自动下载模型，也不依赖桌面进程。
+
+本地 OCR 使用 CPU；产物的 \`.npmrc\` 跳过不需要的 CUDA 附加下载。
 
 启动后 bot 会自动开启本机 **WebUI 控制台**，可查看 token 消耗、收发消息统计与克隆体总览。
 

@@ -58,6 +58,10 @@
   align-items: center;
 }
 .weq-notice-management .group-bulletin-date {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
   white-space: normal;
   overflow-wrap: anywhere;
   color: var(--weq-fg-muted);

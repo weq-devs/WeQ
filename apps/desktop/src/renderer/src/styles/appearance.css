@@ -7,10 +7,9 @@ html[data-theme='dark'] {
   --weq-chat-mine-ink: var(--foreground);
 }
 
-html[data-theme]
-  :is(button, a, input, textarea, select, [role='button'], [role='tab']):focus-visible {
+html[data-theme] :is(button, a, [role='button'], [role='tab']):focus-visible {
   outline: 2px solid var(--weq-accent-ink, var(--weq-fg-primary));
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 html[data-theme] :is(.weq-set-btn, .weq-dialog-actions button) > svg {
@@ -185,33 +184,34 @@ html[data-theme]
   }
 }
 
-@media (max-width: 760px) {
-  html[data-theme] .contact-row.active .row-main span {
-    color: var(--weq-fg-primary);
-  }
-  html[data-theme] :is(.conversation-row, .contact-row).active {
-    box-shadow: none;
-  }
-  html[data-theme]
-    :is(.conversation-row, .contact-row).active
-    :is(
-      .row-preview-line,
-      .row-meta,
-      .row-muted,
-      .row-pinned,
-      .row-hidden,
-      .row-draft svg,
-      .contact-card-status,
-      .contact-card-signature
-    ) {
-    color: var(--weq-fg-secondary);
-  }
+html:where([data-weq-layout='single'])[data-theme] .contact-row.active .row-main span {
+  color: var(--weq-fg-primary);
 }
 
-@media (min-width: 761px) {
-  html[data-theme] :is(.conversation-row, .contact-row).active .row-main strong {
-    color: var(--weq-fg-primary);
-  }
+html:where([data-weq-layout='single'])[data-theme] :is(.conversation-row, .contact-row).active {
+  box-shadow: none;
+}
+
+html:where([data-weq-layout='single'])[data-theme]
+  :is(.conversation-row, .contact-row).active
+  :is(
+    .row-preview-line,
+    .row-meta,
+    .row-muted,
+    .row-pinned,
+    .row-hidden,
+    .row-draft svg,
+    .contact-card-status,
+    .contact-card-signature
+  ) {
+  color: var(--weq-fg-secondary);
+}
+
+html:where(:not([data-weq-layout='single']))[data-theme]
+  :is(.conversation-row, .contact-row).active
+  .row-main
+  strong {
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme] .contact-row.active .row-main .contact-card-nickname,
@@ -240,4 +240,26 @@ html[data-theme] .contact-row .row-main .contact-card-nickname {
 /* 成对切换前景和底色，避免中间帧短暂出现白字浅底。 */
 html[data-theme] .app-shell :is(.conversation-row, .contact-row, .rail-tab) {
   transition-property: box-shadow, border-color;
+}
+
+/* 主题色滑杆：每根滑杆带可见名称与当前值，不再只有无障碍标签。 */
+.weq-cp-bar-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 10px;
+}
+
+.weq-cp-bar-label {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
+}
+
+.weq-cp-bar-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  text-align: right;
+  white-space: nowrap;
 }

@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { TimeLabel } from '../../components/TimeLabel';
+import { occupationText } from '@weq/protocol/profile-values';
 import {
   BellOff,
   Bot,
@@ -27,8 +29,12 @@ import {
   CloudDownload,
   Download,
   FolderInput,
+  CalendarDays,
+  ArrowLeft,
+  Newspaper,
 } from 'lucide-react';
 import {
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -36,27 +42,65 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
 } from 'react';
+import type { ContactMetricRows } from '@weq/service';
 import { conversationPinned } from '@weq/service/conversation-order';
-import { sortConversationRows } from '../../lib/conversationListOrder';
+import { sortConversationRows, reconcileConversationRows } from '../../lib/conversationListOrder';
+import { useEventContextValue } from '../../hooks/useEventContextValue';
+import {
+  groupFriends,
+  groupExtendedGroups,
+  directoryTimeSeeds,
+  sortFriends,
+  sortGroups,
+  type FriendSort,
+} from '../../lib/contactListOrder';
+import {
+  friendDirectoryTitle,
+  friendSortDetail,
+  groupDirectoryTitle,
+  groupSortDetail,
+} from '../../lib/contactDirectoryPresentation';
+import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useContactDirectoryOrder';
+import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
+import { conversationListSearchText } from '../../lib/conversationListSearchText';
 import { formatConversationTime } from '../../lib/conversationTime';
 export { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
+import { useConversationHoverOrder } from '../../hooks/useConversationHoverOrder';
+import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
+import { useViewState } from '../../state/view';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
-  virtualConversationRow,
 } from '../../lib/conversationDirectory';
 import { VirtualConversationAvatar } from '../../components/VirtualConversationAvatar';
-import { groupRelationship, RelationshipDirectoryContext } from '../../lib/contactRelationship';
-import { GroupRelationshipStatus } from '../../components/RelationshipStatus';
+import {
+  groupRelationship,
+  personRelationship,
+  RelationshipDirectoryContext,
+} from '../../lib/contactRelationship';
+import { OnlineStatus } from '../../components/OnlineStatus';
+import { SourceGroup } from '../../components/qq-actions/FriendClue';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import {
   conversationAnalysisTarget,
   conversationRoamingTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
-import { sidebarConversationsWithoutAssistant } from '../../lib/groupAssistant';
+import { ConversationMenuTarget } from '../../components/ConversationMenuTarget';
+import {
+  CONVERSATION_VIEWS,
+  CONVERSATION_VIEW_LABELS,
+  aggregateView,
+  conversationSupportsAction,
+  conversationViewActions,
+  type ConversationView,
+} from '../../lib/conversationViews';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { ConversationBatchToolbar } from '../../components/ConversationBatchToolbar';
 import { useConversationBatchActions } from '../../components/useConversationBatchActions';
@@ -92,6 +136,20 @@ import { GROUP_NOTIFICATION_SECTIONS, groupNotificationMode } from '../../lib/gr
 import { displayGroupName, displayUserName } from './user';
 import { intimateRelationOf } from '../../lib/profileRelations';
 import '../../styles/contact-relations.css';
+
+const VIEW_ICONS = {
+  regular: MessagesSquare,
+  all: MessagesSquare,
+  groupAssistant: Users,
+  official: Newspaper,
+  service: Mail,
+  guild: Hash,
+  hidden: EyeOff,
+  deleted: Trash2,
+  clone: Bot,
+  assistant: Sparkles,
+};
+const VIEW_OPTIONS = CONVERSATION_VIEWS.map((id) => ({ id, Icon: VIEW_ICONS[id] }));
 
 /**
  * Progressive rendering for large lists:
@@ -195,10 +253,17 @@ export function ConversationList({
     x: number;
     y: number;
   } | null>(null);
-  const [keyword, setKeyword] = useState('');
-  const [localScope, setLocalScope] = useState<ConversationScope>('all');
-  const scope = directory?.scope ?? localScope;
-  const setScope = directory?.onScopeChange ?? setLocalScope;
+  const [localView, setLocalView] = useState<ConversationView>('regular');
+  const view = directory?.view ?? localView;
+  const ViewIcon = VIEW_ICONS[view];
+  const setView = directory?.onViewChange ?? setLocalView;
+  const [queries, setQueries] = useState<Partial<Record<ConversationView, string>>>({});
+  const keyword = queries[view] ?? '';
+  const setKeyword = useCallback(
+    (value: string) => setQueries((current) => ({ ...current, [view]: value })),
+    [view],
+  );
+  const scrollPositions = useRef(new Map<string, number>());
   const [scopeOpen, setScopeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
@@ -217,77 +282,81 @@ export function ConversationList({
   const density = useThemeStore((state) => state.density);
   const componentStyle = useThemeStore((state) => state.componentStyle);
   const menuRef = useRef<HTMLDivElement>(null);
-  const filtered = useMemo(() => {
-    // 置顶会话排最前；其余按「最后一条消息时间」和真实会话混排。
-    // 虚拟会话（克隆体 / 克隆群）以前是直接追加到末尾，看起来像永远不活跃的
-    // 死会话 —— 现在按最近聊天时间插回正确位置。
+  useClientPreferences((state) => state.tick);
+  const keepPosition = preferenceValue('keepConversationPositionOnHover');
+  const account = useViewState((state) => state.openedUin);
+  const listKey = `${account}:${view}:${keyword}`;
+  const [pointerInside, setPointerInside] = useState(false);
+  useEffect(() => {
+    const clear = () => setPointerInside(false);
+    window.addEventListener('blur', clear);
+    return () => window.removeEventListener('blur', clear);
+  }, []);
+  useEffect(() => setActionMenu(null), [account, view, keyword]);
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    setSelectingAll(false);
+    anchorRef.current = null;
+  }, [view, account, setSelectedIds, setSelectionMode, anchorRef]);
+  const sorted = useMemo(() => {
     const needle = keyword.trim().toLocaleLowerCase();
-    const real = needle ? (directory?.real ?? conversations) : conversations;
-    // 显示范围按「来源」分：真实 / 虚拟（克隆）/ 频道私聊。频道私聊是合并入口，
-    // 混在真实会话里会让人以为它是一条普通私聊，所以单独一档。
-    const isGuild = (row: Conversation) =>
-      row.type === 'merged' && row.mergedKind === 'guildDirect';
-    const realRows = real.filter((row) => !isGuild(row));
-    const guildRows = scope === 'guild' ? (directory?.guild ?? []) : real.filter(isGuild);
-    const virtualRows = (directory?.virtual ?? []).map(virtualConversationRow);
-    const rows = [
-      ...(scope === 'all' || scope === 'real' ? realRows : []),
-      ...(scope === 'all' || scope === 'guild' ? guildRows : []),
-      ...(scope === 'all' || scope === 'virtual' ? virtualRows : []),
-    ].filter(
-      (row) =>
-        !needle ||
-        `${conversationTitle(row)} ${conversationSeed(row)} ${row.type === 'group' ? row.group.name : ''}`
-          .toLocaleLowerCase()
-          .includes(needle),
+    const rows = directory?.rows ?? conversations;
+    const visible = rows.filter(
+      (row) => !needle || conversationListSearchText(row).includes(needle),
     );
-    // 完整目录可用于查找操作目标，但不能绕过主列表的群助手归属。
-    const visible = directory?.groupAssistantIds
-      ? sidebarConversationsWithoutAssistant(rows, directory.groupAssistantIds)
-      : rows;
-    return sortConversationRows(visible, preferences);
-  }, [
-    conversations,
-    preferences,
-    directory?.virtual,
-    directory?.real,
-    directory?.groupAssistantIds,
-    directory?.guild,
-    keyword,
-    scope,
-  ]);
+    const ordered = sortConversationRows(visible, preferences);
+    return { rows: ordered, ids: ordered.map((row) => row.id) };
+  }, [conversations, preferences, directory?.rows, keyword]);
+  const orderedRows = useConversationHoverOrder(
+    sorted.rows,
+    keepPosition && (pointerInside || Boolean(actionMenu)),
+    listKey,
+  );
+  const filtered = useMemo(
+    () => ({ rows: orderedRows, ids: orderedRows.map((row) => row.id) }),
+    [orderedRows],
+  );
+  useEffect(() => {
+    if (actionMenu && !sorted.ids.includes(actionMenu.conversation.id)) setActionMenu(null);
+  }, [actionMenu, sorted.ids]);
+  const contextTargetIds = useMemo(
+    () => new Set(actionMenu ? [actionMenu.conversation.id, ...actionMenu.ids] : []),
+    [actionMenu],
+  );
+  const aggregateMenu = actionMenu?.conversation.type === 'merged';
   const selectConversation = (id: string, event: React.MouseEvent) => {
-    if (!filtered.some((row) => row.id === id)) return;
+    if (!filtered.ids.includes(id)) return;
+    const row = filtered.rows.find((item) => item.id === id);
+    if (row?.type === 'merged') {
+      setView(aggregateView(row.mergedKind), true);
+      return;
+    }
+    if (row?.generated?.kind === 'assistant') {
+      directory?.onAssistant?.(row.generated.sessionId);
+      return;
+    }
     const virtual = directory?.virtual.find((item) => item.id === id);
     if (virtual) directory.onVirtual(virtual);
     else onSelect(id, event);
   };
   const clickTargetProps = useConversationClickTarget({
-    rows: filtered,
+    rows: filtered.rows,
     enabled: !selectionMode,
-    resetKey: `${scope}:${keyword}`,
+    resetKey: `${view}:${keyword}`,
     onSelect: selectConversation,
   });
-  const assistantIds = useMemo(
-    () =>
-      (directory?.real ?? conversations)
-        .filter((row) => row.type === 'group' && directory?.groupAssistantIds?.has(row.id))
-        .map((row) => row.id),
-    [directory?.real, conversations, directory?.groupAssistantIds],
-  );
-  const expandIds = useCallback(
-    (ids: Iterable<string>) =>
-      new Set([...ids].flatMap((id) => (id === 'merged:group-assistant' ? assistantIds : [id]))),
-    [assistantIds],
-  );
   const filteredIds = useMemo(
-    () => [...expandIds(filtered.map((item) => item.id))],
-    [expandIds, filtered],
+    () => filtered.rows.filter((row) => row.type !== 'merged').map((row) => row.id),
+    [filtered.rows],
   );
-  const assistantSelected =
-    assistantIds.length > 0 && assistantIds.every((id) => selectedIds.has(id));
   const rowSelectedIds = new Set(selectedIds);
-  if (assistantSelected) rowSelectedIds.add('merged:group-assistant');
+  const menuIds = (conversation: Conversation) =>
+    conversation.type === 'merged'
+      ? [conversation.id]
+      : selectionMode && rowSelectedIds.has(conversation.id)
+        ? [...selectedIds]
+        : [conversation.id];
   const allSelected = allSelectionIdsSelected(filteredIds, selectedIds);
   const toggleAll = () => {
     invertFrom.current = null;
@@ -333,21 +402,17 @@ export function ConversationList({
   ]);
   const multi = useMultiSelection({
     anchorRef,
-    ids: filtered.map((item) => item.id),
+    ids: filteredIds,
     selected: rowSelectedIds,
     onChange: (ids) => {
       invertFrom.current = null;
-      if ((hasMore || loading) && filtered.every((row) => ids.has(row.id))) {
+      if ((hasMore || loading) && filteredIds.length && filteredIds.every((id) => ids.has(id))) {
         setSelectingAll(true);
         onLoadMore?.();
         return;
       }
       setSelectingAll(false);
-      const next = expandIds(ids);
-      if (assistantSelected && !ids.has('merged:group-assistant')) {
-        for (const id of assistantIds) next.delete(id);
-      }
-      setSelectedIds(next);
+      setSelectedIds(new Set([...ids].filter((id) => filteredIds.includes(id))));
     },
     enabled: selectionMode,
     onStart: () => setSelectionMode(true),
@@ -356,12 +421,12 @@ export function ConversationList({
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
+  const handledLocate = useRef('');
   const [locateHighlight, setLocateHighlight] = useState<{
     id: string;
     revision: number | undefined;
   } | null>(null);
-  const locateAvailable =
-    scope === 'all' && !keyword && filtered.some((row) => row.id === locateId);
+  const locateAvailable = Boolean(locateId) && !keyword && filtered.ids.includes(locateId);
   useEffect(() => {
     if (!locateId || !locateAvailable) {
       setLocateHighlight(null);
@@ -372,10 +437,11 @@ export function ConversationList({
     return () => window.clearTimeout(timer);
   }, [locateId, locateRevision, locateAvailable]);
   useEffect(() => {
-    if (!locateId) return;
+    const request = `${locateId}:${locateRevision}`;
+    if (!locateId || handledLocate.current === request) return;
+    handledLocate.current = request;
     setKeyword('');
-    setScope('all');
-  }, [locateId, locateRevision, setScope]);
+  }, [locateId, locateRevision, setKeyword]);
   useLayoutEffect(() => {
     const measure = () => {
       if (!viewportRef.current) return;
@@ -432,8 +498,20 @@ export function ConversationList({
   }, [createOpen]);
 
   return (
-    <div className="list-stack weq-conversation-directory" {...multi.rootProps}>
+    <div
+      className="list-stack weq-conversation-directory"
+      {...multi.rootProps}
+      onPointerOverCapture={(event) => {
+        if (event.pointerType === 'mouse')
+          setPointerInside(event.currentTarget.contains(event.target));
+      }}
+      onPointerOutCapture={(event) => {
+        if (event.pointerType === 'mouse' && !event.currentTarget.contains(event.relatedTarget))
+          setPointerInside(false);
+      }}
+    >
       <DirectoryToolbar
+        key={view}
         noun="会话"
         query={keyword}
         onQuery={setKeyword}
@@ -450,159 +528,191 @@ export function ConversationList({
             onLoadMore?.();
           } else setSelectedIds(invertSelectionIds(filteredIds, selectedIds));
         }}
+        endAction={(searching, closeSearch) => (
+          <div className="weq-directory-scope" ref={createMenuRef}>
+            <button
+              ref={createTriggerRef}
+              type="button"
+              title={searching ? '退出搜索会话' : '添加会话'}
+              aria-label={searching ? '退出搜索会话' : '添加会话'}
+              aria-haspopup={searching ? undefined : 'menu'}
+              aria-expanded={searching ? undefined : createOpen}
+              disabled={!searching && !directory}
+              onClick={() => {
+                if (searching) {
+                  setCreateOpen(false);
+                  closeSearch();
+                  return;
+                }
+                setScopeOpen(false);
+                setCreateOpen(!createOpen);
+              }}
+              onKeyDown={(event) => {
+                if (searching || event.key !== 'ArrowDown') return;
+                event.preventDefault();
+                setScopeOpen(false);
+                setCreateOpen(true);
+              }}
+            >
+              <Plus size={16} className="weq-directory-add-icon" />
+            </button>
+            {createOpen && !searching ? (
+              <div role="menu" className="weq-directory-scope-menu" aria-label="添加会话菜单">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onKeyDown={(event) => {
+                    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+                      event.preventDefault();
+                    if (event.key === 'Tab') setCreateOpen(false);
+                  }}
+                  onClick={() => {
+                    setCreateOpen(false);
+                    directory?.onCreate();
+                  }}
+                >
+                  <Bot size={16} />
+                  新建好友克隆
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onKeyDown={(event) => {
+                    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
+                      event.preventDefault();
+                    if (event.key === 'Tab') setCreateOpen(false);
+                  }}
+                  onClick={() => {
+                    setCreateOpen(false);
+                    if (directory?.onCreateGroup) directory.onCreateGroup();
+                  }}
+                  disabled={!directory?.onCreateGroup}
+                >
+                  <Users size={16} />
+                  新建克隆体群聊
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setLookupOpen('user');
+                  }}
+                >
+                  <UserRound size={16} />
+                  QQ 号搜索
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setLookupOpen('group');
+                  }}
+                >
+                  <Users size={16} />
+                  群号搜索
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    directory?.onCreateAssistant?.();
+                  }}
+                  disabled={!directory?.onCreateAssistant}
+                >
+                  <Sparkles size={16} />
+                  新建 WeQ 助手会话
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
       >
         <div className="weq-directory-scope" ref={menuRef}>
           <button
             type="button"
-            title={`显示范围：${SCOPE_LABELS[scope]}`}
-            aria-label="显示范围"
-            aria-haspopup="menu"
-            aria-expanded={scopeOpen}
+            title={
+              directory?.returnToRegular
+                ? '返回常规视图'
+                : `会话视图：${CONVERSATION_VIEW_LABELS[view]}`
+            }
+            aria-label={directory?.returnToRegular ? '返回常规视图' : '会话视图'}
+            aria-haspopup={directory?.returnToRegular ? undefined : 'menu'}
+            aria-expanded={directory?.returnToRegular ? undefined : scopeOpen}
             onClick={() => {
               setCreateOpen(false);
+              if (directory?.returnToRegular) {
+                directory.onReturnToRegular?.();
+                return;
+              }
               setScopeOpen(!scopeOpen);
             }}
           >
-            {scope === 'all' ? (
-              <MessagesSquare size={16} />
-            ) : scope === 'real' ? (
-              <UserRound size={16} />
-            ) : scope === 'guild' ? (
-              <Hash size={16} />
-            ) : (
-              <Bot size={16} />
-            )}
+            {directory?.returnToRegular ? <ArrowLeft size={16} /> : <ViewIcon size={16} />}
           </button>
           {scopeOpen ? (
-            <div role="menu" className="weq-directory-scope-menu" aria-label="会话显示范围">
-              {SCOPE_OPTIONS.map((item) => (
+            <div role="menu" className="weq-directory-scope-menu" aria-label="会话视图">
+              {VIEW_OPTIONS.map(({ id: item, Icon: ItemIcon }) => (
                 <button
-                  key={item.id}
+                  key={item}
                   type="button"
                   role="menuitemradio"
-                  aria-checked={scope === item.id}
+                  aria-checked={view === item}
                   onClick={() => {
-                    setScope(item.id);
+                    setView(item, false);
                     setScopeOpen(false);
                   }}
                 >
-                  <item.icon size={16} />
-                  {item.name}
+                  <ItemIcon size={16} />
+                  {CONVERSATION_VIEW_LABELS[item]}
                 </button>
               ))}
             </div>
           ) : null}
         </div>
-        <div className="weq-directory-scope" ref={createMenuRef}>
+        {directory?.onCalendar ? (
           <button
-            ref={createTriggerRef}
             type="button"
-            title="添加会话"
-            aria-label="添加会话"
-            aria-haspopup="menu"
-            aria-expanded={createOpen}
-            disabled={!directory}
-            onClick={() => {
-              setScopeOpen(false);
-              setCreateOpen(!createOpen);
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'ArrowDown') return;
-              event.preventDefault();
-              setScopeOpen(false);
-              setCreateOpen(true);
-            }}
+            title="会话日历"
+            aria-label="会话日历"
+            onClick={() => directory.onCalendar(keyword)}
           >
-            <Plus size={16} />
+            <CalendarDays size={16} />
           </button>
-          {createOpen ? (
-            <div role="menu" className="weq-directory-scope-menu" aria-label="添加会话菜单">
-              <button
-                type="button"
-                role="menuitem"
-                onKeyDown={(event) => {
-                  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
-                    event.preventDefault();
-                  if (event.key === 'Tab') setCreateOpen(false);
-                }}
-                onClick={() => {
-                  setCreateOpen(false);
-                  directory?.onCreate();
-                }}
-              >
-                <Bot size={16} />
-                新建好友克隆
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onKeyDown={(event) => {
-                  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key))
-                    event.preventDefault();
-                  if (event.key === 'Tab') setCreateOpen(false);
-                }}
-                onClick={() => {
-                  setCreateOpen(false);
-                  if (directory?.onCreateGroup) directory.onCreateGroup();
-                }}
-                disabled={!directory?.onCreateGroup}
-              >
-                <Users size={16} />
-                新建克隆体群聊
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setCreateOpen(false);
-                  setLookupOpen('user');
-                }}
-              >
-                <UserRound size={16} />
-                QQ 号搜索
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setCreateOpen(false);
-                  setLookupOpen('group');
-                }}
-              >
-                <Users size={16} />
-                群号搜索
-              </button>
-            </div>
-          ) : null}
-        </div>
+        ) : null}
       </DirectoryToolbar>
       {lookupOpen && (
         <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
       )}
-      {loading && !filtered.length ? <ListSkeleton rows={9} /> : null}
+      {loading && !filtered.rows.length ? <ListSkeleton rows={9} /> : null}
       {directory?.loadingError ? (
         <div role="alert">
           会话读取失败：{directory.loadingError}
-          <button type="button" onClick={onLoadMore}>
+          <button type="button" onClick={directory.onRetry ?? onLoadMore}>
             重试
           </button>
         </div>
       ) : null}
-      {!loading && !filtered.length ? (
+      {!loading && !filtered.rows.length ? (
         <EmptyState title="暂无会话" body="" icon={<MessageSquare />} />
       ) : null}
       <div className="weq-conversation-viewport" ref={viewportRef} {...clickTargetProps}>
         <WindowedList
-          items={filtered}
+          bufferScreens={1}
+          items={filtered.rows}
           onVisibleItems={selectionMode ? undefined : directory?.onVisibleConversations}
           rowHeight={rowHeight}
           height={listHeight}
-          resetKey={`${scope}:${keyword}`}
+          resetKey={listKey}
+          restoreScrollTop={scrollPositions.current.get(listKey) ?? 0}
+          onScrollTopChange={(top) => scrollPositions.current.set(listKey, top)}
           itemKey={(item) => item.id}
           scrollToKey={
             multi.focusRequest && multi.focusRequest.revision > (locateRevision ?? 0)
               ? multi.focusRequest.id
-              : scope === 'all' && !keyword
+              : !keyword
                 ? locateId
                 : null
           }
@@ -611,6 +721,7 @@ export function ConversationList({
           className="weq-conversation-window"
           renderItem={(conversation) => {
             const active = conversation.id === activeConversationId;
+            const updatedAt = conversation.updatedAt;
             const unreadCount = conversation.unreadCount ?? 0;
             const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
             const preview = conversationLastMessage(conversation, user);
@@ -661,13 +772,17 @@ export function ConversationList({
                 key={conversation.id}
                 data-conversation-id={conversation.id}
                 className={cn(
-                  listRowClass(!selectionMode && active, 'conversation-row'),
+                  listRowClass(
+                    !selectionMode && (active || contextTargetIds.has(conversation.id)),
+                    'conversation-row',
+                  ),
                   pinned && 'pinned',
                   locateHighlight?.id === conversation.id && 'is-locate-target',
                   selectionMode && rowSelectedIds.has(conversation.id) && 'is-multiselected',
+                  contextTargetIds.has(conversation.id) && 'is-context-target',
                 )}
                 aria-pressed={selectionMode ? rowSelectedIds.has(conversation.id) : undefined}
-                {...multi.itemProps(conversation.id)}
+                {...(conversation.type === 'merged' ? {} : multi.itemProps(conversation.id))}
                 onPointerEnter={() => {
                   if (!selectionMode) directory?.onConversationIntent?.(conversation);
                 }}
@@ -678,10 +793,7 @@ export function ConversationList({
                   event.preventDefault();
                   setActionMenu({
                     conversation,
-                    ids:
-                      selectionMode && rowSelectedIds.has(conversation.id)
-                        ? [...selectedIds]
-                        : [...expandIds([conversation.id])],
+                    ids: menuIds(conversation),
                     x: event.clientX,
                     y: event.clientY,
                   });
@@ -693,10 +805,7 @@ export function ConversationList({
                   const rect = event.currentTarget.getBoundingClientRect();
                   setActionMenu({
                     conversation,
-                    ids:
-                      selectionMode && rowSelectedIds.has(conversation.id)
-                        ? [...selectedIds]
-                        : [...expandIds([conversation.id])],
+                    ids: menuIds(conversation),
                     x: rect.left + 20,
                     y: rect.top + 20,
                   });
@@ -718,6 +827,10 @@ export function ConversationList({
                       <Trash2 size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'guildDirect' ? (
                       <Hash size={20} strokeWidth={2} />
+                    ) : conversation.mergedKind === 'clone' ? (
+                      <Bot size={20} strokeWidth={2} />
+                    ) : conversation.mergedKind === 'assistant' ? (
+                      <Sparkles size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'service' ||
                       conversation.mergedKind === 'groupAssistant' ? (
                       <Users size={20} strokeWidth={2} />
@@ -725,10 +838,15 @@ export function ConversationList({
                       <UserRound size={20} strokeWidth={2} />
                     )}
                   </span>
+                ) : conversation.generated?.kind === 'assistant' ? (
+                  <span className={cn('avatar', 'has-default', 'merged-avatar')}>
+                    <Sparkles size={20} />
+                  </span>
                 ) : virtualRow ? (
                   <VirtualConversationAvatar item={virtualRow} />
                 ) : (
                   <Avatar
+                    resolution="small"
                     name={conversationTitle(conversation)}
                     avatarUrl={conversationAvatarUrl(conversation)}
                     seed={conversationSeed(conversation)}
@@ -823,7 +941,7 @@ export function ConversationList({
                         title="隐藏会话"
                       />
                     ) : null}
-                    {formatConversationTime(conversation.updatedAt)}
+                    <TimeLabel value={updatedAt}>{formatConversationTime(updatedAt)}</TimeLabel>
                   </span>
                   {unreadCount &&
                   (conversation.mergedKind !== 'groupAssistant' ||
@@ -839,9 +957,10 @@ export function ConversationList({
       {hasMore ? <ConversationListLoadMore loading={loadingMore} onLoadMore={onLoadMore} /> : null}
       {selectionMode ? (
         <ConversationBatchToolbar
-          conversations={conversations}
+          conversations={directory?.rows ?? conversations}
           ids={[...selectedIds]}
           busy={selectingAll}
+          view={view}
         />
       ) : null}
       {actionMenu ? (
@@ -849,26 +968,71 @@ export function ConversationList({
           friendUid={
             actionMenu.ids.length === 1 &&
             actionMenu.conversation.type === 'direct' &&
+            conversationSupportsAction(actionMenu.conversation, 'read') &&
             actionMenu.conversation.otherUser.kind !== 'bot'
               ? actionMenu.conversation.otherUser.id
               : undefined
           }
           x={actionMenu.x}
           y={actionMenu.y}
+          label={
+            actionMenu.ids.length > 1
+              ? `已选 ${actionMenu.ids.length} 个会话的操作`
+              : `${conversationTitle(actionMenu.conversation)}的会话操作`
+          }
+          target={
+            <ConversationMenuTarget
+              name={conversationTitle(actionMenu.conversation)}
+              avatarUrl={conversationAvatarUrl(actionMenu.conversation)}
+              identity={conversationSeed(actionMenu.conversation)}
+              kind={actionMenu.conversation.type}
+              count={actionMenu.ids.length}
+              containedCount={
+                actionMenu.conversation.type === 'merged' &&
+                actionMenu.conversation.mergedKind === 'groupAssistant'
+                  ? (directory?.groupAssistantIds?.size ??
+                    directory?.views?.groupAssistant.length ??
+                    0)
+                  : undefined
+              }
+            />
+          }
           onClose={() => setActionMenu(null)}
           actions={(() => {
             return [
-              ...(directory?.onReadState
+              ...(aggregateMenu
+                ? [
+                    {
+                      label: `进入${CONVERSATION_VIEW_LABELS[aggregateView(actionMenu.conversation.mergedKind)]}`,
+                      icon: <ChevronRight size={16} />,
+                      action: () =>
+                        setView(aggregateView(actionMenu.conversation.mergedKind), true),
+                    },
+                  ]
+                : []),
+              ...(directory?.onReadState &&
+              !aggregateMenu &&
+              conversationViewActions(view).includes('read') &&
+              (actionMenu.ids.length > 1 ||
+                conversationSupportsAction(actionMenu.conversation, 'read'))
                 ? [
                     ...[false, true].map((unread) => ({
                       label: unread ? '标为未读' : '标为已读',
                       icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
-                      disabled: directory.readStateBusy || actionMenu.ids.length > 4096,
+                      disabled:
+                        directory.readStateBusy ||
+                        actionMenu.ids.length > 4096 ||
+                        !batch.supportsAny(actionMenu.ids, 'read'),
                       action: () => batch.runReadState(actionMenu.ids, unread),
                     })),
                   ]
                 : []),
               ...(directory?.onPin &&
+              (!aggregateMenu || actionMenu.conversation.mergedKind === 'groupAssistant') &&
+              (aggregateMenu ||
+                conversationSupportsAction(actionMenu.conversation, 'read') ||
+                (actionMenu.conversation.generated &&
+                  actionMenu.conversation.generated.kind !== 'assistant')) &&
               (actionMenu.ids.length === 1 || actionMenu.conversation.type === 'merged')
                 ? [
                     {
@@ -905,7 +1069,7 @@ export function ConversationList({
                     },
                   ]
                 : []),
-              ...(requestExport
+              ...(batch.exportAvailable && !aggregateMenu
                 ? [
                     {
                       label: actionMenu.ids.length > 1 ? '导出所选会话' : '导出',
@@ -915,30 +1079,46 @@ export function ConversationList({
                   ]
                 : []),
               ...(requestExport &&
-              actionMenu.ids.length === 1 &&
-              actionMenu.conversation.type === 'group' &&
-              conversationRoamingTarget(actionMenu.conversation)
+              !aggregateMenu &&
+              conversationViewActions(view).includes('roster') &&
+              (actionMenu.ids.length > 1 ||
+                conversationSupportsAction(actionMenu.conversation, 'roster'))
                 ? [
                     {
                       label: '导出群成员名单',
                       icon: <Users size={16} />,
-                      action: () =>
-                        requestExport({
-                          owner: {
-                            kind: 'contacts',
-                            container: `group:${actionMenu.conversation.group.id}`,
-                          },
-                          scope: { type: 'all' },
-                        }),
+                      disabled: !batch.supportsAny(actionMenu.ids, 'roster'),
+                      action: () => batch.runRoster(actionMenu.ids),
                     },
                   ]
                 : []),
-              ...(directory?.onRoaming
+              ...(directory?.onRoaming &&
+              !aggregateMenu &&
+              conversationViewActions(view).includes('roaming') &&
+              (actionMenu.ids.length > 1 ||
+                conversationSupportsAction(actionMenu.conversation, 'roaming'))
                 ? [
                     {
                       label: actionMenu.ids.length > 1 ? '拉取所选会话漫游消息' : '拉取漫游消息',
                       icon: <CloudDownload size={16} />,
+                      disabled: !batch.supportsAny(actionMenu.ids, 'roaming'),
                       action: () => batch.runRoaming(actionMenu.ids),
+                    },
+                  ]
+                : []),
+              ...(directory?.onDelete &&
+              !aggregateMenu &&
+              conversationViewActions(view).includes('delete') &&
+              (actionMenu.ids.length > 1 ||
+                conversationSupportsAction(actionMenu.conversation, 'delete'))
+                ? [
+                    {
+                      label: '永久删除',
+                      icon: <Trash2 size={16} />,
+                      disabled:
+                        directory.deleteBusy || !batch.supportsAny(actionMenu.ids, 'delete'),
+                      reason: directory.deleteBusy ? '正在永久删除所选会话' : undefined,
+                      action: () => batch.runDelete(actionMenu.ids),
                     },
                   ]
                 : []),
@@ -984,19 +1164,47 @@ export function GroupList({
       ),
     [conversations, needle],
   );
-  const [basis, setBasis] = useState(() => {
-    try {
-      const saved = localStorage.getItem('weq.groups.grouping');
-      return ['notify', 'identity', 'size'].includes(saved ?? '') ? saved : 'notify';
-    } catch {
-      return 'notify';
-    }
-  });
-  const categories = useMemo(() => {
-    const groups = searchable.filter(
-      (conversation) =>
-        conversation.type === 'group' &&
-        groupRelationship(conversation.group, relationships) === 'member',
+  const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
+  const metricEntities = useMemo(
+    () => conversations.filter((row) => row.type === 'group').map((row) => [`group:${row.id}`]),
+    [conversations],
+  );
+  const timeSeeds = useCallback(
+    () => directoryTimeSeeds(conversations, relationships?.selfUid),
+    [conversations, relationships?.selfUid],
+  );
+  const order = useContactDirectoryOrder(
+    'groups',
+    groupSelection.selectionMode,
+    metricEntities,
+    timeSeeds,
+  );
+  const basis = order.preferences.grouping;
+  const computedCategories = useMemo(() => {
+    if (basis === 'none')
+      return [
+        {
+          mode: 'none',
+          label: '',
+          items: sortGroups(
+            searchable.filter((row) => row.type === 'group'),
+            order.preferences.sort,
+            order.preferences.descending,
+            order.rows,
+            order.rawGroupNames,
+          ),
+        },
+      ];
+    const groups = sortGroups(
+      searchable.filter(
+        (conversation) =>
+          conversation.type === 'group' &&
+          groupRelationship(conversation.group, relationships) === 'member',
+      ),
+      order.preferences.sort,
+      order.preferences.descending,
+      order.rows,
+      order.rawGroupNames,
     );
     if (basis === 'identity')
       return [
@@ -1035,73 +1243,107 @@ export function GroupList({
             ]
           : []),
       ];
-    if (basis === 'size') {
-      const limits = [10, 40, 70, 100, 200, 500, 1000, Infinity];
-      const labels = [
-        '10 人以内',
-        '11–40 人',
-        '41–70 人',
-        '71–100 人',
-        '101–200 人',
-        '201–500 人',
-        '501–1000 人',
-        '1000 人以上',
-      ];
+    if (basis === 'capacity') {
+      const capacities = [
+        ...new Set(groups.map((row) => row.group.maxMemberCount).filter((value) => value > 0)),
+      ].sort((a, b) => a - b);
       return [
-        ...limits.map((max, index) => ({
-          mode: `size:${index}`,
-          label: labels[index],
-          items: groups.filter(
-            (group) =>
-              group.group.memberCount > (limits[index - 1] ?? 0) && group.group.memberCount <= max,
-          ),
+        ...capacities.map((capacity) => ({
+          mode: `capacity:${capacity}`,
+          label: `${capacity} 人群`,
+          items: groups.filter((row) => row.group.maxMemberCount === capacity),
         })),
-        ...(groups.some((group) => !(group.group.memberCount > 0))
+        ...(groups.some((group) => !(group.group.maxMemberCount > 0))
           ? [
               {
-                mode: 'size-unknown',
-                label: '人数未读取',
-                items: groups.filter((group) => !(group.group.memberCount > 0)),
+                mode: 'capacity-unknown',
+                label: '群容量未知',
+                items: groups.filter((group) => !(group.group.maxMemberCount > 0)),
               },
             ]
           : []),
       ];
     }
+    if (basis === 'freezeState' || basis === 'grade')
+      return groupExtendedGroups(groups, basis, order.rows);
     return GROUP_NOTIFICATION_SECTIONS.map((section) => ({
       ...section,
       items: groups.filter(
         (conversation) => groupNotificationMode(conversation.notifyLevel) === section.mode,
       ),
     }));
-  }, [searchable, basis, relationships]);
+  }, [
+    searchable,
+    basis,
+    relationships,
+    order.preferences.sort,
+    order.preferences.descending,
+    order.rows,
+    order.rawGroupNames,
+  ]);
+  const categories = useFrozenDirectory(
+    computedCategories,
+    groupSelection.selectionMode,
+    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}`,
+  );
   const historicalCategory = useMemo(
     () => ({
       mode: 'historical',
-      label: '我不在群内',
-      historical: true,
-      items: searchable.filter(
-        (conversation) =>
-          conversation.type === 'group' &&
-          groupRelationship(conversation.group, relationships) === 'nonmember',
+      label: '历史群聊',
+      items: sortGroups(
+        searchable.filter(
+          (conversation) =>
+            conversation.type === 'group' &&
+            groupRelationship(conversation.group, relationships) === 'nonmember',
+        ),
+        order.preferences.sort,
+        order.preferences.descending,
+        order.rows,
+        order.rawGroupNames,
       ),
     }),
-    [searchable, relationships],
+    [
+      searchable,
+      relationships,
+      order.preferences.sort,
+      order.preferences.descending,
+      order.rows,
+      order.rawGroupNames,
+    ],
   );
   const unknownCategory = useMemo(
     () => ({
       mode: 'membership-unknown',
-      label: '入群状态待确认',
-      items: searchable.filter(
-        (conversation) =>
-          conversation.type === 'group' &&
-          groupRelationship(conversation.group, relationships) === 'unknown',
+      label: '其他群聊',
+      items: sortGroups(
+        searchable.filter(
+          (conversation) =>
+            conversation.type === 'group' &&
+            groupRelationship(conversation.group, relationships) === 'unknown',
+        ),
+        order.preferences.sort,
+        order.preferences.descending,
+        order.rows,
+        order.rawGroupNames,
       ),
     }),
-    [searchable, relationships],
+    [
+      searchable,
+      relationships,
+      order.preferences.sort,
+      order.preferences.descending,
+      order.rows,
+      order.rawGroupNames,
+    ],
   );
-  const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
   const multi = useMultiSelection({
-    ids: searchable.filter((item) => item.type === 'group').map((item) => item.id),
+    ids: [
+      ...new Set(
+        [...categories, ...(basis === 'none' ? [] : [historicalCategory, unknownCategory])].flatMap(
+          (category) => category.items.map((row) => row.id),
+        ),
+      ),
+    ],
     selected: groupSelection.selectedIds,
     onChange: groupSelection.setSelectedIds,
     anchorRef: groupSelection.anchorRef,
@@ -1119,25 +1361,8 @@ export function GroupList({
     return <EmptyState title="暂无群聊" body="" icon={<Users />} />;
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
+      <ContactDirectoryOrder order={order} />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
-        <label className="weq-group-list-basis">
-          分组依据
-          <select
-            value={basis ?? 'notify'}
-            onChange={(event) => {
-              setBasis(event.target.value);
-              try {
-                localStorage.setItem('weq.groups.grouping', event.target.value);
-              } catch {
-                /* UI choice is optional. */
-              }
-            }}
-          >
-            <option value="notify">按消息提醒方式</option>
-            <option value="identity">按我的身份</option>
-            <option value="size">按群人数</option>
-          </select>
-        </label>
         {categories.map((category) => (
           <GroupNotificationSection
             key={category.mode}
@@ -1147,23 +1372,26 @@ export function GroupList({
             selection={groupSelection}
             multi={multi}
             onMenu={setActionMenu}
+            order={order}
           />
         ))}
         <GroupNotificationSection
-          category={historicalCategory}
+          category={basis === 'none' ? { ...historicalCategory, items: [] } : historicalCategory}
           activeConversationId={activeConversationId}
           onSelect={onSelect}
           selection={groupSelection}
           multi={multi}
           onMenu={setActionMenu}
+          order={order}
         />
         <GroupNotificationSection
-          category={unknownCategory}
+          category={basis === 'none' ? { ...unknownCategory, items: [] } : unknownCategory}
           activeConversationId={activeConversationId}
           onSelect={onSelect}
           selection={groupSelection}
           multi={multi}
           onMenu={setActionMenu}
+          order={order}
         />
       </div>
       {groupSelection.selectionMode ? (
@@ -1237,6 +1465,7 @@ function GroupNotificationSection({
   selection,
   multi,
   onMenu,
+  order,
 }) {
   const directory = useContext(ContactDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
@@ -1247,7 +1476,8 @@ function GroupNotificationSection({
   useEffect(() => {
     if (containsActive) setOpen(true);
   }, [containsActive]);
-  const expanded = open || Boolean(directory?.query) || selection.selectionMode;
+  const expanded =
+    category.mode === 'none' || open || Boolean(directory?.query) || selection.selectionMode;
   const visibleCount = useProgressiveRowCount(expanded ? category.items.length : 0);
   if (category.items.length === 0) return null;
   return (
@@ -1255,6 +1485,7 @@ function GroupNotificationSection({
       <button
         type="button"
         className="contact-cat-header"
+        hidden={category.mode === 'none'}
         aria-expanded={expanded}
         onClick={() => setOpen((current) => !current)}
       >
@@ -1263,87 +1494,99 @@ function GroupNotificationSection({
         <span className="contact-cat-count">{category.items.length}</span>
       </button>
       {expanded
-        ? category.items.slice(0, visibleCount).map((conversation) => (
-            <button
-              type="button"
-              key={conversation.id}
-              className={cn(
-                listRowClass(
-                  !selection.selectionMode && conversation.id === activeConversationId,
-                  'contact-row',
-                ),
-                'contact-cat-row',
-                selection.selectionMode &&
-                  selection.selectedIds.has(conversation.id) &&
-                  'is-multiselected',
-              )}
-              aria-pressed={
-                selection.selectionMode ? selection.selectedIds.has(conversation.id) : undefined
-              }
-              {...multi.itemProps(conversation.id)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                onMenu({
-                  conversation,
-                  ids:
-                    selection.selectionMode && selection.selectedIds.has(conversation.id)
-                      ? [...selection.selectedIds]
-                      : [conversation.id],
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                onMenu({
-                  conversation,
-                  ids:
-                    selection.selectionMode && selection.selectedIds.has(conversation.id)
-                      ? [...selection.selectedIds]
-                      : [conversation.id],
-                  x: rect.left + 20,
-                  y: rect.top + 20,
-                });
-              }}
-              onClick={(event) => onSelect(conversation.id, event)}
-            >
-              <Avatar
-                name={displayGroupName(conversation.group)}
-                avatarUrl={conversation.group.avatarUrl}
-                seed={conversation.id}
-              />
-              <span className="row-main">
-                <strong>
-                  <span className="row-title-text">{displayGroupName(conversation.group)}</span>
-                  {!conversation.generated ? (
-                    <GroupRelationshipStatus group={conversation.group} compact />
-                  ) : null}
-                </strong>
-                <span>
-                  {category.historical
-                    ? '已不在当前群列表'
-                    : conversation.group.memberCount > 0
-                      ? `${conversation.group.memberCount} 位成员`
-                      : '人数未读取'}
+        ? category.items.slice(0, visibleCount).map((conversation) => {
+            const title = groupDirectoryTitle(
+              conversation.group,
+              order.preferences.sort,
+              order.rawGroupNames,
+            );
+            const detail = groupSortDetail(conversation.group, order.preferences.sort, order.rows);
+            return (
+              <button
+                type="button"
+                key={conversation.id}
+                className={cn(
+                  listRowClass(
+                    !selection.selectionMode && conversation.id === activeConversationId,
+                    'contact-row',
+                  ),
+                  'contact-cat-row',
+                  selection.selectionMode &&
+                    selection.selectedIds.has(conversation.id) &&
+                    'is-multiselected',
+                )}
+                aria-pressed={
+                  selection.selectionMode ? selection.selectedIds.has(conversation.id) : undefined
+                }
+                {...multi.itemProps(conversation.id)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onMenu({
+                    conversation,
+                    ids:
+                      selection.selectionMode && selection.selectedIds.has(conversation.id)
+                        ? [...selection.selectedIds]
+                        : [conversation.id],
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                    return;
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  onMenu({
+                    conversation,
+                    ids:
+                      selection.selectionMode && selection.selectedIds.has(conversation.id)
+                        ? [...selection.selectedIds]
+                        : [conversation.id],
+                    x: rect.left + 20,
+                    y: rect.top + 20,
+                  });
+                }}
+                onClick={(event) => onSelect(conversation.id, event)}
+              >
+                <Avatar
+                  resolution="small"
+                  name={displayGroupName(conversation.group)}
+                  avatarUrl={conversation.group.avatarUrl}
+                  seed={conversation.id}
+                />
+                <span className="row-main">
+                  <strong>
+                    <span className="row-title-text" title={title}>
+                      {title}
+                    </span>
+                  </strong>
+                  <span
+                    className={detail ? 'weq-directory-sort-detail' : undefined}
+                    title={detail?.title ? `${detail.text}\n${detail.title}` : detail?.text}
+                  >
+                    {detail
+                      ? detail.text
+                      : conversation.group.memberCount > 0
+                        ? `${conversation.group.memberCount} 位成员`
+                        : '人数未读取'}
+                  </span>
                 </span>
-              </span>
-              {conversationDirectory?.showContactUnreadCount &&
-              (conversation.unreadCount ?? 0) > 0 ? (
-                <span
-                  className={unreadClass(
-                    Boolean(
-                      conversationDirectory?.preferences?.[conversation.id]?.muted ??
-                        conversation.preference?.muted,
-                    ),
-                  )}
-                >
-                  {formatBadgeCount(conversation.unreadCount)}
-                </span>
-              ) : null}
-            </button>
-          ))
+                {conversationDirectory?.showContactUnreadCount &&
+                (conversation.unreadCount ?? 0) > 0 ? (
+                  <span
+                    className={unreadClass(
+                      Boolean(
+                        conversationDirectory?.preferences?.[conversation.id]?.muted ??
+                          conversation.preference?.muted,
+                      ),
+                    )}
+                  >
+                    {formatBadgeCount(conversation.unreadCount)}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })
         : null}
     </div>
   );
@@ -1351,7 +1594,179 @@ function GroupNotificationSection({
 
 const EMPTY_CONTACT_OPTIONS = [] as const;
 
-export function ContactList({
+type ContactRowEvents = {
+  selection: ReturnType<typeof useMultiSelection<string>>['itemProps'];
+  select: (contact: Contact) => void;
+  dragStart: (contact: Contact, event: DragEvent<HTMLButtonElement>) => void;
+  dragEnd: () => void;
+  menu: (contact: Contact, event: MouseEvent<HTMLButtonElement>) => void;
+  keyDown: (contact: Contact, event: KeyboardEvent<HTMLButtonElement>) => void;
+};
+
+const ContactDirectoryRow = memo(function ContactDirectoryRow({
+  contact,
+  categoryId,
+  active,
+  selectionMode,
+  selected,
+  draggable,
+  unreadCount,
+  muted,
+  sort,
+  identityMetrics,
+  uidMetrics,
+  events,
+}: {
+  contact: Contact;
+  categoryId: string | number;
+  active: boolean;
+  selectionMode: boolean;
+  selected: boolean;
+  draggable: boolean;
+  unreadCount: number;
+  muted: boolean;
+  sort: FriendSort;
+  identityMetrics: ContactMetricRows[string] | undefined;
+  uidMetrics: ContactMetricRows[string] | undefined;
+  events: ContactRowEvents;
+}) {
+  const own =
+    personRelationship(contact, useContext(RelationshipDirectoryContext)) === 'self' &&
+    !contact.clone;
+  const relation = intimateRelationOf(contact);
+  const title = friendDirectoryTitle(contact, sort);
+  const detail = friendSortDetail(contact, sort, {
+    [`friend:${contact.identityValue}`]: identityMetrics ?? {},
+    [`friend:${contact.id}`]: uidMetrics ?? {},
+  });
+  // 未重画行的捕获事件也按调用时获取最新范围、选择模式和锚点。
+  const selectionId = JSON.stringify([categoryId, contact.id]);
+  const sourceGroup = identityMetrics?.sourceGroup?.value || uidMetrics?.sourceGroup?.value;
+  return (
+    <>
+      <button
+        className={cn(
+          listRowClass(active, 'contact-row'),
+          'contact-cat-row',
+          selected && 'is-multiselected',
+        )}
+        aria-pressed={selectionMode ? selected : undefined}
+        {...events.selection(selectionId)}
+        onPointerDownCapture={(event) => events.selection(selectionId).onPointerDownCapture(event)}
+        onClickCapture={(event) => events.selection(selectionId).onClickCapture(event)}
+        onContextMenuCapture={(event) => events.selection(selectionId).onContextMenuCapture(event)}
+        draggable={draggable}
+        onDragStart={(event) => events.dragStart(contact, event)}
+        onDragEnd={events.dragEnd}
+        onContextMenu={(event) => events.menu(contact, event)}
+        onKeyDown={(event) => events.keyDown(contact, event)}
+        onClick={() => events.select(contact)}
+      >
+        <span className="contact-relation-avatar">
+          <Avatar
+            resolution="small"
+            name={displayUserName(contact)}
+            avatarUrl={contact.avatarUrl}
+            seed={contact.identityValue}
+          />
+          {relation ? (
+            <span
+              className="contact-relation-mark"
+              role="img"
+              aria-label={`亲密关系：${relation.label}`}
+              title={relation.label}
+            >
+              <relation.Icon size={13} aria-hidden="true" />
+            </span>
+          ) : null}
+        </span>
+        <span className={cn('row-main', 'contact-card-main')}>
+          <span className={cn('contact-card-nickname')}>
+            <span className="row-title-text" title={title}>
+              {title}
+            </span>
+            {contact.kind === 'bot' ? (
+              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                <Bot size={12} strokeWidth={2.4} />
+              </small>
+            ) : null}
+          </span>
+          <span className={cn('contact-card-bottom')}>
+            {detail ? (
+              <span
+                className="contact-card-signature weq-directory-sort-detail"
+                title={detail.title ? `${detail.text}\n${detail.title}` : detail.text}
+              >
+                {detail.text}
+              </span>
+            ) : (
+              <>
+                {!own && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+                  <span className={cn('contact-card-status')}>
+                    <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
+                    <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                  </span>
+                ) : null}
+                {contact.kind !== 'bot' &&
+                contact.identityLabel !== '设备' &&
+                categoryId !== 'special:devices' &&
+                categoryId !== 'special:bots' ? (
+                  <span className={cn('contact-card-signature')}>
+                    {contact.signature || '这个人很懒，什么都没留下'}
+                  </span>
+                ) : null}
+              </>
+            )}
+          </span>
+        </span>
+        {unreadCount > 0 ? (
+          <span className={unreadClass(muted)}>{formatBadgeCount(unreadCount)}</span>
+        ) : null}
+      </button>
+      {own && !detail && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+        <div className="weq-contact-self-status-row">
+          <OnlineStatus
+            uid={contact.uid || contact.id}
+            selfUin={contact.identityValue}
+            showBaseStatus
+            fallbackText={contact.onlineStatusObj.displayStatus}
+          />
+        </div>
+      ) : null}
+      {String(categoryId).startsWith('derived:source:') &&
+      typeof sourceGroup === 'string' &&
+      /^[1-9]\d*$/.test(sourceGroup) &&
+      !selectionMode ? (
+        <SourceGroup code={sourceGroup} source={null} directoryLink />
+      ) : null}
+    </>
+  );
+});
+
+/** 群消息只更新群目录，不唤醒未变化的整组好友行。 */
+export function ContactList(props: ComponentProps<typeof ContactListContent>) {
+  const directory = useContext(ConversationDirectoryContext);
+  const previous = useRef<Conversation[]>([]);
+  const real = useMemo(
+    () =>
+      reconcileConversationRows(
+        previous.current,
+        (directory?.real ?? []).filter((row) => row.type === 'direct'),
+      ),
+    [directory?.real],
+  );
+  useLayoutEffect(() => {
+    previous.current = real;
+  }, [real]);
+  const value = useEventContextValue({ ...directory, real });
+  return (
+    <ConversationDirectoryContext.Provider value={directory ? value : null}>
+      <ContactListContent {...props} />
+    </ConversationDirectoryContext.Provider>
+  );
+}
+
+const ContactListContent = memo(function ContactListContent({
   contacts,
   categoryDefinitions = EMPTY_CONTACT_OPTIONS,
   specialSections = EMPTY_CONTACT_OPTIONS,
@@ -1374,6 +1789,8 @@ export function ContactList({
   loading?: boolean;
 }) {
   const directory = useContext(ContactDirectoryContext);
+  const contactIds = useMemo(() => new Set(contacts.map((contact) => contact.id)), [contacts]);
+  const relationships = useContext(RelationshipDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const friendDirectory = useFriendDirectory();
   const requestExport = useRequestContentExport();
@@ -1425,19 +1842,81 @@ export function ContactList({
   );
   const batch = useConversationBatchActions(conversationRows);
   const selection = useContentMultiSelect({ kind: 'contacts', container: 'friends' });
+  const allContacts = useMemo(
+    () => [
+      ...new Map(
+        [
+          ...contacts,
+          ...specialSections.flatMap((section) => section.items),
+          ...trailingSections.flatMap((section) => section.items),
+        ].map((contact) => [contact.id, contact]),
+      ).values(),
+    ],
+    [contacts, specialSections, trailingSections],
+  );
+  const metricEntities = useMemo(
+    () => allContacts.map((contact) => [`friend:${contact.identityValue}`, `friend:${contact.id}`]),
+    [allContacts],
+  );
+  const timeSeeds = useCallback(
+    () => directoryTimeSeeds(conversationRows, relationships?.selfUid),
+    [conversationRows, relationships?.selfUid],
+  );
+  const order = useContactDirectoryOrder(
+    'friends',
+    selection.selectionMode,
+    metricEntities,
+    timeSeeds,
+  );
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
   const matches = useCallback(
     (contact: Contact) =>
       !needle ||
-      `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue}`
+      `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue} ${occupationText(contact.extInfo?.occupation) ?? ''}`
         .toLocaleLowerCase()
         .includes(needle),
     [needle],
   );
   const filtered = useMemo(() => contacts.filter(matches), [contacts, matches]);
 
-  // 特殊分组固定在两端；普通分组按云端排序，组内保持原顺序。
-  const categories = useMemo(() => {
+  // 派生分组使用字符串 ID，不能触发 QQ 分组的编辑与拖拽。
+  const computedCategories = useMemo(() => {
+    if (['type', 'source', 'school'].includes(order.preferences.grouping))
+      return groupFriends(
+        allContacts.filter(matches),
+        order.preferences.grouping,
+        order.rows,
+        order.regions,
+        relationships,
+      ).map((section) => ({
+        ...section,
+        items: sortFriends(
+          section.items,
+          order.preferences.sort,
+          order.preferences.descending,
+          order.rows,
+        ),
+      }));
+    if (order.preferences.grouping === 'none') {
+      const all = [
+        ...new Map(
+          [
+            ...filtered,
+            ...specialSections
+              .filter((section) => !['special:care', 'special:intimate'].includes(section.id))
+              .flatMap((section) => section.items.filter(matches)),
+            ...trailingSections.flatMap((section) => section.items.filter(matches)),
+          ].map((contact) => [contact.id, contact]),
+        ).values(),
+      ];
+      return [
+        {
+          id: 'derived:none',
+          name: '',
+          items: sortFriends(all, order.preferences.sort, order.preferences.descending, order.rows),
+        },
+      ];
+    }
     const map = new Map<number, { id: number; name: string; items: Contact[]; order: number }>();
     (friendDirectory?.categories ?? categoryDefinitions).forEach((category, index) => {
       map.set(category.id, {
@@ -1458,35 +1937,116 @@ export function ContactList({
         });
       map.get(id)!.items.push(contact);
     }
+    const ordinary =
+      order.preferences.grouping === 'qq'
+        ? [...map.values()].sort((first, second) => first.order - second.order)
+        : groupFriends(filtered, order.preferences.grouping, order.rows, order.regions);
     return [
-      ...specialSections.map((section) => ({ ...section, items: section.items.filter(matches) })),
-      ...[...map.values()].sort((first, second) => first.order - second.order),
+      ...specialSections
+        .filter(
+          (section) =>
+            section.id !== 'special:intimate' &&
+            (section.id !== 'special:care' ||
+              ['qq', 'relation'].includes(order.preferences.grouping)),
+        )
+        .map((section) => ({ ...section, items: section.items.filter(matches) })),
+      ...ordinary,
       ...trailingSections.map((section) => ({ ...section, items: section.items.filter(matches) })),
-    ];
+    ].map((section) => ({
+      ...section,
+      items: sortFriends(
+        section.items,
+        order.preferences.sort,
+        order.preferences.descending,
+        order.rows,
+      ),
+    }));
   }, [
     filtered,
+    allContacts,
+    relationships,
     categoryDefinitions,
     specialSections,
     trailingSections,
     matches,
     friendDirectory?.categories,
     friendDirectory?.assignments,
+    order.preferences,
+    order.rows,
+    order.regions,
   ]);
-  const selectionIds = useMemo(
-    () => [...new Set(categories.flatMap((category) => category.items.map((item) => item.id)))],
+  const categories = useFrozenDirectory(
+    computedCategories,
+    selection.selectionMode,
+    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}`,
+  );
+  // 同一好友在特别关心、亲密关系及普通分组中各有独立的范围位置。
+  const selectionRows = useMemo(
+    () =>
+      new Map(
+        categories.flatMap((category) =>
+          category.items.map((item) => [JSON.stringify([category.id, item.id]), item.id]),
+        ),
+      ),
     [categories],
   );
+  const selectionIds = useMemo(() => [...selectionRows.keys()], [selectionRows]);
+  const getSelectionId = useCallback((id: string) => selectionRows.get(id)!, [selectionRows]);
 
   // 默认全部折叠。
   const [expanded, setExpanded] = useState<Record<string | number, boolean>>({});
   const multi = useMultiSelection({
     ids: selectionIds,
+    getSelectionId,
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
     anchorRef: selection.anchorRef,
     enabled: selection.selectionMode,
     onStart: () => selection.setSelectionMode(true),
     onExit: () => selection.setSelectionMode(false),
+  });
+  const rowEvents = useEventContextValue<ContactRowEvents>({
+    selection: multi.itemProps,
+    select: (contact) => {
+      if (!selection.selectionMode) onSelect(contact);
+    },
+    dragStart: (contact, event) => {
+      const ids =
+        selection.selectionMode && selection.selectedIds.has(contact.id)
+          ? [...selection.selectedIds]
+          : [contact.id];
+      const uids = ids.filter((id) => contactIds.has(id));
+      if (uids.length !== ids.length || !uids.length) {
+        event.preventDefault();
+        return;
+      }
+      dragging.current = { uids };
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', uids.join(','));
+    },
+    dragEnd: () => {
+      dragging.current = null;
+      setDragTarget(null);
+    },
+    menu: (contact, event) => {
+      event.preventDefault();
+      setCategoryMenu(null);
+      setActionMenu({
+        x: event.clientX,
+        y: event.clientY,
+        contact,
+        ids:
+          selection.selectionMode && selection.selectedIds.has(contact.id)
+            ? [...selection.selectedIds]
+            : [contact.id],
+      });
+    },
+    keyDown: (contact, event) => {
+      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      setActionMenu({ x: rect.left, y: rect.bottom, contact, ids: [contact.id] });
+    },
   });
 
   if (loading) {
@@ -1505,6 +2065,7 @@ export function ContactList({
 
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
+      <ContactDirectoryOrder order={order} />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
         {friendDirectory?.error && (
           <div className="contact-cat-description" role="alert">
@@ -1520,7 +2081,10 @@ export function ContactList({
           </div>
         )}
         {categories.map((category) => {
-          const open = Boolean(expanded[category.id]) || Boolean(needle);
+          const open =
+            order.preferences.grouping === 'none' ||
+            Boolean(expanded[category.id]) ||
+            Boolean(needle);
           return (
             <div
               className={cn(
@@ -1593,6 +2157,7 @@ export function ContactList({
               <button
                 type="button"
                 className={cn('contact-cat-header')}
+                hidden={order.preferences.grouping === 'none'}
                 draggable={
                   typeof category.id === 'number' &&
                   friendDirectory?.available &&
@@ -1664,139 +2229,34 @@ export function ContactList({
               {open
                 ? category.items.map((contact) => {
                     const conversation = conversationByContact.get(contact.id);
-                    const relation = intimateRelationOf(contact);
                     return (
-                      <button
+                      <ContactDirectoryRow
                         key={contact.id}
-                        className={cn(
-                          listRowClass(
-                            !selection.selectionMode && contact.id === activeContactId,
-                            'contact-row',
-                          ),
-                          'contact-cat-row',
-                          selection.selectionMode &&
-                            selection.selectedIds.has(contact.id) &&
-                            'is-multiselected',
+                        contact={contact}
+                        categoryId={category.id}
+                        active={!selection.selectionMode && contact.id === activeContactId}
+                        selectionMode={selection.selectionMode}
+                        selected={selection.selectionMode && selection.selectedIds.has(contact.id)}
+                        draggable={Boolean(
+                          contactIds.has(contact.id) &&
+                            order.preferences.grouping === 'qq' &&
+                            friendDirectory?.available &&
+                            !friendDirectory.busy,
                         )}
-                        aria-pressed={
-                          selection.selectionMode
-                            ? selection.selectedIds.has(contact.id)
-                            : undefined
+                        unreadCount={
+                          conversationDirectory?.showContactUnreadCount
+                            ? (conversation?.unreadCount ?? 0)
+                            : 0
                         }
-                        {...multi.itemProps(contact.id)}
-                        draggable={
-                          contacts.some((row) => row.id === contact.id) &&
-                          friendDirectory?.available &&
-                          !friendDirectory.busy
-                        }
-                        onDragStart={(event) => {
-                          const ids =
-                            selection.selectionMode && selection.selectedIds.has(contact.id)
-                              ? [...selection.selectedIds]
-                              : [contact.id];
-                          const uids = ids.filter((id) => contacts.some((row) => row.id === id));
-                          if (uids.length !== ids.length || !uids.length) {
-                            event.preventDefault();
-                            return;
-                          }
-                          dragging.current = { uids };
-                          event.dataTransfer.effectAllowed = 'move';
-                          event.dataTransfer.setData('text/plain', uids.join(','));
-                        }}
-                        onDragEnd={() => {
-                          dragging.current = null;
-                          setDragTarget(null);
-                        }}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          setCategoryMenu(null);
-                          setActionMenu({
-                            x: event.clientX,
-                            y: event.clientY,
-                            contact,
-                            ids:
-                              selection.selectionMode && selection.selectedIds.has(contact.id)
-                                ? [...selection.selectedIds]
-                                : [contact.id],
-                          });
-                        }}
-                        onKeyDown={(event) => {
-                          if (
-                            event.key !== 'ContextMenu' &&
-                            !(event.shiftKey && event.key === 'F10')
-                          )
-                            return;
-                          event.preventDefault();
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          setActionMenu({
-                            x: rect.left,
-                            y: rect.bottom,
-                            contact,
-                            ids: [contact.id],
-                          });
-                        }}
-                        onClick={() => {
-                          if (!selection.selectionMode) onSelect(contact);
-                        }}
-                      >
-                        <span className="contact-relation-avatar">
-                          <Avatar
-                            name={displayUserName(contact)}
-                            avatarUrl={contact.avatarUrl}
-                            seed={contact.identityValue}
-                          />
-                          {relation ? (
-                            <span
-                              className="contact-relation-mark"
-                              role="img"
-                              aria-label={`亲密关系：${relation.label}`}
-                              title={relation.label}
-                            >
-                              <relation.Icon size={13} aria-hidden="true" />
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className={cn('row-main', 'contact-card-main')}>
-                          <span className={cn('contact-card-nickname')}>
-                            <span className="row-title-text">{displayUserName(contact)}</span>
-                            {contact.kind === 'bot' ? (
-                              <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                                <Bot size={12} strokeWidth={2.4} />
-                              </small>
-                            ) : null}
-                          </span>
-                          <span className={cn('contact-card-bottom')}>
-                            {contact.onlineStatusObj &&
-                            contact.onlineStatusObj.typeName !== '未知' ? (
-                              <span className={cn('contact-card-status')}>
-                                <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
-                                <span>[{contact.onlineStatusObj.displayStatus}]</span>
-                              </span>
-                            ) : null}
-                            {contact.kind !== 'bot' &&
-                            contact.identityLabel !== '设备' &&
-                            category.id !== 'special:devices' &&
-                            category.id !== 'special:bots' ? (
-                              <span className={cn('contact-card-signature')}>
-                                {contact.signature || '这个人很懒，什么都没留下'}
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                        {conversationDirectory?.showContactUnreadCount &&
-                        (conversation?.unreadCount ?? 0) > 0 ? (
-                          <span
-                            className={unreadClass(
-                              Boolean(
-                                conversationDirectory?.preferences?.[conversation.id]?.muted ??
-                                  conversation.preference?.muted,
-                              ),
-                            )}
-                          >
-                            {formatBadgeCount(conversation.unreadCount)}
-                          </span>
-                        ) : null}
-                      </button>
+                        muted={Boolean(
+                          conversationDirectory?.preferences?.[conversation?.id]?.muted ??
+                            conversation?.preference?.muted,
+                        )}
+                        sort={order.preferences.sort}
+                        identityMetrics={order.rows[`friend:${contact.identityValue}`]}
+                        uidMetrics={order.rows[`friend:${contact.id}`]}
+                        events={rowEvents}
+                      />
                     );
                   })
                 : null}
@@ -1865,7 +2325,10 @@ export function ContactList({
                   {
                     label: '移动分组',
                     icon: <FolderInput size={16} />,
-                    disabled: !friendDirectory?.available || friendDirectory.busy,
+                    disabled:
+                      order.preferences.grouping !== 'qq' ||
+                      !friendDirectory?.available ||
+                      friendDirectory.busy,
                     reason: friendDirectory?.error,
                     action: () => friendDirectory?.move(actionMenu.ids),
                   },
@@ -1929,7 +2392,7 @@ export function ContactList({
       {batch.confirmation}
     </div>
   );
-}
+});
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',
@@ -2082,22 +2545,6 @@ function formatBadgeCount(value: number) {
 function isPinned(conversation: Conversation, preferences: ConversationPreferences): boolean {
   return conversationPinned(conversation, preferences);
 }
-
-/** 会话列表的显示范围：真实 / 虚拟（克隆）/ 频道私聊，或全都显示。 */
-type ConversationScope = 'all' | 'real' | 'virtual' | 'guild';
-
-const SCOPE_OPTIONS: Array<{ id: ConversationScope; name: string; icon: typeof MessagesSquare }> = [
-  { id: 'all', name: '全部会话', icon: MessagesSquare },
-  { id: 'real', name: '仅真实会话', icon: UserRound },
-  { id: 'virtual', name: '仅克隆会话', icon: Bot },
-  { id: 'guild', name: '仅频道私聊', icon: Hash },
-];
-const SCOPE_LABELS: Record<ConversationScope, string> = {
-  all: '全部会话',
-  real: '仅真实会话',
-  virtual: '仅克隆会话',
-  guild: '仅频道私聊',
-};
 
 function listRowClass(active: boolean, semanticClass: 'conversation-row' | 'contact-row') {
   return cn(semanticClass, active && 'active');

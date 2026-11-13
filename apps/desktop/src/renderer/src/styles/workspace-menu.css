@@ -67,13 +67,25 @@ html[data-theme='dark'] {
   letter-spacing: 0;
 }
 
-.weq-workspace-menu.is-compact {
-  height: min(560px, calc(100dvh - 32px));
+.weq-workspace-menu.is-compact,
+.weq-dialog-layer.is-anchored-popover[tabindex] > .weq-workspace-menu.is-compact {
+  height: auto;
+  max-height: min(560px, calc(100dvh - 32px));
+  overflow: hidden;
 }
 
-.weq-dialog-layer.is-anchored-popover[tabindex] > .weq-workspace-menu.is-compact {
-  height: min(560px, calc(100dvh - 32px));
-  overflow: hidden;
+.weq-workspace-menu.is-compact .weq-current-tasks {
+  flex: 0 1 auto;
+  overflow-y: auto;
+}
+
+.weq-workspace-menu.is-compact .weq-current-task-columns {
+  flex: none;
+  overflow: visible;
+}
+
+.weq-workspace-menu.is-expanded .weq-current-tasks.is-empty > .weq-empty-state {
+  flex: 1;
 }
 
 .weq-workspace-menu.is-expanded {
@@ -462,91 +474,6 @@ html[data-theme='dark'] {
 
 .weq-assistant-conversation .weq-agentlab-head-actions {
   flex: none;
-}
-
-.weq-agentlab-chat.is-menu-compact > .weq-agentlab-head {
-  display: none;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-agentlab-transcript {
-  padding: 10px;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-asst-empty {
-  gap: 8px;
-  padding: 8px;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-asst-empty > :is(span, strong) {
-  display: none;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-asst-presets > button:nth-child(n + 3) {
-  display: none;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-asst-composer {
-  padding: 8px;
-}
-
-.weq-asst-menu-meta {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  min-height: 26px;
-  padding: 3px 10px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-  color: var(--weq-fg-secondary);
-  font-size: 11px;
-}
-
-.weq-asst-menu-meta span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weq-asst-menu-meta span:first-child {
-  flex: 1;
-}
-
-.weq-asst-menu-meta span:nth-child(2) {
-  max-width: 40%;
-}
-
-.weq-asst-menu-meta span:last-child {
-  flex: none;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-agentlab-composer {
-  padding: 0;
-  gap: 6px;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-agentlab-composer textarea {
-  min-height: 34px;
-  max-height: 90px;
-  padding: 7px 9px;
-  border-radius: 4px;
-  font-size: 13px;
-  line-height: 18px;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-agentlab-composer > button {
-  min-width: 34px;
-  height: 34px;
-  padding: 0 8px;
-  border-radius: 4px;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-asst-composer-tools {
-  gap: 4px;
-}
-
-.weq-agentlab-chat.is-menu-compact .weq-asst-select {
-  max-width: 190px;
 }
 
 .weq-workspace-empty {

@@ -7,11 +7,10 @@
  * 引擎增强），画像为启发式推断 —— 底部固定一行「仅供娱乐参考」。
  */
 
-import { useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { BrainCircuit, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
-import { AnalyticsSkeleton } from '../AnalyticsSkeleton';
 import { useIntentSenseStatus } from './context';
 import { useTabActive } from '../RetainedTabs';
 import '../../styles/intent-sense.css';
@@ -24,6 +23,25 @@ const MBTI_LABELS: Record<string, [string, string]> = {
 };
 
 const TIER_LABELS = ['初识', '熟络', '亲近', '挚友', '羁绊'];
+
+function ProfileSkeleton() {
+  return (
+    <div
+      className="weq-int-profile weq-int-profile-skeleton"
+      role="status"
+      aria-live="polite"
+      aria-label="正在生成互动画像"
+    >
+      <span className="sr-only">正在生成互动画像…</span>
+      {['affinity', 'mbti', 'radar', 'topics', 'note'].map((section) => (
+        <div key={section} className={`weq-int-profile-placeholder is-${section}`} aria-hidden>
+          <span />
+          <span />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** 五轴雷达（纯 SVG；中心 0 分、外圈 100 分）。 */
 function Radar({ axes }: { axes: Array<{ axis: string; value: number }> }) {
@@ -110,6 +128,7 @@ export function IntentProfileDialog({
   const active = useTabActive();
   const [refreshing, setRefreshing] = useState(false);
   const status = useIntentSenseStatus();
+  const utils = trpc.useUtils();
   const profile = trpc.account.intentSense.getProfile.useQuery(
     { peerUid, revision: status.data?.profileRevision },
     {
@@ -121,6 +140,13 @@ export function IntentProfileDialog({
   );
 
   const data = profile.data;
+  useEffect(() => {
+    if (data === undefined) return;
+    utils.account.intentSense.getProfile.setData(
+      { peerUid, revision: status.data?.profileRevision, cachedOnly: true },
+      data,
+    );
+  }, [data, peerUid, status.data?.profileRevision, utils]);
   const mbtiDims = useMemo(
     () =>
       (data?.mbti.dims ?? [])
@@ -156,7 +182,8 @@ export function IntentProfileDialog({
             className="icon-button"
             title="重新计算"
             aria-label="重新计算"
-            disabled={refreshing}
+            disabled={refreshing || profile.isFetching || profile.isLoading}
+            aria-busy={refreshing || profile.isFetching || profile.isLoading}
             onClick={async () => {
               setRefreshing(true);
               try {
@@ -181,14 +208,16 @@ export function IntentProfileDialog({
           ) : null}
         </span>
       </header>
-      <div className="group-keyword-body">
+      <div className="group-keyword-body" aria-busy={profile.isFetching || refreshing}>
         {profile.error ? (
           <p className="weq-int-note" role="alert">
-            画像读取失败：{profile.error.message}
+            {data ? '画像更新失败，保留上次结果' : '画像读取失败'}：{profile.error.message}
+            。可重新计算。
           </p>
-        ) : profile.isLoading ? (
-          <AnalyticsSkeleton variant="buddy" />
-        ) : !data ? (
+        ) : null}
+        {!data && profile.isLoading ? (
+          <ProfileSkeleton />
+        ) : !data && profile.error ? null : !data ? (
           <p className="weq-int-note" role="status">
             暂无可分析的对方消息，未生成互动画像。
           </p>

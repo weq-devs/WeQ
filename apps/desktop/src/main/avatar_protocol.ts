@@ -18,6 +18,7 @@
 
 import { getAppContext } from './context/app_context';
 import { imagePreview } from './image_preview';
+import { avatarResponse } from './avatar_response';
 
 export const AVATAR_SCHEME = 'weq-avatar';
 
@@ -56,9 +57,7 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
   try {
     if (url.searchParams.get('preview') === '1') {
       const data = await imagePreview(async () => (await cache.get(src, 'avatar')).data);
-      return new Response(new Uint8Array(data), {
-        headers: { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=300' },
-      });
+      return avatarResponse({ data, contentType: 'image/webp' }, request);
     }
     const blob = await ctx.bootstrap.avatarCache.get(
       src,
@@ -68,16 +67,7 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
     if (blob.data.length === 0) {
       return new Response('avatar empty', { status: 502 });
     }
-    return new Response(new Uint8Array(blob.data), {
-      status: 200,
-      headers: {
-        'Content-Type': blob.contentType,
-        // Let the renderer / Chromium memory-cache it too; the on-disk cache is
-        // authoritative (and applies the TTL), so keep this short — a long
-        // max-age would outlive the disk entry and pin a stale avatar.
-        'Cache-Control': 'public, max-age=300',
-      },
-    });
+    return avatarResponse(blob, request);
   } catch {
     return new Response('avatar fetch failed', { status: 502 });
   }

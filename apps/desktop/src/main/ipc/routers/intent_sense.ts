@@ -20,15 +20,22 @@ import { observable } from '@trpc/server/observable';
 import {
   getActiveIntentSenseLocalEngine,
   getAppContext,
+  requireBootstrap,
   type AccountServices,
   type IntentSenseModelProgress,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
 import {
   MAX_INTENT_CONTEXT_MESSAGES,
   INTENT_TUNING,
   type IntentTuningKey,
+  MAX_SUGGESTION_FALLBACK_TEXTS,
+  MAX_SUGGESTION_FALLBACK_LENGTH,
+  validateSuggestionFallbackTexts,
 } from '@weq/service/intent-context';
+import { normalizeIntentSenseConfig, type IntentSenseStatus } from '@weq/service';
+import { normalizeSharedIntentPreferences } from '@weq/service/shared-preferences';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -47,13 +54,24 @@ export function isIntentModelDownloading(): boolean {
 }
 
 const kindSchema = z.enum(['c2c', 'group']);
+const suggestionRequestSchema = z.object({
+  kind: kindSchema,
+  conv: z.string().min(1),
+  revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  replyAllowed: z.boolean().optional(),
+  targetId: z.string().nullable().optional(),
+  refresh: z.boolean().optional(),
+});
 const tuning = (key: IntentTuningKey) => {
   const rule = INTENT_TUNING[key];
   const schema = z.number().min(rule.min).max(rule.max);
   return ('step' in rule ? schema : schema.int()).optional();
 };
 
-const configPatch = z.object({
+export const configPatch = z.object({
+  analysisMode: z.enum(['auto', 'manual']).optional(),
+  profileMode: z.enum(['auto', 'manual']).optional(),
+  suggestionMode: z.enum(['auto', 'manual']).optional(),
   analysisTemperature: tuning('analysisTemperature'),
   suggestionTemperature: tuning('suggestionTemperature'),
   suggestionCount: tuning('suggestionCount'),
@@ -72,6 +90,7 @@ const configPatch = z.object({
   apiTimeoutSeconds: tuning('apiTimeoutSeconds'),
   apiCooldownSeconds: tuning('apiCooldownSeconds'),
   suggestionCacheSeconds: tuning('suggestionCacheSeconds'),
+  suggestionExpiryMinutes: tuning('suggestionExpiryMinutes'),
   profileMessages: tuning('profileMessages'),
   profileSamples: tuning('profileSamples'),
   profileMinSamples: tuning('profileMinSamples'),
@@ -90,16 +109,64 @@ const configPatch = z.object({
   analyzeAfterSelf: z.boolean().optional(),
   persistentDisplay: z.boolean().optional(),
   hoverDisplay: z.boolean().optional(),
+  loadingAnimation: z.boolean().optional(),
+  suggestionFallbackEnabled: z.boolean().optional(),
+  suggestionFallbackTexts: z
+    .array(z.string().trim().min(1).max(MAX_SUGGESTION_FALLBACK_LENGTH))
+    .max(MAX_SUGGESTION_FALLBACK_TEXTS)
+    .refine((value) => {
+      try {
+        validateSuggestionFallbackTexts(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }, '回退内容不能重复')
+    .optional(),
+  suggestionHistoryLimit: tuning('suggestionHistoryLimit'),
   suggestAfterSelf: z.boolean().optional(),
   analysisContextMessages: z.number().int().min(0).max(MAX_INTENT_CONTEXT_MESSAGES).optional(),
   suggestionContextMessages: z.number().int().min(0).max(MAX_INTENT_CONTEXT_MESSAGES).optional(),
   hfMirror: z.boolean().optional(),
 });
 
-const intentSenseFeatureProcedures = {
+export function sharedIntentStatus(): IntentSenseStatus {
+  const context = getAppContext();
+  if (context.services) return context.services.intentSense.getStatus();
+  const engine = getActiveIntentSenseLocalEngine();
+  const boot = requireBootstrap();
+  const config = normalizeSharedIntentPreferences(boot.userConfig.getSharedPreference('intent'));
+  const available = (ref: typeof config.providerRef) => {
+    try {
+      if (!ref) return false;
+      boot.agentLabConfig.resolveEndpoint(ref, 'chat');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return {
+    ...config,
+    settingsRevision: boot.userConfig.sharedPreferenceRevision(),
+    analysisRevision: 0,
+    suggestionRevision: 0,
+    profileRevision: 0,
+    apiConfigured: available(config.providerRef),
+    suggestionApiConfigured: available(config.suggestionProviderRef),
+    profileAvailable:
+      config.profileEngine === 'heuristic' ||
+      (config.profileEngine === 'api'
+        ? available(config.profileProviderRef)
+        : Boolean(engine?.forModel?.(config.profileLocalModelId)?.ready ?? engine?.ready)),
+    localAvailable: Boolean(engine),
+    localReady: Boolean(engine?.ready),
+  };
+}
+
+export const intentSenseFeatureProcedures = {
   /** 当前配置 + 引擎可用性（apiConfigured / localAvailable）。 */
   getStatus: procedure.query(() => {
-    const status = requireServices().intentSense.getStatus();
+    const status = sharedIntentStatus();
     if (status.enabled && status.engine === 'local') {
       const engine = getActiveIntentSenseLocalEngine();
       if (engine?.isModelDownloaded()) {
@@ -111,7 +178,20 @@ const intentSenseFeatureProcedures = {
 
   /** 更新全局配置（缺省字段保持原值）。 */
   setConfig: procedure.input(configPatch).mutation(async ({ input }) => {
-    const status = await requireServices().intentSense.setConfig(input);
+    const services = getAppContext().services;
+    let status: IntentSenseStatus;
+    if (services) status = await services.intentSense.setConfig(input);
+    else {
+      const owner = requireBootstrap().userConfig;
+      const next = normalizeIntentSenseConfig({ ...sharedIntentStatus(), ...input });
+      if (
+        next.profileSamples > next.profileMessages ||
+        next.profileMinSamples > next.profileSamples
+      )
+        throw new Error('画像推断最少样本不能超过采样上限，采样上限不能超过统计消息范围');
+      owner.patchSharedPreference('intent', { ...input, featureSettingsVersion: 2 });
+      status = sharedIntentStatus();
+    }
     if (status.enabled && status.engine === 'local') {
       const engine = getActiveIntentSenseLocalEngine();
       if (engine?.isModelDownloaded()) {
@@ -128,11 +208,17 @@ const intentSenseFeatureProcedures = {
         kind: kindSchema,
         id: z.string().min(1),
         enabled: z.boolean().nullable(),
+        ...optionalAccountBinding,
       }),
     )
-    .mutation(({ input }) =>
-      requireServices().intentSense.setConversationOverride(input.kind, input.id, input.enabled),
-    ),
+    .mutation(({ input }) => {
+      assertAccountBinding(input);
+      return requireServices().intentSense.setConversationOverride(
+        input.kind,
+        input.id,
+        input.enabled,
+      );
+    }),
 
   /** 清空当前账号下所有会话的意图分析缓存与建议缓存。 */
   clearCache: procedure.mutation(() => requireServices().intentSense.clearCache()),
@@ -171,31 +257,68 @@ const intentSenseFeatureProcedures = {
 
   /** 悬停未命中缓存时的单条分析。 */
   analyzeMessage: procedure
-    .input(z.object({ kind: kindSchema, conv: z.string().min(1), msgId: z.string().min(1) }))
+    .input(
+      z.object({
+        kind: kindSchema,
+        conv: z.string().min(1),
+        msgId: z.string().min(1),
+        manual: z.boolean().optional(),
+      }),
+    )
     .mutation(({ input }) =>
-      requireServices().intentSense.analyzeMessage(input.kind, input.conv, input.msgId),
+      requireServices().intentSense.analyzeMessage(input.kind, input.conv, input.msgId, {
+        manual: input.manual,
+      }),
     ),
 
   /** 对方互动画像；无可分析对方消息时为 null。仅私聊有语义。 */
   getProfile: procedure
     .input(
-      z.object({ peerUid: z.string().min(1), revision: z.number().int().nonnegative().optional() }),
+      z.object({
+        peerUid: z.string().min(1),
+        revision: z.number().int().nonnegative().optional(),
+        cachedOnly: z.boolean().optional(),
+      }),
     )
-    .query(({ input }) => requireServices().intentSense.getProfile(input.peerUid)),
+    .query(({ input }) =>
+      requireServices().intentSense.getProfile(input.peerUid, { cachedOnly: input.cachedOnly }),
+    ),
 
-  /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
-  getSuggestions: procedure
-    // 版本隔离缓存；自动查询可暂停，手动刷新不改变功能和会话开关。
+  /** 读取本会话逐轮回复历史及实际输入末条的定位信息。 */
+  getSuggestionHistory: procedure
+    .input(z.object({ kind: kindSchema, conv: z.string().min(1) }))
+    .query(({ input }) =>
+      requireServices().intentSense.getSuggestionHistory(input.kind, input.conv),
+    ),
+
+  stopSuggestions: procedure
+    .input(z.object({ kind: kindSchema, conv: z.string().min(1) }))
+    .mutation(({ input }) => requireServices().intentSense.stopSuggestions(input.kind, input.conv)),
+
+  getSuggestionDetails: procedure
     .input(
       z.object({
         kind: kindSchema,
         conv: z.string().min(1),
-        revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-        replyAllowed: z.boolean().optional(),
-        targetId: z.string().nullable().optional(),
-        refresh: z.boolean().optional(),
+        id: z.string().min(1).max(128).optional(),
       }),
     )
+    .query(({ input }) =>
+      requireServices().intentSense.getSuggestionDetails(input.kind, input.conv, input.id),
+    ),
+
+  getSuggestionRound: procedure.input(suggestionRequestSchema).query(({ input }) =>
+    input.replyAllowed === false
+      ? null
+      : requireServices().intentSense.getSuggestionRound(input.kind, input.conv, {
+          refresh: input.refresh,
+        }),
+  ),
+
+  /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
+  getSuggestions: procedure
+    // 版本隔离缓存；自动查询可暂停，手动刷新不改变功能和会话开关。
+    .input(suggestionRequestSchema)
     .query(({ input }) =>
       input.replyAllowed === false
         ? []
@@ -210,6 +333,11 @@ const intentSenseFeatureProcedures = {
       const off = requireServices().intentSense.onAnalyzed((event) => emit.next(event));
       return off;
     });
+  }),
+  onAnalysisProgress: procedure.subscription(() => {
+    return observable<import('@weq/service').IntentAnalysisProgress>((emit) =>
+      requireServices().intentSense.onAnalysisProgress((event) => emit.next(event)),
+    );
   }),
 };
 

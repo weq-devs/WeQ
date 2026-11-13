@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { readFile, access } from 'node:fs/promises';
@@ -26,12 +27,17 @@ vi.mock('../src/main/context/app_context', () => {
     messageSend: { sendFile: f.sendFile },
     fileResource: { trustPath: f.trustPath, untrustPath: f.untrustPath },
   };
+  const bootstrap = () => ({
+    userConfig: { getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: false } }) },
+  });
   return {
+    accountEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: '10001' } },
       services: f.switched ? { ...services } : services,
-      bootstrap: { userConfig: { getSettings: () => ({ autoAttachQq: true }) } },
+      bootstrap: bootstrap(),
     }),
+    requireBootstrap: bootstrap,
   };
 });
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };

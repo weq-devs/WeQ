@@ -277,16 +277,22 @@ it('异步上下文保留后台优先级，空闲等待随账号取消，不依�
   );
   let current = true,
     quiet = false;
-  const pending = waitForDatabaseQuiet('/synthetic/quiet.db', () => current, 0).then((value) => {
-    quiet = value;
-    return value;
-  });
+  const onWait = vi.fn();
+  const pending = waitForDatabaseQuiet('/synthetic/quiet.db', () => current, 0, onWait).then(
+    (value) => {
+      quiet = value;
+      return value;
+    },
+  );
   await new Promise((done) => setTimeout(done, 110));
   expect(quiet).toBe(false);
+  expect(onWait).toHaveBeenCalledTimes(1);
   current = false;
   expect(await pending).toBe(false);
   finish();
   await active;
   await until(() => databasePerformance('/synthetic/quiet.db').inFlight === 0);
-  expect(await waitForDatabaseQuiet('/synthetic/quiet.db', () => true, 0)).toBe(true);
+  const immediate = vi.fn();
+  expect(await waitForDatabaseQuiet('/synthetic/quiet.db', () => true, 0, immediate)).toBe(true);
+  expect(immediate).not.toHaveBeenCalled();
 });

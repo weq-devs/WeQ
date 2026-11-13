@@ -8,9 +8,13 @@
  */
 
 import { CheckCircle2, Download, Gauge, Loader2, RefreshCw, RotateCw } from 'lucide-react';
+import { AutoSave } from './AutoSave';
 import type { ReactElement } from 'react';
+import { useNumericSettingDraft } from './useNumericSettingDraft';
+import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
-import { Card } from './controls';
+import { Card, Row, Toggle } from './controls';
+import '../../styles/update-settings.css';
 
 function fmtBytes(bytes: number): string {
   if (!bytes) return '0 MB';
@@ -28,6 +32,12 @@ function fmtSpeed(bps: number): string {
 
 export function UpdateCard(): ReactElement {
   const {
+    intervalMinutes,
+    intervalReady,
+    setIntervalMinutes,
+    includePrerelease,
+    changingPrerelease,
+    setPrerelease,
     phase,
     latest,
     current,
@@ -35,10 +45,17 @@ export function UpdateCard(): ReactElement {
     mirrorName,
     mirrorCount,
     isDev,
+    isManaged,
     check,
     download,
     install,
   } = useAppUpdate();
+  const [intervalValue, setIntervalDraft] = useNumericSettingDraft(
+    'update:interval',
+    intervalReady ? intervalMinutes : undefined,
+    intervalMinutes,
+  );
+  const minutes = intervalValue.trim() === '' ? NaN : Number(intervalValue);
 
   const hasNew =
     phase === 'available' ||
@@ -54,17 +71,61 @@ export function UpdateCard(): ReactElement {
       : '软件更新';
 
   return (
-    <Card title="软件更新">
+    <Card title="软件更新" icon={<Download size={15} strokeWidth={1.8} />}>
+      <Row
+        settingId="update-check-interval"
+        label="自动检查更新频率"
+        desc="单位：分钟；-1 表示永不"
+        control={
+          <AutoSave
+            resetKeys={['interval']}
+            value={intervalValue.trim() ? Number(intervalValue) : ''}
+            saved={intervalMinutes}
+            ready={intervalReady}
+            valid={isUpdateCheckInterval(minutes)}
+            save={async (text) => {
+              await setIntervalMinutes(Number(text));
+            }}
+            reset={() => setIntervalDraft(String(intervalMinutes))}
+          >
+            <div className="weq-update-interval-control">
+              <input
+                type="number"
+                className="weq-set-input"
+                aria-label="自动检查更新频率（分钟）"
+                min={-1}
+                step="any"
+                value={intervalValue}
+                disabled={!intervalReady}
+                aria-invalid={!isUpdateCheckInterval(minutes)}
+                onChange={(event) => setIntervalDraft(event.target.value)}
+              />
+            </div>
+          </AutoSave>
+        }
+      />
+      <Row
+        settingId="update-prerelease"
+        label="检查测试版"
+        control={
+          <Toggle
+            label="检查测试版"
+            checked={includePrerelease}
+            disabled={
+              changingPrerelease || ['checking', 'downloading', 'installing'].includes(phase)
+            }
+            onChange={(enabled) => void setPrerelease(enabled)}
+          />
+        }
+      />
       <div className="weq-set-row">
         <div className="weq-set-row-main">
-          <span className="weq-set-row-label">
+          <span
+            className="weq-set-row-label"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+          >
             {phase === 'uptodate' ? (
-              <CheckCircle2
-                size={14}
-                strokeWidth={2}
-                aria-hidden
-                style={{ verticalAlign: '-2px', marginRight: 4 }}
-              />
+              <CheckCircle2 size={14} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
             ) : null}
             {label}
           </span>
@@ -95,8 +156,14 @@ export function UpdateCard(): ReactElement {
               type="button"
               className="weq-set-btn"
               onClick={() => void download()}
-              disabled={isDev}
-              title={isDev ? '开发模式不支持自更新' : undefined}
+              disabled={isDev || isManaged}
+              title={
+                isDev
+                  ? '开发模式不支持自更新'
+                  : isManaged
+                    ? '当前版本由系统包管理器安装，请用 paru -Syu 更新'
+                    : undefined
+              }
             >
               <Download size={14} strokeWidth={1.8} aria-hidden />
               立即更新
@@ -157,7 +224,9 @@ export function UpdateCard(): ReactElement {
       <p className="weq-set-note">
         {isDev
           ? '开发模式仅可检查更新；自动下载安装需使用打包后的安装版。'
-          : '更新通过 GitHub 加速站自动测速下载，无需手动下载安装包。'}
+          : isManaged
+            ? '当前版本由系统包管理器（AUR）安装：请用 paru -Syu 或 pacman -Syu 更新，应用内不接管安装。'
+            : '更新通过 GitHub 加速站自动测速下载，无需手动下载安装包。'}
       </p>
     </Card>
   );

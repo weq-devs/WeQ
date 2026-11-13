@@ -170,13 +170,6 @@ const MODIFY_REQ = message([
   { name: 'field12', tag: 12, type: 'uint32' },
 ]);
 
-const MOVE_REQ = message([
-  { name: 'field1', tag: 1, type: 'uint32' },
-  { name: 'osVersion', tag: 2, type: 'string' },
-  { name: 'opType', tag: 3, type: 'uint32' },
-  { name: 'emojis', tag: 4, type: FACE_EMOJI, repeated: true },
-]);
-
 const CUSTOM_FACE_RESP_ENTRY = message([
   { name: 'emoji', tag: 1, type: FACE_EMOJI },
   { name: 'legacyDesc', tag: 2, type: 'string' },
@@ -296,40 +289,6 @@ export namespace ModifyCustomFace {
   export const invoke = (nt: OidbNative, pid: number, params: Params): Promise<void> =>
     invokeOidb(nt, pid, ModifyCustomFace as OidbSpec<Params, void>, params);
 }
-
-export interface MoveCustomFaceParams {
-  /** 旧接口保留的列表参数；请求体与详情读取一致，不再用于提交排序。 */
-  emojis: CustomFaceRef[];
-}
-
-/** @deprecated 旧迁移命名；其 wire 与详情相同，不应作为必需的排序写入。 */
-export namespace MoveCustomFace {
-  export const command = 0x902e;
-  export const subCommand = 1;
-  /** Linux 不签，Windows 签（scripts/probe-sign.ts / issue #126）。 */
-  export const uinForm = true;
-  export const reqSchema = MOVE_REQ;
-  export const respSchema = CUSTOM_FACE_RESP;
-
-  export type Params = MoveCustomFaceParams;
-
-  export const serialize = (p: Params): Record<string, unknown> => {
-    if (!p.emojis.length) throw new Error('emojis 不能为空');
-    return {
-      field1: 1,
-      osVersion: FACEROAM_OS_VERSION,
-      opType: 2,
-      emojis: p.emojis.map((e) => ({ emojiId: e.emojiId, md5: e.md5 })),
-    };
-  };
-
-  export const deserialize = (body: Record<string, unknown>): void =>
-    assertOidbRetCode('收藏表情排序上传', body);
-
-  export const invoke = (nt: OidbNative, pid: number, params: Params): Promise<void> =>
-    invokeOidb(nt, pid, MoveCustomFace as OidbSpec<Params, void>, params);
-}
-
 export interface OrderCustomFaceParams {
   emojiId: string;
   /** 已验证仅支持 1（移到最前），不是任意位置序号。 */

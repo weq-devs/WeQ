@@ -11,7 +11,7 @@
 
 .weq-close-services-title {
   margin: 0 0 0.4rem;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--weq-fg-secondary);
 }
@@ -32,7 +32,7 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--weq-fg-secondary);
 }
@@ -44,4 +44,22 @@
   height: 5px;
   border-radius: 999px;
   background: var(--weq-accent-effective);
+}
+
+/* 「不再询问」改用设置页的 CheckPill；这里只补与弹窗文字基线的对齐。 */
+html[data-theme] body .weq-close .weq-close-remember {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 危险动作（完全退出）用语义告警色，不写死红值，深色与自定义强调色都成立。 */
+html[data-theme] body .weq-close .weq-close-opt.is-danger .weq-close-opt-ico {
+  color: var(--weq-list-alert-ink);
+  background: color-mix(in srgb, var(--weq-list-alert-ink) 12%, transparent);
+}
+
+html[data-theme] body .weq-close .weq-close-opt.is-danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-list-alert-ink) 40%, transparent);
+  background: color-mix(in srgb, var(--weq-list-alert-ink) 8%, transparent);
 }

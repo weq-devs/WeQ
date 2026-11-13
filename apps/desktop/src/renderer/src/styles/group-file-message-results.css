@@ -1,0 +1,70 @@
+.weq-file-message-results {
+  margin: 8px 0;
+  padding: 10px 0;
+  border-block: 1px solid var(--weq-border-strong);
+  color: var(--weq-fg-primary);
+}
+.weq-file-message-results header,
+.weq-file-message-results li button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.weq-file-message-results header {
+  justify-content: space-between;
+}
+.group-file-dialog .weq-file-message-results > header {
+  padding: 0;
+  border: 0;
+}
+.group-file-dialog .weq-file-message-results > header strong {
+  font-size: 13px;
+}
+.weq-file-message-results strong,
+.weq-file-message-results li span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.weq-file-message-results svg {
+  flex-shrink: 0;
+}
+.weq-file-message-results ul {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.weq-file-message-results li button {
+  width: 100%;
+  padding: 8px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+.weq-file-message-results li button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-file-message-results button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+.weq-file-message-results p {
+  font-size: 13px;
+  color: var(--weq-fg-secondary);
+}
+html[data-theme='dark'] .weq-file-message-results li button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+@container groupfiles (max-width: 440px) {
+  .weq-file-row-tools > .weq-file-locate {
+    position: absolute;
+    left: 34px;
+    bottom: 7px;
+    width: 28px;
+    height: 28px;
+  }
+}

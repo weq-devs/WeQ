@@ -24,3 +24,22 @@ export function groupNotificationMode(level: number | undefined): GroupNotificat
       return 'unknown';
   }
 }
+import type { ConversationPreference } from '../im-template/template/types';
+
+export function mutedFromNotifyLevel(level: number | undefined): boolean {
+  return level !== undefined && level !== 0 && level !== 1;
+}
+
+/** 群目录先于最近会话到达时，也按同一通知状态显示免打扰。 */
+export function groupDirectoryPreference(
+  notifyLevel: number | undefined,
+  previous?: ConversationPreference,
+  pinned?: boolean,
+): ConversationPreference {
+  const preference = { pinned: false, muted: false, blocked: false, ...previous };
+  return {
+    ...preference,
+    muted: notifyLevel === undefined ? preference.muted : mutedFromNotifyLevel(notifyLevel),
+    pinned: pinned ?? preference.pinned,
+  };
+}

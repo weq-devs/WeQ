@@ -27,7 +27,7 @@ export {
   mediaRelPath,
   annotateExportPaths,
 } from './element_text';
-export { exportGroupToJson, type JsonExportOptions } from './json_exporter';
+export { exportGroupToJson } from './json_exporter';
 export { exportGroupToJsonl } from './jsonl_exporter';
 export {
   exportJsonConversation,

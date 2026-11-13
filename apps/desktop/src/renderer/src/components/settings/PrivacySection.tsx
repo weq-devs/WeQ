@@ -16,9 +16,13 @@ export function PrivacySection() {
         <SectionHeader title="隐私" icon={<EyeOff size={16} />} />
       </div>
       <div className="weq-set">
-        <Card title="隐私模式" settingId="privacy-mode">
+        <Card
+          title="隐私模式"
+          icon={<EyeOff size={15} strokeWidth={1.8} />}
+          settingId="privacy-mode"
+        >
           <Row
-            label="隐私模式"
+            label="启用隐私模式"
             desc="仅遮盖界面中的个人信息，不加密或修改原始数据，也不改变普通导出的内容。"
             control={<Toggle label="隐私模式" checked={enabled} onChange={set} />}
           />

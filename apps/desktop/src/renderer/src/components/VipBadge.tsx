@@ -1,3 +1,4 @@
+import * as timeFormat from '@weq/time';
 /**
  * 顶栏昵称后的会员徽标（VIP / SVIP / 大会员）。
  *
@@ -29,12 +30,7 @@ const TIER_NAME: Record<VipTier, string> = {
 
 /** `YYYY-MM-DD`（按用户本地时区）。 */
 function expireText(seconds: number | undefined): string | null {
-  if (!seconds) return null;
-  const at = new Date(seconds * 1000);
-  if (Number.isNaN(at.getTime())) return null;
-  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(
-    at.getDate(),
-  ).padStart(2, '0')}`;
+  return seconds ? timeFormat.formatUnixTime(seconds) || null : null;
 }
 
 export function VipBadge({ className }: { className?: string }) {

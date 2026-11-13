@@ -1,8 +1,24 @@
-.weq-shell-actions {
+.weq-startup-titlebar {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 20;
+  display: flex;
+  height: 48px;
+  padding-right: 16px;
+  -webkit-app-region: no-drag;
+}
+.weq-startup-drag {
+  flex: 1;
+  min-width: 24px;
+  -webkit-app-region: drag;
+}
+.weq-shell-actions {
+  position: relative;
+  flex-shrink: 0;
+  align-self: stretch;
+  justify-content: center;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -13,4 +29,37 @@
 }
 .weq-shell-actions button {
   -webkit-app-region: no-drag;
+}
+.weq-shell-actions :is(.weq-shell-log-btn, .weq-shell-close-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--weq-fg-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+.weq-shell-actions :is(.weq-shell-log-btn, .weq-shell-close-btn):hover {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+.weq-shell-actions button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+@media (max-width: 520px) {
+  .weq-shell-actions .weq-restricted-indicator span {
+    display: none;
+  }
+}
+
+/* 账号页底部有常驻的账号操作栏；右下角通知不能压在「添加账号 / 导入备份」上。
+   只在启动工作区抬高（任何 .weq-select 都算），不影响主界面。 */
+body:has(.weq-home-shell .weq-select) .weq-toast-host:not(.is-web) {
+  bottom: 104px;
 }

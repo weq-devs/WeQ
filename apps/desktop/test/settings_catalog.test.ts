@@ -17,9 +17,17 @@ describe('basic_settings_navigation', () => {
       const group = settingsGroupFor('call-recording');
       expect(SETTINGS_GROUPS[1]?.label).toBe('基础功能');
       expect(group.label).toBe('基础功能');
-      expect(group.sections.indexOf('call-recording')).toBe(3);
+      // 联系人名片（7dded8b8 起）排在互动与防撤回之后，通话录音紧随其后。
+      expect(group.sections.slice(0, 3)).toEqual([
+        'chat-messages',
+        'message-display',
+        'chat-interaction',
+      ]);
+      expect(group.sections.indexOf('call-recording')).toBe(
+        group.sections.indexOf('contact-card') + 1,
+      );
       expect(settingsGroupFor('message-display').id).toBe(group.id);
-      expect(group.sections.slice(4)).toEqual(['qzone', 'mail']);
+      expect(group.sections.slice(-2)).toEqual(['qzone', 'mail']);
       expect(settingsSectionFor('call-recording')).toBe('call-recording');
       expect(settingsScopeFor('call-recording')).toBeNull();
     });
@@ -64,9 +72,6 @@ describe('feature_search', () => {
       ['MCP 客户端配置', 'mcp'],
       ['推送地址', 'sse'],
       ['QQ 公众号推送端口', 'assistant'],
-      ['QQ 昵称', 'qq-accounts'],
-      ['个性签名', 'qq-accounts'],
-      ['在线状态', 'qq-accounts'],
       ['WeQ 验证器', 'privacy'],
     ])('%s 可检索且指向所属设置页面 %s', (keyword, section) => {
       expect(
@@ -74,6 +79,13 @@ describe('feature_search', () => {
           (entry) => entry.target.kind === 'setting' && entry.target.section === section,
         ),
       ).toBe(true);
+    });
+    it.each(['QQ 昵称', '个性签名', '在线状态'])('%s 不再指向已迁出的 QQ 账号设置页', (keyword) => {
+      expect(
+        searchAppEntries(keyword).some(
+          (entry) => entry.target.kind === 'setting' && entry.target.section === 'qq-accounts',
+        ),
+      ).toBe(false);
     });
     it.each([
       ['定时导出', 'scheduled'],
@@ -117,8 +129,8 @@ describe('feature_search', () => {
       try {
         const web = await import('../src/renderer/src/components/search/appSearchCatalog');
         for (const keyword of [
-          '启用 Web 服务',
-          '启动 WeQ 时自动开启 Web 服务',
+          '允许本机浏览器访问',
+          '启动 WeQ 时自动允许本机浏览器访问',
           '允许远程连接',
           '设备配对',
           'Tailscale',
@@ -180,11 +192,8 @@ describe('feature_search', () => {
         item: '显示消息序号（seq）',
         settingId: 'message-seq',
       });
-      expect(searchAppEntries('缓存目录')[0]?.target).toEqual({
-        kind: 'setting',
-        section: 'weq-storage',
-        item: '缓存目录',
-      });
+      for (const keyword of ['缓存目录', '默认保存目录', '默认保存方式'])
+        expect(searchAppEntries(keyword)).toEqual([]);
     });
 
     it('所有可见设置分区均可搜索，条目身份唯一且排名稳定', () => {
@@ -208,11 +217,16 @@ describe('feature_search', () => {
         expect(result.path).toBe('设置 / 常规 / 隐私');
         expect(result.target).toMatchObject({ kind: 'setting', section: 'privacy' });
       }
-      for (const keyword of ['备份与恢复', '设置备份', '导入备份', '恢复默认设置']) {
+      for (const keyword of ['备份与恢复', '设置备份', '导入备份']) {
         const result = searchAppEntries(keyword)[0]!;
         expect(result.path).toBe('设置 / 关于 WeQ / 配置备份与恢复');
         expect(result.target).toMatchObject({ kind: 'setting', section: 'backup' });
       }
+      expect(searchAppEntries('恢复默认设置')[0]?.target).toMatchObject({
+        kind: 'setting',
+        section: 'startup',
+        settingId: 'weq-config-management',
+      });
     });
 
     it.each(['常驻显示', '悬停显示'])('%s 指向意图感知而不是没有该控件的推荐回复页', (item) => {

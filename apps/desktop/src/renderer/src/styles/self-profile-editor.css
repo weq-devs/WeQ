@@ -1,5 +1,22 @@
-/* 资料概览行（头像 + 昵称 / QQ 号）。**不要**复用 `.weq-self-profile-header`：
-   那个类名是弹窗标题栏的，两份 CSS 的 padding / 字体互相串味。 */
+.weq-profile-region-editor :is(select, input) {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+.weq-profile-region-editor :is(select, input) {
+  min-height: 36px;
+}
+.weq-profile-region-editor :is(select, input):focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+.weq-profile-region-editor :is(select, input):disabled {
+  opacity: 0.55;
+}
+.weq-self-profile-additional > .weq-set-row + .weq-set-row {
+  border-top: 1px solid color-mix(in srgb, var(--weq-border-subtle) 70%, transparent);
+}
 .weq-self-profile-overview {
   display: flex;
   align-items: center;
@@ -101,35 +118,10 @@
 html[data-theme='dark'] .weq-self-profile-avatar-action {
   border-color: var(--weq-bg-surface);
 }
-@media (max-width: 520px) {
+@media (max-width: 760px) {
   .weq-self-profile-basics {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
-  }
-  html[data-theme] :is(.weq-self-profile-basics, .weq-self-profile-signature) .weq-set-row-main {
-    flex: 0 0 auto;
-  }
-  html[data-theme] :is(.weq-self-profile-basics, .weq-self-profile-signature) .weq-set-row-ctrl {
-    margin-left: 0;
-    width: 100%;
-  }
-  html[data-theme] .weq-self-profile-dialog .weq-set-card {
-    padding: 12px 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-  }
-  .weq-self-profile-dialog :is(input, select, textarea) {
-    font-size: 16px;
-    min-height: 44px;
-  }
-  .weq-self-profile-dialog .weq-set-iconbtn {
-    width: 44px;
-    height: 44px;
-    flex-shrink: 0;
-  }
-  html[data-theme='dark'] .weq-self-profile-dialog .weq-set-card {
-    background: transparent;
   }
 }
 .weq-profile-region-editor {
@@ -143,10 +135,10 @@ html[data-theme='dark'] .weq-self-profile-avatar-action {
 .weq-profile-region-editor input {
   min-width: 0;
   max-width: 150px;
-  padding: 6px 8px;
-  color: var(--foreground);
-  background: var(--background);
-  border: 1px solid var(--border);
+  padding: 7px 9px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-strong);
   border-radius: 6px;
 }
 html[data-theme='dark'] .weq-profile-region-editor select,

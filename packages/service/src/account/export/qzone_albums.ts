@@ -255,7 +255,7 @@ export async function exportQzoneAlbums(
     entry.observation.revision = entry.record.revision;
   }
   for (const format of opts.formats)
-    if (format === 'json' || format === 'jsonl')
+    if (format === 'json' || format === 'jsonl' || format === 'jsonl.gz')
       await archive.write(join(metadataRoot, `index.${format}`), format);
   if (opts.formats.includes('txt'))
     await writeFile(

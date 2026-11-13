@@ -1,7 +1,7 @@
 # WeQ 导出格式设计
 
 状态：**设计与生产接入并行维护**，2026-11-05（北京时间）。正式读写、当前业务适配、
-查看投影及聊天增量已开始接入，具体源码与验证范围见[实施记录](../unified-export-implementation-20261105.md)。
+查看投影及聊天增量已开始接入。
 schema 的完整覆盖要求不等于所有来源字段已取得；应用版本未修改，个人历史归档未批量转换。
 
 ## 通用设计理念
@@ -34,7 +34,7 @@ schema 的完整覆盖要求不等于所有来源字段已取得；应用版本�
 - [消息及频道](messages.md)、[空间](qzone.md)、[收藏](collections.md)、[邮箱](mail.md)
 - [联系人、群与成员](directory.md)、[生成对话](generated.md)、[资源目录](resources.md)
 - [源码覆盖矩阵](coverage.md)、[合成验证与回执](validation.md)
-- [机器 schema 与示例](../../../schemas/export/v1/README.md)
+- [机器 schema 与示例](https://github.com/weq-devs/WeQ/blob/dev/schemas/export/v1/README.md)
 
 七个领域各有一个统一入口，basic/full 只是导出内容范围，共用 JSON 文档和 JSONL 行 schema。
 native 为可选附加数据，profile 不参与格式分派；full 的字段提取要求仍须完整落实。schema 中的

@@ -13,6 +13,7 @@ export type MessageCategory =
 export interface MessageFilter {
   /** 精确行身份集合，含漫游来源前缀；空集合不等于全部，不转浮点数。 */
   messageIds?: string[];
+  forwardTarget?: { elementIndex: number; resId: string };
   sender?: string;
   keyword?: string;
   category?: MessageCategory;

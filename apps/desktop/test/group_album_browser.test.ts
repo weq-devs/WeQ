@@ -9,19 +9,25 @@ import {
 import { useViewState } from '../src/renderer/src/state/view';
 import { albumMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import { makeSolidPng } from '@weq/protocol';
-import { QzoneMediaPreview } from '../src/renderer/src/components/QzoneMediaPreview';
+import { MediaPreview } from '../src/renderer/src/components/MediaPreview';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 
-const state = vi.hoisted(() => ({
-  configId: 'source-a',
-  web: false,
-  albums: vi.fn(async (_input: unknown): Promise<GroupAlbumWire[]> => []),
-  media: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
-  access: vi.fn(async () => ({ qqOnline: true })),
-  save: vi.fn(async (_input: unknown) => 'media-task'),
-}));
+const state = vi.hoisted(() => {
+  vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
+  return {
+    configId: 'source-a',
+    permissions: { canManage: false, selfUin: '10001' } as
+      | { canManage: boolean; selfUin: string }
+      | undefined,
+    web: false,
+    albums: vi.fn(async (_input: unknown): Promise<GroupAlbumWire[]> => []),
+    media: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
+    access: vi.fn(async () => ({ qqOnline: true })),
+    save: vi.fn(async (_input: unknown) => 'media-task'),
+  };
+});
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
     return state.web;
@@ -59,6 +65,12 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
+      qqActions: {
+        groupPermissions: { useQuery: () => ({ data: state.permissions, error: null }) },
+      },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
+      ocrChatImage: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
     },
   },
@@ -104,8 +116,11 @@ function picture(id: string, kind: 'image' | 'video' = 'image') {
 let dispose: (() => void) | undefined;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+  vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
   useViewState.setState({ openedUin: '10001' });
   state.configId = 'source-a';
+  state.permissions = { canManage: false, selfUin: '10001' };
   state.web = false;
   state.albums.mockReset().mockResolvedValue([album('a', '合成相册甲'), album('b', '合成相册乙')]);
   state.media.mockReset().mockResolvedValue([picture('photo-a'), picture('video-b', 'video')]);
@@ -130,7 +145,12 @@ async function resumeWindow() {
   });
 }
 async function mount(
-  options: { initialAlbums?: GroupAlbumWire[]; initialAlbumId?: string; groupCode?: string } = {},
+  options: {
+    initialAlbums?: GroupAlbumWire[];
+    initialAlbumId?: string;
+    groupCode?: string;
+    standalone?: boolean;
+  } = {},
 ) {
   const host = document.createElement('div');
   document.body.append(host);
@@ -140,6 +160,8 @@ async function mount(
       h(GroupAlbumDialog, {
         groupCode: options.groupCode || '12345',
         groupName: '合成群',
+        standalone: options.standalone,
+        embedded: options.standalone,
         onClose: vi.fn(),
         initialAlbums: options.initialAlbums,
         initialAlbumId: options.initialAlbumId,
@@ -181,7 +203,7 @@ function capture(name: string) {
     'group-album-browser',
     'qq-actions',
     'qq-write',
-    'qzone-preview',
+    'unified-media-preview',
     'export-save-actions',
     'media-save',
     'conversation-actions',
@@ -196,6 +218,49 @@ function capture(name: string) {
     `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;height:100%;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}</style>${clone.outerHTML}</html>`,
   );
 }
+it('普通成员不显示别人的相册或媒体删除，权限未知也不显示', async () => {
+  const otherAlbum = { ...album('a'), createUin: 10002 };
+  state.albums.mockResolvedValue([otherAlbum]);
+  state.media.mockResolvedValue([{ ...picture('other'), uploader: '10002' }]);
+  const view = await mount();
+  await openFirst();
+  expect(document.querySelector('[aria-label="删除相册"]')).toBeNull();
+  expect(document.querySelector('[aria-label="编辑相册"]')).toBeNull();
+  capture('non-manager');
+  await act(async () => button('预览 other.jpg').click());
+  expect(document.querySelector('[aria-label="删除相册媒体"]')).toBeNull();
+  state.permissions = undefined;
+  await act(async () => view.update());
+  expect(document.querySelector('[aria-label="删除相册媒体"]')).toBeNull();
+});
+it('管理员可管理他人相册，创建者保留自己相册的管理入口', async () => {
+  state.albums.mockResolvedValue([{ ...album('a'), createUin: 10002 }]);
+  state.permissions = { canManage: true, selfUin: '10001' };
+  await mount();
+  await openFirst();
+  expect(document.querySelector('[aria-label="删除相册"]')).not.toBeNull();
+});
+it('普通成员仍能管理自己创建的相册', async () => {
+  await mount();
+  await openFirst();
+  expect(document.querySelector('[aria-label="删除相册"]')).not.toBeNull();
+  expect(document.querySelector('[aria-label="编辑相册"]')).not.toBeNull();
+});
+it('独立相册只使用目录面包屑，不叠加旧返回导航', async () => {
+  await mount({ standalone: true });
+  expect(document.querySelector('[aria-label="群相册目录"]')).not.toBeNull();
+  expect(button('返回上级目录').disabled).toBe(true);
+  const name = document.querySelector('.group-album-card')!.getAttribute('title');
+  await openFirst();
+  expect(document.querySelector('.group-album-dialog > header strong')?.textContent).toBe('群相册');
+  expect(document.querySelector('.group-album-back')).toBeNull();
+  expect(
+    document.querySelector('[aria-label="群相册目录"] [aria-current="page"]')?.textContent,
+  ).toBe(name);
+  await act(async () => button('返回上级目录').click());
+  expect(document.querySelectorAll('.group-album-card')).toHaveLength(2);
+});
+
 it('返回相册后迟到媒体请求不得重新打开已离开的相册', async () => {
   let finish!: (items: unknown[]) => void;
   state.media.mockReturnValueOnce(
@@ -245,6 +310,24 @@ it('图片视频筛选和文件名搜索只筛本次结果，网格不挂载逐�
   act(() => button('上传图片').click());
   expect(document.querySelector('[aria-label="上传到群相册"]')).not.toBeNull();
 });
+it('只有显式实况位显示标识，预览静音；普通视频与缺失字段不猜测', async () => {
+  state.media.mockResolvedValue([
+    { ...picture('live', 'video'), isLivePhoto: true },
+    { ...picture('normal', 'video'), isLivePhoto: false },
+    picture('unknown', 'video'),
+  ]);
+  await mount();
+  await openFirst();
+  expect(
+    [...document.querySelectorAll('.group-album-media-play')]
+      .map((node) => node.textContent)
+      .filter((text) => text === '实况'),
+  ).toHaveLength(1);
+  capture('live-flag');
+  await act(async () => button('预览 live.mp4').click());
+  expect(document.querySelector('video')?.muted).toBe(true);
+  expect(document.body.textContent).toContain('实况');
+});
 it('大相册分批展示但连续预览可导航到当前批次外，不冒充网络分页', async () => {
   state.media.mockResolvedValueOnce(
     Array.from({ length: 241 }, (_, index) => picture(`photo-${index}`)),
@@ -278,7 +361,7 @@ it('连续预览只挂载当前媒体操作和公共保存，视频传本体而�
     savePolicy: { mode: 'before', directory: '/fixture/export' },
   });
   await act(async () => button('下一项媒体').click());
-  expect(document.querySelector('.weq-qz-preview-stage video')?.getAttribute('src')).toBe(
+  expect(document.querySelector('.weq-lightbox-stage video')?.getAttribute('src')).toBe(
     albumMediaUrl('https://example.invalid/video-b.mp4'),
   );
   expect(button('下一项媒体').disabled).toBe(true);
@@ -310,7 +393,7 @@ it('只有视频封面时按图片预览和保存，不把 jpg 传给 video', as
   await mount();
   await openFirst();
   await act(async () => button('预览 cover-only.mp4').click());
-  expect(document.querySelector('.weq-qz-preview-stage video')).toBeNull();
+  expect(document.querySelector('.weq-lightbox-stage video')).toBeNull();
   expect(document.querySelector('.group-album-preview-meta')?.textContent).toContain('仅显示封面');
   await act(async () => button('保存视频封面').click());
   expect(state.save.mock.calls[0]![0]).toMatchObject({
@@ -397,13 +480,17 @@ it('原图失败保留预览图并可重试，保存仍定位原图', async () =
   await mount();
   await openFirst();
   await act(async () => button('预览 raw-photo.jpg').click());
-  const image = document.querySelector<HTMLImageElement>('.weq-qz-preview-stage img')!;
+  const image = document.querySelector<HTMLImageElement>('.weq-lightbox-stage img')!;
   expect(image.src).toBe(albumMediaUrl(item.originalUrl));
   act(() => image.dispatchEvent(new Event('error')));
-  expect(image.src).toBe(albumMediaUrl(item.previewUrl));
+  expect(document.querySelector<HTMLImageElement>('.weq-lightbox-stage img')!.src).toBe(
+    albumMediaUrl(item.previewUrl),
+  );
   expect(button('重试读取原图')).not.toBeNull();
   await act(async () => button('重试读取原图').click());
-  expect(image.src).toBe(albumMediaUrl(item.originalUrl));
+  const retried = new URL(document.querySelector<HTMLImageElement>('.weq-lightbox-stage img')!.src);
+  expect(retried.searchParams.get('src')).toBe(item.originalUrl);
+  expect(retried.searchParams.get('_weq_retry')).toBe('1');
   await act(async () => button('保存图片').click());
   expect(state.save.mock.calls[0]![0]).toMatchObject({
     source: { url: albumMediaUrl(item.originalUrl) },
@@ -450,7 +537,7 @@ it('相册、媒体、上传及预览控件合成布局', async () => {
   await act(async () => button('预览 合成照片与视频-0.jpg').click());
   capture('preview');
 });
-it('原空间预览不传操作区时保持原布局、方向键与关闭行为', async () => {
+it('无业务操作时仍提供统一工具栏、方向键与关闭行为', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host),
@@ -461,7 +548,7 @@ it('原空间预览不传操作区时保持原布局、方向键与关闭行为'
   };
   await act(async () =>
     root.render(
-      h(QzoneMediaPreview, {
+      h(MediaPreview, {
         items: [
           { key: 'a', kind: 'image', src: 'https://example.invalid/a.jpg' },
           { key: 'b', kind: 'image', src: 'https://example.invalid/b.jpg' },
@@ -471,9 +558,9 @@ it('原空间预览不传操作区时保持原布局、方向键与关闭行为'
       }),
     ),
   );
-  const preview = document.querySelector<HTMLElement>('[aria-label="空间媒体预览"]')!;
-  expect(preview.classList.contains('has-actions')).toBe(false);
-  expect(preview.querySelector('footer')).toBeNull();
+  const preview = document.querySelector<HTMLElement>('.weq-unified-preview')!;
+  expect(preview.querySelector('.weq-preview-header')).not.toBeNull();
+  expect(preview.querySelector('footer')).not.toBeNull();
   act(() =>
     preview.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })),
   );

@@ -82,6 +82,39 @@
   overflow-wrap: anywhere;
 }
 
+.weq-profile-like-trigger {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.weq-profile-like-total {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 112px;
+  text-align: center;
+}
+
+.weq-profile-like-total strong {
+  max-width: 100%;
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-profile-like-total strong.is-unavailable {
+  font-size: 20px;
+}
+
+.weq-profile-like-total > span {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
 .weq-profile-like-preset {
   display: inline-flex;
   align-items: center;
@@ -125,10 +158,10 @@
   overflow-wrap: anywhere;
 }
 
-.weq-profile-likes-row .weq-profile-row-value {
+.weq-profile-likes-row .weq-profile-data-value {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--weq-profile-inline-gap);
   min-width: 0;
 }
 

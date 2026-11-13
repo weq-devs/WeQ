@@ -1,3 +1,4 @@
+import * as timeFormat from '../packages/time/src/index.mjs';
 // QQ club parcel metadata crawler (Node stdlib only, no deps).
 //
 // Endpoint : https://i.gtimg.cn/club/item/parcel/{id%10}/{id}_android.json
@@ -216,11 +217,9 @@ function human(n) {
 }
 
 function fmtTime(sec) {
-  if (!Number.isFinite(sec) || sec < 0 || sec > 86400) return '--';
-  if (sec < 60) return `${sec.toFixed(0)}s`;
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  return `${m}m${String(s).padStart(2, '0')}s`;
+  return !Number.isFinite(sec) || sec < 0 || sec > 86400
+    ? '--'
+    : timeFormat.formatDuration(sec, 'countdown');
 }
 
 // Crawl an inclusive fixed range; no early stop (skip internal holes).

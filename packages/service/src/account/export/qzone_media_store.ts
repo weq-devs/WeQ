@@ -42,7 +42,7 @@ export class QzoneMediaStore {
       if (existing) return await existing;
       const publish = (async (): Promise<QzoneStoredMedia> => {
         const fileName = outcome.sha256;
-        const handle = await open(temporary, 'r');
+        const handle = await open(temporary, 'r+');
         try {
           await handle.sync();
         } finally {

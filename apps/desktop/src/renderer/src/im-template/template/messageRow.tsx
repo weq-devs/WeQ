@@ -214,7 +214,11 @@ export const MessageRow = memo(function MessageRow({
   recallRevokerName?: string;
   onRestore?: (msgId: string) => Promise<void>;
   onContextMenu?: (event: ReactMouseEvent, message: Message) => void;
-  onLongPress?: (point: { x: number; y: number }, message: Message) => void;
+  onLongPress?: (
+    point: { x: number; y: number },
+    message: Message,
+    target?: EventTarget | null,
+  ) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onReedit?: (message: Message) => Promise<boolean>;
   /** 「可能未送达」占位的移除（见 MessageBubble 的同名 prop）。 */
@@ -270,7 +274,7 @@ export const MessageRow = memo(function MessageRow({
           .join(' ')}
         data-message-id={message.id}
         data-weq-select-id={selectionMode ? message.id : undefined}
-        tabIndex={selectionMode ? 0 : undefined}
+        tabIndex={selectionMode ? 0 : -1}
         onContextMenu={onContextMenu ? (event) => onContextMenu(event, message) : undefined}
         onClickCapture={
           selectionMode && onToggleSelect

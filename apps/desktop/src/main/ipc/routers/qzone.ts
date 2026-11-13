@@ -47,20 +47,35 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
-  detail: procedure.input(post).query(({ input }) =>
-    request(input, async (services, signal) => {
-      const detail = await services.webQuery.getQzonePostDetail(input.hostUin, input.tid, signal);
-      if (detail.post)
-        rememberQzonePosts(
-          services.contentSearch,
+  mediaTypes: procedure
+    .input(post.extend({ time: z.number().int().positive() }))
+    .query(({ input }) =>
+      request(input, (services, signal) =>
+        services.webQuery.getQzoneMediaTypes(input.hostUin, input.tid, input.time, signal),
+      ),
+    ),
+  detail: procedure
+    .input(post.extend({ time: z.number().int().positive().optional() }))
+    .query(({ input }) =>
+      request(input, async (services, signal) => {
+        const detail = await services.webQuery.getQzonePostDetail(
           input.hostUin,
-          [{ ...detail.post, content: detail.content }],
-          '',
-          true,
+          input.tid,
+          signal,
+          undefined,
+          input.time,
         );
-      return detail;
-    }),
-  ),
+        if (detail.post)
+          rememberQzonePosts(
+            services.contentSearch,
+            input.hostUin,
+            [{ ...detail.post, content: detail.content }],
+            '',
+            true,
+          );
+        return detail;
+      }),
+    ),
   images: procedure
     .input(post)
     .query(({ input }) =>
@@ -188,10 +203,20 @@ export const qzoneRouter = router({
       ),
     ),
   forwards: procedure
-    .input(post.extend({ offset: z.number().int().min(0).max(100_000) }))
+    .input(
+      post.extend({
+        cursor: z
+          .object({
+            attachInfo: z.string().min(1).max(8192),
+            previousPageKey: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .nullable()
+          .default(null),
+      }),
+    )
     .query(({ input }) =>
       request(input, (services, signal) =>
-        services.webQuery.getQzoneForwardPage(input.hostUin, input.tid, input.offset, signal),
+        services.webQuery.getQzoneForwardPage(input.hostUin, input.tid, input.cursor, signal),
       ),
     ),
   feedCounts: procedure

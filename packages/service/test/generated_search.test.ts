@@ -97,26 +97,29 @@ describe('当前账号生成内容搜索', () => {
       time: 1,
       observedAt: 1,
     };
-    const searchContent = vi.fn(() => ({
-      items: [guild],
-      total: 1,
+    const searchContent = vi.fn((category: string) => ({
+      items: category === 'guildMessage' ? [guild] : [],
+      total: category === 'guildMessage' ? 1 : 0,
       coverage: { scope: 'local-database' as const, records: 1, limited: false, updatedAt: null },
     }));
     const service = new UnifiedSearchService(session, { generatedSources: sources, searchContent });
     const full = await service.moreSearch('chatRecord', 'hello', 0, 20, 'all');
-    expect(full.total).toBe(6);
+    expect(full.total).toBe(7);
     expect(new Set(full.items.map((hit) => hit.category))).toEqual(
-      new Set(['chatRecord', 'cloneMessage', 'guildMessage']),
+      new Set(['chatRecord', 'cloneMessage', 'assistantMessage', 'guildMessage']),
     );
     const pages = await Promise.all(
-      [0, 2, 4].map((offset) => service.moreSearch('chatRecord', 'hello', offset, 2, 'all')),
+      [0, 2, 4, 6].map((offset) => service.moreSearch('chatRecord', 'hello', offset, 2, 'all')),
     );
     expect(pages.flatMap((page) => page.items)).toEqual(full.items);
     searchContent.mockClear();
     const real = await service.slowSearch('hello', 3, ['chatRecord'], 'real');
     expect(real.messageHits).toHaveLength(1);
     expect(real.messageHits?.[0]?.category).toBe('chatRecord');
-    expect(searchContent).not.toHaveBeenCalled();
+    expect(searchContent.mock.calls.map((call) => call[0])).toEqual([
+      'groupBulletin',
+      'groupEssence',
+    ]);
   });
   it('仅克隆范围将身份并入联系人和群聊，消息合并分页且不访问真实或频道来源', async () => {
     const searchContent = vi.fn();

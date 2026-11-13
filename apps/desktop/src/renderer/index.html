@@ -5,9 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: resource: weq-asset: weq-avatar: weq-media: https://thirdqq.qlogo.cn https://p.qlogo.cn http://qh.qlogo.cn https://qh.qlogo.cn https://multimedia.nt.qq.com.cn http://tianquan.gtimg.cn https://gxh.material.qq.com http://*.photo.store.qq.com https://*.photo.store.qq.com http://*.qpic.cn https://*.qpic.cn http://imgcache.qq.com https://imgcache.qq.com https://qqbot.ugcimg.cn https://bot-resource-1251316161.file.myqcloud.com https://tangram-1251316161.file.myqcloud.com https://static-res.qq.com https://res.qpt.qq.com https://downv6.qq.com https://*.is.autonavi.com; media-src 'self' weq-media: blob: data: https://res.qpt.qq.com; font-src 'self' data: weq-media:; connect-src 'self' weq-asset: weq-avatar: weq-media: ws: wss:;" />
     <title>WeQ Desktop</title>
+    <script src="/startup-theme.js"></script>
+    <link rel="stylesheet" href="/src/styles/startup-progress.css" />
   </head>
   <body class="bg-background text-foreground antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <main class="weq-initial-startup" role="status" data-weq-startup-pending>
+        <div class="weq-warmup">
+          <div class="weq-warmup-logo" role="img" aria-label="WeQ"></div>
+          <div class="weq-warmup-progress">
+            <div class="weq-warmup-track" role="progressbar" aria-label="启动进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="5">
+              <div class="weq-warmup-bar" data-determinate style="width: 5%"></div>
+            </div>
+            <div class="weq-warmup-status"><span>正在加载启动界面</span><span class="weq-warmup-count">5%</span></div>
+          </div>
+        </div>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

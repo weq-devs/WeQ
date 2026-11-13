@@ -5,6 +5,7 @@ import {
 import { decorationImageCache } from './decodedImageCache';
 import { fontFaces } from './fontFaces';
 import type { QueryClient } from '@tanstack/react-query';
+import { RESOURCE_LIGHT_REQUEST } from '../../../shared/performance_monitor';
 
 let diagnosticQueries: QueryClient | null = null;
 
@@ -45,6 +46,13 @@ export function installResourceDiagnostics(): () => void {
   const meta = document.createElement('meta');
   meta.id = RESOURCE_DIAGNOSTIC_ID;
   document.head.appendChild(meta);
+  const lightSample = () => {
+    meta.content = JSON.stringify({
+      ...decorationImageCache.stats(),
+      managedFonts: fontFaces.count(),
+      loadingFonts: fontFaces.loading(),
+    });
+  };
   const sample = () => {
     const styles = document.querySelectorAll<HTMLStyleElement>(
       '[data-weq-msg-decoration], #weq-dress-skin',
@@ -63,8 +71,10 @@ export function installResourceDiagnostics(): () => void {
     });
   };
   document.addEventListener(RESOURCE_DIAGNOSTIC_REQUEST, sample);
+  document.addEventListener(RESOURCE_LIGHT_REQUEST, lightSample);
   return () => {
     document.removeEventListener(RESOURCE_DIAGNOSTIC_REQUEST, sample);
+    document.removeEventListener(RESOURCE_LIGHT_REQUEST, lightSample);
     meta.remove();
   };
 }

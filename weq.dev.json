@@ -1,0 +1,7 @@
+{
+  "native": {
+    "mode": "release",
+    "jobs": 2
+  },
+  "userDataDir": ".dev-profile"
+}

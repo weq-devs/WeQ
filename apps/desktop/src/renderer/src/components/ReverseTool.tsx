@@ -1,4 +1,5 @@
-﻿/**
+﻿import { formatDateTime } from '@weq/time';
+/**
  * 维护与诊断工具「Protobuf / JCE 逆向」面板。
  *
  * 输入 hex / base64 → 按 protobuf 或 JCE（QQHook TarsParser 语义）解析为
@@ -692,7 +693,9 @@ function RvInt({ v, comma }: { v: Extract<RvValue, { k: 'int' }>; comma: boolean
       cls = 'weq-wtools-rv-str';
       break;
     case 'time':
-      shown = ts ? new Date(ts.value).toLocaleString() : String(display);
+      shown = ts
+        ? `推测：${formatDateTime(ts.value, ts.unit === 'ms' ? 'millisecond' : 'second')}`
+        : String(display);
       break;
     case 'unsigned':
       shown = v.raw.toString();
@@ -716,7 +719,15 @@ function RvInt({ v, comma }: { v: Extract<RvValue, { k: 'int' }>; comma: boolean
 
   return (
     <span className="weq-wtools-rv-value">
-      <span className={`${cls}${effectiveView !== 'dec' ? ' weq-wtools-rv-converted' : ''}`}>
+      <span
+        className={`${cls}${effectiveView !== 'dec' ? ' weq-wtools-rv-converted' : ''}`}
+        title={
+          effectiveView === 'time' && ts
+            ? `原值 ${v.raw}；按数值范围推测为 Unix ${ts.unit === 'ms' ? '毫秒' : '秒'}，显示北京时间`
+            : undefined
+        }
+        tabIndex={effectiveView === 'time' ? 0 : undefined}
+      >
         {shown}
       </span>
       {detail

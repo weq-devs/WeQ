@@ -34,6 +34,7 @@ import {
   type MediaSource,
   type MediaUploadResult,
   type MediaUploadTarget,
+  type UploadImageParams,
   uploadImageMsgInfo,
   uploadPttMsgInfo,
   uploadVideoMsgInfo,
@@ -329,6 +330,10 @@ export interface SendDress {
 /** 图片：上传后拼成 `commonElem(serviceType=48, businessType=20)`。 */
 export interface SendImageElement {
   kind: 'image';
+  /** 转发原图的下载标识，服务层接入统一媒体下载服务。 */
+  download?: { fileToken: string; originalUrl?: string };
+  /** 服务层注入的惰性取图回调，不经 IPC 传输。 */
+  resolveSource?: UploadImageParams['resolveSource'];
   /** 本地路径或内存字节。给 `fingerprint` 时可留空（不读）。 */
   source: MediaSource;
   /** 收端显示的文件名；缺省 `<md5><扩展名>`。 */

@@ -59,7 +59,7 @@ func runLAN(ctx context.Context, dir string, port int, handler http.Handler, rea
 	if err != nil {
 		return err
 	}
-	listener, err := tls.Listen("tcp4", net.JoinHostPort("0.0.0.0", strconv.Itoa(port)), &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
+	listener, err := net.Listen("tcp4", net.JoinHostPort("0.0.0.0", strconv.Itoa(port)))
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func runLAN(ctx context.Context, dir string, port int, handler http.Handler, rea
 		}
 		handler.ServeHTTP(w, r)
 	})
-	server := &http.Server{Handler: restricted, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
+	server := &http.Server{Handler: restricted, TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	defer server.Close()
 	boundPort := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	addresses := []string{}
@@ -92,7 +92,8 @@ func runLAN(ctx context.Context, dir string, port int, handler http.Handler, rea
 	digest := sha256.Sum256(cert.Certificate[0])
 	ready(event{State: "online", Addresses: addresses, Fingerprint: hex.EncodeToString(digest[:])})
 	done := make(chan error, 1)
-	go func() { done <- server.Serve(listener) }()
+	// ServeTLS 配置 ALPN 与 HTTP/2；手动 tls.Listen + Serve 不会完成这一步。
+	go func() { done <- server.ServeTLS(listener, "", "") }()
 	select {
 	case <-ctx.Done():
 		return nil

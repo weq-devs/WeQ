@@ -5,6 +5,7 @@ import {
   validateWeqAccountSettings,
 } from './backup_settings';
 import { validateWeqClientSettings } from '../common/backup_client';
+import { validateClientState } from './client_state';
 import { normalizeExportPresets } from './user_config';
 import { validateWeqAccountPreference } from './backup_accounts';
 import {
@@ -435,6 +436,7 @@ export function validateWeqBackupData(bundle: WeqBackupBundle): void {
     const value = parseWeqBackupJson(file.data);
     if (file.path === 'settings/app.json') validateWeqAppSettings(value);
     else if (file.path === 'settings/client.json') validateWeqClientSettings(value);
+    else if (file.path === 'settings/shared.json') validateClientState(value);
     else if (file.path === 'settings/export-presets.json') {
       const input = row(value, file.path);
       const normalized = normalizeExportPresets(value);

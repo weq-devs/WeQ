@@ -16,6 +16,9 @@
  */
 
 import { app } from 'electron';
+import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
+import { UpdateCheckScheduler } from './scheduler';
+import { existsSync } from 'node:fs';
 import semver from 'semver';
 import electronUpdater from 'electron-updater';
 import { FILE_MIRRORS, resolveBestMirror } from './mirrors';
@@ -27,6 +30,7 @@ import {
   usesMacVerifiedArchiveUpdater,
 } from './mac';
 import type { MacUpdatePlan } from './mac_install';
+import { isPackageManaged, managedUpdateHint } from './managed';
 import {
   getUpdateState,
   setUpdateActions,
@@ -41,14 +45,52 @@ const { autoUpdater } = electronUpdater;
 
 let lastCheckedAt = 0;
 const CHECK_TTL_MS = 5 * 60_000;
+let preferences = { get: () => false, set: (_enabled: boolean): void => {} };
+let preferenceRevision = 0;
+const intervalPreferences = {
+  getInterval: () => DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+  setInterval: (_minutes: number): void => {},
+};
+const updateScheduler = new UpdateCheckScheduler(async () => {
+  if (downloading || downloaded || installing) return;
+  try {
+    await checkForUpdate(true);
+  } catch (error) {
+    updateBus.emit('event', { kind: 'check-failed' } satisfies UpdateEvent);
+    throw error;
+  }
+});
+
+export function startAutomaticUpdateChecks(): void {
+  if (!app.isPackaged) return;
+  updateScheduler.configure(intervalPreferences.getInterval(), true);
+  app.once('will-quit', () => updateScheduler.stop());
+}
+
+export function setCheckPrerelease(enabled: boolean): void {
+  if (downloading || installing) throw new Error('请等待当前更新完成后再切换测试版检查');
+  preferences.set(enabled);
+  preferenceRevision++;
+  setUpdateState(null);
+  downloaded = false;
+  macPlan = null;
+}
 
 function isDev(): boolean {
   return !app.isPackaged;
 }
 
+/**
+ * 运行环境是否由发行版包管理器托管（AUR）。每次现算而不是模块级常量：
+ * 测试要能在同一个进程里切换两种形态，而真实运行中它不会变。
+ */
+function packageManaged(): boolean {
+  return isPackageManaged({ env: process.env, execPath: process.execPath, exists: existsSync });
+}
+
 function isNewer(latest: string, current: string): boolean {
-  const a = semver.coerce(latest);
-  const b = semver.coerce(current);
+  const a = semver.valid(latest);
+  const b = semver.valid(current);
   return a && b ? semver.gt(a, b) : false;
 }
 
@@ -59,21 +101,32 @@ function isNewer(latest: string, current: string): boolean {
 export async function checkForUpdate(force = false): Promise<UpdateState> {
   const current = app.getVersion();
   const cached = getUpdateState();
-  if (!force && cached && Date.now() - lastCheckedAt < CHECK_TTL_MS) {
+  const includePrerelease = preferences.get();
+  const revision = preferenceRevision;
+  if (
+    !force &&
+    cached &&
+    cached.includePrerelease === includePrerelease &&
+    Date.now() - lastCheckedAt < CHECK_TTL_MS
+  ) {
     return cached;
   }
 
   // Let the UI show "testing N mirrors…" instead of a blank 4–6s wait: this is
   // the slow phase (every dead mirror burns its full screen timeout).
   updateBus.emit('event', { kind: 'checking', mirrors: FILE_MIRRORS.length } satisfies UpdateEvent);
-  const best = await resolveBestMirror();
+  const best = await resolveBestMirror(undefined, includePrerelease);
+  if (revision !== preferenceRevision) throw new Error('更新检查选项已改变，请重新检查');
   const hasUpdate = isNewer(best.version, current);
   const state: UpdateState = {
+    includePrerelease,
+    channel: best.channel,
     current,
     latest: best.version,
     hasUpdate,
     base: best.base,
     ranked: best.ranked,
+    managed: packageManaged(),
   };
   setUpdateState(state);
   lastCheckedAt = Date.now();
@@ -165,6 +218,9 @@ function attemptDownload(base: string): Promise<void> {
 
     autoUpdater.on('error', onError);
     autoUpdater.setFeedURL({ provider: 'generic', url: base });
+    autoUpdater.allowPrerelease = getUpdateState()?.includePrerelease === true;
+    autoUpdater.channel = getUpdateState()?.channel ?? 'latest';
+    autoUpdater.allowDowngrade = false;
     autoUpdater
       .checkForUpdates()
       .then((result) => {
@@ -183,6 +239,9 @@ function attemptDownload(base: string): Promise<void> {
  */
 export async function startDownload(): Promise<void> {
   if (isDev()) throw new Error('开发模式不支持自更新，请使用打包后的安装版。');
+  // 包管理器托管的副本没有可写的安装目录：与其让 autoUpdater 在全部镜像上
+  // 失败一遍（Linux 走 AppImageUpdater，`$APPIMAGE` 不存在），不如直接给出正解。
+  if (packageManaged()) throw new Error(managedUpdateHint(true) ?? '当前安装不支持自动更新。');
   if (downloading || installing) return;
   downloading = true;
   downloaded = false;
@@ -238,7 +297,7 @@ async function downloadUpdate(): Promise<void> {
     // 下载事件只说明 ZIP 已落地；官方哈希与固定发布身份通过后才允许安装。
     const update = macDownload as { file: string; version: string } | null;
     if (!update?.file) throw new Error('未取得 macOS 更新包路径');
-    macPlan = await prepareMacUpdate(update.file, update.version);
+    macPlan = await prepareMacUpdate(update.file, update.version, state.includePrerelease === true);
     downloaded = true;
     updateBus.emit('event', { kind: 'downloaded', latest: update.version } satisfies UpdateEvent);
   }
@@ -252,6 +311,7 @@ export function isInstallingUpdate(): boolean {
 /** 下载验证完成后退出、安装并重新打开应用。 */
 export function quitAndInstall(): void {
   if (isDev()) throw new Error('开发模式不支持自更新。');
+  if (packageManaged()) throw new Error(managedUpdateHint(true) ?? '当前安装不支持自动更新。');
   if (!downloaded) throw new Error('更新尚未下载完成，请先下载更新。');
   if (installing) return;
   installing = true;
@@ -267,7 +327,12 @@ export function quitAndInstall(): void {
 }
 
 /** Wire this Electron implementation into the shell-agnostic update router. */
-export function installUpdateActions(): void {
+export function installUpdateActions(
+  options?: typeof preferences & Partial<typeof intervalPreferences>,
+): void {
+  if (options) preferences = options;
+  if (options?.getInterval) intervalPreferences.getInterval = options.getInterval;
+  if (options?.setInterval) intervalPreferences.setInterval = options.setInterval;
   if (process.platform === 'darwin' && app.isPackaged) {
     // 等新版本真正完成首个页面加载，不能在原生初始化前就删除回退副本。
     app.once('browser-window-created', (_event, window) => {
@@ -277,6 +342,13 @@ export function installUpdateActions(): void {
     });
   }
   setUpdateActions({
+    getInterval: () => intervalPreferences.getInterval(),
+    setInterval: (minutes) => {
+      intervalPreferences.setInterval(minutes);
+      if (app.isPackaged) updateScheduler.configure(minutes);
+    },
+    getPrerelease: () => preferences.get(),
+    setPrerelease: setCheckPrerelease,
     supported: true,
     check: checkForUpdate,
     startDownload,

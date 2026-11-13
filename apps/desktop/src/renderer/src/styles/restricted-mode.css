@@ -115,8 +115,33 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.weq-restricted-body > .weq-qq-debug + .weq-restricted-actions {
-  margin-top: 12px;
+.weq-restricted-qq {
+  width: 100%;
+  min-width: 0;
+}
+.weq-restricted-qq-primary {
+  width: 156px;
+  justify-content: center;
+}
+.weq-restricted-more {
+  align-self: center;
+  min-width: 0;
+}
+.weq-restricted-more summary {
+  cursor: pointer;
+  padding: 6px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-restricted-more[open] {
+  flex-basis: 100%;
+}
+.weq-restricted-more[open] summary {
+  margin-bottom: 6px;
+}
+.weq-restricted-qq button {
+  max-width: 100%;
+  white-space: normal;
 }
 html[data-theme='dark'] .weq-restricted-panel {
   background: var(--weq-bg-elevated);

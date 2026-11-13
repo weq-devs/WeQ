@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import {
   mkdirSync,
   mkdtempSync,
@@ -26,6 +27,7 @@ const state = vi.hoisted(() => ({
   uin: '10001',
   configId: 'fixture-source',
   automatic: true,
+  ocrPrefilter: false,
   failedDatabasePath: '',
   nativePath: '',
   nativeDirectory: '',
@@ -40,19 +42,27 @@ const state = vi.hoisted(() => ({
     reason: '',
   })),
 }));
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
-    account: { context: { uin: state.uin } },
-    services: state.services,
-    bootstrap: {
-      ocrModels: { listByKind: () => [] },
-      userConfig: {
-        getSettings: () => ({ autoAttachQq: state.automatic }),
-        getLocalModelId: () => null,
-      },
+vi.mock('../src/main/context/app_context', () => {
+  const bootstrap = () => ({
+    ocrModels: { listByKind: () => [] },
+    userConfig: {
+      getSettings: () => ({
+        autoAttachQq: state.automatic,
+        ocr: { prefilterEnabled: state.ocrPrefilter },
+      }),
+      getLocalModelId: () => null,
     },
-  }),
-}));
+  });
+  return {
+    accountEventBus: new EventEmitter(),
+    getAppContext: () => ({
+      account: { context: { uin: state.uin } },
+      services: state.services,
+      bootstrap: bootstrap(),
+    }),
+    requireBootstrap: bootstrap,
+  };
+});
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
   clientKeyExpiryMs: () => Date.now() + 60000,

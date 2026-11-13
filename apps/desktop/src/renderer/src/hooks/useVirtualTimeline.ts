@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { defaultRangeExtractor, useVirtualizer, type Range } from '@tanstack/react-virtual';
+import { useVirtualizer, type Range, type Virtualizer } from '@tanstack/react-virtual';
 import {
   messageElement,
   registerTimelineViewport,
@@ -11,8 +11,10 @@ import {
   type ConversationReadingPosition,
 } from '../lib/conversationReadingPosition';
 import '../styles/virtual-timeline.css';
+import { useMobileWebLayout } from './useMobileWebViewport';
+import { timelineViewportRange } from '../lib/timelinePreload';
 
-export const TIMELINE_VIRTUAL_THRESHOLD = 150;
+export const TIMELINE_VIRTUAL_THRESHOLD = 40;
 export const TIMELINE_OVERSCAN = 6;
 const keepNativeScroll = () => false;
 export function useVirtualTimeline({
@@ -28,6 +30,7 @@ export function useVirtualTimeline({
   active?: boolean;
   orderedIds: readonly string[];
 }) {
+  const mobileWeb = useMobileWebLayout();
   const enabled = ids.length > TIMELINE_VIRTUAL_THRESHOLD;
   const previousMode = useRef({ scope, active });
   const suspendedAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
@@ -52,9 +55,18 @@ export function useVirtualTimeline({
     return result;
   }, [ids, orderedIds]);
   const key = useCallback((position: number) => ids[position]!, [ids]);
+  const instanceRef = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
   const rangeExtractor = useCallback(
     (range: Range) => {
-      const rendered = new Set(defaultRangeExtractor(range));
+      const instance = instanceRef.current;
+      const rendered = new Set(
+        timelineViewportRange(
+          range,
+          instance?.scrollRect?.height ?? 0,
+          (position) => instance?.itemSizeCache.get(ids[position]!),
+          instance?.scrollDirection ?? null,
+        ),
+      );
       // 正在播放的语音／视频不因滚出视口而中断；其他离屏媒体随虚拟行释放。
       for (const media of scrollRef.current?.querySelectorAll<HTMLElement>(
         '.qq-media-voice.is-playing, video',
@@ -66,24 +78,32 @@ export function useVirtualTimeline({
       }
       return [...rendered].sort((a, b) => a - b);
     },
-    [index, scrollRef],
+    [ids, index, scrollRef],
   );
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: ids.length,
     enabled: ids.length > 0,
     getScrollElement: () => scrollRef.current,
+    // 手机键盘连续改变视口时，避免在 ResizeObserver 同一轮里反复测量与改写布局。
+    useAnimationFrameWithResizeObserver: mobileWeb,
     estimateSize: () => 96,
     // 保留子像素高度；逐行取整会在短列表切入虚拟布局时积累数像素误差。
     measureElement: (element, entry, instance) => {
-      const index = instance.indexFromElement(element);
-      if (!element.getClientRects().length) {
+      const observed = entry?.borderBoxSize?.[0]?.blockSize;
+      // RO 已交付正高度时不重新触发布局；首次挂载仍同步测量，不延后一帧。
+      if (observed !== undefined && observed > 0) return observed;
+      const rects = element.getClientRects();
+      if (!rects.length) {
         // display:none 的零尺寸不是消息真实高度，不回灌阅读位置模型。
+        const index = instance.indexFromElement(element);
         return (
           instance.itemSizeCache.get(instance.options.getItemKey(index)) ??
           instance.options.estimateSize(index)
         );
       }
-      return entry?.borderBoxSize?.[0]?.blockSize ?? element.getBoundingClientRect().height;
+      return (
+        observed ?? (rects.length === 1 ? rects[0]!.height : element.getBoundingClientRect().height)
+      );
     },
     getItemKey: key,
     overscan: TIMELINE_OVERSCAN,
@@ -94,6 +114,7 @@ export function useVirtualTimeline({
     scrollEndThreshold: 48,
     rangeExtractor,
   });
+  instanceRef.current = virtualizer;
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = enabled ? undefined : keepNativeScroll;
   const context = useRef({ ids, index, orderedIds, virtualizer, scope, active, windowed: enabled });
   context.current = { ids, index, orderedIds, virtualizer, scope, active, windowed: enabled };

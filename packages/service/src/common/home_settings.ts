@@ -1,4 +1,5 @@
 export interface HomeSettings {
+  preferQqShow: boolean;
   showTags: boolean;
   showGreeting: boolean;
   showHitokoto: boolean;
@@ -6,6 +7,7 @@ export interface HomeSettings {
 }
 
 export const DEFAULT_HOME_SETTINGS: HomeSettings = {
+  preferQqShow: true,
   showTags: true,
   showGreeting: true,
   showHitokoto: true,
@@ -26,6 +28,7 @@ export function normalizeHomeSettings(value: unknown): HomeSettings {
       return true;
     });
   return {
+    preferQqShow: typeof input.preferQqShow === 'boolean' ? input.preferQqShow : true,
     showTags: typeof input.showTags === 'boolean' ? input.showTags : true,
     showGreeting: typeof input.showGreeting === 'boolean' ? input.showGreeting : true,
     showHitokoto: typeof input.showHitokoto === 'boolean' ? input.showHitokoto : true,

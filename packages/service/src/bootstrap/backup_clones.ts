@@ -110,7 +110,8 @@ export function snapshotWeqClones(
     const assetCache = new Map<string, string | null>();
     for (const name of names) {
       // bot_exports 是当前机器生成的机器人运行入口，包含过期地址／密钥，不是克隆数据。
-      if (!name.endsWith('.json') || name === 'bot_exports.json') continue;
+      if (!name.endsWith('.json') || name === 'bot_exports.json' || name === 'assistant.json')
+        continue;
       const path = `${prefix}/${name}`;
       weqBackupPart(path);
       const data = readWeqBackupFile(join(directory, name));
@@ -186,7 +187,7 @@ export function snapshotWeqClones(
       }
       add(path, Buffer.from(JSON.stringify(value)));
     }
-    for (const kind of ['stickers', 'voice', 'agentvoice', 'assistant_runs', 'reports']) {
+    for (const kind of ['stickers', 'voice', 'agentvoice', 'images', 'assistant_runs', 'reports']) {
       for (const name of directoryEntries(join(directory, kind))) {
         const path = `${prefix}/${kind}/${name}`;
         // 不收集模型、未知资源或目录中的数据库；只保留实际运行时可寻址的资产。
@@ -198,7 +199,7 @@ export function snapshotWeqClones(
         }
         if (assetCache.has(`${kind}\0${resolve(directory, kind, name)}`)) continue;
         const content = readWeqBackupFile(join(directory, kind, name));
-        if (kind === 'stickers' || kind === 'voice' || kind === 'agentvoice')
+        if (kind === 'stickers' || kind === 'voice' || kind === 'agentvoice' || kind === 'images')
           validateWeqCloneAsset(path, content);
         add(path, content);
       }

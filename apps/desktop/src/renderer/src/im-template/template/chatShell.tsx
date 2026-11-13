@@ -1,23 +1,28 @@
 ﻿// @ts-nocheck
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { useMobileWebViewport } from '../../hooks/useMobileWebViewport';
+import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useMobileWebLayout, useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
 import {
   useWorkspaceMainPageOpen,
   useWorkspacePageOpen,
   useWorkspaceSidecarOpen,
+  useWorkspaceMobilePage,
 } from '../../components/WorkspacePages';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
-import { SelfProfileDialog, TitleBar } from './TitleBar';
+import { TitleBar } from './TitleBar';
 import { IS_MAC, IS_WEB } from '../../lib/target';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
-import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
+import { MobileNavigationRuntime } from '../../components/MobileNavigationRuntime';
+import { MobileRootPreviews } from '../../components/MobileRootPreviews';
+import { RemoteShellMenuButton } from '../../components/RemoteShellMenus';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
+import type { ProfileGroup } from '../../lib/profileNavigation';
 
 export function ChatShell({
   user,
+  selfProfileGroup,
   view,
   query,
   contactTab,
@@ -34,7 +39,6 @@ export function ChatShell({
   groupNoticeCount,
   searchPanel,
   onSearchFocus,
-  onSearchReturn,
   sidebarContent,
   mainContent,
   children,
@@ -60,6 +64,7 @@ export function ChatShell({
   activeRailItem,
 }: {
   user: User;
+  selfProfileGroup?: ProfileGroup;
   view: MainView;
   query: string;
   contactTab: ContactTab;
@@ -77,7 +82,6 @@ export function ChatShell({
   /** 搜索框下方的浮层（统一搜索下拉 / 最近搜索）。 */
   searchPanel?: ReactNode;
   onSearchFocus?: () => void;
-  onSearchReturn?: () => boolean;
   sidebarContent: ReactNode;
   mainContent: ReactNode;
   children?: ReactNode;
@@ -103,36 +107,87 @@ export function ChatShell({
   activeRailItem?: 'settings' | 'dressup';
 }) {
   const pageOpen = useWorkspacePageOpen();
-  const [selfProfileOpen, setSelfProfileOpen] = useState(false);
-  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
+  const mobilePage = useWorkspaceMobilePage();
   const root = useRef<HTMLDivElement>(null);
-  useMobileWebViewport(root, IS_WEB);
+  const singleColumn = useMobileWebLayout();
+  const sharedShell = IS_WEB || singleColumn;
+  useMobileWebViewport(root, sharedShell);
   const mainPageOpen = useWorkspaceMainPageOpen();
   const sidecarOpen = useWorkspaceSidecarOpen();
   const sidebarHidden = mainPageOpen || (view === 'messages' && sidecarOpen);
   const shellStyle = {
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
-  const mobileDetail = pageOpen || ((view === 'messages' || view === 'contacts') && mainOpen);
-  const mobileWorkspace = view !== 'messages' && view !== 'contacts' && view !== 'tools';
+  const mobileDetail =
+    !mobilePage && (pageOpen || ((view === 'messages' || view === 'contacts') && mainOpen));
+  const mobileWorkspace =
+    Boolean(mobilePage) ||
+    (view !== 'messages' && view !== 'contacts' && view !== 'tools' && view !== 'more');
+  const renderSidebarHeader = (page: MainView, preview = false) => (
+    <SidebarHeader
+      user={user}
+      showSearch={false}
+      view={page}
+      query={query}
+      onQueryChange={onQueryChange}
+      onOpenProfile={onOpenProfile}
+      onOpenFriendNotices={onOpenFriendNotices}
+      onOpenGroupNotices={onOpenGroupNotices}
+      contactTab={contactTab}
+      onContactTabChange={onContactTabChange}
+      onRefreshContacts={onRefreshContacts}
+      refreshingContacts={refreshingContacts}
+      activeNotice={activeNotice}
+      searchPanel={preview ? undefined : searchPanel}
+      onSearchFocus={onSearchFocus}
+      friendNoticeCount={friendNoticeCount}
+      groupNoticeCount={groupNoticeCount}
+    />
+  );
 
   return (
     <div
       ref={root}
-      className={cn('app-shell-root', IS_MAC && 'is-mac', IS_WEB && 'weq-web-shell')}
+      className={cn(
+        'app-shell-root',
+        IS_MAC && 'is-mac',
+        !IS_WEB && 'is-desktop-shell',
+        sharedShell && 'weq-web-shell',
+      )}
       data-mobile-detail={mobileDetail || undefined}
       data-mobile-workspace={mobileWorkspace || undefined}
+      data-mobile-root-view={view}
       data-weq-diagnostic-view={import.meta.env.DEV ? view : undefined}
     >
-      {IS_WEB && (
+      <TitleBar
+        user={user}
+        group={selfProfileGroup}
+        windowOnly={!IS_WEB && singleColumn}
+        homeActive={view === 'home'}
+        onGoHome={onGoHome}
+        search={
+          <>
+            <TitleBarSearch
+              persistent
+              query={query}
+              onQueryChange={onQueryChange}
+              onSearchFocus={onSearchFocus}
+              results={searchPanel}
+            />
+            {!singleColumn && <RemoteShellMenuButton />}
+          </>
+        }
+      />
+      {sharedShell && <MobileNavigationRuntime root={root} />}
+      {sharedShell && (
         <MobileWebNavigation
           user={user}
+          selfProfileGroup={selfProfileGroup}
           view={view}
           hidden={mobileDetail}
           query={query}
           onQueryChange={onQueryChange}
           onSearchFocus={onSearchFocus}
-          onSearchReturn={onSearchReturn}
           searchPanel={searchPanel}
           messageBadgeCount={messageBadgeCount}
           onMessageBadgeClick={onMessageBadgeClick}
@@ -142,31 +197,8 @@ export function ChatShell({
           onOpenSettings={onOpenSettings}
           onOpenDressUp={onOpenDressUp}
           onOpenCollection={onOpenCollection}
-          onOpenProfile={() => setSelfProfileOpen(true)}
-          onLookupUser={() => setLookupOpen('user')}
-          onLookupGroup={() => setLookupOpen('group')}
-          onOpenFriendNotices={onOpenFriendNotices}
-          onOpenGroupNotices={onOpenGroupNotices}
-          accountControls={
-            typeof railFooterContent === 'function' ? railFooterContent(null) : railFooterContent
-          }
         />
       )}
-      <TitleBar
-        user={user}
-        homeActive={view === 'home'}
-        onGoHome={onGoHome}
-        search={
-          <TitleBarSearch
-            persistent
-            query={query}
-            onQueryChange={onQueryChange}
-            onSearchFocus={onSearchFocus}
-            onReturn={onSearchReturn}
-            results={searchPanel}
-          />
-        }
-      />
       <div className={cn('app-shell', view === 'tools' && 'app-shell-tools')} style={shellStyle}>
         <AppRail
           user={user}
@@ -203,25 +235,7 @@ export function ChatShell({
             view === 'channel' && 'is-channel-view',
           )}
         >
-          <SidebarHeader
-            user={user}
-            showSearch={false}
-            view={view}
-            query={query}
-            onQueryChange={onQueryChange}
-            onOpenProfile={onOpenProfile}
-            onOpenFriendNotices={onOpenFriendNotices}
-            onOpenGroupNotices={onOpenGroupNotices}
-            contactTab={contactTab}
-            onContactTabChange={onContactTabChange}
-            onRefreshContacts={onRefreshContacts}
-            refreshingContacts={refreshingContacts}
-            activeNotice={activeNotice}
-            searchPanel={searchPanel}
-            onSearchFocus={onSearchFocus}
-            friendNoticeCount={friendNoticeCount}
-            groupNoticeCount={groupNoticeCount}
-          />
+          {renderSidebarHeader(view)}
           <div className={cn('sidebar-body', view === 'agentlab' && 'is-agentlab-sidebar')}>
             {sidebarContent}
           </div>
@@ -233,16 +247,10 @@ export function ChatShell({
           {mainContent}
         </main>
       </div>
+      {sharedShell && (
+        <MobileRootPreviews user={user} renderHeader={(page) => renderSidebarHeader(page, true)} />
+      )}
       {children}
-      {lookupOpen && (
-        <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
-      )}
-      {selfProfileOpen && (
-        <SelfProfileDialog
-          key={`${user.id}:${user.identityValue}`}
-          onClose={() => setSelfProfileOpen(false)}
-        />
-      )}
     </div>
   );
 }

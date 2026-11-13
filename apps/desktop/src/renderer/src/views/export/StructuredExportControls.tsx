@@ -15,7 +15,7 @@ export interface StructuredExportOptions {
   incrementalSupport?: boolean;
 }
 export interface ResourceArchiveOptions extends StructuredExportOptions {
-  metadataFormat?: 'json' | 'jsonl' | 'none';
+  metadataFormat?: 'json' | 'jsonl' | 'jsonl.gz' | 'none';
 }
 // 保留各导出页面的组件入口；策略已统一，旧选项不再作为可编辑控件展示。
 export function StructuredExportControls(props: {
@@ -61,7 +61,8 @@ export function BusinessExportDetails({
   const [asking, setAsking] = useState(false);
   const confirm = useDialog((state) => state.confirm);
   const native =
-    formats === undefined || formats.some((format) => format === 'json' || format === 'jsonl');
+    formats === undefined ||
+    formats.some((format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz');
   return (
     <div className="weq-export-content-row">
       <span className="weq-export-content-label">{EXPORT_EXTRA_LABELS[domain]}</span>
@@ -129,6 +130,7 @@ export function ResourceArchiveControls({
         options={[
           { value: 'json', label: 'JSON' },
           { value: 'jsonl', label: 'JSONL' },
+          { value: 'jsonl.gz', label: 'JSONL（压缩）' },
           { value: 'none', label: '仅资源' },
         ]}
       />
@@ -152,9 +154,10 @@ export function structuredExportOptions(
     ...(_options.extra ? { extra: _options.extra } : {}),
     profile: 'full',
     incrementalSupport:
-      !chatlab && formats.some((format) => format === 'json' || format === 'jsonl'),
+      !chatlab &&
+      formats.some((format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz'),
   };
 }
 export function ExportFormatHint() {
-  return <small className="weq-exp-format-note">仅 json/jsonl 支持增量导出</small>;
+  return <small className="weq-exp-format-note">仅 JSON、JSONL、JSONL（压缩）支持增量导出</small>;
 }

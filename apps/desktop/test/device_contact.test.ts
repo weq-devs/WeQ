@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContactProfileDialog } from '../src/renderer/src/im-template/template/profilePanes';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import type { Contact } from '../src/renderer/src/im-template/template/types';
 import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
 import { contactProfileIdentity, sendTargetOf } from '../src/renderer/src/lib/conversationIdentity';

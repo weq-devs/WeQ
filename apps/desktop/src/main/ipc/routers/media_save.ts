@@ -25,6 +25,7 @@ import {
   prepareExportDestination,
 } from './export_save';
 import type { MediaSaveSource } from '../../../shared/media_save';
+import { savedMediaSourceKey } from '../../message_media_local';
 
 const messageId = z.string().regex(/^\d{1,20}$/);
 const sourceInput = z.discriminatedUnion('kind', [
@@ -379,6 +380,7 @@ export const mediaSaveRouter = router({
     const fileName = exportOutputFileName(output);
     return services.exportManager.startResourceExport({
       kind: 'media',
+      sourceKey: savedMediaSourceKey(selected.source),
       name: output.name,
       output,
       savePolicy: policy,

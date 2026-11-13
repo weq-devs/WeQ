@@ -19,10 +19,12 @@ function fixture(run: (root: string, add: (path: string) => void) => void): void
 }
 
 test.each([
+  'imageWorker.mjs',
   'attachWorker.mjs',
   'backupProbeWorker.mjs',
   'transcribeWorker.mjs',
   'dbCheckupWorker.mjs',
+  'analysisReportsWorker.mjs',
 ])('packaged %s resolves the physical extraResource rather than asar', (name) => {
   fixture((root, add) => {
     const physical = join(root, 'out/main', name);

@@ -12,13 +12,15 @@
  * 重新打开设置总是拿到最新状态。
  */
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { AlertTriangle, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { AlertTriangle, Cloud, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, SectionHeader } from './controls';
 import { RecognitionConcurrencySetting } from './RecognitionConcurrencySetting';
+import { OcrPrefilterSetting } from './OcrPrefilterSetting';
+import { LoadingIndicator } from '../LoadingIndicator';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -63,10 +65,11 @@ interface ModelRow {
 
 interface ModelKindSectionProps {
   title: string;
+  control?: ReactNode;
   /** 这组模型的用途。 */
   desc: string;
   /** 注册表里这一类为空时显示什么。 */
-  emptyHint: string;
+  emptyHint: ReactNode;
   models: ModelRow[];
   progress: LiveProgress | null;
   busy: boolean;
@@ -82,6 +85,7 @@ interface ModelKindSectionProps {
 /** 本地模型卡片内按用途分组，不另嵌套设置卡片。 */
 function ModelKindSection({
   title,
+  control,
   desc,
   emptyHint,
   models,
@@ -95,6 +99,7 @@ function ModelKindSection({
     <section className="weq-recognition-model-group" aria-label={title}>
       <h4>{title}</h4>
       <p className="weq-set-note">{desc}</p>
+      {control}
       {engineBlocker ? (
         <p className="weq-set-warnbox">
           <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
@@ -274,16 +279,16 @@ export function OcrModelsSection(): ReactElement {
   return (
     <div className="weq-set weq-recognition-settings">
       <SectionHeader icon={<ScanText size={18} strokeWidth={1.8} />} title="图片识别" />
-      <Card title="QQ 在线识别">
+      <Card title="QQ 在线识别" icon={<Cloud size={15} strokeWidth={1.8} />}>
         <p className="weq-set-note">由 QQ 服务端识别图片文字，需要 QQ 在线及对应凭据。</p>
         <RecognitionConcurrencySetting kind="ocr" />
       </Card>
 
-      <Card title="本地图片识别">
+      <Card title="本地图片识别" icon={<ScanText size={15} strokeWidth={1.8} />}>
         <ModelKindSection
           title="识别模型"
           desc="检测图片中的文字位置并识别内容。"
-          emptyHint={models.isLoading ? '加载中…' : '暂无可用模型'}
+          emptyHint={models.isLoading ? <LoadingIndicator /> : '暂无可用模型'}
           models={ocrModels}
           progress={progress}
           busy={busy}
@@ -294,8 +299,9 @@ export function OcrModelsSection(): ReactElement {
 
         <ModelKindSection
           title="筛图模型"
+          control={<OcrPrefilterSetting />}
           desc="识别前先判断图片是否包含文字，跳过无文字图片以减少处理量。"
-          emptyHint={models.isLoading ? '加载中…' : '暂无可用模型'}
+          emptyHint={models.isLoading ? <LoadingIndicator /> : '暂无可用模型'}
           models={filterModels}
           progress={progress}
           busy={busy}

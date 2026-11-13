@@ -1,10 +1,8 @@
 import { WorkspacePage } from '../../components/WorkspacePages';
-import { BuddyAnalyticsDialog } from '../../components/BuddyAnalyticsDialog';
-import { GroupAnalyticsDialog } from '../../components/GroupAnalyticsDialog';
-import { MemberAnalyticsDialog } from '../../components/MemberAnalyticsDialog';
 import { useViewState } from '../../state/view';
 import { AnnualReportView } from '../annual-report/AnnualReportView';
 import { analysisTitle, type AnalysisReportRequest } from './model';
+import { SavedAnalysisBody } from './SavedAnalysisBody';
 import '../../styles/analysis-tool.css';
 import { BarChart3, Users, UserRound } from 'lucide-react';
 
@@ -50,31 +48,8 @@ export function AnalysisReportPage({
               scope={request.scope}
               instanceKey={request.id}
             />
-          ) : request.kind === 'buddy' ? (
-            <BuddyAnalyticsDialog
-              peerUid={request.peerUid}
-              peerName={request.name}
-              scope={request.scope}
-              embedded
-              onClose={onClose}
-            />
-          ) : request.kind === 'group' ? (
-            <GroupAnalyticsDialog
-              groupCode={request.groupCode}
-              groupName={request.name}
-              scope={request.scope}
-              embedded
-              onClose={onClose}
-            />
           ) : (
-            <MemberAnalyticsDialog
-              groupCode={request.groupCode}
-              groupName={request.groupName}
-              member={{ uid: request.memberUid, uin: request.memberUin, name: request.name }}
-              scope={request.scope}
-              embedded
-              onClose={onClose}
-            />
+            <SavedAnalysisBody key={request.id} request={request} onClose={onClose} />
           )}
         </div>
       </section>

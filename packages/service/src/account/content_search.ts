@@ -12,6 +12,12 @@ export const CONTENT_SEARCH_CATEGORIES = [
   'mailMessage',
   'marketEmoji',
   'guildMessage',
+  'groupBulletin',
+  'groupEssence',
+  'flashFile',
+  'qzoneComment',
+  'otherQzoneComment',
+  'qzonePublicComment',
 ] as const;
 export type ContentSearchCategory = (typeof CONTENT_SEARCH_CATEGORIES)[number];
 export type ContentSearchTarget =
@@ -21,7 +27,25 @@ export type ContentSearchTarget =
   | { kind: 'groupFile'; groupCode: string; folderId: string; fileId: string }
   | { kind: 'mailMessage'; id: string; folderId: number }
   | { kind: 'marketEmoji'; packId: string }
-  | { kind: 'guildMessage'; nodeId: string; msgId: string; msgSeq: string };
+  | { kind: 'guildMessage'; nodeId: string; msgId: string; msgSeq: string }
+  | { kind: 'groupBulletin'; groupCode: string; bulletinId: string }
+  | { kind: 'groupEssence'; groupCode: string; msgSeq: string }
+  | { kind: 'flashFile'; filesetId: string; parentId: string; zipFileId: string; fileId: string }
+  | {
+      kind: 'qzonePublicComment';
+      feedKey: string;
+      feed: Record<string, unknown>;
+      commentId: string;
+      parentCommentId?: string;
+    }
+  | {
+      kind: 'qzoneComment';
+      uin: string;
+      tid: string;
+      commentId: string;
+      parentCommentId?: string;
+      replyId?: string;
+    };
 export interface ContentSearchRecord {
   detail?: boolean;
   target: ContentSearchTarget;
@@ -65,6 +89,27 @@ export function contentSearchKey(target: ContentSearchTarget): string {
       return JSON.stringify([target.kind, target.packId]);
     case 'guildMessage':
       return JSON.stringify([target.kind, target.nodeId, target.msgId]);
+    case 'groupBulletin':
+      return JSON.stringify([target.kind, target.groupCode, target.bulletinId]);
+    case 'groupEssence':
+      return JSON.stringify([target.kind, target.groupCode, target.msgSeq]);
+    case 'flashFile':
+      return JSON.stringify([
+        target.kind,
+        target.filesetId,
+        target.parentId,
+        target.zipFileId,
+        target.fileId,
+      ]);
+    case 'qzoneComment':
+      return JSON.stringify([target.kind, target.uin, target.tid, target.commentId]);
+    case 'qzonePublicComment':
+      return JSON.stringify([
+        target.kind,
+        target.feedKey,
+        target.parentCommentId ?? '',
+        target.commentId,
+      ]);
   }
 }
 
@@ -79,20 +124,30 @@ function targetFrom(value: unknown): ContentSearchTarget | null {
     mailMessage: ['id'],
     marketEmoji: ['packId'],
     guildMessage: ['nodeId', 'msgId', 'msgSeq'],
+    groupBulletin: ['groupCode', 'bulletinId'],
+    groupEssence: ['groupCode', 'msgSeq'],
+    flashFile: ['filesetId', 'parentId', 'zipFileId', 'fileId'],
+    qzoneComment: ['uin', 'tid', 'commentId'],
+    qzonePublicComment: ['feedKey', 'commentId'],
   };
   if (typeof row.kind !== 'string' || !Object.hasOwn(fields, row.kind)) return null;
   if (
     fields[row.kind]!.some(
       (key) =>
         typeof row[key] !== 'string' ||
-        !(row[key] as string).length ||
+        (!(row[key] as string).length &&
+          !(row.kind === 'flashFile' && ['parentId', 'zipFileId'].includes(key))) ||
         (row[key] as string).length > 4096,
     )
   )
     return null;
   for (const key of ['uin', 'groupCode'])
     if (key in row && !/^\d+$/.test(String(row[key]))) return null;
-  if (row.kind === 'qzonePost' && !/^[a-zA-Z0-9_-]{1,128}$/.test(String(row.tid))) return null;
+  if (
+    (row.kind === 'qzonePost' || row.kind === 'qzoneComment') &&
+    !/^[a-zA-Z0-9_-]{1,128}$/.test(String(row.tid))
+  )
+    return null;
   if (
     row.kind === 'mailMessage' &&
     (typeof row.folderId !== 'number' || !Number.isSafeInteger(row.folderId) || row.folderId < 0)
@@ -101,8 +156,30 @@ function targetFrom(value: unknown): ContentSearchTarget | null {
   for (const key of ['nodeId', 'msgSeq'])
     if (key in row && !/^-?\d+$/.test(String(row[key]))) return null;
   const clean: Record<string, unknown> = { kind: row.kind };
+  if (row.kind === 'qzonePublicComment') {
+    if (!row.feed || typeof row.feed !== 'object' || Array.isArray(row.feed)) return null;
+    const common = (row.feed as Record<string, unknown>).cell_common;
+    if (
+      !common ||
+      typeof common !== 'object' ||
+      !('union_id' in common) ||
+      !common.union_id ||
+      typeof common.union_id !== 'object' ||
+      Array.isArray(common.union_id)
+    )
+      return null;
+    try {
+      if (JSON.stringify(row.feed).length > 65536) return null;
+    } catch {
+      return null;
+    }
+    clean.feed = structuredClone(row.feed);
+  }
   for (const key of fields[row.kind]!) clean[key] = row[key];
   if (row.kind === 'mailMessage') clean.folderId = row.folderId;
+  if (row.kind === 'qzoneComment' || row.kind === 'qzonePublicComment')
+    for (const key of ['parentCommentId', 'replyId'])
+      if (typeof row[key] === 'string' && row[key].length <= 4096) clean[key] = row[key];
   return clean as unknown as ContentSearchTarget;
 }
 
@@ -272,13 +349,18 @@ export class ContentSearchStore {
     offset = 0,
     ownUin?: string,
   ): ContentSearchPage {
-    const otherSpace = category === 'otherQzonePost' || category === 'otherQzoneAlbum';
+    const otherSpace =
+      category === 'otherQzonePost' ||
+      category === 'otherQzoneAlbum' ||
+      category === 'otherQzoneComment';
     const sourceCategory =
       category === 'otherQzonePost'
         ? 'qzonePost'
         : category === 'otherQzoneAlbum'
           ? 'qzoneAlbum'
-          : category;
+          : category === 'otherQzoneComment'
+            ? 'qzoneComment'
+            : category;
     const pool = [...this.records.values()].filter(
       (row) =>
         row.category === sourceCategory &&

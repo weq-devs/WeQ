@@ -6,6 +6,7 @@ import { z } from 'zod';
 import QRCode from 'qrcode';
 import { RemotePairing } from './pairing';
 import { createRemoteServer } from './http';
+import type { RemoteWebGateway } from './web_gateway';
 import {
   remoteInviteInput,
   remoteDirectAddresses,
@@ -32,13 +33,15 @@ export class RemoteRuntime {
   private config: {
     helper: string;
     stateDir: string;
-    webPort?: () => number | null;
+    web?: () => RemoteWebGateway;
     lanPort?: number;
   } | null = null;
   private server: Server | null = null;
+  private web: RemoteWebGateway | null = null;
   private child: ChildProcessWithoutNullStreams | null = null;
   private state: z.infer<typeof networkEvent> = { state: 'offline' };
   private starting = false;
+  private revision = 0;
   private store: RemoteStore | null = null;
   private mode: RemoteConnectionMode = 'lan';
   private closing: Promise<void> = Promise.resolve();
@@ -49,7 +52,7 @@ export class RemoteRuntime {
   configure(config: {
     helper: string;
     stateDir: string;
-    webPort?: () => number | null;
+    web?: () => RemoteWebGateway;
     onRequest?: () => void;
     lanPort?: number;
   }): void {
@@ -71,6 +74,25 @@ export class RemoteRuntime {
 
   async resume(): Promise<void> {
     if (this.store?.read().enabled) await this.start();
+  }
+
+  async restorePreferences(selected: readonly string[]): Promise<void> {
+    if (!this.store) throw new Error('远程连接配置不可用');
+    if (selected.includes('remoteMode')) {
+      this.mode = 'lan';
+      this.store.save({ mode: 'lan' });
+    }
+    if (selected.includes('tailscaleEnabled')) await this.setTailscaleEnabled(false);
+    if (selected.includes('remoteEnabled')) this.stop(true);
+  }
+
+  preferences() {
+    const saved = this.store?.read();
+    return {
+      enabled: saved?.enabled ?? false,
+      mode: saved?.mode ?? 'lan',
+      tailscaleEnabled: saved?.tailscaleEnabled ?? false,
+    };
   }
 
   async setMode(mode: RemoteConnectionMode): Promise<void> {
@@ -216,11 +238,14 @@ export class RemoteRuntime {
       throw new Error('尚未安装 WeQ Remote 网络辅助程序，请按原型文档构建。');
     }
     this.starting = true;
-    await this.closing;
-    const server = createRemoteServer(this.pairing, this.config.webPort);
-    this.server = server;
-    this.state = { state: 'starting' };
+    const generation = this.revision;
     try {
+      await this.closing;
+      if (generation !== this.revision) return;
+      this.web = this.config.web?.() ?? null;
+      const server = createRemoteServer(this.pairing, this.web ?? undefined);
+      this.server = server;
+      this.state = { state: 'starting' };
       await new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(0, '127.0.0.1', () => {
@@ -295,6 +320,9 @@ export class RemoteRuntime {
   }
 
   stop(disable = false): void {
+    this.revision++;
+    this.web?.close();
+    this.web = null;
     this.stopTailscale();
     if (disable) this.store?.save({ enabled: false });
     const child = this.child;

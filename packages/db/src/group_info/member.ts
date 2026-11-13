@@ -94,6 +94,37 @@ export class GroupMemberDb {
     return (await this.getColumns()).has('64035') ? '"64035"' : 'NULL';
   }
 
+  /** 联系人校准只读取有效成员总数与好友交集，不加载昵称、等级等整份成员资料。 */
+  async contactMembershipSnapshot(friendUids: string[]) {
+    const groups = new Map<string, { total: number; friends: Set<string> }>();
+    const ids = new Set(friendUids.filter(Boolean));
+    const seen = new Map<string, Set<string>>();
+    for await (const rows of this.qq.rowidPages('group_member3', ['60001', '1000', '64016'])) {
+      for (const row of rows) {
+        const code = String(row[1]);
+        const uid = row[2];
+        if (
+          (row[3] !== null && Number(row[3]) !== 0) ||
+          typeof uid !== 'string' ||
+          !/^u_[A-Za-z0-9_-]+$/.test(uid)
+        )
+          continue;
+        let members = seen.get(code);
+        if (!members) {
+          members = new Set();
+          seen.set(code, members);
+          groups.set(code, { total: 0, friends: new Set() });
+        }
+        if (members.has(uid)) continue;
+        members.add(uid);
+        const group = groups.get(code)!;
+        group.total++;
+        if (ids.has(uid)) group.friends.add(uid);
+      }
+    }
+    return groups;
+  }
+
   /**
    * List all members of a specific group.
    * Filters by active members (64016 = 0) by default.
@@ -158,6 +189,30 @@ export class GroupMemberDb {
       [uid, limit, offset],
     );
     return rows.map(rowToMember);
+  }
+  async selfJoinTimes(uid: string, uin: string) {
+    const rows = await this.qq.query(
+      `SELECT "60001","64007","1000" FROM group_member3
+       WHERE (("1000"=? AND "1000"!='') OR (("1000"='' OR "1000" IS NULL) AND "1002"=?))
+       AND ("64016"=0 OR "64016" IS NULL) LIMIT 20001`,
+      [uid, BigInt(uin)],
+    );
+    if (rows.length > 20000) throw new Error('本人群成员记录过多，请缩小资料来源后重试');
+    const times = new Map<string, { time: number; exact: boolean }>();
+    for (const row of rows) {
+      const code = String(row[0]),
+        time = Number(row[1]),
+        exact = Boolean(uid && row[2] === uid);
+      const previous = times.get(code);
+      if (
+        time > 0 &&
+        (!previous ||
+          (exact && !previous.exact) ||
+          (exact === previous.exact && time > previous.time))
+      )
+        times.set(code, { time, exact });
+    }
+    return Object.fromEntries([...times].map(([code, value]) => [code, value.time]));
   }
 
   /**

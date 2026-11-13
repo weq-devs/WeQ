@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
-import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ContentSelectionProvider,
   useContentMultiSelect,
@@ -28,7 +28,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           });
         if (key === 'useMutation')
           return () => ({
-            mutate: vi.fn(),
+            // 单条撤回走 mutate，批量走 mutateAsync；两者都记到 rpc.recall 上。
+            mutate: path.endsWith('.recallMessage')
+              ? (input: unknown) => void rpc.recall(input)
+              : vi.fn(),
             mutateAsync: path.endsWith('.recallMessage') ? rpc.recall : vi.fn(async () => ({})),
             isLoading: false,
           });
@@ -153,15 +156,24 @@ async function clickText(text: string) {
 }
 
 describe('消息多选撤回', () => {
-  it('选中消息的右键撤回也作用于完整选区', async () => {
+  it('多选时右键撤回只撤回被右键的那条，批量撤回留在选区工具栏', async () => {
     const f = mount();
     act(() =>
       f.host
         .querySelector('[data-message-id="1"] .message-bubble')!
         .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 30 })),
     );
-    await clickText('撤回所选 2 条消息');
-    expect(rpc.recall).toHaveBeenCalledTimes(2);
+    // 菜单重设计后「撤回所选 N 条消息」不再出现在右键菜单里，选区批量撤回只由工具栏触发。
+    expect(
+      [...document.querySelectorAll<HTMLButtonElement>('button')].some((node) =>
+        (node.textContent ?? '').startsWith('撤回所选 2 条'),
+      ),
+    ).toBe(false);
+    await clickText('撤回');
+    expect(rpc.recall).toHaveBeenCalledTimes(1);
+    expect(rpc.recall.mock.calls[0]![0]).toEqual(expect.objectContaining({ sequence: 42 }));
+    expect(f.button()).toBeDefined();
+    expect(f.state().ids).toEqual(['1', '2']);
   });
   it('逐条复用私聊撤回定位并携带账号绑定，不做本地乐观删除', async () => {
     const f = mount();
