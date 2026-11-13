@@ -677,6 +677,58 @@ describe('个人资料编辑入口', () => {
       custom: { faceId: 14, faceType: 1, wording: '新的状态' },
     });
   });
+  it.each(['搜索表情', '状态表情', 'blank'])('状态表情在 %s 聚焦时 Esc 只收起选择器', (focus) => {
+    const f = fixture();
+    selectExtended(f.host, '2000');
+    input(f.host, '自定义状态文字', '保留状态草稿');
+    const trigger = f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!;
+    act(() => trigger.click());
+    const picker = f.host.querySelector<HTMLElement>('.weq-qq-write-face-picker')!;
+    const target =
+      focus === 'blank' ? picker : f.host.querySelector<HTMLElement>(`[aria-label="${focus}"]`)!;
+    if (focus === 'blank') target.tabIndex = -1;
+    act(() => target.focus());
+    const editors = [...f.host.querySelectorAll('[data-profile-editing]')];
+    const event = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => target.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(f.host.querySelector('.weq-face-picker')).toBeNull();
+    expect([...f.host.querySelectorAll('[data-profile-editing]')]).toEqual(editors);
+    expect(document.activeElement).toBe(trigger);
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
+      '保留状态草稿',
+    );
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('上层详情和输入法 Esc 不收起状态表情选择器', () => {
+    const f = fixture();
+    selectExtended(f.host, '2000');
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!.click());
+    const search = f.host.querySelector<HTMLElement>('[aria-label="搜索表情"]')!;
+    for (const init of [{ isComposing: true }, { keyCode: 229 }]) {
+      act(() =>
+        search.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, ...init }),
+        ),
+      );
+      expect(f.host.querySelector('.weq-face-picker')).not.toBeNull();
+    }
+    const detail = document.createElement('div');
+    detail.setAttribute('role', 'dialog');
+    detail.style.zIndex = '100';
+    f.host.append(detail);
+    act(() =>
+      detail.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(f.host.querySelector('.weq-face-picker')).not.toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
   it('同号切换数据源不携带上一个现场的未提交状态', () => {
     const f = fixture();
     selectExtended(f.host, '2000');

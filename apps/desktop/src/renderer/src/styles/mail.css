@@ -67,7 +67,10 @@ html[data-theme='dark'] .weq-mail-workspace {
 .weq-mail-workspace button.weq-mail-primary {
   background: var(--weq-accent-solid);
   border-color: var(--weq-accent-solid);
-  color: var(--weq-accent-solid-foreground, var(--weq-accent-solid-foreground, var(--primary-foreground)));
+  color: var(
+    --weq-accent-solid-foreground,
+    var(--weq-accent-solid-foreground, var(--primary-foreground))
+  );
   font-weight: 600;
 }
 .weq-mail-workspace button.weq-mail-primary:not(:disabled):hover {

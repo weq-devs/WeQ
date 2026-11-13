@@ -5,6 +5,7 @@ import type { AppRouter } from '../../../shared/router';
 import { trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
+import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import { FacePicker } from './compose/FacePicker';
 import { FaceEmoji } from './FaceEmoji';
 import { OnlineStatusIcon } from './OnlineStatus';
@@ -106,6 +107,15 @@ function StatusForm({
   const running = useRef(false);
   const first = useRef<HTMLSelectElement>(null);
   const faceTrigger = useRef<HTMLButtonElement>(null);
+  const facePicker = useRef<HTMLDivElement>(null);
+  useSurfaceEscapeDismissal(
+    facePicker,
+    () => {
+      setChoosingFace(false);
+      faceTrigger.current?.focus();
+    },
+    choosingFace && base === 10 && extended === 2000,
+  );
   const wordingId = useId();
   useEffect(() => {
     mounted.current = true;
@@ -282,17 +292,11 @@ function StatusForm({
             </div>
             {choosingFace ? (
               <div
+                ref={facePicker}
+                data-weq-escape-surface
                 className="weq-qq-write-face-picker"
                 role="group"
                 aria-label="状态表情选择"
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setChoosingFace(false);
-                    faceTrigger.current?.focus();
-                  }
-                }}
               >
                 <FacePicker
                   purpose="status"

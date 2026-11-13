@@ -156,7 +156,12 @@ describe('feature_search', () => {
       expect(searchAppEntries('  ')).toEqual([]);
       expect(searchAppEntries('不存在的合成功能')).toEqual([]);
       expect(searchAppEntries('导出')[0]?.title).toBe('导出');
-      expect(searchAppEntries('  oCr  ').some((entry) => entry.title === '图片识别')).toBe(true);
+      expect(searchAppEntries('  oCr  ')).toContainEqual(
+        expect.objectContaining({
+          title: '识别与转写',
+          target: { kind: 'setting', section: 'recognition' },
+        }),
+      );
     });
     it('SSE 旧正文名称保留为搜索别名，统一定位最终页面名', () => {
       const entry = searchAppEntries('SSE 消息推送')[0]!;
